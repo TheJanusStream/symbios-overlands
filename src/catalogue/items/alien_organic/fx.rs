@@ -1,5 +1,5 @@
 //! Alien-Organic "bring-it-to-life" helpers: drifting glowing spores and two
-//! spatial-audio patches — a low organic pulse for the hive and an eerie high
+//! spatial-audio patches - a low organic pulse for the hive and an eerie high
 //! whine for the fleshy spire.
 //!
 //! Particle emitters are returned as [`Generator`] nodes (a
@@ -26,7 +26,7 @@ use crate::pds::{
 // ---------------------------------------------------------------------------
 
 /// Glowing green spores drifting and rising on the warm exhalations of the
-/// hive — the living air of the colony.
+/// hive - the living air of the colony.
 pub(super) fn spore_drift(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
         shape: EmitterShape::Box {
@@ -58,7 +58,7 @@ pub(super) fn spore_drift(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A low organic pulse — a deep sine swelling on a slow heartbeat LFO, the
+/// A low organic pulse - a deep sine swelling on a slow heartbeat LFO, the
 /// breathing of the living hive.
 pub(super) fn bio_pulse() -> SovereignAudioConfig {
     let low = node(
@@ -97,7 +97,7 @@ pub(super) fn bio_pulse() -> SovereignAudioConfig {
     patch(vec![low, lfo, pulse, mix], NodeId(3))
 }
 
-/// An eerie high whine — two close-detuned high sines beating into an
+/// An eerie high whine - two close-detuned high sines beating into an
 /// unsettling shimmer, the keening of alien tissue.
 pub(super) fn eerie_whine() -> SovereignAudioConfig {
     let a = node(

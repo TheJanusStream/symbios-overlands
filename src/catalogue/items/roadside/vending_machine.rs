@@ -1,4 +1,4 @@
-//! Vending machine — a Roadside prop. A lit enamel drinks machine with a
+//! Vending machine - a Roadside prop. A lit enamel drinks machine with a
 //! glowing selection panel and a chrome dispenser slot. Scatter clutter
 //! standing against the store or motel wall.
 
@@ -11,7 +11,7 @@ use super::{
     CHROME_BRIGHT, ENAMEL_RED, GLASS_TINT, SIGN_AMBER, chrome, enamel, fx, glass, sign_board,
 };
 
-/// Cool lit blue of the machine's selection panel — deep-saturated so the lit
+/// Cool lit blue of the machine's selection panel - deep-saturated so the lit
 /// cells read as a blue selector rather than washing to white.
 const PANEL_LIT: [f32; 3] = [0.16, 0.62, 1.0];
 
@@ -52,7 +52,7 @@ fn build_tree() -> Generator {
     let front = -0.4_f32; // −Z camera-facing wall plane
 
     let mut prims = vec![
-        // Enamel body — the root.
+        // Enamel body - the root.
         prim(
             solid(cuboid_tapered([0.9, 1.9, 0.8], 0.0, enamel(ENAMEL_RED))),
             [0.0, 0.95, 0.0],

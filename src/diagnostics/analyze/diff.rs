@@ -1,5 +1,5 @@
 //! Before/after session diff (B-4): the `--diff-sessions <a> <b>` delta
-//! report builders — verdict, loading-gate, metric-peak and invariant
+//! report builders - verdict, loading-gate, metric-peak and invariant
 //! deltas over two [`ParsedLog`]s.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -27,13 +27,13 @@ pub(super) fn session_line(log: &ParsedLog) -> String {
                 if i.wasm { " wasm" } else { "" }
             )
         })
-        .unwrap_or_else(|| "— (no StartupSnapshot)".to_string());
+        .unwrap_or_else(|| "- (no StartupSnapshot)".to_string());
     let did = info
         .and_then(|i| i.session_did.clone().or_else(|| i.boot_target_did.clone()))
-        .unwrap_or_else(|| "—".to_string());
+        .unwrap_or_else(|| "-".to_string());
     let exit = match session_end(events) {
         Some(Exit::Clean(reason)) | Some(Exit::Hook { reason, .. }) => reason,
-        None => "— (no SessionEnd)",
+        None => "- (no SessionEnd)",
     };
     let unp = if log.unparseable > 0 {
         format!(", {} unparseable", log.unparseable)
@@ -49,7 +49,7 @@ pub(super) fn session_line(log: &ParsedLog) -> String {
 }
 
 /// The peak (max over the run) of each gauge that appears in the log's metric
-/// snapshots — the leak/spike signal to compare across runs.
+/// snapshots - the leak/spike signal to compare across runs.
 pub(super) fn gauge_peaks(events: &[SessionEvent]) -> BTreeMap<String, f64> {
     let mut peaks: BTreeMap<String, f64> = BTreeMap::new();
     for e in events {
@@ -78,7 +78,7 @@ pub(super) fn counter_totals(events: &[SessionEvent]) -> BTreeMap<String, u64> {
     totals
 }
 
-/// Whether the log carries any metric snapshot at all — the difference between
+/// Whether the log carries any metric snapshot at all - the difference between
 /// "this counter stayed 0" (a genuine 0) and "we have no metric data for this
 /// session" (unknown), so the diff never reads a data-less run as an improvement.
 pub(super) fn has_metric_snapshot(events: &[SessionEvent]) -> bool {
@@ -106,7 +106,7 @@ pub(super) fn signed_f(d: f64) -> String {
 }
 
 /// Format a metric value for the diff, humanizing byte gauges (see [`fmt_bytes`])
-/// and otherwise rendering one decimal — consistent with `[Metric Trends]`.
+/// and otherwise rendering one decimal - consistent with `[Metric Trends]`.
 pub(super) fn fmt_metric(name: &str, v: f64) -> String {
     if name.ends_with("bytes") {
         fmt_bytes(v)
@@ -125,10 +125,10 @@ pub(super) fn fmt_metric_delta(name: &str, d: f64) -> String {
     }
 }
 
-/// An `Option<f64>` as `X.Xs` or `—` (rounded to match [`round1`]-based deltas).
+/// An `Option<f64>` as `X.Xs` or `-` (rounded to match [`round1`]-based deltas).
 pub(super) fn opt_secs(v: Option<f64>) -> String {
     v.map(|x| format!("{:.1}s", round1(x)))
-        .unwrap_or_else(|| "—".to_string())
+        .unwrap_or_else(|| "-".to_string())
 }
 
 /// The `[Verdict Delta]` section: warn/error/critical counts A → B, plus an
@@ -147,7 +147,7 @@ pub(super) fn write_verdict_delta(s: &mut String, a: &ParsedLog, b: &ParsedLog) 
         let d = bv as i64 - av as i64;
         let _ = writeln!(s, "  {label:<10} {av:>4} → {bv:<4}  ({})", signed_i(d));
     }
-    // Compare (crit, error, warn) tuples — worst axis dominates.
+    // Compare (crit, error, warn) tuples - worst axis dominates.
     let a3 = (ta[2], ta[1], ta[0]);
     let b3 = (tb[2], tb[1], tb[0]);
     let read = match b3.cmp(&a3) {
@@ -241,8 +241,8 @@ pub(super) fn write_metric_delta(s: &mut String, a: &ParsedLog, b: &ParsedLog) {
                 }
                 _ => String::new(),
             };
-            let fa = va.map(|v| disp(name, v)).unwrap_or_else(|| "—".to_string());
-            let fb = vb.map(|v| disp(name, v)).unwrap_or_else(|| "—".to_string());
+            let fa = va.map(|v| disp(name, v)).unwrap_or_else(|| "-".to_string());
+            let fb = vb.map(|v| disp(name, v)).unwrap_or_else(|| "-".to_string());
             let _ = writeln!(s, "    {name:<34} {fa:>12} → {fb:<12}{delta}");
         }
     }
@@ -253,7 +253,7 @@ pub(super) fn write_metric_delta(s: &mut String, a: &ParsedLog, b: &ParsedLog) {
         for name in &cnames {
             // A 0-valued counter never serializes into a snapshot, so an absent
             // counter on a side that HAS snapshots is a genuine 0; a side with no
-            // snapshots at all is unknown (`—`, no delta) — never a false
+            // snapshots at all is unknown (`-`, no delta) - never a false
             // "resolved", mirroring the gauge branch's honesty.
             let va = ca.get(*name).copied().or(has_a.then_some(0));
             let vb = cb.get(*name).copied().or(has_b.then_some(0));
@@ -261,19 +261,19 @@ pub(super) fn write_metric_delta(s: &mut String, a: &ParsedLog, b: &ParsedLog) {
                 (Some(x), Some(y)) => format!("  ({})", signed_i(y as i64 - x as i64)),
                 _ => String::new(),
             };
-            let fa = va.map(|v| v.to_string()).unwrap_or_else(|| "—".to_string());
-            let fb = vb.map(|v| v.to_string()).unwrap_or_else(|| "—".to_string());
+            let fa = va.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
+            let fb = vb.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
             let _ = writeln!(s, "    {name:<34} {fa:>12} → {fb:<12}{delta}");
         }
     }
 }
 
-/// How rule B's fire count relates to rule A's — drives the `[Invariant Delta]`
+/// How rule B's fire count relates to rule A's - drives the `[Invariant Delta]`
 /// tag and sort order (regressions surface first).
 pub(super) fn invariant_tag(a: usize, b: usize) -> (&'static str, u8) {
     match (a, b) {
-        (0, _) => ("NEW", 0),      // fired only in B — a regression
-        (_, 0) => ("resolved", 2), // fired only in A — cleared
+        (0, _) => ("NEW", 0),      // fired only in B - a regression
+        (_, 0) => ("resolved", 2), // fired only in A - cleared
         (x, y) if y > x => ("worse", 1),
         (x, y) if y < x => ("better", 3),
         _ => ("same", 4),
@@ -281,7 +281,7 @@ pub(super) fn invariant_tag(a: usize, b: usize) -> (&'static str, u8) {
 }
 
 /// The `[Invariant Delta]` section: per-rule fire counts A → B, tagged
-/// NEW/worse/resolved/better/same, regressions first — the direct
+/// NEW/worse/resolved/better/same, regressions first - the direct
 /// fix-confirmation signal. Uses the shared
 /// [`replay_findings`](crate::diagnostics::anomaly::replay::replay_findings) so
 /// the counts match the single-session `[Invariant Violations]` section.
@@ -297,7 +297,7 @@ pub(super) fn write_invariant_delta(s: &mut String, a: &ParsedLog, b: &ParsedLog
     let (fa, fb) = (fold(a), fold(b));
     let ids: BTreeSet<&str> = fa.keys().chain(fb.keys()).map(String::as_str).collect();
     if ids.is_empty() {
-        let _ = writeln!(s, "  none — no invariant fires in either session");
+        let _ = writeln!(s, "  none - no invariant fires in either session");
         return;
     }
 
@@ -338,14 +338,14 @@ pub(super) fn write_invariant_delta(s: &mut String, a: &ParsedLog, b: &ParsedLog
 /// B = candidate). Pure over its inputs.
 pub fn diff_report(path_a: &str, log_a: &ParsedLog, path_b: &str, log_b: &ParsedLog) -> String {
     let mut s = String::new();
-    let _ = writeln!(s, "=== session diff — A vs B ===");
+    let _ = writeln!(s, "=== session diff - A vs B ===");
     let _ = writeln!(s, "  A: {path_a}");
     let _ = writeln!(s, "     {}", session_line(log_a));
     let _ = writeln!(s, "  B: {path_b}");
     let _ = writeln!(s, "     {}", session_line(log_b));
 
     if log_a.events.is_empty() && log_b.events.is_empty() {
-        let _ = writeln!(s, "\nboth logs empty — nothing to compare");
+        let _ = writeln!(s, "\nboth logs empty - nothing to compare");
         return s;
     }
 

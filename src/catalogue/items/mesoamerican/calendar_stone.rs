@@ -1,4 +1,4 @@
-//! Calendar stone — a Mesoamerican prop. A great round sun-stone stood
+//! Calendar stone - a Mesoamerican prop. A great round sun-stone stood
 //! upright on a plinth: concentric carved rings of glyphs around a beaten-
 //! gold sun face at the centre. The reckoning of the ages in stone.
 
@@ -55,7 +55,7 @@ fn build_tree() -> Generator {
     let zf = -0.22_f32; // front carving plane (carved face = −Z)
 
     let mut prims = vec![
-        // Plinth — the root.
+        // Plinth - the root.
         prim(
             solid(cuboid_tapered([1.9, 0.5, 1.2], 0.0, limestone(STONE_GREY))),
             [0.0, 0.25, 0.0],
@@ -100,7 +100,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Four raised era-cartouches at the diagonals — the four previous suns.
+    // Four raised era-cartouches at the diagonals - the four previous suns.
     for i in 0..4 {
         let a = (i as f32 + 0.5) / 4.0 * TAU;
         prims.push(prim(

@@ -1,4 +1,4 @@
-//! Roadside / Highway-theme catalogue structures — a sun-faded strip of
+//! Roadside / Highway-theme catalogue structures - a sun-faded strip of
 //! Americana along the interstate shoulder.
 //!
 //! Two prosperity registers share one blacktop identity: the established
@@ -27,7 +27,7 @@ pub mod road_sign;
 pub mod roadside_diner;
 pub mod traffic_cone;
 pub mod vending_machine;
-// Poor (busted-shoulder) variants — the prosperity-Poor end of the theme.
+// Poor (busted-shoulder) variants - the prosperity-Poor end of the theme.
 pub mod boarded_shack;
 pub mod oil_drums;
 pub mod produce_stand;
@@ -46,18 +46,18 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the established strip — a working franchise
+/// Shared prosperity band for the established strip - a working franchise
 /// reads as a Modest-to-Rich stop. The poor end of the theme is the separate
 /// busted-shoulder kit ([`produce_stand`], …), tagged `Poor`, so a destitute
 /// roadside room grows the broke-down hamlet instead.
 pub(super) const ROADSIDE_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the busted-shoulder kit — the destitute end of the
+/// Prosperity band for the busted-shoulder kit - the destitute end of the
 /// theme, never picked for a modest or affluent roadside room.
 pub(super) const ROADSIDE_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Glossy painted enamel — pump bodies, sign panels, the diner's coloured
+/// Glossy painted enamel - pump bodies, sign panels, the diner's coloured
 /// skirt, the vending machine, the cone, the drums. Smooth automotive paint.
 pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -79,7 +79,7 @@ pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Polished chrome — diner trim, canopy fascia, pump nozzles. Bright,
+/// Polished chrome - diner trim, canopy fascia, pump nozzles. Bright,
 /// near-mirror metal.
 pub(super) fn chrome(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -100,7 +100,7 @@ pub(super) fn chrome(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Brushed structural steel — billboard A-frames, sign posts, canopy
+/// Brushed structural steel - billboard A-frames, sign posts, canopy
 /// columns, guardrails. Honest galvanised metal with a little rust.
 pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -121,7 +121,7 @@ pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Board-formed concrete — forecourt curbs, footings, motel plinths.
+/// Board-formed concrete - forecourt curbs, footings, motel plinths.
 pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -137,7 +137,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Cracked, oil-stained asphalt — the forecourt pad and the lot.
+/// Cracked, oil-stained asphalt - the forecourt pad and the lot.
 pub(super) fn asphalt(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -154,7 +154,7 @@ pub(super) fn asphalt(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Painted brick — diner and motel walls.
+/// Painted brick - diner and motel walls.
 pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -171,7 +171,7 @@ pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Lit storefront glass — diner windows, motel rooms, the kiosk. A faint
+/// Lit storefront glass - diner windows, motel rooms, the kiosk. A faint
 /// inner glow (`glow`) so the panes read as lit rather than black.
 pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -193,7 +193,7 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     }
 }
 
-/// Rusting corrugated metal — canopy decks, the motel walkway roof, the
+/// Rusting corrugated metal - canopy decks, the motel walkway roof, the
 /// shack's patched roof.
 pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -212,7 +212,7 @@ pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Sun-greyed plank — the produce stand, the boarded shack, sign backs.
+/// Sun-greyed plank - the produce stand, the boarded shack, sign backs.
 pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -234,13 +234,13 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// A segmented lit sign panel — a dark enamel frame carrying a GRID of small
+/// A segmented lit sign panel - a dark enamel frame carrying a GRID of small
 /// emissive cells split by dark gaps. The anti-wash idiom: a broad flat lit
 /// board blooms to a near-white slab at the strengths roadside signage wants,
 /// but the dark gaps between the cells keep it reading as a *lit sign*. A
 /// roadside generalisation of `sports_rec::lamp_bank` to any colour/strength
 /// (a pylon price board, a neon name strip, a vending selector). `face` (±1)
-/// is the look direction — the cells stand proud of the backing toward it, so
+/// is the look direction - the cells stand proud of the backing toward it, so
 /// for a sign facing the −Z camera front pass `face = -1.0`. Returned in the
 /// prop's flat world frame, ready to drop into an [`assemble`](crate::catalogue::items::util::assemble) list.
 pub(super) fn sign_board(
@@ -333,7 +333,7 @@ mod tests {
         }
     }
 
-    /// The gas station is the kit's lit hero — it must keep its emissive
+    /// The gas station is the kit's lit hero - it must keep its emissive
     /// canopy and pylon sign so escalation's broken-emissive ruin pass has
     /// lights to snuff.
     #[test]

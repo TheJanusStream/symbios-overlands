@@ -1,4 +1,4 @@
-//! Data spire — a slim Cyberpunk secondary. A tall, sharply-tapered
+//! Data spire - a slim Cyberpunk secondary. A tall, sharply-tapered
 //! round dark-metal needle orbited by a glowing double-helix data stream,
 //! banded with data rings, haloed by a hollow data ring near the crown and
 //! capped with a glowing dome beacon. Reads as comms / server infrastructure
@@ -64,7 +64,7 @@ fn build_tree() -> Generator {
     base.transform.translation.0[1] -= slab_h * 0.5;
     root.children.push(base);
 
-    // Tall tapered *round* needle — a cylinder (not a box), so the helix coil
+    // Tall tapered *round* needle - a cylinder (not a box), so the helix coil
     // clears it cleanly at every height instead of stabbing through the
     // corners of a square shaft.
     let spire_h = 18.0_f32;
@@ -84,7 +84,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Glowing double-helix data stream orbiting the needle — two counter-
+    // Glowing double-helix data stream orbiting the needle - two counter-
     // phased strands (offset half a turn) reading as a rising data feed. Its
     // radius clears the needle's widest point within the coil span (plus the
     // wire thickness), so it orbits the mast without ever intersecting it.

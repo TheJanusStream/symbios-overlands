@@ -1,4 +1,4 @@
-//! Backstop — a Sports/Recreation *poor* secondary. A tall chain-link
+//! Backstop - a Sports/Recreation *poor* secondary. A tall chain-link
 //! baseball backstop on steel posts with a forward overhang. The rusting
 //! edge of the municipal rec ground.
 
@@ -50,7 +50,7 @@ fn build_tree() -> Generator {
     let panel_y = pad_h + 1.85;
 
     let mut prims = vec![
-        // Dirt-rimmed concrete pad — the root.
+        // Dirt-rimmed concrete pad - the root.
         prim(
             solid(cuboid_tapered(
                 [7.0, pad_h, 3.0],

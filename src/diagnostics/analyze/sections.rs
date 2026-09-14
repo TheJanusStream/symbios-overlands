@@ -17,7 +17,7 @@ use super::{plural, round1};
 /// can't grow the report without bound; the overflow is summarised.
 pub(super) const TIMELINE_MAX: usize = 60;
 
-/// A short label for the events that define the session's *shape* — the ones the
+/// A short label for the events that define the session's *shape* - the ones the
 /// `[Timeline]` renders at their timestamp. `None` for the high-frequency /
 /// detail events (metric snapshots, per-peer transforms, chat, …) that would
 /// bury the milestones.
@@ -43,7 +43,7 @@ pub(super) fn timeline_label(p: &EventPayload) -> Option<String> {
             // either of them having been live when the other was.
             if *skipped_placements > 0 {
                 format!(
-                    "world compiled ({entity_count} entities, {digest:016x}) — \
+                    "world compiled ({entity_count} entities, {digest:016x}) - \
                      {skipped_placements} placements skipped at the entity budget"
                 )
             } else {
@@ -63,7 +63,7 @@ pub(super) fn timeline_label(p: &EventPayload) -> Option<String> {
 
 /// The `[Timeline]` section: the milestone events (see [`timeline_label`]) at
 /// their session-relative timestamps, so an agent can see the run's arc at a
-/// glance. Capped at [`TIMELINE_MAX`] with an explicit overflow line — never a
+/// glance. Capped at [`TIMELINE_MAX`] with an explicit overflow line - never a
 /// silent truncation.
 pub(super) fn write_timeline(s: &mut String, events: &[SessionEvent]) {
     let rows: Vec<(f64, String)> = events
@@ -97,7 +97,7 @@ pub(super) fn stage_record_fetch(p: &EventPayload) -> Option<f64> {
         // Success-only, to match the other three stages: a decode-failure /
         // exhausted / best-effort fetch also emits a `RecordFetchCompleted`, but
         // its (often near-timeout) latency would skew a "how long did fetches
-        // take" distro — the failure surfaces in the verdict + invariants instead.
+        // take" distro - the failure surfaces in the verdict + invariants instead.
         EventPayload::RecordFetchCompleted {
             duration_secs,
             status: FetchStatus::Ok | FetchStatus::NotFound,
@@ -153,7 +153,7 @@ pub(super) fn stage_distro(events: &[SessionEvent], pick: StagePick) -> Option<D
     distro(&v)
 }
 
-/// One stage-timing line, or `—` when the stage never ran in this log.
+/// One stage-timing line, or `-` when the stage never ran in this log.
 pub(super) fn write_stage_distro(
     s: &mut String,
     label: &str,
@@ -165,7 +165,7 @@ pub(super) fn write_stage_distro(
             let _ = writeln!(s, "  {label:<14} {d}  (n={})", d.n);
         }
         None => {
-            let _ = writeln!(s, "  {label:<14} —");
+            let _ = writeln!(s, "  {label:<14} -");
         }
     }
 }
@@ -182,7 +182,7 @@ pub(super) fn write_loading_gate(s: &mut String, events: &[SessionEvent]) {
     }
 }
 
-/// The `Loading → InGame:` line for the gate section — the elapsed if it
+/// The `Loading → InGame:` line for the gate section - the elapsed if it
 /// happened, else why it didn't (stalled/truncated vs no gate at all). Shared by
 /// the single-session section and the diff so the two phrase it identically.
 pub(super) fn gate_line(events: &[SessionEvent]) -> String {
@@ -199,7 +199,7 @@ pub(super) fn gate_line(events: &[SessionEvent]) -> String {
             } else {
                 "no loading gate in this log"
             };
-            format!("Loading → InGame:  — ({why})")
+            format!("Loading → InGame:  - ({why})")
         }
     }
 }
@@ -208,7 +208,7 @@ pub(super) fn gate_line(events: &[SessionEvent]) -> String {
 
 /// Subsystems in report row-order. The paired [`subsystem_index`] is an
 /// *exhaustive* match, so adding a [`Subsystem`] variant is a compile error
-/// there — forcing a new index arm. If this array is not extended to match, the
+/// there - forcing a new index arm. If this array is not extended to match, the
 /// tally still can't panic or silently drop: [`write_event_tallies`] folds any
 /// out-of-range event into a surfaced `unclassified` count. The
 /// `order_arrays_match_their_index` test pins each array to its index fn so a
@@ -305,8 +305,8 @@ pub(super) fn category_index(c: Category) -> usize {
 /// The `[Event Tallies]` section: a subsystem × severity matrix plus a
 /// by-category count line, so an agent can see *where* a session's noise came
 /// from (peer churn under Network, offload failures, runtime respawns, …)
-/// without reading every line. The 1 Hz `MetricsSnapshot` records — session
-/// bookkeeping, kept out of the timeline too — are excluded from the matrix (and
+/// without reading every line. The 1 Hz `MetricsSnapshot` records - session
+/// bookkeeping, kept out of the timeline too - are excluded from the matrix (and
 /// the count noted) so they don't bury the notable-event counts; their data
 /// drives the `[Metric Trends]` section instead.
 pub(super) fn write_event_tallies(s: &mut String, events: &[SessionEvent]) {
@@ -322,7 +322,7 @@ pub(super) fn write_event_tallies(s: &mut String, events: &[SessionEvent]) {
     // added to an enum + its index match but *not* to the ORDER array, its
     // events fall into a surfaced `unclassified` bucket rather than panicking
     // report() (the index fns are exhaustive matches, so the omission is caught
-    // at compile time first — this is belt-and-suspenders, never silent).
+    // at compile time first - this is belt-and-suspenders, never silent).
     let mut matrix = [[0usize; SEVERITY_ORDER.len()]; SUBSYSTEM_ORDER.len()];
     let mut by_cat = [0usize; CATEGORY_ORDER.len()];
     let mut unclassified = 0usize;
@@ -365,7 +365,7 @@ pub(super) fn write_event_tallies(s: &mut String, events: &[SessionEvent]) {
         return;
     }
 
-    // subsystem × severity matrix — only rows with events, plus a totals row.
+    // subsystem × severity matrix - only rows with events, plus a totals row.
     let mut header = format!("  {:<10}", "subsystem");
     for sev in SEVERITY_ORDER {
         let _ = write!(header, "{:>7}", severity_short(sev));
@@ -395,7 +395,7 @@ pub(super) fn write_event_tallies(s: &mut String, events: &[SessionEvent]) {
     let _ = writeln!(totals, "{grand:>8}");
     let _ = write!(s, "{totals}");
 
-    // by-category — the non-zero categories, busiest first, as a compact line.
+    // by-category - the non-zero categories, busiest first, as a compact line.
     let mut cats: Vec<(Category, usize)> = CATEGORY_ORDER
         .iter()
         .enumerate()
@@ -412,7 +412,7 @@ pub(super) fn write_event_tallies(s: &mut String, events: &[SessionEvent]) {
     if unclassified > 0 {
         let _ = writeln!(
             s,
-            "  ({unclassified} unclassified — a taxonomy variant is missing from an analyzer order table)"
+            "  ({unclassified} unclassified - a taxonomy variant is missing from an analyzer order table)"
         );
     }
 }
@@ -420,7 +420,7 @@ pub(super) fn write_event_tallies(s: &mut String, events: &[SessionEvent]) {
 // --- metric-series trends (B-3) ---------------------------------------------
 
 /// Human-readable byte size (`256.0 MB`) for the memory-gauge trend rows. Kept
-/// local — `analyze.rs` is the always-compiled, dependency-light module, so it
+/// local - `analyze.rs` is the always-compiled, dependency-light module, so it
 /// can't reach the GUI's `fmt_bytes` (which lives in the native-only `ui`).
 pub(super) fn fmt_bytes(v: f64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
@@ -439,7 +439,7 @@ pub(super) fn fmt_bytes(v: f64) -> String {
 
 /// The `[Metric Trends]` section: charts the periodic [`MetricSnapshot`] records
 /// the session log writes (E-5) so a post-mortem can see slow drift the verdict
-/// can't — the memory-growth curve, frame-time percentiles over the run, and
+/// can't - the memory-growth curve, frame-time percentiles over the run, and
 /// entity/asset-count drift (the leak signal). Gauges show first → last plus the
 /// [`distro`] over the whole run; counters show first → last with growth;
 /// histograms show their final accumulated distribution. Every metric that
@@ -483,8 +483,8 @@ pub(super) fn write_metric_trends(s: &mut String, events: &[SessionEvent]) {
             let last = series.last().copied().unwrap_or(0.0);
             let d = distro(series);
             if name.ends_with("bytes") {
-                // Byte gauges (memory) are humanized so the growth curve — the
-                // headline leak signal — is readable rather than a wall of digits.
+                // Byte gauges (memory) are humanized so the growth curve - the
+                // headline leak signal - is readable rather than a wall of digits.
                 let dist = d
                     .map(|d| {
                         format!(
@@ -496,7 +496,7 @@ pub(super) fn write_metric_trends(s: &mut String, events: &[SessionEvent]) {
                             fmt_bytes(d.mean)
                         )
                     })
-                    .unwrap_or_else(|| "—".to_string());
+                    .unwrap_or_else(|| "-".to_string());
                 let _ = writeln!(
                     s,
                     "    {name:<34} {:>12} → {:<12} {dist}  (n={})",
@@ -505,7 +505,7 @@ pub(super) fn write_metric_trends(s: &mut String, events: &[SessionEvent]) {
                     series.len()
                 );
             } else {
-                let dist = d.map(|d| d.to_string()).unwrap_or_else(|| "—".to_string());
+                let dist = d.map(|d| d.to_string()).unwrap_or_else(|| "-".to_string());
                 let _ = writeln!(
                     s,
                     "    {name:<34} {first:>12.1} → {last:<12.1} {dist}  (n={})",
@@ -534,7 +534,7 @@ pub(super) fn write_metric_trends(s: &mut String, events: &[SessionEvent]) {
     }
 
     // Histograms: the final accumulated distribution per name. These are the
-    // sampler-fed metric histograms in ms — distinct from the [Loading Gate]
+    // sampler-fed metric histograms in ms - distinct from the [Loading Gate]
     // stage timings, which are timed from the lifecycle events in secs.
     let mut hists: BTreeMap<&str, &HistPoint> = BTreeMap::new();
     for snap in &snaps {
@@ -565,7 +565,7 @@ pub(super) fn write_metric_trends(s: &mut String, events: &[SessionEvent]) {
 /// ±[`NON_FINITE_SENTINEL`](crate::diagnostics::event::NON_FINITE_SENTINEL)
 /// a current build writes. During the #867 meltdown these were exactly
 /// the forensically interesting lines, and the old typed parse dropped
-/// all 1,461 of them into the "unparseable" count — surfacing them as a
+/// all 1,461 of them into the "unparseable" count - surfacing them as a
 /// section turns a NaN cascade into evidence.
 fn write_nonfinite_physics(s: &mut String, events: &[SessionEvent]) {
     let suspect =
@@ -593,13 +593,13 @@ fn write_nonfinite_physics(s: &mut String, events: &[SessionEvent]) {
     let _ = writeln!(
         s,
         "  {count} respawn event(s) carried NaN/Inf-derived positions \
-         ({first_t:.1}s–{last_t:.1}s) — the physics state was corrupt in \
+         ({first_t:.1}s–{last_t:.1}s) - the physics state was corrupt in \
          this window; treat position/velocity metrics inside it as garbage"
     );
 }
 
 /// Emit the analysis sections (`[Verdict]` … `[Invariant Violations]`) over
-/// `events` — the full log, or a [`super::Filters`]-selected subset. Split out so the
+/// `events` - the full log, or a [`super::Filters`]-selected subset. Split out so the
 /// filtered and unfiltered reports share one section pipeline.
 pub(super) fn write_sections(s: &mut String, events: &[SessionEvent]) {
     // -- verdict --------------------------------------------------------------
@@ -607,7 +607,7 @@ pub(super) fn write_sections(s: &mut String, events: &[SessionEvent]) {
     let _ = writeln!(s);
     let _ = writeln!(s, "[Verdict]");
     if warn + error + crit == 0 {
-        let _ = writeln!(s, "  HEALTHY — no warnings, errors or critical events");
+        let _ = writeln!(s, "  HEALTHY - no warnings, errors or critical events");
     } else {
         let mut parts = Vec::new();
         if crit > 0 {
@@ -651,6 +651,6 @@ pub(super) fn write_sections(s: &mut String, events: &[SessionEvent]) {
 // `--diff-sessions <a> <b>` prints a delta between a baseline run (A) and a
 // candidate run (B) so an agent can confirm a fix improved on the baseline. The
 // builders are pure over two `&ParsedLog` (unit-tested without file IO), and
-// reuse the same reducers the single-session report does — `severity_tally`,
-// the `LOADING_STAGES` table + `stage_distro`, and `replay_findings` — so a
+// reuse the same reducers the single-session report does - `severity_tally`,
+// the `LOADING_STAGES` table + `stage_distro`, and `replay_findings` - so a
 // stage or invariant is folded identically in both reports.

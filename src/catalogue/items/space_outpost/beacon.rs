@@ -1,4 +1,4 @@
-//! Beacon — a Space-Outpost prop. A landing beacon: a steel mast topped by a
+//! Beacon - a Space-Outpost prop. A landing beacon: a steel mast topped by a
 //! glowing red light with a small solar cell. Scatter clutter marking the
 //! base perimeter; its light is emissive trim the ruin pass can darken.
 
@@ -50,7 +50,7 @@ impl CatalogueEntry for Beacon {
 fn build_tree() -> Generator {
     let mast_top = 2.3_f32;
     let mut prims = vec![
-        // Steel foot — the root.
+        // Steel foot - the root.
         prim(
             solid(cuboid_tapered([0.6, 0.18, 0.6], 0.0, steel(STEEL_DARK))),
             [0.0, 0.09, 0.0],
@@ -59,7 +59,7 @@ fn build_tree() -> Generator {
     ];
     // Three tripod legs bracing the mast: each foot plants wide on the
     // ground (radius 0.6) and the top converges in at the mast collar
-    // (radius 0.12, y≈0.95). The leg leans inward going up — `quat_z(beta)`
+    // (radius 0.12, y≈0.95). The leg leans inward going up - `quat_z(beta)`
     // tilts a vertical leg in the radial plane, then `quat_y(-a)` yaws it to
     // its azimuth. (The old version tilted about the centre, splaying the
     // tops outward into air and driving the feet through the foot block.)
@@ -94,7 +94,7 @@ fn build_tree() -> Generator {
     prims.push(cell);
 
     // Caged lamp head at the top: a base disc, a ring of cage bars, the
-    // glowing light inside, and a cap — so it reads as a beacon fixture.
+    // glowing light inside, and a cap - so it reads as a beacon fixture.
     prims.push(prim(
         solid(cylinder_tapered(0.24, 0.08, 10, 0.0, steel(STEEL_DARK))),
         [0.0, mast_top, 0.0],

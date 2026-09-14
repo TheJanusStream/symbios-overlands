@@ -1,4 +1,4 @@
-//! Amphitheatre — an AncientClassical secondary. A small open theatre:
+//! Amphitheatre - an AncientClassical secondary. A small open theatre:
 //! concentric tiers of sandstone seating curved in a semicircle around a
 //! marble orchestra floor, with a low scaenae backdrop wall and two stub
 //! columns on the stage.
@@ -49,7 +49,7 @@ impl CatalogueEntry for Amphitheatre {
 }
 
 fn build_tree() -> Generator {
-    // Marble orchestra floor — the root.
+    // Marble orchestra floor - the root.
     let mut prims = vec![prim(
         solid(cylinder_tapered(4.0, 0.2, 32, 0.0, marble(MARBLE_WHITE))),
         [0.0, 0.1, 0.0],
@@ -59,12 +59,12 @@ fn build_tree() -> Generator {
     // Continuous tiered cavea: concentric path-cut hollow-cylinder steps
     // sweeping the −Z hemisphere and opening to +Z. Each tier is a curved
     // annular arc rising from the ground; its top annulus is the seat tread
-    // and the exposed inner wall of the tier behind it is the riser — proper
+    // and the exposed inner wall of the tier behind it is the riser - proper
     // raked seating where the back rows sit higher and further out, instead
     // of scattered blocks. `path_cut [0.47,1.03]` wraps ≈200° with the horns
     // curling past the ±X line toward the stage; `hollow` bores each step to
     // its inner radius. The masonry alternates gold / weathered for depth.
-    // (path_cut stays within [0,1] — the sanitiser clamps wider ranges, so a
+    // (path_cut stays within [0,1] - the sanitiser clamps wider ranges, so a
     // clean semicircle is the widest symmetric wrap about −Z that round-trips.)
     let n_tiers = 7;
     for t in 0..n_tiers {
@@ -88,7 +88,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Scaenae frons — a tall sandstone stage wall closing the +Z opening,
+    // Scaenae frons - a tall sandstone stage wall closing the +Z opening,
     // faced toward the bowl with engaged marble columns and a central arched
     // doorway (porta regia), capped by an oversailing marble cornice.
     let scaenae_z = 4.8_f32;

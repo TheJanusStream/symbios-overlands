@@ -1,4 +1,4 @@
-//! Owner's Transom — the Pirate identity monument (#975).
+//! Owner's Transom - the Pirate identity monument (#975).
 //!
 //! A captured ship's stern board, nailed up on the harbour wall. Two sided
 //! oak frames stand on a cobbled kerb and carry the transom; the room owner's
@@ -21,7 +21,7 @@
 //!
 //! * **The theme goes in the FRAME, never on the image** (#972 lesson 13).
 //!   `base_color` multiplies the fetched portrait, so a themed tint over the
-//!   panel stains the owner's face — and only once a picture loads, which is
+//!   panel stains the owner's face - and only once a picture loads, which is
 //!   a state no render taken here can show. The gilt, the oak and the rope
 //!   are what make this monument a pirate's; the panel stays pure white.
 //! * **The standoff is derived, not picked** (#972 lessons 11 and 28). Ten of
@@ -46,7 +46,7 @@ use super::{
     iron, lantern, strake,
 };
 
-/// Side of the owner's portrait. Square, always — a face cannot survive being
+/// Side of the owner's portrait. Square, always - a face cannot survive being
 /// stretched, which is why [`pfp_panel`] takes one scalar and not a pair.
 const PANEL: f32 = 1.9;
 /// Height of the portrait's centre. Well above head height, so nobody can
@@ -65,7 +65,7 @@ const TRANSOM_D: f32 = 0.18;
 /// comfortably more than the four the shared guard demands, which leaves room
 /// for the board to be re-proportioned without the portrait sinking into it.
 const PANEL_PROUD: f32 = 0.03;
-/// Centre of the transom board — **derived** from the panel's plane, its own
+/// Centre of the transom board - **derived** from the panel's plane, its own
 /// depth and the reveal, so no hand-picked `z` can bury the portrait.
 const TRANSOM_Z: f32 = PANEL_Z + TRANSOM_D * 0.5 + PANEL_PROUD;
 
@@ -75,7 +75,7 @@ const KERB: [f32; 3] = [3.5, 0.32, 1.5];
 const FRAME: [f32; 3] = [0.26, 4.6, 0.32];
 const FRAME_X: f32 = 1.34;
 
-/// Kerb top — what everything stands on.
+/// Kerb top - what everything stands on.
 const DECK: f32 = KERB[1];
 /// Frame top.
 const FRAME_TOP: f32 = DECK + FRAME[1];
@@ -86,7 +86,7 @@ const GILT: f32 = 0.16;
 /// Radius of one round shot.
 const SHOT_R: f32 = 0.115;
 
-/// The frame post's inner face — what the ground dressing has to stay clear
+/// The frame post's inner face - what the ground dressing has to stay clear
 /// of. Derived rather than eyeballed, because the first build put the hawser
 /// coil straight through the post (#1025).
 const POST_INNER: f32 = FRAME_X - FRAME[0] * 0.5;
@@ -137,7 +137,7 @@ fn build_tree(did: &str) -> Generator {
         oak_frame(-1.0),
         oak_frame(1.0),
         transom(did),
-        // Coiled hawser at the foot — the dressing that says this board came
+        // Coiled hawser at the foot - the dressing that says this board came
         // off a ship rather than out of a mason's yard.
         //
         // Held clear of the frame post on BOTH axes. At x = -1.06 the coil's
@@ -170,7 +170,7 @@ fn build_tree(did: &str) -> Generator {
 /// A stack of round shot: **three on the ground carrying a fourth on top**.
 ///
 /// The first build had two below and one above, which is a pile rather than a
-/// stack — it has no plane of support, so the top ball reads as balanced
+/// stack - it has no plane of support, so the top ball reads as balanced
 /// between two rather than seated in a hollow. Three in a triangle with a
 /// fourth in the dimple is the arrangement a gunner's garland actually takes,
 /// and it is the smallest one that looks like it would stay put.
@@ -238,7 +238,7 @@ fn oak_frame(side: f32) -> Generator {
             ),
             // Bracket and lantern, held outboard so neither stands in front
             // of the portrait (#972 lesson 28: derive the standoff, then
-            // check nothing is in front of it — including obliquely).
+            // check nothing is in front of it - including obliquely).
             prim(
                 solid(cuboid_tapered(
                     [0.06, 0.06, 0.44],
@@ -267,7 +267,7 @@ fn transom(did: &str) -> Generator {
     let gilt_z = PANEL_Z - GILT * 0.35;
     let mut carried = vec![pfp_panel(did, PANEL, [0.0, PANEL_Y, PANEL_Z])];
 
-    // Gilt carved frame — four bars clear of the portrait's own square, so
+    // Gilt carved frame - four bars clear of the portrait's own square, so
     // nothing stands in front of the face. Low emission: gold leaf catches
     // the lantern, it does not emit.
     for sx in [-1.0_f32, 1.0] {
@@ -293,7 +293,7 @@ fn transom(did: &str) -> Generator {
         ));
     }
 
-    // Rope moulding round the gilt, in hemp — the detail that makes the frame
+    // Rope moulding round the gilt, in hemp - the detail that makes the frame
     // maritime rather than merely gilded. Leaf prims, so their turns carry
     // nothing (#972 lesson 22).
     let rope_r = (PANEL + GILT * 2.0) * 0.5;
@@ -312,7 +312,7 @@ fn transom(did: &str) -> Generator {
         ));
     }
 
-    // Carved cresting over the board — a scroll and a pair of volutes, which
+    // Carved cresting over the board - a scroll and a pair of volutes, which
     // is what a stern board of the period actually carried above its arms.
     carried.push(prim(
         solid(cuboid_tapered(
@@ -401,7 +401,7 @@ mod tests {
         assert!(
             (transom_front - (PANEL_Z + PANEL_PROUD)).abs() < 1e-6,
             "the transom's front face is at {transom_front}, which is not the \
-             panel's plane {PANEL_Z} plus its {PANEL_PROUD} m reveal — the \
+             panel's plane {PANEL_Z} plus its {PANEL_PROUD} m reveal - the \
              standoff has stopped being derived"
         );
     }
@@ -418,7 +418,7 @@ mod tests {
     /// the owner's face.
     ///
     /// The shared guard checks only *boxes* that cover the panel centre, which
-    /// leaves the two lanterns — cylinders, mounted forward of the board —
+    /// leaves the two lanterns - cylinders, mounted forward of the board -
     /// unexamined. They are the pieces most likely to creep inward as the
     /// frame is retuned, and a lantern hanging across somebody's chin is the
     /// exact class of fault the render cannot show.
@@ -477,7 +477,7 @@ mod tests {
 
     /// The ground dressing keeps clear of the frame posts (#1025).
     ///
-    /// The hawser coil ran straight through the port post in-world — a torus
+    /// The hawser coil ran straight through the port post in-world - a torus
     /// whose outer radius reached 0.25 m past the timber's inner face. It is
     /// the coplanar family's other half: not two faces fighting for depth, but
     /// two solids simply occupying the same space, which no still shows
@@ -540,13 +540,13 @@ mod tests {
 
     /// The shot stack is three carrying a fourth, and the fourth is *seated*.
     ///
-    /// The apex height is the tetrahedral one — `2r·sqrt(2/3)` above the base
-    /// centres — so it rests in the dimple the three below it make. A ball
+    /// The apex height is the tetrahedral one - `2r·sqrt(2/3)` above the base
+    /// centres - so it rests in the dimple the three below it make. A ball
     /// placed by eye either floats above the hollow or sinks into it, and at
     /// this scale both read as wrong without being obviously wrong.
     #[test]
     fn the_shot_is_a_stack_of_three_carrying_a_fourth() {
-        // Selected by what DEFINES a round shot — an IRON sphere — not by its
+        // Selected by what DEFINES a round shot - an IRON sphere - not by its
         // size. The first draft matched on diameter alone and picked up the
         // two gilt post finials, which are spheres 5 mm smaller (#972 lesson
         // 24: suspect the selector before the content).

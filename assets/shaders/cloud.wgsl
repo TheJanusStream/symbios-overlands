@@ -12,14 +12,14 @@
 //   3. Threshold-shapes the noise by `cover` and feathers the edge by
 //      `softness` to produce the cloud `mass`. Multiplied by `density` for
 //      the final alpha.
-//   4. Mixes `shadow_color` toward `color` by `clamp(sun_dir.y, 0, 1)` —
+//   4. Mixes `shadow_color` toward `color` by `clamp(sun_dir.y, 0, 1)` -
 //      sun directly overhead lights the underside; sun near horizon leaves
 //      the underside shadowed. Cheap directional fake-lighting suitable for
 //      a daytime sky without a real lighting pass.
 //   5. Fades final RGB toward `fog_color` and final alpha toward zero as
 //      horizontal distance from the camera grows past the room's
 //      `fog_visibility`. This is what dissolves the cloud-deck plane edge
-//      into the existing fog band at the horizon — without it the plane's
+//      into the existing fog band at the horizon - without it the plane's
 //      circular boundary would show as a hard ring.
 //
 // All tunable values flow through the `CloudUniforms` block bound at slot
@@ -45,7 +45,7 @@ struct CloudUniforms {
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> cloud_uniforms: CloudUniforms;
 
-// David Hoskins' sine-free hash. Same construction as the water shader —
+// David Hoskins' sine-free hash. Same construction as the water shader -
 // stays numerically well-conditioned at the high integer-coordinate
 // magnitudes the cloud sampler reaches when `world_xz / scale` is sampled
 // over a 4 km plane (`floor(p)` can run into the hundreds).
@@ -75,7 +75,7 @@ fn fbm(p_in: vec2<f32>) -> f32 {
     var amp = 0.5;
     var sum = 0.0;
     var norm = 0.0;
-    // Rotation matrix for ~30° per octave — irrational angle to avoid the
+    // Rotation matrix for ~30° per octave - irrational angle to avoid the
     // octaves locking into a common grid alignment after a few iterations.
     let rc = 0.866025;
     let rs = 0.5;
@@ -125,7 +125,7 @@ fn fragment(in: VertexOutput) -> FragmentOutput {
     let mass = smoothstep(thresh - soft, thresh + soft, n);
     let alpha_raw = clamp(mass * cloud_uniforms.density, 0.0, 1.0);
 
-    // Early out for fragments that wouldn't contribute anything visible —
+    // Early out for fragments that wouldn't contribute anything visible -
     // the alpha-blend pipeline still rasterises and blends them, but
     // returning a fully transparent black saves any further math and keeps
     // the resulting framebuffer composition clean.
@@ -145,7 +145,7 @@ fn fragment(in: VertexOutput) -> FragmentOutput {
         sun_lit,
     );
 
-    // Horizon fade — angle-based, not distance-based.
+    // Horizon fade - angle-based, not distance-based.
     //
     // Earlier draft tied the fade band to `fog_visibility`, which produced
     // two bugs: (a) any user who raised the visibility slider past the
@@ -161,7 +161,7 @@ fn fragment(in: VertexOutput) -> FragmentOutput {
     // smoothly into `fog_color`. Independent of `fog_visibility`, so the
     // distance-fog slider can vary without ever introducing a ring.
     // `abs()` rather than a one-sided clamp: above the deck the camera looks
-    // *down* at the clouds, so `world.y - view.y` is negative — clamping the
+    // *down* at the clouds, so `world.y - view.y` is negative - clamping the
     // signed difference at 1.0 would force `zenith_tan` to skyrocket with even
     // small horizontal distances and dissolve the deck into fog directly
     // beneath an airship. Using the magnitude makes the fade band symmetric
@@ -171,7 +171,7 @@ fn fragment(in: VertexOutput) -> FragmentOutput {
     let vertical = max(abs(in.world_position.y - view.world_position.y), 1.0);
     let zenith_tan = horiz / vertical;
     // tan(30°) ≈ 0.577, tan(80°) ≈ 5.671. The band width is asymmetric on
-    // purpose — the eye reads "near-horizontal" cloud as the entire fade
+    // purpose - the eye reads "near-horizontal" cloud as the entire fade
     // region, so most of the smoothstep budget lives in the upper portion.
     let fog_blend = clamp(
         (zenith_tan - 0.577) / (5.671 - 0.577),
@@ -181,7 +181,7 @@ fn fragment(in: VertexOutput) -> FragmentOutput {
     let final_rgb = mix(lit_tint, cloud_uniforms.fog_color.rgb, fog_blend);
     let final_alpha = alpha_raw * (1.0 - fog_blend);
 
-    // Straight (non-premultiplied) alpha — Bevy's `AlphaMode::Blend` uses
+    // Straight (non-premultiplied) alpha - Bevy's `AlphaMode::Blend` uses
     // `src.rgb * src.a + dst.rgb * (1 - src.a)` which expects un-premultiplied
     // colours.
     out.color = vec4<f32>(final_rgb, final_alpha);

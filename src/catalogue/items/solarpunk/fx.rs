@@ -1,5 +1,5 @@
 //! Solarpunk "bring-it-to-life" helpers: a soft drift of golden pollen, and
-//! two spatial-audio patches — a chirping birdsong for the green pavilion and
+//! two spatial-audio patches - a chirping birdsong for the green pavilion and
 //! a clean-air breeze for the biodome.
 //!
 //! Particle emitters are returned as [`Generator`] nodes (a
@@ -25,7 +25,7 @@ use crate::pds::{
 // Particle emitters
 // ---------------------------------------------------------------------------
 
-/// A soft drift of golden pollen and seed-fluff carried on a gentle breeze —
+/// A soft drift of golden pollen and seed-fluff carried on a gentle breeze -
 /// the living air of the eco-quarter.
 pub(super) fn pollen_drift(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -58,7 +58,7 @@ pub(super) fn pollen_drift(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A bright birdsong — high band-passed noise chittering on a quick LFO,
+/// A bright birdsong - high band-passed noise chittering on a quick LFO,
 /// the dawn chorus over the gardens.
 pub(super) fn birdsong() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));
@@ -101,7 +101,7 @@ pub(super) fn birdsong() -> SovereignAudioConfig {
     patch(vec![noise, bp, lfo, chirp, mix], NodeId(4))
 }
 
-/// A soft clean-air breeze — band-limited noise breathing slowly through a
+/// A soft clean-air breeze - band-limited noise breathing slowly through a
 /// lowpass, the fresh air of the dome gardens.
 pub(super) fn breeze_calm() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.34 }));

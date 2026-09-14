@@ -1,4 +1,4 @@
-//! HoverBoat preset — the 4-corner-suspension cuboid chassis with WASD
+//! HoverBoat preset - the 4-corner-suspension cuboid chassis with WASD
 //! drive + buoyancy. Parameters live on
 //! [`HoverBoatParams`](crate::pds::avatar::HoverBoatParams) and are read
 //! every fixed step so slider edits take effect without a rebuild.
@@ -61,7 +61,7 @@ pub(super) fn apply_hover_boat_suspension(
     let ray_max = p.suspension_rest_length.0 + 1.5;
     let chassis_tf = global_tf.compute_transform();
     // Exclude self + every sensor so the suspension never rests on a gateway
-    // veil / portal (#813) — see [`super::ground_ray_filter`].
+    // veil / portal (#813) - see [`super::ground_ray_filter`].
     let filter = super::ground_ray_filter(chassis_entity, sensors.iter());
     let lin_vel = forces.linear_velocity();
     let ang_vel = forces.angular_velocity();
@@ -173,7 +173,7 @@ pub(super) fn apply_hover_boat_buoyancy(
     // Past the heightmap's edge the lift FADES rather than cutting out
     // (#1240 f169). It used to return outright the instant the hull
     // crossed the extent, so a boat driven over the boundary lost all
-    // buoyancy with no cue and sank — which reads as a physics bug, not as
+    // buoyancy with no cue and sank - which reads as a physics bug, not as
     // a world edge. The band is `WORLD_EDGE_MARGIN` wide, the same margin
     // at which `automatic_recovery` returns the player to spawn, so a hull
     // that keeps going is recovered before its lift is gone.
@@ -209,7 +209,7 @@ pub(super) fn apply_hover_boat_buoyancy(
         // buoyancy plane. Without `query_signed`, an above-surface corner
         // received `None` and skipped the lift entirely, so the chassis
         // fell until it pierced the surface and then took a step-function
-        // force — a violent oscillation instead of a stable hover.
+        // force - a violent oscillation instead of a stable hover.
         let Some(q) = water_surfaces.query_signed(world_origin) else {
             continue;
         };
@@ -219,7 +219,7 @@ pub(super) fn apply_hover_boat_buoyancy(
         }
         let r = world_origin - center_of_mass;
         let point_vel = lin_vel + ang_vel.cross(r);
-        // Drag opposes the velocity component along the surface normal —
+        // Drag opposes the velocity component along the surface normal -
         // movement *parallel* to the surface should not be damped by
         // buoyancy itself (water's lateral resistance is captured by the
         // body's `linear_damping`).
@@ -228,7 +228,7 @@ pub(super) fn apply_hover_boat_buoyancy(
         let drag = -p.buoyancy_damping.0 * normal_vel;
         forces.apply_force_at_point(q.normal * ((lift + drag) * buoyancy_scale), world_origin);
 
-        // Flow current — projected gravity tangent to the surface, scaled by
+        // Flow current - projected gravity tangent to the surface, scaled by
         // submerged depth so a corner barely under water feels less push
         // than one fully immersed.
         if q.flow_strength > 0.0 && q.flow_dir != Vec3::ZERO {

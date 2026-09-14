@@ -1,10 +1,10 @@
-//! Raw JSON tab — fallback editor that always round-trips whatever the
+//! Raw JSON tab - fallback editor that always round-trips whatever the
 //! visual tabs don't yet expose.
 //!
 //! The buffer knows what it was seeded from (#1212). Arriving at the tab
 //! used to re-serialise the record into the text box unconditionally, so a
 //! flick to Placements and back replaced half-finished hand edits with the
-//! record — the one tab where the longest, least reproducible editing
+//! record - the one tab where the longest, least reproducible editing
 //! happens, and the loss was not on the undo stack (Ctrl+Z restores the
 //! record, not the text box). Now every record change asks
 //! [`RawJsonBuffer::sync_to`], which re-seeds only when the text is still
@@ -23,7 +23,7 @@ pub(super) struct RawJsonBuffer {
     /// is exactly "there are unparsed edits".
     seeded_from: String,
     /// The record changed underneath unparsed edits (a Revert, Reset,
-    /// re-roll or undo restore) — said in the tab, since Parse would apply
+    /// re-roll or undo restore) - said in the tab, since Parse would apply
     /// the old text over the new record.
     stale: bool,
     error: Option<String>,
@@ -41,7 +41,7 @@ impl RawJsonBuffer {
     }
 
     /// Replace the text with the record's serialisation, discarding any
-    /// edits — the explicit "Discard and refresh".
+    /// edits - the explicit "Discard and refresh".
     pub(super) fn reseed(&mut self, record: &RoomRecord) {
         self.text = Self::serialise(record);
         self.seeded_from = self.text.clone();
@@ -51,14 +51,14 @@ impl RawJsonBuffer {
     }
 
     /// The record changed (tab arrival, Revert, Reset, re-roll, undo): show
-    /// it — unless the owner has unparsed edits, which are kept and flagged
+    /// it - unless the owner has unparsed edits, which are kept and flagged
     /// stale instead of being overwritten.
     pub(super) fn sync_to(&mut self, record: &RoomRecord) {
         if !self.initialised || !self.is_edited() {
             self.reseed(record);
             return;
         }
-        // Edits in hand: stale only if the record really moved — a tab
+        // Edits in hand: stale only if the record really moved - a tab
         // switch over an unchanged record is just unparsed, and saying
         // "the record changed underneath" there would cry wolf.
         if Self::serialise(record) != self.seeded_from {
@@ -78,15 +78,15 @@ impl RawJsonBuffer {
 /// tab serialises the record exactly as the PDS stores it, and that is
 /// not what any other tab shows: a decimal literal is a hard type error.
 /// Rotations are quaternions, and angle fields use the units their names
-/// say — not a blanket "radians", which would be wrong for most of them.
+/// say - not a blanket "radians", which would be wrong for most of them.
 pub(super) const WIRE_CONVENTION: &str = "Numbers are shown as the wire stores them: decimals are \
      whole numbers scaled by 10 000 (1.5 is written 15000; a decimal point is a parse error), 64-bit \
      seeds are quoted strings, rotations are quaternions [x, y, z, w] scaled the same way, and angle \
      fields use the unit their name says (…_deg in degrees; tilt/twist in radians).";
 
 /// Rows the editor shows before its own scroll bar takes over. The whole
-/// record sits in one un-virtualised `TextEdit` — egui lays out the full
-/// galley — so the box is bounded here rather than growing to the record's
+/// record sits in one un-virtualised `TextEdit` - egui lays out the full
+/// galley - so the box is bounded here rather than growing to the record's
 /// full height inside the tab's outer scroll (finding 62).
 const EDITOR_ROWS: usize = 24;
 
@@ -130,24 +130,24 @@ pub(super) fn draw_raw_tab(
         ui.colored_label(
             theme.status.warn,
             if raw.stale {
-                "Unparsed edits — and the record changed underneath them (a revert, reset, \
+                "Unparsed edits - and the record changed underneath them (a revert, reset, \
                  re-roll or undo). Parse applies this text over the current record; Discard \
                  shows the current record."
             } else {
-                "Unparsed edits — not in the record until you Parse. Switching tabs keeps them."
+                "Unparsed edits - not in the record until you Parse. Switching tabs keeps them."
             },
         );
     }
     ui.horizontal(|ui| {
         if ui
             .add_enabled(edited, egui::Button::new("Parse into pending record"))
-            .on_disabled_hover_text("The text matches the record — nothing to parse")
+            .on_disabled_hover_text("The text matches the record - nothing to parse")
             .clicked()
         {
             match serde_json::from_str::<RoomRecord>(&raw.text) {
                 Ok(mut parsed) => {
                     // Enforce the same bounds the network-ingress path
-                    // applies — the raw JSON tab otherwise lets the owner
+                    // applies - the raw JSON tab otherwise lets the owner
                     // bypass `sanitize()` and hand a 2 GiB grid_size or
                     // unbounded L-system iterations straight to the world
                     // compiler.
@@ -184,7 +184,7 @@ mod tests {
 
     /// #1212, finding 56. Sequence: hand-edit a generator in Raw JSON,
     /// flick to Placements, come back. Arrival re-serialised the record
-    /// into the box unconditionally and the half-finished JSON was gone —
+    /// into the box unconditionally and the half-finished JSON was gone -
     /// not on the undo stack, since Ctrl+Z restores the record, not the
     /// text. Arrival now re-seeds only a clean buffer.
     #[test]
@@ -193,7 +193,7 @@ mod tests {
         let mut raw = RawJsonBuffer::default();
         raw.ensure_seeded(&record);
         assert!(!raw.is_edited());
-        // Arriving with a clean buffer refreshes it — the pre-#1212 reason
+        // Arriving with a clean buffer refreshes it - the pre-#1212 reason
         // the re-seed existed (edits made in other tabs show up).
         raw.sync_to(&record);
         assert!(!raw.is_edited());

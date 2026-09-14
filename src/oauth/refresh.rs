@@ -1,12 +1,12 @@
 //! Authenticated GET / POST helpers with two layered retry dances:
 //!
-//! 1. **DPoP nonce retry** — atproto PDS requires a server-chosen nonce on
+//! 1. **DPoP nonce retry** - atproto PDS requires a server-chosen nonce on
 //!    every DPoP proof (RFC 9449 §8). The first request to a new origin
 //!    has none, so the server replies `401 use_dpop_nonce` with the nonce
 //!    in a `DPoP-Nonce` response header. proto-blue-oauth caches that
 //!    header automatically but doesn't retry, so we replay once.
 //!
-//! 2. **Refresh-on-expiry retry** — wraps the nonce-retry helpers with
+//! 2. **Refresh-on-expiry retry** - wraps the nonce-retry helpers with
 //!    proactive expiry checks (`session.is_expired_jittered()`) and a
 //!    reactive refresh on `invalid_token`. Every authenticated PDS write
 //!    routes through these so a long-idle session self-heals against the
@@ -28,13 +28,13 @@ use super::OauthRefreshCtx;
 
 /// Authenticated GET with an automatic DPoP-nonce retry.
 ///
-/// Returns `(status, body_text)` — on a `use_dpop_nonce` 401 the initial
+/// Returns `(status, body_text)` - on a `use_dpop_nonce` 401 the initial
 /// response is discarded and only the retry's status/body are returned.
 ///
 /// There is deliberately no `oauth_get_with_refresh` sibling to
 /// [`oauth_post_with_refresh`]. This helper has exactly one caller,
 /// [`fetch_session_identity`], which runs immediately after the token
-/// exchange — the access token it uses is seconds old, so there is
+/// exchange - the access token it uses is seconds old, so there is
 /// nothing for a refresh wrapper to heal. An unused symmetric helper
 /// would be a claim of coverage that no call site relies on.
 pub async fn oauth_get_with_nonce_retry(
@@ -98,7 +98,7 @@ pub async fn refresh_session(
     {
         // Persist the rotated token set so a subsequent reload doesn't
         // come back with the now-stale access token from before refresh.
-        // Any failure here is non-fatal — the session in memory is still
+        // Any failure here is non-fatal - the session in memory is still
         // good for this run; we just won't survive a reload until the
         // next refresh.
         if let Err(e) = super::wasm::update_persisted_token_set(&session.token_set()) {
@@ -111,8 +111,8 @@ pub async fn refresh_session(
 /// Does this failure mean the OAuth session is gone for good (#1214)?
 ///
 /// The one definition of "terminal" in the app. Everything between
-/// [`refresh_session`] and the UI is a `Result<_, String>` — the publish
-/// tasks, the poll systems, the toast — so the classification has to read
+/// [`refresh_session`] and the UI is a `Result<_, String>` - the publish
+/// tasks, the poll systems, the toast - so the classification has to read
 /// the string that channel carries. It is deliberately concentrated here,
 /// beside the code that writes the `refresh: ` prefix, rather than sniffed
 /// at each surface: a Save button, a status line and a toast that disagreed
@@ -121,16 +121,16 @@ pub async fn refresh_session(
 ///
 /// Terminal is a narrow claim, and only two shapes make it:
 ///
-/// * `invalid_grant` — RFC 6749 §5.2's exact wording for a grant that is
+/// * `invalid_grant` - RFC 6749 §5.2's exact wording for a grant that is
 ///   "invalid, expired, revoked": the refresh token itself is dead. This is
 ///   the shape pinned by
 ///   `a_failed_refresh_propagates_and_the_post_is_not_replayed`, which
 ///   scripts a `400 invalid_grant` from the token endpoint.
-/// * `No refresh token` — proto-blue-oauth's `RefreshFailed` when the token
+/// * `No refresh token` - proto-blue-oauth's `RefreshFailed` when the token
 ///   set carries none at all (client.rs:688). Nothing can rotate it.
 ///
-/// Everything else that can fail a refresh — a timeout, a 5xx, DNS, a DPoP
-/// nonce dance gone wrong — is transient and MUST stay retryable: calling
+/// Everything else that can fail a refresh - a timeout, a 5xx, DNS, a DPoP
+/// nonce dance gone wrong - is transient and MUST stay retryable: calling
 /// one of those terminal would disable Save on a user whose next click
 /// would have worked.
 ///
@@ -169,7 +169,7 @@ pub fn refresh_is_terminal(error: &str) -> bool {
 ///
 /// A 401 whose `WWW-Authenticate` header is missing (or names neither
 /// the `DPoP` nor the `Bearer` scheme, or omits `error="invalid_token"`)
-/// is not an error at all upstream — it comes back as `Ok(resp)`. That
+/// is not an error at all upstream - it comes back as `Ok(resp)`. That
 /// is deliberate and we keep it: RFC 6750 §3 requires the challenge
 /// header on a 401, so a bare one is a server saying something other
 /// than "your token expired", and refreshing on every one of them would
@@ -196,7 +196,7 @@ pub async fn oauth_post_with_refresh(
     }
 }
 
-/// Response shape from `com.atproto.server.getSession` — used after the
+/// Response shape from `com.atproto.server.getSession` - used after the
 /// OAuth exchange to look up the handle that matches the DID in the token.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -229,9 +229,9 @@ pub async fn fetch_session_identity(
 
 /// The refresh dance, driven through a scripted transport.
 ///
-/// Every one of these tests asserts what the *network* saw — how many
+/// Every one of these tests asserts what the *network* saw - how many
 /// times `/token` was called, which URL was hit first, what access token
-/// the replayed request carried — rather than that a helper returned
+/// the replayed request carried - rather than that a helper returned
 /// `Ok`. The bug this module exists to catch is a branch that stops
 /// firing: a helper that quietly gives up on the retry still returns a
 /// perfectly good `Ok((401, body))`, so only the call log distinguishes
@@ -265,7 +265,7 @@ mod tests {
     ///
     /// Two queues rather than one, keyed on the token endpoint, because
     /// the assertions are about *which* endpoint was called and in what
-    /// order — a single queue would let a test pass by consuming the
+    /// order - a single queue would let a test pass by consuming the
     /// refresh reply on a resource request.
     struct Scripted {
         token: Mutex<VecDeque<HttpResponse>>,
@@ -416,7 +416,7 @@ mod tests {
     /// PDS answers `401 use_dpop_nonce` with the nonce in a header.
     /// The helper replays once, and the replay is only useful if the
     /// nonce cache upstream filled on the way past is actually read.
-    /// Only the retry's status and body are returned — the first
+    /// Only the retry's status and body are returned - the first
     /// response is a protocol handshake, not an answer.
     #[tokio::test]
     async fn a_use_dpop_nonce_401_is_replayed_with_the_servers_nonce() {
@@ -464,7 +464,7 @@ mod tests {
     /// (#1151).
     ///
     /// The proactive half of the dance. `is_expired_jittered` is true, so
-    /// `/token` must be the *first* thing on the wire — a refresh that
+    /// `/token` must be the *first* thing on the wire - a refresh that
     /// happened after a doomed POST would still leave the token set
     /// rotated, which is why the assertion is on the order of the log
     /// and not on its contents.
@@ -502,7 +502,7 @@ mod tests {
     /// still reads fresh (a PDS may revoke early, and a resumed wasm
     /// session can carry a stale expiry) POSTs; the PDS answers 401 with
     /// the RFC 6750 challenge header. One `/token` round-trip, one
-    /// replay, and the replay carries the rotated token — assert all
+    /// replay, and the replay carries the rotated token - assert all
     /// three, because a branch that silently stopped firing would return
     /// a perfectly plausible `Ok((401, body))`.
     #[tokio::test]
@@ -543,7 +543,7 @@ mod tests {
         assert_eq!(
             log[2].headers.get("authorization").map(String::as_str),
             Some("DPoP access-2"),
-            "the replay must use the new token — replaying the stale one \
+            "the replay must use the new token - replaying the stale one \
              would 401 again and look like a PDS fault"
         );
     }
@@ -552,7 +552,7 @@ mod tests {
     /// (#1151).
     ///
     /// Sequence: 401 `invalid_token`, then the PDS rejects the refresh
-    /// token itself (`400 invalid_grant` — the shape a revoked or
+    /// token itself (`400 invalid_grant` - the shape a revoked or
     /// already-rotated refresh token comes back as). The session is
     /// unrecoverable without a re-login, so the error has to reach the
     /// user rather than be spent on a second doomed POST. The `refresh: `
@@ -606,7 +606,7 @@ mod tests {
     /// Pinning a decision, not a discovery: proto-blue-oauth only raises
     /// `RefreshFailed` when the 401 carries `WWW-Authenticate` with
     /// `error="invalid_token"` under a `DPoP`/`Bearer` scheme. A bare
-    /// 401 is `Ok(resp)` upstream, and we keep it that way — RFC 6750 §3
+    /// 401 is `Ok(resp)` upstream, and we keep it that way - RFC 6750 §3
     /// requires the challenge on a genuine token rejection, so a 401
     /// without one is the PDS saying something else, and refreshing on
     /// every such response would spend a `/token` round-trip on each
@@ -631,7 +631,7 @@ mod tests {
     ///
     /// `fetch_session_identity` is the only caller of
     /// `oauth_get_with_nonce_retry`, and it runs on a token seconds old
-    /// — which is why there is no `oauth_get_with_refresh` to test. What
+    /// - which is why there is no `oauth_get_with_refresh` to test. What
     /// it does need is the nonce retry, because it is usually the very
     /// first request this process makes to the origin and therefore the
     /// one that always gets the `use_dpop_nonce` challenge.
@@ -664,7 +664,7 @@ mod tests {
     }
     /// THE SEQUENCE (#1214): the refresh token dies mid-session and every
     /// subsequent save fails identically. The one definition of "terminal"
-    /// has to catch that — and, more importantly, has to catch nothing else:
+    /// has to catch that - and, more importantly, has to catch nothing else:
     /// a timeout or a 5xx called terminal would disable Save on a session
     /// whose next attempt would have worked.
     #[test]
@@ -690,7 +690,7 @@ mod tests {
             assert!(!refresh_is_terminal(transient), "{transient}");
         }
         // And a failure that is not a refresh at all is never terminal,
-        // however it is worded — the prefix is what scopes the claim.
+        // however it is worded - the prefix is what scopes the claim.
         assert!(!refresh_is_terminal("502 Bad Gateway"));
         assert!(!refresh_is_terminal(
             "callback: OAuth server error: invalid_grant - code already used"

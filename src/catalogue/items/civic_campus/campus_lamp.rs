@@ -1,4 +1,4 @@
-//! Campus lamp — a Civic/Campus prop. A traditional cast lamppost with a
+//! Campus lamp - a Civic/Campus prop. A traditional cast lamppost with a
 //! glowing globe on a steel column. Scatter clutter lighting the quad paths;
 //! its globe is emissive trim the ruin pass can darken.
 
@@ -48,7 +48,7 @@ impl CatalogueEntry for CampusLamp {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Concrete base — the root.
+        // Concrete base - the root.
         prim(
             solid(cuboid_tapered(
                 [0.5, 0.3, 0.5],
@@ -83,7 +83,7 @@ fn build_tree() -> Generator {
         [0.0, 2.4, 0.0],
         id_quat(),
     ));
-    // Scroll brackets under the lantern — four short bars cranked outward.
+    // Scroll brackets under the lantern - four short bars cranked outward.
     for k in 0..4 {
         let a = k as f32 * FRAC_PI_2;
         prims.push(prim(
@@ -92,7 +92,7 @@ fn build_tree() -> Generator {
             quat_y(a),
         ));
     }
-    // Lantern housing + glowing globe — emissive trim.
+    // Lantern housing + glowing globe - emissive trim.
     prims.push(prim(
         solid(cuboid_tapered([0.34, 0.4, 0.34], 0.2, steel(STEEL_GREY))),
         [0.0, 3.6, 0.0],

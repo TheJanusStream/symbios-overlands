@@ -1,6 +1,6 @@
 //! Shared ATProto XRPC plumbing: DID resolution, [`FetchError`],
 //! [`XrpcError`], and the `applyWrites` layer every publish path commits
-//! through — [`RepoWrite`], [`record_exists`] (the create-vs-update probe),
+//! through - [`RepoWrite`], [`record_exists`] (the create-vs-update probe),
 //! [`chunk_writes`] and [`apply_writes`].
 
 use serde::Deserialize;
@@ -26,7 +26,7 @@ pub const MAX_DID_DOCUMENT_BYTES: usize = 64 * 1024;
 
 /// Stream `client.get(url)` to a `Vec<u8>`, aborting if the body would
 /// exceed `cap`. Mirrors the world-builder's `fetch_url_bytes` chunk
-/// loop — the `reqwest::Response::bytes()` shortcut buffers the entire
+/// loop - the `reqwest::Response::bytes()` shortcut buffers the entire
 /// body unconditionally, so any peer-controlled URL that streams past
 /// the cap would OOM the client before we got a chance to reject it.
 async fn fetch_capped_bytes(client: &reqwest::Client, url: &str, cap: usize) -> Option<Vec<u8>> {
@@ -82,7 +82,7 @@ pub async fn fetch_blob_bytes_capped(client: &reqwest::Client, url: &str) -> Opt
 /// Byte cap for reading an XRPC **error** body (#1124).
 ///
 /// Two orders of magnitude below [`MAX_FETCH_BODY_BYTES`] because an XRPC
-/// error envelope is `{"error":"...","message":"..."}` — a few hundred
+/// error envelope is `{"error":"...","message":"..."}` - a few hundred
 /// bytes. The only thing callers do with this text is look for
 /// `RecordNotFound` and put the rest in a log line or a status message,
 /// so nothing legitimate comes close.
@@ -93,7 +93,7 @@ pub(crate) const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 /// The hole this closes (#1124): [`decode_record_json`] was written
 /// precisely because a hostile PDS can stream an unbounded body, but only
 /// the SUCCESS path was routed through it. Every error branch still called
-/// `resp.text().await.unwrap_or_default()`, which buffers without limit —
+/// `resp.text().await.unwrap_or_default()`, which buffers without limit -
 /// so the entire defence was bypassable by answering with a status that is
 /// neither 2xx nor 404. Peer avatar fetches fire automatically when anyone
 /// joins a room, which made that a zero-click OOM against every guest, and
@@ -103,7 +103,7 @@ pub(crate) const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 /// or unreadable: callers are already on a failure path and are deciding
 /// what to *say* about it. An absent body degrades to "no `RecordNotFound`
 /// marker, no detail to log", which is the same thing
-/// `unwrap_or_default()` did — the difference is that it can no longer be
+/// `unwrap_or_default()` did - the difference is that it can no longer be
 /// reached by an allocation the client could not survive.
 pub(crate) async fn read_capped_text(resp: reqwest::Response) -> String {
     if let Some(len) = resp.content_length()
@@ -140,7 +140,7 @@ pub(crate) async fn decode_record_json<T: DeserializeOwned>(
 /// consumed alongside the value (#1292).
 ///
 /// A paged walk needs this. [`MAX_FETCH_BODY_BYTES`] bounds ONE body, so a
-/// walk of `n` pages has a hostile ceiling of `n × 16 MiB` — meaning every
+/// walk of `n` pages has a hostile ceiling of `n × 16 MiB` - meaning every
 /// page added to a fetch budget silently triples, quadruples, quintuples
 /// the memory a malicious PDS can make the client hold. On wasm that is
 /// worse than it sounds: the heap never shrinks (see the WASM memory
@@ -186,7 +186,7 @@ async fn fetch_did_json<T: DeserializeOwned>(client: &reqwest::Client, url: &str
 ///
 /// [`fetch_capped_bytes`] collapses all of them into `None`, which is why a
 /// mistyped `did:plc:` in a landmark link was indistinguishable from
-/// plc.directory having a bad minute — and therefore bought the full
+/// plc.directory having a bad minute - and therefore bought the full
 /// twelve-attempt, ~ten-minute retry budget under copy asserting a server
 /// outage, before dropping the user into a synthesised world belonging to
 /// nobody.
@@ -290,7 +290,7 @@ pub struct DidDocument {
     #[serde(default)]
     pub service: Vec<DidService>,
     /// The handles the DID's controller CLAIMS, as `at://alice.bsky.social`
-    /// URIs. Self-asserted — see [`resolve_did_handle`], which is the only
+    /// URIs. Self-asserted - see [`resolve_did_handle`], which is the only
     /// thing in this crate allowed to turn one into a name.
     #[serde(default, rename = "alsoKnownAs")]
     pub also_known_as: Vec<String>,
@@ -322,7 +322,7 @@ fn did_web_document_url(rest: &str) -> String {
 }
 
 /// Resolve an ATProto `@handle` to its DID via the public AppView's
-/// unauthenticated `com.atproto.identity.resolveHandle` — CORS-reachable
+/// unauthenticated `com.atproto.identity.resolveHandle` - CORS-reachable
 /// on wasm, same pattern as the login feed's `getAuthorFeed` (#848).
 ///
 /// Errors are plain-language, suitable for direct display on the login
@@ -338,13 +338,13 @@ pub async fn resolve_handle(client: &reqwest::Client, handle: &str) -> Result<St
     )
     .map_err(|e| format!("Couldn't build the handle lookup URL: {e}"))?;
     let resp = client.get(url).send().await.map_err(|e| {
-        format!("Couldn't reach the network to look up @{handle} — {e}. Check your connection.")
+        format!("Couldn't reach the network to look up @{handle} - {e}. Check your connection.")
     })?;
     if !resp.status().is_success() {
-        // The AppView answers 400 `HandleNotFound` for unknown handles —
+        // The AppView answers 400 `HandleNotFound` for unknown handles -
         // by far the likeliest cause is a typo.
         return Err(format!(
-            "Couldn't find an account for @{handle} — check the spelling."
+            "Couldn't find an account for @{handle} - check the spelling."
         ));
     }
     let body: ResolveHandleResp = resp
@@ -360,7 +360,7 @@ pub async fn resolve_handle(client: &reqwest::Client, handle: &str) -> Result<St
 /// `alsoKnownAs` is written by whoever controls the DID, so on its own it
 /// is a *claim*: any account can name `alice.bsky.social` there. The
 /// handle only becomes a fact when resolving it forward comes back to the
-/// same DID — which is precisely the bidirectional check ATProto's
+/// same DID - which is precisely the bidirectional check ATProto's
 /// identity model is built on, and precisely what a login-screen "you are
 /// heading to @alice's overland" card must not skip. A card that can be
 /// made to print somebody else's name is worse than one that prints an
@@ -368,7 +368,7 @@ pub async fn resolve_handle(client: &reqwest::Client, handle: &str) -> Result<St
 /// judge a link before authorising against it.
 ///
 /// `None` for an unresolvable method, an absent or malformed claim, a
-/// claim that does not verify, and every transport failure — all of which
+/// claim that does not verify, and every transport failure - all of which
 /// mean the same thing to the caller: keep showing the DID.
 pub async fn resolve_did_handle(client: &reqwest::Client, did: &str) -> Option<String> {
     if !is_resolvable_did(did) {
@@ -395,8 +395,8 @@ const DID_WEB_PREFIX: &str = "did:web:";
 
 /// Whether `did` uses a DID method the ATProto network can resolve.
 ///
-/// Locally-minted DIDs — the synthetic `did:attract:…` the login backdrop
-/// stamps on its demo world, for one — have no DID document and no AppView
+/// Locally-minted DIDs - the synthetic `did:attract:…` the login backdrop
+/// stamps on its demo world, for one - have no DID document and no AppView
 /// profile, so every network lookup for them is a guaranteed failure. Callers
 /// that would otherwise hit the network check this first, so a synthetic
 /// identity costs no round-trip and logs no error the user could act on.
@@ -419,13 +419,13 @@ const MAX_PDS_CACHE_ENTRIES: usize = 256;
 /// Session-lifetime DID → PDS endpoint cache, FIFO-bounded.
 ///
 /// Every record fetch begins by resolving the owner's DID document, which
-/// for a `did:plc` means a request to plc.directory — a third party, shared
+/// for a `did:plc` means a request to plc.directory - a third party, shared
 /// by the whole network. Rigged-body resolution made that per *reference
 /// set*, so a peer editing their outfit re-resolved the same DID on every
 /// debounced keystroke, on every client in the room (#1126). Caching turns
 /// the fan-out's DID hop into one request per DID per session, and it
-/// helps every other caller — peer avatar fetches, room loads, portal hops
-/// — for free.
+/// helps every other caller - peer avatar fetches, room loads, portal hops
+/// - for free.
 ///
 /// **Only successes are remembered.** Caching a failure would pin a
 /// transient DNS blip for the rest of the session, which is the opposite of
@@ -442,8 +442,8 @@ static PDS_CACHE: std::sync::LazyLock<std::sync::Mutex<PdsCache>> =
 /// and `BskyProfileCache` use.
 ///
 /// The policy lives here rather than in the two free functions below so that
-/// a test can own an instance (#1343). Under bare `cargo test` — which is
-/// what CI runs — the whole lib suite threads through one process, so two
+/// a test can own an instance (#1343). Under bare `cargo test` - which is
+/// what CI runs - the whole lib suite threads through one process, so two
 /// tests driving [`PDS_CACHE`] evict each other's keys. Both siblings dodge
 /// that by being Bevy `Resource`s; this one is a `static` because
 /// [`resolve_pds_outcome`] is an async fn with no `World` to hold it, which
@@ -508,7 +508,7 @@ pub enum FetchError {
     /// The identity itself does not exist, or is not an ATProto account
     /// (#1230 f22). Terminal: no amount of retrying produces an account.
     NoSuchIdentity,
-    /// DID could not be resolved to a PDS endpoint right now — the
+    /// DID could not be resolved to a PDS endpoint right now - the
     /// directory was unreachable, errored, or answered unreadably.
     /// Transient, and retried.
     DidResolutionFailed,
@@ -523,7 +523,7 @@ pub enum FetchError {
 /// User-facing phrasing for a failed fetch (#1141).
 ///
 /// Added because a surface that reports "could not load" has to say what
-/// went wrong — a wardrobe listing that fails on an expired token and one
+/// went wrong - a wardrobe listing that fails on an expired token and one
 /// that fails on a 500 want different things from the owner, and until
 /// this existed both rendered as nothing at all. `Debug` stays the shape
 /// the `warn!` lines log; this is the half a person reads.
@@ -538,9 +538,9 @@ impl std::fmt::Display for FetchError {
             Self::DidResolutionFailed => {
                 write!(f, "that account's data server could not be found")
             }
-            Self::Network(detail) => write!(f, "network — {detail}"),
+            Self::Network(detail) => write!(f, "network - {detail}"),
             Self::PdsError(status) => write!(f, "the data server answered {status}"),
-            Self::Decode(detail) => write!(f, "the response could not be read — {detail}"),
+            Self::Decode(detail) => write!(f, "the response could not be read - {detail}"),
         }
     }
 }
@@ -564,7 +564,7 @@ pub(crate) const MAX_APPLY_WRITES: usize = 200;
 /// A write count is not the binding limit. The reference PDS caps the whole
 /// XRPC **JSON body** at 150 KiB (`jsonLimit` in
 /// `packages/pds/src/index.ts`), so a batch of well under two hundred
-/// writes is rejected the moment the records it carries sum past that —
+/// writes is rejected the moment the records it carries sum past that -
 /// which a first publish of a heavy seeded room does easily, since it
 /// writes every child at once and the largest single child in the
 /// catalogue is already ~91 KiB. The failure was an opaque 413 that the
@@ -611,7 +611,7 @@ impl RepoWrite {
 ///
 /// Attached to an `applyWrites` failure (#1185) because the PDS's answer to a
 /// malformed batch is a bare `500 Internal Server Error` with no indication of
-/// WHICH write it choked on — and until this existed, neither did ours. A
+/// WHICH write it choked on - and until this existed, neither did ours. A
 /// report of "save failed on one target and not the other" was unactionable:
 /// the request that failed left no trace of its own shape.
 ///
@@ -648,8 +648,8 @@ pub(crate) fn describe_batch(writes: &[RepoWrite]) -> String {
 /// **Not `i64::MAX`, and the difference is the whole of #1186.** The spec
 /// describes integers as signed 64-bit, and every atproto implementation in
 /// the ecosystem parses records with JavaScript's `JSON.parse`, where a number
-/// is an IEEE-754 double. Past 2^53 the parse is lossy — 8399497595966614310
-/// comes back as 8399497595966615000 — and the reference encoder refuses to
+/// is an IEEE-754 double. Past 2^53 the parse is lossy - 8399497595966614310
+/// comes back as 8399497595966615000 - and the reference encoder refuses to
 /// store the result rather than write a value it cannot round-trip:
 ///
 /// ```text
@@ -657,7 +657,7 @@ pub(crate) fn describe_batch(writes: &[RepoWrite]) -> String {
 /// ```
 ///
 /// That throw escapes the PDS's handler, so what the client sees is a bare
-/// `500 Internal Server Error` with an empty message — no field named, no
+/// `500 Internal Server Error` with an empty message - no field named, no
 /// indication the fault is its own. Measured against `@atproto/common`'s
 /// `cborEncode`: 2^53-1 and -(2^53-1) encode, 2^53 and beyond throw.
 pub(crate) const MAX_WIRE_INT: i64 = 9_007_199_254_740_991;
@@ -699,9 +699,9 @@ fn unstorable_ints(value: &serde_json::Value, path: &str, out: &mut Vec<(String,
 ///
 /// Named here so the failure says WHICH FIELD. The PDS's answer is a bare 500
 /// that names nothing, and #1186 was invisible for exactly that reason: the
-/// rigged-avatar publish path has never worked for any identity — the wardrobe
+/// rigged-avatar publish path has never worked for any identity - the wardrobe
 /// record's `seed` is drawn from a full-width `u64` and clears 2^53 with
-/// probability 1 - 2^-11 — and the only symptom was a save that failed with an
+/// probability 1 - 2^-11 - and the only symptom was a save that failed with an
 /// error indistinguishable from the PDS being down.
 pub(crate) fn preflight_wire_ints(value: &serde_json::Value, label: &str) -> Result<(), String> {
     let mut bad = Vec::new();
@@ -728,7 +728,7 @@ pub(crate) fn preflight_wire_ints(value: &serde_json::Value, label: &str) -> Res
 /// **The PDS answers a malformed batch with a 500, not a 400.** The reference
 /// implementation validates each write against its lexicon and then hands the
 /// batch to the repo layer, where a second operation on a key already touched
-/// in the same commit throws out of the MST — an exception, not an XRPC error,
+/// in the same commit throws out of the MST - an exception, not an XRPC error,
 /// so it surfaces as a bare `InternalServerError`. That is indistinguishable
 /// from the PDS having a bad day, and it is what a user sees: "Save failed:
 /// 500", with no way to tell that their own client sent a contradiction.
@@ -743,7 +743,7 @@ pub(crate) fn validate_batch(writes: &[RepoWrite]) -> Result<(), String> {
         if let Some(first) = seen.insert(write.key(), write.verb()) {
             let (collection, rkey) = write.key();
             return Err(format!(
-                "applyWrites batch addresses {collection}/{rkey} twice ({first} then {}) — \
+                "applyWrites batch addresses {collection}/{rkey} twice ({first} then {}) - \
                  the PDS commits a batch as one MST transaction and answers a repeated key \
                  with an opaque 500, so it is refused here instead",
                 write.verb()
@@ -779,8 +779,8 @@ pub(crate) enum RepoWrite {
 /// write-count commit limit and the request-body byte budget (#1115).
 ///
 /// Counting writes alone was the bug. The reference PDS caps the XRPC JSON
-/// body at 150 KiB, so a first publish of a heavy seeded room — every child
-/// created in one batch, the largest already ~91 KiB — was rejected whole
+/// body at 150 KiB, so a first publish of a heavy seeded room - every child
+/// created in one batch, the largest already ~91 KiB - was rejected whole
 /// with an opaque 413 long before two hundred writes were reached. The
 /// per-record ceiling could not pre-empt it either: that measures one
 /// record, this limits a request.
@@ -805,7 +805,7 @@ pub(crate) fn chunk_writes(ordered: Vec<RepoWrite>) -> Result<Vec<Vec<RepoWrite>
             let (collection, rkey) = write.key();
             let short = collection.rsplit('.').next().unwrap_or(collection);
             return Err(format!(
-                "a single record ({short}/{rkey}) is {} — past the {} the PDS accepts in \
+                "a single record ({short}/{rkey}) is {} - past the {} the PDS accepts in \
                  one request; remove content from it and retry",
                 crate::pds::record_size::human_bytes(bytes),
                 crate::pds::record_size::human_bytes(MAX_APPLY_WRITES_BYTES),
@@ -836,7 +836,7 @@ pub(crate) fn chunk_writes(ordered: Vec<RepoWrite>) -> Result<Vec<Vec<RepoWrite>
 ///
 /// ATProto signals "no such record" as `400` with `RecordNotFound` in the
 /// body, NOT as `404`, so both have to be read as absence. Anything else is
-/// an error rather than a guess — guessing `false` would turn a transient
+/// an error rather than a guess - guessing `false` would turn a transient
 /// blip into an `#create` over a record that exists.
 pub(crate) async fn record_exists(
     client: &reqwest::Client,
@@ -865,12 +865,12 @@ pub(crate) async fn record_exists(
         return Ok(false);
     }
     Err(format!(
-        "existence check ({collection}/{rkey}) failed: {status} — {body}"
+        "existence check ({collection}/{rkey}) failed: {status} - {body}"
     ))
 }
 
 /// Commit a batch of record writes to the authenticated user's repo in ONE
-/// atomic commit via `com.atproto.repo.applyWrites` — either every write
+/// atomic commit via `com.atproto.repo.applyWrites` - either every write
 /// lands or none do, so multi-record layouts (inventory items, later the
 /// room manifest + children of Stage 3) can never be observed torn by a
 /// crash or a mid-batch rejection.
@@ -882,7 +882,7 @@ pub(crate) async fn apply_writes(
 ) -> Result<(), String> {
     if writes.len() > MAX_APPLY_WRITES {
         return Err(format!(
-            "applyWrites batch of {} exceeds the {MAX_APPLY_WRITES}-write commit cap — split the batch",
+            "applyWrites batch of {} exceeds the {MAX_APPLY_WRITES}-write commit cap - split the batch",
             writes.len()
         ));
     }
@@ -891,7 +891,7 @@ pub(crate) async fn apply_writes(
     let batch_bytes: usize = writes.iter().map(RepoWrite::wire_bytes).sum();
     if batch_bytes > MAX_APPLY_WRITES_BYTES {
         return Err(format!(
-            "applyWrites batch is {} — past the {} request-body budget; split the batch",
+            "applyWrites batch is {} - past the {} request-body budget; split the batch",
             crate::pds::record_size::human_bytes(batch_bytes),
             crate::pds::record_size::human_bytes(MAX_APPLY_WRITES_BYTES),
         ));
@@ -930,7 +930,7 @@ pub(crate) async fn apply_writes(
         // carries no indication of which write it choked on, so without this
         // the only evidence a bug report can offer is that a save failed.
         Err(format!(
-            "applyWrites failed: {status} — {body} (batch: {shape})"
+            "applyWrites failed: {status} - {body} (batch: {shape})"
         ))
     }
 }
@@ -945,7 +945,7 @@ mod tests {
     /// and then hands the batch to the repo layer, where a second operation on
     /// a key already touched in the same commit throws out of the MST. That is
     /// an exception rather than an XRPC error, so it comes back as a bare
-    /// `500 Internal Server Error` with an empty message — indistinguishable
+    /// `500 Internal Server Error` with an empty message - indistinguishable
     /// from the PDS being down, and impossible for a user to act on. Every
     /// pairing is wrong, so the check is keyed on the record and ignores the
     /// verbs: two creates race, a write beside a delete cannot both be meant.
@@ -974,7 +974,7 @@ mod tests {
         assert!(err.contains("create then delete"), "{err}");
 
         // Same rkey in a DIFFERENT collection is a different record and must
-        // stay legal — the avatar bundle writes `self` in three of them.
+        // stay legal - the avatar bundle writes `self` in three of them.
         validate_batch(&[
             create("self"),
             RepoWrite::Delete {
@@ -987,7 +987,7 @@ mod tests {
 
     /// The failure message has to identify the request (#1185). A 500 from the
     /// PDS names nothing, so without this a report of "save failed" carries no
-    /// evidence of what was sent — which is exactly why the wasm-only failure
+    /// evidence of what was sent - which is exactly why the wasm-only failure
     /// this issue came from could not be reproduced from the report alone.
     /// Keys only: a record body is up to ~90 KiB of the owner's content.
     #[test]
@@ -1016,7 +1016,7 @@ mod tests {
     /// **#1186.** The PDS answers an unstorable integer with a bare 500, so
     /// this is the only place the field can be named. Measured against
     /// `@atproto/common`'s `cborEncode`: 2^53-1 encodes, 2^53 throws
-    /// "Non-integer numbers ... are not supported by the AT Data Model" —
+    /// "Non-integer numbers ... are not supported by the AT Data Model" -
     /// because `JSON.parse` has already turned it into a different number by
     /// the time the encoder sees it.
     #[test]
@@ -1080,8 +1080,8 @@ mod tests {
     }
 
     /// #1115: the reference PDS caps the XRPC JSON body at 150 KiB, so a
-    /// first publish of a heavy seeded room — every child created in one
-    /// batch — was rejected whole with an opaque 413 while the count cap
+    /// first publish of a heavy seeded room - every child created in one
+    /// batch - was rejected whole with an opaque 413 while the count cap
     /// (200 writes) sat unreached and the per-record ceiling (measured per
     /// record, not per request) could never pre-empt it.
     #[test]
@@ -1152,7 +1152,7 @@ mod tests {
 
     #[test]
     fn synthetic_and_malformed_dids_are_not_resolvable() {
-        // The login backdrop's demo-world owner — the case that used to
+        // The login backdrop's demo-world owner - the case that used to
         // fire a 400 profile-fetch warning on every attract scene.
         assert!(!is_resolvable_did("did:attract:19fa5262e75"));
         assert!(!is_resolvable_did("did:key:z6MkhaXgBZDvot"));
@@ -1170,7 +1170,7 @@ mod tests {
 ///
 /// The policy tests own a [`PdsCache`] each (#1343). They used to drive the
 /// process-global through the free functions, which is safe under `nextest`
-/// — a process per test — and a race under the bare `cargo test` that CI
+/// - a process per test - and a race under the bare `cargo test` that CI
 /// runs: the eviction test's 266 inserts evicted the re-remembering test's
 /// key between its last insert and its assertion, about one run in six.
 /// Exactly one test below still drives the free functions, on DIDs of its
@@ -1179,7 +1179,7 @@ mod tests {
 mod pds_cache_tests {
     use super::*;
 
-    /// The free functions — the two lines [`resolve_pds_outcome`] actually
+    /// The free functions - the two lines [`resolve_pds_outcome`] actually
     /// calls. Every DID here is unique to this test and every assertion is
     /// about one of them, so nothing this test claims depends on what else
     /// shares the process. Adding a second writer to [`PDS_CACHE`] under
@@ -1198,7 +1198,7 @@ mod pds_cache_tests {
         );
     }
 
-    /// A peer set that churns DIDs must not grow the cache without limit —
+    /// A peer set that churns DIDs must not grow the cache without limit -
     /// the same shape the peer avatar cache is bounded against.
     #[test]
     fn the_cache_evicts_oldest_first_past_its_bound() {
@@ -1236,7 +1236,7 @@ mod pds_cache_tests {
 
     /// #1343's control, kept as the structural statement it turned into.
     ///
-    /// These are the bodies of the two tests above, run back to back — the
+    /// These are the bodies of the two tests above, run back to back - the
     /// interleaving their threads could reach under bare `cargo test` about
     /// one run in six. Against the process-global it failed every single
     /// run: the 266 inserts evicted `did:plc:repeat`, which the first half
@@ -1269,7 +1269,7 @@ mod pds_cache_tests {
 ///
 /// A mock-server crate would be a new dependency for three tests; a
 /// `TcpListener` on an ephemeral port is enough to serve exactly the two
-/// shapes that matter — a server that declares an oversized body, and one
+/// shapes that matter - a server that declares an oversized body, and one
 /// that declares nothing and just keeps writing.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod error_body_cap_tests {

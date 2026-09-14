@@ -1,4 +1,4 @@
-//! Branching pattern — ABOP Fig 1.39. Bracketed L-system that
+//! Branching pattern - ABOP Fig 1.39. Bracketed L-system that
 //! recursively binary-splits at every step, producing a flat
 //! 2D branching diagram. Initial A argument rescaled 100× downward
 //! from the lsystem-explorer preset for room-scale rendering.
@@ -20,7 +20,7 @@ impl CatalogueEntry for BranchingPattern {
         "Branching Pattern"
     }
     fn description(&self) -> &'static str {
-        "Flat bracketed binary-branch diagram — ABOP Fig 1.39."
+        "Flat bracketed binary-branch diagram - ABOP Fig 1.39."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Pattern

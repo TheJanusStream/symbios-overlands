@@ -1,6 +1,6 @@
 //! Shared enum for L-system prop meshes. The hierarchical primitive tree
 //! that used to live here (`PrimShape` / `PrimNode`) has been retired in
-//! favour of the unified [`super::generator::Generator`] wrapper — every
+//! favour of the unified [`super::generator::Generator`] wrapper - every
 //! primitive is a first-class generator kind that can live at the top level
 //! of a room or as a child of any other generator.
 
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Open union (#1119). These are the values of an LSystem generator's
 /// `prop_mappings`, so a prop shape from a newer engine used to fail that
-/// generator's whole child decode — which `list_room_children` then drops,
+/// generator's whole child decode - which `list_room_children` then drops,
 /// taking every tree in the room with it. A prop is decoration; losing one
 /// must not cost the forest.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -27,9 +27,9 @@ pub enum PropMeshType {
     Cone,
     Cylinder,
     Cube,
-    /// A prop shape from a newer engine. Renders as [`Leaf`](Self::Leaf) —
+    /// A prop shape from a newer engine. Renders as [`Leaf`](Self::Leaf) -
     /// the default, and the shape a prop slot with no mapping at all
-    /// already falls back to — and refuses to serialize, so this build
+    /// already falls back to - and refuses to serialize, so this build
     /// cannot save its stand-in over the owner's real prop.
     #[serde(other, skip_serializing)]
     Unknown,
@@ -38,8 +38,8 @@ pub enum PropMeshType {
 impl PropMeshType {
     /// Human-readable name for the prop-mapping picker (#1250 f94).
     ///
-    /// The picker printed `format!("{:?}", current)` — the Rust debug
-    /// spelling — which is how "Unknown" reached a dropdown as if it were a
+    /// The picker printed `format!("{:?}", current)` - the Rust debug
+    /// spelling - which is how "Unknown" reached a dropdown as if it were a
     /// shape somebody could choose.
     pub fn label(&self) -> &'static str {
         match self {

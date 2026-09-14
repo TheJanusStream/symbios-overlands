@@ -4,7 +4,7 @@
 //! strewn across the region, biased by landform (craggy and mesa
 //! rooms are stonier than rolling meadows) and biome (volcanic and
 //! arid pile up more exposed rock than lush turf). Each room rolls
-//! one or two scatters of a single per-room boulder design — a
+//! one or two scatters of a single per-room boulder design - a
 //! low-resolution icosphere with seeded taper/twist irregularity so
 //! it reads as a hewn rock rather than a geodesic ball.
 //!
@@ -41,7 +41,7 @@ pub struct RockScatter {
 ///
 /// Boulders take the widest dials in the seeded set. The room rolls exactly
 /// *one* boulder design and scatters it, so before this every rock in the
-/// region was the same rock at the same size in a different spot — the most
+/// region was the same rock at the same size in a different spot - the most
 /// visible clone-stamp in the terrain. Size spread does most of the work
 /// here; a wide tumble angle does the rest, since a boulder has no "up".
 ///
@@ -49,7 +49,7 @@ pub struct RockScatter {
 /// face is exactly where erosion would have left it.
 ///
 /// The scale rides on the placement transform, so `avian` picks it up
-/// through `ColliderTransform` — the collider grows with the rock rather
+/// through `ColliderTransform` - the collider grows with the rock rather
 /// than staying at the design size.
 pub fn field_naturalness() -> ScatterNaturalness {
     ScatterNaturalness {
@@ -77,9 +77,9 @@ pub struct RockScatters {
     pub scatters: Vec<RockScatter>,
     /// Boulder base radius (m).
     pub boulder_radius: f32,
-    /// Vertex-torture taper — leans the boulder into a crag.
+    /// Vertex-torture taper - leans the boulder into a crag.
     pub boulder_taper: f32,
-    /// Vertex-torture twist (radians) — shears the facets so the
+    /// Vertex-torture twist (radians) - shears the facets so the
     /// silhouette stops reading as a perfect icosphere.
     pub boulder_twist: f32,
 }

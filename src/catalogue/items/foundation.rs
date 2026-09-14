@@ -6,7 +6,7 @@
 //! the ground falls away, the downhill edge now stands clear of it by
 //! the full drop across the footprint, and daylight shows underneath.
 //!
-//! Real construction answers this the same way — a graded pad sets
+//! Real construction answers this the same way - a graded pad sets
 //! finished floor at the high point, and a foundation wall carries the
 //! building down to grade on the low side. That wall is what
 //! [`super::util::foundation_block`] already builds: a plinth buried
@@ -15,7 +15,7 @@
 //!
 //! What was missing is a *rule* for how deep. Depths across the
 //! catalogue were picked by eye, from 1.0 m to 5.0 m, with no relation
-//! to how wide the building is — and two thirds of settlement structures
+//! to how wide the building is - and two thirds of settlement structures
 //! carried no plinth at all. Since the drop a footprint spans is
 //! `slope × diameter`, the requirement has to scale with the footprint,
 //! which is what [`required_depth`] does.
@@ -29,15 +29,15 @@ use super::measure;
 /// radius. **Measured, not assumed**: `render --settlement-drop 12`
 /// walks every seeded structure in twelve rooms and reports the terrain
 /// drop across its footprint. Over 121 footprints the median drop is
-/// 0.32 m — half of all buildings are already covered by the placement
-/// sink alone — and the 90th percentile for building-sized footprints
+/// 0.32 m - half of all buildings are already covered by the placement
+/// sink alone - and the 90th percentile for building-sized footprints
 /// sits near `0.35 x radius`, which is what this is.
 ///
 /// Sizing to the *worst case* instead (`2 x BUILD_SLOPE_LIMIT`, the
 /// steepest ground the siter accepts) demands roughly double this and
 /// would put a 4.5 m podium under an ordinary 8 m house to cover ground
-/// that 90 % of them never stand on. The long tail is real — the
-/// measured maximum is 25 m, on cliff-edge outliers — but no plinth
+/// that 90 % of them never stand on. The long tail is real - the
+/// measured maximum is 25 m, on cliff-edge outliers - but no plinth
 /// makes those look right; grading the ground does (#1007 stage 3).
 pub const FOOTPRINT_DROP_RATIO: f32 = 0.35;
 
@@ -56,7 +56,7 @@ const MARGIN: f32 = 0.4;
 const MIN_DEPTH: f32 = 1.0;
 
 /// Deepest plinth required. Beyond this the structure is wide enough
-/// that a taller podium would read as a mesa rather than a foundation —
+/// that a taller podium would read as a mesa rather than a foundation -
 /// those are the cases for grading the ground instead (#1007 stage 3).
 const MAX_DEPTH: f32 = 6.0;
 
@@ -86,7 +86,7 @@ pub fn buried_depth(built: &Generator) -> f32 {
 /// to the rule too.
 ///
 /// [`StructureRole::Prop`] is deliberately outside it. Props are small
-/// repeated clutter — barrels, mailboxes, bollards — with footprints a
+/// repeated clutter - barrels, mailboxes, bollards - with footprints a
 /// fraction of a building's, so the drop across one is small (measured
 /// median 0.24 m, inside the placement sink) and a prop that beds
 /// slightly into a slope reads as natural rather than broken. Plants,
@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn requirement_scales_with_the_footprint() {
         // A wider building spans more drop on the same hillside, so it
-        // needs to reach further down — the whole point of the rule.
+        // needs to reach further down - the whole point of the rule.
         assert!(required_depth(9.0) > required_depth(6.0));
         // And it tracks the measured drop, less the sink already applied.
         let want = FOOTPRINT_DROP_RATIO * 8.0 - PLACEMENT_SINK + MARGIN;
@@ -197,7 +197,7 @@ mod tests {
         let rows = audit();
         assert!(
             rows.len() >= 150,
-            "only {} settlement buildings found — registry slipped?",
+            "only {} settlement buildings found - registry slipped?",
             rows.len()
         );
         let bad: Vec<String> = rows

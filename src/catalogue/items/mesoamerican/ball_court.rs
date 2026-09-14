@@ -1,4 +1,4 @@
-//! Ball court — a Mesoamerican secondary. A sunken playing alley flanked by
+//! Ball court - a Mesoamerican secondary. A sunken playing alley flanked by
 //! two battered stone benches and high vertical walls, each wall carrying a
 //! carved stone ring goal, with a marker disc set at centre court. The arena
 //! of the sacred ballgame.
@@ -56,11 +56,11 @@ fn build_tree() -> Generator {
     let alley_hw = 2.5; // alley floor half-width (X)
     let bench_run = 1.9; // horizontal run of the sloped talud
     let bench_h = 1.5; // talud rise to the wall base
-    let bench_top = alley_hw + bench_run; // 4.4 — wall foot
+    let bench_top = alley_hw + bench_run; // 4.4 - wall foot
     let wall_w = 1.0;
 
     let mut prims = vec![
-        // Playing-alley floor — the root.
+        // Playing-alley floor - the root.
         prim(
             solid(cuboid_tapered(
                 [alley_hw * 2.0, 0.3, len],
@@ -73,7 +73,7 @@ fn build_tree() -> Generator {
     ];
 
     for sx in [-1.0_f32, 1.0] {
-        // Sloped talud bench — a wedge rising from the alley floor to the
+        // Sloped talud bench - a wedge rising from the alley floor to the
         // wall foot, its vertical back against the wall and its slope facing
         // the court. Rotated so the wedge's width runs the court length and
         // its rise climbs outward toward the wall.
@@ -108,7 +108,7 @@ fn build_tree() -> Generator {
             [sx * (bench_top - 0.1), 0.3 + bench_h + 0.3, 0.0],
             id_quat(),
         ));
-        // Carved stone ring goal — a chunky donut mounted flat on the inner
+        // Carved stone ring goal - a chunky donut mounted flat on the inner
         // wall face, standing vertical with its hole facing across the court
         // toward the opposing ring (the Chichén-style mount).
         prims.push(prim(
@@ -124,7 +124,7 @@ fn build_tree() -> Generator {
         [0.0, 0.33, 0.0],
         id_quat(),
     ));
-    // End-zone transverse banks — low taluds closing each end into the
+    // End-zone transverse banks - low taluds closing each end into the
     // I-shaped plan of a ball court, extending out past the side ranges to
     // form the serifs.
     for sz in [-1.0_f32, 1.0] {
@@ -145,7 +145,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Buried footing under the whole court platform — the end-zone banks
+    // Buried footing under the whole court platform - the end-zone banks
     // and the range walls stand out at the full width, so the plinth has
     // to carry that, not just the sunken alley floor.
     prims.push(footing((bench_top + wall_w) * 2.0, len, [0.0, 0.0], 9.0));

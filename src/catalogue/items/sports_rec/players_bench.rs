@@ -1,4 +1,4 @@
-//! Players' bench — a Sports/Recreation prop. A covered team dugout: a bench
+//! Players' bench - a Sports/Recreation prop. A covered team dugout: a bench
 //! under a corrugated shelter roof on steel posts. Scatter clutter along the
 //! touchline.
 
@@ -46,7 +46,7 @@ fn build_tree() -> Generator {
     // A three-sided dugout: rear and side walls enclose the bench, which faces
     // out through the open −Z front (the render front) under a tilted roof.
     let mut prims = vec![
-        // Bench seat — the root.
+        // Bench seat - the root.
         prim(
             solid(cuboid_tapered([3.6, 0.18, 0.5], 0.0, enamel(SEAT_BLUE))),
             [0.0, 0.45, 0.1],

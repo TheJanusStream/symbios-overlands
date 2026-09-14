@@ -40,7 +40,7 @@ pub struct GeneratorCaches<'w> {
     /// across generators with the same terminal geometry.
     pub(crate) upstream_shape_mesh: ResMut<'w, UpstreamShapeMeshCache>,
     /// Content-keyed baked-audio buffers shared across constructs and
-    /// compile passes — see
+    /// compile passes - see
     /// [`BakedAudioCache`](super::super::spatial_audio::BakedAudioCache).
     /// Bundled here (rather than as its own system param) to stay under
     /// Bevy's 16-parameter `IntoSystem` ceiling on
@@ -51,14 +51,14 @@ pub struct GeneratorCaches<'w> {
     /// `build_procedural_material_async` *before* it dispatches a bake,
     /// so identical configs (every boulder of a rock scatter, a rebuilt
     /// unchanged prim) clone three `Handle<Image>`s instead of queueing
-    /// a fresh 512² generation task — which on wasm would run
+    /// a fresh 512² generation task - which on wasm would run
     /// monolithically on the main thread.
     pub(crate) texture: ResMut<'w, TextureCache>,
     /// Per-placement compiled state (fingerprints + anchors) the diff
-    /// planner reads and the executor commits into — see
+    /// planner reads and the executor commits into - see
     /// [`CompiledWorld`](super::job::CompiledWorld).
     pub(crate) world: ResMut<'w, super::job::CompiledWorld>,
-    /// The in-flight sliced compile job, if any — see
+    /// The in-flight sliced compile job, if any - see
     /// [`CompileJob`](super::job::CompileJob).
     pub(crate) job: ResMut<'w, super::job::CompileJob>,
     /// Clock for the executor's per-slice frame budget and the
@@ -67,13 +67,13 @@ pub struct GeneratorCaches<'w> {
     /// Session log for the per-job compile telemetry event.
     pub(crate) session_log: ResMut<'w, crate::diagnostics::SessionLog>,
     /// Metrics registry, for the full-rebuild counter that anchors the
-    /// per-rebuild asset-mark gauges (#921) — the 1 Hz scraper watches the
+    /// per-rebuild asset-mark gauges (#921) - the 1 Hz scraper watches the
     /// counter and snapshots handle counts when it advances.
     ///
     /// `Option` for two reasons (#924): headless embedders (the render
     /// tool, minimal test apps) run the spawn machinery without the
     /// diagnostics plugin, and this is also the ONLY metrics access any
-    /// system reaching the registry through this bundle may have — a
+    /// system reaching the registry through this bundle may have - a
     /// sibling `ResMut<MetricsRegistry>` parameter next to a param that
     /// contains `GeneratorCaches` is a B0002 aliasing panic at schedule
     /// build, which unit tests never catch. Route through this field.
@@ -92,7 +92,7 @@ pub struct GeneratorCaches<'w> {
 /// `compile_room_record` pass is allowed to make. The per-axis sanitiser
 /// caps are *additive* (1024 placements × 100k scatter × 1024 nodes/tree)
 /// and their product is many orders of magnitude past anything a real room
-/// produces — this is the multiplicative bound.
+/// produces - this is the multiplicative bound.
 ///
 /// 500_000 was chosen so a single legitimate scatter at
 /// `MAX_SCATTER_COUNT = 100_000` over a 1–5-node generator tree fits with
@@ -128,7 +128,7 @@ pub(crate) fn transform_from_data(t: &TransformData) -> Transform {
     }
 }
 
-/// Parameter bundle for recursive generator spawning — a plain struct
+/// Parameter bundle for recursive generator spawning - a plain struct
 /// keeps the call sites readable while avoiding a 12-argument signature.
 /// Commands and Query carry separate `('w, 's)` lifetimes from the
 /// SystemParam pair; we can't unify them here without making the borrow
@@ -153,7 +153,7 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// Persistent, hash-invalidated material cache. A single scatter
     /// placement with count=100 would otherwise allocate 100 fresh
     /// `StandardMaterial`s *and* enqueue 100 identical foliage texture
-    /// tasks for the same slot — and across compile passes an unchanged
+    /// tasks for the same slot - and across compile passes an unchanged
     /// slot would re-bake every time the record is patched. The cache
     /// keys on `(generator_ref, slot)` and reuses the handle whenever the
     /// content hash of `SovereignMaterialSettings` is identical.
@@ -171,7 +171,7 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// `generator_ref` keys touched this compile pass so the caller can GC
     /// meshes belonging to generators removed from the record.
     pub(crate) lsystem_mesh_touched: &'a mut HashSet<String>,
-    /// Shape grammar material cache — sister of `lsystem_material_cache`,
+    /// Shape grammar material cache - sister of `lsystem_material_cache`,
     /// keyed by `(generator_ref, slot_name)` because the upstream
     /// interpreter emits string slot names from `Mat("...")` rather than
     /// the L-system's u8 slot ids.
@@ -179,11 +179,11 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// `(generator_ref, slot_name)` keys touched this compile pass so the
     /// caller can GC stale shape material handles.
     pub(crate) shape_material_touched: &'a mut HashSet<(String, String)>,
-    /// Shape grammar geometry cache — derives once per
+    /// Shape grammar geometry cache - derives once per
     /// `(generator_ref, geometry_hash)` pair and shares the per-terminal
     /// `Handle<Mesh>` list across every scatter/grid spawn.
     pub(crate) shape_mesh_cache: &'a mut ShapeMeshCache,
-    /// Content-addressed primitive mesh / material dedup — see
+    /// Content-addressed primitive mesh / material dedup - see
     /// [`prim_cache`](super::super::prim_cache).
     pub(crate) prim_mesh_cache: &'a mut super::super::prim_cache::PrimMeshCache,
     /// Content-hash keys touched this pass, recorded on **hit and miss**
@@ -201,7 +201,7 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// `generator_ref` keys touched this compile pass so the caller can GC
     /// shape meshes belonging to generators removed from the record.
     pub(crate) shape_mesh_touched: &'a mut HashSet<String>,
-    /// Cross-generator procedural-texture dedup — see
+    /// Cross-generator procedural-texture dedup - see
     /// [`GeneratorCaches::texture`]. Unlike the per-generator material
     /// caches above it also covers primitives, which have no
     /// generator-level cache of their own: without it every boulder of
@@ -227,7 +227,7 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// material handle on the existing pending list instead of issuing a
     /// redundant HTTPS round trip.
     pub(crate) blob_image_cache: &'a mut BlobImageCache,
-    /// Source-keyed coalescing cache for Referenced-audio fetches —
+    /// Source-keyed coalescing cache for Referenced-audio fetches -
     /// the sister of [`blob_image_cache`](Self::blob_image_cache) for ambient + per-construct
     /// audio that comes from an URL or ATProto blob. Constructs with
     /// a `SovereignAudioConfig::Referenced` audio field flow through
@@ -237,13 +237,13 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// Content-keyed baked-audio buffers (see
     /// [`BakedAudioCache`](super::super::spatial_audio::BakedAudioCache)):
     /// procedural construct audio resolves through this so identical
-    /// configs — within a pass and across recompiles — share one bake.
+    /// configs - within a pass and across recompiles - share one bake.
     pub(crate) baked_audio_cache: &'a mut super::super::spatial_audio::BakedAudioCache,
     /// Runtime water-surface registry. Cleared at the top of each compile
     /// pass and pushed to from `spawn_water_volume`. Read by the scatter
     /// biome filter (this pass) and rover buoyancy (every fixed step).
     pub(crate) water_surfaces: &'a mut WaterSurfaces,
-    /// Index of the `RoomRecord` placement currently being compiled —
+    /// Index of the `RoomRecord` placement currently being compiled -
     /// stamped onto the water planes this unit spawns so the
     /// incremental compiler can retire exactly them on a rebuild.
     /// [`WaterPlane::NO_OWNER`](crate::water::WaterPlane::NO_OWNER) in
@@ -253,14 +253,14 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// room geometry. Avatar mode skips three room-specific behaviours
     /// in every spawn arm: (1) `RoomEntity` insertion (avatars manage
     /// their own cleanup via the chassis's child despawn), (2)
-    /// `PrimMarker` insertion (room-only gizmo addressing — but see
+    /// `PrimMarker` insertion (room-only gizmo addressing - but see
     /// `local_avatar_mode` for the avatar's own gizmo marker), and (3)
     /// collider attachment in `spawn_primitive_entity` (the locomotion
     /// preset's chassis collider is the only physics body on an
     /// avatar).
     pub(crate) avatar_mode: bool,
     /// `true` only when the avatar being spawned is the **local** player's
-    /// own avatar — implies `avatar_mode` is also `true`. Drives
+    /// own avatar - implies `avatar_mode` is also `true`. Drives
     /// `AvatarVisualPrim` insertion so the editor gizmo can target the
     /// local player's visuals tree without also picking up remote peers'
     /// avatars (whose visuals are not locally editable).
@@ -281,9 +281,9 @@ impl SpawnCtx<'_, '_, '_, '_, '_> {
     /// generator's record key; the LOCAL avatar uses the avatar editor's
     /// fixed root key (the synthetic `avatar/<id>` cache namespace would
     /// never match a UI selection); REMOTE peers' grammars are not
-    /// recorded — a neighbour's broken tree is not the local editor's
+    /// recorded - a neighbour's broken tree is not the local editor's
     /// business. Queued as a command (the spawn paths have no resource
-    /// access — same zero-signature-ripple idiom as the texture-cache
+    /// access - same zero-signature-ripple idiom as the texture-cache
     /// counters), applied when this compile's command buffer drains.
     pub(crate) fn record_grammar_status(
         &mut self,
@@ -297,7 +297,7 @@ impl SpawnCtx<'_, '_, '_, '_, '_> {
             generator_ref.to_string()
         } else if self.local_avatar_mode {
             // The avatar's base is the synthetic `avatar/<id>` namespace,
-            // which no UI selection matches — so the root segment is
+            // which no UI selection matches - so the root segment is
             // swapped for the editor's own, and the PATH is kept, or every
             // grammar node in a worn tree would file under one key.
             super::dispatch::synthetic_cache_key(crate::pds::avatar::VISUALS_ROOT_NAME, path)

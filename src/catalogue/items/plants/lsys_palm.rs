@@ -1,4 +1,4 @@
-//! Palm — a tall bare trunk crowned by a whorl of drooping fronds. The trunk
+//! Palm - a tall bare trunk crowned by a whorl of drooping fronds. The trunk
 //! grows one segment per iteration so iteration count reads as age (#910:
 //! stub → frond skeleton → leafy juvenile → tall mature palm), and stochastic
 //! rules vary crown frond count/spacing and whole-palm stance (vertical or
@@ -23,7 +23,7 @@ impl CatalogueEntry for Palm {
         "Palm"
     }
     fn description(&self) -> &'static str {
-        "Tall bare trunk crowned by a whorl of drooping fronds — a coastal palm."
+        "Tall bare trunk crowned by a whorl of drooping fronds - a coastal palm."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Plant
@@ -35,7 +35,7 @@ impl CatalogueEntry for Palm {
 
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
-    // 0 — fibrous brown trunk.
+    // 0 - fibrous brown trunk.
     materials.insert(
         0,
         SovereignMaterialSettings {
@@ -50,8 +50,8 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 1 — deep tropical green frond leaflet. A broad, entire-margined pinna
-    // (no lobes) — the strap-shaped leaflet of a palm frond, not a broadleaf.
+    // 1 - deep tropical green frond leaflet. A broad, entire-margined pinna
+    // (no lobes) - the strap-shaped leaflet of a palm frond, not a broadleaf.
     materials.insert(
         1,
         SovereignMaterialSettings {
@@ -76,15 +76,15 @@ fn build_kind() -> GeneratorKind {
         // Age-progressive palm (#910): the trunk GROWS one segment per
         // iteration (T self-extends with a stochastic roll wander) under a
         // crown C picked once, stochastically, from three irregular 5/6/7-
-        // frond whorls — so iteration count is the palm's age and the seed
+        // frond whorls - so iteration count is the palm's age and the seed
         // varies frond count, spacing, and stance. G rolls the whole palm's
         // stance once: vertical or leaned ±3°. A vertical heading is a
         // tropism fixpoint (bend ∝ |heading × −Y|), so a vertical palm stays
-        // straight while a leaned one arcs gracefully with height — never the
+        // straight while a leaned one arcs gracefully with height - never the
         // runaway shepherd's crook a per-segment pitch wander produced.
         // Rachis D pitches ever more steeply down (&8→60, tuned for the
         // softer 0.28 elasticity) so the feathered blade arcs over and
-        // droops past horizontal — leaflet pairs P run out each side.
+        // droops past horizontal - leaflet pairs P run out each side.
         source_code: "#define s 0.9\n\
                       omega: !(0.26)G\n\
                       g1: 0.4 : G -> T C\n\
@@ -100,7 +100,7 @@ fn build_kind() -> GeneratorKind {
         // Organ expression lives here, not in the growth rules (#917): the
         // grammar emits abstract leaflet-site markers `P` (and unexpanded
         // rachis tips `D` on the youngest frond) and this pass decides what
-        // they BECOME — so the same palm skeleton can be re-skinned (frond
+        // they BECOME - so the same palm skeleton can be re-skinned (frond
         // texture, dead/brown fronds, fruiting) without touching its
         // morphogenesis. It also fixes a silent gap: leaflet sites created
         // on the final growth step used to render nothing, because the

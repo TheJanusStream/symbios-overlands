@@ -556,7 +556,7 @@ mod tests {
         }
         assert!(
             heard > 0,
-            "every drip came up silent — the test measured nothing"
+            "every drip came up silent - the test measured nothing"
         );
     }
 }

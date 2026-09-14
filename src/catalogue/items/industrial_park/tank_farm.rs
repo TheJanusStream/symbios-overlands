@@ -1,4 +1,4 @@
-//! Tank farm — an Industrial-Park secondary. A cluster of painted steel
+//! Tank farm - an Industrial-Park secondary. A cluster of painted steel
 //! storage tanks inside a low concrete containment bund, linked by pipework
 //! and a riser, one relief stack hissing steam.
 
@@ -58,7 +58,7 @@ fn build_tree() -> Generator {
     let pad = 13.0_f32;
 
     let mut prims = vec![
-        // Concrete pad — the root.
+        // Concrete pad - the root.
         prim(
             solid(cuboid_tapered(
                 [pad, 0.4, pad - 1.0],
@@ -109,7 +109,7 @@ fn build_tree() -> Generator {
             [tx, base + h * 0.5, tz],
             id_quat(),
         ));
-        // Dished (domed) roof — a flattened upper hemisphere, not a sharp cone.
+        // Dished (domed) roof - a flattened upper hemisphere, not a sharp cone.
         let cap = [color[0] * 0.9, color[1] * 0.9, color[2] * 0.9];
         prims.push(prim_scaled(
             with_cut(
@@ -170,7 +170,7 @@ fn build_tree() -> Generator {
         quat_z(FRAC_PI_2),
     ));
 
-    // Lit control gauge on the bund's -Z front face — flat, so it reads.
+    // Lit control gauge on the bund's -Z front face - flat, so it reads.
     prims.extend(gauge_plate(
         [0.0, 1.1, -(pad - 1.0) * 0.5 - 0.04],
         0.5,

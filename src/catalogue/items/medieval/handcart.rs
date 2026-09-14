@@ -1,4 +1,4 @@
-//! Handcart — a Medieval prop. A two-wheel oak cart with iron-shod spoked
+//! Handcart - a Medieval prop. A two-wheel oak cart with iron-shod spoked
 //! wheels, parked with its shafts propped level under a cross-handle,
 //! loaded with grain sacks, a small ale cask and a wicker basket: the
 //! workaday transport of a market town.
@@ -8,7 +8,7 @@
 //! bar: the two shafts ended in mid-air over a vertical prop stick that
 //! touched neither of them and read as a handle standing on end. The cask
 //! lay across the bed 0.7 m long in a 0.92 m clear width, but centred
-//! 0.28 m off the axis, so it ran out through one side board by 0.17 m —
+//! 0.28 m off the axis, so it ran out through one side board by 0.17 m -
 //! and the basket did the same by 60 mm, and the cask ran into a sack. The
 //! shafts now end in a [`strut`] handle from one shaft end to the other,
 //! the prop stands under the handle, and the load is laid out on the bed
@@ -19,8 +19,8 @@
 //! A load authored by eye at round offsets is lesson 8's overhang with the
 //! side board as the edge, and the symptom is a barrel through a wall,
 //! which no four-angle sheet shows unless a tile looks along that board.
-//! Guard it as two containments — every piece's plan box inside the clear,
-//! and no two pieces' plan boxes overlapping — computed from each piece's
+//! Guard it as two containments - every piece's plan box inside the clear,
+//! and no two pieces' plan boxes overlapping - computed from each piece's
 //! BUILT rotation, so a cask lying along `Z` is measured by its length in
 //! `Z`. The cask's hoops were children of the turned cask at an offset
 //! along its axis, which is lesson 22's shape exactly; they are siblings
@@ -39,7 +39,7 @@ use super::{CLOTH_CREAM, IRON_DARK, WOOD_DARK, WOOD_OAK, cloth, iron, timber};
 
 const BED_Y: f32 = 0.72;
 const BED: [f32; 3] = [2.0, 0.22, 1.1];
-/// The bed's top — what the load stands on.
+/// The bed's top - what the load stands on.
 const BED_TOP: f32 = BED_Y + BED[1] * 0.5;
 const BOARD_T: f32 = 0.08;
 const BOARD_H: f32 = 0.4;
@@ -70,7 +70,7 @@ const CASK_END_R: f32 = 0.28;
 const CASK_HALF_LEN: f32 = 0.35;
 const HOOP_T: f32 = 0.02;
 /// Sacks either side of the axis against the side boards, and the basket
-/// at the front against the end board — each placed from the board's own
+/// at the front against the end board - each placed from the board's own
 /// clear with a stated gap (#972 lesson 8), not at a round number.
 const LOAD_GAP: f32 = 0.02;
 const SACK: [f32; 3] = [0.5, 0.5, 0.42];
@@ -117,7 +117,7 @@ impl CatalogueEntry for Handcart {
 
 /// An iron-shod spoked wheel at `center`, axle lying along Z. The hub is the
 /// subtree root (rotated so its axis runs along Z); the wooden rim, iron
-/// tyre and six spokes are children in the wheel's local frame — all at the
+/// tyre and six spokes are children in the wheel's local frame - all at the
 /// hub's own origin, which is the one shape a turned parent may carry
 /// (#972 lesson 22).
 fn wheel(center: [f32; 3]) -> Generator {
@@ -181,7 +181,7 @@ fn cask(prims: &mut Vec<Generator>) {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Cart bed — the root.
+        // Cart bed - the root.
         prim(
             solid(cuboid_tapered(BED, 0.0, timber(WOOD_OAK))),
             [0.0, BED_Y, 0.0],
@@ -253,7 +253,7 @@ fn build_tree() -> Generator {
     ));
 
     // The load: a cask across the back of the bed, two sacks side by side,
-    // a wicker basket at the front — each inside the boards' clear.
+    // a wicker basket at the front - each inside the boards' clear.
     cask(&mut prims);
     for sz in [-1.0_f32, 1.0] {
         prims.push(prim(
@@ -419,7 +419,7 @@ mod tests {
         }
     }
 
-    /// Every solid piece of the load stands ON the bed — its underside on
+    /// Every solid piece of the load stands ON the bed - its underside on
     /// the bed's top, not floating in it or above it.
     #[test]
     fn the_load_stands_on_the_bed() {
@@ -496,7 +496,7 @@ mod tests {
         );
         assert!(
             phi[1] >= a[1] - r && plo[0] <= a[0] && phi[0] >= a[0],
-            "handcart: the prop stick tops out at {} at x {}..{} — it holds up nothing (handle \
+            "handcart: the prop stick tops out at {} at x {}..{} - it holds up nothing (handle \
              underside {} at x {})",
             phi[1],
             plo[0],

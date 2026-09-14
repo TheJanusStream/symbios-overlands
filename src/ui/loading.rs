@@ -1,7 +1,7 @@
 //! Loading-screen progress panel.
 //!
 //! `AppState::Loading` gates on six tasks (heightmap, room / avatar /
-//! inventory record fetches, ambient-audio bake, room compile — see
+//! inventory record fetches, ambient-audio bake, room compile - see
 //! [`crate::loading::check_loading_complete`]), and a slow PDS
 //! round-trip can hold the gate for many seconds while the fetch
 //! machinery retries with exponential backoff. A bare spinner gives the
@@ -14,11 +14,11 @@
 //! gate waits on is present, *retrying* exactly while a
 //! [`PendingRecordRetry`] marker exists for that record type, and
 //! *waiting* while its upstream dependency (everything funnels through
-//! the room record) hasn't landed yet — no fake-busy spinners (#849).
+//! the room record) hasn't landed yet - no fake-busy spinners (#849).
 //!
 //! The panel is also the escape hatch: "Retry now" short-circuits a
 //! backoff window, and "Back to login" aborts the whole pass via
-//! [`crate::loading::AbortLoading`] — before #849 a dead PDS could only
+//! [`crate::loading::AbortLoading`] - before #849 a dead PDS could only
 //! be escaped by killing the app.
 
 use bevy::ecs::system::SystemParam;
@@ -46,14 +46,14 @@ const GATE_WARN_SECS: f64 = 15.0;
 /// The escape hatch's label and the cost it now states (#1230 f32).
 ///
 /// Named constants because the honesty is the fix: `abort_loading_to_login`
-/// runs the shared logout teardown — token revocation at the user's PDS,
-/// and on wasm the persisted session cleared — and the old "Back to login"
+/// runs the shared logout teardown - token revocation at the user's PDS,
+/// and on wasm the persisted session cleared - and the old "Back to login"
 /// promised a one-click retry instead.
 const ABORT_BUTTON_LABEL: &str = "Cancel and log out";
 const ABORT_BUTTON_NOTE: &str = "You'll need to sign in again.";
 
 /// Row-block width. Wide enough that a retrying row (spinner + label +
-/// countdown + "Retry now") stays on one line — the old 340 px wrapped
+/// countdown + "Retry now") stays on one line - the old 340 px wrapped
 /// it into a jumble (#849).
 const ROWS_WIDTH: f32 = 470.0;
 
@@ -64,9 +64,9 @@ const ROWS_WIDTH: f32 = 470.0;
 /// (slow) progress, and the per-row status is the honest detail (#849).
 fn gate_elapsed_style(elapsed: f64, th: &crate::ui::theme::Theme) -> (egui::Color32, &'static str) {
     if elapsed >= GATE_STALL_SECS {
-        (th.status.error, " — much longer than usual")
+        (th.status.error, " - much longer than usual")
     } else if elapsed >= GATE_WARN_SECS {
-        (th.status.warn, " — slower than usual")
+        (th.status.warn, " - slower than usual")
     } else {
         (th.text_strong, "")
     }
@@ -78,7 +78,7 @@ enum RowStatus {
     Done,
     /// The gate resource is present, but only because the fetch fell
     /// back to the default after a FAILURE (decode error / exhausted
-    /// retries / an identity that does not exist) — rendered amber, not
+    /// retries / an identity that does not exist) - rendered amber, not
     /// as a green success (#840). A 404 default (fresh account) still
     /// counts as [`RowStatus::Done`]. Carries the note naming which of
     /// them happened (#1230 f22).
@@ -90,7 +90,7 @@ enum RowStatus {
     /// The fetch succeeded and there is something to say about WHAT it
     /// found (#1232 f28): a 404 at somebody else's DID means they have not
     /// built this yet, and the visitor is standing in a world synthesised
-    /// from their identifier. A green tick, because nothing went wrong —
+    /// from their identifier. A green tick, because nothing went wrong -
     /// with the note beside it, because "@alice's overland" and "a world
     /// we invented for a DID" are not the same place.
     DoneWithNote(&'static str),
@@ -99,16 +99,16 @@ enum RowStatus {
     /// counter stays visible through the marker-despawn gap between a
     /// retry firing and its task resolving (#849).
     Active(Option<(u32, u32)>),
-    /// Work is in flight and counts its own units — the world compile
+    /// Work is in flight and counts its own units - the world compile
     /// (#1230 f281). The longest phase of the gate was a bare spinner
     /// although the job has counted `units_built` since #351.
     Progress { done: u32, total: u32 },
-    /// Not started because an upstream dependency hasn't landed — shown
+    /// Not started because an upstream dependency hasn't landed - shown
     /// as an honest "waiting on …" instead of a fake-busy spinner (#849).
     Blocked(&'static str),
     /// The work failed and nothing is retrying it (#1230 f21). Three of
     /// the six rows had no way to say this at all, so the most alarming
-    /// loading failure rendered identically to a slow, healthy load —
+    /// loading failure rendered identically to a slow, healthy load -
     /// under an elapsed line that actively reassures.
     Failed(String),
     /// A transient fetch failure is waiting out its backoff window.
@@ -128,7 +128,7 @@ enum RowAction {
     /// Fire the pending retry immediately instead of waiting out the
     /// backoff window.
     RetryNow,
-    /// Start the failed work again from scratch (#1230 f21) — there is no
+    /// Start the failed work again from scratch (#1230 f21) - there is no
     /// pending retry to short-circuit, because nothing was retrying.
     RestartFailed,
 }
@@ -174,7 +174,7 @@ fn record_row<R: LoadedRecord>(
 fn draw_row(ui: &mut egui::Ui, label: &str, status: RowStatus) -> RowAction {
     let mut action = RowAction::None;
     // A retrying row's failure reason renders on its own indented line
-    // below the row proper — set inside the closure, drawn after it.
+    // below the row proper - set inside the closure, drawn after it.
     let mut retry_reason: Option<String> = None;
     ui.horizontal(|ui| {
         match status {
@@ -209,7 +209,7 @@ fn draw_row(ui: &mut egui::Ui, label: &str, status: RowStatus) -> RowAction {
                 let red = crate::ui::theme::current(ui.ctx()).status.error;
                 ui.colored_label(red, crate::ui::affordances::CROSS);
                 ui.label(label);
-                ui.colored_label(red, "— failed");
+                ui.colored_label(red, "- failed");
                 if ui.small_button("Try again").clicked() {
                     action = RowAction::RestartFailed;
                 }
@@ -228,7 +228,7 @@ fn draw_row(ui: &mut egui::Ui, label: &str, status: RowStatus) -> RowAction {
             RowStatus::Blocked(on) => {
                 ui.label("…");
                 ui.label(label);
-                ui.weak(format!("— waiting on {on}"));
+                ui.weak(format!("- waiting on {on}"));
             }
             RowStatus::Retrying {
                 attempt,
@@ -298,7 +298,7 @@ pub struct RecordRows<'w, 's> {
     inventory_tasks: Query<'w, 's, &'static RecordFetchTask<InventoryRecord>>,
 }
 
-/// Despawn `R`'s pending retry marker(s) and refire the fetch right now —
+/// Despawn `R`'s pending retry marker(s) and refire the fetch right now -
 /// the "Retry now" click. The respawn mirrors
 /// [`crate::loading::fetch::fire_pending_record_retries`] exactly; only
 /// the deadline check is skipped.
@@ -328,8 +328,8 @@ pub fn loading_ui(
     loading_clock: Res<LoadingClock>,
     session: Option<Res<AtprotoSession>>,
     current_room: Option<Res<CurrentRoomDid>>,
-    // #1267 f34: the heading printed a stranger's DID verbatim — 32
-    // characters, centred, the most prominent text in the app — while
+    // #1267 f34: the heading printed a stranger's DID verbatim - 32
+    // characters, centred, the most prominent text in the app - while
     // every travel surface routes the same value through `travel_label`.
     // The cache is empty for a stranger this early, which is fine: the
     // ladder's last rung elides the identifier instead of printing it
@@ -382,10 +382,10 @@ pub fn loading_ui(
     // successful bake and from a room with no audio at all, because all
     // three install `AmbientHandle` and the row asked only whether the
     // resource existed (#1246 f341). The visitor stood in total silence
-    // under a green check, and so did the owner — the only person who can
+    // under a green check, and so did the owner - the only person who can
     // fix the URL.
     let ambient_status = if let Some(failed) = gate.ambient_failed.as_deref() {
-        RowStatus::Fallback(format!("— {}", failed.failure.reason.sentence()))
+        RowStatus::Fallback(format!("- {}", failed.failure.reason.sentence()))
     } else if gate.ambient.is_some() {
         RowStatus::Done
     } else if !room_landed {
@@ -441,11 +441,11 @@ pub fn loading_ui(
             // one line).
             ui.add_space(ui.available_height() * 0.35);
             // Destination identity: whose overland this loading screen
-            // ends in. A friend's world shows the DID — the handle isn't
+            // ends in. A friend's world shows the DID - the handle isn't
             // known until their profile loads in-game.
             match (session.as_deref(), current_room.as_deref()) {
                 (Some(s), Some(room)) if room.0 == s.did => {
-                    ui.heading(format!("Loading your world — @{}", s.handle));
+                    ui.heading(format!("Loading your world - @{}", s.handle));
                 }
                 (_, Some(room)) => {
                     let name = match profiles.as_deref() {
@@ -472,7 +472,7 @@ pub fn loading_ui(
                 // open-ended dread: the budget is finite and the fallback
                 // is a playable default (#849).
                 ui.weak(
-                    "A record server is unreachable — if it stays down, loading \
+                    "A record server is unreachable - if it stays down, loading \
                      continues with a default in a few minutes. \"Back to login\" \
                      leaves now.",
                 );
@@ -505,7 +505,7 @@ pub fn loading_ui(
                         if world_building {
                             // Honest warning: the compile can pause the app
                             // for a few seconds (single-threaded on wasm).
-                            "Building the world — may pause a few seconds"
+                            "Building the world - may pause a few seconds"
                         } else {
                             "Building the world"
                         },
@@ -515,12 +515,12 @@ pub fn loading_ui(
             });
             ui.add_space(16.0);
             // Escape hatch (#849): abort the pass and return to the login
-            // form. One click — a dead PDS must not require killing the app.
+            // form. One click - a dead PDS must not require killing the app.
             //
             // Named for what it does (#1230 f32). `abort_loading_to_login`
             // runs the shared `logout::cleanup_on_logout`, which fires the
             // RFC 7009 token revocation at the user's PDS and, on wasm,
-            // clears the persisted session — so "Back to login" promised a
+            // clears the persisted session - so "Back to login" promised a
             // one-click retry and delivered a full re-authentication, to a
             // user who is by definition already frustrated. The teardown is
             // correct; only the promise was wrong.
@@ -537,7 +537,7 @@ mod tests {
     use super::*;
 
     /// #1230 f32. The sequence: a user waiting out a slow load clicks "Back
-    /// to login" expecting to step back one screen and try again — and
+    /// to login" expecting to step back one screen and try again - and
     /// `abort_loading_to_login` runs the shared `logout::cleanup_on_logout`,
     /// which fires the RFC 7009 token revocation at their PDS and, on wasm,
     /// clears the persisted session. The teardown is correct; the label
@@ -566,24 +566,24 @@ mod tests {
         // Past the warn point → amber.
         assert_eq!(
             gate_elapsed_style(GATE_WARN_SECS, &th).1,
-            " — slower than usual"
+            " - slower than usual"
         );
         assert_eq!(
             gate_elapsed_style(GATE_STALL_SECS - 0.1, &th).1,
-            " — slower than usual"
+            " - slower than usual"
         );
         // Past the D critical stall threshold → red, but NOT the old
         // "stalled" wording: the retry budget runs ~10 minutes, so a slow
         // load is usually still progressing (#849).
         assert_eq!(
             gate_elapsed_style(GATE_STALL_SECS, &th).1,
-            " — much longer than usual"
+            " - much longer than usual"
         );
     }
 
     /// THE SEQUENCE (#1232 f28): a visitor follows a link to somebody's
-    /// world. That DID has published nothing — perhaps it is not even an
-    /// account they use — so the DID-seeded default is synthesised and the
+    /// world. That DID has published nothing - perhaps it is not even an
+    /// account they use - so the DID-seeded default is synthesised and the
     /// loading row renders a green tick with no note at all. They arrive in
     /// a plausible-looking landscape and have no way to know nobody made
     /// it. The owner's OWN 404 is the zero-configuration homeworld and must

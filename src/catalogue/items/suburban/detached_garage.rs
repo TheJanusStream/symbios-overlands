@@ -1,17 +1,17 @@
-//! Detached garage — a Suburban secondary. A standalone sided garage at the
+//! Detached garage - a Suburban secondary. A standalone sided garage at the
 //! back of the lot, its roll-up door **open** on a lit workshop: a bench under
 //! a pegboard, a shelf run, and a strip light on.
 //!
 //! Open is a deliberate choice, not laziness about modelling a door. A closed
 //! garage is a sided box with a large flat panel on it, and its side window
-//! and the vision light in its man-door are then cards over nothing — the
+//! and the vision light in its man-door are then cards over nothing - the
 //! failure the `Window` idiom exists to prevent. Rolling the door up gives the
 //! hero face two metres of real depth, turns the same interior that justifies
 //! the window into the point of the prop, and is the more honest image of a
 //! suburban back lot anyway: the garage you can see into is the one somebody
 //! actually uses.
 //!
-//! Built to the #972 ledger throughout — the front elevation is the siding
+//! Built to the #972 ledger throughout - the front elevation is the siding
 //! that *frames* three openings, the courses run unbroken through the whole
 //! wall in one frame ([`util::bonded_siding`]), and the tree stands the way
 //! the garage does.
@@ -44,13 +44,13 @@ const BODY_H: f32 = 3.0;
 /// Wall thickness, and so the depth of every reveal.
 const WALL_T: f32 = 0.25;
 
-/// Outer face of the front wall — the hero direction, `-Z`.
+/// Outer face of the front wall - the hero direction, `-Z`.
 const FRONT: f32 = -D * 0.5;
 /// Centre of a wall slab whose outer face lies on [`FRONT`].
 const FRONT_MID: f32 = FRONT + WALL_T * 0.5;
 /// Glazing plane, set back inside the reveal.
 const GLAZE_Z: f32 = FRONT + WALL_T * 0.72;
-/// Centre plane of the proud trim boards — deep enough that their back faces
+/// Centre plane of the proud trim boards - deep enough that their back faces
 /// land *inside* the wall rather than coplanar with its outer face.
 const TRIM_Z: f32 = FRONT - 0.03;
 
@@ -78,7 +78,7 @@ const EAVE: f32 = 0.5;
 
 // --- Palette local to this entry. ------------------------------------------
 
-/// Man-door paint — a stained timber door against the sage siding.
+/// Man-door paint - a stained timber door against the sage siding.
 const MAN_PAINT: [f32; 3] = [0.42, 0.28, 0.18];
 /// Roll-up door: pale enamel, as sectional doors are.
 const ROLL_ENAMEL: [f32; 3] = [0.84, 0.84, 0.81];
@@ -102,7 +102,7 @@ fn wall(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
     )
 }
 
-/// A proud painted board — fascia, barge, corner board, head trim.
+/// A proud painted board - fascia, barge, corner board, head trim.
 fn trim(size: [f32; 3], center: [f32; 3], rotation: crate::pds::Fp4) -> Generator {
     prim(
         solid(cuboid_tapered(size, 0.0, wood(WOOD_WHITE))),
@@ -190,8 +190,8 @@ fn build_tree() -> Generator {
 }
 
 /// Floor deck, and under it the whole garage: the walls that frame the three
-/// openings, the doors and glazing filling them, the workshop behind, and —
-/// standing on the walls — the roof.
+/// openings, the doors and glazing filling them, the workshop behind, and -
+/// standing on the walls - the roof.
 fn shell() -> Generator {
     let inner = [W - WALL_T * 2.0, D - WALL_T * 2.0];
     let mut parts = Vec::new();
@@ -220,7 +220,7 @@ fn shell() -> Generator {
     parts.push(roof());
 
     // Deliberately dark. Nothing lights a shell, so its surfaces carry their
-    // own low emissive term — but the *inside* of a garage in daylight is
+    // own low emissive term - but the *inside* of a garage in daylight is
     // darker than its sunlit siding, and a floor pitched to read comfortably
     // on its own comes out brighter than the wall around the opening, which
     // flattens the two metres of depth the open door exists to show.
@@ -237,8 +237,8 @@ fn shell() -> Generator {
 }
 
 /// The hero face, built as the siding that *frames* the vehicle bay, the
-/// man-door and the workshop window — four piers full height, with infill over
-/// each opening and under the window — plus what fills them.
+/// man-door and the workshop window - four piers full height, with infill over
+/// each opening and under the window - plus what fills them.
 ///
 /// The piers run the full wall height and the infill sits strictly between
 /// them, so no two slabs overlap in the wall plane: coplanar overlap is the
@@ -312,7 +312,7 @@ fn front_elevation(parts: &mut Vec<Generator>) {
 /// The sectional door, rolled up under the head: the coiled drum and the last
 /// panel hanging below it, with a track down each jamb.
 ///
-/// The drum's axis runs along X, which [`quat_z`] at a right angle gives —
+/// The drum's axis runs along X, which [`quat_z`] at a right angle gives -
 /// same trick as the kit's car tyres. A cylinder left on its default Y axis
 /// would read as a bollard standing in the opening.
 fn rolled_door(parts: &mut Vec<Generator>) {
@@ -356,7 +356,7 @@ fn rolled_door(parts: &mut Vec<Generator>) {
 /// The man-door: a leaf set back in its reveal, a tinted vision light and a
 /// handle proud of it.
 ///
-/// The light is [`tinted_glass`], a dark **solid**, not a `Window` card — a
+/// The light is [`tinted_glass`], a dark **solid**, not a `Window` card - a
 /// card on a 0.4 m panel with a door leaf immediately behind it would mask its
 /// panes away onto the timber, which is exactly the "frame over nothing" the
 /// idiom warns about. At this size a tinted solid reads as glass from any
@@ -382,7 +382,7 @@ fn man_door(parts: &mut Vec<Generator>) {
         [MAN_X + 0.33, BASE_H + 1.0, leaf_z - 0.07],
         id_quat(),
     ));
-    // Casing round the opening — two jambs and a head, standing proud.
+    // Casing round the opening - two jambs and a head, standing proud.
     for sx in [-1.0_f32, 1.0] {
         parts.push(trim(
             [0.12, MAN_HEAD + 0.2, 0.1],
@@ -409,7 +409,7 @@ fn man_door(parts: &mut Vec<Generator>) {
 /// and dim; the bench and the shelves sit where a pane frames a recognisable
 /// object (#972 lesson 6).
 fn workshop(parts: &mut Vec<Generator>, inner: [f32; 2]) {
-    // Dim lining and ceiling — the envelope everything else reads against.
+    // Dim lining and ceiling - the envelope everything else reads against.
     parts.push(prim(
         cuboid_tapered(
             [inner[0], BODY_H - 0.25, 0.08],
@@ -432,7 +432,7 @@ fn workshop(parts: &mut Vec<Generator>, inner: [f32; 2]) {
     ));
     // Strip light, hung *below* the opening's head. Fixed to the ceiling it
     // sat at 2.98 against a 2.75 head, so the infill over the bay hid the one
-    // thing that was meant to say the workshop is lit — the same "what does
+    // thing that was meant to say the workshop is lit - the same "what does
     // the camera see through the opening" question as the house's blinds, from
     // the inside. A garage light hangs on drop rods anyway.
     parts.push(prim(
@@ -456,7 +456,7 @@ fn workshop(parts: &mut Vec<Generator>, inner: [f32; 2]) {
     //
     // The strip light above is honest but nearly unseeable from the pavement:
     // it hangs at the opening's head height, and the rolled door's drum sits
-    // right across that sightline — a real garage hides its own ceiling light
+    // right across that sightline - a real garage hides its own ceiling light
     // the same way. A small source down at bench level cannot be occluded by
     // anything, so *something* in the bay is visibly lit from any angle.
     parts.push(prim(
@@ -521,7 +521,7 @@ fn workshop(parts: &mut Vec<Generator>, inner: [f32; 2]) {
 /// the gable.
 ///
 /// The ridge runs along **Z**, which is what `taper_xz` pinching *X* gives, so
-/// the triangle faces the door — the elevation the settlement placer and the
+/// the triangle faces the door - the elevation the settlement placer and the
 /// render tool both look at. The roof sits a few centimetres into the walls,
 /// because a base face flush with the wall tops would be two coplanar
 /// horizontal faces fighting over the same plane.
@@ -628,7 +628,7 @@ mod tests {
     }
 
     /// LESSON 1's other half: the door is open, so there has to be a workshop
-    /// worth seeing behind it — and it has to sit where the opening frames it,
+    /// worth seeing behind it - and it has to sit where the opening frames it,
     /// not against the back wall six metres in.
     #[test]
     fn the_workshop_stands_where_the_opening_frames_it() {
@@ -651,7 +651,7 @@ mod tests {
         });
         assert!(
             near >= 5,
-            "only {near} lit pieces stand in the front of the bay — the open \
+            "only {near} lit pieces stand in the front of the bay - the open \
              door will read as a black hole"
         );
     }
@@ -697,7 +697,7 @@ mod tests {
             };
             assert_eq!(
                 cfg.stagger.0, 0.0,
-                "siding slab at {pos:?} carries end joints — three per tile, \
+                "siding slab at {pos:?} carries end joints - three per tile, \
                  hard-coded, which reads as brick not board"
             );
             assert!(
@@ -712,8 +712,8 @@ mod tests {
     }
 
     /// The front wall's slabs tile the elevation exactly: they fill it edge to
-    /// edge with no gap daylight shows through, and — the failure that
-    /// z-fights — no two of them overlap in the wall plane.
+    /// edge with no gap daylight shows through, and - the failure that
+    /// z-fights - no two of them overlap in the wall plane.
     #[test]
     fn the_front_wall_slabs_tile_without_overlapping() {
         let mut spans: Vec<([f32; 2], [f32; 2])> = Vec::new();
@@ -784,7 +784,7 @@ mod tests {
         assert_eq!(
             roof.transform.rotation.0,
             id_quat().0,
-            "the roof must stay axis-aligned — it carries the barge boards"
+            "the roof must stay axis-aligned - it carries the barge boards"
         );
         assert_eq!(
             roof.children
@@ -799,7 +799,7 @@ mod tests {
     /// The barge boards follow the roof's *actual* slope. Authored at a
     /// hand-picked angle they drift silently the moment the rise or the
     /// overhang changes, and a board floating off its own gable is the kind of
-    /// thing only a render catches — once someone happens to look.
+    /// thing only a render catches - once someone happens to look.
     #[test]
     fn the_barge_boards_follow_the_gable() {
         let expected = (ROOF_H / ((W + EAVE * 2.0) * 0.5)).atan();

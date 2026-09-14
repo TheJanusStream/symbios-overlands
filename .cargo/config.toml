@@ -4,7 +4,7 @@
 # ceiling here is at *link* time, not test run time, so a small job count keeps
 # only a few heavy links in flight.
 #
-# It used to be 24 test binaries — nineteen integration files with a target
+# It used to be 24 test binaries - nineteen integration files with a target
 # each, the lib, a harness for both bins, and the workspace members. #1179 made
 # every integration file a module of one `integration` target and turned off
 # the two bins' unused test harnesses, leaving three: `touch src/lib.rs &&
@@ -13,7 +13,7 @@
 #
 # Calibrated against fat-LTO links (~8 GB apiece). Since #1064 the suite runs
 # under `[profile.test-release]`, where a link costs ~1.7 GB, so there is real
-# headroom to raise this — left alone because the profile fix already removed
+# headroom to raise this - left alone because the profile fix already removed
 # the pressure that made the cap necessary. Raise it if you move to a
 # higher-RAM box.
 [build]

@@ -1,4 +1,4 @@
-//! Stadium Gate — the Sports/Recreation bespoke social gateway (#769). The
+//! Stadium Gate - the Sports/Recreation bespoke social gateway (#769). The
 //! turnstile entrance to a floodlit ground: two board-formed concrete
 //! entrance piers flanking the walk-in, a steel crossbeam marquee bridging
 //! them, a lit segmented scoreboard slung across the front under the
@@ -7,7 +7,7 @@
 //! reads as an active portal without blooming white.
 //!
 //! The one functional element is the [`GeneratorKind::Gateway`] zone between
-//! the piers — walking into it opens the destination picker. Everything else
+//! the piers - walking into it opens the destination picker. Everything else
 //! is set-dressing that frames that opening as a gate you pass through.
 
 use crate::catalogue::items::util::{
@@ -49,12 +49,12 @@ impl CatalogueEntry for SportsRecGateway {
     }
 }
 
-// Deep electric-blue LED for the threshold strips — a cool active-portal
+// Deep electric-blue LED for the threshold strips - a cool active-portal
 // tone that echoes the zone veil without blooming to white.
 const THRESHOLD_LED: [f32; 3] = [0.28, 0.55, 1.0];
 
 fn build_tree() -> Generator {
-    // Forecourt apron — the flat-base root (never tilt a root: assemble
+    // Forecourt apron - the flat-base root (never tilt a root: assemble
     // rebases every child under it, so a rotated root spins the whole gate).
     let mut prims = vec![prim(
         solid(cuboid_tapered(
@@ -106,7 +106,7 @@ fn build_tree() -> Generator {
     prims.extend(marquee);
 
     // Two small floodlight heads crowning the span, on short steel mounts,
-    // facing the −Z front — gridded lamp cells that read as an array rather
+    // facing the −Z front - gridded lamp cells that read as an array rather
     // than a single white slab. Emissive trim the ruin pass can snuff.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
@@ -119,7 +119,7 @@ fn build_tree() -> Generator {
         }
     }
 
-    // Cool threshold bar tucked just under the beam, spanning the mouth — a
+    // Cool threshold bar tucked just under the beam, spanning the mouth - a
     // broad lit strip at low strength so it reads as lit colour, not glare.
     prims.push(prim(
         cuboid_tapered([2.6, 0.1, 0.16], 0.0, glow(THRESHOLD_LED, 2.5)),
@@ -153,7 +153,7 @@ mod tests {
         assert_sanitize_stable(&SportsRecGateway.build(""), "sports_rec_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is furniture, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

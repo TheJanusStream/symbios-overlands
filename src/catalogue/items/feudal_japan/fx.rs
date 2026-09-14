@@ -1,6 +1,6 @@
 //! Feudal-Japan "bring-it-to-life" helpers: small nested particle emitters
 //! and spatial-audio patches that the kit's structures hang on signature
-//! elements — blossom shed off a pagoda, an incense wisp by the lantern,
+//! elements - blossom shed off a pagoda, an incense wisp by the lantern,
 //! hearth smoke from a farmhouse, a deep temple-bell ring, and the trickle
 //! of a garden water basin.
 //!
@@ -25,7 +25,7 @@ use crate::pds::{
 // Particle emitters
 // ---------------------------------------------------------------------------
 
-/// A gentle local fall of cherry petals shed from a structure's eaves —
+/// A gentle local fall of cherry petals shed from a structure's eaves -
 /// signature blossom, tighter and closer than the room-wide accent.
 pub(super) fn falling_petals(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -55,7 +55,7 @@ pub(super) fn falling_petals(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// A thin thread of incense smoke curling up — a censer by the lantern or
+/// A thin thread of incense smoke curling up - a censer by the lantern or
 /// the tea-garden gate.
 pub(super) fn incense_wisp(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -82,7 +82,7 @@ pub(super) fn incense_wisp(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// A lazy grey-blue column of hearth smoke rising and spreading — the
+/// A lazy grey-blue column of hearth smoke rising and spreading - the
 /// farmhouse hearth venting through its roof.
 pub(super) fn hearth_smoke(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -116,7 +116,7 @@ pub(super) fn hearth_smoke(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A deep bronze temple-bell ring — a low fundamental and its octave under
+/// A deep bronze temple-bell ring - a low fundamental and its octave under
 /// a slow tremolo, darkened by a lowpass: the sustained hum of a struck
 /// bonshō.
 pub(super) fn temple_bell_ring() -> SovereignAudioConfig {
@@ -180,7 +180,7 @@ pub(super) fn temple_bell_ring() -> SovereignAudioConfig {
     patch(vec![s1, s2, mix, lfo, vca, lp], NodeId(5))
 }
 
-/// The soft trickle of a garden water basin — band-passed noise pulsed by a
+/// The soft trickle of a garden water basin - band-passed noise pulsed by a
 /// gentle LFO, kept low under a lowpass. A tsukubai by the tea house.
 pub(super) fn water_basin() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.4 }));

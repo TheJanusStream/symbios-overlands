@@ -1,4 +1,4 @@
-//! Temple Gateway — the Mesoamerican bespoke social gateway (#761). A
+//! Temple Gateway - the Mesoamerican bespoke social gateway (#761). A
 //! walk-through temple doorway framed by two battered talud-tablero pylons,
 //! spanned by a cream stone lintel carrying a red glyph frieze and a
 //! roof-comb crest with a beaten-gold sun disc on the front (−Z) face. Two
@@ -52,7 +52,7 @@ impl CatalogueEntry for MesoamericanGateway {
 }
 
 fn build_tree() -> Generator {
-    // Temple forecourt slab — the flat-base root. Never tilt a root: every
+    // Temple forecourt slab - the flat-base root. Never tilt a root: every
     // child inherits its transform, so a rotated slab would spin the gate.
     let mut prims = vec![prim(
         solid(cuboid_tapered(
@@ -67,7 +67,7 @@ fn build_tree() -> Generator {
     // Two battered talud-tablero pylons flanking a ~2.65 m walk-through gap.
     // Each is a sloped limestone talud base, an oversailing cream tablero
     // body with a recessed red glyph panel on the front (−Z) face, and a
-    // stepped cornice cap — the signature Mesoamerican platform silhouette.
+    // stepped cornice cap - the signature Mesoamerican platform silhouette.
     for sx in [-1.0_f32, 1.0] {
         let px = sx * 2.0;
         // Battered talud base.
@@ -131,7 +131,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Roof-comb crest above the lintel — a stepped openwork crown, cream over
+    // Roof-comb crest above the lintel - a stepped openwork crown, cream over
     // red, tapering to a limestone finial, in the temple-mountain idiom.
     prims.push(prim(
         solid(cuboid_tapered(
@@ -169,7 +169,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Threshold accents. A warm firelight strip glowing under the lintel —
+    // Threshold accents. A warm firelight strip glowing under the lintel -
     // a thin band, deep-saturated at moderate strength so it reads as an
     // active threshold rather than a white lightbox.
     prims.push(prim(
@@ -181,7 +181,7 @@ fn build_tree() -> Generator {
         [0.0, 3.78, -0.2],
         id_quat(),
     ));
-    // Two brazier torches on stone corbels flanking the opening — small hot
+    // Two brazier torches on stone corbels flanking the opening - small hot
     // emissive orbs lighting the way in.
     for sx in [-1.0_f32, 1.0] {
         let bx = sx * 1.25;
@@ -228,7 +228,7 @@ mod tests {
         assert_sanitize_stable(&MesoamericanGateway.build(""), "mesoamerican_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is furniture, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

@@ -1,8 +1,8 @@
-//! Barrel fire — a rusted oil drum burnt out into an open-topped brazier,
+//! Barrel fire - a rusted oil drum burnt out into an open-topped brazier,
 //! with a live fire down inside it. A prosperity-Poor scatter prop: the
 //! universal sign of people keeping warm on the margins, in any setting.
 //!
-//! The fire is entirely particle-driven ([`super::fx`]) — two flame layers,
+//! The fire is entirely particle-driven ([`super::fx`]) - two flame layers,
 //! embers, and two smoke layers. The only static hot geometry is the fuel
 //! bed itself: the coals, which genuinely *are* solid objects sitting still
 //! at the bottom of the drum. Everything above them is combustion, and
@@ -59,7 +59,7 @@ fn build_tree() -> Generator {
     let drum_h = 0.9;
     let drum_r = 0.34;
     // Fraction of the radius bored out. The remaining 12% is the steel
-    // wall — thin enough to read as sheet metal at the rim, thick enough
+    // wall - thin enough to read as sheet metal at the rim, thick enough
     // that the top annulus is a visible lip rather than a hairline.
     let bore = 0.88;
     // Where the fuel sits. Everything that burns lives between here and
@@ -70,7 +70,7 @@ fn build_tree() -> Generator {
         // The drum: a hollowed cylinder, so the top is a genuine opening
         // with an annular lip and an inner wall you can see down. The
         // hollow cut routes the collider to a convex hull of the mesh,
-        // which fills the bore — a barrel you cannot step into, which is
+        // which fills the bore - a barrel you cannot step into, which is
         // the behaviour we want.
         prim(
             solid(with_cut(
@@ -104,7 +104,7 @@ fn build_tree() -> Generator {
             [0.0, drum_h, 0.0],
             id_quat(),
         ),
-        // Ash floor a little way up the bore — without it you see straight
+        // Ash floor a little way up the bore - without it you see straight
         // through the annular bottom cap to the ground.
         prim(
             cylinder_tapered(

@@ -1,4 +1,4 @@
-//! Rural / Farmland-theme catalogue structures — a working farmstead under
+//! Rural / Farmland-theme catalogue structures - a working farmstead under
 //! a golden-hour sky.
 //!
 //! Two prosperity registers share one identity: the established
@@ -11,7 +11,7 @@
 //! timber, ribbed [`metal_roof`] and [`silo_metal`] steel, asphalt
 //! [`shingle`], [`glass`] panes, smooth painted [`enamel`], and fieldstone
 //! [`stone`]. A lit barn window glows, the farmhouse chimneys smoke, chaff
-//! drifts off the hayloft and the windmill creaks over crickets — all from
+//! drifts off the hayloft and the windmill creaks over crickets - all from
 //! [`fx`]. The theme's golden-hour accent lives in
 //! [`crate::seeded_defaults::room::accent`].
 
@@ -26,7 +26,7 @@ pub mod rail_fence;
 pub mod scarecrow;
 pub mod tractor;
 pub mod windmill;
-// Poor (hardscrabble) variants — the prosperity-Poor end of the theme.
+// Poor (hardscrabble) variants - the prosperity-Poor end of the theme.
 pub mod farm_junk;
 pub mod homestead_shack;
 pub mod pole_barn;
@@ -44,23 +44,23 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the established farmstead kit — a painted barn
+/// Shared prosperity band for the established farmstead kit - a painted barn
 /// and tidy fields read as a Modest-to-Rich farm. The poor end is the
 /// separate hardscrabble kit ([`homestead_shack`], …), tagged `Poor`.
 pub(super) const FARM_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the hardscrabble kit — the destitute end of the
+/// Prosperity band for the hardscrabble kit - the destitute end of the
 /// theme, never picked for a modest or affluent room.
 pub(super) const FARM_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Painted barn-board siding — the deep red of the barn, boards with a
+/// Painted barn-board siding - the deep red of the barn, boards with a
 /// little grain so it reads as timber, not a flat slab.
 ///
 /// `stagger` is held at zero across this kit's three plank materials (#972
 /// lesson 4): any value above 0.01 switches on the generator's hard-coded
 /// three-butt-joints-per-tile grid, and on a 1.3 m tile that is a butt joint
-/// every 445 mm — a wall of boarding rendering as coarse masonry. Real siding
+/// every 445 mm - a wall of boarding rendering as coarse masonry. Real siding
 /// is milled in 3–5 m lengths. The per-course grain de-correlation survives
 /// untouched, because it comes from the row's own hash.
 ///
@@ -91,7 +91,7 @@ pub(super) fn barn_board(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Painted clapboard — the pale lap siding of the farmhouse.
+/// Painted clapboard - the pale lap siding of the farmhouse.
 pub(super) fn clapboard(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -116,7 +116,7 @@ pub(super) fn clapboard(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Weathered grey timber — fences, the shack, the pole barn.
+/// Weathered grey timber - fences, the shack, the pole barn.
 pub(super) fn weathered(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -139,7 +139,7 @@ pub(super) fn weathered(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Ribbed corrugated roofing steel — barn and shed roofs.
+/// Ribbed corrugated roofing steel - barn and shed roofs.
 pub(super) fn metal_roof(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -161,7 +161,7 @@ pub(super) fn metal_roof(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Galvanised ribbed steel — the grain silo body.
+/// Galvanised ribbed steel - the grain silo body.
 pub(super) fn silo_metal(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -184,7 +184,7 @@ pub(super) fn silo_metal(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Asphalt-shingle roof — the farmhouse.
+/// Asphalt-shingle roof - the farmhouse.
 pub(super) fn shingle(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -227,7 +227,7 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
 ///
 /// Follows the factory's and the coastal kit's move: a shared card material
 /// cannot know how big the hole it fills is, and the pane count is precisely
-/// what tells a viewer that — three lights across a 1.5 m sash and ten across
+/// what tells a viewer that - three lights across a 1.5 m sash and ten across
 /// an 8 m roof slope are the same material at two scales. Everything else
 /// ([`glass`]'s grime, its putty colour, its opacity) is worth inheriting, so
 /// this overrides the two fields rather than swapping in the generic
@@ -241,7 +241,7 @@ pub(super) fn pane_grid(tint: [f32; 3], glow: f32, panes: (u32, u32)) -> Soverei
     m
 }
 
-/// Farm concrete — a laid pad, a glasshouse base, a standing apron. Board
+/// Farm concrete - a laid pad, a glasshouse base, a standing apron. Board
 /// marks from the shuttering rather than the fieldstone of [`stone`], which
 /// is what a wall is built of and not what a floor is poured on.
 pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
@@ -260,7 +260,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Smooth painted enamel — the tractor, water troughs, windmill fan, vanes.
+/// Smooth painted enamel - the tractor, water troughs, windmill fan, vanes.
 pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -281,7 +281,7 @@ pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Fieldstone — barn and house foundations.
+/// Fieldstone - barn and house foundations.
 pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -309,7 +309,7 @@ pub(super) const STONE_GREY: [f32; 3] = [0.52, 0.50, 0.46];
 pub(super) const TRACTOR_GREEN: [f32; 3] = [0.16, 0.34, 0.16];
 pub(super) const TRACTOR_YELLOW: [f32; 3] = [0.80, 0.66, 0.16];
 pub(super) const GLASS_TINT: [f32; 3] = [0.55, 0.66, 0.60];
-/// Poured farm concrete — glasshouse base, standing apron, yard slab.
+/// Poured farm concrete - glasshouse base, standing apron, yard slab.
 pub(super) const CONCRETE_PALE: [f32; 3] = [0.60, 0.59, 0.56];
 
 /// Warm lamplight in the barn window.
@@ -335,7 +335,7 @@ mod tests {
         }
     }
 
-    /// The barn is the kit's lit hero — it must keep its emissive window so
+    /// The barn is the kit's lit hero - it must keep its emissive window so
     /// escalation's broken-emissive ruin pass has something to dim.
     #[test]
     fn barn_keeps_its_lamp() {

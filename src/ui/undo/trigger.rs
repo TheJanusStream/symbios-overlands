@@ -14,7 +14,7 @@
 //!
 //! Requests stamped by the egui pass (buttons, inside `PostUpdate`) are
 //! consumed by the next frame's `Update`; chord requests (stamped in
-//! `Update` by `global_shortcuts`) are consumed the same frame — the
+//! `Update` by `global_shortcuts`) are consumed the same frame - the
 //! apply system is registered `.after(global_shortcuts)`.
 
 use bevy::prelude::*;
@@ -79,7 +79,7 @@ pub fn apply_undo_shortcut(
     };
     let stepped = match target {
         None => {
-            toasts.info(format!("Nothing to {verb} — no editor open"), now);
+            toasts.info(format!("Nothing to {verb} - no editor open"), now);
             return;
         }
         Some(EditorKind::World) => {
@@ -95,12 +95,12 @@ pub fn apply_undo_shortcut(
             step_avatar(kind, &mut avatar_history, &mut record, &mut avatar_editor)
         }
         // Inventory has no undo stack (decision 2026-07-18), but it IS a
-        // Ctrl+Z candidate since #1139 — precisely so the chord stops at
+        // Ctrl+Z candidate since #1139 - precisely so the chord stops at
         // the window the user was looking at instead of falling through
         // to the editor beneath it. Say so rather than eating the press.
         Some(EditorKind::Inventory) => {
             toasts.info(
-                format!("Inventory has no {verb} — use Revert to saved"),
+                format!("Inventory has no {verb} - use Revert to saved"),
                 now,
             );
             return;
@@ -116,7 +116,7 @@ pub fn apply_undo_shortcut(
 /// The Undo/Redo pair for an editor's header row. Enabled state and
 /// hover text derive from the history; a click stamps the shared
 /// [`UndoShortcut`], so buttons and chords share one application path
-/// (and one toast). Text labels, not glyphs — the #816 glyph-coverage
+/// (and one toast). Text labels, not glyphs - the #816 glyph-coverage
 /// audit is the reason there are no ⟲/⟳ arrows here.
 pub fn undo_redo_buttons<R, S>(
     ui: &mut egui::Ui,

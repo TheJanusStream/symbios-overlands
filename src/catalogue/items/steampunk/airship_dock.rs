@@ -1,7 +1,7 @@
-//! Airship dock — a Steampunk secondary. An iron lattice mooring mast (four
+//! Airship dock - a Steampunk secondary. An iron lattice mooring mast (four
 //! inward-leaning corner legs cinched by brass band frames and crossed
 //! diagonal braces) with a brass docking ring and a plank gangway, a small
-//! dirigible moored alongside — a smooth copper gas-bag over an iron gondola.
+//! dirigible moored alongside - a smooth copper gas-bag over an iron gondola.
 //! The aerial harbour of the works.
 //!
 //! The envelope is a [`prim_scaled`] sphere stretched along Z into a smooth
@@ -64,7 +64,7 @@ fn build_tree() -> Generator {
     let half = |f: f32| 1.0 + (0.5 - f) * mast_h * tilt;
 
     let mut prims = vec![
-        // Iron base — the root.
+        // Iron base - the root.
         prim(
             solid(cuboid_tapered([3.2, base_h, 3.2], 0.0, iron(IRON_DARK))),
             [0.0, base_h * 0.5, 0.0],

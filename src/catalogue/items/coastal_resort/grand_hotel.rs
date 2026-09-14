@@ -1,4 +1,4 @@
-//! Grand hotel — the Coastal-Resort landmark and the kit's lit hero. A
+//! Grand hotel - the Coastal-Resort landmark and the kit's lit hero. A
 //! whitewashed stucco block of three storeys, its seafront elevation cut into
 //! five bays by full-height pilasters: a lobby arcade at terrace level under a
 //! striped awning, and above it two floors of French doors opening onto
@@ -9,7 +9,7 @@
 //!
 //! 1. **A lit glass box for a lobby.** The ground floor used the modern-city
 //!    [`curtain_wall`](crate::catalogue::items::modern_city::curtain_wall),
-//!    which is a lit glass *cuboid* behind proud fins — fine on the tower it
+//!    which is a lit glass *cuboid* behind proud fins - fine on the tower it
 //!    was written for and, as that helper's own note says, wrong at eye level,
 //!    because handed a `Window` texture the one thing it cannot be is a
 //!    window. It had no entrance at all, and nothing behind the glass.
@@ -20,7 +20,7 @@
 //!    behind them.
 //! 3. **A pool three and a half metres out to sea.** The terrace was placed
 //!    at a round number measured off the building, which left a gap of bare
-//!    ground between the podium and the deck — the #972 lesson-8 failure, and
+//!    ground between the podium and the deck - the #972 lesson-8 failure, and
 //!    invisible unless a tile looks along that edge.
 //!
 //! What it is: five bays of real openings with cards in their reveals and lit
@@ -49,7 +49,7 @@ use super::{
 /// Body width (X) and depth (Z).
 const W: f32 = 15.0;
 const D: f32 = 10.0;
-/// Podium height — the terrace level, and the datum every storey is measured
+/// Podium height - the terrace level, and the datum every storey is measured
 /// from.
 const PODIUM_H: f32 = 0.7;
 /// How far the podium oversails the body on every side. The terrace, the
@@ -66,7 +66,7 @@ const STOREY: f32 = 3.2;
 const PLATE: f32 = LOBBY_H + STOREY * 2.0;
 const PARAPET_H: f32 = 1.0;
 
-/// Outer face of the seafront elevation — the `-Z` hero direction the render
+/// Outer face of the seafront elevation - the `-Z` hero direction the render
 /// tool and the settlement placer both look down.
 const FRONT: f32 = -D * 0.5;
 const FRONT_MID: f32 = FRONT + WALL_T * 0.5;
@@ -76,7 +76,7 @@ const RECESS: f32 = 0.07;
 const GLAZE_Z: f32 = FRONT + WALL_T * 0.7;
 /// Where a room panel stands behind an opening.
 const ROOM_Z: f32 = FRONT + 0.75;
-/// Centre plane of proud trim — cornices, bands, casings.
+/// Centre plane of proud trim - cornices, bands, casings.
 const TRIM_Z: f32 = FRONT - 0.05;
 
 /// Bay centres in X. Five bays at a 2.7 m pitch leave every pilaster exactly
@@ -99,7 +99,7 @@ const RAIL_H: f32 = 1.0;
 
 // --- Palette local to this entry. ------------------------------------------
 
-/// Window joinery — the painted white frames the cards carry.
+/// Window joinery - the painted white frames the cards carry.
 const JOINERY: [f32; 3] = [0.95, 0.94, 0.9];
 /// Guest rooms behind the French doors: a warm lamplit interior.
 const ROOM_WARM: [f32; 3] = [0.66, 0.54, 0.36];
@@ -107,7 +107,7 @@ const ROOM_WARM: [f32; 3] = [0.66, 0.54, 0.36];
 // --- Shared construction. --------------------------------------------------
 
 /// Whitewashed stucco laid in the wall's own frame. Stucco is near-scaleless,
-/// so the offset buys little on its own — but keeping every slab in one frame
+/// so the offset buys little on its own - but keeping every slab in one frame
 /// is what stops the render's grain stepping at each wall break, and it costs
 /// one call.
 fn render_mat(color: [f32; 3], center: [f32; 3], face: FaceKey) -> SovereignMaterialSettings {
@@ -129,7 +129,7 @@ fn wall(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
     )
 }
 
-/// A proud sand-stucco band — cornice, string course, casing, coping. Always
+/// A proud sand-stucco band - cornice, string course, casing, coping. Always
 /// oversized against what it laps and always standing off the surface it
 /// laps, so it never shares a plane with its host.
 fn band(size: [f32; 3], center: [f32; 3]) -> Generator {
@@ -172,7 +172,7 @@ fn side_glazing(size: [f32; 2], center: [f32; 3], sx: f32) -> Generator {
     )
 }
 
-/// A lit room behind one opening — the surface a card's masked-away panes
+/// A lit room behind one opening - the surface a card's masked-away panes
 /// actually show. Nothing lights the inside of an enclosed prop, so these
 /// carry a low self-lit term of their own.
 fn room(size: [f32; 2], center: [f32; 3], color: [f32; 3], lit: f32) -> Generator {
@@ -275,14 +275,14 @@ fn build_tree() -> Generator {
 // --- The shell. ------------------------------------------------------------
 
 /// Lobby floor, and on it everything the hotel is: the stucco that frames the
-/// openings, the glazing, the rooms behind it, the balconies, and — on the
-/// plate — the cornice, the parapet and the sign.
+/// openings, the glazing, the rooms behind it, the balconies, and - on the
+/// plate - the cornice, the parapet and the sign.
 fn shell() -> Generator {
     let mut parts = Vec::new();
     let mid_y = PODIUM_H + PLATE * 0.5;
     let inner_d = D - WALL_T * 2.0;
 
-    // Back wall — solid; only the seafront is cut.
+    // Back wall - solid; only the seafront is cut.
     parts.push(wall(
         [W, PLATE, WALL_T],
         [0.0, mid_y, D * 0.5 - WALL_T * 0.5],
@@ -390,7 +390,7 @@ fn flanks(parts: &mut Vec<Generator>, inner_d: f32) {
 ///
 /// The same scheme the tenement uses, and for the same reason: a five-bay,
 /// three-storey grid framed slab-by-slab is thirty-odd wall pieces, where
-/// continuous pilasters over recessed spandrels is nine — and on a stucco
+/// continuous pilasters over recessed spandrels is nine - and on a stucco
 /// building the pilaster order is what the elevation is *about*.
 fn seafront(parts: &mut Vec<Generator>) {
     let mut edges = vec![-W * 0.5];
@@ -451,7 +451,7 @@ fn seafront(parts: &mut Vec<Generator>) {
 /// The lobby behind the arcade: a lit reception counter in the entrance bay
 /// and a lounge group in the bays either side.
 ///
-/// #972 lesson 9 — a fit-out authored for "the lobby" leaves whichever bay it
+/// #972 lesson 9 - a fit-out authored for "the lobby" leaves whichever bay it
 /// was not written for a black rectangle beside one that reads beautifully.
 /// This is laid out bay by bay.
 fn lobby_fitout(parts: &mut Vec<Generator>) {
@@ -498,7 +498,7 @@ fn lobby_fitout(parts: &mut Vec<Generator>) {
             id_quat(),
         ));
     }
-    // A warm ceiling wash across the whole lobby — one strip, so every bay
+    // A warm ceiling wash across the whole lobby - one strip, so every bay
     // gets the same light rather than one bay getting all of it.
     parts.push(prim(
         cuboid_tapered([W - 2.0, 0.14, 1.2], 0.0, glow(SIGN_GOLD, 1.4)),
@@ -524,7 +524,7 @@ fn lobby_fitout(parts: &mut Vec<Generator>) {
 /// One continuous seafront balcony at `y` above the podium: the slab, a
 /// baluster railing on it, and the underside soffit.
 ///
-/// A railing is a *railing* — a top rail, a bottom rail and balusters. The
+/// A railing is a *railing* - a top rail, a bottom rail and balusters. The
 /// single 0.55 m plate this replaces read as a parapet wall and hid the
 /// French doors behind it, which is the one thing a balcony must not do.
 fn balcony(y: f32) -> Generator {
@@ -582,7 +582,7 @@ const AWNING_POLE_IN: f32 = 0.45;
 ///
 /// The poles are placed from the podium's own edge rather than from the
 /// canopy's: slung far enough out, their feet land beyond the paving and the
-/// awning stands on nothing — a half-metre float that no head-on angle shows,
+/// awning stands on nothing - a half-metre float that no head-on angle shows,
 /// because the canopy is directly above it.
 fn awning() -> Generator {
     let y = PODIUM_H + LOBBY_HEAD + 0.5;
@@ -601,7 +601,7 @@ fn awning() -> Generator {
             id_quat(),
         ));
     }
-    // Scalloped valance at the leading edge — the one thing that stops a
+    // Scalloped valance at the leading edge - the one thing that stops a
     // canopy reading as a flat red rectangle at this size.
     parts.push(prim(
         cuboid_tapered([5.2, 0.3, 0.08], 0.12, canvas(AWNING_WHITE, AWNING_RED)),
@@ -617,7 +617,7 @@ fn awning() -> Generator {
     // The sub-root is the head rail across the poles, **not** the canopy. A
     // tilted sub-root spins everything nested under it, so hanging the poles
     // off the sloping canvas turned them 15° and slid their feet off the
-    // podium — and the footprint guard, which walks translations only,
+    // podium - and the footprint guard, which walks translations only,
     // reported them exactly where they were authored. Both the render and the
     // check agreed with a record that was wrong.
     let head = prim(
@@ -635,7 +635,7 @@ fn cornice() -> Generator {
     let corona = band([W + 0.7, 0.34, D + 0.7], [0.0, y + 0.17, 0.0]);
     let mut parts = Vec::new();
     // Parapet ring: four walls, each with its own coping, rather than one
-    // slab across the roof — a cap would hide the deck from every angle the
+    // slab across the roof - a cap would hide the deck from every angle the
     // contact sheet takes.
     let p_t = 0.34;
     let top = y + 0.34;
@@ -715,8 +715,8 @@ fn cornice() -> Generator {
 
 /// The pool terrace, running off the podium's **own** front edge.
 ///
-/// It used to be placed at `front - 6.5` — a round number measured off the
-/// building — which left three and a half metres of bare ground between the
+/// It used to be placed at `front - 6.5` - a round number measured off the
+/// building - which left three and a half metres of bare ground between the
 /// podium and the deck. Deriving the deck from the podium's edge is #972
 /// lesson 8, and the sub-root is the deck itself, so one drag takes the pool,
 /// the coping and the parasols with it.
@@ -754,7 +754,7 @@ fn terrace() -> Generator {
             id_quat(),
         ),
     ];
-    // Proud coping rim framing the water — raised, so nothing is flush.
+    // Proud coping rim framing the water - raised, so nothing is flush.
     for (size, pos) in [
         (
             [pool_w + 0.8, 0.16, 0.34],
@@ -780,7 +780,7 @@ fn terrace() -> Generator {
         ));
     }
     // Steps from the podium down onto the terrace, on the entrance bay's
-    // centreline and derived from the drop between the two decks — the
+    // centreline and derived from the drop between the two decks - the
     // podium stands 0.7 off the ground and the terrace 0.22, and a doorway
     // opening onto a half-metre drop is the same fault the fishing shack had.
     let drop = PODIUM_H - 0.22;
@@ -855,7 +855,7 @@ mod tests {
     }
 
     /// #972 lesson 1: every `Window` card sits on a `Plane` at `uv_scale` 1.0
-    /// — one per opening, plus the entrance leaves. The exact count is what
+    /// - one per opening, plus the entrance leaves. The exact count is what
     /// bites: a card on a solid still renders, it just renders as a frame with
     /// holes onto the stucco behind it, which is what all four of this
     /// entry's glazed surfaces used to be.
@@ -884,7 +884,7 @@ mod tests {
     }
 
     /// The hotel does **not** reach for `modern_city::curtain_wall`. That
-    /// helper is a lit glass *cuboid* behind proud fins — right on the tower
+    /// helper is a lit glass *cuboid* behind proud fins - right on the tower
     /// it was written for, wrong at eye level, and it was standing in for this
     /// entry's whole lobby. A `Window` texture on a solid is the failure the
     /// card idiom exists to prevent, so this is worth pinning by name rather
@@ -918,7 +918,7 @@ mod tests {
 
     /// #972 lesson 8: the pool terrace runs off the podium's own edge. It used
     /// to sit at a round number measured off the *building*, which left 3.5 m
-    /// of bare ground between the two — invisible unless a contact-sheet tile
+    /// of bare ground between the two - invisible unless a contact-sheet tile
     /// looks along that edge.
     #[test]
     fn the_terrace_meets_the_podium() {
@@ -979,7 +979,7 @@ mod tests {
 
     /// A balcony railing is a railing: two rails and balusters, not a plate.
     /// The 0.55 m panel this replaces read as a parapet wall and hid the
-    /// French doors behind it — the one thing a balcony must not do.
+    /// French doors behind it - the one thing a balcony must not do.
     #[test]
     fn the_balcony_railings_are_open() {
         let root = GrandHotel.build("");
@@ -995,7 +995,7 @@ mod tests {
         });
         assert!(
             balusters >= 40,
-            "only {balusters} balusters across two balconies — the railing is a plate"
+            "only {balusters} balusters across two balconies - the railing is a plate"
         );
     }
 

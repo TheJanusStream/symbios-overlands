@@ -1,4 +1,4 @@
-//! Market hall — a Medieval secondary. The classic open-ground market
+//! Market hall - a Medieval secondary. The classic open-ground market
 //! house: a stone-pillared arcade of round arches left open at street level
 //! for traders' stalls, a jettied timber-framed upper floor with daub infill
 //! where the guild meets, a steep tiled gable roof, and a little open bell
@@ -55,7 +55,7 @@ impl CatalogueEntry for MarketHall {
 }
 
 /// A semicircular stone arch spanning along X in the wall (XY) plane at
-/// `z = zf`, springing at `y` with radius `r` — the Romanesque arcade head.
+/// `z = zf`, springing at `y` with radius `r` - the Romanesque arcade head.
 fn round_arch_x(cx: f32, y: f32, zf: f32, r: f32, mat: SovereignMaterialSettings) -> Generator {
     prim(
         with_cut(torus(0.16, r, mat), [0.0, 0.5], [0.0, 1.0], 0.0),
@@ -78,7 +78,7 @@ fn build_tree() -> Generator {
     let arch_r = 1.1;
 
     let mut prims = vec![
-        // Cobbled footing — the root.
+        // Cobbled footing - the root.
         prim(
             solid(cuboid_tapered(
                 [l + 0.6, foot_h, w + 0.6],

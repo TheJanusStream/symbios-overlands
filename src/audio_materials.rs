@@ -3,7 +3,7 @@
 //!
 //! [`impact_recipe_for`] takes the [`SovereignTextureConfig`] of an
 //! authored splat layer or construct material and returns a recipe whose
-//! [`AudioPatch`] is tuned for that material's perceptual character —
+//! [`AudioPatch`] is tuned for that material's perceptual character -
 //! rock is a bright sharp transient, grass a soft muffled thud, metal
 //! a high-frequency ring, and so on.
 //!
@@ -17,11 +17,11 @@
 //!
 //! # Patch shape
 //!
-//! Every impact uses the same four-node topology — a noise source, an
+//! Every impact uses the same four-node topology - a noise source, an
 //! ADSR envelope, a biquad low-pass, and a final gain (VCA). The single
 //! ADSR does double duty: it sweeps the filter cutoff (so the transient
 //! opens bright then darkens) *and* drives the output gain (so the tail
-//! also decays in level, not just in brightness — a cleaner one-shot
+//! also decays in level, not just in brightness - a cleaner one-shot
 //! than the filter sweep alone):
 //!
 //! ```text
@@ -56,22 +56,22 @@ const ADSR_ID: NodeId = NodeId(1);
 const FILTER_ID: NodeId = NodeId(2);
 const GAIN_ID: NodeId = NodeId(3);
 
-/// Material-class identifier — the perceptual bucket a texture maps to.
+/// Material-class identifier - the perceptual bucket a texture maps to.
 /// One impact recipe per class; multiple texture variants can share a
 /// class (e.g. `Pavers` / `Cobblestone` / `Ashlar` all sound like rock).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImpactMaterial {
-    /// Bright sharp transient — exposed bedrock, dressed stone, paving.
+    /// Bright sharp transient - exposed bedrock, dressed stone, paving.
     Rock,
-    /// Muffled organic thud — packed soil, turf, dirt.
+    /// Muffled organic thud - packed soil, turf, dirt.
     Ground,
-    /// Wood-like thud — planks, bark, shingles, panelling.
+    /// Wood-like thud - planks, bark, shingles, panelling.
     Wood,
-    /// Solid heavy thud — brick, concrete, marble, asphalt.
+    /// Solid heavy thud - brick, concrete, marble, asphalt.
     Stone,
-    /// Bright high-frequency ring — sheet metal, grilles, corrugated.
+    /// Bright high-frequency ring - sheet metal, grilles, corrugated.
     Metal,
-    /// Almost-silent rustle — leaves, thatch, twig piles.
+    /// Almost-silent rustle - leaves, thatch, twig piles.
     Soft,
     /// Catch-all for None / Referenced / Unknown / non-impactable
     /// decorative textures.
@@ -81,7 +81,7 @@ pub enum ImpactMaterial {
 /// Tunable knobs that distinguish one impact material from another.
 #[derive(Debug, Clone, Copy)]
 struct ImpactParams {
-    /// Noise colour — white for sharp transients, pink for balanced,
+    /// Noise colour - white for sharp transients, pink for balanced,
     /// brown for low-rumble.
     noise: NoiseKind,
     /// Noise amplitude before the filter. Bounded well below unity so
@@ -90,14 +90,14 @@ struct ImpactParams {
     /// Peak filter cutoff (Hz) when the ADSR envelope is at 1.0.
     /// Higher = brighter; lower = more muffled.
     peak_cutoff_hz: f32,
-    /// Filter resonance — bumps tonal character around the cutoff.
+    /// Filter resonance - bumps tonal character around the cutoff.
     /// Low for broad transients, slightly higher for ringing materials.
     filter_q: f32,
     /// ADSR attack time (s). Sub-millisecond for clicky impacts;
     /// ~10 ms for softer onsets.
     attack_s: f32,
     /// ADSR decay time (s). The dominant perceptual length of the
-    /// impact — short for crisp materials, long for soft / lossy ones.
+    /// impact - short for crisp materials, long for soft / lossy ones.
     decay_s: f32,
 }
 
@@ -189,7 +189,7 @@ impl ImpactMaterial {
 fn classify(texture: &SovereignTextureConfig) -> ImpactMaterial {
     match texture {
         SovereignTextureConfig::Rock(_) => ImpactMaterial::Rock,
-        // Loose aggregate grinds rather than rings — closest to stone.
+        // Loose aggregate grinds rather than rings - closest to stone.
         SovereignTextureConfig::Gravel(_) => ImpactMaterial::Rock,
         // Dried mud is still earth underfoot.
         SovereignTextureConfig::CrackedEarth(_) => ImpactMaterial::Ground,
@@ -218,7 +218,7 @@ fn classify(texture: &SovereignTextureConfig) -> ImpactMaterial {
         | SovereignTextureConfig::Wainscoting(_)
         // A cut-log end is a wooden surface.
         | SovereignTextureConfig::LogEnd(_)
-        // A cactus stem is a firm, fibrous succulent — closest to wood.
+        // A cactus stem is a firm, fibrous succulent - closest to wood.
         | SovereignTextureConfig::CactusSkin(_) => ImpactMaterial::Wood,
         SovereignTextureConfig::Brick(_)
         | SovereignTextureConfig::Concrete(_)
@@ -254,7 +254,7 @@ fn classify(texture: &SovereignTextureConfig) -> ImpactMaterial {
         | SovereignTextureConfig::Fabric(_)
         | SovereignTextureConfig::Snow(_) => ImpactMaterial::Soft,
         // Delicate / non-impactable decorative variants fall to the
-        // generic thud — you don't normally walk on a window pane, but
+        // generic thud - you don't normally walk on a window pane, but
         // the impact trigger may still fire on edge cases (clipping,
         // construct collisions) and silent is worse than a thud. The
         // intangible particle sprites (glows, sparks, flames, rings) have
@@ -376,7 +376,7 @@ fn build_impact_patch(params: ImpactParams) -> AudioPatch {
     // VCA: the same ADSR that sweeps the cutoff also shapes the output
     // amplitude. With base gain 0.0 the envelope on the `gain` port is
     // the whole amplitude contour, so the impact's tail decays in level
-    // (not just in brightness) — a cleaner one-shot than relying on the
+    // (not just in brightness) - a cleaner one-shot than relying on the
     // filter sweep alone. ADSR output is [0, 1], a clean VCA control.
     let mut gain_inputs = BTreeMap::new();
     gain_inputs.insert("in".to_string(), vec![Connection::from_node(FILTER_ID)]);
@@ -388,7 +388,7 @@ fn build_impact_patch(params: ImpactParams) -> AudioPatch {
     };
 
     AudioPatch {
-        // Impact patches are authored, not seeded — a fixed seed gives
+        // Impact patches are authored, not seeded - a fixed seed gives
         // the same bit-identical impact every collision. The noise
         // colour distinguishes materials; bake-to-bake variation can be
         // achieved by the call site mutating the seed if jitter is
@@ -415,11 +415,11 @@ pub struct ImpactCooldowns {
 }
 
 /// Minimum seconds between two consecutive impact plays on the same
-/// avatar. Below this, a fresh impact is dropped — keeps a stutter-step
+/// avatar. Below this, a fresh impact is dropped - keeps a stutter-step
 /// or terrain glitch from queuing a wall of overlapping voices.
 const IMPACT_COOLDOWN_SECS: f64 = 0.18;
 
-/// Volume floor — below this scaled value an impact is dropped
+/// Volume floor - below this scaled value an impact is dropped
 /// entirely (saves the cost of a bake whose result will be inaudible).
 const IMPACT_VOLUME_FLOOR: f32 = 0.05;
 
@@ -455,7 +455,7 @@ pub fn play_terrain_impacts(
         if sample.phase != ContactPhase::Enter {
             continue;
         }
-        // Per-avatar cooldown — the same avatar can't trigger two
+        // Per-avatar cooldown - the same avatar can't trigger two
         // impacts within the cooldown window. Different avatars get
         // independent budgets so a crowded room still feels alive.
         if let Some(&last) = cooldowns.last_play_secs.get(&sample.avatar)
@@ -467,12 +467,12 @@ pub fn play_terrain_impacts(
         let SurfaceContact::Terrain { material_blend, .. } = sample.surface else {
             // SurfaceKind::Terrain filter should guarantee this branch
             // is unreachable, but the compiler can't see through the
-            // filter — explicit unreachable! would be cleaner if the
+            // filter - explicit unreachable! would be cleaner if the
             // unreachable-arm lint flags this in a future Rust.
             continue;
         };
 
-        // Dominant material layer — argmax over the four splat weights.
+        // Dominant material layer - argmax over the four splat weights.
         let dominant = crate::interaction::contact::dominant_layer(material_blend);
         let texture = &terrain.material.layers[dominant];
 
@@ -485,8 +485,8 @@ pub fn play_terrain_impacts(
 
         // Bake at unit volume and scale at playback (the one-shot's
         // `PlaybackSettings` carries `Volume::Linear(volume)`): keeping
-        // the recipe volume-independent makes the serialised config —
-        // the bake-cache key — identical across impacts, so each
+        // the recipe volume-independent makes the serialised config -
+        // the bake-cache key - identical across impacts, so each
         // material bakes once per session instead of once per footstep.
         let recipe = impact_recipe_for(texture, 1.0);
         let audio = crate::pds::SovereignAudioConfig::from_sequence(&recipe);
@@ -515,7 +515,7 @@ mod tests {
     /// Enumerating [`ImpactMaterial`] rather than texture variants is the
     /// complete check, not a sample of one: `impact_recipe_for` resolves
     /// every texture through `classify` into one of these, and the recipe
-    /// depends on nothing else but the volume — both extremes of which are
+    /// depends on nothing else but the volume - both extremes of which are
     /// covered here.
     #[test]
     fn no_impact_recipe_is_touched_by_the_bake_envelope() {
@@ -562,7 +562,7 @@ mod tests {
                 assert_eq!(
                     clamped, recipe,
                     "the bake envelope rewrites the {material:?} impact at \
-                     volume {volume} — widen the envelope upstream, never \
+                     volume {volume} - widen the envelope upstream, never \
                      clamp shipped content"
                 );
             }
@@ -611,7 +611,7 @@ mod tests {
 
     #[test]
     fn generic_fallback_for_non_impactable_variants() {
-        // None, Referenced, Unknown all map to Generic — the patch
+        // None, Referenced, Unknown all map to Generic - the patch
         // must still be bakeable so a fire-and-forget impact trigger
         // never panics on a forward-compat variant.
         for texture in [

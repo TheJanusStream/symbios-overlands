@@ -1,4 +1,4 @@
-//! Owner Ema Board — the Feudal-Japan identity monument (#975).
+//! Owner Ema Board - the Feudal-Japan identity monument (#975).
 //!
 //! A shrine notice-board: two lacquered posts on a dressed-stone base carry a
 //! tiled kirizuma roof, and the room owner's portrait hangs beneath it as the
@@ -90,7 +90,7 @@ fn post(x: f32) -> Generator {
     )
 }
 
-/// The head beam, and everything it carries — the board and the roof over it.
+/// The head beam, and everything it carries - the board and the roof over it.
 fn head_beam() -> Generator {
     prim(
         solid(cuboid_tapered([3.3, 0.24, 0.3], 0.0, timber(TIMBER_DARK))),
@@ -103,7 +103,7 @@ fn head_beam() -> Generator {
 fn board(did: &str) -> Vec<Generator> {
     let z = -0.12;
     vec![
-        // Cedar backing board — the plaque body, and the backing the
+        // Cedar backing board - the plaque body, and the backing the
         // single-sided panel needs.
         prim(
             solid(cuboid_tapered(

@@ -6,12 +6,12 @@
 //! first of them is a `$type`-tagged open union rather than one shape
 //! (`body: AvatarBody`, since #1056):
 //!
-//! - **`Rigged`** — a parametric `symbios-avatar` body, referenced by rkey
+//! - **`Rigged`** - a parametric `symbios-avatar` body, referenced by rkey
 //!   into the identity's wardrobe and built by [`rigged`]. Every humanoid is
 //!   one of these since #1060. It never goes near
 //!   [`visuals::spawn_avatar_visuals`].
-//! - **`Generator`** — a generator tree spawned by
-//!   [`visuals::spawn_avatar_visuals`] (no colliders, no per-prim markers —
+//! - **`Generator`** - a generator tree spawned by
+//!   [`visuals::spawn_avatar_visuals`] (no colliders, no per-prim markers -
 //!   pure cosmetics). Vehicles, and the pre-#1060 seeded humanoids.
 //! - **`Absent`** (a pre-#1056 record: treated as "no record", so the seeded
 //!   default is synthesised) and **`Unknown`** (a body kind this build does
@@ -20,17 +20,17 @@
 //! The `locomotion` half is independent of which body kind is worn, and
 //! selects one of five physics presets:
 //!
-//! - **HoverBoat** — `RigidBody::Dynamic` cuboid chassis with four
+//! - **HoverBoat** - `RigidBody::Dynamic` cuboid chassis with four
 //!   raycast-suspension corners + buoyancy + WASD drive (Hooke's-law
 //!   spring, lateral grip, jump impulse).
-//! - **Humanoid** — capsule rigid body with `LockedAxes` keeping it
+//! - **Humanoid** - capsule rigid body with `LockedAxes` keeping it
 //!   upright, velocity-driven walk controller, jump impulse, swim/wading
 //!   modes triggered by water depth.
-//! - **Airplane** — cuboid fuselage, continuous thrust, lift proportional
+//! - **Airplane** - cuboid fuselage, continuous thrust, lift proportional
 //!   to forward airspeed, pitch / roll / yaw torque from input.
-//! - **Helicopter** — cuboid fuselage, auto-stabilising hover thrust,
+//! - **Helicopter** - cuboid fuselage, auto-stabilising hover thrust,
 //!   cyclic + strafe + yaw input, vertical climb/descend on Space/Shift.
-//! - **Car** — cuboid chassis, four-corner raycast suspension, ground
+//! - **Car** - cuboid chassis, four-corner raycast suspension, ground
 //!   drive + steering + handbrake, no buoyancy.
 //!
 //! All five read their tuning from the live
@@ -43,25 +43,25 @@
 //!
 //! ## Sub-module map
 //!
-//! * [`spawn`] — `OnEnter(InGame)` local-avatar spawn + the chassis root
+//! * [`spawn`] - `OnEnter(InGame)` local-avatar spawn + the chassis root
 //!   bundle (#670 easing guard).
-//! * [`preset`] — per-preset physics components: the `PresetComponents`
+//! * [`preset`] - per-preset physics components: the `PresetComponents`
 //!   trait (one impl per locomotion `*Params`), preset markers, and the
 //!   build/strip pair.
-//! * [`hotswap`] — locomotion-variant rebuild, visuals repaint,
+//! * [`hotswap`] - locomotion-variant rebuild, visuals repaint,
 //!   remote-peer mirroring, and the terrain-hot-load lift.
-//! * [`respawn`] — fall-through recovery.
-//! * [`visuals`] — generator-tree visual spawner (`spawn_avatar_visuals`).
-//! * [`gait`] — cosmetic bounce / sway / look-around animation on the
+//! * [`respawn`] - fall-through recovery.
+//! * [`visuals`] - generator-tree visual spawner (`spawn_avatar_visuals`).
+//! * [`gait`] - cosmetic bounce / sway / look-around animation on the
 //!   humanoid visual root, driven by the seeded `AvatarGait`.
-//! * [`hover_boat`] — HoverBoat preset: suspension / buoyancy / drive /
+//! * [`hover_boat`] - HoverBoat preset: suspension / buoyancy / drive /
 //!   uprighting systems.
-//! * [`humanoid`] — Humanoid preset: walk controller (dry/wading/swim
+//! * [`humanoid`] - Humanoid preset: walk controller (dry/wading/swim
 //!   modes) and the `humanoid_water_state` classifier.
-//! * [`airplane`] — Airplane preset: thrust + control-surface forces.
-//! * [`helicopter`] — Helicopter preset: auto-stabilised hover + cyclic.
-//! * [`car`] — Car preset: ground drive + steering + handbrake.
-//! * [`portal`] — `handle_portal_interaction`,
+//! * [`airplane`] - Airplane preset: thrust + control-surface forces.
+//! * [`helicopter`] - Helicopter preset: auto-stabilised hover + cyclic.
+//! * [`car`] - Car preset: ground drive + steering + handbrake.
+//! * [`portal`] - `handle_portal_interaction`,
 //!   `poll_portal_travel_tasks`, and the `PortalTravelTask` async job.
 //!   `begin_portal_travel` / `PortalCooldown` are re-exported for the
 //!   unsaved-edits guard in [`crate::ui::unsaved_guard`], which owns the
@@ -123,7 +123,7 @@ use crate::state::{AppState, LocalPlayer};
 ///
 /// **Default false on purpose.** A frame with no mirror reports "nothing
 /// is holding attention" and the player can move. The opposite default
-/// would freeze anyone whose mirror had gone unregistered — a failure
+/// would freeze anyone whose mirror had gone unregistered - a failure
 /// `ui::tests::the_mirrored_consumers_do_not_import_the_ui_layer` catches
 /// at test time precisely because it is invisible at run time.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,7 +137,7 @@ pub struct AttentionHeld(pub bool);
 /// which only a system holding an egui context can read;
 /// `ui::unsaved_guard::UnsavedGuard` is an ECS resource that leaves no
 /// stamp at all. The gate asked about the guard alone and therefore knew
-/// about one of six modals — a gift offer from a stranger blocked every
+/// about one of six modals - a gift offer from a stranger blocked every
 /// click while W kept walking the avatar into a portal, stacking a second
 /// modal behind the first.
 ///
@@ -167,7 +167,7 @@ pub(super) const CORNER_OFFSETS_RAW: [[f32; 3]; 4] = [
 /// Multiply the canonical `CORNER_OFFSETS_RAW` by the preset's chassis
 /// half-extents to get the four world-local suspension-ray origins. Both
 /// [`hover_boat`] and [`car`] share this helper because the suspension
-/// math is identical — only the chassis size differs.
+/// math is identical - only the chassis size differs.
 pub(super) fn chassis_corners(half_extents: Vec3) -> [Vec3; 4] {
     CORNER_OFFSETS_RAW.map(|raw| Vec3::new(raw[0], raw[1], raw[2]) * half_extents)
 }
@@ -176,8 +176,8 @@ pub(super) fn chassis_corners(half_extents: Vec3) -> [Vec3; 4] {
 /// casts and the humanoid jump-grounding check, excluding the caster's own
 /// `chassis` plus every `Sensor` collider (pass `sensors.iter()`).
 ///
-/// Sensors — the gateway veil ([`GatewayMarker`](crate::world_builder::GatewayMarker))
-/// and portal cubes — are phantom walk-in volumes: `Sensor` exempts them
+/// Sensors - the gateway veil ([`GatewayMarker`](crate::world_builder::GatewayMarker))
+/// and portal cubes - are phantom walk-in volumes: `Sensor` exempts them
 /// from contact-force resolution, but avian's `cast_ray` still reports them
 /// as hits. Left in the ground ray, a gateway box reads as ground and the
 /// suspension spring drives the vehicle up its surface instead of letting it
@@ -194,8 +194,8 @@ pub(super) fn ground_ray_filter(
 /// Steering-direction multiplier from a vehicle's signed longitudinal speed:
 /// `-1` while genuinely reversing (below `-REVERSE_STEER_SPEED`), else `+1`.
 /// Both [`car`] and [`hover_boat`] multiply their A/D yaw torque by it so the
-/// heading response inverts in reverse — with the wheels/rudder held one way a
-/// real vehicle turns the opposite way backing up — while the deadband keeps
+/// heading response inverts in reverse - with the wheels/rudder held one way a
+/// real vehicle turns the opposite way backing up - while the deadband keeps
 /// the forward sign (and so turn-in-place) around a standstill, so the sign
 /// doesn't flip on sub-m/s creep.
 pub(super) fn reverse_steer_sign(forward_speed: f32) -> f32 {
@@ -229,8 +229,8 @@ impl Plugin for PlayerPlugin {
         // The sibling crate's frame order (Build → Animate → Apply), its
         // pose-apply system and, since #1171, the per-body motion driver
         // itself. Its `AnimatorPlugin` is still deliberately absent, though
-        // the reason changed under #1309: it is no longer a second driver —
-        // at 0.6.0 it steers the same `AvatarDriver` this file does — but a
+        // the reason changed under #1309: it is no longer a second driver -
+        // at 0.6.0 it steers the same `AvatarDriver` this file does - but a
         // control SURFACE, one set of switches and an egui panel deciding
         // what every body it owns is doing. That is a viewer's shape. Here
         // each body is told what to do by its own chassis, which is the whole
@@ -312,7 +312,7 @@ impl Plugin for PlayerPlugin {
                     // suspension/buoyancy above: helicopter hover +
                     // self-righting and airplane cruise/lift/drag are
                     // not input responses, so egui focus must not cut
-                    // them (#821 — the airship used to fall out of the
+                    // them (#821 - the airship used to fall out of the
                     // sky whenever a text field grabbed the keyboard).
                     helicopter::apply_helicopter_stabilization,
                     airplane::apply_airplane_aerodynamics,
@@ -322,12 +322,12 @@ impl Plugin for PlayerPlugin {
                     // types in a chat field.
                     airplane::apply_airplane_uprighting.run_if(not(avatar_visuals_row_selected)),
                     // Disable keyboard-driven control systems while the
-                    // owner is typing in an egui text field — otherwise
+                    // owner is typing in an egui text field - otherwise
                     // WASD-heavy chat messages steer the vehicle through
                     // walls. Physics (suspension, buoyancy, gravity,
                     // hover/lift stabilisation) and the uprighting /
                     // respawn passes still run so a vehicle left mid-air
-                    // keeps obeying gravity — and an airship keeps
+                    // keeps obeying gravity - and an airship keeps
                     // hovering.
                     hover_boat::apply_hover_boat_drive
                         .run_if(not(egui_wants_any_keyboard_input))
@@ -378,7 +378,7 @@ impl Plugin for PlayerPlugin {
                     respawn::apply_player_move,
                     // The swim/wade classification, for the mode banner
                     // (#1241 f160). UNGATED on egui focus, unlike the
-                    // drive systems it mirrors — see its own doc.
+                    // drive systems it mirrors - see its own doc.
                     humanoid::publish_movement_facts,
                     // Same gates as `apply_humanoid_walk`, so a space typed
                     // into chat (or pressed under a guard modal) never
@@ -420,7 +420,7 @@ pub struct LocalMovement {
     /// Dry / wading / swimming, from `humanoid_water_state`.
     pub water: humanoid::WaterState,
     /// The unshifted walk this body actually walks at (m/s), derived from
-    /// the built rig — `None` until the rigged body lands. Read by the
+    /// the built rig - `None` until the rigged body lands. Read by the
     /// locomotion editor so the Run slider can say when it has been
     /// dragged below it (#1241 f168).
     pub derived_walk: Option<f32>,
@@ -428,7 +428,7 @@ pub struct LocalMovement {
     /// [`Self::water`], which classifies the avatar: a third-person orbit
     /// camera dips under the surface on its own and, because the water
     /// plane is back-face culled (`world_builder::material`), there is
-    /// nothing to see from below — no tint, no fog swap, no surface at
+    /// nothing to see from below - no tint, no fog swap, no surface at
     /// all. The player cannot tell swimming from falling through empty
     /// space, and the flow current then moves them for no visible reason.
     pub camera_submerged: bool,
@@ -439,7 +439,7 @@ pub struct LocalMovement {
 ///
 /// The four questions the player systems ask, answered as data. They used
 /// to ask `ui::avatar::AvatarEditorState` directly, which put an egui
-/// resource type in the signature of the physics and animation drivers —
+/// resource type in the signature of the physics and animation drivers -
 /// so a UI refactor could change locomotion, `player`'s unit tests had to
 /// construct an editor state to exercise a gait, and the headless render
 /// tool dragged the panel's state into scope to walk a body.
@@ -449,7 +449,7 @@ pub struct LocalMovement {
 /// leaves every field `false`, which is exactly what the old
 /// `Option<Res<…>>` degraded to.
 ///
-/// The distinctions are NOT interchangeable and each is load-bearing —
+/// The distinctions are NOT interchangeable and each is load-bearing -
 /// see the predicates this mirrors on [`crate::ui::avatar::AvatarEditorState`],
 /// which carry the reasoning (#1103, #1106).
 #[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq)]
@@ -458,19 +458,19 @@ pub struct RigHold {
     /// offset being edited and the body it is measured against agree.
     pub at_rest: bool,
     /// A part gizmo is aimed: hold the body EXACTLY where it stands. A
-    /// pause, not a re-pose — selecting must never move anything.
+    /// pause, not a re-pose - selecting must never move anything.
     pub pose: bool,
     /// Any avatar-side gizmo is aimed: freeze the chassis and the
     /// cosmetic sway.
     pub still: bool,
-    /// A visuals ROW is selected — narrower than [`Self::still`]. Gates
+    /// A visuals ROW is selected - narrower than [`Self::still`]. Gates
     /// the drive systems, whose non-physics side effects (gait state,
     /// jump triggers) only need suppressing while a row is being edited.
     pub visuals_row: bool,
 }
 
 /// Run condition: true when the avatar editor has a visuals row
-/// selected — any node in the visuals tree, root or descendant. The five
+/// selected - any node in the visuals tree, root or descendant. The five
 /// locomotion drive systems gate on `not(this)` so WASD input does
 /// nothing while the owner is editing visuals, and the hover-boat's
 /// uprighting torque is gated so a gizmo-rotated chassis stays where the
@@ -479,11 +479,11 @@ pub struct RigHold {
 /// The actual full-body freeze lives in
 /// [`freeze_local_avatar_while_editing`], which parks the chassis with a
 /// full axis lock, and the cosmetic sway hold lives in
-/// [`gait::animate_avatar_gait`] — both keyed on
+/// [`gait::animate_avatar_gait`] - both keyed on
 /// [`RigHold::still`], which since #1103 is true exactly while a gizmo
 /// is aimed at the avatar or something it wears
 /// (visuals row, worn prop, worn-prop part). This input gate is narrower
-/// still — the visuals row only — because the drive systems have
+/// still - the visuals row only - because the drive systems have
 /// non-physics side effects (gait state, jump triggers) that only need
 /// suppressing while a row is actively being edited, and the freeze
 /// already neutralizes any movement they would cause under a prop gizmo.
@@ -496,7 +496,7 @@ fn avatar_visuals_row_selected(hold: Res<RigHold>) -> bool {
 /// humanoid preset locks rotation; the vehicle presets carry none).
 ///
 /// `pub(super)` since #867: the locomotion hot-swap defers its body
-/// rebuild while this marker is present — replacing the `Collider` on a
+/// rebuild while this marker is present - replacing the `Collider` on a
 /// parked, touching body corrupts avian's contact bookkeeping the
 /// same way the #740 `RigidBodyDisabled` cycle does, and the corrupted
 /// pair surfaces on release as a fall-through-the-world + runaway
@@ -511,8 +511,8 @@ pub(super) struct VisualsEditFreeze {
 /// ([`RigHold::still`]): lock every axis, zero
 /// gravity, and re-zero momentum each frame until the selection releases.
 /// Freezing the chassis (rather than just gating the drive systems) stops
-/// the passive movers too — suspension, buoyancy, gravity/falling, slope
-/// creep — so the avatar holds its exact pose during the edit, even
+/// the passive movers too - suspension, buoyancy, gravity/falling, slope
+/// creep - so the avatar holds its exact pose during the edit, even
 /// mid-air. That matters for correctness as well as ergonomics: the drag
 /// commit's world→local conversion reads the parent chassis's
 /// `GlobalTransform`, which must be stable while the gizmo is attached.
@@ -522,21 +522,21 @@ pub(super) struct VisualsEditFreeze {
 /// gate, so physics and sway agree. #814 had widened both to "window
 /// open" because a selection-scoped freeze under a window-wide sway hold
 /// left the body translating while its sway was pinned; #1103 (owner
-/// direction — the World editor's contract, pinned only under a gizmo)
+/// direction - the World editor's contract, pinned only under a gizmo)
 /// narrowed both together, which keeps them consistent the other way
 /// round. Every path that hides the window releases the selections, so a
 /// closed editor never holds.
 ///
 /// Deliberately NOT `RigidBodyDisabled` (#740): an insert/remove
 /// cycle of `RigidBodyDisabled` on a body with touching
-/// contacts corrupts the physics-island bookkeeping — the contact edge
+/// contacts corrupts the physics-island bookkeeping - the contact edge
 /// keeps its island link across the disable, the re-enable island-links
 /// it a second time, and the constraint graph is left holding manifold
 /// handles past the pair's manifold list. In release builds that
 /// surfaces as the solver's `manifolds[manifold_index]` index-out-of-
 /// bounds panic on the next edit (the #739 UV-dropdown crash was this).
 /// `tests/freeze_rigid_body.rs` carries the ignored upstream repro,
-/// which STILL FAILS on avian 0.7.0 (re-run 2026-08-30, #1150) — two
+/// which STILL FAILS on avian 0.7.0 (re-run 2026-08-30, #1150) - two
 /// majors and a Bevy train on, so this is not a legacy workaround; the
 /// axis-lock freeze below never changes the body's simulation
 /// membership, so islands and the constraint graph stay untouched.
@@ -547,11 +547,11 @@ pub(super) struct VisualsEditFreeze {
 /// no marker and re-engages from scratch, while a locomotion hot-swap
 /// mid-edit (record Load/Reset strips + rebuilds preset components on
 /// the same entity) re-inserts the new preset's `LockedAxes` over the
-/// full lock — the re-assert arm below locks it again and re-captures
+/// full lock - the re-assert arm below locks it again and re-captures
 /// the *new* preset's axes as the restore target. The per-frame
 /// velocity re-zero (not just at engage) discards anything the
-/// still-running solver injects — penetration recovery, restitution
-/// residue — so nothing accumulates toward a burst on release.
+/// still-running solver injects - penetration recovery, restitution
+/// residue - so nothing accumulates toward a burst on release.
 #[allow(clippy::type_complexity)]
 fn freeze_local_avatar_while_editing(
     mut commands: Commands,
@@ -646,16 +646,16 @@ mod tests {
     /// once clearly reversing past the deadband.
     #[test]
     fn steer_sign_holds_forward_and_flips_only_when_clearly_reversing() {
-        // Driving forward — normal steering.
+        // Driving forward - normal steering.
         assert_eq!(reverse_steer_sign(5.0), 1.0);
-        // Clearly reversing — inverted.
+        // Clearly reversing - inverted.
         assert_eq!(reverse_steer_sign(-5.0), -1.0);
-        // Stopped — forward sign, so turn-in-place is preserved.
+        // Stopped - forward sign, so turn-in-place is preserved.
         assert_eq!(reverse_steer_sign(0.0), 1.0);
-        // Within the reverse deadband (creep) — still forward sign.
+        // Within the reverse deadband (creep) - still forward sign.
         let deadband = cfg::REVERSE_STEER_SPEED;
         assert_eq!(reverse_steer_sign(-deadband * 0.5), 1.0);
-        // Just past the deadband — inverted.
+        // Just past the deadband - inverted.
         assert_eq!(reverse_steer_sign(-deadband - 0.1), -1.0);
     }
 }

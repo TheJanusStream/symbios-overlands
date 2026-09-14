@@ -1,4 +1,4 @@
-//! Wild-West-theme catalogue structures — a dusty frontier boomtown of
+//! Wild-West-theme catalogue structures - a dusty frontier boomtown of
 //! clapboard false-fronts and weathered timber.
 //!
 //! Two prosperity registers share one frontier identity: the established
@@ -25,7 +25,7 @@ pub mod saloon;
 pub mod wagon;
 pub mod water_tower;
 pub mod wind_pump;
-// Poor (bust) variants — the prosperity-Poor end of the theme.
+// Poor (bust) variants - the prosperity-Poor end of the theme.
 pub mod boot_hill;
 pub mod prospector_shack;
 pub mod tumbleweed;
@@ -42,18 +42,18 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the boomtown — a thriving frontier strip reads
+/// Shared prosperity band for the boomtown - a thriving frontier strip reads
 /// as a Modest-to-Rich town. The poor end of the theme is the separate bust
 /// kit ([`prospector_shack`], …), tagged `Poor`, so a destitute frontier room
 /// grows the dried-up claim instead.
 pub(super) const FRONTIER_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the bust kit — the destitute end of the theme, never
+/// Prosperity band for the bust kit - the destitute end of the theme, never
 /// picked for a modest or affluent frontier room.
 pub(super) const FRONTIER_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Painted / weathered clapboard — saloon, store and church walls, false
+/// Painted / weathered clapboard - saloon, store and church walls, false
 /// fronts, porches, wagons.
 pub(super) fn clapboard(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -76,7 +76,7 @@ pub(super) fn clapboard(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Fieldstone — the jail walls and footings.
+/// Fieldstone - the jail walls and footings.
 pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -92,7 +92,7 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Lit amber glass — the saloon and store windows after dark. A warm inner
+/// Lit amber glass - the saloon and store windows after dark. A warm inner
 /// glow (`glow`) so the panes read as lit rather than black.
 pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -114,7 +114,7 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     }
 }
 
-/// Dark iron — jail bars, hinges, wagon tyres, the wind-pump head.
+/// Dark iron - jail bars, hinges, wagon tyres, the wind-pump head.
 pub(super) fn iron(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -134,7 +134,7 @@ pub(super) fn iron(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Rusting tin — the water-tank bands, roofs, the wind-pump vane.
+/// Rusting tin - the water-tank bands, roofs, the wind-pump vane.
 pub(super) fn tin(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -151,7 +151,7 @@ pub(super) fn tin(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Matte canvas / dirt — wagon covers, tumbleweed, dust, dry ground. A plain
+/// Matte canvas / dirt - wagon covers, tumbleweed, dust, dry ground. A plain
 /// surface with no procedural texture.
 pub(super) fn canvas(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -198,7 +198,7 @@ mod tests {
         }
     }
 
-    /// The saloon is the kit's lit hero — it must keep its emissive windows
+    /// The saloon is the kit's lit hero - it must keep its emissive windows
     /// so escalation's broken-emissive ruin pass has lamps to snuff.
     #[test]
     fn saloon_keeps_its_lamps() {

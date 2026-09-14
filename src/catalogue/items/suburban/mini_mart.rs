@@ -1,11 +1,11 @@
-//! Mini-mart — a Suburban secondary. A small convenience store on an asphalt
+//! Mini-mart - a Suburban secondary. A small convenience store on an asphalt
 //! forecourt: a brick base under rendered walls, a glazed shopfront with a
 //! door you could actually walk through, a lit fascia, a flat parapet with an
 //! AC unit, and a pylon sign at the kerb.
 //!
 //! The shopfront is the whole point of this entry, and it is now a **shell**.
 //! Before the overhaul it was [`curtain_wall`](crate::catalogue::items::modern_city::curtain_wall)
-//! — a lit glass box with proud mullion fins — pinned to a solid mass, with no
+//! - a lit glass box with proud mullion fins - pinned to a solid mass, with no
 //! interior and no entrance at all. That abstraction is fine on the tower it
 //! was written for, where nobody stands close enough to look in; on a shop at
 //! eye level it reads as an illuminated panel, and the `Window` texture it was
@@ -14,7 +14,7 @@
 //! fill it, and behind them is a lit shop: gondola aisles, a chiller run, a
 //! counter and a ceiling strip.
 //!
-//! Everything else on the #972 ledger lands too — the brick lies flat at a
+//! Everything else on the #972 ledger lands too - the brick lies flat at a
 //! real 215 mm in one shared course frame ([`util::bonded_brick`]), the base
 //! course stands proud of the render above so their side faces never share a
 //! plane, and the tree stands the way the building does.
@@ -47,7 +47,7 @@ const BODY_H: f32 = 4.0;
 /// Wall thickness, and so the depth of the shopfront reveal.
 const WALL_T: f32 = 0.32;
 
-/// Outer face of the front wall — the hero direction, `-Z`.
+/// Outer face of the front wall - the hero direction, `-Z`.
 const FRONT: f32 = -D * 0.5;
 /// Centre of a wall slab whose outer face lies on [`FRONT`].
 const FRONT_MID: f32 = FRONT + WALL_T * 0.5;
@@ -72,12 +72,12 @@ const HEAD_Y: f32 = BASE_H + 3.05;
 /// has none, so the doors reach the floor.
 const SILL_Y: f32 = BASE_H + BRICK_H;
 
-/// Brick length in metres — a real 215 mm brick.
+/// Brick length in metres - a real 215 mm brick.
 const BRICK_LEN: f32 = 0.215;
 
 // --- Palette local to this entry. ------------------------------------------
 
-/// Shopfront joinery — dark anodised aluminium, which is what draws the
+/// Shopfront joinery - dark anodised aluminium, which is what draws the
 /// opening against pale render.
 const SHOPFRONT: [f32; 3] = [0.22, 0.23, 0.25];
 /// Forecourt asphalt, and the paint on it.
@@ -157,7 +157,7 @@ fn build_tree() -> Generator {
         id_quat(),
     );
 
-    // Buried footing under the forecourt pad — the piece that meets grade — so
+    // Buried footing under the forecourt pad - the piece that meets grade - so
     // a terrain-snapped mart on a slope shows plinth rather than daylight under
     // its downhill edge.
     let mut parts = vec![shop(), pylon(), footing(W + 6.0, D + 4.0, [0.0, -3.0], 6.0)];
@@ -189,7 +189,7 @@ fn build_tree() -> Generator {
 
 /// Sales-floor deck, and under it the whole shop: the brick base course, the
 /// rendered walls, the shopfront that frames the glazing, the fit-out behind
-/// it, and — on the walls — the parapet with its AC unit.
+/// it, and - on the walls - the parapet with its AC unit.
 ///
 /// The deck is the sub-root because it is the lowest piece of the building and
 /// everything else stands on or above it.
@@ -200,7 +200,7 @@ fn shop() -> Generator {
     // Base course, standing 40 mm proud of the render above it.
     //
     // Flush, the two masses' side faces are coplanar all the way round the
-    // building and z-fight along every elevation — the whole perimeter, on the
+    // building and z-fight along every elevation - the whole perimeter, on the
     // most-looked-at part of the wall. A base course is a plinth in real
     // construction anyway, so the fix is also the truth.
     for (size, center, face, wraps) in [
@@ -260,9 +260,9 @@ fn shop() -> Generator {
     nest(deck, parts)
 }
 
-/// The hero face, built as the pieces that *frame* the opening — two rendered
+/// The hero face, built as the pieces that *frame* the opening - two rendered
 /// piers, a brick stall riser under the display bay, and the fascia beam over
-/// the lot — plus the glazing and the entrance filling it.
+/// the lot - plus the glazing and the entrance filling it.
 fn shopfront(parts: &mut Vec<Generator>) {
     // Piers closing the two front corners, brick below and render above so
     // they continue both bands round the corner.
@@ -283,7 +283,7 @@ fn shopfront(parts: &mut Vec<Generator>) {
             [x, BASE_H + BRICK_H + (BODY_H - BRICK_H) * 0.5, FRONT_MID],
         ));
     }
-    // Stall riser under the display bay only — the same brick as the base
+    // Stall riser under the display bay only - the same brick as the base
     // course, carrying on below the sill rather than reading as a separate
     // material bolted under the window. Its top is the sill a shopper leans
     // over, so that face wraps into the world frame too.
@@ -315,7 +315,7 @@ fn shopfront(parts: &mut Vec<Generator>) {
         quat_x(-FRAC_PI_2),
     ));
     // Entrance: a pair of glazed leaves reaching the floor, and a mullion
-    // between them. This is the thing the old storefront had no version of —
+    // between them. This is the thing the old storefront had no version of -
     // there was simply no way in.
     let door_w = OPEN_X1 - DOOR_X0;
     let door_h = HEAD_Y - BASE_H;
@@ -348,7 +348,7 @@ fn shopfront(parts: &mut Vec<Generator>) {
         ));
     }
 
-    // Lit fascia over the opening — segmented cells in a housing, not a washed
+    // Lit fascia over the opening - segmented cells in a housing, not a washed
     // slab: a broad flat panel at strength blooms to white.
     parts.extend(sign_board(
         [0.0, BASE_H + BODY_H - 0.42, FRONT - 0.12],
@@ -444,7 +444,7 @@ fn sales_floor(parts: &mut Vec<Generator>, inner: [f32; 2]) {
         ));
     }
     // Stock. The only saturated colour inside, sized so one box roughly fills
-    // a pane — smaller reads as noise through the mullions.
+    // a pane - smaller reads as noise through the mullions.
     let stock = [
         (-3.4_f32, 1.32_f32, [0.74, 0.24, 0.18_f32]),
         (-2.5, 1.32, [0.86, 0.70, 0.24]),
@@ -463,7 +463,7 @@ fn sales_floor(parts: &mut Vec<Generator>, inner: [f32; 2]) {
             id_quat(),
         ));
     }
-    // Chiller run down the far wall — the cold blue glow that says "shop" from
+    // Chiller run down the far wall - the cold blue glow that says "shop" from
     // outside at any hour.
     parts.push(prim(
         cuboid_tapered([0.7, 2.1, 3.4], 0.0, lit_interior([0.28, 0.30, 0.32], 0.14)),
@@ -477,7 +477,7 @@ fn sales_floor(parts: &mut Vec<Generator>, inner: [f32; 2]) {
     ));
     // The service counter, squarely behind the **entrance** bay.
     //
-    // Parked off to one side of it — where it was — the doors framed nothing
+    // Parked off to one side of it - where it was - the doors framed nothing
     // but unlit floor five metres back, and a glazed entrance with nothing lit
     // behind it is a black rectangle: the display bay read beautifully while
     // the way in read as a hole in the wall. Both bays need their own thing to
@@ -566,13 +566,13 @@ fn parapet() -> Generator {
 
 /// The pylon at the kerb: a footing, a mast, and a lit board on top.
 ///
-/// Rooted at the footing so a drag on it takes mast and board together — the
+/// Rooted at the footing so a drag on it takes mast and board together - the
 /// sign is the one part of this entry a settlement is most likely to want
 /// moved, and under a flat list it left its own pole behind.
 fn pylon() -> Generator {
     // Set in from the pad's own edge by the footing's half-width. Placed at a
     // round `W / 2 + 3`, it landed exactly on the edge and the footing
-    // overhung it by 450 mm — a sign standing half on air.
+    // overhung it by 450 mm - a sign standing half on air.
     const FOOT: f32 = 0.9;
     let x = (W + 6.0) * 0.5 - FOOT * 0.5 - 0.15;
     let z = FRONT - 1.2;
@@ -632,7 +632,7 @@ mod tests {
     ///
     /// The old storefront was a lit glass *cuboid* behind a grid of fins, so
     /// the `Window` texture wrapped its six faces and masked its panes away
-    /// onto the solid wall behind — a shopfront that could not be looked
+    /// onto the solid wall behind - a shopfront that could not be looked
     /// through, on a shop with no way in.
     #[test]
     fn the_glazing_is_unscaled_lapping_quads() {
@@ -688,7 +688,7 @@ mod tests {
         });
         assert!(
             near >= 10,
-            "only {near} lit pieces sit within reach of the glazing — the \
+            "only {near} lit pieces sit within reach of the glazing - the \
              storefront will read as a black hole"
         );
     }
@@ -757,7 +757,7 @@ mod tests {
             overrides.len(),
             5,
             "expected both base-course returns, the riser's sill and both pier \
-             returns to wrap — and nothing else, since a vertical corner \
+             returns to wrap - and nothing else, since a vertical corner \
              carries its courses on the base offset alone"
         );
         for (pos, face, m) in &overrides {
@@ -774,8 +774,8 @@ mod tests {
     ///
     /// Flush, the two masses' vertical side faces are coplanar around the whole
     /// perimeter and z-fight along every elevation. It is the standing coplanar
-    /// trap in its most expensive form — a full-height seam on the part of the
-    /// building people look at — and it is invisible in a still render, which
+    /// trap in its most expensive form - a full-height seam on the part of the
+    /// building people look at - and it is invisible in a still render, which
     /// is why it is pinned here rather than left to the eye.
     #[test]
     fn the_base_course_oversails_the_render() {
@@ -809,7 +809,7 @@ mod tests {
         );
         assert!(
             brick_x > render_x + 0.02,
-            "the base course ends at {brick_x} against render at {render_x} — \
+            "the base course ends at {brick_x} against render at {render_x} - \
              coplanar, and it will z-fight the full height of every elevation"
         );
     }
@@ -817,7 +817,7 @@ mod tests {
     /// Everything on the forecourt is *on* the forecourt.
     ///
     /// The car and the bay lines used to be positioned off the building, and
-    /// overhung the tarmac by a metre — a car standing on nothing, which only
+    /// overhung the tarmac by a metre - a car standing on nothing, which only
     /// shows in the one contact-sheet tile that happens to look along the front
     /// edge. Both are now derived from the pad's own extent; this pins it.
     #[test]
@@ -853,7 +853,7 @@ mod tests {
         });
         assert!(
             checked >= 10,
-            "only {checked} forecourt parts found — the bays or the car went missing"
+            "only {checked} forecourt parts found - the bays or the car went missing"
         );
     }
 

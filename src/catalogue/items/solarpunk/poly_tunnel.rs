@@ -1,4 +1,4 @@
-//! Poly-tunnel — a Solarpunk *poor* secondary. A plastic-sheet greenhouse
+//! Poly-tunnel - a Solarpunk *poor* secondary. A plastic-sheet greenhouse
 //! stretched over steel hoops, rows of crops inside. The makeshift glasshouse
 //! of the grassroots commune.
 //!
@@ -6,7 +6,7 @@
 //! along Z with a [`quat_x`] of π/2, arching over the crops so the rows read
 //! through and under the sheet. It is a rotation-safe *child*: the flat earth
 //! floor pad is the [`assemble`] root (a tilted shell can never be the root, or
-//! its rotation spins every other piece — the prior version did exactly that).
+//! its rotation spins every other piece - the prior version did exactly that).
 
 use std::f32::consts::FRAC_PI_2;
 
@@ -59,7 +59,7 @@ fn build_tree() -> Generator {
     let floor_h = 0.12_f32;
 
     let mut prims = vec![
-        // Earth floor pad — the flat root. Rooting here keeps the arched shell
+        // Earth floor pad - the flat root. Rooting here keeps the arched shell
         // a rotation-safe child instead of a rotated root.
         prim(
             solid(cuboid_tapered(

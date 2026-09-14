@@ -2,8 +2,8 @@
 //!
 //! Both messages here are **identity claims made by a peer about itself**,
 //! which is why they share a file: `Identity` carries a DID and a handle,
-//! and every use of it downstream — the nametag, the mute list, the avatar
-//! fetch — trusts that DID. The check that makes it trustworthy is the
+//! and every use of it downstream - the nametag, the mute list, the avatar
+//! fetch - trusts that DID. The check that makes it trustworthy is the
 //! relay's `session_id` binding, applied here and nowhere else.
 
 use bevy::prelude::*;
@@ -39,7 +39,7 @@ pub(super) fn handle(
     // A `None` lookup means matchbox surfaced the peer before the
     // signaller recorded its session_id (or the peer disconnected
     // mid-frame). Treat this as "not yet verified" and drop the
-    // message — the peer broadcasts Identity on a timer, so a
+    // message - the peer broadcasts Identity on a timer, so a
     // subsequent attempt will succeed once the map catches up.
     match peer_sessions.session_id(&sender) {
         Some(authenticated_did) if authenticated_did == did => {}
@@ -71,7 +71,7 @@ pub(super) fn handle(
         }
 
         // The `handle` field on the wire is peer-supplied and
-        // therefore untrusted — a malicious peer could claim any
+        // therefore untrusted - a malicious peer could claim any
         // handle string to impersonate another actor in the chat
         // HUD and disconnect log. The authoritative handle is
         // resolved asynchronously by the avatar/profile fetch
@@ -100,7 +100,7 @@ pub(super) fn handle(
             now,
         ) {
             info!(
-                "Peer {} identified as did={} (claimed handle @{} — unverified, will resolve via getProfile)",
+                "Peer {} identified as did={} (claimed handle @{} - unverified, will resolve via getProfile)",
                 sender, did, handle
             );
         }
@@ -117,7 +117,7 @@ pub(super) fn handle_hello(
     now: f64,
 ) {
     // The peer named its wire layout (#1121). Not authenticated
-    // and not authoritative — a peer can claim any number — but
+    // and not authoritative - a peer can claim any number - but
     // it does not need to be either: nothing is refused on the
     // strength of it, so the worst a liar achieves is a wrong
     // chip on its own row in the People window.
@@ -147,7 +147,7 @@ pub(super) fn handle_hello(
         peer.build = Some(announced);
         if protocol != ours {
             warn!(
-                "Peer {} speaks protocol {} ({}), we speak {} — messages between us may not decode",
+                "Peer {} speaks protocol {} ({}), we speak {} - messages between us may not decode",
                 sender, protocol, build, ours
             );
             session_log.error(

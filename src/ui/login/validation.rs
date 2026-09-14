@@ -9,7 +9,7 @@
 /// Where the user asked to land after login.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Destination {
-    /// Blank input — the user's own world.
+    /// Blank input - the user's own world.
     Home,
     /// A `did:…` identifier, pasted directly.
     Did(String),
@@ -47,7 +47,7 @@ fn validate_pds(pds: &str) -> Result<String, String> {
     let pds = pds.trim().trim_end_matches('/');
     if pds.is_empty() {
         return Err(
-            "The PDS field (under Advanced) is empty — the default is https://bsky.social."
+            "The PDS field (under Advanced) is empty - the default is https://bsky.social."
                 .to_string(),
         );
     }
@@ -58,7 +58,7 @@ fn validate_pds(pds: &str) -> Result<String, String> {
     };
     if !with_scheme.starts_with("https://") && !with_scheme.starts_with("http://") {
         return Err(format!(
-            "The PDS (under Advanced) must be an http(s):// URL — got \"{pds}\"."
+            "The PDS (under Advanced) must be an http(s):// URL - got \"{pds}\"."
         ));
     }
     Ok(with_scheme)
@@ -74,7 +74,7 @@ fn validate_relay(relay: &str) -> Result<String, String> {
         .trim_end_matches('/');
     if relay.is_empty() {
         return Err(
-            "The Relay Host field (under Advanced) is empty — it names the server \
+            "The Relay Host field (under Advanced) is empty - it names the server \
              that connects you to other players."
                 .to_string(),
         );
@@ -96,7 +96,7 @@ pub fn validate_destination(dest: &str) -> Result<Destination, String> {
     }
     if dest.contains(char::is_whitespace) {
         return Err(
-            "The destination can't contain spaces — use an @handle like \
+            "The destination can't contain spaces - use an @handle like \
              alice.bsky.social, a did:… identifier, or leave it blank."
                 .to_string(),
         );
@@ -107,19 +107,19 @@ pub fn validate_destination(dest: &str) -> Result<Destination, String> {
         let (_, method, id) = (parts.next(), parts.next(), parts.next());
         if method.is_none_or(str::is_empty) || id.is_none_or(str::is_empty) {
             return Err(format!(
-                "\"{dest}\" doesn't look like a valid DID — expected \
+                "\"{dest}\" doesn't look like a valid DID - expected \
                  something like did:plc:abc123…"
             ));
         }
         return Ok(Destination::Did(dest.to_string()));
     }
     if dest.contains('.') {
-        // Handles are domains, hence case-insensitive — lowercase for a
+        // Handles are domains, hence case-insensitive - lowercase for a
         // canonical lookup.
         return Ok(Destination::Handle(dest.to_ascii_lowercase()));
     }
     Err(format!(
-        "\"{dest}\" isn't a destination we can use — enter an @handle like \
+        "\"{dest}\" isn't a destination we can use - enter an @handle like \
          alice.bsky.social, a did:… identifier, or leave it blank for your own world."
     ))
 }

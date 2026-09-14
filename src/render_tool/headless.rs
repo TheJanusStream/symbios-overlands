@@ -1,16 +1,39 @@
 //! The headless render app: subject/job resources, camera + scene
 //! setup, the framing/warmup drive loop, GPU readback capture, and the
-//! contact-sheet writer.
+//! contact-sheet and clip writers.
+//!
+//! ## Two shapes of output
+//!
+//! A **sheet** is the original instrument: N tile cameras (four angles per
+//! row) render once, after a warm-up, and their tiles are laid into one
+//! PNG. A **clip** is one camera moved along a [`CameraRig`] over
+//! `--frames` captures, written as a GIF (`gif.rs`). `--world` always uses
+//! the single rig camera, so a world still is a one-frame clip's first
+//! frame written as a PNG.
+//!
+//! ## The clock
+//!
+//! Nothing in this app runs on wall time. `Time<Virtual>` is paused at
+//! startup and [`tick_clock`] advances it by hand - every frame while the
+//! scene builds and warms up, and during a clip **once per captured frame**
+//! ([`Clock::once`], armed by the readback that completed the previous
+//! frame). Wind, clouds, water, particles and the walker's gait all read
+//! the shader globals or `Time`, so a clip's frame `k` is the scene at
+//! exactly `k / fps` seconds no matter how many app frames the readback of
+//! frame `k - 1` took, and no matter how fast the machine is.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::RenderTarget;
 use bevy::camera::primitives::Aabb;
 use bevy::ecs::message::MessageWriter;
+use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bevy::render::gpu_readback::{Readback, ReadbackComplete};
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
+use bevy::time::Virtual;
 
 use bevy_symbios_avatar::{AvatarBody as BuiltBody, AvatarJoints, AvatarPose, spawn_avatar};
 use symbios_avatar::{Ground, Pose, Speed, Walk};
@@ -20,12 +43,16 @@ use crate::pds::avatar::{AttachmentRecord, ResolvedAttachment};
 use crate::pds::{Environment, Generator, Placement, RoomRecord, TransformData};
 use crate::player::attachments::{ensure_joint_visibility, placements};
 use crate::player::visuals::{AvatarSpawnDeps, spawn_visual_tree};
+use crate::state::LiveRoomRecord;
+use crate::terrain::FinishedHeightMap;
 use crate::world_builder::particles::{Particle, ParticleEmitterMarker};
 
-use super::{ANGLES, FOV, OUT_DIR, WARMUP};
+use super::rig::{CameraRig, Focus, delay_cs, progress};
+use super::world::{Walker, WorldReadiness, WorldSpec, resolve_focus, spawn_world_camera};
+use super::{ANGLES, FOV, OUT_DIR, WARMUP, gif};
 
 /// What to render: a single generator tree, an `--ages` lineup of variants of
-/// one tree (one grid row each), or a whole seeded room.
+/// one tree (one grid row each), a whole seeded room, or the world itself.
 pub(super) enum Subject {
     Single(Box<Generator>),
     Lineup(Vec<Generator>),
@@ -39,6 +66,9 @@ pub(super) enum Subject {
         record: Box<RoomRecord>,
         view_m: f32,
     },
+    /// `--world`: the seeded room compiled by the game's own pipeline -
+    /// terrain, streets, district, placements, water, sky. See `world.rs`.
+    World(Box<WorldSpec>),
     /// `--wear` (#1088): rigged bodies wearing one attachment. One grid row
     /// per body seed × pose in [`WEAR_POSES`], the item engine-seated at
     /// `socket` exactly as a worn identity-offset record is in-game.
@@ -48,14 +78,14 @@ pub(super) enum Subject {
         socket: symbios_avatar::Socket,
         /// The entry's [`WearFit`](crate::catalogue::WearFit) declaration
         /// (#1089), stamped onto the built record exactly as the in-game
-        /// Wear button stamps it — so the sheet shows the fitted sizes the
+        /// Wear button stamps it - so the sheet shows the fitted sizes the
         /// game would.
         fit: Option<crate::catalogue::WearFit>,
     },
 }
 
 /// The pose set every `--wear` body is sheeted in: the rest stance, and two
-/// opposite extremes of a walk cycle — where a hip or hand item meets the
+/// opposite extremes of a walk cycle - where a hip or hand item meets the
 /// swinging limbs. Deterministic (a gait pose is a pure function of its
 /// cycle), so sheets diff across runs. A supine sleep row is deliberately
 /// absent: sleeping is an overlands locomotion state driven by the live
@@ -65,7 +95,7 @@ const WEAR_POSES: [WearPose; 3] = [WearPose::Rest, WearPose::Walk(0.15), WearPos
 /// Walking pace the walk rows are posed at, in metres per second.
 const WEAR_WALK_PACE: f32 = 1.4;
 
-/// Texture atlas for `--wear` bodies — the game's draft rung, because a
+/// Texture atlas for `--wear` bodies - the game's draft rung, because a
 /// sheet of N bodies at the full 1024 atlas is all cost and no judgement.
 const WEAR_ATLAS: u32 = 256;
 
@@ -76,7 +106,7 @@ enum WearPose {
 }
 
 impl WearPose {
-    /// Evaluate this pose against a built body's rig — [`Pose::rest`], or
+    /// Evaluate this pose against a built body's rig - [`Pose::rest`], or
     /// the engine's own walk drive at a fixed cycle on a level floor (the
     /// recipe `player::rigged` uses live, minus the per-frame state).
     fn evaluate(self, rig: &symbios_avatar::Rig) -> Pose {
@@ -93,12 +123,12 @@ impl WearPose {
     }
 }
 
-/// One worn prop waiting for its body's joints to exist: `spawn_avatar`
+/// Worn props waiting for their body's joints to exist: `spawn_avatar`
 /// inserts [`AvatarJoints`] at the command flush after [`setup`], so the
-/// dressing happens on the next frame in [`dress_wear_bodies`] — well inside
+/// dressing happens on the next frame in [`dress_wear_bodies`] - well inside
 /// the warm-up window.
 #[derive(Component)]
-pub(super) struct PendingWear(ResolvedAttachment);
+pub(super) struct PendingWear(pub(super) Vec<ResolvedAttachment>);
 
 /// World-space X distance between `Lineup` slots. Far enough apart that no
 /// subject can bleed into a neighbouring slot's tiles, and the slot of a mesh
@@ -112,8 +142,8 @@ type SubjectQuery<'w, 's> =
     Query<'w, 's, (&'static GlobalTransform, &'static Aabb), (Without<TileCam>, Without<Particle>)>;
 
 /// Frames to wait for every lineup slot's AABB before framing falls back to a
-/// tiny placeholder bound for the missing slots (a degenerate variant — e.g.
-/// an iteration count whose derivation produced no meshes — must not hang the
+/// tiny placeholder bound for the missing slots (a degenerate variant - e.g.
+/// an iteration count whose derivation produced no meshes - must not hang the
 /// tool).
 const FRAME_GRACE: u32 = 300;
 
@@ -124,33 +154,145 @@ const FRAME_GRACE: u32 = 300;
 /// picture of nothing, and it would look like a finished render.
 const TERRAIN_GRACE: u32 = 4000;
 
+/// Wall-clock budget for a `--world` compile to settle. Real seconds rather
+/// than frames, because the road extrusion and the texture bakes run on
+/// background tasks the frame loop merely polls.
+const WORLD_BUDGET: Duration = Duration::from_secs(600);
+
+/// Consecutive frames a world must report settled before it is believed.
+/// The lot layer's debounce and the road re-mesh's are 0.3 s of clock;
+/// forty frames at any supported `--fps` is longer than both.
+const WORLD_QUIET: u32 = 40;
+
+/// How often the world wait logs where it is.
+const WORLD_LOG_EVERY: Duration = Duration::from_secs(3);
+
 #[derive(Resource)]
 pub(super) struct RenderJob {
     pub(super) subject: Subject,
     pub(super) out: String,
-    pub(super) size: u32,
-    /// `--elev`: camera elevation in degrees above the subject centre.
-    /// `None` keeps the default low orbit (see [`cam_offset`]).
+    /// Per-tile (or per-frame) pixel size, width × height.
+    pub(super) tile: (u32, u32),
+    /// `--elev` for the sheet cameras: elevation in degrees above the
+    /// subject centre. `None` keeps the default low orbit (see
+    /// [`cam_offset`]).
     pub(super) elev: Option<f32>,
+    /// The single-camera rig - every `--world` shot and every clip.
+    pub(super) rig: CameraRig,
+    /// Frames in the clip; 1 is a still.
+    pub(super) frames: u32,
+    pub(super) fps: f32,
+    /// Also dump a clip's frames as PNGs beside the GIF.
+    pub(super) keep_frames: bool,
+    /// `--dither`: the GIF encoder's ordered-dither amplitude.
+    pub(super) dither: f32,
+}
+
+impl RenderJob {
+    /// Whether this job drives one rig camera rather than the tile set.
+    pub(super) fn single_camera(&self) -> bool {
+        matches!(self.subject, Subject::World(_)) || self.frames > 1
+    }
 }
 
 #[derive(Component)]
-pub(super) struct TileCam(usize);
+pub(super) struct TileCam(pub(super) usize);
 
 #[derive(Resource)]
 pub(super) struct Targets(Vec<Handle<Image>>);
 
-#[derive(Resource, Default)]
-pub(super) struct Frames(u32);
+/// The app's hand-driven clock. See the module docs.
+#[derive(Resource)]
+pub(super) struct Clock {
+    /// Seconds per step: `1 / fps`.
+    pub(super) step: f32,
+    /// Step every frame (building, warming up).
+    pub(super) run: bool,
+    /// Step on the next frame only (a clip frame was just captured).
+    pub(super) once: bool,
+    /// Seconds stepped so far.
+    pub(super) elapsed: f32,
+}
 
-#[derive(Resource, Default)]
+/// Inserted on the way into warm-up: the clock second the first capture
+/// will happen at, which is what the walker's lead-in counts back from.
+#[derive(Resource)]
+pub(super) struct ClipTiming {
+    pub(super) capture_start: f32,
+}
+
+/// Stop the virtual clock so only [`tick_clock`] moves it.
+pub(super) fn pause_virtual_time(mut time: ResMut<Time<Virtual>>) {
+    time.pause();
+}
+
+/// Advance the paused virtual clock by one step and republish it as the
+/// generic `Time` every system (and the render extract) reads - `First`,
+/// after Bevy's own time system has copied the paused (zero-delta) clock.
+pub(super) fn tick_clock(
+    mut clock: ResMut<Clock>,
+    mut virt: ResMut<Time<Virtual>>,
+    mut generic: ResMut<Time>,
+) {
+    if !(clock.run || clock.once) {
+        return;
+    }
+    clock.once = false;
+    virt.advance_by(Duration::from_secs_f32(clock.step));
+    *generic = virt.as_generic();
+    clock.elapsed += clock.step;
+}
+
+/// Where the drive loop is.
+pub(super) enum Phase {
+    /// Waiting for the subject to exist (bounds, splat, or a settled world).
+    Framing,
+    /// Letting textures bake and FX reach steady state; the clock runs.
+    Warmup { left: u32 },
+    /// Every tile camera read back once.
+    Sheet,
+    /// One frame at a time: `next` is the frame to shoot, `pending` the
+    /// readback in flight for the one before it.
+    Clip { next: u32, pending: Option<Entity> },
+}
+
+/// What framing decided for the rig camera.
+struct Framing {
+    /// The point the rig orbits (unless the focus is the walker, which is
+    /// re-read per frame).
+    focus: Vec3,
+    /// Camera distance when the rig leaves it to the subject's bounds.
+    auto_dist: f32,
+    /// Elevation when the rig leaves it to the historic low orbit.
+    auto_elev: f32,
+}
+
+#[derive(Resource)]
 pub(super) struct Capture {
-    framed: bool,
-    started: bool,
-    /// Frames spent waiting for subject AABBs pre-framing (lineup grace timer).
+    phase: Phase,
+    /// Frames spent waiting pre-framing (grace timers; the world's quiet run).
     waited: u32,
+    since: Instant,
+    last_log: Instant,
+    framing: Option<Framing>,
     tile_of: HashMap<Entity, usize>,
     results: Vec<Option<Vec<u8>>>,
+    frames: Vec<Vec<u8>>,
+}
+
+impl Default for Capture {
+    fn default() -> Self {
+        Self {
+            phase: Phase::Framing,
+            waited: 0,
+            since: Instant::now(),
+            last_log: Instant::now(),
+            framing: None,
+            tile_of: HashMap::new(),
+            results: Vec::new(),
+            frames: Vec::new(),
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -164,32 +306,38 @@ pub(super) fn setup(
     job: Res<RenderJob>,
 ) {
     // Lighting / clear colour: neutral studio for a single subject, the room's
-    // own atmosphere for a room.
+    // own atmosphere for a room. A world gets the game's atmosphere from
+    // `register_headless_atmosphere` and the record's environment patch.
     let ambient = match &job.subject {
-        Subject::Room(record) => {
+        Subject::Room(record) | Subject::Terrain { record, .. } => {
             let env = &record.environment;
             commands.insert_resource(ClearColor(srgb3(env.sky_color.0)));
             env.ambient_brightness.0.max(80.0)
         }
-        Subject::Terrain { record, .. } => {
-            let env = &record.environment;
-            commands.insert_resource(ClearColor(srgb3(env.sky_color.0)));
-            env.ambient_brightness.0.max(80.0)
-        }
+        Subject::World(_) => 0.0,
         Subject::Single(_) | Subject::Lineup(_) | Subject::Wear { .. } => 600.0,
     };
 
-    // One off-screen target + orbiting camera per tile: a row of the four
-    // angles per lineup slot (a single subject is one slot).
-    let rows = match &job.subject {
-        Subject::Lineup(variants) => variants.len(),
-        Subject::Wear { seeds, .. } => seeds.len() * WEAR_POSES.len(),
-        _ => 1,
+    // One off-screen target per camera: the rig camera alone, or a row of
+    // the four angles per lineup slot (a single subject is one slot).
+    let cameras = if job.single_camera() {
+        1
+    } else {
+        let rows = match &job.subject {
+            Subject::Lineup(variants) => variants.len(),
+            Subject::Wear { seeds, .. } => seeds.len() * WEAR_POSES.len(),
+            _ => 1,
+        };
+        rows * ANGLES.len()
     };
-    let mut targets = Vec::with_capacity(rows * ANGLES.len());
-    for i in 0..rows * ANGLES.len() {
-        let target = images.add(new_target(job.size));
+    let mut targets = Vec::with_capacity(cameras);
+    for i in 0..cameras {
+        let target = images.add(new_target(job.tile));
         targets.push(target.clone());
+        if matches!(job.subject, Subject::World(_)) {
+            spawn_world_camera(&mut commands, target);
+            continue;
+        }
         commands.spawn((
             Camera3d::default(),
             RenderTarget::Image(target.into()),
@@ -270,10 +418,10 @@ pub(super) fn setup(
                             .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
                         Visibility::default(),
                         AvatarPose(pose),
-                        PendingWear(ResolvedAttachment {
+                        PendingWear(vec![ResolvedAttachment {
                             rkey: format!("wear-{row}"),
                             record: worn,
-                        }),
+                        }]),
                     ))
                     .id();
                 spawn_avatar(
@@ -290,10 +438,12 @@ pub(super) fn setup(
         }
         Subject::Terrain { record, .. } => {
             // No `spawn_ground`: the terrain systems build the real one. The
-            // sun matters more here than in any other mode — a grazing light
+            // sun matters more here than in any other mode - a grazing light
             // is what makes a repeating normal map legible as a repeat.
             spawn_env_sun(&mut commands, &record.environment);
         }
+        // The world is compiled by the registered pipelines, not spawned.
+        Subject::World(_) => {}
         Subject::Room(record) => {
             spawn_env_sun(&mut commands, &record.environment);
             spawn_ground(&mut commands, &mut meshes, &mut materials);
@@ -309,10 +459,10 @@ pub(super) fn setup(
     }
 }
 
-/// Dress every `--wear` body whose joints have landed: the same
-/// `placements` seating the game uses (engine seat + outward yaw), the prop
-/// spawned under its carrying joint's entity through the avatar-mode visual
-/// pipeline. Runs every frame but each body is dressed once — the
+/// Dress every body whose joints have landed: the same `placements`
+/// seating the game uses (engine seat + outward yaw), the prop spawned
+/// under its carrying joint's entity through the avatar-mode visual
+/// pipeline. Runs every frame but each body is dressed once - the
 /// [`PendingWear`] component is the queue and is removed on the way out.
 pub(super) fn dress_wear_bodies(
     mut commands: Commands,
@@ -324,8 +474,7 @@ pub(super) fn dress_wear_bodies(
 ) {
     for (root, body, joints, wear) in &pending {
         ensure_joint_visibility(&mut commands, joints);
-        let desired = std::slice::from_ref(&wear.0);
-        for (joint, transform, attachment) in placements(&body.avatar, desired) {
+        for (joint, transform, attachment) in placements(&body.avatar, &wear.0) {
             let Some(&carrier) = joints.0.get(joint) else {
                 continue;
             };
@@ -376,14 +525,14 @@ fn spawn_room(
             }
             // Expand scatters at full count so `--room` renders (and, with
             // `--features alloc-trace`, allocation-profiles) the region at its
-            // true entity density — previously only Absolute placements
+            // true entity density - previously only Absolute placements
             // spawned, hiding the forests that dominate seeded rooms (#810/
             // #811).
             //
             // Poses come from the compiler's own sampler (#912) so the sheet
             // shows the real clustering, scale and tilt rather than a
-            // lookalike. The terrain-dependent filters — biome allow-list,
-            // slope cutoff, terrain snapping — cannot run without a
+            // lookalike. The terrain-dependent filters - biome allow-list,
+            // slope cutoff, terrain snapping - cannot run without a
             // heightmap, so instances sit on the ground plane and no sample
             // is rejected; the sheet is therefore denser than the game, which
             // is the right bias for judging arrangement.
@@ -464,104 +613,345 @@ fn spawn_ground(
     ));
 }
 
+/// The drive loop: frame, warm up, shoot. See [`Phase`].
 #[allow(clippy::too_many_arguments)]
 pub(super) fn drive(
     mut commands: Commands,
-    mut frames: ResMut<Frames>,
     mut capture: ResMut<Capture>,
+    mut clock: ResMut<Clock>,
     targets: Res<Targets>,
     job: Res<RenderJob>,
     subject: SubjectQuery,
     emitters: Query<&GlobalTransform, With<ParticleEmitterMarker>>,
     mut cams: Query<(&mut Transform, &TileCam)>,
+    walkers: Query<(&Transform, &Walker), Without<TileCam>>,
     terrain_ready: Option<Res<crate::terrain::SplatApplied>>,
+    world: WorldReadiness,
+    heightmap: Option<Res<FinishedHeightMap>>,
+    record: Option<Res<LiveRoomRecord>>,
+    mut exit: MessageWriter<AppExit>,
 ) {
-    // Auto-frame the cameras on the subject's world AABB once it resolves
-    // (Bevy computes mesh `Aabb`s a frame after spawn). A lineup frames each
-    // slot's row on that slot's own centre but with one shared camera
-    // distance, so relative subject size across rows stays honest.
-    // `--terrain` frames itself rather than auto-framing (#994). Two reasons,
-    // and both are about the render being an instrument: the subject's AABB is
-    // the whole kilometre-wide heightmap, so auto-framing would answer a
-    // question nobody asked, and a fixed camera is what makes two renders
-    // — before a change and after it — comparable at all.
-    if let Subject::Terrain { view_m, .. } = &job.subject {
-        if capture.framed {
-            // fall through to the capture below
-        } else if terrain_ready.is_some() {
-            for (mut transform, cam) in &mut cams {
-                let a = ANGLES[cam.0].to_radians();
-                // Grazing on purpose. A repeat reads worst along the ground,
-                // where one tile's features line up with the next; a top-down
-                // view flatters it.
-                let pos = cam_offset(a, *view_m, *view_m, Some(job.elev.unwrap_or(9.0)));
-                *transform = Transform::from_translation(pos).looking_at(Vec3::ZERO, Vec3::Y);
+    match capture.phase {
+        Phase::Framing => {
+            let framed = match &job.subject {
+                Subject::World(_) => frame_world(&mut capture, &job, &world, heightmap.as_deref()),
+                Subject::Terrain { view_m, .. } => frame_terrain(
+                    &mut capture,
+                    &job,
+                    *view_m,
+                    terrain_ready.is_some(),
+                    &mut cams,
+                ),
+                _ => frame_subject(&mut capture, &job, &targets, &subject, &emitters, &mut cams),
+            };
+            if framed {
+                info!("framed after {} frames; warming up", capture.waited);
+                capture.phase = Phase::Warmup { left: WARMUP };
+                clock.run = true;
+                commands.insert_resource(ClipTiming {
+                    capture_start: clock.elapsed + WARMUP as f32 * clock.step,
+                });
             }
-            capture.framed = true;
-            return;
-        } else {
-            capture.waited += 1;
-            assert!(
-                capture.waited < TERRAIN_GRACE,
-                "terrain never finished: the splat pass has not applied after {TERRAIN_GRACE} \
-                 frames — a heightmap or texture-bake job did not land"
-            );
-            return;
         }
-    }
-
-    if !capture.framed {
-        capture.waited += 1;
-        let rows = targets.0.len() / ANGLES.len();
-        if rows == 1 {
-            // A subject that never resolves an AABB — a grammar that errored
-            // or derived to nothing — would otherwise spin here forever, so
-            // fall back to a placeholder bound and capture the empty frame.
-            let bounds = subject_bounds(&subject, &emitters)
-                .or_else(|| (capture.waited > FRAME_GRACE).then_some((Vec3::Y * 0.5, 0.5)));
-            if let Some((center, radius)) = bounds {
-                let dist = radius / (FOV * 0.5).tan() * 1.2 + radius * 0.5;
-                for (mut transform, cam) in &mut cams {
-                    let a = ANGLES[cam.0].to_radians();
-                    let pos = center + cam_offset(a, dist, radius, job.elev);
-                    *transform = Transform::from_translation(pos).looking_at(center, Vec3::Y);
+        Phase::Warmup { left } => {
+            if left > 0 {
+                capture.phase = Phase::Warmup { left: left - 1 };
+                return;
+            }
+            let walker = walkers.iter().next().map(|(t, w)| (t.translation, w.dir()));
+            if job.single_camera() {
+                aim_rig(
+                    &capture,
+                    &job,
+                    &mut cams,
+                    walker,
+                    record.as_deref(),
+                    heightmap.as_deref(),
+                    0,
+                );
+            }
+            if job.frames > 1 {
+                // Lockstep from here: the clock steps once per captured frame.
+                clock.run = false;
+                let e = commands.spawn(Readback::texture(targets.0[0].clone())).id();
+                capture.phase = Phase::Clip {
+                    next: 1,
+                    pending: Some(e),
+                };
+            } else {
+                capture.results = vec![None; targets.0.len()];
+                for (i, target) in targets.0.iter().enumerate() {
+                    let e = commands.spawn(Readback::texture(target.clone())).id();
+                    capture.tile_of.insert(e, i);
                 }
-                capture.framed = true;
+                capture.phase = Phase::Sheet;
             }
-            return;
         }
-        if let Some(slots) = lineup_bounds(&subject, rows, capture.waited > FRAME_GRACE) {
-            let max_radius = slots.iter().map(|s| s.1).fold(0.1f32, f32::max);
-            let dist = max_radius / (FOV * 0.5).tan() * 1.2 + max_radius * 0.5;
-            for (mut transform, cam) in &mut cams {
-                let center = slots[cam.0 / ANGLES.len()].0;
-                let a = ANGLES[cam.0 % ANGLES.len()].to_radians();
-                let pos = center + cam_offset(a, dist, max_radius, job.elev);
-                *transform = Transform::from_translation(pos).looking_at(center, Vec3::Y);
+        Phase::Sheet => {}
+        Phase::Clip {
+            next,
+            pending: None,
+        } => {
+            if next >= job.frames {
+                let result = finish_clip(&capture, &job);
+                match result {
+                    Ok(()) => exit.write(AppExit::Success),
+                    Err(e) => {
+                        error!("clip save failed: {e}");
+                        exit.write(AppExit::error())
+                    }
+                };
+                return;
             }
-            capture.framed = true;
+            let walker = walkers.iter().next().map(|(t, w)| (t.translation, w.dir()));
+            aim_rig(
+                &capture,
+                &job,
+                &mut cams,
+                walker,
+                record.as_deref(),
+                heightmap.as_deref(),
+                next,
+            );
+            if let Some((transform, _)) = cams.iter().next() {
+                info!(
+                    "frame {next}/{}: t={:.2}s camera ({:.1}, {:.1}, {:.1}) walker {}",
+                    job.frames,
+                    clock.elapsed,
+                    transform.translation.x,
+                    transform.translation.y,
+                    transform.translation.z,
+                    walker.map_or("none".to_string(), |(at, _)| format!(
+                        "({:.1}, {:.1}, {:.1})",
+                        at.x, at.y, at.z
+                    )),
+                );
+            }
+            let e = commands.spawn(Readback::texture(targets.0[0].clone())).id();
+            capture.phase = Phase::Clip {
+                next: next + 1,
+                pending: Some(e),
+            };
         }
-        return;
+        Phase::Clip {
+            pending: Some(_), ..
+        } => {}
     }
+}
 
-    frames.0 += 1;
-    if capture.started || frames.0 < WARMUP {
+/// `--world`: wait for the compile to settle, then fix the rig's focus.
+fn frame_world(
+    capture: &mut Capture,
+    job: &RenderJob,
+    world: &WorldReadiness,
+    heightmap: Option<&FinishedHeightMap>,
+) -> bool {
+    if world.settled() {
+        capture.waited += 1;
+    } else {
+        capture.waited = 0;
+    }
+    if capture.last_log.elapsed() >= WORLD_LOG_EVERY {
+        capture.last_log = Instant::now();
+        info!(
+            "world: {} ({:.0} s, quiet {}/{})",
+            world.status(),
+            capture.since.elapsed().as_secs_f32(),
+            capture.waited,
+            WORLD_QUIET
+        );
+    }
+    assert!(
+        capture.since.elapsed() < WORLD_BUDGET,
+        "world never settled within {WORLD_BUDGET:?}: {}",
+        world.status()
+    );
+    if capture.waited < WORLD_QUIET {
+        return false;
+    }
+    let Subject::World(spec) = &job.subject else {
+        unreachable!("frame_world is only called for a world subject");
+    };
+    let focus = resolve_focus(job.rig.focus, Some(&spec.record), heightmap, None, None);
+    capture.framing = Some(Framing {
+        focus,
+        auto_dist: 150.0,
+        auto_elev: 28.0,
+    });
+    true
+}
+
+/// `--terrain` (#994) frames itself rather than auto-framing. Two reasons,
+/// and both are about the render being an instrument: the subject's AABB is
+/// the whole kilometre-wide heightmap, so auto-framing would answer a
+/// question nobody asked, and a fixed camera is what makes two renders
+/// - before a change and after it - comparable at all.
+fn frame_terrain(
+    capture: &mut Capture,
+    job: &RenderJob,
+    view_m: f32,
+    ready: bool,
+    cams: &mut Query<(&mut Transform, &TileCam)>,
+) -> bool {
+    if !ready {
+        capture.waited += 1;
+        assert!(
+            capture.waited < TERRAIN_GRACE,
+            "terrain never finished: the splat pass has not applied after {TERRAIN_GRACE} \
+             frames - a heightmap or texture-bake job did not land"
+        );
+        return false;
+    }
+    for (mut transform, cam) in cams.iter_mut() {
+        let a = ANGLES[cam.0 % ANGLES.len()].to_radians();
+        // Grazing on purpose. A repeat reads worst along the ground,
+        // where one tile's features line up with the next; a top-down
+        // view flatters it.
+        let pos = cam_offset(a, view_m, view_m, Some(job.elev.unwrap_or(9.0)));
+        *transform = Transform::from_translation(pos).looking_at(Vec3::ZERO, Vec3::Y);
+    }
+    capture.framing = Some(Framing {
+        focus: Vec3::ZERO,
+        auto_dist: view_m,
+        auto_elev: job.elev.unwrap_or(9.0),
+    });
+    true
+}
+
+/// Auto-frame the cameras on the subject's world AABB once it resolves
+/// (Bevy computes mesh `Aabb`s a frame after spawn). A lineup frames each
+/// slot's row on that slot's own centre but with one shared camera
+/// distance, so relative subject size across rows stays honest. A clip
+/// records the framing for the rig instead of placing the tile cameras.
+fn frame_subject(
+    capture: &mut Capture,
+    job: &RenderJob,
+    targets: &Targets,
+    subject: &SubjectQuery,
+    emitters: &Query<&GlobalTransform, With<ParticleEmitterMarker>>,
+    cams: &mut Query<(&mut Transform, &TileCam)>,
+) -> bool {
+    capture.waited += 1;
+    let rows = if job.single_camera() {
+        1
+    } else {
+        targets.0.len() / ANGLES.len()
+    };
+    if rows == 1 {
+        // A subject that never resolves an AABB - a grammar that errored
+        // or derived to nothing - would otherwise spin here forever, so
+        // fall back to a placeholder bound and capture the empty frame.
+        let bounds = subject_bounds(subject, emitters)
+            .or_else(|| (capture.waited > FRAME_GRACE).then_some((Vec3::Y * 0.5, 0.5)));
+        let Some((center, radius)) = bounds else {
+            return false;
+        };
+        let dist = radius / (FOV * 0.5).tan() * 1.2 + radius * 0.5;
+        if job.single_camera() {
+            capture.framing = Some(Framing {
+                focus: center,
+                auto_dist: dist,
+                // The historic low orbit, as an angle: a `0.7 × radius`
+                // rise at full distance.
+                auto_elev: (radius * 0.7).atan2(dist).to_degrees(),
+            });
+            return true;
+        }
+        for (mut transform, cam) in cams.iter_mut() {
+            let a = ANGLES[cam.0].to_radians();
+            let pos = center + cam_offset(a, dist, radius, job.elev);
+            *transform = Transform::from_translation(pos).looking_at(center, Vec3::Y);
+        }
+        return true;
+    }
+    let Some(slots) = lineup_bounds(subject, rows, capture.waited > FRAME_GRACE) else {
+        return false;
+    };
+    let max_radius = slots.iter().map(|s| s.1).fold(0.1f32, f32::max);
+    let dist = max_radius / (FOV * 0.5).tan() * 1.2 + max_radius * 0.5;
+    for (mut transform, cam) in cams.iter_mut() {
+        let center = slots[cam.0 / ANGLES.len()].0;
+        let a = ANGLES[cam.0 % ANGLES.len()].to_radians();
+        let pos = center + cam_offset(a, dist, max_radius, job.elev);
+        *transform = Transform::from_translation(pos).looking_at(center, Vec3::Y);
+    }
+    true
+}
+
+/// Put the rig camera at its pose for frame `frame`. `walker` is the
+/// body's (position, heading) when one exists; a walker focus orbits it
+/// with the yaw measured from behind, everything else orbits the framed
+/// point.
+fn aim_rig(
+    capture: &Capture,
+    job: &RenderJob,
+    cams: &mut Query<(&mut Transform, &TileCam)>,
+    walker: Option<(Vec3, Vec3)>,
+    record: Option<&LiveRoomRecord>,
+    heightmap: Option<&FinishedHeightMap>,
+    frame: u32,
+) {
+    let Some(framing) = &capture.framing else {
         return;
+    };
+    let (focus, yaw_base) = match job.rig.focus {
+        Focus::Walker => (
+            resolve_focus(
+                Focus::Walker,
+                record.map(|r| &r.0),
+                heightmap,
+                walker.map(|(at, _)| at),
+                Some(framing.focus),
+            ),
+            CameraRig::yaw_behind(walker.map_or(Vec3::NEG_Z, |(_, dir)| dir)),
+        ),
+        _ => (framing.focus, 0.0),
+    };
+    let (pos, look) = job.rig.pose_at(
+        focus,
+        yaw_base,
+        progress(frame, job.frames),
+        (framing.auto_dist, framing.auto_elev),
+    );
+    for (mut transform, _) in cams.iter_mut() {
+        *transform = Transform::from_translation(pos).looking_at(look, Vec3::Y);
     }
-    capture.started = true;
-    capture.results = vec![None; targets.0.len()];
-    for (i, target) in targets.0.iter().enumerate() {
-        let e = commands
-            .spawn(Readback::texture(target.clone()))
-            .observe(on_capture)
-            .id();
-        capture.tile_of.insert(e, i);
+}
+
+/// Write the clip: the GIF, and the PNG frames beside it on request.
+fn finish_clip(capture: &Capture, job: &RenderJob) -> Result<(), String> {
+    let (w, h) = job.tile;
+    let stem = job.out.trim_end_matches(".gif").trim_end_matches(".png");
+    let gif_path = format!("{stem}.gif");
+    if let Some(parent) = std::path::Path::new(&gif_path).parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
+    if job.keep_frames {
+        let dir = format!("{stem}-frames");
+        gif::write_png_frames(&dir, w, h, &capture.frames)?;
+        info!("wrote {} PNG frames under {dir}", capture.frames.len());
+    }
+    gif::write_gif(
+        &gif_path,
+        w,
+        h,
+        &capture.frames,
+        delay_cs(job.fps),
+        job.dither,
+    )?;
+    let bytes = std::fs::metadata(&gif_path).map(|m| m.len()).unwrap_or(0);
+    info!(
+        "wrote {gif_path} ({} frames, {w}×{h}, {} cs/frame, {:.1} MiB)",
+        capture.frames.len(),
+        delay_cs(job.fps),
+        bytes as f64 / (1024.0 * 1024.0)
+    );
+    Ok(())
 }
 
 /// Per-slot bounds of a lineup → one (centre, bounding radius) per row, slot
 /// resolved from each mesh's world X (`round(x / SLOT_SPACING)`). Returns
-/// `None` until every slot has at least one resolved AABB, unless `force` —
+/// `None` until every slot has at least one resolved AABB, unless `force` -
 /// then still-empty slots get a tiny placeholder bound at their slot origin
 /// so a degenerate variant can't hang the render.
 fn lineup_bounds(q: &SubjectQuery, rows: usize, force: bool) -> Option<Vec<(Vec3, f32)>> {
@@ -601,8 +991,8 @@ fn lineup_bounds(q: &SubjectQuery, rows: usize, force: bool) -> Option<Vec<(Vec3
 
 /// Where a tile camera sits relative to the framed centre. `elev` (degrees,
 /// from `--elev`) puts it on a true elevation arc; without it the camera
-/// keeps the historic low orbit — a fixed `0.7 * radius` rise at full
-/// distance, i.e. roughly 13° — which reads a facade well but cannot see
+/// keeps the historic low orbit - a fixed `0.7 * radius` rise at full
+/// distance, i.e. roughly 13° - which reads a facade well but cannot see
 /// into anything open-topped.
 fn cam_offset(yaw: f32, dist: f32, radius: f32, elev: Option<f32>) -> Vec3 {
     match elev {
@@ -620,8 +1010,8 @@ fn cam_offset(yaw: f32, dist: f32, radius: f32, elev: Option<f32>) -> Vec3 {
 /// 160 m floor, and live [`Particle`] quads are excluded so a drifting smoke
 /// plume can't jitter the framing from run to run.
 ///
-/// Emitter *anchors* are folded in as points instead. An FX-heavy prop —
-/// a fire whose smoke column is authored 2 m above a 0.9 m barrel — is
+/// Emitter *anchors* are folded in as points instead. An FX-heavy prop -
+/// a fire whose smoke column is authored 2 m above a 0.9 m barrel - is
 /// mostly not geometry, and framing on the geometry alone crops the very
 /// thing an FX review is looking at. The anchors are static, so unlike the
 /// particles they cost nothing in stability.
@@ -660,63 +1050,91 @@ fn subject_bounds(
     Some(((min + max) * 0.5, ((max - min) * 0.5).length().max(0.1)))
 }
 
+/// A readback landed: a sheet tile, or the clip frame in flight.
 pub(super) fn on_capture(
     trigger: On<ReadbackComplete>,
+    mut commands: Commands,
     job: Res<RenderJob>,
     mut capture: ResMut<Capture>,
+    mut clock: ResMut<Clock>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let event = trigger.event();
-    let Some(&tile) = capture.tile_of.get(&event.entity) else {
-        return;
-    };
-    if capture.results[tile].is_some() {
-        return;
-    }
-    capture.results[tile] = Some(event.data.clone());
-    if capture.results.iter().any(|r| r.is_none()) {
-        return;
-    }
-    match save_contact_sheet(&capture.results, job.size, &job.out) {
-        Ok(()) => {
-            info!("wrote {} ({} tiles)", job.out, capture.results.len());
-            exit.write(AppExit::Success);
+    match capture.phase {
+        Phase::Clip {
+            next,
+            pending: Some(e),
+        } if e == event.entity => {
+            capture.frames.push(event.data.clone());
+            commands.entity(e).despawn();
+            capture.phase = Phase::Clip {
+                next,
+                pending: None,
+            };
+            // The next frame is the scene one step later.
+            clock.once = true;
         }
-        Err(e) => {
-            error!("contact sheet save failed: {e}");
-            exit.write(AppExit::error());
+        Phase::Sheet => {
+            let Some(&tile) = capture.tile_of.get(&event.entity) else {
+                return;
+            };
+            if capture.results[tile].is_some() {
+                return;
+            }
+            capture.results[tile] = Some(event.data.clone());
+            if capture.results.iter().any(|r| r.is_none()) {
+                return;
+            }
+            match save_contact_sheet(&capture.results, job.tile, &job.out) {
+                Ok(()) => {
+                    info!("wrote {} ({} tiles)", job.out, capture.results.len());
+                    exit.write(AppExit::Success);
+                }
+                Err(e) => {
+                    error!("contact sheet save failed: {e}");
+                    exit.write(AppExit::error());
+                }
+            }
         }
+        _ => {}
     }
 }
 
 /// Tile the RGBA captures into one PNG: `ANGLES.len()` columns per row, one
-/// row per lineup slot (a single subject is one row — the original horizontal
-/// strip).
-fn save_contact_sheet(results: &[Option<Vec<u8>>], tile: u32, path: &str) -> Result<(), String> {
-    let t = tile as usize;
+/// row per lineup slot (a single subject is one row - the original horizontal
+/// strip; a single camera is one tile).
+fn save_contact_sheet(
+    results: &[Option<Vec<u8>>],
+    (tw, th): (u32, u32),
+    path: &str,
+) -> Result<(), String> {
+    let (tw_us, th_us) = (tw as usize, th as usize);
     let cols = ANGLES.len().min(results.len()).max(1);
     let rows = results.len().div_ceil(cols);
-    let sheet_w = tile * cols as u32;
+    let sheet_w = tw * cols as u32;
     let stride = sheet_w as usize * 4;
-    let mut sheet = vec![0u8; stride * t * rows];
+    let mut sheet = vec![0u8; stride * th_us * rows];
     for (i, captured) in results.iter().enumerate() {
         let data = captured.as_ref().ok_or("missing tile")?;
-        if data.len() < t * t * 4 {
+        if data.len() < tw_us * th_us * 4 {
             return Err(format!("tile {i} short: {} bytes", data.len()));
         }
         let (row, col) = (i / cols, i % cols);
-        for y in 0..t {
-            let src = &data[y * t * 4..(y + 1) * t * 4];
-            let dst = (row * t + y) * stride + col * t * 4;
-            sheet[dst..dst + t * 4].copy_from_slice(src);
+        for y in 0..th_us {
+            let src = &data[y * tw_us * 4..(y + 1) * tw_us * 4];
+            let dst = (row * th_us + y) * stride + col * tw_us * 4;
+            sheet[dst..dst + tw_us * 4].copy_from_slice(src);
         }
     }
     std::fs::create_dir_all(OUT_DIR).map_err(|e| e.to_string())?;
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
     image::save_buffer(
         path,
         &sheet,
         sheet_w,
-        tile * rows as u32,
+        th * rows as u32,
         image::ExtendedColorType::Rgba8,
     )
     .map_err(|e| e.to_string())
@@ -734,11 +1152,11 @@ fn srgb3(c: [f32; 3]) -> Color {
     Color::srgb(c[0], c[1], c[2])
 }
 
-fn new_target(size: u32) -> Image {
+fn new_target((width, height): (u32, u32)) -> Image {
     let mut image = Image::new_fill(
         Extent3d {
-            width: size,
-            height: size,
+            width,
+            height,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,

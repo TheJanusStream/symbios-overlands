@@ -1,9 +1,9 @@
-//! Offline session-log analyzer (Pillar B) — the agent-facing post-mortem the
+//! Offline session-log analyzer (Pillar B) - the agent-facing post-mortem the
 //! native `render` bin prints for `--analyze-session <log.jsonl>`.
 //!
 //! It reads a captured NDJSON session log (the durable
 //! `diagnostics/session-latest.jsonl` a live run writes, or the wasm
-//! "Download log" dump — byte-identical formats), deserializes it back into
+//! "Download log" dump - byte-identical formats), deserializes it back into
 //! [`SessionEvent`]s tolerating unknown/torn lines, and folds it into a
 //! human-readable report: the header + verdict (B-1), the per-subsystem
 //! `[Event Tallies]` + `[Metric Trends]` (B-3), the `[Timeline]` +
@@ -55,13 +55,13 @@ pub fn report(path: &str, log: &ParsedLog) -> String {
 
 /// Like [`report`], but restricts the analysis sections to the events matching
 /// `filters` (B-5). The header (session id, build, duration, exit) is always
-/// derived from the *full* log — it identifies the run — while `[Verdict]` …
+/// derived from the *full* log - it identifies the run - while `[Verdict]` …
 /// `[Invariant Violations]` fold only the matching subset, with a `[Filter]` line
 /// documenting the lens and how many events matched. Pure over its inputs.
 pub fn report_with(path: &str, log: &ParsedLog, filters: &Filters) -> String {
     let full = &log.events;
     let mut s = String::new();
-    let _ = writeln!(s, "=== session analysis — {path} ===");
+    let _ = writeln!(s, "=== session analysis - {path} ===");
 
     if full.is_empty() {
         let _ = writeln!(
@@ -72,20 +72,20 @@ pub fn report_with(path: &str, log: &ParsedLog, filters: &Filters) -> String {
         return s;
     }
 
-    // -- header (always the FULL log — it identifies the session) -------------
+    // -- header (always the FULL log - it identifies the session) -------------
     let start = startup(full);
-    // The session id mirrors `SessionLog::session_start_wall_ms` — the wall
+    // The session id mirrors `SessionLog::session_start_wall_ms` - the wall
     // stamp of the *first* recorded event, which keys the per-session file. If
-    // the first event carried no clock, there is no session id (`—`); we don't
+    // the first event carried no clock, there is no session id (`-`); we don't
     // borrow a later event's stamp, which would misidentify the run.
     let session_id = full
         .first()
         .and_then(|e| e.wall_ms)
         .map(|ms| ms.to_string())
-        .unwrap_or_else(|| "—".to_string());
+        .unwrap_or_else(|| "-".to_string());
     let did = start
         .and_then(|s| s.session_did.clone().or_else(|| s.boot_target_did.clone()))
-        .unwrap_or_else(|| "—".to_string());
+        .unwrap_or_else(|| "-".to_string());
     let _ = writeln!(s, "session-id: {session_id}    did: {did}");
 
     match start {
@@ -101,7 +101,7 @@ pub fn report_with(path: &str, log: &ParsedLog, filters: &Filters) -> String {
             );
         }
         None => {
-            let _ = writeln!(s, "build:      — (no StartupSnapshot record)");
+            let _ = writeln!(s, "build:      - (no StartupSnapshot record)");
         }
     }
 
@@ -124,21 +124,21 @@ pub fn report_with(path: &str, log: &ParsedLog, filters: &Filters) -> String {
         }
         Some(Exit::Hook { reason, crashed }) => {
             let note = if crashed {
-                "   (crash marker — the panic hook wrote this, not the app)"
+                "   (crash marker - the panic hook wrote this, not the app)"
             } else {
-                "   (tab closed — written by the pagehide hook)"
+                "   (tab closed - written by the pagehide hook)"
             };
             let _ = writeln!(s, "exit:       {reason}{note}");
         }
         // The escalation case (#1145). Both hooks are best-effort but cheap
         // and synchronous, so their ABSENCE is evidence: the process died
-        // without running either — a wasm OOM trap, a browser kill, or a
+        // without running either - a wasm OOM trap, a browser kill, or a
         // truncated capture. This used to be what a normal tab close looked
         // like too, which made the distinction unusable.
         None => {
             let _ = writeln!(
                 s,
-                "exit:       — no terminal record: died without running a shutdown \
+                "exit:       - no terminal record: died without running a shutdown \
                  hook (OOM trap, kill, or truncated log)"
             );
         }
@@ -158,13 +158,13 @@ pub fn report_with(path: &str, log: &ParsedLog, filters: &Filters) -> String {
         let _ = writeln!(s);
         let _ = writeln!(
             s,
-            "[Filter]  {}  —  {} of {} events match",
+            "[Filter]  {}  -  {} of {} events match",
             filters.describe(),
             events.len(),
             full.len()
         );
         if events.is_empty() {
-            let _ = writeln!(s, "  (no events match — nothing to analyze)");
+            let _ = writeln!(s, "  (no events match - nothing to analyze)");
             return s;
         }
     }

@@ -1,13 +1,13 @@
-//! Neighborhood Arch — the Suburban bespoke social gateway (#771), replacing
+//! Neighborhood Arch - the Suburban bespoke social gateway (#771), replacing
 //! the neutral placeholder arch for a residential-street room. Two tan brick
 //! piers with white coping caps carry a white-painted timber lintel and a
-//! raised name-board under a little shingled gable — the subdivision-entrance
+//! raised name-board under a little shingled gable - the subdivision-entrance
 //! monument you drive past turning onto the street. Black coach-lamp lanterns
 //! crown the piers, a warm amber sign reads over the walk-through, a low warm
 //! glow strip lines the threshold and clipped hedges flank the approach.
 //!
 //! The functional element is the single [`GeneratorKind::Gateway`] zone centred
-//! in the ~2.6 m opening — walking into it opens the destination picker listing
+//! in the ~2.6 m opening - walking into it opens the destination picker listing
 //! the room owner's mutual follows. Everything else is themed set-dressing that
 //! frames the opening as a gate you pass through. Primitive-built; authored in
 //! one flat ground-relative frame via [`assemble`], which reparents every piece
@@ -47,7 +47,7 @@ impl CatalogueEntry for SuburbanGateway {
         &[ThemeArchetype::Suburban]
     }
     // No prosperity_band(): the gateway is the theme's per-theme fallback
-    // matched by role, so it must place in a suburban room of any prosperity —
+    // matched by role, so it must place in a suburban room of any prosperity -
     // even the trailer-lot end gets its neighborhood arch near spawn.
     fn footprint(&self) -> Footprint {
         Footprint {
@@ -65,7 +65,7 @@ fn build_tree() -> Generator {
     let px = 1.85_f32; // pier centre offset (X)
     let base_h = 0.3_f32; // slab thickness; its top (y = 0.30) is the piers' floor
 
-    // Concrete apron — the flat-base root. Never tilt a root: assemble() stamps
+    // Concrete apron - the flat-base root. Never tilt a root: assemble() stamps
     // its transform onto every child, so a spun root spins the whole gate.
     let mut prims = vec![prim(
         solid(cuboid_tapered(
@@ -107,7 +107,7 @@ fn build_tree() -> Generator {
     ));
 
     // A white render coping cap over each pier, a coach-lamp housing on the cap
-    // and a warm lit globe — the crown of each support. The globe is emissive
+    // and a warm lit globe - the crown of each support. The globe is emissive
     // trim (a small orb, so it can run a touch warm) that the ruin pass darkens.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
@@ -132,7 +132,7 @@ fn build_tree() -> Generator {
     }
 
     // Raised name-board over the lintel: a white render backing panel carrying a
-    // deep-amber lit sign on the -Z front — the street name that reads at dusk.
+    // deep-amber lit sign on the -Z front - the street name that reads at dusk.
     // The sign is segmented via sign_board (dark cell gaps + low strength) so a
     // broad lit face holds its warm hue instead of blooming to a white blank.
     prims.push(prim(
@@ -149,7 +149,7 @@ fn build_tree() -> Generator {
         -1.0,
     ));
 
-    // A little shingled gable over the name-board — the neighborhood roofline
+    // A little shingled gable over the name-board - the neighborhood roofline
     // echoed in miniature, so the gate MEANS a home street and not a plain
     // beam. Pinch the front X width to an apex ridge, keep the full depth.
     prims.push(prim(
@@ -162,7 +162,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Warm glow strip tucked under the lintel — a thin trim run at low strength,
+    // Warm glow strip tucked under the lintel - a thin trim run at low strength,
     // an active threshold line echoing the walk-in zone's veil without bloom.
     prims.push(prim(
         cuboid_tapered([2.9, 0.12, 0.16], 0.0, glow(PORCH_WARM, 2.4)),
@@ -180,7 +180,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Clipped hedges flanking the approach — leafy clumps, the manicured planting
+    // Clipped hedges flanking the approach - leafy clumps, the manicured planting
     // that names a subdivision entrance.
     for sx in [-1.0_f32, 1.0] {
         prims.extend(crop_tufts(
@@ -194,7 +194,7 @@ fn build_tree() -> Generator {
     }
 
     // The walk-in zone between the piers: floor at the apron top, headroom under
-    // the lintel. Bare kind — the gateway takes no material.
+    // the lintel. Bare kind - the gateway takes no material.
     prims.push(prim(
         // Fitted to the opening (#1006): the veil spans the mouth and
         // buries its edges in jamb, lintel and threshold, so no cuboid
@@ -222,7 +222,7 @@ mod tests {
         assert_sanitize_stable(&SuburbanGateway.build(""), "suburban_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is set-dressing, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

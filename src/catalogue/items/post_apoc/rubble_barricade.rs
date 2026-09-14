@@ -1,4 +1,4 @@
-//! Rubble barricade — a Post-apocalyptic *poor* secondary. A crude wall heaped
+//! Rubble barricade - a Post-apocalyptic *poor* secondary. A crude wall heaped
 //! from broken concrete, scrap and a jammed-in tyre. The makeshift defence of
 //! the drifter's camp.
 
@@ -48,7 +48,7 @@ impl CatalogueEntry for RubbleBarricade {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Heaped concrete core — the root.
+        // Heaped concrete core - the root.
         prim(
             solid(cuboid_tapered(
                 [4.0, 1.3, 1.2],

@@ -1,6 +1,6 @@
 //! Seeded tree-scatter specs.
 //!
-//! Emits 0–4 large-radius scatter specs per room, biased by biome —
+//! Emits 0–4 large-radius scatter specs per room, biased by biome -
 //! lush / coastal rooms get a forested feel, arid / volcanic rooms
 //! stay sparse, tundra / alpine sit in the middle. Each scatter picks
 //! a [`TreeSpecies`] from a biome-weighted pool (conifers on alpine
@@ -30,7 +30,7 @@ const SCATTER_STREAM_SALT: u64 = 0x5CA7_0000_5CA7_5CA7;
 /// world compiler samples instance positions.
 const SCATTER_LOCAL_SEED_SALT: u64 = 0x7E55_7E55_7E55_7E55;
 
-/// Tree species available to seeded scatters — each maps onto one of
+/// Tree species available to seeded scatters - each maps onto one of
 /// the catalogue's L-system plant entries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TreeSpecies {
@@ -42,23 +42,23 @@ pub enum TreeSpecies {
     Sympodial,
     /// Gnarled, gravity-bent silhouette (`lsys_ternary_gravity`).
     TernaryGravity,
-    /// Columnar saguaro cactus (`lsys_cactus`) — desert succulent.
+    /// Columnar saguaro cactus (`lsys_cactus`) - desert succulent.
     Cactus,
-    /// Leafless gnarled deadwood (`lsys_dead_shrub`) — dry / scorched scrub.
+    /// Leafless gnarled deadwood (`lsys_dead_shrub`) - dry / scorched scrub.
     DeadShrub,
-    /// Tall bare trunk + frond crown (`lsys_palm`) — coastal / tropical.
+    /// Tall bare trunk + frond crown (`lsys_palm`) - coastal / tropical.
     Palm,
     /// Stilt-rooted wetland tree (`lsys_mangrove`).
     Mangrove,
-    /// Flat-crowned umbrella tree (`lsys_acacia`) — savanna.
+    /// Flat-crowned umbrella tree (`lsys_acacia`) - savanna.
     Acacia,
-    /// Pale-barked slender broadleaf (`lsys_birch`) — boreal / temperate.
+    /// Pale-barked slender broadleaf (`lsys_birch`) - boreal / temperate.
     Birch,
-    /// Rounded leafy shrub (`lsys_bush`) — woody understory filler.
+    /// Rounded leafy shrub (`lsys_bush`) - woody understory filler.
     Bush,
-    /// Ground rosette of arching fronds (`lsys_fern`) — shade floors.
+    /// Ground rosette of arching fronds (`lsys_fern`) - shade floors.
     Fern,
-    /// Clump of green canes (`lsys_bamboo`) — jungle groves.
+    /// Clump of green canes (`lsys_bamboo`) - jungle groves.
     Bamboo,
     /// Small pink-blossomed ornamental (`lsys_flowering_tree`).
     Blossom,
@@ -113,7 +113,7 @@ const fn skin(species: TreeSpecies, variant: &'static str) -> PlantPick {
 }
 
 /// Biome-weighted species pools, one const table per biome. Repetition is
-/// weighting — lush rooms roll broadleaf twice as often as conifer; tundra is
+/// weighting - lush rooms roll broadleaf twice as often as conifer; tundra is
 /// conifer-only. These are `const` items rather than inline slice literals
 /// because a slice built from `const fn` calls is not promoted to `'static`.
 const POOL_LUSH: &[PlantPick] = &[
@@ -162,7 +162,7 @@ const POOL_VOLCANIC: &[PlantPick] = &[
     plain(TreeSpecies::TernaryGravity),
 ];
 
-// Tropical wall — palms over deep-green broadleaf + bamboo groves
+// Tropical wall - palms over deep-green broadleaf + bamboo groves
 // and floor ferns (#910).
 const POOL_JUNGLE: &[PlantPick] = &[
     plain(TreeSpecies::Palm),
@@ -207,7 +207,7 @@ const POOL_WETLAND: &[PlantPick] = &[
     plain(TreeSpecies::Fern),
 ];
 
-// Few trees over the grass — broad crowns, blossom ornamentals and
+// Few trees over the grass - broad crowns, blossom ornamentals and
 // the odd bush where they stand.
 const POOL_MEADOW: &[PlantPick] = &[
     plain(TreeSpecies::Sympodial),
@@ -255,7 +255,7 @@ fn species_pool(biome: BiomeArchetype) -> &'static [PlantPick] {
     }
 }
 
-/// One seeded tree scatter — what the wiring layer turns into a
+/// One seeded tree scatter - what the wiring layer turns into a
 /// catalogue-built generator for [`TreeScatter::species`] plus a
 /// matching `Placement::Scatter` referencing it.
 #[derive(Clone, Copy, Debug)]
@@ -264,11 +264,11 @@ pub struct TreeScatter {
     pub species: TreeSpecies,
     /// Material re-skin worn by this stand (#910), resolved against the
     /// species' [`crate::catalogue::CatalogueEntry::variants`]. Empty means
-    /// the species' authored default materials. Geometry is unaffected —
+    /// the species' authored default materials. Geometry is unaffected -
     /// only bark/foliage colour and texture config change.
     pub variant: &'static str,
     /// Added to `lsys_ternary_props`'s base iteration count. The
-    /// deriver only samples `{-1, 0, +1}` — anything wider risks
+    /// deriver only samples `{-1, 0, +1}` - anything wider risks
     /// compile times spiking on a stray `+2` roll, or empty stubs on
     /// `-2`. The wiring layer is responsible for clamping the final
     /// `iterations` to its own minimum.
@@ -293,7 +293,7 @@ pub struct TreeScatter {
 /// is for a reason:
 ///
 /// * **Clumping** is mild. Canopy trees compete for light, so a real stand
-///   is patchy but nowhere near as matted as turf — overdo it and the
+///   is patchy but nowhere near as matted as turf - overdo it and the
 ///   trunks interpenetrate.
 /// * **Tilt** is barely there. Roughly 3° reads as a tree that grew on
 ///   uneven ground; much past that reads as storm damage, and every trunk
@@ -308,8 +308,8 @@ pub struct TreeScatter {
 /// It also carries the stand's **microbiome bands** (#913): a treeline, and
 /// the wetland band that puts mangroves in the water they belong in.
 ///
-/// The treeline is a fraction of the room's **dry relief** — water line up
-/// to terrain amplitude — not a fixed number of metres and not a fraction
+/// The treeline is a fraction of the room's **dry relief** - water line up
+/// to terrain amplitude - not a fixed number of metres and not a fraction
 /// of `height_scale` alone. Measured across seeds, dry land spans only
 /// ~0-40 m above water even in rooms whose amplitude is far larger, so a
 /// ceiling taken off `height_scale` lands above the tallest ground and
@@ -329,13 +329,13 @@ pub fn stand_naturalness(
         _ => None,
     };
     // A treeline. Canopy trees stop partway up the relief, which is what
-    // makes a mountain read as a mountain rather than as a green cone — and
+    // makes a mountain read as a mountain rather than as a green cone - and
     // it is the altitude zonation this work stream exists for. Broadleaves
     // stop around two-thirds of the way up the dry ground.
     //
     // Conifers go higher: a frost-bleached spruce at the treeline is the
     // whole point of the species. Cactus and deadwood get no ceiling at all
-    // — neither is a canopy tree, and both belong on bare high ground.
+    // - neither is a canopy tree, and both belong on bare high ground.
     let ceiling = match species {
         TreeSpecies::Monopodial => 0.88,
         TreeSpecies::Cactus | TreeSpecies::DeadShrub => 1.0,
@@ -355,7 +355,7 @@ pub fn stand_naturalness(
     }
 }
 
-/// Full set of seeded tree scatters for a room — empty for arid /
+/// Full set of seeded tree scatters for a room - empty for arid /
 /// volcanic worlds on an unlucky roll, up to 4 entries for lush /
 /// coastal worlds.
 #[derive(Clone, Debug, Default)]
@@ -408,7 +408,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> TreeS
         let radius = range_f32(rng, 250.0, 400.0);
         // Raised from (5, 50) in WS7 (#915): with the prop/mesh-bucket merge
         // (#812) a placed tree costs a handful of entities, and the measured
-        // worst seed used ~4% of the shared vegetation budget — the stands
+        // worst seed used ~4% of the shared vegetation budget - the stands
         // read as thickets now instead of scattered specimens. The #810
         // two-pass budget fit still bounds the pathological seeds.
         let count = sample_inclusive(rng, 10, 70);
@@ -516,7 +516,7 @@ mod tests {
                     sp.slug()
                 );
                 // A named variant that no longer exists resolves to the
-                // species' default materials — silently repainting a biome
+                // species' default materials - silently repainting a biome
                 // rather than failing. Names are part of the pool contract,
                 // so guard them (#910).
                 if !pick.variant.is_empty() {
@@ -535,7 +535,7 @@ mod tests {
     #[test]
     fn lush_more_forested_than_arid() {
         // Across many seeds, lush rooms should average a higher
-        // scatter count than arid rooms — the biome bias is the whole
+        // scatter count than arid rooms - the biome bias is the whole
         // point of `count_range`.
         let mut lush_total = 0u32;
         let mut arid_total = 0u32;
@@ -558,7 +558,7 @@ mod tests {
     /// authenticated as and dump the biome + scatter count `default_for_did`
     /// would produce for each. Run with
     /// `cargo test --lib seeded_defaults::room::scatters::tests::dump_local_did_scatters -- --nocapture`.
-    /// Not an assertion test — exists so we can verify wiring deterministically
+    /// Not an assertion test - exists so we can verify wiring deterministically
     /// when a freshly-seeded room "appears" empty of trees.
     #[test]
     fn dump_local_did_scatters() {
@@ -594,7 +594,7 @@ mod tests {
     #[test]
     fn each_scatter_has_distinct_local_seed() {
         // Two scatters in the same room must not share a placement
-        // stream — otherwise the world compiler would lay them down on
+        // stream - otherwise the world compiler would lay them down on
         // identical sample positions.
         for s in 0u64..32 {
             let mut scene = SceneCharacter::for_seed(s);

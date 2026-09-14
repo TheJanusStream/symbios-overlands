@@ -3,8 +3,8 @@
 //! The whole thin-client premise is that every peer derives the SAME world
 //! from the same record: the record is small and travels, the world is large
 //! and does not (see [`crate::offload`]). Until #1146 nothing anywhere
-//! measured whether that held. Both desyncs in this project's history — #51's
-//! terrain mismatch and #882's lots and roads — reached the tracker as a user
+//! measured whether that held. Both desyncs in this project's history - #51's
+//! terrain mismatch and #882's lots and roads - reached the tracker as a user
 //! saying the two screens looked different, because that was genuinely the
 //! only evidence available: no peer computed a content hash of what it had
 //! built, so no two peers could compare.
@@ -14,11 +14,11 @@
 //! Three parts, each written by whoever derives it, combined only once all
 //! three exist ([`WorldDigest::combined`]):
 //!
-//! * the **heightmap** — a hash of the sample grid, the direct output of the
+//! * the **heightmap** - a hash of the sample grid, the direct output of the
 //!   erosion and octave passes;
-//! * the **splat weight map** — the per-texel channel weights, i.e. which
+//! * the **splat weight map** - the per-texel channel weights, i.e. which
 //!   ground material won at each cell;
-//! * the **compile** — the placement fingerprints in index order plus the
+//! * the **compile** - the placement fingerprints in index order plus the
 //!   entity count the compile actually produced.
 //!
 //! Each part sees something the others cannot. The heightmap catches a
@@ -30,7 +30,7 @@
 //! ## What it deliberately cannot see
 //!
 //! The compile part's fingerprints are a function of the RECORD, not of the
-//! geometry the record derived into — they are the planner's change-detection
+//! geometry the record derived into - they are the planner's change-detection
 //! keys, reused here. So two peers that read the same record and then built
 //! *differently shaped* trees at the *same count* agree on this digest. That
 //! is not an oversight to fix by hashing every spawned transform: the entity
@@ -39,7 +39,7 @@
 //! have to run a frame after the compile, decoupling the number from the
 //! event that reports it.
 //!
-//! Nor does it see sub-quantum float noise, on purpose — see
+//! Nor does it see sub-quantum float noise, on purpose - see
 //! [`LENGTH_QUANTUM_M`].
 //!
 //! ## Advisory, always
@@ -70,7 +70,7 @@ use crate::pds::RoomRecord;
 pub const LENGTH_QUANTUM_M: f32 = 0.001;
 
 /// FNV-1a 64-bit. Chosen over a stronger hash because this is a
-/// divergence detector, not a security boundary — collisions cost a missed
+/// divergence detector, not a security boundary - collisions cost a missed
 /// report, and there is no adversary who benefits from forging one (a peer
 /// that wants to lie about its digest just sends a different number).
 /// Vendoring twelve lines beats a dependency for that.
@@ -107,7 +107,7 @@ impl Hasher {
         self.write(&v.to_le_bytes());
     }
 
-    /// The digest so far. Never zero — a zero digest is reserved as "nothing
+    /// The digest so far. Never zero - a zero digest is reserved as "nothing
     /// was hashed", which keeps an empty accumulator from reading as a
     /// legitimate agreement between two peers who each built nothing.
     pub fn finish(self) -> u64 {
@@ -118,7 +118,7 @@ impl Hasher {
 /// Quantise a length to [`LENGTH_QUANTUM_M`] for hashing.
 ///
 /// A non-finite input lands on 0 through the saturating float→int cast, which
-/// is deterministic on every target — the only property this needs. It is also
+/// is deterministic on every target - the only property this needs. It is also
 /// a value a real height can take, so a NaN and a zero hash alike; that is
 /// acceptable because a NaN in the heightmap is a defect the terrain rules
 /// catch on their own, not one this digest is watching for.
@@ -178,7 +178,7 @@ pub fn compile_digest<'a>(
 
 /// Content fingerprint of the record itself: what the world was derived FROM.
 ///
-/// Two peers only compare world digests when this matches — otherwise a
+/// Two peers only compare world digests when this matches - otherwise a
 /// difference says nothing more interesting than "one of us has not received
 /// the owner's latest edit yet", which is ordinary and constant during a
 /// slider drag.
@@ -254,8 +254,8 @@ mod tests {
     /// digest must be the SAME for the same world and DIFFERENT for a
     /// different one. A hash that fails the first cries wolf on every
     /// session; one that fails the second is a constant that reports nothing.
-    /// Everything downstream — the peer exchange, the mismatch rule, the
-    /// determinism goldens #1132 and #1133 are scored against — assumes both.
+    /// Everything downstream - the peer exchange, the mismatch rule, the
+    /// determinism goldens #1132 and #1133 are scored against - assumes both.
     #[test]
     fn a_digest_is_stable_for_one_world_and_moves_for_another() {
         let samples: Vec<f32> = (0..64).map(|i| i as f32 * 0.37).collect();
@@ -267,7 +267,7 @@ mod tests {
         );
 
         let mut moved = samples.clone();
-        // One centimetre on one sample of four thousand — well over the
+        // One centimetre on one sample of four thousand - well over the
         // quantum, well under anything the eye would call a different world.
         moved[17] += 0.01;
         assert_ne!(a, heightmap_digest(8, 8, &moved), "a moved sample moves it");
@@ -288,7 +288,7 @@ mod tests {
         let samples: Vec<f32> = (0..64).map(|i| i as f32 * 0.37).collect();
         let mut noisy = samples.clone();
         for s in noisy.iter_mut() {
-            // A few ULPs at these magnitudes — orders of magnitude under a
+            // A few ULPs at these magnitudes - orders of magnitude under a
             // millimetre.
             *s = f32::from_bits(s.to_bits() + 2);
         }
@@ -302,7 +302,7 @@ mod tests {
     /// The splat map is where a one-ULP difference stops being invisible: the
     /// weights are `u8`, so a borderline channel score that rounds the other
     /// way is a texel of ground the two peers texture differently. No
-    /// quantisation here — these bytes are already the decision.
+    /// quantisation here - these bytes are already the decision.
     #[test]
     fn one_flipped_splat_texel_moves_the_digest() {
         let texels: Vec<u8> = (0..256).map(|i| (i % 251) as u8).collect();
@@ -326,14 +326,14 @@ mod tests {
             compile_digest(fps.iter().copied(), 4095),
             "one instance fewer is the shape a slope accept/reject flip takes"
         );
-        // Placement order is placement identity — the planner keys its
-        // compiled units by index — so reordering is a different world.
+        // Placement order is placement identity - the planner keys its
+        // compiled units by index - so reordering is a different world.
         let reordered = [Some("unit-b"), None, Some("unit-a")];
         assert_ne!(a, compile_digest(reordered.iter().copied(), 4096));
     }
 
     /// A half-built world has no digest to offer. Before this rule existed the
-    /// obvious implementation — combine whatever parts you have — would have
+    /// obvious implementation - combine whatever parts you have - would have
     /// had every peer broadcast a mismatch during its own loading screen.
     #[test]
     fn a_digest_is_withheld_until_every_part_has_landed() {
@@ -352,7 +352,7 @@ mod tests {
     }
 
     /// Retargeting to a new record must not leave the old record's terrain
-    /// combined with the new record's compile — that digest describes a world
+    /// combined with the new record's compile - that digest describes a world
     /// no peer ever built, so it would mismatch against everybody.
     #[test]
     fn retargeting_to_a_new_record_drops_the_old_records_parts() {

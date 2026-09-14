@@ -12,21 +12,21 @@
 //! This resolves the ground a *footprint* rests on instead: the highest
 //! terrain under the building, sampled over its own disc. Upward-only,
 //! for the same reason the road deck takes `max` over its lateral
-//! samples rather than a mean (`urban::levelling`) — ground
+//! samples rather than a mean (`urban::levelling`) - ground
 //! that pokes through a floor is a hole in the building, while ground
 //! that falls away beneath one is a gap a plinth can close. It is also
 //! how the ground is actually prepared: a graded pad sets finished floor
 //! level at the high point of the site and fills below it.
 //!
-//! Applied only to seeded structures — the `avoid_water` opt-in the
-//! settlement and lot derivers set — so hand-authored editor placements
+//! Applied only to seeded structures - the `avoid_water` opt-in the
+//! settlement and lot derivers set - so hand-authored editor placements
 //! keep the plain centre sample they were positioned against.
 //!
 //! # One sampling site
 //!
 //! Four places resolve a snapped placement's ground: the compile
 //! executor, the gizmo's preview, the gizmo's drag commit, and the
-//! editor's snap toggle. They must agree exactly — the offset a drag
+//! editor's snap toggle. They must agree exactly - the offset a drag
 //! writes into the record is `dragged world Y − ground`, and the compile
 //! then renders at `ground + offset`, so any disagreement between the two
 //! reads is baked into the offset and *accumulates on every drag*. Read
@@ -49,8 +49,8 @@ const MAX_SPAN_CELLS: usize = 192;
 /// The footprint radius a placement's snap resolves against, or `None`
 /// for one that resolves at its centre.
 ///
-/// A seeded structure is marked by `avoid_water` — the opt-in the
-/// settlement and lot derivers set — and carries its footprint in
+/// A seeded structure is marked by `avoid_water` - the opt-in the
+/// settlement and lot derivers set - and carries its footprint in
 /// `avoid_water_clearance`, scaled by the placement's own scale so a 1.2×
 /// landmark measures a 1.2× disc. Everything else (scatter bounds, grid
 /// anchors, hand-placed props) resolves at a point.
@@ -73,7 +73,7 @@ pub fn snap_radius_of(avoid_water: bool, clearance: f32, scale_x: f32) -> Option
     (avoid_water && r > 0.0).then_some(r)
 }
 
-/// The ground a snapped placement sits on — the single reading every
+/// The ground a snapped placement sits on - the single reading every
 /// consumer must use (see the module docs).
 ///
 /// `radius` comes from [`snap_footprint_radius`]; `None` gives the plain
@@ -118,7 +118,7 @@ pub(super) fn footprint_height(
     for i in 0..RIM_SAMPLES {
         let a = i as f32 * std::f32::consts::TAU / RIM_SAMPLES as f32;
         // libm (#1132): the rim samples decide the pad's height, which the
-        // placement is then SNAPPED to — so this feeds a value two peers must
+        // placement is then SNAPPED to - so this feeds a value two peers must
         // agree on exactly, not merely approximately.
         highest = highest.max(sample(
             x + libm::sinf(a) * radius,
@@ -128,7 +128,7 @@ pub(super) fn footprint_height(
 
     // The interior, at the grid vertices themselves. Between its
     // vertices the map is bilinear, which attains no interior maximum of
-    // its own — so the vertices inside the disc, plus the rim above, are
+    // its own - so the vertices inside the disc, plus the rim above, are
     // the whole story. Sampling *at* a vertex makes the bilinear filter
     // return that vertex's value exactly.
     let cell = hm.scale().max(1e-3);
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn a_point_placement_keeps_the_centre_sample() {
-        // Zero radius must not consult the neighbourhood at all — that is
+        // Zero radius must not consult the neighbourhood at all - that is
         // the editor-placement / point-object path.
         let hm = map_from(|x, _| x);
         for radius in [0.0, -3.0, f32::NAN] {
@@ -211,7 +211,7 @@ mod tests {
         let radius = 9.0;
         let floor = footprint_height(&hm, EXTENT, HALF, cx, cz, radius);
 
-        // Dense independent sweep of the disc — not the sample pattern.
+        // Dense independent sweep of the disc - not the sample pattern.
         for i in 0..64 {
             for j in 0..16 {
                 let a = i as f32 * std::f32::consts::TAU / 64.0;
@@ -271,7 +271,7 @@ mod tests {
     }
 
     /// A seeded placement reads as a footprint, everything else as a
-    /// point — the classification the four snap sites share.
+    /// point - the classification the four snap sites share.
     #[test]
     fn seeded_placements_resolve_as_footprints_and_others_as_points() {
         use crate::pds::{Fp, Fp3, Placement, TransformData};
@@ -330,7 +330,7 @@ mod tests {
         let offset = world_y - super::snapped_ground_y(&hm, x, z, radius);
         assert!(
             (offset - -0.35).abs() < 1e-4,
-            "offset drifted to {offset} — the sites disagree"
+            "offset drifted to {offset} - the sites disagree"
         );
 
         // A centre-sampling commit (the pre-#1011 bug) would drift up.

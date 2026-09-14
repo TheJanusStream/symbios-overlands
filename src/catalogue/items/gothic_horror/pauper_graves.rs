@@ -1,4 +1,4 @@
-//! Pauper's graves — a Gothic-Horror *poor* secondary. A cluster of crude
+//! Pauper's graves - a Gothic-Horror *poor* secondary. A cluster of crude
 //! wooden grave markers leaning over bare dirt mounds, a rough cross at the
 //! head. The unmarked burials of the forsaken ground.
 //!
@@ -53,7 +53,7 @@ fn build_tree() -> Generator {
     let dirt = || matte(DIRT);
     let dw = || wood(DEADWOOD);
     let mut prims = vec![
-        // A rounded dirt mound — the root.
+        // A rounded dirt mound - the root.
         prim(
             solid(cuboid_tapered([1.4, 0.34, 0.85], 0.5, dirt())),
             [0.0, 0.16, 0.0],

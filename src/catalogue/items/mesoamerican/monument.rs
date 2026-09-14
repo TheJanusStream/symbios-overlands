@@ -1,4 +1,4 @@
-//! Owner Stela — the Mesoamerican identity monument (#975).
+//! Owner Stela - the Mesoamerican identity monument (#975).
 //!
 //! A carved stela on a stepped limestone platform: the room owner's portrait
 //! is the ruler-panel, sunk into the shaft behind a jade border under a gold
@@ -110,7 +110,7 @@ fn carving(did: &str) -> Vec<Generator> {
             id_quat(),
         ),
         pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
-        // Gold glyph band under the portrait — the cartouche a name is cut
+        // Gold glyph band under the portrait - the cartouche a name is cut
         // into, blank because there is no text renderer.
         prim(
             solid(cuboid_tapered([1.9, 0.34, 0.12], 0.0, gold(GOLD_WARM))),
@@ -160,7 +160,7 @@ fn carving(did: &str) -> Vec<Generator> {
     out
 }
 
-/// A stone fire bowl on the platform — for the limestone, which goes flat at
+/// A stone fire bowl on the platform - for the limestone, which goes flat at
 /// dusk; the portrait is unlit and reads on its own.
 fn brazier(x: f32) -> Generator {
     let bowl = prim(

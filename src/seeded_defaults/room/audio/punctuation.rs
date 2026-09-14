@@ -1,4 +1,4 @@
-//! Biome punctuation — the natural *signature voice* of a biome (bird
+//! Biome punctuation - the natural *signature voice* of a biome (bird
 //! chirps in lush valleys, wave washes on coasts, sub booms over
 //! volcanic rock, whistle gusts in deserts, ice tings on tundra, a
 //! distant howl in the alps). This is biome sound, not theme music, so
@@ -24,7 +24,7 @@ use crate::seeded_defaults::scene::{BiomeArchetype, SceneCharacter, range_f32};
 pub(super) const PUNCT_INSTRUMENT_ID: &str = "punct_voice";
 
 // ---------------------------------------------------------------------------
-// Punctuation layer — the biome's signature voice
+// Punctuation layer - the biome's signature voice
 // ---------------------------------------------------------------------------
 
 /// What kind of punctuation the biome speaks. This is the layer that
@@ -48,7 +48,7 @@ pub enum PunctuationMood {
     FrogChorus,
     /// Meadow: a sustained high band of cricket / cicada song.
     InsectChorus,
-    /// Jungle (#914): dense trilled whoops — an exotic-bird canopy voice,
+    /// Jungle (#914): dense trilled whoops - an exotic-bird canopy voice,
     /// split off from the temperate biomes' songbird chirps.
     CanopyChatter,
     /// Badlands (#914): a hollow resonant moan of wind over rock, split off
@@ -56,7 +56,7 @@ pub enum PunctuationMood {
     CanyonMoan,
 }
 
-/// Seeded punctuation parameters — see [`derive_punctuation`].
+/// Seeded punctuation parameters - see [`derive_punctuation`].
 struct PunctuationParams {
     mood: PunctuationMood,
     /// Voice base pitch (Hz) for tonal moods, bandpass centre for the
@@ -68,7 +68,7 @@ struct PunctuationParams {
     volume: (f32, f32),
     /// Per-event gate length band (beats).
     gate: (f32, f32),
-    /// Event release tail (beats) — covers the mood's ADSR release.
+    /// Event release tail (beats) - covers the mood's ADSR release.
     release_beats: f32,
 }
 
@@ -85,7 +85,7 @@ fn derive_punctuation(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> Punctuati
             release_beats: 0.3,
         },
         // The jungle canopy got its own voice in #914: denser than the
-        // songbirds, pitched lower, and trilled — whooping exotic birds
+        // songbirds, pitched lower, and trilled - whooping exotic birds
         // rather than temperate chirps.
         Jungle => PunctuationParams {
             mood: PunctuationMood::CanopyChatter,
@@ -121,7 +121,7 @@ fn derive_punctuation(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> Punctuati
             release_beats: 1.5,
         },
         // Badlands split from the open deserts in #914: wind through
-        // carved rock resonates instead of whistling — a low hollow moan,
+        // carved rock resonates instead of whistling - a low hollow moan,
         // sparser and longer than the gusts.
         Badlands => PunctuationParams {
             mood: PunctuationMood::CanyonMoan,
@@ -180,8 +180,8 @@ const PUNCT_VCA_ID: NodeId = NodeId(5);
 const PUNCT_REVERB_ID: NodeId = NodeId(6);
 const PUNCT_VIBRATO_ID: NodeId = NodeId(7);
 
-/// Build the per-mood voice. All moods share the same skeleton —
-/// `Gate → amp ADSR → VCA → reverb` — and differ in the source
+/// Build the per-mood voice. All moods share the same skeleton -
+/// `Gate → amp ADSR → VCA → reverb` - and differ in the source
 /// (sine vs filtered noise), the envelope speeds, and the modulators
 /// (pitch-flick ADSR for chirps/booms, vibrato LFO for the howl).
 fn build_punctuation_patch(
@@ -272,7 +272,7 @@ fn build_punctuation_patch(
             }
             CanopyChatter => {
                 // The whoop: a pitch envelope that *rises* into the base
-                // note (negative sweep — the chirps' flick runs the other
+                // note (negative sweep - the chirps' flick runs the other
                 // way), plus a fast trill vibrato. Trill rate keeps the
                 // whole-cycles-per-loop invariant: 256–383 cycles ⇒ 8–12 Hz
                 // over the 32-beat loop.
@@ -385,7 +385,7 @@ fn build_punctuation_patch(
         inputs: vca_inputs,
     });
 
-    // Punctuation sits deeper in the room's space than the bed — howls
+    // Punctuation sits deeper in the room's space than the bed - howls
     // and booms especially live on their reverb tail.
     let wet = match punct.mood {
         SubBoom | DistantHowl | IceTing | CanyonMoan => 0.45,
@@ -413,7 +413,7 @@ fn build_punctuation_patch(
 }
 
 /// Beats reserved at the loop end so a late onset's gate + release tail
-/// stays inside the loop-region overhang — same discipline as the theme
+/// stays inside the loop-region overhang - same discipline as the theme
 /// voices' `ONSET_TAIL_BEATS` (punctuation gates/releases are shorter
 /// than the drone voices', so the theme value is safely conservative).
 const ONSET_TAIL_BEATS: f32 = 4.0;
@@ -421,7 +421,7 @@ const ONSET_TAIL_BEATS: f32 = 4.0;
 /// Scatter the punctuation events across the loop region with mild
 /// per-event pitch variation so repeated chirps / tings don't machine-
 /// gun the same note. Same half-beat quantise + sort discipline as the
-/// chime track. The onset window derives from [`LOOP_BEATS`] (#663) —
+/// chime track. The onset window derives from [`LOOP_BEATS`] (#663) -
 /// a hardcoded 12-beat window previously clustered every event in the
 /// first ~40% of the 32-beat loop and left the tail silent.
 fn punctuation_track_events(punct: &PunctuationParams, rng: &mut ChaCha8Rng) -> Vec<Event> {
@@ -453,7 +453,7 @@ fn punctuation_track_events(punct: &PunctuationParams, rng: &mut ChaCha8Rng) -> 
     events
 }
 
-/// Build the biome punctuation voice — one instrument + its scattered
+/// Build the biome punctuation voice - one instrument + its scattered
 /// event track. Shares the bed's reverb space via `params`.
 pub(super) fn build(
     scene: &SceneCharacter,

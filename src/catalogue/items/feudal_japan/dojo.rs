@@ -1,4 +1,4 @@
-//! Dojo — a Feudal-Japan secondary. A long, low training hall: a raised
+//! Dojo - a Feudal-Japan secondary. A long, low training hall: a raised
 //! timber floor and plaster walls between a heavy post frame, fronted by
 //! sliding shoji panels around an open central entrance, under a broad hip
 //! tile roof. The martial counterpart to the contemplative tea house.
@@ -59,7 +59,7 @@ fn build_tree() -> Generator {
     let back_z = w * 0.5 - 0.15;
 
     let mut prims = vec![
-        // Stone footing — the root.
+        // Stone footing - the root.
         prim(
             solid(cuboid_tapered(
                 [l + 0.8, 0.4, w + 0.8],

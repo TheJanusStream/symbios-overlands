@@ -12,7 +12,7 @@ use super::super::widgets::fp_slider;
 
 /// Editor for the [`crate::pds::GeneratorKind::Sign`] panel: source picker,
 /// panel size, the StandardMaterial toggles (double_sided / unlit /
-/// alpha_mode), and the shared material section — which is also where the
+/// alpha_mode), and the shared material section - which is also where the
 /// image's scale / offset / rotation live since #964.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_generator_sign(
@@ -68,7 +68,7 @@ pub(super) fn draw_generator_sign(
             // Sign panels paint the loaded image into `base_color_texture`
             // and use the universal material's PBR knobs (tint /
             // emission / roughness / metallic) on top. The procedural
-            // texture slot is intentionally hidden — the Sign's source
+            // texture slot is intentionally hidden - the Sign's source
             // already supplies the texture.
             super::super::widgets::color_picker(ui, "Tint", &mut material.base_color, dirty);
             super::super::widgets::color_picker(
@@ -87,14 +87,14 @@ pub(super) fn draw_generator_sign(
             );
             fp_slider(ui, "Roughness", &mut material.roughness, 0.0, 1.0, dirty);
             fp_slider(ui, "Metallic", &mut material.metallic, 0.0, 1.0, dirty);
-            // Where the image sits on the panel (#964) — the same three
+            // Where the image sits on the panel (#964) - the same three
             // knobs every other surface uses. Sign images upload
             // clamp-to-edge, so a scale above 1 crops the image into the
             // panel's near corner and stretches its border across the rest;
             // it never tiles.
             ui.add(egui::Label::new(
                 egui::RichText::new(
-                    "Image placement — scale 1 spans the panel; above 1 \
+                    "Image placement - scale 1 spans the panel; above 1 \
                      crops toward the near corner (the image never tiles).",
                 )
                 .small()
@@ -116,7 +116,7 @@ pub(super) fn draw_generator_sign(
 /// variant (URL / atproto_blob / did_pfp); the per-variant payload
 /// fields render below. Switching variants reseeds the payload from the
 /// previous variant where possible (e.g. URL → did_pfp keeps the URL
-/// in the URL field if the user switches back) — implemented by
+/// in the URL field if the user switches back) - implemented by
 /// only overwriting when the variant truly changes.
 pub(super) fn draw_sign_source(
     ui: &mut egui::Ui,
@@ -176,7 +176,7 @@ pub(super) fn draw_sign_source(
             // writing every keystroke into the record, and the editor's own
             // debounce sanitize ran `url.clear()` on anything
             // `is_fetchable_reference` refuses about a quarter second later
-            // — so a pause while typing emptied the box under the cursor,
+            // - so a pause while typing emptied the box under the cursor,
             // in the same session, with nothing said. Refusing the DRAFT
             // keeps the text and states the rule instead.
             ui.horizontal(|ui| {

@@ -1,4 +1,4 @@
-//! Plant material variants — the **re-skin lever** (#910 WS2 part C).
+//! Plant material variants - the **re-skin lever** (#910 WS2 part C).
 //!
 //! A [`PlantVariant`] swaps a species' bark/foliage materials without
 //! touching a single symbol of its grammar. Because the L-system mesh cache
@@ -11,7 +11,7 @@
 //! an alpine ridge, and a gold larch in the tundra; one broadleaf is summer
 //! green in a lush valley and rust-orange in a temperate autumn. Per
 //! `docs/lsystem-playbook.md`, appearance belongs to materials and the
-//! finalization pass — never to the growth rules.
+//! finalization pass - never to the growth rules.
 //!
 //! Variants are looked up **by name**, not by index, so reordering a
 //! species' variant list can't silently repaint a biome. An unknown name
@@ -41,7 +41,7 @@ pub struct PlantVariant {
 ///
 /// `base` tints the lit material; `deep` / `edge` drive the procedural leaf
 /// sprite's interior and rim. A slot whose texture is not a `Leaf` keeps its
-/// texture and only takes the `base_color` change — so calling this on a
+/// texture and only takes the `base_color` change - so calling this on a
 /// Twig- or Flower-textured slot degrades gracefully instead of erasing the
 /// species' authored sprite.
 pub fn tint_leaf(
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn tint_on_mismatched_texture_keeps_the_sprite() {
         // A Bark-textured slot handed to `tint_leaf` must keep its bark
-        // texture — a variant must never erase the species' authored sprite.
+        // texture - a variant must never erase the species' authored sprite.
         let mut m = HashMap::from([(
             0u16,
             SovereignMaterialSettings {

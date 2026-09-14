@@ -1,4 +1,4 @@
-//! Pipework — a Steampunk prop. An L-shaped run of hollow copper pipe on iron
+//! Pipework - a Steampunk prop. An L-shaped run of hollow copper pipe on iron
 //! leg-brackets, with brass flange joints, gate-valve wheels and a riser with
 //! a lit gauge. Scatter clutter threading the works.
 //!
@@ -61,7 +61,7 @@ fn build_tree() -> Generator {
         id_quat(),
     )];
 
-    // Horizontal copper run along X — a real hollow pipe.
+    // Horizontal copper run along X - a real hollow pipe.
     prims.push(prim(
         solid(tube(0.28, 0.18, 3.0, 12, copper(COPPER_ORANGE))),
         [0.0, run_y, 0.0],

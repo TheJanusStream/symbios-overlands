@@ -1,4 +1,4 @@
-//! Gibbet Cage — an iron cage on a post at the tide line, with what is left of
+//! Gibbet Cage - an iron cage on a post at the tide line, with what is left of
 //! somebody in it.
 //!
 //! A squared post with a projecting arm braced by a knee, a chain and swivel,
@@ -11,9 +11,9 @@
 //! This is the whole design constraint, and it is the reason the cage is
 //! twenty-odd struts and hoops rather than one tapered shell. A gibbet is
 //! horrifying because you can *see in*, and a solid basket is a lantern. So the
-//! cage is built the way the real ones were — horizontal hoops at the head,
+//! cage is built the way the real ones were - horizontal hoops at the head,
 //! shoulders, hips and feet, with flat straps riveted down the outside between
-//! them — and the bones are placed inside it, sized to read through the gaps
+//! them - and the bones are placed inside it, sized to read through the gaps
 //! rather than to fill them.
 //!
 //! It also has to hang **clear**: clear of the post, so it can turn, and clear
@@ -24,8 +24,8 @@
 //! # One warning, stated once
 //!
 //! There is a skull, two long bones, and nothing else. The temptation with this
-//! subject is to keep adding — more bones, more cages, a scatter of skulls up
-//! the beach — and the result reads as a joke rather than as a warning. The
+//! subject is to keep adding - more bones, more cages, a scatter of skulls up
+//! the beach - and the result reads as a joke rather than as a warning. The
 //! register's horror is that this is *ordinary*: a piece of harbour furniture,
 //! maintained, with a notice on it.
 
@@ -45,7 +45,7 @@ use super::{
     board, bone, fx, hemp, iron, strand, tar,
 };
 
-/// The shingle it stands on — the sub-root every footprint guard measures
+/// The shingle it stands on - the sub-root every footprint guard measures
 /// against (#972 lesson 19).
 const PAD: [f32; 3] = [4.8, 0.26, 4.8];
 const GROUND: f32 = PAD[1];
@@ -54,7 +54,7 @@ const GROUND: f32 = PAD[1];
 const POST_W: f32 = 0.32;
 const POST_H: f32 = 4.1;
 
-/// How far the arm projects, and at what height. Toward `-Z`, the hero side —
+/// How far the arm projects, and at what height. Toward `-Z`, the hero side -
 /// so the cage hangs between the approach and the post rather than behind it.
 const ARM_REACH: f32 = 1.85;
 const ARM_Y: f32 = GROUND + POST_H - 0.34;
@@ -66,12 +66,12 @@ const CHAIN_LEN: f32 = 0.62;
 /// The cage's hoops: `(height below the head hoop, radius)`.
 ///
 /// A gibbet cage is made to a body, which is why the widest hoop is at the
-/// shoulders and not at the middle — and why it tapers to the feet. Getting that
+/// shoulders and not at the middle - and why it tapers to the feet. Getting that
 /// order right is most of what makes a basket of straps read as a person-shaped
 /// thing rather than as a lobster pot.
 const HOOPS: [(f32, f32); 4] = [
     (0.0, 0.19),  // head
-    (0.42, 0.34), // shoulders — the widest
+    (0.42, 0.34), // shoulders - the widest
     (1.02, 0.29), // hips
     (1.58, 0.17), // feet
 ];
@@ -85,20 +85,20 @@ const HOOP_R: f32 = 0.032;
 const CAGE_TOP_Y: f32 = ARM_Y - CHAIN_LEN;
 const CAGE_Z: f32 = -ARM_REACH;
 
-/// The rope the chain is *not* — this is the radius the chain's guard selects on.
+/// The rope the chain is *not* - this is the radius the chain's guard selects on.
 const CHAIN_R: f32 = 0.045;
 
-/// Hero side — the render tool and the settlement placer both look down `-Z`.
+/// Hero side - the render tool and the settlement placer both look down `-Z`.
 const FRONT: f32 = -1.0;
 
 const _: () = assert!(
     ARM_REACH > POST_W * 2.0 + HOOPS[1].1,
-    "the arm does not reach far enough for the cage to hang clear of the post — \
+    "the arm does not reach far enough for the cage to hang clear of the post - \
      it would grind against it instead of turning"
 );
 const _: () = assert!(
     CAGE_TOP_Y - HOOPS[3].0 > GROUND + 0.8,
-    "the cage's feet are within a stride of the shingle — it reads as standing \
+    "the cage's feet are within a stride of the shingle - it reads as standing \
      on the beach rather than hanging over it"
 );
 
@@ -151,7 +151,7 @@ fn gallows() -> Vec<Generator> {
             [0.0, GROUND + POST_H * 0.5, 0.0],
             id_quat(),
         ),
-        // A weathered cap, so the head grain is not left open to the rain — the
+        // A weathered cap, so the head grain is not left open to the rain - the
         // detail that says this thing is *maintained*, which is the horror.
         prim(
             solid(cuboid_tapered(
@@ -166,14 +166,14 @@ fn gallows() -> Vec<Generator> {
         // rather than approximately toward one (#1028).
         strut(arm_root, arm_tip, ARM_SECTION * 0.5, 5, board(HULL_OAK)),
     ];
-    // The knee bracing it — from partway down the post to partway out the arm.
+    // The knee bracing it - from partway down the post to partway out the arm.
     // Both ends are derived from the members they land on, so a retuned reach or
     // height cannot leave the brace floating.
     let knee_post = [0.0, ARM_Y - ARM_REACH * 0.55, POST_W * 0.5];
     let knee_arm = [0.0, ARM_Y - ARM_SECTION * 0.4, CAGE_Z * 0.55];
     out.push(strut(knee_post, knee_arm, 0.075, 5, board(HULL_OAK)));
 
-    // Iron bands round the post at the arm and at the ground line — wrought
+    // Iron bands round the post at the arm and at the ground line - wrought
     // iron is what keeps a gibbet standing after the timber has gone.
     for (y, r) in [(ARM_Y - 0.16, POST_W * 0.82), (GROUND + 0.5, POST_W * 0.86)] {
         out.push(prim(
@@ -201,7 +201,7 @@ fn gallows() -> Vec<Generator> {
 /// The cage: four hoops and the straps between them.
 ///
 /// Every strap is a [`strut`] from one hoop's rim to the next hoop's rim at the
-/// same bearing, so the basket's shape is entirely a consequence of [`HOOPS`] —
+/// same bearing, so the basket's shape is entirely a consequence of [`HOOPS`] -
 /// retune the shoulders and the straps follow. Building the straps to guessed
 /// endpoints instead is how a basket ends up with its widest point in the wrong
 /// place and reads as a lobster pot.
@@ -238,7 +238,7 @@ fn cage() -> Vec<Generator> {
 /// inside the basket or bulging out of it.
 fn occupant() -> Vec<Generator> {
     // Drawn to the head hoop, so the skull nearly fills the top of the cage.
-    // That is what a gibbet looks like — the hoop was made to go round a head —
+    // That is what a gibbet looks like - the hoop was made to go round a head -
     // and at 0.72 of the hoop it read as a pebble somewhere inside a basket.
     let skull_r = HOOPS[0].1 * 0.88;
     vec![
@@ -247,7 +247,7 @@ fn occupant() -> Vec<Generator> {
             [0.0, CAGE_TOP_Y - HOOPS[0].0 - skull_r * 0.6, CAGE_Z],
             id_quat(),
         ),
-        // The jaw, dropped — one prim, and it is what turns a pale ball into a
+        // The jaw, dropped - one prim, and it is what turns a pale ball into a
         // skull at ten metres.
         prim(
             solid(cuboid_tapered(
@@ -281,7 +281,7 @@ fn occupant() -> Vec<Generator> {
             ],
             quat_z(-0.16),
         ),
-        // Witchfire low in the cage, at the hips — small, deep-saturated and at
+        // Witchfire low in the cage, at the hips - small, deep-saturated and at
         // LOW strength, which is the only way this hue survives (see
         // `WITCHFIRE`).
         //
@@ -341,7 +341,7 @@ fn build_tree() -> Generator {
             quat_y(0.16 * i as f32),
         ));
     }
-    // One bone in the shingle, directly under the cage — the piece that says
+    // One bone in the shingle, directly under the cage - the piece that says
     // this has been going on a while.
     carried.push(prim(
         solid(cylinder_tapered(0.055, 0.5, 5, 0.12, bone(BONE_PALE))),
@@ -436,7 +436,7 @@ mod tests {
             .fold(f32::MAX, f32::min);
         assert!(
             feet > GROUND + 0.8,
-            "the cage's lowest hoop is {} above the shingle — it reads as \
+            "the cage's lowest hoop is {} above the shingle - it reads as \
              standing on the beach, not hanging over it",
             feet - GROUND
         );
@@ -448,7 +448,7 @@ mod tests {
         assert!(
             widest < -POST_W * 0.5 - 0.2,
             "the cage reaches back to z = {widest}, within 200 mm of a post face \
-             at {} — it would grind against the post instead of turning",
+             at {} - it would grind against the post instead of turning",
             -POST_W * 0.5
         );
         // And the chain actually joins the arm's tip to the head hoop.
@@ -494,7 +494,7 @@ mod tests {
             .expect("checked above");
         assert!(
             (lo[1] - head.bounds.center().y).abs() < 0.08,
-            "the chain's lower end is at {} and the head hoop is at {} — the \
+            "the chain's lower end is at {} and the head hoop is at {} - the \
              cage is hanging on nothing",
             lo[1],
             head.bounds.center().y
@@ -552,7 +552,7 @@ mod tests {
         );
     }
 
-    /// The cage is a basket, not a shell — every strap joins two consecutive
+    /// The cage is a basket, not a shell - every strap joins two consecutive
     /// hoops at one bearing, so the shape follows [`HOOPS`].
     #[test]
     fn every_strap_joins_two_hoops() {
@@ -592,7 +592,7 @@ mod tests {
                 });
                 assert!(
                     hit,
-                    "a strap ends at {end:?}, which is on no hoop's rim — the \
+                    "a strap ends at {end:?}, which is on no hoop's rim - the \
                      basket's shape has stopped following its own hoops"
                 );
             }
@@ -607,7 +607,7 @@ mod tests {
             .expect("non-empty");
         assert_eq!(
             widest, 1,
-            "the cage's widest hoop is number {widest} — a gibbet cage is made \
+            "the cage's widest hoop is number {widest} - a gibbet cage is made \
              to a body, so it belongs at the shoulders"
         );
     }
@@ -636,7 +636,7 @@ mod tests {
         let n = count_bone(&built());
         assert_eq!(
             n, 5,
-            "found {n} bone pieces — a skull, its jaw, two long bones in the \
+            "found {n} bone pieces - a skull, its jaw, two long bones in the \
              cage and one in the shingle is the whole statement; more reads as \
              a joke rather than as a warning"
         );

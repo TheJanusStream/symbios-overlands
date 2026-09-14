@@ -1,13 +1,13 @@
-//! Avatar editor — tabbed split view.
+//! Avatar editor - tabbed split view.
 //!
 //! The avatar window has four tabs:
 //!
-//!   * **Body** (#1059) — the rigged engine body: the sibling crate's own
+//!   * **Body** (#1059) - the rigged engine body: the sibling crate's own
 //!     axis sections hosted in this window's chrome, plus the cross-app
 //!     wardrobe. See [`body`].
-//!   * **Attachments** (#1059) — props worn at rig sockets, copied out of
+//!   * **Attachments** (#1059) - props worn at rig sockets, copied out of
 //!     the inventory. See [`attachments`].
-//!   * **Visuals** — embeds the same tree-view + detail-panel widget that
+//!   * **Visuals** - embeds the same tree-view + detail-panel widget that
 //!     drives the room editor's Generators tab, fed by an
 //!     [`AvatarVisualsTreeSource`] adapter so a *generator* body's tree is
 //!     editable through the unified vocabulary. A rigged body has no such
@@ -17,7 +17,7 @@
 //! (#1161); [`avatar_ui`] below is the window, the footer and the
 //! re-roll block, and dispatches to the four. What they draw with travels
 //! as [`TabCtx`] and [`AimCtx`] rather than as twenty loose parameters.
-//!   * **Locomotion** — picker for the [`crate::pds::LocomotionConfig`]
+//!   * **Locomotion** - picker for the [`crate::pds::LocomotionConfig`]
 //!     preset (HoverBoat / Humanoid / Airplane / Helicopter / Car) plus a
 //!     per-preset slider panel for collider dimensions and physics
 //!     tuning. Each preset's panel lives in `locomotion`.
@@ -28,7 +28,7 @@
 //!
 //! **What peers see, and when (#1122).** `network::broadcast_avatar_state`
 //! pushes the record to the room on every edit, and for a **generator**
-//! body that record IS the payload — peers do see the edit before the
+//! body that record IS the payload - peers do see the edit before the
 //! author commits. A **rigged** body is different and the contract here is
 //! deliberate: its payload lives in separate wardrobe and attachment
 //! records, and the broadcast can only carry their rkeys (`resolved` is
@@ -41,7 +41,7 @@
 //!
 //! This module used to claim the unqualified "peers see the edit before
 //! the author commits", which was false for every rigged body in the app.
-//! The alternative — inlining the resolved records in the broadcast — was
+//! The alternative - inlining the resolved records in the broadcast - was
 //! weighed and declined: it would put an unsigned, peer-authored body on
 //! screen where every other avatar comes from its owner's repo, re-send a
 //! multi-hundred-KiB payload per preview burst on the ordered reliable
@@ -127,11 +127,11 @@ enum AvatarTab {
 #[derive(Resource, Default)]
 pub struct AvatarEditorState {
     selected_tab: AvatarTab,
-    /// The avatar editor's one-node clipboard (#1244 f422) — the same
+    /// The avatar editor's one-node clipboard (#1244 f422) - the same
     /// Copy / Paste-as-child gesture the room's tree gained, since both
     /// draw the identical tree panel.
     node_clipboard: Option<crate::pds::Generator>,
-    /// The one thing the 3-D gizmo is aimed at (#1161) — a visuals node,
+    /// The one thing the 3-D gizmo is aimed at (#1161) - a visuals node,
     /// a whole worn prop, or one part of one. Three parallel `Option`
     /// fields lived here until the exclusivity between them became a
     /// property of the type; see [`GizmoTarget`], and [`Self::aim`] for
@@ -145,13 +145,13 @@ pub struct AvatarEditorState {
     /// after it. Only the tree that is actually on screen may speak for
     /// the aim.
     gizmo: GizmoTarget,
-    /// The Visuals tab's generator tree (#1161) — the same
+    /// The Visuals tab's generator tree (#1161) - the same
     /// [`TreePanelState`](crate::ui::room::generators::TreePanelState) the
     /// room editor and the parts editor each own one of. Its `selection` is
     /// the widget's I/O, not the truth: it is seeded from [`Self::gizmo`]
     /// before each draw and folded back after.
     ///
-    /// This replaced four loose fields, one of which — `renaming_unused` —
+    /// This replaced four loose fields, one of which - `renaming_unused` -
     /// existed only because
     /// [`draw_generators_tab`](crate::ui::room::generators::draw_generators_tab)
     /// demanded a `&mut` for a
@@ -167,21 +167,21 @@ pub struct AvatarEditorState {
     /// editor; see [`crate::ui::room::audio::AudioEditorState`].
     pub(crate) audio_editor: crate::ui::room::audio::AudioEditorState,
     /// The manual re-roll block (#1005): the seed row's buffer, the pinned
-    /// axes and the memoized hunt over the two — the room editor's
+    /// axes and the memoized hunt over the two - the room editor's
     /// identical trio, which is why it is one generic type. See
     /// [`crate::ui::editable::ReRollState`].
     reroll: crate::ui::editable::ReRollState<crate::seeded_defaults::AvatarPins>,
     /// Pending publish-after-unrecoverable-fetch confirmation (#840):
     /// while [`crate::state::AvatarRecordRecovery`] is present the
     /// editor holds the default, and saving would overwrite the real
-    /// stored record — the first publish asks first.
+    /// stored record - the first publish asks first.
     publish_guard: crate::ui::confirm::ConfirmState<()>,
     /// Cached seeded-default record, keyed by the DID it was built for (#637).
     /// `AvatarRecord::default_for_did` runs the full part-composition pipeline,
     /// so build it once per session rather than every frame the editor is open;
     /// invalidated when the session DID changes.
     /// The third element is the record's serialized form, pre-baked for
-    /// the per-frame `can_reset` comparison — the room editor's #674
+    /// the per-frame `can_reset` comparison - the room editor's #674
     /// idiom, which #1135's doc comment claimed had reached this editor
     /// and which #1270 f273 found had not.
     default_cache: Option<(String, AvatarRecord, Option<serde_json::Value>)>,
@@ -195,7 +195,7 @@ pub struct AvatarEditorState {
     /// Serialized form of the LIVE record, rebuilt only when the record
     /// could have changed (#1270 f273). Before this the editor asked
     /// `avatar_is_dirty` three times a frame, each of which serialised
-    /// BOTH sides — six whole-record `Value` trees per frame on the
+    /// BOTH sides - six whole-record `Value` trees per frame on the
     /// surface where the owner spends the longest continuous stretch of
     /// fine-grained interaction, and the one editor #674's caching never
     /// reached.
@@ -207,7 +207,7 @@ pub struct AvatarEditorState {
     /// Mirror of this frame's "Avatar window is open and un-collapsed"
     /// state, written by [`avatar_ui`] so non-UI systems can read it
     /// without reaching into egui. Since #1103 the freeze gates no longer
-    /// key on it — only on an aimed gizmo — but it still decides when the
+    /// key on it - only on an aimed gizmo - but it still decides when the
     /// selections are released ([`Self::release_hidden_selections`]):
     /// collapsing the window counts as closed.
     window_visible: bool,
@@ -223,10 +223,10 @@ pub struct AvatarEditorState {
     pending_attachment_focus: bool,
     /// Which worn prop's PARTS editor is open in the Attachments tab
     /// (#1098), by record key: the tab then shows that item's generator
-    /// tree — the region-asset editor over the worn copy — instead of the
+    /// tree - the region-asset editor over the worn copy - instead of the
     /// worn list. `None` = the list.
     editing_parts: Option<String>,
-    /// The parts editor's own tree (#1098) — separate from the visuals
+    /// The parts editor's own tree (#1098) - separate from the visuals
     /// tree's so a body's expanded rows survive editing a prop.
     parts_tree: crate::ui::room::generators::TreePanelState,
 }
@@ -243,7 +243,7 @@ pub struct AvatarEditorState {
 /// handful of arguments that are genuinely its own.
 pub(super) struct TabCtx<'a, 'p> {
     /// The live record every tab edits in place. Reached through
-    /// `bypass_change_detection` upstream — see [`Self::changed`].
+    /// `bypass_change_detection` upstream - see [`Self::changed`].
     pub(super) record: &'a mut AvatarRecord,
     /// The signed-in owner's DID; `None` before login.
     pub(super) did: Option<&'a str>,
@@ -265,7 +265,7 @@ pub(super) struct TabCtx<'a, 'p> {
     /// A `Mut`, not a `&mut` (#1322): this context is built on EVERY frame
     /// the editor body is drawn, and `ResMut::deref_mut` stamps the change
     /// tick on access, so lending a `&mut` here marked the stash changed
-    /// every frame with nothing edited — defeating the Inventory panel's
+    /// every frame with nothing edited - defeating the Inventory panel's
     /// tick-keyed caches (#1292). A `Mut` stamps only where a callee
     /// actually writes through it; each consumer takes a `reborrow()`.
     pub(super) inventory: Option<Mut<'a, LiveInventoryRecord>>,
@@ -279,7 +279,7 @@ pub(super) struct TabCtx<'a, 'p> {
 
 impl<'a> TabCtx<'a, '_> {
     /// The owner every catalogue stamp is personalised for (#1239 f78),
-    /// empty before login — the form the tree panels want.
+    /// empty before login - the form the tree panels want.
     ///
     /// Returns `&'a str`, not a `&str` tied to `&self`: `did` is a `Copy`
     /// field, so the shared borrow ends here rather than lasting as long as
@@ -290,7 +290,7 @@ impl<'a> TabCtx<'a, '_> {
     }
 }
 
-/// The aim and the two tree panels whose row highlights mirror it — the
+/// The aim and the two tree panels whose row highlights mirror it - the
 /// three fields that must travel together (#1161).
 ///
 /// [`avatar_ui`] destructures the resource into per-field `&mut`s for the
@@ -319,7 +319,7 @@ impl AimCtx<'_> {
     }
 
     /// Back from the parts editor to the worn list (#1098). The panel's
-    /// own aim — a part of the item it showed — goes with it, and
+    /// own aim - a part of the item it showed - goes with it, and
     /// [`Self::aim`] drops the part row's highlight on the way out. A
     /// differently-aimed gizmo is left alone, since closing this panel
     /// says nothing about one (#1298, settled on the issue): an aim goes
@@ -347,7 +347,7 @@ impl AvatarEditorState {
 
     /// **The** enforcement point for "one gizmo target at a time".
     ///
-    /// The aim is a single field, so the assignment *is* the mutex — the
+    /// The aim is a single field, so the assignment *is* the mutex - the
     /// three parallel `Option`s each `select_*` used to clear by hand are
     /// gone, and with them the class of bug where a new selection kind was
     /// added to some of the clearing paths and not others (#1103 bugs 1
@@ -369,7 +369,7 @@ impl AvatarEditorState {
     ///
     /// Note the asymmetry it is named for: this is **one of three** gizmo
     /// selections, so it is the wrong question for anything that means
-    /// "is a gizmo aimed at the avatar" — see [`Self::has_gizmo_selection`],
+    /// "is a gizmo aimed at the avatar" - see [`Self::has_gizmo_selection`],
     /// and #1236 f139 for the Esc ladder that asked this one and skipped
     /// its rung on a worn prop.
     pub fn has_visuals_selection(&self) -> bool {
@@ -384,11 +384,11 @@ impl AvatarEditorState {
     /// Retiring the *records* is not tracked here. The next save derives its
     /// delete set from the published record's reference list (#1110), which
     /// take-off has already shortened, so there is no session queue to keep
-    /// in step — and nothing left to go stale across an undo or a logout.
+    /// in step - and nothing left to go stale across an undo or a logout.
     pub(crate) fn forget_attachments(&mut self, rkeys: impl IntoIterator<Item = String>) {
         // Either worn variant names the item that carries it (#1299): a
-        // part aim outliving its item is the #1103 shape — a stale aim the
-        // sync pass merely fails to attach — so both arms answer here.
+        // part aim outliving its item is the #1103 shape - a stale aim the
+        // sync pass merely fails to attach - so both arms answer here.
         let aimed = match &self.gizmo {
             GizmoTarget::WornProp { rkey } | GizmoTarget::WornPart { rkey, .. } => rkey.clone(),
             GizmoTarget::None | GizmoTarget::VisualsNode { .. } => return,
@@ -405,13 +405,13 @@ impl AvatarEditorState {
     /// Read by [`crate::player`]'s rigged motion driver.
     ///
     /// Exactly the whole-prop gizmo selection and nothing wider (#1103,
-    /// owner direction): the tab being open is not a hold — the numeric
+    /// owner direction): the tab being open is not a hold - the numeric
     /// rows work against an animating body, because their arithmetic never
     /// reads the pose. A **part** selection is deliberately NOT here
     /// (#1106): a part's transform is relative to its item root, which
     /// rides the joint wherever it is, so snapping the body to rest under
     /// a part that was just detached at its animated pose moved the parent
-    /// out from under it — selecting a part visibly shifted it. Parts hold
+    /// out from under it - selecting a part visibly shifted it. Parts hold
     /// the pose as it stands instead: [`Self::holds_rig_pose`].
     pub fn holds_rig_at_rest(&self) -> bool {
         self.gizmo.worn_prop().is_some()
@@ -420,11 +420,11 @@ impl AvatarEditorState {
     /// True while the local rigged body must be held **exactly where it is**
     /// (#1106): a gizmo is aimed at a part of a worn item. The part is
     /// detached to world space at its current pose and committed back
-    /// against its parent's pose, so the parent must not move — but it may
+    /// against its parent's pose, so the parent must not move - but it may
     /// stand in any pose at all. Selecting must never change a transform,
     /// so this is a pause, not a re-pose: the driver skips the body and the
     /// last pose stays applied. Read by [`crate::player`]'s rigged motion
-    /// driver, after [`Self::holds_rig_at_rest`] — which the enum now makes
+    /// driver, after [`Self::holds_rig_at_rest`] - which the enum now makes
     /// provably exclusive with this rather than merely conventionally so.
     pub fn holds_rig_pose(&self) -> bool {
         self.gizmo.worn_part().is_some()
@@ -444,7 +444,7 @@ impl AvatarEditorState {
         self.pending_attachment_focus = true;
     }
 
-    /// Land the editor on the Body tab (#1097) — the scene menu's "Edit
+    /// Land the editor on the Body tab (#1097) - the scene menu's "Edit
     /// avatar" on one's own rigged body, which has no visuals node to
     /// select. Drops the aim so no gizmo is left up.
     pub fn open_body_tab(&mut self) {
@@ -460,7 +460,7 @@ impl AvatarEditorState {
     /// Open the parts editor on a worn prop (#1098): the Attachments tab
     /// comes forward showing that item's tree, with the item ROOT selected
     /// so a gizmo is aimed immediately. The whole-prop offset selection
-    /// goes with it — one gizmo target at a time.
+    /// goes with it - one gizmo target at a time.
     pub fn open_parts_editor(&mut self, rkey: String) {
         self.selected_tab = AvatarTab::Attachments;
         self.editing_parts = Some(rkey.clone());
@@ -468,7 +468,7 @@ impl AvatarEditorState {
     }
 
     /// Back from the parts editor to the worn list. Drops the part
-    /// selection with it — but leaves a differently-aimed gizmo alone,
+    /// selection with it - but leaves a differently-aimed gizmo alone,
     /// since closing this panel says nothing about one. One body, two
     /// entry points, like [`Self::aim`]: [`AimCtx::close_parts_editor`]
     /// is the body, and the tab's own buttons call it there under the
@@ -482,7 +482,7 @@ impl AvatarEditorState {
         .close_parts_editor(&mut self.editing_parts);
     }
 
-    /// Select a part of a worn item (#1098) — from the parts tree or a
+    /// Select a part of a worn item (#1098) - from the parts tree or a
     /// scene pick. Takes the aim from whatever held it and mirrors the
     /// choice into the tree-view state so the row highlights.
     pub fn select_attachment_part(&mut self, rkey: String, path: Vec<usize>) {
@@ -517,7 +517,7 @@ impl AvatarEditorState {
     }
 
     /// True whenever the local avatar should be held perfectly still for
-    /// editing: **a gizmo is aimed at it or at something it wears** — a
+    /// editing: **a gizmo is aimed at it or at something it wears** - a
     /// visuals row, a worn prop, or a part of one. This is the gate the
     /// cosmetic gait/sway hold (`player::gait::animate_avatar_gait`) *and*
     /// the full-body chassis freeze (`player::freeze_local_avatar_while_editing`,
@@ -525,7 +525,7 @@ impl AvatarEditorState {
     ///
     /// Selection-scoped by owner direction (#1103), reversing #814's
     /// window-wide hold: with the editor open and nothing aimed the body
-    /// walks, sways and falls live — the World editor's contract, where a
+    /// walks, sways and falls live - the World editor's contract, where a
     /// region asset is only pinned while its gizmo is up. The close-frame
     /// gap is covered from the other side: every path that hides the panel
     /// releases the aim ([`Self::release_hidden_selections`]), so a closed
@@ -537,7 +537,7 @@ impl AvatarEditorState {
     }
 
     /// True while any of the three avatar-side gizmo selections is live
-    /// (visuals row, worn prop, worn-prop part) — the one question the
+    /// (visuals row, worn prop, worn-prop part) - the one question the
     /// freeze gates and the release paths ask.
     pub fn has_gizmo_selection(&self) -> bool {
         self.gizmo.is_aimed()
@@ -555,7 +555,7 @@ impl AvatarEditorState {
     /// the panel showing it is visible.**
     ///
     /// * Window hidden or collapsed → the aim goes, so the gizmo detaches
-    ///   and the chassis / bind-pose holds release — the World editor's
+    ///   and the chassis / bind-pose holds release - the World editor's
     ///   close contract. Before #1103 the part selection survived the
     ///   close and kept both holds engaged.
     /// * Otherwise the aim survives only on the tab that can show it: the
@@ -650,8 +650,8 @@ impl AvatarEditorState {
             {
                 self.select_from_scene_pick(path.clone());
             }
-            // Root ROW selected without a node path: keep the row — the
-            // single visuals root always exists — but it aims no gizmo,
+            // Root ROW selected without a node path: keep the row - the
+            // single visuals root always exists - but it aims no gizmo,
             // which is what a `None` path meant before the aim was a type.
             None if sel.generator.is_some() => {
                 self.release_visuals_aim();
@@ -663,7 +663,7 @@ impl AvatarEditorState {
         }
     }
 
-    /// Let go of the aim if — and only if — it is on a visuals node.
+    /// Let go of the aim if - and only if - it is on a visuals node.
     ///
     /// Two callers, both meaning "this says nothing about a worn prop's
     /// gizmo, so do not take one down with it": the undo restore's two
@@ -699,7 +699,7 @@ impl AvatarEditorState {
 }
 
 /// Publish [`crate::player::RigHold`] from this frame's editor state
-/// (#1158) — the ONE writer of that resource.
+/// (#1158) - the ONE writer of that resource.
 ///
 /// The player systems used to read `AvatarEditorState` themselves, which
 /// pointed the dependency arrow from the physics and animation drivers
@@ -710,7 +710,7 @@ impl AvatarEditorState {
 /// Runs unconditionally rather than inside `avatar_ui`: the panel draws
 /// only while it is open, and a hold that stopped being republished the
 /// moment the window closed would latch at its last value. With no editor
-/// state at all — before login, and in the headless render tool — every
+/// state at all - before login, and in the headless render tool - every
 /// field stays `false`, which is what the old `Option<Res<…>>` degraded
 /// to.
 pub fn mirror_rig_hold(
@@ -736,7 +736,7 @@ pub fn mirror_rig_hold(
 
 /// Why this tab is a dead end on this body kind, or `None` (#1256 f100).
 ///
-/// Exactly one tab is a dead end at any time — never two, and never the Body
+/// Exactly one tab is a dead end at any time - never two, and never the Body
 /// tab, which on a generator body is the feature's ENTRY POINT (three
 /// sentences of explanation and a working "Wear a rigged body" button)
 /// rather than a no-op. Body and Visuals are two exclusive body KINDS, and
@@ -814,11 +814,11 @@ pub fn avatar_ui(
         // its last build failed, where each worn prop really sits, and which
         // sockets this rig has. Queries rather than editor state, because
         // every one of those facts belongs to the player module that owns
-        // it — the editor is a reader, not the owner.
+        // it - the editor is a reader, not the owner.
         attachments::LocalBody,
     ),
     // Who is here (#1269 f293). A construction-kit body is broadcast as it
-    // is sculpted; a rigged one is not — see `audience_notice` below,
+    // is sculpted; a rigged one is not - see `audience_notice` below,
     // which is the only place either fact is stated. A free parameter, not
     // a member of the tuple above: that tuple is at Bevy's 16-param
     // `IntoSystem` ceiling and a seventeenth member fails to compile with
@@ -827,15 +827,15 @@ pub fn avatar_ui(
 ) {
     // `ResMut::deref_mut` unconditionally flips the change tick, so
     // mutating `live.0` inside the egui closure would otherwise mark the
-    // resource changed every frame the editor is visible — and
+    // resource changed every frame the editor is visible - and
     // `network::broadcast_avatar_state` turns that into a peer broadcast
     // storm. Route UI access through `bypass_change_detection` and call
     // `live.set_changed()` explicitly below, only after the debounce
     // timer drains.
     let mut widget_changed = false;
     // Snapshot pre-frame selection state so we can detect (a) "selection
-    // just appeared" — the rising edge that clears the room editor's
-    // selection per the cross-editor mutex contract, and (b) tab change —
+    // just appeared" - the rising edge that clears the room editor's
+    // selection per the cross-editor mutex contract, and (b) tab change -
     // switching off the Visuals tab drops the gizmo target the same way
     // the room editor's tab bar already does.
     // The cross-editor mutex asks about the two aims that attach a gizmo to
@@ -861,7 +861,7 @@ pub fn avatar_ui(
     // over the record.
     let worn_body = local_body.worn();
 
-    // `.open()` only hides the window *body* — without this gate the
+    // `.open()` only hides the window *body* - without this gate the
     // whole-record `before` clone below (and the egui Window bookkeeping)
     // ran every in-game frame with the panel closed (#674). The tail logic
     // after this block still runs: collapse-deselect sees `false` here, and
@@ -877,13 +877,13 @@ pub fn avatar_ui(
         let live_mut = live.bypass_change_detection();
 
         let ctx = contexts.ctx_mut().unwrap();
-        // Width only from the layout slot — the Avatar window auto-heights
+        // Width only from the layout slot - the Avatar window auto-heights
         // to its content, and forcing the persisted height back on it
         // would pad the shorter Locomotion tab with dead space.
         let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Avatar, ctx);
         // Guarded-dirty (#879): `.open(&mut panels.avatar)` through the
         // `ResMut` would mark UiPanels changed every frame, starving the
-        // prefs save debounce — local copy in, write back only on close.
+        // prefs save debounce - local copy in, write back only on close.
         let mut open = panels.avatar;
         // #1230 f33: set by the recovery banner's re-read button, acted on
         // after the closure (the spawn is a `Commands` write, and the
@@ -907,7 +907,7 @@ pub fn avatar_ui(
                         (AvatarTab::Locomotion, "Locomotion"),
                     ];
                     // #1256 f100: exactly one tab is a dead end at any
-                    // time — never two, and never the Body tab, which on a
+                    // time - never two, and never the Body tab, which on a
                     // generator body is the feature's entry point rather
                     // than a no-op. Body and Visuals are two EXCLUSIVE body
                     // kinds, and the tab bar used to hide that model behind
@@ -928,7 +928,7 @@ pub fn avatar_ui(
                             egui::Button::selectable(editor.selected_tab == tab, label),
                         );
                         // egui gives no tooltip on a disabled widget without
-                        // this — the reason has to be asked for explicitly.
+                        // this - the reason has to be asked for explicitly.
                         if let Some(reason) = disabled_reason {
                             response = response.on_disabled_hover_text(reason);
                         }
@@ -979,8 +979,8 @@ pub fn avatar_ui(
 
                 // --- The three comparison baselines (#1270 f273) --------
                 // This editor asks "is the avatar dirty?" three times a
-                // frame — the Save row, "would Reset change anything?",
-                // and the recovery banner's reload button — and every one
+                // frame - the Save row, "would Reset change anything?",
+                // and the recovery banner's reload button - and every one
                 // of them used to serialise BOTH sides. Six whole-record
                 // `Value` trees per frame, on the surface where the owner
                 // spends the longest continuous stretch of fine-grained
@@ -994,7 +994,7 @@ pub fn avatar_ui(
                 // baselines the row below does.
                 //
                 // The seeded default: rebuilt only when the session DID
-                // changes (#637 — it is a full part-composition build),
+                // changes (#637 - it is a full part-composition build),
                 // with its serialized form riding along.
                 match session.as_ref() {
                     Some(s) if default_cache.as_ref().is_none_or(|(d, _, _)| d != &s.did) => {
@@ -1023,7 +1023,7 @@ pub fn avatar_ui(
                     _ => {}
                 }
 
-                // Recovery banner (#840) — the stored record could not be
+                // Recovery banner (#840) - the stored record could not be
                 // loaded and this editor holds the DID default. Same idiom
                 // as the World editor's banner; the deliberate-overwrite
                 // affordance here is the publish confirm, not a reset
@@ -1036,7 +1036,7 @@ pub fn avatar_ui(
                         .show(ui, |ui| {
                             ui.colored_label(
                                 crate::ui::theme::current(ui.ctx()).danger_surface_text,
-                                "⚠ Your stored avatar could not be loaded — this is the default.",
+                                "⚠ Your stored avatar could not be loaded - this is the default.",
                             );
                             ui.label(
                                 egui::RichText::new(format!("Reason: {}", rec.reason)).small(),
@@ -1087,7 +1087,7 @@ pub fn avatar_ui(
                 // footer panel (#1048). A `TopBottomPanel` reserves the height
                 // it measured LAST frame, so on the frame the collapsible
                 // section below opens, the taller content overflowed that
-                // reserve and egui grew the window to contain it — and a
+                // reserve and egui grew the window to contain it - and a
                 // `Window`'s desired size never shrinks again, so collapsing
                 // handed the freed height to the greedy tab body instead of
                 // giving it back. Toggling therefore ratcheted the window
@@ -1117,8 +1117,8 @@ pub fn avatar_ui(
                             // Pinned re-roll readout (#1005): what "Apply"
                             // will roll for each top-level avatar axis, each
                             // lockable. The preview derives from the hunted
-                            // seed — the one a click will actually build from
-                            // — not the typed one, so 🎲 previews exactly what
+                            // seed - the one a click will actually build from
+                            // - not the typed one, so 🎲 previews exactly what
                             // Apply then delivers. Memoized: the hunt only
                             // reruns when the seed text or the pins change.
                             let start = reroll.start_seed(did_seed);
@@ -1174,7 +1174,7 @@ pub fn avatar_ui(
 
                     if let SeedAction::Reroll(_) = action {
                         // Build from the same hunted seed the readout
-                        // previewed — never the raw typed one.
+                        // previewed - never the raw typed one.
                         if let Some(seed) = effective {
                             reroll.seed_row.set_seed(seed);
                             live_mut.0 = AvatarRecord::default_for_seed(seed);
@@ -1194,7 +1194,7 @@ pub fn avatar_ui(
                             );
                             // Said out loud, not only logged (#1268 f69).
                             toasts.error(
-                                "No seed matches these locks — unlock an axis and try again.",
+                                "No seed matches these locks - unlock an axis and try again.",
                                 time.elapsed_secs_f64(),
                             );
                         }
@@ -1205,7 +1205,7 @@ pub fn avatar_ui(
                 // --- Footer as a real bottom panel (#830) -----------------
                 // Declared BEFORE the tab body (egui's panels-before-content
                 // rule) but rendered pinned to the window's bottom edge, so
-                // it can never be clipped off a short window — the old
+                // it can never be clipped off a short window - the old
                 // fixed FOOTER_RESERVE guessed the footer height and lost
                 // whenever the guess was wrong. The tab body then fills
                 // exactly the space that remains. Everything in here is
@@ -1215,7 +1215,7 @@ pub fn avatar_ui(
                     .resizable(false)
                     .show(ui, |ui| {
                         // The "Smooth remote peers" toggle moved to the
-                        // Settings window (#857) — it's a client network
+                        // Settings window (#857) - it's a client network
                         // preference, not part of the avatar record this
                         // editor publishes.
 
@@ -1232,7 +1232,7 @@ pub fn avatar_ui(
                         let can_publish = session.is_some() && refresh_ctx.is_some();
                         // Both questions below read the baselines cached
                         // above and ONE live serialisation between them,
-                        // rebuilt only on a frame after an edit — instead
+                        // rebuilt only on a frame after an edit - instead
                         // of six whole-record `Value` trees per frame
                         // (#1270 f273).
                         let generation = live_baseline.recomputes();
@@ -1308,7 +1308,7 @@ pub fn avatar_ui(
                                 // Clobber protection (#840): after an
                                 // unrecoverable fetch the editor holds the
                                 // default while the real record may still
-                                // sit on the PDS — the first publish asks.
+                                // sit on the PDS - the first publish asks.
                                 match recovery.as_deref() {
                                     Some(rec) => crate::ui::editable::request_overwrite_confirm(
                                         publish_guard,
@@ -1338,7 +1338,7 @@ pub fn avatar_ui(
                             .is_some()
                         {
                             // Acknowledged. The marker stays until the poll
-                            // system sees the write land (#1199) — retiring
+                            // system sees the write land (#1199) - retiring
                             // it here left a failed overwrite with no banner.
                             do_publish = true;
                         }
@@ -1450,7 +1450,7 @@ pub fn avatar_ui(
         // (#1270 f273). It was a deep clone of the `AvatarRecord` at the
         // top of every frame plus a derived `PartialEq` walk at the
         // bottom, and it existed as a backstop for edit sites that did not
-        // report. Every site reports now — the four `draw_*` handoffs
+        // report. Every site reports now - the four `draw_*` handoffs
         // always took `&mut widget_changed`, and the three direct
         // assignments (seed re-roll, Revert, Reset) say so themselves.
         // `avatar_edits_report_themselves` is what keeps a fourth from
@@ -1487,12 +1487,12 @@ pub fn avatar_ui(
         response.as_ref().is_some_and(|r| r.inner.is_some())
     };
     // Publish the window state for non-UI readers (the gait pause, #741)
-    // every frame this system runs — including the `!panels.avatar` arm,
+    // every frame this system runs - including the `!panels.avatar` arm,
     // so closing the window un-pauses without a stale frame.
     editor.window_visible = window_visible_with_body;
 
     // Pop-out audio editor for the per-construct slot on avatar visuals
-    // generators — a top-level Window sibling to the Avatar window.
+    // generators - a top-level Window sibling to the Avatar window.
     // Rendered after the Avatar window's borrow of the egui context is
     // released. Slot-agnostic: it stages committed edits in
     // `audio_editor`'s pending map, which the construct's bridge in the
@@ -1520,7 +1520,7 @@ pub fn avatar_ui(
     // Collapse-deselect + tab-switch clear (#1103): a selection only
     // persists while the panel showing it is visible, so the gizmo can
     // detach and the freeze / bind-pose holds release. One helper for all
-    // three selections — the part selection (#1098) used to be missing
+    // three selections - the part selection (#1098) used to be missing
     // here, which left its gizmo aimed and the body held after the window
     // closed.
     editor.release_hidden_selections(window_visible_with_body);
@@ -1562,7 +1562,7 @@ pub fn avatar_ui(
     if editor.pending_flush_secs > 0.0 {
         editor.pending_flush_secs = (editor.pending_flush_secs - time.delta_secs()).max(0.0);
         if editor.pending_flush_secs <= 0.0 {
-            // Debounce drained — clamp the accumulated edit through the
+            // Debounce drained - clamp the accumulated edit through the
             // same bounds the network-ingress path enforces, then publish
             // it to player (visual rebuild) and `broadcast_avatar_state`
             // (peer preview) in a single change tick. The clamp matters:
@@ -1604,7 +1604,7 @@ fn spawn_wardrobe_list_task(commands: &mut Commands, did: &str) {
 }
 
 /// Land finished wardrobe listings. A failed walk clears the spinner and
-/// leaves whatever list was there — the button is the retry — and records
+/// leaves whatever list was there - the button is the retry - and records
 /// the reason so the tab can say a fetch was tried and failed rather than
 /// re-showing the pristine "Refresh to list…" hint (#1141).
 pub fn poll_wardrobe_list_tasks(
@@ -1636,18 +1636,18 @@ pub fn poll_wardrobe_list_tasks(
 
 /// Spawn the async avatar publish. `pub(crate)` because the unsaved-edits
 /// guard ([`crate::ui::unsaved_guard`]) drives the same pipeline for its
-/// "Publish & log out" path — the shared [`poll_publish_avatar_tasks`]
+/// "Publish & log out" path - the shared [`poll_publish_avatar_tasks`]
 /// system lands the result either way.
 ///
 /// A rigged record is a **bundle** (#1059): the wardrobe body and every
 /// worn attachment land before the profile and the avatar record that
 /// reference them, and detached records are deleted last, so no reader ever
 /// resolves a dangling reference. A generator record is exactly the classic
-/// single-record save it always was — [`pds::avatar::wardrobe::plan_avatar_publish`]
+/// single-record save it always was - [`pds::avatar::wardrobe::plan_avatar_publish`]
 /// decides which by looking at the body.
 ///
 /// `stored_attachments` is the attachment rkey list of the record the PDS
-/// currently holds — [`StoredAvatarRecord`], or empty when nothing has been
+/// currently holds - [`StoredAvatarRecord`], or empty when nothing has been
 /// fetched. The plan retires exactly what that set has and `record` no
 /// longer references (#1110), so every caller must pass it: handing over an
 /// empty list where a stored record exists silently orphans whatever this
@@ -1669,7 +1669,7 @@ pub(crate) fn spawn_publish_avatar_task(
     let record_bytes = pds::record_size::serialized_record_bytes(&record);
     let published = record.clone();
     // The engine crate is clock-free by design (std::time panics on wasm),
-    // so the ISO timestamp the wardrobe lexicon requires is stamped here —
+    // so the ISO timestamp the wardrobe lexicon requires is stamped here -
     // chrono is already the app's wasm-safe clock (#846).
     let now_iso = chrono::Utc::now().to_rfc3339();
     let pool = bevy::tasks::IoTaskPool::get();
@@ -1703,10 +1703,10 @@ pub(crate) fn spawn_publish_avatar_task(
 
 /// Poll outstanding avatar publish tasks. On success, sync the record the
 /// task actually published into `StoredAvatarRecord` so the "Load from PDS"
-/// button is disabled until the next edit, and — for a rigged body — tell
+/// button is disabled until the next edit, and - for a rigged body - tell
 /// the room the referenced records have moved (#1122).
 ///
-/// Deliberately does not read `LiveAvatarRecord` (#1116) — see
+/// Deliberately does not read `LiveAvatarRecord` (#1116) - see
 /// [`PublishAvatarTask::published`].
 #[allow(clippy::too_many_arguments)]
 pub fn poll_publish_avatar_tasks(
@@ -1767,7 +1767,7 @@ pub fn poll_publish_avatar_tasks(
                 // Tell the room (#1122). A rigged body's payload is in the
                 // wardrobe + attachment records this write just changed, and
                 // they sit at the SAME rkeys the live-preview broadcast
-                // already named — so peers holding a resolution have no way
+                // already named - so peers holding a resolution have no way
                 // to notice from the references alone. Nothing here made
                 // `LiveAvatarRecord` changed, so no broadcast fired at all,
                 // and even one that did would have carried the pre-save body
@@ -1828,13 +1828,13 @@ mod tests {
     /// purely as a backstop for edit sites that might not set
     /// `widget_changed`. That is a whole-record clone plus a whole-record
     /// walk, sixty times a second, on the editor with the least frame
-    /// budget to spare — paid on every frame including the overwhelming
+    /// budget to spare - paid on every frame including the overwhelming
     /// majority where nothing happened at all.
     ///
     /// The clone is gone, so the reports have to be real. The four `draw_*`
     /// handoffs each take `&mut widget_changed` or return an `outcome`
     /// whose `changed` is ORed in, and the compiler holds those. What
-    /// nothing held is a bare `live_mut.0 = …` — the seed re-roll, Revert
+    /// nothing held is a bare `live_mut.0 = …` - the seed re-roll, Revert
     /// and Reset all replace the record wholesale, and all three were
     /// silent. This is the check that a fourth cannot be.
     ///
@@ -1896,7 +1896,7 @@ mod tests {
         let found = record_assignments(source);
         assert!(
             found.len() >= 3,
-            "the scan found {} record assignments — it has gone blind (the seed \
+            "the scan found {} record assignments - it has gone blind (the seed \
              re-roll, Revert and Reset are all still there)",
             found.len()
         );
@@ -1908,7 +1908,7 @@ mod tests {
         assert!(
             silent.is_empty(),
             "src/ui/avatar/mod.rs replaces the live record at {silent:?} without setting \
-             `widget_changed = true` — the edit will not arm the debounce, so the body \
+             `widget_changed = true` - the edit will not arm the debounce, so the body \
              will not rebuild and no peer will see it until something else is touched"
         );
     }
@@ -1916,7 +1916,7 @@ mod tests {
     /// #1236 f139. Sequence: right-click your hat → "Edit …", the body
     /// freezes under the gizmo, press Esc. The Esc back-out ladder tested
     /// `has_visuals_selection`, which is FALSE for a worn prop and for a
-    /// worn part — so the rung was skipped, the press closed an unrelated
+    /// worn part - so the rung was skipped, the press closed an unrelated
     /// window, and the chassis stayed axis-locked at `GravityScale(0)`.
     /// The ladder now asks `has_gizmo_selection` and answers with
     /// `clear_gizmo_selections`, which is exactly the difference this
@@ -1953,7 +1953,7 @@ mod tests {
 
     /// #1103 (owner direction, reversing #814): the chassis freeze and the
     /// gait/sway hold engage only while a gizmo is aimed at the avatar or
-    /// at something it wears — never merely because the window is open.
+    /// at something it wears - never merely because the window is open.
     /// Each of the three selections holds; an open window with nothing
     /// aimed does not.
     #[test]
@@ -2022,7 +2022,7 @@ mod tests {
     }
 
     /// #1103 bug 3, reproduced: a left-click into empty scene while a
-    /// worn item's part was selected kept the part gizmo up — the miss
+    /// worn item's part was selected kept the part gizmo up - the miss
     /// path cleared the other two selections only. Also pins the
     /// face-pick exemption, which protects the visuals row alone.
     #[test]
@@ -2058,7 +2058,7 @@ mod tests {
 
     /// #1299: taking off a worn item releases a gizmo aimed at it whether
     /// the aim is the WHOLE prop or a PART of it. `forget_attachments`
-    /// tested `worn_prop()` alone, so a part aim outlived its item — the
+    /// tested `worn_prop()` alone, so a part aim outlived its item - the
     /// #1103 shape exactly, invisible only because `sync_gizmo_selection`
     /// then found no entity for the stale `(rkey, path)` and attached
     /// nothing: a second bug covering for the first. An aim on a
@@ -2102,7 +2102,7 @@ mod tests {
     }
 
     /// #1298: closing the parts panel releases the PART aim it showed and
-    /// nothing else. The parts row is unlit with it — `AimCtx::aim` drops
+    /// nothing else. The parts row is unlit with it - `AimCtx::aim` drops
     /// the outgoing row on the way out, so the button needs no clear of
     /// its own. A visuals-node aim is not this panel's to release: #1103's
     /// rule is that an aim goes when what it aims at goes, and a visuals
@@ -2150,7 +2150,7 @@ mod tests {
 
     /// #1298: the parts panel closes through ONE body. Its two live sites
     /// draw under `avatar_ui`'s split borrow and used to open-code the
-    /// close — and the two copies drifted from the method nobody could
+    /// close - and the two copies drifted from the method nobody could
     /// call, clearing any aim where the method spared a visuals node. A
     /// source read, like `avatar_edits_report_themselves`: the fact being
     /// pinned is that no site writes `editing_parts` by hand.
@@ -2222,13 +2222,13 @@ mod tests {
 
     /// #1062 → #1103 → #1106: an attachment offset is stored in its
     /// carrying joint's rest frame, so a gizmo aimed at a WHOLE worn prop
-    /// pins the body to its bind pose — and only then. A PART gizmo holds
+    /// pins the body to its bind pose - and only then. A PART gizmo holds
     /// the pose as it stands instead (selecting must not move anything);
     /// the tab being open is not a hold (owner direction), and a
     /// visuals-row gizmo is neither.
     /// #1158. The four booleans the player systems read are now the whole
     /// of what crosses out of the editor, so this is the one place the
-    /// mapping can go wrong — and a wrong mapping is silent: the body
+    /// mapping can go wrong - and a wrong mapping is silent: the body
     /// simply stops holding, or holds when it should walk.
     ///
     /// Asserts the mirror against the predicates rather than restating
@@ -2250,7 +2250,7 @@ mod tests {
         let mut app = App::new();
         app.init_resource::<crate::player::RigHold>();
 
-        // No editor state at all — before login, and the headless render
+        // No editor state at all - before login, and the headless render
         // tool. Must read as "nothing is held", which is what the
         // `Option<Res<…>>` this replaced degraded to.
         app.world_mut()
@@ -2341,7 +2341,7 @@ mod tests {
     /// remembering to clear the other two, and #1103 bugs 1 and 3 were two
     /// paths that had never been told about #1098's part. Here the aim is
     /// one field, so the first half is the type checker's; what this pins
-    /// is the half that is not — the tree-row highlight that lives beside
+    /// is the half that is not - the tree-row highlight that lives beside
     /// the aim, and which is what left a row lit over a gizmo it no longer
     /// owned.
     #[test]
@@ -2367,7 +2367,7 @@ mod tests {
                 assert!(state.has_gizmo_selection(), "{first_name} aims something");
                 then(&mut state, &rkey);
 
-                // Exactly one aim, by construction — and both tree widgets
+                // Exactly one aim, by construction - and both tree widgets
                 // agree with it, which is the part the compiler cannot see.
                 let visuals_row_lit = !state.visuals_tree.view.selected().is_empty();
                 let part_row_lit = !state.parts_tree.view.selected().is_empty();
@@ -2388,7 +2388,7 @@ mod tests {
     /// The one release that is deliberately narrow: the room editor takes
     /// the gizmo from an avatar VISUALS row when a room selection rises
     /// (`room::room_admin_ui`'s half of the cross-editor mutex), and the
-    /// undo restore re-seeds the same row — neither has ever claimed a
+    /// undo restore re-seeds the same row - neither has ever claimed a
     /// worn prop's gizmo, which is aimed at something the room editor
     /// cannot select. Widening this to the whole aim would silently take
     /// down a wearable's offset gizmo.
@@ -2410,7 +2410,7 @@ mod tests {
         );
     }
 
-    /// #823: a scene pick must land the full row-click state — selection
+    /// #823: a scene pick must land the full row-click state - selection
     /// set to the picked path under the fixed "visuals" root, the row
     /// selected in the tree widget, every ancestor expanded, and the
     /// one-shot focus request armed (then consumed by the next draw).
@@ -2459,7 +2459,7 @@ mod tab_tests {
     /// they are for the other kind of body.
     ///
     /// The correction the evidence refuter made is what this pins: it is
-    /// ONE dead end per body kind, never two, and never the Body tab — on a
+    /// ONE dead end per body kind, never two, and never the Body tab - on a
     /// generator body that tab is the feature's entry point, with a working
     /// "Wear a rigged body" action, not a no-op.
     #[test]
@@ -2491,7 +2491,7 @@ mod tab_tests {
         assert!(tab_disabled_reason(AvatarTab::Attachments, true).is_none());
     }
 
-    /// The reason has to name the body kind you are on and where to go —
+    /// The reason has to name the body kind you are on and where to go -
     /// egui shows nothing at all on a disabled widget without an explicit
     /// `on_disabled_hover_text`, so this string is the entire explanation.
     #[test]

@@ -1,41 +1,41 @@
 //! Shared affordance idioms (#859): one add wording, one danger idiom,
-//! one checkmark, one status dot — so the same intent always looks the
+//! one checkmark, one status dot - so the same intent always looks the
 //! same.
 //!
 //! The #815 analysis found destructive actions rendered three ways
 //! (red-fill "−", red text, plain menu rows), two checkmark glyphs, and
 //! bespoke add wordings. The rules these helpers encode:
 //!
-//! * **Add** — labels start with `+ `; spell the verb (`+ Add point`)
-//!   unless the noun is a type name (`+ Scatter`). No helper needed —
+//! * **Add** - labels start with `+ `; spell the verb (`+ Add point`)
+//!   unless the noun is a type name (`+ Scatter`). No helper needed -
 //!   the prefix is the idiom.
-//! * **Remove (inline)** — a list row's remove control is
+//! * **Remove (inline)** - a list row's remove control is
 //!   [`remove_button`]: the small red-filled `−`. Big destructive
 //!   actions (Discard, Reset, confirm dialogs) use
-//!   [`crate::ui::confirm::danger_button`] — filled, white label.
-//! * **Delete (menus)** — a context/tree menu's destructive row is
+//!   [`crate::ui::confirm::danger_button`] - filled, white label.
+//! * **Delete (menus)** - a context/tree menu's destructive row is
 //!   [`danger_menu_button`]: error-red text, no fill (a filled button
 //!   inside a menu reads as a different widget class), prefixed with
 //!   [`CROSS`].
 //!
 //!   **This reverses a recorded decision, deliberately (#1260 f247).**
-//!   #815/#859 settled on "no `−` prefix — the colour is the signal",
+//!   #815/#859 settled on "no `−` prefix - the colour is the signal",
 //!   and colour alone is not a signal: under deuteranopia or protanopia
 //!   the dark palette's `status.error` desaturates toward the same grey
 //!   as the neutral rows beside it, so for roughly 8% of male users the
 //!   one irreversible row in a menu looked exactly like the rest of it
 //!   (WCAG 1.4.1). The reasoning behind the original decision survives
-//!   intact and is still honoured — a menu row must not turn into a
-//!   filled button — and [`remove_button`] had already paired its fill
+//!   intact and is still honoured - a menu row must not turn into a
+//!   filled button - and [`remove_button`] had already paired its fill
 //!   with a glyph, so the codebase owned the redundant-cue pattern and
 //!   was declining to use it in the one place the actions are
 //!   irreversible. `✖` and not `−`: the glyph says *delete*, and `−`
 //!   is [`remove_button`]'s, which means *take out of this list*.
-//! * **Done/valid** — [`CHECK`] in `status.ok`, via [`ok_label`] for
+//! * **Done/valid** - [`CHECK`] in `status.ok`, via [`ok_label`] for
 //!   the common glyph+text case; failures pair with [`CROSS`] and
 //!   cautions with [`WARNING`]. All three are pinned to font-backed
-//!   code points — see the constants' docs for the tofu story (#861).
-//! * **Status dot** — [`status_dot`]: a *painted* circle, because the
+//!   code points - see the constants' docs for the tofu story (#861).
+//! * **Status dot** - [`status_dot`]: a *painted* circle, because the
 //!   `●` glyph only exists in the monospace font (#861).
 
 use bevy_egui::egui;
@@ -43,8 +43,8 @@ use bevy_egui::egui;
 use crate::ui::theme;
 
 /// THE checkmark. One glyph app-wide. `✔` (heavy check), NOT `✓`:
-/// U+2713 exists in no font this app ships — not Noto Sans, not any of
-/// egui's embedded faces — so every `✓` ever rendered was tofu (#861).
+/// U+2713 exists in no font this app ships - not Noto Sans, not any of
+/// egui's embedded faces - so every `✓` ever rendered was tofu (#861).
 /// U+2714 lives in the embedded NotoEmoji/emoji-icon fallbacks.
 pub const CHECK: &str = "✔";
 
@@ -65,7 +65,7 @@ pub const WARNING: &str = "⚠";
 
 /// THE "this leaves the app" glyph (#1291). Appended to the label of
 /// every control that hands the user off to a web browser, so a click
-/// that backgrounds the app — or, on the web build, opens a second tab —
+/// that backgrounds the app - or, on the web build, opens a second tab -
 /// is never a surprise.
 ///
 /// The login feed's "Open on Bluesky" card button had been spelling this
@@ -84,9 +84,9 @@ pub const EXTERNAL: &str = "↗";
 /// Open `url` in the user's browser.
 ///
 /// Lived in `ui::login::posts` until #1291, where it served the "Create a
-/// free Bluesky account" link alone. It is a cross-surface concern now —
+/// free Bluesky account" link alone. It is a cross-surface concern now -
 /// the Feedback affordance is on the login screen AND in the account menu
-/// — and a private helper in a feed module is not a home for it.
+/// - and a private helper in a feed module is not a home for it.
 ///
 /// **The outcome is deliberately not reported.** On the web build this is
 /// `window.open(_, "_blank")`, which a popup blocker may refuse silently;
@@ -112,13 +112,13 @@ pub fn open_url_in_browser(url: &str) {
 /// `url` on a click (#1291).
 ///
 /// One definition, so the glyph, the hover and the "opens in your browser"
-/// promise cannot drift between the surfaces that use it — the same reason
+/// promise cannot drift between the surfaces that use it - the same reason
 /// [`CHECK`] and [`CROSS`] are constants. `hover` says what is on the far
 /// end; the helper appends where it opens, because that half is the same
 /// sentence everywhere and a caller should not have to remember it.
 ///
 /// Returns the `egui::Response` rather than a `bool` so a caller can chain
-/// its own decoration or close a menu — the lesson `fp_slider` and
+/// its own decoration or close a menu - the lesson `fp_slider` and
 /// `color_picker` each learned separately (#1233 f264, #1268).
 pub fn external_link_button(
     ui: &mut egui::Ui,
@@ -159,8 +159,8 @@ pub fn remove_button(ui: &mut egui::Ui, hover: &str) -> egui::Response {
 }
 
 /// A destructive row inside a context/tree menu: error-red text and a
-/// [`CROSS`], plain background. Menus keep their uniform row look — no
-/// fill, matching the #838 confirm treatment that follows the click —
+/// [`CROSS`], plain background. Menus keep their uniform row look - no
+/// fill, matching the #838 confirm treatment that follows the click -
 /// but the danger is carried by a shape as well as a hue, so it is
 /// perceivable without colour vision. See the module docs for why this
 /// reverses #815/#859.
@@ -173,7 +173,7 @@ pub fn danger_menu_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
     ui.button(egui::RichText::new(danger_menu_label(label)).color(error))
 }
 
-/// The text [`danger_menu_button`] draws — pure, so the redundant cue is
+/// The text [`danger_menu_button`] draws - pure, so the redundant cue is
 /// a fact a test can hold rather than a line of render code nothing can
 /// see (#1260 f247).
 fn danger_menu_label(label: &str) -> String {
@@ -182,9 +182,9 @@ fn danger_menu_label(label: &str) -> String {
 
 /// A hover tooltip that a KEYBOARD user can also reach (#1260 f240).
 ///
-/// egui's tooltip gate is purely pointer-driven — `should_show_tooltip`
+/// egui's tooltip gate is purely pointer-driven - `should_show_tooltip`
 /// reads hover position, movement, scroll and click timings and has no
-/// `has_focus()` path anywhere in it — so every control whose meaning
+/// `has_focus()` path anywhere in it - so every control whose meaning
 /// lives only in `on_hover_text` is unlabelled to anyone tabbing
 /// through. Use this instead of `on_hover_text` wherever the hover
 /// carries meaning that exists nowhere else on screen.
@@ -213,15 +213,15 @@ pub fn status_dot(ui: &mut egui::Ui, color: egui::Color32) -> egui::Response {
 /// The one way this app builds a text field (#1284).
 ///
 /// Wrapping `ui.add` rather than a fresh constructor, so every builder
-/// chain a call site already has — `desired_width`, `hint_text`,
-/// `text_color`, `code_editor`, `font` — keeps working unchanged, and the
+/// chain a call site already has - `desired_width`, `hint_text`,
+/// `text_color`, `code_editor`, `font` - keeps working unchanged, and the
 /// returned `egui::Response` is the field's own.
 ///
 /// **What it does:** paints the focus ring from
 /// [`crate::ui::theme::focus_ring`] instead of `selection_text`. egui
 /// reads `visuals.selection.stroke` off the `Ui` the widget is added to,
 /// so the override is set on this `Ui`, the widget is added, and the
-/// previous value is put straight back — every selected chip in the app
+/// previous value is put straight back - every selected chip in the app
 /// keeps its label colour, which is the other role that same field
 /// carries upstream. Deliberately NOT `ui.scope`: a child `Ui` derives a
 /// different auto id, and these fields' focus and cursor state is keyed
@@ -229,17 +229,17 @@ pub fn status_dot(ui: &mut egui::Ui, color: egui::Color32) -> egui::Response {
 ///
 /// Every text field goes through here, enforced by
 /// `fonts::glyph_coverage_tests::the_only_text_fields_are_the_focusable_ones`
-/// — the same shape `ui::num` uses for numeric widgets, and for the same
+/// - the same shape `ui::num` uses for numeric widgets, and for the same
 /// reason: a helper nobody is obliged to call fixes this once and loses
 /// it at the next call site.
 pub fn text_edit(ui: &mut egui::Ui, field: egui::TextEdit<'_>) -> egui::Response {
-    // The reason is unreachable on this path — an always-enabled field is
-    // never disabled — but the parameter is not optional, so that a field
+    // The reason is unreachable on this path - an always-enabled field is
+    // never disabled - but the parameter is not optional, so that a field
     // which CAN be disabled cannot be added without stating why (#1289).
     text_edit_enabled(ui, true, "", field)
 }
 
-/// [`text_edit`] for a field that can be disabled — the gateway's
+/// [`text_edit`] for a field that can be disabled - the gateway's
 /// destination row greys itself out while a lookup is in flight.
 ///
 /// A disabled field cannot take focus, so the ring override is inert
@@ -266,7 +266,7 @@ mod tests {
     use super::*;
 
     /// The tofu glyphs must not sneak back in: U+2713/U+2717 exist in
-    /// no font this app ships (#861) — the constants are the single
+    /// no font this app ships (#861) - the constants are the single
     /// source, pinned to the emoji-font-backed code points.
     /// #1260 f247: a destructive menu row must carry a SHAPE, not only a
     /// hue.
@@ -304,7 +304,7 @@ mod tests {
     /// `userinput.app` is an ATProto app: the space is an
     /// `app.userinput.space` record, so its canonical address is the
     /// owner's DID plus the record key. A handle-shaped URL would look
-    /// tidier and would break the day the owner changes handle — which is
+    /// tidier and would break the day the owner changes handle - which is
     /// exactly the substitution this project's own naming ladder exists to
     /// prevent (`PeerLabel`, #1218 f299).
     #[test]
@@ -329,7 +329,7 @@ mod tests {
     /// (#1291).
     ///
     /// The requirement was "on the login screen as well as when logged
-    /// in", and neither half is derivable from the other — a refactor can
+    /// in", and neither half is derivable from the other - a refactor can
     /// drop one and leave a codebase that still compiles, still passes
     /// every other test, and quietly offers feedback from one place. So
     /// the pair is asserted, by file.
@@ -366,21 +366,21 @@ mod tests {
 
     /// #1289. Every control that CAN be disabled states why, on the hover.
     ///
-    /// egui shows `on_hover_text` only for an ENABLED response — the gate
+    /// egui shows `on_hover_text` only for an ENABLED response - the gate
     /// is literally `if response.enabled() { if !response.hovered() {
     /// return false } }` in `Tooltip::should_show_tooltip`. So a greyed
     /// control carrying only `on_hover_text` says NOTHING at the one
     /// moment the hover is needed, and three sites in this tree had
     /// written a perfectly good explanation onto the method that could
-    /// never fire — `editor_gizmo::draw_gizmo_frame_toggle` explained the
+    /// never fire - `editor_gizmo::draw_gizmo_frame_toggle` explained the
     /// element-axis pin on an `add_enabled_ui(false, …)` region, which is
     /// disabled by construction.
     ///
     /// # No exemptions, and why the region form is included
     ///
     /// The obvious objection is that several of these sit beside body copy
-    /// that already gives the reason — the Catalogue's refusal lines, the
-    /// rename dialog's validation line — and that a disabled REGION cannot
+    /// that already gives the reason - the Catalogue's refusal lines, the
+    /// rename dialog's validation line - and that a disabled REGION cannot
     /// carry a tooltip anyway because egui registers a container's sense
     /// below its children's.
     ///
@@ -388,7 +388,7 @@ mod tests {
     /// exemption-free. For a DISABLED response egui does not consult
     /// `hovered()` at all; it asks `rect_contains_pointer(layer, rect)`.
     /// A disabled region's tooltip therefore fires anywhere inside it,
-    /// including over the greyed widgets within — verified in
+    /// including over the greyed widgets within - verified in
     /// egui 0.35's `Tooltip::should_show_tooltip`. And on the first half:
     /// the hover is what a pointer-user reaches for first, so "the reason
     /// is also printed nearby" is a reason to say it twice from one
@@ -498,7 +498,7 @@ mod tests {
                     continue;
                 }
                 // A response kept in a binding may be decorated further
-                // down — `tree.rs` and `people.rs` both do, one of them 66
+                // down - `tree.rs` and `people.rs` both do, one of them 66
                 // lines later, so a line window would report both wrongly.
                 let back = code[..start].rfind([';', '{', '}']).map_or(0, |i| i + 1);
                 let bound = code[back..start]
@@ -533,7 +533,7 @@ mod tests {
         assert_eq!(
             silent_disabled_controls("fn f() { ui.add_enabled(ok, b).on_hover_text(t); }"),
             vec![1],
-            "`on_hover_text` is shown only while ENABLED — it is not a reason"
+            "`on_hover_text` is shown only while ENABLED - it is not a reason"
         );
         assert!(
             silent_disabled_controls("fn f() { ui.add_enabled(true, b); }").is_empty(),
@@ -553,7 +553,7 @@ mod tests {
                  .on_disabled_hover_text(why);\n}"
             )
             .is_empty(),
-            "a `;` inside a COMMENT must not end the statement — this exact \
+            "a `;` inside a COMMENT must not end the statement - this exact \
              shape made the scan report editable.rs while it was correct"
         );
         assert!(
@@ -581,13 +581,13 @@ mod tests {
 
         assert!(
             files > 30,
-            "the walk found only {files} files — it is blind"
+            "the walk found only {files} files - it is blind"
         );
         assert!(
             missing.is_empty(),
             "{missing:?} disable a control without saying why. egui shows \
              `on_hover_text` only while ENABLED, so a greyed control needs \
-             `on_disabled_hover_text` — chained on the response, or applied \
+             `on_disabled_hover_text` - chained on the response, or applied \
              later to a binding. If the reason is already printed beside the \
              control, bind that one string and feed both."
         );

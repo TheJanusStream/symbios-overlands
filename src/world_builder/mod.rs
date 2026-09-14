@@ -1,8 +1,8 @@
 //! World compiler: turns a `RoomRecord` recipe into ECS entities.
 //!
 //! This plugin owns every entity spawned from the active room recipe. When
-//! the owner edits the record — locally through the world editor or
-//! remotely via a `RoomStateUpdate` broadcast — the compiler diffs the
+//! the owner edits the record - locally through the world editor or
+//! remotely via a `RoomStateUpdate` broadcast - the compiler diffs the
 //! placement list per-unit and rebuilds only the placements that changed,
 //! spreading the work across frames on a wall-clock budget. Heightmap
 //! swaps and placement-count changes still force a full rebuild that
@@ -18,65 +18,65 @@
 //! **Determinism:** scatter placements use `ChaCha8Rng` seeded by the
 //! placement's `local_seed` so every peer visiting the same DID sees the
 //! same objects in the same locations. `thread_rng()` is explicitly
-//! forbidden here — OS entropy would desynchronise the shared reality.
+//! forbidden here - OS entropy would desynchronise the shared reality.
 //!
 //! ## Sub-module map
 //!
-//! * [`compile`] — the main `compile_room_record` system + its
+//! * [`compile`] - the main `compile_room_record` system + its
 //!   per-`GeneratorKind` dispatcher, its atmospheric sibling
 //!   `apply_environment_state`, the shared `SpawnCtx`, and the scatter /
 //!   biome math helpers.
-//! * [`lsystem`] — L-system geometry + material caches and the spawn path.
-//! * [`shape`] — CGA shape-grammar geometry + material caches and the
+//! * [`lsystem`] - L-system geometry + material caches and the spawn path.
+//! * [`shape`] - CGA shape-grammar geometry + material caches and the
 //!   per-terminal spawn path; the architectural sibling of [`lsystem`].
-//! * [`prim`] — Primitive-generator spawners (the sixteen parametric kinds,
-//!   Cuboid through Superellipsoid / Spine / Lathe / BlobGroup — see
+//! * [`prim`] - Primitive-generator spawners (the sixteen parametric kinds,
+//!   Cuboid through Superellipsoid / Spine / Lathe / BlobGroup - see
 //!   [`prim`]'s own module docs) and the parametric mesh/collider builders
 //!   shared by their spawn arm.
-//! * [`portal`] — portal cube spawning. The top-face profile picture is
+//! * [`portal`] - portal cube spawning. The top-face profile picture is
 //!   delegated to [`image_cache::BlobImageCache`] via a `SignSource::DidPfp`
 //!   request so portals coalesce with Sign generators against the same
 //!   source.
-//! * [`image_cache`] — source-keyed coalescing cache for image fetches,
+//! * [`image_cache`] - source-keyed coalescing cache for image fetches,
 //!   shared by Sign generators, the Portal top face, and ParticleSystem
 //!   textures. Three resolver paths (URL / atproto blob / DID-pfp) feed
 //!   into the same Pending/Ready state machine so a room with many panels
 //!   pointing at the same source issues exactly one HTTPS round trip; the
 //!   cache key includes the sampler filter so Linear panels and Nearest
 //!   pixel-art particles coexist as separate GPU images.
-//! * [`blob_fetch`] — shared capped HTTPS / ATProto-blob byte fetcher
+//! * [`blob_fetch`] - shared capped HTTPS / ATProto-blob byte fetcher
 //!   used by [`image_cache`] and the [`crate::interaction::audio`] cue
 //!   cache, so the wasm/native split and the OOM-guarding chunk loop
 //!   live in exactly one place.
-//! * [`sign`] — Sign generator spawner: textured plane with the full
+//! * [`sign`] - Sign generator spawner: textured plane with the full
 //!   StandardMaterial toggles, image fetched asynchronously through
 //!   [`image_cache`].
-//! * [`particles`] — CPU + ECS particle emitter for `ParticleSystem`:
+//! * [`particles`] - CPU + ECS particle emitter for `ParticleSystem`:
 //!   per-frame spawn / motion / age systems, optional sprite-sheet atlas
 //!   animation, and avian3d collisions.
-//! * [`avatar_spawn`] — re-entry point that walks an avatar's `visuals`
+//! * [`avatar_spawn`] - re-entry point that walks an avatar's `visuals`
 //!   tree through the same dispatch arms with `SpawnCtx::avatar_mode = true`
 //!   so room-only behaviours (RoomEntity tag, PrimMarker, per-prim
 //!   colliders) are skipped.
-//! * [`material`] — water volume spawn, procedural material bridge, and
+//! * [`material`] - water volume spawn, procedural material bridge, and
 //!   foliage texture task polling.
-//! * [`gateway`] — Gateway zone spawning (#747): the sensor volume carrying
+//! * [`gateway`] - Gateway zone spawning (#747): the sensor volume carrying
 //!   the gateway marker at the mouth of a themed gate structure, which the
 //!   picker in [`crate::ui::gateway`] watches.
-//! * [`audio_resolver`] — source-keyed coalescing cache for referenced audio
+//! * [`audio_resolver`] - source-keyed coalescing cache for referenced audio
 //!   fetches; sister to [`image_cache`], sharing [`blob_fetch`] and the same
 //!   FIFO-bounded eviction.
-//! * [`spatial_audio`] — per-construct bake-and-attach: the
+//! * [`spatial_audio`] - per-construct bake-and-attach: the
 //!   [`crate::loading`] ambient pipeline at per-entity granularity, so a
 //!   node's `audio` field plays from that node's own position.
-//! * [`surface_bake`] — offload-routed surface-texture bakes (#807), so wasm
+//! * [`surface_bake`] - offload-routed surface-texture bakes (#807), so wasm
 //!   generates through the worker pool instead of the upstream rayon path.
-//! * [`generator_cache`] — the shared per-generator cache family and the
+//! * [`generator_cache`] - the shared per-generator cache family and the
 //!   content-fingerprint helpers behind the L-system and Shape geometry /
 //!   material caches.
-//! * [`prim_cache`] — content-addressed primitive mesh / material dedup; the
+//! * [`prim_cache`] - content-addressed primitive mesh / material dedup; the
 //!   primitives' equivalent of the per-generator caches.
-//! * [`grammar_diag`] — per-generator grammar compile status, so a parse or
+//! * [`grammar_diag`] - per-generator grammar compile status, so a parse or
 //!   derivation failure surfaces in the editor instead of a `warn!` nobody
 //!   reads.
 
@@ -121,9 +121,9 @@ pub use shape::{ShapeMaterialCache, ShapeMeshCache};
 ///
 /// 64 was chosen in #625 to bound the wasm heap (a 512² entry pins ~3 MiB of
 /// albedo + normal + ORM pixels, so the upstream 256-entry default allowed
-/// ~768 MiB) — but that was before WS1 (#909) added 8 plant generators and
+/// ~768 MiB) - but that was before WS1 (#909) added 8 plant generators and
 /// WS3 (#911) the ground-cover tier. Measured in #915: the cache sat pinned
-/// at 64 from the second re-roll on, with 350 misses against 58 hits —
+/// at 64 from the second re-roll on, with 350 misses against 58 hits -
 /// FIFO was evicting the *seed-independent* catalogue textures (ground
 /// cover, plant variants) between rooms and re-baking them every re-roll at
 /// ~41 ms each. 128 holds a couple of rooms' distinct configs, so the
@@ -153,7 +153,7 @@ pub fn fresh_texture_cache() -> bevy_symbios_texture::TextureCache {
 pub fn register_headless_spawn(app: &mut App) {
     app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
         // Foliage wind (#916). The render tool takes a still, so the sway
-        // itself contributes nothing to a contact sheet — but the material is
+        // itself contributes nothing to a contact sheet - but the material is
         // registered here anyway because *this* is the headless path that
         // actually creates the foliage render pipeline. Without it, a broken
         // `wind.wgsl` would first surface in a browser.
@@ -183,6 +183,45 @@ pub fn register_headless_spawn(app: &mut App) {
         .init_resource::<crate::diagnostics::SessionLog>();
 }
 
+/// Register the room-compile systems themselves - the half of
+/// [`WorldBuilderPlugin`] that [`register_headless_spawn`] leaves out -
+/// gated on *resources* rather than on `AppState`, for an embedder that has
+/// no states: the headless render tool's `--world` mode.
+///
+/// What runs: [`compile::compile_room_record`] once a terrain mesh exists
+/// (the same dependency the game's arm has, because `dispatch_top_level`
+/// applies the record's traits to that mesh), the atmosphere patch
+/// [`compile::apply_environment_state`], and the pollers that land the
+/// compile's asynchronous asset work - blob images, blob audio, spatial
+/// audio bakes and offloaded surface bakes. Not registered: the editor
+/// visualiser, the rebuild toast, the asset-retry plumbing and the contact
+/// recipes, none of which has a reader in a headless app.
+///
+/// Call it *with* [`register_headless_spawn`] (the resources) and
+/// `terrain::register_headless_terrain` (the heightmap the compile waits
+/// on). **Keep in step with [`WorldBuilderPlugin::build`]**: a compile
+/// system added there and not here makes a world sheet quietly disagree
+/// with the game. Native-only under the render tool's cfg (#1321).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn register_headless_compile(app: &mut App) {
+    app.init_resource::<surface_bake::PendingSurfaceBakes>()
+        .init_resource::<asset_failure::AssetRetryRequests>()
+        .add_systems(
+            Update,
+            (
+                compile::compile_room_record.run_if(
+                    any_with_component::<crate::terrain::TerrainMesh>
+                        .and_then(resource_exists::<crate::state::LiveRoomRecord>),
+                ),
+                compile::apply_environment_state,
+                image_cache::poll_blob_image_tasks,
+                audio_resolver::poll_blob_audio_tasks,
+                spatial_audio::poll_spatial_audio_tasks,
+                surface_bake::poll_surface_bakes,
+            ),
+        );
+}
+
 /// Marks an in-scene portal cube and carries the destination coordinates the
 /// interaction system reads when the local player's sensor-collision set
 /// touches it.
@@ -192,7 +231,7 @@ pub struct PortalMarker {
     pub target_pos: Vec3,
 }
 
-/// Marks a gateway interaction zone (#747). Carries no destination — the
+/// Marks a gateway interaction zone (#747). Carries no destination - the
 /// player-side interaction system opens the destination picker, which
 /// lists the *current room owner's* mutual follows at interaction time
 /// (see [`crate::social::MutualsCache`]).
@@ -207,7 +246,7 @@ pub struct RoomEntity;
 
 /// Index of the `RoomRecord` placement whose compile pass spawned this
 /// entity. The incremental compiler's unit teardown despawns by a flat
-/// sweep over this marker — NOT by anchor-recursive despawn alone —
+/// sweep over this marker - NOT by anchor-recursive despawn alone -
 /// because entities can leave their anchor's hierarchy after spawning:
 /// the 3D gizmo detaches a dragged prim from its parent
 /// (`GizmoDetachedPrim`) and the detachment outlives the drag. Before
@@ -215,7 +254,7 @@ pub struct RoomEntity;
 /// detached subtree behind as a duplicate (most visibly: a second
 /// water plane after dragging the water layer's Y).
 ///
-/// Avatar-mode spawns carry [`PlacementUnit::NONE`] — no placement owns
+/// Avatar-mode spawns carry [`PlacementUnit::NONE`] - no placement owns
 /// them, and only the full-pass `RoomEntity` sweep (which ignores this
 /// marker) or their own lifecycle retires them.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -224,7 +263,7 @@ pub struct PlacementUnit(pub usize);
 impl PlacementUnit {
     /// Sentinel for spawns outside the placement system. Shares the
     /// value of [`WaterPlane::NO_OWNER`](crate::water::WaterPlane::NO_OWNER)
-    /// — both mean "no placement index will ever match this".
+    /// - both mean "no placement index will ever match this".
     pub const NONE: usize = crate::water::WaterPlane::NO_OWNER;
 }
 
@@ -232,7 +271,7 @@ impl PlacementUnit {
 /// for the active session. The loading gate
 /// ([`crate::loading::check_loading_complete`]) waits on this, so the
 /// all-green checklist can't hand over to `InGame` while the world is
-/// still an empty heightfield — on wasm the first compile is the
+/// still an empty heightfield - on wasm the first compile is the
 /// longest single-frame stall of the whole boot, and it belongs behind
 /// the loading screen. Removed by `ui::logout::cleanup_on_logout` so the
 /// next login waits again.
@@ -244,7 +283,7 @@ pub struct WorldCompiled;
 /// `Some(idx)` means all of: the World Editor window is open, this is the
 /// owner's own room, the Placements tab is showing, and row `idx` is the
 /// selected anchor. [`draw_placement_visualizers`] outlines that placement
-/// and reads nothing else — it used to read the editor's whole state and
+/// and reads nothing else - it used to read the editor's whole state and
 /// the toolbar's access gate itself, which pointed the dependency arrow
 /// from the world pipeline into the egui layer. One `Option<usize>` is
 /// what it ever read, so one `Option<usize>` is what crosses now: the
@@ -255,8 +294,8 @@ pub struct WorldCompiled;
 /// (#879) so the resource is not marked changed every frame. Absent editor
 /// state or an absent access gate (before login, the headless render tool)
 /// reads as `None`. The overlay therefore draws the PREVIOUS frame's panel
-/// state — the mirror runs before the egui pass that changes it, exactly
-/// as `RigHold` does — which is acceptable for an outline that trails a
+/// state - the mirror runs before the egui pass that changes it, exactly
+/// as `RigHold` does - which is acceptable for an outline that trails a
 /// list click by one frame.
 #[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlacementFocus {
@@ -268,8 +307,8 @@ pub struct PlacementFocus {
 ///
 /// Re-roll is the headline creative gesture of a seeded world and it was the
 /// app's worst feedback desert: `default_for_seed` runs the whole nine-deriver
-/// procedural pipeline synchronously inside the egui frame — a hard
-/// main-thread stall, worse on wasm, which is single-threaded — and the record
+/// procedural pipeline synchronously inside the egui frame - a hard
+/// main-thread stall, worse on wasm, which is single-threaded - and the record
 /// swap then triggers a flat despawn and a sliced respawn of the entire room.
 /// Nothing on that path wrote a toast, set a status line or showed a spinner,
 /// so the only available interpretation of the world blinking out and
@@ -279,7 +318,7 @@ pub struct PlacementFocus {
 /// [`announce_world_rebuilt`] when the compile that follows completes.
 #[derive(Resource)]
 pub struct RebuildAnnounce {
-    /// What the owner asked for, in their words — the second toast repeats
+    /// What the owner asked for, in their words - the second toast repeats
     /// it so a re-roll and a Load-from-PDS do not read identically.
     pub what: String,
     /// `Time::elapsed_secs_f64` at the click, so a rebuild that never
@@ -295,8 +334,8 @@ const REBUILD_ANNOUNCE_DEADLINE_SECS: f64 = 120.0;
 
 /// Say that the rebuild the owner asked for has finished (#1249 f270).
 ///
-/// `WorldCompiled` is (re)inserted at the end of every compile job — and on
-/// an edit that turns out to need no rebuild at all — so the marker is what
+/// `WorldCompiled` is (re)inserted at the end of every compile job - and on
+/// an edit that turns out to need no rebuild at all - so the marker is what
 /// scopes the toast to the gesture that asked for one.
 pub fn announce_world_rebuilt(
     mut commands: Commands,
@@ -314,7 +353,7 @@ pub fn announce_world_rebuilt(
         return;
     }
     if compiled.is_some_and(|c| c.is_changed()) {
-        toasts.success(format!("{} — your world is ready.", announce.what), now);
+        toasts.success(format!("{} - your world is ready.", announce.what), now);
         commands.remove_resource::<RebuildAnnounce>();
     }
 }
@@ -327,7 +366,7 @@ pub fn announce_world_rebuilt(
 /// and the owner concluded they had deleted their own buildings.
 #[derive(Resource, Debug, Clone, PartialEq, Eq)]
 pub struct WorldCompileTruncated {
-    /// Placements never built — the tail of the list, in index order.
+    /// Placements never built - the tail of the list, in index order.
     pub skipped_placements: u32,
     /// The first placement index that was not built.
     pub first_skipped_index: Option<usize>,
@@ -340,7 +379,7 @@ pub struct WorldCompileTruncated {
 /// (#849). [`arm_world_compile`] inserts this the frame the compile's
 /// dependencies (room record + terrain mesh) are satisfied; the compile
 /// itself is gated on it, so the loading screen gets one full rendered
-/// frame to present its "Building world — may pause" row *before* the
+/// frame to present its "Building world - may pause" row *before* the
 /// first compile slice can stall the main thread (multi-second on
 /// wasm). Irrelevant once `InGame` (the compile condition ORs the state
 /// in); removed by `ui::logout::cleanup_on_logout` so the next login delays
@@ -348,7 +387,7 @@ pub struct WorldCompileTruncated {
 #[derive(Resource)]
 pub struct WorldCompileArmed;
 
-/// Insert [`WorldCompileArmed`] one frame ahead of the first compile —
+/// Insert [`WorldCompileArmed`] one frame ahead of the first compile -
 /// see the latch's docs. Runs only during `AppState::Loading`.
 fn arm_world_compile(
     mut commands: Commands,
@@ -374,7 +413,7 @@ pub struct PlacementMarker(pub usize);
 /// A prim with no per-face overrides renders as a single entity that carries
 /// this alongside its `Mesh3d`; a split one puts it on each render child.
 /// Either way a raycast hit resolves to a face by looking its
-/// `triangle_index` up in [`faces`](Self::faces) — the click-to-pick path
+/// `triangle_index` up in [`faces`](Self::faces) - the click-to-pick path
 /// (#961). The table is shared, so every instance of a scattered prop points
 /// at one allocation.
 #[derive(Component, Clone)]
@@ -400,8 +439,8 @@ pub struct PrimMarker {
 /// avatar-editor row selection back to a live entity and write the
 /// dragged Transform back into `LiveAvatarRecord.0.visuals`.
 ///
-/// Remote peers' avatar visuals deliberately omit this marker — their
-/// pose is replicated from the network and is not editable locally — so a
+/// Remote peers' avatar visuals deliberately omit this marker - their
+/// pose is replicated from the network and is not editable locally - so a
 /// query for `&AvatarVisualPrim` is implicitly scoped to the local
 /// avatar without a separate `LocalPlayer` filter.
 #[derive(Component, Clone)]
@@ -411,7 +450,7 @@ pub struct AvatarVisualPrim {
 
 /// Marker on every node of one of the LOCAL player's worn props (#1098):
 /// the attachment record it belongs to and the path into that record's
-/// item tree — the worn-item twin of [`AvatarVisualPrim`], so a part of a
+/// item tree - the worn-item twin of [`AvatarVisualPrim`], so a part of a
 /// worn item can be tree-selected, scene-picked and gizmo-dragged exactly
 /// like a part of a region asset. Peers' outfits omit it (their records
 /// are not editable here), so a query for it is implicitly local-scoped.
@@ -424,7 +463,7 @@ pub struct AttachmentPrim {
 }
 
 /// Marker on the single **root** entity of an avatar's spawned visuals tree
-/// (the one direct chassis child the whole generator tree hangs from) —
+/// (the one direct chassis child the whole generator tree hangs from) -
 /// local and remote alike. Carries the root's authored local transform so
 /// the cosmetic gait-animation layer (`player::gait`) can compose bounce /
 /// sway offsets on top of it each frame without accumulating drift, and so
@@ -444,14 +483,14 @@ impl Plugin for WorldBuilderPlugin {
             // Content-fingerprinted procedural-texture dedup, consulted by
             // `build_procedural_material` before dispatching a bake and
             // populated by the upstream `patch_procedural_material_textures`
-            // system (which takes it as an optional resource — inserting it
+            // system (which takes it as an optional resource - inserting it
             // here is what switches caching on). Survives room *changes* by
             // design (keys are pure content hashes, so a revisited room re-uses
             // its textures), but is re-inserted fresh on logout so one user's
             // textures don't outlive their session (#625). See
             // [`TEXTURE_CACHE_CAPACITY`] for the sizing rationale.
             .insert_resource(fresh_texture_cache())
-            // In-flight offloaded surface bakes (#807) — wasm's replacement
+            // In-flight offloaded surface bakes (#807) - wasm's replacement
             // for the upstream texture task pool; empty on native.
             .init_resource::<surface_bake::PendingSurfaceBakes>()
             .init_resource::<LSystemMaterialCache>()
@@ -475,12 +514,12 @@ impl Plugin for WorldBuilderPlugin {
             // compile is by far the longest single-frame stall on the
             // wasm build (every entity + collider + L-system / shape
             // derivation lands synchronously on the main thread), so it
-            // now runs during `Loading` — behind the loading screen —
+            // now runs during `Loading` - behind the loading screen -
             // and the gate waits on [`WorldCompiled`] before unveiling
             // the world. The compile additionally waits for a terrain
             // mesh entity: `dispatch_top_level` applies the record's
             // traits to it, and during Loading the mesh only spawns a
-            // frame after `FinishedHeightMap` lands — compiling inside
+            // frame after `FinishedHeightMap` lands - compiling inside
             // that gap would silently skip the terrain traits.
             .add_systems(
                 Update,
@@ -516,7 +555,7 @@ impl Plugin for WorldBuilderPlugin {
                     // published where the request path can read it.
                     asset_failure::stamp_asset_policy,
                     spatial_audio::poll_spatial_audio_tasks,
-                    // Offloaded surface bakes (#807) — populated only on wasm
+                    // Offloaded surface bakes (#807) - populated only on wasm
                     // (native dispatches through the upstream patch system);
                     // an empty-map no-op everywhere else.
                     surface_bake::poll_surface_bakes,
@@ -527,7 +566,7 @@ impl Plugin for WorldBuilderPlugin {
                     // asset fetches on the login screen.
                     .run_if(crate::attract::world_pipeline_active),
             )
-            // Audio-reference resolver poll runs in Loading too — the
+            // Audio-reference resolver poll runs in Loading too - the
             // loading gate's ambient-bake path dispatches Referenced
             // fetches before InGame is entered, and the gate would
             // hang if the resolver wasn't polling yet.
@@ -568,13 +607,13 @@ fn create_foliage_card(width: f32, height: f32) -> Mesh {
     mesh
 }
 
-/// Raw mesh geometry for one [`PropMeshType`] — the primitive an L-system prop
+/// Raw mesh geometry for one [`PropMeshType`] - the primitive an L-system prop
 /// (leaf / fruit / cone / …) renders as. Foliage variants (Leaf, Twig) are
 /// billboard cards whose UV layout matches the upstream `bevy_symbios_texture`
 /// card convention (V=1 at the base).
 ///
 /// Pure (no `Assets<Mesh>`), so `build_lsystem_geometry` can bake each prop's
-/// mesh directly into its material bucket at geometry-build time (#812) — one
+/// mesh directly into its material bucket at geometry-build time (#812) - one
 /// tree drops from ~1,500 prop entities to a handful of merged mesh buckets,
 /// killing the per-frame `BinnedRenderPhase` churn that ratcheted wasm memory
 /// (#811). The geometry is identical to what the old per-prop child entities
@@ -596,8 +635,8 @@ pub(crate) fn prop_mesh_geometry(kind: PropMeshType) -> Mesh {
 /// An empty triangle-list mesh carrying exactly the attribute set the turtle
 /// mesher writes on every branch bucket (`POSITION`/`NORMAL`/`COLOR`/`UV_0`,
 /// U32 indices). Seeds a per-material bucket for props whose material id has no
-/// branch geometry, so [`Mesh::merge`] — which requires the source to cover
-/// every destination attribute — accepts the baked prop meshes (#812).
+/// branch geometry, so [`Mesh::merge`] - which requires the source to cover
+/// every destination attribute - accepts the baked prop meshes (#812).
 pub(crate) fn empty_bucket_mesh() -> Mesh {
     let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
@@ -612,7 +651,7 @@ pub(crate) fn empty_bucket_mesh() -> Mesh {
 }
 
 /// Applies the record's `traits` entries for `generator_ref` to `entity`
-/// — currently just the `sensor` trait, which inserts a `Sensor` component.
+/// - currently just the `sensor` trait, which inserts a `Sensor` component.
 fn apply_traits(commands: &mut Commands, entity: Entity, record: &RoomRecord, generator_ref: &str) {
     let Some(traits) = record.traits.get(generator_ref) else {
         return;
@@ -639,10 +678,10 @@ fn reset_traits(commands: &mut Commands, entity: Entity) {
 /// Reads only [`PlacementFocus`], which already folds in the gate the
 /// gizmo and its highlight use (#1237 f142): the World Editor open, on
 /// the owner's own room, on the Placements tab. This overlay once had
-/// NEITHER an ownership nor a panel gate — a visitor who travelled with a
+/// NEITHER an ownership nor a panel gate - a visitor who travelled with a
 /// placement selected arrived in a stranger's overland to find a glowing
 /// green circle floating over their terrain, indexed into the
-/// newly-arrived room's placements — and the mirror is where that gate
+/// newly-arrived room's placements - and the mirror is where that gate
 /// lives now.
 fn draw_placement_visualizers(
     mut gizmos: Gizmos<crate::editor_gizmo::EditorOverlayGizmos>,
@@ -662,7 +701,7 @@ fn draw_placement_visualizers(
     };
 
     // Resolve through the shared reader so the preview marker sits where
-    // the compile will actually put the anchor — a seeded structure
+    // the compile will actually put the anchor - a seeded structure
     // resolves against its whole footprint, not its centre (#1008/#1011).
     let radius = snap_footprint_radius(placement);
     let get_y = |x: f32, z: f32| -> f32 {
@@ -684,7 +723,7 @@ fn draw_placement_visualizers(
             if *snap_to_terrain {
                 // Match the compile executor's Absolute semantics: the
                 // authored Y is an OFFSET from the terrain height, not
-                // replaced by it — a preview that drops the offset shows
+                // replaced by it - a preview that drops the offset shows
                 // the gizmo at the wrong altitude (#700).
                 pos.y += get_y(pos.x, pos.z);
             }

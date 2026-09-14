@@ -1,4 +1,4 @@
-//! Gear pile — a Steampunk prop. A heap of brass and iron toothed cogs, some
+//! Gear pile - a Steampunk prop. A heap of brass and iron toothed cogs, some
 //! stacked flat, one leaning on its edge. Scatter clutter of the works' yard.
 //!
 //! Each cog is built by the shared [`cog`] helper; the leaning one is stood on
@@ -48,7 +48,7 @@ impl CatalogueEntry for GearPile {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Largest toothed cog lying flat — the root.
+        // Largest toothed cog lying flat - the root.
         cog(
             [0.0, 0.1, 0.0],
             id_quat(),

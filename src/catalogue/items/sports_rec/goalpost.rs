@@ -1,4 +1,4 @@
-//! Goalpost — a Sports/Recreation prop. A white goal frame with a chain-link
+//! Goalpost - a Sports/Recreation prop. A white goal frame with a chain-link
 //! net slung behind it. Scatter clutter across the training pitches.
 
 use std::f32::consts::FRAC_PI_2;
@@ -50,7 +50,7 @@ fn build_tree() -> Generator {
     let half_w = 3.5_f32;
 
     let mut prims = vec![
-        // Net floor — the flat root. (The round crossbar is a rotated child:
+        // Net floor - the flat root. (The round crossbar is a rotated child:
         // a rotated piece must never be the assemble root, or its rotation
         // spins the whole goal sideways.)
         prim(
@@ -60,7 +60,7 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Crossbar — a round white tube along X, above the mouth.
+    // Crossbar - a round white tube along X, above the mouth.
     prims.push(prim(
         solid(cylinder_tapered(
             0.09,

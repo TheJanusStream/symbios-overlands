@@ -30,7 +30,7 @@
 //      specular highlight all ride on top of the PBR lighting pass.
 //
 // All tunable values flow through the `WaterUniforms` block bound at slot
-// 100 — authored on `pds::WaterSurface` (per water body) and
+// 100 - authored on `pds::WaterSurface` (per water body) and
 // `pds::Environment` (room-wide).
 
 #import bevy_pbr::{
@@ -101,7 +101,7 @@ struct GerstnerOut {
 // Single Gerstner wave contribution. `Q` is the steepness (0 = plain sine,
 // 1 = sharpest crests that still keep the surface function-valued). Returns
 // surface-local offset plus the partial derivatives of that offset with
-// respect to the undisturbed local U and V positions — enough to build an
+// respect to the undisturbed local U and V positions - enough to build an
 // exact surface normal in local space without finite differences.
 //
 // `phase_offset` breaks the coherence of multiple waves passing through the
@@ -125,7 +125,7 @@ fn gerstner_wave(
     let cos_f = cos(phase);
     let sin_f = sin(phase);
     // Distribute steepness across all summed waves so the crests never
-    // self-intersect — matches GPU Gems Ch. 1 convention.
+    // self-intersect - matches GPU Gems Ch. 1 convention.
     let Q = steepness;
     let wa = amplitude * k;
 
@@ -163,7 +163,7 @@ fn rot2(v: vec2<f32>, a: f32) -> vec2<f32> {
 // the surface plane, falling back to projected world Z when the surface is
 // near-vertical (so the projection of X collapses). For flat water (normal
 // ≈ Y) this picks tangent = X and bitangent = Z, exactly matching the
-// previous world-XZ parameterisation — flat-water visuals stay
+// previous world-XZ parameterisation - flat-water visuals stay
 // pixel-identical to the pre-rework shader.
 //
 // Returned matrix has tangent in column 0, normal in column 1, bitangent
@@ -177,7 +177,7 @@ fn build_surface_basis(normal: vec3<f32>) -> mat3x3<f32> {
     if proj_x_len > 1e-3 {
         tangent = proj_x / proj_x_len;
     } else {
-        // Surface normal is too close to world X — fall back to projecting
+        // Surface normal is too close to world X - fall back to projecting
         // world Z. This branch only fires for surfaces tilted past ~88°.
         let proj_z = vec3<f32>(0.0, 0.0, 1.0) - normal * normal.z;
         tangent = normalize(proj_z);
@@ -199,15 +199,15 @@ fn build_surface_basis(normal: vec3<f32>) -> mat3x3<f32> {
 // the lattice through real bit-mixing decorrelates adjacent cells fully.
 //
 // Earlier float-domain iterations all eventually banded:
-//   1. `fract(p * 123.34, 456.21) + dot(...)` — 123.34 = 6167/50, so
+//   1. `fract(p * 123.34, 456.21) + dot(...)` - 123.34 = 6167/50, so
 //      `fract(i.x * 123.34)` had period 50, planting a rigid 50×100 grid
 //      across the water. Denser near-tile scaling tiled that grid thicker
 //      into view, producing the diagonal bands.
-//   2. `fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453)` — with
+//   2. `fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453)` - with
 //      integer `p` above ~100, the argument to sin() exceeds ~10⁴ and
 //      f32 argument-reduction quantises runs of adjacent cells onto
 //      identical hash values, reading as hard-edged square splotches.
-//   3. David Hoskins' "hash without sine" — `fract(vec3(p.xyx) *
+//   3. David Hoskins' "hash without sine" - `fract(vec3(p.xyx) *
 //      0.1031); p3 += dot(p3, p3.yzx + 33.33); fract((p3.x + p3.y) *
 //      p3.z)`. For integer-lattice inputs the drift sequence
 //      `fract(k * 0.1031)` has a soft quasi-period of ~10 cells per
@@ -218,13 +218,13 @@ fn build_surface_basis(normal: vec3<f32>) -> mat3x3<f32> {
 //      scale climbed.
 //
 // PCG operates entirely on u32, so there is no float-domain
-// periodicity to leak through — every integer cell gets an
+// periodicity to leak through - every integer cell gets an
 // independent uniform output.
 //
 // The `+ 32768.0` bias before `u32(...)` brings the float-domain
 // lattice (which can be slightly negative at the world's edge) into
 // the non-negative range u32 conversion expects, without altering
-// inter-cell decorrelation — every cell still receives a distinct
+// inter-cell decorrelation - every cell still receives a distinct
 // integer.
 fn hash21(p: vec2<f32>) -> f32 {
     var v = vec2<u32>(u32(p.x + 32768.0), u32(p.y + 32768.0));
@@ -238,7 +238,7 @@ fn hash21(p: vec2<f32>) -> f32 {
 
 // Hash a 2D integer lattice point to a unit-length 2D gradient. Polar
 // form (random angle → unit vector) gives uniform distribution on the
-// circle, which is what we want — the naive `(h*2-1, h2*2-1)` form is
+// circle, which is what we want - the naive `(h*2-1, h2*2-1)` form is
 // uniform on a square and biases gradients toward the four corner
 // directions, which would reintroduce axis-aligned cell artifacts.
 fn hash_grad(p: vec2<f32>) -> vec2<f32> {
@@ -255,7 +255,7 @@ fn hash_grad(p: vec2<f32>) -> vec2<f32> {
 //      derivative at f=0 and f=1, so the noise gradient *vanishes on
 //      every cell edge* and peaks in cell centres. Visualised through
 //      a finite-difference normal map this reads as bright/dark
-//      diamond shapes inside axis-aligned cells — the "grid look"
+//      diamond shapes inside axis-aligned cells - the "grid look"
 //      that became obvious whenever `normal_scale_near` was small
 //      enough that one cell covered many pixels.
 //   2. Gradient noise has value zero at every corner (gradient · 0
@@ -287,7 +287,7 @@ fn gradient_noise(p: vec2<f32>) -> f32 {
 // field. The vertical Y coefficient biases the result toward +Y so the
 // combined water normal never flips horizontal (which would invert
 // lighting on a flat pond). Returned in surface-local frame `(t, n, b)`
-// — caller rotates to world.
+// - caller rotates to world.
 //
 // Each octave is sampled in a UV frame rotated by a different non-axis
 // angle. Without these rotations the noise lattice aligns with world
@@ -299,7 +299,7 @@ fn gradient_noise(p: vec2<f32>) -> f32 {
 //
 // The octave scale ratio (`OCT2_SCALE`) is a deliberately non-harmonic
 // 1.937 rather than the previous 2.17. 2.17 sat very close to 13/6 ≈
-// 2.1667 — a low-order rational that synchronised the two octaves
+// 2.1667 - a low-order rational that synchronised the two octaves
 // every six base cells along the world axes, planting a soft
 // equidistant-band beat pattern across the surface. 1.937 has no
 // nearby simple ratio under 30, so the octaves drift across each other
@@ -311,7 +311,7 @@ fn gradient_noise(p: vec2<f32>) -> f32 {
 // amplitude inversely to the footprint so under-sampled regions
 // collapse to a flat normal rather than producing garbage derivatives.
 // The coefficient is chosen so a pixel covering ~40% of a noise cell
-// is already half-faded — erring on the side of too much smoothing,
+// is already half-faded - erring on the side of too much smoothing,
 // which is cheaper visually than leaving spiky residue on the
 // specular lobe.
 fn detail_normal(uv: vec2<f32>, footprint: f32) -> vec3<f32> {
@@ -343,20 +343,20 @@ fn detail_normal(uv: vec2<f32>, footprint: f32) -> vec3<f32> {
 }
 
 // ---------------------------------------------------------------------------
-// Avatar-wake perturbation field (Phase 1, revised — see
+// Avatar-wake perturbation field (Phase 1, revised - see
 // `crate::interaction::perturbation`)
 // ---------------------------------------------------------------------------
 
 // Per-fragment height contribution from every live perturbation.
 //
 // A perturbation is a typed, aging disturbance shed by an avatar
-// contact event — it is NOT the avatar's live position. `age_norm`
+// contact event - it is NOT the avatar's live position. `age_norm`
 // (∈[0,1]) drives a birth→death amplitude envelope, so a wake persists
 // and fades in place after the avatar has moved on.
 //
 // Three kinds (encoded in `wake_samples_b[i].z`):
-//   0 RadialRipple   — isotropic concentric ring; slow-Dwell footfall.
-//   1 DirectionalWake — a faded teardrop trailing BEHIND the spawn
+//   0 RadialRipple   - isotropic concentric ring; slow-Dwell footfall.
+//   1 DirectionalWake - a faded teardrop trailing BEHIND the spawn
 //                       point along the frozen heading: the vehicle
 //                       sits at the front tip (apex), the half-width
 //                       swells mid-trail and closes at the far end,
@@ -365,7 +365,7 @@ fn detail_normal(uv: vec2<f32>, footprint: f32) -> vec3<f32> {
 //                       so consecutive fast-Dwell stamps blend into a
 //                       continuous wake instead of beating into a
 //                       stacked pile. Fast-Dwell trail.
-//   2 SplashRing      — a single crest whose radius grows with age;
+//   2 SplashRing      - a single crest whose radius grows with age;
 //                       water Enter (splash) and Exit (settle).
 //
 // Bails out cheaply when the channel is disabled (`wake_strength` 0 or
@@ -381,7 +381,7 @@ fn wake_height_at(xz: vec2<f32>, t: f32) -> f32 {
     let R = max(water_uniforms.wake_decay_radius, 0.05);
     let lambda = max(water_uniforms.wake_ripple_wavelength, 0.05);
     let k = 6.2831853 / lambda;
-    // Ripple phase velocity — brisk enough to read as propagating
+    // Ripple phase velocity - brisk enough to read as propagating
     // without competing with the Gerstner animation.
     let omega = 4.0;
     // How far (in decay radii) a SplashRing crest travels over its
@@ -425,11 +425,11 @@ fn wake_height_at(xz: vec2<f32>, t: f32) -> f32 {
 
         var contribution = 0.0;
         if kind < 0.5 {
-            // RadialRipple — isotropic.
+            // RadialRipple - isotropic.
             let r = sqrt(r2);
             contribution = exp(-r / R) * sin(k * r - omega * t);
         } else if kind < 1.5 {
-            // DirectionalWake — a teardrop trailing strictly behind the
+            // DirectionalWake - a teardrop trailing strictly behind the
             // spawn point (the avatar apex). Build a vehicle-relative
             // frame: `along` is distance forward of the apex (>0 ahead,
             // <0 behind), `across` is the lateral offset.
@@ -452,7 +452,7 @@ fn wake_height_at(xz: vec2<f32>, t: f32) -> f32 {
             let u = -along / max(len, 1e-3);
             if along <= 0.0 && u <= 1.0 {
                 // Leaf half-width: 0 at the apex (u=0), peak near
-                // u≈0.5, back to 0 at the far end (u=1) — a closed
+                // u≈0.5, back to 0 at the far end (u=1) - a closed
                 // teardrop entirely behind the vehicle.
                 let halfw = half_max * sqrt(max(0.0, 4.0 * u * (1.0 - u)));
                 let vn = select(
@@ -473,7 +473,7 @@ fn wake_height_at(xz: vec2<f32>, t: f32) -> f32 {
                 }
             }
         } else {
-            // SplashRing — a single crest expanding with age.
+            // SplashRing - a single crest expanding with age.
             let r = sqrt(r2);
             let ring_r = age_norm * R * splash_expand;
             let d = r - ring_r;
@@ -502,7 +502,7 @@ fn fragment(
     // Surface basis. Collapses to identity on flat water so a pre-rework
     // record renders pixel-identical. On a tilted surface this gives us
     // the (tangent, normal, bitangent) frame; we keep basis rotation
-    // *only* for the wave normal — wave / noise sampling stays in
+    // *only* for the wave normal - wave / noise sampling stays in
     // world XZ to keep the visible pattern invariant under tilt. A
     // previous iteration sampled in surface UV, which produced visible
     // band artifacts on any tilt: the in-plane noise grid stretched
@@ -527,7 +527,7 @@ fn fragment(
     // downhill direction in world space; we keep the *world-XZ* horizontal
     // component for UV scrolling so the noise frame is consistent with
     // the wave-sampling frame. `flow_speed` (length of the full
-    // surface-tangent gravity vector — sin(tilt_angle)) is preserved so
+    // surface-tangent gravity vector - sin(tilt_angle)) is preserved so
     // scroll-speed kicks at high tilt still fire.
     let flow_amount = clamp(water_uniforms.flow_amount, 0.0, 1.0);
     let g_world = vec3<f32>(0.0, -1.0, 0.0);
@@ -539,14 +539,14 @@ fn fragment(
         flow_dir_xz = vec2<f32>(tangent_g.x, tangent_g.z) / flow_horiz_len;
     }
 
-    // Standing-wave amplitude is suppressed as flow_amount climbs — a
+    // Standing-wave amplitude is suppressed as flow_amount climbs - a
     // streaming river is not a sum-of-Gerstner-waves visually. At
     // `flow_amount = 1` the Gerstner term contributes only ~20% of its
     // still-water amplitude so the surface gets most of its texture from
     // scrolling detail normals instead.
     let still_factor = mix(1.0, 0.2, flow_amount);
     let scale = water_uniforms.wave_scale * still_factor;
-    // Per-wave steepness — total steepness must stay ≤ 1 / (k * amplitude)
+    // Per-wave steepness - total steepness must stay ≤ 1 / (k * amplitude)
     // summed across every component to keep the surface from looping back on
     // itself. Divide the uniform by the wave count so the user-facing slider
     // can sit at `1.0` without producing self-intersecting crests.
@@ -555,15 +555,15 @@ fn fragment(
     // Six Gerstner waves. Design rules picked to kill the diagonal-banding
     // interference pattern we saw on the first pass:
     //
-    //   * Angles span ~260° of the circle in irrational steps — clustered
+    //   * Angles span ~260° of the circle in irrational steps - clustered
     //     angles on one hemisphere let the crest lines overlap into visible
     //     grid diagonals at grazing view.
     //   * Wavelengths are a non-harmonic ~1.5–1.6× progression from
     //     1.50m to 14.0m so no two waves beat into a low-frequency envelope.
     //   * Amplitudes fall off faster than linearly so the largest wave
     //     dominates the silhouette; smaller waves just add surface texture.
-    //   * Speeds scale roughly with sqrt(wavelength) — the physical deep-
-    //     water dispersion relation — so the six waves don't synchronise
+    //   * Speeds scale roughly with sqrt(wavelength) - the physical deep-
+    //     water dispersion relation - so the six waves don't synchronise
     //     back onto a common period.
     //   * Phase offsets are irrational constants so the six waves don't
     //     all peak at (p=0, t=0), which would plant a bright static cross
@@ -602,7 +602,7 @@ fn fragment(
     // and tilt the local-frame normal by that slope. Wake math lives in
     // world XZ (matching the Gerstner sampling frame), so on a tilted
     // water plane the wake follows the surface plane the same way
-    // Gerstner waves do — the basis rotation downstream takes care of
+    // Gerstner waves do - the basis rotation downstream takes care of
     // orienting the perturbed normal back to world space.
     //
     // The `wake_height_at` function bails out cheaply when the channel
@@ -626,7 +626,7 @@ fn fragment(
 
     // Scrolling detail normals. Two UV tiling scales are blended by camera
     // distance so the high-frequency sparkle that reads well up close fades
-    // into the low-frequency ripple that reads well at distance — kills the
+    // into the low-frequency ripple that reads well at distance - kills the
     // repetition artefact the old shader showed on long sightlines.
     let cam_pos = view.world_position;
     let dist = length(cam_pos - pos);
@@ -644,7 +644,7 @@ fn fragment(
     let near_uv = xz * water_uniforms.normal_scale_near + scroll_dir * t * scroll_speed_near;
     let far_uv = xz * water_uniforms.normal_scale_far + scroll_dir * t * scroll_speed_far;
 
-    // Pixel footprint in each UV space — drives the anti-alias fade inside
+    // Pixel footprint in each UV space - drives the anti-alias fade inside
     // detail_normal. `fwidth(xz)` is a per-pixel span in *local* (t/b)
     // units; multiply by the tile scale to get the UV-space equivalent.
     let world_footprint = length(fwidth(xz));
@@ -659,7 +659,7 @@ fn fragment(
     // Blend the Gerstner analytic normal with the detail ripple. Reduce the
     // detail contribution with distance so the fine-grain ripple can't
     // dominate the lit result past the scale where its cells are tiny on
-    // screen — this is the secondary cushion against aliasing, on top of
+    // screen - this is the secondary cushion against aliasing, on top of
     // the footprint fade inside detail_normal itself. Boost the ripple
     // contribution slightly at high `flow_amount` so a river shows visible
     // surface texture even when its standing waves are damped.
@@ -667,7 +667,7 @@ fn fragment(
     let detail_mix = mix(detail_mix_base, detail_mix_base * 1.6, flow_amount);
     // Project the detail normal onto the tangent plane (subtract its
     // component along `n_surface`) before adding so detail_mix only
-    // perturbs *within the surface tangent plane* — without this the
+    // perturbs *within the surface tangent plane* - without this the
     // accumulated normal can drift away from the surface basis on tilted
     // water, producing a subtle but visible "sheen drift" at grazing.
     let detail_planar = detail - n_surface * dot(detail, n_surface);
@@ -676,7 +676,7 @@ fn fragment(
     pbr_input.world_normal = n;
 
     // ------------------------------------------------------------------
-    // Fresnel — the fix for "sometimes very translucent"
+    // Fresnel - the fix for "sometimes very translucent"
     // ------------------------------------------------------------------
     let v = normalize(cam_pos - pos);
     let n_dot_v = clamp(dot(n, v), 0.0, 1.0);
@@ -700,7 +700,7 @@ fn fragment(
     // Procedural foam where the wave slope is steep, gated by noise so the
     // foam breaks into clumps rather than a continuous halo. `n_gerstner_local.y`
     // (the surface-normal component of the Gerstner local normal) gives the
-    // tilt magnitude relative to the rest surface — same semantics as the
+    // tilt magnitude relative to the rest surface - same semantics as the
     // legacy `n_gerstner.y` on flat water but invariant to the surface
     // basis on tilted water.
     let slope = clamp(1.0 - n_gerstner_local.y, 0.0, 1.0);
@@ -728,12 +728,12 @@ fn fragment(
         foam = clamp(foam + streamline * water_uniforms.foam_amount, 0.0, 1.0);
     }
 
-    // Shoreline foam — a wash band where the water surface meets the
+    // Shoreline foam - a wash band where the water surface meets the
     // opaque geometry behind it (beach, bank, submerged rock, cliff
     // base). It needs the camera's opaque DEPTH prepass to know how far
     // the bottom sits behind this fragment. `shore_foam_width = 0`
-    // (the default) skips the whole block, so un-authored scenes — and
-    // any build without the prepass — stay pixel-identical. Folded into
+    // (the default) skips the whole block, so un-authored scenes - and
+    // any build without the prepass - stay pixel-identical. Folded into
     // the same `foam` accumulator the crest/streamline foam uses, so it
     // shares one foam colour and one noise breakup (no second look),
     // and is scaled by `foam_amount` like the streamline term.
@@ -747,7 +747,7 @@ fn fragment(
             // View-space Z of the water surface vs the opaque bottom;
             // their separation is the water column along the view ray
             // (≈ true depth at the near-top-down angles water is
-            // usually viewed at — exact enough for a cosmetic band).
+            // usually viewed at - exact enough for a cosmetic band).
             let z_water = view_transformations::depth_ndc_to_view_z(in.position.z);
             let z_scene = view_transformations::depth_ndc_to_view_z(scene_ndc);
             let column = abs(z_water - z_scene);
@@ -780,7 +780,7 @@ fn fragment(
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
 
-    // Sun-glitter specular — a sharp highlight layered on top of the PBR
+    // Sun-glitter specular - a sharp highlight layered on top of the PBR
     // result. The sun direction comes from the `sun_dir` uniform, which the
     // CPU patches from the real directional light on every environment
     // change (same pattern as the cloud deck's `sun_dir`), so the glitter
@@ -788,7 +788,7 @@ fn fragment(
     // (zero) uniform falls back to the legacy up-biased approximation.
     //
     // The exponent is kept moderate (~160) and the contribution fades with
-    // distance — a sharper lobe alongside aliased normals was the single
+    // distance - a sharper lobe alongside aliased normals was the single
     // biggest contributor to the diagonal-grid artifact on the previous
     // iteration, since tiny normal errors became order-of-magnitude BRDF
     // spikes.
@@ -803,7 +803,7 @@ fn fragment(
     let glitter = pow(n_dot_h, 160.0) * water_uniforms.sun_glitter * fresnel * glitter_fade;
     out.color = vec4<f32>(out.color.rgb + vec3<f32>(glitter), out.color.a);
 
-    // Foam overlay — mix near-white on top of the lit colour. Keep the
+    // Foam overlay - mix near-white on top of the lit colour. Keep the
     // alpha driven by Fresnel so foam is still visible at grazing view but
     // doesn't make the centre of the pond look like cream soup.
     let foam_color = vec3<f32>(0.94, 0.97, 1.0);

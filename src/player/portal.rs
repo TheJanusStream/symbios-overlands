@@ -19,7 +19,7 @@ use crate::world_builder::PortalMarker;
 /// `pub` (with a private field) so `ui::logout::clear_editor_state_on_logout`
 /// can sweep these entities (#1140) and `ui::travel`'s *Cancel travel*
 /// button can despawn them (#1231 f25): the task carries neither `LocalPlayer` nor
-/// `RoomEntity`, so the logout despawn passes it by — and on wasm dropping
+/// `RoomEntity`, so the logout despawn passes it by - and on wasm dropping
 /// a `Task` does not cancel the work behind it, so an abandoned fetch
 /// really does resolve inside the NEXT session.
 #[derive(Component)]
@@ -38,7 +38,7 @@ pub struct PortalTravelTask {
 /// destination) would re-fire `handle_portal_interaction` every frame:
 /// each invocation snaps the player back to `target_pos` and zeros their
 /// velocity, preventing the player from ever moving out of the overlap
-/// — a permanent soft-lock until logout.
+/// - a permanent soft-lock until logout.
 ///
 /// `until_secs` is taken against `Time::elapsed_secs_f64()`; the cooldown
 /// is "long enough for a humanoid to walk out of a typical portal
@@ -101,7 +101,7 @@ pub(super) fn handle_portal_interaction(
     if traveling.is_some() {
         return;
     }
-    // A modal is already up — don't stack another action behind it
+    // A modal is already up - don't stack another action behind it
     // (#852, widened by #1241 f164). This asked about the unsaved-edits
     // guard alone, so a player who kept walking under a GIFT OFFER (which
     // blocks the pointer but not the keys) could raise the guard behind
@@ -112,7 +112,7 @@ pub(super) fn handle_portal_interaction(
     }
     // A contact already raised and not yet answered. The player is still
     // standing in the collider, so without this the next frame would ask
-    // again — and the guard the ui raises from the first one has not
+    // again - and the guard the ui raises from the first one has not
     // reached `AttentionHeld` yet on the frame the request is made.
     if contact.is_some() {
         return;
@@ -181,7 +181,7 @@ pub(super) fn handle_portal_interaction(
 /// dispatch the async destination room-record fetch. Called by the
 /// unsaved-edits guard once any dirty-record question is settled.
 /// `target_pos: None` (#745) arrives at the destination record's
-/// `default_landing` — see [`TravelingTo`].
+/// `default_landing` - see [`TravelingTo`].
 pub(crate) fn begin_portal_travel(
     commands: &mut Commands,
     session_log: &mut SessionLog,
@@ -191,7 +191,7 @@ pub(crate) fn begin_portal_travel(
     target_pos: Option<Vec3>,
 ) {
     // The `[Timeline]` has rendered "portal → did" since the analyzer was
-    // written, and docs/diagnostics.md promises it — but nothing emitted it,
+    // written, and docs/diagnostics.md promises it - but nothing emitted it,
     // so a session with several hops read as a session with none (#1144).
     session_log.info(
         now,
@@ -212,7 +212,7 @@ pub(crate) fn begin_portal_travel(
     // unless the future is driven inside a tokio runtime. The
     // `IoTaskPool` is a plain async-executor, so on native we build
     // a per-task single-threaded runtime (same pattern as every
-    // other HTTP-spawning site in the crate — see
+    // other HTTP-spawning site in the crate - see
     // `network::spawn_peer_avatar_fetch` /
     // `lib::spawn_avatar_record_fetch`). wasm32 has no tokio; the
     // browser's JS runtime backs `fetch`, so the bare future works.
@@ -280,14 +280,14 @@ pub(super) fn poll_portal_travel_tasks(
         }
 
         // 1. Resolve the new record. The four arms preserve the original
-        // owner's PDS contents — substituting the default on a transient
+        // owner's PDS contents - substituting the default on a transient
         // network failure would silently destroy the destination user's
         // real room as soon as they (or any autosave hook) clicked
         // "Save". Mirrors the loading-pipeline policy in
         // `loading::poll_room_record_task`.
         let elapsed = time.elapsed_secs_f64();
         let mut new_record = match result {
-            // Owner has saved a record — install it. A clean install also
+            // Owner has saved a record - install it. A clean install also
             // clears any recovery banner a previous room raised (#840):
             // carrying it into this room would offer a "Reset PDS to
             // default" against a HEALTHY record.
@@ -296,8 +296,8 @@ pub(super) fn poll_portal_travel_tasks(
                 r
             }
             // 404: the destination owner has never published an overland.
-            // Synthesising the default is safe — and clean, so the
-            // stale-banner sweep applies here too (#840) — but it is not a
+            // Synthesising the default is safe - and clean, so the
+            // stale-banner sweep applies here too (#840) - but it is not a
             // silent success (#1232 f28). The visitor cannot tell
             // "@alice's overland" from "a world we invented for a DID
             // that may not even exist", and the second is exactly what a
@@ -308,7 +308,7 @@ pub(super) fn poll_portal_travel_tasks(
                 commands.remove_resource::<RoomRecordRecovery>();
                 toasts.info(
                     format!(
-                        "{} hasn't built a world yet — this one is generated from their identifier.",
+                        "{} hasn't built a world yet - this one is generated from their identifier.",
                         crate::network::presence::travel_label(
                             &profile_cache,
                             &travel_data.target_did,
@@ -331,11 +331,11 @@ pub(super) fn poll_portal_travel_tasks(
                     },
                 );
                 warn!(
-                    "Portal travel decode error ({}) — installing default + recovery marker",
+                    "Portal travel decode error ({}) - installing default + recovery marker",
                     msg
                 );
                 commands.insert_resource(RoomRecordRecovery {
-                    // Decode by construction — this is the `FetchError::Decode`
+                    // Decode by construction - this is the `FetchError::Decode`
                     // arm, the one cause that knows the stored record is
                     // unreadable rather than merely unread (#1265 f210).
                     cause: crate::state::RecoveryCause::Decode,
@@ -355,12 +355,12 @@ pub(super) fn poll_portal_travel_tasks(
                         reason: format!("{err:?}"),
                     },
                 );
-                warn!("Portal travel fetch failed: {:?} — aborting travel", err);
+                warn!("Portal travel fetch failed: {:?} - aborting travel", err);
                 // The player just unfreezes with zero explanation without
-                // this — "the portal did nothing" (#842).
+                // this - "the portal did nothing" (#842).
                 toasts.error(
                     format!(
-                        "Couldn't reach {}'s world — walk into the portal again to retry.",
+                        "Couldn't reach {}'s world - walk into the portal again to retry.",
                         crate::network::presence::travel_label(
                             &profile_cache,
                             &travel_data.target_did,
@@ -404,7 +404,7 @@ pub(super) fn poll_portal_travel_tasks(
         // The browser's saved session follows the player (#1229 f2). It
         // used to record only where they FIRST signed in, so a reload
         // silently teleported anyone who had travelled back to their
-        // login-time room — and a visitor onboarded through a friend's
+        // login-time room - and a visitor onboarded through a friend's
         // landmark link was returned to that friend's world forever.
         crate::oauth::remember_room(&travel_data.target_did);
         // A same-owner record held for the room being left (#1203) is a
@@ -429,7 +429,7 @@ pub(super) fn poll_portal_travel_tasks(
         // 3a. Despawn the origin-region's remote peers. Tearing down the
         // multiuser socket above *should* surface `Disconnected` events for
         // each peer, but those events fan through the plugin's own systems
-        // next frame and are not guaranteed to sweep the ECS entities —
+        // next frame and are not guaranteed to sweep the ECS entities -
         // leaving mute, frozen chassis sitting at the origin's last
         // broadcast transform in the new region. The fresh socket's
         // `Connected` events will re-spawn each peer we still share a
@@ -441,11 +441,11 @@ pub(super) fn poll_portal_travel_tasks(
         }
 
         // 4. Teleport player and clear momentum. A baked portal target is
-        // used verbatim (classic portals, translation only — facing is
+        // used verbatim (classic portals, translation only - facing is
         // left alone, as ever). Without one, the destination's
         // `default_landing` supplies position *and* facing; without that,
         // the legacy origin scatter. Landing heights are provisional when
-        // the pose is drop-pin (`y: None`) — the destination heightmap
+        // the pose is drop-pin (`y: None`) - the destination heightmap
         // doesn't exist yet at this point (the record swap above only
         // *queued* the terrain rebuild), so we park at y = 0 and let
         // `lift_player_above_new_ground` snap the chassis onto the new
@@ -480,13 +480,13 @@ pub(super) fn poll_portal_travel_tasks(
         // 5. Clean up state
         chat.messages.clear();
         // Arrival line (#842): the hard cut wipes the world AND the chat
-        // history in the same frame — say where we landed and why the
+        // history in the same frame - say where we landed and why the
         // scrollback vanished.
         chat.push(
             None,
             "system",
             format!(
-                "Arrived in {}'s world — chat history starts fresh here.",
+                "Arrived in {}'s world - chat history starts fresh here.",
                 crate::network::presence::travel_label(
                     &profile_cache,
                     &travel_data.target_did,
@@ -496,8 +496,8 @@ pub(super) fn poll_portal_travel_tasks(
         );
         // NOT removed here (#1231 f20). The record has landed; the
         // destination has not been built. Releasing the freeze now dropped
-        // the player at the landing pose — `y = 0` for a gateway hop, and
-        // frequently under the ground still standing where they left — to
+        // the player at the landing pose - `y = 0` for a gateway hop, and
+        // frequently under the ground still standing where they left - to
         // watch terrain regen and a time-sliced compile assemble the world
         // around them with no overlay at all, in the one journey the
         // loading screen's vocabulary already covers.
@@ -528,16 +528,16 @@ pub(super) fn poll_portal_travel_tasks(
 /// f20).
 ///
 /// The two conditions are the ones `loading::check_loading_complete` waits
-/// on for the same stretch of work — a finished heightmap and a finished
-/// compile — because it is the same stretch of work. A travel that lands
+/// on for the same stretch of work - a finished heightmap and a finished
+/// compile - because it is the same stretch of work. A travel that lands
 /// on a terrain config serialising identically to the one being left never
 /// drops `FinishedHeightMap` at all, so that arm is already satisfied and
 /// the gate closes on the compile alone.
 ///
 /// Releasing also snaps the chassis onto the ground it arrived above.
 /// `lift_player_above_new_ground` covers the common case, but it fires on
-/// `FinishedHeightMap::is_added` — precisely the case an identical terrain
-/// config does not produce — and a gateway hop with a drop-pin landing
+/// `FinishedHeightMap::is_added` - precisely the case an identical terrain
+/// config does not produce - and a gateway hop with a drop-pin landing
 /// arrives at a literal `y = 0.0`, so the one arrival that got no lift was
 /// the one most likely to need it.
 pub(super) fn release_travel_on_arrival(
@@ -565,8 +565,8 @@ pub(super) fn release_travel_on_arrival(
     // The editor selection belonging to the world we LEFT is dropped by
     // `ui::room::clear_selection_on_room_change`, which watches
     // `CurrentRoomDid` (#1237 f142, moved out of here by #1297 group 3).
-    // It fires a few frames EARLIER than this — at the record swap rather
-    // than at the arrival release — which is if anything more correct:
+    // It fires a few frames EARLIER than this - at the record swap rather
+    // than at the arrival release - which is if anything more correct:
     // the index is stale from the moment the record is replaced.
     commands.remove_resource::<TravelingTo>();
 }
@@ -589,7 +589,7 @@ mod tests {
             phase: TravelPhase::Building,
         });
         if heightmap {
-            // 3x3 grid, 2 m cells, ground flat at 10 m — well above the
+            // 3x3 grid, 2 m cells, ground flat at 10 m - well above the
             // `y = 0.0` a gateway hop with a drop-pin landing arrives at.
             let mut hm = HeightMap::new(3, 3, 2.0);
             for cell in hm.data_mut() {
@@ -617,7 +617,7 @@ mod tests {
 
     /// THE SEQUENCE (#1231 f20): the player walks through a portal. The
     /// record lands, `TravelingTo` was removed on that frame, the freeze
-    /// released and the card vanished — while terrain regen had not
+    /// released and the card vanished - while terrain regen had not
     /// started and the time-sliced compile had not run. They were dropped
     /// at the landing pose, watched the destination assemble around them,
     /// and for a gateway hop that pose is a literal `y = 0.0`, frequently
@@ -641,14 +641,14 @@ mod tests {
         run_gate(&mut world);
         assert!(
             !world.contains_resource::<TravelingTo>(),
-            "both conditions met — the freeze has to release"
+            "both conditions met - the freeze has to release"
         );
     }
 
     /// And releasing puts the player on the ground rather than inside it.
     /// `lift_player_above_new_ground` fires on `FinishedHeightMap::
     /// is_added`, which a destination whose terrain config serialises
-    /// identically to the origin's never produces — so the one arrival
+    /// identically to the origin's never produces - so the one arrival
     /// that never got a lift was the gateway hop that lands at `y = 0.0`.
     #[test]
     fn releasing_the_gate_stands_the_player_on_the_new_ground() {

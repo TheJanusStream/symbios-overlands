@@ -1,6 +1,6 @@
 //! AncientClassical "bring-it-to-life" helpers: small nested particle
 //! emitters and a spatial-audio patch for the kit's one firelit element,
-//! the [`brazier`](super::brazier) — a low altar flame, drifting embers,
+//! the [`brazier`](super::brazier) - a low altar flame, drifting embers,
 //! and a fire crackle.
 //!
 //! Particle emitters are returned as [`Generator`] nodes positioned in the
@@ -69,7 +69,7 @@ pub(super) fn brazier_embers(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// A warm, irregular fire crackle — band-passed noise pulsed by a slow LFO
+/// A warm, irregular fire crackle - band-passed noise pulsed by a slow LFO
 /// over a low ember rumble. The voice of the brazier coals.
 pub(super) fn fire_crackle() -> SovereignAudioConfig {
     FireCrackle {

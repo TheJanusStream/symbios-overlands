@@ -10,14 +10,14 @@
 //!
 //! The guard is deliberately the *single* owner of the dirty logic:
 //!
-//! - **Clean case** — nothing relevant differs from its stored mirror, so
+//! - **Clean case** - nothing relevant differs from its stored mirror, so
 //!   the guard proceeds on the very next frame without rendering anything.
 //!   Callers therefore never need the record resources themselves; they
 //!   unconditionally open the guard.
-//! - **Dirty case** — a modal offers *Publish & continue* (spawns the same
+//! - **Dirty case** - a modal offers *Publish & continue* (spawns the same
 //!   publish tasks the editors use, waits for every poll to drain, then
 //!   re-checks), *Discard & continue*, or *Stay*. Esc and a backdrop click
-//!   mean *Stay*, the same as everywhere else in the app (#1236 f53) — it
+//!   mean *Stay*, the same as everywhere else in the app (#1236 f53) - it
 //!   was the one modal that consumed the key and did nothing with it.
 //!
 //! Waiting for the publish to finish before acting is load-bearing, not
@@ -28,7 +28,7 @@
 //!
 //! Which records are "relevant" depends on the action: portal travel only
 //! swaps the room record (avatar and inventory ride along), so only room
-//! dirt blocks it — and only when the local user actually owns the room
+//! dirt blocks it - and only when the local user actually owns the room
 //! they are standing in. Logout discards everything, so room (owner only),
 //! avatar and inventory all count.
 
@@ -70,7 +70,7 @@ pub enum GuardedAction {
         /// variant, so the dialog warned that "Traveling through the
         /// portal will discard them" to somebody who had clicked *Go* on a
         /// gateway row or *Visit* in the People panel and touched no
-        /// portal at all — and `close()` then set a portal cooldown with
+        /// portal at all - and `close()` then set a portal cooldown with
         /// no portal overlap to wait out. A confirm dialog whose text does
         /// not match the action just taken is the most reliable way to
         /// make a safety prompt get clicked through unread, and this one
@@ -94,7 +94,7 @@ pub enum GuardedAction {
 ///
 /// Only [`Portal`](TravelVia::Portal) leaves the player standing inside a
 /// collider they have to walk out of, which is the whole reason the
-/// decline path sets a cooldown — so the distinction is load-bearing, not
+/// decline path sets a cooldown - so the distinction is load-bearing, not
 /// only cosmetic.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TravelVia {
@@ -131,7 +131,7 @@ pub enum GuardNotice {
     /// line said so and this is what it said.
     PublishFailed(String),
     /// Every publish this guard waited on drained without a failure, and
-    /// the relevant records are still dirty — an edit made while the save
+    /// the relevant records are still dirty - an edit made while the save
     /// was in flight, which `stored` (pinned to what was WRITTEN, #1116)
     /// correctly does not cover. Not a failure, and not said as one.
     StillDirty,
@@ -141,9 +141,9 @@ impl GuardNotice {
     /// The dialog line.
     pub fn text(&self) -> String {
         match self {
-            Self::PublishFailed(error) => format!("Save failed — {error}"),
+            Self::PublishFailed(error) => format!("Save failed - {error}"),
             Self::StillDirty => String::from(
-                "The save finished, but unsaved edits remain — save again, or discard them.",
+                "The save finished, but unsaved edits remain - save again, or discard them.",
             ),
         }
     }
@@ -159,7 +159,7 @@ pub struct UnsavedGuard {
     pub phase: GuardPhase,
     /// Why the dialog is asking again, surfaced so the user understands.
     pub notice: Option<GuardNotice>,
-    /// When this guard entered `Publishing` — the clock a publish outcome
+    /// When this guard entered `Publishing` - the clock a publish outcome
     /// must postdate to be quoted as THIS attempt's (#1206). A `Failed`
     /// status is never reset by an edit, so without this a save that
     /// failed minutes earlier was reported as the reason this attempt
@@ -186,7 +186,7 @@ impl UnsavedGuard {
 /// The dialog's button labels for one action, so the three actions stay
 /// in step and the Publishing phase's one non-destructive exit is named
 /// for what it does (#1206): it does not continue the action, it closes
-/// the dialog and lets the save land — it used to read "Continue in
+/// the dialog and lets the save land - it used to read "Continue in
 /// background", which sat where "Stay here" sits and read as "proceed".
 pub struct GuardLabels {
     pub publish: &'static str,
@@ -254,8 +254,8 @@ impl DirtyRecords {
         }
     }
 
-    /// The records "Publish & continue" would write for `action` — the
-    /// dirty ones the action discards — that carry a recovery marker
+    /// The records "Publish & continue" would write for `action` - the
+    /// dirty ones the action discards - that carry a recovery marker
     /// (#1199), with the marker's reason. `reasons` is
     /// `[room, avatar, inventory]` as [`RecoveryMarkers::reasons`] hands
     /// it over. Non-empty means the guard must not offer the publish: it
@@ -306,7 +306,7 @@ pub struct GuardRecords<'w> {
     stored_avatar: Option<Res<'w, StoredAvatarRecord>>,
     live_inventory: Option<Res<'w, LiveInventoryRecord>>,
     stored_inventory: Option<Res<'w, StoredInventoryRecord>>,
-    /// The two `AudioEditorState`s — the room's and the avatar's. There
+    /// The two `AudioEditorState`s - the room's and the avatar's. There
     /// are two because the pop-out serves two windows, and a fix that
     /// looked at one of them would lose the other's work exactly as
     /// silently as looking at neither did.
@@ -316,11 +316,11 @@ pub struct GuardRecords<'w> {
 
 impl GuardRecords<'_> {
     /// Diff every live record against its stored mirror. `owns_room`
-    /// gates the room diff — see [`DirtyRecords`].
+    /// gates the room diff - see [`DirtyRecords`].
     ///
     /// **A staged audio commit counts too** (#1337 A5). The pop-out audio
     /// editor stages a committed edit under the bound slot's salt and the
-    /// slot's bridge lands it the next time it draws (#1202) — so between
+    /// slot's bridge lands it the next time it draws (#1202) - so between
     /// the commit and the next draw of that panel the edit exists only in
     /// `AudioEditorState`, where a record diff cannot see it and the
     /// logout reset destroys it. It is asked here rather than in the
@@ -374,7 +374,7 @@ impl GuardRecords<'_> {
     ///
     /// Called on the way into a publish, because the publish serializes
     /// the live record and a commit that has not reached it is a commit
-    /// the save does not contain — and, a moment later, a commit the
+    /// the save does not contain - and, a moment later, a commit the
     /// logout reset throws away. It resolves each salt against the record
     /// itself rather than waiting for the slot's panel to be on screen;
     /// see [`crate::ui::room::audio_slots`].
@@ -387,7 +387,7 @@ impl GuardRecords<'_> {
     /// **Nothing staged, nothing touched.** `ResMut::deref_mut` stamps the
     /// change tick unconditionally, and a stamped `LiveRoomRecord` is a
     /// peer broadcast, a world recompile and a re-armed ambient re-bake
-    /// window — for a publish that had no audio edit in it at all. It is
+    /// window - for a publish that had no audio edit in it at all. It is
     /// the same shape as #1340 (a whole `&mut` taken before anyone knows
     /// whether there is a change to make), which is why the check is here
     /// and not inside the walk.
@@ -437,7 +437,7 @@ impl GuardFeedbacks<'_> {
 
 /// The first `Failed` status stamped at or after `since` (#1206). A
 /// status older than the guard's own wait is about some earlier attempt
-/// — an edit never resets it — and quoting it as this attempt's reason
+/// - an edit never resets it - and quoting it as this attempt's reason
 /// told the owner a save had failed when nothing of theirs had.
 pub(crate) fn recent_failure(sources: &[(&str, &PublishStatus)], since: f64) -> Option<String> {
     sources.iter().find_map(|(label, status)| match status {
@@ -458,13 +458,13 @@ pub(crate) struct InFlightWrites {
 }
 
 impl InFlightWrites {
-    /// Whether a running write should hold `action` (#1206) — the same
+    /// Whether a running write should hold `action` (#1206) - the same
     /// question [`DirtyRecords::blocks`] answers for dirt. Portal travel
     /// swaps only the room record, so only a room write can pin the wrong
     /// thing when it lands; an inventory write from a gift accepted a
     /// moment ago is irrelevant to it. The guard used to wait on ANY task,
     /// so that gift showed the traveller a spinner labelled "Publishing…",
-    /// then "Publish failed — publish did not complete" when it drained.
+    /// then "Publish failed - publish did not complete" when it drained.
     pub(crate) fn blocks(&self, action: &GuardedAction) -> bool {
         match action {
             GuardedAction::PortalTravel { .. } => self.room,
@@ -538,7 +538,7 @@ pub fn unsaved_guard_ui(
     // A publish the user fired from an editor moments before triggering
     // the action is morally the same as clicking "Publish & continue":
     // wait for it rather than racing it or double-publishing. Only a
-    // write the action depends on (#1206) — see `InFlightWrites::blocks`.
+    // write the action depends on (#1206) - see `InFlightWrites::blocks`.
     if guard.phase == GuardPhase::Prompt
         && dirty.blocks(&guard.action)
         && tasks.blocks(&guard.action)
@@ -550,10 +550,10 @@ pub fn unsaved_guard_ui(
         GuardPhase::Publishing => {
             if tasks.blocks(&guard.action) {
                 // Still waiting on at least one poll system to drain its
-                // task — render the holding state below.
+                // task - render the holding state below.
             } else if !dirty.blocks(&guard.action) {
                 // Every relevant publish succeeded (the polls pinned
-                // stored = live) — nothing left to lose.
+                // stored = live) - nothing left to lose.
                 proceed(
                     &guard.action,
                     &mut commands,
@@ -565,7 +565,7 @@ pub fn unsaved_guard_ui(
             } else {
                 // Drained but still dirty: a publish failed, or an edit
                 // landed during the flight. Fall back to the prompt with
-                // the honest reason — and only a failure from THIS wait.
+                // the honest reason - and only a failure from THIS wait.
                 let since = guard.publishing_since.unwrap_or(now);
                 guard.notice = Some(
                     feedbacks
@@ -579,7 +579,7 @@ pub fn unsaved_guard_ui(
             if !dirty.blocks(&guard.action) {
                 // Clean (or only irrelevant records differ): proceed
                 // without ever showing the dialog. This is the everyday
-                // path — callers open the guard unconditionally.
+                // path - callers open the guard unconditionally.
                 proceed(
                     &guard.action,
                     &mut commands,
@@ -604,7 +604,7 @@ pub fn unsaved_guard_ui(
     } = guard_labels(&guard.action);
 
     crate::ui::confirm::note_modal_open(ctx);
-    // Esc / backdrop click cancels, which here means "Stay here" — the
+    // Esc / backdrop click cancels, which here means "Stay here" - the
     // shared modal contract this dialog is the last one to honour (#1236
     // f53). It stamps `note_modal_open`, so `ShortcutGate::allows_esc` was
     // already false: the press was consumed by nothing and produced no
@@ -648,7 +648,7 @@ pub fn unsaved_guard_ui(
             });
             ui.add_space(4.0);
             // The non-destructive exit is named for what it does (#1206):
-            // it closes the dialog WITHOUT the action — backing out doesn't
+            // it closes the dialog WITHOUT the action - backing out doesn't
             // cancel the in-flight tasks, the editors' poll systems land
             // them as a normal publish, so the label says the save keeps
             // going. It used to read "Continue in background", which sat
@@ -663,7 +663,7 @@ pub fn unsaved_guard_ui(
             // is in flight, the only button was "Continue in background",
             // and the beforeunload guard resists a reload because the
             // record is still dirty. Discarding does not depend on the
-            // task — proceeding abandons the edits either way — so there
+            // task - proceeding abandons the edits either way - so there
             // is no reason to withhold it, and the publish timeouts added
             // alongside this only shorten the trap rather than remove it.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -786,7 +786,7 @@ pub fn unsaved_guard_ui(
             }
             // Discard is the data-loss option (#838): danger-styled and
             // pushed to the far edge so it is never adjacent to the two
-            // safe choices — the old row rendered three identical
+            // safe choices - the old row rendered three identical
             // buttons side by side.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
@@ -849,7 +849,7 @@ fn proceed(
         }
         GuardedAction::Quit => {
             // `close_when_requested` is disabled so the [x] could route
-            // here — exiting is now on us.
+            // here - exiting is now on us.
             commands.write_message(bevy::app::AppExit::Success);
         }
     }
@@ -873,7 +873,7 @@ fn close(action: &GuardedAction, commands: &mut Commands, time: &Time) {
 
 // ---------------------------------------------------------------------
 // Exit guards (#839): the guard used to cover only portals, gateways and
-// logout — closing the native window or the browser tab bypassed it
+// logout - closing the native window or the browser tab bypassed it
 // entirely and took the unsaved edits down with the process.
 // ---------------------------------------------------------------------
 
@@ -881,7 +881,7 @@ fn close(action: &GuardedAction, commands: &mut Commands, time: &Time) {
 /// `close_when_requested: false`, so nothing closes until this system
 /// decides: clean records exit immediately; dirty ones raise the same
 /// guard dialog portals and logout use, as [`GuardedAction::Quit`].
-/// Runs in every `AppState` — outside `InGame` the record resources are
+/// Runs in every `AppState` - outside `InGame` the record resources are
 /// absent, the dirty set is empty, and the close is unprompted.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn intercept_window_close(
@@ -897,7 +897,7 @@ pub fn intercept_window_close(
         return;
     }
     close_requested.clear();
-    // A guard dialog is already up (possibly mid-publish) — a second [x]
+    // A guard dialog is already up (possibly mid-publish) - a second [x]
     // must not bypass it.
     if guard.is_some() {
         return;
@@ -955,7 +955,7 @@ pub fn sync_beforeunload_dirty(
 /// wasm: install the `beforeunload` listener once at startup. While the
 /// mirrored dirty flag is set, closing/reloading the tab raises the
 /// browser's own leave-site confirm; while clean it does nothing at all
-/// (no `preventDefault`, no return value — an unconditional handler
+/// (no `preventDefault`, no return value - an unconditional handler
 /// would nag on every navigation). Leaked via `Closure::forget`: it must
 /// live for the whole page lifetime anyway.
 #[cfg(target_arch = "wasm32")]
@@ -1013,7 +1013,7 @@ mod tests {
     /// THE SEQUENCE (#1231 f29): an owner with unsaved world edits clicks
     /// *Go* on a gateway row, or *Visit* beside somebody in the People
     /// panel, and is warned that "Traveling through the portal will
-    /// discard them" — about a portal they never touched. A confirm dialog
+    /// discard them" - about a portal they never touched. A confirm dialog
     /// whose text does not match the action just taken is the most
     /// reliable way to make a safety prompt get clicked through unread,
     /// and this one guards unpublished work.
@@ -1060,7 +1060,7 @@ mod tests {
     #[test]
     fn portal_travel_only_blocks_on_room_dirt() {
         assert!(dirty(true, false, false).blocks(&travel()));
-        // Avatar and inventory survive a portal hop — they must not gate it.
+        // Avatar and inventory survive a portal hop - they must not gate it.
         assert!(!dirty(false, true, true).blocks(&travel()));
         assert!(!dirty(false, false, false).blocks(&travel()));
     }
@@ -1070,7 +1070,7 @@ mod tests {
     /// logs out and picks "Publish & log out". That publish wrote the
     /// default over the stored avatar AND retired every attachment record
     /// the default does not reference. The guard must refuse the publish
-    /// for exactly the dirty records that carry a marker — and only those.
+    /// for exactly the dirty records that carry a marker - and only those.
     #[test]
     fn publish_and_continue_is_refused_for_a_dirty_record_in_recovery() {
         let avatar_reason = [None, Some("timed out"), None];
@@ -1155,14 +1155,14 @@ mod tests {
         assert_eq!(
             GuardNotice::StillDirty.text(),
             String::from(
-                "The save finished, but unsaved edits remain — save again, or discard them."
+                "The save finished, but unsaved edits remain - save again, or discard them."
             )
         );
     }
 
     /// #1206, finding 195. "Continue in background" sat where "Stay here"
     /// sits, in the phase whose only other button is the red Discard, and
-    /// read as "proceed" — it closed the dialog and dropped the action.
+    /// read as "proceed" - it closed the dialog and dropped the action.
     /// The non-destructive exit now carries the action's own stay verb and
     /// says what happens to the save.
     #[test]
@@ -1214,7 +1214,7 @@ mod tests {
     }
 
     /// A room with one generator root called `oak`, live and stored in
-    /// step — so anything the guard calls dirty came from this step's
+    /// step - so anything the guard calls dirty came from this step's
     /// work and not from the fixture.
     fn world_with_a_saved_room() -> App {
         let mut app = App::new();
@@ -1240,7 +1240,7 @@ mod tests {
     }
 
     /// The control and the defect in one test: a saved room is clean, and
-    /// stays clean under a commit that says what the record already says —
+    /// stays clean under a commit that says what the record already says -
     /// then a commit the record does not hold is unsaved work, and blocks
     /// a logout.
     #[test]
@@ -1300,7 +1300,7 @@ mod tests {
         assert!(set.blocks(&GuardedAction::Logout));
     }
 
-    /// An ordinary publish — nobody has opened the audio editor — must not
+    /// An ordinary publish - nobody has opened the audio editor - must not
     /// stamp the record's change tick on its way past. A stamped
     /// `LiveRoomRecord` is a peer broadcast, a world recompile and a
     /// re-armed ambient re-bake window, and `ResMut::deref_mut` stamps it
@@ -1365,7 +1365,7 @@ mod tests {
         );
         assert!(
             dirty_set(app.world_mut()).room,
-            "the room went clean when the edit landed — the publish about to \
+            "the room went clean when the edit landed - the publish about to \
              run would write the record it was already storing"
         );
     }

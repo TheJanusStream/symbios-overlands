@@ -1,8 +1,8 @@
-//! Bamboo — a clump of green canes (#910 WS2 expansion) for jungle
+//! Bamboo - a clump of green canes (#910 WS2 expansion) for jungle
 //! groves. The clump adds one cane per iteration (iteration count = age:
 //! lone shoot → dense stand); each cane is drawn at full height the
-//! moment it appears — real bamboo shoots reach final height in one
-//! season — with a stochastic lean and narrow leaf sprays at the upper
+//! moment it appears - real bamboo shoots reach final height in one
+//! season - with a stochastic lean and narrow leaf sprays at the upper
 //! nodes. Width pulses between segments hint at the nodal rings.
 
 use std::collections::HashMap;
@@ -35,7 +35,7 @@ impl CatalogueEntry for Bamboo {
 
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
-    // 0 — green cane, darker nodal banding from the bark grain.
+    // 0 - green cane, darker nodal banding from the bark grain.
     materials.insert(
         0,
         SovereignMaterialSettings {
@@ -50,7 +50,7 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 1 — narrow blue-green bamboo leaf.
+    // 1 - narrow blue-green bamboo leaf.
     materials.insert(
         1,
         SovereignMaterialSettings {
@@ -70,7 +70,7 @@ fn build_kind() -> GeneratorKind {
 
     GeneratorKind::LSystem {
         // G is the clump cursor: each iteration it plants one cane C at a
-        // stochastic horizontal offset ([&(90)f(d)^(90)…] — pitch down,
+        // stochastic horizontal offset ([&(90)f(d)^(90)…] - pitch down,
         // move, pitch back so the offset is lateral, bracketed so the
         // cursor stays put) and rolls on. C draws the full cane in one
         // expansion: slight lean, segments with width pulses for the

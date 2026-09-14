@@ -1,20 +1,20 @@
-//! Offline invariant replay harness (Pillar D-5) — the `[Invariant Violations]`
+//! Offline invariant replay harness (Pillar D-5) - the `[Invariant Violations]`
 //! section of the `--analyze-session` post-mortem (Pillar B).
 //!
 //! It folds a captured event log two ways, giving the offline counterpart to
 //! the live anomaly engine:
 //!
-//! 1. **Offline re-derived** — every [`Rule`](super::rule::Rule) with a replay
+//! 1. **Offline re-derived** - every [`Rule`](super::rule::Rule) with a replay
 //!    body (the D-2 log-expressible rules) is replayed over the stream, so the
 //!    analyzer independently re-derives those violations from the raw events.
-//! 2. **Captured live-only** — the D-3 ECS-state rules have no replay body (a
+//! 2. **Captured live-only** - the D-3 ECS-state rules have no replay body (a
 //!    log can't re-derive a NaN transform or a missing collider), so their live
 //!    fires are *surfaced* from the `InvariantViolation` events the running
 //!    engine recorded. Captured fires for a replayable rule are dropped, since
 //!    the re-derived section already covers them (no double counting).
 //!
 //! Both sides read the **same** [`default_registry`] the live plugin (D-4) uses,
-//! so the rule set is byte-identical — the parity guarantee, exercised by the
+//! so the rule set is byte-identical - the parity guarantee, exercised by the
 //! module tests.
 
 use std::collections::{BTreeMap, HashSet};
@@ -124,7 +124,7 @@ fn sev_label(s: Severity) -> &'static str {
 
 fn finding_line(f: &RuleFinding) -> String {
     format!(
-        "[{:<8}] {} ×{} — {}",
+        "[{:<8}] {} ×{} - {}",
         sev_label(f.severity),
         f.id,
         f.count,
@@ -132,7 +132,7 @@ fn finding_line(f: &RuleFinding) -> String {
     )
 }
 
-/// Render the `[Invariant Violations]` report section for a captured log — the
+/// Render the `[Invariant Violations]` report section for a captured log - the
 /// offline counterpart to the live engine, wired into `--analyze-session` (B-1).
 /// Findings are printed worst-severity first, split into the re-derived and the
 /// captured-live subsections (each shown only when non-empty).
@@ -141,7 +141,7 @@ pub fn replay_invariants(events: &[SessionEvent]) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "[Invariant Violations]");
     if findings.is_empty() {
-        let _ = writeln!(s, "  none — no invariant violations detected");
+        let _ = writeln!(s, "  none - no invariant violations detected");
         return s;
     }
 
@@ -213,7 +213,7 @@ mod tests {
                 Severity::Critical,
                 EventPayload::InvariantViolation {
                     rule: "runtime.terrain_collider_missing".into(),
-                    detail: "0 colliders in-game — terrain body missing".into(),
+                    detail: "0 colliders in-game - terrain body missing".into(),
                 },
             ),
             // Captured fire for a REPLAYABLE rule → must NOT surface again.
@@ -305,7 +305,7 @@ mod tests {
     /// Pin the set of replayable rule ids. A new rule that adds a `replay`
     /// body must mark `is_replayable()` and update this list, or it is silently
     /// misclassified (its captured fires surface as live-only, and it is never
-    /// re-derived) — this test forces the author to keep the flag in sync.
+    /// re-derived) - this test forces the author to keep the flag in sync.
     #[test]
     fn replayable_rule_set_is_pinned() {
         let reg = default_registry();
@@ -340,7 +340,7 @@ mod tests {
 
     /// The other drift direction: a rule flagged NOT replayable must genuinely
     /// have no replay body. A diverse log that trips every replayable rule must
-    /// leave every non-replayable rule silent — otherwise a `replay` impl was
+    /// leave every non-replayable rule silent - otherwise a `replay` impl was
     /// added without setting `is_replayable()`.
     #[test]
     fn non_replayable_rules_have_no_replay_body() {
@@ -395,7 +395,7 @@ mod tests {
             }
             assert!(
                 rule.replay(&diverse).is_empty(),
-                "rule {} is flagged live-only but produced replay verdicts — set is_replayable()",
+                "rule {} is flagged live-only but produced replay verdicts - set is_replayable()",
                 rule.header().id
             );
         }
@@ -412,6 +412,6 @@ mod tests {
             ),
         ];
         let text = replay_invariants(&clean);
-        assert!(text.contains("none — no invariant violations"));
+        assert!(text.contains("none - no invariant violations"));
     }
 }

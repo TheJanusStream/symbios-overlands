@@ -1,4 +1,4 @@
-//! Scrap canister — a Space-Outpost *poor* prop. A clutch of dented, scorched
+//! Scrap canister - a Space-Outpost *poor* prop. A clutch of dented, scorched
 //! fuel canisters, one toppled on its side. The debris of the wreck site.
 //!
 //! The toppled canister is a cylinder tipped on its side with a [`quat_x`] of
@@ -48,8 +48,8 @@ impl CatalogueEntry for ScrapCanister {
     }
 }
 
-/// One upright fuel canister — body, two rib rings, a hazard band, a domed
-/// cap and a valve with a handwheel — returned for the assemble list.
+/// One upright fuel canister - body, two rib rings, a hazard band, a domed
+/// cap and a valve with a handwheel - returned for the assemble list.
 fn canister(pos: [f32; 3], color: [f32; 3]) -> Generator {
     let mut body = prim(
         solid(cylinder_tapered(0.35, 1.1, 12, 0.0, hull(color))),
@@ -102,7 +102,7 @@ fn canister(pos: [f32; 3], color: [f32; 3]) -> Generator {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // First upright canister — the root.
+        // First upright canister - the root.
         canister([0.0, 0.55, 0.0], HULL_PANEL),
         canister([0.7, 0.55, 0.2], SCORCH),
     ];

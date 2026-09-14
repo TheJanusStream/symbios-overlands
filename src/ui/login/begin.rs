@@ -1,4 +1,4 @@
-//! Drains [`BeginAuthTask`]s — the in-flight `authorize()` round-trip
+//! Drains [`BeginAuthTask`]s - the in-flight `authorize()` round-trip
 //! that produces the AS authorization URL plus a
 //! [`PendingAuth`](crate::oauth::PendingAuth) blob.
 //! On WASM we navigate the tab to the URL; on native we start the
@@ -46,7 +46,7 @@ pub fn poll_begin_auth_task(
                     // Lift the random `state` parameter out of the
                     // pending auth blob and hand it to the loopback
                     // callback server so it can reject any request
-                    // whose `state=` value doesn't match — without
+                    // whose `state=` value doesn't match - without
                     // this, any other browser tab can brick the
                     // listener with a forged callback. The library
                     // always populates `app_state`; the explicit
@@ -55,7 +55,7 @@ pub fn poll_begin_auth_task(
                     let expected_state = pending.auth_state.app_state.clone().unwrap_or_default();
                     // An abandoned earlier attempt (browser tab closed
                     // before the redirect) leaves its listener blocked
-                    // in accept, still holding the port — shut it down
+                    // in accept, still holding the port - shut it down
                     // first or the bind below fails with `AddrInUse`
                     // and the user can't retry until an app restart.
                     if let Some(res) = callback_server.as_mut()
@@ -75,7 +75,7 @@ pub fn poll_begin_auth_task(
                                 std::sync::Mutex::new(Some(pending)),
                             ));
                             // Retain the URL for the waiting UI's "Copy
-                            // login URL" button — deliberately inserted
+                            // login URL" button - deliberately inserted
                             // even (especially) when the browser launch
                             // below fails, so the user can complete the
                             // login by hand.

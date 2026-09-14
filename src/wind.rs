@@ -1,4 +1,4 @@
-//! Vegetation wind sway (#916) — the `MaterialExtension` that animates
+//! Vegetation wind sway (#916) - the `MaterialExtension` that animates
 //! foliage in the vertex shader, and the plumbing that attaches it.
 //!
 //! # What sways
@@ -7,14 +7,14 @@
 //! branches and every other surface keep a plain [`StandardMaterial`] and
 //! stay rigid, so the cost of this feature is confined to the geometry it
 //! actually moves. [`sways`] is the predicate that decides, keyed on the
-//! material's procedural texture — leaves and blades sway, moss and lichen
+//! material's procedural texture - leaves and blades sway, moss and lichen
 //! (which are encrusting *surfaces*, not cards) do not, and neither do the
 //! non-vegetation card textures like glass and grilles.
 //!
 //! # How it attaches
 //!
 //! The spawn paths cannot build this material directly. A procedural
-//! material's textures arrive *asynchronously* — the bake completes some
+//! material's textures arrive *asynchronously* - the bake completes some
 //! frames later and the upstream patch system writes the image handles into
 //! `Assets<StandardMaterial>` by handle. An [`ExtendedMaterial`] embeds its
 //! base by value, so a copy taken at spawn time would never see those
@@ -25,7 +25,7 @@
 //! [`attach_wind_materials`] swaps the component type on a later frame.
 //! [`mirror_wind_material_bases`] then keeps the embedded base in step with
 //! the source material for the rest of the session, which is what lets the
-//! bake — and any later re-bake or blob-image fetch — land on swaying foliage
+//! bake - and any later re-bake or blob-image fetch - land on swaying foliage
 //! exactly as it lands on static geometry.
 //!
 //! One frame of un-swayed foliage between the two is not observable: the
@@ -42,8 +42,8 @@
 //! fork the material handle per instance and undo that.
 //!
 //! The links map deliberately stores an [`AssetId`] rather than a
-//! [`Handle`]: holding a strong handle would pin every wind material — and
-//! through it a `StandardMaterial` and its four images — for the life of the
+//! [`Handle`]: holding a strong handle would pin every wind material - and
+//! through it a `StandardMaterial` and its four images - for the life of the
 //! session, which is exactly the retention shape #919 was raised to fix.
 //! Entries whose material has been dropped simply fail to resolve and are
 //! rebuilt on demand.
@@ -77,7 +77,7 @@ pub enum WindSway {
     /// Foliage hanging off an L-system plant. Weight climbs from the plant's
     /// base to [`cfg::branch::REFERENCE_HEIGHT`].
     Branch,
-    /// A ground-cover card, whose origin is its centre — weight is biased so
+    /// A ground-cover card, whose origin is its centre - weight is biased so
     /// the bottom edge is near-static and the top edge mobile.
     Card,
 }
@@ -111,7 +111,7 @@ impl WindSway {
 /// should sway.
 ///
 /// Deliberately narrower than the upstream `RenderProperties::is_card` flag,
-/// which also covers windows, stained glass and iron grilles — all of them
+/// which also covers windows, stained glass and iron grilles - all of them
 /// alpha-masked cards, none of them things that move in the wind. Moss and
 /// lichen are excluded from the other direction: they are encrusting
 /// *surfaces* painted onto cushion mounds, so there is nothing to bend.
@@ -131,13 +131,13 @@ pub fn sways(texture: &SovereignTextureConfig) -> bool {
 
 /// GPU uniform block shared with `wind.wgsl`.
 ///
-/// 32 bytes, which WebGL2 requires to be a multiple of 16 — the trailing
+/// 32 bytes, which WebGL2 requires to be a multiple of 16 - the trailing
 /// `_pad0` is what makes it so, and `wgsl_block_mirrors_the_rust_one` below
 /// keeps this declaration and the shader's copy from drifting apart.
 #[derive(Debug, Clone, Default, ShaderType)]
 pub struct WindUniforms {
     /// 2D wind direction in world XZ, straight from the room's
-    /// `Environment::cloud_wind_dir`. Need not be unit length — the shader
+    /// `Environment::cloud_wind_dir`. Need not be unit length - the shader
     /// normalises an epsilon-padded copy, so an all-zero direction is
     /// harmless rather than a NaN.
     pub wind_dir: Vec2,
@@ -150,14 +150,14 @@ pub struct WindUniforms {
     /// Reciprocal of the height (m) over which the sway weight ramps from
     /// the entity origin to full.
     pub height_scale: f32,
-    /// Constant added to the height weight before clamping — `0.5` for a
+    /// Constant added to the height weight before clamping - `0.5` for a
     /// card, whose origin is its centre rather than its base.
     pub height_bias: f32,
     /// Cross-wind flutter as a fraction of [`Self::strength`].
     pub flutter: f32,
     /// Pad to 32 bytes: WebGL2 rejects a uniform block whose size is not a
     /// multiple of 16, and the device-side validator is the only thing that
-    /// catches it — native and the test suite both pass, and the wasm deploy
+    /// catches it - native and the test suite both pass, and the wasm deploy
     /// fails at pipeline creation naming neither struct nor field. Mirror
     /// this in `WindUniforms` in `wind.wgsl`.
     pub _pad0: f32,
@@ -179,7 +179,7 @@ pub struct WindExtension {
     pub uniforms: WindUniforms,
     /// The `StandardMaterial` this extension's base was cloned from.
     ///
-    /// Not a binding — it is a strong handle held so the source asset
+    /// Not a binding - it is a strong handle held so the source asset
     /// outlives the wind material that mirrors it, and so
     /// [`mirror_wind_material_bases`] can tell which source a given wind
     /// material follows. Without it the source would be dropped as soon as
@@ -202,7 +202,7 @@ impl MaterialExtension for WindExtension {
     }
 
     /// The deferred path reaches the same shader for the same reason. This
-    /// renderer is forward-only today, so it is unused — but a mismatch here
+    /// renderer is forward-only today, so it is unused - but a mismatch here
     /// would surface as foliage whose g-buffer geometry disagrees with its
     /// forward geometry, which is a far harder thing to diagnose than it is
     /// to pre-empt.
@@ -217,7 +217,7 @@ pub type VegetationWindMaterial = ExtendedMaterial<StandardMaterial, WindExtensi
 /// The room's live wind, as the vegetation shader sees it.
 ///
 /// Written by the world compiler's `apply_environment_state` from
-/// `Environment::cloud_wind_dir` / `cloud_speed` — the same values that drive
+/// `Environment::cloud_wind_dir` / `cloud_speed` - the same values that drive
 /// the cloud deck, so a wind-direction drag in the editor turns the clouds
 /// and the foliage together rather than leaving them disagreeing.
 #[derive(Resource, Debug, Clone, Copy)]
@@ -325,7 +325,7 @@ pub fn attach_wind_materials(
 /// This is what makes the async texture pipeline work through an
 /// [`ExtendedMaterial`]: the bake lands in `Assets<StandardMaterial>` some
 /// frames after the material was built, and without this mirror the foliage
-/// would keep the untextured copy taken at attach time — alpha-masked cards
+/// would keep the untextured copy taken at attach time - alpha-masked cards
 /// with no alpha, i.e. opaque squares.
 pub fn mirror_wind_material_bases(
     mut events: MessageReader<AssetEvent<StandardMaterial>>,
@@ -344,7 +344,7 @@ pub fn mirror_wind_material_bases(
     }
 
     // Collect first, then patch by id. `iter_mut` would flag *every* wind
-    // material as changed — and so re-upload its bind group — no matter how
+    // material as changed - and so re-upload its bind group - no matter how
     // few of them actually follow a modified source.
     let targets: Vec<AssetId<VegetationWindMaterial>> = wind_materials
         .iter()
@@ -388,7 +388,7 @@ pub fn apply_wind_state(
 /// Added by both the game app and
 /// [`world_builder::register_headless_spawn`](crate::world_builder::register_headless_spawn).
 /// The render tool takes a still, so the sway contributes nothing to a
-/// contact sheet — but the headless path is where the foliage render pipeline
+/// contact sheet - but the headless path is where the foliage render pipeline
 /// is actually created, and `wind.wgsl` is loaded at runtime rather than
 /// compiled by the build. Registering it there is what makes a WGSL error
 /// fail on the machine doing the editing instead of in a browser.
@@ -419,14 +419,14 @@ mod tests {
     /// (`DownlevelFlags::BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED` is unsupported
     /// there). Only the device-side validator catches it, so native and this
     /// test suite would both pass while the wasm deploy failed at pipeline
-    /// creation — naming neither the struct nor the field that broke it.
+    /// creation - naming neither the struct nor the field that broke it.
     #[test]
     fn wind_uniforms_block_is_16_byte_aligned() {
         let size = WindUniforms::min_size().get();
         assert_eq!(
             size % 16,
             0,
-            "WindUniforms is {size} bytes — WebGL2 needs a multiple of 16. \
+            "WindUniforms is {size} bytes - WebGL2 needs a multiple of 16. \
              Add or adjust a `_pad` field, and mirror it in wind.wgsl."
         );
     }
@@ -452,13 +452,13 @@ mod tests {
 
     /// The Rust and WGSL declarations of the uniform block are two
     /// hand-written copies of one layout, and nothing in the build compiles
-    /// the shader — WGSL is loaded at runtime. Adding a field to one and
+    /// the shader - WGSL is loaded at runtime. Adding a field to one and
     /// forgetting the other produces no error anywhere: the GPU reads the
     /// block at the wrong offsets and the foliage sways wrongly, or not at
     /// all.
     ///
     /// Field *names* are compared rather than counted because `wind_dir` is
-    /// a `vec2` — a count would have to encode the 8-vs-4-byte distinction
+    /// a `vec2` - a count would have to encode the 8-vs-4-byte distinction
     /// and would quietly stop meaning anything the next time a vector field
     /// is added.
     #[test]
@@ -506,7 +506,7 @@ mod tests {
     }
 
     /// The prepass binds a smaller view layout than the main pass, and
-    /// `Globals` sits at a *different index* in it — binding 1 rather than
+    /// `Globals` sits at a *different index* in it - binding 1 rather than
     /// 11. Reaching for `mesh_view_bindings::globals` in the prepass branch
     /// compiles and composes perfectly happily, then panics at pipeline
     /// creation with `Shader global ResourceBinding { group: 0, binding: 11 }
@@ -514,7 +514,7 @@ mod tests {
     /// shadow-casting light sees foliage.
     ///
     /// This is a textual guard rather than a real compile, because nothing in
-    /// the build compiles WGSL and the render tool renders without shadows —
+    /// the build compiles WGSL and the render tool renders without shadows -
     /// so the prepass variant of this shader has no other automated check at
     /// all. It locks the one mistake that has actually been made here.
     #[test]
@@ -547,7 +547,7 @@ mod tests {
         assert!(
             !prepass.contains("mesh_view_bindings::globals"),
             "mesh_view_bindings declares Globals at binding 11, which the \
-             prepass view layout does not have — this panics at pipeline \
+             prepass view layout does not have - this panics at pipeline \
              creation as soon as foliage casts a shadow"
         );
     }
@@ -584,7 +584,7 @@ mod tests {
         assert!(!sways(&SovereignTextureConfig::IronGrille(
             SovereignIronGrilleConfig::default()
         )));
-        // Encrusting surfaces on cushion mounds — nothing to bend.
+        // Encrusting surfaces on cushion mounds - nothing to bend.
         assert!(!sways(&SovereignTextureConfig::Moss(
             SovereignMossConfig::default()
         )));
@@ -623,7 +623,7 @@ mod tests {
         );
     }
 
-    /// Both profiles must produce a finite, bounded displacement — the
+    /// Both profiles must produce a finite, bounded displacement - the
     /// amplitudes are metres of travel, and a leaf that swings further than
     /// its own branch is worse than one that does not move at all.
     #[test]

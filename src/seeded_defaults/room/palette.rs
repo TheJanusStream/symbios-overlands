@@ -1,4 +1,4 @@
-//! DID-seeded room palette derivation — realistic-first (#900/#901).
+//! DID-seeded room palette derivation - realistic-first (#900/#901).
 //!
 //! Produces every colour the room consumes (terrain biomes, water, sky,
 //! fog, sun, clouds) by sampling the OkLCH gamut inside per-biome
@@ -7,8 +7,8 @@
 //! describe the archetype's real-world colour identity (deep greens and
 //! brown soil for Lush, red strata for Badlands, cold grey granite for
 //! Alpine, …). The seed roams *within* those bands, so two same-biome
-//! rooms still read as distinct places — different greens, different
-//! earths, different skies — without ever leaving plausibility.
+//! rooms still read as distinct places - different greens, different
+//! earths, different skies - without ever leaving plausibility.
 //!
 //! Cross-room coherence comes from three shared modulators rather than a
 //! free hue anchor:
@@ -30,7 +30,7 @@
 //! construction, so the ordering cannot invert.
 //!
 //! The pre-#900 deriver sampled hue relative to a uniformly-random
-//! anchor with up to ±180° jitter ("any-hue sky is the point") — that
+//! anchor with up to ±180° jitter ("any-hue sky is the point") - that
 //! fantasy-first behaviour now lives on only as the bounded, theme-gated
 //! exotic layer (#903); every seeded room's base palette is realistic.
 
@@ -49,7 +49,7 @@ const PALETTE_STREAM_SALT: u64 = 0xC010_C010_C010_C010;
 /// Half-span (degrees) of the room-wide harmonising hue cast derived
 /// from [`SceneCharacter::base_hue_deg`]. Every terrain/water channel
 /// shifts by the same signed cast (sky and snow by half), so a room's
-/// layers lean warm or cool together — the per-DID individuality that
+/// layers lean warm or cool together - the per-DID individuality that
 /// used to come from the free hue anchor, kept small enough that no
 /// channel leaves its realism band by more than this.
 const HARMONY_CAST_DEG: f32 = 10.0;
@@ -82,13 +82,13 @@ pub struct RoomPalette {
     pub grass_moist: [f32; 3],
     pub dirt_dry: [f32; 3],
     pub dirt_moist: [f32; 3],
-    /// Raised stone face — the lighter of the two rock colours. Maps
+    /// Raised stone face - the lighter of the two rock colours. Maps
     /// (after a deliberate swap, see [`crate::seeded_defaults`] →
     /// `apply_palette_to_material`) onto `SovereignRockConfig::
     /// color_dark`, which despite its name is what the texture crate
     /// renders as the stone face (UI label "Color Stone").
     pub rock_stone: [f32; 3],
-    /// Crack / gap between stones — much darker than the face so the
+    /// Crack / gap between stones - much darker than the face so the
     /// ridge pattern reads as shadow. Maps onto
     /// `SovereignRockConfig::color_light` (UI label "Color Gaps"); the
     /// texture crate uses ridged-multifractal noise where peak ridges
@@ -105,7 +105,7 @@ impl RoomPalette {
     /// state with the palette.
     ///
     /// The realistic derive is followed by the theme-gated exotic lean
-    /// (see [`super::exotic`]) — a strict identity for every
+    /// (see [`super::exotic`]) - a strict identity for every
     /// non-fantastical theme.
     pub fn from_scene(scene: &SceneCharacter, room_seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(room_seed ^ PALETTE_STREAM_SALT);
@@ -123,7 +123,7 @@ impl RoomPalette {
 /// gap, deep) are derived from the sampled primary by fixed darkening
 /// offsets so the splat lightness ordering holds by construction.
 struct ChannelBand {
-    /// Hue band, degrees. Never wraps 360 — every realism band sits
+    /// Hue band, degrees. Never wraps 360 - every realism band sits
     /// inside a contiguous arc.
     hue: (f32, f32),
     /// Chroma band. Sampling is low-biased (see [`chroma_span`]) so the
@@ -305,7 +305,7 @@ fn col4(rgb: [f32; 3], a: f32) -> [f32; 4] {
 }
 
 /// Centre-biased symmetric jitter: `±span`, but the magnitude is squared so
-/// most draws pull toward `0` — a channel usually stays near its anchor
+/// most draws pull toward `0` - a channel usually stays near its anchor
 /// and only the rare tail diverges the full `span`. Consumes one draw,
 /// like a plain uniform jitter, so the palette stays deterministic and
 /// the RNG stream is byte-identical in length.
@@ -316,7 +316,7 @@ fn jitter(rng: &mut ChaCha8Rng, span: f32) -> f32 {
 
 /// Low-biased `[lo, hi)` chroma sample: squares a uniform draw so most
 /// rooms land near `lo` (muted, naturalistic) and only the rare tail
-/// reaches `hi` (vivid — but still inside the biome's realism band).
+/// reaches `hi` (vivid - but still inside the biome's realism band).
 fn chroma_span(rng: &mut ChaCha8Rng, (lo, hi): (f32, f32)) -> f32 {
     let u = unit_f32(rng);
     lo + u * u * (hi - lo)
@@ -356,11 +356,11 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     let profile = biome_palette_profile(scene.biome);
 
     // The per-DID hue anchor, reduced to a small signed cast shared by
-    // every terrain/water channel — the room leans warm or cool as a
+    // every terrain/water channel - the room leans warm or cool as a
     // whole instead of each layer roaming independently.
     let cast = (scene.base_hue_deg / 180.0 - 1.0) * HARMONY_CAST_DEG;
     // Centre-bias the warm/cool axis toward neutral so a strong cast is
-    // the rare tail, not the average room. Local to colour — the scene
+    // the rare tail, not the average room. Local to colour - the scene
     // axis itself (read by audio, etc.) is unchanged.
     let temp = {
         let t = scene.temperature; // -1 cool ↔ +1 warm
@@ -450,7 +450,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     let water_deep = col4(water_deep_rgb, range_f32(rng, 0.85, 0.92));
 
     // Room-global subsurface scatter (`water_scatter_color` on
-    // `Environment`): crest glow — a touch brighter-chroma than the
+    // `Environment`): crest glow - a touch brighter-chroma than the
     // body, still on the water hue.
     let water_scatter = col(
         range_f32(rng, 0.38, 0.52),
@@ -540,7 +540,7 @@ mod tests {
         c.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v))
     }
 
-    /// Scene for (biome, seed) with the biome forced — the palette must
+    /// Scene for (biome, seed) with the biome forced - the palette must
     /// hold its realism bands for every biome at every seed, not just
     /// the biome the seed happens to roll. The theme is pinned to a
     /// non-fantastical one so the band assertions test the realistic
@@ -619,7 +619,7 @@ mod tests {
     fn distinct_seeds_distinct_palettes() {
         let a = RoomPalette::from_scene(&SceneCharacter::for_seed(1), 1);
         let b = RoomPalette::from_scene(&SceneCharacter::for_seed(2), 2);
-        // At least one channel differs — both palettes coming out identical
+        // At least one channel differs - both palettes coming out identical
         // would mean the scene character or RNG sub-stream is broken.
         let any_diff = a.grass_dry != b.grass_dry
             || a.sun_color != b.sun_color
@@ -658,7 +658,7 @@ mod tests {
     }
 
     /// Vegetation is never blue-dominant: for every biome and seed, the
-    /// blue channel of grass is (weakly) the smallest — greens through
+    /// blue channel of grass is (weakly) the smallest - greens through
     /// golden straw, never magenta meadows.
     #[test]
     fn vegetation_never_blue() {
@@ -739,7 +739,7 @@ mod tests {
     }
 
     /// Snow stays bright and near-neutral (a faint cool tint at most) in
-    /// every biome — pink ice is exotic-layer territory now.
+    /// every biome - pink ice is exotic-layer territory now.
     #[test]
     fn snow_bright_and_near_neutral() {
         for biome in BiomeArchetype::ALL {
@@ -759,7 +759,7 @@ mod tests {
         }
     }
 
-    /// Water is never red-dominant — cyan through blue, or the murky
+    /// Water is never red-dominant - cyan through blue, or the murky
     /// green-browns of wetland, but no magenta lagoons.
     #[test]
     fn water_never_red_dominant() {

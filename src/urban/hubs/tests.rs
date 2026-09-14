@@ -3,13 +3,13 @@ use crate::urban::test_support::*;
 use crate::urban::{Chain, Dims, RoadParts, build_road_graph, compute_truncations, extract_chains};
 use bevy_symbios_ground::HeightMap;
 
-/// WS4: a junction grows a real hub — a deck polygon meeting each incident
+/// WS4: a junction grows a real hub - a deck polygon meeting each incident
 /// road at its mouth (one centre + 2 corners per arm) plus curb/skirt walls
-/// closing the gaps — not the old circular fan.
+/// closing the gaps - not the old circular fan.
 #[test]
 fn hub_meets_each_road_and_closes_gaps() {
     let dims = Dims::from_config(&cfg(7));
-    // Three roads meeting at the origin at 0° / 120° / 240° — a clean Y.
+    // Three roads meeting at the origin at 0° / 120° / 240° - a clean Y.
     // Each arm's mouth is truncated 5 m out from the node along its heading.
     let t = 5.0_f32;
     let arm = |ang: f32| {
@@ -51,7 +51,7 @@ fn hub_meets_each_road_and_closes_gaps() {
 }
 
 /// #584 (was #576 mean-fit): the hub apex fits the MAX incident mouth, kept
-/// upward-only — never the mean (which would droop below the highest road). The
+/// upward-only - never the mean (which would droop below the highest road). The
 /// network levelling pins every incident mouth UP to that max, so once the
 /// mouths are level the apex and every corner coincide → a genuinely FLAT
 /// junction plane (no tent, no droop).
@@ -76,7 +76,7 @@ fn hub_is_flat_at_the_max_incident_mouth() {
     let hm = HeightMap::new(64, 64, 2.0); // flat terrain at 0 → no upward clamp
 
     // Differing mouths (the pre-relaxation shape): the apex fits the MAX (3.0),
-    // not the mean (2.0) — so the hub never droops below the highest road —
+    // not the mean (2.0) - so the hub never droops below the highest road -
     // while each corner still meets its own mouth seamlessly.
     let mixed = [arm(0.0, 1.0), arm(third, 2.0), arm(2.0 * third, 3.0)];
     let mut parts = RoadParts::default();
@@ -92,8 +92,8 @@ fn hub_is_flat_at_the_max_incident_mouth() {
         "lowest mouth not met seamlessly"
     );
 
-    // Level mouths (the post-relaxation state): the whole deck — apex and every
-    // corner — sits at the one height → a flat plane.
+    // Level mouths (the post-relaxation state): the whole deck - apex and every
+    // corner - sits at the one height → a flat plane.
     let level = [arm(0.0, 3.0), arm(third, 3.0), arm(2.0 * third, 3.0)];
     let mut flat = RoadParts::default();
     extrude_hubs(&level, &hm, [0.0; 2], &dims, &mut flat);
@@ -108,7 +108,7 @@ fn hub_is_flat_at_the_max_incident_mouth() {
 
 /// #576 regression (review wf_39a9f056-ef1): when arms truncate to different
 /// distances and the deck half-width rivals the pull-back, adjacent mouths
-/// splay past each other — a node-anchored fan over arm-grouped corners then
+/// splay past each other - a node-anchored fan over arm-grouped corners then
 /// self-intersects (overlapping deck triangles that z-fight at their differing
 /// heights). The centroid angular-sweep keeps the deck a SIMPLE polygon: its
 /// corners come out monotonically ordered by angle around the apex.
@@ -215,7 +215,7 @@ fn hub_mouth_corners_coincide_with_the_ribbon_end() {
     }
 }
 
-/// #577: `fillet_arc` samples a circular bulge — the apex sits one sagitta
+/// #577: `fillet_arc` samples a circular bulge - the apex sits one sagitta
 /// out from the chord midpoint along `bd`, and a zero sagitta is the straight
 /// chord (so a near-collinear gap stays flat).
 #[test]
@@ -246,7 +246,7 @@ fn fillet_arc_is_a_circular_bulge() {
     assert!(flat.iter().all(|p| p[1].abs() < 1.0e-4), "flat arc bulged");
 
     // The straight-gap detector flags ONLY collinear arms (so real corners keep
-    // their fillet — a too-low threshold that flattened them would fail here).
+    // their fillet - a too-low threshold that flattened them would fail here).
     let unit = |deg: f32| {
         let r = deg.to_radians();
         [r.cos(), r.sin()]
@@ -271,7 +271,7 @@ fn fillet_arc_is_a_circular_bulge() {
     // perpendicular bisector and the endpoints are pinned. A sloped chord with
     // an off-axis bulge direction would drift the endpoints under the old
     // `centre = mid − bd·(r−sag)` formula.
-    // `bd2` is deliberately FAR from perpendicular to the chord (5,−2) — under
+    // `bd2` is deliberately FAR from perpendicular to the chord (5,−2) - under
     // the old `centre = mid − bd·(r−sag)` this drifted the endpoints; the chord-
     // bisector centre + pinned endpoints must keep them exact.
     let (a2, b2, bd2) = ([-3.0_f32, 1.0], [2.0_f32, -1.0], norm2([1.0, 0.0]));
@@ -313,7 +313,7 @@ fn fillet_arc_is_a_circular_bulge() {
     }
 }
 
-/// #577: the hub curb is continuous with the incident ribbons — each fillet
+/// #577: the hub curb is continuous with the incident ribbons - each fillet
 /// arc starts/ends exactly on the road's outer-curb point, so there's no
 /// notch where the hub curb meets the ribbon curb.
 #[test]
@@ -377,7 +377,7 @@ fn hub_fillet_joins_the_ribbon_outer_curbs() {
     let skirt_y = |deck_y: f32| deck_y - dims.skirt_depth;
     for e in &road_ends {
         for sgn in [-1.0_f32, 1.0] {
-            // Outer-curb point (chamfer base, deck level) — the arc endpoint.
+            // Outer-curb point (chamfer base, deck level) - the arc endpoint.
             let o = [e.cx + sgn * e.rx * wo, e.deck_y, e.cz + sgn * e.rz * wo];
             assert!(
                 near(&ribbon.structure.vertices, o),
@@ -387,7 +387,7 @@ fn hub_fillet_joins_the_ribbon_outer_curbs() {
                 near(&hub.structure.vertices, o),
                 "fillet does not meet the ribbon outer curb at {o:?}"
             );
-            // Skirt bottom — the fillet skirt foot must meet the ribbon's deep
+            // Skirt bottom - the fillet skirt foot must meet the ribbon's deep
             // skirt bottom (the seam-continuity HIGH the review caught).
             let foot = [o[0], skirt_y(e.deck_y), o[2]];
             assert!(
@@ -396,7 +396,7 @@ fn hub_fillet_joins_the_ribbon_outer_curbs() {
             );
             assert!(
                 near(&hub.structure.vertices, foot),
-                "fillet skirt foot leaves an open band — does not reach the ribbon skirt bottom {foot:?}"
+                "fillet skirt foot leaves an open band - does not reach the ribbon skirt bottom {foot:?}"
             );
         }
     }
@@ -495,7 +495,7 @@ fn hub_fillet_skirt_welds_on_shallow_cross_slope() {
     }
 }
 
-/// #577: the curb-return fillets are wound front-out — every structure
+/// #577: the curb-return fillets are wound front-out - every structure
 /// triangle's geometric normal points away from the hub centre, so back-face
 /// culling keeps the curb/skirt visible from outside (no inside-out corner).
 /// A symmetric Y keeps the centroid at the origin so the radial faces-out
@@ -551,8 +551,8 @@ fn hub_fillet_faces_out() {
 
 /// The hub fillet skirt welds to each arm's recorded `skirt_y` (the ribbon's
 /// fixed depth below the deck) and IGNORES the terrain: even where the gap
-/// terrain humps ABOVE the deck, the foot stays at the arm depth — it floats
-/// clear as a bridge instead of rising to meet the ground — and no structure
+/// terrain humps ABOVE the deck, the foot stays at the arm depth - it floats
+/// clear as a bridge instead of rising to meet the ground - and no structure
 /// pokes above the curb top (no inversion).
 #[test]
 fn hub_fillet_skirt_holds_the_arm_depth_over_humped_terrain() {
@@ -590,8 +590,8 @@ fn hub_fillet_skirt_holds_the_arm_depth_over_humped_terrain() {
         );
         min_y = min_y.min(v[1]);
     }
-    // The skirt foot sits at the arms' recorded skirt_y — the fixed depth below
-    // the deck — NOT lifted to the 2 m terrain hump above it.
+    // The skirt foot sits at the arms' recorded skirt_y - the fixed depth below
+    // the deck - NOT lifted to the 2 m terrain hump above it.
     let want = ends[0].skirt_y;
     assert!(
         (min_y - want).abs() < 0.1,
@@ -600,7 +600,7 @@ fn hub_fillet_skirt_holds_the_arm_depth_over_humped_terrain() {
 }
 
 /// #577: a through road's far edge (two anti-parallel arms with no branch
-/// between) must stay a STRAIGHT curb, not bulge — the straight-gap detector
+/// between) must stay a STRAIGHT curb, not bulge - the straight-gap detector
 /// drops the fillet sagitta to 0 there. Builds a T (arms at 0°/90°/180°) and
 /// checks the −z straight side runs flat at the outer-curb line (z = −wo).
 #[test]
@@ -654,7 +654,7 @@ fn hub_through_road_far_edge_stays_straight() {
 /// strip is non-planar (its inner edge rides a deck chord that runs between two
 /// different mouth heights), so a single per-strip winding decision back-winds
 /// some triangles. Every emitted structure triangle's geometric winding must
-/// agree with its (outward) stored shading normal — the per-segment winding
+/// agree with its (outward) stored shading normal - the per-segment winding
 /// guarantees it. A symmetric flat Y never twists, so this needs varying deck_y.
 #[test]
 fn hub_fillet_winding_consistent_on_sloped_hub() {
@@ -709,7 +709,7 @@ fn hub_fillet_winding_consistent_on_sloped_hub() {
 }
 
 /// #577 (review wf_55dafda9): the per-segment winding must hold on the REAL
-/// pilot network — every hub there is skewed (asymmetric truncation, mouths at
+/// pilot network - every hub there is skewed (asymmetric truncation, mouths at
 /// different draped heights, ~23° acute branches), the regime a single
 /// per-strip winding decision got wrong (~9% of structure tris). Isolates the
 /// hub fillets (extrude_hubs into its own buffer) and asserts no fillet triangle
@@ -782,7 +782,7 @@ fn pilot_hub_fillets_are_wound_consistently() {
 
 /// #577 (review wf_55dafda9 MEDIUM): on an ASYMMETRIC hub (differing per-arm
 /// half-widths and pull-backs) the fillet arc must still start/end EXACTLY on
-/// each ribbon's outer-curb point — the old `centre = mid − bd·(r−sag)` drifted
+/// each ribbon's outer-curb point - the old `centre = mid − bd·(r−sag)` drifted
 /// the endpoints (sub-metre notch) whenever `bd` was not perpendicular to the
 /// outer-curb chord, which is the norm off a symmetric Y.
 #[test]
@@ -833,7 +833,7 @@ fn hub_fillet_endpoints_exact_on_asymmetric_hub() {
 }
 
 /// #894 (the long-deferred #578): an acute fork's gap grows a smooth-merge
-/// crotch instead of the flat chord — the curb between the two near-parallel
+/// crotch instead of the flat chord - the curb between the two near-parallel
 /// mouths reaches outward past the straight line joining them, bounded by the
 /// merge cap. A through road's far edge (anti-parallel pair) stays straight.
 #[test]

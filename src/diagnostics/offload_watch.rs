@@ -9,7 +9,7 @@
 //! The failure this exists for is a wasm deploy that ships the app bundle
 //! beside a stale or missing `gen-worker.js`. The worker future never
 //! resolves, the loading gate never opens or every body stays a bare chassis,
-//! and — before this — the log said HEALTHY with at most a generic
+//! and - before this - the log said HEALTHY with at most a generic
 //! `loading.gate_stall` to show for it. `OffloadJobStarted`,
 //! `OffloadJobCompleted` and `OffloadTaskTimeout` had no emit site anywhere in
 //! the crate, so the replay rule written for exactly this had nothing to fold
@@ -33,7 +33,7 @@ pub const TASK_TIMEOUT_SECS: f64 = 60.0;
 /// What the offload census looked like at the last sample.
 ///
 /// Read by the anomaly tick into `LiveCtx` so the rule stays pure over its
-/// inputs — the rules must be unit-testable without a process-global.
+/// inputs - the rules must be unit-testable without a process-global.
 #[derive(Resource, Default)]
 pub struct OffloadWatch {
     /// The longest-waiting in-flight job and its age in seconds.
@@ -46,7 +46,7 @@ pub struct OffloadWatch {
 /// Pure over its inputs so the latch is testable without waiting a real
 /// minute. The latch matters in both directions: a stuck job stays in the
 /// census until it answers or is cancelled, so without it every frame would
-/// emit another `OffloadTaskTimeout` for the same job — and clearing the entry
+/// emit another `OffloadTaskTimeout` for the same job - and clearing the entry
 /// when the job retires is what lets a later job reusing nothing but the same
 /// *kind* report on its own merits.
 fn newly_timed_out<'a>(
@@ -145,7 +145,7 @@ mod tests {
     /// binary drains the whole transition list into its own log. No lock held
     /// across a test body can order a thread pool.
     ///
-    /// So exclusivity is not the fixture — a private ledger is (#1189). There
+    /// So exclusivity is not the fixture - a private ledger is (#1189). There
     /// is nothing left to serialise, and these tests no longer read anything
     /// the rest of the binary can write.
     fn census_app(census: &Census) -> App {
@@ -160,7 +160,7 @@ mod tests {
     /// #1143. Sequence: a wasm deploy ships the app bundle beside a stale
     /// `gen-worker.js`; `run_on_worker` never resolves, and the job sits in
     /// flight for the rest of the session. Before the census nothing observed
-    /// that at all — `OffloadJobStarted` had no emit site in the crate, so the
+    /// that at all - `OffloadJobStarted` had no emit site in the crate, so the
     /// rule written for it could not fire live OR in replay.
     #[test]
     fn a_dispatched_job_is_announced_and_a_finished_one_is_closed_out() {
@@ -206,7 +206,7 @@ mod tests {
     }
 
     /// #1189. The sequence above, run while the process-global ledger is being
-    /// used by somebody else — which is what `cargo test --lib` actually does
+    /// used by somebody else - which is what `cargo test --lib` actually does
     /// and `cargo nextest` structurally cannot.
     ///
     /// The barriers force the interleaving the scheduler only sometimes
@@ -216,8 +216,8 @@ mod tests {
     /// `oldest_pending` and the second swallows `OffloadJobStarted` outright,
     /// which is the exact assertion that went red on CI.
     ///
-    /// The foreign side deliberately uses [`Census::global`] — the same
-    /// instance `offload` writes to — because that global is not going away;
+    /// The foreign side deliberately uses [`Census::global`] - the same
+    /// instance `offload` writes to - because that global is not going away;
     /// what changed is that this test no longer reads it.
     #[test]
     fn a_concurrent_user_of_the_global_ledger_cannot_disturb_this_test() {
@@ -272,7 +272,7 @@ mod tests {
         drop(foreign.join().expect("foreign ledger user"));
     }
 
-    /// A job the caller cancelled — the `Task` dropped mid-flight — must leave
+    /// A job the caller cancelled - the `Task` dropped mid-flight - must leave
     /// the census, or the watchdog would report a stall nobody is waiting on.
     #[test]
     fn a_cancelled_job_does_not_look_stuck() {
@@ -286,7 +286,7 @@ mod tests {
         );
     }
 
-    /// The timeout is reported once per job, not once per frame — a stuck job
+    /// The timeout is reported once per job, not once per frame - a stuck job
     /// stays in the census for the rest of the session.
     #[test]
     fn a_stuck_job_is_reported_once_and_a_later_one_on_its_own_merits() {

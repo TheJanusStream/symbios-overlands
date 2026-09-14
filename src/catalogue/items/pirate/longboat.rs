@@ -1,4 +1,4 @@
-//! Longboat — the ship's boat, chocked up on the quay with her gear stowed.
+//! Longboat - the ship's boat, chocked up on the quay with her gear stowed.
 //!
 //! A five-and-a-half-metre pulling boat standing upright on two chocks,
 //! broadside to the approach: tarred hull, open sheer, floorboards, three
@@ -9,11 +9,11 @@
 //!
 //! An open boat is the one hull shape a `BlobGroup` cannot simply be *hollowed*
 //! into. Surface nets misses any feature thinner than about two sample cells,
-//! and at this length the cells are 125 mm — so a carved-out shell of hull
+//! and at this length the cells are 125 mm - so a carved-out shell of hull
 //! planking would come out as a colander, which is the flag's fault (#1026) in
 //! a place where it would be far more visible.
 //!
-//! So the hull is split at the sole. Everything below is one blended mass —
+//! So the hull is split at the sole. Everything below is one blended mass -
 //! the round of the bilge, the entry, the run aft, all continuous. Everything
 //! above is *prim* strakes standing on the mass's own edge, which is what
 //! makes her genuinely open: you look down past the gunwale onto floorboards
@@ -21,7 +21,7 @@
 //!
 //! # One table of stations drives the whole boat
 //!
-//! [`STATIONS`] is the boat's lines plan — five `(x, half-beam)` pairs — and
+//! [`STATIONS`] is the boat's lines plan - five `(x, half-beam)` pairs - and
 //! *everything* is derived from it: the blob elements' extents, where the
 //! sheer strakes run, how long each thwart is, how wide the chocks are, and
 //! how far outboard an oar may be stowed. A boat narrows toward both ends, so
@@ -39,7 +39,7 @@
 //! about 25 mm, so she came out 240 mm narrow and floating 95 mm over her own
 //! chocks. The elements are authored **on** the envelope, and
 //! `the_meshed_hull_lands_on_its_own_stations` reads the built mesh's own bounds
-//! and says so if that ever stops being true — which is the only way to hold a
+//! and says so if that ever stops being true - which is the only way to hold a
 //! number like this honestly.
 //!
 //! Do not read that as "the bloom is zero". It scales with the blend, and a
@@ -66,14 +66,14 @@ use super::{
     sailcloth, strake, tar,
 };
 
-/// The paved stand — the sub-root every footprint guard measures against
+/// The paved stand - the sub-root every footprint guard measures against
 /// (#972 lesson 19).
 const PAD: [f32; 3] = [7.6, 0.24, 3.8];
 const GROUND: f32 = PAD[1];
 
 /// The boat's lines: `(x, half-beam at the sheer)`, bow first.
 ///
-/// She lies along `X` so the approach sees her broadside — a boat bow-on is a
+/// She lies along `X` so the approach sees her broadside - a boat bow-on is a
 /// wedge, and the whole read here is the sheer line.
 const STATIONS: [(f32, f32); 5] = [
     (2.74, 0.30),  // stem
@@ -83,7 +83,7 @@ const STATIONS: [(f32, f32); 5] = [
     (-2.46, 0.56), // transom
 ];
 
-/// Blend radius between the hull's elements — enough to melt five stations
+/// Blend radius between the hull's elements - enough to melt five stations
 /// into one sheer, and small enough that the meshed surface stays on the
 /// stations the elements are drawn to.
 const BLEND: f32 = 0.12;
@@ -92,7 +92,7 @@ const BLEND: f32 = 0.12;
 /// is the underside of the keel).
 const MASS_T: f32 = 0.56;
 
-/// Half-length of the transom element, and of the bow's — the two narrowest
+/// Half-length of the transom element, and of the bow's - the two narrowest
 /// things in the hull, and therefore what the sample grid has to resolve.
 const TRANSOM_HALF: f32 = 0.25;
 const BOW_HALF: f32 = 0.5;
@@ -108,12 +108,12 @@ const THWART_Y: f32 = MASS_T + 0.3;
 const THWART_T: f32 = 0.06;
 const THWART_W: f32 = 0.26;
 
-/// Top of the floorboards — what the gear in her bottom stands on.
+/// Top of the floorboards - what the gear in her bottom stands on.
 const SOLE_TOP: f32 = MASS_T + 0.055;
 
 /// Sample resolution for the hull. She is five and a half metres long, so even
 /// at 44 the cells are 125 mm and nothing thinner than a quarter of a metre
-/// survives — see the shared `blob_cell_size` note in `items::util`.
+/// survives - see the shared `blob_cell_size` note in `items::util`.
 const HULL_RES: u32 = 44;
 
 /// Chock height, and the `X` stations the two chocks stand at.
@@ -131,7 +131,7 @@ const PAINTER_R: f32 = 0.035;
 
 const _: () = assert!(
     STATIONS[0].0 - BOW_HALF * 2.0 < STATIONS[1].0 + (STATIONS[0].0 - STATIONS[1].0) * 0.62,
-    "the bow element no longer overlaps the fore quarter — the hull will \
+    "the bow element no longer overlaps the fore quarter - the hull will \
      polygonise in pieces"
 );
 const _: () = assert!(
@@ -207,7 +207,7 @@ fn beam_at(x: f32) -> f32 {
     STATIONS[2].1
 }
 
-/// Turn a point in the boat's own frame — `y` up from the keel — into the
+/// Turn a point in the boat's own frame - `y` up from the keel - into the
 /// world. One expression, so nothing here can disagree with the chocks about
 /// how high she stands (#972 lesson 18).
 fn aboard(x: f32, y: f32, z: f32) -> [f32; 3] {
@@ -218,7 +218,7 @@ fn aboard(x: f32, y: f32, z: f32) -> [f32; 3] {
 ///
 /// Every element is drawn to the envelope [`STATIONS`] describes, and every
 /// element **overlaps** its neighbours structurally rather than trusting the
-/// blend to bridge a gap — which is what left the careening slip's stern
+/// blend to bridge a gap - which is what left the careening slip's stern
 /// floating astern of her own hull on the first build. All the bottoms sit at
 /// exactly `y = 0`, so the underside comes out flat and the chocks meet it.
 fn hull() -> Generator {
@@ -229,7 +229,7 @@ fn hull() -> Generator {
     let (tran_x, tran_b) = STATIONS[4];
 
     let elements = vec![
-        // Midships body — flat-bottomed, running out to just short of the
+        // Midships body - flat-bottomed, running out to just short of the
         // quarters.
         blob_box(
             [0.0, MASS_T * 0.5, 0.0],
@@ -243,13 +243,13 @@ fn hull() -> Generator {
             BLEND,
         ),
         // Bow: a fine entry, and the forefoot standing a little proud of the
-        // sole — which is the stem knee, and reads as one.
+        // sole - which is the stem knee, and reads as one.
         blob_ellipsoid(
             [stem_x - BOW_HALF, MASS_T * 0.62, 0.0],
             [BOW_HALF, MASS_T * 0.62, stem_b],
             BLEND,
         ),
-        // Aft quarter — fuller than the fore, as a pulling boat's run is.
+        // Aft quarter - fuller than the fore, as a pulling boat's run is.
         blob_ellipsoid(
             [aft_x * 1.03, MASS_T * 0.55, 0.0],
             [(tran_x - aft_x).abs() * 0.9, MASS_T * 0.55, aft_b],
@@ -274,7 +274,7 @@ fn hull() -> Generator {
 /// The file's **only** direction-to-rotation conversion, and it is here rather
 /// than inline because six hand-rolled ones across the earlier entries were
 /// wrong (#1028). A board's long axis is its local `+Z`, and `quat_y(θ)`
-/// carries `+Z` to `(sin θ, 0, cos θ)`, so `θ = atan2(dx, dz)` in the plan —
+/// carries `+Z` to `(sin θ, 0, cos θ)`, so `θ = atan2(dx, dz)` in the plan -
 /// taken from the run itself, never from a guessed angle.
 ///
 /// `section` is `[across, up]`, which is what lets the strake and the capping
@@ -299,14 +299,14 @@ fn sheer_board(
     )
 }
 
-/// Width and thickness of the gunwale capping — the board laid flat along the
+/// Width and thickness of the gunwale capping - the board laid flat along the
 /// top of the sheer strake.
 ///
 /// It exists for a reason worth stating: tarred planking is very dark, so a
 /// boat built entirely in it reads from the side as one black silhouette with
 /// no sheer at all. A capping in bleached deck timber draws the line the eye
 /// actually uses to read a hull's shape, and it is a real fitting rather than
-/// a stripe painted on to fix a render — every open boat has one, because it
+/// a stripe painted on to fix a render - every open boat has one, because it
 /// is what covers the top edge of the planking.
 const CAP: [f32; 2] = [0.15, 0.05];
 
@@ -351,12 +351,12 @@ fn topsides() -> Vec<Generator> {
         aboard(tran_x, cap_y, 0.0),
         quat_y(FRAC_PI_2),
     ));
-    // Stem post, standing a little above the gunwale — where the painter is
+    // Stem post, standing a little above the gunwale - where the painter is
     // made fast, so it has to exist before the rope can reach it.
     //
     // Narrow athwartships, and that is the whole read. The first build sized it
     // off the stem station's half-beam and got a 480 mm plate standing above her
-    // bow, which from the approach is a signboard rather than a stem head — the
+    // bow, which from the approach is a signboard rather than a stem head - the
     // battery's canvas apron fault (#1025) in a smaller place.
     out.push(prim(
         solid(cuboid_tapered(
@@ -387,11 +387,11 @@ fn fitted_half(x0: f32, x1: f32) -> f32 {
     inner_at(x0).min(inner_at(x1)) - 0.015
 }
 
-/// Floorboards and thwarts — the fit-out that makes her read as open.
+/// Floorboards and thwarts - the fit-out that makes her read as open.
 fn fit_out() -> Vec<Generator> {
     let mut out = Vec::new();
     // Sole: three panels of floorboards over the mass, in bleached deck timber
-    // against the tar — so the inside of the boat is a lit surface rather than
+    // against the tar - so the inside of the boat is a lit surface rather than
     // a black hole under the sheer. Each panel is cut to the narrower of its
     // own two ends.
     for (x0, x1) in [(-2.1_f32, -1.1_f32), (-1.1, 0.6), (0.6, 2.0)] {
@@ -439,7 +439,7 @@ fn oars() -> Vec<Generator> {
             6,
             board(DECK_HOLY),
         ));
-        // The blade — flat, and the piece that makes a dowel read as an oar.
+        // The blade - flat, and the piece that makes a dowel read as an oar.
         out.push(prim(
             solid(cuboid_tapered([0.5, 0.03, 0.15], 0.2, board(DECK_HOLY))),
             aboard(aft - 0.15, y, z),
@@ -507,7 +507,7 @@ fn build_tree() -> Generator {
     carried.extend(oars());
     carried.extend(spars());
 
-    // Thole pins on the gunwale, one pair per oar — the fitting that says she
+    // Thole pins on the gunwale, one pair per oar - the fitting that says she
     // is pulled rather than towed. On the sheer line, so they follow the same
     // stations the strakes do.
     for (i, x) in [1.35_f32, 0.55, -0.35, -1.15].into_iter().enumerate() {
@@ -526,7 +526,7 @@ fn build_tree() -> Generator {
         }
     }
 
-    // A bailer standing on the sole, and a can of tar — a boat with nothing in
+    // A bailer standing on the sole, and a can of tar - a boat with nothing in
     // her is a hull, not a boat that gets used.
     carried.push(prim(
         solid(cylinder_tapered(0.16, 0.26, 10, -0.1, board(DECK_HOLY))),
@@ -567,7 +567,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // A caulking mallet and a pot of pitch on the stones under her bilge —
+    // A caulking mallet and a pot of pitch on the stones under her bilge -
     // placed off the PAD's own half-extent, so a retuned stand cannot leave
     // them hanging off it (#972 lesson 8).
     let gear_z = PAD[2] * 0.5 - 0.62;
@@ -630,7 +630,7 @@ mod tests {
         assert!(window_cards(&g).is_empty(), "a longboat has grown a window");
     }
 
-    /// World bounds of the tree's single `BlobGroup` — the hull, meshed.
+    /// World bounds of the tree's single `BlobGroup` - the hull, meshed.
     fn hull_bounds() -> measure::Bounds {
         fn walk(g: &Generator, at: [f32; 3], out: &mut Option<measure::Bounds>) {
             let t = g.transform.translation.0;
@@ -656,7 +656,7 @@ mod tests {
     /// causes: elements that drift out of blend range polygonise into separate
     /// pieces, and a mass thinner than two sample cells polygonises *with
     /// holes*. Union-find over the triangle graph is the only thing that sees
-    /// either — a hull in two halves has the same bounding box as a whole one,
+    /// either - a hull in two halves has the same bounding box as a whole one,
     /// which is exactly how the flag shipped (#1026).
     #[test]
     fn the_hull_polygonises_as_a_single_mass() {
@@ -674,7 +674,7 @@ mod tests {
         assert_eq!(
             blob_components(&found[0]),
             1,
-            "the hull polygonised into more than one piece — her stations have \
+            "the hull polygonised into more than one piece - her stations have \
              drifted out of blend range, or she is finer than the sample grid"
         );
         // And the arithmetic that has to hold for that to keep being true.
@@ -683,14 +683,14 @@ mod tests {
         assert!(
             thinnest > cell * 2.0,
             "the thinnest authored element is {thinnest} m across a {cell} m \
-             sample cell — under two cells it comes out full of holes"
+             sample cell - under two cells it comes out full of holes"
         );
     }
 
     /// She stands on her chocks, and her sole is where the fit-out expects.
     ///
     /// Read off the BUILT hull's mesh bounds, not recomputed from the
-    /// constants — the bloom is the thing under test, and the whole point of
+    /// constants - the bloom is the thing under test, and the whole point of
     /// authoring every element `BLEND` inside the envelope is that the meshed
     /// underside comes out flat on the chock tops. Measured from the chock up,
     /// which is the opposite direction to the placement (#972 lesson 21).
@@ -701,7 +701,7 @@ mod tests {
         assert!(
             (hull.min.y - chock_top).abs() < 0.07,
             "the hull's underside is at {} and the chocks top out at \
-             {chock_top} — she is floating or bedded in",
+             {chock_top} - she is floating or bedded in",
             hull.min.y
         );
         // The mass has to reach the sole, or the floorboards hang in the air
@@ -710,13 +710,13 @@ mod tests {
         assert!(
             hull.max.y > sole - 0.06,
             "the hull mass tops out at {} but the floorboards are laid at \
-             {sole} — the sole is over a void",
+             {sole} - the sole is over a void",
             hull.max.y
         );
         // ...and not through the gunwale, or she is not an open boat at all.
         assert!(
             hull.max.y < KEEL_Y + SHEER - 0.02,
-            "the hull mass reaches {} — at or above the gunwale at {}, which \
+            "the hull mass reaches {} - at or above the gunwale at {}, which \
              fills the boat in",
             hull.max.y,
             KEEL_Y + SHEER
@@ -735,7 +735,7 @@ mod tests {
         assert!(
             (hull.max.z - beam).abs() < 0.09 && (hull.min.z + beam).abs() < 0.09,
             "the meshed hull is {} .. {} in z against a station half-beam of \
-             {beam} — the bloom allowance no longer matches the elements",
+             {beam} - the bloom allowance no longer matches the elements",
             hull.min.z,
             hull.max.z
         );
@@ -767,7 +767,7 @@ mod tests {
         // of, NOT on their section: the transom is the same 60 mm board of the
         // same height, and the first version of this guard picked it up and
         // then complained that a board lying athwartships did not end on a
-        // station line. #972 lesson 24 — select on what defines the thing.
+        // station line. #972 lesson 24 - select on what defines the thing.
         fn walk(g: &Generator, at: [f32; 3], out: &mut Vec<[f32; 3]>) {
             let t = g.transform.translation.0;
             let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
@@ -799,7 +799,7 @@ mod tests {
             let want = beam_at(tip[0]);
             assert!(
                 (tip[2].abs() - want).abs() < 0.02,
-                "a strake ends at {tip:?}, where her half-beam is {want} — the \
+                "a strake ends at {tip:?}, where her half-beam is {want} - the \
                  board is off the station line"
             );
             assert!(
@@ -809,7 +809,7 @@ mod tests {
             );
             assert!(
                 tip[0] >= STATIONS[4].0 - 1e-3 && tip[0] <= STATIONS[0].0 + 1e-3,
-                "a strake reaches x = {} — past her own stem or transom",
+                "a strake reaches x = {} - past her own stem or transom",
                 tip[0]
             );
         }
@@ -848,7 +848,7 @@ mod tests {
             }
             // ...and it is a *fitting*, not the planking. A sheer strake fills
             // the whole freeboard, so its own section is what tells it apart
-            // from everything stowed against it — and a strake sits ON the
+            // from everything stowed against it - and a strake sits ON the
             // station line, which is exactly what this guard forbids of a
             // fitting.
             if p.bounds.size().y >= SHEER - MASS_T - 1e-3 {

@@ -1,4 +1,4 @@
-//! Diagnostics HUD — a five-tab panel (see [`DiagTab`]). The Overview /
+//! Diagnostics HUD - a five-tab panel (see [`DiagTab`]). The Overview /
 //! Runtime / Network / Offload tabs draw the frame-time sparkline and
 //! per-subsystem metric health cards + anomaly badges over the shared
 //! metrics registry.
@@ -6,7 +6,7 @@
 //! Two things about the cards are load-bearing rather than incidental
 //! (#1272). The rows are built as DATA by [`health_cards`] and painted by
 //! [`render_health_tab`], so `metric_rows_and_rules_line_up` can walk every
-//! row of every tab and check it against [`METRIC_RULE_TABLE`] — a mapped
+//! row of every tab and check it against [`METRIC_RULE_TABLE`] - a mapped
 //! metric can no longer end up with no row anywhere (eight signalling
 //! gauges were scraped every second and rendered on no screen at all), and
 //! a row can no longer lose the rule that badges it. And each mapping
@@ -14,12 +14,12 @@
 //! that passed while five of fourteen mapped rows were pointed at rules
 //! that could never light on this panel.
 //!
-//! The Session tab (#837 — the honest remainder after
+//! The Session tab (#837 - the honest remainder after
 //! the toolbar's account chip took identity / logout / Copy Landmark
 //! Link) holds the session-debug tools: a native-only wireframe-mode
 //! checkbox (skipped on WebGL2 where `POLYGON_MODE_LINE` is
 //! unavailable), the session-log export controls, a demoted debug peer
-//! roster (DIDs + copy buttons — People owns presence and mutes), and
+//! roster (DIDs + copy buttons - People owns presence and mutes), and
 //! the scrolling event log. This module also hosts
 //! [`landmark_link_button`], the share-your-spot button the account
 //! chip renders (bundles the current room DID + player position + yaw
@@ -40,10 +40,10 @@ use crate::state::RemotePeer;
 /// Which tab of the Diagnostics panel is showing. Overview (C-3) draws the
 /// frame-time sparkline + counts + memory; the Runtime / Network / Offload
 /// tabs (C-4) draw the per-subsystem health cards over the shared metrics
-/// registry + anomaly badges; Session (#837 — né "Identity", before the
+/// registry + anomaly badges; Session (#837 - né "Identity", before the
 /// toolbar's account chip absorbed identity/logout/share) keeps the
 /// session-debug remainder: wireframe toggle, log export, a demoted peer
-/// roster, and the event log. Default is Overview — the health summary,
+/// roster, and the event log. Default is Overview - the health summary,
 /// not a legacy-parity drawer.
 ///
 /// A `Resource` (not a window-local) since #835, so the toolbar's anomaly
@@ -81,7 +81,7 @@ impl DiagTab {
 /// Map a [`Severity`] to the HUD colour used for both the event-log line tint
 /// and the anomaly badges / toolbar dot (D-6), so a warning reads the same amber
 /// everywhere. `pub(crate)` so [`crate::ui::toolbar`] can colour its worst-active
-/// dot identically. Delegates to the active theme's severity ramp (#856) —
+/// dot identically. Delegates to the active theme's severity ramp (#856) -
 /// the `ui` handle is how the palette is reached from render code.
 pub(crate) fn severity_color(ui: &egui::Ui, sev: Severity) -> egui::Color32 {
     crate::ui::theme::current(ui.ctx()).status.severity(sev)
@@ -90,7 +90,7 @@ pub(crate) fn severity_color(ui: &egui::Ui, sev: Severity) -> egui::Color32 {
 /// The currently-violated rules as `(id, severity, last detail, fire count,
 /// description, last fired)`, worst-severity first (ties broken by id for
 /// stable output). The pure data behind the badge strip, unit-tested
-/// independently of egui. The description is the badge's face text (#837 —
+/// independently of egui. The description is the badge's face text (#837 -
 /// human words, the raw id demotes to the hover); ids without a description
 /// (impossible for registered rules) fall back to the id itself.
 type Badge = (&'static str, Severity, String, u64, &'static str, f64);
@@ -116,7 +116,7 @@ fn collect_badges(invariants: &InvariantRegistry) -> Vec<Badge> {
 /// can offer them without `render_anomaly_section` growing four parameters
 /// three of its two callers do not use.
 /// How tall the Active Anomalies list is allowed to get before it scrolls
-/// (#1273 f181). Roughly four rows — enough that a healthy-ish session shows
+/// (#1273 f181). Roughly four rows - enough that a healthy-ish session shows
 /// its whole strip and a broken one does not swallow the tab under it.
 const ANOMALY_STRIP_MAX_HEIGHT: f32 = 120.0;
 
@@ -130,7 +130,7 @@ pub(crate) struct LogExportDeps<'a> {
 /// The hover behind a badge: the rule's precise statement of the condition,
 /// then its id and `trailer` (when it last fired, and its detail).
 ///
-/// The face text is the plain-language sentence now (#1271 f409) — the panel
+/// The face text is the plain-language sentence now (#1271 f409) - the panel
 /// used to render developer prose straight at the user ("relay reported peers
 /// in the room but no WebRTC data channel opened (offer glare or ICE/NAT
 /// failure)"), which is the only sentence this whole review area ever says
@@ -138,8 +138,8 @@ pub(crate) struct LogExportDeps<'a> {
 /// one layer down, which is the pattern the Offload tab already proved.
 fn rule_hover(invariants: &InvariantRegistry, id: RuleId, trailer: &str) -> String {
     match invariants.rule_technical(id) {
-        Some(technical) => format!("{technical}\n\n{id} — {trailer}"),
-        None => format!("{id} — {trailer}"),
+        Some(technical) => format!("{technical}\n\n{id} - {trailer}"),
+        None => format!("{id} - {trailer}"),
     }
 }
 
@@ -157,7 +157,7 @@ fn render_anomaly_section(
     let th = crate::ui::theme::current(ui.ctx());
     let badges = collect_badges(invariants);
 
-    // Persistent banner while any Critical invariant is active — the same
+    // Persistent banner while any Critical invariant is active - the same
     // Frame idiom the room-recovery banner uses.
     let crit = badges.iter().filter(|b| b.1 == Severity::Critical).count();
     if crit > 0 {
@@ -169,7 +169,7 @@ fn render_anomaly_section(
                 ui.colored_label(
                     th.danger_surface_text,
                     format!(
-                        "⚠ {crit} CRITICAL invariant{} active — session health is compromised.",
+                        "⚠ {crit} CRITICAL invariant{} active - session health is compromised.",
                         if crit == 1 { "" } else { "s" }
                     ),
                 );
@@ -177,7 +177,7 @@ fn render_anomaly_section(
         // The remedy under the banner, on whatever tab the dot routed to
         // (#1272 f175). The Critical memory rules tell the user to download
         // the session log, and that button lived on a fourth tab they had to
-        // find for themselves — while the failure it warns about is the one
+        // find for themselves - while the failure it warns about is the one
         // that takes the tab and the log down together. Skipped on the
         // Session tab, which draws these controls in their own right.
         if let Some(export) = export {
@@ -198,8 +198,8 @@ fn render_anomaly_section(
         ui.label(format!("Active Anomalies ({})", badges.len()));
         // Capped, with the Critical banner above it left un-scrolled so the
         // loudest signal is always pinned (#1273 f181). The strip sits
-        // OUTSIDE every per-tab scroll area — it is drawn on every tab on
-        // purpose — and with 29 rules registered an unbounded list eats the
+        // OUTSIDE every per-tab scroll area - it is drawn on every tab on
+        // purpose - and with 29 rules registered an unbounded list eats the
         // height the tab body was going to get, worst exactly when the most
         // is wrong. `auto_shrink` on the vertical axis so a one-badge strip
         // still takes one badge of room.
@@ -216,7 +216,7 @@ fn render_anomaly_section(
                         // when it last fired live in the hover for debugging.
                         // Body, not `.small()` (#1259 f243): this line is what a
                         // user is pointed at when something has gone wrong, and
-                        // it is tinted with the severity ramp on top — the Trace
+                        // it is tinted with the severity ramp on top - the Trace
                         // tier put it at 9 pt AND low contrast at once.
                         ui.label(egui::RichText::new(*description).color(color))
                             .on_hover_text(rule_hover(
@@ -233,7 +233,7 @@ fn render_anomaly_section(
                         }
                         if !detail.is_empty() {
                             ui.monospace(
-                                egui::RichText::new(format!("— {detail}"))
+                                egui::RichText::new(format!("- {detail}"))
                                     .small()
                                     .color(th.text_weak),
                             );
@@ -258,7 +258,7 @@ enum Watch {
     /// Replay-only: re-derived from the session log by the offline analyzer
     /// and never live-violated, so nothing badges this row while you play.
     Analyzer,
-    /// Evaluated live, but only during loading — a state the Diagnostics
+    /// Evaluated live, but only during loading - a state the Diagnostics
     /// panel never runs in. The loading screen owns the live signal.
     WhileLoading,
 }
@@ -270,14 +270,14 @@ impl Watch {
             Watch::Live => None,
             Watch::Analyzer => Some((
                 "log only",
-                "Nothing checks this while you are playing — it is worked out \
+                "Nothing checks this while you are playing - it is worked out \
                  afterwards from the session log. An empty space here is not \
                  a pass.",
             )),
             Watch::WhileLoading => Some((
                 "while loading",
                 "This is checked while a world is opening, not once you are in \
-                 it — the loading screen shows it live. An empty space here is \
+                 it - the loading screen shows it live. An empty space here is \
                  not a pass.",
             )),
         }
@@ -288,7 +288,7 @@ impl Watch {
 /// which rule's live state badges each metric row, and whether that rule can
 /// light it at all. A metric absent here shows no badge and no marker.
 ///
-/// A metric may appear more than once — the wasm-heap row is watched by a
+/// A metric may appear more than once - the wasm-heap row is watched by a
 /// `Warn` rule and a `Critical` one, and [`anomaly_badge`] draws the worst of
 /// them that is active.
 ///
@@ -332,7 +332,7 @@ const METRIC_RULE_TABLE: &[(&str, &str, Watch)] = &[
     // wasm-only, and the `cfg` is load-bearing: the memory ROW is cfg-split
     // (native shows process RSS, which no rule watches), so mapping these
     // unconditionally would point two rules at a metric that has no row on a
-    // native build — which is the shape of defect this whole table now
+    // native build - which is the shape of defect this whole table now
     // guards against.
     #[cfg(target_arch = "wasm32")]
     (
@@ -450,7 +450,7 @@ fn anomaly_badge(ui: &mut egui::Ui, invariants: &InvariantRegistry, metric_id: &
         // Active Anomalies list has said this in words since #837; the
         // per-metric pill was the one that never did.
         let description = invariants.rule_description(rule_id).unwrap_or(rule_id);
-        // `last_fired_secs` is a session timestamp, not an age — format it
+        // `last_fired_secs` is a session timestamp, not an age - format it
         // like the event log's stamps instead of reading as "Ns ago" (#837).
         crate::ui::affordances::hint(
             ui.label(egui::RichText::new(description).small().color(colour)),
@@ -483,7 +483,7 @@ fn anomaly_badge(ui: &mut egui::Ui, invariants: &InvariantRegistry, metric_id: &
 /// The count of live-violated invariants attributable to a tab, for its label
 /// badge (C-6). Overview aggregates everything; the subsystem tabs count their
 /// own subsystem (Offload also owns the loading-gate rules).
-/// The Diagnostics tab that presents anomalies from `subsystem` — the
+/// The Diagnostics tab that presents anomalies from `subsystem` - the
 /// inverse of [`tab_anomaly_count`]'s attribution, used by the toolbar
 /// dot's click-through (#835). `Session` has no card tab of its own;
 /// its badges render on every tab, so Overview is the honest landing.
@@ -509,7 +509,7 @@ fn tab_anomaly_count(tab: DiagTab, invariants: &InvariantRegistry) -> usize {
     }
 }
 
-/// One 60 Hz frame's worth of milliseconds — the line a frame-time trace is
+/// One 60 Hz frame's worth of milliseconds - the line a frame-time trace is
 /// read against, and the first gridline on the sparkline.
 const FRAME_BUDGET_MS: f64 = 1000.0 / 60.0;
 
@@ -518,7 +518,7 @@ const FRAME_BUDGET_MS: f64 = 1000.0 / 60.0;
 ///
 /// A FIXED band, which is the whole point. The plot used to scale itself to
 /// its own min and max, so a flawless session holding 16.0–16.3 ms drew the
-/// same full-height sawtooth as one stuttering between 16 and 300 — the shape
+/// same full-height sawtooth as one stuttering between 16 and 300 - the shape
 /// carried no information about milliseconds at all, and it read alarmingly by
 /// default because noise is always drawn as drama. Against a fixed band a
 /// steady trace is a flat line near the bottom, which is what steady looks
@@ -529,7 +529,7 @@ const FRAME_GRIDLINES_MS: &[f64] = &[FRAME_BUDGET_MS, FRAME_BUDGET_MS * 2.0];
 /// Where a sample sits in a band: 0 at the bottom, 1 at the top, clamped.
 ///
 /// Clamped rather than scaled, so one 400 ms stall does not flatten the rest
-/// of the trace into the floor — an outlier is drawn at the ceiling and marked
+/// of the trace into the floor - an outlier is drawn at the ceiling and marked
 /// (see [`sparkline`]) instead of rewriting the axis for every other sample.
 fn spark_t(v: f64, (lo, hi): (f64, f64)) -> f32 {
     let span = (hi - lo).max(1e-9);
@@ -561,7 +561,7 @@ fn sparkline(
 
     let y_of = |v: f64| rect.bottom() - rect.height() * spark_t(v, band);
 
-    // Gridlines and the band's ends first, so they read as the backdrop —
+    // Gridlines and the band's ends first, so they read as the backdrop -
     // and so an empty chart still states its scale rather than being a
     // blank strip whose height means nothing.
     for line in gridlines {
@@ -632,7 +632,7 @@ fn fmt_bytes(bytes: f64) -> String {
     }
 }
 
-/// Process-memory readout — native RSS or the wasm linear-memory size, cfg-split
+/// Process-memory readout - native RSS or the wasm linear-memory size, cfg-split
 /// (scraped from different sources), with a GRAY "unavailable" fallback when the
 /// gauge has no sample yet (mirroring the native-only wireframe gate's absence
 /// handling).
@@ -659,7 +659,7 @@ fn memory_readout(ui: &mut egui::Ui, metrics: &MetricsRegistry, invariants: &Inv
 /// alongside the health cards (#1272 f188).
 ///
 /// The three cache lengths at the end pin the handle counts above them (#919)
-/// — a mesh or image count that will not fall is usually one of these holding
+/// - a mesh or image count that will not fall is usually one of these holding
 /// it, so they are read together.
 const OVERVIEW_COUNT_ROWS: &[(&str, &str)] = &[
     ("Entities", names::RUNTIME_ENTITY_COUNT),
@@ -709,13 +709,13 @@ fn render_overview_tab(
         let fps = metrics
             .gauge_latest(OVERVIEW_FPS_METRIC)
             .map(|f| format!("{f:.0}"))
-            .unwrap_or_else(|| "—".to_string());
+            .unwrap_or_else(|| "-".to_string());
         ui.monospace(format!("FPS {fps}"));
         let distro = metrics.gauge_distro(OVERVIEW_SPARKLINE_METRIC);
         let frame = distro
             .as_ref()
             .map(distro_inline)
-            .unwrap_or_else(|| "—".to_string());
+            .unwrap_or_else(|| "-".to_string());
         let cell = ui.monospace(egui::RichText::new(format!("· frame {frame}")).small());
         if let Some(d) = &distro {
             cell.on_hover_text(distro_hover(d));
@@ -725,7 +725,7 @@ fn render_overview_tab(
 
     ui.separator();
 
-    // Live counts — a compact grid; the badge is keyed on the row's own metric
+    // Live counts - a compact grid; the badge is keyed on the row's own metric
     // via the shared METRIC_RULE_TABLE (C-6).
     egui::Grid::new("diag-overview-counts")
         .num_columns(3)
@@ -736,7 +736,7 @@ fn render_overview_tab(
                 let v = metrics
                     .gauge_latest(name)
                     .map(|n| format!("{n:.0}"))
-                    .unwrap_or_else(|| "—".to_string());
+                    .unwrap_or_else(|| "-".to_string());
                 ui.monospace(v);
                 anomaly_badge(ui, invariants, name);
                 ui.end_row();
@@ -754,7 +754,7 @@ fn render_overview_tab(
 ///
 /// #837 moved the full five-stat line out of the health cards because it was
 /// too wide for the panel's 280 pt slot, and left the Overview's copy of it
-/// alone — so the landing screen printed the line the cards had just given up,
+/// alone - so the landing screen printed the line the cards had just given up,
 /// and the two surfaces disagreed about how a distribution is shown. One
 /// function now, called by both (#1273 f183).
 fn distro_inline(d: &Distro) -> String {
@@ -770,20 +770,20 @@ fn distro_hover(d: &Distro) -> String {
 }
 
 /// One subsystem health card: a titled `egui::Frame` wrapping a 3-column grid of
-/// `(label, value, anomaly badge)` rows. `rows` is `(label, value, metric_id)` —
+/// `(label, value, anomaly badge)` rows. `rows` is `(label, value, metric_id)` -
 /// the metric id keys the badge via [`METRIC_RULE_TABLE`] (C-6); a metric with no
 /// mapped rule simply draws no dot.
 /// What the native wireframe toggle does, and that it is a debug view
 /// (#1274 f191). It is a persistent GLOBAL render mode reachable only from
-/// one tab of one panel, and nothing outside that checkbox reflected it — a
+/// one tab of one panel, and nothing outside that checkbox reflected it - a
 /// user who ticked it to see what it did was left with a world drawn in wire
 /// and no indication of why.
 #[cfg(not(target_arch = "wasm32"))]
-const WIREFRAME_HINT: &str = "Draw every surface as wire — a render-debug view. Untick to go back to \
+const WIREFRAME_HINT: &str = "Draw every surface as wire - a render-debug view. Untick to go back to \
      normal. Nothing else changes, and it stays on until you untick it.";
 
 /// The memory row's label and metric, cfg-split at the source they are
-/// scraped from — the native process RSS and the wasm linear-memory size are
+/// scraped from - the native process RSS and the wasm linear-memory size are
 /// different numbers with different meanings, so they are different gauges.
 #[cfg(not(target_arch = "wasm32"))]
 const MEMORY_ROW_LABEL: &str = "Process memory";
@@ -795,7 +795,7 @@ const MEMORY_ROW_LABEL: &str = "Browser memory";
 const MEMORY_ROW_METRIC: &str = names::RUNTIME_MEMORY_WASM_BYTES;
 
 /// The texture-slot row's label. The platform qualifier that used to be
-/// appended to the VALUE — and was the whole information content of it —
+/// appended to the VALUE - and was the whole information content of it -
 /// moves to [`row_note`] (#1273 f189).
 const SLOT_ROW_LABEL: &str = "Texture slots";
 
@@ -812,7 +812,7 @@ fn row_note(metric: &str) -> Option<&'static str> {
                          the ground stops drawing its layers.";
     #[cfg(not(target_arch = "wasm32"))]
     const SLOTS: &str = "How many texture slots the ground material uses. WebGPU \
-                         has no fixed ceiling, so this is a size, not a budget — \
+                         has no fixed ceiling, so this is a size, not a budget - \
                          it is the browser build that has 16.";
     #[cfg(target_arch = "wasm32")]
     const MEMORY: &str = "How much memory this browser tab holds. It never goes \
@@ -864,7 +864,7 @@ fn health_card(
                 .show(ui, |ui| {
                     for (label, value, metric) in rows {
                         ui.label(*label);
-                        // Histogram rows render p50/p90 inline (#837 — the
+                        // Histogram rows render p50/p90 inline (#837 - the
                         // full five-stat line wrapped in the 280px window);
                         // min/max/mean/n move to the hover.
                         let cell = ui.monospace(value.as_str());
@@ -883,7 +883,7 @@ fn health_card(
 
 /// One health card: a title and its `(label, value, metric id)` rows.
 ///
-/// Data, not drawing — [`health_cards`] builds the whole tab and
+/// Data, not drawing - [`health_cards`] builds the whole tab and
 /// [`render_health_tab`] paints it. That split is what lets
 /// `metric_rows_and_rules_line_up` walk every row of every tab and check it
 /// against [`METRIC_RULE_TABLE`], so a mapped metric can no longer end up with
@@ -905,22 +905,22 @@ fn health_cards(tab: DiagTab, metrics: &MetricsRegistry) -> Vec<Card> {
         metrics
             .gauge_latest(name)
             .map(|v| format!("{v:.0}"))
-            .unwrap_or_else(|| "—".to_string())
+            .unwrap_or_else(|| "-".to_string())
     };
     let c = |name: &str| metrics.counter_value(name).to_string();
-    // Histograms: p50/p90 inline (#837) — the five-stat line wrapped in
+    // Histograms: p50/p90 inline (#837) - the five-stat line wrapped in
     // the 280px window; health_card hangs min/max/mean/n on the hover.
     let h = |name: &str| {
         metrics
             .hist_distro(name)
             .map(|d| distro_inline(&d))
-            .unwrap_or_else(|| "—".to_string())
+            .unwrap_or_else(|| "-".to_string())
     };
     let bytes = |name: &str| {
         metrics
             .gauge_latest(name)
             .map(fmt_bytes)
-            .unwrap_or_else(|| "—".to_string())
+            .unwrap_or_else(|| "-".to_string())
     };
 
     match tab {
@@ -988,7 +988,7 @@ fn health_cards(tab: DiagTab, metrics: &MetricsRegistry) -> Vec<Card> {
                     ),
                 ],
             ),
-            // The 100 KiB soft budget had no readout anywhere (#1272 f188) —
+            // The 100 KiB soft budget had no readout anywhere (#1272 f188) -
             // the one number that decides whether a Save will be refused.
             (
                 "Saved sizes",
@@ -1020,7 +1020,7 @@ fn health_cards(tab: DiagTab, metrics: &MetricsRegistry) -> Vec<Card> {
             // FIRST card on the tab the anomaly dot routes a link failure to
             // (#1272 f401). Eight signalling gauges were scraped every second
             // and rendered on no screen at all, including the two the live
-            // glare and relay-rejection rules evaluate on — so the panel the
+            // glare and relay-rejection rules evaluate on - so the panel the
             // app points at could not answer the one question it exists for.
             (
                 "Link",
@@ -1047,7 +1047,7 @@ fn health_cards(tab: DiagTab, metrics: &MetricsRegistry) -> Vec<Card> {
                     ),
                     // One row per gauge, not a pair per row. A combined
                     // "sent / answered" cell reads well and leaves the second
-                    // gauge with no metric id of its own — so it carries no
+                    // gauge with no metric id of its own - so it carries no
                     // badge, gets no hover, and the drift guard cannot see it
                     // at all. Four numbers that only mean something as a
                     // sequence are four rows.
@@ -1083,7 +1083,7 @@ fn health_cards(tab: DiagTab, metrics: &MetricsRegistry) -> Vec<Card> {
                 vec![
                     // Cumulative session counters relabeled (#837): the old
                     // "Connected/Disconnected" read as live states. The real
-                    // live headcount is their difference — joins minus
+                    // live headcount is their difference - joins minus
                     // leaves, since every peer entity increments one and
                     // eventually the other. No rule badge: the People
                     // window/toolbar own presence UX; churn badges below.
@@ -1265,7 +1265,7 @@ fn health_cards(tab: DiagTab, metrics: &MetricsRegistry) -> Vec<Card> {
             // native the stains overlay adds one and there is no fixed ceiling).
             // The worker-spawn / msgpack-codec rows from the C-5 brief are not
             // shown: those failures live inside the off-ECS gloo-worker future
-            // and never surface to the registry — see the issue for the blocker.
+            // and never surface to the registry - see the issue for the blocker.
             (
                 "Render",
                 vec![(
@@ -1276,7 +1276,7 @@ fn health_cards(tab: DiagTab, metrics: &MetricsRegistry) -> Vec<Card> {
                         // sentence explaining it is on the hover (#1273 f189).
                         #[cfg(target_arch = "wasm32")]
                         {
-                            if n == "—" { n } else { format!("{n} / 16") }
+                            if n == "-" { n } else { format!("{n} / 16") }
                         }
                         #[cfg(not(target_arch = "wasm32"))]
                         {
@@ -1318,7 +1318,7 @@ fn render_health_tab(
         // it is drawn there rather than at the end of the tab.
         ui.label(
             egui::RichText::new(
-                "Looping voices and contact cues are the live mixing load — \
+                "Looping voices and contact cues are the live mixing load - \
                  the first is ambience and construct hum, the second is \
                  one-shots fired by people touching things. When the \
                  overload badge is lit, muting confirms whether audio is \
@@ -1342,17 +1342,17 @@ fn render_health_tab(
 /// Session-log export controls for the Session tab (Pillar A-8).
 ///
 /// The two platforms expose the *same* NDJSON stream two different ways:
-/// - **native** — the log is already appended to `session-latest.jsonl` on
+/// - **native** - the log is already appended to `session-latest.jsonl` on
 ///   disk, so this shows that read-only path plus a "Copy path" button (so a
 ///   coding agent can be pointed straight at the file). When the sink is
 ///   disabled (`SYMBIOS_DIAG=0` / a bare test app) there is no path, so it
 ///   renders a muted "(session log disabled)" instead.
-/// - **wasm** — there is no filesystem, so the in-memory ring *is* the log; a
+/// - **wasm** - there is no filesystem, so the in-memory ring *is* the log; a
 ///   "Download session log" button hands [`SessionLog::drain_ndjson`] to the
 ///   browser as a byte-for-byte-identical `.jsonl` file the analyzer can read.
 ///
 /// Click outcomes are reported through the app-wide toast channel
-/// ([`crate::notify::Toasts`], #819) — the same feedback surface the
+/// ([`crate::notify::Toasts`], #819) - the same feedback surface the
 /// landmark-link copy uses.
 // Each target uses a different subset of these: native has the log path
 // and its Copy button (`clipboard`), wasm has the two downloads and their
@@ -1404,14 +1404,14 @@ fn render_log_export_controls(
             // hidden anchor; `HtmlAnchorElement::click` reports neither a
             // download-blocker refusal nor the user dismissing the Save
             // dialog, so the past tense asserted an outcome the code has no
-            // way to observe — and it asserted it in the one scenario the
+            // way to observe - and it asserted it in the one scenario the
             // button exists for, a user asked to send a log after a crash,
             // who then reports having sent it. Same honesty as #1141's
             // ClipboardQueue and t05's FetchStatus: describe the thing that
             // was actually done.
             Ok(()) => toasts.info(
                 format!(
-                    "Saving {count} {} as symbios-session-log.jsonl — check your downloads",
+                    "Saving {count} {} as symbios-session-log.jsonl - check your downloads",
                     crate::text::plural(count, "event", "events")
                 ),
                 now,
@@ -1420,7 +1420,7 @@ fn render_log_export_controls(
         }
     }
 
-    // Crash-surviving tail of the *previous* session (#811) — present only
+    // Crash-surviving tail of the *previous* session (#811) - present only
     // when boot recovered one from localStorage; the payload survives even
     // when that session died in an OOM trap before its log could be saved.
     #[cfg(target_arch = "wasm32")]
@@ -1435,7 +1435,7 @@ fn render_log_export_controls(
                     &ndjson,
                 ) {
                     Ok(()) => toasts.info(
-                        "Saving the previous session's tail — check your downloads",
+                        "Saving the previous session's tail - check your downloads",
                         now,
                     ),
                     Err(e) => toasts.error(format!("Download failed ({e})"), now),
@@ -1446,7 +1446,7 @@ fn render_log_export_controls(
     }
 }
 
-/// "Copy Landmark Link" — emits a shareable URL pointing at the WASM
+/// "Copy Landmark Link" - emits a shareable URL pointing at the WASM
 /// build with the local player's current room DID, exact world position,
 /// and yaw in degrees. Visible to visitors as well as owners (any player
 /// in the room can share where they are); returns whether the button was
@@ -1455,15 +1455,15 @@ fn render_log_export_controls(
 /// **The toolbar's account chip is the only call site** (#835). This
 /// comment used to claim the Diagnostics Session tab drew it too; #1274
 /// f192 rewrote that tab around `SessionIdentity` and left the sentence
-/// standing, and #1276 f47's own value refuter is what caught it — the
+/// standing, and #1276 f47's own value refuter is what caught it - the
 /// finding built "so both surfaces are affected" on top of it. Kept as a
 /// function rather than inlined because a shareable-link builder with a
 /// disabled state and a clipboard side-effect is not toolbar code.
 ///
 /// The disabled hover is the point of #1276 f47: egui shows `on_hover_text`
 /// only for an ENABLED response, so a button greyed out because
-/// `LocalPlayer` is momentarily absent — during spawn, and across a
-/// locomotion hot-swap — said nothing at all. `on_disabled_hover_text` is
+/// `LocalPlayer` is momentarily absent - during spawn, and across a
+/// locomotion hot-swap - said nothing at all. `on_disabled_hover_text` is
 /// the idiom this file's caller already uses correctly for the visitor's
 /// World Editor button (`toolbar.rs`).
 pub(crate) fn landmark_link_button(
@@ -1476,13 +1476,13 @@ pub(crate) fn landmark_link_button(
         .add_enabled(player_tf.is_some(), egui::Button::new("Copy Landmark Link"))
         .on_hover_text("Copy a link that drops a visitor exactly where you are standing")
         .on_disabled_hover_text(
-            "Available once your avatar has finished appearing — the link \
+            "Available once your avatar has finished appearing - the link \
              records where you are standing.",
         )
         .clicked();
     if clicked && let Some(tf) = player_tf {
         // Every locomotion preset writes its yaw into the chassis
-        // transform itself — the humanoid walk controller slerps the
+        // transform itself - the humanoid walk controller slerps the
         // chassis rotation toward the movement direction (the rigid-body
         // solver keeps the capsule axis-aligned via `LockedAxes`), and
         // the vehicle presets are torque-driven so their chassis rotation
@@ -1497,18 +1497,18 @@ pub(crate) fn landmark_link_button(
 /// What the Session tab says about THIS session: the build it is running and
 /// the two ids a support conversation asks for (#1274 f192).
 ///
-/// Every one of these facts was already in the log — the boot `StartupSnapshot`
-/// line formats "startup Boot: v… (…) … — did:…" and the Session tab renders
+/// Every one of these facts was already in the log - the boot `StartupSnapshot`
+/// line formats "startup Boot: v… (…) … - did:…" and the Session tab renders
 /// it. But as ONE transient unlabelled monospace row that falls out of the
 /// 200-entry tail (and out of the 4096-event wasm ring), on the tab whose own
 /// module doc calls it "the honest remainder after the account chip took
-/// identity" — the remainder kept other people's identities and dropped the
+/// identity" - the remainder kept other people's identities and dropped the
 /// user's own, which is the one a support conversation needs. Not a second
 /// identity surface: the account chip owns who you ARE, this says what you are
 /// RUNNING.
 pub(crate) struct SessionIdentity {
     pub build: crate::diagnostics::snapshot::BuildInfo,
-    /// Wall-clock ms of the session's first record — the id the on-disk
+    /// Wall-clock ms of the session's first record - the id the on-disk
     /// filename and the analyzer header both key on.
     pub session_start_wall_ms: Option<u64>,
     pub world_did: Option<String>,
@@ -1584,11 +1584,11 @@ pub(crate) struct PeerRow {
 ///
 /// Without it the log's height is *whatever is left*, so on a short viewport
 /// it collapses to nothing and the enclosing `ScrollArea` has nothing to
-/// scroll — the content fits by shrinking the one part of it that matters.
+/// scroll - the content fits by shrinking the one part of it that matters.
 /// With a floor the content honestly overflows and the scrollbar appears.
 const SESSION_LOG_MIN_HEIGHT: f32 = 80.0;
 
-/// The Session tab (#837) — the honest remainder after the account chip (#835)
+/// The Session tab (#837) - the honest remainder after the account chip (#835)
 /// absorbed identity / logout / Copy Landmark Link: render-debug toggles, log
 /// export, a demoted debug roster, and the event log.
 ///
@@ -1629,7 +1629,7 @@ fn render_session_tab(
     ui.separator();
 
     // Demoted duplicate of the People roster (#837): People owns
-    // presence and mutes; this fold is for debugging — DIDs with a
+    // presence and mutes; this fold is for debugging - DIDs with a
     // copy button, collapsed by default and scroll-capped so it can
     // no longer squeeze the event log off-screen.
     egui::CollapsingHeader::new(format!("Peers (debug) ({})", peers.len())).show(ui, |ui| {
@@ -1645,7 +1645,7 @@ fn render_session_tab(
                             // A mute set two windows over is reflected here
                             // (#1274 f192). The roster read only the handle
                             // and the DID, so somebody the user had muted
-                            // appeared identical to everyone else — a list
+                            // appeared identical to everyone else - a list
                             // quietly contradicting a decision they made.
                             let handle = if peer.muted {
                                 format!("@{} (muted)", peer.handle)
@@ -1687,7 +1687,7 @@ fn render_session_tab(
     // The VISIBLE entries, resolved to indices first (#1274 f178).
     //
     // `show_rows` addresses rows by number, and the loop below used to skip
-    // the periodic metric snapshots as it went — so row N was not entry N and
+    // the periodic metric snapshots as it went - so row N was not entry N and
     // the virtualiser could not be wrapped around it directly. Materialising
     // the kept indices costs one `Vec<usize>` over a 200-entry tail and makes
     // rows and entries the same thing.
@@ -1695,7 +1695,7 @@ fn render_session_tab(
         .iter()
         .enumerate()
         .filter(|(_, ev)| {
-            // Periodic metric snapshots are file/analyzer-only telemetry —
+            // Periodic metric snapshots are file/analyzer-only telemetry -
             // keep them out of the human event log.
             !matches!(
                 ev.payload,
@@ -1791,7 +1791,7 @@ pub fn diagnostics_ui(
     // Guarded-dirty (#879) for the wireframe toggle too (#1274 f177): a
     // `&mut` through the `ResMut` marks `WireframeConfig` changed on every
     // frame the tab is open, and Bevy re-runs `wireframe_config_changed`
-    // — and re-uploads the global material — on each of them.
+    // - and re-uploads the global material - on each of them.
     #[cfg(not(target_arch = "wasm32"))]
     let mut wireframe_on = wireframe.global;
     let identity = on_session_tab.then(|| SessionIdentity {
@@ -1803,7 +1803,7 @@ pub fn diagnostics_ui(
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Diagnostics, ctx);
     // Guarded-dirty (#879): `.open(&mut panels.diagnostics)` through the
     // `ResMut` would mark UiPanels changed every frame, starving the
-    // prefs save debounce — local copy in, write back only on close.
+    // prefs save debounce - local copy in, write back only on close.
     let mut open = panels.diagnostics;
     let response = egui::Window::new("Diagnostics")
         .open(&mut open)
@@ -1820,7 +1820,7 @@ pub fn diagnostics_ui(
             // ~36 characters plus their padding come to roughly 310 pt
             // against the ~266 pt of content this window's 280 pt slot
             // gives, so the row forced the window ~50 pt wider than the
-            // layout computed for it on its first open — and the badge
+            // layout computed for it on its first open - and the badge
             // suffixes and a raised UI scale each widen it further.
             // Wrapping folds to two rows instead of pushing the window,
             // and survives both.
@@ -1839,7 +1839,7 @@ pub fn diagnostics_ui(
             });
             ui.separator();
 
-            // Anomaly badges (D-6) — shown on every tab so the live invariant
+            // Anomaly badges (D-6) - shown on every tab so the live invariant
             // state (Critical banner + violated-rule list) is never hidden
             // behind an un-built health tab.
             let mut export = LogExportDeps {
@@ -1886,7 +1886,7 @@ pub fn diagnostics_ui(
             }
 
             // The Session tab body, wrapped in the ScrollArea the other
-            // four tabs have had since #837 (#1273 f181) — it was the one
+            // four tabs have had since #837 (#1273 f181) - it was the one
             // tab with no way to reach content past the window's bottom
             // edge on a viewport too short to grow into.
             egui::ScrollArea::vertical()
@@ -1986,7 +1986,7 @@ mod tests {
         }
 
         // Healthy path (the "✓ No active anomalies" branch). Offered the
-        // export deps and still expected not to draw them — the controls
+        // export deps and still expected not to draw them - the controls
         // hang off the Critical banner, not off the section (#1272 f175).
         render_once(&default_registry(), false);
         render_once(&default_registry(), true);
@@ -2052,7 +2052,7 @@ mod tests {
     }
 
     /// Headless egui frame: the Overview tab renders both empty (every reader
-    /// returns None/0 → "—", blank sparkline) and populated without panicking.
+    /// returns None/0 → "-", blank sparkline) and populated without panicking.
     #[test]
     fn overview_tab_renders_empty_and_populated_without_panicking() {
         fn render_once(m: &MetricsRegistry, reg: &InvariantRegistry) {
@@ -2064,10 +2064,10 @@ mod tests {
             });
         }
 
-        // Empty registry — the all-"—" path.
+        // Empty registry - the all-"-" path.
         render_once(&MetricsRegistry::default(), &default_registry());
 
-        // Populated — frame-time ring + counts + memory readout.
+        // Populated - frame-time ring + counts + memory readout.
         let mut m = MetricsRegistry::default();
         for v in [16.0, 20.0, 18.0, 22.0, 17.0].iter() {
             m.observe_gauge(names::RUNTIME_FRAME_TIME_MS, *v);
@@ -2088,7 +2088,7 @@ mod tests {
     /// moves the world's tick between the run and the read. Reading
     /// `is_changed()` after an `App::update()` instead would report false
     /// either way, because `update` moves the last-change tick past the
-    /// stamp first — a test that passes on the code it exists to refuse.
+    /// stamp first - a test that passes on the code it exists to refuse.
     fn stamps(system: fn(ResMut<crate::audio_mute::AudioMuted>)) -> bool {
         use bevy::ecs::system::RunSystemOnce;
         let mut world = World::new();
@@ -2098,8 +2098,8 @@ mod tests {
         world.is_resource_changed::<crate::audio_mute::AudioMuted>()
     }
 
-    /// Draw the real Offload tab — the one health tab carrying the Audio
-    /// card, and so the mute button — into a headless frame.
+    /// Draw the real Offload tab - the one health tab carrying the Audio
+    /// card, and so the mute button - into a headless frame.
     fn draw_offload_tab(muted: &mut bool) {
         let ctx = egui::Context::default();
         let _ = ctx.run_ui(egui::RawInput::default(), |root| {
@@ -2127,7 +2127,7 @@ mod tests {
     ///
     /// The control is the shape that shipped: the same real draw reached
     /// through the `ResMut` rather than through `lend_mute`. It stamps even
-    /// though nobody clicked, which is the defect stated as a test — and it
+    /// though nobody clicked, which is the defect stated as a test - and it
     /// is why `render_health_tab` now takes `&mut bool`, so the unguarded
     /// shape no longer type-checks at that call site.
     #[test]
@@ -2166,7 +2166,7 @@ mod tests {
         }
 
         let tabs = [DiagTab::Runtime, DiagTab::Network, DiagTab::Offload];
-        // Empty registry — every row shows "—" / 0.
+        // Empty registry - every row shows "-" / 0.
         for tab in tabs {
             render_once(tab, &MetricsRegistry::default(), &default_registry());
         }
@@ -2192,7 +2192,7 @@ mod tests {
             vec![("runtime.terrain_collider_missing", Watch::Live)]
         );
         // One row, two rules: the wasm heap has a Warn and a Critical. Only
-        // on the browser build — the native memory row is process RSS, which
+        // on the browser build - the native memory row is process RSS, which
         // no rule watches.
         #[cfg(target_arch = "wasm32")]
         assert_eq!(
@@ -2219,14 +2219,14 @@ mod tests {
         out
     }
 
-    /// #1272 f173 + f188. The three things that had drifted apart — the rule
-    /// set, the metric→rule table, and the rows that actually draw — pinned
+    /// #1272 f173 + f188. The three things that had drifted apart - the rule
+    /// set, the metric→rule table, and the rows that actually draw - pinned
     /// to each other in one place.
     ///
     /// Before this, five of fourteen mapped rows carried a dot that could
     /// never light (four replay-only rules and one gated to `Loading`, a
     /// state this panel never runs in), and the metrics the two live network
-    /// rules evaluate on had no row on any tab — so the Network tab the
+    /// rules evaluate on had no row on any tab - so the Network tab the
     /// anomaly dot routes a link failure to said nothing about the link.
     #[test]
     fn metric_rows_and_rules_line_up() {
@@ -2338,7 +2338,7 @@ mod tests {
     /// return a constant while every assertion built on it passed:
     ///
     /// * It draws into a CHILD `Ui` with an explicit `max_rect`, not into the
-    ///   `CentralPanel`'s own — a panel's `min_rect` is the panel, whatever is
+    ///   `CentralPanel`'s own - a panel's `min_rect` is the panel, whatever is
     ///   drawn in it, so the obvious version returned the viewport height for
     ///   every input.
     /// * `body` is `FnMut` and runs on EVERY pass. A `FnOnce` taken with
@@ -2393,7 +2393,7 @@ mod tests {
 
     /// #1274 f178. The log lays out only the rows on screen.
     ///
-    /// Counted, not timed — there is no wall-clock harness in this repo and a
+    /// Counted, not timed - there is no wall-clock harness in this repo and a
     /// timing assertion on ~400 small allocations would be flaky
     /// (t11's method). The pair is the point: the same tail, drawn the old
     /// way and the new way, into the same viewport.
@@ -2409,7 +2409,7 @@ mod tests {
                     reason: format!("row {i}"),
                 },
             );
-            // Every other entry is a metric snapshot, which the log skips —
+            // Every other entry is a metric snapshot, which the log skips -
             // this is the reason `show_rows` could not wrap the old loop
             // directly, so the fixture has to contain them.
             log.record(
@@ -2596,7 +2596,7 @@ mod tests {
 
     /// #1273 f181. The Session tab was the one tab with no scroll area,
     /// and the reason it "fitted" was that the event log's height is
-    /// whatever is left — so on a short viewport the log shrank to nothing
+    /// whatever is left - so on a short viewport the log shrank to nothing
     /// and the content reported that it fitted. A floor makes the overflow
     /// honest, which is what gives the enclosing `ScrollArea` something to
     /// scroll.
@@ -2690,7 +2690,7 @@ mod tests {
         }
 
         // A column too narrow for five tabs on one line. The control is
-        // the un-wrapped row, which reports MORE than it was given — and
+        // the un-wrapped row, which reports MORE than it was given - and
         // that overflow is what `Resize` adds to the window every frame.
         let narrow = 120.0;
         assert!(

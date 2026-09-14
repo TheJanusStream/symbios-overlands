@@ -1,8 +1,8 @@
-//! Owner Spore Bloom — the Alien-Organic identity monument (#975).
+//! Owner Spore Bloom - the Alien-Organic identity monument (#975).
 //!
 //! A grown thing rather than a built one: a chitinous stalk rises from a
 //! fleshy mound and opens into a membrane bract, and the room owner's likeness
-//! is held in the bract the way a spore print is — with biolume veins running
+//! is held in the bract the way a spore print is - with biolume veins running
 //! up the stalk and two sacs pulsing at its foot.
 //!
 //! The theme's monument is the one that most has to survive a blank panel,
@@ -57,7 +57,7 @@ impl CatalogueEntry for AlienOrganicMonument {
 }
 
 fn build_tree(did: &str) -> Generator {
-    // Fleshy mound — the root, and flat-based, so nothing above inherits a
+    // Fleshy mound - the root, and flat-based, so nothing above inherits a
     // tilt from it.
     let mound = prim_scaled(
         solid(superellipsoid([1.7, 0.55, 1.2], 0.7, 0.7, flesh(FLESH_RED))),
@@ -92,7 +92,7 @@ fn bract(did: &str) -> Vec<Generator> {
     let z = -0.36;
     let rim = 0.15;
     let mut out = vec![
-        // Membrane backing — the panel is single-sided, and a bract is a
+        // Membrane backing - the panel is single-sided, and a bract is a
         // closed sheath from behind.
         prim(
             solid(cuboid_tapered(
@@ -111,7 +111,7 @@ fn bract(did: &str) -> Vec<Generator> {
             id_quat(),
         ),
     ];
-    // Chitin rim around the bract — four ribs, leaning outward like a calyx
+    // Chitin rim around the bract - four ribs, leaning outward like a calyx
     // rather than sitting square, which is what stops it reading as a frame.
     for sx in [-1.0_f32, 1.0] {
         out.push(prim(
@@ -153,7 +153,7 @@ fn bract(did: &str) -> Vec<Generator> {
     out
 }
 
-/// A pulsing sac at the mound's edge — the theme's signature, and the reason
+/// A pulsing sac at the mound's edge - the theme's signature, and the reason
 /// the monument reads as grown rather than assembled.
 fn sac(x: f32, r: f32) -> Generator {
     let body = prim_scaled(

@@ -1,4 +1,4 @@
-//! Scrap heap — an Industrial-Park *poor* prop. A tangle of cast-off steel:
+//! Scrap heap - an Industrial-Park *poor* prop. A tangle of cast-off steel:
 //! rusted I-beams, a bundle of rebar, a crushed drum, a coil of cable and an
 //! old tyre, torn sheet metal, piled at the yard's edge.
 
@@ -52,7 +52,7 @@ impl CatalogueEntry for ScrapHeap {
     }
 }
 
-/// A rusted I-beam — bottom flange, web, top flange — as a rigid subtree so it
+/// A rusted I-beam - bottom flange, web, top flange - as a rigid subtree so it
 /// tumbles as one piece at `rot`.
 fn i_beam(pos: [f32; 3], rot: Fp4, len: f32, color: [f32; 3]) -> Generator {
     let mut b = prim(
@@ -71,7 +71,7 @@ fn i_beam(pos: [f32; 3], rot: Fp4, len: f32, color: [f32; 3]) -> Generator {
 }
 
 fn build_tree() -> Generator {
-    // Scuffed, oil-stained dirt patch under the pile — the flat id_quat root
+    // Scuffed, oil-stained dirt patch under the pile - the flat id_quat root
     // (the heap used to root on a yawed I-beam, which spun the whole tangle
     // into its frame).
     let mut prims = vec![prim(

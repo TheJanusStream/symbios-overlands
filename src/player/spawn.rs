@@ -113,14 +113,14 @@ pub(super) fn spawn_local_player(
 /// `Position` → `Transform` writeback) entirely inside `FixedPostUpdate`
 /// at the 64 Hz fixed timestep, so without easing the chassis `Transform`
 /// holds still on tick-less render frames and the own avatar judders at
-/// the fixed-vs-refresh beat (~4 Hz on a 60 Hz display) — remote avatars
+/// the fixed-vs-refresh beat (~4 Hz on a 60 Hz display) - remote avatars
 /// don't, because the network smoother repositions them every render
 /// frame (#670). The easing writes the smoothed pose in
 /// `RunFixedMainLoop`, before `Update`, so per-frame readers such as the
 /// camera follow see it, while `FixedUpdate` systems (drive controllers,
 /// transform broadcast) still read true tick poses. Transform writes
-/// outside the fixed schedules — portal teleports, the terrain-hot-load
-/// lift — are detected as teleports and snap for that timestep, which is
+/// outside the fixed schedules - portal teleports, the terrain-hot-load
+/// lift - are detected as teleports and snap for that timestep, which is
 /// the wanted shape.
 fn chassis_root_bundle(transform: Transform) -> impl Bundle {
     (
@@ -142,7 +142,7 @@ mod tests {
     /// without `TransformInterpolation` visibly steps against the render
     /// rate. `#[require]` on the component chains in the per-axis easing
     /// components, so spawning the bundle in a bare `World` (no plugins)
-    /// proves the whole easing state machinery lands on the entity — a
+    /// proves the whole easing state machinery lands on the entity - a
     /// regression that drops the component from `chassis_root_bundle`
     /// (the exact bundle `spawn_local_player` uses) fails here.
     #[test]

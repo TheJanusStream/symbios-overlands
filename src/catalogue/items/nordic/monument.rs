@@ -1,4 +1,4 @@
-//! Owner Rune-Stone — the Nordic identity monument (#975).
+//! Owner Rune-Stone - the Nordic identity monument (#975).
 //!
 //! A raised standing stone on a packed cairn: the room owner's portrait is set
 //! into the face inside a carved timber knotwork border, with two smaller
@@ -21,7 +21,7 @@ use super::{
 
 // The slab is `rough_stone` rather than dressed `stone`: a raised memorial is
 // a split boulder, not masonry, and the rougher surface is also the paler of
-// the two — which matters because the border, the field and a blank panel are
+// the two - which matters because the border, the field and a blank panel are
 // all dark, and the whole monument was reading as one unlit mass.
 
 const PANEL: f32 = 1.7;
@@ -57,7 +57,7 @@ impl CatalogueEntry for NordicMonument {
 }
 
 fn build_tree(did: &str) -> Generator {
-    // Packed cairn — the root, flat, so the leaning guardian stones above
+    // Packed cairn - the root, flat, so the leaning guardian stones above
     // cannot spin anything.
     let cairn = prim(
         solid(cuboid_tapered(
@@ -69,7 +69,7 @@ fn build_tree(did: &str) -> Generator {
         id_quat(),
     );
 
-    // The stone itself: wide, slightly tapered, with a rounded shoulder — the
+    // The stone itself: wide, slightly tapered, with a rounded shoulder - the
     // silhouette that says rune-stone rather than slab.
     let slab = prim(
         solid(cuboid_tapered(
@@ -96,7 +96,7 @@ fn face(did: &str) -> Vec<Generator> {
     let z = -0.24;
     let bar = 0.18;
     let mut out = vec![
-        // Sunk field — the backing the portrait is carved into, and what
+        // Sunk field - the backing the portrait is carved into, and what
         // stops the stone being see-through from behind.
         prim(
             solid(cuboid_tapered(
@@ -115,7 +115,7 @@ fn face(did: &str) -> Vec<Generator> {
             id_quat(),
         ),
     ];
-    // Knotwork border — four carved timber bars around the field.
+    // Knotwork border - four carved timber bars around the field.
     for sx in [-1.0_f32, 1.0] {
         out.push(prim(
             solid(cuboid_tapered(
@@ -151,7 +151,7 @@ fn guardian(x: f32, lean: f32) -> Generator {
     )
 }
 
-/// Iron fire-bowl on a tripod at the stone's foot — for the granite, which
+/// Iron fire-bowl on a tripod at the stone's foot - for the granite, which
 /// goes flat at dusk; the portrait is unlit and reads on its own.
 fn fire_bowl() -> Generator {
     let legs = prim(

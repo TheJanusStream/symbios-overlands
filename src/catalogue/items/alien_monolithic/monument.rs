@@ -1,4 +1,4 @@
-//! Owner Glyph Slab — the Alien-Monolithic identity monument (#975).
+//! Owner Glyph Slab - the Alien-Monolithic identity monument (#975).
 //!
 //! A black obsidian slab standing on a dead-stone dais, the room owner's
 //! likeness inset behind a cyan glyph frame, with a column of violet glyphs
@@ -57,7 +57,7 @@ fn build_tree(did: &str) -> Generator {
         [0.0, 0.18, 0.0],
         id_quat(),
     );
-    // The slab. Perfectly plain — the theme's whole grammar is unmarked mass
+    // The slab. Perfectly plain - the theme's whole grammar is unmarked mass
     // plus light, so any moulding here would read as the wrong civilisation.
     let slab = prim(
         solid(cuboid_tapered([2.6, 5.4, 0.5], 0.03, obsidian(OBSIDIAN))),
@@ -84,7 +84,7 @@ fn inset(did: &str) -> Vec<Generator> {
     let z = -0.31;
     let fr = 0.09;
     let mut out = vec![
-        // Recessed field — the backing the single-sided panel needs, and what
+        // Recessed field - the backing the single-sided panel needs, and what
         // makes the likeness read as *inside* the slab.
         prim(
             solid(cuboid_tapered(
@@ -103,7 +103,7 @@ fn inset(did: &str) -> Vec<Generator> {
             id_quat(),
         ),
     ];
-    // Cyan glyph frame — thin strips, so the light is an edge rather than a
+    // Cyan glyph frame - thin strips, so the light is an edge rather than a
     // wash. The likeness is unlit and reads on its own; this is what makes the
     // obsidian legible at all after dark.
     for sx in [-1.0_f32, 1.0] {
@@ -135,7 +135,7 @@ fn inset(did: &str) -> Vec<Generator> {
     out
 }
 
-/// A smaller slab canted beside the main one — the theme's habit of leaving a
+/// A smaller slab canted beside the main one - the theme's habit of leaving a
 /// second stone at an angle nothing explains. Tilted, and a leaf, so the
 /// rotation carries nothing.
 fn counter_slab(x: f32) -> Generator {

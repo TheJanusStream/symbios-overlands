@@ -1,4 +1,4 @@
-//! Recovery: put the local player back on solid ground — automatically
+//! Recovery: put the local player back on solid ground - automatically
 //! when they fall through the terrain, go non-finite, or leave the world,
 //! and on demand when they ask (#1240 f159), with the respawn metric +
 //! typed timeline event.
@@ -21,7 +21,7 @@ use super::random_spawn_xz;
 /// Windowed respawn count at which the teleport escalates to a full
 /// physics-body rebuild (#867). One or two catches are ordinary falls;
 /// three inside [`RESPAWN_WINDOW_SECS`](crate::diagnostics::anomaly) is
-/// the thrash signature — the teleport is not sticking, so position
+/// the thrash signature - the teleport is not sticking, so position
 /// writes alone won't recover.
 const BODY_REBUILD_AFTER_RESPAWNS: u32 = 3;
 
@@ -36,7 +36,7 @@ pub enum RecoveryReason {
     /// [`cfg::WORLD_EDGE_MARGIN`] (#1240 f169). The heightmap sample is
     /// CLAMPED into the extent, so out past the edge the ground reference
     /// is the boundary height and an aircraft cruising above it satisfies
-    /// no fall test — the world simply ended, and the only documented way
+    /// no fall test - the world simply ended, and the only documented way
     /// back was to dive into the void until the fall test fired.
     LeftTheWorld,
     /// The owner asked (#1240 f159).
@@ -49,8 +49,8 @@ impl RecoveryReason {
     /// the world" is a confusing thing to read after flying level.
     pub fn toast(self) -> &'static str {
         match self {
-            Self::NonFinite | Self::FellThrough => "Returned to spawn — you fell out of the world.",
-            Self::LeftTheWorld => "Returned to spawn — you left the world behind you.",
+            Self::NonFinite | Self::FellThrough => "Returned to spawn - you fell out of the world.",
+            Self::LeftTheWorld => "Returned to spawn - you left the world behind you.",
             Self::Requested => "Returned to spawn.",
         }
     }
@@ -60,7 +60,7 @@ impl RecoveryReason {
     ///
     /// The reason is deliberately dropped from the escalated sentence.
     /// After three catches in the window the interesting fact is no longer
-    /// which test fired — the player already read that twice — it is that
+    /// which test fired - the player already read that twice - it is that
     /// the app has stopped merely teleporting and is doing something
     /// about it. Coalescing (`Toasts::push`) means the ordinary sentence
     /// is sitting on screen wearing a `×2` when this replaces it, so the
@@ -68,7 +68,7 @@ impl RecoveryReason {
     pub fn escalated_toast(self) -> &'static str {
         match self {
             Self::NonFinite | Self::FellThrough | Self::LeftTheWorld => {
-                "Returned to spawn — this keeps happening, so your body is \
+                "Returned to spawn - this keeps happening, so your body is \
                  being rebuilt."
             }
             // Unreachable: a requested reset never escalates
@@ -87,7 +87,7 @@ impl RecoveryReason {
     }
 }
 
-/// Which automatic recovery, if any, this body needs — pure, so the three
+/// Which automatic recovery, if any, this body needs - pure, so the three
 /// boundaries are testable without a physics world.
 ///
 /// Order matters: the non-finite check comes FIRST (#867) because once a
@@ -145,13 +145,13 @@ pub struct RecoveryPose {
 /// places: the room's default landing when configured, otherwise the
 /// legacy random scatter.
 ///
-/// Not pure in the scatter case — `random_spawn_xz` walks a
+/// Not pure in the scatter case - `random_spawn_xz` walks a
 /// process-global counter, which is the historical behaviour and is what
 /// stops two players stacking on one point. With a landing configured it
 /// is a pure function of the record and the heightmap.
 ///
 /// The (x, z) is clamped into the terrain extent so a landing aimed
-/// outside the heightmap (possible in a hand-edited record — sanitize
+/// outside the heightmap (possible in a hand-edited record - sanitize
 /// only bounds magnitude) can't strand the player on an endless
 /// fall-respawn-fall loop over the void. An explicit landing height is
 /// honoured (sky-platform landings) but floored at ground level, because
@@ -194,13 +194,13 @@ pub fn recovery_pose(
 /// f148).
 ///
 /// Two requests, one resource and one system, because they are the same
-/// write with different destinations — and neither may escalate the way
+/// write with different destinations - and neither may escalate the way
 /// the fall path does.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum PlayerMove {
     /// Put me back on solid ground (#1240 f159). Being unable to move is
     /// the most total failure a 3D world has, and before this the only
-    /// recovery was `respawn_if_fallen` — which fires only 20 m BELOW
+    /// recovery was `respawn_if_fallen` - which fires only 20 m BELOW
     /// local ground, so geometry that traps you *above* the terrain (a
     /// construct collider, a crevasse, a settlement wall) never satisfied
     /// it, and the exit was logging out.
@@ -208,11 +208,11 @@ pub enum PlayerMove {
     /// Take me to the thing I have selected in the editor (#1244 f148).
     /// A tree-row click attaches the gizmo to whichever live instance is
     /// nearest the CAMERA, which for a distant or behind-the-camera asset
-    /// is still arbitrarily far away — so half the time selecting from
+    /// is still arbitrarily far away - so half the time selecting from
     /// the tree produced no visible result, and the owner could not tell
     /// "nothing was selected" from "the thing is 200 m behind me". The
-    /// camera cannot be aimed independently — `follow_local_player` pins
-    /// `target_focus` to the chassis every frame — so GOING there is what
+    /// camera cannot be aimed independently - `follow_local_player` pins
+    /// `target_focus` to the chassis every frame - so GOING there is what
     /// "bring it into view" means in this world.
     GoTo(Vec3),
 }
@@ -265,7 +265,7 @@ pub fn go_to_pose(centre: Vec3, radius: f32, from: Vec3) -> Vec3 {
 
 /// Perform a requested move. A plain position write: no
 /// `NeedsLocomotionRebuild`, and it does not feed the respawn-thrashing
-/// window — a player who resets three times in a minute has been lost
+/// window - a player who resets three times in a minute has been lost
 /// three times, not corrupted.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply_player_move(
@@ -311,7 +311,7 @@ pub(super) fn apply_player_move(
         }
         PlayerMove::GoTo(target) => {
             // Put down ON the ground beside it, whatever height the object
-            // itself sits at — an editor selection can be a sky platform.
+            // itself sits at - an editor selection can be a sky platform.
             let mut at = target;
             at.y = hm_res.world_height_at(at.x, at.z) + cfg::SPAWN_HEIGHT_OFFSET;
             (at, "Moved to your selection.")
@@ -397,7 +397,7 @@ pub(super) fn respawn_if_fallen(
     // and this used to be re-derived thirty lines apart.
     let escalating =
         reason.may_escalate() && (non_finite || respawns_recent >= BODY_REBUILD_AFTER_RESPAWNS);
-    // The teleport used to be silent (#842) — one instant the player is
+    // The teleport used to be silent (#842) - one instant the player is
     // falling, the next they are somewhere else with no explanation. And
     // until #1277 f23 it said the same non-actionable sentence on every
     // respawn of a fall loop, six times over, while the app was quietly
@@ -410,7 +410,7 @@ pub(super) fn respawn_if_fallen(
         },
         now,
     );
-    // Typed event (#635d) — the metric counts respawns, this records each one's
+    // Typed event (#635d) - the metric counts respawns, this records each one's
     // fall depth vs. the terrain height it dropped through, for the timeline.
     // Sentinel-clamped (#868): during the #867 meltdown these fields went
     // NaN and serde_json wrote them as `null`, breaking the NDJSON schema
@@ -426,8 +426,8 @@ pub(super) fn respawn_if_fallen(
     // matter how many times Position is rewritten (the meltdown fell
     // ~10× deeper per frame across 1,489 respawns), and a non-finite
     // body never integrates back to sanity. Strip + rebuild the whole
-    // physics body via the locomotion hot-swap machinery — fresh
-    // collider, fresh contact pairs — so the world is recoverable
+    // physics body via the locomotion hot-swap machinery - fresh
+    // collider, fresh contact pairs - so the world is recoverable
     // without a restart. Deferred automatically while the visuals-edit
     // freeze parks the chassis (the rebuild system's
     // `Without<VisualsEditFreeze>` gate), though a parked body cannot
@@ -451,7 +451,7 @@ mod tests {
     use super::*;
 
     /// #1240 f169. Sequence: fly the airship out over the sea until the
-    /// ground ends. The fall test cannot fire out there — the heightmap
+    /// ground ends. The fall test cannot fire out there - the heightmap
     /// sample is CLAMPED into the extent, so the ground reference past the
     /// edge is the boundary height and an aircraft cruising above it
     /// satisfies nothing. Recovery required descending into the void until
@@ -469,7 +469,7 @@ mod tests {
             automatic_recovery(true, Vec3::new(10.0, 5.0, -10.0), 4.0, half),
             None
         );
-        // The margin is a band, not a hard wall at the extent — a hull
+        // The margin is a band, not a hard wall at the extent - a hull
         // nosing over the boundary is still in the world.
         assert_eq!(
             automatic_recovery(true, Vec3::new(half + 1.0, 5.0, 0.0), 4.0, half),
@@ -511,7 +511,7 @@ mod tests {
 
     /// #1240 f169. Sequence: drive the hover-boat across the map edge.
     /// Buoyancy used to return outright the instant the hull passed the
-    /// extent — all lift gone, no cue, the boat sinks. The band must reach
+    /// extent - all lift gone, no cue, the boat sinks. The band must reach
     /// zero no sooner than the margin at which the player is recovered, or
     /// the silent sinking is merely postponed.
     #[test]
@@ -538,7 +538,7 @@ mod tests {
     }
 
     /// #1244 f148. Sequence: click a region asset in the tree; the panel
-    /// shows its properties and the gizmo attaches — to whichever live
+    /// shows its properties and the gizmo attaches - to whichever live
     /// instance is nearest the CAMERA, which for a distant or
     /// behind-the-camera asset is still arbitrarily far away. Half the
     /// time selecting from the tree produced no visible result, and the
@@ -611,7 +611,7 @@ mod tests {
     /// The escalation needed no new state: `respawn_if_fallen` already
     /// computed `count_recent` and compared it to
     /// `BODY_REBUILD_AFTER_RESPAWNS` two lines from the toast. What this
-    /// pins is that the message and the rebuild share ONE decision — they
+    /// pins is that the message and the rebuild share ONE decision - they
     /// were re-derived thirty lines apart, which is how a message ends up
     /// describing something the code stopped doing.
     #[test]
@@ -637,7 +637,7 @@ mod tests {
     }
 
     /// The window the escalated wording keys on is the window the rebuild
-    /// keys on (#1277 f23) — the third automatic respawn inside it.
+    /// keys on (#1277 f23) - the third automatic respawn inside it.
     ///
     /// Over `RecentRespawns` itself rather than over a remembered number,
     /// so widening the thrash window moves both together.

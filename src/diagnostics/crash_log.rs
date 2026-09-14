@@ -1,4 +1,4 @@
-//! Crash-surviving session-log tail (wasm) — #811.
+//! Crash-surviving session-log tail (wasm) - #811.
 //!
 //! The wasm session log lives only in the in-memory ring; a hard crash (the
 //! 4 GiB OOM trap that motivated this) kills the tab before the "Download
@@ -6,19 +6,19 @@
 //! the crash dies with it. This module persists the ring's NDJSON tail to
 //! `localStorage` every few seconds; on the next boot the previous session's
 //! tail is moved aside and offered in the Diagnostics panel as
-//! "Download previous session log" — a byte-compatible `.jsonl` the offline
+//! "Download previous session log" - a byte-compatible `.jsonl` the offline
 //! analyzer reads like any other capture.
 //!
 //! Since #1145 the tail is also the wasm capture's **terminal record**. Every
 //! recovered tail used to end without a `SessionEnd`, so the analyzer printed
-//! `exit: — no SessionEnd record (crash or truncated log)` for a perfectly
+//! `exit: - no SessionEnd record (crash or truncated log)` for a perfectly
 //! normal tab close, a Rust panic's location never reached the capture at all
 //! (`console_error_panic_hook` prints to the console and nothing else), and
-//! the final ≤5 s — the events nearest the fault — were always lost to the
+//! the final ≤5 s - the events nearest the fault - were always lost to the
 //! timer. A panic hook and a `pagehide` listener now append a marker and
 //! flush synchronously, so the three exits read apart: a panic reason means a
 //! Rust panic, `pagehide` means the tab was closed, and no marker at all
-//! means neither hook got to run — an OOM trap or a browser kill.
+//! means neither hook got to run - an OOM trap or a browser kill.
 //!
 //! Native has a real file sink (`session-latest.jsonl`), so everything here
 //! except the pure tail-truncation helper is wasm-gated.
@@ -36,7 +36,7 @@ const MAX_PERSIST_BYTES: usize = 1_500_000;
 ///
 /// On native the snapshot goes to a single overwrite slot, so the drip cannot
 /// evict the pre-crash events the dump exists to preserve (#633). Wasm has no
-/// file sink, so the snapshot goes into this tail like everything else — and a
+/// file sink, so the snapshot goes into this tail like everything else - and a
 /// snapshot line is not small: it carries every series in the registry
 /// (~69 of them), so it is kilobytes, once a second. Against one shared budget
 /// it wins: within a few minutes the recovered tail is almost entirely vitals
@@ -45,14 +45,14 @@ const MAX_PERSIST_BYTES: usize = 1_500_000;
 ///
 /// Two budgets rather than one, each evicting oldest-first inside itself, so
 /// neither class can starve the other. The split is asymmetric because the two
-/// classes are: real events are sparse — a whole 5-minute session's NDJSON was
-/// ~300 KB *including* the drip — so 900 KB of them is more history than an
+/// classes are: real events are sparse - a whole 5-minute session's NDJSON was
+/// ~300 KB *including* the drip - so 900 KB of them is more history than an
 /// observed session produces, while the vitals are a fixed rate and every byte
 /// they get is more of the climb.
 ///
 /// A fixed budget still holds only the most recent minutes of the series. A
 /// long climb would want the older samples thinned rather than dropped, which
-/// is a different design (and #1190) — this one guarantees that both halves of
+/// is a different design (and #1190) - this one guarantees that both halves of
 /// the evidence are present, which is what was actually missing.
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 const SNAPSHOT_BUDGET_BYTES: usize = 600_000;
@@ -70,7 +70,7 @@ const CURRENT_KEY: &str = "symbios.diag.session_tail";
 const PREVIOUS_KEY: &str = "symbios.diag.session_tail.prev";
 
 /// The session's rolling NDJSON tail: one serialized event per entry, held in
-/// two independently-evicting queues — real events and metric snapshots — so
+/// two independently-evicting queues - real events and metric snapshots - so
 /// the high-frequency class cannot consume the other's bytes (#1180).
 ///
 /// Each entry carries its `seq` because the two queues evict at different
@@ -101,7 +101,7 @@ impl Tail {
         }
     }
 
-    /// Append one real event — anything that is not the 1 Hz metric snapshot,
+    /// Append one real event - anything that is not the 1 Hz metric snapshot,
     /// the terminal marker included.
     fn push_event(&mut self, seq: u64, line: &str) {
         Self::push_bounded(
@@ -144,7 +144,7 @@ impl Tail {
         }
     }
 
-    /// The two queues merged back into one seq-ordered NDJSON document — the
+    /// The two queues merged back into one seq-ordered NDJSON document - the
     /// order the offline analyzer reads, and the order the events actually
     /// happened in.
     fn ndjson(&self) -> String {
@@ -210,13 +210,13 @@ const SHOW_ERROR_FN: &str = "__overlandsShowError";
 /// intra-doc link to it does not resolve on native), and the copy is
 /// the whole point of showing it. The graphics arm is separate because it
 /// is the one fatal panic an ordinary visitor can actually do something
-/// about — "reload and hope" is wrong advice for a machine that will fail
+/// about - "reload and hope" is wrong advice for a machine that will fail
 /// the same way every time.
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 fn fatal_card_copy(reason: &str) -> (&'static str, &'static str) {
     /// Needles matched against the lowercased panic reason. The reason
     /// carries `panic at <file>:<line>: <msg>`, so a panic raised *inside*
-    /// wgpu's adapter code matches on its path as well as its message —
+    /// wgpu's adapter code matches on its path as well as its message -
     /// which is the right answer either way.
     const GRAPHICS: &[&str] = &[
         "adapter",
@@ -262,8 +262,8 @@ mod wasm {
         ///
         /// Serialized once at write time rather than rebuilt from the ring on
         /// every persist. That is what makes the tail reachable from a panic
-        /// hook and a `pagehide` listener at all — neither can touch a Bevy
-        /// `Resource` — and it is also why the ≤5 s the timer used to lose is
+        /// hook and a `pagehide` listener at all - neither can touch a Bevy
+        /// `Resource` - and it is also why the ≤5 s the timer used to lose is
         /// no longer lost: the marker is appended to a tail that is already
         /// current. (Not rebuilding an O(ring) `String` every 5 s is #1136's
         /// concern; whether metric snapshots belong in the tail at all was
@@ -302,7 +302,7 @@ mod wasm {
 
     /// Append a terminal `SessionEnd` marker to the tail and flush it.
     ///
-    /// `seq` says which hook wrote it — the whole point is that the reader can
+    /// `seq` says which hook wrote it - the whole point is that the reader can
     /// tell a panic from a tab close from neither. Best effort throughout: an
     /// OOM trap will skip this entirely, and that absence is itself the third
     /// discriminator.
@@ -370,8 +370,8 @@ mod wasm {
     /// Bevy returns from `init()` as soon as the app is spawned, so the
     /// page's promise-rejection path has already resolved by the time a
     /// renderer, asset or system panic kills the instance: the rAF loop
-    /// stops and the tab keeps showing the last frame — or the bare
-    /// background — with no message at all. That is what makes an
+    /// stops and the tab keeps showing the last frame - or the bare
+    /// background - with no message at all. That is what makes an
     /// unsupported machine indistinguishable from a broken site, and why
     /// the bug reports say "nothing happens".
     ///
@@ -400,7 +400,7 @@ mod wasm {
     }
 
     /// Startup: park the last session's persisted tail under [`PREVIOUS_KEY`]
-    /// (whether that session crashed or simply closed — the last session is
+    /// (whether that session crashed or simply closed - the last session is
     /// always recoverable) and clear the way for this session's writer.
     pub fn recover_previous_session_log() {
         let Some(store) = storage() else {
@@ -412,7 +412,7 @@ mod wasm {
         if !tail.is_empty() && store.set_item(PREVIOUS_KEY, &tail).is_ok() {
             PREVIOUS_BYTES.with(|b| b.set(tail.len()));
             info!(
-                "previous session log recovered ({} bytes) — Diagnostics → \
+                "previous session log recovered ({} bytes) - Diagnostics → \
                  'Download previous session log'",
                 tail.len()
             );
@@ -421,7 +421,7 @@ mod wasm {
     }
 
     /// Update (timer-gated): persist the ring's NDJSON tail. On a quota error
-    /// the system disarms for the rest of the session — a persistently full
+    /// the system disarms for the rest of the session - a persistently full
     /// origin store would otherwise warn every tick.
     pub fn persist_session_tail(mut disarmed: Local<bool>) {
         if *disarmed {
@@ -475,7 +475,7 @@ mod tests {
     }
 
     /// #1145. The tail is serialized once at write time so a panic hook and a
-    /// `pagehide` listener — neither of which can touch a Bevy `Resource` —
+    /// `pagehide` listener - neither of which can touch a Bevy `Resource` -
     /// have something current to append a terminal marker to. It has to stay
     /// bounded on its own, because nothing rebuilds it from the ring any more.
     #[test]
@@ -494,7 +494,7 @@ mod tests {
         );
         assert!(
             nd.lines().all(|l| l == line),
-            "every surviving entry is a whole line — the cut is never mid-event"
+            "every surviving entry is a whole line - the cut is never mid-event"
         );
     }
 
@@ -510,8 +510,8 @@ mod tests {
     }
 
     /// #1180. Sequence: a browser session runs long enough for the 1 Hz vitals
-    /// drip to fill the tail — minutes, not hours, because a snapshot line
-    /// carries every series in the registry — and then dies. Against one
+    /// drip to fill the tail - minutes, not hours, because a snapshot line
+    /// carries every series in the registry - and then dies. Against one
     /// shared budget the recovered capture is almost entirely vitals: the
     /// events around the fault have been evicted by the instrument that was
     /// watching for the fault, and the terminal marker is the only real line
@@ -526,7 +526,7 @@ mod tests {
         let mut tail = Tail::new();
 
         // The event that explains the fault, recorded early and never
-        // repeated — the worst case for an oldest-first eviction.
+        // repeated - the worst case for an oldest-first eviction.
         let fault = line_of("event", 0, 200);
         tail.push_event(0, &fault);
 
@@ -644,8 +644,8 @@ mod tests {
     }
 
     /// THE SEQUENCE (#1228 f4): a visitor arrives from the README link on a
-    /// machine with no usable GPU. `init()` has already resolved — Bevy
-    /// returns from it the moment the app is spawned — so the page's
+    /// machine with no usable GPU. `init()` has already resolved - Bevy
+    /// returns from it the moment the app is spawned - so the page's
     /// rejection path never fires, and the adapter panic that follows used
     /// to leave a dead canvas. The card now comes up from the panic hook,
     /// and the one fatal panic a visitor can act on has to say so rather
@@ -679,7 +679,7 @@ mod tests {
 
     /// The Rust half of #1228 f4 is a `Reflect::get` by name against a page
     /// this crate does not compile, so nothing but this test connects the
-    /// two. A rename or a deleted element on either side fails silently —
+    /// two. A rename or a deleted element on either side fails silently -
     /// the lookup misses, the call is dropped, and the tab is back to a
     /// dead canvas with no message, which is the exact defect.
     #[test]
@@ -698,13 +698,13 @@ mod tests {
 
     /// THE SEQUENCE (#1228 f13): hotel wifi drops mid-download. `reader
     /// .read()` never resolves and never rejects, so the byte counter
-    /// freezes, `init()`'s promise stays pending, and the error card — the
-    /// only thing on the page with a Reload button — is never reached.
+    /// freezes, `init()`'s promise stays pending, and the error card - the
+    /// only thing on the page with a Reload button - is never reached.
     /// #850's progress text turned a silent wait into a visibly stuck one.
     ///
     /// The escape hatch lives inside `#loading`, which is
     /// `pointer-events: none` precisely so it can never swallow a click
-    /// meant for the canvas — so the action row has to opt back in, or the
+    /// meant for the canvas - so the action row has to opt back in, or the
     /// button renders and cannot be pressed.
     #[test]
     fn a_stalled_download_has_a_reload_button_that_can_actually_be_clicked() {

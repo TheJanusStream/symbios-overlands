@@ -34,7 +34,7 @@ pub(super) fn smooth_remote_transforms(
             tf.rotation = rotation;
             smoothed_any = true;
             // The first pose is what makes a peer drawable at all (#1217
-            // f329) — before it, the chassis is still at its spawn pose,
+            // f329) - before it, the chassis is still at its spawn pose,
             // the map centre ten metres up, and `sync_mute_visibility`
             // (which runs immediately after this) keeps it hidden. Guarded
             // so a peer standing still does not flag the component every

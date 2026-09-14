@@ -1,5 +1,5 @@
 //! Sports / Recreation "bring-it-to-life" helpers: a faint dust drifting
-//! over the pitch, and two spatial-audio patches — a swelling crowd murmur
+//! over the pitch, and two spatial-audio patches - a swelling crowd murmur
 //! for the stadium bowl and a low tannoy hum for the scoreboard.
 //!
 //! Particle emitters are returned as [`Generator`] nodes (a
@@ -25,7 +25,7 @@ use crate::pds::{
 // Particle emitters
 // ---------------------------------------------------------------------------
 
-/// A faint drift of pale dust over the pitch — chalk and grit lifted off the
+/// A faint drift of pale dust over the pitch - chalk and grit lifted off the
 /// field on the breeze.
 pub(super) fn field_dust(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -58,7 +58,7 @@ pub(super) fn field_dust(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A swelling crowd murmur — vocal-band noise rising and falling on a slow
+/// A swelling crowd murmur - vocal-band noise rising and falling on a slow
 /// LFO, the breathing hubbub of a full stand.
 pub(super) fn crowd_murmur() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.6 }));
@@ -101,7 +101,7 @@ pub(super) fn crowd_murmur() -> SovereignAudioConfig {
     patch(vec![noise, bp, lfo, murmur, mix], NodeId(4))
 }
 
-/// A low tannoy hum — a mains tone under a lowpassed hiss, the idle PA at
+/// A low tannoy hum - a mains tone under a lowpassed hiss, the idle PA at
 /// the scoreboard.
 pub(super) fn tannoy_hum() -> SovereignAudioConfig {
     let hum = node(

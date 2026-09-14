@@ -1,4 +1,4 @@
-//! Bike rack — a Civic/Campus prop. A ground rail of steel inverted-U
+//! Bike rack - a Civic/Campus prop. A ground rail of steel inverted-U
 //! hoops. Scatter clutter outside the halls and the library.
 //!
 //! Each hoop is a torus stood upright by a single
@@ -50,7 +50,7 @@ impl CatalogueEntry for BikeRack {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Steel ground rail — the root.
+        // Steel ground rail - the root.
         prim(
             solid(cuboid_tapered([3.0, 0.1, 0.15], 0.0, steel(STEEL_GREY))),
             [0.0, 0.05, 0.0],

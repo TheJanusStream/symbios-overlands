@@ -1,4 +1,4 @@
-//! Adobe hut — the Mesoamerican *poor* landmark. A commoner's house: low
+//! Adobe hut - the Mesoamerican *poor* landmark. A commoner's house: low
 //! mud-brick walls under a steep palm-thatch roof, hearth smoke seeping from
 //! the ridge. The humble counterpart to the [`step_pyramid`](super::step_pyramid):
 //! same theme, opposite end of the prosperity axis (`Poor`), so a destitute
@@ -58,7 +58,7 @@ fn build_tree() -> Generator {
     let roof_h = 2.8;
 
     let mut prims = vec![
-        // Stone footing — the root.
+        // Stone footing - the root.
         prim(
             solid(cuboid_tapered(
                 [l + 0.6, foot_h, w + 0.6],

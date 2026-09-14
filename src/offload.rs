@@ -1,7 +1,7 @@
 //! Platform-routed CPU-generation offload.
 //!
 //! [`offload`] takes a self-contained [`GenJob`] and returns a
-//! `bevy::tasks::Task<GenResult>` that the caller polls each frame — the same
+//! `bevy::tasks::Task<GenResult>` that the caller polls each frame - the same
 //! API on every target. On **native** the job runs on the multithreaded
 //! `AsyncComputeTaskPool` (Bevy's async-executor task pool), giving real
 //! parallelism off the main schedule.
@@ -9,15 +9,15 @@
 //! On **wasm** Bevy's task pools collapse to a single cooperative thread, so a
 //! job run inline would stall the render frame. Instead the wasm backend
 //! dispatches the job to a **pooled** Web Worker (the `gen_worker` crate,
-//! spawned via `gloo-worker` and kept warm between jobs — see the `worker`
-//! submodule for the pool, #802), which runs it on a real worker thread —
+//! spawned via `gloo-worker` and kept warm between jobs - see the `worker`
+//! submodule for the pool, #802), which runs it on a real worker thread -
 //! matching native's off-the-frame progressive loading. The worker links only
 //! the Bevy-free [`gen_jobs`] crate, never the engine.
 //!
 //! **It is no longer small.** Adding `GenJob::AvatarBuild` (#1061) linked the
 //! whole avatar engine into it: measured at 839 KB gzipped (3.9 MB raw)
 //! against ~16 KB before. That is one lazy fetch, cached, and it buys the
-//! browser build the only off-main-thread body build available to it — but it
+//! browser build the only off-main-thread body build available to it - but it
 //! is a real boot cost for a session that never renders a rigged avatar, and
 //! splitting the roster across two worker artifacts is filed as #1063.
 //!
@@ -27,8 +27,8 @@
 //! the same SOURCE. That used to be written here as a guarantee of
 //! byte-identical results, and it was not one: the same source compiled for
 //! `x86_64-unknown-linux-gnu` and for `wasm32-unknown-unknown` links different
-//! implementations of `f32::sin`, `cos`, `powf` and `exp` — glibc's and
-//! `compiler-builtins`', respectively — and Rust documents those results as
+//! implementations of `f32::sin`, `cos`, `powf` and `exp` - glibc's and
+//! `compiler-builtins`', respectively - and Rust documents those results as
 //! platform-dependent. A native owner and a browser guest could therefore
 //! derive measurably different terrain from one record, which is the opposite
 //! of what a thin client relying on this is entitled to assume.
@@ -40,12 +40,12 @@
 //! so it is already identical everywhere.
 //!
 //! The claim this file may now make is: **same source, same arithmetic, same
-//! bits — on any target.** What is verified rather than argued is the
+//! bits - on any target.** What is verified rather than argued is the
 //! `symbios-ground` half, whose `tests/determinism.rs` pins a bake and a splat
 //! scoring against committed hashes and was checked to move when the call
 //! sites revert. No gate in this repo executes a wasm32 test binary, so the
 //! browser side of the equality rests on `libm` being pure Rust, not on a
-//! measurement — and [`crate::world_digest`] exists so that a real pair of
+//! measurement - and [`crate::world_digest`] exists so that a real pair of
 //! peers can settle it in the field.
 
 use bevy::tasks::Task;
@@ -102,7 +102,7 @@ mod worker;
 /// `spawn_local` future that only completes when the worker replies, and
 /// `spawn_worker` has no error path at all: a 404 or a CSP refusal on
 /// `./gen-worker.js`, or a worker-side OOM, simply never resolves. Nothing
-/// observed that — `OffloadJobStarted` had no emit site anywhere in the crate,
+/// observed that - `OffloadJobStarted` had no emit site anywhere in the crate,
 /// so even the offline replay rule that exists for this
 /// (`offload.task_never_resolves`) had nothing to fold.
 ///
@@ -116,8 +116,8 @@ mod worker;
 /// [`Census`](census::Census) is an ordinary handle: `Census::new()` makes a
 /// ledger that nobody else can see, and [`Census::global`](census::Census::global)
 /// hands out the one instance
-/// [`offload`] writes to. `offload` has no `World` to hang a ledger on — the
-/// same constraint that shapes [`crate::diagnostics::panic`] — so the
+/// [`offload`] writes to. `offload` has no `World` to hang a ledger on - the
+/// same constraint that shapes [`crate::diagnostics::panic`] - so the
 /// dispatch side must reach for a process-wide instance, but nothing else
 /// has to.
 ///
@@ -128,7 +128,7 @@ mod worker;
 /// [`Ticket`](census::Ticket) retires on whichever pool thread its job
 /// finishes on; a
 /// `DiagnosticsPlugin` app updating anywhere in the process drains the whole
-/// transition list. Under `cargo nextest` — process per test — none of that is
+/// transition list. Under `cargo nextest` - process per test - none of that is
 /// visible; under `cargo test`, which CI runs, it is one process and the
 /// census tests were intermittently red on entries they never created.
 ///
@@ -146,7 +146,7 @@ pub mod census {
 
     use super::GenJob;
 
-    /// A short, stable name per job kind — the string that appears in
+    /// A short, stable name per job kind - the string that appears in
     /// `OffloadJobStarted { job }` and in the watchdog's message. Deliberately
     /// coarse: the census answers "is something stuck", and per-instance
     /// identity is the `id` beside it.
@@ -188,8 +188,8 @@ pub mod census {
 
     /// A handle to one ledger of in-flight jobs.
     ///
-    /// Cloning shares the ledger — [`Census::global`] is exactly a clone of
-    /// the process-wide handle — so a clone is a second view of one census,
+    /// Cloning shares the ledger - [`Census::global`] is exactly a clone of
+    /// the process-wide handle - so a clone is a second view of one census,
     /// never a copy of it. Two censuses are two `Census::new()`s.
     ///
     /// It is a `Resource` so the Bevy sampler can be told which ledger to
@@ -281,12 +281,12 @@ pub mod census {
     ///
     /// A guard rather than an explicit `finish()` call because the job's future
     /// has two endings, not one: it completes, or the caller drops the `Task`
-    /// and cancels it. Only a `Drop` covers both — and a cancelled job left in
+    /// and cancels it. Only a `Drop` covers both - and a cancelled job left in
     /// the ledger would have the watchdog reporting a stall that nobody is
     /// waiting on.
     ///
     /// It carries its own census handle because it retires wherever the job
-    /// ended — on native that is whichever `AsyncComputeTaskPool` thread ran
+    /// ended - on native that is whichever `AsyncComputeTaskPool` thread ran
     /// it, long after the dispatching frame.
     pub struct Ticket {
         census: Census,
@@ -319,7 +319,7 @@ mod determinism_goldens {
     //!
     //! ## Why a golden and not a round-trip
     //!
-    //! A round-trip test — derive twice, assert equal — passes on every build
+    //! A round-trip test - derive twice, assert equal - passes on every build
     //! in existence, because each build agrees with itself. The failure this
     //! guards is two DIFFERENT builds disagreeing, and the only way to test
     //! that from one of them is to compare against a number the other one
@@ -329,14 +329,14 @@ mod determinism_goldens {
     //!
     //! They prove the derivation is pinned: reverting a call site from `libm`
     //! back to the `f32` method moves the hash and fails the assertion. That
-    //! was verified by doing it, not assumed — see the sibling
+    //! was verified by doing it, not assumed - see the sibling
     //! `symbios-ground/tests/determinism.rs`, whose bake parameters had to be
     //! chosen deliberately, because glibc and `libm` agree on most inputs and
     //! disagree on roughly one in ten.
     //!
     //! They do NOT prove a wasm32 build computes the same numbers: no gate in
     //! this repo executes a wasm test binary. The argument that it does is the
-    //! `libm` crate's own — pure Rust, no platform dispatch, the same
+    //! `libm` crate's own - pure Rust, no platform dispatch, the same
     //! operations in the same order everywhere. These constants are what make
     //! that argument settleable rather than merely plausible, and
     //! [`crate::world_digest`] is how a real pair of peers settles it in a
@@ -347,7 +347,7 @@ mod determinism_goldens {
 
     /// Hash raw `f32` bits, NOT [`crate::world_digest::heightmap_digest`].
     ///
-    /// The world digest is quantised to a millimetre on purpose — it reports
+    /// The world digest is quantised to a millimetre on purpose - it reports
     /// divergence a player could see and stays quiet about last-bit noise,
     /// which is what makes it usable as a live cross-peer instrument. That is
     /// exactly the wrong sensitivity here: this module's claim is bit-identity,
@@ -390,7 +390,7 @@ mod determinism_goldens {
     /// identical everywhere) and the erosion kernel's `exp` arguments are a
     /// small set of `-(dx²+dz²)/r` on which glibc and `libm` happen to agree.
     /// Measured: [`GOLDEN_DEFAULT_HEIGHTMAP`] did NOT move when `symbios-ground`
-    /// 0.3.2 rerouted those calls — which is real news for existing regions
+    /// 0.3.2 rerouted those calls - which is real news for existing regions
     /// (their ground did not shift) and useless as a regression guard.
     ///
     /// Diamond-Square's per-octave amplitude is `powf(0.5, 1.5 - roughness)`,
@@ -413,14 +413,14 @@ mod determinism_goldens {
     ///
     /// A failure means the seeded terrain moved. Sometimes that is intended (a
     /// generator changed, or `symbios-ground` cut a release that shifts
-    /// output) — in which case re-take this constant DELIBERATELY and say so,
+    /// output) - in which case re-take this constant DELIBERATELY and say so,
     /// because every existing region's ground just changed shape. Sometimes it
     /// means a transcendental went back to an `f32` method, which is the
     /// regression this exists to catch.
     const GOLDEN_DEFAULT_HEIGHTMAP: u64 = 17_463_291_289_401_008_650;
 
     /// Raw-bit hash of [`divergence_sensitive_bake`]. This is the constant with
-    /// teeth — see that function for why the default config has none.
+    /// teeth - see that function for why the default config has none.
     ///
     /// Verified rather than assumed: resolving `symbios-ground` back to 0.3.1
     /// (the release before it routed its transcendentals through `libm`) makes
@@ -433,7 +433,7 @@ mod determinism_goldens {
         assert_eq!(
             hash_bits(&default_bake()),
             GOLDEN_DEFAULT_HEIGHTMAP,
-            "the default seeded heightmap moved — read this module's docs before re-cutting"
+            "the default seeded heightmap moved - read this module's docs before re-cutting"
         );
     }
 
@@ -443,7 +443,7 @@ mod determinism_goldens {
             hash_bits(&divergence_sensitive_bake()),
             GOLDEN_SENSITIVE_HEIGHTMAP,
             "the seeded heightmap moved at parameters that reach a transcendental \
-             where implementations disagree — this is the regression the default \
+             where implementations disagree - this is the regression the default \
              bake above cannot see"
         );
     }
@@ -487,7 +487,7 @@ mod determinism_goldens {
         assert_eq!(
             cutoff.to_bits(),
             GOLDEN_SLOPE_CUTOFF_BITS,
-            "the slope cutoff moved: {cutoff} — every borderline scatter sample \
+            "the slope cutoff moved: {cutoff} - every borderline scatter sample \
              either side of this value changes its answer"
         );
     }

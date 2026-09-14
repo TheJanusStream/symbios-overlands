@@ -1,4 +1,4 @@
-//! Living Gateway — the Solarpunk bespoke social gateway (#767), the themed
+//! Living Gateway - the Solarpunk bespoke social gateway (#767), the themed
 //! replacement for the neutral placeholder arch. Two vine-wrapped timber
 //! columns rise from planted urns, spanned by a heavy beam crowned with a
 //! living turf roof and a pair of sun-catching PV panels; a warm radiant sun
@@ -6,7 +6,7 @@
 //! through. Birdsong and drifting pollen make the whole gate breathe.
 //!
 //! The only functional element is the single [`GeneratorKind::Gateway`] zone
-//! centred in the opening — walking into it opens the destination picker of
+//! centred in the opening - walking into it opens the destination picker of
 //! the room owner's mutual follows. Everything else is eco-quarter
 //! set-dressing framing that opening so it reads as a threshold you grow
 //! through.
@@ -70,7 +70,7 @@ fn build_tree() -> Generator {
     let lintel_top = post_top + lintel_h; // 4.4
     let panel_z = -(lintel_d * 0.5 + 0.03); // hero-front face of the beam
 
-    // Eco-concrete forecourt slab — the FLAT-BASE ROOT (never tilt a root:
+    // Eco-concrete forecourt slab - the FLAT-BASE ROOT (never tilt a root:
     // every child would spin with it).
     let mut prims = vec![prim(
         solid(cuboid_tapered(
@@ -98,14 +98,14 @@ fn build_tree() -> Generator {
             [x, slab_top + post_h * 0.5, 0.0],
             id_quat(),
         ));
-        // Climbing vine — a foliage helix wrapping the post from foot to head
+        // Climbing vine - a foliage helix wrapping the post from foot to head
         // (decorative, so no collider). 3.4 turns over ~3 m of rise.
         prims.push(prim(
             helix(0.42, 0.07, 0.9, 3.4, 16, foliage(LEAF_GREEN)),
             [x, slab_top + post_h * 0.5, 0.0],
             id_quat(),
         ));
-        // Planted urn at the column foot, spilling leafy greens — the gate
+        // Planted urn at the column foot, spilling leafy greens - the gate
         // flanked by growing beds.
         prims.push(prim(
             solid(cuboid_tapered([0.8, 0.5, 0.8], 0.0, timber(TIMBER_WARM))),
@@ -122,7 +122,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Heavy timber lintel bridging the column heads — the span.
+    // Heavy timber lintel bridging the column heads - the span.
     prims.push(prim(
         solid(cuboid_tapered(
             [4.6, lintel_h, lintel_d],
@@ -133,7 +133,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Living turf roof crowning the span — a matte green soil strip planted
+    // Living turf roof crowning the span - a matte green soil strip planted
     // with a row of leafy crops, the eco-quarter's green-roof signature.
     prims.push(prim(
         solid(cuboid_tapered([4.2, 0.22, 0.62], 0.0, foliage(MOSS_GREEN))),
@@ -149,7 +149,7 @@ fn build_tree() -> Generator {
         foliage(CROP_GREEN),
     ));
     // A pair of sun-catching PV panels riding the crown ends, tilted to the
-    // sky — the clean-energy half of the theme's identity.
+    // sky - the clean-energy half of the theme's identity.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
             solid(cuboid_tapered([0.7, 0.05, 0.55], 0.0, pv(PV_BLUE))),
@@ -158,7 +158,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Hero emblem on the −Z front of the lintel: a warm radiant sun — a glowing
+    // Hero emblem on the −Z front of the lintel: a warm radiant sun - a glowing
     // disc inside a ring, ringed by eight short rays. The ring and rays are
     // thin trim so they run hot without blooming white; the broad disc face
     // stays low so it reads as warm-lit, not a white blank.
@@ -227,7 +227,7 @@ mod tests {
         assert_sanitize_stable(&SolarpunkGateway.build(""), "solarpunk_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is set-dressing, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

@@ -1,4 +1,4 @@
-//! Notice board — a Civic/Campus prop. A green pin-board panel under a small
+//! Notice board - a Civic/Campus prop. A green pin-board panel under a small
 //! gabled roof on two posts, papered with notices. Scatter clutter along the
 //! quad paths.
 
@@ -44,7 +44,7 @@ impl CatalogueEntry for NoticeBoard {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Left post — the root.
+        // Left post - the root.
         prim(
             solid(cuboid_tapered([0.1, 2.0, 0.1], 0.0, steel(STEEL_GREY))),
             [-0.9, 1.0, 0.0],

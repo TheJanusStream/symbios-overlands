@@ -1,4 +1,4 @@
-//! Market stall — a counter under a striped awning, goods on display. An
+//! Market stall - a counter under a striped awning, goods on display. An
 //! escalation-Calm scatter prop: open-air commerce signals a peaceful,
 //! trading settlement in any setting.
 
@@ -78,7 +78,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Striped awning — a red field with a cream half overlaid, sloping down
+    // Striped awning - a red field with a cream half overlaid, sloping down
     // toward the front so it shades the goods.
     prims.push(prim(
         solid(cuboid_tapered([1.9, 0.07, 1.3], 0.0, cloth(CANVAS_RED))),
@@ -146,7 +146,7 @@ fn build_tree() -> Generator {
     super::assemble(prims)
 }
 
-/// The valance backing strip — a long cream cloth band.
+/// The valance backing strip - a long cream cloth band.
 fn cloth_strip() -> crate::pds::GeneratorKind {
     cuboid_tapered([1.9, 0.16, 0.03], 0.0, cloth(CANVAS_CREAM))
 }

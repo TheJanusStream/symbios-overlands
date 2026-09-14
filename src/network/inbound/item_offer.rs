@@ -5,7 +5,7 @@
 //! screen and, if accepted, into the owner's stash. Between the wire and the
 //! dialog sit: the relay's DID binding, the mute list, the inventory cap,
 //! the busy-gate (one dialog at a time, #843/#1220 f288) and
-//! `pds::inventory::is_drop_placeable` — the rule that decides whether a
+//! `pds::inventory::is_drop_placeable` - the rule that decides whether a
 //! stranger's generator is safe to place at all.
 
 use bevy::prelude::*;
@@ -53,7 +53,7 @@ pub(super) fn handle(
     }
 
     // Authenticate the sender's DID against the relay-signed
-    // PeerSessionMap — same defence the Identity handler uses.
+    // PeerSessionMap - same defence the Identity handler uses.
     // A `None` lookup means the peer connected before its
     // session bound; defer by dropping the message (the sender
     // can retry).
@@ -67,7 +67,7 @@ pub(super) fn handle(
 
     // Silent auto-decline for muted senders. The sender still
     // gets a response so their UI clears the pending state, but
-    // no dialog is shown and no diagnostics entry is written —
+    // no dialog is shown and no diagnostics entry is written -
     // muted senders should be invisible by design.
     let peer_lookup = peers.iter().find(|(_, peer, _, _)| peer.peer_id == sender);
     let sender_muted = peer_lookup
@@ -75,7 +75,7 @@ pub(super) fn handle(
         .map(|(_, peer, _, _)| peer.muted)
         .unwrap_or(false);
     // The ONE ladder (#1218 f299): a handle if the profile
-    // fetch has landed, the DID's head otherwise — and never the
+    // fetch has landed, the DID's head otherwise - and never the
     // DID dressed up as a name.
     let sender_label = PeerLabel::new(
         peer_lookup
@@ -110,8 +110,8 @@ pub(super) fn handle(
     // to auto-decline is work nobody asked for. The envelope
     // carries everything those two gates need.
     //
-    // A malformed payload — or an Unknown generator variant
-    // — is a protocol error: auto-decline and log.
+    // A malformed payload - or an Unknown generator variant
+    // - is a protocol error: auto-decline and log.
     let Some(payload) = OverlandsMessage::decode_item_offer(&payload_json) else {
         out.to(
             sender,
@@ -179,7 +179,7 @@ pub(super) fn handle(
         );
         session_log.info(now, EventPayload::ItemOfferAutoDeclinedBusy { offer_id });
         crate::diagnostics::samplers::offer_auto_declined_busy(metrics);
-        // Counted for the dialog's closing note (#843) — the
+        // Counted for the dialog's closing note (#843) - the
         // decline itself stays invisible until then, preserving
         // the single-dialog anti-spam invariant.
         bufs.busy_declines.0 = bufs.busy_declines.0.saturating_add(1);
@@ -189,7 +189,7 @@ pub(super) fn handle(
     crate::pds::sanitize_generator(&mut generator);
     // Wear metadata (#1108) through the same clamp the inventory
     // and attachment records share. A `wear` the payload could
-    // not read is already `None` by the time it gets here — the
+    // not read is already `None` by the time it gets here - the
     // payload's own lenient decoder degrades a bad one to decor
     // rather than refusing the gift (#1184).
     let wear = payload.wear.map(|mut meta| {
@@ -198,7 +198,7 @@ pub(super) fn handle(
     });
 
     // Non-placeable kinds (terrain / water / Unknown) never
-    // make sense as a gift — the sender UI already filters
+    // make sense as a gift - the sender UI already filters
     // these, but reject here too so a hand-crafted payload
     // can't stuff an unplaceable item into the recipient's
     // stash via the accept path.
@@ -288,7 +288,7 @@ pub(super) fn handle_response(
     // prior implementation removed unconditionally, letting any
     // peer in the room race a spoofed "accepted" reply onto the
     // wire and silently delete the genuine target's pending
-    // offer — permanently breaking gifting for the sender.
+    // offer - permanently breaking gifting for the sender.
     match pending_offers.by_id.get(&offer_id) {
         Some(pending) if pending.target_did != responder_did => return,
         None => return,
@@ -296,7 +296,7 @@ pub(super) fn handle_response(
     }
 
     // Consume the pending entry now that the responder is
-    // authenticated — its handle + item name feed the sender's
+    // authenticated - its handle + item name feed the sender's
     // outcome toast (#843).
     let Some(pending) = pending_offers.by_id.remove(&offer_id) else {
         return;
@@ -306,7 +306,7 @@ pub(super) fn handle_response(
     // `ItemOfferResponsePayload::accepted` defaults to false
     // and an outright decode failure declines too (#1184), so
     // the worst a skewed peer can do is make a gift that
-    // arrived look declined — never the reverse.
+    // arrived look declined - never the reverse.
     let decoded = OverlandsMessage::decode_item_offer_response(&payload_json);
     let accepted = decoded.as_ref().is_some_and(|payload| payload.accepted);
     let reason = decoded.map(|payload| payload.reason).unwrap_or_default();

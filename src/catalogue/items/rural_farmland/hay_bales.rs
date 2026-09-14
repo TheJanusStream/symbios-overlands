@@ -1,4 +1,4 @@
-//! Hay bales — a Rural/Farmland prop. A pair of big round bales lying on the
+//! Hay bales - a Rural/Farmland prop. A pair of big round bales lying on the
 //! cut stubble beside a stack of square bales, drying golden in the field
 //! after the harvest.
 
@@ -52,7 +52,7 @@ impl CatalogueEntry for HayBales {
 }
 
 fn build_tree() -> Generator {
-    // Flat stubble patch — the *root* (a plain `id_quat` base). The round bales
+    // Flat stubble patch - the *root* (a plain `id_quat` base). The round bales
     // each need `quat_x` to lie on their sides, so they must stay non-first
     // children; a rotated `prims[0]` would spin the whole prop.
     let mut prims = vec![prim(

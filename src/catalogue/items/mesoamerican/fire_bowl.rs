@@ -1,4 +1,4 @@
-//! Fire bowl — a Mesoamerican prop, and the kit's lit hero. A stone brazier
+//! Fire bowl - a Mesoamerican prop, and the kit's lit hero. A stone brazier
 //! on a stepped pedestal holding a burning offering: leaping flame, lofted
 //! embers, and a fire crackle. Its emissive core is the trim escalation's
 //! ruin pass snuffs to a cold dead bowl.
@@ -53,7 +53,7 @@ impl CatalogueEntry for FireBowl {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Stepped pedestal base — the root.
+        // Stepped pedestal base - the root.
         prim(
             solid(cuboid_tapered(
                 [1.3, 0.4, 1.3],
@@ -84,7 +84,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // A real concave stone bowl — a hemispherical basin (profile_cut keeps
+    // A real concave stone bowl - a hemispherical basin (profile_cut keeps
     // the lower latitude band) cradling the offering fire, instead of a flat
     // disc with a ball balanced on top.
     let bowl_r = 0.72_f32;
@@ -99,13 +99,13 @@ fn build_tree() -> Generator {
         [0.0, bowl_y, 0.0],
         id_quat(),
     ));
-    // Obsidian rim ringing the bowl lip — a dark band against the pale basin.
+    // Obsidian rim ringing the bowl lip - a dark band against the pale basin.
     prims.push(prim(
         torus(0.07, bowl_r * 0.99, obsidian(OBSIDIAN_BLACK)),
         [0.0, bowl_y, 0.0],
         id_quat(),
     ));
-    // Obsidian spikes ringing the rim — the Aztec brazier motif.
+    // Obsidian spikes ringing the rim - the Aztec brazier motif.
     let spikes = 8;
     for i in 0..spikes {
         let a = i as f32 / spikes as f32 * TAU;
@@ -129,7 +129,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Glowing coals mounded in the bowl — a dome of emissive embers, the
+    // Glowing coals mounded in the bowl - a dome of emissive embers, the
     // emissive heart escalation's ruin pass snuffs to a cold dead bowl.
     prims.push(prim(
         solid(with_cut(

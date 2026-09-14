@@ -2,7 +2,7 @@
 //! pane: the child-allowance predicate, the variant picker, the inventory
 //! child picker, the universal material editor, and the vertex-torture
 //! triple. The recursive node UI that used to live here has been replaced
-//! by the [`super::generators`] split-panel layout — every node is now
+//! by the [`super::generators`] split-panel layout - every node is now
 //! edited in the right-hand detail panel after being selected in the tree.
 
 use bevy_egui::egui;
@@ -15,7 +15,7 @@ use super::material::{draw_texture_bridge, draw_uv_transform_rows};
 use super::widgets::{color_picker, fp_slider};
 
 /// Whether a node carrying this kind is allowed to own children. Water and
-/// Unknown are leaf-only — the spawner ignores their children and the
+/// Unknown are leaf-only - the spawner ignores their children and the
 /// sanitizer strips them, so the tree-view widget hides the expand arrow
 /// for those rows. Every other variant can carry children, including
 /// Terrain at the root (region-blueprint shape).
@@ -24,7 +24,7 @@ pub(super) fn allows_children(kind: &GeneratorKind) -> bool {
 }
 
 /// Variant-picker combo box for a node's [`GeneratorKind`]. `kinds` is the
-/// allowed kind-tag set for this node's position — supplied by the caller's
+/// allowed kind-tag set for this node's position - supplied by the caller's
 /// [`super::generators::GeneratorTreeSource`] so the room editor and the
 /// avatar editor can offer different vocabularies (rooms allow
 /// Terrain/Water/Portal; avatars exclude them).
@@ -34,7 +34,7 @@ pub(super) fn allows_children(kind: &GeneratorKind) -> bool {
 /// constructs a reasonable starter so the owner has something to edit.
 ///
 /// #838: a kind change discards the node's tuned params and (when the new
-/// kind refuses children) strands its subtree — so when the node carries
+/// kind refuses children) strands its subtree - so when the node carries
 /// children or non-default params, the switch parks behind the shared
 /// confirm (answered in `draw_generators_tab`, which re-resolves
 /// `node_id`) instead of applying on the click.
@@ -51,10 +51,10 @@ pub(super) fn generator_kind_picker(
 ) {
     let current = kind.kind_tag();
     // Names and blurbs, not serde tags (#1267 f214). The confirm below
-    // still keys on the TAG — it is the payload the caller applies — so
+    // still keys on the TAG - it is the payload the caller applies - so
     // only what the reader sees changes.
     let name = |tag: &str| GeneratorKind::display_name(tag).to_owned();
-    // "Has the user tuned anything?" — the same value a fresh switch to
+    // "Has the user tuned anything?" - the same value a fresh switch to
     // this kind would install. Unknown has no constructor, so switching
     // away from it always warns (it discards data this build can't read).
     let is_pristine = *kind == make_default_for_kind(current);
@@ -91,7 +91,7 @@ pub(super) fn generator_kind_picker(
 }
 
 /// Whether switching a node to `kind_tag` leaves its children with no
-/// parent that can carry them — true only for the leaf-only kinds.
+/// parent that can carry them - true only for the leaf-only kinds.
 fn kind_strands_children(kind_tag: &str) -> bool {
     !allows_children(&make_default_for_kind(kind_tag))
 }
@@ -100,7 +100,7 @@ fn kind_strands_children(kind_tag: &str) -> bool {
 /// confirm's clauses; empty means nothing is lost and the switch applies
 /// on the click. The child clause is computed from the TARGET kind
 /// (#1209): it used to fire on `child_count > 0` alone, warning "discards
-/// 3 child nodes" for the 23 of 24 targets that keep them — a scary
+/// 3 child nodes" for the 23 of 24 targets that keep them - a scary
 /// confirm on a harmless switch, which trains click-through on the one
 /// that is real.
 pub(super) fn kind_change_losses(
@@ -124,7 +124,7 @@ pub(super) fn kind_change_losses(
 
 /// Apply a kind change exactly as the confirm described it (#1209): the
 /// new default replaces the kind, and children the new kind cannot carry
-/// go NOW — into the same undo entry — rather than sitting invisibly in
+/// go NOW - into the same undo entry - rather than sitting invisibly in
 /// the record until the next sanitize flush deletes them a quarter
 /// second later with no message.
 pub(super) fn apply_kind_change(node: &mut Generator, kind_tag: &'static str) {
@@ -136,7 +136,7 @@ pub(super) fn apply_kind_change(node: &mut Generator, kind_tag: &'static str) {
 
 /// Kind tags eligible at the **root** of a room generator tree: every
 /// primitive plus LSystem / Shape / Portal / Terrain. Water is excluded
-/// (child-only). Terrain *is* offered at root — promoting an existing root
+/// (child-only). Terrain *is* offered at root - promoting an existing root
 /// to Terrain turns the named generator into a region blueprint.
 pub(crate) const ROOM_ROOT_KINDS: &[&str] = &[
     "Cuboid",
@@ -167,7 +167,7 @@ pub(crate) const ROOM_ROOT_KINDS: &[&str] = &[
 /// every primitive plus LSystem / Shape / Portal / Water / RoadNetwork.
 /// Terrain is excluded (root-only). RoadNetwork is only *meaningful* as a
 /// Terrain child (the terrain plugin reads it there) but, like Water, is
-/// offered as a generic child — misplacement simply grows no roads.
+/// offered as a generic child - misplacement simply grows no roads.
 pub(super) const ROOM_CHILD_KINDS: &[&str] = &[
     "Cuboid",
     "Sphere",
@@ -280,7 +280,7 @@ pub(crate) fn draw_universal_material(
 /// twist, per-axis taper (X/Z), a three-axis bend, the S-bend wave, and
 /// top-shear; plus the SL-style topology cuts (path-cut / profile-cut /
 /// hollow). Ranges mirror `pds::sanitize::limits::*`. `show_cuts` hides the
-/// cuts block for the one kind whose mesher ignores it (Plane — no revolve
+/// cuts block for the one kind whose mesher ignores it (Plane - no revolve
 /// axis), so the GUI never offers dead sliders.
 pub(super) fn draw_torture(
     ui: &mut egui::Ui,
@@ -289,7 +289,7 @@ pub(super) fn draw_torture(
     dirty: &mut bool,
 ) {
     // "Vertex torture" is engine language on the most-repeated panel in the
-    // product — it appears on all sixteen primitives in both editors — and
+    // product - it appears on all sixteen primitives in both editors - and
     // until #1250 f89 it was the only block in the editor with no hover text
     // at all. The explanations existed, as source comments two lines above
     // each row; they are the hover copy now, the way `UV_MODES` writes its
@@ -337,11 +337,11 @@ pub(super) fn draw_torture(
     });
     torture.taper_bottom = Fp2(tb);
     // Mid-profile bulge (+) / pinch (−): a sin(π·height) swell that peaks at
-    // mid-height — muscle / belly / waist in one slider pair.
+    // mid-height - muscle / belly / waist in one slider pair.
     let mut bu = torture.bulge.0;
     ui.horizontal(|ui| {
         ui.label("Bulge (X/Z)").on_hover_text(
-            "Swell (+) or pinch (−) the middle, strongest at half height — muscle, belly or waist.",
+            "Swell (+) or pinch (−) the middle, strongest at half height - muscle, belly or waist.",
         );
         for v in bu.iter_mut() {
             if ui
@@ -387,7 +387,7 @@ pub(super) fn draw_torture(
     let mut sh = torture.shear.0;
     ui.horizontal(|ui| {
         ui.label("Shear (X/Z)").on_hover_text(
-            "Slide the top sideways over the base, keeping the height — a leaning stack.",
+            "Slide the top sideways over the base, keeping the height - a leaning stack.",
         );
         for v in sh.iter_mut() {
             if ui
@@ -425,7 +425,7 @@ pub(super) fn draw_torture(
     let mut prc = torture.profile_cut.0;
     ui.horizontal(|ui| {
         ui.label("Profile-cut (begin/end)").on_hover_text(
-            "Keep only a band of the profile from bottom (0) to top (1) — a dimple or a bowl.",
+            "Keep only a band of the profile from bottom (0) to top (1) - a dimple or a bowl.",
         );
         for v in prc.iter_mut() {
             if ui
@@ -448,7 +448,7 @@ mod kind_change_tests {
     use super::*;
 
     /// #1209, finding 82. Sequence: switch a Cuboid with three children to
-    /// Sphere. The confirm warned it "discards 3 child nodes" — it never
+    /// Sphere. The confirm warned it "discards 3 child nodes" - it never
     /// did; only Water (and Unknown) refuse children, so the clause was
     /// false for 23 of the 24 targets. A false warning on a harmless
     /// switch trains click-through on the delete confirm that is real.
@@ -467,7 +467,7 @@ mod kind_change_tests {
     }
 
     /// The one genuinely lossy switch used to strand the children in the
-    /// record until the next 0.25 s sanitize flush deleted them — outside
+    /// record until the next 0.25 s sanitize flush deleted them - outside
     /// the undo entry, with no message. They go at apply time now.
     #[test]
     fn a_switch_to_a_leaf_kind_clears_the_children_it_was_said_to_discard() {
@@ -487,7 +487,7 @@ mod kind_vocabulary_tests {
     /// #1267 f214. THE SEQUENCE: right-click the ground, open "Create
     /// new…", and be handed a bare list containing "BlobGroup",
     /// "LSystem", "Superellipsoid", "ParticleSystem" and "RoadNetwork"
-    /// with no descriptions anywhere — on the primary creation surface of
+    /// with no descriptions anywhere - on the primary creation surface of
     /// the owner-only feature the product is built around. The same tag
     /// was also the whole of what a visitor was told a gift's kind was.
     ///
@@ -541,7 +541,7 @@ mod kind_vocabulary_tests {
         missing.dedup();
         assert!(
             missing.is_empty(),
-            "offered with no description — a picker entry has to say what it makes:\n  {}",
+            "offered with no description - a picker entry has to say what it makes:\n  {}",
             missing.join("\n  ")
         );
 
@@ -550,7 +550,7 @@ mod kind_vocabulary_tests {
         assert!(GeneratorKind::blurb("SomethingNewer").is_empty());
     }
 
-    /// Two kinds must not share a name — the combo would offer the same
+    /// Two kinds must not share a name - the combo would offer the same
     /// word twice with different results.
     #[test]
     fn no_two_offered_kinds_share_a_name() {

@@ -15,7 +15,7 @@
 /// exists; on native it is normally [`Sink::Native`] unless persistence was
 /// turned off (via `SYMBIOS_DIAG=0`) or the file could not be opened.
 pub enum Sink {
-    /// In-memory only — the ring buffer is the whole log (tests, wasm, or
+    /// In-memory only - the ring buffer is the whole log (tests, wasm, or
     /// `SYMBIOS_DIAG=0`).
     Disabled,
     #[cfg(not(target_arch = "wasm32"))]
@@ -47,7 +47,7 @@ impl Sink {
 
     /// Open the native session file honouring the env vars above, keyed to
     /// `session_did` if known. Returns [`Sink::Disabled`] on wasm, when
-    /// disabled, or if the file can't be created (best-effort — persistence
+    /// disabled, or if the file can't be created (best-effort - persistence
     /// must never take the app down).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open(session_did: Option<&str>) -> Self {
@@ -71,7 +71,7 @@ impl Sink {
         }
     }
 
-    /// Wasm has no filesystem — persistence is always the ring buffer.
+    /// Wasm has no filesystem - persistence is always the ring buffer.
     #[cfg(target_arch = "wasm32")]
     pub fn open(_session_did: Option<&str>) -> Self {
         Sink::Disabled
@@ -106,7 +106,7 @@ impl Sink {
     /// directory defaults to the bare relative `diagnostics`, so the button
     /// whose own doc-comment says it exists "so a coding agent can be pointed
     /// straight at the file" was handing over `diagnostics/session-latest.jsonl`
-    /// — a path that resolves against a working directory the panel never shows
+    /// - a path that resolves against a working directory the panel never shows
     /// and, for a desktop-launched or packaged build, the user never chose.
     /// Falls back to the relative form, so a file that does not exist yet still
     /// shows something rather than nothing.

@@ -1,4 +1,4 @@
-//! Barr superellipsoid mesher — one prim that morphs continuously from box
+//! Barr superellipsoid mesher - one prim that morphs continuously from box
 //! (small exponents) through pillow / sphere (`1.0`) toward a pinched
 //! octahedral form (large exponents), per axis pair. The two exponents are
 //! the whole shape interface (POV-Ray ships the same surface as
@@ -21,7 +21,7 @@ fn spow(v: f32, e: f32) -> f32 {
 
 /// Surface point + analytic normal at latitude `eta`, longitude `omega`.
 /// The normal swaps each exponent for `2 − e` and divides by the axis scale
-/// — exact everywhere except the poles/creases, where the radial direction
+/// - exact everywhere except the poles/creases, where the radial direction
 /// is a stable stand-in.
 fn surface(half_extents: [f32; 3], e1: f32, e2: f32, eta: f32, omega: f32) -> (Vec3, Vec3) {
     let [ax, ay, az] = half_extents;
@@ -56,7 +56,7 @@ fn surface(half_extents: [f32; 3], e1: f32, e2: f32, eta: f32, omega: f32) -> (V
 /// `p = (ax·c(η,e1)·c(ω,e2), ay·s(η,e1), az·c(η,e1)·s(ω,e2))`
 /// with `c(θ,e) = sign(cos θ)|cos θ|^e` (and `s` likewise). SL-style cuts
 /// mirror the banded sphere's: `t0..t1` keeps a **latitude band** (each
-/// ring is planar — constant `y` — so open ends close with flat discs, or
+/// ring is planar - constant `y` - so open ends close with flat discs, or
 /// rim bands to the inner shell when **hollow**), `lon0..lon1` keeps a
 /// **longitude wedge** (closed by two meridional cut faces), and `hollow`
 /// adds a uniformly-scaled inner shell (a scaled superellipsoid keeps its
@@ -131,7 +131,7 @@ pub(super) fn build_superellipsoid(
     // Latitude caps at any open, non-pole edge. Each latitude ring lies in
     // a horizontal plane, so a solid end closes with a flat disc fan; a
     // hollow end with a rim band whose normal is the meridional tangent
-    // (numeric — the analytic tangent has the same crease caveats as the
+    // (numeric - the analytic tangent has the same crease caveats as the
     // normal).
     for (t_edge, ny, pole, face) in [
         (t0, -1.0f32, bottom_pole, FaceKey::Bottom),
@@ -221,7 +221,7 @@ pub(super) fn build_superellipsoid(
     mesh_from_parts(pos, nor, uv, idx, spans)
 }
 
-/// Analytic surface point cloud for the convex-hull collider — a coarse
+/// Analytic surface point cloud for the convex-hull collider - a coarse
 /// sampling of the same parametrisation (the shape is convex for exponents
 /// `≤ 2`, and the mild over-hull past that matches the tortured-prim
 /// precedent of standoff-over-fidelity).

@@ -4,7 +4,7 @@ use crate::urban::test_support::*;
 use crate::urban::truncation::MAX_TRUNCATION_FACTOR;
 
 /// The road-graph diagnostic must run on the pilot network and report
-/// internally-consistent counts — a guard for the filtering work that
+/// internally-consistent counts - a guard for the filtering work that
 /// reads these numbers to size thresholds.
 #[test]
 fn road_graph_diagnostics_reports_consistent_stats() {
@@ -35,7 +35,7 @@ fn road_graph_diagnostics_reports_consistent_stats() {
         assert_eq!(stats.hub_min_branch_angle.len(), stats.hubs_total);
         assert_eq!(stats.spur_lengths.len(), stats.dead_ends_total);
         // Every reported truncation is a finite, positive pull-back bounded
-        // by the per-class cap (#575) — the dump can't render NaN or a
+        // by the per-class cap (#575) - the dump can't render NaN or a
         // cap-escape from a degenerate fan.
         let trunc_cap = MAX_TRUNCATION_FACTOR
             * (dims.major_half_width + dims.curb_top_width + dims.chamfer_width);
@@ -51,12 +51,12 @@ fn road_graph_diagnostics_reports_consistent_stats() {
     // the spurious-hub / spike-risk artefacts it targets and the merge leaves
     // no near-duplicate nodes. The weld is ADDITIVE (splits an edge + adds a
     // connector, ≤ 2 active edges each) but only ever CLOSES near-miss dead-ends
-    // — so the within-tolerance near-miss population only shrinks, and the edge
+    // - so the within-tolerance near-miss population only shrinks, and the edge
     // count grows by no more than the weld contribution (bounded by the raw
     // candidate count).
     assert!(diag.sanitized.hubs_spurious <= diag.raw.hubs_spurious);
     // EXACT weld count: only `split_edge` adds a node during sanitation, exactly
-    // one per weld (merge and cuts never add nodes) — a tight basis for the
+    // one per weld (merge and cuts never add nodes) - a tight basis for the
     // additive bounds, independent of any sweep tolerance.
     let welds = diag.sanitized.nodes - diag.raw.nodes;
     // Each weld adds at most 2 active edges (split nets +1, connector +1); cuts
@@ -68,7 +68,7 @@ fn road_graph_diagnostics_reports_consistent_stats() {
         diag.raw.edges_active
     );
     // Each weld adds at most ONE spike-risk vertex (the bend where the welded arm
-    // meets its junction — the split point is collinear, the junction a chain
+    // meets its junction - the split point is collinear, the junction a chain
     // end). The 3.0 miter clamp (asserted per-stats above) still caps the worst
     // spike, so a weld is never sharper than the existing network.
     assert!(

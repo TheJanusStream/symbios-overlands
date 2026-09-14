@@ -1,4 +1,4 @@
-//! Roadside diner — a Roadside secondary. A low chrome-banded brick diner
+//! Roadside diner - a Roadside secondary. A low chrome-banded brick diner
 //! with a long run of lit windows and a vertical neon sign on the roof. The
 //! all-night eatery of the strip.
 //!
@@ -58,7 +58,7 @@ fn build_tree() -> Generator {
     let roof_y = slab_h + body_h + 0.2;
 
     let mut prims = vec![
-        // Concrete slab — the root.
+        // Concrete slab - the root.
         prim(
             solid(cuboid_tapered(
                 [12.0, slab_h, 6.0],
@@ -127,7 +127,7 @@ fn build_tree() -> Generator {
 
     // Vertical neon sign on the roof: a steel mast, an enamel board and a
     // segmented glowing neon strip (stacked letters) facing −Z, with a cyan
-    // accent bar — segmented so the lit face reads as a sign, not a blown slab.
+    // accent bar - segmented so the lit face reads as a sign, not a blown slab.
     let sx = -3.6_f32;
     prims.push(prim(
         solid(cuboid_tapered([0.25, 1.0, 0.25], 0.0, steel(STEEL_GREY))),

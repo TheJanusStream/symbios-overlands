@@ -1,4 +1,4 @@
-//! Gravestone — a Gothic-Horror prop. A single weathered headstone leaning
+//! Gravestone - a Gothic-Horror prop. A single weathered headstone leaning
 //! over a low grave mound. Scatter clutter strewn through the necropolis.
 //!
 //! The stone leans with a single [`quat_x`].
@@ -51,7 +51,7 @@ fn build_tree() -> Generator {
     let ms = || mossy(STONE_MOSS);
     let lean = 0.13_f32;
     let mut prims = vec![
-        // Heaped grave mound — the root (rounded low hump).
+        // Heaped grave mound - the root (rounded low hump).
         prim(
             solid(cylinder_tapered(0.82, 0.34, 16, 0.6, ms())),
             [0.0, 0.14, 0.35],

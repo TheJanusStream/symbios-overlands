@@ -1,7 +1,7 @@
 //! #1116: a publish pins `stored` to the record it PUBLISHED, not to
 //! whatever `live` holds when the round trip lands.
 //!
-//! The dirty flag is derived — `records_differ(live, stored)` — so `stored`
+//! The dirty flag is derived - `records_differ(live, stored)` - so `stored`
 //! is not a convenience cache. It is this client's claim about what the PDS
 //! actually holds, and every edit made between dispatch and landing sits
 //! inside a window where that claim can be falsified. Pinning `stored` to
@@ -28,7 +28,7 @@ use symbios_overlands::state::{
 };
 
 /// A minimal app with the schedulers, task pools and clock the poll systems
-/// need, and nothing else — these systems are pure state transitions once
+/// need, and nothing else - these systems are pure state transitions once
 /// their task has resolved.
 ///
 /// `UiPanels` + `Toasts` are here for all three since #1137: a failed write
@@ -119,7 +119,7 @@ fn a_room_edit_made_during_a_save_stays_dirty() {
     );
     assert!(
         records_differ(&stored.0, &edited),
-        "the mid-flight edit must still read dirty — it was never written"
+        "the mid-flight edit must still read dirty - it was never written"
     );
 }
 
@@ -171,7 +171,7 @@ fn an_inventory_edit_made_during_a_save_stays_dirty() {
     assert!(
         !stored.0.generators.contains_key("gift_b"),
         "the gift accepted mid-flight was never written, so it must not be \
-         recorded as saved — otherwise Save greys out and it is lost at login"
+         recorded as saved - otherwise Save greys out and it is lost at login"
     );
     assert!(records_differ(&stored.0, &edited), "still dirty");
 }
@@ -232,7 +232,7 @@ fn an_avatar_edit_made_during_a_save_stays_dirty() {
 /// #1122. Sequence: wear a circlet (a freshly minted TID, not on the PDS),
 /// sculpt the face, press Save to PDS. A rigged body's payload lives in the
 /// wardrobe and attachment records this write just changed, at the SAME
-/// rkeys the live preview already broadcast — so a peer holding a resolution
+/// rkeys the live preview already broadcast - so a peer holding a resolution
 /// has nothing in the references to notice. Nothing here marked
 /// `LiveAvatarRecord` changed, so no broadcast fired at all, and peers kept
 /// the pre-save body until their wearer next edited something.
@@ -326,8 +326,8 @@ fn landed_err() -> bevy::tasks::Task<Result<(), String>> {
 /// #1199 (finding 198). Sequence: the room fetch fell back to the default
 /// with `RoomRecordRecovery` raised; the owner clicks "Reset PDS to
 /// default", confirms, and the write fails. The marker used to be removed
-/// on the confirm click, so the banner — the only surface carrying the
-/// retry — was gone while the PDS still held the record that would not
+/// on the confirm click, so the banner - the only surface carrying the
+/// retry - was gone while the PDS still held the record that would not
 /// load. The marker must outlive a failed write and retire only on a
 /// landed one. Same contract for the ordinary publish, the avatar and the
 /// inventory.
@@ -516,9 +516,9 @@ fn a_running_reset_counts_as_a_publish_in_flight() {
 /// #1206 (finding 196). Sequence: accept a gift (which auto-publishes the
 /// inventory) and immediately walk into a portal with unsaved WORLD edits.
 /// The guard's probe answered "any task in flight" and promoted itself to
-/// Publishing — a spinner and "Publishing…" as if the world were being
-/// saved — then, when the inventory task drained with the room still
-/// dirty, reported "Publish failed — publish did not complete". Portal
+/// Publishing - a spinner and "Publishing…" as if the world were being
+/// saved - then, when the inventory task drained with the room still
+/// dirty, reported "Publish failed - publish did not complete". Portal
 /// travel swaps only the room record, so only a room write can pin the
 /// wrong thing when it lands: an inventory write must not hold it. Logout
 /// discards the inventory too, so the same write DOES hold a logout.
@@ -584,7 +584,7 @@ fn guard_probe(app: &App) -> (bool, bool) {
 /// #1204 (finding 194). Sequence: press Save, pick "Stay here (save continues)"
 /// on the unsaved guard, walk through a portal; the save lands in the
 /// destination. `stored` used to be pinned to the record that was
-/// published — the room just LEFT — over the destination owner's record,
+/// published - the room just LEFT - over the destination owner's record,
 /// so the editor read dirty against a foreign baseline and "Revert to
 /// saved" would have installed the previous world. The same shape via
 /// logout on wasm, where a dropped task's fetch keeps running. A result

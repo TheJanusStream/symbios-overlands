@@ -61,7 +61,7 @@ pub fn update_emitter_motion(
 
 /// Tick every alive particle: integrate velocity / position, fade size
 /// (via `Transform::scale`) and colour (via a shared ramp-bucket handle
-/// swap — never a material mutation, see
+/// swap - never a material mutation, see
 /// [`super::ramp`]), optionally collide, despawn at end-of-life.
 /// Decrements the source emitter's `alive_count` on despawn so the
 /// spawn cap stays accurate.
@@ -103,7 +103,7 @@ pub fn tick_particles(
         let Ok((emitter, ramp)) = emitter_lookup.get(particle.emitter) else {
             // Source emitter was despawned (room rebuild). Keep
             // integrating the particle's own velocity so it coasts to
-            // age-out instead of freezing mid-air — we just can't
+            // age-out instead of freezing mid-air - we just can't
             // refresh the size/colour curves or apply emitter-authored
             // forces (gravity_multiplier, drag, acceleration), which
             // lived only on the snapshot. The orientation update at the
@@ -140,7 +140,7 @@ pub fn tick_particles(
 
         // Fade size / colour over lifetime. Size is continuous (scale);
         // colour quantises into the emitter's shared ramp buckets and
-        // advances by swapping the material *handle* — an asset-id
+        // advances by swapping the material *handle* - an asset-id
         // copy, exactly like the atlas-mesh swap below. The ramp can
         // only be absent for one frame between an emitter's first
         // emission and its deferred component insert; the colour swap
@@ -160,7 +160,7 @@ pub fn tick_particles(
         // Update the active atlas frame (only meaningful for
         // OverLifetime; the other modes pinned a frame at spawn). When
         // the index advances, swap the Mesh3d handle to the cached
-        // mesh for the new cell — the atlas-mesh cache reuses handles
+        // mesh for the new cell - the atlas-mesh cache reuses handles
         // across particles so the swap is just an asset-id copy, not
         // a new allocation.
         if let AnimationFrameMode::OverLifetime { .. } = particle.frame_mode
@@ -203,7 +203,7 @@ pub fn tick_particles(
 /// `bounce`, scales tangential by `(1 - friction)`, and snaps the
 /// particle to the contact point. Honours the three collide_* flags
 /// only insofar as the ray hits any matching collider (terrain / water
-/// finite surfaces / arbitrary) — we don't currently distinguish them
+/// finite surfaces / arbitrary) - we don't currently distinguish them
 /// at the avian level, so the flags act as a single "collide vs
 /// pure-visual" toggle in v1. Future work can split them when avian
 /// gains layer support.
@@ -238,7 +238,7 @@ fn apply_collisions(
         // Step away from the surface a hair so the next frame's ray
         // doesn't immediately re-hit and produce a runaway reflection.
         *new_pos += normal * 1e-3;
-        // Damp out tangential velocity that's nearly stopped — keeps a
+        // Damp out tangential velocity that's nearly stopped - keeps a
         // dust particle from sliding forever along a slope.
         if velocity.length_squared() < 1e-3 {
             *velocity = Vec3::ZERO;

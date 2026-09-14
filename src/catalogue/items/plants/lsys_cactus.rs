@@ -1,4 +1,4 @@
-//! Saguaro cactus — a thick green columnar succulent with a few
+//! Saguaro cactus - a thick green columnar succulent with a few
 //! up-curving arms. Not a tree: a low-iteration L-system with a heavy
 //! trunk width, an upward tropism to keep the arms vertical, and a flat
 //! green succulent material (no bark, no foliage). The signature desert
@@ -22,7 +22,7 @@ impl CatalogueEntry for Cactus {
         "Saguaro Cactus"
     }
     fn description(&self) -> &'static str {
-        "Thick green columnar cactus with up-curving arms — a desert succulent."
+        "Thick green columnar cactus with up-curving arms - a desert succulent."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Plant
@@ -56,7 +56,7 @@ fn build_kind() -> GeneratorKind {
         // sprout a distinctly THINNER arm (aw=1.25) that bends out and runs
         // four segments to clear the trunk (a real elbow with daylight), turns
         // back to vertical over a rounded two-step `^`, then rises parallel (U)
-        // — the saguaro candelabra. The golden-angle roll spirals successive
+        // - the saguaro candelabra. The golden-angle roll spirals successive
         // arms around the column; upward tropism keeps everything vertical. The
         // finalization tapers the trunk apex and arm tips into rounded domes.
         source_code: "#define s 0.85\n\

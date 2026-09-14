@@ -1,4 +1,4 @@
-//! Seeded ambient-particle spec — the room's "air".
+//! Seeded ambient-particle spec - the room's "air".
 //!
 //! One looping emitter per room. Mood precedence is conflict > theme >
 //! biome: a Conflict-tier room always gets drifting `Smoke`, otherwise a
@@ -38,18 +38,18 @@ pub enum ParticleMood {
     Embers,
     DustMotes,
     MistMotes,
-    /// Drifting flower petals — the Feudal-Japan accent and the Meadow
+    /// Drifting flower petals - the Feudal-Japan accent and the Meadow
     /// biome: blossom carried on the wind over the settlement.
     Petals,
-    /// Drifting leaves — the woodland-floor signature of the forest
+    /// Drifting leaves - the woodland-floor signature of the forest
     /// biomes: leaf litter shed from the canopy, fluttering down through
     /// dappled light.
     Leaves,
-    /// Drifting dark smoke / ash — the conflict signature, selected when a
+    /// Drifting dark smoke / ash - the conflict signature, selected when a
     /// room's escalation reaches [`EscalationTier::Conflict`] regardless of
     /// biome or theme.
     Smoke,
-    /// Warm golden pollen haze under the jungle canopy (#914) — the biome's
+    /// Warm golden pollen haze under the jungle canopy (#914) - the biome's
     /// own voice after it shared `MistMotes` with Coastal and Wetland.
     PollenHaze,
     /// Wind-borne grass seed husks streaming over the savanna (#914),
@@ -191,7 +191,7 @@ impl AmbientParticles {
                 contrast: Fp64(1.0),
                 ..Default::default()
             }),
-            // Additive like the fireflies, but a smaller, softer grain —
+            // Additive like the fireflies, but a smaller, softer grain -
             // pollen is a haze of specks, not a swarm of lights.
             ParticleMood::PollenHaze => SovereignTextureConfig::SoftDisc(SovereignSoftDiscConfig {
                 seed,
@@ -205,7 +205,7 @@ impl AmbientParticles {
                 ..Default::default()
             }),
             // Seed husks reuse the petal card silhouette, recoloured to
-            // straw — the same trick the Leaves mood plays.
+            // straw - the same trick the Leaves mood plays.
             ParticleMood::SeedDrift => SovereignTextureConfig::Petal(SovereignPetalConfig {
                 seed,
                 variant_rows: 2,
@@ -232,7 +232,7 @@ impl AmbientParticles {
 
 fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> AmbientParticles {
     let seed = room_seed ^ 0x00AB_1E47;
-    // Conflict overrides everything — a fought-over settlement smokes
+    // Conflict overrides everything - a fought-over settlement smokes
     // regardless of biome or theme. Otherwise the biome sets the default
     // mood, which a theme accent may override (e.g. alien themes swap in
     // eerie biolume / mist motes). The per-mood spec drives the emitter.
@@ -265,7 +265,7 @@ fn biome_mood(biome: BiomeArchetype) -> ParticleMood {
         BiomeArchetype::Jungle => ParticleMood::PollenHaze,
         BiomeArchetype::Wetland => ParticleMood::SporeMotes,
         BiomeArchetype::TemperateForest => ParticleMood::Leaves,
-        // Wildflower meadow — drifting blossom petals.
+        // Wildflower meadow - drifting blossom petals.
         BiomeArchetype::Meadow => ParticleMood::Petals,
     }
 }
@@ -416,7 +416,7 @@ fn spec_for_mood(mood: ParticleMood, rng: &mut ChaCha8Rng, seed: u64) -> Ambient
             mood: ParticleMood::PollenHaze,
             // A breathing-height band of warm specks drifting through the
             // understory light shafts: slower and denser than fireflies,
-            // and dimmer — pollen catches light, it doesn't emit it.
+            // and dimmer - pollen catches light, it doesn't emit it.
             emitter_half_extents: [70.0, 4.0, 70.0],
             emitter_y: 2.5,
             rate_per_second: range_f32(rng, 18.0, 30.0),
@@ -436,7 +436,7 @@ fn spec_for_mood(mood: ParticleMood, rng: &mut ChaCha8Rng, seed: u64) -> Ambient
         ParticleMood::SeedDrift => AmbientParticles {
             mood: ParticleMood::SeedDrift,
             // Grass seed shed at head height, streaming one way on the
-            // steady savanna wind — the same prevailing-wind idea as the
+            // steady savanna wind - the same prevailing-wind idea as the
             // desert dust, but carried by visible husks that settle slowly
             // instead of an abrasive haze.
             emitter_half_extents: [85.0, 3.5, 85.0],
@@ -568,7 +568,7 @@ mod tests {
                 // Pin a theme with no particle-mood accent + a peaceful room
                 // so the biome->mood mapping is tested without a particle-mood
                 // accent or the conflict-smoke override stepping on it.
-                // (AncientClassical's accent is tint-only — no mood override.)
+                // (AncientClassical's accent is tint-only - no mood override.)
                 scene.theme = ThemeArchetype::AncientClassical;
                 scene.escalation = 0.0;
                 let p = AmbientParticles::from_scene(&scene, s);

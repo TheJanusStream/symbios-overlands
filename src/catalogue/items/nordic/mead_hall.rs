@@ -1,4 +1,4 @@
-//! Mead hall — the Nordic landmark. A long timber-staved hall on a dressed
+//! Mead hall - the Nordic landmark. A long timber-staved hall on a dressed
 //! stone footing under a steep thatched gable roof, ridged end-to-end and
 //! crowned at each gable by a carved dragon-head finial on crossed
 //! bargeboards. A roof louver breathes hearth smoke and the great timbers
@@ -60,7 +60,7 @@ impl CatalogueEntry for MeadHall {
 }
 
 fn build_tree() -> Generator {
-    let l = 22.0_f32; // length (X) — ridge runs this way
+    let l = 22.0_f32; // length (X) - ridge runs this way
     let w = 8.0_f32; // width (Z)
     let foot_h = 0.6;
     let wall_h = 3.6;
@@ -70,7 +70,7 @@ fn build_tree() -> Generator {
     let eave = 1.0; // roof overhang each side
 
     let mut prims = vec![
-        // Dressed stone footing — the root.
+        // Dressed stone footing - the root.
         prim(
             solid(cuboid_tapered(
                 [l + 1.5, foot_h, w + 1.5],
@@ -99,7 +99,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
         // Triangular timber gable infill above the eave (thin in X, pinched
-        // in Z to the ridge) — the stave-built gable face.
+        // in Z to the ridge) - the stave-built gable face.
         prims.push(prim(
             solid(cuboid_tapered_xz(
                 [0.4, roof_h, w],
@@ -111,7 +111,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Vertical stave posts proud of each long wall — the timber rhythm of a
+    // Vertical stave posts proud of each long wall - the timber rhythm of a
     // stave hall.
     for sz in [-1.0_f32, 1.0] {
         for k in 0..7 {
@@ -138,7 +138,7 @@ fn build_tree() -> Generator {
     ));
 
     // Crossed gable bargeboards rising into carved dragon heads at each
-    // apex — the hall's signature crown.
+    // apex - the hall's signature crown.
     for sx in [-1.0_f32, 1.0] {
         let x = sx * (l * 0.5 + 0.1);
         // Two boards crossing at the peak (an X over the gable).
@@ -164,7 +164,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Roof smoke louver, off-centre over the hearth, venting woodsmoke — a
+    // Roof smoke louver, off-centre over the hearth, venting woodsmoke - a
     // raised timber lantern.
     let louver_x = -4.0;
     prims.push(prim(

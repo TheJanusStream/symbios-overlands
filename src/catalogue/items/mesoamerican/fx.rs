@@ -1,6 +1,6 @@
 //! Mesoamerican "bring-it-to-life" helpers: small nested particle emitters
 //! and spatial-audio patches that the kit's structures hang on signature
-//! elements — sacrificial flame and embers on the fire bowls and temple
+//! elements - sacrificial flame and embers on the fire bowls and temple
 //! fire, thick copal incense at the shrine, hearth smoke from the adobe
 //! hut, a fire crackle, and a slow ritual drum.
 //!
@@ -24,7 +24,7 @@ use crate::pds::{
 // Particle emitters
 // ---------------------------------------------------------------------------
 
-/// A tall sacrificial flame — the temple fire atop the pyramid or a fire
+/// A tall sacrificial flame - the temple fire atop the pyramid or a fire
 /// bowl ablaze.
 pub(super) fn sacred_flame(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -79,7 +79,7 @@ pub(super) fn fire_embers(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// A thick white column of copal incense smoke — ritual offering at the
+/// A thick white column of copal incense smoke - ritual offering at the
 /// shrine.
 pub(super) fn copal_smoke(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -109,7 +109,7 @@ pub(super) fn copal_smoke(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// A lazy grey column of hearth smoke — the adobe hut's cookfire venting.
+/// A lazy grey column of hearth smoke - the adobe hut's cookfire venting.
 pub(super) fn hearth_smoke(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
         shape: EmitterShape::Cone {
@@ -142,7 +142,7 @@ pub(super) fn hearth_smoke(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A warm, irregular fire crackle — band-passed noise pulsed by an LFO over
+/// A warm, irregular fire crackle - band-passed noise pulsed by an LFO over
 /// a low rumble. The voice of a fire bowl or the temple fire.
 pub(super) fn fire_crackle() -> SovereignAudioConfig {
     FireCrackle {
@@ -156,7 +156,7 @@ pub(super) fn fire_crackle() -> SovereignAudioConfig {
     .patch()
 }
 
-/// A deep ritual drum — a low sine struck by a steady LFO pulse,
+/// A deep ritual drum - a low sine struck by a steady LFO pulse,
 /// darkened by a lowpass: the heartbeat of the temple.
 pub(super) fn ritual_drum() -> SovereignAudioConfig {
     let body = node(

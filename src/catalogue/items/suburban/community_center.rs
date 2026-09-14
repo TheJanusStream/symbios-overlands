@@ -1,4 +1,4 @@
-//! Community center — the Suburban landmark. A long single-storey civic hall
+//! Community center - the Suburban landmark. A long single-storey civic hall
 //! with a brick base and rendered walls under a low shingle roof, fronted by
 //! a white-columned portico and a lit sign, with a flag pole and foundation
 //! shrubs on the lawn. Birdsong drifts over it and a sprinkler mists the
@@ -22,7 +22,7 @@ use super::{
     WOOD_WHITE, brick, enamel, fx, render, shingle, wood,
 };
 
-/// Warm hall light — the ceiling glow that reads through the cut window panes
+/// Warm hall light - the ceiling glow that reads through the cut window panes
 /// as an occupied civic room behind the glass.
 const CIVIC_WARM: [f32; 3] = [1.0, 0.90, 0.66];
 
@@ -74,8 +74,8 @@ fn build_tree() -> Generator {
     let wall_cy = brick_top + wall_h * 0.5;
     // The building is a hollow shell: solid rear and side walls, a flat lit
     // ceiling, and a punched front screen of piers/sills/header. Behind the
-    // front windows is the whole depth of the hall — floor, downlights, and a
-    // dais with a glowing civic emblem at the far wall — so the cut panes look
+    // front windows is the whole depth of the hall - floor, downlights, and a
+    // dais with a glowing civic emblem at the far wall - so the cut panes look
     // *into* a room instead of onto a wall a metre back (#943).
     let face_z = front + 0.2; // the front-wall (street) plane
     let back_z = w * 0.5 - 0.4; // interior face of the rear wall
@@ -83,7 +83,7 @@ fn build_tree() -> Generator {
     let side_x = wall_len * 0.5 - 0.2; // centreline of the side walls
 
     let mut prims = vec![
-        // Concrete footing — the root.
+        // Concrete footing - the root.
         prim(
             solid(cuboid_tapered(
                 [l + 1.0, base_h, w + 1.0],
@@ -234,7 +234,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Window glazing — clear panes on planes, cut open over the lit hall.
+    // Window glazing - clear panes on planes, cut open over the lit hall.
     for &x in &win_x {
         prims.push(prim(
             plane(
@@ -346,7 +346,7 @@ fn build_tree() -> Generator {
         [0.0, base_h + wall_h + brick_h + 0.3, front - 2.0],
         id_quat(),
     ));
-    // Lit sign over the entrance — segmented so it reads lit, not washed.
+    // Lit sign over the entrance - segmented so it reads lit, not washed.
     prims.extend(sign_board(
         [0.0, base_h + brick_h + 2.6, front - 0.12],
         [6.0, 0.9],
@@ -374,7 +374,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Clipped foundation shrubs along the front lawn — leafy clumps, not slabs.
+    // Clipped foundation shrubs along the front lawn - leafy clumps, not slabs.
     prims.extend(crop_tufts(
         [-1.0, base_h, front - 0.9],
         [l * 0.7, 1.2],

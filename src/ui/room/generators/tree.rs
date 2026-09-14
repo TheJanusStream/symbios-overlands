@@ -31,8 +31,8 @@ pub(super) fn draw_tree_panel(
     // the toast can say "Undid: add of oak_3" instead of "Undid: edit".
     label: &mut crate::ui::undo::LabelSlot,
     // The signed-in owner's DID (#1239 f78). Threaded solely for
-    // `catalogue_menu`: DID-personalised entries — every theme's Monument
-    // — bake it into a `SignSource::DidPfp` at stamp time, and this menu
+    // `catalogue_menu`: DID-personalised entries - every theme's Monument
+    // - bake it into a `SignSource::DidPfp` at stamp time, and this menu
     // passed the empty string, so 24 monuments rendered a permanently
     // blank portrait while the SAME item dragged out of the Catalogue
     // window worked. Empty when the tree has no owner (the avatar
@@ -43,9 +43,9 @@ pub(super) fn draw_tree_panel(
     // The editor's one-node clipboard (#1244 f422).
     clipboard: &mut Option<Generator>,
 ) {
-    // The tree DRAWS under a split borrow of the panel — the toolbar, the
+    // The tree DRAWS under a split borrow of the panel - the toolbar, the
     // rows, the rename modal and the focus one-shot each want a different
-    // field at the same time — but a pending structural action outlives
+    // field at the same time - but a pending structural action outlives
     // that draw and `apply_pending` needs the panel whole. So the split is
     // a block, and the action is what the block yields.
     //
@@ -62,7 +62,7 @@ pub(super) fn draw_tree_panel(
             view: tree_view_state,
             pending_focus,
             // The rename modal and the parked confirms are `apply_pending`'s
-            // and the tab's, not this panel's — it only stages actions.
+            // and the tab's, not this panel's - it only stages actions.
             ..
         } = panel;
         let request_focus = std::mem::take(pending_focus);
@@ -74,7 +74,7 @@ pub(super) fn draw_tree_panel(
         let allowed_child_kinds = source.allowed_kinds_for_child();
         // Multi-root capability drives three affordances at once: root rename,
         // root delete, and the add-root toolbar below. A single-root source
-        // (avatar visuals) used to RENDER the add menus anyway — the user
+        // (avatar visuals) used to RENDER the add menus anyway - the user
         // opened a 20-entry kind list (or the whole catalogue), clicked, and
         // nothing happened because `add_root` refused (#830). Hidden now;
         // children are added via the row context menu's "+ Add child".
@@ -142,7 +142,7 @@ pub(super) fn draw_tree_panel(
                     });
                 }
 
-                // Catalogue submenu — the client-shipped sibling of Inventory.
+                // Catalogue submenu - the client-shipped sibling of Inventory.
                 // Same shape as "+ From Inventory": click an entry to stamp a
                 // fresh copy into the tree as a new root.
                 if !crate::catalogue::ENTRIES.is_empty() {
@@ -169,8 +169,8 @@ pub(super) fn draw_tree_panel(
         ui.separator();
 
         // Find a root (#1244 f414). Alphabetical order is a weak index once
-        // the names are auto-generated — `unique_key` yields `cuboid`,
-        // `cuboid_1`, `cuboid_2`, … — and at 256 roots the only affordance
+        // the names are auto-generated - `unique_key` yields `cuboid`,
+        // `cuboid_1`, `cuboid_2`, … - and at 256 roots the only affordance
         // was scrolling. Only offered where there is more than one root to
         // find, so the avatar's single-root trees are unchanged.
         let multi_root = source.allow_multiple_roots();
@@ -185,13 +185,13 @@ pub(super) fn draw_tree_panel(
         }
 
         // The tree itself. Roots are sorted by the source for stable
-        // presentation — HashMap iteration order would otherwise reshuffle
+        // presentation - HashMap iteration order would otherwise reshuffle
         // every frame as the layout cache rebuilds.
         let all_roots: Vec<&str> = source.root_names();
         let root_names: Vec<&str> =
             matching_roots(&all_roots, if multi_root { filter } else { "" });
         // Authored asset names are in the live room record, which changes on
-        // every frame of a gizmo drag — so the font detector deliberately does
+        // every frame of a gizmo drag - so the font detector deliberately does
         // not scan it, and the names reach it from here instead (#1262 f359).
         // The filtered roots are what is actually on screen, which is the right
         // bound for a per-frame scan.
@@ -215,7 +215,7 @@ pub(super) fn draw_tree_panel(
         // Pending-action channel shared into every per-row `context_menu`
         // closure. Closures all hold `&pending`; clicks call `borrow_mut()` to
         // stash an action. We drain it after `show_state` returns and apply
-        // with mutable source access — that ordering keeps the tree's
+        // with mutable source access - that ordering keeps the tree's
         // immutable read of the source's roots (during the build closure)
         // clean of structural mutations.
         let pending: RefCell<Option<PendingAction>> = RefCell::new(None);
@@ -230,7 +230,7 @@ pub(super) fn draw_tree_panel(
                             // actually produces, because the compiler builds
                             // only from placements and a fresh root is
                             // invisible until one exists.
-                            "(no items — click \"+ New\" above; a new item needs \
+                            "(no items - click \"+ New\" above; a new item needs \
                          a placement before it appears in the world)"
                         } else {
                             "(no items match the filter)"
@@ -276,8 +276,8 @@ pub(super) fn draw_tree_panel(
                 // The widget only paints the bright `selection.bg_fill` while it
                 // holds focus; an unfocused tree paints a dim `weak_bg_fill`, so
                 // a programmatic selection would otherwise look different from a
-                // direct click. Requesting focus here — inside the same egui
-                // frame the tree is built — overrides the focus-clear that the
+                // direct click. Requesting focus here - inside the same egui
+                // frame the tree is built - overrides the focus-clear that the
                 // world click (on empty, non-egui space) would otherwise apply.
                 if request_focus {
                     ui.memory_mut(|m| m.request_focus(tree_id));
@@ -285,7 +285,7 @@ pub(super) fn draw_tree_panel(
 
                 // Drain a Move (drag-commit) into the pending channel. We
                 // only honour the first move event per frame and skip if a
-                // context-menu click already staged something — collisions
+                // context-menu click already staged something - collisions
                 // are improbable but it keeps single-action semantics.
                 for action in actions {
                     if let Action::Move(dnd) = action {
@@ -316,7 +316,7 @@ pub(super) fn draw_tree_panel(
     // Sync the tree widget's selection back into the panel's own, which is
     // what `editor_gizmo` reads (room) and what the avatar editor folds
     // into its aim. Treat any selected id that no longer resolves to a live
-    // node as "no selection" — happens after a delete / kind-change /
+    // node as "no selection" - happens after a delete / kind-change /
     // rename leaves the tree state holding a stale path.
     let valid: Option<GenNodeId> = panel
         .view
@@ -330,7 +330,7 @@ pub(super) fn draw_tree_panel(
 /// Mirror the tree widget's (validated) selection into the panel's own
 /// selection, which is what the gizmo layer reads. Deliberately has NO access to the shared
 /// dirty flag (#828): selecting a row edits nothing, but the flag arms
-/// the debounce, whose flush calls `set_changed()` on the live record —
+/// the debounce, whose flush calls `set_changed()` on the live record -
 /// a FULL recompile (room) / visuals despawn-respawn (avatar) plus a
 /// whole-record peer broadcast per click. Browsing a large tree was a
 /// hitch-and-network storm. Every real mutation (widgets, structural
@@ -363,8 +363,8 @@ fn sync_selection_fields(valid: Option<GenNodeId>, panel: &mut super::TreePanelS
 /// Root names matching a substring filter, case-insensitively (#1244
 /// f414). An empty filter passes everything through unchanged.
 ///
-/// Pure, so the one behaviour that matters — that filtering never drops a
-/// root the user has selected out from under them without saying so — is
+/// Pure, so the one behaviour that matters - that filtering never drops a
+/// root the user has selected out from under them without saying so - is
 /// testable without egui.
 pub(super) fn matching_roots<'a>(roots: &[&'a str], filter: &str) -> Vec<&'a str> {
     let needle = filter.trim().to_lowercase();
@@ -378,7 +378,7 @@ pub(super) fn matching_roots<'a>(roots: &[&'a str], filter: &str) -> Vec<&'a str
         .collect()
 }
 
-// Rows `build_tree_node` has built on this thread — the instrument for
+// Rows `build_tree_node` has built on this thread - the instrument for
 // #1270 f419, since there is no way to time a frame in a test and the
 // thing the fix is about is a COUNT.
 //
@@ -399,7 +399,7 @@ thread_local! {
 /// tree finishes drawing.
 ///
 /// The lifetimes on `root_name` and `node` are independent of the builder's
-/// own working lifetime — the label is materialised as an owned `String`
+/// own working lifetime - the label is materialised as an owned `String`
 /// before being handed to [`NodeBuilder::label`], so the builder never
 /// retains a reference into the source.
 #[allow(clippy::too_many_arguments)]
@@ -416,7 +416,7 @@ fn build_tree_node(
     // Nodes in this root's whole tree, for the per-generator cap (#1210).
     root_nodes: usize,
     // The signed-in owner's DID, for this row's "+ From Catalogue"
-    // submenu (#1239 f78) — see `draw_tree_panel`.
+    // submenu (#1239 f78) - see `draw_tree_panel`.
     owner_did: &str,
     // Whether the editor's clipboard holds anything to paste (#1244 f422).
     has_clipboard: bool,
@@ -428,7 +428,7 @@ fn build_tree_node(
         format!("{}  ({})", root_name, node.kind_tag())
     } else {
         // The sibling index (#1244 f423). Inner rows were labelled by kind
-        // ALONE — forty sibling Cuboids were forty identical rows — while
+        // ALONE - forty sibling Cuboids were forty identical rows - while
         // the disambiguating path was reduced to a small weak line in the
         // detail pane, never appearing in the row the owner is scanning.
         // `#index` matches `placement_label`'s convention, and it is the
@@ -461,7 +461,7 @@ fn build_tree_node(
     let menu_is_root = is_root;
     let menu_allow_rename = allow_rename;
     // `Option<&T>` is `Copy`, so the move closure below copies the option
-    // into its captures rather than borrowing — no extra lifetime
+    // into its captures rather than borrowing - no extra lifetime
     // bookkeeping needed for the "+ From Inventory" submenu inside.
     let menu_inventory = inventory;
     let context_menu = move |ui: &mut egui::Ui| {
@@ -470,7 +470,7 @@ fn build_tree_node(
                 // Mirror the toolbar's "+ New" kind picker: a submenu listing
                 // every kind valid as a child (the source's
                 // `allowed_kinds_for_child()` set). Picking a kind stages an
-                // `AddChild` action carrying that kind's static tag —
+                // `AddChild` action carrying that kind's static tag -
                 // `apply_pending` calls `make_default_for_kind` to build the
                 // actual node.
                 ui.menu_button("+ Add child", |ui| {
@@ -520,7 +520,7 @@ fn build_tree_node(
                 });
             }
             // Catalogue stamps parent to the clicked node exactly like an
-            // inventory clone — same buffered insert path, fresh blueprint.
+            // inventory clone - same buffered insert path, fresh blueprint.
             if menu_allows_children && !crate::catalogue::ENTRIES.is_empty() {
                 ui.menu_button("+ From Catalogue", |ui| {
                     catalogue_menu(ui, owner_did, |_slug, g| {
@@ -543,7 +543,7 @@ fn build_tree_node(
         // Copy a sub-assembly (#1244 f422). Drag resolves only to
         // `Action::Move`, which is destructive to the source, and the only
         // Duplicate in the app before this required physically finding the
-        // object in the world and right-clicking it — impossible for an
+        // object in the world and right-clicking it - impossible for an
         // unplaced or off-screen generator, which is exactly the case the
         // tree exists to reach.
         if ui
@@ -556,7 +556,7 @@ fn build_tree_node(
         }
         if ui
             .button("Copy")
-            .on_hover_text("Hold a copy of this part — paste it under any row, in any item")
+            .on_hover_text("Hold a copy of this part - paste it under any row, in any item")
             .clicked()
         {
             *pending.borrow_mut() = Some(PendingAction::Copy(menu_id.clone()));
@@ -571,7 +571,7 @@ fn build_tree_node(
             .on_disabled_hover_text(if menu_has_clipboard {
                 "This kind holds no children"
             } else {
-                "Nothing copied yet — use Copy on a row first"
+                "Nothing copied yet - use Copy on a row first"
             })
             .clicked()
         {
@@ -590,7 +590,7 @@ fn build_tree_node(
             if derived {
                 button.on_disabled_hover_text(
                     "Grown by the road layer. Its name is how the layer finds it \
-                     again — renaming it would grow a second district on top of \
+                     again - renaming it would grow a second district on top of \
                      this one.",
                 );
             } else if button.clicked() {
@@ -600,7 +600,7 @@ fn build_tree_node(
         }
         // Cap-gated (#841): "Save to Inventory" used to insert
         // unconditionally, blowing past the 50-item cap the gift-accept
-        // path enforces — sanitize then silently deleted the overflow on
+        // path enforces - sanitize then silently deleted the overflow on
         // the next login. Disabled (with the reason) instead of hidden.
         let cap = crate::config::state::MAX_INVENTORY_ITEMS;
         let stash_full = menu_inventory.is_some_and(|inv| inv.0.generators.len() >= cap);
@@ -611,7 +611,7 @@ fn build_tree_node(
             )
             .on_hover_text("Copy this part into your inventory as a reusable item")
             .on_disabled_hover_text(if stash_full {
-                format!("Inventory full ({cap}/{cap}) — remove an item first")
+                format!("Inventory full ({cap}/{cap}) - remove an item first")
             } else {
                 "Inventory not loaded".to_owned()
             })
@@ -620,7 +620,7 @@ fn build_tree_node(
             *pending.borrow_mut() = Some(PendingAction::SaveToInventory(menu_id.clone()));
             ui.close();
         }
-        // A single-root source (avatar visuals) refuses root removal —
+        // A single-root source (avatar visuals) refuses root removal -
         // hide the item instead of offering a silent no-op (#830).
         // `menu_allow_rename` mirrors `allow_multiple_roots`.
         if (!menu_is_root || menu_allow_rename)
@@ -641,13 +641,13 @@ fn build_tree_node(
     if is_container && !node.children.is_empty() {
         // `TreeViewBuilder::node` RETURNS the directory's open state, which
         // is what makes this cheap (#1270 f419). The widget short-circuits
-        // a collapsed branch internally — `current_branch_expanded()` — so
+        // a collapsed branch internally - `current_branch_expanded()` - so
         // everything below used to be built and thrown away: a
         // `GenNodeId` (a String plus a Vec), a `format!` label, two more
         // clones for the menu captures, a `path.clone()` per child, and a
         // boxed context-menu closure, PER NODE, for every node of every
         // root whether or not anything was expanded. At the record's own
-        // caps — 256 roots of up to 1024 nodes — that is a quarter of a
+        // caps - 256 roots of up to 1024 nodes - that is a quarter of a
         // million heap allocations per frame to draw a collapsed list.
         //
         // Skipping the recursion is safe because nothing reaches a row
@@ -796,14 +796,14 @@ mod tests {
     /// `GenNodeId` (a `String` plus a `Vec`), a `format!` label, two more
     /// clones for the menu captures, a `path.clone()` per child, and a
     /// boxed context-menu closure. `TreeViewBuilder` throws all of it away
-    /// inside a collapsed branch — `current_branch_expanded()` — so at the
+    /// inside a collapsed branch - `current_branch_expanded()` - so at the
     /// record's own caps (256 roots × up to 1024 nodes) that was a quarter
     /// of a million heap allocations per frame to draw a list of one-line
     /// rows.
     ///
     /// The pairing is the same tree in two states. The shape being
     /// replaced built all 41 rows in BOTH, so a test that only checked the
-    /// open case would have passed on it unchanged — the #87 rule: ask
+    /// open case would have passed on it unchanged - the #87 rule: ask
     /// what the failing case looks like.
     #[test]
     fn a_collapsed_tree_builds_only_the_rows_it_shows() {
@@ -815,7 +815,7 @@ mod tests {
             "the fixture is the size the counts below assume"
         );
 
-        // Collapsed — the default. One row: the root itself.
+        // Collapsed - the default. One row: the root itself.
         let mut collapsed = TreeViewState::default();
         assert_eq!(
             rows_built(&root, &mut collapsed),
@@ -832,7 +832,7 @@ mod tests {
             "opening the root reveals its children and nothing deeper"
         );
 
-        // Everything opened — this is what the OLD code built in every
+        // Everything opened - this is what the OLD code built in every
         // state, including the collapsed one above.
         let mut all_open = TreeViewState::default();
         all_open.set_openness(GenNodeId::root("oak".to_string()), true);
@@ -842,7 +842,7 @@ mod tests {
         assert_eq!(
             rows_built(&root, &mut all_open),
             total,
-            "and a fully expanded tree still builds every row — the fix skips \
+            "and a fully expanded tree still builds every row - the fix skips \
              what is hidden, not what is shown"
         );
     }
@@ -850,9 +850,9 @@ mod tests {
     /// The reveal paths that make the skip safe (#1270 f419).
     ///
     /// Nothing may select a row inside a collapsed parent, because the
-    /// tree no longer builds one. Both paths that reveal a row — the
+    /// tree no longer builds one. Both paths that reveal a row - the
     /// `editor_gizmo` scene pick and `RoomEditorState::restore_selection`
-    /// — walk the path and open EVERY ancestor, not just the immediate
+    /// - walk the path and open EVERY ancestor, not just the immediate
     /// parent. This pins that opening only the immediate parent is not
     /// enough, which is the mistake the two-line version of either loop
     /// would be.
@@ -886,7 +886,7 @@ mod tests {
         );
     }
 
-    /// #828: selection sync mirrors the tree into the gizmo-read fields —
+    /// #828: selection sync mirrors the tree into the gizmo-read fields -
     /// and, by construction (no `dirty` parameter), can never arm the
     /// debounce that recompiles + broadcasts the record.
     #[test]
@@ -909,8 +909,8 @@ mod tests {
 
     /// #1244 f414. Sequence: a name typed three sessions ago among 256
     /// roots. Alphabetical order is a weak index once the names are
-    /// auto-generated — `unique_key` yields `cuboid`, `cuboid_1`,
-    /// `cuboid_2`, … — and the only affordance was scrolling.
+    /// auto-generated - `unique_key` yields `cuboid`, `cuboid_1`,
+    /// `cuboid_2`, … - and the only affordance was scrolling.
     #[test]
     fn the_tree_filter_is_a_case_insensitive_substring() {
         let roots: Vec<&str> = vec!["oak_17", "Oak_2", "cuboid", "cuboid_1"];

@@ -1,9 +1,9 @@
-//! Owner Banner — the Medieval identity monument (#975).
+//! Owner Banner - the Medieval identity monument (#975).
 //!
 //! A heraldic banner on a gallows frame: two oak posts on a rough-stone
 //! footing carry a cross-beam, and the room owner's portrait hangs from it on
 //! iron rings as the banner's field, with a cloth valance below and an iron
-//! cresset burning on one post. The arms a hall flies over its gate — with the
+//! cresset burning on one post. The arms a hall flies over its gate - with the
 //! owner's own face in place of the charge.
 //!
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
@@ -57,7 +57,7 @@ impl CatalogueEntry for MedievalMonument {
 }
 
 fn build_tree(did: &str) -> Generator {
-    // Rough-stone footing — the root, and flat, so nothing above inherits a
+    // Rough-stone footing - the root, and flat, so nothing above inherits a
     // tilt.
     let base = prim(
         solid(cuboid_tapered(
@@ -96,7 +96,7 @@ fn post(x: f32) -> Generator {
     )
 }
 
-/// The cross-beam the banner hangs from — and the parent of everything it
+/// The cross-beam the banner hangs from - and the parent of everything it
 /// carries, so dragging the beam takes the banner with it.
 fn beam() -> Generator {
     prim(
@@ -157,7 +157,7 @@ fn banner(did: &str) -> Vec<Generator> {
     out
 }
 
-/// An iron cresset on one post — for the oak and the stone, which go flat at
+/// An iron cresset on one post - for the oak and the stone, which go flat at
 /// dusk; the portrait is unlit and reads on its own.
 fn cresset(x: f32) -> Generator {
     let arm = prim(

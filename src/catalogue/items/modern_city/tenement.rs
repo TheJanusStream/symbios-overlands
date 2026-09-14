@@ -1,4 +1,4 @@
-//! Tenement — the Modern-City *poor* landmark. A weathered brick walk-up
+//! Tenement - the Modern-City *poor* landmark. A weathered brick walk-up
 //! with grimy windows, a steel fire escape zig-zagging up the street face, a
 //! raised stoop and a rooftop water tank. The inner-city counterpart to the
 //! [`glass_skyscraper`](super::glass_skyscraper): same theme, opposite end of
@@ -9,8 +9,8 @@
 //! [`corner_store`](super::corner_store) and the suburban house are:
 //!
 //! 1. **The glazing fills real holes.** The elevation is the brickwork that
-//!    *frames* twenty-four openings — six full-height piers standing 50 mm
-//!    proud of seven recessed spandrel bands — and each opening is filled by
+//!    *frames* twenty-four openings - six full-height piers standing 50 mm
+//!    proud of seven recessed spandrel bands - and each opening is filled by
 //!    a [`window_card`] on a flat quad set back in its reveal, with a room
 //!    panel behind it. It used to be a solid block with `Window`-textured
 //!    slabs pinned to the outside, and the generator masks its panes *away*,
@@ -27,8 +27,8 @@
 //!    sub-assembly.
 //!
 //! The piers-proud-of-bands elevation is also what keeps the prim count sane:
-//! a five-bay, five-storey grid framed the suburban house's way — a slab per
-//! sill and per spandrel — is thirty-five wall slabs, where recessing the
+//! a five-bay, five-storey grid framed the suburban house's way - a slab per
+//! sill and per spandrel - is thirty-five wall slabs, where recessing the
 //! bands behind continuous piers is thirteen and gives the façade a shadow
 //! line it did not have.
 //!
@@ -58,7 +58,7 @@ const BASE_H: f32 = 0.45;
 /// Wall thickness, and so the depth of every window reveal.
 const WALL_T: f32 = 0.35;
 
-/// Outer face of the street wall — the `-Z` hero direction the render tool
+/// Outer face of the street wall - the `-Z` hero direction the render tool
 /// and the settlement placer both look down.
 const FRONT: f32 = -D * 0.5;
 /// Centre of a wall slab whose outer face lies on [`FRONT`].
@@ -70,7 +70,7 @@ const RECESS: f32 = 0.05;
 /// Glazing plane: set back inside the reveal so the wall's thickness reads as
 /// thickness rather than as a sticker.
 const GLAZE_Z: f32 = FRONT + 0.26;
-/// Where the room panels stand — far enough behind the glass that the reveal
+/// Where the room panels stand - far enough behind the glass that the reveal
 /// has depth, near enough that a card always frames *something*.
 const ROOM_Z: f32 = FRONT + 0.66;
 /// Centre plane of the proud trim (sills, string courses). Deep enough that
@@ -83,7 +83,7 @@ const GROUND_H: f32 = 3.3;
 const STOREY: f32 = 2.85;
 /// Upper floors above the ground storey.
 const FLOORS: usize = 4;
-/// Top of the brickwork above the plinth — four storeys, plus a frieze the
+/// Top of the brickwork above the plinth - four storeys, plus a frieze the
 /// cornice can land on.
 const PLATE: f32 = GROUND_H + STOREY * FLOORS as f32 + 0.45;
 
@@ -100,26 +100,26 @@ const U_SILL_OFF: f32 = 0.85;
 /// Ground-storey window sill and opening height above the plinth.
 const G_SILL: f32 = 0.9;
 const G_OPEN_H: f32 = 1.7;
-/// Head of the entrance opening — taller than the windows beside it, as a
+/// Head of the entrance opening - taller than the windows beside it, as a
 /// doorway is, and the level the head band starts from.
 const DOOR_HEAD: f32 = 3.3;
 
-/// Brick length in metres — a real 215 mm brick. The kit's shared sizing
+/// Brick length in metres - a real 215 mm brick. The kit's shared sizing
 /// lays a 172 mm one, small enough at street distance to mip toward flat.
 const BRICK_LEN: f32 = 0.215;
 
 // --- Palette local to this entry. ------------------------------------------
 
-/// Sooty brick for the recessed bands — a tenement's spandrels never
+/// Sooty brick for the recessed bands - a tenement's spandrels never
 /// weather the way its piers do.
 const BRICK_SOOT: [f32; 3] = [0.36, 0.20, 0.16];
 /// Cast-stone sills, cornice corbels and stoop copings.
 const STONE_PALE: [f32; 3] = [0.58, 0.56, 0.52];
-/// Window joinery — the tired painted frames the cards carry.
+/// Window joinery - the tired painted frames the cards carry.
 const JOINERY: [f32; 3] = [0.42, 0.40, 0.36];
 /// Fire-escape steel: dark, and rustier than the kit's structural grey.
 const FE_STEEL: [f32; 3] = [0.30, 0.25, 0.22];
-/// Front-door paint — the one saturated note on the elevation.
+/// Front-door paint - the one saturated note on the elevation.
 const DOOR_PAINT: [f32; 3] = [0.22, 0.26, 0.30];
 /// Weathered cedar of the rooftop tank.
 const TANK_WOOD: [f32; 3] = [0.44, 0.34, 0.24];
@@ -137,7 +137,7 @@ fn bonded(color: [f32; 3], center: [f32; 3], face: FaceKey) -> SovereignMaterial
 /// `wraps` names the *other* faces of this slab that meet brick at a corner
 /// someone can see. That list is short by construction: the four side faces
 /// all read `V = -y`, so courses already turn a vertical corner on the base
-/// offset alone and only the column phase differs — which matters solely
+/// offset alone and only the column phase differs - which matters solely
 /// where two slabs are **coplanar**. On this elevation that is exactly the
 /// two outer piers, whose outward returns share a plane with the flank walls
 /// behind them.
@@ -155,7 +155,7 @@ fn brick_slab(
     prim(kind, center, id_quat())
 }
 
-/// A proud cast-stone band — sill, string course, coping. Trim is always
+/// A proud cast-stone band - sill, string course, coping. Trim is always
 /// oversized against what it laps and always stands off the surface it laps,
 /// so it never shares a plane with its host.
 fn stone(size: [f32; 3], center: [f32; 3]) -> Generator {
@@ -166,7 +166,7 @@ fn stone(size: [f32; 3], center: [f32; 3]) -> Generator {
     )
 }
 
-/// How far a glazing card oversails its opening on every edge — the coplanar
+/// How far a glazing card oversails its opening on every edge - the coplanar
 /// rule applied to a card. Sized to the opening exactly, each edge lands on
 /// the reveal's own plane, and a flush edge is a tie the rasteriser has to
 /// break. The overhang is never seen, because the frame is opaque and the
@@ -189,7 +189,7 @@ fn glazing(size: [f32; 2], center: [f32; 3]) -> Generator {
 /// plinth, and whether a light is on behind it.
 ///
 /// One list rather than three loops, because the elevation, the glazing, the
-/// room panels and the guards all have to agree about where the holes are —
+/// room panels and the guards all have to agree about where the holes are -
 /// and the way that agreement breaks is one of them being edited and the
 /// others not.
 fn openings() -> Vec<(f32, f32, f32, bool)> {
@@ -271,8 +271,8 @@ fn build_tree() -> Generator {
 // --- The shell. ------------------------------------------------------------
 
 /// Lobby deck, and above it everything the building is: the brickwork that
-/// frames the openings, the glazing, the rooms behind it, and — on the
-/// frieze — the cornice and everything the roof carries.
+/// frames the openings, the glazing, the rooms behind it, and - on the
+/// frieze - the cornice and everything the roof carries.
 ///
 /// The deck is the sub-root because it is the lowest piece of the shell and
 /// every course above stands on it.
@@ -408,7 +408,7 @@ fn front_elevation(parts: &mut Vec<Generator>) {
     ));
 
     // Cast-stone sills. The upper storeys get a string course running the
-    // full elevation — cheaper than a sill per opening, and what a walk-up
+    // full elevation - cheaper than a sill per opening, and what a walk-up
     // of this period actually has; the ground floor gets individual sills,
     // because a course there would run straight through the entrance.
     for f in 0..FLOORS {
@@ -429,7 +429,7 @@ fn front_elevation(parts: &mut Vec<Generator>) {
     }
 }
 
-/// A room behind one opening — the surface a card's masked-away panes
+/// A room behind one opening - the surface a card's masked-away panes
 /// actually show.
 ///
 /// Nothing lights the inside of an enclosed prop, so these carry a low
@@ -454,7 +454,7 @@ fn room_panel(x: f32, sill: f32, head: f32, lit: bool) -> Generator {
 /// The entrance: a painted door under a lit transom, in a reveal, with a
 /// vestibule behind it and a tired lamp over the head.
 ///
-/// Depth discipline (#972 lesson 6) applies to a doorway too — the transom
+/// Depth discipline (#972 lesson 6) applies to a doorway too - the transom
 /// exists so the camera looking up through the head frames something warm
 /// instead of the underside of the floor above.
 fn entrance(parts: &mut Vec<Generator>) {
@@ -462,7 +462,7 @@ fn entrance(parts: &mut Vec<Generator>) {
     let head = BASE_H + DOOR_HEAD;
     let sill = BASE_H + G_SILL;
 
-    // Lit vestibule behind the door — the depth the transom looks into.
+    // Lit vestibule behind the door - the depth the transom looks into.
     parts.push(prim(
         cuboid_tapered(
             [OPEN_W + 0.4, DOOR_HEAD - G_SILL + 0.4, 0.1],
@@ -485,7 +485,7 @@ fn entrance(parts: &mut Vec<Generator>) {
         [x, sill + (DOOR_HEAD - G_SILL - 0.54) * 0.5, GLAZE_Z - 0.06],
         id_quat(),
     ));
-    // Stone door head, and a housing with a smaller lit lens under it — a
+    // Stone door head, and a housing with a smaller lit lens under it - a
     // broad panel at strength blooms to white, a small one reads as a
     // colour.
     parts.push(stone([OPEN_W + 0.5, 0.2, 0.36], [x, head + 0.1, TRIM_Z]));
@@ -539,7 +539,7 @@ fn roofscape(y: f32) -> Vec<Generator> {
         ),
     ];
     // Parapet ring: four walls, each capped by its own coping, rather than
-    // one slab across the roof — a cap would hide the deck from every angle
+    // one slab across the roof - a cap would hide the deck from every angle
     // the contact sheet takes.
     let p_h = 0.7;
     let p_t = 0.34;
@@ -577,7 +577,7 @@ fn roofscape(y: f32) -> Vec<Generator> {
         ));
         out.push(stone([p_t + 0.16, 0.12, len], [cx, y + p_h + 0.06, 0.0]));
     }
-    // Stair bulkhead — the head of the stair that reaches the roof, and the
+    // Stair bulkhead - the head of the stair that reaches the roof, and the
     // thing that stops the deck reading as an empty tray.
     out.push(prim(
         solid(cuboid_tapered(
@@ -698,7 +698,7 @@ fn water_tank(y: f32, at: [f32; 2]) -> Generator {
 /// brick cheek wall each side.
 ///
 /// Every part is derived from the flight itself rather than measured off the
-/// building (#972 lesson 8) — the apron is sized *from* the run, so a step
+/// building (#972 lesson 8) - the apron is sized *from* the run, so a step
 /// can never hang over the edge of the pavement it stands on.
 fn stoop() -> Generator {
     let risers = 4;
@@ -761,7 +761,7 @@ fn stoop() -> Generator {
 /// floor line, an outer railing, a zig-zag of stringers, the two verticals
 /// that carry the lot, and the drop ladder.
 ///
-/// It hangs off its own sub-root — the lowest landing — so the whole
+/// It hangs off its own sub-root - the lowest landing - so the whole
 /// assembly moves as one.
 fn fire_escape() -> Generator {
     let fe_x = (BAY_X[0] + BAY_X[1]) * 0.5;
@@ -782,7 +782,7 @@ fn fire_escape() -> Generator {
                 id_quat(),
             ));
         }
-        // Outer railing: an open frame, not a plate — a solid panel at this
+        // Outer railing: an open frame, not a plate - a solid panel at this
         // size reads as a balcony wall and hides the landing behind it.
         parts.push(prim(
             cuboid_tapered([fe_w, 0.07, 0.07], 0.0, steel(FE_STEEL)),
@@ -959,7 +959,7 @@ mod tests {
     }
 
     /// #972 lesson 2: the bond is laid flat, at a real brick, in one shared
-    /// world course frame — so every brick slab's `uv_offset` must equal its
+    /// world course frame - so every brick slab's `uv_offset` must equal its
     /// own face's projection of its own position. A slab moved without its
     /// offset following restarts the courses at its own centre, which is far
     /// too subtle to catch in a render.
@@ -1002,7 +1002,7 @@ mod tests {
                 want.iter()
                     .any(|w| (w[0] - got[0]).abs() < 1e-3 && (w[1] - got[1]).abs() < 1e-3),
                 "brick slab at {at:?} carries uv_offset {got:?}, which is not any \
-                 face's projection of its own position — its courses restart at \
+                 face's projection of its own position - its courses restart at \
                  its own centre"
             );
             for o in faces {

@@ -1,4 +1,4 @@
-//! Resort Gateway — the Coastal-Resort bespoke social gateway (#754),
+//! Resort Gateway - the Coastal-Resort bespoke social gateway (#754),
 //! replacing the neutral placeholder arch for a seaside-holiday room. Two
 //! whitewashed stucco piers carry a sun-greyed plank lintel and a raised
 //! amber name-board over a ~2.6 m walk-through, dressed with a striped
@@ -7,7 +7,7 @@
 //! footlights lining the passage echo the zone veil without blooming white.
 //!
 //! The functional element is the single [`GeneratorKind::Gateway`] zone
-//! centred in the opening — walking into it opens the destination picker.
+//! centred in the opening - walking into it opens the destination picker.
 //! Everything else is set-dressing that frames the opening as a promenade
 //! gate you pass through. Primitive-built; authored in one flat
 //! ground-relative frame via [`assemble`], which reparents every piece
@@ -26,7 +26,7 @@ use super::{
     canvas, concrete, fx, plank, sand, stucco,
 };
 
-/// Pale board-formed promenade concrete for the gateway plinth — the sunlit
+/// Pale board-formed promenade concrete for the gateway plinth - the sunlit
 /// seafront paving the strip's arches stand on.
 const PROMENADE: [f32; 3] = [0.86, 0.83, 0.76];
 
@@ -65,7 +65,7 @@ fn build_tree() -> Generator {
     let px = 1.85_f32; // pier centre offset (X)
     let front = -0.85_f32; // -Z approach side (hero convention)
 
-    // Promenade plinth — the flat-base root. Never tilt a root: assemble()
+    // Promenade plinth - the flat-base root. Never tilt a root: assemble()
     // stamps its transform onto every child, so a spun root spins the gate.
     let mut prims = vec![prim(
         solid(cuboid_tapered([5.6, 0.3, 3.0], 0.0, concrete(PROMENADE))),
@@ -103,7 +103,7 @@ fn build_tree() -> Generator {
     ));
 
     // Raised name-board over the lintel: a stucco backing panel carrying a
-    // deep-amber lit face on the -Z front — the sign that reads across the
+    // deep-amber lit face on the -Z front - the sign that reads across the
     // strand at dusk. Broad lit face at low strength holds its hue instead of
     // blooming to a white blank.
     prims.push(prim(
@@ -128,7 +128,7 @@ fn build_tree() -> Generator {
     }
 
     // Striped deck-chair awning slung off the lintel front over the approach,
-    // tilted so its leading edge drops toward the strand — the beach-kiosk
+    // tilted so its leading edge drops toward the strand - the beach-kiosk
     // read that names the theme at a glance.
     prims.push(prim(
         solid(cuboid_tapered(
@@ -140,7 +140,7 @@ fn build_tree() -> Generator {
         quat_x(-0.32),
     ));
 
-    // Deep-aqua glow strip under the lintel — a thin trim run can sit a touch
+    // Deep-aqua glow strip under the lintel - a thin trim run can sit a touch
     // hot; the deep-saturated sea tone reads as an active threshold, echoing
     // the walk-in zone's veil without white bloom.
     prims.push(prim(
@@ -160,7 +160,7 @@ fn build_tree() -> Generator {
     }
 
     // The walk-in zone between the piers: floor at the plinth top, headroom
-    // under the lintel. Bare kind — the gateway takes no material.
+    // under the lintel. Bare kind - the gateway takes no material.
     prims.push(prim(
         // Fitted to the opening (#1006): the veil spans the mouth and
         // buries its edges in jamb, lintel and threshold, so no cuboid
@@ -188,7 +188,7 @@ mod tests {
         assert_sanitize_stable(&CoastalResortGateway.build(""), "coastal_resort_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is set-dressing, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

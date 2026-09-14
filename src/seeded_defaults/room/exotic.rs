@@ -3,8 +3,8 @@
 //! The realistic-first palette deriver (#901) retired the old "own
 //! planet" any-hue roam for every seeded room. This module is where the
 //! surreal look survives, deliberately and bounded: rooms whose
-//! [`ThemeArchetype`] is fantastical — [`AlienOrganic`], [`AlienMonolithic`],
-//! [`Fantasy`], and [`Cyberpunk`] at reduced strength — get their sky,
+//! [`ThemeArchetype`] is fantastical - [`AlienOrganic`], [`AlienMonolithic`],
+//! [`Fantasy`], and [`Cyberpunk`] at reduced strength - get their sky,
 //! fog, cloud-shadow and water channels *leaned* (OkLCH shortest-arc,
 //! lightness-preserving) toward a per-theme exotic hue after the
 //! realistic derive.
@@ -14,7 +14,7 @@
 //! - Lightness is never touched, so the splat ordering, the fog depth
 //!   read and the water depth gradient all survive.
 //! - The sun (and its fog glow twin) stays on the realistic blackbody
-//!   locus — an alien sky is lit by a real-looking sun, which is what
+//!   locus - an alien sky is lit by a real-looking sun, which is what
 //!   sells the "wrong sky over familiar light" effect.
 //! - Terrain layers stay realistic; only [`AlienOrganic`] / [`Fantasy`]
 //!   add a small chroma lift to vegetation (creep-world lushness), with
@@ -89,7 +89,7 @@ fn exotic_profile(theme: ThemeArchetype) -> Option<ExoticProfile> {
             water_chroma: 0.02,
             grass_chroma: 0.015,
         }),
-        // Neon-noir: a restrained magenta wash — most of the cyberpunk
+        // Neon-noir: a restrained magenta wash - most of the cyberpunk
         // look comes from nightfall + the kit's emissives, so the
         // palette lean stays the lightest of the four.
         Cyberpunk => Some(ExoticProfile {
@@ -129,7 +129,7 @@ fn lean(rgb: [f32; 3], target_hue: f32, hue_t: f32, chroma_boost: f32) -> [f32; 
     oklch_to_srgb([l, c2, h2])
 }
 
-/// [`lean`] for an RGBA channel — biases the colour, preserves the alpha.
+/// [`lean`] for an RGBA channel - biases the colour, preserves the alpha.
 fn lean4(rgba: [f32; 4], target_hue: f32, hue_t: f32, chroma_boost: f32) -> [f32; 4] {
     let [r, g, b] = lean([rgba[0], rgba[1], rgba[2]], target_hue, hue_t, chroma_boost);
     [r, g, b, rgba[3]]
@@ -190,7 +190,7 @@ mod tests {
     }
 
     /// Every non-exotic theme yields a palette byte-identical to any
-    /// other non-exotic theme — the layer is a strict gate, not a bias
+    /// other non-exotic theme - the layer is a strict gate, not a bias
     /// every room pays for.
     #[test]
     fn non_exotic_themes_are_identity() {
@@ -241,7 +241,7 @@ mod tests {
     }
 
     /// The sun (and its fog-glow twin) and the solid terrain layers stay
-    /// on the realistic derive — the alien look is in the air and the
+    /// on the realistic derive - the alien look is in the air and the
     /// water, not the light source or the ground.
     #[test]
     fn exotic_preserves_sun_and_solid_ground() {

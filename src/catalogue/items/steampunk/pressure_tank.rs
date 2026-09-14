@@ -1,4 +1,4 @@
-//! Pressure tank — a Steampunk prop. A riveted iron boiler on saddle
+//! Pressure tank - a Steampunk prop. A riveted iron boiler on saddle
 //! supports, brass end caps and a valve on top. Scatter clutter beside the
 //! works.
 //!
@@ -66,7 +66,7 @@ fn build_tree() -> Generator {
         quat_x(FRAC_PI_2),
     ));
 
-    // Brass dished heads — profile-cut hemispheres flattened into shallow
+    // Brass dished heads - profile-cut hemispheres flattened into shallow
     // dished caps bulging off each Z end.
     for (z, rot) in [(1.4_f32, quat_x(FRAC_PI_2)), (-1.4, quat_x(-FRAC_PI_2))] {
         prims.push(prim_scaled(
@@ -100,7 +100,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Brass valve on top — a hollow riser with a spoked hand-wheel (rim raised
+    // Brass valve on top - a hollow riser with a spoked hand-wheel (rim raised
     // above the spoke plane so the open quadrants read, not a solid disc).
     prims.push(prim(
         solid(tube(0.1, 0.05, 0.5, 8, brass(BRASS))),

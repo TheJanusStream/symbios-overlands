@@ -1,11 +1,11 @@
-//! Theme ambient *music* — the tonal melodic voice that gives a
+//! Theme ambient *music* - the tonal melodic voice that gives a
 //! settlement its character. Each
 //! [`ThemeArchetype`](crate::seeded_defaults::scene::ThemeArchetype) maps to a
 //! [`ThemeVoice`](voices::ThemeVoice) descriptor (instrument timbre +
 //! scale + note pattern); the
 //! match is exhaustive, so every theme has an authored voice and a new
 //! archetype must add one. The biome still nudges the register and the voice
-//! shares the bed's reverb space — so some of the music is "based on biome"
+//! shares the bed's reverb space - so some of the music is "based on biome"
 //! while its identity comes from the theme.
 //!
 //! Split (#655): [`voices`] holds the per-theme voice table and its
@@ -31,7 +31,7 @@ use patterns::build_events;
 use voices::Wave;
 use voices::{apply_socio, biome_register, voice_for};
 
-/// Build the theme music layer — one melodic instrument + its track —
+/// Build the theme music layer - one melodic instrument + its track -
 /// for the room's theme, sharing the bed's reverb space via `params`.
 pub(super) fn build(
     scene: &SceneCharacter,
@@ -203,7 +203,7 @@ mod tests {
     /// The longest-tailed voice (AlienMonolithic: gate ≤ 2.5 + release 2.5,
     /// widened by the variety jitter) is the binding case for
     /// `ONSET_TAIL_BEATS`. Every onset's gate + release must land inside the
-    /// loop + crossfade overhang — for *every* seed, at the escalation that
+    /// loop + crossfade overhang - for *every* seed, at the escalation that
     /// keeps gates longest (calm; conflict tightens them).
     #[test]
     fn longest_tailed_voice_stays_inside_the_overhang() {
@@ -243,7 +243,7 @@ mod tests {
         );
     }
 
-    /// Voice variety is a pure function of the seed — same seed, same voice.
+    /// Voice variety is a pure function of the seed - same seed, same voice.
     #[test]
     fn voice_variety_is_deterministic_in_seed() {
         let a = voice_for(&scene_with(ThemeArchetype::Medieval, 0.0), 42);

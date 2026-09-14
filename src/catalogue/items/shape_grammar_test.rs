@@ -4,7 +4,7 @@
 //! `add_statement` path the runtime uses, then derives against the entry's
 //! default footprint. Catches rule typos and ensures every `Mat("...")`
 //! slot referenced in the grammar has a matching entry in the materials map
-//! — otherwise a hand-edit that drops a slot or breaks a rule only surfaces
+//! - otherwise a hand-edit that drops a slot or breaks a rule only surfaces
 //! as a runtime warning the first time someone drops the entry in a room.
 //!
 //! Every shape entry's grammar test should be a one-line call to
@@ -74,7 +74,7 @@ pub(super) fn assert_grammar_parses_and_derives(kind: GeneratorKind, entry_name:
         );
     }
     // A `round_meshes` entry that matches no emitted terminal is a silent
-    // no-op — exactly the typo that would leave a colonnade square with no
+    // no-op - exactly the typo that would leave a colonnade square with no
     // error anywhere.
     for id in &round_meshes {
         assert!(
@@ -97,7 +97,7 @@ pub(super) fn assert_grammar_parses_and_derives(kind: GeneratorKind, entry_name:
         .unwrap_or_else(|e| panic!("{entry_name} grammar must derive: {e:?}"));
     assert!(
         !model.terminals.is_empty(),
-        "{entry_name} derivation produced zero terminals — footprint is starving the splits"
+        "{entry_name} derivation produced zero terminals - footprint is starving the splits"
     );
 }
 
@@ -109,7 +109,7 @@ pub(super) fn assert_grammar_parses_and_derives(kind: GeneratorKind, entry_name:
 /// a root whose transform is already pushed *down* by half the plinth
 /// (the block is buried, its top left at `FOUNDATION_REVEAL`), so pushing
 /// the grammar on with `root.children.push(..)` makes it inherit that
-/// offset and sink the whole building — leaving the plinth standing proud
+/// offset and sink the whole building - leaving the plinth standing proud
 /// around its base. [`util::attach`] rebases out of the root's frame and
 /// is the correct way to hang it.
 #[cfg(test)]
@@ -120,7 +120,7 @@ pub(super) fn assert_shape_nodes_stand_at_grade(built: &crate::pds::Generator, e
             *found += 1;
             assert!(
                 y.abs() < 1e-3,
-                "{entry_name}: shape grammar sits at world y = {y:.3}, not grade — \
+                "{entry_name}: shape grammar sits at world y = {y:.3}, not grade - \
                  the building is sunk into (or floating above) its foundation. \
                  Hang it with util::attach, not root.children.push"
             );

@@ -1,4 +1,4 @@
-//! Beach house — a Coastal-Resort secondary. A pastel stucco bungalow raised
+//! Beach house - a Coastal-Resort secondary. A pastel stucco bungalow raised
 //! on timber stilts above the tide line, with a railed veranda, shuttered
 //! windows over planted boxes, a lit front room and a ridged plank roof. The
 //! holiday let of the strip.
@@ -7,13 +7,13 @@
 //! guards were written for:
 //!
 //! 1. **The windows were slabs on a solid wall.** Two `Window`-textured
-//!    cuboids pinned to the stucco — the generator masks its panes away, so
+//!    cuboids pinned to the stucco - the generator masks its panes away, so
 //!    each was a frame with holes onto the render behind it.
 //! 2. **The roof had a plateau.** `taper` 0.85 pinches a cuboid to a 15 % flat
 //!    top: a truncated wedge, not a ridge. At 0.99 it comes to a line, and the
 //!    gables it leaves are rendered like the walls.
 //! 3. **The railing was a plate.** One 0.5 m slab across seven metres on two
-//!    end posts, and only along the front — three sides of a deck 1.6 m off
+//!    end posts, and only along the front - three sides of a deck 1.6 m off
 //!    the sand had nothing at all.
 //! 4. **The steps neither started nor finished anywhere.** Two treads at a
 //!    round `deck − 0.5` and `deck − 1.0`, floating 0.3 m clear of the deck's
@@ -43,7 +43,7 @@ const DECK_W: f32 = 7.2;
 const DECK_D: f32 = 6.2;
 const DECK_Y: f32 = 1.55;
 const DECK_T: f32 = 0.3;
-/// Top of the deck boards — the floor level, and the datum for everything
+/// Top of the deck boards - the floor level, and the datum for everything
 /// above.
 const FLOOR: f32 = DECK_Y + DECK_T * 0.5;
 
@@ -56,14 +56,14 @@ const WALL_TOP: f32 = FLOOR + WALL_H;
 /// The bungalow sits back on the deck, so the veranda is in front of it.
 const HOUSE_Z: f32 = 0.7;
 
-/// Outer face of the shore-facing wall — the `-Z` hero direction the render
+/// Outer face of the shore-facing wall - the `-Z` hero direction the render
 /// tool and the settlement placer both look down.
 const FRONT: f32 = HOUSE_Z - D * 0.5;
 const FRONT_MID: f32 = FRONT + WALL_T * 0.5;
 /// Glazing plane and the room panel behind it, inside the reveal.
 const GLAZE_Z: f32 = FRONT + WALL_T * 0.7;
 const ROOM_Z: f32 = FRONT + 0.6;
-/// Centre plane of proud trim — shutters, casings, window boxes.
+/// Centre plane of proud trim - shutters, casings, window boxes.
 const TRIM_Z: f32 = FRONT - 0.05;
 
 /// Bay centres in X: window, door, window.
@@ -87,20 +87,20 @@ const EAVE_OVER: f32 = 0.55;
 const RIDGE_TAPER: f32 = 0.99;
 
 /// Veranda rail height above the deck, and the clear width of the gap the
-/// steps land in — derived from the flight so the two cannot drift apart.
+/// steps land in - derived from the flight so the two cannot drift apart.
 const RAIL_H: f32 = 1.0;
 const STEP_W: f32 = 1.6;
 
 // --- Palette local to this entry. ------------------------------------------
 
-/// Pastel coral render of the bungalow walls — a brighter holiday-let plaster
+/// Pastel coral render of the bungalow walls - a brighter holiday-let plaster
 /// than the duskier hamlet sand, so it reads as a cheerful seaside cottage.
 const PASTEL_CORAL: [f32; 3] = [0.93, 0.79, 0.71];
 /// Painted teal shutters and trim against the coral walls.
 const TRIM_TEAL: [f32; 3] = [0.20, 0.50, 0.52];
 /// Window-box greenery.
 const PLANT_GREEN: [f32; 3] = [0.30, 0.46, 0.24];
-/// Front door paint — the one deeper note on the elevation.
+/// Front door paint - the one deeper note on the elevation.
 const DOOR_PAINT: [f32; 3] = [0.16, 0.38, 0.42];
 
 // --- Shared construction. --------------------------------------------------
@@ -126,7 +126,7 @@ fn wall(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
     )
 }
 
-/// A proud painted board — shutter, casing, barge board, fascia. Always
+/// A proud painted board - shutter, casing, barge board, fascia. Always
 /// oversized against what it laps and always standing off the surface it
 /// laps, so it never shares a plane with its host.
 fn trim(size: [f32; 3], center: [f32; 3]) -> Generator {
@@ -156,7 +156,7 @@ fn glazing(size: [f32; 2], center: [f32; 3], panes: (u32, u32)) -> Generator {
     )
 }
 
-/// A lit room behind an opening — the surface a card's masked-away panes
+/// A lit room behind an opening - the surface a card's masked-away panes
 /// actually show.
 fn room(size: [f32; 2], center: [f32; 3], lit: f32) -> Generator {
     prim(
@@ -205,7 +205,7 @@ impl CatalogueEntry for BeachHouse {
 
 /// The house as a tree that stands the way it does: a stilt at the bottom
 /// carrying the rest, the deck on them, the bungalow on the deck, the roof on
-/// the bungalow — with the steps their own sub-assembly off the deck's edge.
+/// the bungalow - with the steps their own sub-assembly off the deck's edge.
 fn build_tree() -> Generator {
     let (px, pz) = (DECK_W * 0.5 - 0.55, DECK_D * 0.5 - 0.55);
     let mut parts = Vec::new();
@@ -283,14 +283,14 @@ fn deck() -> Generator {
 // --- The bungalow. ---------------------------------------------------------
 
 /// Floor, and on it everything the house is: the render that frames the three
-/// bays, the glazing, the lit room behind it, and — on the wall plate — the
+/// bays, the glazing, the lit room behind it, and - on the wall plate - the
 /// roof.
 fn bungalow() -> Generator {
     let mut parts = Vec::new();
     let mid_y = FLOOR + WALL_H * 0.5;
     let inner_d = D - WALL_T * 2.0;
 
-    // Back and side walls — solid; only the shore face is cut.
+    // Back and side walls - solid; only the shore face is cut.
     parts.push(wall(
         [W, WALL_H, WALL_T],
         [0.0, mid_y, HOUSE_Z + D * 0.5 - WALL_T * 0.5],
@@ -423,7 +423,7 @@ fn shore_elevation(parts: &mut Vec<Generator>) {
         [DOOR_W + 0.44, 0.16, 0.22],
         [dx, FLOOR + DOOR_H + 0.11, TRIM_Z],
     ));
-    // Veranda lantern beside the door — a small lens in a housing.
+    // Veranda lantern beside the door - a small lens in a housing.
     parts.push(prim(
         solid(cuboid_tapered(
             [0.18, 0.24, 0.13],
@@ -614,7 +614,7 @@ mod tests {
     }
 
     /// The roof comes to a ridge, and the gables it leaves are rendered like
-    /// the walls. `taper` 0.85 — what this carried — leaves a flat top 15 % of
+    /// the walls. `taper` 0.85 - what this carried - leaves a flat top 15 % of
     /// the house's depth wide, which reads as a botched hip from anything
     /// above eye level.
     #[test]
@@ -637,7 +637,7 @@ mod tests {
                 return;
             }
             found = true;
-            assert_eq!(tx, 0.0, "the roof is pinched in X too — that is a hip");
+            assert_eq!(tx, 0.0, "the roof is pinched in X too - that is a hip");
             assert!(tz > 0.9, "the ridge taper {tz} leaves a plateau on top");
             let clad: Vec<_> = faces.iter().map(|o| o.face).collect();
             assert!(
@@ -702,7 +702,7 @@ mod tests {
             };
             let [sx, sy, sz] = size.0;
             // Balusters are `RAIL_H` less the handrail's own stock, so an
-            // exact height match finds only the end posts — which is how the
+            // exact height match finds only the end posts - which is how the
             // first version of this guard counted zero balusters on a railed
             // veranda.
             if at[1] < FLOOR || !(RAIL_H * 0.7..=RAIL_H + 0.01).contains(&sy) {
@@ -733,7 +733,7 @@ mod tests {
         );
     }
 
-    /// The house keeps its lit rooms and lantern — escalation's
+    /// The house keeps its lit rooms and lantern - escalation's
     /// broken-emissive ruin pass needs something to snuff.
     #[test]
     fn has_lit_rooms() {

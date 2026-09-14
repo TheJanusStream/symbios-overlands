@@ -1,4 +1,4 @@
-//! Wizard tower — the High-Fantasy landmark and the kit's lit hero. A tall
+//! Wizard tower - the High-Fantasy landmark and the kit's lit hero. A tall
 //! tapering stone tower with arcane-lit windows, a steep slate cone cap and a
 //! glowing crystal orb on a gold spire, ringed by floating runestones. ~14 m
 //! tall, so it anchors the arcane quarter and reads as the mage's seat from
@@ -25,7 +25,7 @@ use super::{
     fx, gold, rune_marks, stone, timber,
 };
 
-/// Dark slate of the floating runestones — a cold backing the gold glyphs read
+/// Dark slate of the floating runestones - a cold backing the gold glyphs read
 /// on, the [`runestone`](super::runestone) slate.
 const SLATE: [f32; 3] = [0.33, 0.32, 0.37];
 
@@ -72,7 +72,7 @@ fn build_tree() -> Generator {
     let rad = |y: f32| shaft_r0 * (1.0 - taper * ((y - base_h) / shaft_h).clamp(0.0, 1.0));
 
     let mut prims = vec![
-        // Stone base — the root.
+        // Stone base - the root.
         prim(
             solid(cuboid_tapered([5.0, base_h, 5.0], 0.0, stone(STONE_GREY))),
             [0.0, base_h * 0.5, 0.0],
@@ -94,8 +94,8 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
     // Gold string-course bands hugging the shaft, set high in the gaps between
-    // the stacked windows — clear of each window's pointed-arch top below and
-    // the sill above — so they never cut across a pane or its arch.
+    // the stacked windows - clear of each window's pointed-arch top below and
+    // the sill above - so they never cut across a pane or its arch.
     for y in [base_h + 4.5, base_h + 7.5] {
         prims.push(prim(
             solid(torus(0.14, rad(y) + 0.04, gold(GOLD))),
@@ -106,7 +106,7 @@ fn build_tree() -> Generator {
 
     // Arcane-lit windows climbing the −Z (front) face, each under a pointed
     // arch. The shaft is solid stone, so behind every opening sits a small
-    // emissive arcane chamber set just proud of the curved wall — the cut
+    // emissive arcane chamber set just proud of the curved wall - the cut
     // window panes (opacity below the alpha-mask cutoff) reveal that glow, not
     // the stone, instead of the old `Window`-textured slab that tiled since
     // #936 and read as a tinted block (#948). A stone sill finishes each.
@@ -147,7 +147,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Corbelled balcony gallery ringing the shaft below the cap — the read
+    // Corbelled balcony gallery ringing the shaft below the cap - the read
     // that turns a lighthouse into a mage's tower.
     let bal_y = shaft_top - 0.4;
     let bal_r = rad(bal_y) + 0.55;
@@ -172,7 +172,7 @@ fn build_tree() -> Generator {
         [0.0, shaft_top + 2.3, 0.0],
         id_quat(),
     ));
-    // Short gold neck + glowing crystal orb finial — emissive. The orb is
+    // Short gold neck + glowing crystal orb finial - emissive. The orb is
     // seated down onto the cone tip (its underside dips below the apex) and the
     // neck is short, so the orb nestles on the point instead of perching high
     // on a thin needle.
@@ -198,7 +198,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Floating runestones orbiting the cap base — dark slate slabs with glowing
+    // Floating runestones orbiting the cap base - dark slate slabs with glowing
     // gold rune strokes facing out toward the −Z hero front.
     for i in 0..3 {
         let a = i as f32 / 3.0 * TAU - 0.5;
@@ -244,8 +244,8 @@ mod tests {
     }
 
     /// #948: every `Window` card sits on a `Plane` at `uv_scale` 1.0 (spans
-    /// once, not tiled), and — being a landmark that gets embedded in room
-    /// records — the built tree survives a serde round-trip.
+    /// once, not tiled), and - being a landmark that gets embedded in room
+    /// records - the built tree survives a serde round-trip.
     #[test]
     fn glazing_is_planes_and_round_trips() {
         use crate::pds::material_finish::node_materials_mut;

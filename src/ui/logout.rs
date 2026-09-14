@@ -4,8 +4,8 @@
 //!
 //! It lives under `ui` (#1297 group 2, owner decision 2026-09-10)
 //! because that is what it tears down. Seventeen of the types it
-//! names are `ui`'s own — the two editors, four publish tasks, the
-//! gateway picker pair, the unsaved-edits guard, the reauth door —
+//! names are `ui`'s own - the two editors, four publish tasks, the
+//! gateway picker pair, the unsaved-edits guard, the reauth door -
 //! and inverting that would have meant seventeen mirrors published
 //! for one reader that only wants to drop them. The direction of the
 //! dependency was right; the file was on the wrong side of it.
@@ -49,7 +49,7 @@ impl Plugin for LogoutPlugin {
         // entry and `OnExit(InGame)` is never reached. `loading` used to
         // run this teardown by `run_system_cached`, which pointed the
         // arrow from the domain into `ui` once the file moved here
-        // (#1297 group 2). It watches the flag instead — which is how
+        // (#1297 group 2). It watches the flag instead - which is how
         // `TerrainPlugin`'s own teardown has always reacted to it, and
         // the flag is deliberately kept alive through the aborting frame
         // for exactly this. `AbortLoading` is dropped on the
@@ -65,18 +65,18 @@ impl Plugin for LogoutPlugin {
 }
 
 /// The resources one logged-in session owns, and the teardown that drops
-/// them — declared **once** so the two can never disagree (#1140, finding
+/// them - declared **once** so the two can never disagree (#1140, finding
 /// 118 of #1152).
 ///
 /// The bug this exists to prevent: `CurrentRoomDid` was installed by
 /// `ui::login::complete::install_completed_session` and had no remove site
 /// anywhere in the crate, so the previous session's room DID sat in the
 /// world across a logout. It was harmless only because the next login
-/// happened to overwrite it — `TravelingTo` next door was not harmless at
+/// happened to overwrite it - `TravelingTo` next door was not harmless at
 /// all. Every entry below is a resource whose value is a claim about ONE
 /// session (who is logged in, which room, what is in flight); an
 /// app-lifetime resource that merely needs *resetting* is not listed here,
-/// because removing it would panic the next frame that reads it — those
+/// because removing it would panic the next frame that reads it - those
 /// live in `cleanup_on_logout` as `insert_resource(Default)` instead.
 ///
 /// The list generates both the teardown and the name set the drift test
@@ -162,13 +162,13 @@ session_scoped_resources! {
     crate::ui::gateway::GatewayDismissed,
     // Who the browser's saved session belonged to (#1229 f10). Inserted by
     // `check_wasm_resume`, not by `install_completed_session`, so the drift
-    // test cannot see it — and a stale one is not merely cosmetic: the
+    // test cannot see it - and a stale one is not merely cosmetic: the
     // destination resolver PREFERS the resume's target over the boot
     // params, so the previous user's world would out-rank the landmark
     // link the next visitor arrived on.
     crate::ui::login::entry::ResumeIdentity,
     // The world this session compiled is despawned in `cleanup_on_logout`,
-    // so the next login's loading gate must wait for a fresh compile pass —
+    // so the next login's loading gate must wait for a fresh compile pass -
     // and the per-unit fingerprints must not short-circuit it into skipping
     // the rebuild of a now-empty scene. Any in-flight sliced job is dropped
     // with them (its queue indexes the old record). `WorldCompileArmed`
@@ -184,7 +184,7 @@ session_scoped_resources! {
 /// portal fetch (#1140).
 ///
 /// Kept out of [`cleanup_on_logout`], which already sits at Bevy's 16-param
-/// ceiling — the same reason `ui::undo::clear_history_on_logout` is its own
+/// ceiling - the same reason `ui::undo::clear_history_on_logout` is its own
 /// system.
 ///
 /// `AvatarEditorState` and `RoomEditorState` are app-lifetime
@@ -192,25 +192,25 @@ session_scoped_resources! {
 /// the one that bit: a worn-prop selection made before logging out keeps
 /// `holds_avatar_still()` true on the first `InGame` frame of the NEXT
 /// login, which parks the new chassis with ALL_LOCKED and pins the rig to
-/// rest — while `sync_gizmo_selection` finds no entity carrying that rkey,
+/// rest - while `sync_gizmo_selection` finds no entity carrying that rkey,
 /// so there is no gizmo on screen to explain it or to click away. The
 /// release path (`release_hidden_selections`) only runs under
 /// `in_state(InGame)`, so nothing between the two sessions could ever have
 /// cleared it. The same resource also carried the previous account's
 /// wardrobe listing across the boundary, where one click on a row would
-/// have made the new user wear — and republish under the old user's rkey —
+/// have made the new user wear - and republish under the old user's rkey -
 /// a body from a repo they do not own.
 ///
 /// `RoomEditorState` is reset alongside it. Its stale selection names a
 /// generator in a room that no longer exists, so nothing freezes and no
-/// other identity's data is exposed — but it is the same resource with the
+/// other identity's data is exposed - but it is the same resource with the
 /// same lifetime and the same absence of any other teardown, and leaving
 /// exactly one of the pair behind is how the next reader concludes that
 /// editor state is meant to survive a logout.
 ///
 /// The Inventory's selection goes too (#1301). A stash item is selected by
 /// NAME, and a name is a claim about one user's stash: carried across, it
-/// would pre-select — and ask the item preview to stage — whatever the next
+/// would pre-select - and ask the item preview to stage - whatever the next
 /// account happens to have under that name. The Catalogue's selection is a
 /// slug in a list compiled into the binary, the same for everyone, and is
 /// deliberately left alone.
@@ -240,7 +240,7 @@ fn clear_editor_state_on_logout(
 /// PDS writes, the mutuals walk and the two blob fetches. None carries
 /// `LocalPlayer` or `RoomEntity`, so the entity sweep in
 /// [`cleanup_on_logout`] never reached them, and the publish polls run only
-/// `InGame` — so a save fired just before logout sat un-polled and landed in
+/// `InGame` - so a save fired just before logout sat un-polled and landed in
 /// the NEXT session, pinning the previous session's record as that
 /// session's stored mirror (the dirty baseline, the Revert target, and the
 /// attachment delete set). The poll systems also refuse a result whose DID
@@ -280,7 +280,7 @@ impl SessionTasks<'_, '_> {
 //
 // `pub(crate)`: besides the `OnExit(InGame)` registration above, the
 // loading screen's "Back to login" abort path (#849) runs this on demand
-// via `commands.run_system_cached` — aborting a stuck load is a real
+// via `commands.run_system_cached` - aborting a stuck load is a real
 // logout (session, sockets, caches), it just never reached `InGame`.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn cleanup_on_logout(
@@ -318,7 +318,7 @@ pub(crate) fn cleanup_on_logout(
         // Rides in the tuple for the arity reason above; needed to release
         // egui's strong handles on the profile images (#1125).
         ResMut<bevy_egui::EguiUserTextures>,
-        // Likewise (#1231 f27) — this system is at the 16-parameter
+        // Likewise (#1231 f27) - this system is at the 16-parameter
         // ceiling, and the portal-name map is one more thing to forget.
         ResMut<crate::ui::travel::WorldNames>,
     ),
@@ -334,7 +334,7 @@ pub(crate) fn cleanup_on_logout(
     // Best-effort: revoke the OAuth tokens at the user's PDS (RFC 7009)
     // before we drop the session. Fire-and-forget on IoTaskPool because
     // the network round-trip mustn't block the OnExit transition or
-    // delay the local-state cleanup below — local state is wiped
+    // delay the local-state cleanup below - local state is wiped
     // regardless of the network outcome.
     //
     // See `bevy_symbios_multiuser::auth::logout` for the refresh-then-access
@@ -349,7 +349,7 @@ pub(crate) fn cleanup_on_logout(
                 // reuses the process-shared Tokio runtime on native and
                 // bounds the browser fetch on wasm. Revocation is
                 // best-effort by design, so a timeout is logged and the
-                // local state is cleared regardless — but an unbounded
+                // local state is cleared regardless - but an unbounded
                 // wait would leave this detached task alive for the rest
                 // of the page's life.
                 let fut = revoke_oauth_tokens(&session, &client, &metadata);
@@ -370,7 +370,7 @@ pub(crate) fn cleanup_on_logout(
     // Despawn game-world entities (recursive by default in Bevy 0.18).
     //
     // `try_despawn` swallows the `EntityMutableFetchError` that fires
-    // when an entity has already been despawned this frame — which can
+    // when an entity has already been despawned this frame - which can
     // happen when a parent's recursive despawn reaches a child before
     // the child's own queue entry runs, or when a deferred closure
     // queued by a gameplay system (e.g. `commands.queue(...)` in the
@@ -385,7 +385,7 @@ pub(crate) fn cleanup_on_logout(
     }
     // Also drop every world-compiler output (L-systems, scatter props,
     // water volumes). `terrain.rs` despawns the heightfield on its own
-    // `OnExit(InGame)` hook, but the world builder does not — without
+    // `OnExit(InGame)` hook, but the world builder does not - without
     // this loop, trees and shapes from the previous room would sit
     // orphaned in the ECS until the next room loaded.
     for e in &room_entities {
@@ -393,8 +393,8 @@ pub(crate) fn cleanup_on_logout(
     }
     // The ambient bed plays on its own `AmbientPlayer` entity, which is not
     // a `RoomEntity` / player / peer, so nothing above reaches it. Without
-    // this it would keep looping after logout and — because the next
-    // login's `spawn` path can't see a survivor it didn't track — leave two
+    // this it would keep looping after logout and - because the next
+    // login's `spawn` path can't see a survivor it didn't track - leave two
     // overlapping loops playing. Despawn it and forget the handle.
     for e in &ambient_players {
         commands.entity(e).try_despawn();
@@ -402,7 +402,7 @@ pub(crate) fn cleanup_on_logout(
     playing_ambient.clear();
 
     // Every resource that belongs to the departing session, in one
-    // declaration shared with the login-install drift test — see
+    // declaration shared with the login-install drift test - see
     // [`session_scoped_resources`]. Hand-written runs of `remove_resource`
     // are what let `CurrentRoomDid` and `TravelingTo` survive a logout
     // (#1140).
@@ -410,7 +410,7 @@ pub(crate) fn cleanup_on_logout(
     commands.insert_resource(crate::world_builder::compile::CompiledWorld::default());
     commands.insert_resource(crate::world_builder::compile::CompileJob::default());
 
-    // Reset (don't remove — these are app-lifetime `init_resource`s, so
+    // Reset (don't remove - these are app-lifetime `init_resource`s, so
     // a missing one would panic the next editor frame) every per-record
     // publish-status line back to `Idle`, so re-logging in as a
     // different user never shows the previous session's stale
@@ -418,7 +418,7 @@ pub(crate) fn cleanup_on_logout(
     commands.insert_resource(PublishFeedback::<RoomRecord>::default());
     // UiPanels is deliberately NOT reset here (#820): panel layout is a
     // machine-local preference persisted by `crate::prefs`, so logging
-    // out and back in reopens the same windows — and the dismissed
+    // out and back in reopens the same windows - and the dismissed
     // first-run Controls hint stays dismissed instead of greeting the
     // user every session.
     commands.insert_resource(PublishFeedback::<AvatarRecord>::default());
@@ -431,19 +431,19 @@ pub(crate) fn cleanup_on_logout(
     commands.insert_resource(crate::world_builder::grammar_diag::GrammarDiagnostics::default());
     // The gateway picker's mutuals cache (#1204): a public follow graph
     // keyed by room owner, so nothing identity-scoped crosses the boundary
-    // — but its slots age against `Time::elapsed`, which does not reset,
+    // - but its slots age against `Time::elapsed`, which does not reset,
     // so a `Failed` slot from the old session suppressed the new user's
     // first retry and a `Ready` one showed a list no fetch had run for.
     commands.insert_resource(crate::social::MutualsCache::default());
     // The signed-in owner's mute list (#1223 f292). App-lifetime, so it is
-    // RESET rather than removed — `save_prefs_when_changed` reads it every
+    // RESET rather than removed - `save_prefs_when_changed` reads it every
     // frame, in every state. `MutedByOwner` keeps the stored copy; the next
     // sign-in installs theirs through `prefs::adopt_owner_mute_list`, and
     // until then nothing on a shared machine is muted by somebody else's
     // list.
     commands.insert_resource(crate::state::MutedDids::default());
     // The blob-audio cache (#1204): content-keyed like the baked-audio
-    // cache cleared below, and for the same reason — its retained
+    // cache cleared below, and for the same reason - its retained
     // `AudioSource` buffers are memory the next session would inherit.
     // Re-inserted rather than cleared because this system is at Bevy's
     // parameter ceiling.
@@ -458,7 +458,7 @@ pub(crate) fn cleanup_on_logout(
     // Reset in-memory buffers so the next session starts fresh. Whole
     // resource, not just `messages`: `unread` drove the toolbar badge into
     // the next login, and since #1140 the half-typed input line lives here
-    // too — a draft is one keystroke from being sent under a new identity.
+    // too - a draft is one keystroke from being sent under a new identity.
     *chat = ChatHistory::default();
     // Roll the diagnostic stream into a fresh segment: flush the departing
     // session to disk, then clear the in-memory tail so the next user's HUD
@@ -475,7 +475,7 @@ pub(crate) fn cleanup_on_logout(
     // a stranger's vessel the moment a new session's peer Identity claim
     // happened to match a DID from the old room.
     avatar_cache.clear();
-    // Likewise for the bsky profile material cache — if the previous user
+    // Likewise for the bsky profile material cache - if the previous user
     // lingered on a peer's pfp we don't want to render it on someone else
     // after a DID collision.
     // Releasing egui's strong handles is what actually frees the profile
@@ -487,7 +487,7 @@ pub(crate) fn cleanup_on_logout(
     }
     // Same argument for the portal-name map (#1231 f27): DID-keyed answers
     // this account's session went and asked for, on rooms the next account
-    // may never see. Cleared rather than removed — it is `init_resource`d,
+    // may never see. Cleared rather than removed - it is `init_resource`d,
     // so the systems that read it run with it present from app build.
     portal_names.clear();
     // The shared blob image cache holds `Handle<Image>` keyed by source
@@ -497,7 +497,7 @@ pub(crate) fn cleanup_on_logout(
     // otherwise paint the previous session's image into a fresh
     // generator pointing at the same source.
     blob_image_cache.clear();
-    // Pending outgoing offers are session-scoped — a new login must not
+    // Pending outgoing offers are session-scoped - a new login must not
     // inherit the previous user's outstanding gifts (different DID, the
     // recipient could never authenticate a response back into the map).
     pending_offers.by_id.clear();
@@ -517,14 +517,14 @@ pub(crate) fn cleanup_on_logout(
 
     // The four per-generator geometry/material caches (Shape + L-system) are
     // bounded within a session by the full-rebuild GC, but nothing else clears
-    // them at logout — so the last room's `Handle<Mesh>` / `Handle<StandardMaterial>`
+    // them at logout - so the last room's `Handle<Mesh>` / `Handle<StandardMaterial>`
     // survive into the next login. Drop them here (#625).
     shape_mesh.clear();
     shape_material.clear();
     lsystem_mesh.clear();
     lsystem_material.clear();
     // The content-addressed primitive caches (#918) have no generator ref to
-    // GC against, so within a session they are bounded only by capacity —
+    // GC against, so within a session they are bounded only by capacity -
     // making them the same retention hazard, and clearing them here the same
     // fix (#625).
     prim_mesh.clear();
@@ -532,7 +532,7 @@ pub(crate) fn cleanup_on_logout(
 
     // The procedural `TextureCache` (FIFO-64, ~192 MiB worst case) is content-
     // keyed and deliberately survives room *changes*, but nothing clears it at
-    // logout — its retained `Handle<Image>`s are the dominant texture memory the
+    // logout - its retained `Handle<Image>`s are the dominant texture memory the
     // next session would inherit. Re-insert a fresh one to release them (#625).
     commands.insert_resource(crate::world_builder::fresh_texture_cache());
 }
@@ -560,7 +560,7 @@ mod tests {
     }
 
     /// A minimal but real [`crate::ui::login::CompletedSession`]. Nothing
-    /// here talks to the network — the point is only that
+    /// here talks to the network - the point is only that
     /// `install_completed_session` runs its full body and inserts exactly
     /// the resources it inserts in production.
     fn completed_session() -> crate::ui::login::CompletedSession {
@@ -646,7 +646,7 @@ mod tests {
             .collect();
         assert!(
             !installed.is_empty(),
-            "the install path inserted nothing — the test is measuring the wrong thing"
+            "the install path inserted nothing - the test is measuring the wrong thing"
         );
 
         let torn_down = session_scoped_resource_names();
@@ -675,8 +675,8 @@ mod tests {
         "symbios_overlands::boot_params::BootEntrySpent",
         "#1230 f19. The marker says the URL/CLI destination this process was \
          started with has already carried somebody into a world. Logout is one \
-         of the exact two doors that re-enter AppState::Login — the other is \
-         the loading screen's abort — and clearing it there would re-arm the \
+         of the exact two doors that re-enter AppState::Login - the other is \
+         the loading screen's abort - and clearing it there would re-arm the \
          auto-submit those doors exist to escape, which is the whole defect.",
     )];
 
@@ -710,7 +710,7 @@ mod tests {
             assert!(
                 installed.iter().any(|installed| installed == name),
                 "{name} is listed as outliving a session but login does not \
-                 install it — stale exception"
+                 install it - stale exception"
             );
             assert!(!reason.is_empty(), "{name} has no recorded reason");
         }
@@ -720,7 +720,7 @@ mod tests {
     /// spinner is up ("Discard & log out" or "Cancel (save continues)").
     /// The publish task entity was on no sweep list and its poll runs only
     /// `InGame`, so it sat until the next login and then wrote
-    /// `stored = published` into the NEW session — a stranger's record as
+    /// `stored = published` into the NEW session - a stranger's record as
     /// the dirty baseline, the Revert target and the attachment delete
     /// set. Every in-flight task a session can leave behind is swept.
     #[test]
@@ -768,7 +768,7 @@ mod tests {
             >()),
             previous: None,
         });
-        // Only the task entities — `World::new()` seeds bookkeeping
+        // Only the task entities - `World::new()` seeds bookkeeping
         // entities of its own.
         fn in_flight(world: &mut World) -> usize {
             world
@@ -802,7 +802,7 @@ mod tests {
     /// The travel half of #1140. Sequence: walk into a portal, let the
     /// destination fetch start, and log out from the toolbar before it
     /// lands. `TravelingTo` was removed only inside
-    /// `poll_portal_travel_tasks`, so it survived — and every drive system
+    /// `poll_portal_travel_tasks`, so it survived - and every drive system
     /// early-returns while it is present, which is a frozen avatar under a
     /// "Traveling to …" overlay on the next login, followed by an
     /// unrequested room swap when the old fetch finally resolves.
@@ -827,7 +827,7 @@ mod tests {
 
     /// The avatar-editor half of #1140. Sequence: select a worn prop so the
     /// offset gizmo comes up, log out with the Avatar window still open
-    /// (`UiPanels` is deliberately persisted, #820), log back in — as
+    /// (`UiPanels` is deliberately persisted, #820), log back in - as
     /// anyone. `AvatarEditorState` is an app-lifetime `init_resource` that
     /// no teardown touched, so `holds_avatar_still()` was already true on
     /// the new session's first frame and parked the fresh chassis with no
@@ -860,7 +860,7 @@ mod tests {
     /// The Inventory half of #1301. Sequence: select "lantern" in the
     /// Inventory, log out, log in as someone else who also owns a
     /// "lantern". The selection is a name, and a name is only meaningful in
-    /// the stash it was picked from — surviving the boundary, it would
+    /// the stash it was picked from - surviving the boundary, it would
     /// pre-select the next account's item and stage it in the preview.
     #[test]
     fn an_inventory_selection_does_not_survive_logout() {

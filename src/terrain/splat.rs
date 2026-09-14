@@ -29,7 +29,7 @@ use super::{
 /// Dispatch four procedural splat-layer texture bakes (one per layer), pulling
 /// the configs from the active `RoomRecord`'s terrain generator and routing each
 /// through [`crate::offload`] so the heavy pattern synthesis runs off the
-/// schedule (native: `AsyncComputeTaskPool`; wasm: a Web Worker — the texture
+/// schedule (native: `AsyncComputeTaskPool`; wasm: a Web Worker - the texture
 /// crate's own rayon pool is a no-op on wasm and would run inline on the render
 /// frame, which is the gap this closes). Each bake is parked on a
 /// [`SplatTexTask`]; a `TextureTasksStarted` marker makes this a one-shot inside
@@ -64,7 +64,7 @@ pub(super) fn start_texture_tasks(
             height: texture_size,
         });
         // Offload-lifecycle mark (#631). Each of the four concurrent bakes gets
-        // a DISTINCT job name — a shared name would let a fast layer's
+        // a DISTINCT job name - a shared name would let a fast layer's
         // completion satisfy a stalled sibling's `OffloadJobStarted` and mask a
         // real stall. Gated on `not(TextureTasksStarted)`, so once per gen.
         session_log.info(
@@ -84,7 +84,7 @@ pub(super) fn start_texture_tasks(
 
         // Referenced layers ALSO trigger an HTTP / ATProto-blob fetch.
         // The decoded image overrides the procedural placeholder once
-        // bytes arrive — until then the placeholder ground texture is
+        // bytes arrive - until then the placeholder ground texture is
         // what the splat shader samples.
         if let SovereignTextureConfig::Referenced { source } = layer {
             // Not unconditional any more (#1246 f347 / #1247 f346): a
@@ -120,7 +120,7 @@ pub(super) struct SplatTexTask {
 }
 
 /// Build a [`gen_jobs::TextureBakeJob`] from any [`SovereignTextureConfig`]
-/// variant — the offload-layer mirror of the procedural splat config. Unknown /
+/// variant - the offload-layer mirror of the procedural splat config. Unknown /
 /// None / Referenced / particle-sprite variants fall back to a default ground
 /// config so all four splat layers always bake a tileable surface (the splat
 /// shader samples all four unconditionally).
@@ -154,16 +154,16 @@ fn texture_bake_job(layer: &SovereignTextureConfig) -> gen_jobs::TextureBakeJob 
         SovereignTextureConfig::Asphalt(c) => Job::Asphalt(c.to_native()),
         SovereignTextureConfig::Wainscoting(c) => Job::Wainscoting(c.to_native()),
         SovereignTextureConfig::Encaustic(c) => Job::Encaustic(c.to_native()),
-        // Additional tileable surfaces — usable as biome splat layers (sand
+        // Additional tileable surfaces - usable as biome splat layers (sand
         // for desert, snow for tundra, lava for volcanic crust).
         SovereignTextureConfig::Fabric(c) => Job::Fabric(c.to_native()),
         SovereignTextureConfig::Sand(c) => Job::Sand(c.to_native()),
         SovereignTextureConfig::Snow(c) => Job::Snow(c.to_native()),
         SovereignTextureConfig::Ice(c) => Job::Ice(c.to_native()),
         SovereignTextureConfig::Lava(c) => Job::Lava(c.to_native()),
-        // A tileable succulent skin — usable as a splat layer like any surface.
+        // A tileable succulent skin - usable as a splat layer like any surface.
         SovereignTextureConfig::CactusSkin(c) => Job::CactusSkin(c.to_native()),
-        // Ground-cover encrustations — tileable, and the point of them is to
+        // Ground-cover encrustations - tileable, and the point of them is to
         // be a terrain layer (Tundra lichen, forest-floor moss).
         SovereignTextureConfig::Moss(c) => Job::Moss(c.to_native()),
         SovereignTextureConfig::Lichen(c) => Job::Lichen(c.to_native()),
@@ -174,14 +174,14 @@ fn texture_bake_job(layer: &SovereignTextureConfig) -> gen_jobs::TextureBakeJob 
         SovereignTextureConfig::IronGrille(c) => Job::IronGrille(c.to_native()),
         SovereignTextureConfig::ChainLink(c) => Job::ChainLink(c.to_native()),
         SovereignTextureConfig::LogEnd(c) => Job::LogEnd(c.to_native()),
-        // None / Unknown / Referenced — fall back to an opaque placeholder
+        // None / Unknown / Referenced - fall back to an opaque placeholder
         // via GroundConfig default so the splat array always has four live
         // textures to sample. For Referenced the fallback is what the splat
         // shows BEFORE the resolver paints the fetched image in; once the
         // fetch lands the layer's albedo handle is swapped over the placeholder.
         //
         // The particle sprite cards share the SovereignTextureConfig dropdown
-        // but are alpha-silhouette billboards, not tileable surfaces — tiling
+        // but are alpha-silhouette billboards, not tileable surfaces - tiling
         // one across terrain would repeat its transparent holes. They fall
         // back to the ground placeholder here; they're meant for the particle
         // texture slot, not terrain layers.
@@ -213,10 +213,10 @@ fn texture_bake_job(layer: &SovereignTextureConfig) -> gen_jobs::TextureBakeJob 
 /// pixel buffers and store them by layer index.
 ///
 /// The bake ran the procedural generator off the schedule (native:
-/// `AsyncComputeTaskPool`; wasm: a Web Worker — see [`crate::offload`]),
+/// `AsyncComputeTaskPool`; wasm: a Web Worker - see [`crate::offload`]),
 /// returning RGBA buffers mip-chained inside the job.
 /// [`map_to_images_with_usages`] stores them `MAIN_WORLD`-only (no GPU upload
-/// — these per-layer images are only read back on the CPU by
+/// - these per-layer images are only read back on the CPU by
 /// [`build_texture_array`], never bound), so it can stack them unchanged
 /// before [`apply_splat_textures`] drops them.
 pub(super) fn collect_texture_results(
@@ -251,12 +251,12 @@ pub(super) fn collect_texture_results(
                 },
             );
             warn!(
-                "texture-bake offload job yielded an unexpected result — skipping layer {}",
+                "texture-bake offload job yielded an unexpected result - skipping layer {}",
                 pending.index
             );
             continue;
         };
-        // Success only: record the bake latency (E-4) — a skipped/failed layer
+        // Success only: record the bake latency (E-4) - a skipped/failed layer
         // above never reaches here, so it can't pollute the latency histogram.
         crate::diagnostics::samplers::texture_bake_latency_secs(&mut metrics, now - spawned_at);
         session_log.info(
@@ -273,7 +273,7 @@ pub(super) fn collect_texture_results(
             roughness: data.roughness,
             emissive: data.emissive,
             // The worker mip-chains inside the job (gen-jobs runs
-            // `TextureMap::with_mips`), so the count must ride along — the
+            // `TextureMap::with_mips`), so the count must ride along - the
             // upload treats `1` as "base only" and would box-filter a
             // wrong-length buffer otherwise. Payloads from an older worker
             // deserialise the field to `1` and still mip-chain here.
@@ -282,8 +282,8 @@ pub(super) fn collect_texture_results(
             height: data.height,
         };
         // `MAIN_WORLD`-only: these per-layer images are never bound to a
-        // material — `build_texture_array` reads their CPU bytes to assemble
-        // the two splat arrays — so skip the GPU upload entirely and keep
+        // material - `build_texture_array` reads their CPU bytes to assemble
+        // the two splat arrays - so skip the GPU upload entirely and keep
         // `Image::data` resident for that read. `apply_splat_textures` drops
         // them once the arrays are built.
         let handles = map_to_images_with_usages(map, RenderAssetUsages::MAIN_WORLD, &mut images);
@@ -323,7 +323,7 @@ pub(super) fn apply_splat_textures(
         return;
     };
 
-    // Mutable phase — add new assets after all immutable reads are done.
+    // Mutable phase - add new assets after all immutable reads are done.
     let albedo_array = images.add(albedo_img);
     let normal_array = images.add(normal_img);
 
@@ -331,7 +331,7 @@ pub(super) fn apply_splat_textures(
     let hm = &hm_res.0;
     let world_extent = (hm.width() - 1) as f32 * hm.scale();
 
-    // Pull splat rules from the active record when present — this is what
+    // Pull splat rules from the active record when present - this is what
     // lets the world editor re-balance biomes without a recompile. Falls
     // back to the canonical defaults if the record lacks a terrain gen.
     let (rules_src, hs) = record
@@ -347,7 +347,7 @@ pub(super) fn apply_splat_textures(
         });
 
     let mapper = SplatMapper::new([
-        // R — Grass
+        // R - Grass
         SplatRule::new(
             (
                 hs * rules_src[0].height_min.0,
@@ -356,7 +356,7 @@ pub(super) fn apply_splat_textures(
             (rules_src[0].slope_min.0, rules_src[0].slope_max.0),
             rules_src[0].sharpness.0,
         ),
-        // G — Dirt
+        // G - Dirt
         SplatRule::new(
             (
                 hs * rules_src[1].height_min.0,
@@ -365,7 +365,7 @@ pub(super) fn apply_splat_textures(
             (rules_src[1].slope_min.0, rules_src[1].slope_max.0),
             rules_src[1].sharpness.0,
         ),
-        // B — Rock
+        // B - Rock
         SplatRule::new(
             (
                 hs * rules_src[2].height_min.0,
@@ -374,7 +374,7 @@ pub(super) fn apply_splat_textures(
             (rules_src[2].slope_min.0, rules_src[2].slope_max.0),
             rules_src[2].sharpness.0,
         ),
-        // A — Snow
+        // A - Snow
         SplatRule::new(
             (
                 hs * rules_src[3].height_min.0,
@@ -400,7 +400,7 @@ pub(super) fn apply_splat_textures(
     ));
 
     // Build the weight-map image manually so we can use RENDER_WORLD-only
-    // storage — the CPU bytes are never needed again after upload.
+    // storage - the CPU bytes are never needed again after upload.
     let wm_bytes: Vec<u8> = weight_map
         .data
         .iter()
@@ -410,7 +410,7 @@ pub(super) fn apply_splat_textures(
     // The splat half of the world digest (#1146). These bytes are where a
     // one-ULP arithmetic difference between two peers stops being invisible:
     // `SplatRule` scoring runs on `powf`, and the result is quantised to a
-    // `u8` per channel — so a borderline score that rounds the other way is a
+    // `u8` per channel - so a borderline score that rounds the other way is a
     // texel of ground the two peers give a different material. Hashed as-is,
     // with no further quantisation, because these bytes ARE the decision.
     if let Some(digest) = digest.as_deref_mut() {
@@ -473,9 +473,9 @@ pub(super) fn apply_splat_textures(
 
         // Bind the avatar-interaction stains overlay (#245). The image
         // is allocated zeroed at startup, so enabling it now is inert
-        // until the stamper writes contacts — backward-compatible.
+        // until the stamper writes contacts - backward-compatible.
         //
-        // wasm32 skips this binding entirely, on WebGPU as well as WebGL2 —
+        // wasm32 skips this binding entirely, on WebGPU as well as WebGL2 -
         // see the note on `SplatExtension::stains_tex` in `crate::splat`:
         // the GLES backend caps fragment shaders at 16 texture slots and the
         // splat material already sits at that ceiling, so the stains overlay
@@ -494,7 +494,7 @@ pub(super) fn apply_splat_textures(
     // The four per-layer source images have now been concatenated into the two
     // RENDER_WORLD splat arrays bound above, so their bytes are fully redundant.
     // Drop the handles to free their MAIN_WORLD CPU copies (~11 MiB at the 512
-    // splat resolution) — except when a Referenced layer is present, since a
+    // splat resolution) - except when a Referenced layer is present, since a
     // late blob fetch can re-trigger this system, which needs all four sources
     // to rebuild the arrays.
     let has_referenced = record
@@ -517,7 +517,7 @@ pub(super) fn apply_splat_textures(
 /// Free the four per-layer source images of a *Referenced* room once every layer
 /// fetch has resolved (#642). `apply_splat_textures` drops them the same frame
 /// for procedural rooms, but deliberately skips the free while any Referenced
-/// layer is configured — a late blob fetch flips `state.applied = false` and
+/// layer is configured - a late blob fetch flips `state.applied = false` and
 /// needs all four sources to rebuild the arrays. Once no `PendingSplatLayerFetch`
 /// entity remains, no rebuild can be re-triggered (the sole trigger is a
 /// resolving fetch), so the retained ~11 MiB of MAIN_WORLD CPU bytes is pure
@@ -526,7 +526,7 @@ pub(super) fn apply_splat_textures(
 /// Keep the damp-ground datum in step with an edited water level (#913).
 ///
 /// [`apply_splat_textures`] sets `water_y` when the splat textures land,
-/// which covers first load and every terrain regeneration — but moving the
+/// which covers first load and every terrain regeneration - but moving the
 /// water plane in the editor changes the record WITHOUT regenerating the
 /// heightmap, so the material would keep darkening the ground around the
 /// old waterline until something else forced a terrain rebuild. Cheaper to
@@ -603,7 +603,7 @@ fn build_texture_array(
     // Each procedural layer image carries a full mipchain (see
     // `bevy_symbios_texture`'s `generate_mipmaps`), so `merged` is
     // mip-inclusive. `Image::new` `debug_assert`s `merged.len()` against
-    // the descriptor's *default* `mip_level_count = 1` and panics — the
+    // the descriptor's *default* `mip_level_count = 1` and panics - the
     // post-hoc `mip_level_count` assignment used to land too late for
     // that assert (and in release the check is compiled out, leaving a
     // descriptor that mismatches the data). Build via `new_uninit`,

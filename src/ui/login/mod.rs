@@ -5,29 +5,29 @@
 //! authenticated handle is learnt back from the authorization response,
 //! so no handle input is needed from the user. The flow is target-specific:
 //!
-//! - **WASM** — `sessionStorage` carries the pending-auth blob across the
+//! - **WASM** - `sessionStorage` carries the pending-auth blob across the
 //!   page redirect; the callback lands back on the hosted page with
 //!   `?code=&state=` and `check_wasm_callback` kicks off the code
 //!   exchange on the next frame.
-//! - **Native** — a background `tiny_http` loopback server catches the
+//! - **Native** - a background `tiny_http` loopback server catches the
 //!   redirect; the pending-auth blob lives in
 //!   `crate::oauth::NativePendingAuthRes` and [`poll_native_callback`]
 //!   drains the channel.
 //!
 //! ## Sub-module map
 //!
-//! * [`begin`] — drains [`BeginAuthTask`]s and hands the resulting URL
+//! * [`begin`] - drains [`BeginAuthTask`]s and hands the resulting URL
 //!   to the platform-specific browser-launch path.
-//! * [`complete`] — drains [`CompleteAuthTask`]s, installs session
+//! * [`complete`] - drains [`CompleteAuthTask`]s, installs session
 //!   resources, transitions to `Loading`. Also home to the shared
 //!   `install_completed_session` + `spawn_complete_task` helpers.
-//! * [`native_callback`] (native only) — polls the loopback callback
+//! * [`native_callback`] (native only) - polls the loopback callback
 //!   channel and triggers the code exchange.
-//! * `wasm_resume` (wasm only) — `?code=&state=` URL parser + persisted-
+//! * `wasm_resume` (wasm only) - `?code=&state=` URL parser + persisted-
 //!   session resume task + its drainer.
-//! * [`posts`] — the login-screen Bluesky feed: recent `#Overlands` posts
+//! * [`posts`] - the login-screen Bluesky feed: recent `#Overlands` posts
 //!   fetched unauthenticated via `app.bsky.feed.getAuthorFeed`.
-//! * [`entry`] — the landmark-link entry surface (#1227): the verified
+//! * [`entry`] - the landmark-link entry surface (#1227): the verified
 //!   DID → handle lookup that names the destination, the infrastructure
 //!   override warning, and the copy for the confirmation card that
 //!   replaced the first-frame auto-submit.
@@ -39,7 +39,7 @@ mod begin;
 pub(crate) mod complete;
 pub mod entry;
 mod errors;
-// #1214: the expired-session sentence is needed in-game too — a publish
+// #1214: the expired-session sentence is needed in-game too - a publish
 // whose token refresh came back `invalid_grant` used to render the raw
 // Rust error chain as its primary feedback.
 pub use errors::friendly_login_error;
@@ -111,7 +111,7 @@ pub struct CompleteAuthTask(bevy::tasks::Task<CompleteOutcome>);
 /// The login form's own path (in [`login_ui`]) validates a typed PDS,
 /// relay and destination first and carries the boot-param spawn pose; this
 /// one starts from values the app already holds, which is the in-game
-/// re-authentication case (#1214) — same client, same PDS, same relay, same
+/// re-authentication case (#1214) - same client, same PDS, same relay, same
 /// room. Both hand the resulting [`BeginAuthTask`] to
 /// [`poll_begin_auth_task`], so the browser-launch and pending-blob
 /// handling stay in one place.
@@ -142,7 +142,7 @@ pub fn spawn_begin_auth_task(
 ///
 /// Kept as a Bevy `Resource` rather than a `Local` on either UI system so
 /// the rendering system and the polling system share a single authoritative
-/// buffer — a `Local<LoginError>` would give each system its own private
+/// buffer - a `Local<LoginError>` would give each system its own private
 /// copy and silently swallow every message.
 #[derive(Resource, Default)]
 pub struct LoginError(pub Option<String>);
@@ -181,7 +181,7 @@ pub struct LoginUiLatch {
     /// blob; the entry decision (#1227) needs the answer every frame, and
     /// asking the browser sixty times a second for a fact that changes at
     /// most once per visit is not a bargain worth making. Cleared by the
-    /// one thing that changes it mid-visit — "Not you? Sign in differently".
+    /// one thing that changes it mid-visit - "Not you? Sign in differently".
     pub persisted: Option<bool>,
     /// Set the first frame the idle form gives keyboard focus to the
     /// destination field (#848), so the type-then-Enter reflex works
@@ -192,7 +192,7 @@ pub struct LoginUiLatch {
     /// [`LoginError`] changes and consumed by whichever field renders it.
     ///
     /// Enter-to-submit fires on `lost_focus()`, so validation runs with the
-    /// caret already gone and `focused` already spent — every error left a
+    /// caret already gone and `focused` already spent - every error left a
     /// keyboard-first user with no focused widget at all. For a PDS or
     /// relay error the fold naming the field is shut as well, which is the
     /// case #1229 f1 cares about: the account server IS a login input, and
@@ -204,12 +204,12 @@ pub struct LoginUiLatch {
 /// Reset the [`LoginUiLatch`] when the app (re)enters
 /// [`crate::state::AppState::Login`]. Fires on initial state entry too,
 /// which is harmless: the resource starts at default already. The
-/// load-bearing case is the *re-entry* after logout — the pre-fill and
+/// load-bearing case is the *re-entry* after logout - the pre-fill and
 /// the focus one-shot must behave as they would on a fresh page load.
 ///
 /// The auto-submit half is the exception (#1230 f19). `AppState::Login`
-/// is re-entered by exactly two escape hatches — the loading screen's
-/// "Back to login" and the toolbar's Log out — and re-arming the
+/// is re-entered by exactly two escape hatches - the loading screen's
+/// "Back to login" and the toolbar's Log out - and re-arming the
 /// auto-submit there sent a link visitor straight back into the flow they
 /// were escaping, which for a dead destination meant killing the app was
 /// the only exit. Once [`crate::boot_params::BootEntrySpent`] exists the
@@ -262,13 +262,13 @@ pub struct WasmResumeState<'w, 's> {
 /// `label` is the verified name for a landmark link's destination (#1227
 /// f250), `clipboard` is where "Copy login URL" reports what it actually
 /// did (#1234 f8), and `settings` carries the login screen's own theme
-/// picker (#1276 f39) — unrelated to each other, related only in that none
+/// picker (#1276 f39) - unrelated to each other, related only in that none
 /// justifies the last free slot on its own.
 #[derive(SystemParam)]
 pub struct LoginCardDeps<'w> {
     label: Res<'w, entry::DestinationLabel>,
     /// Native-only: "Copy login URL" is the fallback for a browser that
-    /// would not open, and wasm has no such failure to recover from — the
+    /// would not open, and wasm has no such failure to recover from - the
     /// tab IS the browser.
     #[cfg(not(target_arch = "wasm32"))]
     clipboard: Res<'w, crate::boot_params::ClipboardQueue>,
@@ -299,6 +299,14 @@ impl Default for LoginFormState {
     }
 }
 
+/// The hero's two tagline lines (#1349): what a newcomer gets, in words
+/// that need no protocol knowledge. Also what `index.html`'s
+/// `og:description` says, joined by a dash - the two are asserted equal
+/// in `hero_copy::the_hero_and_the_page_description_agree`, because they had
+/// drifted apart once already (the HTML said "shared", the app did not).
+pub(crate) const HERO_LINE_1: &str = "A free and open creative virtual world.";
+pub(crate) const HERO_LINE_2: &str = "Build yours, then walk into your friends'.";
+
 #[allow(clippy::too_many_arguments)]
 pub fn login_ui(
     mut contexts: EguiContexts,
@@ -327,7 +335,7 @@ pub fn login_ui(
     // The form is a `Local` and lives for the process, so a re-entry after
     // logout starts by clearing the destination (#1204): the hint says
     // "blank for your own world", and the previous session's typed
-    // friend — or the previous USER's, on a shared machine — must not be
+    // friend - or the previous USER's, on a shared machine - must not be
     // a routing decision nobody made this time. The PDS / relay fields
     // are operator config and keep their values.
     if !latch.prefilled {
@@ -348,7 +356,7 @@ pub fn login_ui(
         latch.prefilled = true;
     }
     // Arm the error's field the frame the error lands (#1234 f14), not
-    // every frame it is shown — a caret that keeps snapping back would be
+    // every frame it is shown - a caret that keeps snapping back would be
     // worse than one that never moves. Read from the sentence the user is
     // SHOWN, which is where the pipeline stages acquire "(under
     // Advanced)"; the raw chain names no field.
@@ -366,7 +374,7 @@ pub fn login_ui(
 
     use crate::config::ui::login as cfg;
 
-    // Full-screen sky gradient behind everything (#896) — without it the
+    // Full-screen sky gradient behind everything (#896) - without it the
     // login screen floats over the raw `ClearColor`, which reads as an
     // unfinished tool rather than the doorway to a world. Once the
     // attract backdrop's demo world (#897) has a terrain mesh to show,
@@ -382,14 +390,14 @@ pub fn login_ui(
     // screen's teal wordmark so loading → login reads as
     // one continuous brand surface instead of a visual-language reset.
     //
-    // The hero carries its own contrast guarantee — a translucent panel
-    // of the theme's window fill — over BOTH backdrops (#1258 f237).
+    // The hero carries its own contrast guarantee - a translucent panel
+    // of the theme's window fill - over BOTH backdrops (#1258 f237).
     // It used to be chromeless over the flat gradient, on the reasoning
     // that those were "colours the theme already vouches for"; the
     // measurement said otherwise. In the light palette the 32 pt
     // wordmark in `theme.accent` sat at 2.08:1 over its own sky and the
     // 15 pt taglines at 3.12:1, both failing even the large-text
-    // threshold. Over the frame they are 4.6:1 and 5.7:1 — and this is
+    // threshold. Over the frame they are 4.6:1 and 5.7:1 - and this is
     // the screen a user meets before they have a theme picker.
     let hero_frame = egui::Frame::new()
         .fill(theme.0.window_fill.gamma_multiply(HERO_FRAME_ALPHA))
@@ -413,13 +421,18 @@ pub fn login_ui(
                     // Two labels, not one wrapping label (#898): a wrap
                     // just before the final word orphaned "friends." on
                     // its own line, and each label centres itself.
+                    //
+                    // What the lines say (#1349): the promise, not the
+                    // mechanism. A newcomer does not know what "seeded"
+                    // or "ATProto" buys them; a world of their own and
+                    // their friends' worlds a doorway away, they do.
                     ui.label(
-                        egui::RichText::new("Procedurally seeded worlds on ATProto")
+                        egui::RichText::new(HERO_LINE_1)
                             .size(cfg::TAGLINE_TEXT_SIZE)
                             .color(theme.0.text_weak),
                     );
                     ui.label(
-                        egui::RichText::new("Explore, build, visit friends.")
+                        egui::RichText::new(HERO_LINE_2)
                             .size(cfg::TAGLINE_TEXT_SIZE)
                             .color(theme.0.text_weak),
                     );
@@ -464,7 +477,7 @@ pub fn login_ui(
                 // itself (#1234 f14).
                 ui.label(
                     egui::RichText::new(
-                        "Sign in with your ATProto account — Bluesky, or your own server.",
+                        "Sign in with your Bluesky account, or any ATProto account.",
                     )
                     .color(theme.0.text_weak),
                 );
@@ -499,7 +512,7 @@ pub fn login_ui(
                     })
                     .unwrap_or(crate::boot_params::EntryPlan::Idle);
                 let boot_did = boot.as_deref().and_then(|b| b.target_did.as_deref());
-                // The link's destination, named — and named through the same
+                // The link's destination, named - and named through the same
                 // ladder the roster row and the chat author tag use, so the
                 // stranger reads "@alice.bsky.social" here and recognises it
                 // everywhere afterwards.
@@ -540,9 +553,9 @@ pub fn login_ui(
                 }
                 // The security half (#1227 f294). `pds=` and `relay=` arrive
                 // in the same query string as the destination and are used
-                // verbatim — the first becomes the authorization server the
+                // verbatim - the first becomes the authorization server the
                 // browser is navigated to, the second carries every chat
-                // line, transform and gift envelope of the session — and
+                // line, transform and gift envelope of the session - and
                 // both were rendered inside a fold that is collapsed by
                 // default. Named, in warn amber, above a fold that opens
                 // itself.
@@ -552,7 +565,7 @@ pub fn login_ui(
                 }
 
                 // Enter-to-submit (#848): a field that just lost focus to the
-                // Enter key reads as "I'm done typing — go".
+                // Enter key reads as "I'm done typing - go".
                 let mut enter_submitted = false;
                 let mut track_enter = |resp: &egui::Response| {
                     if resp.lost_focus() && resp.ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -564,7 +577,7 @@ pub fn login_ui(
                 let dest_resp = crate::ui::affordances::text_edit(
                     ui,
                     egui::TextEdit::singleline(&mut form.target_did)
-                        .hint_text("@friend.bsky.social — blank for your own world")
+                        .hint_text("@friend.bsky.social - blank for your own world")
                         .desired_width(f32::INFINITY),
                 );
                 track_enter(&dest_resp);
@@ -578,10 +591,10 @@ pub fn login_ui(
                 }
 
                 // The PDS / relay endpoints are operator plumbing nobody
-                // should touch on a first login — folded away so the first
+                // should touch on a first login - folded away so the first
                 // screen doesn't lead with a bare IP that reads as sketchy.
                 // Opened by default when the boot params brought an
-                // override with them (#1227 f294) — `default_open`, not
+                // override with them (#1227 f294) - `default_open`, not
                 // `open`, so the user can still fold it away once they have
                 // read it. Nothing about a plain login changes.
                 //
@@ -603,7 +616,7 @@ pub fn login_ui(
                             // told them nothing.
                             ui.label("Account server:");
                             let pds = ui.text_edit_singleline(&mut form.pds).on_hover_text(
-                                "Where your ATProto account lives — bsky.social for a Bluesky account, or your own host.",
+                                "Where your ATProto account lives - bsky.social for a Bluesky account, or your own host.",
                             );
                             if latch.error_focus == Some(ErrorField::Pds) {
                                 pds.request_focus();
@@ -636,8 +649,8 @@ pub fn login_ui(
                 let waiting = !wasm.resume_tasks.is_empty();
                 let mut begin_now = false;
                 if !redirecting && !completing && !waiting {
-                    // Primary call to action — full card width, oversized,
-                    // and filled with the identity accent (#855, teal — was
+                    // Primary call to action - full card width, oversized,
+                    // and filled with the identity accent (#855, teal - was
                     // a one-off green) so it reads as *the* thing to do on
                     // the login screen rather than a peer of the text fields.
                     // The button says whose world it enters when a link
@@ -677,7 +690,7 @@ pub fn login_ui(
                     });
                     // Escape hatch for a hung exchange (#848). The
                     // authorization code is single-use, so a cancelled
-                    // exchange can't be resumed — the user just starts a
+                    // exchange can't be resumed - the user just starts a
                     // fresh login, which is exactly what the form offers.
                     if ui.button("Cancel").clicked() {
                         for e in complete_tasks.iter() {
@@ -698,7 +711,7 @@ pub fn login_ui(
                         commands.insert_resource(LoginError(None));
                     }
                 } else {
-                    // `waiting` — the target-specific stretch.
+                    // `waiting` - the target-specific stretch.
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         ui.horizontal(|ui| {
@@ -707,7 +720,7 @@ pub fn login_ui(
                         });
                         // The other half of #1234 f7. Cancel-then-Enter
                         // leaves an older consent tab open, and approving
-                        // it is refused — correctly — by a listener bound
+                        // it is refused - correctly - by a listener bound
                         // to a newer `state`. The browser now says so; this
                         // is the same fact on the surface that is still
                         // spinning, so the two agree.
@@ -747,22 +760,22 @@ pub fn login_ui(
                                 // Through the queue, not `ctx.copy_text`
                                 // (#1234 f8). This button is the documented
                                 // fallback for "Couldn't open your browser
-                                // automatically" — the one moment on this
+                                // automatically" - the one moment on this
                                 // screen where the user is already in a
-                                // failure path — and it reported nothing at
+                                // failure path - and it reported nothing at
                                 // all, success or failure. `ClipboardQueue`
                                 // owns both outcomes; `drain_clipboard_outcomes`
                                 // and `toast_ui` now run in the Login chain
                                 // too, so the answer is on screen.
                                 card.clipboard
-                                    .copy(&url.0, "Login URL copied — paste it into a browser");
+                                    .copy(&url.0, "Login URL copied - paste it into a browser");
                             }
                         });
                     }
                     #[cfg(target_arch = "wasm32")]
                     {
                         // Say who, and where (#1229 f10). The blob's handle
-                        // was in hand — this very path logs it — while the
+                        // was in hand - this very path logs it - while the
                         // card asked an identity question without the
                         // identity, which on a shared laptop is answerable
                         // only from inside somebody else's world.
@@ -846,7 +859,7 @@ pub fn login_ui(
                                         validation::Destination::Home => String::new(),
                                         validation::Destination::Did(did) => did,
                                         // An @handle destination resolves to a
-                                        // DID up front — a typo fails in one
+                                        // DID up front - a typo fails in one
                                         // round-trip with a spelling hint,
                                         // instead of burning the post-login
                                         // record-fetch retry budget.
@@ -863,7 +876,7 @@ pub fn login_ui(
                                     )
                                     .await?;
                                     // Carry the URL/CLI spawn pose across the OAuth
-                                    // redirect — the AS strips our query params, so
+                                    // redirect - the AS strips our query params, so
                                     // this is the only path that survives.
                                     pending.target_pos = boot_pos;
                                     pending.target_yaw_deg = boot_yaw;
@@ -896,7 +909,7 @@ pub fn login_ui(
                     // The cheap retry the copy has always promised (#1228
                     // f6). A relay outage is the likeliest transient failure
                     // on this screen, and until now "try again" meant the
-                    // whole OAuth dance — consent page, wasm bundle reload —
+                    // whole OAuth dance - consent page, wasm bundle reload -
                     // to reach the same call. With the saved session still in
                     // hand, re-arming the one-shot re-runs just the resume.
                     #[cfg(target_arch = "wasm32")]
@@ -905,7 +918,7 @@ pub fn login_ui(
                         if ui
                             .button("Retry")
                             .on_hover_text(
-                                "Try your saved session again — no need to sign in from scratch",
+                                "Try your saved session again - no need to sign in from scratch",
                             )
                             .clicked()
                         {
@@ -929,7 +942,7 @@ pub fn login_ui(
                 // The theme picker, on the one screen that had none (#1276
                 // f39). High contrast exists "for low-vision use and harsh
                 // ambient light" and lived only inside a window gated on
-                // `AppState::InGame` — so the single journey a low-vision
+                // `AppState::InGame` - so the single journey a low-vision
                 // user has to complete before anything else was the one
                 // journey where it could not be turned on.
                 //
@@ -938,7 +951,7 @@ pub fn login_ui(
                 // finding's first suggestion. Settings is nine sections and
                 // most of them are wrong before sign-in: `muted_people_section`
                 // reads `MutedDids`, and `prefs::adopt_owner_mute_list`
-                // installs that at the moment a session appears — so a
+                // installs that at the moment a session appears - so a
                 // pre-login list is nobody's, and an edit to it would land
                 // under whichever account signed in next. That is #1223
                 // f292's defect, reintroduced by a registration line.
@@ -946,7 +959,7 @@ pub fn login_ui(
                 // login screen deliberately draws no toolbar and no windows
                 // at all: it is two frameless `Area`s centred as a pair.
                 //
-                // Interface SIZE needs nothing here — `theme::sync_ui_scale`
+                // Interface SIZE needs nothing here - `theme::sync_ui_scale`
                 // runs unconditionally in `Update`, so Ctrl+plus and
                 // Ctrl+minus already work on this screen and are already
                 // persisted.
@@ -1026,7 +1039,7 @@ pub fn login_ui(
                     // Load-bearing inside an auto-sized `Area` (#898): the
                     // area ui reports only a placeholder available height
                     // (~64 px), and the scroll viewport is `min(available,
-                    // max_height)` floored by `min_scrolled_height` — so
+                    // max_height)` floored by `min_scrolled_height` - so
                     // without raising that floor to the real budget, the
                     // feed collapses to a 64 px slit. Content shorter than
                     // the budget still auto-shrinks.
@@ -1049,14 +1062,14 @@ pub fn login_ui(
     //
     // ONE area holding both, and the whole stack is unconditional. The
     // re-roll chip used to own this corner and the area was gated on
-    // `attract.is_some()` — so hanging Feedback inside it would have made
+    // `attract.is_some()` - so hanging Feedback inside it would have made
     // a permanent affordance disappear for anyone who turned "Live world
     // backdrop" off in Settings. The backdrop control is what is
     // conditional; the corner is not.
     //
     // Backdrop control: the demo world behind the login screen is a fresh
     // random seed every visit, and it is the first thing the app ever
-    // shows of what it makes — so let a visitor roll again on demand
+    // shows of what it makes - so let a visitor roll again on demand
     // instead of reloading the page to see a second one. Shown whenever a
     // demo world is armed and disabled until it is actually on screen.
     // `reroll_attract_scene` holds `AttractScene` across the swap so the
@@ -1105,7 +1118,7 @@ pub fn login_ui(
                         // Feedback (#1291), below the backdrop control by
                         // the owner's call. The board is itself an ATProto
                         // app, so the account a visitor is about to sign in
-                        // with is the one that can post there — which is
+                        // with is the one that can post there - which is
                         // why this is worth offering BEFORE they get in,
                         // and not only from the account menu.
                         crate::ui::affordances::external_link_button(
@@ -1122,7 +1135,7 @@ pub fn login_ui(
 
 /// Opacity of the hero's frame over whichever backdrop is showing. Not
 /// 1.0 so the world (or the sky) still reads through it as depth; not
-/// lower, because the frame is the hero's whole contrast guarantee —
+/// lower, because the frame is the hero's whole contrast guarantee -
 /// the `hero_contrast` guards measure the text against exactly this
 /// blend.
 const HERO_FRAME_ALPHA: f32 = 0.85;
@@ -1146,7 +1159,7 @@ fn paint_backdrop(ctx: &egui::Context, theme: &crate::ui::theme::Theme) {
 }
 
 /// Shared chrome for the login-screen cards: a rounded, bordered,
-/// softly drop-shadowed panel — deliberately *not* an [`egui::Window`],
+/// softly drop-shadowed panel - deliberately *not* an [`egui::Window`],
 /// so nothing on the pre-world screen looks draggable or closable.
 fn card_frame(theme: &crate::ui::theme::Theme) -> egui::Frame {
     egui::Frame::new()
@@ -1164,7 +1177,7 @@ fn card_frame(theme: &crate::ui::theme::Theme) -> egui::Frame {
 
 /// #1258 f237: the login hero is the only screen a user meets before
 /// they can reach the theme picker, so its text owes AA on whatever is
-/// behind it — and what is behind it is one of two things, the attract
+/// behind it - and what is behind it is one of two things, the attract
 /// world or [`paint_backdrop`]'s flat gradient.
 ///
 /// Neither is measurable directly (a terrain render, and a gradient
@@ -1179,7 +1192,7 @@ mod hero_contrast {
     use crate::ui::theme::{Theme, composite_over, contrast_ratio};
 
     /// WCAG AA for normal text. The taglines are 15 pt, the wordmark 32
-    /// pt (large text, 3:1) — held to the stricter figure because both
+    /// pt (large text, 3:1) - held to the stricter figure because both
     /// clear it and a regression should be loud.
     const AA_TEXT: f32 = 4.5;
 
@@ -1223,7 +1236,7 @@ mod hero_contrast {
 /// Source-scanning guards for the two WASM-only login paths (#1228).
 ///
 /// `wasm_resume` is not compiled on native, so nothing else in the test
-/// suite can see it at all — and the defects here are both *absences*: a
+/// suite can see it at all - and the defects here are both *absences*: a
 /// missing timeout wrapper and a `Local<bool>` that cannot be re-armed.
 /// Reading the source is the idiom `oauth::service_token` already uses for
 /// a property that is about the code rather than a value it produces.
@@ -1242,7 +1255,7 @@ mod wasm_path_guards {
 
     /// THE SEQUENCE (#1228 f3): an owner returns after a few hours on a
     /// flaky network. The persisted access token has expired, so the resume
-    /// awaits `refresh_session` — and the wasm reqwest client routes through
+    /// awaits `refresh_session` - and the wasm reqwest client routes through
     /// the browser's fetch API, which exposes no timeout controls and has no
     /// idle-body limit. The screen sits on "Resuming your previous session…"
     /// forever, with a button that forgets the saved session as its only
@@ -1250,7 +1263,7 @@ mod wasm_path_guards {
     ///
     /// These are the two spawn sites this module's doc says never drift, and
     /// the bound #1129 introduced is exactly what they drifted on: the fresh
-    /// login got it, the resume — the common path of the deployed target —
+    /// login got it, the resume - the common path of the deployed target -
     /// did not.
     #[test]
     fn both_login_spawn_sites_bound_their_futures() {
@@ -1275,7 +1288,7 @@ mod wasm_path_guards {
 
     /// THE SEQUENCE (#1228 f6): the relay is down. The resume fails with
     /// copy promising a retry, but the one-shot that drives it was a
-    /// `Local<bool>` — spent for the rest of the page load — so the only
+    /// `Local<bool>` - spent for the rest of the page load - so the only
     /// affordance left re-ran the entire OAuth redirect, consent page and
     /// wasm bundle reload included, to reach the same failing call.
     #[test]
@@ -1288,7 +1301,7 @@ mod wasm_path_guards {
         );
         assert!(
             !body.contains("Local<bool>"),
-            "a Local is spent for the whole page load — that was the defect"
+            "a Local is spent for the whole page load - that was the defect"
         );
         // And the button that re-arms it must not be the one that clears
         // the blob: those are the two different exits.
@@ -1303,7 +1316,7 @@ mod wasm_path_guards {
             .0;
         assert!(
             !retry_block.contains("clear_persisted"),
-            "Retry must keep the saved session — forgetting it is the OTHER \
+            "Retry must keep the saved session - forgetting it is the OTHER \
              button, and having only that one was the defect"
         );
     }
@@ -1312,7 +1325,7 @@ mod wasm_path_guards {
 #[cfg(test)]
 mod readme_promise_tests {
     /// THE SEQUENCE (#1233 f267): a friend hands somebody a landmark link
-    /// and quotes the README at them — "anyone can drop into a specific
+    /// and quotes the README at them - "anyone can drop into a specific
     /// spot in someone else's world". They click it and are asked to
     /// authorise an app against a Bluesky account they do not have.
     ///
@@ -1321,7 +1334,7 @@ mod readme_promise_tests {
     /// `install_completed_session`, and every gate task fetches against an
     /// authenticated session. The README's own login section says as much
     /// three paragraphs earlier, so the two claims disagreed with each
-    /// other — and the recipient is by definition the person least
+    /// other - and the recipient is by definition the person least
     /// invested in the product, which is the worst order to learn a
     /// requirement in.
     ///
@@ -1345,14 +1358,14 @@ mod readme_promise_tests {
 }
 
 /// Publish [`crate::attract::LoginActivity`] from this frame's task
-/// markers and latch (#1297 step 1) — the ONE writer of that resource,
+/// markers and latch (#1297 step 1) - the ONE writer of that resource,
 /// and the `ui::avatar::mirror_rig_hold` shape a third time.
 ///
 /// The attract backdrop used to query [`BeginAuthTask`],
 /// [`CompleteAuthTask`], the wasm resume task and [`LoginUiLatch`]
 /// itself, which pointed the dependency arrow from the login-screen
-/// backdrop into the egui layer. It asked one question of the tasks —
-/// is any of them running — and read one flag off the latch, so that is
+/// backdrop into the egui layer. It asked one question of the tasks -
+/// is any of them running - and read one flag off the latch, so that is
 /// what crosses. The tasks stay here: every spawn and every drain of
 /// them is a `ui::login` system.
 ///
@@ -1407,7 +1420,7 @@ mod entry_latch_tests {
 
     /// #1230 f19. The sequence: a link visitor's destination is unreachable,
     /// they press "Back to login" on a loading screen that has been retrying
-    /// for minutes (or Log out from the account chip) — and the form
+    /// for minutes (or Log out from the account chip) - and the form
     /// auto-submits the same broken destination the instant it renders.
     /// `AppState::Login` is re-entered by exactly those two escape hatches,
     /// and this reset is what used to re-arm the flow they were escaping.
@@ -1421,7 +1434,7 @@ mod entry_latch_tests {
             after.autosubmitted,
             "the escape hatch must land on a form that stays put"
         );
-        // Everything else still behaves like a fresh page load — the
+        // Everything else still behaves like a fresh page load - the
         // pre-fill re-runs, so the destination is one click from a retry.
         assert!(!after.prefilled);
         assert!(!after.focused);
@@ -1466,7 +1479,7 @@ mod login_activity_tests {
     /// itself to ask "is this login screen transient?"; now two booleans
     /// cross, and this is the one place the mapping can go wrong. Each
     /// marker on its own must read as in flight, and must RELEASE on
-    /// despawn — a latched `true` would hold the demo world off for the
+    /// despawn - a latched `true` would hold the demo world off for the
     /// whole login, which is the failure the backdrop's own guards exist
     /// to avoid the other way round.
     #[test]
@@ -1474,7 +1487,7 @@ mod login_activity_tests {
         let mut app = App::new();
         app.init_resource::<LoginActivity>();
 
-        // No latch and no tasks — nothing is happening.
+        // No latch and no tasks - nothing is happening.
         assert_eq!(
             mirrored(&mut app),
             LoginActivity::default(),
@@ -1535,5 +1548,45 @@ mod login_activity_tests {
             !mirrored(&mut app).autosubmitted,
             "the reset latch reads back"
         );
+    }
+}
+
+#[cfg(test)]
+mod hero_copy {
+    //! The login hero and the web page's `og:description` are the same
+    //! sentence pair (#1349). They are the two first-impression surfaces a
+    //! newcomer meets, and they had drifted once already: the HTML said
+    //! "shared worlds", the app said "worlds". `cargo doc` cannot see a
+    //! string in an HTML attribute, so this reads the file.
+
+    use super::{HERO_LINE_1, HERO_LINE_2};
+
+    const INDEX_HTML: &str = include_str!("../../../index.html");
+
+    #[test]
+    fn the_hero_and_the_page_description_agree() {
+        let expect = format!("content=\"{} - {}\"", HERO_LINE_1.trim_end_matches('.'), {
+            let mut second = HERO_LINE_2.to_string();
+            if let Some(first) = second.get_mut(0..1) {
+                first.make_ascii_lowercase();
+            }
+            second
+        });
+        assert!(
+            INDEX_HTML.contains(&expect),
+            "index.html's og:description must be the hero's two lines joined by a dash: {expect}"
+        );
+    }
+
+    #[test]
+    fn the_hero_says_what_a_newcomer_gets_not_how_it_works() {
+        for line in [HERO_LINE_1, HERO_LINE_2] {
+            for jargon in ["ATProto", "seeded", "peer-to-peer", "PDS", "DID", "WebRTC"] {
+                assert!(
+                    !line.contains(jargon),
+                    "hero line {line:?} leans on the mechanism ({jargon}) instead of the promise"
+                );
+            }
+        }
     }
 }

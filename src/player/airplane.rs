@@ -1,18 +1,18 @@
-//! Airplane preset — arcade flight with continuous thrust + control
+//! Airplane preset - arcade flight with continuous thrust + control
 //! surfaces.
 //!
 //! Controls (chassis-local):
-//!   * **W / S** — pitch input torque (`pitch_torque`). W pitches nose down,
+//!   * **W / S** - pitch input torque (`pitch_torque`). W pitches nose down,
 //!     S pitches nose up.
-//!   * **A / D** — roll input torque (`roll_torque`).
-//!   * **Q / E** — yaw / rudder torque (`yaw_torque`).
-//!   * **Space** — throttle up: full forward thrust.
-//!   * **Shift** — throttle down: zero thrust. Without input, thrust is
-//!     half — the airplane cruises by default and the modifier keys steer
+//!   * **A / D** - roll input torque (`roll_torque`).
+//!   * **Q / E** - yaw / rudder torque (`yaw_torque`).
+//!   * **Space** - throttle up: full forward thrust.
+//!   * **Shift** - throttle down: zero thrust. Without input, thrust is
+//!     half - the airplane cruises by default and the modifier keys steer
 //!     speed.
 //!
 //! Lift = `lift_per_speed` × forward airspeed, applied along world-Y.
-//! Below `min_airspeed`, lift drops to zero — approximates a stall
+//! Below `min_airspeed`, lift drops to zero - approximates a stall
 //! without simulating AOA. Drag damps motion along the negative-velocity
 //! direction. No take-off mechanic; the avatar is effectively always
 //! airborne and crashes on terrain contact like any other physics body.
@@ -22,7 +22,7 @@
 //! helicopter have always had (#1240 f162), and the passive cruise thrust
 //! is cut while inverted so the assist is not fighting the engine.
 //!
-//! Aerodynamics (lift, drag) and the idle cruise thrust are PASSIVE —
+//! Aerodynamics (lift, drag) and the idle cruise thrust are PASSIVE -
 //! they live in [`apply_airplane_aerodynamics`], which is not gated on
 //! egui keyboard focus, so typing in a chat/search field leaves the
 //! airplane cruising hands-off instead of cutting the engine and
@@ -67,7 +67,7 @@ fn lift_force(airspeed: f32, min_airspeed: f32, lift_per_speed: f32) -> Vec3 {
 /// (#1240 f162), modelled directly on the car's `upright_assist_torque`.
 ///
 /// `None` while the tilt is inside
-/// [`cfg::AIRPLANE_UPRIGHT_ENGAGE_TILT_DEGREES`] — a plane banks and rolls
+/// [`cfg::AIRPLANE_UPRIGHT_ENGAGE_TILT_DEGREES`] - a plane banks and rolls
 /// as ordinary flight, and an assist that fought that would be flying the
 /// aircraft. Past it, rotate `up` toward world-up, falling back to the
 /// roll axis when the chassis is DEAD inverted (where `up × world-up`
@@ -98,7 +98,7 @@ fn cruise_thrust_applies(up: Vec3) -> bool {
 }
 
 /// Right an airplane that has flipped onto its back. Registered ungated
-/// beside the other three presets' assists (#1240 f162) — the airplane was
+/// beside the other three presets' assists (#1240 f162) - the airplane was
 /// simply missed, and a crashed plane is exactly the state where the owner
 /// is least able to do anything about it.
 #[allow(clippy::type_complexity)]
@@ -125,7 +125,7 @@ pub(super) fn apply_airplane_uprighting(
 /// Runs regardless of egui keyboard focus so a focused text field never
 /// stalls the airplane (#821). It DOES still park during [`TravelingTo`]:
 /// unlike the helicopter's hover (pure anti-gravity), cruise thrust is
-/// active propulsion — letting it run would fly the player away from the
+/// active propulsion - letting it run would fly the player away from the
 /// portal while the destination fetch is in flight. Travel-time altitude
 /// hold is the travel-overlay issue's job (#842). The avatar-editor
 /// freeze (#814) parks the chassis wholesale, so frozen bodies are
@@ -170,7 +170,7 @@ pub(super) fn apply_airplane_aerodynamics(
     // keeps the model arcade-friendly: rolling does not bleed altitude
     // unless the player also pitches the nose up.
     forces.apply_force(lift_force(airspeed, p.min_airspeed.0, p.lift_per_speed.0));
-    // Drag — opposes the velocity vector; the squared term is folded
+    // Drag - opposes the velocity vector; the squared term is folded
     // into a single coefficient so authoring stays one knob.
     let speed = lin_vel.length();
     if speed > 0.0 {
@@ -199,7 +199,7 @@ pub(super) fn apply_airplane_forces(
     let forward = global_tf.forward().as_vec3();
     let right = global_tf.right().as_vec3();
 
-    // Throttle: Space = full, Shift = zero, idle = half — expressed as a
+    // Throttle: Space = full, Shift = zero, idle = half - expressed as a
     // delta over the passive cruise applied by
     // `apply_airplane_aerodynamics`, so the totals match the historical
     // table while the airplane keeps cruising when this system is gated
@@ -239,7 +239,7 @@ pub(super) fn apply_airplane_forces(
 mod tests {
     use super::*;
 
-    /// The default record cruise fraction — the historical constant.
+    /// The default record cruise fraction - the historical constant.
     fn cruise() -> f32 {
         crate::pds::AirplaneParams::default().cruise_throttle.0
     }
@@ -247,7 +247,7 @@ mod tests {
     /// #1240 f162. Sequence: clip a ridge, the fuselage flips onto its
     /// back on flat ground. The car, the hover-boat and the helicopter all
     /// ship a righting assist; the airplane was simply missed, and the
-    /// fall respawn cannot rescue it — it is lying ON the ground, not 20 m
+    /// fall respawn cannot rescue it - it is lying ON the ground, not 20 m
     /// below it.
     #[test]
     fn an_inverted_airplane_is_righted_and_a_banking_one_is_not() {
@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn hands_off_throttle_is_exactly_the_cruise_fraction() {
         // With the input system gated off (egui focus), only the passive
-        // cruise applies — the airplane must keep flying at idle power,
+        // cruise applies - the airplane must keep flying at idle power,
         // i.e. the input system contributes nothing at rest.
         assert_eq!(throttle_delta(false, false, cruise()), 0.0);
     }

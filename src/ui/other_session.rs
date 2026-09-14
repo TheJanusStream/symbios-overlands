@@ -3,7 +3,7 @@
 //!
 //! `is_owner` in `network::inbound` compares the sender's DID to the room's,
 //! so a second tab or machine of the owner passes the gate like any owner
-//! broadcast — and the arm used to replace `LiveRoomRecord` wholesale,
+//! broadcast - and the arm used to replace `LiveRoomRecord` wholesale,
 //! half an hour of unsaved edits included, while raising the foreign
 //! observation that resets the undo ring. Nothing said so. The incoming
 //! record then read as the dirty state, so the next Ctrl+S published the
@@ -11,17 +11,17 @@
 //!
 //! Three outcomes now, decided by
 //! [`classify_same_owner_update`](crate::state::classify_same_owner_update)
-//! — which lives in `state` with the record it parks, because the
+//! - which lives in `state` with the record it parks, because the
 //! decision is `network::inbound`'s to make and this module only draws
 //! the question it produces (#1297):
 //!
-//! - **Ignore** — the incoming record equals what this session already
+//! - **Ignore** - the incoming record equals what this session already
 //!   holds. This is the echo: both sessions rebroadcast on `is_changed`,
 //!   so applying a record identical to ours would only reset the ring and
 //!   send the same bytes straight back.
-//! - **Apply** — this session is clean. The other session's copy is
+//! - **Apply** - this session is clean. The other session's copy is
 //!   installed as before, with a toast saying where it came from.
-//! - **Hold** — this session has unpublished edits. The incoming record is
+//! - **Hold** - this session has unpublished edits. The incoming record is
 //!   parked in [`OtherSessionRoom`] (which lives in `state` too) and
 //!   [`other_session_room_ui`] asks which copy to keep; the live record
 //!   is not touched until the owner answers. A newer update from the same session replaces the parked
@@ -45,7 +45,7 @@ pub enum Choice {
 
 /// Apply the owner's choice. Taking the other copy is a wholesale foreign
 /// write, so the undo ring resets exactly as an accepted owner broadcast
-/// does (#862) — the ring cannot offer undos across the other session's
+/// does (#862) - the ring cannot offer undos across the other session's
 /// history. Returns the toast text.
 pub fn resolve(
     choice: Choice,
@@ -54,7 +54,7 @@ pub fn resolve(
     signals: &mut RoomWriteSignals,
 ) -> &'static str {
     match choice {
-        Choice::KeepMine => "Kept this session's edits — the other session's copy was not applied.",
+        Choice::KeepMine => "Kept this session's edits - the other session's copy was not applied.",
         Choice::TakeTheirs => {
             *live = held.record;
             signals.foreign = true;
@@ -103,7 +103,7 @@ pub fn other_session_room_ui(
         // one to make a dismissal mean. A silent refusal reads as a hang,
         // so the refusal is stated instead.
         ui.add_space(4.0);
-        ui.small("Choose one to continue — this dialog has no dismiss.");
+        ui.small("Choose one to continue - this dialog has no dismiss.");
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             if ui.button("Keep my edits").clicked() {
@@ -124,7 +124,7 @@ pub fn other_session_room_ui(
     });
     if let Some(choice) = choice {
         // The held record moves out of the resource; the resource goes
-        // with it. `Res` cannot be moved from, so clone the payload once —
+        // with it. `Res` cannot be moved from, so clone the payload once -
         // a room record is a few KiB, and this happens on a click.
         let held = OtherSessionRoom {
             record: held.record.clone(),

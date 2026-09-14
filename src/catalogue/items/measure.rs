@@ -6,7 +6,7 @@
 //! *occupies* is not readable from the source: a tapered pylon is
 //! narrower than its declared size, a rotated rib sweeps a wider box
 //! than its extents, and a child three levels down inherits three
-//! transforms. This resolves that the only reliable way — by walking the
+//! transforms. This resolves that the only reliable way - by walking the
 //! tree, composing the transforms, and meshing each primitive through
 //! the real mesher (`world_builder::build_primitive_mesh`).
 //!
@@ -53,7 +53,7 @@ impl Bounds {
 }
 
 /// One solid piece of a gateway frame, in the prop's ground-relative
-/// frame. "Solid" here means *occluding geometry* — an emissive trim tube
+/// frame. "Solid" here means *occluding geometry* - an emissive trim tube
 /// is as good a thing to bury a veil edge in as a masonry jamb, so the
 /// only kinds excluded are the non-geometric ones (particles, lights, the
 /// veil itself).
@@ -162,7 +162,7 @@ pub fn mesh_bounds(kind: &GeneratorKind, world: &Transform) -> Option<Bounds> {
     (min.x <= max.x).then_some(Bounds { min, max })
 }
 
-/// Whether the mesher owns this kind — mirrors the primitive arm of the
+/// Whether the mesher owns this kind - mirrors the primitive arm of the
 /// spawn router in `world_builder::compile::dispatch`.
 pub fn is_primitive(kind: &GeneratorKind) -> bool {
     matches!(kind, crate::for_each_primitive!(pattern {}))
@@ -189,7 +189,7 @@ mod tests {
         assert!((bounds.center().y - 1.0).abs() < 1e-4, "{bounds:?}");
     }
 
-    /// A nested child's bounds carry its parents' transforms — the whole
+    /// A nested child's bounds carry its parents' transforms - the whole
     /// reason this measures the built tree instead of reading sizes.
     #[test]
     fn nested_children_inherit_their_parents_transforms() {

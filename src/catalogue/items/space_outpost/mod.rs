@@ -1,4 +1,4 @@
-//! Space-Outpost-theme catalogue structures — a pressurised off-world colony
+//! Space-Outpost-theme catalogue structures - a pressurised off-world colony
 //! of habitat domes and support modules under a thin atmosphere.
 //!
 //! Two prosperity registers share one frontier-colony identity: the
@@ -26,7 +26,7 @@ pub mod landing_pad;
 pub mod monument;
 pub mod rover;
 pub mod solar_array;
-// Poor (wreck) variants — the prosperity-Poor end of the theme.
+// Poor (wreck) variants - the prosperity-Poor end of the theme.
 pub mod crash_shelter;
 pub mod scrap_canister;
 pub mod solar_wreck;
@@ -49,18 +49,18 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the established base — a crewed outpost reads as
+/// Shared prosperity band for the established base - a crewed outpost reads as
 /// a Modest-to-Rich colony. The poor end of the theme is the separate wreck
 /// kit ([`crash_shelter`], …), tagged `Poor`, so a destitute space room grows
 /// the derelict crash site instead.
 pub(super) const OUTPOST_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the wreck kit — the destitute end of the theme, never
+/// Prosperity band for the wreck kit - the destitute end of the theme, never
 /// picked for a modest or affluent space room.
 pub(super) const OUTPOST_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// White brushed hull plating — habitat shells, modules, the rover body.
+/// White brushed hull plating - habitat shells, modules, the rover body.
 pub(super) fn hull(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -81,7 +81,7 @@ pub(super) fn hull(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Dark structural steel — frames, masts, legs, dish mounts, wheels.
+/// Dark structural steel - frames, masts, legs, dish mounts, wheels.
 pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -101,7 +101,7 @@ pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Lit viewport glass — habitat windows, hydroponics glazing, hatches. A
+/// Lit viewport glass - habitat windows, hydroponics glazing, hatches. A
 /// faint inner glow (`glow`) so the ports read as lit rather than black.
 pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -123,7 +123,7 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     }
 }
 
-/// Glossy dark photovoltaic — the solar arrays.
+/// Glossy dark photovoltaic - the solar arrays.
 pub(super) fn pv(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -141,7 +141,7 @@ pub(super) fn pv(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Ceramic concrete — the landing pad and footings.
+/// Ceramic concrete - the landing pad and footings.
 pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -157,7 +157,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Flat matte paint — hazard markings, pad chevrons, crate stencils. A plain
+/// Flat matte paint - hazard markings, pad chevrons, crate stencils. A plain
 /// coloured surface with no procedural texture.
 pub(super) fn painted(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -184,10 +184,10 @@ pub(super) const GLASS_CYAN: [f32; 3] = [0.42, 0.66, 0.74];
 pub(super) const VIEWPORT_LIT: [f32; 3] = [0.6, 0.95, 1.0];
 pub(super) const INTERIOR_WARM: [f32; 3] = [1.0, 0.92, 0.78];
 // Deep-saturated so the off-channels stay low and bloom can't lift the glow
-// to a coral/pink wash — it holds a true red (the fantasy deep-saturate rule).
+// to a coral/pink wash - it holds a true red (the fantasy deep-saturate rule).
 pub(super) const BEACON_RED: [f32; 3] = [1.0, 0.09, 0.07];
 pub(super) const GROW_PINK: [f32; 3] = [1.0, 0.30, 0.74];
-/// Deep-saturated status-LED green — combiner boxes, instrument panels.
+/// Deep-saturated status-LED green - combiner boxes, instrument panels.
 pub(super) const STATUS_GREEN: [f32; 3] = [0.22, 1.0, 0.42];
 
 // ---------------------------------------------------------------------------
@@ -196,11 +196,11 @@ pub(super) const STATUS_GREEN: [f32; 3] = [0.22, 1.0, 0.42];
 // before rollout, then reused across the kit.
 // ---------------------------------------------------------------------------
 
-/// Geodesic rib cage for a pressure dome — `meridians` upright semicircular
+/// Geodesic rib cage for a pressure dome - `meridians` upright semicircular
 /// arcs fanned around the polar axis plus two latitude hoops, all sitting on a
 /// hemisphere of `radius` centred at `center`. Author the glass shell a touch
 /// smaller (≈ `radius - 0.08`) so the ribs stand proud. Turns a smooth glass
-/// snowglobe into a paneled habitat dome — the Space-Outpost silhouette
+/// snowglobe into a paneled habitat dome - the Space-Outpost silhouette
 /// signature.
 pub(super) fn dome_ribs(
     center: [f32; 3],
@@ -210,7 +210,7 @@ pub(super) fn dome_ribs(
 ) -> Vec<Generator> {
     let minor = 0.06_f32;
     let mut out = Vec::new();
-    // Meridian arcs: upright semicircles fanned over [0, PI) — each arc runs
+    // Meridian arcs: upright semicircles fanned over [0, PI) - each arc runs
     // base-to-base over the apex, so n arcs read as 2n ribs.
     for k in 0..meridians {
         let theta = k as f32 / meridians as f32 * PI;
@@ -238,7 +238,7 @@ pub(super) fn dome_ribs(
     out
 }
 
-/// A framed photovoltaic panel — a dark PV cell field in a steel perimeter
+/// A framed photovoltaic panel - a dark PV cell field in a steel perimeter
 /// frame with cross ribs dividing it into cells, so it reads as a real solar
 /// panel rather than a flat slab. Lies in its local XZ plane (thin in Y, broad
 /// faces ±Y, the lit cell face up); the caller tilts/positions it. Returned as
@@ -247,7 +247,7 @@ pub(super) fn dome_ribs(
 ///
 /// The cell field is a **per-face material** (#955): only the `Top` face is
 /// photovoltaic, and the slab's own material carries the aluminium backsheet
-/// and edges — which is what a real panel looks like from below, and what the
+/// and edges - which is what a real panel looks like from below, and what the
 /// old single-material slab could not say without a second prim glued to its
 /// underside. Both materials already exist on this prim, so the split costs
 /// one extra draw call and no extra geometry.
@@ -284,7 +284,7 @@ pub(super) fn pv_panel(
             id_quat(),
         ));
     }
-    // Cell-division ribs across the face — two along X (three columns), one
+    // Cell-division ribs across the face - two along X (three columns), one
     // along Z (two rows).
     for fx in [-1.0_f32 / 3.0, 1.0 / 3.0] {
         panel.children.push(prim(
@@ -304,7 +304,7 @@ pub(super) fn pv_panel(
 /// A round pressure hatch on a wall facing ±Z (`zsign`, −1.0 = the −Z hero
 /// front): a recessed door plate in a bolted rim ring with locking lugs, a
 /// central lit port and a grab handle. Returns a Vec to splice into an
-/// assemble list — every piece is a non-root prim, so the `quat_x` facing
+/// assemble list - every piece is a non-root prim, so the `quat_x` facing
 /// rotation is safe. `port` should be a `glow` material so the window reads as
 /// lit on the flat door face.
 pub(super) fn pressure_hatch(
@@ -375,7 +375,7 @@ mod tests {
         }
     }
 
-    /// The habitat dome is the kit's lit hero — it must keep its emissive
+    /// The habitat dome is the kit's lit hero - it must keep its emissive
     /// viewports and interior glow so escalation's broken-emissive ruin pass
     /// has light to snuff.
     #[test]

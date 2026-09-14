@@ -1,5 +1,5 @@
 //! Offline no-render text tools: the early-return CLI modes that print
-//! and exit before any render app stands up — family-seed survey,
+//! and exit before any render app stands up - family-seed survey,
 //! road-graph diagnostics, the seeded-room entity census, and the
 //! session-log analyzers.
 
@@ -10,7 +10,7 @@ use super::Args;
 /// Print the first `count` u64 seeds whose
 /// [`ChassisFamily`](crate::seeded_defaults::ChassisFamily) matches `fam`
 /// (case-insensitive `humanoid` | `boat` | `airship` | `skiff`). A survey aid
-/// for the avatar overhaul — seeds map 25 % to each family, so scanning a few
+/// for the avatar overhaul - seeds map 25 % to each family, so scanning a few
 /// thousand always finds enough.
 pub(super) fn print_family_seeds(fam: &str, count: usize) {
     use crate::seeded_defaults::ChassisFamily;
@@ -26,13 +26,13 @@ pub(super) fn print_family_seeds(fam: &str, count: usize) {
         .take(count)
         .collect();
     println!("{want:?} seeds: {seeds:?}");
-    // Humanoid seeds are rigged bodies since #1060 — there is no generator
+    // Humanoid seeds are rigged bodies since #1060 - there is no generator
     // tree to render and no stylization tier to exemplify, so say where the
     // instrument for them lives instead of printing a table about parts
     // that no longer exist.
     if want == ChassisFamily::Humanoid {
         println!(
-            "  (humanoid seeds are rigged symbios-avatar bodies — render them \n\
+            "  (humanoid seeds are rigged symbios-avatar bodies - render them \n\
               with the bevy_symbios_avatar viewer, not this tool)"
         );
     }
@@ -62,7 +62,7 @@ fn outfit_for(
 
 /// Print the resolved outfit for one avatar `subject` (a `u64` seed or a DID):
 /// chassis, style, socio tiers, and each filled slot → part slug. A no-render
-/// survey aid for the avatar overhaul — the built [`Generator`] carries only
+/// survey aid for the avatar overhaul - the built [`Generator`] carries only
 /// geometry (no slugs), so this is the way to see which optional parts an
 /// avatar rolled.
 ///
@@ -82,7 +82,7 @@ pub(super) fn print_outfit(subject: &str) {
 }
 
 /// Scan seeds and print the first `count` whose outfit fills any slot with the
-/// part `slug`, each with its style + socio tiers — answers "which seed rolls
+/// part `slug`, each with its style + socio tiers - answers "which seed rolls
 /// this styled part?" for render-verification. Optional parts are rare (theme +
 /// ornateness gated), so the scan runs to a high seed ceiling before giving up.
 pub(super) fn find_part(slug: &str, count: usize) {
@@ -107,14 +107,14 @@ pub(super) fn find_part(slug: &str, count: usize) {
         }
     }
     if hits == 0 {
-        println!("  (none found below seed 2_000_000 — is the slug spelled right?)");
+        println!("  (none found below seed 2_000_000 - is the slug spelled right?)");
     }
 }
 
 /// Reproduce a room's heightmap + road config and print the road-graph
 /// diagnostics (see [`crate::urban::road_graph_diagnostics`]) to stdout. The
-/// room is the seeded default for a `u64` seed or a DID string — the same
-/// derivation `--room` uses — so the heightmap and road network match what the
+/// room is the seeded default for a `u64` seed or a DID string - the same
+/// derivation `--room` uses - so the heightmap and road network match what the
 /// game renders for that room.
 pub(super) fn dump_road_graph(room: &str) {
     let record = match room.parse::<u64>() {
@@ -123,7 +123,7 @@ pub(super) fn dump_road_graph(room: &str) {
     };
     let Some(config) = crate::pds::find_road_config(&record).cloned() else {
         println!(
-            "room {room:?}: no road config — this room grows no roads (try a road-growing theme seed)"
+            "room {room:?}: no road config - this room grows no roads (try a road-growing theme seed)"
         );
         return;
     };
@@ -148,7 +148,7 @@ pub(super) fn dump_road_graph(room: &str) {
 /// [`crate::diagnostics::analyze`]). An unreadable file is reported to stderr;
 /// a torn/truncated log is analyzed best-effort (unparseable lines are counted,
 /// not fatal). The report is the offline counterpart to the live anomaly engine
-/// — the same rule set, replayed over a captured log.
+/// - the same rule set, replayed over a captured log.
 pub(super) fn analyze_session(args: &Args, path: &str) {
     // Filters (all optional) restrict the analysis sections; an invalid filter
     // name aborts with a clear message rather than silently analyzing everything.
@@ -180,7 +180,7 @@ pub(super) fn analyze_session(args: &Args, path: &str) {
 }
 
 /// Read two captured NDJSON session logs (A = baseline, B = candidate) and print
-/// their before/after diff (see [`crate::diagnostics::analyze::diff_report`]) —
+/// their before/after diff (see [`crate::diagnostics::analyze::diff_report`]) -
 /// the fix-validation counterpart to [`analyze_session`]. An unreadable file is
 /// reported to stderr and aborts the diff; torn/truncated logs are diffed
 /// best-effort (unparseable lines counted, surfaced in each session's header).
@@ -207,9 +207,9 @@ pub(super) fn diff_sessions(path_a: &str, path_b: &str) {
 
 /// Per-instance entity count of a generator tree, with L-systems **expanded**
 /// (the spawn path turns one L-system node into `1 root + material mesh
-/// buckets` — since #812 props are baked into those buckets rather than spawned
+/// buckets` - since #812 props are baked into those buckets rather than spawned
 /// as one entity each). Shape-grammar nodes also expand at spawn but are left
-/// at 1 and flagged via [`tree_has_shape`] — the census evidence shows
+/// at 1 and flagged via [`tree_has_shape`] - the census evidence shows
 /// L-systems dominate seeded-room counts by orders of magnitude.
 fn tree_entities(g: &Generator, generator_ref: &str) -> u64 {
     let own = match &g.kind {
@@ -253,14 +253,14 @@ fn tree_entities(g: &Generator, generator_ref: &str) -> u64 {
 }
 
 /// `true` if any node in the tree is a CGA shape grammar (spawn-time
-/// expansion the census does not model — flagged as an underestimate).
+/// expansion the census does not model - flagged as an underestimate).
 fn tree_has_shape(g: &Generator) -> bool {
     matches!(g.kind, GeneratorKind::Shape { .. }) || g.children.iter().any(tree_has_shape)
 }
 
 /// Analytic entity census over seeded rooms (#810): for each seed, sum every
-/// placement's instance count × generator-tree node count — the record-level
-/// estimate of what `compile_room_record` will spawn — and print the total
+/// placement's instance count × generator-tree node count - the record-level
+/// estimate of what `compile_room_record` will spawn - and print the total
 /// plus the top contributors. Finds the seeds/generators that drive a region
 /// toward the `MAX_ROOM_ENTITIES` cap (500 k, unplayable on wasm) without a
 /// browser in the loop.
@@ -329,7 +329,7 @@ pub(super) fn room_census(seeds: u64) {
 /// slope cutoff, and whether the survivors read as a grown stand or a
 /// sprinkle.
 ///
-/// The clustering column is a Clark–Evans nearest-neighbour index — see
+/// The clustering column is a Clark–Evans nearest-neighbour index - see
 /// [`crate::world_builder::compile::scatter_census`]'s module docs for how
 /// to read it, and in particular why each row prints the tuned scatter *and*
 /// the same scatter with its naturalness zeroed rather than an absolute
@@ -337,19 +337,19 @@ pub(super) fn room_census(seeds: u64) {
 pub(super) fn scatter_census(seeds: u64) {
     println!(
         "Scatter placement census over seeds 0..{seeds} \
-         (`placed` runs the real sampler; `R` is the Clark–Evans index —\n\
+         (`placed` runs the real sampler; `R` is the Clark–Evans index -\n\
          below 1 is clustered, and the `uniform` column is the same scatter \
          with naturalness off).\n\
          `ground` is the steepness actually planted vs. what the scatter was \
-         offered — a working cutoff shows up here, not in the placed count, \
+         offered - a working cutoff shows up here, not in the placed count, \
          because the sampler simply retries past a rejection."
     );
-    // Running totals for the closing summary — the per-seed detail is for
+    // Running totals for the closing summary - the per-seed detail is for
     // spotting outliers, these are the numbers that characterise the change.
     let (mut total_req, mut total_placed) = (0u64, 0u64);
     let (mut r_sum, mut r_uniform_sum, mut r_n) = (0.0f64, 0.0f64, 0u64);
-    // Slope evidence. The max is a poor aggregate — it is dominated by
-    // whichever scatter set the loosest cutoff (lichen tolerates 62°) — so
+    // Slope evidence. The max is a poor aggregate - it is dominated by
+    // whichever scatter set the loosest cutoff (lichen tolerates 62°) - so
     // the headline is the mean p95 across slope-limited scatters, placed vs.
     // offered. That is the number that says vegetation moved onto gentler
     // ground.
@@ -365,7 +365,7 @@ pub(super) fn scatter_census(seeds: u64) {
         let scene = crate::seeded_defaults::SceneCharacter::for_seed(seed);
         println!("\nseed {seed} ({:?}):", scene.biome);
         if census.rows.is_empty() {
-            println!("  (no scatters — a lifeless room)");
+            println!("  (no scatters - a lifeless room)");
             continue;
         }
         for row in &census.rows {
@@ -378,7 +378,7 @@ pub(super) fn scatter_census(seeds: u64) {
                 r_n += 1;
             }
             // Only scatters that actually set a cutoff belong in this
-            // comparison — the boulder field deliberately has none, and
+            // comparison - the boulder field deliberately has none, and
             // folding its 78° faces in would hide the effect entirely.
             if row.max_slope_deg.is_some() {
                 p95_placed += f64::from(row.slope_deg.1);
@@ -405,14 +405,14 @@ pub(super) fn scatter_census(seeds: u64) {
                 .map_or_else(|| "  none".to_string(), |d| format!("{d:>4.0}°"));
             // Microbiome bands and what they cost (#913). `+0` next to a
             // set band means the band never rejected anything the other
-            // filters would have kept — worth a second look, since a band
+            // filters would have kept - worth a second look, since a band
             // that costs nothing is usually mis-set.
             let bands = match (row.above_water_band, row.altitude_band) {
-                (None, None) => "        —".to_string(),
+                (None, None) => "        -".to_string(),
                 (w, a) => {
                     let fmt = |b: Option<[f32; 2]>| {
                         b.map_or_else(
-                            || "—".to_string(),
+                            || "-".to_string(),
                             |[lo, hi]| {
                                 format!(
                                     "{lo:.0}..{}",
@@ -428,7 +428,7 @@ pub(super) fn scatter_census(seeds: u64) {
                     format!("w{} a{}", fmt(w), fmt(a))
                 }
             };
-            // Distribution, not count — see the census docs for why.
+            // Distribution, not count - see the census docs for why.
             let band_effect = if row.above_water_band.is_some() || row.altitude_band.is_some() {
                 format!(
                     "  above-water p50/max {:>4.0}/{:<4.0} (unbanded {:.0}/{:.0})",
@@ -494,7 +494,7 @@ pub(super) fn scatter_census(seeds: u64) {
 /// is a property of the *layout* rather than of any instance. Arrangement is
 /// a plan-view question, so this draws the plan view.
 ///
-/// Row order is printed to stdout — the plot carries no text, which keeps it
+/// Row order is printed to stdout - the plot carries no text, which keeps it
 /// free of a font dependency.
 pub(super) fn scatter_plot(room: &str, out: &std::path::Path) {
     /// Side of one panel, px.
@@ -595,7 +595,7 @@ pub(super) fn scatter_plot(room: &str, out: &std::path::Path) {
 /// Print the veil-fit report for every gateway entry (#1006), or just the
 /// one whose slug is given. For each gateway: the veil box, then per face
 /// whether it is buried in the frame and how far the nearest frame surface
-/// ahead of it sits — the numbers the per-theme fit is derived from.
+/// ahead of it sits - the numbers the per-theme fit is derived from.
 pub(super) fn print_gateway_fit(filter: &str) {
     use crate::catalogue::items::gateway_fit::{Face, fit_faults, measure, probe, recommend};
     use crate::catalogue::{ENTRIES, StructureRole};
@@ -841,7 +841,7 @@ pub(super) fn print_settlement_drop(seeds: u64) {
         drops[drops.len() - 1]
     );
 
-    // Drop against footprint radius — the rule is depth = k x clearance,
+    // Drop against footprint radius - the rule is depth = k x clearance,
     // so print the ratio the data actually supports.
     let mut ratios: Vec<f32> = all
         .iter()
@@ -875,5 +875,182 @@ pub(super) fn print_settlement_drop(seeds: u64) {
             b[((b.len() - 1) as f32 * 0.9) as usize],
             b[b.len() - 1]
         );
+    }
+}
+
+/// `--describe`: what a seeded room *is*, from its record and its scene
+/// roll, before a render says so the slow way. One line per seed for a
+/// range, a labelled block for a single seed or DID.
+pub(super) fn describe_rooms(what: &str) {
+    if let Some((a, b)) = what.split_once("..") {
+        let a: u64 = a
+            .trim()
+            .parse()
+            .unwrap_or_else(|e| panic!("--describe {what:?}: {e}"));
+        let b: u64 = b
+            .trim()
+            .parse()
+            .unwrap_or_else(|e| panic!("--describe {what:?}: {e}"));
+        println!(
+            "{:>5}  {:<10} {:<10} {:<14} {:>5} {:>5}  {:>6} {:>5} {:>5}  {:>5} {:>5}",
+            "seed",
+            "landform",
+            "biome",
+            "theme",
+            "prosp",
+            "escal",
+            "fog_m",
+            "sun_y",
+            "cloud",
+            "abs",
+            "scat"
+        );
+        for seed in a..b {
+            let d = RoomDescription::for_seed(seed);
+            println!(
+                "{:>5}  {:<10} {:<10} {:<14} {:>5.2} {:>5.2}  {:>6.0} {:>5.2} {:>5.2}  {:>5} {:>5}",
+                seed,
+                d.landform,
+                d.biome,
+                d.theme,
+                d.prosperity,
+                d.escalation,
+                d.fog_visibility,
+                d.sun_height,
+                d.cloud_cover,
+                d.absolute,
+                d.scattered,
+            );
+        }
+        return;
+    }
+    let d = match what.parse::<u64>() {
+        Ok(seed) => RoomDescription::for_seed(seed),
+        Err(_) => RoomDescription::for_did(what),
+    };
+    println!("{what}:");
+    println!("  scene      {} / {} / {}", d.landform, d.biome, d.theme);
+    println!(
+        "  dials      prosperity {:.2}  escalation {:.2}  hue {:.0}°  temperature {:+.2}  daylight bias {:+.2}",
+        d.prosperity, d.escalation, d.hue_deg, d.temperature, d.time_of_day_bias
+    );
+    println!(
+        "  air        fog visibility {:.0} m  sun height {:.2} (of unit)  cloud cover {:.2}  sky {}",
+        d.fog_visibility, d.sun_height, d.cloud_cover, d.sky
+    );
+    println!("  water      level {}", d.water);
+    println!("  landing    {}", d.landing);
+    println!(
+        "  placements {} absolute, {} scatter ({} instances), {} grid; {} generators",
+        d.absolute, d.scatters, d.scattered, d.grids, d.generators
+    );
+    println!("  structures (x, z):");
+    for st in &d.structures {
+        println!("    {st}");
+    }
+}
+
+/// The facts `--describe` prints, gathered once so the table and the block
+/// cannot disagree.
+struct RoomDescription {
+    landform: &'static str,
+    biome: &'static str,
+    theme: &'static str,
+    prosperity: f32,
+    escalation: f32,
+    hue_deg: f32,
+    temperature: f32,
+    time_of_day_bias: f32,
+    fog_visibility: f32,
+    /// The sun direction's unit-vector Y: 1 is noon, 0 the horizon.
+    sun_height: f32,
+    cloud_cover: f32,
+    sky: String,
+    water: String,
+    landing: String,
+    absolute: usize,
+    scatters: usize,
+    scattered: u32,
+    grids: usize,
+    generators: usize,
+    /// Every `Absolute` placement's generator name and ground position
+    /// `(x, z)`, in record order - where to aim a camera.
+    structures: Vec<String>,
+}
+
+impl RoomDescription {
+    fn for_seed(seed: u64) -> Self {
+        let did = format!("did:render:{seed}");
+        Self::new(
+            crate::seeded_defaults::scene::SceneCharacter::for_seed(seed),
+            &RoomRecord::default_for_seed(seed, &did),
+        )
+    }
+
+    fn for_did(did: &str) -> Self {
+        Self::new(
+            crate::seeded_defaults::scene::SceneCharacter::for_did(did),
+            &RoomRecord::default_for_did(did),
+        )
+    }
+
+    fn new(scene: crate::seeded_defaults::scene::SceneCharacter, record: &RoomRecord) -> Self {
+        let env = &record.environment;
+        let sun = bevy::math::Vec3::from_array(env.sun_position.0).normalize_or_zero();
+        let sky = env.sky_color.0;
+        let (mut absolute, mut scatters, mut scattered, mut grids) = (0usize, 0usize, 0u32, 0usize);
+        let mut structures = Vec::new();
+        for p in &record.placements {
+            match p {
+                Placement::Absolute {
+                    generator_ref,
+                    transform,
+                    ..
+                } => {
+                    absolute += 1;
+                    let [x, _, z] = transform.translation.0;
+                    structures.push(format!("{generator_ref} ({x:.0}, {z:.0})"));
+                }
+                Placement::Scatter { count, .. } => {
+                    scatters += 1;
+                    scattered += *count;
+                }
+                Placement::Grid { .. } => grids += 1,
+                _ => {}
+            }
+        }
+        let water = crate::world_builder::compile::room_water_level(record)
+            .map_or_else(|| "none".to_string(), |y| format!("{y:.1} m"));
+        let landing = record.default_landing.as_ref().map_or_else(
+            || "none".to_string(),
+            |l| {
+                format!(
+                    "({:.1}, {:.1}) facing {:.0}°",
+                    l.pos.0[0], l.pos.0[1], l.yaw_deg.0
+                )
+            },
+        );
+        Self {
+            landform: scene.landform.label(),
+            biome: scene.biome.label(),
+            theme: scene.theme.label(),
+            prosperity: scene.prosperity,
+            escalation: scene.escalation,
+            hue_deg: scene.base_hue_deg,
+            temperature: scene.temperature,
+            time_of_day_bias: scene.time_of_day_bias,
+            fog_visibility: env.fog_visibility.0,
+            sun_height: sun.y,
+            cloud_cover: env.cloud_cover.0,
+            sky: format!("({:.2}, {:.2}, {:.2})", sky[0], sky[1], sky[2]),
+            water,
+            landing,
+            absolute,
+            scatters,
+            scattered,
+            grids,
+            generators: record.generators.len(),
+            structures,
+        }
     }
 }

@@ -1,4 +1,4 @@
-//! Signal Mast — how a harbour talks to the roads.
+//! Signal Mast - how a harbour talks to the roads.
 //!
 //! A pole mast stepped in a stone block, staked down by four shrouds, with a
 //! yard across it, a hoist of signal flags run up the halyard, a gaff at the
@@ -7,9 +7,9 @@
 //! # This entry is almost entirely rigging
 //!
 //! Which is why it is worth being careful. Every prior fault in this kit's
-//! rope and spar work — the careening slip's falls yawing off their posts,
+//! rope and spar work - the careening slip's falls yawing off their posts,
 //! its shores leaning away from the hull, its capstan bars snapping to the
-//! nearest quarter turn, its mast built as its own mirror image — was a
+//! nearest quarter turn, its mast built as its own mirror image - was a
 //! hand-rolled conversion from "this runs from A to B" into a rotation. So
 //! nothing here rolls one: every shroud, stay, yard and halyard is a
 //! [`strut`], whose rotation is derived from the two points it spans and
@@ -20,7 +20,7 @@
 //! A bare pole is a stick. Three things carry it: the SPREAD of the shrouds
 //! (a triangle of stays says tension, a vertical line says nothing), the
 //! YARD across it (which gives the silhouette a horizontal to read against),
-//! and the flag HOIST — four small coloured cloths climbing the halyard,
+//! and the flag HOIST - four small coloured cloths climbing the halyard,
 //! which is the only part that says the mast is in use rather than derelict.
 
 use std::f32::consts::FRAC_PI_2;
@@ -40,7 +40,7 @@ use super::{
     hemp, iron, jolly_roger, sailcloth,
 };
 
-/// The paved pad — the sub-root every footprint guard measures against.
+/// The paved pad - the sub-root every footprint guard measures against.
 const PAD: [f32; 3] = [7.6, 0.26, 7.6];
 const GROUND: f32 = PAD[1];
 
@@ -51,7 +51,7 @@ const DECK: f32 = GROUND + STEP[1];
 /// Mast height above its step, and its stock at the heel.
 const MAST_H: f32 = 9.0;
 const MAST_R: f32 = 0.19;
-/// Masthead — where the gaff, the truck and the halyard blocks live.
+/// Masthead - where the gaff, the truck and the halyard blocks live.
 const HEAD: f32 = DECK + MAST_H;
 
 /// Where the shrouds are made fast: how far out, and how high up the mast.
@@ -68,7 +68,7 @@ const YARD_HALF: f32 = 2.4;
 
 /// Which side the gaff rakes to, and how far out its peak reaches.
 ///
-/// `+X` is forced by the flag bent to it — see [`masthead`]. The signal hoist
+/// `+X` is forced by the flag bent to it - see [`masthead`]. The signal hoist
 /// takes the other flank.
 const GAFF_SIDE: f32 = 1.0;
 const GAFF_OUT: f32 = 1.5;
@@ -80,7 +80,7 @@ const GAFF_OUT: f32 = 1.5;
 /// whose harbour this is.
 const COLOURS_H: f32 = 1.15;
 
-/// Fife rail at the foot — where the falls are belayed.
+/// Fife rail at the foot - where the falls are belayed.
 const RAIL_H: f32 = 1.05;
 const RAIL_R: f32 = 1.1;
 
@@ -183,7 +183,7 @@ fn yard_and_hoist() -> Vec<Generator> {
             id_quat(),
         ),
     ];
-    // Lifts from the yard arms to the masthead — the pair of diagonals that
+    // Lifts from the yard arms to the masthead - the pair of diagonals that
     // stop the yard reading as a stick balanced on a pole.
     for sx in [-1.0_f32, 1.0] {
         out.push(strut(
@@ -217,7 +217,7 @@ fn yard_and_hoist() -> Vec<Generator> {
         6,
         hemp(ROPE_HEMP),
     ));
-    // Spread between the YARD and the masthead, derived from both — not from
+    // Spread between the YARD and the masthead, derived from both - not from
     // a fraction of the halyard's own length. At `0.42 + i·0.13` of the
     // halyard the lowest two flags came out a metre BELOW the yard, reading
     // against the spar instead of the sky, which is what the guard caught.
@@ -256,9 +256,9 @@ fn yard_and_hoist() -> Vec<Generator> {
 /// It rakes to `+X`, and it has to. [`jolly_roger`] runs its fly to `+X` and
 /// hangs the cloth below its hoist, and a flag cannot be mirrored to fix that:
 /// the transform sanitiser clamps every scale component positive, so there is no
-/// negative-scale reflection available. With the gaff raking `-X` — which is what
+/// negative-scale reflection available. With the gaff raking `-X` - which is what
 /// this built first, from a `FRONT` constant that means `-Z` and was being applied
-/// to the wrong axis — the colours flew back over the mast they were bent to and
+/// to the wrong axis - the colours flew back over the mast they were bent to and
 /// swallowed the truck and the finial whole.
 ///
 /// So the spar goes out on the side the cloth will stream toward, and the signal
@@ -290,7 +290,7 @@ fn masthead() -> Vec<Generator> {
             6,
             hemp(ROPE_HEMP),
         ),
-        // The colours, bent to the gaff's PEAK — the kit's shared assembly,
+        // The colours, bent to the gaff's PEAK - the kit's shared assembly,
         // taking the attachment point so the luff laps the spar's tip by
         // construction and the cloth streams outboard from it.
         //
@@ -309,7 +309,7 @@ fn build_tree() -> Generator {
     paving.uv_offset = face_uv_offset(FaceKey::Top, pad_c);
 
     // Bedded BELOW the pad's top rather than flush with it. At
-    // `+0.04` the block's underside landed on GROUND exactly — two coplanar
+    // `+0.04` the block's underside landed on GROUND exactly - two coplanar
     // faces across the whole footprint (#1028's family), which the guard
     // caught to the millimetre.
     const STEP_SINK: f32 = 0.09;
@@ -449,7 +449,7 @@ mod tests {
     }
 
     /// Every shroud runs from a deadeye on the stones to a hitch on the mast
-    /// — and the four SPREAD, which is what makes them read as tension.
+    /// - and the four SPREAD, which is what makes them read as tension.
     ///
     /// Read from the built struts via [`rotate_by`] (#972 lesson 21). The
     /// spread is the substance: four ropes led to the mast's own foot would
@@ -482,11 +482,11 @@ mod tests {
                 "a shroud hitches at y = {} not {hitch}",
                 hi[1]
             );
-            // Lower end well out from the mast — the spread.
+            // Lower end well out from the mast - the spread.
             let out = (lo[0].powi(2) + lo[2].powi(2)).sqrt();
             assert!(
                 out > MAST_H * 0.25,
-                "a shroud is set up only {out} m out from a {MAST_H} m mast — \\
+                "a shroud is set up only {out} m out from a {MAST_H} m mast - \\
                  four near-vertical ropes read as nothing at all"
             );
             assert!(
@@ -511,17 +511,17 @@ mod tests {
             .expect("the yard is in the tree");
         assert!(
             (ya[1] - yb[1]).abs() < 1e-3,
-            "the yard runs {ya:?} to {yb:?} — it is not level"
+            "the yard runs {ya:?} to {yb:?} - it is not level"
         );
         assert!(
             (ya[0] - yb[0]).abs() > YARD_HALF,
-            "the yard spans only {} — it is not athwartships",
+            "the yard spans only {} - it is not athwartships",
             (ya[0] - yb[0]).abs()
         );
         // Two lifts, each from near a yard arm up to the masthead region.
         // Selected by radius AND by the run they make: a lift goes from a
         // yard arm UP to the masthead. Radius alone also matches the four
-        // belaying pins, which are the same stock — the selector found six
+        // belaying pins, which are the same stock - the selector found six
         // lifts on a two-lift mast (#972 lesson 24, yet again).
         let lifts: Vec<_> = cyls
             .iter()
@@ -579,7 +579,7 @@ mod tests {
         for (c, _) in &flags {
             assert!(
                 c[1] > yard_y,
-                "a flag at y = {} is below the yard at {yard_y} — it reads \\
+                "a flag at y = {} is below the yard at {yard_y} - it reads \\
                  against the spar instead of the sky",
                 c[1]
             );
@@ -599,7 +599,7 @@ mod tests {
 
     /// The colours at the gaff are the kit's shared assembly, intact.
     ///
-    /// Three blob groups (cloth, skull, bones), each one connected mass — the
+    /// Three blob groups (cloth, skull, bones), each one connected mass - the
     /// same contract the gate and the battery hold, checked here because this
     /// is a third caller and a shared helper's guarantees are only real where
     /// they are asserted.
@@ -631,12 +631,12 @@ mod tests {
     ///
     /// The fault this exists for: bent to a point partway along a gaff that raked
     /// the wrong way, the flag flew back across its own masthead and contained the
-    /// truck and the finial entirely — a flag impaled on the pole it hangs from,
+    /// truck and the finial entirely - a flag impaled on the pole it hangs from,
     /// which no view of the prop could have made look right.
     ///
     /// Two claims, and they pull in opposite directions, which is why both are
     /// stated. The cloth must be wholly outboard of the mast, and it must still
-    /// touch the spar's tip — a flag that clears its rigging by flying away from
+    /// touch the spar's tip - a flag that clears its rigging by flying away from
     /// it entirely is not bent to anything.
     #[test]
     fn the_colours_fly_clear_of_the_masthead() {
@@ -658,7 +658,7 @@ mod tests {
         // be inside it.
         assert!(
             cloth.bounds.min.x > MAST_R,
-            "the colours reach in to x = {} against a mast of stock {MAST_R} — \
+            "the colours reach in to x = {} against a mast of stock {MAST_R} - \
              the flag is flying across its own masthead",
             cloth.bounds.min.x
         );
@@ -676,14 +676,14 @@ mod tests {
         let peak_x = GAFF_SIDE * GAFF_OUT;
         assert!(
             cloth.bounds.min.x < peak_x,
-            "the cloth's luff is at x = {} and the gaff's peak at {peak_x} — the \
+            "the cloth's luff is at x = {} and the gaff's peak at {peak_x} - the \
              colours are flying beside the spar rather than bent to it",
             cloth.bounds.min.x
         );
         let peak_y = HEAD - 0.2 + 1.05;
         assert!(
             (cloth.bounds.max.y - peak_y).abs() < COLOURS_H * 0.2,
-            "the cloth's head is at y = {} and the gaff's peak at {peak_y} — the \
+            "the cloth's head is at y = {} and the gaff's peak at {peak_y} - the \
              flag is not hanging from the tip it is bent to",
             cloth.bounds.max.y
         );
@@ -700,7 +700,7 @@ mod tests {
         {
             assert!(
                 p.bounds.center().x * GAFF_SIDE < 0.0,
-                "a signal flag is on the same flank as the gaff — both things \
+                "a signal flag is on the same flank as the gaff - both things \
                  aloft crowd one side and the mast reads lopsided"
             );
         }
@@ -721,7 +721,7 @@ mod tests {
         let (top, heel) = if a[1] > b[1] { (a, b) } else { (b, a) };
         assert!(
             heel[1] < DECK,
-            "the mast's heel is at {} and the step's top at {DECK} — it is \\
+            "the mast's heel is at {} and the step's top at {DECK} - it is \\
              standing on the block, not stepped in it",
             heel[1]
         );
@@ -736,7 +736,7 @@ mod tests {
             .expect("the step is in the tree");
         assert!(
             step.bounds.min.y < GROUND - 1e-3,
-            "the step's underside is at {} and the pad's top at {GROUND} — \\
+            "the step's underside is at {} and the pad's top at {GROUND} - \\
              those two faces are coplanar across the whole block",
             step.bounds.min.y
         );

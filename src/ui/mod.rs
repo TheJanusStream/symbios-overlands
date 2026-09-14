@@ -2,86 +2,86 @@
 //! that the library entry point in [`crate::run`] registers under the
 //! appropriate [`crate::state::AppState`] and schedule.
 //!
-//! * [`login`]        — OAuth 2.0 + DPoP login form, runs in `AppState::Login`.
-//! * [`diagnostics`]  — tabbed diagnostics HUD: Overview / Runtime /
+//! * [`login`]        - OAuth 2.0 + DPoP login form, runs in `AppState::Login`.
+//! * [`diagnostics`]  - tabbed diagnostics HUD: Overview / Runtime /
 //!   Network / Offload metric sparklines, per-subsystem health cards and
 //!   anomaly badges, plus the Session tab (peer roster, mute toggles,
 //!   event log, session-log export).
-//! * [`chat`]         — in-room chat window (Reliable channel).
-//! * [`nametag`]      — in-world identity (#1226): a name over every
+//! * [`chat`]         - in-room chat window (Reliable channel).
+//! * [`nametag`]      - in-world identity (#1226): a name over every
 //!   remote body, and the two-way hover link between a People row and the
 //!   body it names.
-//! * [`people`]       — room roster with per-peer mute toggles; peer rows
+//! * [`people`]       - room roster with per-peer mute toggles; peer rows
 //!   double as drop targets for inventory gifts, and `incoming_offer_ui`
 //!   renders the Accept / Decline / Mute & Decline modal for inbound
 //!   [`crate::protocol::OverlandsMessage::ItemOffer`]s.
-//! * [`avatar`]       — Avatar editor, four tabs: Body (the rigged
+//! * [`avatar`]       - Avatar editor, four tabs: Body (the rigged
 //!   `symbios-avatar` parameter panel), Attachments (what is worn, and
 //!   where), Visuals (the generator-tree editor, for generator bodies) and
 //!   Locomotion (HoverBoat / Humanoid / Airplane / Helicopter / Car preset
 //!   picker with per-preset physics tuning).
-//! * [`inventory`]    — personal stash of `Generator` blueprints, with
+//! * [`inventory`]    - personal stash of `Generator` blueprints, with
 //!   drag-to-place onto terrain and drag-to-gift onto peer rows.
-//! * [`catalogue`]    — read-only browser for client-shipped catalogue
+//! * [`catalogue`]    - read-only browser for client-shipped catalogue
 //!   entries (see [`crate::catalogue`]), with the same drag-to-place
 //!   semantics as `inventory`.
-//! * [`room`]         — owner-only tabbed World Editor (Environment /
+//! * [`room`]         - owner-only tabbed World Editor (Environment /
 //!   Region Assets / Placements / Effects / Raw JSON), gated on
 //!   `session.did == room.did`.
-//! * [`editable`]     — shared Save / Load / Reset commit row, publish
+//! * [`editable`]     - shared Save / Load / Reset commit row, publish
 //!   status line, and seed-row widgets used by the Room / Avatar /
 //!   Inventory editors.
-//! * [`unsaved_guard`] — confirm dialog that gates portal travel and
+//! * [`unsaved_guard`] - confirm dialog that gates portal travel and
 //!   logout while any editable record has unpublished edits.
-//! * [`logout`]       — teardown of one signed-in session (#1297
+//! * [`logout`]       - teardown of one signed-in session (#1297
 //!   group 2): it closes every window, clears the pickers, drops the
 //!   session-scoped resources and cancels the publish tasks. It sat
 //!   at the crate root and reached for seventeen `ui` types to do it;
 //!   purifying that would have meant seventeen mirrors with no
 //!   reader, so the file moved to where the state it tears down
 //!   lives. `loading` and `lib` call it by path; nothing else does.
-//! * [`loading`]      — per-task progress panel for the
+//! * [`loading`]      - per-task progress panel for the
 //!   `AppState::Loading` gate (fetch / retry / bake status rows).
-//! * [`toolbar`]      — top toolbar with per-panel toggle buttons
+//! * [`toolbar`]      - top toolbar with per-panel toggle buttons
 //!   ([`toolbar::UiPanels`]) and the first-run controls hint.
-//! * [`layout`]       — computed non-overlapping default window
+//! * [`layout`]       - computed non-overlapping default window
 //!   geometry + persisted rects ([`layout::WindowChrome`], #833).
-//! * [`shortcuts`]    — global keyboard shortcuts: the Esc back-out
+//! * [`shortcuts`]    - global keyboard shortcuts: the Esc back-out
 //!   ladder, Enter-to-chat, Ctrl+S publish (#836) and Ctrl+Z /
 //!   Ctrl+Shift+Z undo (#864).
-//! * [`confirm`]      — shared destructive-action confirm modal +
+//! * [`confirm`]      - shared destructive-action confirm modal +
 //!   rename dialog ([`confirm::ConfirmState`], #838).
-//! * [`travel`]       — in-flight travel overlay + portal approach
+//! * [`travel`]       - in-flight travel overlay + portal approach
 //!   prompt (#842).
-//! * [`toast`]        — RENDERING for the notification stack; the queue
+//! * [`toast`]        - RENDERING for the notification stack; the queue
 //!   itself is [`crate::notify::Toasts`], outside `ui` since #1158
 //!   because `network`, `player`, `loading` and `terrain` all raise
 //!   toasts. The one channel for "something just happened"
-//!   feedback (#819). Bottom-right since #1261 f43 — the top-right corner
+//!   feedback (#819). Bottom-right since #1261 f43 - the top-right corner
 //!   is where all five right-anchored windows open, and the toast area is
 //!   a real pointer area, so it ate their clicks.
-//! * [`gateway`]      — gateway destination picker (#748): walking into a
+//! * [`gateway`]      - gateway destination picker (#748): walking into a
 //!   gateway zone lists the **room owner's** mutual follows, so a visitor
 //!   browses the owner's social neighbourhood rather than their own.
-//! * [`settings`]     — the Settings window (#857): this-machine-only
+//! * [`settings`]     - the Settings window (#857): this-machine-only
 //!   preferences (theme pick, remote-peer smoothing), persisted by
 //!   [`crate::prefs`].
-//! * [`theme`]        — semantic theme foundation (#855): three palettes
+//! * [`theme`]        - semantic theme foundation (#855): three palettes
 //!   behind `theme::current(ctx)`, applied on startup and re-applied
 //!   whenever the picker swaps the resource.
-//! * [`fonts`]        — the bundled base font plus the at-most-once lazy
+//! * [`fonts`]        - the bundled base font plus the at-most-once lazy
 //!   CJK fallback fetch (#858), so a Chinese / Japanese / Korean string
 //!   never renders as tofu; also the home of the source scans that hold
 //!   the UI's glyph, spelling and numeric-widget laws.
-//! * [`num`]          — the only place a `DragValue` or `Slider` is
+//! * [`num`]          - the only place a `DragValue` or `Slider` is
 //!   built (#1264 f364), so every numeric field in the app accepts the
 //!   decimal comma most of Europe and Latin America types.
-//! * [`affordances`]  — shared affordance idioms (#859): one add wording,
+//! * [`affordances`]  - shared affordance idioms (#859): one add wording,
 //!   one danger idiom, one checkmark, one status dot.
-//! * [`undo`]         — bounded whole-record undo/redo rings for the room
+//! * [`undo`]         - bounded whole-record undo/redo rings for the room
 //!   and avatar editors (#862), captured off the editors' existing commit
 //!   ticks in `PostUpdate`.
-//! * [`perf`]         — the per-frame costs that scaled with authored
+//! * [`perf`]         - the per-frame costs that scaled with authored
 //!   content (#1270) and the rule the guards on them follow: count the
 //!   work, do not time it. Holds `LiveValueCache`, the tick-and-flag
 //!   record cache the room and avatar editors share.
@@ -159,7 +159,7 @@ mod tests {
     /// 2026-09-10). Nothing outside `src/ui` may name `crate::ui::` in
     /// code unless [`MAY_IMPORT_UI`] says why. What a domain module needs
     /// from a panel is a FACT, and a fact is a resource it owns, written
-    /// once a frame by a `ui` mirror in `PreUpdate` — the
+    /// once a frame by a `ui` mirror in `PreUpdate` - the
     /// `player::RigHold` shape, built six times now.
     ///
     /// Four things are pinned, and each of them caught something real:
@@ -175,7 +175,7 @@ mod tests {
     /// 3. **Each mirror's REGISTRATION in `lib.rs`.** A mirror nobody
     ///    schedules leaves its resource at `Default` for the app's whole
     ///    life, every unit test of it still passes, and the consumer
-    ///    silently reads "nothing is happening" — which for the login
+    ///    silently reads "nothing is happening" - which for the login
     ///    activity means a demo world seeded behind a redirect. This is
     ///    not hypothetical: a `cargo fmt` reflow ate one registration on
     ///    2026-09-10 and the unit tests stayed green.
@@ -202,7 +202,7 @@ mod tests {
         // The whole tree, not a list of the files this work happened to
         // clear (#1297's close-out). A list cannot catch a NEW domain file
         // that reaches into the layer, which is the regression that
-        // matters now that the existing ones are gone — so the walk asks
+        // matters now that the existing ones are gone - so the walk asks
         // the canonical question of every file instead:
         //
         //   grep -rl 'crate::ui::' src --exclude-dir=ui
@@ -238,7 +238,7 @@ mod tests {
             // the glyph-coverage list.
             //
             // `#[cfg(all(test, …))]` counts, and getting that wrong is not
-            // theoretical — `capped_fetch.rs`'s scan is gated
+            // theoretical - `capped_fetch.rs`'s scan is gated
             // `#[cfg(all(test, not(target_arch = "wasm32")))]` and this
             // sweep called it a real importer until the cut matched what
             // the issue's own baseline command matches:
@@ -261,14 +261,14 @@ mod tests {
             offenders.is_empty(),
             "these files outside src/ui import the egui layer in code: {offenders:?}. \
              The fact each needs belongs in a resource IT owns, written once a frame \
-             by a `ui` mirror in PreUpdate (#1158, #1297) — or, if it is genuinely \
+             by a `ui` mirror in PreUpdate (#1158, #1297) - or, if it is genuinely \
              the ui layer's own, in MAY_IMPORT_UI above with the reason why"
         );
         for (path, reason) in MAY_IMPORT_UI {
             let live = imports_ui_in_code(root, path);
             assert!(
                 !live.is_empty(),
-                "the exemption for {path} is stale — nothing under it imports \
+                "the exemption for {path} is stale - nothing under it imports \
                  crate::ui:: in code any more, so DELETE the entry rather than \
                  leave it describing a tree that has moved on. Its reason was: \
                  {reason}"

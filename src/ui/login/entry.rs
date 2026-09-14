@@ -5,7 +5,7 @@
 //! A landmark link is the product's own sharing mechanism, so its recipient
 //! is by definition somebody who has never seen the app. Until this module
 //! existed the link's `did=` did two things at once: it filled in the
-//! destination field, and it submitted the form on the first frame — which
+//! destination field, and it submitted the form on the first frame - which
 //! on wasm is a full-page navigation to an OAuth consent screen. The
 //! stranger's first experience of Symbios Overlands was a third party
 //! asking for access to their Bluesky account, on behalf of an app they had
@@ -21,17 +21,17 @@
 //!
 //! What this module adds:
 //!
-//! * [`resolve_boot_destination`] — one background lookup that turns the
+//! * [`resolve_boot_destination`] - one background lookup that turns the
 //!   link's DID into a *verified* handle (see
 //!   [`crate::pds::resolve_did_handle`]), so the card can say "@alice"
 //!   rather than "did:plc:z72i7hdy…".
-//! * [`DestinationLabel`] — where that answer lives, and
+//! * [`DestinationLabel`] - where that answer lives, and
 //!   [`DestinationLabel::name`], which spells it through the app's one
 //!   naming ladder ([`PeerLabel`]) rather than inventing a sixth.
-//! * [`override_warning`] — the sentence shown above a force-opened
+//! * [`override_warning`] - the sentence shown above a force-opened
 //!   Advanced fold when the link brought infrastructure with it.
 //!
-//! The decision itself — ask, submit, or do nothing — is
+//! The decision itself - ask, submit, or do nothing - is
 //! [`crate::boot_params::entry_plan`], beside the params it reads.
 
 use bevy::prelude::*;
@@ -82,7 +82,7 @@ impl DestinationLabel {
         PeerLabel::new(handle, Some(did)).addressed()
     }
 
-    /// Whether a lookup for `did` is still outstanding — the card says
+    /// Whether a lookup for `did` is still outstanding - the card says
     /// "checking who that is" rather than settling on the DID too early.
     pub fn is_resolving(&self, did: &str) -> bool {
         self.did != did || self.state == LabelState::Resolving
@@ -93,8 +93,8 @@ impl DestinationLabel {
 /// f10).
 ///
 /// Inserted by `check_wasm_resume` beside the task it spawns, and torn
-/// down with the rest of the session on logout. WASM-only in practice —
-/// native has no persisted session — but declared without a `cfg` so
+/// down with the rest of the session on logout. WASM-only in practice -
+/// native has no persisted session - but declared without a `cfg` so
 /// [`resolve_boot_destination`] and the login card can read it plainly.
 ///
 /// The resume row asked "Not you? Sign in differently" while holding the
@@ -113,9 +113,9 @@ pub struct ResumeIdentity {
 
 /// The destination a resume lands in, or `None` for "your own world".
 ///
-/// Pure because the blob spells "home" two ways — an empty `target_did`
+/// Pure because the blob spells "home" two ways - an empty `target_did`
 /// (the login default) and, since #1229 f2 started writing arrivals back,
-/// the user's own DID — and a card announcing "heading to did:plc:you…'s
+/// the user's own DID - and a card announcing "heading to did:plc:you…'s
 /// overland" to somebody standing at home would be worse than the silence
 /// it replaced.
 pub fn resume_destination(own_did: &str, target_did: &str) -> Option<String> {
@@ -141,7 +141,7 @@ pub fn resuming_line(handle: &str) -> String {
 ///
 /// Named when the name fits. The button is the widest thing in the card's
 /// busy state, and a long handle would either wrap it or push the card
-/// about — so past [`MAX_NAMED_HATCH_CHARS`] the identity stays on the
+/// about - so past [`MAX_NAMED_HATCH_CHARS`] the identity stays on the
 /// line above, where [`resuming_line`] has already said it, and the button
 /// falls back to the short form.
 pub fn not_you_label(handle: &str) -> String {
@@ -176,8 +176,8 @@ pub struct ResolveDestinationTask {
 /// so a failed lookup settles on [`LabelState::Unnamed`] and is not retried
 /// in a loop against somebody else's directory service.
 ///
-/// Skipped entirely for a destination with no `did:` prefix — the form also
-/// accepts an `@handle`, which is already a name and needs no lookup — and
+/// Skipped entirely for a destination with no `did:` prefix - the form also
+/// accepts an `@handle`, which is already a name and needs no lookup - and
 /// for a DID method the network cannot resolve.
 pub fn resolve_boot_destination(
     mut commands: Commands,
@@ -266,7 +266,7 @@ pub fn override_warning(pds: Option<&str>, relay: Option<&str>) -> Option<String
 /// The lead line of the confirmation card: where this link goes.
 pub fn destination_line(name: &str, resolving: bool) -> String {
     if resolving {
-        format!("You're heading to {name} — checking who that is…")
+        format!("You're heading to {name} - checking who that is…")
     } else {
         format!("You're heading to {name}'s world.")
     }
@@ -345,7 +345,7 @@ mod tests {
 
     /// #1230 f19. The sequence: a link visitor's destination is unreachable,
     /// they hit "Back to login" on a loading screen that has been retrying
-    /// for minutes (or Log out from the account chip) — and the form
+    /// for minutes (or Log out from the account chip) - and the form
     /// auto-submits the same broken destination the instant it renders, so
     /// killing the app is the only exit. Once spent, the link stops
     /// submitting itself from EITHER source.
@@ -415,7 +415,7 @@ mod tests {
 
     /// THE SEQUENCE (#1229 f10): a shared laptop. The page opens on
     /// "Resuming your previous session…" with "Not you? Sign in
-    /// differently" beside it, and no name anywhere — while the blob's
+    /// differently" beside it, and no name anywhere - while the blob's
     /// handle sits in the very system that spawned the resume, which logs
     /// it. "Not you?" is an identity question and the screen withheld the
     /// identity, so the answer arrived from inside somebody else's world.
@@ -447,7 +447,7 @@ mod tests {
         assert_eq!(not_you_label(long), "Not you? Sign in differently");
     }
 
-    /// The blob spells "home" two ways — an empty `target_did` from the
+    /// The blob spells "home" two ways - an empty `target_did` from the
     /// login default, and (since #1229 f2 writes arrivals back) the user's
     /// own DID. Neither may produce "you're heading to did:plc:you…'s
     /// overland" for somebody standing at home.
@@ -478,7 +478,7 @@ mod tests {
         assert!(relay_only.contains("relay.evil.example"));
     }
 
-    /// The button says whose world it enters — the one thing a link
+    /// The button says whose world it enters - the one thing a link
     /// recipient needs in order to decide.
     #[test]
     fn the_button_says_where_it_goes() {

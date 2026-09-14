@@ -13,7 +13,7 @@
 //! entity by `spawn_water_volume`) maps the spawned entity back to its
 //! index in [`crate::water::WaterSurfaces::planes`]. Each
 //! [`crate::interaction::perturbation::Perturbation`] carries the same
-//! `plane_idx`, so routing is a direct filter — no XZ search.
+//! `plane_idx`, so routing is a direct filter - no XZ search.
 //!
 //! ## Sample budget
 //!
@@ -65,7 +65,7 @@ pub fn feed_water_wakes(
 
         if count == 0 && prev == 0 {
             // Neither this frame nor the last touched this plane's
-            // wake arrays — skip the get_mut so idle ponds pay nothing.
+            // wake arrays - skip the get_mut so idle ponds pay nothing.
             continue;
         }
 

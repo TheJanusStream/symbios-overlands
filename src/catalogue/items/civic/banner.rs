@@ -1,9 +1,9 @@
-//! Banner — a tall pole flying a long hanging banner under a gilt finial. A
+//! Banner - a tall pole flying a long hanging banner under a gilt finial. A
 //! prosperity-Rich scatter prop: heraldic / civic display signals pride and
 //! means in any setting.
 //!
 //! One fix under #972 (user-found in-world: "the pointed finial reads
-//! upside-down"). The spear point was a [`cone`] given `quat_x(PI)` — a
+//! upside-down"). The spear point was a [`cone`] given `quat_x(PI)` - a
 //! half-turn that was presumably meant to stand it up, but a cone's apex is
 //! already `+Y`, so the turn stood it on its point with the wide base in
 //! the air. It is now at the identity, and its base is sunk into the orb
@@ -114,7 +114,7 @@ fn build_tree() -> Generator {
             [0.0, field_bottom + 0.06, bz],
             id_quat(),
         ),
-        // Gold emblem charge — a disc straddling both faces so it reads
+        // Gold emblem charge - a disc straddling both faces so it reads
         // front and back, not painted on one side.
         prim(
             solid(cylinder_tapered(0.26, 0.12, 12, 0.0, bronze(GOLD))),
@@ -122,7 +122,7 @@ fn build_tree() -> Generator {
             quat_x(PI * 0.5),
         ),
         // Spear-point finial: an orb sunk onto the pole top, and the point
-        // seated in the orb with its apex — the cone's own +Y — up.
+        // seated in the orb with its apex - the cone's own +Y - up.
         prim(sphere(ORB_R, 3, bronze(GOLD)), [0.0, ORB_Y, 0.0], id_quat()),
         prim(
             cone(POINT_R, POINT_H, 8, bronze(GOLD)),
@@ -214,7 +214,7 @@ mod tests {
         let (apex, base) = (at[1] + tip[1], at[1] - tip[1]);
         assert!(
             apex > base,
-            "banner: the finial's apex is at {apex} and its base at {base} — it is standing \
+            "banner: the finial's apex is at {apex} and its base at {base} - it is standing \
              on its point"
         );
         assert!(
@@ -232,7 +232,7 @@ mod tests {
         assert!(
             orb_r_there >= r,
             "banner: at the point's base the orb is {orb_r_there} m across and the point is \
-             {r} — balanced on the crown, not seated"
+             {r} - balanced on the crown, not seated"
         );
         assert!(
             orb_at[1] - orb_r < pole_top,

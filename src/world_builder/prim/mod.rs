@@ -12,7 +12,7 @@
 //! lock-step.
 //!
 //! The tortured-collider path swaps the fast analytical collider (e.g.
-//! `Collider::cuboid`) for a convex hull built from the mutated mesh — the
+//! `Collider::cuboid`) for a convex hull built from the mutated mesh - the
 //! analytic shape would cut corners on a twisted/bent primitive, leaving the
 //! visual mesh penetrating the world while the collider sits undisturbed.
 //! Trimesh colliders are avoided for now because Avian rejects them on
@@ -51,7 +51,7 @@ use torture::{apply_vertex_torture, torture_of};
 /// bypasses the allocation hot path.
 ///
 /// Every pass below preserves triangle order and count, so the table the
-/// mesher emitted still names the right triangles on return — see the
+/// mesher emitted still names the right triangles on return - see the
 /// [`faces`] module docs for why that holds pass by pass.
 pub fn build_primitive_mesh(kind: &GeneratorKind) -> PrimMesh {
     let (mut built, tortured) = build_primitive_raw(kind);
@@ -60,7 +60,7 @@ pub fn build_primitive_mesh(kind: &GeneratorKind) -> PrimMesh {
     built
 }
 
-/// Mesher output plus vertex torture — everything *before* the UV
+/// Mesher output plus vertex torture - everything *before* the UV
 /// projection. Returns whether torture ran, because that pass regenerates
 /// tangents and [`finish_uvs`] must not redo the work.
 ///
@@ -92,7 +92,7 @@ fn build_primitive_raw(kind: &GeneratorKind) -> (PrimMesh, bool) {
 /// Metre-scale UVs for the kinds whose stock parameterisation lays one tile
 /// across each face regardless of that face's size (#934). Runs *after*
 /// torture so the projection follows the deformed surface, and it
-/// re-generates tangents itself because a projection can split vertices —
+/// re-generates tangents itself because a projection can split vertices -
 /// which would leave any earlier tangent buffer the wrong length.
 fn finish_uvs(mesh: &mut Mesh, projection: Option<UvMapping>, tortured: bool) {
     if let Some(mapping) = projection {
@@ -110,8 +110,8 @@ fn finish_uvs(mesh: &mut Mesh, projection: Option<UvMapping>, tortured: bool) {
 ///
 /// The flat-faced family (Cuboid / Wedge / Bevel / Tetrahedron /
 /// Superellipsoid) defaults to [`UvMapping::Box`] because their stock
-/// parameterisations — Bevy's for the plain box, the swept rectangular
-/// profile once a cut is active, hand-rolled per-face quads for the prisms —
+/// parameterisations - Bevy's for the plain box, the swept rectangular
+/// profile once a cut is active, hand-rolled per-face quads for the prisms -
 /// all lay exactly one tile across *each face*, so an 8 × 4 × 0.35 wall slab
 /// would wear one tile on the 8 × 4 face and another crammed into the
 /// 0.35 × 4 end (#934). Box projection fixes every one of them the same way
@@ -119,11 +119,11 @@ fn finish_uvs(mesh: &mut Mesh, projection: Option<UvMapping>, tortured: bool) {
 ///
 /// Two mappings never project:
 ///
-/// * [`UvMapping::Fit`] *is* "keep the mesher's own parameterisation" — the
+/// * [`UvMapping::Fit`] *is* "keep the mesher's own parameterisation" - the
 ///   default for `Plane` (an alpha card must span its quad exactly once) and
 ///   for the revolved family, whose analytic mappings follow their shape's
 ///   own topology and beat any projection (#935 / #938). An author who
-///   nonetheless picks a projection on a revolved prim now gets it — that is
+///   nonetheless picks a projection on a revolved prim now gets it - that is
 ///   what makes a per-face mapping override meaningful on a cylinder.
 /// * `BlobGroup`, whatever its mapping: surface nets has no analytic
 ///   parameterisation at all, so its *mesher* consumes the mapping
@@ -145,7 +145,7 @@ fn projection_for(kind: &GeneratorKind, mapping: UvMapping) -> Option<UvMapping>
 /// The faces a primitive currently presents, in mesh-emission order.
 ///
 /// The editor's face picker lists these, and an override addressing a key
-/// absent here is *dormant* rather than invalid — restoring the cut that
+/// absent here is *dormant* rather than invalid - restoring the cut that
 /// produced the face brings the override back (#955). Building the mesh is
 /// the only honest way to answer: the face census depends on the whole
 /// torture block (a hollow adds `Bore`, a path-cut adds two cut faces, a
@@ -155,7 +155,7 @@ pub fn enumerate_faces(kind: &GeneratorKind) -> Vec<FaceKey> {
     build_primitive_mesh(kind).faces.faces()
 }
 
-/// Build the Avian collider that matches a primitive's mesh — analytical
+/// Build the Avian collider that matches a primitive's mesh - analytical
 /// when the shape is untortured (cheap, allocates nothing), or a convex
 /// hull of the mutated vertex cloud when torture is active (the analytical
 /// hull would diverge from the visible geometry). Returns `None` for shapes
@@ -165,7 +165,7 @@ pub(super) fn collider_for_primitive(kind: &GeneratorKind, mesh: &Mesh) -> Optio
     // A topology cut (path-cut / profile-cut / hollow) makes the analytical hull
     // diverge from the visible geometry just like a vertex deformation does, so
     // both route to a convex hull of the actual mesh. (A convex hull still fills
-    // a hollow bore or an arch's opening — consistent with the Tube's "bore is
+    // a hollow bore or an arch's opening - consistent with the Tube's "bore is
     // not a walk-through" standoff; true walk-throughs would want a trimesh.)
     let cuts_active = kind
         .torture()
@@ -227,8 +227,8 @@ mod tests {
     /// Every primitive on the [`crate::for_each_primitive!`] roster reaches
     /// a mesher arm and produces geometry.
     ///
-    /// `prim_parts` is the seventeenth ladder — the one this module's own
-    /// header calls "one impl + one constructor arm" — and it ends in
+    /// `prim_parts` is the seventeenth ladder - the one this module's own
+    /// header calls "one impl + one constructor arm" - and it ends in
     /// `_ => None`. A primitive that joins the roster without an arm routes
     /// here from `compile::dispatch` (that router is macro-generated now, so
     /// it compiles), gets `None`, and spawns nothing at all: an invisible
@@ -251,7 +251,7 @@ mod tests {
     }
 
     /// The geometry half of [`build_primitive_mesh`], for the tests that
-    /// only assert on vertices — the face table has its own tests below.
+    /// only assert on vertices - the face table has its own tests below.
     fn mesh_of(kind: &GeneratorKind) -> Mesh {
         build_primitive_mesh(kind).mesh
     }
@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn taper_bottom_narrows_the_base_without_flipping() {
-        // The #688 two-ended taper: bottom narrows, top keeps full width —
+        // The #688 two-ended taper: bottom narrows, top keeps full width -
         // the shape the old top-only taper needed upside-down authoring for.
         let kind = GeneratorKind::Cuboid {
             common: PrimCommon {
@@ -574,7 +574,7 @@ mod tests {
             else {
                 panic!("no positions");
             };
-            // The belly station (r 0.4 at y 0) is on the surface either way —
+            // The belly station (r 0.4 at y 0) is on the surface either way -
             // the spline passes through every control point.
             let belly = pos
                 .iter()
@@ -612,7 +612,7 @@ mod tests {
             }
         };
 
-        // Two spheres with generous blend: one connected peanut — there is
+        // Two spheres with generous blend: one connected peanut - there is
         // material at the midpoint between them (the blend neck), which a
         // hard union of these disjoint spheres would NOT have.
         let a = BlobElement {
@@ -657,7 +657,7 @@ mod tests {
             top(&peanut)
         );
 
-        // All-subtract group: no surface — must fall back to the marker
+        // All-subtract group: no surface - must fall back to the marker
         // mesh, never panic or emit an empty mesh.
         let empty = positions(&blob(vec![BlobElement {
             subtract: true,
@@ -715,7 +715,7 @@ mod tests {
         let y_max = pos.iter().map(|p| p[1]).fold(f32::NEG_INFINITY, f32::max);
         assert!((y_min + 0.25).abs() < 1e-3, "trim bottom at {y_min}");
         assert!((y_max - 0.25).abs() < 1e-3, "trim top at {y_max}");
-        // The trimmed ends are open rings of radius 0.3 — both must be
+        // The trimmed ends are open rings of radius 0.3 - both must be
         // capped (fan centre vertices on the axis).
         for y in [-0.25f32, 0.25] {
             assert!(
@@ -783,7 +783,7 @@ mod tests {
         );
 
         // Hollow + slab: the kept hemisphere is a shell. Wall = (1 - 0.8) ×
-        // half the tight extent = 0.08, so the inner surface sits at ~0.32 —
+        // half the tight extent = 0.08, so the inner surface sits at ~0.32 -
         // nothing may survive near the centre, while the solid slab above
         // fills its cut face all the way in.
         let shelled = positions(&blob([0.0, 1.0], [0.0, 0.5], 0.8));
@@ -832,7 +832,7 @@ mod tests {
         };
         const SLOP: f32 = 0.06;
 
-        // Box: bounded by its half-extents per axis, and actually boxy —
+        // Box: bounded by its half-extents per axis, and actually boxy -
         // the +Y face is flat at full footprint width, which a sphere or
         // ellipsoid of the same bounds could never fill.
         let box_pts = positions(&one(BlobShape::Box, [0.3, 0.2, 0.1]));
@@ -996,8 +996,8 @@ mod tests {
                 UvMapping::Cylindrical => {
                     // The wrap seam must be split wherever azimuth is
                     // well-defined. Triangles hugging the axis (the caps)
-                    // legitimately swirl — azimuth is degenerate there and
-                    // no split can help — so only off-axis triangles are
+                    // legitimately swirl - azimuth is degenerate there and
+                    // no split can help - so only off-axis triangles are
                     // held to the no-seam invariant.
                     let (mut lo, mut hi) = ([f32::INFINITY; 2], [f32::NEG_INFINITY; 2]);
                     for p in &pos {
@@ -1014,7 +1014,7 @@ mod tests {
                     let max_r = idx.iter().map(|&i| radial(i)).fold(0.0f32, f32::max);
                     // U is metres of arc since #933, so the seam period is
                     // the mean circumference the projection measures
-                    // against — same definition `uv::cylindrical` uses.
+                    // against - same definition `uv::cylindrical` uses.
                     let mean_r =
                         pos.iter().map(|&i| radial_of(i, c)).sum::<f32>() / pos.len() as f32;
                     let period = std::f32::consts::TAU * mean_r.max(1e-5);
@@ -1139,8 +1139,8 @@ mod tests {
         }
     }
 
-    /// #935: the revolved family measures metres too, and — the part that
-    /// used to be impossible — its two meshers agree. A cylinder is built by
+    /// #935: the revolved family measures metres too, and - the part that
+    /// used to be impossible - its two meshers agree. A cylinder is built by
     /// Bevy while untortured and by the swept-frustum mesher once any cut is
     /// active; before this the two disagreed on UV scale outright, so adding
     /// a hollow bore to a column visibly re-tiled its whole surface.
@@ -1156,7 +1156,7 @@ mod tests {
             else {
                 panic!("no uvs")
             };
-            // Wall vertices only — caps carry a disc in their own plane.
+            // Wall vertices only - caps carry a disc in their own plane.
             let (mut u0, mut u1, mut v0, mut v1) = (f32::MAX, f32::MIN, f32::MAX, f32::MIN);
             for (n, t) in nor.iter().zip(uv) {
                 if n[1].abs() > 0.5 {
@@ -1199,7 +1199,7 @@ mod tests {
         );
 
         // Hollowed: the swept-frustum mesher. Its outer wall must land on
-        // the same metres — the bore adds an inner shell but cannot change
+        // the same metres - the bore adds an inner shell but cannot change
         // what a metre of outer wall is worth.
         let (hu, hv) = wall_span(&cyl(0.4));
         assert!(
@@ -1211,8 +1211,8 @@ mod tests {
 
     /// #938: capsule and sphere agree across their two meshers too.
     ///
-    /// The capsule is the one where the meshers genuinely disagreed —
-    /// Bevy distributes `V` by height, our swept profile by arc length —
+    /// The capsule is the one where the meshers genuinely disagreed -
+    /// Bevy distributes `V` by height, our swept profile by arc length -
     /// so `rescale_capsule_uvs` re-derives Bevy's from vertex height. On a
     /// stubby capsule the two conventions differ by ~19%, which is exactly
     /// the shift a cut would have caused before.
@@ -1253,7 +1253,7 @@ mod tests {
             (plain - profile_arc).abs() < 0.05,
             "Bevy capsule V should span the profile arc ({profile_arc}), got {plain}"
         );
-        // Height-proportional V would have spanned L + 2r = 3.0 — the wrong
+        // Height-proportional V would have spanned L + 2r = 3.0 - the wrong
         // answer this test exists to exclude.
         assert!(
             (plain - 3.0).abs() > 0.3,
@@ -1291,8 +1291,8 @@ mod tests {
 
     /// #963: the revolved family's `uv_mapping` is not decoration. It went
     /// live with [`projection_for`] in #959 and the editor now offers it on
-    /// all sixteen kinds, so picking anything but the default `Fit` — which
-    /// *means* "keep the mesher's own analytic layout" — must actually
+    /// all sixteen kinds, so picking anything but the default `Fit` - which
+    /// *means* "keep the mesher's own analytic layout" - must actually
     /// re-project. A silently ignored field would leave the new picker as
     /// dead UI that looks like it works.
     #[test]
@@ -1321,7 +1321,7 @@ mod tests {
             );
             assert_ne!(
                 fit, projected,
-                "{tag}: uv_mapping changed nothing — the picker would be dead UI"
+                "{tag}: uv_mapping changed nothing - the picker would be dead UI"
             );
         }
     }
@@ -1329,7 +1329,7 @@ mod tests {
     #[test]
     fn box_pie_cut_and_hollow_carve_the_footprint() {
         // Pie path-cut [0, 0.25]: kept quarter is the +X/+Z quadrant-ish
-        // sweep — vertices with strongly negative x AND z must be gone.
+        // sweep - vertices with strongly negative x AND z must be gone.
         let mut cuboid = GeneratorKind::default_primitive_for_tag("Cuboid").unwrap();
         if let Some(t) = cuboid.torture_mut() {
             t.path_cut = Fp2([0.0, 0.25]);
@@ -1484,7 +1484,7 @@ mod tests {
         out
     }
 
-    /// #958: every mesher's spans tile its whole mesh exactly — the property
+    /// #958: every mesher's spans tile its whole mesh exactly - the property
     /// the spawner's per-face split depends on, and the one a mis-marked
     /// emission block would break. Walks both meshers of every kind across
     /// the whole cut matrix (a bore shell, a skipped cap, a pair of cut
@@ -1506,7 +1506,7 @@ mod tests {
                 built.faces.triangle_count()
             );
             assert!(!built.faces.faces().is_empty(), "{tag}: no faces named");
-            // Every triangle resolves, and no face is `Unknown` — that key
+            // Every triangle resolves, and no face is `Unknown` - that key
             // exists only for a record from a newer client.
             for t in 0..tris {
                 let face = built.faces.face_of(t);
@@ -1517,7 +1517,7 @@ mod tests {
     }
 
     /// #958: `enumerate_faces` answers with exactly the mesh's own
-    /// vocabulary — the editor's picker cannot offer a face the mesh does
+    /// vocabulary - the editor's picker cannot offer a face the mesh does
     /// not have, nor miss one it does.
     #[test]
     fn enumerate_faces_matches_the_built_mesh() {
@@ -1562,7 +1562,7 @@ mod tests {
             );
         }
 
-        // The box family names six sides either way — the headline case, and
+        // The box family names six sides either way - the headline case, and
         // the one where the swept mesher's profile tags have to reproduce
         // what the stock builder's normals say.
         let sides = [
@@ -1586,7 +1586,7 @@ mod tests {
 
     /// #958: a box's four sides land on the triangles that actually face
     /// those directions. Aimed at the *swept* mesher (a hollow box), where
-    /// the tags come from the profile rather than from the normals — so
+    /// the tags come from the profile rather than from the normals - so
     /// this catches a profile whose face labels are rotated or mirrored
     /// relative to the geometry, which no self-consistency check would.
     #[test]

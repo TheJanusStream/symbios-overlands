@@ -1,4 +1,4 @@
-//! Floating cube — an Alien-Monolithic prop. A black obsidian cube hovering
+//! Floating cube - an Alien-Monolithic prop. A black obsidian cube hovering
 //! above a glowing ground-mark, lit from a core within. Scatter clutter of the
 //! site; the core is emissive trim the ruin pass can darken.
 
@@ -50,7 +50,7 @@ fn build_tree() -> Generator {
     let h = 0.45_f32; // cube half-extent
 
     let mut prims = vec![
-        // Glowing ground-mark — the root.
+        // Glowing ground-mark - the root.
         prim(
             cylinder_tapered(0.7, 0.05, 16, 0.0, glow(ENERGY_BLUE, 2.0)),
             [0.0, 0.03, 0.0],
@@ -62,7 +62,7 @@ fn build_tree() -> Generator {
             [0.0, cy, 0.0],
             id_quat(),
         ),
-        // Glowing core within the cube — emissive ambiance.
+        // Glowing core within the cube - emissive ambiance.
         {
             let mut core = prim(
                 sphere(0.22, 3, glow(GLYPH_CYAN, 2.8)),
@@ -73,7 +73,7 @@ fn build_tree() -> Generator {
             core
         },
     ];
-    // Glowing edge seams down the four vertical corners — the cube's powered
+    // Glowing edge seams down the four vertical corners - the cube's powered
     // core leaking through, so "lit from within" actually reads (the bare
     // sealed core was invisible inside the solid obsidian).
     for sx in [-1.0_f32, 1.0] {
@@ -85,7 +85,7 @@ fn build_tree() -> Generator {
             ));
         }
     }
-    // A glyph inscribed on the −Z hero face — emissive.
+    // A glyph inscribed on the −Z hero face - emissive.
     prims.extend(rune_marks(
         [0.0, cy, -(h + 0.02)],
         0.5,

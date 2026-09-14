@@ -1,4 +1,4 @@
-//! Tests for the [`SovereignTextureConfig::Referenced`] variant — wire
+//! Tests for the [`SovereignTextureConfig::Referenced`] variant - wire
 //! round-trip, the dropdown label, default behaviour, and the fallback
 //! contract that `to_texture_config()` collapses Referenced to
 //! `TextureConfig::None` (the actual image is painted in by a separate
@@ -60,7 +60,7 @@ fn referenced_variant_round_trips_with_did_pfp_source() {
 }
 
 // ---------------------------------------------------------------------------
-// Label — exercised by the texture-bridge dropdown.
+// Label - exercised by the texture-bridge dropdown.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -71,7 +71,7 @@ fn referenced_label_is_distinct() {
     // Renamed for the picker (#1251 f354): "Referenced" was schema
     // vocabulary sitting among fifty-seven plain-English materials, on the
     // one entry whose result arrives over the network. The WIRE tag is
-    // untouched — this is `label()`, which exists for combo boxes.
+    // untouched - this is `label()`, which exists for combo boxes.
     assert_eq!(r.label(), "External image");
     // Sanity-check against neighbouring variants so the new arm doesn't
     // accidentally re-use an existing label.
@@ -80,7 +80,7 @@ fn referenced_label_is_distinct() {
 }
 
 // ---------------------------------------------------------------------------
-// Default still returns None — Referenced is opt-in. A user choosing it
+// Default still returns None - Referenced is opt-in. A user choosing it
 // from the dropdown gets a fresh empty SovereignAssetReference::Url which
 // the UI can then edit (asset-reference UI ticket).
 // ---------------------------------------------------------------------------

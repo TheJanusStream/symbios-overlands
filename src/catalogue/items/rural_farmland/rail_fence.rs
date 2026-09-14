@@ -1,4 +1,4 @@
-//! Rail fence — a Rural/Farmland prop. A weathered post-and-rail fence: a few
+//! Rail fence - a Rural/Farmland prop. A weathered post-and-rail fence: a few
 //! squared posts carrying two split rails, the boundary of a paddock.
 
 use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_z, solid};
@@ -45,7 +45,7 @@ fn build_tree() -> Generator {
     let span = 4.5_f32;
     let post_h = 1.4;
 
-    // Lower rail — the root.
+    // Lower rail - the root.
     let mut prims = vec![prim(
         solid(cuboid_tapered([span, 0.14, 0.1], 0.0, weathered(WOOD_GREY))),
         [0.0, 0.5, 0.0],

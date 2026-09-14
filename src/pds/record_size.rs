@@ -24,14 +24,14 @@
 use serde::Serialize;
 
 /// Design target every record should stay under (100 KiB). Crossing it only
-/// warns — the publish still proceeds — but it is the signal to start the
+/// warns - the publish still proceeds - but it is the signal to start the
 /// later stages of the split plan (default-elision, record sharding).
 ///
 /// # It was briefly 200, and that was a measurement error
 ///
 /// The canary was comparing this against the **assembled** `RoomRecord`,
 /// which since #697 is an in-memory model that never goes on the wire as one
-/// record — a room publishes as a manifest plus a child per generator. On
+/// record - a room publishes as a manifest plus a child per generator. On
 /// that wrong yardstick fifteen of the twenty-four themes looked over budget
 /// (GothicHorror at 348.6 KiB), which prompted a raise to 200 KiB.
 ///
@@ -53,11 +53,11 @@ pub const HARD_RECORD_CEILING_BYTES: usize = 900 * 1024;
 /// Where a measured record size falls against the two budgets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SizeClass {
-    /// At or under [`SOFT_RECORD_BUDGET_BYTES`] — nothing to report.
+    /// At or under [`SOFT_RECORD_BUDGET_BYTES`] - nothing to report.
     WithinBudget,
-    /// Over the soft budget but still publishable — warn.
+    /// Over the soft budget but still publishable - warn.
     OverSoftBudget,
-    /// Over [`HARD_RECORD_CEILING_BYTES`] — publish is refused.
+    /// Over [`HARD_RECORD_CEILING_BYTES`] - publish is refused.
     OverHardCeiling,
 }
 
@@ -72,14 +72,14 @@ pub fn classify(bytes: usize) -> SizeClass {
     }
 }
 
-/// Serialized JSON byte length of `record` — the `record` field of the
+/// Serialized JSON byte length of `record` - the `record` field of the
 /// `putRecord` body. `None` when serialization fails, which no record type
 /// can practically hit (plain data structs), but the UI readout must render
 /// a dash rather than panic if it ever does.
 ///
 /// Counts into a sink instead of building the JSON (#1270 f417). Every
 /// caller wants the LENGTH and throws the bytes away, and for a full room
-/// those bytes are hundreds of KiB — allocated, filled and dropped, on a
+/// those bytes are hundreds of KiB - allocated, filled and dropped, on a
 /// wasm heap that never gives memory back. `serde_json` streams into any
 /// `io::Write`, so the buffer was never needed.
 pub fn serialized_record_bytes<T: Serialize>(record: &T) -> Option<usize> {
@@ -105,7 +105,7 @@ pub fn serialized_record_bytes<T: Serialize>(record: &T) -> Option<usize> {
 ///
 /// One value for all three editors, filled by each record's own
 /// `measure_publish` walking exactly the records its publish plan writes
-/// — the room's manifest and children, the stash's per-item records, the
+/// - the room's manifest and children, the stash's per-item records, the
 /// avatar's bundle. Before this the readout was a bare byte count: the
 /// Room's said "the whole record" while measuring the biggest child, the
 /// Avatar measured the reference-only record and missed the wardrobe body
@@ -114,14 +114,14 @@ pub fn serialized_record_bytes<T: Serialize>(record: &T) -> Option<usize> {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SizeReadout {
     /// Serialized size of the largest single record the save writes.
-    /// `None` when nothing was measured — an empty stash, or a record
+    /// `None` when nothing was measured - an empty stash, or a record
     /// none of whose parts serialize.
     pub bytes: Option<usize>,
     /// Which record holds `bytes`, in the words [`preflight`] would use to
     /// refuse it (`room generator "oak"`), so an oversized save names the
     /// offender before the click rather than after a refused batch.
     pub largest: Option<String>,
-    /// Why the save cannot be written at all — the
+    /// Why the save cannot be written at all - the
     /// [`unserializable_reason`] sentence for the first part that failed
     /// to serialize. `Some` disables Save outright.
     pub unserializable: Option<String>,
@@ -147,7 +147,7 @@ impl SizeReadout {
         }
     }
 
-    /// Fold in a refusal that was decided without serializing — a body
+    /// Fold in a refusal that was decided without serializing - a body
     /// marker the record type itself refuses to write.
     pub fn refuse(&mut self, reason: String) {
         if self.unserializable.is_none() {
@@ -171,7 +171,7 @@ pub fn preflight<T: Serialize>(record: &T, label: &str) -> Result<usize, String>
         .len();
     if bytes > HARD_RECORD_CEILING_BYTES {
         return Err(format!(
-            "{label} record is {} — past the {} publish ceiling; refusing to send \
+            "{label} record is {} - past the {} publish ceiling; refusing to send \
              (the PDS would reject it, and every publish is one atomic batch, so \
              this record alone would fail the whole save). Remove content and retry.",
             human_bytes(bytes),
@@ -185,7 +185,7 @@ pub fn preflight<T: Serialize>(record: &T, label: &str) -> Result<usize, String>
 ///
 /// In practice there is exactly one cause (#1111): a union arm this build
 /// does not understand, decoded into `Unknown` and marked `skip_serializing`
-/// so it can never be written back. That is deliberate — the alternative is
+/// so it can never be written back. That is deliberate - the alternative is
 /// what this project shipped until now, where `Unknown` serialized as
 /// `{"$type":"Unknown"}` and an older client saving a room it had merely
 /// *opened* replaced a newer client's generator, placement, material or
@@ -286,7 +286,7 @@ mod tests {
     }
 
     /// Diagnostic breakdown of where a seeded default room record's bytes
-    /// live — top-level sections plus per-generator weights. Run with
+    /// live - top-level sections plus per-generator weights. Run with
     /// `cargo test record_size -- --nocapture` when planning size work
     /// (Stage 1+ of the single-record-boundary plan). Asserts nothing
     /// beyond serializability so it never goes stale.
@@ -327,7 +327,7 @@ mod tests {
         }
     }
 
-    /// Print the paths where two JSON trees differ — failure diagnostics
+    /// Print the paths where two JSON trees differ - failure diagnostics
     /// for the round-trip test below, where a bare `assert_eq!` would dump
     /// two multi-kilobyte documents.
     fn assert_json_eq(label: &str, actual: &serde_json::Value, expected: &serde_json::Value) {
@@ -367,14 +367,14 @@ mod tests {
     /// Round-trip exactness of the default-eliding wire format (#695): for a
     /// spread of seeds, serialize → deserialize → serialize again must be
     /// byte-identical. A mismatch means some struct's skip predicate compares
-    /// against a different default than its deserializer fills in — exactly
+    /// against a different default than its deserializer fills in - exactly
     /// the bug class elision can introduce (it caught the
     /// `procedural_texture` legacy-default divergence during development).
     ///
     /// The sanitize leg asserts *fixpoint* stability rather than strict
     /// neutrality: `sanitize()` re-normalizes fixed-point quaternions, so a
     /// first pass may nudge a rotation's last digit (pre-existing
-    /// quantization behaviour, unrelated to elision) — but sanitizing the
+    /// quantization behaviour, unrelated to elision) - but sanitizing the
     /// already-sanitized wire form must change nothing, or every fetch →
     /// republish cycle would keep drifting the record.
     #[test]
@@ -444,7 +444,7 @@ mod tests {
 
     /// Canary: the largest record a seeded default would **publish** must sit
     /// under the soft budget. If a seeded-defaults change trips this, the
-    /// budget is being spent before the owner has authored anything — revisit
+    /// budget is being spent before the owner has authored anything - revisit
     /// either the default build or the budget before shipping.
     ///
     /// # It measures the biggest RECORD, not the assembled room
@@ -459,7 +459,7 @@ mod tests {
     ///
     /// The difference is not marginal. Under the old reading fifteen of the
     /// twenty-four themes appeared to be over a 100 KiB budget, with
-    /// GothicHorror at 348.6 KiB — and that drove a decision to raise the
+    /// GothicHorror at 348.6 KiB - and that drove a decision to raise the
     /// budget to 200 KiB (#1024). Measured per record, GothicHorror's largest
     /// is **53.9 KiB** and *every* theme is inside 100 KiB, the worst being
     /// Pirate's harbour battery at 90.8 KiB. Nothing was ever over; the
@@ -470,7 +470,7 @@ mod tests {
     /// `avatar/self`, so its own size is the right figure there.
     ///
     /// The assembled total is still printed, because it is what a visitor
-    /// downloads and holds — but it is a *fetch* cost, not a record size, and
+    /// downloads and holds - but it is a *fetch* cost, not a record size, and
     /// this budget is about what a publish may write.
     #[test]
     fn seeded_default_records_fit_the_soft_budget() {
@@ -510,14 +510,14 @@ mod tests {
                 classify(bytes),
                 SizeClass::WithinBudget,
                 "the largest record a seeded default {label} would publish is \
-                 {} — over the {} soft budget",
+                 {} - over the {} soft budget",
                 human_bytes(bytes),
                 human_bytes(SOFT_RECORD_BUDGET_BYTES),
             );
         }
     }
 
-    /// No theme's largest published record breaches the budget — checked
+    /// No theme's largest published record breaches the budget - checked
     /// across ALL of them, not one lottery DID.
     ///
     /// The canary above measures a single hardcoded DID, so which theme it
@@ -547,7 +547,7 @@ mod tests {
             assert_eq!(
                 classify(bytes),
                 SizeClass::WithinBudget,
-                "{theme:?}'s largest published record is {} — over the {} soft \
+                "{theme:?}'s largest published record is {} - over the {} soft \
                  budget. The heaviest single catalogue entry that theme places \
                  is the thing to look at.",
                 human_bytes(bytes),

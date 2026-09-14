@@ -19,8 +19,8 @@ use super::{RiggedRoot, RiggedTrail};
 /// vertical capsule floating at `humanoid::SWIM_FLOAT`. A treading body drew
 /// its crown 0.08 m out of the water there, and a crawling one 0.5 m under it
 /// with its hips at −0.7 m. So while a swimmer is afloat the drawn body is
-/// raised until its crown sits here — a crawl comes up to the surface, a
-/// tread barely moves — and it only ever rises: a body whose crown is already
+/// raised until its crown sits here - a crawl comes up to the surface, a
+/// tread barely moves - and it only ever rises: a body whose crown is already
 /// higher is left where it is.
 pub(in crate::player) const SURFACE_CROWN: f32 = 0.1;
 
@@ -31,7 +31,7 @@ pub(in crate::player) const SURFACE_CROWN: f32 = 0.1;
 const LIFT_RESPONSE: f32 = 0.3;
 
 /// Every rigged body the fill writes: where it hangs, what it is told, its
-/// trail, and — once built and posed — the body and pose the surface lift
+/// trail, and - once built and posed - the body and pose the surface lift
 /// reads (#1324).
 type FilledBodies<'w, 's> = Query<
     'w,
@@ -49,9 +49,9 @@ type FilledBodies<'w, 's> = Query<
 /// Tell every built body what its chassis is doing, for
 /// [`bevy_symbios_avatar::drive_avatar_bodies`] to drive it with (#1171).
 ///
-/// **This file used to be the driver.** The state machine it ran — airborne
+/// **This file used to be the driver.** The state machine it ran - airborne
 /// as a state, the eased pace, the cycle carried across a change of gait, the
-/// idle handed the stance it arrived in, the inertialized source switches —
+/// idle handed the stance it arrived in, the inertialized source switches -
 /// went upstream at `symbios-avatar 0.5.3` and reached Bevy at
 /// `bevy_symbios_avatar 0.5.1`, where a body drives itself from its own
 /// [`bevy_symbios_avatar::AvatarDriver`]. What is left here is the half only
@@ -65,7 +65,7 @@ type FilledBodies<'w, 's> = Query<
 /// together in [`bevy_symbios_avatar::AvatarSystems::Animate`], and a test
 /// that runs one without the other measures neither (#1069).
 ///
-/// The engine's own floor — a level plane at the rigged root's `y = 0` — is
+/// The engine's own floor - a level plane at the rigged root's `y = 0` - is
 /// what `drive_avatar_bodies` supplies, and it is exactly the floor this file
 /// used to build: the root is offset so `y = 0` is the chassis collider's
 /// bottom, and slopes are carried by the chassis pose the way the collider
@@ -90,14 +90,14 @@ pub(in crate::player) fn fill_rigged_drive(
         let position = transform.translation();
         match velocity {
             // A local chassis carries an avian velocity, and its SIGN is the
-            // whole of the driver's airborne state machine — an `abs` here
+            // whole of the driver's airborne state machine - an `abs` here
             // would land the body at every apex.
             Some(velocity) => {
                 drive.velocity = velocity.0;
                 drive.at = position;
             }
             // Remote peers are kinematic playout, so their speed is read off
-            // the smoothed transform itself — differenced against where the
+            // the smoothed transform itself - differenced against where the
             // chassis was, which is [`RiggedTrail`] rather than `Drive::at`
             // for the one reason that component exists: a body on its first
             // frame has no previous position, and calling the install-time
@@ -121,14 +121,14 @@ pub(in crate::player) fn fill_rigged_drive(
         let forward = transform.rotation() * Vec3::NEG_Z;
         drive.facing = forward.x.atan2(forward.z);
         // `None` rather than straight ahead: it leaves the stride exactly as
-        // the speed axis built it, which is what this app wants — the chassis
+        // the speed axis built it, which is what this app wants - the chassis
         // is aimed down its own travel by `Transform::looking_to`, so facing
         // and heading are kept in step by something else. A body that could
         // strafe or back up would derive one.
         drive.heading = None;
         // **In deep water before anything else** (#1074). The rigged root is
         // offset so `y = 0` is the chassis collider's bottom, which makes its
-        // own transform the body's half-height — the same figure the
+        // own transform the body's half-height - the same figure the
         // controller classifies with, so the animation and the physics cannot
         // disagree about whether this body is swimming.
         //
@@ -140,7 +140,7 @@ pub(in crate::player) fn fill_rigged_drive(
         // Swimming has two thresholds (#1324), so the classification needs
         // to know whether this body was swimming: `Drive::swimming` is what
         // this fill wrote last frame, which is that memory for a local body
-        // and a remote peer alike — a peer has no controller here, and
+        // and a remote peer alike - a peer has no controller here, and
         // classifying it by the same rule from the same positions is what
         // keeps what its owner sees and what everyone else sees the same.
         let hung = root.translation.y - trail.lift;
@@ -204,7 +204,7 @@ pub(in crate::player) fn fill_rigged_drive(
         // stands** instead: the part is detached at its current world pose and
         // committed back against its parent's pose, which may be any pose so
         // long as it does not move. Re-posing to rest here moved the parent
-        // out from under the freshly detached part — selecting visibly shifted
+        // out from under the freshly detached part - selecting visibly shifted
         // it (#1106). [`Hold::Pose`] writes no pose at all, so the last one
         // stays applied (the joint writer runs on `Changed<AvatarPose>` only)
         // and the motion resumes from exactly where it paused.
@@ -234,7 +234,7 @@ pub(in crate::player) fn fill_rigged_drive(
 /// purpose: a boat has nothing to wave with.
 ///
 /// The rate limit is no longer here. [`Drive::gesture`] is a *request* the
-/// driver takes — so it fires once without this having to clear it — and the
+/// driver takes - so it fires once without this having to clear it - and the
 /// per-body cooldown that makes a peer pasting "hi hi hi hi" wave once is
 /// [`symbios_avatar::anim::driver::DriverConfig::gesture_cooldown`], measured
 /// on the driver's own clock. There is no missing-clip case either: every
@@ -256,7 +256,7 @@ pub(in crate::player) fn start_emotes(
 
 /// Count the frames on which some body's contact solve strained (#1078).
 ///
-/// **Per frame rather than per body**, so a crowd cannot inflate one defect —
+/// **Per frame rather than per body**, so a crowd cannot inflate one defect -
 /// a body that strains occasionally is a body on hard ground, and one that
 /// strains constantly is a body whose goals are wrong.
 ///

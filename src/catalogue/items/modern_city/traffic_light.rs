@@ -1,4 +1,4 @@
-//! Traffic light — a Modern-City prop, and the kit's lit hero. A signal post
+//! Traffic light - a Modern-City prop, and the kit's lit hero. A signal post
 //! with a mast arm carrying a three-lens head (red, amber, a glowing green)
 //! over the intersection, humming with the low rush of traffic. Its emissive
 //! lens is the trim escalation's ruin pass darkens to a dead signal.
@@ -53,7 +53,7 @@ fn build_tree() -> Generator {
     let head_x = 2.4;
 
     let mut prims = vec![
-        // Concrete footing — the root.
+        // Concrete footing - the root.
         prim(
             solid(cuboid_tapered(
                 [0.6, 0.3, 0.6],
@@ -106,7 +106,7 @@ fn build_tree() -> Generator {
     );
     head.audio = fx::traffic_hum();
     prims.push(head);
-    // Three lenses: red and amber dark, green lit — each under a hood visor.
+    // Three lenses: red and amber dark, green lit - each under a hood visor.
     for (yoff, lens) in [
         (0.48, enamel([0.4, 0.05, 0.04])),
         (0.0, enamel([0.45, 0.32, 0.05])),

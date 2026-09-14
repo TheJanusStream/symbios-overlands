@@ -1,4 +1,4 @@
-//! Sovereign room editor — tabbed Master/Detail view.
+//! Sovereign room editor - tabbed Master/Detail view.
 //!
 //! Rendered only when `session.did == current_room.0` (the signed-in user
 //! owns the room they are visiting). Follows the same **Live UX** paradigm
@@ -8,14 +8,14 @@
 //! **How fast an edit reaches the world (#1249 f59).** This header used to
 //! say "the same frame the slider moves", and that has not been true since
 //! the debounce: a widget edit re-arms a 0.25 s timer, and `set_changed()`
-//! — which is what `network::broadcast_room_state`, the world compile and
-//! the terrain rebuild all watch — fires only when it drains. So an edit
+//! - which is what `network::broadcast_room_state`, the world compile and
+//! the terrain rebuild all watch - fires only when it drains. So an edit
 //! burst is one broadcast and one recompile, and a slider being dragged
 //! showed nothing at all until the hand stopped. There are two lanes now:
 //! the expensive consumers keep the debounce, and
 //! [`crate::world_builder::compile::EnvironmentPreview`] is stamped every
-//! frame a widget changes so the atmosphere — light, fog, sky, cloud
-//! uniforms — follows the drag. Three explicit buttons drive persistence
+//! frame a widget changes so the atmosphere - light, fog, sky, cloud
+//! uniforms - follows the drag. Three explicit buttons drive persistence
 //! and discard flows:
 //!
 //! - **Save** publishes the current `RoomRecord` to the owner's PDS
@@ -25,7 +25,7 @@
 //! - **Revert to saved** drops all in-flight edits by copying
 //!   [`StoredRoomRecord`] back into the live `RoomRecord`.
 //! - **Reset to default** replaces `RoomRecord` with the canonical
-//!   `RoomRecord::default_for_did` seed — useful after a botched edit or
+//!   `RoomRecord::default_for_did` seed - useful after a botched edit or
 //!   when starting from scratch.
 //!
 //! The editor is intentionally forgiving: any field it doesn't yet expose
@@ -130,13 +130,13 @@ impl GenNodeId {
 ///
 /// Insertion order is no index at all once a seeded settlement has handed
 /// the owner several hundred machine-authored rows interleaved with their
-/// own — and the record's `Vec` order was the ONLY order available.
+/// own - and the record's `Vec` order was the ONLY order available.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum PlacementSort {
     /// The record's own order, which is also the index shown on each row.
     #[default]
     Order,
-    /// Alphabetical by the generator each placement points at — the
+    /// Alphabetical by the generator each placement points at - the
     /// question "where are this asset's placements" answered by grouping.
     Generator,
     /// Absolute / Scatter / Grid together.
@@ -167,7 +167,7 @@ pub struct RoomEditorState {
     /// editor's two trees were given the same struct to own.
     pub(crate) tree: generators::TreePanelState,
     pub selected_placement: Option<usize>,
-    /// Additional selected placement rows (#1244 f415) — `selected_placement`
+    /// Additional selected placement rows (#1244 f415) - `selected_placement`
     /// stays the ANCHOR (the gizmo target, the detail panel's subject) and
     /// this carries the rest of a shift/ctrl-extended range. Kept as a
     /// sidecar rather than widening the anchor to a `Vec`, because
@@ -188,14 +188,14 @@ pub struct RoomEditorState {
     /// window. Session-scoped by being editor state.
     pub node_clipboard: Option<crate::pds::Generator>,
     /// Selected recipe row on the Effects tab's master-detail split
-    /// (#825). Not gizmo-coupled, so tab switches leave it alone — the
+    /// (#825). Not gizmo-coupled, so tab switches leave it alone - the
     /// user's place in the recipe list survives a peek at Environment.
     pub selected_effect: Option<usize>,
     /// Where the owner's most recent scene-click pick landed (#822).
     /// For a multi-instance node (a scattered blueprint), the gizmo sync
     /// prefers the live instance nearest this position over the
     /// camera-nearest one, so the gizmo appears on the instance the
-    /// owner actually clicked — and, because the position (not the
+    /// owner actually clicked - and, because the position (not the
     /// entity id) is stored, the preference survives the record-driven
     /// respawns a drag commit triggers. Identity-gated: sync consults it
     /// only while the selection still matches `generator_ref`/`path`, so
@@ -211,7 +211,7 @@ pub struct RoomEditorState {
     /// exactly once when the timer drains rather than every frame the
     /// slider moves.
     pending_flush_secs: f32,
-    /// Pop-out audio editor state — native working copy + canvas
+    /// Pop-out audio editor state - native working copy + canvas
     /// view-state for the structured node-graph / sequence editor. Held
     /// here so the editor's layout/selection persists across frames and
     /// survives tab switches. See [`audio::AudioEditorState`].
@@ -231,7 +231,7 @@ pub struct RoomEditorState {
     /// Pending publish-after-unrecoverable-fetch confirmation (#1199):
     /// while [`RoomRecordRecovery`] is present the editor holds the
     /// default and Save (or Ctrl+S) would overwrite the real stored
-    /// record — the Avatar editor asked first since #840; the room did
+    /// record - the Avatar editor asked first since #840; the room did
     /// not.
     publish_guard: crate::ui::confirm::ConfirmState<()>,
     /// Cached seeded-default record, keyed by the DID it was built for (#637).
@@ -247,7 +247,7 @@ pub struct RoomEditorState {
     /// publish success, room transition), so an open panel serializes just
     /// the LIVE record each frame instead of live×2 + stored + default.
     /// Keyed by the resource's `last_changed` tick rather than `is_changed()`
-    /// — the change flag is consumed even on frames where this system
+    /// - the change flag is consumed even on frames where this system
     /// early-returns (visiting another room, mid-Loading), which would
     /// otherwise leave a stale baseline after a room transition.
     stored_baseline: Option<(bevy::ecs::change_detection::Tick, Option<serde_json::Value>)>,
@@ -255,8 +255,8 @@ pub struct RoomEditorState {
     /// could have changed (#1270 f418). #674 cached both comparison
     /// BASELINES and left this one running per frame, saying so out loud:
     /// "an open panel pays for ONE live-record serialization per frame".
-    /// At the record's own caps — 256 generators of up to 1024 nodes, with
-    /// 16 KiB of L-system and 16 KiB of shape source each — that one is a
+    /// At the record's own caps - 256 generators of up to 1024 nodes, with
+    /// 16 KiB of L-system and 16 KiB of shape source each - that one is a
     /// multi-megabyte `Value` tree allocated, deep-compared and dropped
     /// sixty times a second, and it gets worse the more the owner has
     /// built. See [`crate::ui::perf::LiveValueCache`] for why the key is a
@@ -267,19 +267,19 @@ pub struct RoomEditorState {
     /// [`Self::live_baseline`]'s rebuild count as of the last size
     /// measurement, so the two 0.5 s readouts below can skip a record that
     /// has not changed since they last looked (#1270 f418). Each of them
-    /// is a whole-record encode — `max_publish_record_bytes` serializes
+    /// is a whole-record encode - `max_publish_record_bytes` serializes
     /// the manifest and every one of the 256 generators; the live-sync
     /// gauge bincodes the entire room.
     size_readout_generation: Option<u64>,
     /// Serialized size of the whole-room live-sync broadcast, refreshed on
     /// the same throttle as the per-record gauge (#1123). Cached rather
     /// than measured per frame because it costs a full bincode encode of
-    /// the record — the same encode the broadcaster pays.
+    /// the record - the same encode the broadcaster pays.
     live_sync_bytes: Option<usize>,
 }
 
 impl RoomEditorState {
-    /// True when the user has any row selected — placement, generator
+    /// True when the user has any row selected - placement, generator
     /// node, or inferred via tab. Used by the cross-editor mutex and the
     /// collapse-deselect logic to decide whether the gizmo should detach.
     pub fn has_selection(&self) -> bool {
@@ -288,7 +288,7 @@ impl RoomEditorState {
 
     /// The placement the editor is SHOWING selected: the anchor row, and
     /// only while the Placements tab is up (#1297). A selection parked
-    /// behind another tab is state, not focus — the gizmo and the
+    /// behind another tab is state, not focus - the gizmo and the
     /// highlight follow the anchor regardless, the world outline does
     /// not. Mirrored out to [`crate::world_builder::PlacementFocus`] by
     /// [`mirror_placement_focus`].
@@ -330,7 +330,7 @@ impl RoomEditorState {
 
     /// Post-restore fixup (#863): the record was just wholesale-replaced
     /// with an undo/redo snapshot, so every piece of editor state that
-    /// referenced the old tree must be re-seeded or dropped — the same
+    /// referenced the old tree must be re-seeded or dropped - the same
     /// lockstep `reparent.rs` keeps after a structural edit.
     pub(crate) fn restore_from_undo(
         &mut self,
@@ -350,10 +350,10 @@ impl RoomEditorState {
         // the restore just replaced; letting the timer drain would fire
         // a second `set_changed` and mint a phantom history entry.
         self.pending_flush_secs = 0.0;
-        // Refresh the raw-JSON mirror exactly like Load-from-PDS does —
+        // Refresh the raw-JSON mirror exactly like Load-from-PDS does -
         // unless it holds unparsed edits, which are kept and flagged (#1212).
         self.raw.sync_to(record);
-        // Selection re-seed, validated against the RESTORED record —
+        // Selection re-seed, validated against the RESTORED record -
         // whatever no longer resolves demotes to "nothing selected"
         // instead of pointing the gizmo at the wrong node.
         self.preferred_pick = None;
@@ -384,7 +384,7 @@ impl RoomEditorState {
             .cloned()
             .collect();
         // Reveal what survived: expand every ancestor of each restored
-        // row (the tree collapses by default — the scene-pick path in
+        // row (the tree collapses by default - the scene-pick path in
         // `editor_gizmo` does the same) and arm the one-shot focus so
         // the row highlights like a direct click.
         for id in &tree {
@@ -433,7 +433,7 @@ pub struct RoomEditorExtras<'w, 's> {
     /// Live road-network stats for the RoadNetwork detail readout (#888).
     road_stats: Res<'w, crate::terrain::RoadPanelStats>,
     /// The last compile abandoned part of the placement queue at the
-    /// entity budget (#1211) — the footer says so.
+    /// entity budget (#1211) - the footer says so.
     compile_truncation: Option<Res<'w, crate::world_builder::WorldCompileTruncated>>,
     /// Managed window geometry (#833) for the World Editor + audio pop-out.
     chrome: crate::ui::layout::WindowChrome<'w>,
@@ -449,7 +449,7 @@ pub struct RoomEditorExtras<'w, 's> {
     /// edit; the flush fallback names the tab.
     undo_labels: ResMut<'w, crate::ui::undo::PendingUndoLabels>,
     /// Where the gizmo host is, and the channel that walks the player
-    /// there (#1244 f148) — the "Go to" button's two halves.
+    /// there (#1244 f148) - the "Go to" button's two halves.
     gizmo_focus: Res<'w, crate::editor_gizmo::GizmoFocus>,
     player_move: ResMut<'w, crate::player::PlayerMoveRequest>,
     /// Click-to-pick face selection (#961): shared with the scene click
@@ -461,7 +461,7 @@ pub struct RoomEditorExtras<'w, 's> {
     /// Who is in the world right now (#1269 f293). Every slider move is
     /// broadcast to all of them the frame it happens, and the only place
     /// that was ever said was a hover on a warning label that renders at
-    /// 75% of the peer-sync ceiling — i.e. never, in the ordinary case.
+    /// 75% of the peer-sync ceiling - i.e. never, in the ordinary case.
     peers: Query<'w, 's, (), With<crate::state::RemotePeer>>,
     /// The in-flight terrain rebuild (#1249 f63). Present for as long as
     /// the async heightmap job runs, which for a big grid with erosion on
@@ -474,8 +474,8 @@ pub struct RoomEditorExtras<'w, 's> {
 ///
 /// A terrain-config change tears the heightmap down and dispatches an async
 /// regeneration, keeping the old mesh up as `OutgoingTerrain` until the new
-/// one lands. The knobs make that job arbitrarily expensive — grid size to
-/// 2048, erosion drops to 500 000 — and the only completion signal was a
+/// one lands. The knobs make that job arbitrarily expensive - grid size to
+/// 2048, erosion drops to 500 000 - and the only completion signal was a
 /// session-log event. A knob whose effect is deferred by seconds with no
 /// acknowledgement reads as broken, and the owner drags it again, which
 /// re-queues the job.
@@ -489,7 +489,7 @@ fn terrain_rebuild_line(dispatched_at: f64, now: f64) -> String {
 
 /// How full the room is (#1210, finding 413): the two hard caps every add
 /// is refused at, as `N/cap`, warn-tinted from 80 % and error-tinted at
-/// the cap — the Inventory's treatment. And how much of the placement
+/// the cap - the Inventory's treatment. And how much of the placement
 /// list the road layer grew (#1211, finding 394): a budget warning the
 /// owner cannot attribute to their own handful of objects is worse than
 /// none.
@@ -546,7 +546,7 @@ pub(crate) fn compile_truncated_text(t: &crate::world_builder::WorldCompileTrunc
         .map(|i| format!(" (from placement #{i})"))
         .unwrap_or_default();
     format!(
-        "{} This world is too dense to build — {} placement{} skipped past the {} object \
+        "{} This world is too dense to build - {} placement{} skipped past the {} object \
          limit{from}",
         crate::ui::affordances::CROSS,
         t.skipped_placements,
@@ -556,7 +556,7 @@ pub(crate) fn compile_truncated_text(t: &crate::world_builder::WorldCompileTrunc
 }
 
 /// Publish [`crate::world_builder::PlacementFocus`] from this frame's
-/// editor state and access gate (#1297 step 4) — the ONE writer of that
+/// editor state and access gate (#1297 step 4) - the ONE writer of that
 /// resource, and the `ui::avatar::mirror_rig_hold` shape a second time.
 ///
 /// The placement visualiser used to read `RoomEditorState` and
@@ -598,8 +598,8 @@ pub fn mirror_placement_focus(
 /// being *drawn* or *dragged*; this is the state itself not surviving the
 /// journey.
 ///
-/// [`crate::state::CurrentRoomDid`] has exactly two writers —
-/// `install_completed_session` and `poll_portal_travel_tasks` — which are
+/// [`crate::state::CurrentRoomDid`] has exactly two writers -
+/// `install_completed_session` and `poll_portal_travel_tasks` - which are
 /// precisely the two moments a room-scoped selection stops meaning
 /// anything. The clear used to sit inside `release_travel_on_arrival`,
 /// several frames later, and reaching it needed the world pipeline to
@@ -626,8 +626,8 @@ pub fn clear_selection_on_room_change(
 }
 
 /// Toast the entity-budget truncation once per compile that hit it (#1211).
-/// `Update`, `InGame`. The executor cannot toast itself — `compile_room_record`
-/// sits at the parameter ceiling — so it leaves the resource and this
+/// `Update`, `InGame`. The executor cannot toast itself - `compile_room_record`
+/// sits at the parameter ceiling - so it leaves the resource and this
 /// drains it, the shape `grammar_diag` uses to cross the same boundary.
 /// Guarded-dirty: the resource is written only on the frame it announces.
 pub fn announce_compile_truncation(
@@ -651,12 +651,12 @@ pub fn announce_compile_truncation(
 ///
 /// Two gauges because there are two limits and they move independently. A
 /// room split across a slim manifest and many small children can sit deep
-/// inside the per-record budget — green, saveable — while the monolithic
+/// inside the per-record budget - green, saveable - while the monolithic
 /// `RoomStateUpdate` that carries the owner's *unsaved* edits to guests is
 /// past the wire ceiling and being refused. That is the whole of #1123: the
 /// one number the owner could see was the one that was fine.
 ///
-/// Kept quiet under the ceiling — this is a limit almost no room reaches,
+/// Kept quiet under the ceiling - this is a limit almost no room reaches,
 /// and a second permanent line of alarm-coloured text in the footer would
 /// cost every owner for a case that costs a few of them. It warns from 75%
 /// and names the consequence at the ceiling.
@@ -669,7 +669,7 @@ fn live_sync_gauge(ui: &mut egui::Ui, bytes: Option<usize>) {
     let (text, color) = if bytes > CEILING {
         (
             format!(
-                "{} Live sync paused — {} over the {} peer-sync limit",
+                "{} Live sync paused - {} over the {} peer-sync limit",
                 crate::ui::affordances::CROSS,
                 crate::pds::record_size::human_bytes(bytes),
                 crate::pds::record_size::human_bytes(CEILING),
@@ -706,12 +706,12 @@ fn live_sync_gauge(ui: &mut egui::Ui, bytes: Option<usize>) {
 /// record on their PDS. The banner used to assert `Decode`'s headline
 /// ("incompatible with this build") over whatever string arrived, so a
 /// server that went away for long enough rendered as "Decode error: PDS
-/// unreachable — …" above a button that destroys a perfectly good world.
+/// unreachable - …" above a button that destroys a perfectly good world.
 ///
 /// **`Unreachable` offers no reset at all.** Not a disabled one, not a
 /// confirmed one: nothing here knows the stored record is bad, and the
-/// non-destructive remedy — travel out through a gateway and back, which
-/// re-reads the record behind #1231's arrival gate — is the whole of what
+/// non-destructive remedy - travel out through a gateway and back, which
+/// re-reads the record behind #1231's arrival gate - is the whole of what
 /// this state should suggest.
 #[derive(Debug)]
 struct RecoveryBanner {
@@ -736,7 +736,7 @@ fn recovery_banner(cause: crate::state::RecoveryCause) -> RecoveryBanner {
             offers_reset: true,
         },
         crate::state::RecoveryCause::Unreachable => RecoveryBanner {
-            headline: "⚠ Couldn't load your world — showing the generated default.",
+            headline: "⚠ Couldn't load your world - showing the generated default.",
             detail_prefix: "Reason",
             body: "Your stored world is still there; this session just never \
                    managed to read it. Saving would overwrite it with what you \
@@ -792,7 +792,7 @@ pub fn room_admin_ui(
         return;
     };
 
-    // Security gate — only the owner may edit their own room.
+    // Security gate - only the owner may edit their own room.
     if session.did != room_did.0 {
         return;
     }
@@ -808,7 +808,7 @@ pub fn room_admin_ui(
     editor.raw.ensure_seeded(&record.0);
 
     // Snapshot pre-frame selection so we can detect (a) "selection just
-    // appeared" — the rising edge that clears the avatar editor's
+    // appeared" - the rising edge that clears the avatar editor's
     // selection per the cross-editor mutex, and (b) the collapse-deselect
     // path which fires when the egui Window response reports no inner
     // closure run.
@@ -854,7 +854,7 @@ pub fn room_admin_ui(
 
     // `ResMut::deref_mut` unconditionally flips the change tick, so any
     // `&mut record.field` access taken while the window is open would mark
-    // the resource as changed every frame — which in turn spams peers with
+    // the resource as changed every frame - which in turn spams peers with
     // `RoomStateUpdate` broadcasts even when nothing was actually edited.
     // Route all UI access through `bypass_change_detection` and call
     // `record.set_changed()` explicitly at the bottom only when a widget or
@@ -875,7 +875,7 @@ pub fn room_admin_ui(
         let record_tick = record.last_changed();
         let record_mut: &mut RoomRecord = &mut record.bypass_change_detection().0;
 
-        // Rename dialog — the shared modal (#838): keeps itself open on an
+        // Rename dialog - the shared modal (#838): keeps itself open on an
         // empty/taken name with the reason inline, Enter applies, Esc
         // cancels. Cloning the `(old, draft)` pair out first lets us mutate
         // the draft in a scratch variable and feed the final decision back
@@ -897,9 +897,9 @@ pub fn room_admin_ui(
                     tree.renaming = None;
                 }
                 crate::ui::confirm::RenameOutcome::Renamed(applied) => {
-                    // The record half of the rename — moving the key and
+                    // The record half of the rename - moving the key and
                     // carrying every Placement and traits entry that named
-                    // it — belongs to the tree source, beside the delete
+                    // it - belongs to the tree source, beside the delete
                     // that sweeps those same references
                     // (`generators::retarget_root_refs`). What stays here
                     // is the editor's own half: where the tree now points,
@@ -910,7 +910,7 @@ pub fn room_admin_ui(
                         undo_labels.set_room(format!("rename {old_name} to {applied}"));
                         // Tree-view ids are keyed on `(root, path)`, so the
                         // rename also has to retarget the current selection at
-                        // the new root key — otherwise the tree highlights
+                        // the new root key - otherwise the tree highlights
                         // nothing while the gizmo still tracks the renamed
                         // root.
                         tree.view.set_one_selected(GenNodeId::root(applied));
@@ -924,7 +924,7 @@ pub fn room_admin_ui(
         let (pos, size) = chrome.place(crate::ui::layout::UiWindow::WorldEditor, ctx);
         // Guarded-dirty (#879): `.open(&mut panels.world_editor)` through
         // the `ResMut` would mark UiPanels changed every frame, starving
-        // the prefs save debounce — local copy in, write back on close.
+        // the prefs save debounce - local copy in, write back on close.
         let mut open = panels.world_editor;
         let world_editor_response = egui::Window::new("World Editor")
             .open(&mut open)
@@ -934,7 +934,7 @@ pub fn room_admin_ui(
             .default_pos(pos)
             .constrain_to(chrome.available_rect(ctx))
             .show(ctx, |ui| {
-                // Recovery banner — shown when the stored PDS record failed
+                // Recovery banner - shown when the stored PDS record failed
                 // to decode and we're running on the synthesised default.
                 // Offers a one-click "Reset PDS to default" so the owner can
                 // deliberately overwrite the incompatible record instead of
@@ -957,20 +957,20 @@ pub fn room_admin_ui(
                         // sentence rather than a button: re-reading a room
                         // record in place regenerates the terrain and
                         // recompiles the world under the owner's feet with
-                        // no arrival gate — which is the defect #1231 f20
-                        // is about — while travelling out and back already
+                        // no arrival gate - which is the defect #1231 f20
+                        // is about - while travelling out and back already
                         // does the re-read behind the gate that exists for
                         // it.
                         ui.label(
                             egui::RichText::new(
                                 "If your account's server was only briefly unreachable, \
                                  travelling out through a gateway and back home reads \
-                                 the stored copy again — no logout needed.",
+                                 the stored copy again - no logout needed.",
                             )
                             .small(),
                         );
                         // Confirmed reset (#840): this button hard-deletes
-                        // and replaces the stored record — never on the
+                        // and replaces the stored record - never on the
                         // click itself. Offered ONLY when the cause knows
                         // the stored record is unreadable (#1265 f210).
                         if words.offers_reset && ui.button("Reset to default").clicked() {
@@ -1001,7 +1001,7 @@ pub fn room_admin_ui(
                             // status line shows it, the Save button reads
                             // "Saving…", and the unsaved guard waits for it.
                             // The marker itself retires in `poll_publish_tasks`
-                            // when the write is KNOWN to have landed — retiring
+                            // when the write is KNOWN to have landed - retiring
                             // it here left a failed reset with no banner and
                             // no way to retry.
                             publish_feedback.status = PublishStatus::Publishing {
@@ -1042,7 +1042,7 @@ pub fn room_admin_ui(
                             // Refresh the JSON text when the user arrives at
                             // the Raw tab so it reflects any edits made in
                             // the other tabs since the last time it was
-                            // viewed — unless the buffer holds unparsed
+                            // viewed - unless the buffer holds unparsed
                             // edits, which are kept (#1212).
                             if tab == EditorTab::Raw && *selected_tab != EditorTab::Raw {
                                 raw.sync_to(&*record_mut);
@@ -1075,7 +1075,7 @@ pub fn room_admin_ui(
                     }
                     // "Go to" (#1244 f148): the tree is the primary way to
                     // select, and `sync_gizmo_selection` attaches the gizmo
-                    // to whichever live instance is nearest the CAMERA — so
+                    // to whichever live instance is nearest the CAMERA - so
                     // selecting a distant or behind-the-camera asset
                     // produced no visible result and there was no command
                     // to reach it. Disabled with the reason when there is
@@ -1112,7 +1112,7 @@ pub fn room_admin_ui(
                 // The same DID-seeded engine that builds the defaults, but
                 // with an owner-chosen master seed. Re-rolling replaces the
                 // whole working record exactly like "Reset to default"
-                // (which is this with seed = fnv1a_64(did)) — clear
+                // (which is this with seed = fnv1a_64(did)) - clear
                 // selections, refresh the raw-JSON mirror, and arm a
                 // broadcast/recompile.
                 //
@@ -1121,7 +1121,7 @@ pub fn room_admin_ui(
                 // height it measured LAST frame, so on the frame the
                 // collapsible section below opens, the taller content
                 // overflowed that reserve and egui grew the window to
-                // contain it — and a `Window`'s desired size never shrinks
+                // contain it - and a `Window`'s desired size never shrinks
                 // again, so collapsing handed the freed height to the
                 // greedy tab body instead of giving it back. Toggling
                 // therefore ratcheted the window taller every cycle. Here
@@ -1149,8 +1149,8 @@ pub fn room_admin_ui(
 
                         // Pinned re-roll readout (#1005): what "Re-roll" will
                         // roll for each top-level scene axis, each lockable.
-                        // The preview derives from the hunted seed — the one
-                        // a click will actually build from — not the typed
+                        // The preview derives from the hunted seed - the one
+                        // a click will actually build from - not the typed
                         // one, so 🎲 previews exactly what Apply then
                         // delivers. Memoized: the hunt only reruns when the
                         // seed text or the pins change.
@@ -1215,7 +1215,7 @@ pub fn room_admin_ui(
 
                 if let SeedAction::Reroll(_) = action {
                     // Build from the same hunted seed the readout previewed
-                    // — never the raw typed one.
+                    // - never the raw typed one.
                     if let Some(seed) = effective {
                         // Said BEFORE the build, because the build is the
                         // stall (#1249 f270): `default_for_seed` runs the
@@ -1254,7 +1254,7 @@ pub fn room_admin_ui(
                         // not build. The line under the seed row says the
                         // same thing; the toast is for the click.
                         toasts.error(
-                            "No seed matches these locks — unlock an axis and try again.",
+                            "No seed matches these locks - unlock an axis and try again.",
                             time.elapsed_secs_f64(),
                         );
                     }
@@ -1274,7 +1274,7 @@ pub fn room_admin_ui(
                 egui::Panel::bottom("world_editor_footer")
                     .resizable(false)
                     .show(ui, |ui| {
-                        // Publish / Revert to saved / Reset to default — the
+                        // Publish / Revert to saved / Reset to default - the
                         // shared row + status line used by every editor
                         // (`ui::editable`). `dirty` is *derived* (the live
                         // record serialises differently from the stored
@@ -1283,7 +1283,7 @@ pub fn room_admin_ui(
                         // (the 3D gizmo, an inventory drop) lights the row
                         // up with no explicit `mark_dirty` call. Rebuild the
                         // seeded default only when the room DID changes, not
-                        // every frame (#637) — it's a full procedural build.
+                        // every frame (#637) - it's a full procedural build.
                         let did = &room_did.0;
                         if default_cache.as_ref().is_none_or(|(d, _, _)| d != did) {
                             let default_record = pds::RoomRecord::default_for_did(did);
@@ -1333,7 +1333,7 @@ pub fn room_admin_ui(
                         // the PDS write can always be attempted while dirty.
                         // Size readout: the room publishes as a manifest +
                         // child generator records (#697), so the per-record
-                        // budget applies to the largest single record — not
+                        // budget applies to the largest single record - not
                         // the in-memory monolith. Same throttled cache as
                         // the other editors.
                         let now = time.elapsed_secs_f64();
@@ -1343,7 +1343,7 @@ pub fn room_admin_ui(
                         // serializes the manifest AND every one of the 256
                         // generators, the gauge bincodes the entire room.
                         // The rebuild count is a conservative content
-                        // generation — a rebuild that happens to produce
+                        // generation - a rebuild that happens to produce
                         // identical bytes re-measures, which costs a
                         // measurement and never a stale number.
                         let generation = live_baseline.recomputes();
@@ -1358,7 +1358,7 @@ pub fn room_admin_ui(
                             // Second measurement on the same throttle
                             // (#1123): what the live-sync broadcast puts on
                             // the wire, which is the WHOLE room in one
-                            // message — not the largest single record the
+                            // message - not the largest single record the
                             // publish splits it into.
                             *live_sync_bytes =
                                 crate::protocol::OverlandsMessage::room_state_update(record_mut)
@@ -1378,7 +1378,7 @@ pub fn room_admin_ui(
                                 size: &size,
                                 publish_shortcut: ctrl_s,
                                 status: &mut publish_feedback.status,
-                                // Undo covers Revert/Reset here (#866) — no modal.
+                                // Undo covers Revert/Reset here (#866) - no modal.
                                 confirm: None,
                                 reset: crate::ui::editable::ResetWording::Record,
                             },
@@ -1391,7 +1391,7 @@ pub fn room_admin_ui(
                                 // Clobber protection (#1199, the room half of
                                 // #840): after an unrecoverable fetch the
                                 // editor holds the default while the real
-                                // record may still sit on the PDS — the
+                                // record may still sit on the PDS - the
                                 // first publish asks. Ctrl+S lands here too.
                                 match recovery.as_deref() {
                                     Some(rec) => crate::ui::editable::request_overwrite_confirm(
@@ -1592,8 +1592,8 @@ pub fn room_admin_ui(
                 }
             });
 
-        // #1239 f81: perform the requested placement. Appending here — not
-        // in the tree panel — is what lets it also switch the tab and land
+        // #1239 f81: perform the requested placement. Appending here - not
+        // in the tree panel - is what lets it also switch the tab and land
         // the selection on the new row, so the user SEES the thing the
         // click made.
         if let Some(root) = place_root {
@@ -1616,7 +1616,7 @@ pub fn room_admin_ui(
             }
         }
 
-        // Pop-out audio editor — a top-level Window sibling to the World
+        // Pop-out audio editor - a top-level Window sibling to the World
         // Editor so its node canvas has room to pan/zoom. Slot-agnostic:
         // it edits a native working copy and stages the committed result
         // in `audio_editor`'s pending map, which the matching slot's bridge
@@ -1669,20 +1669,20 @@ pub fn room_admin_ui(
     // None → Some, drop the avatar editor's visuals selection so only
     // one gizmo is attached at a time. The reverse direction is
     // enforced by the analogous block in `avatar::avatar_ui`. Read
-    // selection state via the destructured fields — `editor` is still
+    // selection state via the destructured fields - `editor` is still
     // mutably borrowed until end of function.
     let now_room_selected = selected_placement.is_some() || tree.selection.path.is_some();
     if now_room_selected && !prev_room_selected && avatar_editor.has_visuals_selection() {
         avatar_editor.release_visuals_aim();
     }
 
-    // A widget edit only arms the broadcast/recompile debounce now —
+    // A widget edit only arms the broadcast/recompile debounce now -
     // the Publish/Load row's dirty state is derived from
     // `records_differ`, so there is no flag to set here.
     if widget_change || needs_broadcast {
         // The record changed through `bypass_change_detection`, so no tick
         // moved and the cached wire form is stale (#1270 f418). One place,
-        // at the end of the frame — the tab bodies draw after the footer
+        // at the end of the frame - the tab bodies draw after the footer
         // that reads the answer, so the one-frame latency is the one they
         // always had.
         live_baseline.touch();
@@ -1691,14 +1691,14 @@ pub fn room_admin_ui(
         *pending_flush_secs = crate::config::ui::editor::MENU_DEBOUNCE_SECS;
         // The cheap lane (#1249 f59). `set_changed()` below waits for the
         // debounce, so a slider being dragged showed nothing until the
-        // hand stopped — a hard binary of nothing, then everything, on the
+        // hand stopped - a hard binary of nothing, then everything, on the
         // one tab whose whole job is to be tuned by eye. Stamping this
         // marks only `apply_environment_state`, which re-paints light, fog,
         // sky and cloud uniforms and is safe at frame rate; the peer
         // broadcast, the world compile and the terrain rebuild all still
         // wait for the pause.
         commands.insert_resource(crate::world_builder::compile::EnvironmentPreview);
-        // Coarse per-tab undo label (#865) — only when no site named the
+        // Coarse per-tab undo label (#865) - only when no site named the
         // edit specifically this burst (latest-wins would otherwise let
         // the generic name clobber "delete of oak_3").
         if !undo_labels.room_pending() {
@@ -1713,7 +1713,7 @@ pub fn room_admin_ui(
     }
     // Drain the debounce timer and flip `needs_broadcast` on the frame it
     // reaches zero. A slider drag keeps resetting `pending_flush_secs`
-    // above, so the flush only fires once the user pauses — collapsing a
+    // above, so the flush only fires once the user pauses - collapsing a
     // ~60 Hz storm of RoomStateUpdate broadcasts and terrain rebuilds into
     // one event per edit burst.
     if *pending_flush_secs > 0.0 {
@@ -1728,7 +1728,7 @@ pub fn room_admin_ui(
         // set_changed() on the very next frame.
         *pending_flush_secs = 0.0;
         // Clamp through the same bounds the network-ingress path enforces
-        // before the world compiler sees the tick — egui's DragValue
+        // before the world compiler sees the tick - egui's DragValue
         // parses typed `NaN`/`inf` and its range clamp passes NaN
         // through, so a widget edit can otherwise carry NaN into mesh /
         // collider construction. The raw-JSON tab already sanitizes on
@@ -1745,7 +1745,7 @@ mod terrain_rebuild_tests {
     /// #1249 f63. A terrain edit dispatches an async heightmap job whose
     /// cost the knobs set (grid to 2048, drops to 500 000) and whose only
     /// completion signal was a session-log line. The footer now counts the
-    /// wait out loud; this pins the two facts the line has to carry — that
+    /// wait out loud; this pins the two facts the line has to carry - that
     /// something is happening, and how long it has been.
     #[test]
     fn the_rebuild_line_names_the_work_and_counts_the_wait() {
@@ -1767,8 +1767,8 @@ mod truncation_tests {
     /// #1211, findings 61 / 271. Sequence: set a scatter to 60 000, watch
     /// half the buildings vanish. The executor stopped at the entity
     /// budget, cleared the queue, logged one `warn!`, and completed as a
-    /// success. The resource it now leaves feeds one sentence — the toast
-    /// and the footer — that names the count and where the loss starts.
+    /// success. The resource it now leaves feeds one sentence - the toast
+    /// and the footer - that names the count and where the loss starts.
     #[test]
     fn the_truncation_sentence_names_the_count_and_the_first_missing_row() {
         let text = compile_truncated_text(&crate::world_builder::WorldCompileTruncated {
@@ -1825,7 +1825,7 @@ mod recovery_banner_tests {
     /// #1265 f210. THE SEQUENCE: the owner's PDS is unreachable for the
     /// whole ten-minute retry budget, the loader installs the generated
     /// default, and the World Editor opens on "⚠ Stored room record is
-    /// incompatible with this build. / Decode error: PDS unreachable — …"
+    /// incompatible with this build. / Decode error: PDS unreachable - …"
     /// over a button that hard-deletes the healthy record.
     ///
     /// Two claims, both untrue in that state, and the second is the
@@ -1923,10 +1923,10 @@ mod placement_focus_tests {
     /// predicate rather than by restating its value, and through every
     /// way the answer can be `None`: nothing to read at all, the editor
     /// on another tab, the window closed, a visitor in a stranger's room
-    /// — and back, so a latched value cannot pass.
+    /// - and back, so a latched value cannot pass.
     #[test]
     fn the_placement_focus_mirrors_the_editor_and_the_access_gate_including_absence() {
-        // Nothing to read — before login, and the headless render tool.
+        // Nothing to read - before login, and the headless render tool.
         let mut app = App::new();
         app.init_resource::<PlacementFocus>();
         assert_eq!(

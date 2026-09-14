@@ -1,4 +1,4 @@
-//! Feudal-Japan-theme catalogue structures — a temple-and-garden
+//! Feudal-Japan-theme catalogue structures - a temple-and-garden
 //! settlement under drifting cherry blossom.
 //!
 //! Two prosperity registers share one identity: the established
@@ -28,7 +28,7 @@ pub mod pagoda;
 pub mod stone_lantern;
 pub mod tea_house;
 pub mod torii_gate;
-// Poor (farmstead) variants — the prosperity-Poor end of the theme.
+// Poor (farmstead) variants - the prosperity-Poor end of the theme.
 pub mod minka;
 pub mod rice_shed;
 pub mod straw_bales;
@@ -45,17 +45,17 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the established temple kit — lacquered halls
+/// Shared prosperity band for the established temple kit - lacquered halls
 /// and stone gardens read as a Modest-to-Rich settlement. The poor end is
 /// the separate farmstead kit ([`minka`], …), tagged `Poor`.
 pub(super) const FEUDAL_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the farmstead kit — the destitute end of the theme,
+/// Prosperity band for the farmstead kit - the destitute end of the theme,
 /// never picked for a modest or affluent room.
 pub(super) const FEUDAL_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Vermilion lacquered timber — the glossy red of pagoda columns and torii
+/// Vermilion lacquered timber - the glossy red of pagoda columns and torii
 /// gates. Plank grain under a low-roughness sheen so it reads as lacquer,
 /// not flat paint.
 pub(super) fn lacquer(color: [f32; 3]) -> SovereignMaterialSettings {
@@ -76,7 +76,7 @@ pub(super) fn lacquer(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Plain oiled timber — posts, beams, verandas, frames.
+/// Plain oiled timber - posts, beams, verandas, frames.
 pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -97,7 +97,7 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Dark ceramic roof tile — the curved kawara of a pagoda or hall roof.
+/// Dark ceramic roof tile - the curved kawara of a pagoda or hall roof.
 pub(super) fn roof_tile(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -117,7 +117,7 @@ pub(super) fn roof_tile(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// White lime plaster — the daub walls between a hall's timber frame.
+/// White lime plaster - the daub walls between a hall's timber frame.
 pub(super) fn plaster(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -137,7 +137,7 @@ pub(super) fn plaster(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Shoji paper — the translucent screen walls and lantern panes. Woven
+/// Shoji paper - the translucent screen walls and lantern panes. Woven
 /// fabric weave at a fine thread count so it reads as paper, not plank.
 pub(super) fn paper(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -160,7 +160,7 @@ pub(super) fn paper(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Dressed ashlar stone — lantern stacks, pagoda plinths, pond rims.
+/// Dressed ashlar stone - lantern stacks, pagoda plinths, pond rims.
 pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -178,7 +178,7 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Rough fieldstone cobble — the boulder rim of a koi pond, garden edging.
+/// Rough fieldstone cobble - the boulder rim of a koi pond, garden edging.
 pub(super) fn rough_stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -194,7 +194,7 @@ pub(super) fn rough_stone(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Still dark pond water — a smooth blue sheet with faint reflective veins.
+/// Still dark pond water - a smooth blue sheet with faint reflective veins.
 pub(super) fn water(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -214,7 +214,7 @@ pub(super) fn water(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Golden bronze — the temple bell, lantern caps, finial rings. Polished
+/// Golden bronze - the temple bell, lantern caps, finial rings. Polished
 /// metal with no rust.
 pub(super) fn bronze(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -235,7 +235,7 @@ pub(super) fn bronze(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Golden straw thatch — the steep roof of a minka farmhouse and rice shed.
+/// Golden straw thatch - the steep roof of a minka farmhouse and rice shed.
 pub(super) fn thatch(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -271,7 +271,7 @@ pub(super) const KOI_ORANGE: [f32; 3] = [0.92, 0.45, 0.14];
 pub(super) const BAMBOO_TAN: [f32; 3] = [0.66, 0.66, 0.38];
 pub(super) const THATCH_STRAW: [f32; 3] = [0.60, 0.50, 0.26];
 
-/// Warm paper-lantern light — the glow inside a stone lantern's light box.
+/// Warm paper-lantern light - the glow inside a stone lantern's light box.
 pub(super) const LANTERN_GLOW: [f32; 3] = [1.0, 0.82, 0.46];
 
 #[cfg(test)]
@@ -294,7 +294,7 @@ mod tests {
         }
     }
 
-    /// The stone lantern is the kit's lit hero — it must keep its emissive
+    /// The stone lantern is the kit's lit hero - it must keep its emissive
     /// light box so escalation's broken-emissive ruin pass has something to
     /// snuff.
     #[test]

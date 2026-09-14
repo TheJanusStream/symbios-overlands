@@ -5,8 +5,8 @@
 //! `footprint_radius` is the canonical "how big is this avatar on a
 //! surface" answer used by every consumer channel (shader ripple radii,
 //! particle emission discs, stain stamp sizes). Centralising it here
-//! means a per-preset tweak — say, a slightly larger emission disc for
-//! the hover-boat — automatically reaches every effect.
+//! means a per-preset tweak - say, a slightly larger emission disc for
+//! the hover-boat - automatically reaches every effect.
 //!
 //! The trait lives in [`crate::interaction`] rather than alongside
 //! [`crate::pds::avatar::locomotion`] to keep the PDS layer free of
@@ -22,13 +22,13 @@ use crate::pds::{
 /// occupies on a contact surface.
 ///
 /// Numbers here are *visual-effect radii*, not strict collider extents
-/// — a 1.5× multiplier on a humanoid's capsule radius gives a splash
+/// - a 1.5× multiplier on a humanoid's capsule radius gives a splash
 /// disc that surrounds the body instead of cutting into it. Tune per
 /// preset; consumers don't second-guess.
 pub trait LocomotionFootprint {
     fn footprint_radius(&self) -> f32;
 
-    /// World-space vertical extent of the avatar — used to normalise
+    /// World-space vertical extent of the avatar - used to normalise
     /// water depth into the intensity scalar on a contact sample (and to
     /// derive body-bottom as `origin.y − total_height/2`). Clamped
     /// positive per impl so downstream divisions never see zero.
@@ -51,7 +51,7 @@ impl LocomotionFootprint for HumanoidParams {
     }
 }
 
-/// XZ "footprint" of a chassis-cuboid vehicle — the longer of width or
+/// XZ "footprint" of a chassis-cuboid vehicle - the longer of width or
 /// length. Shared by every cuboid-chassis preset so wakes and dust
 /// scale with the vehicle's largest planar dimension regardless of
 /// orientation.
@@ -106,7 +106,7 @@ impl LocomotionFootprint for AirplaneParams {
 /// downstream divisions don't have to guard against it.
 pub const UNKNOWN_FOOTPRINT: f32 = 0.5;
 
-/// Vertical-extent fallback for [`LocomotionConfig::Unknown`] — a
+/// Vertical-extent fallback for [`LocomotionConfig::Unknown`] - a
 /// roughly person-sized guess, non-zero for the same reason as
 /// [`UNKNOWN_FOOTPRINT`].
 pub const UNKNOWN_TOTAL_HEIGHT: f32 = 1.0;

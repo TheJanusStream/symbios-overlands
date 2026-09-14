@@ -1,4 +1,4 @@
-//! Step pyramid — the Mesoamerican landmark. Four battered limestone
+//! Step pyramid - the Mesoamerican landmark. Four battered limestone
 //! terraces climbing to a red-stuccoed temple cella crowned by a roof comb,
 //! with a steep central staircase up the front face and a sacred fire
 //! burning at the summit. A slow ritual drum sounds from its base. ~15 m
@@ -54,7 +54,7 @@ fn build_tree() -> Generator {
     let tiers = [(9.0_f32, 3.0_f32), (7.0, 3.0), (5.2, 2.8), (3.6, 2.6)];
 
     let mut prims = vec![
-        // Buried base course — the root.
+        // Buried base course - the root.
         prim(
             solid(cuboid_tapered(
                 [19.0, 0.6, 19.0],
@@ -84,7 +84,7 @@ fn build_tree() -> Generator {
     // Monumental projecting staircase climbing the front (−Z, the hero) face.
     // A single battered cream ramp core stands proud of the receding terraces,
     // with Maya stepped treads laid up its face and two steep red balustrades
-    // (alfardas) flanking it — the signature stairway of a temple-mountain.
+    // (alfardas) flanking it - the signature stairway of a temple-mountain.
     let z_bot = tiers[0].0 + 0.6; // base front, projecting ahead of the terrace
     let z_top = tiers[tiers.len() - 1].0 + 0.6; // summit front
     let run = z_bot - z_top;
@@ -149,7 +149,7 @@ fn build_tree() -> Generator {
     ));
 
     // Roof comb (crestería): a tall perforated openwork crest above the
-    // cella — two battered piers braced by stepped rungs around an open
+    // cella - two battered piers braced by stepped rungs around an open
     // window, capped by a cream crown and bearing a beaten-gold sun disc.
     let comb_base = summit + 3.2; // cella roofline
     let comb_z = -0.6;

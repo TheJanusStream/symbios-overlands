@@ -1,4 +1,4 @@
-//! Carport — a Suburban *poor* secondary. A cheap open metal carport on four
+//! Carport - a Suburban *poor* secondary. A cheap open metal carport on four
 //! posts sheltering a tired old car, pitched beside the
 //! [`trailer_home`](super::trailer_home).
 
@@ -54,7 +54,7 @@ fn build_tree() -> Generator {
     let pad_top = 0.3_f32;
 
     let mut prims = vec![
-        // Concrete pad — the root.
+        // Concrete pad - the root.
         prim(
             solid(cuboid_tapered(
                 [w + 0.5, 0.3, d + 0.5],
@@ -96,7 +96,7 @@ fn build_tree() -> Generator {
             quat_z(sx * 0.7),
         ));
     }
-    // Shallow peaked metal roof — dull, weathered but intact.
+    // Shallow peaked metal roof - dull, weathered but intact.
     prims.push(prim(
         solid(cuboid_tapered(
             [w + 0.8, 0.7, d + 0.8],
@@ -107,7 +107,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // A tired old car under it — round wheels, faded paint.
+    // A tired old car under it - round wheels, faded paint.
     prims.extend(parked_car([0.0, pad_top, 0.0], OLD_CAR));
 
     assemble(prims)

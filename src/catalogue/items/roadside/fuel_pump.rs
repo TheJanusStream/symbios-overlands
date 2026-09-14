@@ -1,4 +1,4 @@
-//! Fuel pump — a Roadside prop. A single enamel dispenser with a lit price
+//! Fuel pump - a Roadside prop. A single enamel dispenser with a lit price
 //! face, a chrome nozzle in its holster and a low concrete base. Scatter
 //! clutter for the forecourt and the lot.
 
@@ -49,7 +49,7 @@ impl CatalogueEntry for FuelPump {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Concrete base — the root.
+        // Concrete base - the root.
         prim(
             solid(cuboid_tapered(
                 [0.95, 0.16, 0.75],
@@ -74,7 +74,7 @@ fn build_tree() -> Generator {
     ];
 
     // Segmented amber price/display face on the −Z front (two stacked digit
-    // cells split by a dark gap — a flat lit slab washes white).
+    // cells split by a dark gap - a flat lit slab washes white).
     let mut face = sign_board(
         [0.0, 1.28, -0.28],
         [0.52, 0.5],

@@ -1,4 +1,4 @@
-//! Busted terminal — a Cyberpunk *poor* prop. A leaning public access
+//! Busted terminal - a Cyberpunk *poor* prop. A leaning public access
 //! terminal: a cracked pixel screen guttering a dim glow over a dead keypad
 //! and a card slot, with a torn cable dangling from its flank. The
 //! broken-down cousin of the [`neon_kiosk`](super::neon_kiosk).
@@ -63,7 +63,7 @@ fn build_tree() -> Generator {
         [0.0, 0.32, zf + 0.01],
         id_quat(),
     ));
-    // Cracked pixel screen — a 3×2 mosaic split by a crack (the right column
+    // Cracked pixel screen - a 3×2 mosaic split by a crack (the right column
     // shoved out of line), most pixels dead, a couple still guttering. The
     // brightest carries the electrical fizz.
     let pix = [
@@ -85,7 +85,7 @@ fn build_tree() -> Generator {
         }
         body.children.push(p);
     }
-    // Dead keypad — a 3×3 grid of dim buttons.
+    // Dead keypad - a 3×3 grid of dim buttons.
     for r in 0..3 {
         for c in 0..3 {
             body.children.push(prim(

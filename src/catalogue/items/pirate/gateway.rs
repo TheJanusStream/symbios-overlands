@@ -1,4 +1,4 @@
-//! Harbour Gate — the Pirate bespoke social gateway.
+//! Harbour Gate - the Pirate bespoke social gateway.
 //!
 //! Two rubble-stone piers on a cobbled plinth, corbelled out to ashlar caps
 //! that carry a re-used ship's beam for a lintel. A carved name-board rides
@@ -8,7 +8,7 @@
 //! approach.
 //!
 //! The functional element is the single [`GeneratorKind::Gateway`] zone
-//! standing in the opening — walking into it opens the destination picker.
+//! standing in the opening - walking into it opens the destination picker.
 //! Everything else frames that opening as a gate you pass through.
 //!
 //! # How it is built
@@ -29,7 +29,7 @@
 //! Three warm lights, all of them objects rather than strips: the stern
 //! lantern under the lintel and a bracket lantern on each pier. A gateway has
 //! to read as *active*, and the usual way to say that is a glow bar under the
-//! head — but a glow bar is the one thing a 1700s harbour gate cannot have, so
+//! head - but a glow bar is the one thing a 1700s harbour gate cannot have, so
 //! the light comes from lanterns that are really there and the spill under the
 //! lintel is a low wash sitting outside the veil's own depth.
 
@@ -62,12 +62,12 @@ const PLINTH: [f32; 3] = [5.8, 0.30, 3.2];
 const PIER_X: f32 = 1.85;
 /// Pier stock (width × height × depth), standing on the plinth.
 const PIER: [f32; 3] = [0.80, 3.20, 0.90];
-/// Ashlar cap stock — corbelled proud of the pier on all four sides.
+/// Ashlar cap stock - corbelled proud of the pier on all four sides.
 const CAP: [f32; 3] = [0.96, 0.24, 1.06];
-/// Lintel stock — a ship's beam, so it is deep and it oversails.
+/// Lintel stock - a ship's beam, so it is deep and it oversails.
 const LINTEL: [f32; 3] = [4.90, 0.55, 1.00];
 
-/// Plinth top — the level everything stands on.
+/// Plinth top - the level everything stands on.
 const DECK: f32 = PLINTH[1];
 /// Pier top.
 const PIER_TOP: f32 = DECK + PIER[1];
@@ -106,7 +106,7 @@ const FLAG_CLEAR: f32 = 0.22;
 /// *outside* the analytic elements it is fitting, by roughly the blend radius.
 /// So the built flag is meaningfully taller than `FLAG_H` says, and a
 /// clearance derived from the authored number alone comes up short by exactly
-/// that margin — which is what the guard caught, twice: once at 30 mm and
+/// that margin - which is what the guard caught, twice: once at 30 mm and
 /// again at 70 mm after the cloth was thickened and its blend widened to stop
 /// it polygonising with holes (#1026).
 ///
@@ -116,7 +116,7 @@ const FLAG_CLEAR: f32 = 0.22;
 /// edge pays this, and if the blob is retuned the guard says so.
 const FLAG_BLOOM: f32 = 0.09;
 
-/// Hero side — the approach the gate is read from. The render tool and the
+/// Hero side - the approach the gate is read from. The render tool and the
 /// settlement placer both look down `-Z`.
 const FRONT: f32 = -1.0;
 
@@ -234,7 +234,7 @@ fn pier(side: f32) -> Generator {
 fn head() -> Generator {
     let lintel_c = [0.0, CAP_TOP + LINTEL[1] * 0.5, 0.0];
     // A beam's grain runs along its span, and the plank generator lays its
-    // courses **up V** — which on a `SideNz` face is `-y`, i.e. horizontal
+    // courses **up V** - which on a `SideNz` face is `-y`, i.e. horizontal
     // bands running the length of the beam. So the default lay is already
     // right and the quarter turn `bonded_boards` applies would be exactly
     // wrong here (#972 lesson 15 cuts both ways: the turn is a tool for
@@ -251,7 +251,7 @@ fn head() -> Generator {
     let board_top = board_c[1] + BOARD[1] * 0.5;
     // The yard is derived from the board's top and the flag's own drop, not
     // picked. The first build put it at a tidy `LINTEL_TOP + 1.42`, which hung
-    // the colours' bottom half *inside* the name-board — two flat faces
+    // the colours' bottom half *inside* the name-board - two flat faces
     // occupying the same 0.5 m, which the record states perfectly happily and
     // which the four-angle sheet showed as a dark box sitting on the sign.
     // Same shape as #972 lesson 16: the clearance has to be evaluated where
@@ -260,7 +260,7 @@ fn head() -> Generator {
 
     let mut carried = vec![
         // Carved name-board on an oak backing. The board is the frame; the lit
-        // face inside it is what carries the theme (#972 lesson 13's shape —
+        // face inside it is what carries the theme (#972 lesson 13's shape -
         // put the colour in the frame, not over the image).
         prim(
             solid(cuboid_tapered(BOARD, 0.0, strake(HULL_OAK))),
@@ -294,7 +294,7 @@ fn head() -> Generator {
             id_quat(),
         ),
         lantern([0.0, CAP_TOP - 0.62, FRONT * 0.62], 0.86, 0x2E),
-        // Low wash under the lintel — the lantern's spill on the beam soffit.
+        // Low wash under the lintel - the lantern's spill on the beam soffit.
         // Kept outside the veil box and thin enough to stay a bar, not a lid.
         prim(
             cuboid_tapered([2.6, 0.09, 0.12], 0.0, glow(SIGN_AMBER, 1.4)),
@@ -318,7 +318,7 @@ fn head() -> Generator {
         quat_z(FRAC_PI_2),
     ));
     // The colours, off the yard's starboard half so the gate is not
-    // symmetrical — a flag centred over the opening reads as signage, off to
+    // symmetrical - a flag centred over the opening reads as signage, off to
     // one side it reads as colours flown. Built by the kit's shared
     // `jolly_roger` (#972 lesson 5), which is two BlobGroups: a rippled cloth
     // and a bone relief seated in its front face, so the skull cannot poke
@@ -357,7 +357,7 @@ fn bollard(side: f32) -> Vec<Generator> {
             id_quat(),
         ),
         // Coiled hawser on the paving beside it, laid INBOARD of the bollard.
-        // Outboard it hangs 0.43 m off the far edge of the paving — which is
+        // Outboard it hangs 0.43 m off the far edge of the paving - which is
         // what the footprint guard caught, and the class of error no camera
         // angle here would show (#972 lesson 8).
         prim(
@@ -390,7 +390,7 @@ fn build_tree() -> Generator {
         pier(-1.0),
         pier(1.0),
         head(),
-        // A tarred timber sill across the threshold — the plank a boot lands
+        // A tarred timber sill across the threshold - the plank a boot lands
         // on, and the line that tells a player where the gate begins.
         prim(
             solid(cuboid_tapered([2.9, 0.06, 0.5], 0.0, tar(HULL_TAR))),
@@ -423,7 +423,7 @@ fn build_tree() -> Generator {
 
     // The walk-in zone, fitted to the opening (#1006): every face reaches
     // `VEIL_BITE` into the frame, so no cuboid edge shows. Derived from the
-    // frame constants rather than measured by eye — the numbers cannot drift
+    // frame constants rather than measured by eye - the numbers cannot drift
     // apart if the pier or the lintel is retuned.
     let veil_bottom = DECK - VEIL_BITE;
     let veil_top = CAP_TOP + VEIL_BITE;
@@ -466,7 +466,7 @@ mod tests {
         assert_sanitize_stable(&built(), "pirate_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is set-dressing, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {
@@ -500,7 +500,7 @@ mod tests {
     /// #972 lesson 20, stated as a prohibition rather than as a census.
     ///
     /// The three lanterns are what this is really guarding. Their bodies are
-    /// glazed drums, so the kit's `glass` card is the obvious reach — and it
+    /// glazed drums, so the kit's `glass` card is the obvious reach - and it
     /// is the wrong one, because a `Window` texture masks its panes away and
     /// a drum wearing it shows the sky through its far side. That is the
     /// steampunk gas lamp's shipped fault, on the one prop whose entire
@@ -513,7 +513,7 @@ mod tests {
 
     /// The colours fly clear of the name-board they hang over.
     ///
-    /// Found by the render, not by a guard — the first build derived the yard
+    /// Found by the render, not by a guard - the first build derived the yard
     /// from a tidy round number and hung half the flag inside the sign, which
     /// the record states perfectly happily and which the contact sheet showed
     /// as a dark box sitting on the board. It is the coplanar rule arriving
@@ -568,7 +568,7 @@ mod tests {
             .expect("the name-board is in the tree");
         assert!(
             flag.min.y > board.bounds.max.y,
-            "the colours' foot is at {} and the name-board's head at {} — the \
+            "the colours' foot is at {} and the name-board's head at {} - the \
              flag is hanging inside the sign",
             flag.min.y,
             board.bounds.max.y
@@ -582,7 +582,7 @@ mod tests {
     }
 
     /// Everything the gate carries stands on the plinth it is nested under
-    /// (#972 lesson 19). The bollards are the piece this is really guarding —
+    /// (#972 lesson 19). The bollards are the piece this is really guarding -
     /// ground furniture placed off the *building* instead of off the paving
     /// is the error that shipped three times before it had a test, and it is
     /// invisible unless a camera happens to look along that edge.
@@ -634,7 +634,7 @@ mod tests {
         );
     }
 
-    /// The cap really is proud of the pier it corbels off, on both axes —
+    /// The cap really is proud of the pier it corbels off, on both axes -
     /// flush is a coplanar seam running the whole perimeter of the gate's
     /// head, and it is invisible in a still.
     ///

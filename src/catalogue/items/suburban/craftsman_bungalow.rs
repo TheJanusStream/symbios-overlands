@@ -1,4 +1,4 @@
-//! Craftsman bungalow — the early-1900s pattern-book house: one-and-a-half
+//! Craftsman bungalow - the early-1900s pattern-book house: one-and-a-half
 //! storeys under a broad low gable, a deep porch on battered piers, and a
 //! gabled dormer in the attic.
 //!
@@ -6,25 +6,25 @@
 //! [`suburban_house`](super::suburban_house) to the civic buildings; this
 //! fills the older, leafier end of the street. It is also the massing-lottery
 //! item of the grammar set: where the rows vary *surfaces* and the palace
-//! varies *bays*, the bungalow varies its **shape** — storey count, dormer,
+//! varies *bays*, the bungalow varies its **shape** - storey count, dormer,
 //! chimney and garage wing are all per-house rolls, under three `Pick` keys
 //! that keep the parts of one house agreeing with each other:
 //!
 //! - `Pick("roof")` binds the house roof, the garage roof *and* the dormer
 //!   gate to one family (gable / hip / jerkinhead). A hip house grows a hip
-//!   garage and — like its real counterparts — no dormer at all.
+//!   garage and - like its real counterparts - no dormer at all.
 //! - `Pick("paint")` binds the house and the garage to one siding colour,
 //!   carried by `Mat` inheritance so every un-named wall terminal shares it.
 //! - the porch roof is always a low hip: craftsman porches took either form,
 //!   and a hip seals its own side triangles where a shed leaves them open.
 //!
 //! **The dormer and chimney ride an overlap layer, not `Attach`.** `Attach`
-//! re-erects its plane in *world* axes — it discards the slope's own frame —
+//! re-erects its plane in *world* axes - it discards the slope's own frame -
 //! so on a front roof slope the extrusion runs into the roof but on the back
 //! slope it runs off the eave into mid-air, and the mirrored panel X leaves
 //! no slope-agnostic correction (recorded on the issue as a 0.4 wishlist
 //! item). Instead the attic splits off a thin sliver whose two slots each
-//! `Size` themselves back to the full attic volume — `Size` is absolute and
+//! `Size` themselves back to the full attic volume - `Size` is absolute and
 //! unclamped, so the slots stop being a partition. One regrown slot roofs
 //! the attic; the other places the dormer and chimney as massing boxes that
 //! simply punch through the roof shell. Every emerge / die-into / sill
@@ -84,7 +84,7 @@ const GABLE_PITCH: f32 = 32.0;
 const HIP_PITCH: f32 = 29.0;
 const JERK_PITCH: f32 = 33.0;
 /// Weights of the three `Pick("roof")` branches, in percent. Three sites
-/// share this key — house roof, dormer gate, garage roof — and the winner is
+/// share this key - house roof, dormer gate, garage roof - and the winner is
 /// a pure function of (seed, key) only while their weight lists are
 /// identical, so all three are formatted from these constants.
 const ROOF_GABLE_PCT: f32 = 50.0;
@@ -94,7 +94,7 @@ const ROOF_JERK_PCT: f32 = 23.0;
 const ROOF_OVER: f32 = 0.6;
 const FASCIA_H: f32 = 0.18;
 
-/// Weights of the two `Pick("paint")` branches trio, in percent — one siding
+/// Weights of the two `Pick("paint")` branches trio, in percent - one siding
 /// colour binding house and garage. Two sites, same rule as the roof key.
 const PAINT_BLUE_PCT: f32 = 34.0;
 const PAINT_CREAM_PCT: f32 = 33.0;
@@ -148,7 +148,7 @@ const GDOOR_H: f32 = 2.1;
 // ── Derived geometry ──────────────────────────────────────────────────────
 
 /// The dead band a proud wall needs under the steepest overhanging roof in
-/// the menu — the machiya lesson, derived rather than authored.
+/// the menu - the machiya lesson, derived rather than authored.
 fn roof_tuck() -> f32 {
     WALL_D * JERK_PITCH.to_radians().tan() + 0.02
 }
@@ -198,7 +198,7 @@ impl CatalogueEntry for CraftsmanBungalow {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
-    /// The kept end of the street — the destitute end of the theme stays the
+    /// The kept end of the street - the destitute end of the theme stays the
     /// trailer-lot kit.
     fn prosperity_band(&self) -> ProsperityBand {
         SUB_BAND
@@ -235,7 +235,7 @@ fn materials() -> HashMap<String, SovereignMaterialSettings> {
     m.insert("SidingBlue".to_string(), siding(SIDING_BLUE));
     m.insert("SidingCream".to_string(), siding(SIDING_CREAM));
     m.insert("SidingSage".to_string(), siding(SIDING_SAGE));
-    // Trim — always named explicitly, so it never inherits the siding.
+    // Trim - always named explicitly, so it never inherits the siding.
     m.insert("Trim".to_string(), wood(WOOD_WHITE));
     m.insert("Wood".to_string(), wood(WOOD_BROWN));
     m.insert("Brick".to_string(), brick(BRICK_TAN));
@@ -336,7 +336,7 @@ fn build_kind() -> GeneratorKind {
         // The tuck band is dead height under the roof springing, but it
         // must not be dead GEOMETRY: left NIL it is an open slit into the
         // attic void, hidden on the eave sides by the descending overhang
-        // but staring straight out under every gable-end tympanum — the
+        // but staring straight out under every gable-end tympanum - the
         // "holes in the roof" of the first validation pass, glowing with
         // the far windows' room backings. Flush faces (no Extrude) close
         // it and are exactly tangent to the spring plane, so they cannot
@@ -391,7 +391,7 @@ fn build_kind() -> GeneratorKind {
         "JerkRoof --> Roof(Jerkinhead, JerkPitch, tier=0.28, overhang=RoofOver, fascia=FasciaH, ridge=X) \
                       { Slope: Shingles | GableEnd: GableWall | HipEnd: Shingles | Fascia: FasciaTrim | _: Shingles }",
         "Shingles --> Mat(\"Shingle\") I(\"Shingles\")",
-        // The gable tympanum inherits the house siding — the machiya lesson
+        // The gable tympanum inherits the house siding - the machiya lesson
         // in reverse: here the wall colour IS the correct panel colour.
         "GableWall --> I(\"Gable\")",
         "FasciaTrim --> Mat(\"Trim\") I(\"Fascia\")",
@@ -418,13 +418,13 @@ fn build_kind() -> GeneratorKind {
         "DormerBody --> Comp(Faces) { Front: DormerFront | Left: DormerCheek | Right: DormerCheek | _: NIL }",
         "DormerCheek --> I(\"Wall\")",
         // The sill is derived: the main slope crosses this face DormerSill
-        // below nothing — see `dormer_sill`.
+        // below nothing - see `dormer_sill`.
         "DormerFront --> Split(Y) { DormerSill: DormerSkirt | ~1: DormerLight | 0.16: DormerSkirt }",
         "DormerSkirt --> I(\"Wall\")",
         "DormerLight --> Split(X) { 0.5: DormerSkirt | ~1: TrimmedSash | 0.5: DormerSkirt }",
         // ── 7. The porch: steps, deck, battered piers, rafter tails, hip ──
         // The porch strip arrives as a flat plot (the root scope has no
-        // height), so it must raise its own volume before splitting it —
+        // height), so it must raise its own volume before splitting it -
         // up to the main roof's spring plane, so the porch roof band tops
         // out exactly where the house eaves spring and the two roofs read
         // as one assembly.
@@ -433,7 +433,7 @@ fn build_kind() -> GeneratorKind {
         "StepApron --> Split(X) { ~1: NIL | StepW: StepBlockZone | ~1: NIL }",
         "StepBlockZone --> Split(Y) { DeckH: StepFlight | ~1: NIL }",
         "StepFlight --> Repeat(Y, StepH) { StepBand }",
-        // Each tread anchors at the deck and recedes as it climbs — the
+        // Each tread anchors at the deck and recedes as it climbs - the
         // palace-stair idiom, with `split.i` sizing the run.
         "StepBand --> Size(scope.x, scope.y, ApronD * (split.n - split.i) / split.n) \
                       Translate(0, 0, ApronD * split.i / split.n) Mat(\"Concrete\") I(\"Step\")",
@@ -441,14 +441,14 @@ fn build_kind() -> GeneratorKind {
         "DeckSlab --> Mat(\"Wood\") I(\"Deck\")",
         // The colonnade: battered piers on brick pedestals, brick knee
         // walls between them, open air above the rail line. The open zone
-        // is first Sized down to a ColW-deep line at the porch front —
+        // is first Sized down to a ColW-deep line at the porch front -
         // without that, every element inherits the porch body's full
         // depth, and the "piers" come out as metre-deep tapered slabs
         // with knee-height brick filling the whole floor (they did, in
         // the first validation pass; a straight-on contact sheet cannot
         // show it).
         "PorchOpen --> Size(scope.x, scope.y, ColW) Colonnade",
-        // Each run is a palindrome — corner pier, knee wall, entry pier —
+        // Each run is a palindrome - corner pier, knee wall, entry pier -
         // so the two sides of the steps mirror each other exactly. The
         // first pass built the runs from a start-with-a-pier rhythm group,
         // which put a pier hard against the entry on one side and a knee
@@ -461,7 +461,7 @@ fn build_kind() -> GeneratorKind {
         "KneeBay --> Split(Y) { KneeWallH: KneeWall | ~1: NIL }",
         "KneeWall --> Mat(\"Brick\") I(\"Knee\")",
         // Exposed rafter tails: each one runs the porch depth and then
-        // pokes past the roof edge, so the end grain hangs in the open —
+        // pokes past the roof edge, so the end grain hangs in the open -
         // which is why the porch roof carries no fascia board at all. A
         // fascia would sit at the eave plane, exactly in front of the
         // tails, and hide the item's signature detail (it did, in the
@@ -485,7 +485,7 @@ fn build_kind() -> GeneratorKind {
         "GarageSide --> Split(Y) { BaseH: BaseCourse | ~1: Wall }",
         "GarageFrontWall --> Split(X) { ~1: Wall | GDoorW: GarageDoorBay | ~1: Wall }",
         "GarageDoorBay --> Split(Y) { GDoorH: GarageDoor | ~1: Wall }",
-        // A roller door is horizontal slats, not one flat sheet — a
+        // A roller door is horizontal slats, not one flat sheet - a
         // single enamel quad reads as plain grey primer.
         "GarageDoor --> Repeat(Y, 0.34) { DoorSlat }",
         "DoorSlat --> Split(Y) { 0.27: SlatFace | ~1: SlatGroove }",
@@ -525,7 +525,7 @@ fn build_kind() -> GeneratorKind {
         footprint: Fp3([LOT_X, 0.0, LOT_Z]),
         seed: 10,
         materials: materials(),
-        // All square timber — even the battered piers are square in plan.
+        // All square timber - even the battered piers are square in plan.
         round_meshes: Vec::new(),
     }
 }
@@ -576,7 +576,7 @@ mod tests {
             .expect("bungalow derives")
     }
 
-    /// Height of the dormer cap's ridge above the attic base — the test-side
+    /// Height of the dormer cap's ridge above the attic base - the test-side
     /// mirror of what `Roof(Gable, DormerPitch, ridge=Z)` builds, kept here
     /// because the grammar cannot consume it: the cap's ridge is implied by
     /// its pitch, and only the die-in test needs the number.
@@ -662,7 +662,7 @@ mod tests {
             let crossing = DORMER_SET * tan;
             assert!(
                 crossing + 0.6 < SLIVER_H + DORMER_BODY_H,
-                "at {pitch}° the slope crosses the dormer face at {crossing:.2} — \
+                "at {pitch}° the slope crosses the dormer face at {crossing:.2} - \
                  the body is all but buried"
             );
             // Sill: derived from the steepest pitch, so it clears them all.
@@ -737,8 +737,8 @@ mod tests {
         }
     }
 
-    /// One paint decision for the whole lot: every un-named wall terminal —
-    /// house, knee band, dormer cheek and garage alike — must inherit the
+    /// One paint decision for the whole lot: every un-named wall terminal -
+    /// house, knee band, dormer cheek and garage alike - must inherit the
     /// same siding, and different seeds must draw different colours.
     #[test]
     fn the_house_and_garage_share_one_paint() {
@@ -751,7 +751,7 @@ mod tests {
             assert_eq!(
                 distinct.len(),
                 1,
-                "seed {seed}: the lot mixed sidings {distinct:?} — Pick lost \
+                "seed {seed}: the lot mixed sidings {distinct:?} - Pick lost \
                  coherence between house and garage"
             );
             assert!(
@@ -763,12 +763,12 @@ mod tests {
         }
         assert!(
             seen.len() >= 2,
-            "12 seeds never changed the paint — the lottery is stuck"
+            "12 seeds never changed the paint - the lottery is stuck"
         );
     }
 
     /// One roof decision for the whole lot: whenever the garage is present,
-    /// its family must match the house's. Gable ends are the discriminator —
+    /// its family must match the house's. Gable ends are the discriminator -
     /// the gable and jerkinhead families emit them, the hip family does not.
     #[test]
     fn the_garage_roof_matches_the_house() {
@@ -784,12 +784,12 @@ mod tests {
             assert_eq!(
                 house_gabled, garage_gabled,
                 "seed {seed}: the garage drew a different roof family than \
-                 the house — the shared Pick key lost coherence"
+                 the house - the shared Pick key lost coherence"
             );
         }
         assert!(
             with_garage >= 3,
-            "only {with_garage} of 14 seeds rolled a garage — the wing \
+            "only {with_garage} of 14 seeds rolled a garage - the wing \
              lottery is stuck"
         );
     }
@@ -797,7 +797,7 @@ mod tests {
     /// The first validation pass found the "piers" were metre-deep tapered
     /// slabs: the colonnade rules ran in the porch-open volume and every
     /// strip inherited its full depth. Assert every colonnade element is a
-    /// front-line piece — as deep as a post, not as deep as the porch.
+    /// front-line piece - as deep as a post, not as deep as the porch.
     #[test]
     fn the_colonnade_is_a_line_of_posts_not_slabs() {
         for seed in 0..6_u64 {
@@ -806,7 +806,7 @@ mod tests {
                 for t in model.terminals.iter().filter(|t| t.mesh_id == id) {
                     assert!(
                         (t.scope.size.z - COL_W as f64).abs() < 1e-6,
-                        "seed {seed}: a {id} is {:.2} deep — a porch-filling \
+                        "seed {seed}: a {id} is {:.2} deep - a porch-filling \
                          slab, not a front-line element",
                         t.scope.size.z
                     );
@@ -820,12 +820,12 @@ mod tests {
             // equality: the rhythm group snaps its cycle count to the run
             // and SCALES its absolute slots to fit (0.42 can come out
             // 0.55), which is fine for a post and disastrous only in
-            // depth — which is pinned exactly above.
+            // depth - which is pinned exactly above.
             for t in model.terminals.iter().filter(|t| t.mesh_id == "Pier") {
                 let w = t.scope.size.x;
                 assert!(
                     (COL_W as f64 - 1e-6..COL_W as f64 * 1.6).contains(&w),
-                    "seed {seed}: a pier is {w:.2} wide — outside the \
+                    "seed {seed}: a pier is {w:.2} wide - outside the \
                      rhythm-snap range of a post"
                 );
             }
@@ -849,14 +849,14 @@ mod tests {
             };
             assert_eq!(
                 tucks, expect,
-                "seed {seed}: {tucks} tuck faces — the band under the roof \
+                "seed {seed}: {tucks} tuck faces - the band under the roof \
                  springing is open somewhere"
             );
             // Flush, never proud: a proud tuck face would pierce the roof.
             for t in model.terminals.iter().filter(|t| t.mesh_id == "Tuck") {
                 assert!(
                     t.scope.size.z.abs() < 1e-6,
-                    "seed {seed}: a tuck face grew depth {:.3} — it must stay \
+                    "seed {seed}: a tuck face grew depth {:.3} - it must stay \
                      flush with the mass",
                     t.scope.size.z
                 );
@@ -878,7 +878,7 @@ mod tests {
             checked += 1;
             assert!(
                 slats >= 8,
-                "seed {seed}: the garage door is {slats} pieces — a flat \
+                "seed {seed}: the garage door is {slats} pieces - a flat \
                  sheet, not a slatted roller"
             );
         }
@@ -904,7 +904,7 @@ mod tests {
                 let mirrored = HOUSE_W as f64 - c;
                 assert!(
                     centres.iter().any(|d| (d - mirrored).abs() < 1e-3),
-                    "seed {seed}: pier at x={c:.2} has no mirror partner — \
+                    "seed {seed}: pier at x={c:.2} has no mirror partner - \
                      the colonnade is asymmetric about the steps"
                 );
             }
@@ -966,7 +966,7 @@ mod tests {
         assert!(dormers > 0, "no seed grew a dormer");
         assert!(
             dormers < 14,
-            "every seed grew a dormer — the gate and roll are stuck"
+            "every seed grew a dormer - the gate and roll are stuck"
         );
         assert!(chimneys > 0, "no seed raised a chimney");
         assert!(plain > 0, "every seed raised a chimney");

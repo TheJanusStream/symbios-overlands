@@ -1,4 +1,4 @@
-//! Invariant / anomaly engine (Pillar D) — a single shared rule set that runs
+//! Invariant / anomaly engine (Pillar D) - a single shared rule set that runs
 //! LIVE against the metrics registry + ECS state (flagging anomalies into the
 //! session log and GUI badges as they happen) and, replayed, OFFLINE over a
 //! captured log (the `--analyze-session` post-mortem). One [`Rule`] definition
@@ -7,21 +7,21 @@
 //!
 //! # Sub-modules
 //!
-//! - [`rule`] — the [`Rule`] trait + [`RuleHeader`] / [`Verdict`] /
+//! - [`rule`] - the [`Rule`] trait + [`RuleHeader`] / [`Verdict`] /
 //!   [`DebouncePolicy`] / [`LiveCtx`] vocabulary (D-0).
-//! - [`registry`] — the [`InvariantRegistry`] rule set + debounce ledger + badge
-//!   source (D-1), and [`default_registry`] — the *one* rule set both the live
+//! - [`registry`] - the [`InvariantRegistry`] rule set + debounce ledger + badge
+//!   source (D-1), and [`default_registry`] - the *one* rule set both the live
 //!   engine and the offline analyzer build (this is what makes them agree).
-//! - [`rules`] / [`rules_ecs`] — the built-in invariants: log-expressible
+//! - [`rules`] / [`rules_ecs`] - the built-in invariants: log-expressible
 //!   (live + replay) and ECS-state (live-only) respectively (D-2 / D-3).
-//! - [`tick`] — the 1 Hz [`AnomalyPlugin`] evaluation + routing to log/badge (D-4).
-//! - [`replay`] — the offline harness that folds a captured log (D-5).
+//! - [`tick`] - the 1 Hz [`AnomalyPlugin`] evaluation + routing to log/badge (D-4).
+//! - [`replay`] - the offline harness that folds a captured log (D-5).
 //!
 //! # Adding a rule
 //!
 //! Three steps (only step 1 is ever mandatory):
 //!
-//! 1. **Define the rule** — a unit struct, a `const` [`RuleHeader`] (identity,
+//! 1. **Define the rule** - a unit struct, a `const` [`RuleHeader`] (identity,
 //!    subsystem, severity, firing policy and the two sentences the panel
 //!    renders: [`description`](RuleHeader::description) is UI copy in the
 //!    product's own words, [`technical`](RuleHeader::technical) is the
@@ -32,14 +32,14 @@
 //!    definition. **Declare whichever bodies you wrote**: `replay` owes
 //!    [`is_replayable`](Rule::is_replayable) `= true` and `eval` owes
 //!    [`has_live_body`](Rule::has_live_body) `= true`. Both are pinned to the
-//!    real bodies in both directions — the replayable set by two tests in
-//!    [`replay`], the live set by `rule::live_bodies_are_declared` — because
+//!    real bodies in both directions - the replayable set by two tests in
+//!    [`replay`], the live set by `rule::live_bodies_are_declared` - because
 //!    the GUI's metric→rule table reads the second to decide whether a row's
 //!    empty badge means "checked and fine" or "nothing is watching this".
 //! 2. **Add a [`LiveCtx`] field only if you need a new reading.** Metric-threshold
 //!    rules already have everything via `cx.metrics`; a rule that needs fresh ECS
 //!    state gains a field on [`LiveCtx`] (in [`rule`]) that the [`tick`] system
-//!    pre-gathers — so rule bodies stay pure and never touch the `World`.
+//!    pre-gathers - so rule bodies stay pure and never touch the `World`.
 //! 3. **Register it** with one line in [`rules::register_builtins`] (or
 //!    [`rules_ecs::register_ecs_rules`] for a live-only ECS rule):
 //!    `reg.register(MyRule);`. Both feed [`default_registry`], so the rule goes
@@ -47,7 +47,7 @@
 //!
 //! ## Worked example
 //!
-//! A complete live metric-threshold rule (steps 1 + 3) — fires a `Warn` when the
+//! A complete live metric-threshold rule (steps 1 + 3) - fires a `Warn` when the
 //! entity count runs past a budget, re-firing at most every 10 s while it holds:
 //!
 //! ```rust

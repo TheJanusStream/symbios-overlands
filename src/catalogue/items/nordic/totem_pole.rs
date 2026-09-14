@@ -1,4 +1,4 @@
-//! Totem pole — a Nordic prop. A carved god-pole: a stack of blocky carved
+//! Totem pole - a Nordic prop. A carved god-pole: a stack of blocky carved
 //! faces in alternating wood tones, each with a jutting brow, nose, and
 //! cold-glinting deep-set eyes, banded with paint and topped by a horned
 //! head. Raised at the edge of the steading. The faces are carved on the

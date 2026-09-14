@@ -1,4 +1,4 @@
-//! Brazier — an AncientClassical prop and the kit's one firelit element. A
+//! Brazier - an AncientClassical prop and the kit's one firelit element. A
 //! patinated bronze bowl on a footed stem holding glowing coals, with a low
 //! altar flame, drifting embers, and a fire crackle. Its emissive coals are
 //! the trim escalation's ruin pass snuffs to a cold dead bowl.
@@ -49,7 +49,7 @@ fn build_tree() -> Generator {
     let bowl_y = 1.3;
 
     let mut prims = vec![
-        // Bronze foot disc — the root.
+        // Bronze foot disc - the root.
         prim(
             solid(cylinder_tapered(0.42, 0.2, 12, 0.0, bronze(BRONZE_GREEN))),
             [0.0, 0.1, 0.0],
@@ -75,7 +75,7 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Glowing coals heaped in the bowl — the emissive heart, crackling.
+    // Glowing coals heaped in the bowl - the emissive heart, crackling.
     let coals = [0.0, bowl_y + 0.22, 0.0];
     let mut fire = prim(
         solid(cylinder_tapered(

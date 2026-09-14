@@ -5,7 +5,7 @@
 //! avatar analogue of [`super::scene::SceneCharacter`]): chassis +
 //! [`ThemeArchetype`](super::scene::ThemeArchetype) style + continuous
 //! ornateness / wear axes, all derived from the avatar owner's DID. An avatar
-//! is independent of every room — a user's avatar reads the same regardless
+//! is independent of every room - a user's avatar reads the same regardless
 //! of which room they visit.
 //!
 //! The data flow per avatar:
@@ -23,7 +23,7 @@
 //!
 //! The top-level discrete pick is [`ChassisFamily`] (boat / airship /
 //! humanoid / skiff). The actual silhouette is no longer a per-family design
-//! deriver — it is *composed* from the tagged part catalogue
+//! deriver - it is *composed* from the tagged part catalogue
 //! ([`crate::pds::avatar::parts`]): [`AvatarOutfit`] fills each chassis slot
 //! by querying parts for the avatar's style + tiers, and the assembler
 //! ([`crate::pds::avatar::default_visuals`]) builds + positions them.

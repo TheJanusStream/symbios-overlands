@@ -22,7 +22,7 @@ pub const MAX_TEXTURE_SIZE: u32 = 4096;
 /// Scatter placement count.
 pub const MAX_SCATTER_COUNT: u32 = 100_000;
 /// Generator-name length (chars) shared by the room recipe and the
-/// inventory stash — one number because an item dropped from the stash
+/// inventory stash - one number because an item dropped from the stash
 /// into the room carries its name across (#1205). Over-long keys are
 /// cut on load ([`super::names::sanitize_keys`]), never dropped, and the
 /// rename dialog refuses them at the point of typing. Aliases
@@ -32,7 +32,7 @@ pub const MAX_GENERATOR_NAME_CHARS: usize = crate::config::state::MAX_INVENTORY_
 /// Road lot theme label length in bytes (#892); cut on a char boundary.
 pub const MAX_LOT_THEME_OVERRIDE_BYTES: usize = 64;
 /// L-system derivation iterations. 12 is already enough to blow out most
-/// lexical grammars — anything beyond this is almost certainly an attack.
+/// lexical grammars - anything beyond this is almost certainly an attack.
 pub const MAX_LSYSTEM_ITERATIONS: u32 = 12;
 /// L-system source / finalization code length in bytes.
 pub const MAX_LSYSTEM_CODE_BYTES: usize = 16_384;
@@ -40,7 +40,7 @@ pub const MAX_LSYSTEM_CODE_BYTES: usize = 16_384;
 pub const MAX_LSYSTEM_MESH_RESOLUTION: u32 = 32;
 /// CGA shape grammar source length in bytes. The upstream parser caps a
 /// single rule body at 1024 ops + 64 variants; the same DoS pressure
-/// applies at the source level — a megabyte of `Name --> Name | Name |
+/// applies at the source level - a megabyte of `Name --> Name | Name |
 /// …` lines would still spend its budget inside `parse_rule` before any
 /// derivation-time guard fires. 16 KiB matches the L-system code cap.
 pub const MAX_SHAPE_SOURCE_BYTES: usize = 16_384;
@@ -59,7 +59,7 @@ pub const MAX_SHAPE_MATERIAL_SLOTS: usize = 64;
 /// finite so `Interpreter::derive` cannot be smuggled an `f64` infinity.
 pub const MAX_SHAPE_FOOTPRINT: f32 = 1_000.0;
 /// Maximum number of `Placement` entries per `RoomRecord`. Clamping
-/// `Scatter.count` alone is not enough — a record with ten-thousand
+/// `Scatter.count` alone is not enough - a record with ten-thousand
 /// single-count scatter entries still weaponises `compile_room_record`.
 pub const MAX_PLACEMENTS: usize = 1_024;
 /// Maximum number of named generators per `RoomRecord`. Every generator
@@ -79,21 +79,21 @@ pub const MAX_CELL_SCALE: f32 = 64.0;
 /// NaN/infinity into `HeightMapMeshBuilder`.
 pub const MIN_HEIGHT_SCALE: f32 = 0.01;
 pub const MAX_HEIGHT_SCALE: f32 = 10_000.0;
-/// FBM lacunarity — the per-octave frequency multiplier. Floored at `1.0`
+/// FBM lacunarity - the per-octave frequency multiplier. Floored at `1.0`
 /// (frequency never decreases across octaves) and capped at the terrain
 /// editor's authoring ceiling. No headroom above the editor here on purpose:
 /// the value-noise lattice wraps mod 256, so `base_frequency · lacunarity^k`
-/// past a few hundred is pure aliasing with no visual payoff — and pushes the
+/// past a few hundred is pure aliasing with no visual payoff - and pushes the
 /// `coord as i32` lattice index toward overflow. The float output stays finite
 /// regardless (the noise table is bounded), so this bound is about sanity, not
 /// the finiteness that keeps `build_heightfield_collider` from panicking.
 pub const MAX_LACUNARITY: f32 = 4.0;
 /// FBM base (octave-0) frequency. Capped at the editor's slider ceiling for the
-/// same reason as [`MAX_LACUNARITY`] — beyond it the noise only aliases.
+/// same reason as [`MAX_LACUNARITY`] - beyond it the noise only aliases.
 pub const MAX_BASE_FREQUENCY: f32 = 32.0;
 /// Hydraulic-erosion sediment-capacity multiplier. A finite cap keeps the
 /// `slope · vel · water · capacity_factor` product finite; the value is only
-/// ever a multiplier (never a divisor — see `HydraulicErosion::erode`), so the
+/// ever a multiplier (never a divisor - see `HydraulicErosion::erode`), so the
 /// lower bound can safely be `0`. Carries the usual forward-compat headroom
 /// past the editor's 64.0 slider (unlike the frequency bounds above, a larger
 /// multiplier only scales erosion, it can't overflow a coordinate).
@@ -114,12 +114,12 @@ pub const MAX_PRIM_DIM_M: f32 = 100.0;
 /// A room is something you choose to enter; an avatar is worn into other
 /// people's rooms, so its size is a thing it can do TO them. At the room's
 /// 100 m, one node of one record filled every guest's view with flat
-/// colour, and the only remedy — Mute — could not be aimed, because no body
+/// colour, and the only remedy - Mute - could not be aimed, because no body
 /// carried a name.
 ///
 /// Chosen from measurement, not taste. `shipped_avatars_are_unchanged_by_
-/// the_avatar_caps` sanitises all 617 trees this build can produce — 400
-/// seeded bodies and every shipped part across five seeds — under both this
+/// the_avatar_caps` sanitises all 617 trees this build can produce - 400
+/// seeded bodies and every shipped part across five seeds - under both this
 /// cap and the room's, and requires them byte-identical. The largest
 /// dimension any of them actually uses is between 2 m and 4 m (at 2 m, 28
 /// trees change; at 4 m, none do), so this is roughly 4x headroom over the
@@ -131,7 +131,7 @@ pub const MAX_AVATAR_PRIM_DIM_M: f32 = 16.0;
 /// visual tree (#1221 f327).
 ///
 /// Scales compose multiplicatively and nothing bounded the product, so a
-/// body's world size was `per-node scale ^ depth` — `1000 ^ 16` at this
+/// body's world size was `per-node scale ^ depth` - `1000 ^ 16` at this
 /// module's own depth limit. Measured: the worst accumulated scale across
 /// 400 seeded bodies is 1.2, so this is ~3.3x headroom over anything the
 /// app ships while turning an unbounded exponent into a bounded one.
@@ -146,11 +146,11 @@ pub const MAX_AVATAR_SCALE_PRODUCT: f32 = 4.0;
 pub const MAX_GENERATOR_NODES: u32 = 1024;
 /// Maximum absolute `twist` angle (radians) applied across a primitive's
 /// Y extent. Two full turns in either direction is well past any
-/// sculpting need — anything beyond that is just geometry noise.
+/// sculpting need - anything beyond that is just geometry noise.
 pub const MAX_TORTURE_TWIST: f32 = 4.0 * std::f32::consts::PI;
 /// Maximum magnitude of the per-axis `taper` factor. Clamped below 1.0
 /// so a tapered primitive never collapses its top (or bottom) to a
-/// single point — we'd lose vertices and the collider builder would
+/// single point - we'd lose vertices and the collider builder would
 /// start returning zero-volume hulls.
 pub const MAX_TORTURE_TAPER: f32 = 0.99;
 /// Maximum control-point / profile-station count on a Spine or Lathe
@@ -165,12 +165,12 @@ pub const MAX_BLOB_ELEMENTS: usize = 16;
 /// Maximum per-face override count on one primitive (#955). The richest
 /// face vocabulary any mesher emits is under twenty keys (a cut hollow
 /// cuboid: six sides + bore + two cut faces), so 24 leaves forward-compat
-/// headroom while bounding the per-prim material fan-out — every override
+/// headroom while bounding the per-prim material fan-out - every override
 /// can carry its own procedural texture, and each distinct one costs a
 /// `StandardMaterial` + texture-cache entry at spawn.
 pub const MAX_FACE_OVERRIDES: usize = 24;
 /// BlobGroup sample-grid resolution bounds (cells along the longest axis).
-/// Grid cost is cubic: 48 is ~110k samples after padding — a few
+/// Grid cost is cubic: 48 is ~110k samples after padding - a few
 /// milliseconds native, still fine on wasm as a bake-on-spawn cost.
 pub const MAX_BLOB_RESOLUTION: u32 = 48;
 /// Maximum per-element smooth-blend distance (metres). Blend only needs to
@@ -178,7 +178,7 @@ pub const MAX_BLOB_RESOLUTION: u32 = 48;
 /// element is already glue-everything territory.
 pub const MAX_BLOB_BLEND: f32 = 10.0;
 /// Maximum magnitude of the per-axis `bulge` factor (additive mid-height
-/// scale, `sin(π t)` profile). `+2.0` triples the mid-profile — already a
+/// scale, `sin(π t)` profile). `+2.0` triples the mid-profile - already a
 /// cartoonish swell; the negative bound is the same magnitude because the
 /// deform pass floors the combined scale just above zero, so a hard pinch
 /// collapses cleanly to the axis rather than inverting the surface.
@@ -189,7 +189,7 @@ pub const MAX_TORTURE_BULGE: f32 = 2.0;
 /// produces visually degenerate meshes the collider can't hug.
 pub const MAX_TORTURE_BEND: f32 = 10.0;
 /// Maximum magnitude of any `shear` component (world-units of linear top
-/// displacement). Shares the bend bound — both are top-displacement offsets,
+/// displacement). Shares the bend bound - both are top-displacement offsets,
 /// and 10 m is already a dramatic lean on a 1 m primitive.
 pub const MAX_TORTURE_SHEAR: f32 = 10.0;
 /// Maximum `hollow` bore fraction. Floored below 1.0 so a hollowed primitive
@@ -202,7 +202,7 @@ pub const MAX_WAVE_SCALE: f32 = 100.0;
 pub const MAX_WAVE_SPEED: f32 = 100.0;
 /// Maximum `flow_strength` (force-per-metre-submerged) on a Water
 /// surface. Bounded so a hostile record can't apply a near-infinite
-/// tangent force to every floating object — earth gravity is ~9.81, so
+/// tangent force to every floating object - earth gravity is ~9.81, so
 /// 10× free-fall is the upper bound for any reasonable river / waterfall
 /// effect.
 pub const MAX_WATER_FLOW_STRENGTH: f32 = 100.0;
@@ -276,7 +276,7 @@ pub const MAX_PARTICLE_GRAVITY_MULT: f32 = 10.0;
 /// Linear drag coefficient cap (per-second exponential damping).
 pub const MAX_PARTICLE_DRAG: f32 = 100.0;
 /// Per-particle quad-size envelope (metres). Lower bound is `0.0`
-/// so a particle can fade out completely by end-of-life — a zero-
+/// so a particle can fade out completely by end-of-life - a zero-
 /// area quad simply draws nothing, matching the natural
 /// "shrink to vanish" effect.
 pub const MIN_PARTICLE_SIZE: f32 = 0.0;
@@ -305,10 +305,10 @@ pub const MAX_PARTICLE_FRAME_FPS: f32 = 60.0;
 
 /// Max authored contact-effect recipes per room (#246). Excess
 /// recipes are dropped (keeping the lexicographically-first by name so
-/// the survivor set is deterministic across peers). Generous — a busy
+/// the survivor set is deterministic across peers). Generous - a busy
 /// room rarely needs more than a handful of distinct effects.
 pub const MAX_CONTACT_RECIPES: usize = 64;
-/// Cap on a recipe's `name` length (chars) — bounds a pathological
+/// Cap on a recipe's `name` length (chars) - bounds a pathological
 /// authored string without truncating any sane identifier.
 pub const MAX_CONTACT_RECIPE_NAME: usize = 64;
 /// Multiplier a recipe applies to the sample footprint when sizing its
@@ -317,13 +317,13 @@ pub const MAX_CONTACT_RECIPE_NAME: usize = 64;
 pub const MAX_CONTACT_RADIUS_SCALE: f32 = 16.0;
 /// Per-avatar emission cooldown cap (s) for a continuous recipe.
 pub const MAX_CONTACT_COOLDOWN: f32 = 60.0;
-/// Cap on a recipe's `min_speed` trigger gate (m/s) — finite, sane.
+/// Cap on a recipe's `min_speed` trigger gate (m/s) - finite, sane.
 pub const MAX_CONTACT_MIN_SPEED: f32 = 1_000.0;
 /// Cap on the per-frame particle ceiling a room may request.
 pub const MAX_CONTACT_PARTICLES_PER_FRAME: u32 = 4_096;
 
 // --- Contact decal effect (#261) ----------------------------------------
-/// Lower bound (s) on an authored decal's time-to-live — a decal must
+/// Lower bound (s) on an authored decal's time-to-live - a decal must
 /// live at least long enough to be seen (and to never divide-by-zero in
 /// the runtime `age / ttl` interpolant).
 pub const MIN_CONTACT_DECAL_TTL: f32 = 0.05;
@@ -331,15 +331,15 @@ pub const MIN_CONTACT_DECAL_TTL: f32 = 0.05;
 /// scorch mark) but finite so a hostile value can't pin quads forever;
 /// the global live cap still bounds the population regardless.
 pub const MAX_CONTACT_DECAL_TTL: f32 = 600.0;
-/// Cap (m) on a decal quad's start/end side length — bounds a hostile
+/// Cap (m) on a decal quad's start/end side length - bounds a hostile
 /// value from carpeting the world with one quad.
 pub const MAX_CONTACT_DECAL_SIZE: f32 = 64.0;
-/// Cap (m) on the surface-normal lift used to avoid z-fighting. Small —
+/// Cap (m) on the surface-normal lift used to avoid z-fighting. Small -
 /// a large value would float the decal visibly off the ground.
 pub const MAX_CONTACT_DECAL_NORMAL_OFFSET: f32 = 1.0;
 
 // --- Contact audio cue (#262) -------------------------------------------
-/// Cap on an authored cue's linear volume floor / per-speed gain — a
+/// Cap on an authored cue's linear volume floor / per-speed gain - a
 /// hostile value can't blow out a listener's ears or clip the mixer.
 pub const MAX_CONTACT_AUDIO_VOLUME: f32 = 4.0;
 /// Min/max playback-speed (pitch) multiplier. Bounded so a cue can't
@@ -348,7 +348,7 @@ pub const MIN_CONTACT_AUDIO_PITCH: f32 = 0.1;
 pub const MAX_CONTACT_AUDIO_PITCH: f32 = 4.0;
 /// Cap on the random ± pitch jitter (multiplier units).
 pub const MAX_CONTACT_AUDIO_PITCH_JITTER: f32 = 1.0;
-/// Cap (chars) on an authored audio URL / DID / CID — bounds a
+/// Cap (chars) on an authored audio URL / DID / CID - bounds a
 /// pathological string the same way the Sign sanitiser does.
 pub const MAX_CONTACT_AUDIO_URL: usize = 2_048;
 pub const MAX_CONTACT_AUDIO_ID: usize = 256;

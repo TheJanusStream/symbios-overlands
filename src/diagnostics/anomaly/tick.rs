@@ -5,11 +5,11 @@
 //! applies each rule's debounce policy, and routes an actual fire three ways:
 //! a structured `InvariantViolation` event into the session log (Pillar A), the
 //! per-rule badge state in the registry (Pillar C reads it), and a console
-//! `warn!`/`error!` line. The badge routing is implicit — [`InvariantRegistry::note_verdict`]
+//! `warn!`/`error!` line. The badge routing is implicit - [`InvariantRegistry::note_verdict`]
 //! updates the ledger the GUI reads.
 //!
 //! The rule-evaluation core is factored into [`run_rules`] (pure over its inputs)
-//! so the whole engine — rules, debounce and routing — is unit-testable without
+//! so the whole engine - rules, debounce and routing - is unit-testable without
 //! standing up a Bevy `App`.
 
 use std::time::Duration;
@@ -34,7 +34,7 @@ pub struct LoadingClock {
     /// `None` until the first gate exit and across re-logins.
     ingame_entered_at: Option<f64>,
     /// Whether a collider has been observed since the current InGame entry
-    /// (#922) — the cross-world-safe replacement for scanning the collider
+    /// (#922) - the cross-world-safe replacement for scanning the collider
     /// gauge's ring, which at session start still holds the boot/attract
     /// world's samples. Reset when the loading gate opens.
     colliders_seen_ingame: bool,
@@ -42,7 +42,7 @@ pub struct LoadingClock {
 
 impl LoadingClock {
     /// Session-relative seconds when `Loading` was entered, or `None` outside
-    /// the loading gate — lets the loading screen render a live gate countdown
+    /// the loading gate - lets the loading screen render a live gate countdown
     /// against the same clock the stall rule measures (C-5).
     pub fn entered_at(&self) -> Option<f64> {
         self.entered_at
@@ -93,7 +93,7 @@ pub fn run_rules(invariants: &mut InvariantRegistry, cx: &LiveCtx, log: &mut Ses
     // Collect (id, debounce, severity, verdict) first so the immutable borrow
     // of `invariants.rules()` is released before we mutate the ledger. In the
     // same pass, note every rule skipped because its `when_state` no longer
-    // matches — those need their badge cleared below.
+    // matches - those need their badge cleared below.
     let mut to_clear: Vec<RuleId> = Vec::new();
     let results: Vec<_> = invariants
         .rules()
@@ -112,9 +112,9 @@ pub fn run_rules(invariants: &mut InvariantRegistry, cx: &LiveCtx, log: &mut Ses
 
     // Clear the badge for every state-skipped rule (#632). `note_verdict` only
     // auto-clears rules it actually evaluates (via `Verdict::Clear`), so a rule
-    // left `Violated` at the instant its gating state was exited — e.g.
+    // left `Violated` at the instant its gating state was exited - e.g.
     // `loading.gate_stall` when a slow login finally completes and we switch to
-    // `InGame` — would otherwise keep its Critical badge + "session health
+    // `InGame` - would otherwise keep its Critical badge + "session health
     // compromised" banner for the entire rest of the session. Re-entering the
     // state re-evaluates and re-fires normally.
     for id in to_clear {
@@ -175,7 +175,7 @@ fn diagnostic_tick(
         .flatten();
     let player_pos = player_q.iter().next().map(|t| t.translation);
     let player_y = player_pos.map(|p| p.y);
-    // Terrain height under the player, for the fell-through-terrain rule —
+    // Terrain height under the player, for the fell-through-terrain rule -
     // the same clamped heightmap sample `respawn_if_fallen` reads (#672).
     let ground_y = match (player_pos, hm_res.as_ref()) {
         (Some(p), Some(hm_res)) => {
@@ -198,7 +198,7 @@ fn diagnostic_tick(
         .count();
     // Avatar visuals with no parent link back to any chassis. NB: the editor
     // gizmo deliberately detaches a visual for the duration of a drag, so a
-    // long drag can light the (Info-severity) orphan badge until release —
+    // long drag can light the (Info-severity) orphan badge until release -
     // the hot-swap sweep reclaims real orphans on the next rebuild.
     let orphan_avatar_count = orphans_q.iter().count();
 
@@ -256,7 +256,7 @@ fn loading_clock_exit(
     mut log: ResMut<SessionLog>,
 ) {
     // Record the total wall time spent in the loading gate (E-4) before clearing
-    // the entry stamp — this OnExit(Loading) system owns the gate timing. The
+    // the entry stamp - this OnExit(Loading) system owns the gate timing. The
     // only exit from `Loading` is into `InGame` (logout is `InGame → Login`), so
     // this is the Loading → InGame transition.
     if let Some(entered_at) = clock.entered_at {
@@ -277,7 +277,7 @@ fn loading_clock_exit(
 }
 
 /// Installs the live anomaly engine: the shared rule registry, the loading
-/// clock, and the 1 Hz tick. Additive — no existing system changes.
+/// clock, and the 1 Hz tick. Additive - no existing system changes.
 pub struct AnomalyPlugin;
 
 impl Plugin for AnomalyPlugin {
@@ -454,7 +454,7 @@ mod tests {
         r.note(29.0);
         // At t=30, the t=0 stamp sits exactly on the window edge (kept: <=).
         assert_eq!(r.count_recent(30.0), 3);
-        // At t=40, the t=0 and t=5 stamps have aged out — and were pruned.
+        // At t=40, the t=0 and t=5 stamps have aged out - and were pruned.
         assert_eq!(r.count_recent(40.0), 1);
         assert_eq!(r.stamps.len(), 1, "pruning bounds the vec");
     }

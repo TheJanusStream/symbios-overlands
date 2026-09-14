@@ -1,36 +1,36 @@
-//! Cosmetic idle / gait animation for *every* avatar family — the consumer
+//! Cosmetic idle / gait animation for *every* avatar family - the consumer
 //! of the seeded [`AvatarGait`] bounce / sway / head-turn fields (#659,
 //! extended to vehicles by #797).
 //!
 //! Animates the avatar's **visual root** (the [`AvatarVisualRoot`] child
 //! the spawner tags under the chassis), never the physics body, so the
 //! collider, camera anchor and network transform stay untouched. The
-//! [`GaitMode`] — chosen from the runtime locomotion *preset* — selects the
+//! [`GaitMode`] - chosen from the runtime locomotion *preset* - selects the
 //! profile:
 //!
-//! - **Humanoid** — a per-footfall vertical bounce (phase advances with the
+//! - **Humanoid** - a per-footfall vertical bounce (phase advances with the
 //!   avatar's actual horizontal speed) crossfaded with an idle weight-shift
 //!   sway + gentle look-around yaw (sized by the gait's head-turn variance).
-//! - **Boat** — an always-on slow hull heave + gentle list (roll).
-//! - **Airship** — a lazy nose-wander yaw + slight vertical drift.
-//! - **Skiff** — a faint suspension shiver at idle, crossfading into a
+//! - **Boat** - an always-on slow hull heave + gentle list (roll).
+//! - **Airship** - a lazy nose-wander yaw + slight vertical drift.
+//! - **Skiff** - a faint suspension shiver at idle, crossfading into a
 //!   banking lean into turns under way (roll ∝ yaw-rate × speed).
 //!
 //! The vehicle modes reuse the same seeded [`AvatarGait`] amplitudes as the
-//! humanoid (no new seeded fields — the per-avatar individuality is free),
+//! humanoid (no new seeded fields - the per-avatar individuality is free),
 //! scaled into vehicle ranges by the [`veh`] constants.
 //!
 //! All offsets compose onto the root's authored base transform captured
 //! in [`AvatarVisualRoot`], so avatar-editor rebuilds (which respawn the
 //! root) and preset hot-swaps stay drift-free. Amplitudes come from the
-//! record's optional `gait` section when present (#874 — authorable in
+//! record's optional `gait` section when present (#874 - authorable in
 //! the avatar editor, so both the local preview and remote peers render
 //! the published tuning); a record without one falls back to the owner-DID
-//! derivation via [`AvatarGait::for_did`] — the same derivation the seeded
+//! derivation via [`AvatarGait::for_did`] - the same derivation the seeded
 //! locomotion defaults use.
 //!
 //! The local player's gait pauses (root held at the rest pose) while the
-//! Avatar editor window is open (#741) — see [`animate_avatar_gait`]
+//! Avatar editor window is open (#741) - see [`animate_avatar_gait`]
 //! for why. Remote peers are unaffected.
 
 use avian3d::prelude::{AngularVelocity, LinearVelocity};
@@ -46,26 +46,26 @@ use super::{CarPreset, HelicopterPreset, HoverBoatPreset, HumanoidPreset};
 /// Horizontal speed (m/s) above which the avatar counts as walking for
 /// the bounce/sway crossfade.
 const MOVING_SPEED_THRESHOLD: f32 = 0.3;
-/// Crossfade rate (1/s) between the idle and walking animation poses —
+/// Crossfade rate (1/s) between the idle and walking animation poses -
 /// fast enough to feel responsive, slow enough not to pop.
 const BLEND_RATE: f32 = 6.0;
-/// Idle look-around frequency (Hz) — deliberately much slower than the
+/// Idle look-around frequency (Hz) - deliberately much slower than the
 /// weight-shift sway so the two don't read as one wobble.
 const HEAD_TURN_FREQ_HZ: f32 = 0.08;
 /// Midpoint of the seeded `idle_sway_frequency` range (0.4–1.2 Hz). The
 /// skiff and airship profiles have characteristic frequencies of their own
 /// (engine buzz, lazy drift) far from the human sway band, so they consume
-/// the authored frequency as a *ratio* against this nominal — the slider
+/// the authored frequency as a *ratio* against this nominal - the slider
 /// modulates their pace proportionally (#878) while the seeded midpoint
 /// reproduces the historical `veh` constants exactly.
 const NOMINAL_SWAY_HZ: f32 = 0.8;
 
 /// Vehicle idle-motion tuning. The vehicle modes reuse the seeded
-/// [`AvatarGait`] amplitudes (no new seeded fields — the individuality is
+/// [`AvatarGait`] amplitudes (no new seeded fields - the individuality is
 /// free), scaled into vehicle-appropriate ranges by these constants.
 mod veh {
     /// Boat hull heave (vertical bob) as a multiple of `idle_sway_amplitude`
-    /// — a hull rides a swell far more than a person shifts weight.
+    /// - a hull rides a swell far more than a person shifts weight.
     pub const BOAT_HEAVE: f32 = 3.0;
     /// Boat list (roll about the fore-aft axis) as a multiple of
     /// `idle_sway_amplitude`, in radians (≈1–5°).
@@ -75,15 +75,15 @@ mod veh {
     pub const BOAT_SWELL_HZ: f32 = 0.35;
     /// Airship nose-wander yaw as a fraction of `head_turn_variance_degrees`.
     pub const AIRSHIP_YAW: f32 = 0.4;
-    /// Airship drift frequency (Hz) at the seeded-nominal sway frequency —
+    /// Airship drift frequency (Hz) at the seeded-nominal sway frequency -
     /// a slow lazy wander, scaled by the authored ratio (#878).
     pub const AIRSHIP_DRIFT_HZ: f32 = 0.06;
     /// Airship vertical drift as a multiple of `idle_sway_amplitude`.
     pub const AIRSHIP_HEAVE: f32 = 2.0;
     /// Skiff idle suspension shiver (vertical) as a multiple of
-    /// `idle_sway_amplitude` — a small fast tremble at rest.
+    /// `idle_sway_amplitude` - a small fast tremble at rest.
     pub const SKIFF_SHIVER: f32 = 0.6;
-    /// Skiff shiver frequency (Hz) at the seeded-nominal sway frequency —
+    /// Skiff shiver frequency (Hz) at the seeded-nominal sway frequency -
     /// an idling-engine buzz, much faster than the boat swell, scaled by
     /// the authored ratio (#878).
     pub const SKIFF_SHIVER_HZ: f32 = 9.0;
@@ -95,7 +95,7 @@ mod veh {
     pub const SKIFF_BANK_MAX: f32 = 0.3;
 }
 
-/// Which animation profile drives an avatar's visual root — chosen from the
+/// Which animation profile drives an avatar's visual root - chosen from the
 /// runtime locomotion *preset* (physics), never the seeded chassis family, so
 /// a boat-visualled avatar the owner drives as a car banks like a car (#797).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -128,13 +128,13 @@ impl GaitMode {
 }
 
 /// Per-avatar idle/gait-animation state, attached to any animated avatar
-/// chassis (local and remote — every family with a [`GaitMode`]) by
+/// chassis (local and remote - every family with a [`GaitMode`]) by
 /// [`attach_gait_animation`] and stripped with the preset markers on hot-swap.
 #[derive(Component)]
 pub struct GaitAnimation {
     gait: AvatarGait,
     /// Overall idle-motion multiplier from the record's
-    /// [`GaitParams::idle_intensity`](crate::pds::GaitParams) — scales the
+    /// [`GaitParams::idle_intensity`](crate::pds::GaitParams) - scales the
     /// composed offsets in [`Self::advance`]. `1.0` for the DID-seeded
     /// fallback.
     intensity: f32,
@@ -151,10 +151,10 @@ pub struct GaitAnimation {
     phase: f32,
     /// Smoothed 0 = idle … 1 = walking / under-way crossfade.
     moving_blend: f32,
-    /// Last frame's chassis translation — the finite-difference speed
+    /// Last frame's chassis translation - the finite-difference speed
     /// fallback for remote peers (no `LinearVelocity` component).
     prev_pos: Option<Vec3>,
-    /// Last frame's chassis yaw (radians) — the finite-difference yaw-rate
+    /// Last frame's chassis yaw (radians) - the finite-difference yaw-rate
     /// fallback for remote peers (no `AngularVelocity`), for banking.
     prev_yaw: Option<f32>,
     /// Per-avatar phase offset so a crowd doesn't sway in lockstep.
@@ -182,9 +182,9 @@ impl GaitAnimation {
 
     /// Refresh the animated amplitudes from the avatar record (#874): an
     /// explicit `gait` section overrides the DID-seeded attach-time values
-    /// (its absence keeps them — the legacy derivation), and the humanoid
+    /// (its absence keeps them - the legacy derivation), and the humanoid
     /// walk speed becomes the cadence hint. Called every frame from
-    /// [`animate_avatar_gait`] — a copy of six floats, so cheap enough
+    /// [`animate_avatar_gait`] - a copy of six floats, so cheap enough
     /// that slider edits (local) and record hot-swaps (remote) apply
     /// without any change-detection plumbing.
     fn refresh_from_record(&mut self, record: &AvatarRecord) {
@@ -274,15 +274,15 @@ pub(super) fn attach_gait_animation(
 
 /// Drive the per-family heave / sway / bank / look-around offsets onto each
 /// animated avatar's visual root. Removes [`GaitAnimation`] from an avatar
-/// whose current profile no longer matches its attached [`GaitMode`] — a local
-/// preset hot-swap or a remote record hot-swap — so its fresh visual root
+/// whose current profile no longer matches its attached [`GaitMode`] - a local
+/// preset hot-swap or a remote record hot-swap - so its fresh visual root
 /// spawns unanimated and no offset lingers.
 ///
 /// While a gizmo is aimed at the local player's avatar or at something it
 /// wears ([`super::RigHold::still`]),
 /// its gait pauses and the visual root is held at the authored rest pose
 /// (#737). Sway is time-based, so it would keep oscillating right through
-/// the physics freeze — moving every part of the avatar *except* the
+/// the physics freeze - moving every part of the avatar *except* the
 /// gizmo-detached prim being edited, and drifting the parent transforms
 /// the drag commit's world→local conversion reads. #741/#814 had widened
 /// the hold to the whole open window so the pose could not shift between
@@ -349,7 +349,7 @@ pub(super) fn animate_avatar_gait(
         }
 
         // Record-authored amplitudes override the DID-seeded attach-time
-        // values (#874) — the local player's from its live (unpublished)
+        // values (#874) - the local player's from its live (unpublished)
         // record so slider edits preview immediately, remote peers' from
         // their last-applied published record.
         let record = if is_local {
@@ -363,7 +363,7 @@ pub(super) fn animate_avatar_gait(
 
         // Editing freeze: hold the local avatar at its rest pose. Written
         // every frame (not edge-triggered) so a visuals rebuild mid-edit
-        // re-neutralizes the freshly-spawned root — same state-synced
+        // re-neutralizes the freshly-spawned root - same state-synced
         // shape as the chassis freeze in `player::mod`. When the *root*
         // node itself is gizmo-detached it is no longer in `children`,
         // so this can't fight the gizmo for its transform.
@@ -428,7 +428,7 @@ pub(super) fn animate_avatar_gait(
 
 impl GaitAnimation {
     /// Advance the phase/blend state and return this frame's root-local
-    /// `(translation offset, yaw, roll)` for the animation's [`GaitMode`] —
+    /// `(translation offset, yaw, roll)` for the animation's [`GaitMode`] -
     /// pure math, unit-tested below. `yaw_rate` (rad/s) drives skiff banking;
     /// the other modes ignore it.
     fn advance(&mut self, dt: f32, t: f32, speed: f32, yaw_rate: f32) -> (Vec3, f32, f32) {
@@ -468,7 +468,7 @@ impl GaitAnimation {
         let walk = self.blend_toward(moving, dt);
 
         // Footfalls per second: the authored cadence is reached at exactly
-        // the avatar's tuned walk speed (#877) — scaled by how fast the
+        // the avatar's tuned walk speed (#877) - scaled by how fast the
         // avatar actually moves relative to it (wading halves it, standing
         // stops it). Without a tuned speed (no record yet), fall back to
         // the speed a seeded record would carry for this cadence, which is
@@ -512,7 +512,7 @@ impl GaitAnimation {
     }
 
     /// Airship: a lazy nose-wander yaw + a slight vertical drift. The
-    /// drift pace scales with the authored sway frequency (#878) — a
+    /// drift pace scales with the authored sway frequency (#878) - a
     /// 0-frequency record hangs dead still.
     fn advance_airship(&self, t: f32) -> (Vec3, f32, f32) {
         use std::f32::consts::TAU;
@@ -628,7 +628,7 @@ mod tests {
         let mut a = anim_mode(GaitMode::Boat);
         let (mut max_heave, mut max_roll): (f32, f32) = (0.0, 0.0);
         for i in 0..1200 {
-            // Speed / yaw-rate must not matter — a hull rocks whether moored
+            // Speed / yaw-rate must not matter - a hull rocks whether moored
             // or under way, and never bounces or steps.
             let (o, yaw, roll) = a.advance(1.0 / 60.0, i as f32 / 60.0, 5.0, 1.0);
             assert_eq!(yaw, 0.0);
@@ -706,7 +706,7 @@ mod tests {
     }
 
     /// Count sign changes of a profile's oscillating output over 20 s of
-    /// idle time with the record's sway frequency pinned to `freq` —
+    /// idle time with the record's sway frequency pinned to `freq` -
     /// skiff/boat read the vertical offset, airship its wander yaw.
     fn idle_sign_changes(mode: GaitMode, freq: f32) -> usize {
         let mut record = AvatarRecord::default_for_did("did:plc:freq-test");
@@ -760,7 +760,7 @@ mod tests {
     #[test]
     fn zero_sway_frequency_stills_the_skiff_and_airship() {
         // 0 Hz is an authored "off": no shiver, no drift. (The boat
-        // deliberately floors its swell — a hull always rides water.)
+        // deliberately floors its swell - a hull always rides water.)
         assert_eq!(idle_sign_changes(GaitMode::Skiff, 0.0), 0);
         assert_eq!(idle_sign_changes(GaitMode::Airship, 0.0), 0);
     }
@@ -769,7 +769,7 @@ mod tests {
     fn record_gait_overrides_seeded_amplitudes() {
         let mut record = AvatarRecord::default_for_did("did:plc:someone-else");
         // The seeded chassis family (and thus locomotion) varies with the
-        // DID — pin the humanoid preset so the cadence-hint assertion
+        // DID - pin the humanoid preset so the cadence-hint assertion
         // doesn't depend on the dice.
         record.locomotion = crate::pds::HumanoidParams::default().into_config();
         let gp = record.gait.as_mut().expect("seeded default carries gait");
@@ -813,7 +813,7 @@ mod tests {
     fn tuned_walk_speed_reaches_full_cadence_instead_of_sliding() {
         // #877: with walk_speed tuned far above the seeded nominal, the
         // old formula capped footfalls at 1.6× cadence while the avatar
-        // covered 2.5× the ground — reading as a slide. The hint re-bases
+        // covered 2.5× the ground - reading as a slide. The hint re-bases
         // the ratio on the tuned speed, so full speed = authored cadence.
         let mut record = AvatarRecord::default_for_did("did:plc:sprinter");
         let p = crate::pds::HumanoidParams {

@@ -3,9 +3,9 @@
 //!
 //! Each PDS record type used to carry its own copy of the same pipeline
 //! (task component, exponential-backoff retry marker, poll system).
-//! [`LoadedRecord`] now captures the per-record policy — how to fetch,
+//! [`LoadedRecord`] now captures the per-record policy - how to fetch,
 //! what default to synthesise, how many retries a transient failure is
-//! worth, and what to do when recovery is impossible — while the
+//! worth, and what to do when recovery is impossible - while the
 //! machinery below ([`RecordFetchTask`], [`PendingRecordRetry`],
 //! [`poll_record_task`], [`fire_pending_record_retries`]) is written
 //! once and instantiated per record type in `crate::run`.
@@ -13,7 +13,7 @@
 //! The task result preserves the distinction between *no record* (404)
 //! and *couldn't reach the PDS*: only the former falls through to the
 //! DID-seeded default immediately. Substituting the default on a
-//! transient network failure would be catastrophic for room and avatar —
+//! transient network failure would be catastrophic for room and avatar -
 //! the owner would silently be staged on the blank default, and a
 //! "Save" click would overwrite their real record.
 
@@ -62,11 +62,11 @@ pub trait LoadedRecord: Sized + Send + Sync + 'static {
     fn default_for(did: &str) -> Self;
 
     /// Sanitize and install the record's live + stored resources. The
-    /// two start identical — any later divergence is authored by the
+    /// two start identical - any later divergence is authored by the
     /// owner (and diffed by the editors / the unsaved-edits guard).
     fn install(self, commands: &mut Commands);
 
-    /// Hook fired when the stored record can never be fetched intact —
+    /// Hook fired when the stored record can never be fetched intact -
     /// decode failure (schema drift is permanent, retrying can't help),
     /// an identity that does not resolve, or an exhausted retry budget.
     /// Every impl raises its recovery marker here (#840): room's drives
@@ -78,7 +78,7 @@ pub trait LoadedRecord: Sized + Send + Sync + 'static {
     /// `cause` splits "this build cannot read what is stored" from "we
     /// never read it" (#1265 f210). It rides the hook rather than being
     /// re-derived per impl because this is the one funnel all three
-    /// arms of `poll_record_task` pass through — the room banner's
+    /// arms of `poll_record_task` pass through - the room banner's
     /// headline, its detail prefix and whether it offers a destructive
     /// reset at all are decided by it, and a second derivation is how the
     /// two would drift apart again.
@@ -90,7 +90,7 @@ pub trait LoadedRecord: Sized + Send + Sync + 'static {
 
     /// Hook fired when a fetch resolves cleanly (a record, or an honest
     /// 404 for a never-published one): clears the recovery marker a
-    /// previous pass may have left behind (#840) — e.g. a portal-hop
+    /// previous pass may have left behind (#840) - e.g. a portal-hop
     /// decode failure whose banner would otherwise follow the player
     /// home, where its "Reset PDS to default" would wipe a HEALTHY
     /// record. Required for the same reason as
@@ -131,7 +131,7 @@ impl RecordFetchOutcomes {
     }
 
     /// Labels of every record whose fetch fell back for a FAILURE reason
-    /// (decode error / exhausted retries) — 404 is a legitimate fresh
+    /// (decode error / exhausted retries) - 404 is a legitimate fresh
     /// account, not a fallback worth alarming anyone about.
     pub fn failure_fallback_labels(&self) -> Vec<&'static str> {
         [
@@ -147,12 +147,12 @@ impl RecordFetchOutcomes {
 }
 
 /// Whether a terminal [`FetchStatus`] means "the default was installed
-/// even though a real record may exist" — the clobber hazard (#840).
+/// even though a real record may exist" - the clobber hazard (#840).
 ///
 /// [`FetchStatus::NoSuchIdentity`] is in the list for a different reason
 /// than the others (#1230 f22): there is no stored copy at risk, because
 /// there is no account. It belongs here because the row must not render a
-/// green tick over a world that belongs to nobody — which is exactly what
+/// green tick over a world that belongs to nobody - which is exactly what
 /// a mistyped landmark link produced.
 pub(crate) fn is_failure_fallback(status: FetchStatus) -> bool {
     matches!(
@@ -170,17 +170,17 @@ pub(crate) fn is_failure_fallback(status: FetchStatus) -> bool {
 /// case and vague for the rest.
 pub(crate) fn fallback_note(status: FetchStatus) -> &'static str {
     match status {
-        FetchStatus::NoSuchIdentity => "— no account with that identifier; showing a default world",
-        FetchStatus::DecodeError => "— the stored copy could not be read; showing a default",
+        FetchStatus::NoSuchIdentity => "- no account with that identifier; showing a default world",
+        FetchStatus::DecodeError => "- the stored copy could not be read; showing a default",
         FetchStatus::Exhausted | FetchStatus::BestEffortFallback => {
-            "— using default (stored copy unavailable)"
+            "- using default (stored copy unavailable)"
         }
         // Not a failure and not silent (#1232 f28). The owner's own first
-        // login is `NotFound` and stays wordless — the zero-configuration
-        // homeworld is the product working — but a visitor cannot tell
+        // login is `NotFound` and stays wordless - the zero-configuration
+        // homeworld is the product working - but a visitor cannot tell
         // "@alice's overland" from "a world we invented for a DID" without
         // being told, and a mistyped link produces exactly the second.
-        FetchStatus::NotBuiltYet => "— they haven't built one yet; showing a default",
+        FetchStatus::NotBuiltYet => "- they haven't built one yet; showing a default",
         FetchStatus::Ok | FetchStatus::NotFound | FetchStatus::TransientError => "",
     }
 }
@@ -190,7 +190,7 @@ pub(crate) fn fallback_note(status: FetchStatus) -> &'static str {
 ///
 /// The sequence this exists for: a landmark link's DID is mangled badly
 /// enough to survive `validate_destination`'s shape check but name nothing
-/// — the `Did` arm is used verbatim, unlike the `Handle` arm, which
+/// - the `Did` arm is used verbatim, unlike the `Handle` arm, which
 /// resolves up front. The catch-all `Err(err)` arm treated that exactly
 /// like a dead PDS and spent the full twelve attempts, roughly ten minutes,
 /// under a headline asserting "A record server is unreachable", before
@@ -231,7 +231,7 @@ pub(crate) fn terminal_fallback_status(max_attempts: u32) -> FetchStatus {
 
 /// Spawn the shared IoTaskPool wrapper around a record-fetch future.
 ///
-/// `IoTaskPool` is the correct home for blocking HTTP calls — the
+/// `IoTaskPool` is the correct home for blocking HTTP calls - the
 /// `AsyncComputeTaskPool` is sized to the CPU-core count and must not be
 /// starved by threads blocked on network sockets.
 ///
@@ -241,7 +241,7 @@ pub(crate) fn terminal_fallback_status(max_attempts: u32) -> FetchStatus {
 /// async-executor, so on native the future is driven by the
 /// process-shared runtime via `config::http::block_on` (same pattern as
 /// every other HTTP-spawning site in the crate). wasm32 has no tokio;
-/// the browser's JS runtime backs `fetch`, so the bare future works —
+/// the browser's JS runtime backs `fetch`, so the bare future works -
 /// and reqwest's wasm futures are `!Send`, which is why the two variants
 /// carry different bounds.
 #[cfg(not(target_arch = "wasm32"))]
@@ -273,7 +273,7 @@ where
         let client = config::http::default_client();
         // Browser reqwest exposes no builder timeouts (`config::http`
         // explicitly assigns enforcement to callers), so a hung PDS
-        // would freeze the whole retry state machine forever — retries
+        // would freeze the whole retry state machine forever - retries
         // only advance when a task *resolves* (#849). Race the fetch
         // against a browser timer to restore native parity with
         // `REQUEST_TIMEOUT`; the loser is dropped, which aborts the
@@ -330,7 +330,7 @@ pub struct PendingRecordRetry<R: LoadedRecord> {
     did: String,
     attempt: u32,
     fire_at_secs: f64,
-    /// What the failed attempt reported — surfaced under the loading
+    /// What the failed attempt reported - surfaced under the loading
     /// screen's retrying row (#849) so "retrying" isn't a mystery.
     reason: String,
     _marker: PhantomData<R>,
@@ -352,7 +352,7 @@ impl<R: LoadedRecord> PendingRecordRetry<R> {
         &self.reason
     }
 
-    /// DID the fetch targets — lets the loading screen's "Retry now"
+    /// DID the fetch targets - lets the loading screen's "Retry now"
     /// respawn the fetch without waiting out the backoff (#849).
     pub(crate) fn did(&self) -> &str {
         &self.did
@@ -381,8 +381,8 @@ pub(crate) fn spawn_record_fetch<R: LoadedRecord>(
 ///   record, so the DID-seeded default is installed directly.
 /// - A decode failure is *not* transient: the stored record exists but
 ///   is incompatible with the current schema (lexicon drift,
-///   partially-migrated field). Retrying will never recover — the
-///   loading screen would hang forever — so the default is installed and
+///   partially-migrated field). Retrying will never recover - the
+///   loading screen would hang forever - so the default is installed and
 ///   [`LoadedRecord::on_unrecoverable`] gets to surface the situation.
 /// - Any other failure (DNS timeout, 5xx, DID-resolution hiccup) is
 ///   retried with exponential backoff up to [`LoadedRecord::MAX_ATTEMPTS`],
@@ -424,7 +424,7 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                 } else {
                     FetchStatus::NotBuiltYet
                 });
-                info!("No {} record on PDS — using DID-seeded default", R::LABEL);
+                info!("No {} record on PDS - using DID-seeded default", R::LABEL);
                 R::default_for(&did)
             }
             Err(FetchError::Decode(msg)) => {
@@ -439,7 +439,7 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                     },
                 );
                 warn!(
-                    "Stored {} record could not be decoded ({}) — using DID-seeded default",
+                    "Stored {} record could not be decoded ({}) - using DID-seeded default",
                     R::LABEL,
                     msg
                 );
@@ -464,7 +464,7 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                     },
                 );
                 warn!(
-                    "{} record fetch: {} does not resolve to an account ({err}) — \
+                    "{} record fetch: {} does not resolve to an account ({err}) - \
                      using DID-seeded default",
                     R::LABEL,
                     did
@@ -498,7 +498,7 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                         },
                     );
                     warn!(
-                        "{} record fetch exhausted {} attempts: {err:?} — falling back to default",
+                        "{} record fetch exhausted {} attempts: {err:?} - falling back to default",
                         R::LABEL,
                         R::MAX_ATTEMPTS,
                     );
@@ -510,7 +510,7 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                     R::on_unrecoverable(
                         &mut commands,
                         RecoveryCause::Unreachable,
-                        format!("PDS unreachable — {err}"),
+                        format!("PDS unreachable - {err}"),
                     );
                     R::default_for(&did)
                 } else {
@@ -526,7 +526,7 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                         },
                     );
                     warn!(
-                        "{} record fetch failed: {:?} — retrying in {}s (attempt {})",
+                        "{} record fetch failed: {:?} - retrying in {}s (attempt {})",
                         R::LABEL,
                         err,
                         backoff,
@@ -537,7 +537,7 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                         attempt: next_attempt,
                         fire_at_secs: elapsed + backoff as f64,
                         // The retrying row prints this under the row, so it
-                        // is `Display` (#1230 f22) — the old `Debug` put
+                        // is `Display` (#1230 f22) - the old `Debug` put
                         // `DidResolutionFailed` on a loading screen.
                         reason: err.to_string(),
                         _marker: PhantomData,
@@ -548,12 +548,12 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
             }
         };
         // A terminal outcome resolved the fetch (success / decode-fallback /
-        // exhausted-default) — record the resolving attempt's latency (E-4). The
+        // exhausted-default) - record the resolving attempt's latency (E-4). The
         // transient-retry path `continue`s above, so a retry cycle's intermediate
         // (often timeout-length) attempt latencies never pollute this histogram.
         let now = time.elapsed_secs_f64();
         // Typed completion for the *successful* resolutions (a record, or a
-        // 404-default) — feeds the analyzer's record-fetch stage distro (B-2).
+        // 404-default) - feeds the analyzer's record-fetch stage distro (B-2).
         // The decode / exhausted / best-effort arms already logged their own.
         if let Some(status) = fetch_status {
             session_log.info(
@@ -606,8 +606,8 @@ mod tests {
 
     /// #1230 f22. The sequence: a landmark link's DID is mangled badly
     /// enough to survive `validate_destination`'s shape check but name
-    /// nothing. The `Did` arm is used verbatim — unlike the `Handle` arm,
-    /// which resolves up front — so the catch-all `Err(err)` arm treated a
+    /// nothing. The `Did` arm is used verbatim - unlike the `Handle` arm,
+    /// which resolves up front - so the catch-all `Err(err)` arm treated a
     /// nonexistent account exactly like a dead PDS: twelve attempts, roughly
     /// ten minutes, under a headline asserting "A record server is
     /// unreachable", ending in a synthesised world belonging to nobody.
@@ -615,7 +615,7 @@ mod tests {
     fn a_destination_that_does_not_exist_is_not_a_server_outage() {
         assert!(is_terminal_failure(&FetchError::NoSuchIdentity));
         // Everything else keeps its retry budget. A directory that is merely
-        // unreachable must NOT be reported as "no such account" — the safe
+        // unreachable must NOT be reported as "no such account" - the safe
         // direction to be wrong in is "retry".
         assert!(!is_terminal_failure(&FetchError::DidResolutionFailed));
         assert!(!is_terminal_failure(&FetchError::Network("dns".into())));
@@ -685,7 +685,7 @@ mod tests {
     #[test]
     fn best_effort_records_fall_through_without_an_exhausted_failure() {
         // A best-effort record (MAX_ATTEMPTS == 0, i.e. inventory) fell
-        // through by design — not a gameplay-critical fetch giving up.
+        // through by design - not a gameplay-critical fetch giving up.
         assert_eq!(terminal_fallback_status(0), FetchStatus::BestEffortFallback);
         // Room / avatar spent a real retry budget before giving up.
         assert_eq!(terminal_fallback_status(12), FetchStatus::Exhausted);
@@ -693,7 +693,7 @@ mod tests {
 
     #[test]
     fn failure_fallbacks_exclude_fresh_accounts() {
-        // Ok and 404 are healthy resolutions (#840) — a fresh account's
+        // Ok and 404 are healthy resolutions (#840) - a fresh account's
         // synthesised default must not read as a clobber hazard.
         assert!(!is_failure_fallback(FetchStatus::Ok));
         assert!(!is_failure_fallback(FetchStatus::NotFound));

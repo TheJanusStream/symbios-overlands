@@ -54,14 +54,14 @@ impl Plugin for CameraPlugin {
 /// Which button pans, and under which modifier key (#1242 f166).
 ///
 /// Pan was bound to the middle button and nothing else, so a laptop or
-/// trackpad user — explicitly in scope, and the audience the 1280x720
-/// layout work is for — could not perform one of the three camera
+/// trackpad user - explicitly in scope, and the audience the 1280x720
+/// layout work is for - could not perform one of the three camera
 /// controls the Controls sheet advertises.
 ///
 /// The obvious fix does not work, and the shape of the crate is why.
 /// `pan_pressed` is `modifier_pan.pressed() && mouse.pressed(button_pan)`,
 /// so setting `modifier_pan: Some(AltLeft)` on its own does NOT add
-/// Alt+right-drag — it makes plain middle-drag stop panning and asks for
+/// Alt+right-drag - it makes plain middle-drag stop panning and asks for
 /// Alt+MIDDLE instead. `orbit_pressed` additionally requires
 /// `!modifier_pan.pressed()`, which is the piece that makes this work:
 /// with Alt held, moving `button_pan` onto the right button suppresses
@@ -84,12 +84,12 @@ fn pan_binding(alt_held: bool) -> (MouseButton, Option<KeyCode>) {
 /// build that rations the only look-around gesture by screen width: winit
 /// derives its web delta from `movementX/Y`, which goes to zero once the
 /// OS cursor pins at the screen edge. (On native the deltas are raw
-/// `DeviceEvent::MouseMotion` and are not clamped at all — which is the
+/// `DeviceEvent::MouseMotion` and are not clamped at all - which is the
 /// correction the review's own refuter made, and why this is a browser
 /// fix wearing native clothes.)
 ///
 /// `Locked` on wasm because `Confined` is not a thing the web backend
-/// implements — pointer lock is; `Confined` on native, which is the
+/// implements - pointer lock is; `Confined` on native, which is the
 /// gentler of the two and enough, since native motion is already
 /// unbounded. The cursor is hidden either way: a pointer visibly stuck
 /// against the screen edge while the view keeps turning is its own small
@@ -106,9 +106,9 @@ fn drag_cursor_grab(dragging: bool) -> (bevy::window::CursorGrabMode, bool) {
 }
 
 /// Our replacement for `bevy_panorbit_camera`'s `bevy_egui` feature (which
-/// is deliberately disabled — see Cargo.toml): block camera input while the
+/// is deliberately disabled - see Cargo.toml): block camera input while the
 /// GUI wants the pointer, EXCEPT that a held right or middle button always
-/// controls the camera — an orbit (#702) or pan (#853) must never die
+/// controls the camera - an orbit (#702) or pan (#853) must never die
 /// because the drag started over (or crossed) an editor window.
 /// Scroll-zoom stays blocked while hovering a window on purpose: the wheel
 /// is how egui scrolls its own panels.
@@ -116,7 +116,7 @@ fn drag_cursor_grab(dragging: bool) -> (bevy::window::CursorGrabMode, bool) {
 /// KEYBOARD focus is deliberately NOT part of the gate (#1242 f165). It
 /// used to be, and it protected nothing: `PanOrbitCamera` is configured
 /// with no keyboard bindings at all, while `egui_wants_keyboard_input()`
-/// is true for as long as any text field holds focus — anywhere on screen,
+/// is true for as long as any text field holds focus - anywhere on screen,
 /// including with the cursor far out over the 3D world. Chat focuses its
 /// input when it opens and re-focuses after every send, so in the app's
 /// most common overlay state the wheel simply stopped zooming, with
@@ -178,7 +178,7 @@ fn gate_camera_on_gui(
 /// from [`crate::state::LocalSettings`], persisted machine-locally.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub enum CameraGroundAvoidance {
-    /// No clamping — the camera may dip under terrain when orbiting low.
+    /// No clamping - the camera may dip under terrain when orbiting low.
     Off,
     /// Keep the CAMERA's own position above ground + clearance; terrain
     /// between the avatar and the camera may occlude the view but never
@@ -233,7 +233,7 @@ fn clamp_distance_along_ray(
 /// ground + `clearance` (#872, [`CameraGroundAvoidance::CameraOnly`]):
 /// walk inward from the desired distance and stop at the first clear
 /// sample. A desired position already in the clear returns `dist`
-/// untouched — the camera is never pulled in while it has headroom,
+/// untouched - the camera is never pulled in while it has headroom,
 /// which is exactly the false positive the whole-ray check suffered.
 fn clamp_distance_camera_only(
     focus: Vec3,
@@ -256,7 +256,7 @@ fn clamp_distance_camera_only(
 }
 
 /// Pull the camera in along its focus→camera ray when it would dip under
-/// the terrain (#853) — orbiting low or zooming out over a slope used to
+/// the terrain (#853) - orbiting low or zooming out over a slope used to
 /// show the world's underside. Runs after `PanOrbitCameraSystemSet` has
 /// written the camera `Transform` and only rewrites `translation`:
 /// sliding along the ray toward the focus preserves the exact look
@@ -301,23 +301,23 @@ fn clamp_camera_to_terrain(
     }
 }
 
-/// The camera the player looks through — the one that means "the camera"
+/// The camera the player looks through - the one that means "the camera"
 /// everywhere else in the crate (#1300).
 ///
-/// Every system that asks where the view is — movement's forward vector,
+/// Every system that asks where the view is - movement's forward vector,
 /// the gizmo's pick ray, a nametag's projection, the drop raycast, the
-/// skybox and cloud deck that follow the eye — used to identify it as
+/// skybox and cloud deck that follow the eye - used to identify it as
 /// `With<Camera3d>`, which was correct only for as long as the app had
 /// exactly ONE `Camera3d`. #1288's item preview added a second, and
 /// **every one of those queries broke at once and silently**: eleven of
 /// them resolve with `single()`, which then returns `Err(MultipleEntities)`
-/// and falls through to a default — so avatar movement quietly switched
+/// and falls through to a default - so avatar movement quietly switched
 /// from camera-relative to absolute world axes, and the scene context menu
 /// stopped opening at all.
 ///
 /// So the identification is positive now: a query names this marker, and a
 /// camera that is not the player's view cannot answer by accident. The
-/// rule is enforced by the `every_camera_query_says_which_camera` scan —
+/// rule is enforced by the `every_camera_query_says_which_camera` scan -
 /// which exists because the failure mode here is a silent fallback, not a
 /// panic, and a third camera would have cost another sitting to find.
 ///
@@ -335,7 +335,7 @@ pub struct WorldCamera;
 ///
 /// An alias rather than the pair spelled out at each of the twelve call
 /// sites, because clippy's `type_complexity` is right about what those
-/// signatures had become — and because one name is one place to change if
+/// signatures had become - and because one name is one place to change if
 /// the app ever grows a second legitimate world view (a portal, a
 /// mirror). Compose it where a site needs more:
 /// `(IsWorldCamera, Without<SkyBox>)`.
@@ -346,8 +346,8 @@ pub type IsWorldCamera = (With<Camera3d>, With<WorldCamera>);
 ///
 /// The default hands `PrimaryEguiContext` to the first entity an
 /// `Added<Camera>` query yields on the first frame. This crate spawns two
-/// cameras in `Startup` with no ordering between them — the world camera
-/// below and #1288's item-preview camera — so which one egui draws through
+/// cameras in `Startup` with no ordering between them - the world camera
+/// below and #1288's item-preview camera - so which one egui draws through
 /// was decided by archetype order. Native usually got the world camera; the
 /// wasm build got the preview camera, which starts inactive, so bevy_egui
 /// dropped the view before its pass ever ran. Nothing panicked and nothing
@@ -356,7 +356,7 @@ pub type IsWorldCamera = (With<Camera3d>, With<WorldCamera>);
 ///
 /// The remedy bevy_egui documents is the one applied: no automatic pick,
 /// and [`PrimaryEguiContext`] spelled out on the camera that means it. The
-/// other half — a camera spawn is explicit about egui or gets none — is
+/// other half - a camera spawn is explicit about egui or gets none - is
 /// held by `the_world_camera_owns_the_egui_context_whichever_camera_spawns_first`.
 pub fn egui_global_settings() -> EguiGlobalSettings {
     EguiGlobalSettings {
@@ -365,9 +365,40 @@ pub fn egui_global_settings() -> EguiGlobalSettings {
     }
 }
 
+/// The world camera's atmospheric haze at the config defaults - what the
+/// camera spawns with before the first room's `Environment` re-tints it
+/// (`world_builder::compile::apply_environment_state` patches every
+/// `DistanceFog` it finds). Shared with the headless render tool's `--world`
+/// camera, so a world sheet starts from the same air the game does.
+pub(crate) fn default_distance_fog() -> DistanceFog {
+    let fc = cfg::fog::COLOR;
+    DistanceFog {
+        color: Color::srgba(fc[0], fc[1], fc[2], fc[3]),
+        directional_light_color: Color::srgba(
+            cfg::fog::DIRECTIONAL_LIGHT_COLOR[0],
+            cfg::fog::DIRECTIONAL_LIGHT_COLOR[1],
+            cfg::fog::DIRECTIONAL_LIGHT_COLOR[2],
+            cfg::fog::DIRECTIONAL_LIGHT_COLOR[3],
+        ),
+        directional_light_exponent: cfg::fog::DIRECTIONAL_LIGHT_EXPONENT,
+        falloff: FogFalloff::from_visibility_colors(
+            cfg::fog::VISIBILITY,
+            Color::srgb(
+                cfg::fog::EXTINCTION_COLOR[0],
+                cfg::fog::EXTINCTION_COLOR[1],
+                cfg::fog::EXTINCTION_COLOR[2],
+            ),
+            Color::srgb(
+                cfg::fog::INSCATTERING_COLOR[0],
+                cfg::fog::INSCATTERING_COLOR[1],
+                cfg::fog::INSCATTERING_COLOR[2],
+            ),
+        ),
+    }
+}
+
 fn spawn_orbit_camera(mut commands: Commands) {
     let pos = cfg::INITIAL_POS;
-    let fc = cfg::fog::COLOR;
     commands.spawn((
         Camera3d::default(),
         WorldCamera,
@@ -380,7 +411,7 @@ fn spawn_orbit_camera(mut commands: Commands) {
         // (panicked at glow-0.16.0/.../web_sys.rs: "Tex storage 2D
         // multisample is not supported"). Native and WebGPU paths handle
         // MSAA fine; only WebGL2 needs the opt-out. Disabling on every
-        // wasm build is the safe superset — modern browsers exposing
+        // wasm build is the safe superset - modern browsers exposing
         // WebGPU still work with MSAA off, and we don't depend on
         // anti-aliased edges anywhere visually critical.
         #[cfg(target_arch = "wasm32")]
@@ -407,13 +438,13 @@ fn spawn_orbit_camera(mut commands: Commands) {
         //
         // WebGL2 caveat: enabling the prepass also defines `DEPTH_PREPASS`
         // for the main-pass PBR shaders, and Bevy's prepass-depth read
-        // path uses `textureLoad` on a depth texture — which naga's GLSL
+        // path uses `textureLoad` on a depth texture - which naga's GLSL
         // backend rejects with "WGSL `textureLoad` from depth textures is
         // not supported in GLSL", panicking pipeline creation for every
         // alpha-blend PBR material (cloud, water). The shoreline-foam
         // block in water.wgsl is the only consumer in this codebase and
         // is already `#ifdef DEPTH_PREPASS`-guarded, so omitting the
-        // component on wasm32 cleanly disables the feature — shore foam
+        // component on wasm32 cleanly disables the feature - shore foam
         // is the only visual loss on WebGL2, and only on water bodies
         // whose room record sets `shore_foam_width > 0`.
         #[cfg(not(target_arch = "wasm32"))]
@@ -424,7 +455,7 @@ fn spawn_orbit_camera(mut commands: Commands) {
             pitch: Some(cfg::ORBIT_PITCH),
             button_orbit: MouseButton::Right,
             // Re-bound per frame by `gate_camera_on_gui` so Alt+right-drag
-            // pans too (#1242 f166) — this is the no-modifier resting
+            // pans too (#1242 f166) - this is the no-modifier resting
             // state it returns to.
             button_pan: MouseButton::Middle,
             // Two fingers on a trackpad are the other half of the same
@@ -442,29 +473,7 @@ fn spawn_orbit_camera(mut commands: Commands) {
             ..default()
         },
         Transform::from_xyz(pos[0], pos[1], pos[2]).looking_at(Vec3::ZERO, Vec3::Y),
-        DistanceFog {
-            color: Color::srgba(fc[0], fc[1], fc[2], fc[3]),
-            directional_light_color: Color::srgba(
-                cfg::fog::DIRECTIONAL_LIGHT_COLOR[0],
-                cfg::fog::DIRECTIONAL_LIGHT_COLOR[1],
-                cfg::fog::DIRECTIONAL_LIGHT_COLOR[2],
-                cfg::fog::DIRECTIONAL_LIGHT_COLOR[3],
-            ),
-            directional_light_exponent: cfg::fog::DIRECTIONAL_LIGHT_EXPONENT,
-            falloff: FogFalloff::from_visibility_colors(
-                cfg::fog::VISIBILITY,
-                Color::srgb(
-                    cfg::fog::EXTINCTION_COLOR[0],
-                    cfg::fog::EXTINCTION_COLOR[1],
-                    cfg::fog::EXTINCTION_COLOR[2],
-                ),
-                Color::srgb(
-                    cfg::fog::INSCATTERING_COLOR[0],
-                    cfg::fog::INSCATTERING_COLOR[1],
-                    cfg::fog::INSCATTERING_COLOR[2],
-                ),
-            ),
-        },
+        default_distance_fog(),
         Bloom::NATURAL, // Enable Bloom
         // Spatial-audio listener for contact-effect cues (#262). Ears a
         // head-width apart (Bevy's 4 m default over-pans); inert for
@@ -481,7 +490,7 @@ fn spawn_orbit_camera(mut commands: Commands) {
 /// so this system sees the *same-frame eased* pose. `GlobalTransform` is
 /// only refreshed by `PostUpdate` propagation (and by Avian just before
 /// each fixed step), so it lags a frame and its staleness oscillates at
-/// the fixed-vs-refresh beat — feeding it into the focus lerp was the
+/// the fixed-vs-refresh beat - feeding it into the focus lerp was the
 /// rubber-band half of the own-avatar stutter.
 fn follow_local_player(
     player_query: Query<(&Transform, Option<&VehicleChassis>), With<LocalPlayer>>,
@@ -505,7 +514,7 @@ fn follow_local_player(
     // `to_euler(YXZ)` (#853): the Euler yaw term degenerates at pitch
     // ±90°, so an airplane loop used to whip the camera π at the
     // vertical. Near the pole the projection has no magnitude and the
-    // heading is genuinely undefined — freeze yaw inheritance there
+    // heading is genuinely undefined - freeze yaw inheritance there
     // (keep `prev_yaw`) and resume accumulating once the nose comes back
     // down; a full loop then contributes its true net yaw instead of a
     // flip.
@@ -534,7 +543,7 @@ mod tests {
     use bevy::MinimalPlugins;
 
     /// Strip `//` line comments, so the scan below does not read its own
-    /// prose — this module explains the rule using the very needle it
+    /// prose - this module explains the rule using the very needle it
     /// bans, and every marker doc in the crate names it too.
     ///
     /// A `//` inside a string literal would over-strip. That costs
@@ -592,7 +601,7 @@ mod tests {
     ///
     /// The bug this exists to stop is not a crash. #1288 added a second
     /// `Camera3d` for the item preview, and eleven queries that meant "the
-    /// player's view" resolved with `single()` — which quietly began
+    /// player's view" resolved with `single()` - which quietly began
     /// returning `Err(MultipleEntities)` and falling through to a default.
     /// Avatar movement switched from camera-relative to absolute world
     /// axes; the scene context menu stopped opening; nametags, the drop
@@ -600,7 +609,7 @@ mod tests {
     /// panicked and nothing logged.
     ///
     /// A query that genuinely wants every camera in the world has to say
-    /// so by naming a marker anyway — there is no silent third option, and
+    /// so by naming a marker anyway - there is no silent third option, and
     /// that is the whole point.
     #[test]
     fn every_camera_query_says_which_camera() {
@@ -616,7 +625,7 @@ mod tests {
                 // RE-POINTED, not lowered (#1300). The sites used to
                 // spell `With<Camera3d>` out; clippy's `type_complexity`
                 // pushed them behind `IsWorldCamera`, so keying only on
-                // `Camera3d` would have found one query — the alias — and
+                // `Camera3d` would have found one query - the alias - and
                 // called the crate clean. A query is "about a camera" if
                 // it names the component OR any of the answers, and it
                 // passes only by naming an answer.
@@ -642,7 +651,7 @@ mod tests {
             unmarked.join("\n  ")
         );
         // A FLOOR, not a count. The scan's failure mode is reading
-        // nothing — a change to the lexer, or a query wrapped in a shape
+        // nothing - a change to the lexer, or a query wrapped in a shape
         // it does not recognise, and every site passes because none was
         // found. There were twelve when this was written; if the number
         // drops, re-point the scan rather than lowering the floor.
@@ -682,8 +691,8 @@ mod tests {
         );
     }
 
-    /// #670 guard: the follow target must come from `Transform` — the
-    /// same-frame eased pose — not `GlobalTransform`. `MinimalPlugins`
+    /// #670 guard: the follow target must come from `Transform` - the
+    /// same-frame eased pose - not `GlobalTransform`. `MinimalPlugins`
     /// registers no transform propagation, so a regression back to
     /// `GlobalTransform` would read the never-propagated identity here
     /// and miss the spawned position.
@@ -742,7 +751,7 @@ mod tests {
         );
     }
 
-    /// #853: mid-loop (forward near-vertical) the heading is undefined —
+    /// #853: mid-loop (forward near-vertical) the heading is undefined -
     /// yaw inheritance must freeze instead of whipping the camera, and
     /// resume accumulating from the pre-loop reference when the nose
     /// comes back down.
@@ -837,7 +846,7 @@ mod tests {
     }
 
     /// The #872 camera-only mode: a camera with headroom is NEVER pulled
-    /// in, regardless of what the ray between it and the focus crosses —
+    /// in, regardless of what the ray between it and the focus crosses -
     /// the two false-positive modes of the whole-ray check.
     #[test]
     fn camera_only_clamp_ignores_terrain_under_the_ray() {
@@ -896,8 +905,8 @@ mod tests {
     }
 
     /// #1242 f166. Sequence: a laptop trackpad user reads
-    /// "Middle-drag — pan camera" and has no middle button. The obvious
-    /// fix — `modifier_pan: Some(AltLeft)` — makes it WORSE: the crate's
+    /// "Middle-drag - pan camera" and has no middle button. The obvious
+    /// fix - `modifier_pan: Some(AltLeft)` - makes it WORSE: the crate's
     /// `pan_pressed` is `modifier && pressed(button_pan)`, so plain
     /// middle-drag would stop panning and Alt+MIDDLE would be asked for
     /// instead. Moving the button under the modifier is what actually
@@ -910,8 +919,8 @@ mod tests {
             pan_binding(true),
             (MouseButton::Right, Some(KeyCode::AltLeft))
         );
-        // The resting state must carry NO modifier, or middle-drag — the
-        // binding the sheet has always advertised — stops working.
+        // The resting state must carry NO modifier, or middle-drag - the
+        // binding the sheet has always advertised - stops working.
         assert_eq!(pan_binding(false).1, None);
     }
 
@@ -942,7 +951,7 @@ mod tests {
     }
 
     /// The app's two cameras and bevy_egui's context picker, and nothing
-    /// else — the shape `run()` ships, minus everything that needs a
+    /// else - the shape `run()` ships, minus everything that needs a
     /// window. `MinimalPlugins` carries no render world, and no component
     /// either spawn puts on its camera needs one to exist.
     fn boot_with_two_cameras(order: SpawnOrder, settings: EguiGlobalSettings) -> App {
@@ -1002,8 +1011,8 @@ mod tests {
 
     /// #1317, the control: with bevy_egui's default left on, the preview
     /// camera spawning first is enough to hand it a primary context. That
-    /// is the shipped wasm failure — egui drawing through an inactive
-    /// off-screen camera — so this is the proof that the test above can
+    /// is the shipped wasm failure - egui drawing through an inactive
+    /// off-screen camera - so this is the proof that the test above can
     /// see the thing it guards against.
     #[test]
     fn auto_create_primary_context_is_a_spawn_order_race() {

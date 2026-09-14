@@ -1,12 +1,12 @@
-//! Core anomaly-rule vocabulary (Pillar D-0) — the shared representation the
+//! Core anomaly-rule vocabulary (Pillar D-0) - the shared representation the
 //! live engine (D-4), the GUI badges (D-6) and the offline analyzer (D-5) all
 //! build on.
 //!
 //! A single [`Rule`] trait carries a declarative [`RuleHeader`] plus up to two
 //! evaluator bodies with a common [`Verdict`]: a LIVE body ([`Rule::eval`])
 //! reading a per-tick [`LiveCtx`], and a REPLAY body ([`Rule::replay`]) folding
-//! a captured event log. A rule may implement one or both — the default impls
-//! make the other a no-op — so one definition runs live AND replays offline
+//! a captured event log. A rule may implement one or both - the default impls
+//! make the other a no-op - so one definition runs live AND replays offline
 //! from a single source of truth (the parity guarantee).
 //!
 //! Severity reuses the suite-wide [`Severity`] so a rule's severity maps
@@ -17,7 +17,7 @@ use crate::diagnostics::MetricsRegistry;
 use crate::diagnostics::event::{SessionEvent, Severity, Subsystem};
 use crate::state::AppState;
 
-/// Stable identifier for a rule — also its badge/label key.
+/// Stable identifier for a rule - also its badge/label key.
 pub type RuleId = &'static str;
 
 /// The outcome of evaluating a rule once.
@@ -49,7 +49,7 @@ pub enum DebouncePolicy {
     OncePerCondition,
     /// Fire, then re-fire at most every `n` seconds while still violated.
     Interval(f32),
-    /// Fire on every evaluation that is `Violated` (use sparingly — noisy).
+    /// Fire on every evaluation that is `Violated` (use sparingly - noisy).
     EveryEval,
 }
 
@@ -73,7 +73,7 @@ pub struct RuleHeader {
     /// The precise statement of the condition, for the hover.
     ///
     /// `None` when [`description`](Self::description) already says it
-    /// exactly — a rule like "you keep being put back at the start" has no
+    /// exactly - a rule like "you keep being put back at the start" has no
     /// second layer to peel. Where the two differ, this is the half that
     /// may name a threshold, a metric or a subsystem; it is still read by
     /// a person, so it stays clear of the product's own vocabulary rules
@@ -92,9 +92,9 @@ pub struct LiveCtx<'a> {
     pub now_secs: f64,
     pub state: AppState,
     pub metrics: &'a MetricsRegistry,
-    /// Seconds spent in `Loading` so far — `Some` only while loading.
+    /// Seconds spent in `Loading` so far - `Some` only while loading.
     pub loading_elapsed_secs: Option<f64>,
-    /// Seconds spent in `InGame` so far — `Some` only in-game (#869).
+    /// Seconds spent in `InGame` so far - `Some` only in-game (#869).
     /// Grace-gates rules whose 1 Hz gauge samples can predate the world
     /// finishing its spawn on the entry frame.
     pub ingame_elapsed_secs: Option<f64>,
@@ -109,7 +109,7 @@ pub struct LiveCtx<'a> {
     pub respawns_recent: u32,
     /// Whether a physics collider has been observed at any point since the
     /// **current** `InGame` entry (#922). The collider gauge's ring cannot
-    /// answer this — it spans state transitions, so at session start it
+    /// answer this - it spans state transitions, so at session start it
     /// still holds the boot/attract world's colliders, and "seen then
     /// lost" read from the ring mistakes the boot→room handover for an
     /// in-game vanish. Maintained by the tick system, reset each time the
@@ -141,7 +141,7 @@ pub trait Rule: Send + Sync {
         Vec::new()
     }
 
-    /// Whether this rule carries a [`replay`](Rule::replay) body — i.e. its
+    /// Whether this rule carries a [`replay`](Rule::replay) body - i.e. its
     /// violations can be re-derived offline from the event stream. Defaults to
     /// `false` (a live-only rule); override to `true` alongside a real `replay`
     /// impl. The offline analyzer (D-5) uses this to tell a re-derivable rule
@@ -151,14 +151,14 @@ pub trait Rule: Send + Sync {
         false
     }
 
-    /// Whether this rule carries an [`eval`](Rule::eval) body — i.e. it can
+    /// Whether this rule carries an [`eval`](Rule::eval) body - i.e. it can
     /// ever be violated LIVE, and so can ever badge a row in the HUD.
     /// Defaults to `false`; override to `true` alongside a real `eval` impl.
     ///
     /// The mirror of [`is_replayable`](Rule::is_replayable), and it exists
     /// for the same reason turned inside out (#1272 f173). `eval`'s own
     /// contract already says `None` means "no live body", but that answer
-    /// only arrives when there is a `LiveCtx` to pass — and the thing that
+    /// only arrives when there is a `LiveCtx` to pass - and the thing that
     /// needed to know was `ui::diagnostics`' `METRIC_RULE_TABLE`, which is a
     /// `const` mapping metric rows to rules. Five of its fourteen rows were
     /// mapped to rules that could never light, so those rows read as
@@ -180,7 +180,7 @@ mod tests {
 
     /// A `LiveCtx` over `metrics` with every optional reading PRESENT, so
     /// a rule that returns `None` under it is returning `None` because it
-    /// has no live body — not because an input was missing.
+    /// has no live body - not because an input was missing.
     ///
     /// This is what makes [`live_bodies_are_declared`] a real check rather
     /// than a tautology: handed an empty context, half the live-bodied
@@ -224,7 +224,7 @@ mod tests {
     }
 
     /// `has_live_body()` must agree with whether `eval` actually answers,
-    /// in BOTH directions (#1272 f173) — the same two-way pinning
+    /// in BOTH directions (#1272 f173) - the same two-way pinning
     /// `replay::replayable_rule_set_is_pinned` gives the replay side.
     ///
     /// A rule that gains an `eval` and forgets the override goes on

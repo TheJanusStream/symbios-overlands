@@ -1,4 +1,4 @@
-//! Styled vehicle part kits — crafted variants and ornaments for the boat /
+//! Styled vehicle part kits - crafted variants and ornaments for the boat /
 //! airship / skiff families.
 //!
 //! Fills the previously-empty optional vehicle slots ([`PartSlot::Bow`](super::PartSlot::Bow) /
@@ -15,7 +15,7 @@
 //! [`ThemeArchetype`]s, and every optional slot ships a **style-universal**
 //! floor part (`boat_bow_bowsprit` / `boat_stack_vent` / `skiff_exhaust_tailpipe`
 //! / `veh_orn_finial`, all empty-styles) so no theme's optional slots are ever
-//! permanently bare — the styled and band-tagged parts then layer flavour on
+//! permanently bare - the styled and band-tagged parts then layer flavour on
 //! top of that floor (#792).
 
 use crate::seeded_defaults::ChassisFamily;
@@ -53,7 +53,7 @@ const VEHICLES: &[ChassisFamily] = &[
     ChassisFamily::Skiff,
 ];
 
-// Mood groups — the vehicle-styling taxonomy. Each of the 24 `ThemeArchetype`s
+// Mood groups - the vehicle-styling taxonomy. Each of the 24 `ThemeArchetype`s
 // belongs to at least one group so no population is a "desert" with zero styled
 // parts (#792). A theme may sit in several (a grimy neon craft is both NEON and
 // GRUBBY); a part draws the group whose read it wants. NEON/STEAM/MARTIAL/REGAL/
@@ -99,35 +99,35 @@ const HISTORIC: &[ThemeArchetype] = &[
     GothicHorror,
     Pirate,
 ];
-/// Seaside / leisure / sporting moods — resort cruisers, sport skiffs. Homes
+/// Seaside / leisure / sporting moods - resort cruisers, sport skiffs. Homes
 /// CoastalResort / SportsRec, which fit none of the ground-craft groups.
 const COASTAL: &[ThemeArchetype] = &[CoastalResort, SportsRec, Solarpunk];
-/// Empty style list — a **style-universal** part, eligible for every theme (see
+/// Empty style list - a **style-universal** part, eligible for every theme (see
 /// the module docstring). Used for the per-slot floor parts that guarantee no
 /// optional vehicle slot is ever bare.
 const UNIVERSAL: &[ThemeArchetype] = &[];
 
-/// "Fancy" ornateness band (Adorned upward) — a figurehead, a pennant, a crest:
+/// "Fancy" ornateness band (Adorned upward) - a figurehead, a pennant, a crest:
 /// a plain avatar never rolls one, so the ornateness tier finally reads on the
 /// optional-slot pick rather than every styled part being `ANY`/`ANY` (#792).
 const FANCY: OrnatenessBand =
     OrnatenessBand::range(OrnatenessTier::Adorned, OrnatenessTier::Ornate);
-/// "Worn or worse" wear band — a battering ram, sooted exhaust pipes: gear that
+/// "Worn or worse" wear band - a battering ram, sooted exhaust pipes: gear that
 /// only reads on a used or beaten craft, never a factory-fresh one.
 const WORN_PLUS: WearBand = WearBand::range(WearTier::Worn, WearTier::Battered);
-/// Battered-only wear band — the beaten-up counterpart parts (a tattered
+/// Battered-only wear band - the beaten-up counterpart parts (a tattered
 /// banner), so the top wear tier reads distinctly from merely-worn.
 const BATTERED: WearBand = WearBand::only(WearTier::Battered);
-/// Pristine-only wear band — the "clean" counterpart parts (a polished aero
+/// Pristine-only wear band - the "clean" counterpart parts (a polished aero
 /// fairing), so the *bottom* wear tier reads too, not just the worn / battered
 /// ends (#793).
 const CLEAN: WearBand = WearBand::only(WearTier::Pristine);
 
-// Narrow bespoke-part audiences (#793 mood-group depth) — finer than the broad
+// Narrow bespoke-part audiences (#793 mood-group depth) - finer than the broad
 // mood groups above, for parts whose read only fits a couple of themes.
-/// Longship / dragon-prow craft — a Spine serpent figurehead's home.
+/// Longship / dragon-prow craft - a Spine serpent figurehead's home.
 const NORSE_FEY: &[ThemeArchetype] = &[Nordic, Fantasy];
-/// Working / labouring craft — rope coils, cleats, capstans read on these.
+/// Working / labouring craft - rope coils, cleats, capstans read on these.
 const WORKING: &[ThemeArchetype] = &[
     Nordic,
     Medieval,
@@ -140,16 +140,16 @@ const WORKING: &[ThemeArchetype] = &[
     // craft, they are what its deck is for.
     Pirate,
 ];
-/// Funereal / temple / old-world craft — a hanging stern lantern's home.
+/// Funereal / temple / old-world craft - a hanging stern lantern's home.
 const SEPULCHRAL: &[ThemeArchetype] = &[GothicHorror, FeudalJapan, Medieval];
-/// Buccaneer craft — the black colours, a carved billet-head, a pierced gun
+/// Buccaneer craft - the black colours, a carved billet-head, a pierced gun
 /// deck. A group of one, and deliberately: these are period dress rather than
 /// a mood, and a jolly roger on a Nordic longship is a costume error. Pirate
 /// also sits in MARTIAL / HISTORIC / WORKING, where the parts genuinely are
 /// shared, so this narrows rather than replaces.
 const BUCCANEER: &[ThemeArchetype] = &[Pirate];
 
-/// Agrarian / roadside / ordinary-ground craft — the wooden buckboard read
+/// Agrarian / roadside / ordinary-ground craft - the wooden buckboard read
 /// (the #793 issue's "RUSTIC", folded into GRUBBY in #792 but kept as a narrow
 /// audience here so the buckboard doesn't land on a cyberpunk skiff).
 const AGRARIAN: &[ThemeArchetype] = &[RuralFarmland, Roadside, Suburban, WildWest];
@@ -162,7 +162,7 @@ fn mast_height(ctx: &PartCtx) -> f32 {
     ctx.boat().map_or(0.42, |b| b.mast_h)
 }
 
-/// Boat deck footprint multipliers `(dw, dl)` — the seeded beam / length over
+/// Boat deck footprint multipliers `(dw, dl)` - the seeded beam / length over
 /// the nominal, so a deck variant scales with its hull like the default deck.
 fn deck_dims(ctx: &PartCtx) -> (f32, f32) {
     let (beam, length) = ctx.boat().map_or((0.5, 1.32), |b| (b.beam, b.hull_len));
@@ -249,7 +249,7 @@ mod tests {
             if part.styles().is_empty() {
                 // A style-universal part is a per-slot floor; it must fill an
                 // OPTIONAL slot for every family it serves (a required slot
-                // already carries its universal default — an untagged body-slot
+                // already carries its universal default - an untagged body-slot
                 // variant would be an authoring slip, not an intentional floor).
                 for &fam in part.chassis() {
                     assert!(
@@ -286,7 +286,7 @@ mod tests {
         // Stronger than the style-level guarantee: the band-tagged variants
         // layer on top of an `ANY`/`ANY` style-universal floor, so the
         // band-gated pool an avatar actually draws from is non-empty at every
-        // ornateness/wear tier too — no roll hits an empty pool.
+        // ornateness/wear tier too - no roll hits an empty pool.
         for chassis in FAMILIES {
             for &slot in optional_slots(chassis) {
                 for style in ThemeArchetype::ALL {
@@ -310,7 +310,7 @@ mod tests {
     ///
     /// The exclusivity is the substance. A jolly roger at the masthead of a
     /// Nordic longship or a rural launch is a costume error, not a stylistic
-    /// choice, and the broad mood groups cannot express that — Pirate is in
+    /// choice, and the broad mood groups cannot express that - Pirate is in
     /// MARTIAL, HISTORIC and WORKING precisely because a battering ram, a
     /// square rig and a coil of rope genuinely are shared. These three are
     /// not.
@@ -380,7 +380,7 @@ mod tests {
         // Fold guarantee: every archetype sits in at least one styling group, so
         // it draws at least one styled part *somewhere* (on some chassis / slot),
         // not only the universal floors. It does NOT promise a styled BODY variant
-        // on every chassis — e.g. a COASTAL boat still draws the default hull + the
+        // on every chassis - e.g. a COASTAL boat still draws the default hull + the
         // universal floors, since COASTAL's only body part is the sporty skiff
         // canopy; per-chassis body coverage is the bespoke-parts job (#793).
         for style in ThemeArchetype::ALL {
@@ -402,7 +402,7 @@ mod tests {
         use ChassisFamily::{Boat, Skiff};
         use OrnatenessTier::{Ornate, Plain};
         use WearTier::{Battered, Pristine, Worn};
-        // Fancy figurehead — gated by ornateness (Adorned upward); Fantasy is REGAL.
+        // Fancy figurehead - gated by ornateness (Adorned upward); Fantasy is REGAL.
         assert!(!has(
             Boat,
             PartSlot::Bow,
@@ -419,7 +419,7 @@ mod tests {
             Worn,
             "boat_bow_figurehead"
         ));
-        // Battering ram — gated by wear (Worn upward).
+        // Battering ram - gated by wear (Worn upward).
         assert!(!has(
             Boat,
             PartSlot::Bow,
@@ -436,7 +436,7 @@ mod tests {
             Worn,
             "boat_bow_ram"
         ));
-        // Sooted twin pipes — worn upward.
+        // Sooted twin pipes - worn upward.
         assert!(!has(
             Skiff,
             PartSlot::Exhaust,
@@ -453,7 +453,7 @@ mod tests {
             Battered,
             "skiff_exhaust_twin_pipes"
         ));
-        // Tattered banner — battered only.
+        // Tattered banner - battered only.
         assert!(!has(
             Boat,
             PartSlot::Ornament,

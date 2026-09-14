@@ -1,5 +1,5 @@
-//! Light disc — an Alien-Monolithic prop. A flush obsidian-ringed disc glowing
-//! with concentric light — a transit pad set into the ground. Scatter clutter
+//! Light disc - an Alien-Monolithic prop. A flush obsidian-ringed disc glowing
+//! with concentric light - a transit pad set into the ground. Scatter clutter
 //! of the site; the disc is emissive trim the ruin pass can darken.
 
 use crate::catalogue::items::util::{
@@ -21,7 +21,7 @@ impl CatalogueEntry for LightDisc {
         "Light Disc"
     }
     fn description(&self) -> &'static str {
-        "Flush obsidian-ringed disc glowing with concentric light — a transit pad."
+        "Flush obsidian-ringed disc glowing with concentric light - a transit pad."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Prop
@@ -46,19 +46,19 @@ impl CatalogueEntry for LightDisc {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Obsidian rim disc — the root.
+        // Obsidian rim disc - the root.
         prim(
             solid(cylinder_tapered(1.3, 0.18, 24, 0.0, obsidian(OBSIDIAN))),
             [0.0, 0.09, 0.0],
             id_quat(),
         ),
-        // Glowing inner disc — emissive.
+        // Glowing inner disc - emissive.
         prim(
             cylinder_tapered(1.0, 0.06, 24, 0.0, glow(ENERGY_BLUE, 2.2)),
             [0.0, 0.2, 0.0],
             id_quat(),
         ),
-        // Two concentric glowing rings — emissive, proud of the disc.
+        // Two concentric glowing rings - emissive, proud of the disc.
         prim(
             torus(0.045, 0.92, glow(GLYPH_CYAN, 2.6)),
             [0.0, 0.24, 0.0],
@@ -69,7 +69,7 @@ fn build_tree() -> Generator {
             [0.0, 0.24, 0.0],
             id_quat(),
         ),
-        // Glowing centre node — the transit focus.
+        // Glowing centre node - the transit focus.
         {
             let mut focus = prim(
                 sphere(0.16, 6, glow(GLYPH_CYAN, 2.8)),
@@ -80,7 +80,7 @@ fn build_tree() -> Generator {
             focus
         },
     ];
-    // Radial glyph ticks spoking out between the rings — a transit pad's
+    // Radial glyph ticks spoking out between the rings - a transit pad's
     // bearing marks.
     for k in 0..8 {
         let a = k as f32 * std::f32::consts::FRAC_PI_4;

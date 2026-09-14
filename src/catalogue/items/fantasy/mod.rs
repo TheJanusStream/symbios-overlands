@@ -1,4 +1,4 @@
-//! High-Fantasy-theme catalogue structures — an arcane quarter of wizardry
+//! High-Fantasy-theme catalogue structures - an arcane quarter of wizardry
 //! and fae magic, aglow with mana.
 //!
 //! Two prosperity registers share one enchanted identity: the established
@@ -26,7 +26,7 @@ pub mod monument;
 pub mod runestone;
 pub mod spell_circle;
 pub mod wizard_tower;
-// Poor (hedge-magic) variants — the prosperity-Poor end of the theme.
+// Poor (hedge-magic) variants - the prosperity-Poor end of the theme.
 pub mod hedge_hut;
 pub mod standing_stone;
 pub mod toadstool_ring;
@@ -47,18 +47,18 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the high-magic kit — wizard towers and crystal
+/// Shared prosperity band for the high-magic kit - wizard towers and crystal
 /// shrines read as a Modest-to-Rich arcane seat. The poor end of the theme is
 /// the separate hedge-magic kit ([`hedge_hut`], …), tagged `Poor`, so a
 /// destitute fantasy room grows the hedge-witch's holding instead.
 pub(super) const FANTASY_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the hedge-magic kit — the destitute end of the theme,
+/// Prosperity band for the hedge-magic kit - the destitute end of the theme,
 /// never picked for a modest or affluent fantasy room.
 pub(super) const FANTASY_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Dressed ashlar stone — wizard tower, library and shrine masonry.
+/// Dressed ashlar stone - wizard tower, library and shrine masonry.
 pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -76,7 +76,7 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Mossy old cobble — standing stones, shrine footings, weathered bases.
+/// Mossy old cobble - standing stones, shrine footings, weathered bases.
 pub(super) fn mossy(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -95,7 +95,7 @@ pub(super) fn mossy(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Dark timber — beams, lintels, the hedge hut's frame.
+/// Dark timber - beams, lintels, the hedge hut's frame.
 pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -114,7 +114,7 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Golden thatch — the wizard-tower cap underlay and the hedge-hut roof.
+/// Golden thatch - the wizard-tower cap underlay and the hedge-hut roof.
 pub(super) fn thatch(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -135,7 +135,7 @@ pub(super) fn thatch(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Polished gold — finials, rune inlays, shrine fittings.
+/// Polished gold - finials, rune inlays, shrine fittings.
 pub(super) fn gold(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -155,7 +155,7 @@ pub(super) fn gold(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Flat matte colour — daub plaster, toadstool caps, charms. A plain
+/// Flat matte colour - daub plaster, toadstool caps, charms. A plain
 /// surface with no procedural texture.
 pub(super) fn matte(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -172,11 +172,11 @@ pub(super) fn matte(color: [f32; 3]) -> SovereignMaterialSettings {
 // Fantasy-signature geometry helpers
 // ---------------------------------------------------------------------------
 
-/// A faceted crystal shard — a hexagonal prism shaft terminated by a
+/// A faceted crystal shard - a hexagonal prism shaft terminated by a
 /// pyramidal point, the gem read a smooth cone never gives (a cone is an
 /// ice-cream scoop; six flat facets catch the light as a crystal). Returned
 /// as one positioned subtree (the shaft is its local root), so the whole
-/// shard leans on a single `tilt` quaternion as a *child* of the item — never
+/// shard leans on a single `tilt` quaternion as a *child* of the item - never
 /// the assemble root, so the rotation is safe. `foot` is the base-centre
 /// world position, `r` the shaft radius, `h` the total height (~⅗ shaft,
 /// ~⅖ point). Pass a [`glow`](crate::catalogue::items::util::glow) material
@@ -190,7 +190,7 @@ pub(super) fn crystal(
 ) -> Generator {
     let body_h = h * 0.6;
     let tip_h = h * 0.4;
-    // Hexagonal prism shaft — the subtree root, carrying the lean.
+    // Hexagonal prism shaft - the subtree root, carrying the lean.
     let mut shaft = prim(
         cylinder_tapered(r, body_h, 6, 0.14, mat.clone()),
         [foot[0], foot[1] + body_h * 0.5, foot[2]],
@@ -205,7 +205,7 @@ pub(super) fn crystal(
     shaft
 }
 
-/// A toadstool — a pale stem under a domed parasol cap, the fantasy mushroom
+/// A toadstool - a pale stem under a domed parasol cap, the fantasy mushroom
 /// signature (a *dome* reads as a mushroom where a cone reads as a fir tree).
 /// Returned as one positioned subtree (the stem is its local root). `foot` is
 /// the stem-base world position, `scale` sizes the whole stool. `cap_mat`
@@ -220,7 +220,7 @@ pub(super) fn toadstool(
 ) -> Generator {
     let stem_h = 0.6 * scale;
     let cap_r = 0.42 * scale;
-    // Stem — the subtree root; centred so its top sits at +stem_h/2.
+    // Stem - the subtree root; centred so its top sits at +stem_h/2.
     let mut stem = prim(
         solid(cylinder_tapered(
             0.1 * scale,
@@ -233,7 +233,7 @@ pub(super) fn toadstool(
         id_quat(),
     );
     let cap_y = stem_h * 0.5 - 0.03 * scale; // skirt overhangs the stem top
-    // Domed parasol cap — a flattened upper hemisphere.
+    // Domed parasol cap - a flattened upper hemisphere.
     stem.children.push(prim_scaled(
         with_cut(sphere(cap_r, 6, cap_mat), [0.0, 1.0], [0.5, 1.0], 0.0),
         [0.0, cap_y, 0.0],
@@ -263,7 +263,7 @@ pub(super) fn toadstool(
     stem
 }
 
-/// A cluster of glowing rune strokes standing proud of a stone face — a
+/// A cluster of glowing rune strokes standing proud of a stone face - a
 /// central stave crossed by a couple of angled branches, the Elder-Futhark
 /// look. Thin, saturated strokes on dark stone *read*, where a single flat
 /// glowing panel over-brightens and washes to a pale blank. `center` is the
@@ -333,7 +333,7 @@ mod tests {
         }
     }
 
-    /// The wizard tower is the kit's lit hero — it must keep its emissive
+    /// The wizard tower is the kit's lit hero - it must keep its emissive
     /// windows and crystal orb so escalation's broken-emissive ruin pass has
     /// magic to snuff.
     #[test]

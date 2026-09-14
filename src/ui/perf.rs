@@ -7,7 +7,7 @@
 //! which is exactly backwards: an open panel should cost what it shows.
 //! Six such costs were found and fixed under #1270, and none of them had
 //! an instrument. The repo has no `benches/`, no perf-test idiom, and the
-//! diagnostics suite's `runtime.frame_time.ms` is a 1 Hz EMA — it cannot
+//! diagnostics suite's `runtime.frame_time.ms` is a 1 Hz EMA - it cannot
 //! tell you whether a per-frame allocation went away.
 //!
 //! A wall-clock assertion would be flaky and there is no harness for one.
@@ -16,22 +16,22 @@
 //! a list asked to draw, how many bytes an undo ring holds. Each of those
 //! is deterministic and each is the thing the fix is actually about.
 //!
-//! And each guard is written as a PAIR — the old shape asserted to do the
+//! And each guard is written as a PAIR - the old shape asserted to do the
 //! bad thing, right beside the new one asserted not to. Without that
 //! pairing you have a test that passes on both versions, which is no
 //! check at all (the #87 rule: ask what the failing case looks like; if it
 //! looks like the passing case there is nothing being measured). The
 //! pairing lives with each fix:
 //!
-//! * f121 — the change-tick pairing in this module's tests, plus the
+//! * f121 - the change-tick pairing in this module's tests, plus the
 //!   source scan
 //!   `ui::fonts::glyph_coverage_tests::every_panel_flag_write_is_guarded`.
-//! * f273 / f418 — [`LiveValueCache`], whose `recomputes()` counter is the
+//! * f273 / f418 - [`LiveValueCache`], whose `recomputes()` counter is the
 //!   measurement; the tests drive a live record through a frame loop.
-//! * f419 — `ui::room::generators::tree`'s node counter, run headless with
+//! * f419 - `ui::room::generators::tree`'s node counter, run headless with
 //!   everything collapsed.
-//! * f420 — `ui::room::placements`' row counter, run headless.
-//! * f417 — `ui::undo`'s byte accounting.
+//! * f420 - `ui::room::placements`' row counter, run headless.
+//! * f417 - `ui::undo`'s byte accounting.
 
 use bevy::ecs::change_detection::Tick;
 
@@ -40,7 +40,7 @@ use bevy::ecs::change_detection::Tick;
 ///
 /// The World Editor's footer derives `dirty` by serialising the whole
 /// live record and deep-comparing it against a cached baseline. #674
-/// cached the two BASELINES — the stored record and the seeded default —
+/// cached the two BASELINES - the stored record and the seeded default -
 /// and left the live side to run per frame, with the comment saying so
 /// out loud: "an open panel pays for ONE live-record serialization per
 /// frame". At the record's own caps (256 generators of up to 1024 nodes,
@@ -61,7 +61,7 @@ use bevy::ecs::change_detection::Tick;
 /// the Save row clean for the whole drag.
 ///
 /// So the cache takes both. The tick covers everything that reaches the
-/// record from outside the editor — the 3D gizmo, an inventory drop, a
+/// record from outside the editor - the 3D gizmo, an inventory drop, a
 /// peer's live-sync update, an undo restore, a fresh fetch. [`touch`] is
 /// what the editor calls when one of its own widgets reported a change,
 /// which is a fact only the editor knows.
@@ -87,7 +87,7 @@ impl LiveValueCache {
         self.dirty = true;
     }
 
-    /// Drop the cached value outright — for a change of subject rather
+    /// Drop the cached value outright - for a change of subject rather
     /// than of content (a room transition, a logout, a different DID),
     /// where the next tick may compare equal to a tick from before.
     pub fn clear(&mut self) {
@@ -98,7 +98,7 @@ impl LiveValueCache {
     /// The live record's serialised form, rebuilt only if `tick` has
     /// moved or [`Self::touch`] was called since the last rebuild.
     ///
-    /// `tick` is the resource's `last_changed()`, not `is_changed()` —
+    /// `tick` is the resource's `last_changed()`, not `is_changed()` -
     /// the change flag is consumed on frames where the caller
     /// early-returns, which would leave a stale value behind. Same
     /// reasoning as `RoomEditorState::stored_baseline`'s (#674).
@@ -132,7 +132,7 @@ mod tests {
     use crate::ui::toolbar::UiPanels;
 
     /// The f121 pairing, on a real `World`: writing a window's open flag
-    /// back unconditionally marks `UiPanels` changed every frame — even
+    /// back unconditionally marks `UiPanels` changed every frame - even
     /// when the value written is the one already there.
     ///
     /// That last clause is the whole finding. Bevy's `ResMut::deref_mut`
@@ -140,7 +140,7 @@ mod tests {
     /// compares. So the Catalogue's `panels.catalogue = open;` dirtied the
     /// resource on all sixty frames a second whether or not the window was
     /// open, and `prefs::save_prefs_when_changed` ORs `panels.is_changed()`
-    /// into a 1.0 s trailing debounce that therefore never went quiet —
+    /// into a 1.0 s trailing debounce that therefore never went quiet -
     /// a full prefs serialise-and-write about once a second, all session,
     /// for the whole app and not only the Catalogue.
     ///
@@ -199,7 +199,7 @@ mod tests {
         assert_eq!(
             shipped, 100,
             "the control has to do the bad thing, or there is nothing to \
-             compare against — an unconditional write is a change tick per \
+             compare against - an unconditional write is a change tick per \
              frame even though `catalogue` is false throughout"
         );
         assert_eq!(
@@ -262,7 +262,7 @@ mod tests {
         let record = record();
         let tick = Tick::new(7);
 
-        // Sixty frames of an open editor with nobody touching anything —
+        // Sixty frames of an open editor with nobody touching anything -
         // the case the whole finding is about.
         for _ in 0..60 {
             let _ = cache.value(tick, &record);
@@ -321,7 +321,7 @@ mod tests {
         assert_eq!(
             cache.value(tick, &record).as_ref().unwrap()["name"],
             "oak",
-            "without the touch, a tick-keyed cache is stale — this is the \
+            "without the touch, a tick-keyed cache is stale - this is the \
              control for the flag half"
         );
 

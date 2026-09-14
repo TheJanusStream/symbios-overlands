@@ -1,4 +1,4 @@
-//! Frontier fence — a Wild-West prop. A section of split-rail fence: rough
+//! Frontier fence - a Wild-West prop. A section of split-rail fence: rough
 //! timber rails slotted through stout posts. Scatter clutter bounding the lots.
 
 use std::f32::consts::FRAC_PI_2;
@@ -50,7 +50,7 @@ fn build_tree() -> Generator {
     let posts = [(-2.4_f32, 1.5_f32), (-0.8, 1.24), (0.8, 1.48), (2.4, 1.16)];
 
     let mut prims = vec![
-        // First post — the root.
+        // First post - the root.
         prim(
             solid(cuboid_tapered(
                 [0.18, posts[0].1, 0.18],
@@ -69,7 +69,7 @@ fn build_tree() -> Generator {
         ));
     }
     // Three rough-hewn split rails (hexagonal logs) threaded zigzag through
-    // the posts — round logs read as split rails where flat boards did not.
+    // the posts - round logs read as split rails where flat boards did not.
     for (y, zoff) in [(0.45_f32, 0.13_f32), (0.92, -0.13), (1.32, 0.13)] {
         prims.push(prim(
             solid(cylinder_tapered(0.07, 5.1, 6, 0.0, clapboard(WOOD_RAW))),

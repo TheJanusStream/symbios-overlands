@@ -1,4 +1,4 @@
-//! Landing pad — a Space-Outpost secondary. A wide ceramic pad ringed with
+//! Landing pad - a Space-Outpost secondary. A wide ceramic pad ringed with
 //! hazard paint and edge beacons, a touchdown cross at its centre. The
 //! spaceport apron of the base; its beacons are emissive trim the ruin pass
 //! can darken.
@@ -60,7 +60,7 @@ fn build_tree() -> Generator {
     let radius = 6.0_f32;
 
     let mut prims = vec![
-        // Ceramic pad — the root.
+        // Ceramic pad - the root.
         prim(
             solid(cylinder_tapered(radius, pad_h, 28, 0.0, concrete(PAD_GREY))),
             [0.0, pad_h * 0.5, 0.0],
@@ -88,7 +88,7 @@ fn build_tree() -> Generator {
         [0.0, pad_top + 0.05, 0.0],
         id_quat(),
     ));
-    // Touchdown cross — the two bars sit at offset heights so the central
+    // Touchdown cross - the two bars sit at offset heights so the central
     // overlap does not leave coplanar top faces (the upper bar simply
     // occludes the lower one where they cross).
     prims.push(prim(
@@ -102,7 +102,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Edge beacon fixtures (post + lens) around the rim — emissive.
+    // Edge beacon fixtures (post + lens) around the rim - emissive.
     for i in 0..8 {
         let a = i as f32 / 8.0 * TAU;
         let (px, pz) = (a.cos() * (radius - 0.45), a.sin() * (radius - 0.45));
@@ -133,7 +133,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Service mast on the +X edge — floodlight, control box and status LED.
+    // Service mast on the +X edge - floodlight, control box and status LED.
     prims.push(prim(
         solid(cylinder_tapered(0.12, 3.2, 8, 0.12, steel(STEEL_DARK))),
         [radius - 0.6, 1.6, 0.0],

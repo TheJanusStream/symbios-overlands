@@ -20,7 +20,7 @@ use super::asset_failure::AssetFetchError;
 /// there are none.
 ///
 /// It used to be `Option<Vec<u8>>` with the reason living only in a `warn!`
-/// line (#1246). The reason is the half the owner needs — they are the only
+/// line (#1246). The reason is the half the owner needs - they are the only
 /// person who can fix a broken source, and on the web build they were
 /// strictly worse informed than a visitor with a console open.
 pub(crate) type FetchedBytes = Result<Vec<u8>, AssetFetchError>;
@@ -134,15 +134,15 @@ pub(crate) async fn fetch_blob_bytes(
 /// Largest number of pixels a fetched image may declare before it is
 /// refused without being decoded.
 ///
-/// The byte caps above bound the *compressed* transfer, but a "pixel bomb" —
-/// a kilobyte-sized PNG declaring e.g. 30000×30000 of uniform colour —
+/// The byte caps above bound the *compressed* transfer, but a "pixel bomb" -
+/// a kilobyte-sized PNG declaring e.g. 30000×30000 of uniform colour -
 /// expands by orders of magnitude on decode and can OOM the wasm heap in one
 /// allocation. Pixels are the unit that actually costs memory: this bound is
 /// 4096×4096, exactly the worst case the old per-axis cap of 4096 permitted,
 /// so nothing that decoded before is refused now.
 ///
 /// **Why pixels and not axes (#1130).** A per-axis cap turned away shapes that
-/// cost *less* than an accepted square — a 6000×1200 panorama is 7 MP against
+/// cost *less* than an accepted square - a 6000×1200 panorama is 7 MP against
 /// a 4096-square's 16.7 MP, yet only the panorama was refused. That mattered
 /// because the wasm profile-picture path fetches the owner's ORIGINAL upload
 /// from their PDS (cdn.bsky.app serves no CORS headers, so the resized CDN
@@ -164,7 +164,7 @@ pub(crate) const MAX_IMAGE_AXIS: u32 = 16384;
 ///
 /// Returns the reason (logged at warn, tagged with `ctx`) when the format
 /// can't be sniffed or the declared frame exceeds [`MAX_IMAGE_PIXELS`] /
-/// [`MAX_IMAGE_AXIS`] — the full-frame allocation never happens for a rejected
+/// [`MAX_IMAGE_AXIS`] - the full-frame allocation never happens for a rejected
 /// image. All decode paths for network-supplied image bytes (peer avatars,
 /// sign sources, Referenced splat layers) must come through here rather than
 /// calling `image::load_from_memory` directly.
@@ -172,7 +172,7 @@ pub(crate) const MAX_IMAGE_AXIS: u32 = 16384;
 /// **What `working_max` does and does not bound (#1128).** It bounds what is
 /// *retained*: the returned image, whatever the caller does with it, and the
 /// GPU texture it becomes. It does NOT bound the decode itself, which still
-/// materialises the source frame at full size — `image` exposes no
+/// materialises the source frame at full size - `image` exposes no
 /// general decode-at-reduced-scale, so the only bound available on the spike
 /// is [`MAX_IMAGE_PIXELS`]. Every caller must name a working size rather than
 /// defaulting to "as large as the cap allows", because on wasm the retained
@@ -224,7 +224,7 @@ pub(crate) fn decode_image_capped(
 }
 
 /// Shrink `img` so neither axis exceeds `working_max`, preserving aspect
-/// ratio. Returns it untouched when it already fits — the common case, and
+/// ratio. Returns it untouched when it already fits - the common case, and
 /// one that must not pay a resample.
 fn downscale_to_fit(img: image::DynamicImage, working_max: u32) -> image::DynamicImage {
     if img.width() <= working_max && img.height() <= working_max {
@@ -245,7 +245,7 @@ fn downscale_to_fit(img: image::DynamicImage, working_max: u32) -> image::Dynami
 mod tests {
     use super::*;
 
-    /// PNG IEEE CRC-32 (reflected, poly 0xEDB88320) — enough to build a
+    /// PNG IEEE CRC-32 (reflected, poly 0xEDB88320) - enough to build a
     /// syntactically valid header chunk without pulling in a crc crate.
     fn crc32(data: &[u8]) -> u32 {
         let mut crc = 0xFFFF_FFFFu32;
@@ -270,7 +270,7 @@ mod tests {
         out
     }
 
-    /// A header-only PNG declaring `w × h` 8-bit RGBA — the shape of a
+    /// A header-only PNG declaring `w × h` 8-bit RGBA - the shape of a
     /// "pixel bomb": tiny on the wire, enormous after decode.
     fn png_declaring(w: u32, h: u32) -> Vec<u8> {
         let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
@@ -325,7 +325,7 @@ mod tests {
 
     /// The #1130 sequence, stated as a policy test.
     ///
-    /// A peer's avatar blob is 6000×1200 — a panorama, 7.2 MP, well under half
+    /// A peer's avatar blob is 6000×1200 - a panorama, 7.2 MP, well under half
     /// what a 4096-square costs to decode. The old per-axis cap refused it on
     /// its width alone, so that peer had a profile picture on native (which
     /// fetches the resized CDN copy) and a permanent blank spacer on wasm
@@ -341,7 +341,7 @@ mod tests {
         );
         let wide = png_declaring(6000, 1200);
         // The header-only fixture has no pixel data, so the decode itself
-        // fails — but it must fail at the DECODER, having passed the policy
+        // fails - but it must fail at the DECODER, having passed the policy
         // gate, which is what the old per-axis cap denied it.
         let (w, h) = image::ImageReader::new(std::io::Cursor::new(&wide))
             .with_guessed_format()
@@ -351,7 +351,7 @@ mod tests {
         assert_eq!((w, h), (6000, 1200));
         assert!(
             u64::from(w) * u64::from(h) <= MAX_IMAGE_PIXELS && w <= MAX_IMAGE_AXIS,
-            "6000×1200 must pass the policy gate — this is the shape #1130 blanked"
+            "6000×1200 must pass the policy gate - this is the shape #1130 blanked"
         );
     }
 
@@ -377,7 +377,7 @@ mod tests {
 
     /// The retention half of #1128: what comes back is the working size, not
     /// the source size. A sign whose source is 512-square resolved against a
-    /// 64 px box must land at 64 px — otherwise the cache's byte budget is
+    /// 64 px box must land at 64 px - otherwise the cache's byte budget is
     /// measuring a number the caller never controls.
     #[test]
     fn a_source_larger_than_the_working_box_comes_back_shrunk() {
@@ -389,7 +389,7 @@ mod tests {
         assert_eq!(
             (decoded.width(), decoded.height()),
             (64, 32),
-            "the aspect ratio must survive the shrink — a squashed sign is a \
+            "the aspect ratio must survive the shrink - a squashed sign is a \
              visible bug, and `resize` fits the box rather than filling it"
         );
     }
@@ -410,7 +410,7 @@ mod tests {
     ///
     /// `decode_image_capped` sniffs the format from magic bytes, so every
     /// decoder compiled into the binary is reachable from an untrusted PDS
-    /// blob or peer avatar — and the dimension cap above bounds a pixel
+    /// blob or peer avatar - and the dimension cap above bounds a pixel
     /// bomb, not decoder complexity. EXR, TIFF and GIF have each had panic
     /// and pathological-allocation CVEs; nothing in this app has ever asked
     /// to read one.
@@ -444,7 +444,7 @@ mod tests {
         ] {
             assert!(
                 !denied.reading_enabled(),
-                "{denied:?} is compiled in and reachable from hostile bytes — \
+                "{denied:?} is compiled in and reachable from hostile bytes - \
                  widen the image feature list only with a reason"
             );
         }
@@ -454,7 +454,7 @@ mod tests {
     /// turned away by `decode_image_capped` rather than reaching a decoder.
     #[test]
     fn headers_for_excluded_formats_are_turned_away() {
-        // Magic bytes only — a real decoder would need far more, which is
+        // Magic bytes only - a real decoder would need far more, which is
         // the point: rejection must happen before anything parses these.
         let tiff_le = b"II\x2a\x00\x08\x00\x00\x00".to_vec();
         let tiff_be = b"MM\x00\x2a\x00\x00\x00\x08".to_vec();

@@ -10,14 +10,14 @@
 //!
 //! **Why a mesh raycast.** The hit must name a *triangle*, and only
 //! [`bevy::picking::mesh_picking::ray_cast::MeshRayCast`]
-//! reports `triangle_index`. Avian's rays hit each prim's convex hull —
-//! which is not the visible surface at all once a cut is active — so the
+//! reports `triangle_index`. Avian's rays hit each prim's convex hull -
+//! which is not the visible surface at all once a cut is active - so the
 //! physics query cannot answer this question even in principle.
 //!
 //! **Why the triangles are copied, not referenced.** The highlight captures
 //! world-space triangle positions at pick time instead of holding the hit
 //! entity. Creating an override marks the record dirty, and the rebuild
-//! that follows despawns and respawns the prim — an entity-keyed highlight
+//! that follows despawns and respawns the prim - an entity-keyed highlight
 //! would blink out just as the user looks at it.
 
 use bevy::mesh::{Mesh, VertexAttributeValues};
@@ -37,7 +37,7 @@ use crate::world_builder::FaceTable;
 pub struct FacePick {
     /// Set by the panel's "Pick from scene" button; cleared by the click
     /// that resolves a face (a click that hits nothing keeps it armed, so a
-    /// near-miss costs one more click rather than a silent cancel) — and by
+    /// near-miss costs one more click rather than a silent cancel) - and by
     /// [`disarm_unbacked_face_pick`] the moment nothing is drawing the
     /// toggle that armed it.
     armed: bool,
@@ -58,7 +58,7 @@ pub struct FacePick {
 /// A resolved pick, addressed to one node of one tree.
 struct Picked {
     /// Generator name (room) or [`AvatarVisualsTreeSource::ROOT_NAME`]
-    /// (avatar) — the `root` half of the panel's node id.
+    /// (avatar) - the `root` half of the panel's node id.
     ///
     /// [`AvatarVisualsTreeSource::ROOT_NAME`]:
     ///     crate::ui::room::generators::AvatarVisualsTreeSource::ROOT_NAME
@@ -84,7 +84,7 @@ impl FacePick {
         self.armed
     }
 
-    /// Flip the arm — the panel toggle's whole behaviour.
+    /// Flip the arm - the panel toggle's whole behaviour.
     pub fn toggle(&mut self) {
         self.armed = !self.armed;
     }
@@ -120,7 +120,7 @@ impl FacePick {
     ///
     /// Addressed rather than global: a pick moves the tree selection to the
     /// prim that was clicked, so by the time the panel draws it is drawing
-    /// that node — but only a match may consume the pick, or a stale one
+    /// that node - but only a match may consume the pick, or a stale one
     /// (world editor closed between click and draw) would paint whichever
     /// node happened to be selected later.
     pub fn take_for(&mut self, root: &str, path: &[usize]) -> Option<FaceKey> {
@@ -135,7 +135,7 @@ impl FacePick {
 /// Drop an arm that no panel is behind any more (#1237 f140/f141).
 ///
 /// `armed` had ONE writer (the panel toggle) and ONE clearer (a click that
-/// resolved a face), and nothing reset it — not panel close, not
+/// resolved a face), and nothing reset it - not panel close, not
 /// `OnExit(InGame)`, not portal travel (which never leaves `InGame`), not
 /// logout. A stale arm is not merely untidy: while it stands,
 /// `pick_on_scene_click` refuses to clear the room selection and
@@ -143,7 +143,7 @@ impl FacePick {
 /// clicking empty sky to deselect stops working everywhere in the app with
 /// nothing on screen saying why.
 ///
-/// Rather than a reset per door — there are at least five — the arm is
+/// Rather than a reset per door - there are at least five - the arm is
 /// tied to the thing that can honour it: the Faces panel's own toggle.
 /// Any frame that toggle does not draw, the arm goes. That covers the
 /// panel closing, the window closing, the tab changing, travel, logout and
@@ -165,7 +165,7 @@ pub fn disarm_unbacked_face_pick(mut pick: ResMut<FacePick>) {
 /// the hit triangle.
 ///
 /// `None` when the raycast reported no triangle index (an untriangulated
-/// hit) or the index is past the table — a mesh and a table that disagree
+/// hit) or the index is past the table - a mesh and a table that disagree
 /// mean the hit entity's mesh was swapped without its
 /// [`PrimFaceGroup`](crate::world_builder::PrimFaceGroup), so refusing to
 /// answer beats naming an arbitrary face.
@@ -227,7 +227,7 @@ pub(super) fn face_triangles(
 /// Lift a triangle off the surface it belongs to, along its own normal, so
 /// the depth-tested outline doesn't z-fight with the face it outlines. A
 /// degenerate triangle (the zero-width quads the swept meshers emit at
-/// profile corners) has no normal to lift along and is left where it is —
+/// profile corners) has no normal to lift along and is left where it is -
 /// it draws no visible line anyway.
 fn lift([a, b, c]: [Vec3; 3]) -> [Vec3; 3] {
     let normal = (b - a).cross(c - a);
@@ -241,13 +241,13 @@ fn lift([a, b, c]: [Vec3; 3]) -> [Vec3; 3] {
 /// Draw the picked face's wireframe until it expires, fading as it goes.
 ///
 /// Runs in `PostUpdate` with the other gizmo drawing so it sees this
-/// frame's transforms — though the triangles are already in world space,
+/// frame's transforms - though the triangles are already in world space,
 /// so it is really just sharing the schedule slot.
 ///
 /// The expiry doubles as the pick's own deadline: an unconsumed pick dies
 /// with its highlight. The panel consumes on its very next draw, so the only
 /// way one survives that long is that nobody was there to take it (the
-/// editor closed between the click and the draw) — and a pick that outlived
+/// editor closed between the click and the draw) - and a pick that outlived
 /// its window would paint a face the user has stopped thinking about.
 pub(super) fn draw_face_pick_highlight(
     mut gizmos: Gizmos<super::EditorOverlayGizmos>,
@@ -334,7 +334,7 @@ mod tests {
         }
     }
 
-    /// The outline follows the entity it was picked from — the prim may sit
+    /// The outline follows the entity it was picked from - the prim may sit
     /// anywhere in the room, and the highlight is drawn in world space.
     #[test]
     fn the_highlight_is_in_world_space() {
@@ -385,7 +385,7 @@ mod tests {
 
     /// #1237 f140/f141. Sequence: click "Pick from scene", change your
     /// mind, close the World Editor. `armed` had ONE writer and ONE
-    /// clearer and nothing reset it — not panel close, not `OnExit(InGame)`,
+    /// clearer and nothing reset it - not panel close, not `OnExit(InGame)`,
     /// not portal travel (which never leaves `InGame`), not logout. While
     /// it stood, clicking empty sky to deselect stopped working
     /// everywhere in the app, with nothing on screen saying why.
@@ -408,7 +408,7 @@ mod tests {
             );
         }
 
-        // The panel closes — nothing notes a draw.
+        // The panel closes - nothing notes a draw.
         world
             .run_system_cached(disarm_unbacked_face_pick)
             .expect("system runs");

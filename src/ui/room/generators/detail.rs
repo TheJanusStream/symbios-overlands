@@ -28,8 +28,8 @@ use super::tree::{node_salt, path_string};
 use super::water::draw_water_editor;
 use super::{GenNodeId, GeneratorTreeSource};
 
-/// Renders only the *content* of the selected node — kind picker,
-/// transform, per-kind detail editor — plus a header that names the node
+/// Renders only the *content* of the selected node - kind picker,
+/// transform, per-kind detail editor - plus a header that names the node
 /// and shows its path. Every structural operation (Add child / Add child
 /// from Inventory / Rename / Save to Inventory / Delete) lives in the
 /// per-row context menu on the tree panel; this function never mutates
@@ -46,7 +46,7 @@ pub(super) fn draw_detail_panel(
     blob_selected_element: &mut Option<usize>,
     // Pending kind-change confirmation (#838), answered by the caller.
     kind_confirm: &mut crate::ui::confirm::ConfirmState<(GenNodeId, &'static str)>,
-    // Undo-toast label slot — per-kind editors with named actions (the
+    // Undo-toast label slot - per-kind editors with named actions (the
     // road seed row) set it; plain slider edits keep the generic label.
     undo_label: &mut crate::ui::undo::LabelSlot,
     // Live road stats for the RoadNetwork readout (#888); `None` when the
@@ -78,9 +78,9 @@ pub(super) fn draw_detail_panel(
     let is_root = id.path.is_empty();
     // This NODE's grammar compile outcome (#1250 f84).
     //
-    // The spawn path always filed per node — `record_grammar_status` is
+    // The spawn path always filed per node - `record_grammar_status` is
     // handed the synthetic cache key, which is `<root>/<i>/<j>` for a child
-    // — but the panel looked up the ROOT name, so a tree with two grammar
+    // - but the panel looked up the ROOT name, so a tree with two grammar
     // nodes showed the root's line-numbered error under both, and a child's
     // own failure was never shown at all. The read now asks the same
     // question the write answered.
@@ -108,7 +108,7 @@ pub(super) fn draw_detail_panel(
     };
 
     // How many placements point at this root (#1244 f424). The count was
-    // already computed — by `placement_ref_count` — and shown in exactly
+    // already computed - by `placement_ref_count` - and shown in exactly
     // two places, BOTH inside the destructive path: the delete confirm's
     // body and the undo label after it is answered. So the only way to
     // learn whether a generator was used anywhere was to start deleting
@@ -159,8 +159,8 @@ pub(super) fn draw_detail_panel(
 
     let salt = node_salt(&id);
 
-    // A scene pick names one node (#961); resolving it here — where the
-    // node's id is known — is what keeps a stale pick (world editor closed
+    // A scene pick names one node (#961); resolving it here - where the
+    // node's id is known - is what keeps a stale pick (world editor closed
     // between the click and this draw) from painting whichever node happens
     // to be selected now.
     let picked_face = face_pick.take_for(&id.root, &id.path);
@@ -192,14 +192,14 @@ pub(super) fn draw_detail_panel(
         // Placement warning (#886): only the first RoadNetwork directly
         // under the deterministically-chosen Terrain root is ever read
         // (`find_road_config`); anywhere else the node is silently inert
-        // — say so instead of letting a dead panel look live.
+        // - say so instead of letting a dead panel look live.
         if matches!(node.kind, GeneratorKind::RoadNetwork(_)) && !active_road_nodes.contains(&id) {
             ui.colored_label(
                 crate::ui::theme::current(ui.ctx()).status.warn,
                 format!(
                     "This node grows no roads: only the first {} RoadNetwork nodes \
                      placed directly under the Terrain item are read. Move it \
-                     there — or remove it if those slots are taken.",
+                     there - or remove it if those slots are taken.",
                     crate::pds::room::MAX_ROAD_NETWORKS
                 ),
             );
@@ -208,7 +208,7 @@ pub(super) fn draw_detail_panel(
         ui.add_space(4.0);
         // #1243 f152: a ROOT's in-world gizmo has no translate handles
         // (`prim_modes`), and the panel drew the Translation boxes anyway
-        // — handles silently disappearing, contradicted three inches away
+        // - handles silently disappearing, contradicted three inches away
         // by a numeric field that does the forbidden thing. Say which is
         // which, the way the neighbouring restrictions already do.
         if id.path.is_empty() {
@@ -284,7 +284,7 @@ pub(super) fn draw_detail_panel(
 /// The node ids the terrain plugin reads road networks from, mirroring
 /// [`crate::pds::room::find_road_configs`]'s selection rule exactly: the
 /// first [`crate::pds::room::MAX_ROAD_NETWORKS`] `RoadNetwork` children of
-/// the sorted-first Terrain root — and only that root, even when it carries
+/// the sorted-first Terrain root - and only that root, even when it carries
 /// none. Empty when the tree has no active network. Drives the #886
 /// misplaced-node warning.
 fn active_road_node_ids(source: &dyn GeneratorTreeSource) -> Vec<GenNodeId> {
@@ -329,14 +329,14 @@ fn road_slider(
     }
 }
 
-/// Vertex count above which the stats readout tints warn — a road mesh this
+/// Vertex count above which the stats readout tints warn - a road mesh this
 /// heavy is a real slice of the wasm frame/memory budget.
 const ROAD_HEAVY_VERTS: usize = 150_000;
 
 /// The lot layer's arithmetic as readout lines, `(text, warn)` (#1211,
-/// finding 384). Four clamps used to drop content with no report — density
+/// finding 384). Four clamps used to drop content with no report - density
 /// thinning, the per-district building cap or the room's free placement
-/// budget, the furniture cap, and the generator ceiling — leaving the owner
+/// budget, the furniture cap, and the generator ceiling - leaving the owner
 /// tuning density, extent and spacing against a number that moved for
 /// reasons they could not attribute. Nothing for adopted (saved) content,
 /// which this session did not inject.
@@ -358,7 +358,7 @@ pub(crate) fn lot_clamp_lines(
         lines.push((
             if clamps.buildings_capped_by_budget {
                 format!(
-                    "{} lots left empty — only {} placements were left in this world's \
+                    "{} lots left empty - only {} placements were left in this world's \
                      {}-placement budget",
                     clamps.buildings_dropped,
                     buildings,
@@ -366,7 +366,7 @@ pub(crate) fn lot_clamp_lines(
                 )
             } else {
                 format!(
-                    "{} lots left empty — capped at {} buildings per district",
+                    "{} lots left empty - capped at {} buildings per district",
                     clamps.buildings_dropped,
                     crate::terrain::MAX_LOT_BUILDINGS
                 )
@@ -378,13 +378,13 @@ pub(crate) fn lot_clamp_lines(
         lines.push((
             if clamps.props_capped_by_budget {
                 format!(
-                    "{} furniture spots left empty — this world's {}-placement budget is used up",
+                    "{} furniture spots left empty - this world's {}-placement budget is used up",
                     clamps.props_dropped,
                     crate::pds::sanitize::limits::MAX_PLACEMENTS
                 )
             } else {
                 format!(
-                    "{} furniture spots left empty — capped at {} props per district",
+                    "{} furniture spots left empty - capped at {} props per district",
                     clamps.props_dropped,
                     crate::terrain::MAX_FURNITURE_PROPS
                 )
@@ -395,7 +395,7 @@ pub(crate) fn lot_clamp_lines(
     if clamps.generator_cap_skips > 0 {
         lines.push((
             format!(
-                "{} lots skipped — the world is at its {}-item limit",
+                "{} lots skipped - the world is at its {}-item limit",
                 clamps.generator_cap_skips,
                 crate::pds::sanitize::limits::MAX_GENERATORS
             ),
@@ -421,7 +421,7 @@ fn regrow_warning(buildings: usize, props: usize) -> String {
     }
     format!(
         "Changing the layout below re-grows the district, replacing the {} \
-         standing here — including any you have moved.",
+         standing here - including any you have moved.",
         what.join(" and "),
     )
 }
@@ -445,7 +445,7 @@ fn draw_road_editor(
         *dirty = true;
     }
 
-    // Live network readout (#888) — what the last completed re-mesh
+    // Live network readout (#888) - what the last completed re-mesh
     // actually built, so every slider edit becomes legible ~a debounce
     // later. Warn-tinted when the mesh weight starts to matter on wasm.
     if let Some(stats) = road_stats {
@@ -479,7 +479,7 @@ fn draw_road_editor(
             let label = ui.label(egui::RichText::new(text).small().color(color));
             if heavy {
                 label.on_hover_text(
-                    "This road mesh is heavy — consider a smaller district or \
+                    "This road mesh is heavy - consider a smaller district or \
                      wider spacing, especially for wasm visitors.",
                 );
             }
@@ -505,14 +505,14 @@ fn draw_road_editor(
     //
     // Any Layout or Lots control changes the fingerprint, and a third of a
     // second later `strip_lot_buildings` removes every grown generator and
-    // placement — including ones the owner dragged into place with the
+    // placement - including ones the owner dragged into place with the
     // gizmo, which is the most expensive work they do. Undo covers it (the
     // derived write folds into the slider's own entry) but only if they
     // realise inside the 32-step ring, and nothing told them: the buildings
     // vanish after the drag ends, when attention has already moved on.
     //
-    // A confirm is not available here — the strip happens in a system with
-    // no UI, a debounce later — so the honest surface is the sentence
+    // A confirm is not available here - the strip happens in a system with
+    // no UI, a debounce later - so the honest surface is the sentence
     // before the gesture and the toast after it.
     if let Some(stats) = road_stats
         && stats.built
@@ -564,7 +564,7 @@ fn draw_road_editor(
                     .text_color_opt(refused),
             )
             .on_hover_text(
-                "Street-layout seed. Type a number and press Enter to apply — \
+                "Street-layout seed. Type a number and press Enter to apply - \
              the same seed reproduces the same streets. Terrain is untouched.",
             );
             if resp.lost_focus()
@@ -578,7 +578,7 @@ fn draw_road_editor(
             }
             if ui
                 .button("🎲")
-                .on_hover_text("Re-roll the street layout — terrain untouched")
+                .on_hover_text("Re-roll the street layout - terrain untouched")
                 .clicked()
             {
                 // Deterministic LCG step → a fresh street layout.
@@ -602,7 +602,7 @@ fn draw_road_editor(
     // couple of pixels), and curb/chamfer stop at 1 m for the same reason.
     // The sanitizer still accepts hand-edited records up to its bounds.
 
-    // #887: three sections — the street PLAN (what moves lots too), the
+    // #887: three sections - the street PLAN (what moves lots too), the
     // ribbon cross-SECTION (mesh-only), and the building layer.
     egui::CollapsingHeader::new("Layout")
         .default_open(true)
@@ -819,7 +819,7 @@ fn draw_road_editor(
 
     // Its own section, not a row inside "Lots" (#1245 f380). The Lots body
     // early-returns when "Grow buildings on lots" is unticked, and the
-    // furniture checkbox was drawn after that point — so unticking
+    // furniture checkbox was drawn after that point - so unticking
     // buildings removed the ONLY control over a layer the injector treats
     // as independent (`active_configs` accepts a config on
     // `populate_lots || furniture.enabled`), while up to 160 props kept
@@ -833,7 +833,7 @@ fn draw_road_editor(
                 .on_hover_text(
                     "Plant theme props (lamps, signs, clutter) along the streets, \
                      just outside the curbs, sides alternating. Independent of the \
-                     buildings — this layer grows with or without them.",
+                     buildings - this layer grows with or without them.",
                 )
                 .changed()
             {
@@ -876,7 +876,7 @@ fn draw_road_editor(
             let lots = &mut config.lots;
             if ui
                 .add(crate::ui::num::slider(&mut lots.density.0, 0.0..=1.0).text("Density"))
-                .on_hover_text("Fraction of lots that grow a building — the largest lots win")
+                .on_hover_text("Fraction of lots that grow a building - the largest lots win")
                 .changed()
             {
                 undo_label.set("lot density".to_string());
@@ -955,7 +955,7 @@ fn draw_road_editor(
             ui.horizontal(|ui| {
                 ui.label("Building scale");
                 // Bounded against each other (#1238 f90). This pair was
-                // repaired downstream by SWAPPING — a third convention
+                // repaired downstream by SWAPPING - a third convention
                 // beside the particles' clamp-to-min and the splat rules'
                 // nothing at all, applied ~0.25 s after the drag with no
                 // message. Ranges read before either drag, so a drag on
@@ -991,7 +991,7 @@ fn draw_road_editor(
 /// The identifier field is a deferred-commit row validated against the same
 /// shape check the login form uses (#1251 f92), so a typo is refused where it
 /// is typed instead of at walk-in. The exit-position drags carry the ranges
-/// the sanitiser clamps them to — they were unbounded in the UI and clamped
+/// the sanitiser clamps them to - they were unbounded in the UI and clamped
 /// on the wire, which is the worst of both.
 fn draw_portal_editor(
     ui: &mut egui::Ui,
@@ -1031,7 +1031,7 @@ fn draw_portal_editor(
     }
     ui.label(
         egui::RichText::new(
-            "Leave it blank for a portal that goes nowhere yet — walking into \
+            "Leave it blank for a portal that goes nowhere yet - walking into \
              one always shows the destination's name first.",
         )
         .small()
@@ -1068,10 +1068,10 @@ fn draw_portal_editor(
 }
 
 /// Inline editor for a [`GeneratorKind::Gateway`]: only the interaction
-/// zone's extents — the destination list is social-graph data resolved at
+/// zone's extents - the destination list is social-graph data resolved at
 /// interaction time, so there is nothing else to author.
 fn draw_gateway_editor(ui: &mut egui::Ui, size: &mut crate::pds::Fp3, dirty: &mut bool) {
-    ui.label("Zone size (m) — the walk-in volume that opens the destination picker");
+    ui.label("Zone size (m) - the walk-in volume that opens the destination picker");
     ui.horizontal(|ui| {
         for (label, axis) in ["X", "Y", "Z"].iter().zip(size.0.iter_mut()) {
             ui.label(*label);
@@ -1085,14 +1085,14 @@ fn draw_gateway_editor(ui: &mut egui::Ui, size: &mut crate::pds::Fp3, dirty: &mu
     });
 }
 
-/// Per-kind variant detail editor — a thin dispatch: every arm is a
+/// Per-kind variant detail editor - a thin dispatch: every arm is a
 /// single delegation into a per-kind editor fn (the Terrain / LSystem /
 /// Shape forges, the shared primitive editors, or the inline-widget
 /// helpers above).
-/// Does NOT render the local transform — that's drawn separately in the detail
+/// Does NOT render the local transform - that's drawn separately in the detail
 /// panel header.
 ///
-/// `salt` uniquely identifies this node in egui's ID stack — it's passed
+/// `salt` uniquely identifies this node in egui's ID stack - it's passed
 /// through to nested material widgets so collapsing one node never
 /// affects another when the same widget type repeats across the tree.
 #[allow(clippy::too_many_arguments)] // one shared dispatch; each arg is a distinct channel.
@@ -1100,7 +1100,7 @@ fn draw_generator_detail(
     ui: &mut egui::Ui,
     salt: &str,
     kind: &mut GeneratorKind,
-    // Latest compile outcome for the ROOT this node lives under (#829) —
+    // Latest compile outcome for the ROOT this node lives under (#829) -
     // consumed by the L-system / Shape forges; a broken grammar anywhere
     // under the root shows the same (line-numbered) message.
     grammar_status: Option<&crate::world_builder::grammar_diag::GrammarStatus>,
@@ -1116,8 +1116,8 @@ fn draw_generator_detail(
     assets: &mut super::super::assets::AssetPanel<'_>,
 ) {
     // Snapshot taken before the match's mutable borrow: the per-face panel
-    // (#960) needs the WHOLE kind — which faces the current cut state emits,
-    // what an override's "inherit" projection resolves to — and the arm that
+    // (#960) needs the WHOLE kind - which faces the current cut state emits,
+    // what an override's "inherit" projection resolves to - and the arm that
     // runs holds the same node's `faces` mutably. Only primitives (the kinds
     // that have faces at all) pay the clone.
     let snapshot = kind.faces().is_some().then(|| kind.clone());
@@ -1379,7 +1379,7 @@ fn draw_generator_detail(
         GeneratorKind::Unknown => {
             ui.colored_label(
                 crate::ui::theme::current(ui.ctx()).status.warn,
-                "Unknown item type — editable only via the Raw JSON tab.",
+                "Unknown item type - editable only via the Raw JSON tab.",
             );
         }
     }
@@ -1391,7 +1391,7 @@ mod regrow_warning_tests {
 
     /// #1245 f378. The sentence has to name the real scope before the
     /// slider moves, because the destruction happens a debounce later in a
-    /// system with no UI — there is no frame in which a confirm could ask.
+    /// system with no UI - there is no frame in which a confirm could ask.
     #[test]
     fn the_warning_names_what_is_standing_and_that_moves_are_included() {
         let both = regrow_warning(312, 40);
@@ -1423,7 +1423,7 @@ mod grammar_key_tests {
     /// synthetic cache key; the panel used to look up the ROOT name. For a
     /// tree with two grammar nodes that painted one node's line-numbered
     /// error under the other, and a child's own failure was never shown at
-    /// all — the author edits the wrong file looking for a line number that
+    /// all - the author edits the wrong file looking for a line number that
     /// is not there, and the genuinely broken node reads as healthy.
     ///
     /// The read and the write have to build the same string, and they are in
@@ -1436,7 +1436,7 @@ mod grammar_key_tests {
         // passes to `record_grammar_status` for every nested node.
         assert_eq!(synthetic_cache_key("oak", &[0]), "oak/0");
         assert_eq!(synthetic_cache_key("oak", &[2, 1, 3]), "oak/2/1/3");
-        // Two siblings are two keys — the whole point.
+        // Two siblings are two keys - the whole point.
         assert_ne!(
             synthetic_cache_key("oak", &[0]),
             synthetic_cache_key("oak", &[1])

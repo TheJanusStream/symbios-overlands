@@ -1,8 +1,8 @@
 //! Tests for the seeded ambient-recipe deriver.
 //!
-//! - Same `(scene, seed)` → same recipe (determinism — every other
+//! - Same `(scene, seed)` → same recipe (determinism - every other
 //!   room deriver in the project honours this contract).
-//! - Different seeds diverge — each room's ambient bed must sound
+//! - Different seeds diverge - each room's ambient bed must sound
 //!   distinct, otherwise the DID seeding is for nothing on the audio
 //!   axis.
 //! - The default room record carries a non-`None` ambient recipe that
@@ -33,7 +33,7 @@ fn ambient_recipe_diverges_across_seeds() {
     let scene_b = SceneCharacter::for_did("did:plc:bob");
     let a = AmbientRecipe::from_scene(&scene_a, 0xAAAA).recipe;
     let b = AmbientRecipe::from_scene(&scene_b, 0xBBBB).recipe;
-    // Different seeds must drive different patch parameters — at the
+    // Different seeds must drive different patch parameters - at the
     // recipe granularity, this surfaces as a non-equal `instruments`
     // vector (different cutoff / LFO rate / amplitude).
     assert_ne!(
@@ -65,7 +65,7 @@ fn ambient_recipe_uses_a_loopable_window() {
 fn ambient_recipe_carries_five_layers_with_bed_filter_chain() {
     let scene = SceneCharacter::for_did(TEST_DID);
     let recipe = AmbientRecipe::from_scene(&scene, 1).recipe;
-    // Bed + gust + punctuation + theme melody + theme bass pad — the
+    // Bed + gust + punctuation + theme melody + theme bass pad - the
     // peaceful-room base layer set (the conflict tension siren only
     // appears as a sixth layer for Conflict rooms). See the layer-index
     // comment in `seeded_defaults::room::audio::AmbientRecipe::from_scene`;
@@ -98,7 +98,7 @@ fn ambient_recipe_carries_five_layers_with_bed_filter_chain() {
         output_node.inputs.keys().collect::<Vec<_>>()
     );
     // The bed filter family is biome-keyed (lowpass for warm biomes,
-    // highpass for arid/tundra) — either way the cutoff must ride the
+    // highpass for arid/tundra) - either way the cutoff must ride the
     // LFO sweep.
     let filter = patch
         .graph
@@ -119,7 +119,7 @@ fn ambient_recipe_carries_five_layers_with_bed_filter_chain() {
 }
 
 // ---------------------------------------------------------------------------
-// Integration with default_for_did — a fresh room carries an audio
+// Integration with default_for_did - a fresh room carries an audio
 // recipe that survives JSON round-trip and parses back to native.
 // ---------------------------------------------------------------------------
 
@@ -145,7 +145,7 @@ fn default_room_ambient_parses_back_to_native_recipe() {
     // Sanity-check the recipe we authored survives the Fp-quantised
     // structured round trip. Exact equality holds because every
     // float in the seeded recipe is well within Fp's precision and
-    // the deriver is deterministic — but to be defensive against
+    // the deriver is deterministic - but to be defensive against
     // tiny rounding artefacts at field boundaries, compare
     // field-by-field where exact equality could falsely diverge.
     let scene = SceneCharacter::for_did(TEST_DID);

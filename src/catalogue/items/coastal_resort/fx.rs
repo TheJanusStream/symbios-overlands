@@ -1,5 +1,5 @@
 //! Coastal-Resort "bring-it-to-life" helpers: a fine sea-spray emitter the
-//! pier hangs over the breaking water, and two spatial-audio patches — a
+//! pier hangs over the breaking water, and two spatial-audio patches - a
 //! slow surf wash for the pier pilings and a soft sea breeze for the hotel
 //! frontage.
 //!
@@ -27,7 +27,7 @@ use crate::pds::{
 // ---------------------------------------------------------------------------
 
 /// A fine white veil of sea spray flung up off the pilings and blown
-/// landward — the surf breaking under the pier's end.
+/// landward - the surf breaking under the pier's end.
 pub(super) fn sea_mist(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
         shape: EmitterShape::Cone {
@@ -60,7 +60,7 @@ pub(super) fn sea_mist(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A slow rolling surf wash — band-passed noise swelled by a very slow LFO
+/// A slow rolling surf wash - band-passed noise swelled by a very slow LFO
 /// (the wave rhythm) over a low ocean rumble. The voice of the pier pilings.
 pub(super) fn surf_wash() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.55 }));
@@ -117,7 +117,7 @@ pub(super) fn surf_wash() -> SovereignAudioConfig {
     patch(vec![noise, lfo, bp, wash, rumble, mix], NodeId(5))
 }
 
-/// A soft, airy sea breeze — band-limited noise breathing slowly through a
+/// A soft, airy sea breeze - band-limited noise breathing slowly through a
 /// lowpass. The voice of the hotel frontage and the open promenade.
 pub(super) fn sea_breeze() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.42 }));

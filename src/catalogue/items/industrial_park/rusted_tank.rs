@@ -1,4 +1,4 @@
-//! Rusted tank — an Industrial-Park *poor* secondary. A single corroded
+//! Rusted tank - an Industrial-Park *poor* secondary. A single corroded
 //! storage tank with a stove-in top, leaning on a cracked pad in a spreading
 //! stain, beside the [`derelict_shed`](super::derelict_shed).
 
@@ -47,7 +47,7 @@ impl CatalogueEntry for RustedTank {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Cracked, stained concrete pad — the root.
+        // Cracked, stained concrete pad - the root.
         prim(
             solid(cuboid_tapered(
                 [7.0, 0.3, 7.0],
@@ -60,7 +60,7 @@ fn build_tree() -> Generator {
     ];
     prims.push(footing(7.0, 7.0, [0.0, 0.0], 5.0));
 
-    // Corroded tank leaning a little off true — a subtree so its dished cap
+    // Corroded tank leaning a little off true - a subtree so its dished cap
     // and round hoops lean with it (the old square cuboid bands jutted their
     // corners past the wall).
     let h = 6.0_f32;

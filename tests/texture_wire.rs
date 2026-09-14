@@ -16,8 +16,8 @@
 //!   key means**, silently re-interpreting records already stored.
 //!
 //! So this pins the bytes, not the shape. Each variant contributes a
-//! default-valued mirror — which elides to almost nothing, and is where a
-//! moved default shows up — and one with every field driven off its
+//! default-valued mirror - which elides to almost nothing, and is where a
+//! moved default shows up - and one with every field driven off its
 //! default through the upstream config's own serde, which is where a moved
 //! field order shows up. Neither line is sanitised: this is the mirror's
 //! wire form, not what the sanitiser makes of it.
@@ -232,7 +232,7 @@ fn texture_wire_bytes_are_pinned() {
         return;
     }
     let want = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("{}: {e} — bless with TEXTURE_WIRE_BLESS=1", path.display()));
+        .unwrap_or_else(|e| panic!("{}: {e} - bless with TEXTURE_WIRE_BLESS=1", path.display()));
     let want: Vec<&str> = want.lines().collect();
     let mut diffs = Vec::new();
     for (i, g) in got.iter().enumerate() {
@@ -259,7 +259,7 @@ fn texture_wire_bytes_are_pinned() {
 }
 
 /// Every pinned line decodes back to the value that produced it and
-/// re-encodes to the same bytes — the fixture is a fixed point, not just a
+/// re-encodes to the same bytes - the fixture is a fixed point, not just a
 /// snapshot. This is what catches an elided field whose default moved: the
 /// bytes still parse, but they no longer mean what they meant.
 #[test]
@@ -284,7 +284,7 @@ fn texture_wire_fixture_is_a_fixed_point() {
 /// mirror's own default, so a mirror default that has drifted from upstream
 /// changes what an absent key means on every record already stored. It is
 /// also the precondition for deriving those defaults from
-/// `Native::default()` instead of hand-typing them — if this passes for all
+/// `Native::default()` instead of hand-typing them - if this passes for all
 /// fifty-seven, deriving them cannot move a single byte.
 ///
 /// Compared through serde because the upstream configs do not implement
@@ -407,7 +407,7 @@ fn extreme(value: Value, magnitude: i64) -> Value {
 /// The assertion is the general one rather than a list of bounds: after
 /// `sanitize`, clamping again may not move a single field. Before #1304 this
 /// could only have been written as a hand list, and the hand list covered
-/// sixty-two fields of the several hundred — `warp_octaves` and twenty-seven
+/// sixty-two fields of the several hundred - `warp_octaves` and twenty-seven
 /// other integer fields had no bound here at all.
 #[test]
 fn sanitising_a_hostile_record_lands_inside_the_envelope() {

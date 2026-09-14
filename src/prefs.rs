@@ -1,7 +1,7 @@
 //! Local UI-state persistence (#820).
 //!
 //! Machine-local preferences that describe how THIS client presents the
-//! app — which panels are open ([`crate::ui::toolbar::UiPanels`],
+//! app - which panels are open ([`crate::ui::toolbar::UiPanels`],
 //! including the first-run Controls hint's dismissed state) and the
 //! [`crate::state::LocalSettings`] toggles. They are deliberately NOT
 //! PDS records: they say nothing about the world or the identity, so
@@ -13,11 +13,11 @@
 //! watches both resources with Bevy change detection and writes a
 //! snapshot after a short trailing debounce, so toggling five panels in
 //! two seconds costs one write, not five. A corrupt or unreadable store
-//! degrades to defaults and heals itself on the next save — the same
+//! degrades to defaults and heals itself on the next save - the same
 //! philosophy as the OAuth session blob (`crate::oauth::wasm`).
 //!
 //! CONTRACT for systems touching a watched resource (#879): mutate it
-//! GUARDED — `bypass_change_detection` + `set_changed` on a real edit,
+//! GUARDED - `bypass_change_detection` + `set_changed` on a real edit,
 //! or a local copy written back conditionally. An egui widget holding
 //! `&mut resource.field` (`Window::open`, `toggle_value`, …) derefs
 //! mutably every frame and flags a change even when nothing moved;
@@ -63,12 +63,12 @@ const STORAGE_KEY: &str = "symbios_overlands_prefs_v1";
 
 /// Everything this machine remembers about its UI. All fields are
 /// `Option` + `#[serde(default)]`: absent-in-file means "no opinion,
-/// keep the resource's default" — distinct from an explicitly-saved
+/// keep the resource's default" - distinct from an explicitly-saved
 /// default value.
 #[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq)]
 pub struct PersistedPrefs {
     /// Open/closed state of every toolbar-managed window, including the
-    /// Controls hint — persisting `controls: false` after the first
+    /// Controls hint - persisting `controls: false` after the first
     /// "Got it" is what makes the first-run hint first-run-only.
     #[serde(default)]
     pub panels: Option<UiPanels>,
@@ -77,11 +77,11 @@ pub struct PersistedPrefs {
     #[serde(default)]
     pub settings: Option<LocalSettings>,
     /// Last-shown rect of every managed window (#833), keyed by
-    /// [`crate::ui::layout::UiWindow::key`] — a machine's arranged
+    /// [`crate::ui::layout::UiWindow::key`] - a machine's arranged
     /// layout beats the computed defaults on the next run.
     #[serde(default)]
     pub windows: Option<WindowLayout>,
-    /// DIDs muted by the local user (#844) — the durable mute list a
+    /// DIDs muted by the local user (#844) - the durable mute list a
     /// reconnecting peer can no longer reset.
     ///
     /// LEGACY, machine-wide (#1223 f292). Kept only so an existing
@@ -116,7 +116,7 @@ pub struct PersistedPrefs {
 /// A struct rather than a bare `Option<bool>` for the reason
 /// [`GizmoPrefs`] is one: the on-disk schema is independent of the
 /// resource, and a second audio preference (a master gain, if one is ever
-/// built — there is none today, see `audio_mute`'s module doc on why
+/// built - there is none today, see `audio_mute`'s module doc on why
 /// `GlobalVolume` is not it) grows a field here rather than a sibling key.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AudioPrefs {
@@ -205,7 +205,7 @@ impl PersistedPrefs {
 
 /// Native store: `$XDG_CONFIG_HOME/symbios-overlands/prefs.json`,
 /// falling back to `%APPDATA%` (Windows) then `~/.config`. `None` when
-/// no base directory can be resolved (headless CI without HOME) — the
+/// no base directory can be resolved (headless CI without HOME) - the
 /// app then simply runs without persistence.
 #[cfg(not(target_arch = "wasm32"))]
 fn native_prefs_path() -> Option<std::path::PathBuf> {
@@ -318,7 +318,7 @@ pub fn load_prefs_at_startup(mut commands: Commands) {
     }
     // Absent means "no opinion", which for audio means the muted default
     // stands (#1276 f38). Only an explicit remembered choice unsilences a
-    // launch — an upgrade does not start playing music at somebody.
+    // launch - an upgrade does not start playing music at somebody.
     if let Some(audio) = prefs.audio {
         commands.insert_resource(crate::audio_mute::AudioMuted::from(&audio));
     }
@@ -338,8 +338,8 @@ struct PendingSave {
 #[derive(Default)]
 pub struct SaveDebounce(Option<PendingSave>);
 
-/// Step the debounce: a change (re)arms the trailing deadline — clamped
-/// to the max-latency cap the burst's FIRST change fixed — and a
+/// Step the debounce: a change (re)arms the trailing deadline - clamped
+/// to the max-latency cap the burst's FIRST change fixed - and a
 /// deadline that has come due fires exactly once. Pure so the state
 /// machine is unit-testable.
 fn debounce_step(
@@ -366,7 +366,7 @@ fn debounce_step(
 
 /// Watch [`UiPanels`] + [`LocalSettings`] + [`WindowLayout`] and persist
 /// a snapshot shortly after the last change. Change detection also fires
-/// on the startup load's own insert — that lone extra write of identical
+/// on the startup load's own insert - that lone extra write of identical
 /// data is harmless and keeps the system free of special cases.
 #[allow(clippy::too_many_arguments)]
 pub fn save_prefs_when_changed(
@@ -390,7 +390,7 @@ pub fn save_prefs_when_changed(
         || gizmo.is_changed()
         // Same discipline (#1276 f38): the toolbar toggle and the Settings
         // checkbox both copy the bool out, hand the WIDGET the local, and
-        // write back only on a real click — so this ticks on a toggle and
+        // write back only on a real click - so this ticks on a toggle and
         // never merely because a panel that shows it is open.
         || audio.is_changed();
     // Fold the live list back under its owner before capturing (#1223
@@ -429,7 +429,7 @@ pub struct LegacyMutedDids(pub Option<crate::state::MutedDids>);
 /// Install the signed-in owner's mute list, and migrate the legacy
 /// machine-wide one on the first sign-in after the upgrade (#1223 f292).
 ///
-/// Runs whenever an `AtprotoSession` appears — the ordinary login, the wasm
+/// Runs whenever an `AtprotoSession` appears - the ordinary login, the wasm
 /// resume, and #1214's in-place re-authenticate all insert one, and none of
 /// them should have to remember this.
 pub fn adopt_owner_mute_list(
@@ -455,8 +455,8 @@ pub fn adopt_owner_mute_list(
         by_owner.set_owner(owner, &list);
     }
     // Written through `ResMut`, not `insert_resource`: a command applies at
-    // the end of the schedule, so `save_prefs_when_changed` — chained
-    // immediately after this — would still see the PREVIOUS owner's list
+    // the end of the schedule, so `save_prefs_when_changed` - chained
+    // immediately after this - would still see the PREVIOUS owner's list
     // alongside the new session and fold one user's blocks under the other's
     // account. Which is the exact defect (#1223 f292) this is fixing.
     if *muted_dids != list {
@@ -472,8 +472,8 @@ mod tests {
     /// (#1317).
     ///
     /// [`load_prefs_at_startup`] opens with
-    /// `let Some(prefs) = load() else { return }`, so on a first visit — or a
-    /// stored blob that no longer parses — it inserts **nothing at all**.
+    /// `let Some(prefs) = load() else { return }`, so on a first visit - or a
+    /// stored blob that no longer parses - it inserts **nothing at all**.
     /// Every resource its consumers require therefore has to be registered as
     /// a default by the app itself; `lib.rs` does that, beside
     /// `state::MutedDids`.
@@ -494,7 +494,7 @@ mod tests {
         let mut app = App::new();
         // Exactly what `adopt_owner_mute_list` requires. `AtprotoSession` is
         // an `Option` parameter, so its absence is the nobody-signed-in case
-        // rather than a validation failure — which is the case a first visit
+        // rather than a validation failure - which is the case a first visit
         // to the login screen actually is.
         app.init_resource::<crate::state::MutedByOwner>()
             .init_resource::<LegacyMutedDids>()
@@ -514,7 +514,7 @@ mod tests {
     /// #1226 f325. The sequence: an existing user updates the app and their
     /// prefs file predates the nametag setting entirely. `LocalSettings`
     /// grows only with `serde(default)`-compatible fields, so the missing
-    /// one must come back ON — an upgrade that silently switched off the
+    /// one must come back ON - an upgrade that silently switched off the
     /// only in-world identity the product has would look like the feature
     /// never shipped.
     #[test]
@@ -528,7 +528,7 @@ mod tests {
         );
         assert!(
             settings.load_external_assets,
-            "and so does external-asset loading (#1248 f298) — an upgrade that \
+            "and so does external-asset loading (#1248 f298) - an upgrade that \
              silently stopped following URL references would blank most of the \
              imagery in the product with no explanation"
         );
@@ -621,7 +621,7 @@ mod tests {
 
     /// #1223 f292. The sequence: two people share a computer. One mutes a
     /// harasser; the other signs in and that person is invisible to them,
-    /// with no way to discover why — a muted peer renders as a hidden body
+    /// with no way to discover why - a muted peer renders as a hidden body
     /// and a faint dot, and there was no list to look at anywhere.
     #[test]
     fn one_users_block_list_does_not_reach_the_next_account() {
@@ -649,7 +649,7 @@ mod tests {
 
     /// The one-time migration: the pre-#1223 machine-wide list belongs to
     /// whoever was using the machine, so the FIRST account to sign in after
-    /// the upgrade adopts it — and the second must not, which is the defect
+    /// the upgrade adopts it - and the second must not, which is the defect
     /// being fixed. `LegacyMutedDids` is taken, not read.
     #[test]
     fn the_legacy_machine_wide_list_is_adopted_once_and_only_once() {
@@ -707,7 +707,7 @@ mod tests {
             serde_json::from_str(r#"{"panels": null, "window_rects": {"chat": [1, 2, 3, 4]}}"#)
                 .unwrap();
         assert!(newer.panels.is_none());
-        // A panels object missing NEW bools fills them from Default —
+        // A panels object missing NEW bools fills them from Default -
         // the forward-compat contract for growing UiPanels.
         let partial: PersistedPrefs =
             serde_json::from_str(r#"{"panels": {"chat": true}}"#).unwrap();
@@ -743,7 +743,7 @@ mod tests {
     #[test]
     fn continuous_changes_cannot_starve_the_save() {
         // #879 regression shape: a "changed" signal every frame. The old
-        // trailing debounce re-armed forever and never fired — prefs
+        // trailing debounce re-armed forever and never fired - prefs
         // reached disk only at logout. The max-latency cap must force a
         // save within SAVE_MAX_LATENCY_SECS of the burst's first change.
         let mut pending = None;
@@ -804,11 +804,11 @@ mod tests {
     }
 
     /// #1276 f38. The sequence the finding describes: unmute, quit, come
-    /// back — and the world is silent again, because `AudioMuted` was the
+    /// back - and the world is silent again, because `AudioMuted` was the
     /// one preference nothing ever wrote.
     ///
-    /// Driven through the FULL round trip — `capture` → `save_to_path` →
-    /// `load_from_path` → the resource — rather than over the struct
+    /// Driven through the FULL round trip - `capture` → `save_to_path` →
+    /// `load_from_path` → the resource - rather than over the struct
     /// alone, because the struct was never the part that was missing: the
     /// gap was that `capture` did not read the resource and
     /// `load_prefs_at_startup` did not install one. A test over

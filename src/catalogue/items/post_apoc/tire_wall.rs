@@ -1,4 +1,4 @@
-//! Tyre wall — a Post-apocalyptic prop. A rampart of stacked, half-buried
+//! Tyre wall - a Post-apocalyptic prop. A rampart of stacked, half-buried
 //! tyres packed into a low barrier. Scatter clutter shoring up the holdout.
 
 use crate::catalogue::items::util::{
@@ -45,14 +45,14 @@ impl CatalogueEntry for TireWall {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // First tyre — the root, lying flat at the left end of the bottom row.
+        // First tyre - the root, lying flat at the left end of the bottom row.
         prim(
             solid(torus(0.18, 0.42, tarp(TIRE_BLACK))),
             [-1.35, 0.18, 0.0],
             id_quat(),
         ),
     ];
-    // Dirt rammed into the root tyre's bore — the packed-out barrier read.
+    // Dirt rammed into the root tyre's bore - the packed-out barrier read.
     prims.push(prim(
         solid(cylinder_tapered(0.3, 0.14, 10, 0.0, tarp(ASH_GREY))),
         [-1.35, 0.5, 0.0],

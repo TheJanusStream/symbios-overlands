@@ -1,4 +1,4 @@
-//! Energy node — an Alien-Monolithic prop. A glowing orb suspended above a
+//! Energy node - an Alien-Monolithic prop. A glowing orb suspended above a
 //! black pedestal within a glowing ring. Scatter clutter of the site; the orb
 //! is emissive trim the ruin pass can darken.
 
@@ -47,7 +47,7 @@ impl CatalogueEntry for EnergyNode {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Obsidian pedestal — the root.
+        // Obsidian pedestal - the root.
         prim(
             solid(cuboid_tapered([0.6, 0.8, 0.6], 0.2, obsidian(OBSIDIAN))),
             [0.0, 0.4, 0.0],
@@ -65,7 +65,7 @@ fn build_tree() -> Generator {
             [0.0, 1.25, 0.0],
             id_quat(),
         ),
-        // Suspended glowing orb — emissive, rounder (res 6) than the old
+        // Suspended glowing orb - emissive, rounder (res 6) than the old
         // blocky res-3 ball.
         {
             let mut orb = prim(
@@ -77,7 +77,7 @@ fn build_tree() -> Generator {
             orb
         },
     ];
-    // A glyph inscribed on the pedestal's −Z hero face — emissive.
+    // A glyph inscribed on the pedestal's −Z hero face - emissive.
     prims.extend(rune_marks([0.0, 0.42, -0.32], 0.45, glow(GLYPH_CYAN, 2.3)));
 
     assemble(prims)

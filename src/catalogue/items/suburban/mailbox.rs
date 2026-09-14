@@ -1,13 +1,13 @@
-//! Mailbox — a Suburban prop. A roadside post-mounted mailbox: a timber post
+//! Mailbox - a Suburban prop. A roadside post-mounted mailbox: a timber post
 //! with a braced arm, a tunnel-topped box with a hinged door toward the
 //! road, and a raised red flag on its side.
 //!
 //! Rebuilt from scratch under #972 after an in-world check ("z-fighting on
 //! co-planar surfaces and the box floats above the post"). The shipped box
-//! was a cuboid with a full [`cylinder_tapered`] laid on it as a lid —
+//! was a cuboid with a full [`cylinder_tapered`] laid on it as a lid -
 //! exactly as long as the box, so the lid's end discs sat on the box's end
 //! faces and tied for depth (the z-fight), with the lid's lower half buried
-//! in the body — and the whole thing hung 80 mm above the post top with
+//! in the body - and the whole thing hung 80 mm above the post top with
 //! nothing between. Now: post → mounting board → box, one unbroken stack
 //! (lesson 33); a diagonal [`strut`] brace from the post to the board; a
 //! lid that is a HALF cylinder ([`with_cut`]) whose flat is sunk 2 mm into
@@ -17,7 +17,7 @@
 //!
 //! #972 lesson 37: **a rounded top is a half, not a cylinder buried to its
 //! axis.** A full cylinder as long as its box puts two discs on the box's
-//! two ends — same plane, same normal, same rectangle — which is the
+//! two ends - same plane, same normal, same rectangle - which is the
 //! definition of a z-fight, and it costs the whole lower half of the
 //! cylinder in hidden geometry too. Cut the half you can see
 //! (`path_cut`), then check the kept arc's midpoint actually points UP by
@@ -106,7 +106,7 @@ impl CatalogueEntry for Mailbox {
 }
 
 /// A half-round lid of radius `r` and length `len` lying along `Z`, its
-/// flat at `y` (sunk by `LID_SINK`) — the box's top and the door's crown.
+/// flat at `y` (sunk by `LID_SINK`) - the box's top and the door's crown.
 fn half_lid(r: f32, len: f32, at: [f32; 3], colour: [f32; 3]) -> Generator {
     prim(
         solid(with_cut(
@@ -122,7 +122,7 @@ fn half_lid(r: f32, len: f32, at: [f32; 3], colour: [f32; 3]) -> Generator {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Timber post — the root.
+        // Timber post - the root.
         prim(
             solid(cuboid_tapered(
                 [POST_W, POST_H, POST_W],
@@ -266,7 +266,7 @@ mod tests {
         assert!(
             reach >= body_bottom - 1e-4,
             "mailbox: the stack under the box reaches {reach} and the box starts at \
-             {body_bottom} — it floats on {} m of air",
+             {body_bottom} - it floats on {} m of air",
             body_bottom - reach
         );
     }
@@ -303,7 +303,7 @@ mod tests {
             let crown = rotate_by(g.transform.rotation.0, [mid.cos(), 0.0, mid.sin()]);
             assert!(
                 crown[1] > 0.999,
-                "mailbox: a lid at {at:?} has its crown pointing {crown:?} — the wrong half \
+                "mailbox: a lid at {at:?} has its crown pointing {crown:?} - the wrong half \
                  was kept, or the turn is wrong"
             );
             // The lid's axis runs along Z and its flat is just inside the body top.
@@ -339,7 +339,7 @@ mod tests {
                 if s[2] > 0.4 && s[0] > 0.2 && s[0] < 0.25 {
                     body = Some((at, s));
                 } else if s[2] < 0.03 && s[1] > 0.1 && s[0] > 0.2 {
-                    // As wide as the box and thin along it — not the flag's arm.
+                    // As wide as the box and thin along it - not the flag's arm.
                     door = Some((at, s));
                 } else if s[1] > 1.0 {
                     post = Some((at, s));

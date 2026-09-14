@@ -23,7 +23,7 @@ pub(super) fn start_terrain_generation(
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
     // `find_terrain_config` walks the generator map in sorted-key order so
-    // every peer compiling this record picks the same entry — `HashMap`
+    // every peer compiling this record picks the same entry - `HashMap`
     // iteration is SipHash-randomised per process, and without the helper
     // two clients could generate different terrains from the same record.
     let cfg = crate::pds::find_terrain_config(&record.0)
@@ -101,7 +101,7 @@ pub(super) fn poll_terrain_task(
                         digest: hm_digest,
                     },
                 );
-                // Generic offload-lifecycle completion (#631) — pairs with the
+                // Generic offload-lifecycle completion (#631) - pairs with the
                 // `OffloadJobStarted { job: "heightmap" }` at dispatch so the
                 // stall rule can measure the round-trip.
                 session_log.info(
@@ -114,7 +114,7 @@ pub(super) fn poll_terrain_task(
                 commands.insert_resource(FinishedHeightMap(heightmap_from_data(data)));
             }
             // A heightmap job only ever yields a heightmap; count an unexpected
-            // variant as an offload error (E-4) rather than panicking — and
+            // variant as an offload error (E-4) rather than panicking - and
             // say so on the loading screen (#1230 f21). Marking the failure
             // is what stops `start_terrain_generation` re-dispatching the
             // same job on the next frame and every frame after it: the task
@@ -130,7 +130,7 @@ pub(super) fn poll_terrain_task(
                         reason: reason.clone(),
                     },
                 );
-                warn!("heightmap offload job yielded an unexpected result — terrain will not load");
+                warn!("heightmap offload job yielded an unexpected result - terrain will not load");
                 commands.insert_resource(super::TerrainGenFailed { reason });
             }
         }
@@ -139,12 +139,12 @@ pub(super) fn poll_terrain_task(
 
 /// The room's ground mesh: heightfield triangles, area-weighted normals, one
 /// UV tile across the whole world, tangents for the splat material's normal
-/// maps — and no CPU copy.
+/// maps - and no CPU copy.
 ///
 /// **Why `RENDER_WORLD` only (#1134).** At the default 512-square grid this
 /// mesh is roughly 19 MB of positions, normals, UVs, tangents and indices.
-/// With `MAIN_WORLD` set — the `RenderAssetUsages` default, which this used
-/// to take — Bevy keeps that copy alive in `Assets<Mesh>` for the room's whole
+/// With `MAIN_WORLD` set - the `RenderAssetUsages` default, which this used
+/// to take - Bevy keeps that copy alive in `Assets<Mesh>` for the room's whole
 /// life, and builds a fresh one on every re-roll. On wasm linear memory is
 /// never returned to the browser, so each of those copies is a permanent floor
 /// under the heap: the #565/#625 ratchet, of which this was the single largest
@@ -152,9 +152,9 @@ pub(super) fn poll_terrain_task(
 /// pattern for textures and stopped there; this is the mesh half of it.
 ///
 /// Nothing in the main world reads terrain vertices any more. The editor's two
-/// `MeshRayCast` pick sites used to — a `RENDER_WORLD` mesh answers
+/// `MeshRayCast` pick sites used to - a `RENDER_WORLD` mesh answers
 /// `try_attribute` with `ExtractedToRenderWorld`, so the mesh ray silently
-/// stops seeing the ground — and they now ask the heightfield collider built
+/// stops seeing the ground - and they now ask the heightfield collider built
 /// beside this mesh instead. That is the same surface described as physics
 /// rather than as triangles, and it costs nothing extra because the collider
 /// has to exist regardless: the player stands on it.
@@ -182,7 +182,7 @@ pub(super) fn spawn_terrain_mesh(
     // Atomic hand-off from the previous terrain (which has been displaying
     // the player on its collider while the new heightmap generated) to the
     // freshly-spawned one. Queuing the despawn before the new-entity spawn
-    // keeps the command order correct — the old colliders are gone by the
+    // keeps the command order correct - the old colliders are gone by the
     // time physics observes a transform, and no frame ever has zero terrain
     // in the world.
     for e in &outgoing {
@@ -348,7 +348,7 @@ mod tests {
         );
         assert!(
             !mesh.asset_usage.contains(RenderAssetUsages::MAIN_WORLD),
-            "MAIN_WORLD set — the vertex data will be retained per re-roll"
+            "MAIN_WORLD set - the vertex data will be retained per re-roll"
         );
     }
 
@@ -377,7 +377,7 @@ mod tests {
 
         assert!(
             total > 8 * 1_048_576,
-            "expected tens of MB, measured {total} bytes — if the mesher got \
+            "expected tens of MB, measured {total} bytes - if the mesher got \
              this much cheaper, #1134's premise is worth re-reading"
         );
     }
@@ -392,7 +392,7 @@ mod tests {
 
         assert!(
             mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_some(),
-            "no tangents — the splat material's normal maps would be unlit"
+            "no tangents - the splat material's normal maps would be unlit"
         );
     }
 }

@@ -1,4 +1,4 @@
-//! Office block — a Modern-City secondary. A mid-rise box whose street face
+//! Office block - a Modern-City secondary. A mid-rise box whose street face
 //! is a glazed curtain wall over lit office floors, with concrete flanks, an
 //! entrance canopy, and a parapet roof with a humming rooftop unit. The
 //! everyday downtown building that rings the landmark tower.
@@ -9,7 +9,7 @@
 //! interior of floor slabs and warm ceiling strips, so the tower reads as
 //! lit floors seen through glass rather than a teal slab stuck on a solid
 //! box (the shared [`curtain_wall`](super::curtain_wall) helper still slabs
-//! its glass — see its note — so this entry builds its own, #942).
+//! its glass - see its note - so this entry builds its own, #942).
 
 use std::f32::consts::FRAC_PI_2;
 
@@ -23,13 +23,13 @@ use crate::seeded_defaults::ThemeArchetype;
 
 use super::{CONCRETE_GREY, GLASS_TEAL, LAMP_WARM, STEEL_GREY, concrete, fx, steel};
 
-/// Warm office interior light — the glow strip along each floor's ceiling,
+/// Warm office interior light - the glow strip along each floor's ceiling,
 /// the warmth that reads through the cut panes as "the lights are on".
 const OFFICE_WARM: [f32; 3] = [1.0, 0.87, 0.62];
-/// Steel mullion / transom grey — the proud curtain-wall grid.
+/// Steel mullion / transom grey - the proud curtain-wall grid.
 const MULLION: [f32; 3] = [0.34, 0.36, 0.40];
 
-/// Clear height of the ground storey, above the plinth top — the band the
+/// Clear height of the ground storey, above the plinth top - the band the
 /// shopfront glazing and the entrance live in, and the datum the curtain wall
 /// above now starts from.
 ///
@@ -44,15 +44,15 @@ const MULLION: [f32; 3] = [0.34, 0.36, 0.40];
 ///
 /// [`util::assert_cards_do_not_overlap`]: crate::catalogue::items::util
 const GROUND_H: f32 = 3.4;
-/// Height of the shopfront glazing's sill above the plinth top — a low kerb,
+/// Height of the shopfront glazing's sill above the plinth top - a low kerb,
 /// not a stall riser: this is a lobby, so the glass runs nearly to the floor.
 const STORE_SILL: f32 = 0.28;
 /// Spandrel left between the shopfront head and the curtain wall's bottom
 /// transom, so the two glazed surfaces never meet on one plane.
 const STORE_SPANDREL: f32 = 0.55;
 
-/// Push a curtain-wall mullion grid — `cols + 1` verticals and `rows + 1`
-/// transoms, standing `proud` of the glass plane at `cz` toward the front —
+/// Push a curtain-wall mullion grid - `cols + 1` verticals and `rows + 1`
+/// transoms, standing `proud` of the glass plane at `cz` toward the front -
 /// into `prims`. The glass itself is a separate [`plane`]; this is only the
 /// steel that divides it.
 fn mullion_grid(
@@ -138,7 +138,7 @@ fn build_tree() -> Generator {
     let cav_mid = (front_z + core_front) * 0.5;
 
     let mut prims = vec![
-        // Concrete base — the root.
+        // Concrete base - the root.
         prim(
             solid(cuboid_tapered(
                 [w + 1.0, base_h, d + 1.0],
@@ -148,7 +148,7 @@ fn build_tree() -> Generator {
             [0.0, base_h * 0.5, 0.0],
             id_quat(),
         ),
-        // Concrete core box — the flanks and back stay solid masonry; the
+        // Concrete core box - the flanks and back stay solid masonry; the
         // street face is open to the glazing cavity in front.
         prim(
             solid(cuboid_tapered(
@@ -176,8 +176,8 @@ fn build_tree() -> Generator {
     // --- The lit interior seen through the curtain wall.
 
     // Glazing envelope (shared by the interior and the glass plane). The
-    // curtain wall starts at the first-floor line — one clear ground storey
-    // above the plinth — and runs to just under the parapet.
+    // curtain wall starts at the first-floor line - one clear ground storey
+    // above the plinth - and runs to just under the parapet.
     let gw = w - 1.0;
     let g_bottom = base_h + GROUND_H;
     let g_top = base_h + body_h - 0.6;
@@ -220,7 +220,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Warm ceiling strip near the top of each storey — the lit-office glow.
+    // Warm ceiling strip near the top of each storey - the lit-office glow.
     for k in 0..bays.1 {
         let y = g_bottom + (k as f32 + 0.85) * row_h;
         prims.push(prim(
@@ -278,7 +278,7 @@ fn build_tree() -> Generator {
         [-3.8, base_h + 0.28, cav_mid],
         id_quat(),
     ));
-    // Storefront glazing — wide clear panes over the lobby, flanking the
+    // Storefront glazing - wide clear panes over the lobby, flanking the
     // central entrance portal. Two pane rows rather than one, because a
     // full-height lobby bay split once lands the panes near square.
     prims.push(prim(
@@ -383,7 +383,7 @@ mod tests {
     ///
     /// The band used to be placed by eye at 1.0 m, so from the pavement the
     /// building showed half a metre of blank plinth and then another half
-    /// metre of blank concrete before any glass — the one thing the user
+    /// metre of blank concrete before any glass - the one thing the user
     /// asked to have fixed. It is now derived from the plinth, and this pins
     /// the derivation: the lowest card's sill sits within a low kerb's height
     /// of the floor, and never below it.
@@ -401,7 +401,7 @@ mod tests {
         );
         assert!(
             sill < floor + 0.45,
-            "glazing sill at {sill} floats {} above the lobby floor — the \
+            "glazing sill at {sill} floats {} above the lobby floor - the \
              street sees blank concrete where the shopfront should be",
             sill - floor
         );

@@ -1,4 +1,4 @@
-//! Boathouse — a Nordic secondary. An open-fronted timber shed on a stone
+//! Boathouse - a Nordic secondary. An open-fronted timber shed on a stone
 //! slipway, roofed in steep thatch and propped on two front posts, where a
 //! crew drags its longship up out of the water for the winter. The mouth
 //! faces the shore (the -Z hero face) so it reads as a working naust, not a
@@ -47,7 +47,7 @@ impl CatalogueEntry for Boathouse {
 }
 
 fn build_tree() -> Generator {
-    let l = 10.0_f32; // width along the shore (X) — ridge runs this way
+    let l = 10.0_f32; // width along the shore (X) - ridge runs this way
     let d = 6.0_f32; // depth inland (Z), open toward -Z (the camera/shore)
     let foot_h = 0.4;
     let wall_h = 4.0;
@@ -55,7 +55,7 @@ fn build_tree() -> Generator {
     let roof_h = 3.0;
 
     let mut prims = vec![
-        // Stone slipway footing — the root.
+        // Stone slipway footing - the root.
         prim(
             solid(cuboid_tapered(
                 [l + 1.0, foot_h, d + 1.0],

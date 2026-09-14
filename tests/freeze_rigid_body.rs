@@ -2,12 +2,12 @@
 //!
 //! Root cause of the original crash: inserting and later removing
 //! `RigidBodyDisabled` on a body with touching contacts corrupts the
-//! physics-island bookkeeping — the contact edge keeps its island link
+//! physics-island bookkeeping - the contact edge keeps its island link
 //! across the disable, the re-enable island-links it a second time
 //! (`debug_assert!(contact.island.is_none())` catches it in debug builds),
 //! and the constraint graph ends up holding manifold handles that outrange
 //! their pair's manifold list. In release builds that surfaces later as the
-//! solver's `pair.manifolds[manifold_index]` index-out-of-bounds panic — the
+//! solver's `pair.manifolds[manifold_index]` index-out-of-bounds panic - the
 //! crash the #739 UV-mapping dropdown edit exposed.
 //!
 //! **Still unfixed upstream as of avian 0.7.0** (re-run 2026-08-30, #1150).
@@ -20,7 +20,7 @@
 //!
 //! The fix (`player::freeze_local_avatar_on_visuals_select`) freezes via
 //! `LockedAxes::ALL_LOCKED` + `GravityScale(0)` + per-frame velocity
-//! zeroing instead — the body never leaves the simulation, so islands
+//! zeroing instead - the body never leaves the simulation, so islands
 //! and the constraint graph stay untouched. The two sequence tests here
 //! drive that recipe through the full reported scenario (walk on bumpy
 //! terrain → freeze → visuals-children rebuilds → unfreeze → walk) and
@@ -34,7 +34,7 @@ use bevy::time::TimeUpdateStrategy;
 
 /// Gentle sine-bump heightfield (the app's terrain collider class):
 /// cell-scale relief so a walking capsule's contact spans a varying
-/// number of heightfield triangles — multi-manifold contact pairs are a
+/// number of heightfield triangles - multi-manifold contact pairs are a
 /// precondition of the original panic (`index 2` needs ≥3 manifolds).
 fn heightfield_ground() -> Collider {
     const N: usize = 33;
@@ -152,7 +152,7 @@ fn release_freeze(app: &mut App, chassis: Entity) {
 /// manifold handle in the constraint graph must resolve to an existing
 /// manifold of its contact pair (`prepare_contact_constraints` indexes
 /// `pair.manifolds[handle.manifold_index]` unconditionally). Sleeping
-/// pairs holding zero handles are fine — sleeping *removes* constraints —
+/// pairs holding zero handles are fine - sleeping *removes* constraints -
 /// the bug is a handle that outlives or outranges its manifold list.
 fn assert_graph_in_sync(app: &mut App, phase: &str, step: usize) {
     use avian3d::dynamics::solver::constraint_graph::ConstraintGraph;
@@ -198,7 +198,7 @@ fn step_frozen(app: &mut App, chassis: Entity, n: usize, phase: &str) {
     }
 }
 
-/// Max manifold count seen on any touching pair — used to prove the
+/// Max manifold count seen on any touching pair - used to prove the
 /// harness actually exercises multi-manifold contacts.
 fn max_manifolds(app: &App) -> usize {
     let graph = app.world().resource::<ContactGraph>();
@@ -225,7 +225,7 @@ fn axis_lock_freeze_edit_unfreeze_keeps_constraint_graph_in_sync() {
     // Land on the ground.
     step_checked(&mut app, 60, "settle");
 
-    // Walk across cell boundaries for 3 s — manifold counts churn.
+    // Walk across cell boundaries for 3 s - manifold counts churn.
     let mut seen_manifolds = 0;
     for i in 0..192 {
         let dir = if (i / 48) % 2 == 0 {
@@ -270,7 +270,7 @@ fn axis_lock_freeze_edit_unfreeze_keeps_constraint_graph_in_sync() {
 }
 
 /// Freeze engaging while the capsule is still sliding (selection during
-/// motion), plus rapid select/deselect toggles — the freeze/release edges
+/// motion), plus rapid select/deselect toggles - the freeze/release edges
 /// land on consecutive steps with live, changing contacts.
 #[test]
 fn axis_lock_freeze_toggles_during_motion_keep_constraint_graph_in_sync() {
@@ -301,7 +301,7 @@ fn axis_lock_freeze_toggles_during_motion_keep_constraint_graph_in_sync() {
 
 /// #867 canary: replace the COLLIDER (the locomotion hot-swap's strip +
 /// rebuild) on a chassis that is parked by the freeze and touching the
-/// ground — the sequence behind the avatar re-roll meltdown (re-seed
+/// ground - the sequence behind the avatar re-roll meltdown (re-seed
 /// changes the chassis family while the Avatar editor freeze holds the
 /// body, then the editor closes). Mimics the app systems exactly:
 /// `strip_preset_components` removes `Collider`/`Mass`/`LockedAxes` and
@@ -312,7 +312,7 @@ fn axis_lock_freeze_toggles_during_motion_keep_constraint_graph_in_sync() {
 /// Since #867 the app DEFERS the swap until the freeze releases (the
 /// rebuild system's `Without<VisualsEditFreeze>` gate), so this exact
 /// sequence no longer occurs in-game. The test pins down how avian behaves
-/// if it ever regresses — green on 0.7.0 as of 2026-08-30 (#1150): the body
+/// if it ever regresses - green on 0.7.0 as of 2026-08-30 (#1150): the body
 /// must stay finite, stay on the ground, and keep the constraint graph in
 /// sync through release.
 /// If this fails after an avian upgrade the deferral must stay; if the
@@ -384,17 +384,17 @@ fn collider_replace_while_parked_and_touching_survives_release() {
 /// Upstream canary, kept `#[ignore]`d: the raw `RigidBodyDisabled`
 /// insert→remove cycle this file's freeze recipe exists to avoid. It dies on
 /// `debug_assert!(contact.island.is_none())` when the re-enabled body's
-/// contacts are island-linked a second time — the debug-build tripwire of the
+/// contacts are island-linked a second time - the debug-build tripwire of the
 /// release-mode solver OOB panic from #740.
 ///
-/// Last run against **avian 0.7.0** (2026-08-30, #1150) — the upgrade this
-/// canary was armed for — and it still fails, at
+/// Last run against **avian 0.7.0** (2026-08-30, #1150) - the upgrade this
+/// canary was armed for - and it still fails, at
 /// `dynamics/solver/islands/mod.rs:518` via `update_narrow_phase`. So the
 /// `LockedAxes::ALL_LOCKED` + `GravityScale(0)` + velocity-zeroing park in
 /// `player::freeze_local_avatar_on_visuals_select`, and the #867-869
 /// deferred-collider-rebuild machinery layered on it, both stay.
 ///
-/// Run it after the next avian or Bevy bump — nothing in the gate does:
+/// Run it after the next avian or Bevy bump - nothing in the gate does:
 ///
 /// ```text
 /// cargo nextest run --cargo-profile test-release \
@@ -407,7 +407,7 @@ fn collider_replace_while_parked_and_touching_survives_release() {
 /// all.
 #[test]
 #[ignore = "canary: reproduces the upstream avian island-corruption bug (#740); \
-            still failing on 0.7.0 — see the doc block above"]
+            still failing on 0.7.0 - see the doc block above"]
 fn plain_rigid_body_disabled_cycle() {
     let mut app = app_with_physics();
     app.world_mut()
@@ -428,7 +428,7 @@ fn plain_rigid_body_disabled_cycle() {
 }
 
 /// The avian version [`plain_rigid_body_disabled_cycle`] was last actually
-/// run against. Bump it only after running it — see its doc block for the
+/// run against. Bump it only after running it - see its doc block for the
 /// command and for what each outcome means.
 const CANARY_VERIFIED_AGAINST: &str = "0.7.0";
 
@@ -437,7 +437,7 @@ const CANARY_VERIFIED_AGAINST: &str = "0.7.0";
 ///
 /// The canary is `#[ignore]`d because it reproduces a live upstream panic, and
 /// nothing in the documented gate or in ci.yml runs ignored tests. So #1085
-/// took avian from 0.6 to 0.7 — the exact upgrade the canary was armed for —
+/// took avian from 0.6 to 0.7 - the exact upgrade the canary was armed for -
 /// and the canary was not consulted for six days, while the test's ignore
 /// string, its doc block and building.md all went on describing 0.6. An
 /// ignored test nothing ever runs is a comment, and a comment about a version
@@ -451,7 +451,7 @@ const CANARY_VERIFIED_AGAINST: &str = "0.7.0";
 #[test]
 fn the_canary_names_the_avian_version_the_build_actually_resolved() {
     // `option_env!` rather than `env!` because `build.rs` is written to be
-    // removable (see its header) — but a guard that quietly passes when its
+    // removable (see its header) - but a guard that quietly passes when its
     // input is gone is worse than no guard, so absence fails here too.
     let Some(resolved) = option_env!("SYMBIOS_AVIAN_VERSION") else {
         panic!(
@@ -461,9 +461,9 @@ fn the_canary_names_the_avian_version_the_build_actually_resolved() {
     assert_eq!(
         resolved, CANARY_VERIFIED_AGAINST,
         "avian moved to {resolved} but the island-corruption canary was last \
-         run against {CANARY_VERIFIED_AGAINST}. Run it — `cargo nextest run \
+         run against {CANARY_VERIFIED_AGAINST}. Run it - `cargo nextest run \
          --cargo-profile test-release --run-ignored ignored-only -E \
-         'test(plain_rigid_body_disabled_cycle)'` — then re-date its doc block \
+         'test(plain_rigid_body_disabled_cycle)'` - then re-date its doc block \
          and CANARY_VERIFIED_AGAINST with the result. If it now PASSES, the \
          #740 freeze workaround and the #867-869 deferral can be revisited."
     );

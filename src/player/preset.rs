@@ -4,7 +4,7 @@
 //!
 //! The dispatch lives here rather than on [`LocomotionConfig`] because
 //! the record
-//! layer must stay Bevy/Avian-free — PDS describes *what the avatar is*;
+//! layer must stay Bevy/Avian-free - PDS describes *what the avatar is*;
 //! the player module owns *what that means in the physics world* (the
 //! same layering as [`crate::interaction`]'s `LocomotionFootprint` trait).
 
@@ -43,7 +43,7 @@ pub struct CarPreset;
 
 /// Aggregate marker query target for camera follow / vehicle-yaw
 /// inheritance. Covers every preset whose physics body rotates around Y
-/// — i.e. anything except the upright-locked Humanoid.
+/// - i.e. anything except the upright-locked Humanoid.
 #[derive(Component)]
 pub struct VehicleChassis;
 
@@ -55,7 +55,7 @@ pub(super) trait PresetComponents {
     fn insert_preset(&self, commands: &mut Commands, entity: Entity);
 }
 
-/// Shared cuboid-chassis insert for the four vehicle presets — they
+/// Shared cuboid-chassis insert for the four vehicle presets - they
 /// differ only in their marker component; the rig topology (collider from
 /// half-extents, mass, both dampings, [`VehicleChassis`]) is identical.
 ///
@@ -172,7 +172,7 @@ impl PresetComponents for HumanoidParams {
 }
 
 /// Insert the physics components appropriate to the avatar's locomotion
-/// preset — the per-variant dispatch into [`PresetComponents`].
+/// preset - the per-variant dispatch into [`PresetComponents`].
 pub(super) fn build_preset_components(
     commands: &mut Commands,
     entity: Entity,
@@ -196,7 +196,7 @@ pub(super) fn build_preset_components(
 }
 
 /// Remove every preset-specific component + marker from `entity`.
-/// Safe to call even if the entity currently carries only a subset — Bevy's
+/// Safe to call even if the entity currently carries only a subset - Bevy's
 /// `remove` no-ops when the component is absent.
 ///
 /// KEEP IN SYNC with the [`PresetComponents`] impls above: every component

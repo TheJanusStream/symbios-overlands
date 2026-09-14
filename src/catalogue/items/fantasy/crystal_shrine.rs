@@ -1,4 +1,4 @@
-//! Crystal shrine — a High-Fantasy secondary. An open stone shrine of four
+//! Crystal shrine - a High-Fantasy secondary. An open stone shrine of four
 //! pillars sheltering a great glowing crystal cluster on a gold-ringed plinth,
 //! singing softly. Its crystal is emissive trim the ruin pass can darken.
 //!
@@ -55,7 +55,7 @@ fn build_tree() -> Generator {
     let cap_y = plinth_top + pillar_h; // pillar top / cornice underside
 
     let mut prims = vec![
-        // Broad mossy step — the root.
+        // Broad mossy step - the root.
         prim(
             solid(cuboid_tapered([4.8, step_h, 4.8], 0.0, stone(STONE_GREY))),
             [0.0, step_h * 0.5, 0.0],
@@ -69,7 +69,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Four corner pillars — base, slender shaft, capital.
+    // Four corner pillars - base, slender shaft, capital.
     for sx in [-1.0_f32, 1.0] {
         for sz in [-1.0_f32, 1.0] {
             let (px, pz) = (sx * 1.55, sz * 1.55);
@@ -133,7 +133,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Glowing faceted crystal cluster — a tall central shard flanked by lesser
+    // Glowing faceted crystal cluster - a tall central shard flanked by lesser
     // ones leaning out at wild angles.
     prims.push(crystal(
         [0.0, plinth_top, 0.0],

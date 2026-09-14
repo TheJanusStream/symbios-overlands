@@ -1,4 +1,4 @@
-//! Owner Dedication — the Civic-Campus identity monument (#975).
+//! Owner Dedication - the Civic-Campus identity monument (#975).
 //!
 //! The dedication wall every campus has by its gate: a broad pale-stone wall
 //! on a stepped base, the room owner's portrait behind a verdigris copper
@@ -66,7 +66,7 @@ fn build_tree(did: &str) -> Generator {
         [0.0, 0.59, 0.0],
         id_quat(),
     );
-    // The wall itself — broad rather than tall, which is what makes it read as
+    // The wall itself - broad rather than tall, which is what makes it read as
     // civic dedication instead of headstone.
     let wall = prim(
         solid(cuboid_tapered([3.6, 3.6, 0.62], 0.02, stone(STONE_PALE))),
@@ -82,7 +82,7 @@ fn build_tree(did: &str) -> Generator {
                 vec![nest(wall, dedication(did)), lamp(-2.05), lamp(2.05)],
             ),
             // Buried footing under the bottom step, sized to the drop this
-            // footprint spans (#1009) — authored around y=0 and rebased by
+            // footprint spans (#1009) - authored around y=0 and rebased by
             // `nest` like every other child.
             footing(4.6, 2.0, [0.0, 0.0], 3.0),
         ],
@@ -116,7 +116,7 @@ fn dedication(did: &str) -> Vec<Generator> {
             [0.0, 4.59, 0.0],
             id_quat(),
         ),
-        // Dedication band — blank copper, because there is no text renderer;
+        // Dedication band - blank copper, because there is no text renderer;
         // it reads as the plate a name is cast into.
         prim(
             solid(cuboid_tapered(

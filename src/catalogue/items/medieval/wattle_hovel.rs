@@ -1,4 +1,4 @@
-//! Wattle hovel — the Medieval *poor* landmark. A small crooked cottage of
+//! Wattle hovel - the Medieval *poor* landmark. A small crooked cottage of
 //! lime-washed wattle-and-daub over a low fieldstone footing, a crude
 //! timber-framed gable with an exposed cruck brace, a plank door and a
 //! shuttered window in the long wall, and a heavy steep thatch with a smoke
@@ -62,7 +62,7 @@ fn build_tree() -> Generator {
     let ridge_y = wall_top + roof_rise;
 
     let mut prims = vec![
-        // Low fieldstone footing — the root.
+        // Low fieldstone footing - the root.
         prim(
             solid(cuboid_tapered(
                 [l + 0.8, foot_h, w + 0.8],
@@ -82,7 +82,7 @@ fn build_tree() -> Generator {
     prims.push(footing(l + 0.8, w + 0.8, [0.0, 0.0], 6.0));
 
     // Steep heavy thatch (ridge ‖ X, A-frame slopes face ±Z) with a wide
-    // overhang — replaces the old flat-topped frustum mound.
+    // overhang - replaces the old flat-topped frustum mound.
     prims.push(gable_roof(
         [l + 1.0, roof_rise, w + 1.3],
         [0.0, wall_top + roof_rise * 0.5, 0.0],
@@ -101,7 +101,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Ridge pole capping the thatch peak — sits proud above the apex so its
+    // Ridge pole capping the thatch peak - sits proud above the apex so its
     // faces never graze the converging slopes (no coplanar z-fight).
     prims.push(prim(
         solid(cuboid_tapered(

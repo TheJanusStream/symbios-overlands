@@ -1,4 +1,4 @@
-//! Transit stop — a Modern-City secondary. A raised concrete platform under
+//! Transit stop - a Modern-City secondary. A raised concrete platform under
 //! a frosted-glass canopy, walled on the rear and one side by clear glazed
 //! screens: the light-rail / bus interchange that anchors the street grid.
 //!
@@ -23,23 +23,23 @@ use crate::seeded_defaults::ThemeArchetype;
 
 use super::{CONCRETE_GREY, LAMP_WARM, SIGNAL_GREEN, concrete, enamel, steel};
 
-/// Anthracite aluminium — the posts, glazing frames, and window mullions.
+/// Anthracite aluminium - the posts, glazing frames, and window mullions.
 /// The standard RAL 7016 grey of modern street furniture; dark so the cut
 /// panes read as a crisp glazed grid rather than a bright frame.
 const MULLION: [f32; 3] = [0.24, 0.26, 0.29];
-/// Frosted canopy glass — a light tone so the opaque roof panes stay a pale
+/// Frosted canopy glass - a light tone so the opaque roof panes stay a pale
 /// blue-grey glass rather than being multiplied dark by their frame colour.
 const CANOPY_GLASS: [f32; 3] = [0.76, 0.80, 0.84];
-/// Transit livery blue — the glossy painted fascia, the one saturated accent
+/// Transit livery blue - the glossy painted fascia, the one saturated accent
 /// that lifts the shelter out of an all-grey steel-and-concrete read.
 const TRANSIT_BLUE: [f32; 3] = [0.09, 0.34, 0.66];
-/// Amber-varnished bench slats — a warm counter to the cool blue and glass.
+/// Amber-varnished bench slats - a warm counter to the cool blue and glass.
 const BENCH_WOOD: [f32; 3] = [0.72, 0.40, 0.14];
-/// Hazard-yellow tactile strip along the platform edge — the safety marking
+/// Hazard-yellow tactile strip along the platform edge - the safety marking
 /// every real transit platform carries, and a second spot of colour.
 const SAFETY_YELLOW: [f32; 3] = [0.92, 0.74, 0.12];
 
-/// A clear glazed screen — a `window_card` with the panes cut open (opacity
+/// A clear glazed screen - a `window_card` with the panes cut open (opacity
 /// below the `0.5` alpha-mask cutoff) so you see the street through the
 /// shelter, on the shelter's anthracite frame. `panes` is `(across, up)`.
 fn screen(panes: (u32, u32)) -> SovereignMaterialSettings {
@@ -94,7 +94,7 @@ fn build_tree() -> Generator {
     let glass_h = head_y - sill_y;
 
     let mut prims = vec![
-        // Raised concrete platform — the root.
+        // Raised concrete platform - the root.
         prim(
             solid(cuboid_tapered(
                 [9.0, plat_h, 3.2],
@@ -132,7 +132,7 @@ fn build_tree() -> Generator {
     // --- Frosted-glass canopy: a painted perimeter frame with a glass infill.
 
     // Front and back fascia beams, in the transit-blue livery. The front one
-    // is deeper — it carries the route sign — and both cap the glass edges.
+    // is deeper - it carries the route sign - and both cap the glass edges.
     prims.push(prim(
         solid(cuboid_tapered([8.6, 0.5, 0.22], 0.0, enamel(TRANSIT_BLUE))),
         [0.0, canopy_y - 0.05, -1.65],
@@ -144,7 +144,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
     // Side rails, butted between the fascias (shorter in Z) so no coplanar
-    // face is shared at the corners — steel butt joints, no z-fight.
+    // face is shared at the corners - steel butt joints, no z-fight.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
             solid(cuboid_tapered([0.22, 0.24, 3.1], 0.0, steel(MULLION))),
@@ -152,7 +152,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Glass infill — a frosted panel filling the frame opening, laid flat
+    // Glass infill - a frosted panel filling the frame opening, laid flat
     // (normal +Y) and double-sided so it reads from the street below too.
     // Opacity above the mask cutoff, so the panes stay a solid pale glass.
     prims.push(prim(
@@ -244,7 +244,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Lit sign pylon — a standalone roadside totem, set well clear of the
+    // Lit sign pylon - a standalone roadside totem, set well clear of the
     // canopy (which reaches x ≈ 4.3) and standing on the ground beside the
     // raised platform rather than intersecting the roof.
     prims.push(prim(

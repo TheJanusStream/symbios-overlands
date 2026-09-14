@@ -1,8 +1,8 @@
-//! Glyph rubble — an Alien-Monolithic *poor* prop. A scatter of shattered
+//! Glyph rubble - an Alien-Monolithic *poor* prop. A scatter of shattered
 //! dead-stone fragments, their glyph-grooves dark and cold. The debris of the
 //! dormant site.
 //!
-//! The tipped fragments hang off a flat embedded base fragment — their
+//! The tipped fragments hang off a flat embedded base fragment - their
 //! [`quat_x`] tilts must not sit on the `assemble` root, or it would scramble
 //! every sibling into the root's frame.
 
@@ -48,7 +48,7 @@ impl CatalogueEntry for GlyphRubble {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Flat half-buried base fragment — the root (identity rotation, so the
+        // Flat half-buried base fragment - the root (identity rotation, so the
         // tipped fragments' tilts stay on themselves alone).
         prim(
             solid(cuboid_tapered([1.3, 0.5, 1.0], 0.15, stone(DEAD_STONE))),

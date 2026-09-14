@@ -1,4 +1,4 @@
-//! Stadium — the Sports/Recreation landmark and the kit's lit hero. A mown
+//! Stadium - the Sports/Recreation landmark and the kit's lit hero. A mown
 //! pitch ringed by four banks of stepped, colour-blocked seating, four
 //! corner floodlight masts and a big lit scoreboard beyond one end. ~30 m
 //! across, so it anchors the complex and reads as the ground from across the
@@ -55,7 +55,7 @@ impl CatalogueEntry for Stadium {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Mown pitch — the root.
+        // Mown pitch - the root.
         prim(
             solid(cuboid_tapered([20.0, 0.2, 14.0], 0.0, turf(PITCH_GREEN))),
             [0.0, 0.1, 0.0],
@@ -107,7 +107,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // North & South stands — three tiers stepping up and back along Z.
+    // North & South stands - three tiers stepping up and back along Z.
     for sz in [-1.0_f32, 1.0] {
         for t in 0..3 {
             let tf = t as f32;
@@ -118,7 +118,7 @@ fn build_tree() -> Generator {
             ));
         }
     }
-    // East & West stands — three tiers stepping up and back along X.
+    // East & West stands - three tiers stepping up and back along X.
     for sx in [-1.0_f32, 1.0] {
         for t in 0..3 {
             let tf = t as f32;
@@ -131,7 +131,7 @@ fn build_tree() -> Generator {
     }
 
     // Four corner floodlight masts carrying gridded lamp banks aimed inward
-    // at the pitch — the lamp grid reads as an array and keeps each head from
+    // at the pitch - the lamp grid reads as an array and keeps each head from
     // blooming into a flat white blob. Emissive.
     for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
         prims.push(prim(
@@ -144,7 +144,7 @@ fn build_tree() -> Generator {
         }
     }
 
-    // Scoreboard on two posts beyond the south end — flipped to the −Z render
+    // Scoreboard on two posts beyond the south end - flipped to the −Z render
     // front so its lit face leads. Segmented display (see `score_display`).
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(

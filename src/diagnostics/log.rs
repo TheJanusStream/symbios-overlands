@@ -1,4 +1,4 @@
-//! `SessionLog` — the single funnel every subsystem records diagnostic events
+//! `SessionLog` - the single funnel every subsystem records diagnostic events
 //! into (Pillar A-2). It owns the in-memory ring buffer that backs both the
 //! in-game event log (a bounded tail view) and the wasm "Download log" button;
 //! the native NDJSON file sink is bolted on in A-3, and the flush / panic-hook
@@ -8,7 +8,7 @@
 //! `Time::elapsed_secs_f64`, the same session-relative clock the HUD uses) and
 //! `wall_ms` is an absolute unix-epoch stamp for cross-run correlation. The
 //! wall clock is read through [`wall_now_ms`], which is cfg-split so it never
-//! calls `std::time` on wasm32 (that panics — see the WASM time gotcha).
+//! calls `std::time` on wasm32 (that panics - see the WASM time gotcha).
 
 use std::collections::VecDeque;
 
@@ -28,7 +28,7 @@ use crate::diagnostics::sink::Sink;
 #[derive(Resource)]
 pub struct SessionLog {
     next_seq: u64,
-    /// Wall-clock millis captured at the first recorded event — used by the
+    /// Wall-clock millis captured at the first recorded event - used by the
     /// native sink (A-3) to name the per-session file.
     session_start_wall_ms: Option<u64>,
     ring: VecDeque<SessionEvent>,
@@ -38,7 +38,7 @@ pub struct SessionLog {
     ///
     /// [`set_sink`]: SessionLog::set_sink
     sink: Sink,
-    /// Events appended to the sink since the last [`flush`](SessionLog::flush) —
+    /// Events appended to the sink since the last [`flush`](SessionLog::flush) -
     /// lets the flush scheduler (A-5) flush every N events.
     since_flush: usize,
 }
@@ -73,7 +73,7 @@ impl SessionLog {
     }
 
     /// Record an event to the durable sink **only**, skipping the in-memory
-    /// ring — for high-frequency file/analyzer-only telemetry (metric
+    /// ring - for high-frequency file/analyzer-only telemetry (metric
     /// snapshots) that would otherwise crowd the GUI tail and evict real events
     /// from the bounded ring. On wasm (no file sink) it falls back to the ring,
     /// since there the ring *is* the downloadable log.
@@ -107,7 +107,7 @@ impl SessionLog {
         // entirely when the sink is disabled (tests / wasm / SYMBIOS_DIAG=0),
         // where the ring is the only store.
         // Serialize when there is a durable sink to append to, and always on
-        // wasm — there the crash tail (#1145) is the only capture, so its
+        // wasm - there the crash tail (#1145) is the only capture, so its
         // rolling NDJSON store needs the line whether or not a sink exists.
         // One serialize per event either way: the wasm tail used to be rebuilt
         // from the whole ring on a 5 s timer instead.
@@ -198,7 +198,7 @@ impl SessionLog {
     /// ring so the GUI tail view starts blank and no prior-session events leak
     /// into the next user's HUD. `seq` keeps advancing across the boundary.
     /// The native sink (A-3) appends the marker to the durable file *before*
-    /// this clear — the process keeps writing the same per-run file, with
+    /// this clear - the process keeps writing the same per-run file, with
     /// segments delimited by these markers, so on-disk history is preserved.
     pub fn reset_segment(&mut self, t_mono_secs: f64, reason: impl Into<String>) {
         self.record(
@@ -225,7 +225,7 @@ impl SessionLog {
         self.since_flush = 0;
     }
 
-    /// Events appended to the sink since the last flush — the flush scheduler
+    /// Events appended to the sink since the last flush - the flush scheduler
     /// (A-5) flushes once this crosses `FLUSH_EVERY_N_EVENTS`.
     pub fn pending_since_flush(&self) -> usize {
         self.since_flush
@@ -237,20 +237,20 @@ impl SessionLog {
         self.sink.latest_path_display()
     }
 
-    /// Serialize the whole ring as newline-delimited JSON — the payload for the
+    /// Serialize the whole ring as newline-delimited JSON - the payload for the
     /// wasm "Download session log" button (A-8). Byte-compatible with the
     /// native `.jsonl` file so both feed the same `--analyze-session` analyzer.
     ///
     /// Reserved from the first line rather than grown from empty (#1136). A
     /// full ring is several megabytes of NDJSON, and a `String` growing into
     /// that from zero doubles a dozen times, each step allocating the new
-    /// buffer while the old one is still live — so the peak is around 1.5x the
+    /// buffer while the old one is still live - so the peak is around 1.5x the
     /// result and the intermediate buffers are pure churn. That is worth
     /// avoiding here specifically because this is the wasm path, where the
     /// allocator never gives any of it back to the browser (#565), and the
     /// button exists to be pressed on a session that is already in trouble.
     ///
-    /// The estimate does not have to be right — `push_str` still grows if it
+    /// The estimate does not have to be right - `push_str` still grows if it
     /// is short. Events vary in size, so this is one sample times the count
     /// with headroom, not a computed total, which would cost a second
     /// serialize of the whole ring to learn.
@@ -361,7 +361,7 @@ mod tests {
         }
     }
 
-    /// The empty ring must not fall off the reserve path — a session that
+    /// The empty ring must not fall off the reserve path - a session that
     /// pressed Download before anything was recorded would otherwise index
     /// a first line that does not exist.
     #[test]
@@ -373,8 +373,8 @@ mod tests {
     /// #1136: the dump is reserved from a sample rather than grown from zero,
     /// so a full ring is one allocation instead of a dozen doublings on a heap
     /// that never shrinks. The sample is an estimate, so this asserts the
-    /// contract that matters — that the reserve is at least the result, i.e.
-    /// nothing reallocated — rather than an exact figure.
+    /// contract that matters - that the reserve is at least the result, i.e.
+    /// nothing reallocated - rather than an exact figure.
     #[test]
     fn drain_ndjson_reserves_enough_not_to_regrow() {
         let mut log = SessionLog::with_capacity(64);
@@ -384,7 +384,7 @@ mod tests {
         let dump = log.drain_ndjson();
         assert!(
             dump.capacity() >= dump.len(),
-            "capacity {} under length {} — the reserve was short and it regrew",
+            "capacity {} under length {} - the reserve was short and it regrew",
             dump.capacity(),
             dump.len()
         );

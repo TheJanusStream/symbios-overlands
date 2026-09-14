@@ -6,7 +6,7 @@
 //! lands them in the sender's room.
 //!
 //! This is the only catalogue entry that consumes `local_did` in
-//! [`CatalogueEntry::build`] — every other entry ignores the
+//! [`CatalogueEntry::build`] - every other entry ignores the
 //! parameter and produces a pure blueprint. The arrival position is
 //! the room origin `(0, 0, 0)` so the portal lands somewhere
 //! predictable inside the sender's room without depending on a
@@ -28,7 +28,7 @@ impl CatalogueEntry for MyTeleporter {
         "My Teleporter"
     }
     fn description(&self) -> &'static str {
-        "Portal that returns to your own room — gift it so friends can drop by."
+        "Portal that returns to your own room - gift it so friends can drop by."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Tool

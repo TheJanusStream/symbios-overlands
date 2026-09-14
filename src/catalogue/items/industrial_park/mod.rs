@@ -1,4 +1,4 @@
-//! Industrial-Park-theme catalogue structures — a steel-and-concrete works
+//! Industrial-Park-theme catalogue structures - a steel-and-concrete works
 //! under a grey haze.
 //!
 //! Two prosperity registers share one identity: the established
@@ -11,7 +11,7 @@
 //! ribbed [`cladding`] and [`tank_steel`] metal, board-formed [`concrete`],
 //! red [`brick`], [`glass`] windows, and heavily corroded [`rust`]. The
 //! smokestack smokes, the cooling tower billows steam, floodlights glare,
-//! and machinery hums under a steam hiss — all from [`fx`]. The theme's grey
+//! and machinery hums under a steam hiss - all from [`fx`]. The theme's grey
 //! haze accent lives in [`crate::seeded_defaults::room::accent`].
 
 pub mod cooling_tower;
@@ -25,7 +25,7 @@ pub mod pipe_run;
 pub mod sawtooth_mill;
 pub mod shipping_containers;
 pub mod tank_farm;
-// Poor (derelict) variants — the prosperity-Poor end of the theme.
+// Poor (derelict) variants - the prosperity-Poor end of the theme.
 pub mod derelict_shed;
 pub mod rusted_tank;
 pub mod scrap_heap;
@@ -47,24 +47,24 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the established works kit — clad sheds and
+/// Shared prosperity band for the established works kit - clad sheds and
 /// painted tanks read as a Modest-to-Rich industrial estate. The poor end is
 /// the separate derelict kit ([`derelict_shed`], …), tagged `Poor`.
 pub(super) const INDUSTRIAL_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the derelict kit — the destitute end of the theme,
+/// Prosperity band for the derelict kit - the destitute end of the theme,
 /// never picked for a modest or affluent room.
 pub(super) const INDUSTRIAL_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Ribbed corrugated cladding — the skin of factory sheds, dock walls, and
+/// Ribbed corrugated cladding - the skin of factory sheds, dock walls, and
 /// shipping containers.
 pub(super) fn cladding(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.6),
         metallic: Fp(0.7),
-        // Broad surface — shed and dock-wall skin. See `CORRUGATED_BROAD`.
+        // Broad surface - shed and dock-wall skin. See `CORRUGATED_BROAD`.
         uv_scale: tiles_per_metre(tile::CORRUGATED_PITCH * tile::CORRUGATED_BROAD * 16.0),
         texture: SovereignTextureConfig::Corrugated(SovereignCorrugatedConfig {
             color_metal: Fp3(color),
@@ -81,7 +81,7 @@ pub(super) fn cladding(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Board-formed concrete — cooling towers, dock aprons, plinths, footings.
+/// Board-formed concrete - cooling towers, dock aprons, plinths, footings.
 pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -99,7 +99,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Smooth painted steel — storage tanks, pipes, gantries, the smokestack.
+/// Smooth painted steel - storage tanks, pipes, gantries, the smokestack.
 pub(super) fn tank_steel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -120,7 +120,7 @@ pub(super) fn tank_steel(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Sooty red brick — the older factory block and chimney.
+/// Sooty red brick - the older factory block and chimney.
 pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -159,7 +159,7 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     }
 }
 
-/// Rough timber — wooden pallets and crates in the yard.
+/// Rough timber - wooden pallets and crates in the yard.
 ///
 /// `stagger` at zero (#972 lesson 4): the generator's staggered end-joints
 /// are three hard-coded butt joints per tile, which on a 670 mm tile puts one
@@ -185,7 +185,7 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Heavily corroded steel — the derelict kit and rusted fittings.
+/// Heavily corroded steel - the derelict kit and rusted fittings.
 pub(super) fn rust(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -237,7 +237,7 @@ pub(super) fn tank_hoops(
         .collect()
 }
 
-/// A spoked hand-wheel valve — an outer rim `torus`, a stubby hub axle, and
+/// A spoked hand-wheel valve - an outer rim `torus`, a stubby hub axle, and
 /// three diameter spoke bars crossing it. Authored flat in its local XZ plane
 /// (axle along Y); `rot` stands it up (`quat_x(FRAC_PI_2)` faces it ±Z on a
 /// riser). One positioned subtree → drop into an [`assemble`](crate::catalogue::items::util::assemble) list (the spokes
@@ -279,7 +279,7 @@ pub(super) fn valve_wheel(
     wheel
 }
 
-/// A braced steel lattice mast — four corner legs leaning slightly inward as
+/// A braced steel lattice mast - four corner legs leaning slightly inward as
 /// they rise, ringed by horizontal bands and crossed by zig-zag diagonals on
 /// every face. Returns the pieces for an [`assemble`](crate::catalogue::items::util::assemble) list; none is the root,
 /// so the lean is safe. `base_y` is the foot, `h` the height, `half` the
@@ -390,7 +390,7 @@ pub(super) const CONTAINER_RUST: [f32; 3] = [0.50, 0.34, 0.20];
 // Emissive trim.
 pub(super) const FLOOD_WHITE: [f32; 3] = [1.0, 0.96, 0.85];
 pub(super) const WINDOW_LIT: [f32; 3] = [0.85, 0.86, 0.70];
-/// Warm sodium-vapour glow — lit factory windows at dusk, dock lamps, the
+/// Warm sodium-vapour glow - lit factory windows at dusk, dock lamps, the
 /// control gauge. Deep-saturated amber so a broad lit pane reads incandescent
 /// rather than blooming to a washed near-white.
 pub(super) const LAMP_AMBER: [f32; 3] = [1.0, 0.66, 0.26];
@@ -415,7 +415,7 @@ mod tests {
         }
     }
 
-    /// The floodlight is the kit's lit hero — it must keep its emissive lamps
+    /// The floodlight is the kit's lit hero - it must keep its emissive lamps
     /// so escalation's broken-emissive ruin pass has something to kill.
     #[test]
     fn floodlight_keeps_its_lamps() {

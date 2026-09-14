@@ -1,4 +1,4 @@
-//! `Chat` — a peer's text, and everything that has to be true before it
+//! `Chat` - a peer's text, and everything that has to be true before it
 //! reaches the log (#1161).
 //!
 //! The most adversarial message in the protocol after `ItemOffer`, and the
@@ -31,13 +31,13 @@ pub(super) fn handle(
     // `Identity`, `AvatarStateUpdate`, `RoomStateUpdate`, `ItemOffer`
     // and `ItemOfferResponse` all resolve the sender against the
     // relay-signed session map, and chat alone fell back to
-    // `sender.to_string()` — a raw PeerId UUID — as the author.
+    // `sender.to_string()` - a raw PeerId UUID - as the author.
     // A peer that never identified therefore got an author name,
     // a chat channel, and a mute that could not be made durable:
     // the cheapest possible griefing posture is to say nothing.
     //
     // Deferring costs a legitimate early message nothing it was
-    // not already going to pay — the peer re-broadcasts on its
+    // not already going to pay - the peer re-broadcasts on its
     // identity cadence and the map catches up within a frame or
     // two, exactly as the `Identity` arm above assumes.
     let Some(sender_did) = peer_sessions.session_id(&sender) else {
@@ -77,7 +77,7 @@ pub(super) fn handle(
 
     let sender_did_for_log = sender_did.clone();
     if sender_muted {
-        // The mute worked — but silently, so a log could not tell
+        // The mute worked - but silently, so a log could not tell
         // "nobody spoke" from "the person you muted did" (#1144).
         session_log.info(
             now,
@@ -115,7 +115,7 @@ pub(super) fn handle(
             .collect();
         let sender_peer = peers.iter().find(|(_, peer, _, _)| peer.peer_id == sender);
         // The relay-authenticated DID and the ONE naming ladder
-        // (#1218 f290/f300) — the sender was already resolved
+        // (#1218 f290/f300) - the sender was already resolved
         // above, so this cannot be `None` here. The renderer
         // re-resolves the name by DID every frame
         // (`ui::chat::author_now`), so the string stamped here is
@@ -129,8 +129,8 @@ pub(super) fn handle(
         let did = Some(did);
         // Chat-keyword emotes (#1068): the sender's own body plays
         // the gesture their words asked for. Read off the CLIPPED,
-        // control-stripped text — the same string the room is shown
-        // — so a hostile peer cannot smuggle a trigger past the
+        // control-stripped text - the same string the room is shown
+        // - so a hostile peer cannot smuggle a trigger past the
         // sanitiser, and driven from the sender's chassis entity so
         // a muted peer stays silent in gesture as well as in text.
         if let Some((chassis, ..)) = sender_peer
@@ -156,7 +156,7 @@ pub(super) fn handle(
         // to be open, which is the network layer reading the egui layer
         // to answer a question the egui layer was already answering
         // (#1297). `toolbar_ui` zeroes the count every frame the window
-        // is open, so an arrival while it is open still shows no badge —
+        // is open, so an arrival while it is open still shows no badge -
         // it just stops being the sender's business whether anyone was
         // looking.
         chat.unread += 1;

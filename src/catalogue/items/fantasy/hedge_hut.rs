@@ -1,4 +1,4 @@
-//! Hedge hut — the High-Fantasy *poor* landmark. A hedge-witch's daub-and-
+//! Hedge hut - the High-Fantasy *poor* landmark. A hedge-witch's daub-and-
 //! timber hut under a shaggy thatch roof, a crooked chimney and a single
 //! softly-glowing window, charms hung at the door. The hedge-magic
 //! counterpart to the [`wizard_tower`](super::wizard_tower): same craft,
@@ -7,8 +7,8 @@
 //!
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the earthen floor. The hut
-//! is a hollow daub shell — rear, side and punched front walls around a floor
-//! and ceiling — so the one window is a cut pane you see *into* a warm hearth-
+//! is a hollow daub shell - rear, side and punched front walls around a floor
+//! and ceiling - so the one window is a cut pane you see *into* a warm hearth-
 //! lit room through, not a glowing panel stuck on a solid wall (#949).
 
 use crate::catalogue::items::nordic::gable_roof;
@@ -71,7 +71,7 @@ fn build_tree() -> Generator {
     let zf = -hd + 0.09; // centre of the 0.18 m front wall (outer face at −hd)
 
     let mut prims = vec![
-        // Earthen floor — the root of the hollow shell.
+        // Earthen floor - the root of the hollow shell.
         prim(
             solid(cuboid_tapered(
                 [4.5, 0.12, 3.8],
@@ -157,7 +157,7 @@ fn build_tree() -> Generator {
     }
 
     // Warm hearth glow filling the room against the rear wall, plus a low green
-    // cauldron ember — the witch-light the cut window shows off.
+    // cauldron ember - the witch-light the cut window shows off.
     prims.push(prim(
         cuboid_tapered([1.6, 1.5, 0.4], 0.0, glow(HEARTH, 2.4)),
         [0.9, 0.95, hd - 0.5],
@@ -203,7 +203,7 @@ fn build_tree() -> Generator {
         quat_x(-std::f32::consts::FRAC_PI_2),
     ));
 
-    // Crooked hollow mossy-stone chimney at the gable end — a round flue open
+    // Crooked hollow mossy-stone chimney at the gable end - a round flue open
     // through the top, poking up past the ridge, with wood-smoke curling out.
     prims.push(prim(
         tube(0.34, 0.2, 3.0, 12, mossy(STONE_MOSS)),
@@ -246,7 +246,7 @@ mod tests {
     }
 
     /// #949: the window card sits on a `Plane` at `uv_scale` 1.0 (spans once,
-    /// not tiled), and — being a landmark that gets embedded in room records —
+    /// not tiled), and - being a landmark that gets embedded in room records -
     /// the built tree survives a serde round-trip.
     #[test]
     fn glazing_is_planes_and_round_trips() {

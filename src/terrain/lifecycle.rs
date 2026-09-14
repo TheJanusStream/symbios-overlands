@@ -20,7 +20,7 @@ use super::{
 ///
 /// Also registered against the loading screen's "Back to login" abort
 /// flag (#849), which tears down a partially-built world without ever
-/// passing through `InGame` — see the [`super::TerrainPlugin`]
+/// passing through `InGame` - see the [`super::TerrainPlugin`]
 /// registration.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn cleanup_terrain(
@@ -37,11 +37,11 @@ pub(super) fn cleanup_terrain(
     mut last_cfg: ResMut<LastTerrainConfigJson>,
     mut pending_cfg: ResMut<PendingTerrainConfigJson>,
 ) {
-    // All `try_despawn` (#923): these flat sweeps overlap — a mid-swap
+    // All `try_despawn` (#923): these flat sweeps overlap - a mid-swap
     // heightfield is in both `terrain` and `outgoing`, and the water
     // volumes are `RoomEntity`s that `end_attract_scene` (same
     // `OnExit(Login)` transition) and `ui::logout::cleanup_on_logout` also
-    // retire — and a plain `despawn` warns per already-dead entity.
+    // retire - and a plain `despawn` warns per already-dead entity.
     // Teardown only needs the entities gone, not to be their sole owner.
     for e in &terrain {
         commands.entity(e).try_despawn();
@@ -89,8 +89,8 @@ pub(super) fn cleanup_terrain(
 /// terrain-affecting field, despawn the existing heightfield, drop the
 /// cached heightmap / splat resources, and let the generic `Update`
 /// pipeline re-kick terrain + texture tasks from scratch. The first
-/// observation of a config simply records the fingerprint — Loading handled
-/// the initial build — so this only fires on *changes* after the player is
+/// observation of a config simply records the fingerprint - Loading handled
+/// the initial build - so this only fires on *changes* after the player is
 /// already InGame.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn maybe_regenerate_terrain(
@@ -108,20 +108,20 @@ pub(super) fn maybe_regenerate_terrain(
     // decide whether to act on it. `Res::is_changed` is a per-system tick
     // that fires exactly once; if we let a frame with an in-flight terrain
     // task consume the tick via an early return, the edit is silently
-    // lost — `record.is_changed()` won't re-fire unless the owner edits
+    // lost - `record.is_changed()` won't re-fire unless the owner edits
     // again. Serde-serialising the full `SovereignTerrainConfig` is
     // non-trivial (deeply nested record), so we still gate it on
     // `is_changed` rather than rebuilding every frame.
     //
     // A missing terrain generator (`find_terrain_config` → `None`) is a
-    // real, distinct target — the owner deleted the terrain — and queues
+    // real, distinct target - the owner deleted the terrain - and queues
     // `Some(None)` so the heightfield is torn down rather than left as an
     // orphaned phantom mesh. We only skip updating the target on a
     // serialisation failure, which preserves the old "leave it alone"
     // behaviour for that (vanishingly rare) case.
     if record.is_changed() {
         // Only the terrain config gates a heightmap regen. A road-config edit
-        // does *not* regenerate terrain — `roads::maybe_rebuild_roads` re-meshes
+        // does *not* regenerate terrain - `roads::maybe_rebuild_roads` re-meshes
         // the road from the existing heightmap instead.
         match crate::pds::find_terrain_config(&record.0) {
             Some(cfg) => {
@@ -133,7 +133,7 @@ pub(super) fn maybe_regenerate_terrain(
         }
     }
 
-    // Refuse to tear down in-flight generation — the previous async
+    // Refuse to tear down in-flight generation - the previous async
     // task's output would still land in `FinishedHeightMap` and the new
     // pipeline couldn't start. The pending target stays queued and will
     // be applied on a later frame once the task completes.
@@ -171,7 +171,7 @@ pub(super) fn maybe_regenerate_terrain(
             // `spawn_terrain_mesh` despawns outgoing entries atomically when
             // the fresh mesh spawns. Water is a `RoomEntity`, so
             // `compile_room_record` despawns and rebuilds it in response to
-            // the same record change — touching it here would race and
+            // the same record change - touching it here would race and
             // double-despawn.
             for e in &terrain_q {
                 commands.entity(e).insert(OutgoingTerrain);
@@ -180,7 +180,7 @@ pub(super) fn maybe_regenerate_terrain(
                 commands.entity(e).despawn();
             }
             // Drop in-flight Referenced-layer fetches from the previous
-            // config too — they'd otherwise land on the new splat state
+            // config too - they'd otherwise land on the new splat state
             // with stale textures from the old config's layers.
             for e in &pending_splat_refs {
                 commands.entity(e).despawn();
@@ -190,15 +190,15 @@ pub(super) fn maybe_regenerate_terrain(
             commands.remove_resource::<TextureTasksStarted>();
             commands.remove_resource::<TerrainTask>();
             // A new config is a new job, so a previous job's failure is not
-            // about it (#1230 f21) — leaving the marker would refuse to
+            // about it (#1230 f21) - leaving the marker would refuse to
             // start the replacement.
             commands.remove_resource::<super::TerrainGenFailed>();
             *splat_state = TerrainSplatState::default();
-            info!("Terrain config changed — regenerating heightmap + splat textures");
+            info!("Terrain config changed - regenerating heightmap + splat textures");
         }
         Apply::Teardown => {
             // The owner removed the terrain generator and no replacement is
-            // coming, so — unlike the regenerate path — despawn the
+            // coming, so - unlike the regenerate path - despawn the
             // heightfield outright rather than marking it outgoing. The
             // player loses the ground they were standing on, which is the
             // correct consequence of deleting it. Water is left to
@@ -217,14 +217,14 @@ pub(super) fn maybe_regenerate_terrain(
             commands.remove_resource::<TextureTasksStarted>();
             commands.remove_resource::<TerrainTask>();
             // A new config is a new job, so a previous job's failure is not
-            // about it (#1230 f21) — leaving the marker would refuse to
+            // about it (#1230 f21) - leaving the marker would refuse to
             // start the replacement.
             commands.remove_resource::<super::TerrainGenFailed>();
             // Drop the CPU terrain mirror so the interaction classifier
             // doesn't keep probing a heightmap that no longer exists.
             commands.remove_resource::<TerrainSurfaceQuery>();
             *splat_state = TerrainSplatState::default();
-            info!("Terrain generator removed — despawning heightfield + splat textures");
+            info!("Terrain generator removed - despawning heightfield + splat textures");
         }
     }
 }

@@ -2,31 +2,31 @@
 //! gizmo will affect.
 //!
 //! Before this existed the gizmo itself was the only in-scene selection
-//! indicator — for a large construct, a buried anchor, or a node whose
+//! indicator - for a large construct, a buried anchor, or a node whose
 //! gizmo sits on a *different* scatter instance, the owner couldn't see
 //! what a drag was about to move. Each frame this module draws, via
-//! [`Gizmos`] retained-free line rendering (WebGL2-safe — the same path
+//! [`Gizmos`] retained-free line rendering (WebGL2-safe - the same path
 //! the copy-drag ghost uses):
 //!
 //! * a bright wire box around the merged world bounds of the selected
 //!   node **and its whole subtree** on the gizmo-hosting instance, and
 //! * a dim box around every *other* live instance of the same blueprint
-//!   node — a blueprint edit rewrites all of them, so the blast radius
+//!   node - a blueprint edit rewrites all of them, so the blast radius
 //!   is shown honestly (one box per instance, subtree-merged).
 //!
 //! Placement selections get the bright box around the placement's
 //! spawned subtree; avatar selections around the selected visuals node's
 //! subtree. While a BlobGroup **element** is under edit the highlight
-//! stands down entirely — the wireframe surface + red/green proxies
+//! stands down entirely - the wireframe surface + red/green proxies
 //! (#705) already own that picture.
 //!
 //! Bounds come from each mesh entity's render [`Aabb`] transformed to
-//! world space and merged over the subtree (ECS descendants — which
+//! world space and merged over the subtree (ECS descendants - which
 //! keeps working mid-drag, when the hosted prim is detached from its
 //! parent but keeps its own children). The box follows the gizmo's
 //! frame preference (#871): in World mode it is world-axis-aligned; in
 //! Local mode it is oriented to the boxed instance's accumulated
-//! rotation — the same frame the gizmo's handles use — so the toggle is
+//! rotation - the same frame the gizmo's handles use - so the toggle is
 //! legible at a glance. An indicator, not a fitted hull, either way.
 
 use bevy::camera::primitives::Aabb;
@@ -68,10 +68,10 @@ pub(super) fn draw_selection_highlight(
     proxies: Query<(Entity, &crate::editor_gizmo::blob::proxy::BlobElementProxy)>,
 ) {
     // Element sculpting owns the in-scene picture (#705): wireframe +
-    // proxies. A whole-node box on top would only add noise — but the
+    // proxies. A whole-node box on top would only add noise - but the
     // SELECTED element gets the ordinary amber box (#1243 f151). Element
     // identity was carried entirely by hue and alpha: add is green, carve
-    // is red — the canonical unsafe pair — and "selected" is the same hue
+    // is red - the canonical unsafe pair - and "selected" is the same hue
     // at 0.55 instead of 0.28, read through a translucent wireframe shell.
     // For concentric elements the gizmo handles sit at the same point too,
     // so there was no way at all to tell which of eight overlapping ghosts
@@ -114,7 +114,7 @@ pub(super) fn draw_selection_highlight(
 
     let mut active = determine_active_target(&room_state, &avatar_state);
     // Mirror the sync gate exactly, ownership included (#1237 f142): the
-    // room gizmo — and therefore its highlight — exists only while the
+    // room gizmo - and therefore its highlight - exists only while the
     // World-editor window is open on a room the user owns.
     if active == ActiveTarget::Room && !access.can_edit_room() {
         active = ActiveTarget::None;
@@ -134,7 +134,7 @@ pub(super) fn draw_selection_highlight(
     );
 
     // Local mode boxes each instance in ITS OWN accumulated rotation
-    // (#871) — for a scattered blueprint every dim sibling shows its own
+    // (#871) - for a scattered blueprint every dim sibling shows its own
     // orientation, matching what a local-frame drag of that instance
     // would do. World mode keeps the axis-aligned merge.
     let local = frame_pref.orientation == transform_gizmo_bevy::GizmoOrientation::Local;
@@ -155,7 +155,7 @@ pub(super) fn draw_selection_highlight(
                 };
                 // The gizmo-hosting instance gets the bright subtree box;
                 // every other live instance of the same node gets a dim
-                // one — the edit will rewrite them all.
+                // one - the edit will rewrite them all.
                 for (entity, marker, has_gizmo, is_detached) in prim_query.iter() {
                     if marker.generator_ref != *generator_ref || marker.path != *path {
                         continue;
@@ -198,7 +198,7 @@ pub(super) fn draw_selection_highlight(
             let Some(path) = avatar_state.gizmo().visuals_path() else {
                 return;
             };
-            // Local-only and singular (see `sync`) — at most one match.
+            // Local-only and singular (see `sync`) - at most one match.
             for (entity, marker) in avatar_prim_query.iter() {
                 if marker.path == *path {
                     draw_subtree_box(
@@ -216,7 +216,7 @@ pub(super) fn draw_selection_highlight(
             let Some(rkey) = avatar_state.gizmo().worn_prop() else {
                 return;
             };
-            // Local-only and unique by record key (see `sync`) — at most one
+            // Local-only and unique by record key (see `sync`) - at most one
             // match, so no proximity scan and no sibling dimming: a worn prop
             // has exactly one instance in the world.
             for (entity, worn) in worn_props.iter() {
@@ -236,7 +236,7 @@ pub(super) fn draw_selection_highlight(
             let Some((rkey, path)) = avatar_state.gizmo().worn_part() else {
                 return;
             };
-            // Local-only and unique by (record, path) — one match.
+            // Local-only and unique by (record, path) - one match.
             for (entity, marker) in part_prims.iter() {
                 if marker.rkey == rkey && marker.path == path {
                     draw_subtree_box(
@@ -265,7 +265,7 @@ pub(super) fn draw_selection_highlight(
 /// Shared (#1226) with the peer nametag surface, which needs the same
 /// question answered for a different reason: where the top of somebody's
 /// body is, so a name can be hung above it. One walk, one definition of
-/// "the bounds of this thing" — a second copy would drift the moment a
+/// "the bounds of this thing" - a second copy would drift the moment a
 /// chassis family changed how it nests its meshes.
 pub(crate) fn subtree_world_bounds(
     root: Entity,
@@ -299,10 +299,10 @@ pub(crate) fn subtree_world_bounds(
 /// the origin.
 ///
 /// `frame: Some(rotation)` (#871, gizmo in Local mode) folds the corners
-/// in that rotated basis and draws the box oriented to it — a tight OBB
+/// in that rotated basis and draws the box oriented to it - a tight OBB
 /// for the instance instead of the world-axis-aligned merge. For a
 /// non-uniformly scaled *rotated* parent chain the extracted rotation is
-/// an approximation (shear is not representable) — the same
+/// an approximation (shear is not representable) - the same
 /// approximation the gizmo handles themselves live with.
 fn draw_subtree_box(
     gizmos: &mut Gizmos<crate::editor_gizmo::EditorOverlayGizmos>,
@@ -322,7 +322,7 @@ fn draw_subtree_box(
         None => (center, Quat::IDENTITY),
     };
     // `cube` draws a unit wire cube through the Transform, so the scale
-    // carries the box size — same idiom as the copy-drag ghost.
+    // carries the box size - same idiom as the copy-drag ghost.
     gizmos.cube(
         Transform {
             translation,
@@ -441,7 +441,7 @@ mod tests {
     #[test]
     fn folding_in_the_matching_frame_gives_a_tight_box() {
         // A yawed unit box folded in ITS OWN frame (#871, gizmo Local)
-        // stays 1×1×1 — the world-axis fold of the same corners widens
+        // stays 1×1×1 - the world-axis fold of the same corners widens
         // to √2 on X/Z (asserted by the rotation test above). This is
         // the visible difference between the two toggle modes.
         let aabb = Aabb {

@@ -6,12 +6,12 @@
 //! an outfit already dressed. Detaching drops the reference and stops
 //! there; the orphaned record is retired by the next save, whose delete set
 //! is derived from the published record's reference list (#1110). There is
-//! no session-held delete queue — an earlier design had one, and this
+//! no session-held delete queue - an earlier design had one, and this
 //! paragraph still described it long after it was gone.
 //!
 //! Offsets are edited numerically here as a **full transform** (#1095):
 //! translation in the joint's rest-pose frame, yaw / pitch / roll, and
-//! per-axis scale — the same rows a region placement gets, through the
+//! per-axis scale - the same rows a region placement gets, through the
 //! same shared rotation widget. Every drag quantises through the record's
 //! own `Fp` grid on sanitize, so what is shown is what is stored.
 //!
@@ -73,7 +73,7 @@ pub struct LocalBody<'w, 's> {
             &'static Transform,
         ),
     >,
-    /// The rig, which rides the `RiggedRoot` rather than the chassis — so
+    /// The rig, which rides the `RiggedRoot` rather than the chassis - so
     /// the owner's is the one whose parent is the local player, the same hop
     /// `editor_gizmo::sync` makes.
     bodies: Query<
@@ -111,7 +111,7 @@ impl LocalBody<'_, '_> {
 #[derive(Default)]
 pub(super) struct WornBody<'a> {
     /// The rig the owner's body was actually built with, when one is
-    /// standing. `None` while it builds, or for a generator body — in which
+    /// standing. `None` while it builds, or for a generator body - in which
     /// case nothing is claimed and every control behaves as before.
     pub(super) avatar: Option<&'a symbios_avatar::Avatar>,
     /// Record key → where the prop is *actually* sitting: the transform
@@ -134,7 +134,7 @@ impl WornBody<'_> {
     ///
     /// `Tail` is the one socket the engine documents as conditional. Asking
     /// the rig is the same question `player::attachments::placements` asks
-    /// before it drops the prop on the floor — so the picker and the dresser
+    /// before it drops the prop on the floor - so the picker and the dresser
     /// can no longer disagree about what this body can wear.
     fn has_socket(&self, socket: symbios_avatar::Socket) -> bool {
         match self.avatar {
@@ -152,7 +152,7 @@ pub(super) struct AttachmentsTabOutcome {
     pub changed: bool,
     pub label: Option<String>,
     /// The worn prop whose parts editor the owner asked to open (#1098),
-    /// by record key — applied by the caller, which owns that state.
+    /// by record key - applied by the caller, which owns that state.
     pub open_parts: Option<String>,
 }
 
@@ -170,8 +170,8 @@ pub(super) struct AttachmentsTabState {
 /// The Wearables tab, wired to the editor (#1161).
 ///
 /// Two panels behind one tab: the worn LIST ([`draw_attachments_tab`]
-/// below), and the parts editor (#1098) — the region-asset tree editor
-/// pointed at one worn item's copy — which replaces it while a prop is
+/// below), and the parts editor (#1098) - the region-asset tree editor
+/// pointed at one worn item's copy - which replaces it while a prop is
 /// opened. This is the half that owns the switch between them and folds
 /// both panels' selections back into the single gizmo aim.
 #[allow(clippy::too_many_arguments)]
@@ -243,13 +243,13 @@ pub(super) fn draw_tab(
                 ctx.toasts,
                 ctx.now,
                 &mut ctx.labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
-                // Avatars can't grow roads — no stats readout.
+                // Avatars can't grow roads - no stats readout.
                 None,
                 ctx.face_pick,
                 // #1239 f78: the same owner every other catalogue path
                 // stamps with.
                 owner_did,
-                // No placement layer on an avatar's trees — its roots ARE
+                // No placement layer on an avatar's trees - its roots ARE
                 // instanced.
                 &mut None,
                 // Single-root: no filter box is drawn.
@@ -259,7 +259,7 @@ pub(super) fn draw_tab(
             );
             // The tree's selection IS the gizmo target: fold it back (a tree
             // click picks a part; a cleared tree drops the aim). Nothing has
-            // to clear the whole-prop selection here — the aim is one field,
+            // to clear the whole-prop selection here - the aim is one field,
             // so naming a part *is* releasing the prop.
             //
             // Only a part-shaped answer, or an outgoing part aim, may write:
@@ -284,7 +284,7 @@ pub(super) fn draw_tab(
         }
         // Same two-way channel as the trees': the list reads and writes an
         // `Option<rkey>`, seeded from the aim and folded back only if it
-        // moved — see the parts tree's note on why a panel may only speak
+        // moved - see the parts tree's note on why a panel may only speak
         // for its own kind.
         let mut listed = aim.gizmo.worn_prop().map(str::to_owned);
         let outcome = draw_attachments_tab(
@@ -326,7 +326,7 @@ pub(super) fn draw_tab(
 }
 
 /// Draw the worn list. `inventory` is mutable for the one write this panel
-/// makes to it — **Save to inventory** on a worn prop (#1096); the
+/// makes to it - **Save to inventory** on a worn prop (#1096); the
 /// guarded-dirty rule holds because the stash's dirty state is derived
 /// live-vs-stored, never from a change tick. Taking a prop off drops its
 /// reference and stops there; the record it leaves behind is retired by the
@@ -353,7 +353,7 @@ pub(super) fn draw_attachments_tab(
     // that rkey (#1140). Every known path that takes a prop off already
     // calls `forget_attachments`, but a selection that outlives its prop
     // is the shape that freezes the chassis with nothing on screen to
-    // release — so the tab that owns the selection re-checks it rather
+    // release - so the tab that owns the selection re-checks it rather
     // than trusting every producer to have remembered.
     if let Some(rkey) = selected.clone() {
         let still_worn = record
@@ -367,11 +367,11 @@ pub(super) fn draw_attachments_tab(
     }
 
     let Some(rig) = record.body.rigged_mut() else {
-        ui.label("Wearables dress a rigged body — switch on the Body tab first.");
+        ui.label("Wearables dress a rigged body - switch on the Body tab first.");
         return outcome;
     };
     if rig.resolved.is_none() {
-        ui.label("This body hasn't loaded yet — nothing to dress until it does.");
+        ui.label("This body hasn't loaded yet - nothing to dress until it does.");
         return outcome;
     }
 
@@ -401,8 +401,8 @@ pub(super) fn draw_attachments_tab(
                         None => format!("{} (unknown socket)", attachment.record.socket),
                     };
                     let title = match attachment.record.source.as_deref() {
-                        Some(source) => format!("{source} — {worn_at}"),
-                        None => format!("{worn_at} — {}", attachment.rkey),
+                        Some(source) => format!("{source} - {worn_at}"),
+                        None => format!("{worn_at} - {}", attachment.rkey),
                     };
                     // An in-world pick (#1062) opens the row it landed on and
                     // scrolls it into view; every other frame the header keeps
@@ -427,12 +427,12 @@ pub(super) fn draw_attachments_tab(
                                 newly_selected =
                                     Some((!is_selected).then(|| attachment.rkey.clone()));
                             }
-                            // Socket picker: re-seating a prop keeps its offset —
+                            // Socket picker: re-seating a prop keeps its offset -
                             // usually wrong for the new socket, but predictable;
                             // zeroing it re-seats via the engine on next spawn.
                             ui.horizontal_wrapped(|ui| {
                                 // "Worn at", not the lowercase word
-                                // "socket" — which was also the only
+                                // "socket" - which was also the only
                                 // lowercase inline label on this panel,
                                 // sitting beside "Re-seat", "Edit parts"
                                 // and "Take off" (#1267 f220).
@@ -442,8 +442,8 @@ pub(super) fn draw_attachments_tab(
                                     // #1256 f103: `Socket::ALL` includes
                                     // `Tail`, which only some rigs carry.
                                     // Picking it used to drop the prop with a
-                                    // bare `continue` in `placements` — not
-                                    // even an `info!` — while this row went
+                                    // bare `continue` in `placements` - not
+                                    // even an `info!` - while this row went
                                     // on drawing its offsets as if the thing
                                     // were worn. A socket this body does not
                                     // have is now a control that says so
@@ -458,7 +458,7 @@ pub(super) fn draw_attachments_tab(
                                             ),
                                         )
                                         .on_disabled_hover_text(format!(
-                                            "This body has no {} — a prop seated there would \
+                                            "This body has no {} - a prop seated there would \
                                              not be worn at all.",
                                             crate::pds::avatar::socket_label(socket.name())
                                                 .to_lowercase()
@@ -476,8 +476,8 @@ pub(super) fn draw_attachments_tab(
                             });
                             // A prop already seated somewhere this body
                             // cannot carry (a record authored on a quadruped,
-                            // worn on a biped) keeps its row — the record is
-                            // honoured by the body that has the part — but
+                            // worn on a biped) keeps its row - the record is
+                            // honoured by the body that has the part - but
                             // must not pretend to be on screen.
                             if attachment
                                 .record
@@ -487,7 +487,7 @@ pub(super) fn draw_attachments_tab(
                                 ui.colored_label(
                                     crate::ui::theme::current(ui.ctx()).status.warn,
                                     format!(
-                                        "Not worn — this body has no {}. The prop stays in \
+                                        "Not worn - this body has no {}. The prop stays in \
                                          your outfit for a body that does.",
                                         attachment.record.socket
                                     ),
@@ -499,7 +499,7 @@ pub(super) fn draw_attachments_tab(
                                 body.seat(&attachment.rkey),
                             );
                             // Fit is item metadata (#1089), shown so the
-                            // schema has a face in the editor — never edited
+                            // schema has a face in the editor - never edited
                             // here: the declaration belongs to the catalogue
                             // entry, and the computed scale to the body.
                             if attachment.record.fit_band_mm != 0 {
@@ -513,7 +513,7 @@ pub(super) fn draw_attachments_tab(
                                 if ui
                                     .button("Re-seat")
                                     .on_hover_text(
-                                        "Zero its offset — the engine seats it just outside \
+                                        "Zero its offset - the engine seats it just outside \
                                      the body again.",
                                     )
                                     .clicked()
@@ -524,7 +524,7 @@ pub(super) fn draw_attachments_tab(
                                 if ui
                                     .button("Edit parts")
                                     .on_hover_text(
-                                        "Open this item's parts — the same editor the World \
+                                        "Open this item's parts - the same editor the World \
                                          Editor uses, on your worn copy.",
                                     )
                                     .clicked()
@@ -534,8 +534,8 @@ pub(super) fn draw_attachments_tab(
                                 if ui.button("Take off").clicked() {
                                     detach = Some(index);
                                 }
-                                // Save-back (#1096): the worn item — geometry,
-                                // socket, fit and offset — written to the
+                                // Save-back (#1096): the worn item - geometry,
+                                // socket, fit and offset - written to the
                                 // stash under its source name, or as a new
                                 // item when it has none.
                                 let save_label = match attachment.record.source.as_deref() {
@@ -545,7 +545,7 @@ pub(super) fn draw_attachments_tab(
                                 if ui
                                     .add_enabled(inventory.is_some(), egui::Button::new(save_label))
                                     .on_hover_text(
-                                        "Write it back — geometry, socket and offset — so \
+                                        "Write it back - geometry, socket and offset - so \
                                          wearing it again looks exactly like this.",
                                     )
                                     .on_disabled_hover_text("Your inventory has not loaded yet.")
@@ -564,7 +564,7 @@ pub(super) fn draw_attachments_tab(
                                     match existing {
                                         Some(source) => state.replace_confirm.request(
                                             format!("Replace \"{source}\" in your inventory?"),
-                                            "The stored copy is replaced by this worn one — its \
+                                            "The stored copy is replaced by this worn one - its \
                                              geometry, socket, fit and offset. Inventory changes \
                                              cannot be undone.",
                                             "Replace",
@@ -612,7 +612,7 @@ pub(super) fn draw_attachments_tab(
                         now,
                     ),
                     Ok(name) => toasts.success(
-                        format!("Saved as \"{name}\" — wear it again from your inventory."),
+                        format!("Saved as \"{name}\" - wear it again from your inventory."),
                         now,
                     ),
                     Err(reason) => toasts.warn(reason, now),
@@ -641,7 +641,7 @@ pub(super) fn draw_attachments_tab(
             // were last saved with. Anything else in the stash is decor.
             ui.separator();
             let Some(did) = did else {
-                ui.small("Sign in to wear items — worn items are saved to your account.");
+                ui.small("Sign in to wear items - worn items are saved to your account.");
                 return;
             };
             let Some(inventory) = inventory.as_deref() else {
@@ -655,7 +655,7 @@ pub(super) fn draw_attachments_tab(
                     // described two completely different ways a hundred
                     // lines apart, so an owner who hit it from both
                     // surfaces could not tell it was one limit.
-                    "All {MAX_AVATAR_ATTACHMENTS} slots are full — take something off first."
+                    "All {MAX_AVATAR_ATTACHMENTS} slots are full - take something off first."
                 ));
                 return;
             }
@@ -668,12 +668,12 @@ pub(super) fn draw_attachments_tab(
             // (`record_for_inventory_item` returning `None`) fell through
             // with no branch and no message. Dropping the stale pick here
             // makes the combo fall back to its placeholder and the button
-            // disable honestly — the smallest version of an enabled control
+            // disable honestly - the smallest version of an enabled control
             // that does nothing.
             retain_live_pick(&mut state.pick_item, &names);
             if names.is_empty() {
                 ui.small(
-                    "Nothing wearable in your inventory — copy a wearable from the Catalogue \
+                    "Nothing wearable in your inventory - copy a wearable from the Catalogue \
                      first.",
                 );
                 return;
@@ -716,7 +716,7 @@ pub(super) fn draw_attachments_tab(
                             outcome.label = Some(format!("wear {name}"));
                         }
                         None => toasts.warn(
-                            format!("\"{name}\" can no longer be worn — its item is missing."),
+                            format!("\"{name}\" can no longer be worn - its item is missing."),
                             now,
                         ),
                     }
@@ -748,7 +748,7 @@ pub(crate) fn record_for_inventory_item(
 }
 
 /// Why the live avatar cannot take another attachment right now, phrased
-/// for the person about to click — or `None` when it can.
+/// for the person about to click - or `None` when it can.
 ///
 /// One function rather than a ladder per surface. Three surfaces offer to
 /// wear something (the Inventory row, the catalogue's "Copy to inventory
@@ -757,7 +757,7 @@ pub(crate) fn record_for_inventory_item(
 /// the same fourth (#1141).
 ///
 /// That fourth is a **rigged body whose wardrobe record did not resolve**
-/// — the state a failed wardrobe fetch or a deleted wardrobe record leaves
+/// - the state a failed wardrobe fetch or a deleted wardrobe record leaves
 /// behind, and one the Body tab already describes and offers a way out of.
 /// It reports zero worn attachments, so the cap check passed and the
 /// button enabled; [`attach_record`] then returned `None` and the click
@@ -773,8 +773,8 @@ pub(crate) fn wear_blocked_reason(
     inventory_loaded: bool,
 ) -> Option<String> {
     // #1233 f261. Two surfaces named a wrong CAUSE and prescribed an
-    // action with no effect — "Open your inventory once to wear items from
-    // it" / "…to save into it" — when the condition is a resource the
+    // action with no effect - "Open your inventory once to wear items from
+    // it" / "…to save into it" - when the condition is a resource the
     // loading gate installs and `UiPanels::inventory` never touches.
     // Folded in here rather than fixed in place so a fourth surface cannot
     // phrase it a fourth way; the wording is the Catalogue's, which has
@@ -787,25 +787,25 @@ pub(crate) fn wear_blocked_reason(
     };
     let Some(rig) = avatar.body.rigged_ref() else {
         return Some(String::from(
-            "Vehicles wear nothing — pilot a body to wear this.",
+            "Vehicles wear nothing - pilot a body to wear this.",
         ));
     };
     let Some(resolved) = rig.resolved.as_ref() else {
         return Some(String::from(
-            "This body couldn't be loaded — the Avatar window's Body tab can \
+            "This body couldn't be loaded - the Avatar window's Body tab can \
              start a fresh one.",
         ));
     };
     if resolved.attachments.len() >= MAX_AVATAR_ATTACHMENTS {
         return Some(format!(
-            "All {MAX_AVATAR_ATTACHMENTS} slots are full — take something off first."
+            "All {MAX_AVATAR_ATTACHMENTS} slots are full - take something off first."
         ));
     }
     None
 }
 
 /// Put a built attachment record on the body: sanitised, at a minted TID,
-/// pushed onto both the resolved outfit and the record's reference list —
+/// pushed onto both the resolved outfit and the record's reference list -
 /// the two halves that must move together, exactly as [`detach_at`] takes
 /// them off together. Returns the minted rkey, or `None` for a body that
 /// cannot take it: no resolved rig to dress, or already at
@@ -813,7 +813,7 @@ pub(crate) fn wear_blocked_reason(
 ///
 /// The cap is checked *here*, not only at the three surfaces that offer a
 /// wear, so this function's precondition is exactly the one
-/// [`wear_blocked_reason`] renders — a property the tests assert in both
+/// [`wear_blocked_reason`] renders - a property the tests assert in both
 /// directions (#1141). Without it a caller that forgot the cap would push
 /// a seventeenth prop and `RiggedBody::sanitize` would truncate it back
 /// out on the way to the wire: the same silently-ineffective click this
@@ -845,7 +845,7 @@ pub(crate) fn attach_record(
 /// [`is_worn_from`], its Take off is [`take_off_source`], and
 /// [`save_worn_to_inventory`] writes back under it. Renaming the stash
 /// item moved the generator and its wear metadata to the new key and left
-/// every worn record pointing at a name that no longer existed (#1141) —
+/// every worn record pointing at a name that no longer existed (#1141) -
 /// so the renamed row offered Wear on a prop already on the body, the
 /// original could no longer be taken off from the Inventory window at
 /// all, and Save to inventory minted a second item under the old name.
@@ -874,7 +874,7 @@ pub(crate) fn rename_worn_source(
 }
 
 /// Take off every worn prop that came from the named inventory item
-/// (#1096) — the Inventory window's Take off. Returns how many came off;
+/// (#1096) - the Inventory window's Take off. Returns how many came off;
 /// their records are retired by the next save, which derives the delete set
 /// from the reference list this drops them from (#1110).
 pub(crate) fn take_off_source(rig: &mut crate::pds::avatar::RiggedBody, source: &str) -> usize {
@@ -893,7 +893,7 @@ pub(crate) fn take_off_source(rig: &mut crate::pds::avatar::RiggedBody, source: 
     }
 }
 
-/// Take off the worn prop with this record key (#1097) — the scene menu's
+/// Take off the worn prop with this record key (#1097) - the scene menu's
 /// Take off. `false` when nothing worn has that key.
 pub(crate) fn take_off_rkey(rig: &mut crate::pds::avatar::RiggedBody, rkey: &str) -> bool {
     let Some(index) = rig.resolved.as_ref().and_then(|resolved| {
@@ -909,7 +909,7 @@ pub(crate) fn take_off_rkey(rig: &mut crate::pds::avatar::RiggedBody, rkey: &str
 }
 
 /// The record keys of every worn prop that came from the named inventory
-/// item — what [`take_off_source`] is about to drop, read before it does so
+/// item - what [`take_off_source`] is about to drop, read before it does so
 /// the caller can retire a gizmo aimed at one of them.
 pub(crate) fn worn_rkeys_from(rig: &crate::pds::avatar::RiggedBody, source: &str) -> Vec<String> {
     rig.resolved
@@ -936,8 +936,8 @@ pub(crate) fn is_worn_from(rig: &crate::pds::avatar::RiggedBody, source: &str) -
 }
 
 /// Write a worn prop back to the inventory (#1096): its generator and its
-/// wear metadata (socket, fit, offset) under its source name — replacing
-/// that item — or, for a prop with no provenance, as a new item named
+/// wear metadata (socket, fit, offset) under its source name - replacing
+/// that item - or, for a prop with no provenance, as a new item named
 /// after its socket. The record's `source` is left as it was: the caller
 /// that wants the fresh name to become provenance reads it from the
 /// return. Refuses only when a NEW item would breach the stash cap.
@@ -951,7 +951,7 @@ pub(crate) fn save_worn_to_inventory(
     };
     let cap = crate::config::state::MAX_INVENTORY_ITEMS;
     if !inventory.generators.contains_key(&name) && inventory.generators.len() >= cap {
-        return Err(format!("Inventory full ({cap}/{cap}) — item not saved."));
+        return Err(format!("Inventory full ({cap}/{cap}) - item not saved."));
     }
     inventory.put_item(name.clone(), record.item.clone(), Some(record.wear_meta()));
     Ok(name)
@@ -960,7 +960,7 @@ pub(crate) fn save_worn_to_inventory(
 /// Take prop `index` off the body: drop it from the resolved outfit AND
 /// from the record's reference list.
 ///
-/// Both, or neither — a reference left behind is a fetch every peer pays for
+/// Both, or neither - a reference left behind is a fetch every peer pays for
 /// a prop nobody wears. Retiring the *record* is not this function's job and
 /// never was a session queue's (#1110): the next save derives what to delete
 /// from the published record's reference list, so dropping the reference here
@@ -1009,7 +1009,7 @@ fn rows_source(
 }
 
 /// The full transform rows for one worn prop (#1095): translation, yaw /
-/// pitch / roll, per-axis scale — a region placement's editor, tuned for
+/// pitch / roll, per-axis scale - a region placement's editor, tuned for
 /// body scale (centimetre drag steps, a few metres of range). Values land
 /// on the wire's grid when the record sanitises on flush; the ranges are
 /// the generous "keep it near the body" kind, not authorship limits.
@@ -1017,7 +1017,7 @@ fn rows_source(
 /// `seat` is where the prop is ACTUALLY sitting, and it is what these rows
 /// edit (#1256 f99). The stored offset is not a placement: an identity
 /// transform is a **sentinel** meaning "seat me", and
-/// `player::attachments::placements` reads it as one — taking the engine
+/// `player::attachments::placements` reads it as one - taking the engine
 /// seat, or for a `fit_band_mm` prop the measured, fit-scaled head seat,
 /// and only otherwise honouring the numbers verbatim. Rendering the raw
 /// record therefore printed 0/0/0 and 1/1/1 for a hat that was sitting on
@@ -1034,7 +1034,7 @@ fn offset_rows(ui: &mut egui::Ui, record: &mut AttachmentRecord, seat: Option<Tr
     let mut changed = false;
     let (mut working, seeded) = rows_source(&record.offset, seat);
     if seeded {
-        ui.small("Seated by the engine — editing any of these takes manual control.");
+        ui.small("Seated by the engine - editing any of these takes manual control.");
     }
     let translation = &mut working.translation.0;
     ui.horizontal(|ui| {
@@ -1104,7 +1104,7 @@ mod tests {
         }
     }
 
-    /// A rigged body whose wardrobe record never resolved — what a failed
+    /// A rigged body whose wardrobe record never resolved - what a failed
     /// wardrobe fetch, or a deleted wardrobe record, leaves behind. The
     /// Body tab has always described this state and offered a way out;
     /// the wear surfaces did not.
@@ -1118,7 +1118,7 @@ mod tests {
         record
     }
 
-    /// A generator chassis — a vehicle. Carries no sockets, so it can
+    /// A generator chassis - a vehicle. Carries no sockets, so it can
     /// never take an attachment.
     fn vehicle() -> crate::pds::AvatarRecord {
         let mut record = crate::pds::AvatarRecord::default_for_did("did:plc:tester");
@@ -1138,7 +1138,7 @@ mod tests {
     /// The defect was a gap between the two: every wear surface computed
     /// its cap from `resolved.map_or(0, …)`, so an unresolved rig reported
     /// zero worn attachments, passed the cap check, and enabled its
-    /// button — and then [`attach_record`] returned `None` and nothing
+    /// button - and then [`attach_record`] returned `None` and nothing
     /// happened. Asserting the two agree, in both directions and across
     /// every body state, is what closes the gap rather than patching the
     /// one surface that also lied about it.
@@ -1202,8 +1202,8 @@ mod tests {
     /// Sequence from the finding: wear "circlet", rename the stash item
     /// to "gold circlet". The inventory is the wear surface (#1096) and
     /// its only link to a worn prop is that string, so before this the
-    /// renamed row offered Wear on something already on the body — a
-    /// second copy one click away — and the original could no longer be
+    /// renamed row offered Wear on something already on the body - a
+    /// second copy one click away - and the original could no longer be
     /// taken off from the Inventory window at all.
     #[test]
     fn renaming_an_item_moves_the_provenance_of_what_it_put_on() {
@@ -1239,7 +1239,7 @@ mod tests {
         // Both move together or the outfit is wrong: a reference left
         // behind is a fetch every peer pays for a prop nobody wears.
         // Retiring the RECORD is the next save's job, derived from this
-        // shortened reference list (#1110) — not a queue kept here.
+        // shortened reference list (#1110) - not a queue kept here.
         let mut rig = dressed(3);
         detach_at(&mut rig, 1);
 
@@ -1270,7 +1270,7 @@ mod tests {
     }
 
     /// The inventory round trip (#1096): wear a stash item, take it off
-    /// by name, save a worn prop back — provenance drives all three.
+    /// by name, save a worn prop back - provenance drives all three.
     #[test]
     fn wearing_from_the_inventory_round_trips_through_provenance() {
         use crate::pds::inventory::WearMeta;
@@ -1345,15 +1345,15 @@ mod tests {
 
     /// THE SEQUENCE (#1233 f261): the Attachments tab tells a new user to
     /// "Open your inventory once to wear items from it". They open the
-    /// Inventory window and the message does not change — because the
+    /// Inventory window and the message does not change - because the
     /// condition is `LiveInventoryRecord`, a resource the loading gate
     /// installs and `UiPanels::inventory` never touches. A named wrong
     /// cause, prescribing an action with no effect, on the product's
     /// dressing surface.
     ///
-    /// The refuter is right that the state is unreachable in normal play —
+    /// The refuter is right that the state is unreachable in normal play -
     /// `check_loading_complete` will not leave `AppState::Loading` without
-    /// the resource — so this was dead, wrong-cause copy rather than an
+    /// the resource - so this was dead, wrong-cause copy rather than an
     /// active lie. It is folded in here anyway, and the wording is the
     /// Catalogue's, which has been right about this state all along.
     #[test]
@@ -1420,7 +1420,7 @@ mod misleading_controls_tests {
     use bevy::prelude::{Quat, Vec3};
 
     /// THE SEQUENCE (#1256 f99): wear a hat, open its row, see 0/0/0 and
-    /// 1/1/1, nudge x by 5 mm — and the hat jumps inside your head at the
+    /// 1/1/1, nudge x by 5 mm - and the hat jumps inside your head at the
     /// wrong size.
     ///
     /// The stored offset is not a placement. An identity transform is a
@@ -1428,7 +1428,7 @@ mod misleading_controls_tests {
     /// reads it as one: the engine seat, or for a `fit_band_mm` prop the
     /// measured, fit-scaled head seat. Rendering the raw record therefore
     /// printed numbers describing nothing, and the first drag flipped the
-    /// branch — seat translation, outward yaw and measured fit scale all
+    /// branch - seat translation, outward yaw and measured fit scale all
     /// gone in one frame.
     #[test]
     fn the_offset_rows_show_where_the_prop_actually_is() {
@@ -1449,7 +1449,7 @@ mod misleading_controls_tests {
             "the rows must not print the sentinel as if it were a placement"
         );
 
-        // Nothing standing to measure — mid-build, or a generator body.
+        // Nothing standing to measure - mid-build, or a generator body.
         // Claim nothing; the record is the best answer available.
         let (shown, seeded) = rows_source(&TransformData::default(), None);
         assert!(!seeded);
@@ -1471,7 +1471,7 @@ mod misleading_controls_tests {
     /// vanishes while its row stays fully interactive.
     ///
     /// The picker offered every `Socket::ALL` unconditionally while the
-    /// dresser dropped the ones this rig has no joint for — with a bare
+    /// dresser dropped the ones this rig has no joint for - with a bare
     /// `continue` and, unlike the unknown-socket branch four lines above it,
     /// not even an `info!`. This pins the two to the same question: a socket
     /// the picker disables is exactly a socket the dresser would refuse.
@@ -1508,7 +1508,7 @@ mod misleading_controls_tests {
     }
 
     /// THE SEQUENCE (#1256 f114): pick "lantern", rename or delete it from
-    /// the Inventory window, come back and click Wear — the button is
+    /// the Inventory window, come back and click Wear - the button is
     /// enabled, the combo still says "lantern", and nothing happens.
     #[test]
     fn a_wear_pick_does_not_outlive_the_item_it_names() {
@@ -1583,7 +1583,7 @@ mod socket_label_tests {
     /// The control, and the forward-compatibility answer: a socket name
     /// written by a newer build has no reading here and comes back as
     /// itself, because printing the raw name is more use than printing
-    /// nothing. This is also what keeps the test above honest — it would
+    /// nothing. This is also what keeps the test above honest - it would
     /// pass on a table that simply title-cased everything.
     #[test]
     fn an_unknown_socket_name_survives_as_itself() {

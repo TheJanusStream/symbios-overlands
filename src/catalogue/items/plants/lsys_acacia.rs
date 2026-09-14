@@ -1,7 +1,7 @@
-//! Acacia — a flat-crowned savanna tree. A short trunk forks into a
+//! Acacia - a flat-crowned savanna tree. A short trunk forks into a
 //! seed-varied set of limbs whose pitch decays toward horizontal as they
 //! extend one segment per iteration (#910), sprouting gold-green leaf-rosette
-//! twigs along the way — so iteration count reads as age (sapling fork →
+//! twigs along the way - so iteration count reads as age (sapling fork →
 //! spreading juvenile → dense mature parasol) and the crown is irregular
 //! rather than a deterministic starburst.
 
@@ -23,7 +23,7 @@ impl CatalogueEntry for Acacia {
         "Acacia"
     }
     fn description(&self) -> &'static str {
-        "Flat-crowned umbrella acacia with gold-green foliage — the savanna tree."
+        "Flat-crowned umbrella acacia with gold-green foliage - the savanna tree."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Plant
@@ -35,7 +35,7 @@ impl CatalogueEntry for Acacia {
 
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
-    // 0 — pale savanna bark.
+    // 0 - pale savanna bark.
     materials.insert(
         0,
         SovereignMaterialSettings {
@@ -50,7 +50,7 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 1 — dusty gold-green savanna leaf.
+    // 1 - dusty gold-green savanna leaf.
     materials.insert(
         1,
         SovereignMaterialSettings {
@@ -73,7 +73,7 @@ fn build_kind() -> GeneratorKind {
         // stochastic low-fork lean variant a2), then B forks once into 3–5
         // limbs at seed-varied azimuths. Each limb U(a,w) self-extends one
         // segment per iteration while its pitch increment decays
-        // geometrically (a*0.55) — the limb launches steeply out (&47–60 from
+        // geometrically (a*0.55) - the limb launches steeply out (&47–60 from
         // vertical) and asymptotes to horizontal, which is what flattens the
         // crown into the parasol plate. Limbs sprout leaf-rosette twigs V as
         // they grow (the canopy densifies with age) and terminate

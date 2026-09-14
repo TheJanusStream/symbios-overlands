@@ -1,6 +1,6 @@
 //! How well a peer has resolved, said once (#1217/#1218).
 //!
-//! A peer becomes a person in stages — a relay session binds their DID, a
+//! A peer becomes a person in stages - a relay session binds their DID, a
 //! `getProfile` call resolves their name and picture, a PDS fetch returns
 //! their avatar record, a wardrobe resolve fetches what they wear, and an
 //! async build turns all of it into a body. Every one of those stages could
@@ -12,20 +12,20 @@
 //!
 //! This module is the one answer to "how is this person loading":
 //!
-//! * [`PeerLabel`] — the ONE naming ladder (handle → DID head → traveler).
+//! * [`PeerLabel`] - the ONE naming ladder (handle → DID head → traveler).
 //!   The departure line had it; the arrival line, the chat author and the
 //!   gift modal each had their own worse version. Four surfaces, one name.
-//! * [`PeerResolve`] — the per-peer component every stage writes its
-//!   outcome into, and [`peer_status`] — the single derived
+//! * [`PeerResolve`] - the per-peer component every stage writes its
+//!   outcome into, and [`peer_status`] - the single derived
 //!   [`PeerStatus`] the roster renders as ONE chip beside the existing
 //!   `⚠ build` chip. Six failures, one indicator.
-//! * [`RetryBackoff`] — the doubling retry the avatar-record fetch, the
+//! * [`RetryBackoff`] - the doubling retry the avatar-record fetch, the
 //!   profile fetch and the relationship query all wait on, sharing the
 //!   arithmetic ([`next_wait_secs`]) with
 //!   [`super::peer_cache::PeerRigResolveBackoff`], which had it first.
 //! * The presence placeholder: a translucent stand-in body drawn at the
 //!   peer's playout pose so an arrival is visible from its first transform
-//!   packet rather than from the end of the whole chain — and, on the other
+//!   packet rather than from the end of the whole chain - and, on the other
 //!   side of the same flag, the reason a peer is no longer drawn at the map
 //!   centre ten metres up before any pose has played out.
 //!
@@ -43,7 +43,7 @@ use crate::avatar::BskyProfileCache;
 /// ([`PeerLabel`]).
 ///
 /// It sat in `ui::travel` until #1297 group 3 and had no `ui` in it at
-/// all — [`BskyProfileCache`] is `crate::avatar`'s and [`PeerLabel`] is
+/// all - [`BskyProfileCache`] is `crate::avatar`'s and [`PeerLabel`] is
 /// this module's, so `player::portal` had to import a panel module to
 /// name the world it was arriving in. The same shape as #1158's
 /// `pds::inventory::is_drop_placeable`: a rule owned by whichever
@@ -51,8 +51,8 @@ use crate::avatar::BskyProfileCache;
 ///
 /// `carried` is the name the surface that started this travel already had
 /// (#1231 f27). It matters because [`BskyProfileCache`] is filled only by
-/// peer-driven fetches — `trigger_avatar_fetches` walks `RemotePeer`
-/// entities — so a mutual the viewer has never shared a room with is never
+/// peer-driven fetches - `trigger_avatar_fetches` walks `RemotePeer`
+/// entities - so a mutual the viewer has never shared a room with is never
 /// in it. The gateway row rendered "@alice" from the mutuals list and threw
 /// the handle away, and the overlay one click later said
 /// `did:plc:abcdefgh…` for the same person.
@@ -82,15 +82,15 @@ pub enum PeerLabel {
     /// never reaches here (see the `Identity` arm in [`super::inbound`]).
     Handle(String),
     /// No handle yet, but the relay authenticated a DID: its head, already
-    /// elided by [`elide_did`] — ellipsis included, and included only when
+    /// elided by [`elide_did`] - ellipsis included, and included only when
     /// characters were really dropped.
     DidHead(String),
-    /// Neither — a peer that connected and never identified.
+    /// Neither - a peer that connected and never identified.
     Anonymous,
 }
 
 /// How many leading characters of a DID stand in for a name. `did:plc:` is
-/// eight of them, so this leaves eight characters of the identifier — enough
+/// eight of them, so this leaves eight characters of the identifier - enough
 /// to tell two strangers apart in a chat log without pretending to be a name.
 const DID_HEAD_CHARS: usize = 16;
 
@@ -124,7 +124,7 @@ impl PeerLabel {
         }
     }
 
-    /// The form used when the name is the subject of a sentence — a roster
+    /// The form used when the name is the subject of a sentence - a roster
     /// row, a presence line, a gift salutation.
     ///
     /// The `@` sigil is attached to the [`Handle`](Self::Handle) tier ONLY.
@@ -139,7 +139,7 @@ impl PeerLabel {
         }
     }
 
-    /// The bare form, for surfaces that supply their own decoration — the
+    /// The bare form, for surfaces that supply their own decoration - the
     /// chat author tag renders `[{name}]`, so it must not be handed an `@`.
     pub fn name(&self) -> String {
         match self {
@@ -153,8 +153,8 @@ impl PeerLabel {
     ///
     /// The roster sorted on `handle.unwrap_or("~")`, which put every
     /// handle-less peer under one key: two strangers who had not resolved
-    /// were adjacent, interchangeable and — because a bare query iteration
-    /// re-orders whenever a component lands — liable to swap places between
+    /// were adjacent, interchangeable and - because a bare query iteration
+    /// re-orders whenever a component lands - liable to swap places between
     /// frames, under a pointer aiming a durable mute. The label ladder is
     /// already what the row *renders*, so ordering on the same ladder is
     /// what makes the list agree with itself: named people first in
@@ -173,7 +173,7 @@ impl PeerLabel {
     }
 
     /// Whether this is a real, profile-verified name. Surfaces that ask the
-    /// user to *judge* the peer — the gift modal above all — must say "we
+    /// user to *judge* the peer - the gift modal above all - must say "we
     /// don't know who this is" rather than print an identifier that reads
     /// like one.
     pub fn is_named(&self) -> bool {
@@ -190,8 +190,8 @@ pub fn peer_label(peer: &RemotePeer) -> PeerLabel {
 ///
 /// `session_did` is the relay-signed DID from `PeerSessionMapRes`, and it is
 /// the whole authentication: the `Chat` arm was, uniquely among the inbound
-/// arms, unauthenticated, and fell back to `msg.sender.to_string()` — a raw
-/// `PeerId` UUID — as the author name. That gave a peer who never identified
+/// arms, unauthenticated, and fell back to `msg.sender.to_string()` - a raw
+/// `PeerId` UUID - as the author name. That gave a peer who never identified
 /// an author name, a chat channel, and a mute that could not be made
 /// durable, because a mute is remembered against an account. Saying nothing
 /// was the cheapest griefing posture in the product.
@@ -215,14 +215,14 @@ pub fn chat_attribution(
 /// The presence log has to balance. Three facts gate it, and none is about
 /// the peer's name:
 ///
-/// * `announced` — a farewell to somebody the room was never told had
+/// * `announced` - a farewell to somebody the room was never told had
 ///   arrived is worse than silence, and it was the one user-visible trace a
 ///   nameless peer ever left. The arrival side is
 ///   [`crate::avatar`]'s `announce_arrival`.
-/// * `link_is_up` — a departure observed while OUR link is down is not
+/// * `link_is_up` - a departure observed while OUR link is down is not
 ///   attributable to the peer (#1213 f402); `link::narrate_link_state`
 ///   replaces the whole run of them with one line about the real actor.
-/// * `!muted` — presence lines are chat rows carrying a name, and they were
+/// * `!muted` - presence lines are chat rows carrying a name, and they were
 ///   the one channel a blocked person retained to put theirs in front of the
 ///   user who blocked them. A reconnect loop scrolled every real message out
 ///   of a 500-entry history.
@@ -236,8 +236,8 @@ pub fn should_announce_departure(link_is_up: bool, announced: bool, muted: bool)
 
 /// Apply a mute decision everywhere it has to land (#1219).
 ///
-/// The ONE mute write. Two controls reach it — the People roster's checkbox
-/// and the offer dialog's "Mute & Decline" — and the review's own
+/// The ONE mute write. Two controls reach it - the People roster's checkbox
+/// and the offer dialog's "Mute & Decline" - and the review's own
 /// requirement is that they cannot drift.
 ///
 /// Two things are deliberate here:
@@ -245,7 +245,7 @@ pub fn should_announce_departure(link_is_up: bool, announced: bool, muted: bool)
 /// * the durable, DID-keyed write is UNCONDITIONAL on the peer entity still
 ///   existing (#1219 f120). "Mute & Decline" used to write it from inside a
 ///   loop over live peers, so a stranger who spammed a gift and disconnected
-///   — the hit-and-run case the durable list exists for — was never
+///   - the hit-and-run case the durable list exists for - was never
 ///   recorded, and their next visit reached the user exactly as before. The
 ///   dialog's sender DID is relay-authenticated, so it is always safe to key
 ///   on.
@@ -295,7 +295,7 @@ pub fn set_peer_mute(
 
 /// Log a `PeerMuteToggled` event (#635b). Called only from
 /// [`set_peer_mute`], which is what keeps the event's shape from drifting
-/// between the two mute controls — it used to be called from each of them.
+/// between the two mute controls - it used to be called from each of them.
 fn log_peer_mute_toggled(
     session_log: &mut crate::diagnostics::SessionLog,
     now: f64,
@@ -394,7 +394,7 @@ impl FetchState {
         matches!(self, Self::Failed(backoff) if backoff.ready(now))
     }
 
-    /// The backoff this state is waiting out, if any — the input to the next
+    /// The backoff this state is waiting out, if any - the input to the next
     /// [`RetryBackoff::after_failure`] so the doubling continues rather than
     /// restarting at the base on every attempt.
     pub fn backoff(&self) -> Option<&RetryBackoff> {
@@ -421,13 +421,13 @@ impl FetchState {
 /// [`super::lifecycle::dismiss_offer_dialog_from_muted_sender`] and by the
 /// rigged-build kicker, and per-frame facts (the playout flag below) written
 /// through a `Mut<RemotePeer>` would raise that flag every frame and destroy
-/// both — the guarded-dirty rule (#879) applied to a component rather than a
+/// both - the guarded-dirty rule (#879) applied to a component rather than a
 /// resource.
 #[derive(Component, Default, Debug)]
 pub struct PeerResolve {
     /// The peer's `AvatarRecord`, fetched from their PDS. `Failed` means the
     /// body standing under them is a DID-seeded stand-in, not what they
-    /// published — the distinction the roster used to be unable to draw
+    /// published - the distinction the roster used to be unable to draw
     /// against a peer who simply has not published one (#1217 f323).
     pub avatar: FetchState,
     /// The peer's `app.bsky.actor.getProfile` record: their handle, and the
@@ -440,8 +440,8 @@ pub struct PeerResolve {
     pub outfit_missing: u32,
     /// Whether a transform sample has ever played out for this peer.
     ///
-    /// Until it has, the chassis is still sitting at its spawn pose — the
-    /// map centre, ten metres up — so it is not drawn at all (#1217 f329).
+    /// Until it has, the chassis is still sitting at its spawn pose - the
+    /// map centre, ten metres up - so it is not drawn at all (#1217 f329).
     /// Written every frame by [`super::smoother::smooth_remote_transforms`],
     /// which is why the write is guarded.
     pub placed: bool,
@@ -461,7 +461,7 @@ pub struct PeerResolve {
     /// the same clock as one that stops. Lives HERE and not on
     /// [`RemotePeer`]: this is written per packet, and a per-packet write
     /// through a `Mut<RemotePeer>` would raise `Changed<RemotePeer>`
-    /// continuously — destroying
+    /// continuously - destroying
     /// [`super::lifecycle::dismiss_offer_dialog_from_muted_sender`] and
     /// re-running the rigged-build kicker's whole-record compare every
     /// frame, which is the same defect #1224 f336 complains about one
@@ -471,7 +471,7 @@ pub struct PeerResolve {
     ///
     /// The presence log has to balance: a peer gets one arrival line and, if
     /// and only if it got one, one departure line. The arrival is announced
-    /// at handle resolution when that works — the best name — and at profile
+    /// at handle resolution when that works - the best name - and at profile
     /// FAILURE otherwise, which is the case that used to produce a farewell
     /// to someone who was never there.
     pub announced: bool,
@@ -503,8 +503,8 @@ impl PeerResolve {
     /// Record what a finished wardrobe resolve asked for against what it got
     /// (#1217 f332).
     ///
-    /// A shortfall is the most likely failure in the whole rendering chain —
-    /// attachment records became cross-owner with gifting — and it is
+    /// A shortfall is the most likely failure in the whole rendering chain -
+    /// attachment records became cross-owner with gifting - and it is
     /// PER-VIEWER, so two people in the same room see different outfits with
     /// nothing to tell them so. A resolve that comes back complete clears the
     /// shortfall, which is what retires the chip when the retry finally
@@ -517,14 +517,14 @@ impl PeerResolve {
     }
 }
 
-/// How this peer is loading, worst first — or `None` when they are simply
+/// How this peer is loading, worst first - or `None` when they are simply
 /// here (#1217/#1218/#1224/#1225).
 ///
 /// Exactly one of these is rendered. The review asked for one chip and not
 /// six: a row that can carry four warnings at once is a row nobody reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PeerStatus {
-    /// Connected, but no authenticated DID yet — so no name, no body, and a
+    /// Connected, but no authenticated DID yet - so no name, no body, and a
     /// mute that could only last the session (#1218 f290).
     Unidentified,
     /// Nothing has arrived from them for a while (#1224 f335). Their body
@@ -566,11 +566,11 @@ impl PeerStatus {
         match self {
             Self::Unidentified => String::from(
                 "This person has connected but hasn't identified themselves yet, so they \
-                 have no name and no body here. Muting is unavailable until they do — a \
+                 have no name and no body here. Muting is unavailable until they do - a \
                  mute is remembered against an account.",
             ),
             Self::NotResponding => String::from(
-                "Nothing has arrived from them for a while — their connection may have \
+                "Nothing has arrived from them for a while - their connection may have \
                  dropped without telling us. Their body is standing where they last \
                  were, and a gift or a visit won't be answered.",
             ),
@@ -583,13 +583,13 @@ impl PeerStatus {
             }
             Self::OutfitIncomplete { missing } => format!(
                 "{missing} item{} they're wearing couldn't be loaded for you, so you're \
-                 seeing them without {}. Still retrying — other people in this world may \
+                 seeing them without {}. Still retrying - other people in this world may \
                  see them differently.",
                 if *missing == 1 { "" } else { "s" },
                 if *missing == 1 { "it" } else { "them" },
             ),
             Self::Arriving => String::from(
-                "They're here — their body is still being assembled from their profile \
+                "They're here - their body is still being assembled from their profile \
                  and what they're wearing.",
             ),
         }
@@ -615,7 +615,7 @@ pub fn peer_status(identified: bool, resolve: &PeerResolve) -> Option<PeerStatus
     }
     // Ranked straight after "we don't know who this is", and above every
     // loading state, because it is the only one that says the person may
-    // not be there at all — which changes whether the viewer should gift
+    // not be there at all - which changes whether the viewer should gift
     // them, follow them, or wait (#1224 f335).
     if resolve.quiet {
         return Some(PeerStatus::NotResponding);
@@ -675,8 +675,8 @@ pub(super) fn adopt_peer_did(
     // Durable mute (#844), in BOTH directions (#1219 f331). The list→flag
     // half was here already: reconnecting used to be a mute-reset button.
     // The flag→list half was missing, so a mute applied in the window before
-    // the DID resolved — the mute-on-sight case the durable list exists for
-    // — set only the session-scoped flag and died with the entity.
+    // the DID resolved - the mute-on-sight case the durable list exists for
+    // - set only the session-scoped flag and died with the entity.
     if muted_dids.0.contains(did) && !peer.muted {
         peer.muted = true;
     } else if peer.muted && !muted_dids.0.contains(did) {
@@ -698,7 +698,7 @@ pub(super) fn adopt_peer_did(
 /// Adopt a peer's DID from the relay-signed session map, without waiting for
 /// them to broadcast an `Identity` (#1218 f290).
 ///
-/// The session map was always the authority — the `Identity` arm's only use
+/// The session map was always the authority - the `Identity` arm's only use
 /// for the DID on the wire is to compare it against this map and reject a
 /// mismatch. Waiting for the broadcast anyway was what made "say nothing"
 /// a viable griefing posture: a silent peer was counted in the room, drew
@@ -706,7 +706,7 @@ pub(super) fn adopt_peer_did(
 /// against an account and the client had refused to learn theirs.
 ///
 /// Guarded on the `did:` prefix because a session id is not necessarily a
-/// DID — upstream's `session_id_to_peer_id` accepts a bare UUID too, and a
+/// DID - upstream's `session_id_to_peer_id` accepts a bare UUID too, and a
 /// relay that hands out opaque ids must not have them installed as
 /// identities.
 pub(super) fn adopt_peer_sessions(
@@ -751,7 +751,7 @@ pub(super) fn adopt_peer_sessions(
 ///
 /// Three conditions, and the third is the one the finding is about: a fetch
 /// that FAILED is owed another attempt once its backoff elapses. A 404 is
-/// not — it is a finished question, and the DID-seeded default it produced
+/// not - it is a finished question, and the DID-seeded default it produced
 /// IS that person's appearance, so re-asking would be a poll against a
 /// settled answer. And one attempt at a time per peer, because the doubling
 /// bounds how often a stranger's PDS is contacted and a spawn that ignored
@@ -760,7 +760,7 @@ pub(super) fn adopt_peer_sessions(
 /// Pure, and separate from [`retry_peer_avatar_fetches`] for a reason worth
 /// keeping: the system it drives spawns a real HTTPS round trip, so a test
 /// that exercised the system would make a network call on the shared
-/// `IoTaskPool` — which under `cargo test --lib`, where every test shares
+/// `IoTaskPool` - which under `cargo test --lib`, where every test shares
 /// one process and one pool, starves whatever else is waiting on it.
 pub fn avatar_retry_due(
     resolve: &PeerResolve,
@@ -773,8 +773,8 @@ pub fn avatar_retry_due(
 
 /// Re-arm a failed avatar-record fetch once its backoff elapses (#1217 f323).
 ///
-/// Before this, the fetch was spawned from exactly one site — the `Identity`
-/// arm's `did_changed` branch — so a PDS that was unreachable for the one
+/// Before this, the fetch was spawned from exactly one site - the `Identity`
+/// arm's `did_changed` branch - so a PDS that was unreachable for the one
 /// second the peer joined left a DID-seeded stranger standing in their place
 /// for the rest of the session. Two recoveries did exist, and both needed
 /// the OTHER peer to act (touch their avatar editor, or reconnect); neither
@@ -838,7 +838,7 @@ impl ChatBucket {
 /// What to do with one inbound chat message (#1222 f296).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChatVerdict {
-    /// Under budget — show it.
+    /// Under budget - show it.
     Allow,
     /// Over budget, and quietly: this peer's throttling has already been
     /// reported recently.
@@ -860,7 +860,7 @@ pub struct ChatBudgets {
 impl ChatBudgets {
     /// Charge `peer` for one message and say what should become of it.
     ///
-    /// The rolling 500-entry history cap is what makes a flood destructive —
+    /// The rolling 500-entry history cap is what makes a flood destructive -
     /// 500 messages evict the room's entire prior conversation, permanently,
     /// before the victim can reach a mute control two windows away. The
     /// limiter is what stops the cheapest attack in any chat product from
@@ -929,7 +929,7 @@ pub(super) enum PeerPlaceholder {
 ///
 /// The mesh goes on the chassis entity itself rather than on a child,
 /// because `spawn_avatar_visuals` clears EVERY chassis child before it
-/// spawns — including, for a rigged body, before spawning nothing at all
+/// spawns - including, for a rigged body, before spawning nothing at all
 /// while the wardrobe resolves. A child placeholder would therefore be
 /// destroyed at exactly the moment it is most needed.
 ///
@@ -1025,7 +1025,7 @@ pub(super) fn retire_peer_placeholders(
 /// Silence every sink belonging to a muted peer (#1219 f324).
 ///
 /// `sync_mute_visibility` was the ONLY consumer of `RemotePeer::muted`
-/// outside the chat and offer gates, and it wrote nothing but `Visibility` —
+/// outside the chat and offer gates, and it wrote nothing but `Visibility` -
 /// while Bevy's audio is not gated on visibility at all. A peer's generator
 /// body can carry a `PlaybackMode::Loop` spatial emitter (the construct-audio
 /// dispatcher is deliberately outside the `avatar_mode` guard), and so can
@@ -1105,7 +1105,7 @@ mod tests {
     /// already walks handle → DID head → raw; what it cannot do is fill the
     /// cache. `BskyProfileCache` is populated by peer-driven fetches over
     /// `RemotePeer` entities, so a mutual the viewer has never shared a
-    /// room with is never in it — and the row that just rendered her handle
+    /// room with is never in it - and the row that just rendered her handle
     /// threw it away. The fix is to carry the label the row already had.
     #[test]
     fn a_carried_label_beats_a_cache_that_was_never_going_to_have_the_name() {
@@ -1309,8 +1309,8 @@ mod tests {
     /// Pre-seed the DID's record so adoption takes the cache-hit branch.
     ///
     /// Not incidental: the cache MISS branch spawns a real PDS fetch on the
-    /// shared `IoTaskPool`, and under `cargo test --lib` — one process, one
-    /// pool — a handful of those starve every other test waiting on a task
+    /// shared `IoTaskPool`, and under `cargo test --lib` - one process, one
+    /// pool - a handful of those starve every other test waiting on a task
     /// while nextest, which forks per test, stays green. No test in this file
     /// may take that branch.
     fn seed_cache(app: &mut App, did: &str) {
@@ -1323,7 +1323,7 @@ mod tests {
     }
 
     /// #1218 f290. The sequence: a peer connects and never broadcasts an
-    /// `Identity`. Before this, the client refused to learn who they were —
+    /// `Identity`. Before this, the client refused to learn who they were -
     /// so the headcount included them, nothing rendered for them, and a mute
     /// on their row skipped the durable DID-keyed list and died on their
     /// reconnect. The relay had signed their DID the whole time.
@@ -1354,7 +1354,7 @@ mod tests {
         );
     }
 
-    /// A relay is not obliged to use DIDs as session ids — upstream's
+    /// A relay is not obliged to use DIDs as session ids - upstream's
     /// `session_id_to_peer_id` accepts a bare UUID too. An opaque id must
     /// never be installed as somebody's identity.
     #[test]
@@ -1411,8 +1411,8 @@ mod tests {
     }
 
     /// #1217 f329. The sequence: a peer connects and their avatar installs
-    /// synchronously from the DID cache — a portal hop with a familiar,
-    /// generator-bodied peer — before a single transform packet arrives. A
+    /// synchronously from the DID cache - a portal hop with a familiar,
+    /// generator-bodied peer - before a single transform packet arrives. A
     /// stationary peer sends only every thirtieth 64 Hz tick, so the window
     /// is up to about half a second, and for all of it the body was drawn at
     /// the spawn pose: the map centre, ten metres up, then a teleport.
@@ -1495,7 +1495,7 @@ mod tests {
 
     /// #1217 f328. The sequence: a peer joins, and nothing renders for them
     /// until an Identity, a profile fetch, a PDS fetch, a wardrobe resolve
-    /// and an async skinned build have all landed — every one a network
+    /// and an async skinned build have all landed - every one a network
     /// round trip. "Someone is here but you cannot see them" is
     /// indistinguishable from a rendering bug, and it is the first
     /// impression of multiplayer.
@@ -1612,7 +1612,7 @@ mod tests {
     /// no arrival line prints; they wander around and leave, and the room's
     /// only trace of them is "did:plc:z72i7hdyn… left the room." for someone
     /// the log says was never there. The two halves used to be triggered by
-    /// different facts — departure unconditionally from the disconnect arm,
+    /// different facts - departure unconditionally from the disconnect arm,
     /// arrival only from a resolved handle.
     #[test]
     fn a_departure_is_narrated_only_for_someone_the_room_was_told_about() {
@@ -1634,7 +1634,7 @@ mod tests {
 
     /// #1219. The sequence the funnel exists for: two controls write a mute
     /// and each used to write it slightly differently. The durable, DID-keyed
-    /// half must land whether or not the peer entity is still here — a
+    /// half must land whether or not the peer entity is still here - a
     /// stranger who spams a gift and disconnects is the hit-and-run case the
     /// list exists for, and "Mute & Decline" wrote the list from inside a
     /// loop over live peers, so it matched nothing and recorded nothing.
@@ -1709,7 +1709,7 @@ mod tests {
 
     /// #1222 f296. The sequence: someone starts spamming in a busy room and
     /// within seconds every message anybody else sent has scrolled out of
-    /// existence — the rolling 500-entry cap that protects the renderer is
+    /// existence - the rolling 500-entry cap that protects the renderer is
     /// exactly what makes a flood destructive, and the remedy was two
     /// windows away. `Chat` is also not in the coalescing set that protects
     /// the three heavy variants from bursts.
@@ -1736,7 +1736,7 @@ mod tests {
         assert_eq!(
             budgets.charge(peer, 0.0),
             ChatVerdict::Drop,
-            "and the rest are not — the limiter must not move the flood into the log"
+            "and the rest are not - the limiter must not move the flood into the log"
         );
     }
 
@@ -1779,7 +1779,7 @@ mod tests {
         assert_eq!(budgets.charge(peer_id(2), 0.0), ChatVerdict::Allow);
     }
 
-    /// A clock that steps backwards must never mint tokens — `Res<Time>` is
+    /// A clock that steps backwards must never mint tokens - `Res<Time>` is
     /// the virtual clock and a fixture can rewind it.
     #[test]
     fn a_backwards_clock_does_not_refill_the_bucket() {
@@ -1796,7 +1796,7 @@ mod tests {
 
     /// #1223 f292. The sequence: you tick Mute by accident. Before the
     /// Settings list, the ONLY way back was to hope that person wandered
-    /// into a room you happened to be standing in — both mute controls
+    /// into a room you happened to be standing in - both mute controls
     /// require a live `RemotePeer` entity. The funnel is what lets a surface
     /// with no peer in hand lift a mute, and it must log the person it
     /// lifted rather than a session-scoped UUID it does not have.
@@ -1828,7 +1828,7 @@ mod tests {
 
     /// #1219 f331. The sequence: a spammer arrives, you mute them on sight
     /// before their DID has resolved, they reconnect, and they are audible
-    /// and visible again — while the tooltip said the mute persists. The
+    /// and visible again - while the tooltip said the mute persists. The
     /// list→flag direction was handled; the flag→list one was not, and the
     /// peer entity took the flag with it on disconnect.
     #[test]
@@ -1859,8 +1859,8 @@ mod tests {
     }
 
     /// #1219 f324. The sequence: a peer wearing a looping spatial emitter is
-    /// muted, and every sink under their chassis — the body's own construct
-    /// audio and each worn prop's — has to go silent, however deep it sits.
+    /// muted, and every sink under their chassis - the body's own construct
+    /// audio and each worn prop's - has to go silent, however deep it sits.
     #[test]
     fn muting_a_peer_silences_every_sink_under_their_body() {
         let mut app = App::new();
@@ -1907,13 +1907,13 @@ mod tests {
     /// #1217 f323. The sequence: a peer's PDS is briefly unreachable at the
     /// moment they join. `poll_peer_avatar_fetches` synthesises
     /// `default_for_did` for BOTH the 404 and the error, and after that
-    /// `peer.avatar.is_none()` is false forever — so the fetch was never
+    /// `peer.avatar.is_none()` is false forever - so the fetch was never
     /// tried again and a procedurally generated stranger stood in for
     /// someone's authored body, for the whole room, for the whole session.
     ///
     /// Exercised through the predicate rather than the system: the system
-    /// spawns a real HTTPS round trip, and under `cargo test --lib` — one
-    /// process, one shared `IoTaskPool` — two of those starve every other
+    /// spawns a real HTTPS round trip, and under `cargo test --lib` - one
+    /// process, one shared `IoTaskPool` - two of those starve every other
     /// test waiting on a task. (They did. `oauth::service_token`'s two
     /// refresh tests failed with "the refresh task never landed" while
     /// nextest, which forks per test, stayed green.)
@@ -2001,7 +2001,7 @@ mod tests {
         PeerResolve::record_outfit(&mut resolve, 3, 3);
         assert_eq!(
             resolve.outfit_missing, 0,
-            "a complete resolve retires the chip — otherwise the retry is invisible"
+            "a complete resolve retires the chip - otherwise the retry is invisible"
         );
 
         // A resolve that installed MORE than it asked for is not negative.

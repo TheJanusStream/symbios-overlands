@@ -1,4 +1,4 @@
-//! Ticket booth — a Sports/Recreation secondary. A small kiosk with a lit
+//! Ticket booth - a Sports/Recreation secondary. A small kiosk with a lit
 //! ticket window under a canopy and a pair of turnstiles. The entrance gate
 //! of the ground.
 //!
@@ -53,7 +53,7 @@ fn build_tree() -> Generator {
     let pad_h = 0.3_f32;
 
     let mut prims = vec![
-        // Concrete pad — the root.
+        // Concrete pad - the root.
         prim(
             solid(cuboid_tapered(
                 [5.0, pad_h, 3.0],
@@ -95,7 +95,7 @@ fn build_tree() -> Generator {
         [-1.0, pad_h + 2.3, -1.35],
         id_quat(),
     ));
-    // Lit TICKETS sign band — deep-saturated so it reads lit, not washed white.
+    // Lit TICKETS sign band - deep-saturated so it reads lit, not washed white.
     prims.push(prim(
         cuboid_tapered([2.2, 0.5, 0.1], 0.0, glow(SCORE_LIT, 1.8)),
         [-1.0, pad_h + 2.85, -1.06],

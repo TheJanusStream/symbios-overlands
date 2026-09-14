@@ -1,4 +1,4 @@
-//! Owner Marker — the Modern-City identity monument (#975).
+//! Owner Marker - the Modern-City identity monument (#975).
 //!
 //! A civic wayfinding pylon: a brushed-steel monolith on a board-formed
 //! concrete plinth, the room owner's portrait behind a recessed steel bezel
@@ -50,7 +50,7 @@ impl CatalogueEntry for ModernCityMonument {
 }
 
 fn build_tree(did: &str) -> Generator {
-    // Board-formed plinth — the root, and the thing the pylon and both
+    // Board-formed plinth - the root, and the thing the pylon and both
     // bollards stand on.
     let plinth = prim(
         solid(cuboid_tapered(
@@ -88,7 +88,7 @@ fn display(did: &str) -> Vec<Generator> {
     let z = -0.31;
     let bezel = 0.13;
     let mut out = vec![
-        // Dark backing plate — the panel is single-sided, and a wayfinding
+        // Dark backing plate - the panel is single-sided, and a wayfinding
         // pylon is opaque from behind.
         prim(
             solid(cuboid_tapered(

@@ -1,4 +1,4 @@
-//! Parking stack — a Cyberpunk secondary. An open multi-deck concrete slab
+//! Parking stack - a Cyberpunk secondary. An open multi-deck concrete slab
 //! tower on corner pillars, each deck neon-edged, served by a spiral ramp
 //! around a stair/lift core and dotted with parked cars. The low, wide
 //! counterpoint to the megatower's height.
@@ -43,7 +43,7 @@ impl CatalogueEntry for ParkingStack {
     }
 }
 
-/// A small parked-car silhouette — a low two-box body with red taillights,
+/// A small parked-car silhouette - a low two-box body with red taillights,
 /// added to a deck for scale and read.
 fn parked_car(root: &mut Generator, x: f32, y: f32, z: f32, sx: f32) {
     let paint = [0.10_f32, 0.11, 0.14];
@@ -116,7 +116,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Spiral ramp climbing the core — a glowing helical guide reading as the
+    // Spiral ramp climbing the core - a glowing helical guide reading as the
     // structure's signature car ramp.
     let ramp_turns = 3.0_f32;
     let ramp_pitch = (total_h - 1.0) / ramp_turns;
@@ -150,7 +150,7 @@ fn build_tree() -> Generator {
             [0.0, rel(dy - 0.25), 0.0],
             id_quat(),
         ));
-        // Parked cars sitting on this deck (skip the top deck — open roof).
+        // Parked cars sitting on this deck (skip the top deck - open roof).
         if d < decks - 1 {
             for (cx, cz, sgn) in [(2.4_f32, -1.6_f32, 1.0_f32), (3.4, 1.6, -1.0)] {
                 parked_car(&mut root, cx, rel(dy + 0.15), cz, sgn);

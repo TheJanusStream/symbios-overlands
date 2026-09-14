@@ -1,14 +1,14 @@
-//! Contact data types — the wire format between the interaction producer
+//! Contact data types - the wire format between the interaction producer
 //! ([`super::classifier`]) and any consumer channel (shader feeders,
 //! particle dispatchers, stain stampers).
 //!
-//! The types here intentionally carry only finished, world-space data —
+//! The types here intentionally carry only finished, world-space data -
 //! consumers should not need to reach back into ECS to interpret a
 //! sample. Adding a new surface kind is a matter of extending
 //! [`SurfaceContact`] and [`SurfaceKind`] in lock-step; everything
 //! downstream filters on those enums.
 //!
-//! [`AvatarContacts`] is rebuilt from scratch every frame — consumers
+//! [`AvatarContacts`] is rebuilt from scratch every frame - consumers
 //! must read it in the same frame the producer writes it.
 
 use bevy::prelude::*;
@@ -29,7 +29,7 @@ pub enum ContactPhase {
     /// First frame on this surface (or first frame after switching to a
     /// new surface variant / index).
     Enter,
-    /// Continuous contact — same surface as last frame.
+    /// Continuous contact - same surface as last frame.
     Dwell,
     /// First frame after leaving this surface. The sample's `surface`
     /// field describes the surface that was just left; `world_pos` is
@@ -42,7 +42,7 @@ pub enum ContactPhase {
 /// consumers that want to filter samples without matching the full
 /// [`SurfaceContact`] payload.
 ///
-/// Mirrors the variants of [`SurfaceContact`] — both must grow in
+/// Mirrors the variants of [`SurfaceContact`] - both must grow in
 /// lockstep.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SurfaceKind {
@@ -53,7 +53,7 @@ pub enum SurfaceKind {
 
 /// World-space description of the surface the avatar is currently
 /// engaged with. Returned wrapped in `Option<_>` by the producer's
-/// internal probe step — `None` means "in the air, no contact".
+/// internal probe step - `None` means "in the air, no contact".
 ///
 /// Consumers should pattern-match the variants they handle and ignore
 /// the rest.
@@ -61,20 +61,20 @@ pub enum SurfaceKind {
 pub enum SurfaceContact {
     /// Avatar is inside or touching a water plane.
     ///
-    /// - `plane_idx` — index into
+    /// - `plane_idx` - index into
     ///   [`crate::water::WaterSurfaces::planes`]; lets a shader feeder
     ///   route impulses to the right material asset.
-    /// - `depth` — positive value: how far below the surface the
+    /// - `depth` - positive value: how far below the surface the
     ///   query point sits, measured along the plane normal.
-    /// - `flow_dir` — world XZ projection of the surface's downhill
+    /// - `flow_dir` - world XZ projection of the surface's downhill
     ///   tangent, zero on flat water.
-    /// - `surface_y` — world Y of the water surface at the query point
+    /// - `surface_y` - world Y of the water surface at the query point
     ///   (#1254 f320). Carried because the classifier is the only place
     ///   that knows it: `depth` is measured from the avatar's BODY BOTTOM
     ///   (`world_pos.y − total_height/2`), and the sample keeps only the
     ///   unmodified `world_pos`, so a consumer holding a sample cannot
     ///   recover the waterline. The decal stamper anchored water contacts
-    ///   at `world_pos` — chassis centre — and laid a flat quad half an
+    ///   at `world_pos` - chassis centre - and laid a flat quad half an
     ///   avatar above the water it was authored for.
     Water {
         plane_idx: usize,
@@ -84,13 +84,13 @@ pub enum SurfaceContact {
     },
     /// Avatar's body bottom is resting on the splat terrain.
     ///
-    /// - `material_blend` — normalised `[Grass, Dirt, Rock, Snow]`
+    /// - `material_blend` - normalised `[Grass, Dirt, Rock, Snow]`
     ///   splat weights sampled from the heightmap at the contact XZ
     ///   (same channel order as the splat weight map / shader). Lets a
     ///   recipe key dust colour off the dominant ground material.
-    /// - `normal` — world-space surface normal at the contact point
+    /// - `normal` - world-space surface normal at the contact point
     ///   (unit, `y` up), from the heightmap's central-difference normal.
-    /// - `ground_y` — world-space terrain height at the contact XZ (the
+    /// - `ground_y` - world-space terrain height at the contact XZ (the
     ///   same heightmap sample the classifier decided on), so consumers
     ///   like the decal stamper can anchor to the ground without
     ///   re-sampling the terrain.
@@ -115,7 +115,7 @@ impl SurfaceContact {
     }
 }
 
-/// Dominant splat layer — argmax over the four `material_blend` weights.
+/// Dominant splat layer - argmax over the four `material_blend` weights.
 /// Shared by the footstep-audio impact picker and the ground-dust tint so
 /// both consumers agree on which ground material the avatar is standing on.
 pub fn dominant_layer(material_blend: [f32; 4]) -> usize {
@@ -141,7 +141,7 @@ pub struct ContactSample {
     /// for local players; 1-frame finite-difference for remote peers
     /// (whose components do not currently carry the velocity).
     pub world_vel: Vec3,
-    /// Effective radius the avatar occupies on this surface — see
+    /// Effective radius the avatar occupies on this surface - see
     /// [`super::locomotion::LocomotionFootprint`]. Single source of
     /// truth for "scale my effect to the avatar's size".
     pub footprint_radius: f32,
@@ -151,7 +151,7 @@ pub struct ContactSample {
     /// of the avatar; saturates at 1 once the avatar is fully
     /// submerged. Lets consumers fade effect strength uniformly.
     pub intensity: f32,
-    /// Lifecycle marker — see [`ContactPhase`].
+    /// Lifecycle marker - see [`ContactPhase`].
     pub phase: ContactPhase,
 }
 

@@ -1,11 +1,11 @@
-//! Watch post — a stilted timber platform with a railing and a pyramidal
+//! Watch post - a stilted timber platform with a railing and a pyramidal
 //! roof. An escalation-Conflict scatter prop: a hasty lookout reads the
 //! same whether it overlooks a medieval road or a cyberpunk checkpoint.
 //!
 //! Reworked under #972 after an in-world check ("ladder steps and roof
 //! rotated wrongly; ladder not on the open side"). The roof was a
 //! four-sided [`cone`] at the identity, and a revolved prim's vertex 0 is on
-//! `+X` — so the pyramid sat as a DIAMOND over the square fascia, its
+//! `+X` - so the pyramid sat as a DIAMOND over the square fascia, its
 //! corners 0.4 m out along each axis and its flat faces barely reaching the
 //! fascia's edge. It is turned an eighth of a turn now and sized from the
 //! fascia so the faces overhang it. The ladder leaned on the railed `+X`
@@ -13,7 +13,7 @@
 //! the rails) and their offset drifted the wrong way with height. It now
 //! stands on the open `-Z` front: the rails are [`strut`]s from a foot on
 //! the ground to a head at the deck's own edge, and every rung is placed on
-//! that same line. Still a makeshift lookout — the band is Conflict, and
+//! that same line. Still a makeshift lookout - the band is Conflict, and
 //! rough is right; what changed is that the parts now touch.
 //!
 //! #972 lesson 35: **a low-resolution revolved prim is a polygon with a
@@ -43,7 +43,7 @@ const DECK_Y: f32 = LEG_H;
 const DECK_T: f32 = 0.12;
 const DECK_HALF: f32 = 0.725;
 const BOARD_T: f32 = 0.04;
-/// Top of the deck boards — what a climber steps onto.
+/// Top of the deck boards - what a climber steps onto.
 const DECK_TOP: f32 = DECK_Y + DECK_T * 0.5 + BOARD_T;
 const POST_H: f32 = 1.1;
 const EAVE_Y: f32 = DECK_Y + POST_H;
@@ -63,7 +63,7 @@ const FINIAL_H: f32 = 0.2;
 /// still wider than it (#972 lesson 33b).
 const FINIAL_SINK: f32 = 0.075;
 /// Ladder: centreline, rail half-spacing, foot on the ground and head
-/// leaning on the deck's front edge — on the open `-Z` side, beside the
+/// leaning on the deck's front edge - on the open `-Z` side, beside the
 /// lantern's line rather than under it.
 const LADDER_X: f32 = 0.3;
 const LADDER_HALF: f32 = 0.16;
@@ -173,7 +173,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Railing — top + mid rails around the back and sides; the front (-Z)
+    // Railing - top + mid rails around the back and sides; the front (-Z)
     // is left open as the lookout's vantage, and it is where the ladder
     // lands.
     for rail_y in [DECK_Y + 0.46, DECK_Y + 0.24] {
@@ -341,14 +341,14 @@ mod tests {
         let corner = rotate_by(q, [r, 0.0, 0.0]);
         assert!(
             (corner[0].abs() - corner[2].abs()).abs() < 1e-3,
-            "watch_post: a corner of the roof lands at {corner:?} — the pyramid's corners are \
+            "watch_post: a corner of the roof lands at {corner:?} - the pyramid's corners are \
              on the axes, so it sits as a diamond over the square fascia"
         );
         let face = r * FRAC_1_SQRT_2;
         assert!(
             face >= fsize[0] * 0.5 + 0.05,
             "watch_post: the roof's faces reach {face} m from the axis over a fascia \
-             {} m wide — no eave",
+             {} m wide - no eave",
             fsize[0]
         );
         let base = at[1] - h * 0.5;
@@ -359,7 +359,7 @@ mod tests {
     }
 
     /// The finial is seated in the roof, not balanced on its point (#972
-    /// lesson 33b) — and on a turned pyramid the width that matters is the
+    /// lesson 33b) - and on a turned pyramid the width that matters is the
     /// FACE inset, not the corner radius.
     #[test]
     fn the_finial_is_seated_in_the_roof_not_balanced_on_it() {
@@ -382,7 +382,7 @@ mod tests {
         assert!(
             face_there >= fr,
             "watch_post: at the finial's base the pyramid's faces are {face_there} m from the \
-             axis and the finial is {fr} — balanced on the point"
+             axis and the finial is {fr} - balanced on the point"
         );
         assert!(
             fat[1] + fh * 0.5 > apex,
@@ -393,7 +393,7 @@ mod tests {
     /// **The ladder stands on the ground and lands on the OPEN side.** Both
     /// rails' feet are on the ground; both heads are above the deck top and
     /// just in front of the deck's `-Z` edge, the side with no rail.
-    /// Against the shipped build the heads land at `x ≈ 0.69, z = ±0.16` —
+    /// Against the shipped build the heads land at `x ≈ 0.69, z = ±0.16` -
     /// the railed right side.
     #[test]
     fn the_ladder_stands_on_the_ground_and_lands_on_the_open_front() {
@@ -449,7 +449,7 @@ mod tests {
             assert_eq!(
                 long_axis, sep_axis,
                 "watch_post: a rung at {at:?} runs along axis {long_axis} but the rails are \
-                 separated along axis {sep_axis} — the steps are rotated"
+                 separated along axis {sep_axis} - the steps are rotated"
             );
             // Where the rails' mean line is at this rung's height.
             let mid = |p: [f32; 3], q: [f32; 3]| {
@@ -475,7 +475,7 @@ mod tests {
         assert_eq!(rungs, RUNGS, "one rung per step");
     }
 
-    /// The front (`-Z`) is open — no rail run across it — while the back and
+    /// The front (`-Z`) is open - no rail run across it - while the back and
     /// both sides carry their two rails each.
     #[test]
     fn the_railing_leaves_the_front_open() {

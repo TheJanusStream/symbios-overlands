@@ -1,7 +1,7 @@
-//! Bush — a leafy rounded shrub (#910 WS2 expansion), the first true woody
+//! Bush - a leafy rounded shrub (#910 WS2 expansion), the first true woody
 //! understory species. Three to four stems splay from a common base and
 //! fork stochastically each iteration into a dense dome of mid-green
-//! foliage roughly a metre tall — hedge-scale filler between grass and
+//! foliage roughly a metre tall - hedge-scale filler between grass and
 //! trees in temperate biomes.
 
 use std::collections::HashMap;
@@ -22,7 +22,7 @@ impl CatalogueEntry for Bush {
         "Bush"
     }
     fn description(&self) -> &'static str {
-        "Rounded leafy shrub — multi-stemmed woody understory filler."
+        "Rounded leafy shrub - multi-stemmed woody understory filler."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Plant
@@ -34,7 +34,7 @@ impl CatalogueEntry for Bush {
 
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
-    // 0 — grey-brown twiggy bark.
+    // 0 - grey-brown twiggy bark.
     materials.insert(
         0,
         SovereignMaterialSettings {
@@ -49,7 +49,7 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 1 — mid-green hedge leaf.
+    // 1 - mid-green hedge leaf.
     materials.insert(
         1,
         SovereignMaterialSettings {
@@ -77,14 +77,14 @@ fn build_kind() -> GeneratorKind {
         // internode elongates (`F(l) -> F(l*lr)`) and thickens
         // (`!(w) -> !(w*vr)`) on every subsequent step. ABOP proves this
         // yields the same geometry as computing a tip's final size at
-        // birth, but as a developmental sequence rather than a fractal —
+        // birth, but as a developmental sequence rather than a fractal -
         // so iteration count IS the plant's age, old wood is genuinely
         // thicker than new wood, and the base accumulates girth. `vr` is
         // under the da Vinci binary value (√2 ≈ 1.414) because a shrub's
         // stems stay whippy rather than reading as load-bearing trunks.
         //
         // BASITONY: the shrub habit. Lateral vigour must FALL with height
-        // so the lowest branches are longest and the silhouette domes —
+        // so the lowest branches are longest and the silhouette domes -
         // hence contraction (0.78–0.86) on every fork with no privileged
         // leader, the inverse of a tree's acrotonic crown.
         source_code: "#define lr 1.06\n\

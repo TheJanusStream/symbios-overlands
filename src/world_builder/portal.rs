@@ -47,7 +47,7 @@ pub(super) fn spawn_portal_entity(
         ))
         .id();
 
-    // Top face — a thin plane pinned just above the cube's top so it renders
+    // Top face - a thin plane pinned just above the cube's top so it renders
     // on top of the translucent volume without z-fighting. `unlit` keeps the
     // profile picture legible at any sun angle.
     let top_mat = ctx.std_materials.add(StandardMaterial {
@@ -66,7 +66,7 @@ pub(super) fn spawn_portal_entity(
         .id();
     ctx.commands.entity(parent).add_child(top_face);
 
-    // An intra-room portal points at the same DID we're rendering — its
+    // An intra-room portal points at the same DID we're rendering - its
     // top face would otherwise display the local user's own pfp, which is
     // visually redundant and confuses identity. Skip the fetch and leave
     // the panel white.

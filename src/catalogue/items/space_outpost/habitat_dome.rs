@@ -1,4 +1,4 @@
-//! Habitat dome — the Space-Outpost landmark and the kit's lit hero. A white
+//! Habitat dome - the Space-Outpost landmark and the kit's lit hero. A white
 //! hull module under a glazed pressure dome, a lit viewport band around its
 //! waist, an airlock on one side and a beacon-topped antenna mast. ~9 m
 //! across, so it anchors the base and reads as the colony from across the home
@@ -69,7 +69,7 @@ fn build_tree() -> Generator {
     let apex = drum_top + dome_r;
 
     let mut prims = vec![
-        // Ceramic concrete pad — the root.
+        // Ceramic concrete pad - the root.
         prim(
             solid(cuboid_tapered([9.0, pad_h, 9.0], 0.0, concrete(PAD_GREY))),
             [0.0, pad_h * 0.5, 0.0],
@@ -90,7 +90,7 @@ fn build_tree() -> Generator {
         [0.0, pad_h + module_h * 0.5, 0.0],
         id_quat(),
     ));
-    // Lit viewport band around the waist — a smooth emissive ring. (A `Window`
+    // Lit viewport band around the waist - a smooth emissive ring. (A `Window`
     // texture here would tile ~1/m around the drum and read as a tinted band,
     // not glazing; the ports read from the emissive glow + the porthole ring.)
     prims.push(prim(
@@ -98,7 +98,7 @@ fn build_tree() -> Generator {
         [0.0, pad_h + 1.5, 0.0],
         id_quat(),
     ));
-    // A ring of lit portholes around the upper module — emissive.
+    // A ring of lit portholes around the upper module - emissive.
     for i in 0..8 {
         let a = i as f32 / 8.0 * TAU;
         prims.push(prim(
@@ -108,7 +108,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Drum collar seating the dome — stood a touch proud of the module (radius
+    // Drum collar seating the dome - stood a touch proud of the module (radius
     // module_r + 0.12) so its side never sits coplanar with the hull below it.
     // Both were module_r before, which z-fought where they overlap.
     prims.push(prim(
@@ -123,8 +123,8 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Glazed pressure dome — an upper hemisphere on the drum, not a buried
-    // sphere — lit from within so it glows cyan. This is an emissive glaze, not
+    // Glazed pressure dome - an upper hemisphere on the drum, not a buried
+    // sphere - lit from within so it glows cyan. This is an emissive glaze, not
     // a `Window` texture (which would tile in postage-stamp panes over the
     // whole sphere); the geodesic ribs below give it its paneling.
     prims.push(prim(
@@ -137,7 +137,7 @@ fn build_tree() -> Generator {
         [0.0, drum_top, 0.0],
         id_quat(),
     ));
-    // Geodesic rib cage standing proud of the glass — the habitat signature.
+    // Geodesic rib cage standing proud of the glass - the habitat signature.
     for rib in dome_ribs([0.0, drum_top, 0.0], dome_r, 6, steel(STEEL_DARK)) {
         prims.push(rib);
     }
@@ -166,7 +166,7 @@ fn build_tree() -> Generator {
         prims.push(piece);
     }
 
-    // Antenna mast topped by a red beacon — emissive.
+    // Antenna mast topped by a red beacon - emissive.
     prims.push(prim(
         solid(cylinder_tapered(0.1, 2.4, 8, 0.0, steel(STEEL_DARK))),
         [0.0, apex + 1.0, 0.0],
@@ -206,8 +206,8 @@ mod tests {
         ));
     }
 
-    /// #951: no `Window` alpha-card is left on a curved surface — every one (if
-    /// any) must sit on a `Plane` at `uv_scale` 1.0 — and, this being a
+    /// #951: no `Window` alpha-card is left on a curved surface - every one (if
+    /// any) must sit on a `Plane` at `uv_scale` 1.0 - and, this being a
     /// landmark embedded in room records, the tree survives a serde round-trip.
     #[test]
     fn glazing_is_planes_and_round_trips() {

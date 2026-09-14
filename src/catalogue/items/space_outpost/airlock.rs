@@ -1,4 +1,4 @@
-//! Airlock — a Space-Outpost prop. A standalone pressure-lock chamber with a
+//! Airlock - a Space-Outpost prop. A standalone pressure-lock chamber with a
 //! lit hatch port and hazard banding. Scatter clutter linking the modules.
 
 use crate::catalogue::items::util::{
@@ -49,7 +49,7 @@ impl CatalogueEntry for Airlock {
 fn build_tree() -> Generator {
     let chamber_r = 1.2_f32;
     let mut prims = vec![
-        // Hull chamber — the root.
+        // Hull chamber - the root.
         prim(
             solid(cylinder_tapered(chamber_r, 2.2, 16, 0.0, hull(HULL_WHITE))),
             [0.0, 1.1, 0.0],

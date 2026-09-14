@@ -31,7 +31,7 @@ use super::material::spawn_procedural_material;
 
 /// Persistent cross-compile cache for shape generator `StandardMaterial` handles.
 ///
-/// Mirrors [`super::lsystem::LSystemMaterialCache`] — a `Placement::Scatter`
+/// Mirrors [`super::lsystem::LSystemMaterialCache`] - a `Placement::Scatter`
 /// with `count=100` over a Shape generator would otherwise allocate 100 fresh
 /// `StandardMaterial`s and enqueue 100 identical foliage texture tasks for
 /// each `Mat("...")` slot. The cache keys on `(generator_ref, slot_name)` and
@@ -51,7 +51,7 @@ pub struct ShapeInstance {
     pub material_id: Option<String>,
 }
 
-/// Persistent cross-compile cache for shape grammar geometry — the
+/// Persistent cross-compile cache for shape grammar geometry - the
 /// per-terminal spawn list. Materials are orthogonal: the per-instance
 /// `material_id` is resolved against [`ShapeMaterialCache`] at spawn time.
 ///
@@ -70,7 +70,7 @@ pub type ShapeMeshCache = GeneratorCache<String, Arc<[ShapeInstance]>>;
 
 /// The `GeneratorKind::Shape` payload, borrowed for the duration of one
 /// build. Grouping it keeps the derivation entry points to a handful of
-/// arguments now that the material map is a geometry input too (#939) —
+/// arguments now that the material map is a geometry input too (#939) -
 /// these five always travel together and always come from the same node.
 struct ShapeDef<'a> {
     grammar_source: &'a str,
@@ -89,7 +89,7 @@ const ROUND_SEGMENTS: u32 = 24;
 /// Stable content hash of the geometry-affecting fields of a
 /// `GeneratorKind::Shape`. Material *settings* are deliberately excluded
 /// because those are applied per-spawn on top of a shared mesh list (see
-/// [`ShapeMaterialCache`]) — but which slots are alpha cards is not a
+/// [`ShapeMaterialCache`]) - but which slots are alpha cards is not a
 /// setting, it is a geometry input, so that much is folded in (#939). Each
 /// `Fp3` axis is hashed via its fixed-point wire form so NaN/denormal
 /// floats can't destabilise the key across compile passes.
@@ -103,7 +103,7 @@ fn shape_geometry_fingerprint(def: &ShapeDef<'_>) -> u64 {
     h.fp(def.footprint.0[2]);
     // Which slots are alpha cards *is* a geometry input (#939): a card's
     // face meshes with UVs stretched into 0..1 instead of tiled in world
-    // space. Only the card-ness enters the hash, not the settings — colour
+    // space. Only the card-ness enters the hash, not the settings - colour
     // and roughness edits must still reuse the baked mesh list. Sorted so
     // `HashMap` iteration order can't destabilise the key across compiles.
     let mut cards: Vec<&str> = def
@@ -116,7 +116,7 @@ fn shape_geometry_fingerprint(def: &ShapeDef<'_>) -> u64 {
     for name in cards {
         h.field(name);
     }
-    // Which terminals are turned is a geometry input too — a round shaft
+    // Which terminals are turned is a geometry input too - a round shaft
     // and a square pier of identical size are different meshes. Sorted so
     // a re-ordered list reuses the same bake.
     let mut round: Vec<&str> = def.round_meshes.iter().map(String::as_str).collect();
@@ -128,7 +128,7 @@ fn shape_geometry_fingerprint(def: &ShapeDef<'_>) -> u64 {
 }
 
 // Mesh dedup keys (`MeshCacheKey`, `ProfileKey`) and the cross-spawn
-// [`UpstreamShapeMeshCache`] resource live in `bevy_symbios_shape::cache` —
+// [`UpstreamShapeMeshCache`] resource live in `bevy_symbios_shape::cache` -
 // importing them at the top of this module keeps mesh handle reuse
 // consistent across every consumer of the shape grammar.
 
@@ -142,7 +142,7 @@ fn shape_geometry_fingerprint(def: &ShapeDef<'_>) -> u64 {
 /// Mirrors the line-based authoring convention used by sibling editors
 /// (`symbios-ground-lab`): one *statement* per line, blank lines and `// …`
 /// lines ignored. Per-line parse errors are logged and the whole rebuild
-/// aborts — partial rule tables produce confusing terminal layouts that look
+/// aborts - partial rule tables produce confusing terminal layouts that look
 /// like silent bugs in the grammar.
 ///
 /// Since symbios-shape 0.3 a line may also be an `attr` / `const` / `style`
@@ -165,7 +165,7 @@ fn build_shape_geometry(
         }
         match parse_statement(line) {
             Ok(statement) => {
-                // Only productions count toward "has rules" — a grammar of
+                // Only productions count toward "has rules" - a grammar of
                 // pure declarations derives nothing.
                 let is_rule = matches!(statement, Statement::Rule(_));
                 if let Err(e) = interpreter.add_statement(statement) {
@@ -219,7 +219,7 @@ fn build_shape_geometry(
 
     // Dedupe meshes through the upstream `ShapeMeshCache` resource so two
     // different generators that produce terminals with the same
-    // `(profile, size)` triple share the same `Handle<Mesh>` — a 1000-window
+    // `(profile, size)` triple share the same `Handle<Mesh>` - a 1000-window
     // facade allocates one window mesh, not 1000, AND a second building
     // generator with the same window pattern reuses the existing handle
     // instead of uploading a duplicate.
@@ -246,7 +246,7 @@ fn build_shape_geometry(
         // Turned terminals (columns, silos, spires) bake as elliptical
         // prisms; the grammar still derived them as boxes, so splits and
         // occlusion are unaffected. Keyed on the mesh id emitted by
-        // `I("...")` — a colonnade's shafts and its flat entablature
+        // `I("...")` - a colonnade's shafts and its flat entablature
         // usually share one stone material.
         let round_segments = if def.round_meshes.contains(&terminal.mesh_id) {
             ROUND_SEGMENTS
@@ -366,7 +366,7 @@ pub(super) fn spawn_shape_entity(
 
     let instances = match cached {
         // Cache hit = this exact grammar compiled cleanly earlier in the
-        // session — still record Ok so a fixed-then-unchanged grammar
+        // session - still record Ok so a fixed-then-unchanged grammar
         // doesn't leave a stale error in the editor (#829).
         Some(i) => {
             ctx.record_grammar_status(generator_ref, path, None);
@@ -381,7 +381,7 @@ pub(super) fn spawn_shape_entity(
             ) {
                 Ok(built) => built,
                 Err(message) => {
-                    // Grammar rejected, root rule missing, or empty model —
+                    // Grammar rejected, root rule missing, or empty model -
                     // evict any stale entry so a later edit that fixes the
                     // grammar triggers a rebuild instead of reusing a stale
                     // success result, and surface the error in the editor's
@@ -405,7 +405,7 @@ pub(super) fn spawn_shape_entity(
     // Parent every terminal under a single transform so the placement's
     // rotation/position anchors the whole building as a unit. Avatar
     // mode skips the `RoomEntity` tag for the same reason as the
-    // lsystem spawner — see `world_builder::lsystem::spawn_lsystem_entity`.
+    // lsystem spawner - see `world_builder::lsystem::spawn_lsystem_entity`.
     let parent = if ctx.avatar_mode {
         ctx.commands.spawn((transform, Visibility::default())).id()
     } else {
@@ -422,7 +422,7 @@ pub(super) fn spawn_shape_entity(
     // Each terminal is a real ECS entity, so it contributes to the
     // room-wide spawn budget. Without this, a record can put a high-count
     // `Scatter` over a Shape grammar that derives thousands of terminals
-    // — the per-generator-node accounting in `spawn_generator` would only
+    // - the per-generator-node accounting in `spawn_generator` would only
     // charge one per scatter point regardless of terminal count, blowing
     // past `MAX_ROOM_ENTITIES` and OOMing the ECS.
     for instance in instances.iter() {
@@ -435,7 +435,7 @@ pub(super) fn spawn_shape_entity(
             materials,
             instance.material_id.as_deref(),
         );
-        // NB: no `RoomEntity` marker on child meshes — see the lsystem
+        // NB: no `RoomEntity` marker on child meshes - see the lsystem
         // spawner for the rationale (recursive despawn from the parent
         // covers them; double-marking cascades into "entity despawned"
         // warnings during room rebuilds).
@@ -459,11 +459,11 @@ mod grammar_error_tests {
     use super::*;
 
     /// #829: shape-grammar failures surface as `Err` with the message the
-    /// editor forge renders — line-numbered parse errors, a named missing
+    /// editor forge renders - line-numbered parse errors, a named missing
     /// root rule, and the no-rules case.
     #[test]
     fn shape_grammar_errors_surface_as_results() {
-        // A bare asset store suffices — the error paths never reach the
+        // A bare asset store suffices - the error paths never reach the
         // mesh-baking stage that would populate it.
         let mut meshes = Assets::<Mesh>::default();
         let mut cache = UpstreamShapeMeshCache::default();
@@ -706,7 +706,7 @@ mod card_uv_tests {
     }
 
     /// The geometry cache is keyed on which slots are cards, so flipping a
-    /// slot from surface to card must invalidate it — otherwise the editor
+    /// slot from surface to card must invalidate it - otherwise the editor
     /// would keep handing out the tiled mesh after the swap. Colour-only
     /// edits must NOT invalidate it (that is what `ShapeMaterialCache` is
     /// for), or every roughness tweak would re-derive the whole grammar.

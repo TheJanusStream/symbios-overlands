@@ -1,7 +1,7 @@
-//! Sashimono back banner — the silhouette hero (#1091): the wearable that
+//! Sashimono back banner - the silhouette hero (#1091): the wearable that
 //! deliberately leaves the body's own envelope. A lacquered pole rises
 //! from a back harness through whatever hair the wearer grew, and the
-//! crimson cloth flies clear above the head — so the sheet across seeds is
+//! crimson cloth flies clear above the head - so the sheet across seeds is
 //! a direct probe of silhouette against the greediest hair styles, which
 //! is this hero's whole assignment (the triangle-corner half is #1092's
 //! guard, measured with this worn).
@@ -12,10 +12,10 @@
 //!
 //! Drawn as an oversized draft like its two siblings ([`super::circlet`],
 //! [`super::lantern`]): the harness plate is the TRUE-scale, axis-aligned
-//! root (the lantern's leaning-mast lesson — a rotated or scaled root
+//! root (the lantern's leaning-mast lesson - a rotated or scaled root
 //! carries everything with it), and the whole pole-and-cloth assembly
 //! hangs under it at 10×, downscaled by one uniform child transform. The
-//! cloth is 5 mm — half the sanitiser's prim-local floor, drawn at 50 mm.
+//! cloth is 5 mm - half the sanitiser's prim-local floor, drawn at 50 mm.
 //! Its fabric weave passes through [`uv_for_scale`]: repeats are per
 //! LOCAL metre, so an uncorrected draft would wear ten times the thread
 //! count (trap 1, exercised here by the first textured draft).
@@ -38,7 +38,7 @@ const DRAFT: f32 = 10.0;
 const CRIMSON_WARP: [f32; 3] = [0.52, 0.08, 0.09];
 const CRIMSON_WEFT: [f32; 3] = [0.60, 0.11, 0.11];
 
-/// Dark lacquered wood — the pole and crossbar.
+/// Dark lacquered wood - the pole and crossbar.
 fn lacquer() -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3([0.24, 0.10, 0.07]),
@@ -104,7 +104,7 @@ impl CatalogueEntry for Sashimono {
 /// Root = the harness plate at the attach origin, TRUE scale and
 /// axis-aligned. The Back seat yaws the authored `+Z` face away from the
 /// chest (`outward_yaw`), so authored `+Z` is "away from the body": the
-/// pole stands off the plate toward `+Z` — behind the wearer — which is
+/// pole stands off the plate toward `+Z` - behind the wearer - which is
 /// its clearance against hair draped down the back, and the cloth flies
 /// higher still.
 fn build_tree() -> Generator {
@@ -186,7 +186,7 @@ mod tests {
 
     /// The silhouette contract: everything the banner is stands on the
     /// authored `+Z` side (behind the wearer, once the Back seat's yaw
-    /// turns it out) or above the plate — nothing may reach forward of
+    /// turns it out) or above the plate - nothing may reach forward of
     /// the harness into the body it is worn against.
     #[test]
     fn the_banner_stays_behind_its_harness_plate() {
@@ -204,7 +204,7 @@ mod tests {
         walk(&tree, 0.0, 1.0, &mut min_z);
         assert!(
             min_z >= -0.01,
-            "a banner part's origin reaches {min_z} m in front of the harness plane — \
+            "a banner part's origin reaches {min_z} m in front of the harness plane - \
              it would stand inside the wearer"
         );
     }

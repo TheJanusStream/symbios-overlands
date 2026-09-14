@@ -1,4 +1,4 @@
-//! Per-subsystem metric samplers (Spine E-4) — the thin helpers the network,
+//! Per-subsystem metric samplers (Spine E-4) - the thin helpers the network,
 //! loading, offload and player systems call to feed the shared
 //! [`MetricsRegistry`]. Each helper wraps one `names::` const + the right
 //! registry op (counter `incr`, gauge `observe_gauge`, histogram `observe_hist`)

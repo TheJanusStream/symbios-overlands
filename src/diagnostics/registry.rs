@@ -1,38 +1,38 @@
-//! Shared metrics registry (Spine E-1) — the one source of truth the session
+//! Shared metrics registry (Spine E-1) - the one source of truth the session
 //! log (A), the Diagnostics GUI (C) and the invariant engine (D) all read.
 //!
 //! It holds three value shapes, all allocation-bounded so the wasm heap stays
 //! flat: [`Gauge`] (latest value + a fixed ring for sparklines), [`Counter`]
 //! (monotonic), and [`Histogram`] (bounded sample set reduced to a [`Distro`]
-//! via the shared [`distro`] reducer — the same `min/p50/p90/max/mean` summary
+//! via the shared [`distro`] reducer - the same `min/p50/p90/max/mean` summary
 //! that used to live in `urban/diagnostics.rs`, now single-sourced here).
 //!
 //! Metrics are keyed by stable `&'static str` names (see the `names` module,
 //! E-2) so lookups are pointer-cheap and typos are compile errors.
 //!
-//! # Read API — the stable contract (E-6)
+//! # Read API - the stable contract (E-6)
 //!
 //! The reader methods on [`MetricsRegistry`] (grouped under the "Read API"
 //! banner below) plus the metric **names**
 //! ([`names::ALL`](crate::diagnostics::names::ALL)) are the published surface
-//! every downstream pillar binds to — treat them as API. Renaming a metric or
+//! every downstream pillar binds to - treat them as API. Renaming a metric or
 //! changing a reader's shape breaks both a GUI row *and* any invariant that
 //! reads it (see the map below).
 //!
 //! | Consumer | Reads via |
 //! | --- | --- |
-//! | C — Overview sparkline (C-3) | [`ring_slice`](MetricsRegistry::ring_slice) (raw samples), [`gauge_distro`](MetricsRegistry::gauge_distro) (p50/p90/max), [`gauge_latest`](MetricsRegistry::gauge_latest) |
-//! | C — health cards (C-4) | [`counter_value`](MetricsRegistry::counter_value), [`hist_distro_str`](MetricsRegistry::hist_distro_str), [`gauge_latest`](MetricsRegistry::gauge_latest) |
-//! | D — invariant thresholds | [`gauge`](MetricsRegistry::gauge) / [`counter`](MetricsRegistry::counter) (latest value + windowed growth over the sparkline ring) |
+//! | C - Overview sparkline (C-3) | [`ring_slice`](MetricsRegistry::ring_slice) (raw samples), [`gauge_distro`](MetricsRegistry::gauge_distro) (p50/p90/max), [`gauge_latest`](MetricsRegistry::gauge_latest) |
+//! | C - health cards (C-4) | [`counter_value`](MetricsRegistry::counter_value), [`hist_distro_str`](MetricsRegistry::hist_distro_str), [`gauge_latest`](MetricsRegistry::gauge_latest) |
+//! | D - invariant thresholds | [`gauge`](MetricsRegistry::gauge) / [`counter`](MetricsRegistry::counter) (latest value + windowed growth over the sparkline ring) |
 //!
 //! Every name in `names::ALL` is pre-seeded at startup, so a named-but-never-
-//! observed metric reads as `—` ([`gauge_latest`](MetricsRegistry::gauge_latest)
+//! observed metric reads as `-` ([`gauge_latest`](MetricsRegistry::gauge_latest)
 //! → `None`) / `0` ([`counter_value`](MetricsRegistry::counter_value)) rather
 //! than looking absent.
 //!
 //! ## Which invariant reads which metric (D)
 //!
-//! The D-pillar rules that threshold on a metric — the rest read pre-gathered
+//! The D-pillar rules that threshold on a metric - the rest read pre-gathered
 //! [`LiveCtx`](crate::diagnostics::anomaly::LiveCtx) scalars, or (the
 //! replay-only rules) only the event log:
 //!
@@ -48,9 +48,9 @@
 //!
 //! `LiveCtx`-scalar rules (no metric read): `runtime.player_fell_through_terrain`
 //! (player/ground Y), `runtime.nan_in_physics` (NaN body count),
-//! `runtime.respawn_thrashing` (recent respawns — cf. `runtime.respawn.count`),
+//! `runtime.respawn_thrashing` (recent respawns - cf. `runtime.respawn.count`),
 //! `runtime.orphan_avatar_visual` (orphan count), `loading.gate_stall`
-//! (`loading_elapsed_secs` — cf. `loading.gate.total_secs`). Replay-only rules
+//! (`loading_elapsed_secs` - cf. `loading.gate.total_secs`). Replay-only rules
 //! (event log, no live metric): `loading.record_fetch_exhausted`,
 //! `offload.ambient_bake_stall`, `offload.task_never_resolves`,
 //! `net.peer_churn_spike`, `net.offer_acceptance_anomaly`,
@@ -64,7 +64,7 @@ use serde::{Deserialize, Serialize};
 
 /// Ring length for gauge sparklines: 120 samples = 2 min at the 1 Hz scrape.
 pub const RING_CAP: usize = 120;
-/// Max histogram samples retained before oldest-drop — bounded so a long
+/// Max histogram samples retained before oldest-drop - bounded so a long
 /// session can't grow it without limit (the ShapeMeshCache lesson applied to
 /// the metrics themselves).
 pub const HIST_CAP: usize = 512;
@@ -141,7 +141,7 @@ impl Gauge {
 /// the two shapes' window semantics identical by construction.
 ///
 /// It exists because a cumulative total cannot express "recent" (#1271
-/// f179) — the same sentence [`RecentRespawns`] carries. `net.identity
+/// f179) - the same sentence [`RecentRespawns`] carries. `net.identity
 /// .spoofed_count` reaching 3 once at boot pinned the toolbar's alarm dot
 /// for the rest of the session with no way to clear it, because the rule
 /// under it was thresholding a number that never comes back down.
@@ -255,12 +255,12 @@ pub fn distro(v: &[f64]) -> Option<Distro> {
     })
 }
 
-/// The [`distro`] summary as a display string, or `—` when empty — the exact
+/// The [`distro`] summary as a display string, or `-` when empty - the exact
 /// form the road report prints (`urban/diagnostics.rs` calls this).
 pub fn distro_str(v: &[f64]) -> String {
     distro(v)
         .map(|d| d.to_string())
-        .unwrap_or_else(|| "—".to_string())
+        .unwrap_or_else(|| "-".to_string())
 }
 
 /// One gauge's latest value in a [`MetricSnapshot`].
@@ -289,7 +289,7 @@ pub struct HistPoint {
     pub n: usize,
 }
 
-/// A flat, serde-friendly snapshot of the registry at one instant — the payload
+/// A flat, serde-friendly snapshot of the registry at one instant - the payload
 /// the session log records periodically (E-5) so a post-mortem can chart metric
 /// trends over the session (memory growth, frame-time p95, entity/asset drift).
 /// Only scalars are captured (gauge `last`, counter `value`, histogram distro);
@@ -353,7 +353,7 @@ impl MetricsRegistry {
         self.histograms.entry(name).or_default().observe(v);
     }
 
-    /// Push every counter's running total onto its history ring — one call
+    /// Push every counter's running total onto its history ring - one call
     /// from the 1 Hz scrape, so [`counter_window_rise`](Self::counter_window_rise)
     /// has an evenly-spaced window to measure over. Walks the counter map
     /// (tens of entries) once a second.
@@ -386,18 +386,18 @@ impl MetricsRegistry {
     }
 
     /// A histogram's distribution as the shared `min p50 p90 max mean` string,
-    /// or `—` when the histogram is unknown / has no samples yet — the display
+    /// or `-` when the histogram is unknown / has no samples yet - the display
     /// idiom the GUI health cards (C-4) and the road report share. Ergonomic
     /// "distro_string" reader so a card line is a single call.
     pub fn hist_distro_str(&self, name: &str) -> String {
         self.hist_distro(name)
             .map(|d| d.to_string())
-            .unwrap_or_else(|| "—".to_string())
+            .unwrap_or_else(|| "-".to_string())
     }
 
     /// The latest value of a gauge, or `None` when the gauge is unknown or has
-    /// never been observed (so the GUI shows `—` rather than a misleading `0`;
-    /// an *observed* zero — e.g. a real zero collider count — returns `Some(0.0)`).
+    /// never been observed (so the GUI shows `-` rather than a misleading `0`;
+    /// an *observed* zero - e.g. a real zero collider count - returns `Some(0.0)`).
     pub fn gauge_latest(&self, name: &str) -> Option<f64> {
         self.gauges
             .get(name)
@@ -405,7 +405,7 @@ impl MetricsRegistry {
             .map(Gauge::last)
     }
 
-    /// A counter's value, or `0` when it is unknown / never incremented — the
+    /// A counter's value, or `0` when it is unknown / never incremented - the
     /// ergonomic reader for the GUI's counter rows (peer churn, rejects, offers).
     pub fn counter_value(&self, name: &str) -> u64 {
         self.counters.get(name).map(Counter::value).unwrap_or(0)
@@ -428,7 +428,7 @@ impl MetricsRegistry {
     /// against it clears itself with no acknowledge affordance to build
     /// and no ledger state to keep (#1271 f179).
     ///
-    /// Negative for a gauge that fell — callers thresholding growth
+    /// Negative for a gauge that fell - callers thresholding growth
     /// compare against a positive bound, so a fall is naturally clear.
     pub fn gauge_window_rise(&self, name: &str) -> Option<f64> {
         let g = self.gauges.get(name)?;
@@ -442,7 +442,7 @@ impl MetricsRegistry {
     /// How much a CUMULATIVE gauge rose across the retained window.
     ///
     /// The baseline is the oldest retained sample once the ring has
-    /// wrapped, and **0 before that** — the value a session's own running
+    /// wrapped, and **0 before that** - the value a session's own running
     /// total started from. That second half is what stops a first-sample
     /// blind spot: a relay rejection that lands before the first 1 Hz
     /// scrape shows up as `1 - 1 = 0` under a plain newest-minus-oldest
@@ -456,7 +456,7 @@ impl MetricsRegistry {
     /// the ring.
     ///
     /// Use [`gauge_window_rise`](Self::gauge_window_rise) instead for a
-    /// gauge that is a LEVEL rather than a total — a mesh-handle count
+    /// gauge that is a LEVEL rather than a total - a mesh-handle count
     /// baselined at 0 would read its whole value as growth.
     pub fn cumulative_window_rise(&self, name: &str) -> Option<f64> {
         Self::rise_over(self.gauges.get(name)?)
@@ -464,7 +464,7 @@ impl MetricsRegistry {
 
     /// How much a counter rose across its sampled history window, on the
     /// same baseline rule as [`cumulative_window_rise`](Self::cumulative_window_rise)
-    /// — a counter is a total by construction. `None` until the 1 Hz
+    /// - a counter is a total by construction. `None` until the 1 Hz
     /// [`sample_counters`](Self::sample_counters) pass has laid down a
     /// sample.
     pub fn counter_window_rise(&self, name: &str) -> Option<u64> {
@@ -492,7 +492,7 @@ impl MetricsRegistry {
             .unwrap_or_default()
     }
 
-    /// Reset every metric — called at logout so one session's numbers never
+    /// Reset every metric - called at logout so one session's numbers never
     /// bleed into the next login (parallels the session-log segment reset).
     pub fn clear(&mut self) {
         self.gauges.clear();
@@ -590,7 +590,7 @@ mod tests {
         assert_eq!(d.max, 4.0);
         assert_eq!(d.n, 4);
         assert_eq!((d.mean * 10.0).round() / 10.0, 2.5);
-        assert_eq!(distro_str(&[]), "—");
+        assert_eq!(distro_str(&[]), "-");
         assert_eq!(
             d.to_string(),
             "min 1.0  p50 3.0  p90 4.0  max 4.0  mean 2.5"
@@ -651,11 +651,11 @@ mod tests {
             ("net.peer.connected_count", MetricKind::Counter),
             ("net.jitter.playout_latency_ms", MetricKind::Histogram),
         ]);
-        // Never-observed / never-incremented → the GUI shows "—" / 0, not stale data.
+        // Never-observed / never-incremented → the GUI shows "-" / 0, not stale data.
         assert_eq!(r.gauge_latest("runtime.frame_time.ms"), None);
         assert!(r.gauge_distro("runtime.frame_time.ms").is_none());
         assert_eq!(r.counter_value("net.peer.connected_count"), 0);
-        assert_eq!(r.hist_distro_str("net.jitter.playout_latency_ms"), "—");
+        assert_eq!(r.hist_distro_str("net.jitter.playout_latency_ms"), "-");
 
         for v in [16.0, 18.0, 20.0, 22.0].iter() {
             r.observe_gauge("runtime.frame_time.ms", *v);
@@ -678,6 +678,6 @@ mod tests {
         // Unknown names never panic.
         assert_eq!(r.gauge_latest("nope"), None);
         assert_eq!(r.counter_value("nope"), 0);
-        assert_eq!(r.hist_distro_str("nope"), "—");
+        assert_eq!(r.hist_distro_str("nope"), "-");
     }
 }

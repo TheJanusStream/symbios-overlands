@@ -1,4 +1,4 @@
-//! Pagoda — the Feudal-Japan landmark. A five-bay tiered tower: lacquered
+//! Pagoda - the Feudal-Japan landmark. A five-bay tiered tower: lacquered
 //! columns and white plaster bodies under wide flared tile roofs that
 //! shrink as they climb, crowned by a golden sōrin finial of stacked rings.
 //! Blossom drifts from its eaves and a deep temple bell hums at its base.
@@ -53,7 +53,7 @@ impl CatalogueEntry for Pagoda {
 
 /// How far the lacquered corner columns stand proud of the plaster face.
 ///
-/// They used to be authored flush — half-width `0.2` at `w * 0.5 - 0.2`,
+/// They used to be authored flush - half-width `0.2` at `w * 0.5 - 0.2`,
 /// putting the column's outer face exactly on the wall plane. Two coplanar
 /// faces give the depth buffer no basis to choose between them, so the pair
 /// rendered as a stipple of red bleeding through white that swims as the
@@ -61,7 +61,7 @@ impl CatalogueEntry for Pagoda {
 /// engaged post actually does.
 const COLUMN_PROUD: f32 = 0.07;
 
-/// Taper of the flared roof cap — the fraction of its footprint it loses
+/// Taper of the flared roof cap - the fraction of its footprint it loses
 /// between eave and ridge. Shared by the cap itself and by the tuck
 /// arithmetic that beds the next storey into it.
 const ROOF_TAPER: f32 = 0.62;
@@ -80,7 +80,7 @@ fn build_tree() -> Generator {
     let plinth_h = 0.7;
 
     let mut prims = vec![
-        // Stone plinth — the root.
+        // Stone plinth - the root.
         prim(
             solid(cuboid_tapered([9.0, plinth_h, 9.0], 0.0, stone(STONE_GREY))),
             [0.0, plinth_h * 0.5, 0.0],
@@ -128,7 +128,7 @@ fn build_tree() -> Generator {
             [0.0, body_top + 0.22, 0.0],
             id_quat(),
         ));
-        // Deep-eave shadow board — a thin slab at the full flare.
+        // Deep-eave shadow board - a thin slab at the full flare.
         let eave_w = w + flare;
         prims.push(prim(
             solid(cuboid_tapered(
@@ -149,7 +149,7 @@ fn build_tree() -> Generator {
             [0.0, body_top + 0.6 + CAP_H * 0.5, 0.0],
             id_quat(),
         ));
-        // Four upturned flying-eave corners — the swept-roof signature. Each
+        // Four upturned flying-eave corners - the swept-roof signature. Each
         // wedge's high tip points out along its corner diagonal (quat_y).
         let eave_half = (eave_w + 0.4) * 0.5;
         for (sx, sz) in corners {
@@ -168,7 +168,7 @@ fn build_tree() -> Generator {
         // narrows as it rises, so a storey parked at the ridge is *wider*
         // than the roof under it and its bottom edge hangs in plain view.
         // Drop it into the cap instead, to the height where the cap is
-        // still `ROOF_OVERLAP` wider than the storey all round — the roof
+        // still `ROOF_OVERLAP` wider than the storey all round - the roof
         // then reads as sheltering the body it carries, which is the whole
         // grammar of a tiered tower.
         y = match tiers.get(tier + 1) {

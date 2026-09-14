@@ -1,4 +1,4 @@
-//! Bespoke mood-group kits (#793) — parts crafted for a narrow mood so a
+//! Bespoke mood-group kits (#793) - parts crafted for a narrow mood so a
 //! theme's vehicles read distinctly, grouped by family below. Each respects its
 //! slot's fixed assembler anchor (boat Bow = forward foredeck; Stack = stern;
 //! Ornament = low on the deck just forward of amidships; Deck = the sole; skiff
@@ -98,7 +98,7 @@ fn bow_rope_coil(ctx: &PartCtx) -> Generator {
         [0.0, 0.16, 0.0],
         id_quat(),
     ));
-    // Helix rope flaked round the bollard — a higher pitch + thinner wire so the
+    // Helix rope flaked round the bollard - a higher pitch + thinner wire so the
     // individual turns read as separate wraps, not one solid donut.
     root.children.push(prim(
         helix(0.11, 0.021, 0.075, 3.0, 16, rope),
@@ -193,7 +193,7 @@ fn stack_stern_lantern(ctx: &PartCtx) -> Generator {
 
 fn deck_veranda(ctx: &PartCtx) -> Generator {
     // A seaside resort deck (COASTAL): a low sole with a pair of reclined sun
-    // loungers, a bright parasol, and a transom swim ladder — a leisure cruiser.
+    // loungers, a bright parasol, and a transom swim ladder - a leisure cruiser.
     let sole = ctx.materials.body(shade(ctx.palette.primary_accent, 0.72));
     let canvas = ctx.materials.cloth(ctx.palette.secondary_accent);
     let cushion = ctx.materials.cloth(ctx.palette.tertiary_accent);
@@ -250,7 +250,7 @@ fn deck_veranda(ctx: &PartCtx) -> Generator {
 
 fn deck_barrels(ctx: &PartCtx) -> Generator {
     // A frontier / privateer working deck (MARTIAL): lashed barrels, a crate, and
-    // a swivel gun at the forward rail — a raiding craft, read on used hulls.
+    // a swivel gun at the forward rail - a raiding craft, read on used hulls.
     let sole = ctx.materials.body(shade(ctx.palette.primary_accent, 0.6));
     let wood = ctx.materials.body(shade(ctx.palette.secondary_accent, 0.7));
     let iron = ctx.materials.metal(darken(ctx.palette.tertiary_accent));
@@ -295,7 +295,7 @@ fn deck_barrels(ctx: &PartCtx) -> Generator {
 
 fn deck_engineworks(ctx: &PartCtx) -> Generator {
     // A steam engine deck (STEAM): a riveted boiler casing, standpipes, a
-    // pressure gauge and an exposed flywheel — the machinery on show.
+    // pressure gauge and an exposed flywheel - the machinery on show.
     let base = ctx.materials.body(shade(ctx.palette.primary_accent, 0.5));
     let casing = ctx.materials.metal(ctx.palette.secondary_accent);
     let dark = ctx.materials.metal(darken(ctx.palette.secondary_accent));
@@ -366,7 +366,7 @@ fn deck_engineworks(ctx: &PartCtx) -> Generator {
 
 fn orn_deck_lantern(ctx: &PartCtx) -> Generator {
     // A REGAL deck lantern for the boat Ornament slot. That slot anchors LOW, on
-    // the deck just forward of amidships (≈0.05 above the sole — the same anchor
+    // the deck just forward of amidships (≈0.05 above the sole - the same anchor
     // the pennant / finial use, NOT the masthead), so this is an ornate binnacle-
     // style lamp on a short turned pedestal, not a mast-top light.
     let frame = ctx.materials.metal(ctx.palette.secondary_accent);
@@ -395,7 +395,7 @@ fn orn_deck_lantern(ctx: &PartCtx) -> Generator {
 
 fn canopy_buckboard(ctx: &PartCtx) -> Generator {
     // A wooden buckboard cart canopy (agrarian / roadside): an open plank bench
-    // under a peaked canvas awning — a farm runabout, not a glass greenhouse.
+    // under a peaked canvas awning - a farm runabout, not a glass greenhouse.
     let colors = skiff_colors(ctx);
     let wood = ctx.materials.body(colors.body);
     let dark = ctx.materials.body(colors.lower);
@@ -452,7 +452,7 @@ fn canopy_buckboard(ctx: &PartCtx) -> Generator {
 
 fn canopy_aero(ctx: &PartCtx) -> Generator {
     // A clean speedster aero canopy (NEON, Pristine only): a LOW long wedge cowl
-    // with an integrated fastback and bright shoulder strakes — the clean-tier
+    // with an integrated fastback and bright shoulder strakes - the clean-tier
     // read (deliberately flat + sleek, the opposite of the boxy greenhouse).
     let colors = skiff_colors(ctx);
     let shell = ctx.materials.metal(colors.body);
@@ -501,7 +501,7 @@ fn canopy_aero(ctx: &PartCtx) -> Generator {
 
 fn canopy_targa_rack(ctx: &PartCtx) -> Generator {
     // A sport targa canopy with a surfboard rack (COASTAL): a roll hoop + low
-    // screen + a roof rack carrying a board or two — a beach cruiser.
+    // screen + a roof rack carrying a board or two - a beach cruiser.
     let colors = skiff_colors(ctx);
     let body = ctx.materials.metal(colors.body);
     let bar = ctx.materials.metal(colors.trim);
@@ -606,7 +606,7 @@ fn orn_lanterns(ctx: &PartCtx) -> Generator {
         [0.0, 0.0, 0.0],
         id_quat(),
     );
-    // The swag line (a bar across X, a leaf) — wide, since the airship is large
+    // The swag line (a bar across X, a leaf) - wide, since the airship is large
     // and the ornament floats forward of the gondola where a short string is lost.
     root.children.push(prim(
         cylinder(0.012, 0.76, 6, line_mat.clone()),
@@ -622,7 +622,7 @@ fn orn_lanterns(ctx: &PartCtx) -> Generator {
     for (i, &x) in [-0.3f32, -0.15, 0.0, 0.15, 0.3].iter().enumerate() {
         let dip = -0.08 - 0.05 * (1.0 - x.abs() / 0.3);
         let glow = ctx.materials.glow(hues[i % 3]);
-        // Hanger wire spanning from the line (y=0) down to the lantern (y=dip) —
+        // Hanger wire spanning from the line (y=0) down to the lantern (y=dip) -
         // its length tracks the dip so it never falls short (0.01 = min dim).
         root.children.push(prim(
             cuboid([0.01, -dip, 0.01], line_mat.clone()),
@@ -651,7 +651,7 @@ pub(super) static BOW_SERPENT: PartDef = PartDef {
     slot: PartSlot::Bow,
     chassis: BOAT,
     styles: NORSE_FEY,
-    // A dragon-prow is a fancy carving — an adorned / ornate craft only.
+    // A dragon-prow is a fancy carving - an adorned / ornate craft only.
     ornateness: FANCY,
     wear: WearBand::ANY,
     build: bow_serpent,
@@ -670,7 +670,7 @@ pub(super) static STACK_STERN_LANTERN: PartDef = PartDef {
     slot: PartSlot::Stack,
     chassis: BOAT,
     styles: SEPULCHRAL,
-    // An ornate hung lantern — adorned / ornate craft only.
+    // An ornate hung lantern - adorned / ornate craft only.
     ornateness: FANCY,
     wear: WearBand::ANY,
     build: stack_stern_lantern,
@@ -708,7 +708,7 @@ pub(super) static ORN_DECK_LANTERN: PartDef = PartDef {
     slot: PartSlot::Ornament,
     chassis: BOAT,
     styles: REGAL,
-    // An ornate deck lantern — adorned / ornate craft only.
+    // An ornate deck lantern - adorned / ornate craft only.
     ornateness: FANCY,
     wear: WearBand::ANY,
     build: orn_deck_lantern,
@@ -728,7 +728,7 @@ pub(super) static CANOPY_AERO: PartDef = PartDef {
     chassis: SKIFF,
     styles: NEON,
     ornateness: OrnatenessBand::ANY,
-    // A polished aero cowl — the clean-tier read (pristine craft only).
+    // A polished aero cowl - the clean-tier read (pristine craft only).
     wear: CLEAN,
     build: canopy_aero,
 };
@@ -756,7 +756,7 @@ pub(super) static ORN_LANTERNS: PartDef = PartDef {
     slot: PartSlot::Ornament,
     chassis: AIRSHIP,
     styles: HISTORIC,
-    // A festival string is a fancy flourish — adorned / ornate craft only.
+    // A festival string is a fancy flourish - adorned / ornate craft only.
     ornateness: FANCY,
     wear: WearBand::ANY,
     build: orn_lanterns,

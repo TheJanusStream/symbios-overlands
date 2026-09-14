@@ -1,17 +1,17 @@
-//! Hive Maw Gateway — the Alien-Organic bespoke social gateway (#750). Two
+//! Hive Maw Gateway - the Alien-Organic bespoke social gateway (#750). Two
 //! chitin mandible piers flank a walk-through gap, bridged by a bulbous chitin
 //! brow that fangs hang from and a saturated biolume throat lighting the
 //! opening: a living maw that swallows travellers through to distant rooms.
 //! It replaces the neutral placeholder arch for the theme; the seeded wiring
 //! prefers this `StructureRole::Gateway` entry the moment it registers.
 //!
-//! The one functional element is the [`GeneratorKind::Gateway`] zone child —
+//! The one functional element is the [`GeneratorKind::Gateway`] zone child -
 //! walking into it opens the destination picker. Everything else frames that
 //! zone so it reads as a maw you pass through.
 //!
 //! Primitive-built (see [`crate::catalogue::items::util`]); authored in one
 //! flat ground-relative frame via [`assemble`], which reparents every piece
-//! under the creep forecourt pad (the root, `id_quat` — a tilted root would
+//! under the creep forecourt pad (the root, `id_quat` - a tilted root would
 //! spin the whole maw).
 
 use std::f32::consts::PI;
@@ -57,7 +57,7 @@ impl CatalogueEntry for AlienOrganicGateway {
 }
 
 fn build_tree() -> Generator {
-    // Creep forecourt pad — the flat-base root (id_quat); a tilted root would
+    // Creep forecourt pad - the flat-base root (id_quat); a tilted root would
     // spin every mandible and fang into its frame.
     let mut prims = vec![prim(
         solid(cuboid_tapered([5.0, 0.3, 2.2], 0.05, flesh(FLESH_RED))),
@@ -95,7 +95,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Upper jaw — a bulbous flattened chitin brow arching across both piers
+    // Upper jaw - a bulbous flattened chitin brow arching across both piers
     // (a swelling bulb, not a flat lintel), girdled by a carapace rib band.
     prims.push(prim_scaled(
         solid(sphere(2.1, 5, chitin(CHITIN_DARK))),
@@ -109,7 +109,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Upper fang row hanging from the brow over the opening — the maw's teeth,
+    // Upper fang row hanging from the brow over the opening - the maw's teeth,
     // on the −Z hero front.
     for i in 0..4 {
         let fang_x = -1.05 + i as f32 * 0.7;
@@ -120,7 +120,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Threshold biolume framing the opening on three sides — a saturated cyan
+    // Threshold biolume framing the opening on three sides - a saturated cyan
     // strip under the brow and a strip lining each pier's inner face. Deep
     // hue at low strength so it reads as lit tissue, never white bloom.
     prims.push(prim(
@@ -144,7 +144,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Glowing vein emblem blazoned on the −Z brow face — the maw's living mark
+    // Glowing vein emblem blazoned on the −Z brow face - the maw's living mark
     // that names the gate from the front.
     for v in glow_veins([0.0, 3.7, -1.42], -0.12, 1.1, glow(BIOLUME_GREEN, 1.9)) {
         prims.push(v);
@@ -155,7 +155,7 @@ fn build_tree() -> Generator {
     prims.push(prim(
         // Fitted to the opening (#1006): the veil spans the mouth and
         // buries its edges in jamb, palate and threshold, so no cuboid
-        // edge shows. The maw's overhang is the head of this opening — the
+        // edge shows. The maw's overhang is the head of this opening - the
         // veil stops just inside it rather than climbing into the mass
         // above, which would only swell the box behind opaque flesh.
         GeneratorKind::Gateway {
@@ -187,7 +187,7 @@ mod tests {
         assert_sanitize_stable(&AlienOrganicGateway.build(""), "alien_organic_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is set-dressing, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

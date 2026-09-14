@@ -1,4 +1,4 @@
-//! Mausoleum — a Gothic-Horror secondary. A columned stone tomb under a
+//! Mausoleum - a Gothic-Horror secondary. A columned stone tomb under a
 //! pediment, an iron gate barring its door and a small lit window above. The
 //! family crypt of the necropolis; its window is emissive trim the ruin pass
 //! can darken.
@@ -61,7 +61,7 @@ fn build_tree() -> Generator {
     let st = || stone(STONE_DARK);
 
     let mut prims = vec![
-        // Stone base — the root.
+        // Stone base - the root.
         prim(
             solid(cuboid_tapered([6.0, base_h, 5.0], 0.0, st())),
             [0.0, base_h * 0.5, 0.0],
@@ -152,7 +152,7 @@ fn build_tree() -> Generator {
         [0.0, body_top + 0.16, 0.0],
         id_quat(),
     ));
-    // Steep gable roof — ridge along Z, gable faces the -Z front.
+    // Steep gable roof - ridge along Z, gable faces the -Z front.
     prims.push(prim(
         solid(cuboid_tapered_xz([4.7, 2.2, 4.2], [0.9, 0.0], st())),
         [0.0, body_top + 1.42, 0.0],

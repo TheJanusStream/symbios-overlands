@@ -1,4 +1,4 @@
-//! Owner Scrying Frame — the Fantasy identity monument (#975).
+//! Owner Scrying Frame - the Fantasy identity monument (#975).
 //!
 //! A mossy stone dais with two rough menhirs carrying a gilded arch: the room
 //! owner's likeness hangs in the arch as a scrying pane, a crystal grows from
@@ -52,7 +52,7 @@ impl CatalogueEntry for FantasyMonument {
 }
 
 fn build_tree(did: &str) -> Generator {
-    // Mossy dais — the root, and flat, so the leaning menhirs above cannot
+    // Mossy dais - the root, and flat, so the leaning menhirs above cannot
     // spin what they carry.
     let dais = prim(
         solid(cuboid_tapered([3.8, 0.42, 2.2], 0.14, mossy(STONE_MOSS))),
@@ -77,7 +77,7 @@ fn build_tree(did: &str) -> Generator {
     nest(dais, parts)
 }
 
-/// A rough menhir. The lean is on the stone itself, which carries nothing —
+/// A rough menhir. The lean is on the stone itself, which carries nothing -
 /// the lintel is a sibling, not a child, precisely so the tilt cannot
 /// propagate into the pane.
 fn menhir(x: f32, lean: f32) -> Generator {
@@ -103,7 +103,7 @@ fn pane(did: &str) -> Vec<Generator> {
     let z = -0.16;
     let fr = 0.14;
     let mut out = vec![
-        // Slate backing — the pane is single-sided, and an arch you can see
+        // Slate backing - the pane is single-sided, and an arch you can see
         // straight through would not hold an image at all.
         prim(
             solid(cuboid_tapered(

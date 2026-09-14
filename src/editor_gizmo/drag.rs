@@ -43,19 +43,19 @@ use super::{ActiveTarget, DragState, GizmoDetachedPrim};
 /// `transform-gizmo-bevy`'s `update_gizmos` system in `Last`. Running in
 /// `PostUpdate` means we observe the *previous* frame's `is_active`,
 /// which is still `true` on the release frame and flips to `false` the
-/// frame after — giving us a clean one-frame-delayed falling edge to
+/// frame after - giving us a clean one-frame-delayed falling edge to
 /// commit on.
 ///
 /// Copy-on-drag (room editor only): Shift-held at drag-start clones the
 /// placement / room prim at commit time and drops the new copy at the
 /// dragged position, leaving the original in place. Blueprint roots
-/// force copy off — cloning an entire construct tree sideways is
+/// force copy off - cloning an entire construct tree sideways is
 /// expressed at the placement layer instead. Avatar prims do not support
 /// copy-on-drag in v1: there's only one local avatar tree, and the
 /// inventory + room placements vocabulary doesn't apply.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 /// Say what a finished drag did, when it is not what was asked (#1237
-/// f144, #1243 f150). Silent on success — a toast per completed drag
+/// f144, #1243 f150). Silent on success - a toast per completed drag
 /// would be noise on the app's most-repeated gesture.
 fn report_drag(toasts: &mut crate::notify::Toasts, time: &Time, outcome: DragOutcome) {
     if let Some(text) = outcome.toast() {
@@ -113,7 +113,7 @@ pub(super) fn manage_gizmo_drag(
         ),
     >,
     // Worn props (#1062). The four `Without`s are what keep this query
-    // provably disjoint from the four above — every one of them takes
+    // provably disjoint from the four above - every one of them takes
     // `&mut Transform`, and Bevy rejects overlapping mutable access.
     mut attachment_query: Query<
         (
@@ -130,7 +130,7 @@ pub(super) fn manage_gizmo_drag(
             Without<BlobElementProxy>,
         ),
     >,
-    // The rigged bodies worn props hang off — the rig (for its rest joint
+    // The rigged bodies worn props hang off - the rig (for its rest joint
     // positions) and the root pose that puts the rest frame in the world.
     // Bundled with the parts-of-worn-props query (#1098) to stay under the
     // 16-parameter ceiling; that query's five `Without`s keep it disjoint
@@ -227,7 +227,7 @@ pub(super) fn manage_gizmo_drag(
         }
     }
 
-    // Rising edge — a new drag just started.
+    // Rising edge - a new drag just started.
     if state.active_entity.is_none() {
         let Some((entity, target_kind)) = active_target else {
             return;
@@ -250,7 +250,7 @@ pub(super) fn manage_gizmo_drag(
         // A blob element drag snapshots its routing at the rising edge so
         // a mid-drag GUI selection change can't reroute the writeback.
         // Shift means "duplicate this element" here (the record-local
-        // analogue of copy-on-drag — valid for avatar blobs too, unlike
+        // analogue of copy-on-drag - valid for avatar blobs too, unlike
         // prim copy which needs the placements vocabulary).
         state.blob = proxy_query
             .get(entity)
@@ -263,7 +263,7 @@ pub(super) fn manage_gizmo_drag(
                 })
             });
         let mut is_copy = shift;
-        // A blueprint root has no parent to receive a sibling clone — a
+        // A blueprint root has no parent to receive a sibling clone - a
         // "copy of the root" only makes sense at the Placement level.
         // Avatar prims also disable copy: there's no avatar-side
         // equivalent of placements, and the visuals tree is single-
@@ -288,7 +288,7 @@ pub(super) fn manage_gizmo_drag(
     let active_entity = state.active_entity.unwrap();
     let is_still_active = active_target.map(|(e, _)| e) == Some(active_entity);
 
-    // Active drag — every frame until the mouse is released.
+    // Active drag - every frame until the mouse is released.
     if is_still_active {
         if keyboard.just_pressed(KeyCode::Escape) {
             state.aborted = true;
@@ -315,7 +315,7 @@ pub(super) fn manage_gizmo_drag(
 
         // A blob element's duplicate routes through `BlobDragInfo` rather
         // than the placement/prim copy path, so `is_copy` is forced false
-        // for it above — and the copy FEEDBACK hung off `is_copy` alone,
+        // for it above - and the copy FEEDBACK hung off `is_copy` alone,
         // which is why a Shift-drag on an element drew no ghost, no tripod
         // and no "+" at all (#1243 f150). The user had no way to tell,
         // during the gesture, whether they were copying or moving.
@@ -349,7 +349,7 @@ pub(super) fn manage_gizmo_drag(
         return;
     }
 
-    // Falling edge — the gizmo went idle. Either commit or discard.
+    // Falling edge - the gizmo went idle. Either commit or discard.
     let was_aborted = state.aborted;
     let is_copy = state.is_copy;
     let drag_target = state.target;
@@ -408,7 +408,7 @@ pub(super) fn manage_gizmo_drag(
             ActiveTarget::Attachment | ActiveTarget::AttachmentPart | ActiveTarget::None => None,
         };
         match landed.flatten() {
-            // Keep the gizmo on the element the edit landed at — for a
+            // Keep the gizmo on the element the edit landed at - for a
             // Shift-duplicate that's the freshly inserted copy.
             Some(landing) => {
                 blob_ctx.selected_element = Some(landing.index);
@@ -467,7 +467,7 @@ pub(super) fn manage_gizmo_drag(
                 report_drag(&mut toasts, &time, DragOutcome::Refused);
                 // The record is UNCHANGED, and `sync` keeps the dragged
                 // entity detached at its dropped pose until the selection
-                // moves — so without this the scene goes on showing the
+                // moves - so without this the scene goes on showing the
                 // move until something unrelated recompiles (#1237 f144).
                 // Marking the untouched record changed rebuilds from it,
                 // which snaps the object back where it really is.

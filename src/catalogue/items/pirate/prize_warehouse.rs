@@ -1,4 +1,4 @@
-//! Prize Warehouse — where a taken cargo goes ashore.
+//! Prize Warehouse - where a taken cargo goes ashore.
 //!
 //! A tall bonded store on the quay: a rubble base course under ship-built
 //! boarding, a cart door standing open on a lit floor of casks and bales, a
@@ -9,12 +9,12 @@
 //!
 //! Everything else here is a shed. What makes it a *warehouse* is the gib
 //! projecting from the gable with a block on its end and a load hanging under
-//! it — one assembly, at the top of the tallest wall, doing something. A
+//! it - one assembly, at the top of the tallest wall, doing something. A
 //! warehouse with a blank gable is a barn.
 //!
 //! So the beam is built as a working chain: gib → strop → block → fall →
 //! hook → bale, each part seated on the one above it, and a guard walks that
-//! chain rather than checking positions (#972 lesson 33 — for anything whose
+//! chain rather than checking positions (#972 lesson 33 - for anything whose
 //! whole read is a hanging load, assert the load is actually hung).
 
 use std::f32::consts::FRAC_PI_2;
@@ -35,12 +35,12 @@ use super::{
     iron, lantern, pane_grid, sailcloth, shingle, strake,
 };
 
-/// Cobbled apron — the sub-root every footprint guard measures against.
+/// Cobbled apron - the sub-root every footprint guard measures against.
 ///
 /// Its DEPTH is set by the loading ramp, not by the shed. The ramp's run is
 /// derived from the base course's height (even risers, so the flight always
 /// lands flush), which means the apron has to be deep enough to hold whatever
-/// that comes to — at 12 m the bottom tread hung 40 mm off the paving, which
+/// that comes to - at 12 m the bottom tread hung 40 mm off the paving, which
 /// the footprint guard caught and which no camera angle here would show.
 const APRON: [f32; 3] = [13.0, 0.30, 13.4];
 const GROUND: f32 = APRON[1];
@@ -60,7 +60,7 @@ const RING_PROUD: f32 = 0.07;
 /// The boarded store above it: width, height to the wall plate, depth.
 const WALL: [f32; 3] = [BASE[0] - BASE_PROUD * 2.0, 6.4, BASE[2] - BASE_PROUD * 2.0];
 const PLATE: f32 = BASE_TOP + WALL[1];
-/// Hero plane — the quay elevation.
+/// Hero plane - the quay elevation.
 const FRONT_Z: f32 = -WALL[2] * 0.5;
 
 /// Cart door at the foot of the wall, and the loading door at its head.
@@ -68,7 +68,7 @@ const CART_W: f32 = 2.9;
 const CART_H: f32 = 3.1;
 const LOAD_W: f32 = 1.9;
 const LOAD_H: f32 = 2.0;
-/// Loading-door sill — a full storey up, which is what the hoist is for.
+/// Loading-door sill - a full storey up, which is what the hoist is for.
 const LOAD_SILL: f32 = BASE_TOP + 3.7;
 
 /// Office light beside the cart door.
@@ -82,7 +82,7 @@ const CARD_LAP: f32 = 0.06;
 
 /// How far the store's back lining stands in front of the rear wall.
 const ROOM_BACK: f32 = FRONT_Z + 4.0;
-/// How far interior surfaces stay behind the wall face they meet — the
+/// How far interior surfaces stay behind the wall face they meet - the
 /// coplanar rule's indoor half (#1028).
 const FLOOR_INSET: f32 = 0.06;
 
@@ -90,7 +90,7 @@ const FLOOR_INSET: f32 = 0.06;
 const RIDGE_H: f32 = 2.4;
 /// How far the hoist gib projects from the gable.
 const GIB_REACH: f32 = 2.2;
-/// Height of the gib above the loading-door head — enough for the block, the
+/// Height of the gib above the loading-door head - enough for the block, the
 /// fall and a bale to hang clear of the sill.
 const GIB_Y: f32 = PLATE + 0.55;
 
@@ -141,7 +141,7 @@ fn quay_elevation() -> Vec<Generator> {
     let mut out = Vec::new();
 
     // The cart door sits left of centre and the office light right of it, so
-    // the elevation is not symmetrical — a warehouse is a working face, and a
+    // the elevation is not symmetrical - a warehouse is a working face, and a
     // symmetrical one reads as a chapel.
     let cart_x = -1.5_f32;
     let win_x = 3.1_f32;
@@ -208,7 +208,7 @@ fn quay_elevation() -> Vec<Generator> {
     ));
 
     // Loading door: a real hole at the head of the wall, its leaves swung
-    // back against the boarding. A loading door needs no glazing — it is a
+    // back against the boarding. A loading door needs no glazing - it is a
     // hole a bale goes through, and the bale is what fills it (#972 lesson
     // 24: ask what the real thing does).
     for sx in [-1.0_f32, 1.0] {
@@ -226,7 +226,7 @@ fn quay_elevation() -> Vec<Generator> {
             id_quat(),
         ));
     }
-    // Lit loft behind the loading door — the sightline from the quay goes UP
+    // Lit loft behind the loading door - the sightline from the quay goes UP
     // through it, so what it frames is the loft floor and whatever is stacked
     // on it (#972 lesson 6's vertical half).
     out.push(prim(
@@ -274,7 +274,7 @@ fn quay_elevation() -> Vec<Generator> {
 /// The store floor, seen through the open cart door.
 fn store() -> Vec<Generator> {
     let mut out = vec![
-        // Held FLOOR_INSET behind the wall face — run to FRONT_Z exactly, the
+        // Held FLOOR_INSET behind the wall face - run to FRONT_Z exactly, the
         // floor's leading edge and the elevation's front share one plane and
         // z-fight along the cart-door sill (#1028, same fault as the tavern).
         prim(
@@ -300,7 +300,7 @@ fn store() -> Vec<Generator> {
             id_quat(),
         ),
     ];
-    // Casks in two courses on a stillage, and bales beside them — held
+    // Casks in two courses on a stillage, and bales beside them - held
     // forward of the lining so the depth reads (#972 lesson 6).
     for (course, y) in [(0_usize, 0.42_f32), (1, 1.2)] {
         for dx in [-2.4_f32, -1.5, -0.6] {
@@ -351,10 +351,10 @@ fn hoist() -> Vec<Generator> {
         [0.0, GIB_Y, FRONT_Z - GIB_REACH * 0.5 + 0.5],
         id_quat(),
     ));
-    // Knee brace back to the wall — the member that makes a cantilever look
+    // Knee brace back to the wall - the member that makes a cantilever look
     // like it could carry something.
     // Top toward the gib tip (−Z, outward): `quat_x(θ)` turns +Y toward +Z
-    // for positive θ, so the outward lean is NEGATIVE — the first build had
+    // for positive θ, so the outward lean is NEGATIVE - the first build had
     // the sign flipped and the brace leaned back into the wall it sprang
     // from, propping nothing (#1028's rotation family; the strut helper now
     // exists for exactly this class, but a cuboid brace keeps its named
@@ -394,7 +394,7 @@ fn hoist() -> Vec<Generator> {
         [0.0, hook_y, tip_z],
         quat_x(FRAC_PI_2),
     ));
-    // And the load on the end of it — the whole point of the assembly.
+    // And the load on the end of it - the whole point of the assembly.
     out.push(prim(
         solid(cuboid_tapered(
             [1.0, 0.8, 0.9],
@@ -440,7 +440,7 @@ fn build_tree() -> Generator {
     on_base.extend(store());
     on_base.extend(hoist());
 
-    // Flanks and rear as single slabs — no openings, so a punched grid would
+    // Flanks and rear as single slabs - no openings, so a punched grid would
     // cost twenty prims to say nothing.
     for sx in [-1.0_f32, 1.0] {
         let c = [sx * (WALL[0] * 0.5 - 0.2), BASE_TOP + WALL[1] * 0.5, 0.3];
@@ -466,7 +466,7 @@ fn build_tree() -> Generator {
     ));
 
     // Gable roof, ridged ALONG the building (Z pinched alone) so the quay
-    // elevation is a gable end — which is what puts the loading door and its
+    // elevation is a gable end - which is what puts the loading door and its
     // hoist under an apex instead of under an eaves line.
     on_base.push(prim(
         solid(cuboid_tapered_xz(
@@ -490,7 +490,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Barge boards taking their tilt from the roof's own rise and run — a
+    // Barge boards taking their tilt from the roof's own rise and run - a
     // hand-picked angle silently stops matching its gable the moment either
     // changes (#972's garage note).
     let rake = (RIDGE_H / (WALL[0] * 0.5 + 0.25)).atan();
@@ -509,7 +509,7 @@ fn build_tree() -> Generator {
         }
     }
     // Necking ring at the head of the base course, PROUD of it on all four
-    // sides. The first build sized it exactly `BASE` — four faces coplanar
+    // sides. The first build sized it exactly `BASE` - four faces coplanar
     // with the four faces of the block it wrapped, z-fighting round the whole
     // perimeter (#1028). A ring's projection goes into its SIZE (#972 lesson
     // 31); flush is not a ring, it is a stripe painted on the seam.
@@ -540,7 +540,7 @@ fn build_tree() -> Generator {
         ),
     ];
     // A loading ramp up to the cart door, with even risers derived from the
-    // base's own height — the authored quantity is the riser, because that is
+    // base's own height - the authored quantity is the riser, because that is
     // the thing that has to be right; picking the tread count instead leaves
     // the riser to fall out at whatever the numbers give.
     let rise = BASE_TOP - GROUND;
@@ -562,7 +562,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Quayside dunnage — on the apron AND clear of the base course. The
+    // Quayside dunnage - on the apron AND clear of the base course. The
     // first build derived only from the apron's edge and walked its casks
     // straight into the base's corner (#1028; #972 lesson 8's other half,
     // the same fault the tavern's tuns had). Everything here stays forward
@@ -664,7 +664,7 @@ mod tests {
     /// 33, in its hanging form).
     ///
     /// This is the assembly the whole entry is built around, and every part of
-    /// it is placed relative to the one above — so the way it fails is not a
+    /// it is placed relative to the one above - so the way it fails is not a
     /// wrong number but a broken link, and a bale floating a foot under its
     /// own hook is invisible in a four-angle sheet. Walked as levels rather
     /// than compared against constants.
@@ -691,7 +691,7 @@ mod tests {
         // Gib → block: the block's head reaches the beam.
         assert!(
             gib.bounds.min.y - block.bounds.max.y < 0.25,
-            "the block's head is {} below the gib at {} — it is hanging on air",
+            "the block's head is {} below the gib at {} - it is hanging on air",
             block.bounds.max.y,
             gib.bounds.min.y
         );
@@ -714,7 +714,7 @@ mod tests {
         );
         assert!(
             fall.bounds.min.y - bale.bounds.max.y < 0.3,
-            "the bale's head is {} and the fall ends at {} — the load is not \
+            "the bale's head is {} and the fall ends at {} - the load is not \
              on the rope",
             bale.bounds.max.y,
             fall.bounds.min.y
@@ -742,7 +742,7 @@ mod tests {
             .collect();
         assert!(
             goods.len() > 8,
-            "only {} things inside the store — a cart door onto an empty floor \
+            "only {} things inside the store - a cart door onto an empty floor \
              is a darker rectangle on the wall",
             goods.len()
         );
@@ -780,7 +780,7 @@ mod tests {
         );
         // And the necking ring stands proud of the BASE in turn, on both
         // axes. Sized exactly equal, its four faces were coplanar with the
-        // four faces of the block it wrapped — a z-fight round the whole
+        // four faces of the block it wrapped - a z-fight round the whole
         // perimeter that shipped in-world (#1028).
         let ring = solids
             .iter()
@@ -789,7 +789,7 @@ mod tests {
         assert!(
             ring.bounds.size().x > base.bounds.size().x + 0.05
                 && ring.bounds.size().z > base.bounds.size().z + 0.05,
-            "the ring ({} x {}) does not stand proud of the base ({} x {}) — \
+            "the ring ({} x {}) does not stand proud of the base ({} x {}) - \
              flush is four coplanar seams",
             ring.bounds.size().x,
             ring.bounds.size().z,
@@ -799,7 +799,7 @@ mod tests {
     }
 
     /// The store floor sits behind the wall face, and the dunnage stands
-    /// clear of the base course (#1028 — both were coplanar/overlap faults
+    /// clear of the base course (#1028 - both were coplanar/overlap faults
     /// visible in-world).
     #[test]
     fn the_floor_is_inset_and_the_dunnage_clears_the_base() {
@@ -814,7 +814,7 @@ mod tests {
             .expect("the store floor is in the tree");
         assert!(
             floor.bounds.min.z > FRONT_Z + FLOOR_INSET * 0.5,
-            "the floor's leading edge is at {} — on the wall face at {FRONT_Z}",
+            "the floor's leading edge is at {} - on the wall face at {FRONT_Z}",
             floor.bounds.min.z
         );
         let bh = [BASE[0] * 0.5, BASE[2] * 0.5];
@@ -824,7 +824,7 @@ mod tests {
                 continue;
             }
             let b = &p.bounds;
-            // Feet on the apron — the store's own casks stand on the base, a
+            // Feet on the apron - the store's own casks stand on the base, a
             // course of masonry higher (the tavern's selector lesson).
             if b.min.y > BASE_TOP - 0.05 || b.center().y < GROUND {
                 continue;
@@ -842,7 +842,7 @@ mod tests {
         }
         assert!(
             furniture >= 4,
-            "only {furniture} pieces of dunnage examined — the selector has \
+            "only {furniture} pieces of dunnage examined - the selector has \
              stopped finding the casks and coils"
         );
     }
@@ -873,7 +873,7 @@ mod tests {
         }
         assert!(
             checked > 8,
-            "only {checked} ground parts examined — the selector has stopped \
+            "only {checked} ground parts examined - the selector has stopped \
              finding the ramp and the dunnage"
         );
     }

@@ -1,8 +1,8 @@
-//! Airship family assembler — composes the lighter-than-air craft from the
+//! Airship family assembler - composes the lighter-than-air craft from the
 //! seeded [`AvatarOutfit`] parts.
 //!
 //! The envelope is the structural root (a cigar centred at the origin, built
-//! from composed lobes so it carries **no** root scale — a root scale would
+//! from composed lobes so it carries **no** root scale - a root scale would
 //! stretch and fling the children mounted here). The gondola slings beneath
 //! it on rigging lines, and the stabiliser fins cluster as a cruciform tail
 //! (one fin part placed at four tail positions, each rotated into place). All
@@ -26,7 +26,7 @@ use super::common::{cylinder, id_quat, offset, offset_rot, prim, quat_xyzw, quat
 /// Metres the suspension cables' upper ends are pushed up *into* the envelope
 /// past the centreline belly line, so they embed in the hull at their ±x/±z
 /// stations (where the surface sits above the centreline low point) rather than
-/// ending in open air below it (#805). Generous on purpose — the cables are
+/// ending in open air below it (#805). Generous on purpose - the cables are
 /// thin and the envelope opaque, so the overshoot is invisible, and every
 /// seeded envelope radius (~0.4–0.9 m) comfortably swallows it without the
 /// cable breaching the crown.
@@ -76,7 +76,7 @@ pub(super) fn build(seed: u64) -> Generator {
                 }
             }
             PartSlot::Pod => {
-                // Underslung engine nacelles — one mirrored pair amidships. The
+                // Underslung engine nacelles - one mirrored pair amidships. The
                 // pod is authored X-symmetric (a vertical pylon reaches up into
                 // the flank), so each side is the same part, no mirror flip.
                 for sx in [-1.0f32, 1.0] {
@@ -101,12 +101,12 @@ pub(super) fn build(seed: u64) -> Generator {
         }
     }
 
-    // Suspension rigging — four cables bridging the envelope belly to the
+    // Suspension rigging - four cables bridging the envelope belly to the
     // gondola. Both ends deliberately OVERSHOOT into their bodies so a cable
     // can never hang short at either (the #805 double-undershoot): the top is
     // pushed UP into the envelope by `CABLE_ENVELOPE_EMBED`, because `belly_y`
     // is the *centreline* low point but the cables stand out at ±x/±z where the
-    // hull curves up and away — topping out at `belly_y` left them ending in
+    // hull curves up and away - topping out at `belly_y` left them ending in
     // open air below the surface (worst on the twin's raised inter-lobe cleft).
     // The foot drops to the gondola CENTRE (`gondola_y`, below the roof) so it
     // embeds in the cabin instead of kissing an estimated roof line. The ±x/±z
@@ -129,7 +129,7 @@ pub(super) fn build(seed: u64) -> Generator {
         }
     }
 
-    // No vertical drop — a helicopter hovers.
+    // No vertical drop - a helicopter hovers.
     apply_travel_pose(&mut root, 0.0);
     debug_assert_slots_handled(
         &outfit,
@@ -147,10 +147,10 @@ pub(super) fn build(seed: u64) -> Generator {
 /// Per-envelope-form mount landmarks (metres, envelope centred at the origin).
 /// Each form's belly line, tail station and fin ring radius are hand-fit to
 /// that form's geometry so the slung gondola and cruciform fins seat on *its*
-/// body — the fix for the envelope-invariant anchors that floated the twin's
+/// body - the fix for the envelope-invariant anchors that floated the twin's
 /// rigging and swallowed the blimp's fins (#783, absorbing #781's fin item).
 struct AirshipMounts {
-    /// Envelope lowest point at the centreline — cable top + gondola hang line.
+    /// Envelope lowest point at the centreline - cable top + gondola hang line.
     belly_y: f32,
     /// Fin cluster station (−Z).
     tail_z: f32,
@@ -165,7 +165,7 @@ struct AirshipMounts {
     pod_z: f32,
 }
 
-/// Resolve the seeded envelope's mount landmarks — the single source both the
+/// Resolve the seeded envelope's mount landmarks - the single source both the
 /// assembler and the FX vent anchor read, so a gondola / vent that tracks the
 /// belly can't drift apart from the hull it hangs under.
 fn resolve_mounts(outfit: &AvatarOutfit, ctx: &PartCtx) -> AirshipMounts {
@@ -198,7 +198,7 @@ pub(super) fn fx_belly_anchor(seed: u64) -> [f32; 3] {
 
 fn airship_mounts(slug: &str, p: &EnvProfile) -> AirshipMounts {
     // Landmarks are read off the seeded profile `p` so they track the
-    // blueprint's length + girth stretch (#791) — bar the twin's fin ring, which
+    // blueprint's length + girth stretch (#791) - bar the twin's fin ring, which
     // is fixed to its centreline empennage (see below). The twin is the one
     // bespoke case: its two hulls straddle the centreline, so the gondola / pods
     // hang from the tunnel, not a single belly.
@@ -209,7 +209,7 @@ fn airship_mounts(slug: &str, p: &EnvProfile) -> AirshipMounts {
             tail_z: -0.4 * p.length,
             // Deliberately fixed: the twin's cruciform fins cluster on the
             // fixed-size *central empennage* at the centreline (the vertical
-            // stabiliser is ±0.55 tall), not on either hull surface — so this
+            // stabiliser is ±0.55 tall), not on either hull surface - so this
             // ring tracks the empennage, not the hull girth like the others.
             fin_ring_r: 0.5,
             pod_x: hull_x,
@@ -237,7 +237,7 @@ fn airship_mounts(slug: &str, p: &EnvProfile) -> AirshipMounts {
 /// with its aft edge at local −Z; each copy must keep that aft sweep pointing
 /// aft, so every rotation here preserves the local −Z axis (dorsal keeps it
 /// identity; the stabilisers spin about Z; the ventral mirrors about **Z**,
-/// not X — a `quat_x(PI)` would flip the sweep and glow edge to +Z, the
+/// not X - a `quat_x(PI)` would flip the sweep and glow edge to +Z, the
 /// forward-swept-ventral-fin bug, #779).
 fn fin_placements(tail_z: f32, r: f32) -> [([f32; 3], Fp4); 4] {
     [

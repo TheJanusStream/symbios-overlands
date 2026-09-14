@@ -1,4 +1,4 @@
-//! Conflict tension layer — a low, pulsing dissonant two-tone "alarm" that
+//! Conflict tension layer - a low, pulsing dissonant two-tone "alarm" that
 //! only sounds when a room's escalation reaches
 //! [`EscalationTier::Conflict`]. It is the audio counterpart of the smoke
 //! particles and the smoke-red fog accent: calm and tense rooms never carry
@@ -6,7 +6,7 @@
 //!
 //! The voice is two sine oscillators a tritone apart (the most restless
 //! interval) summed through a VCA whose gain is driven by a slow,
-//! loop-synced sine LFO — the swell that reads as a distant siren rising
+//! loop-synced sine LFO - the swell that reads as a distant siren rising
 //! and falling. It shares the bed's reverb space ([`AmbientParams`]) so it
 //! sits in the same room as everything else, and its volume is kept well
 //! under the bed so it colours the mood rather than dominating it.
@@ -26,7 +26,7 @@ use crate::seeded_defaults::scene::{EscalationTier, SceneCharacter};
 /// Stable instrument id for the conflict tension siren.
 pub(super) const TENSION_INSTRUMENT_ID: &str = "tension_siren";
 
-/// Tritone ratio (√2) — the dissonant interval between the two tones.
+/// Tritone ratio (√2) - the dissonant interval between the two tones.
 const TRITONE: f32 = std::f32::consts::SQRT_2;
 
 const OSC1_ID: NodeId = NodeId(0);

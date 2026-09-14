@@ -15,7 +15,7 @@ use bevy::prelude::*;
 ///
 /// **The index is only stable while the list is** (#1254 f322). This doc
 /// used to claim "a room recompile rebuilds both", and it rebuilt the
-/// registry and not the tables — so deleting a recipe shifted every later
+/// registry and not the tables - so deleting a recipe shifted every later
 /// index down by one and transplanted a live throttle onto whichever recipe
 /// inherited the slot, and the sanitiser's name-sort at the 64-recipe cap
 /// could permute them wholesale. It self-healed on the TTL, which is what
@@ -24,7 +24,7 @@ use bevy::prelude::*;
 /// [`clear`](Self::clear) is called from `apply_contact_recipes` now, so the
 /// claim is true.
 pub struct CooldownTable {
-    /// Prune horizon (s) — far longer than any sane recipe cooldown, so
+    /// Prune horizon (s) - far longer than any sane recipe cooldown, so
     /// pruning never resets a live throttle.
     ttl: f32,
     last: HashMap<(Entity, usize), f32>,
@@ -39,7 +39,7 @@ impl CooldownTable {
     }
 
     /// True while `key` is still within `cooldown` seconds of its last
-    /// [`mark`](Self::mark) — the caller should skip this emission.
+    /// [`mark`](Self::mark) - the caller should skip this emission.
     pub fn active(&self, key: (Entity, usize), now: f32, cooldown: f32) -> bool {
         self.last.get(&key).is_some_and(|&t| now - t < cooldown)
     }
@@ -57,7 +57,7 @@ impl CooldownTable {
     }
 
     /// Forget every throttle. Called when the registry the indices refer to
-    /// is rebuilt (#1254 f322) — losing a live cooldown for one frame is
+    /// is rebuilt (#1254 f322) - losing a live cooldown for one frame is
     /// nothing; applying it to a different recipe is a bug.
     pub fn clear(&mut self) {
         self.last.clear();
@@ -79,7 +79,7 @@ mod tests {
         t.mark(victim, 10.0);
         assert!(t.active(victim, 10.1, 5.0), "the throttle is live");
         // The recipe at index 0 is deleted: index 1's recipe is now index
-        // 0, and index 1 is somebody else's — carrying this mark.
+        // 0, and index 1 is somebody else's - carrying this mark.
         t.clear();
         assert!(
             !t.active(victim, 10.1, 5.0),
@@ -91,7 +91,7 @@ mod tests {
     fn cooldown_gates_then_releases() {
         let mut t = CooldownTable::new(30.0);
         let key = (Entity::PLACEHOLDER, 3);
-        assert!(!t.active(key, 10.0, 0.5), "no mark yet — never active");
+        assert!(!t.active(key, 10.0, 0.5), "no mark yet - never active");
         t.mark(key, 10.0);
         assert!(t.active(key, 10.4, 0.5), "inside the window");
         assert!(!t.active(key, 10.6, 0.5), "window elapsed");

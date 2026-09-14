@@ -1,7 +1,7 @@
 //! Intersection hubs: the deck that fills a junction between its incident roads.
 //! Built from the truncated ribbon ends (#576), the deck is a fan swept by angle
-//! around the mouth corners' centroid — a node-anchored fan self-intersects
-//! whenever the per-arm pull-backs differ — held FLAT at the max incident mouth
+//! around the mouth corners' centroid - a node-anchored fan self-intersects
+//! whenever the per-arm pull-backs differ - held FLAT at the max incident mouth
 //! height, which the network levelling has already pinned every road up to (#584).
 //! The angular gaps between adjacent arms round off with curb-return arc fillets
 //! (#577) starting exactly on each ribbon's outer curb, so curb and skirt run
@@ -22,7 +22,7 @@ pub(crate) struct RoadEnd {
     /// node position nor the arm direction is needed here.
     pub(crate) cx: f32,
     pub(crate) cz: f32,
-    /// Mouth-frame right axis and deck half-width — give the two mouth corners
+    /// Mouth-frame right axis and deck half-width - give the two mouth corners
     /// `(cx, cz) ± (rx, rz)·half_w`, which coincide with the ribbon's end edge.
     pub(crate) rx: f32,
     pub(crate) rz: f32,
@@ -30,8 +30,8 @@ pub(crate) struct RoadEnd {
     pub(crate) deck_y: f32,
     /// The ribbon's skirt-bottom height at this mouth (`Frame::skirt_bottom_y`),
     /// so the hub fillet's skirt foot can drop to the *same* depth and weld to the
-    /// ribbon skirt exactly — at any skirt depth or cross-slope, not just the deep
-    /// default — leaving no open band at the seam.
+    /// ribbon skirt exactly - at any skirt depth or cross-slope, not just the deep
+    /// default - leaving no open band at the seam.
     pub(crate) skirt_y: f32,
 }
 
@@ -42,7 +42,7 @@ const CURB_RETURN_FACTOR: f32 = 1.5;
 /// Cap on a fillet's outward bulge (sagitta) as a multiple of half-width, so a
 /// wide gap can't balloon the corner apron well past the curb line.
 const CURB_RETURN_MAX_SAG_FACTOR: f32 = 0.8;
-/// Above this |cos| between two adjacent arms' headings the two are collinear —
+/// Above this |cos| between two adjacent arms' headings the two are collinear -
 /// a through road's two halves (anti-parallel) or an acute fork (parallel).
 /// The through road's far edge stays a straight curb (sagitta 0); the acute
 /// fork grows a smooth merge crotch instead (#578/#894), told apart by which
@@ -50,17 +50,17 @@ const CURB_RETURN_MAX_SAG_FACTOR: f32 = 0.8;
 /// the dot's sign can't be trusted).
 const FILLET_STRAIGHT_COS: f32 = 0.95;
 /// Cap on the acute-merge crotch depth as a multiple of the deck half-width
-/// (#894) — the ideal crotch (`gap/2 ÷ tan(θ/2)`) diverges as the fork
+/// (#894) - the ideal crotch (`gap/2 ÷ tan(θ/2)`) diverges as the fork
 /// closes, and an unbounded teardrop would spear far down the roads.
 const ACUTE_MERGE_MAX_FACTOR: f32 = 2.5;
-/// Arc segments per curb-return fillet — sampled finely enough to read as a
+/// Arc segments per curb-return fillet - sampled finely enough to read as a
 /// smooth curve after the along-arc normal averaging.
 const FILLET_SEG: usize = 6;
 
 /// Build a real intersection hub at every junction (≥3 incident roads) from the
 /// truncated ribbon ends (#576): a deck polygon whose mouth edges coincide with
 /// each road's end cross-section (the deck flows in seamlessly at the road's own
-/// height), its surface FLAT at the **max** incident mouth height — the #584
+/// height), its surface FLAT at the **max** incident mouth height - the #584
 /// network levelling pins every incident road up to that one height, so the fan
 /// is level, not domed (kept upward-only). Plus **curb-return arc fillets** (#577)
 /// close the angular gaps: each corner between two adjacent roads rounds with an arc
@@ -114,7 +114,7 @@ pub(crate) fn extrude_hubs(
         // Fan centre = the mouth corners' centroid (always inside their hull). A
         // node-anchored fan over arm-grouped corners self-intersects whenever the
         // per-arm truncations differ and the deck half-width is comparable to the
-        // pull-back (the common case) — adjacent mouths splay past each other.
+        // pull-back (the common case) - adjacent mouths splay past each other.
         // Sweeping the corners by angle around the centroid and fanning from it
         // tiles a SIMPLE polygon regardless. Apex at the MAX incident deck height
         // (#584): the network levelling pins every incident mouth UP to that same
@@ -204,9 +204,9 @@ pub(crate) fn extrude_hubs(
             let arm_r = arms[ra];
 
             // Each gap corner's outward radial (unit, XZ) and its outer-curb point
-            // — the deck-edge corner pushed out by curb_top + chamfer (= the outer
+            // - the deck-edge corner pushed out by curb_top + chamfer (= the outer
             // footprint `wo`), i.e. exactly where the incident ribbon's outer curb
-            // ends — so the fillet arc joins one ribbon's outer curb to the next.
+            // ends - so the fillet arc joins one ribbon's outer curb to the next.
             let cl = [arm_l.cx + world_offset[0], arm_l.cz + world_offset[1]];
             let cr = [arm_r.cx + world_offset[0], arm_r.cz + world_offset[1]];
             let rad_l = norm2([l[0] - cl[0], l[2] - cl[1]]);
@@ -216,17 +216,17 @@ pub(crate) fn extrude_hubs(
             let o_r = [cr[0] + rad_r[0] * wo_r, cr[1] + rad_r[1] * wo_r];
             let chord = (o_r[0] - o_l[0]).hypot(o_r[1] - o_l[1]);
             if chord < 1.0e-3 {
-                continue; // coincident mouths — nothing to round
+                continue; // coincident mouths - nothing to round
             }
 
             // Bulge outward (away from the hub centroid) by a sagitta derived from
             // a curb-return radius of ~CURB_RETURN_FACTOR · half_w, clamped gentle.
-            // A near-straight gap (two anti-parallel arms — e.g. a through road's
+            // A near-straight gap (two anti-parallel arms - e.g. a through road's
             // far edge) keeps sagitta 0, so its curb stays a straight line.
             let half_w = (arm_l.half_w + arm_r.half_w) * 0.5;
             // Arm heading from the mouth-frame right (`(rz, −rx)` ⟂ right). Collinear
             // arms (a through road's two halves, or an acute fork) read as parallel
-            // OR anti-parallel, so test |cosθ| — both keep the gap a straight curb
+            // OR anti-parallel, so test |cosθ| - both keep the gap a straight curb
             // (a through road's far edge must not bump; acute forks are #578's job).
             let dir_l = [arm_l.rz, -arm_l.rx];
             let dir_r = [arm_r.rz, -arm_r.rx];
@@ -239,7 +239,7 @@ pub(crate) fn extrude_hubs(
             let h = chord * 0.5;
             let arc = if straight {
                 // Same-side mouths ⇒ an acute fork: grow the smooth-merge
-                // crotch (#894) — a teardrop whose apex sits where the two
+                // crotch (#894) - a teardrop whose apex sits where the two
                 // outer curbs would meet, capped so a razor-thin fork can't
                 // spear off down the roads. Opposite-side mouths ⇒ a through
                 // road's far edge: keep the straight curb.
@@ -277,7 +277,7 @@ pub(crate) fn extrude_hubs(
             let mut acc = 0.0_f32;
             for (k, op) in arc.iter().enumerate() {
                 let t = k as f32 / (n - 1) as f32;
-                // Deck-level height interpolated between the two mouths — matching
+                // Deck-level height interpolated between the two mouths - matching
                 // the deck triangle edge l→r, which runs deck_y_l → deck_y_r.
                 let dy = l[1] + (r[1] - l[1]) * t;
                 let inner = [l[0] + (r[0] - l[0]) * t, dy, l[2] + (r[2] - l[2]) * t];
@@ -289,7 +289,7 @@ pub(crate) fn extrude_hubs(
                 // the two ends the foot equals the ribbon skirt exactly (at ANY
                 // skirt depth or cross-slope, no open band at the seam) and tracks
                 // the fixed-depth underside between them. Like the ribbon, it no
-                // longer reaches down to the terrain — a high junction floats clear
+                // longer reaches down to the terrain - a high junction floats clear
                 // as a bridge rather than filling the dip beneath it.
                 let fy = arm_l.skirt_y + (arm_r.skirt_y - arm_l.skirt_y) * t;
                 if k > 0 {
@@ -308,7 +308,7 @@ pub(crate) fn extrude_hubs(
             }
 
             // One smoothed strip per profile face (smooth along the arc, hard
-            // crease across — the WS2 idea), each wound so its front side faces out.
+            // crease across - the WS2 idea), each wound so its front side faces out.
             let (u1, u2) = (ch / UV_TILE_M, (ch + ct) / UV_TILE_M);
             let u3 = (ch + ct + cf) / UV_TILE_M;
             let u4 = u3 + dims.skirt_depth / UV_TILE_M;
@@ -320,8 +320,8 @@ pub(crate) fn extrude_hubs(
     }
 }
 
-/// Whether two adjacent hub arms are collinear — a through road's two halves
-/// (anti-parallel) or an acute fork (parallel) — in which case the gap between
+/// Whether two adjacent hub arms are collinear - a through road's two halves
+/// (anti-parallel) or an acute fork (parallel) - in which case the gap between
 /// them is a near-straight curb that must NOT bulge (the fillet keeps sagitta 0).
 /// Orientation-independent (tests |cosθ| of the unit headings), so it holds
 /// whichever way each arm's recorded heading happens to point.
@@ -330,7 +330,7 @@ pub(crate) fn fillet_gap_is_straight(dir_l: [f32; 2], dir_r: [f32; 2]) -> bool {
 }
 
 /// Sample a quadratic Bézier from `a` to `b` whose control point sits `depth`
-/// out along `bd` from the chord midpoint — the acute-fork merge crotch
+/// out along `bd` from the chord midpoint - the acute-fork merge crotch
 /// (#894). Endpoints are exact (they must coincide with the incident
 /// ribbons' outer-curb points); the apex reaches `depth/2` at `t = 0.5`.
 /// Deterministic.
@@ -382,7 +382,7 @@ pub(crate) fn fillet_arc(
     }
     let r = (sag * sag + half * half) / (2.0 * sag);
     let mid = [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5];
-    // Place the centre on the chord's OWN perpendicular bisector — then |a−c| =
+    // Place the centre on the chord's OWN perpendicular bisector - then |a−c| =
     // |b−c| = r exactly, so both endpoints land on the circle whatever `bd` is.
     // `bd` only picks which side the arc bulges (the corner side).
     let perp = [-chord[1] / clen, chord[0] / clen];
@@ -435,7 +435,7 @@ pub(crate) fn fillet_arc(
 /// are the face's two edges at each arc sample, smooth-shaded ALONG the arc (welded
 /// vertices carrying averaged segment normals) with a hard crease ACROSS the
 /// profile (one strip per face). Each segment is wound INDIVIDUALLY so its front
-/// face matches that segment's own outward normal — a single per-strip decision is
+/// face matches that segment's own outward normal - a single per-strip decision is
 /// wrong on a curved or height-sloped strip (where the geometric facing flips
 /// partway), which would back-wind some triangles and mis-shade them under the
 /// road's double-sided material.
@@ -483,7 +483,7 @@ fn push_fillet_face(
     // shading normal. Per-triangle (not per-strip, nor even per-quad) is required:
     // a fillet quad is generally warped (the inner edge is a straight chord, the
     // outer edge a curved arc at varying height), so its two triangles can face
-    // opposite ways — a single decision back-winds one of them and mis-shades it.
+    // opposite ways - a single decision back-winds one of them and mis-shades it.
     let mut tri = |a: u32, b: u32, c: u32, na: [f32; 3], nb: [f32; 3], nc: [f32; 3]| {
         let (qa, qb, qc) = (
             g.vertices[a as usize],

@@ -1,8 +1,8 @@
-//! Works Gate — the Industrial-Park bespoke social gateway (#759). A steel
+//! Works Gate - the Industrial-Park bespoke social gateway (#759). A steel
 //! portal-frame gantry straddling the yard entrance: two braced lattice pylons
 //! on concrete footings, a clad box-girder span trussed to a lower pipe chord,
 //! and an amber-lit sign board over the walk-through. The functional element is
-//! the single [`GeneratorKind::Gateway`] zone hung in the opening — walking into
+//! the single [`GeneratorKind::Gateway`] zone hung in the opening - walking into
 //! it opens the destination picker of the room owner's mutual follows. The
 //! frame replaces the neutral placeholder arch in an industrial idiom: plant
 //! steelwork, sodium-lit signage, and a hazard-lit threshold beam, all facing
@@ -55,15 +55,15 @@ impl CatalogueEntry for IndustrialParkGateway {
 fn build_tree() -> Generator {
     // Portal dimensions. The opening sits between the two pylons; the gantry
     // span rides their tops.
-    let base_y = 0.3; // top of the concrete apron — the pylon feet.
+    let base_y = 0.3; // top of the concrete apron - the pylon feet.
     let mast_h = 4.4;
-    let top = base_y + mast_h; // 4.7 — the pylon crowns / girder seat.
+    let top = base_y + mast_h; // 4.7 - the pylon crowns / girder seat.
     let half = 0.35; // pylon half-width at foot.
     let cx = 2.0; // pylon centres flank a ~3.3 m clear opening.
     let girder_y = top + 0.28; // box-girder centre, seated on the pylons.
     let front = -0.45; // -Z hero face of the span (signage rides here).
 
-    // Concrete apron — the flat-base root (never tilt a root: every child
+    // Concrete apron - the flat-base root (never tilt a root: every child
     // rides the root's transform, so a tilt would spin the whole gate).
     let mut prims = vec![prim(
         solid(cuboid_tapered(
@@ -76,7 +76,7 @@ fn build_tree() -> Generator {
     )];
     prims.push(footing(6.0, 2.4, [0.0, 0.0], 3.5));
 
-    // Two braced steel lattice pylons — plant steelwork, not fenceposts. The
+    // Two braced steel lattice pylons - plant steelwork, not fenceposts. The
     // helper builds a mast centred on the origin; shift each flat list out to
     // its bay so the legs, rings, and zig-zag diagonals all move together.
     let shift_x = |mut v: Vec<Generator>, dx: f32| -> Vec<Generator> {
@@ -102,13 +102,13 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Top chord — a clad box girder spanning both pylon crowns.
+    // Top chord - a clad box girder spanning both pylon crowns.
     prims.push(prim(
         solid(cuboid_tapered([5.0, 0.56, 0.8], 0.0, cladding(STEEL_BLUE))),
         [0.0, girder_y, 0.0],
         id_quat(),
     ));
-    // Bottom chord — a steel pipe laid along X below the girder.
+    // Bottom chord - a steel pipe laid along X below the girder.
     let bottom_y = top - 0.5;
     prims.push(prim(
         solid(cylinder_tapered(0.16, 4.6, 12, 0.0, tank_steel(PIPE_GREY))),
@@ -146,7 +146,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Threshold beam under the truss — a thin amber tube runs hot across the
+    // Threshold beam under the truss - a thin amber tube runs hot across the
     // opening so the gate reads as an active passage from the front.
     prims.push(prim(
         cuboid_tapered([3.2, 0.1, 0.14], 0.0, glow(LAMP_AMBER, 6.0)),
@@ -155,7 +155,7 @@ fn build_tree() -> Generator {
     ));
 
     // Lit indicator gauges on the inner face of each pylon, facing the hero
-    // front — the "gate live" tell-tales.
+    // front - the "gate live" tell-tales.
     for sx in [-1.0_f32, 1.0] {
         prims.extend(gauge_plate([sx * cx, 2.4, front + 0.2], 0.2, LAMP_AMBER));
     }
@@ -163,7 +163,7 @@ fn build_tree() -> Generator {
     // The gate's only functional element, fitted to the opening (#1006):
     // apron top to girder underside, edges on the pylons' inner leg line.
     //
-    // A lattice mast has no solid jamb to bury an edge in — only legs — so
+    // A lattice mast has no solid jamb to bury an edge in - only legs - so
     // the veil sits in the plane of the front pair, where its sides run
     // down inside those legs instead of hanging in the open steelwork. That
     // is also the `front` hero face the signage rides.
@@ -171,7 +171,7 @@ fn build_tree() -> Generator {
     // Its depth is pinned between two limits: the girder it tucks under
     // reaches z ±0.4, the front legs lean back no further than ≈ −0.15, and
     // the record sanitiser floors any zone axis at 0.25 m. That leaves
-    // exactly one band, and this is it — do not thin it further.
+    // exactly one band, and this is it - do not thin it further.
     prims.push(prim(
         GeneratorKind::Gateway {
             size: Fp3([3.30, 4.48, 0.25]),
@@ -193,7 +193,7 @@ mod tests {
         assert_sanitize_stable(&IndustrialParkGateway.build(""), "industrial_park_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is set-dressing, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

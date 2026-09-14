@@ -1,4 +1,4 @@
-//! Cargo crate — a Space-Outpost prop. A stack of hull supply containers with
+//! Cargo crate - a Space-Outpost prop. A stack of hull supply containers with
 //! hazard stencils. Scatter clutter of the base's stores.
 
 use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, solid, sphere};
@@ -43,8 +43,8 @@ impl CatalogueEntry for CargoCrate {
     }
 }
 
-/// A ribbed shipping container — a body cuboid with proud corner castings and
-/// vertical wall ribs on the ±Z faces — returned as positioned prims for the
+/// A ribbed shipping container - a body cuboid with proud corner castings and
+/// vertical wall ribs on the ±Z faces - returned as positioned prims for the
 /// assemble list. Reads as a real cargo container rather than a plain box.
 fn crate_box(
     size: [f32; 3],
@@ -83,7 +83,7 @@ fn crate_box(
 }
 
 fn build_tree() -> Generator {
-    // Large base crate — the root (its body is prims[0]).
+    // Large base crate - the root (its body is prims[0]).
     let mut prims = crate_box(
         [1.4, 1.1, 1.4],
         [0.0, 0.55, 0.0],

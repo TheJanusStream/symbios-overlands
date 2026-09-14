@@ -3,12 +3,12 @@
 //! Registers Bevy's built-in diagnostic plugins (which the app did not use
 //! before) and scrapes them into the shared [`MetricsRegistry`] once per second,
 //! alongside a few game-specific gauges the built-ins don't cover (asset-handle
-//! counts, collider count, the upstream `ShapeMeshCache` length — the
+//! counts, collider count, the upstream `ShapeMeshCache` length - the
 //! unbounded-growth leak watch).
 //!
 //! `SystemInformationDiagnosticsPlugin` is native-only; on wasm it is absent, so
 //! `scrape_wasm_memory` substitutes a `runtime.memory.wasm_bytes` gauge read
-//! straight from `WebAssembly.Memory` — the heap-never-shrinks watch.
+//! straight from `WebAssembly.Memory` - the heap-never-shrinks watch.
 
 use std::time::Duration;
 
@@ -88,7 +88,7 @@ impl Plugin for MetricsPlugin {
 /// Push every counter's running total onto its history ring (#1271 f179).
 ///
 /// A cumulative counter cannot answer "is this still happening", which is
-/// the question every badge in the HUD is really asking — so the rules that
+/// the question every badge in the HUD is really asking - so the rules that
 /// threshold on one latched for the whole session. One 1 Hz pass over the
 /// counter map gives them the same windowed view the gauges have had since
 /// E-1, and the latch clears itself.
@@ -96,7 +96,7 @@ fn sample_counter_history(mut reg: ResMut<MetricsRegistry>) {
     reg.sample_counters();
 }
 
-/// One gibibyte in bytes — the `SystemInformationDiagnosticsPlugin` reports
+/// One gibibyte in bytes - the `SystemInformationDiagnosticsPlugin` reports
 /// process memory in GiB, but our metric is named `…_bytes`, so convert.
 /// (Native-only: the wasm memory gauge reads the linear-memory byte length directly.)
 #[cfg(not(target_arch = "wasm32"))]
@@ -110,7 +110,7 @@ const BYTES_PER_GIB: f64 = 1024.0 * 1024.0 * 1024.0;
 /// when attributing asset-registry growth, and grouping keeps
 /// [`scrape_bevy_diagnostics`] under the argument-count lint.
 ///
-/// All optional — the render-adjacent plugins that own them may not be
+/// All optional - the render-adjacent plugins that own them may not be
 /// installed (headless tools, tests).
 #[derive(bevy::ecs::system::SystemParam)]
 struct CacheGauges<'w> {
@@ -120,7 +120,7 @@ struct CacheGauges<'w> {
     texture: Option<Res<'w, bevy_symbios_texture::TextureCache>>,
 }
 
-/// The asset registries whose handle counts the scraper gauges — bundled to
+/// The asset registries whose handle counts the scraper gauges - bundled to
 /// keep `scrape_bevy_diagnostics` under clippy's parameter ceiling.
 #[derive(bevy::ecs::system::SystemParam)]
 struct AssetStores<'w> {
@@ -137,8 +137,8 @@ struct AssetStores<'w> {
 /// Accumulated per frame because the thing being measured IS a single frame.
 /// The 1 Hz scrape's `FrameTimeDiagnosticsPlugin::FRAME_TIME` is an EMA with a
 /// ~16.5 ms time constant, so it has forgotten a 500 ms stall by the time the
-/// next scrape lands, and `runtime.frame_time_spike` — which reads that one
-/// sample — only ever fired on sustained load. The suite's stated purpose is
+/// next scrape lands, and `runtime.frame_time_spike` - which reads that one
+/// sample - only ever fired on sustained load. The suite's stated purpose is
 /// catching jank on wasm, where the hitch sources that matter now (a
 /// rigged-body install, a world-compile slice, a texture upload, an egui panel
 /// rebuild after the 0.19 train) are all sub-second events.
@@ -231,7 +231,7 @@ fn scrape_bevy_diagnostics(
         assets.materials.len() as f64,
     );
     // Image-asset registry: the dominant memory consumer across a region re-seed
-    // and the one the mesh/material counts miss (caches retain `Handle<Image>`) —
+    // and the one the mesh/material counts miss (caches retain `Handle<Image>`) -
     // watches whether textures actually shrink after a rebuild/logout (#625).
     reg.observe_gauge(
         names::RUNTIME_IMAGE_HANDLE_COUNT,
@@ -254,7 +254,7 @@ fn scrape_bevy_diagnostics(
     if let Some(cache) = &caches.prim_material {
         reg.observe_gauge(names::RUNTIME_PRIM_MATERIAL_CACHE_LEN, cache.len() as f64);
     }
-    // `None` for a disk-backed store, whose entries aren't resident — left
+    // `None` for a disk-backed store, whose entries aren't resident - left
     // unreported rather than logged as 0, which would read as "empty".
     if let Some(n) = caches.texture.as_ref().and_then(|c| c.entry_count()) {
         reg.observe_gauge(names::RUNTIME_TEXTURE_CACHE_LEN, n as f64);
@@ -274,7 +274,7 @@ fn scrape_bevy_diagnostics(
     // asset-growth rules read. Taken here (≤1 s after completion, after the
     // spawn commands have applied) rather than inside the executor, which
     // would sample the asset registries mid-churn. One mark per scrape even
-    // if two rebuilds landed inside the second — the rules compare
+    // if two rebuilds landed inside the second - the rules compare
     // rebuild-boundary states, and the latest boundary is the one that
     // reflects what was actually released.
     let rebuilds = reg.counter_value(names::RUNTIME_FULL_REBUILD_COUNT);
@@ -288,7 +288,7 @@ fn scrape_bevy_diagnostics(
             names::RUNTIME_REBUILD_MESH_HANDLES,
             assets.meshes.len() as f64,
         );
-        // RSS on native, wasm linear memory on wasm — whichever this build
+        // RSS on native, wasm linear memory on wasm - whichever this build
         // observes into the registry above. Read back rather than
         // re-derived so the mark can never disagree with the live gauge.
         let memory = reg
@@ -316,7 +316,7 @@ fn scrape_bevy_diagnostics(
 }
 
 /// Scrape the spatial-audio load into the registry at 1 Hz (#802): the count
-/// of live *looping* voices (construct hums + avatar engine voices — the
+/// of live *looping* voices (construct hums + avatar engine voices - the
 /// sustained-lag suspect, distinct from transient one-shot SFX) and the baked
 /// cache's retained entry count + byte footprint. `Option` params keep this
 /// inert on any app configured without the audio assets / bake cache (e.g. a
@@ -324,8 +324,8 @@ fn scrape_bevy_diagnostics(
 fn scrape_audio_diagnostics(
     voices: Query<&PlaybackSettings, With<AudioPlayer>>,
     // The one-shot half (#1252 f316). `ContactAudioVoice` exists precisely
-    // for counting — `play_contact_audio` counts it every frame against
-    // `MAX_CONCURRENT_VOICES` — and nothing in the diagnostics suite asked.
+    // for counting - `play_contact_audio` counts it every frame against
+    // `MAX_CONCURRENT_VOICES` - and nothing in the diagnostics suite asked.
     contact_voices: Query<(), With<crate::interaction::audio::ContactAudioVoice>>,
     bake_cache: Option<Res<crate::world_builder::spatial_audio::BakedAudioCache>>,
     audio_sources: Option<Res<Assets<AudioSource>>>,
@@ -349,7 +349,7 @@ fn scrape_audio_diagnostics(
 }
 
 /// Post-culling visible-entity total, summed over every mesh class of every
-/// view — the #811 discriminator. On WebGL2 the per-frame CPU staging
+/// view - the #811 discriminator. On WebGL2 the per-frame CPU staging
 /// (instance uniforms) scales with this number, so the next captured session
 /// either shows wasm heap steps tracking visible-count peaks (confirming the
 /// GPU-stall staging-pileup diagnosis) or steps without a peak (refuting it).
@@ -375,15 +375,15 @@ fn scrape_visible_entities(
 ///
 /// Every term is a guard against claiming glare from evidence that does not
 /// support it (#1215 f399):
-/// * `socket_present` — an outage is not a glare. With no socket there is no
+/// * `socket_present` - an outage is not a glare. With no socket there is no
 ///   handshake to stall, and the signaller's counters are cumulative, so
 ///   without this the flag would raise itself over a dead link.
-/// * `peer_list_valid` — the last `peer_list` describes the room a socket saw.
+/// * `peer_list_valid` - the last `peer_list` describes the room a socket saw.
 ///   Once that socket is gone, so is the claim.
-/// * `connected == 0` — the definition: nobody reached a data channel. Before
+/// * `connected == 0` - the definition: nobody reached a data channel. Before
 ///   the #1213 sweep this is what a leftover ghost `RemotePeer` pinned false,
 ///   silencing the rule for the rest of the session.
-/// * `!connected_since` — a peer that connected and then left is a room that
+/// * `!connected_since` - a peer that connected and then left is a room that
 ///   worked, not a stalled handshake.
 fn awaiting_peers(
     socket_present: bool,
@@ -403,7 +403,7 @@ fn awaiting_peers(
 /// registry (1 Hz, chained with the other scrapes), derive the `awaiting_peers`
 /// stall flag from live [`RemotePeer`](crate::state::RemotePeer) presence, and
 /// emit a `SocketPeerListReceived` event every time a new `peer_list` is
-/// observed — including an empty one (#1215 f408).
+/// observed - including an empty one (#1215 f408).
 ///
 /// This is the app's only window into the WebRTC *signalling* layer: matchbox
 /// surfaces just `Connected`/`Disconnected` to the plugin, so without this a
@@ -416,7 +416,7 @@ fn awaiting_peers(
 /// socket teardown, so after one the last `peer_list` is evidence about a
 /// socket that no longer exists: `peer_list_valid` retires it, and
 /// `awaiting_peers` is held at 0 while no socket exists at all. Without that,
-/// an outage — where nothing is glaring because nothing is connected — would
+/// an outage - where nothing is glaring because nothing is connected - would
 /// raise the glare flag off a stale list, and the "somebody connected since
 /// the welcome" latch would carry a dead socket's answer into the next one.
 #[allow(clippy::too_many_arguments)]
@@ -465,7 +465,7 @@ fn scrape_signal_diagnostics(
     );
     reg.observe_gauge(names::NET_SIGNAL_AUTH_REJECTIONS, auth_rejections as f64);
     // The CAUSE beside the count (#1271 f400): 0 means the client never saw
-    // a status, which in the browser is every rejection — including the ones
+    // a status, which in the browser is every rejection - including the ones
     // that are only a dead network. The live rule reads this to decide which
     // sentence it is entitled to say.
     reg.observe_gauge(
@@ -474,7 +474,7 @@ fn scrape_signal_diagnostics(
     );
 
     // A relay handshake rejection (chiefly an expired-token 401) leaves no other
-    // trace — the socket never opens. Emit one event per new rejection so it
+    // trace - the socket never opens. Emit one event per new rejection so it
     // shows up in the session log / analyzer instead of only the console.
     if auth_rejections > *last_auth_rejections {
         *last_auth_rejections = auth_rejections;
@@ -507,7 +507,7 @@ fn scrape_signal_diagnostics(
     // Logged at EVERY count, zero included (#1215 f408). Under the old
     // `>= 1` guard the comment's own promise was unkeepable: "welcomed into
     // an empty room" and "never handshook at all" both produced no event and
-    // were indistinguishable in the log — which is the first question anyone
+    // were indistinguishable in the log - which is the first question anyone
     // asks when a user reports an empty world, and the on-screen surfaces
     // could not answer it either. `GlareSuspected`'s replay arm already
     // filters on `count >= 1`, so its behaviour is unchanged.
@@ -527,7 +527,7 @@ fn scrape_signal_diagnostics(
     }
 
     // `awaiting_peers`: a LIVE socket, whose relay welcome reported peers,
-    // none of which have connected — and none of which have connected since
+    // none of which have connected - and none of which have connected since
     // that peer_list, so a peer that connected then later left does not
     // re-raise the flag. The `GlareSuspected` invariant fires when this stays
     // `1` over a sustained window; an outage must not raise it, because
@@ -559,7 +559,7 @@ fn emit_metric_snapshot(
     let now = time.elapsed_secs_f64();
     let snap = reg.snapshot(now);
     if snap.gauges.is_empty() && snap.counters.is_empty() && snap.histograms.is_empty() {
-        return; // nothing observed yet — don't log an empty snapshot
+        return; // nothing observed yet - don't log an empty snapshot
     }
     log.record_file_only(
         now,
@@ -622,7 +622,7 @@ mod tests {
 
     /// THE SEQUENCE: a room with peers, our link drops, the ghosts are swept.
     /// `awaiting_peers` used to be `peer_list_len >= 1 && connected == 0 &&
-    /// !connected_since`, and the socket did not appear in it at all — so the
+    /// !connected_since`, and the socket did not appear in it at all - so the
     /// one rule that can ever say anything about the local link raised itself
     /// off a `peer_list` belonging to a socket that no longer existed, and
     /// reported an outage as a glared handshake (#1215 f399).
@@ -639,21 +639,21 @@ mod tests {
     }
 
     /// THE SEQUENCE: a peer connects, then leaves, then the room stalls. The
-    /// two suppressors that must keep working — a peer on a data channel
-    /// right now, and one that reached one earlier — because a room that
+    /// two suppressors that must keep working - a peer on a data channel
+    /// right now, and one that reached one earlier - because a room that
     /// worked is not a glared handshake. This is the term a leftover ghost
     /// `RemotePeer` used to pin, silencing the rule for the whole session.
     #[test]
     fn a_room_that_ever_worked_is_not_glaring() {
         assert!(!awaiting_peers(true, true, 3, 1, false));
         assert!(!awaiting_peers(true, true, 3, 0, true));
-        // An empty room is not a stall either — there was nobody to reach.
+        // An empty room is not a stall either - there was nobody to reach.
         assert!(!awaiting_peers(true, true, 0, 0, false));
     }
 
     /// THE SEQUENCE: a user reports "the world was empty". The log has to say
     /// whether the relay welcomed us into an empty room or whether we never
-    /// handshook at all — the distinction the event's own comment promises.
+    /// handshook at all - the distinction the event's own comment promises.
     /// Under the old `peer_list_len >= 1` guard both produced no event and
     /// were indistinguishable (#1215 f408).
     #[test]
@@ -691,7 +691,7 @@ mod tests {
         );
 
         // And a session that never handshakes logs nothing, so the two are
-        // distinguishable — which is the whole point.
+        // distinguishable - which is the whole point.
         let mut quiet = App::new();
         quiet.add_plugins(MinimalPlugins);
         quiet.init_resource::<MetricsRegistry>();

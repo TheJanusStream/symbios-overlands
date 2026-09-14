@@ -1,11 +1,11 @@
 //! Global keyboard shortcuts (#836).
 //!
-//! Until this existed the app had ZERO global keys — only chat's
+//! Until this existed the app had ZERO global keys - only chat's
 //! in-widget Enter and the gizmo drag's Escape. This module adds the
 //! three that make the whole UI navigable from the keyboard:
 //!
-//! * **Esc — back-out ladder.** One step per press, first applicable
-//!   wins, and the rungs are [`esc_step`] — pure, so the order is
+//! * **Esc - back-out ladder.** One step per press, first applicable
+//!   wins, and the rungs are [`esc_step`] - pure, so the order is
 //!   testable without an egui context: abort an active gizmo drag
 //!   (handled where it always was, in `editor_gizmo::drag`) → step out of
 //!   blob-element editing (handled in `editor_gizmo::blob`) → disarm an
@@ -20,24 +20,24 @@
 //!   its own in `Update` (so one press cancelled the drag *and* stepped
 //!   the ladder), the picker had no rung at all (so the press closed a
 //!   toolbar window behind it), and the selection rung asked the avatar
-//!   editor only about its VISUALS row — leaving a worn prop's gizmo up
+//!   editor only about its VISUALS row - leaving a worn prop's gizmo up
 //!   and the chassis frozen while Esc chewed through windows.
-//! * **Enter — open/focus chat.** Flips the Chat panel on and requests
+//! * **Enter - open/focus chat.** Flips the Chat panel on and requests
 //!   focus on its input via [`crate::ui::chat::ChatFocusRequest`], so a
 //!   reply is two keystrokes away and typing never steers the avatar.
-//! * **Ctrl+S — save the front-most dirty editor.** Routed through
+//! * **Ctrl+S - save the front-most dirty editor.** Routed through
 //!   [`PublishShortcut`] into the shared Save/Load/Reset row, so it is
-//!   IDENTICAL to clicking "Save" — same dirty gate, same
+//!   IDENTICAL to clicking "Save" - same dirty gate, same
 //!   record-size hard-ceiling block. On wasm a capture-phase JS handler
 //!   swallows the browser's own save dialog (see
-//!   `install_ctrl_s_blocker` — wasm-only, so not linkable from a
+//!   `install_ctrl_s_blocker` - wasm-only, so not linkable from a
 //!   native doc build) because `prevent_default_event_handling` is
 //!   deliberately `false` (F5, Ctrl+R and friends must keep working).
 //!   The chord never fires silently (#1208): [`SaveChord`] says what it
 //!   did, and a request the row then refuses comes back as
 //!   [`crate::ui::editable::RecordAction::Refused`] with the reason.
 //!
-//! Routing — which chord may fire at all — is [`ShortcutGate`], and it
+//! Routing - which chord may fire at all - is [`ShortcutGate`], and it
 //! answers two questions, not one (#1139):
 //!
 //! * **Is a modal up?** If so nothing global fires. A dialog made only of
@@ -47,22 +47,22 @@
 //! * **Is a menu up?** Esc alone stands down (#1236 f37). egui closes a
 //!   popup on Escape without telling anyone, so the identical
 //!   double-step applied to every `menu_button`, every combo box and the
-//!   in-scene right-click menu — see
+//!   in-scene right-click menu - see
 //!   [`crate::ui::confirm::popup_is_open`].
 //! * **Is a text field focused?** Plain keys stand down, so typing "s" in
 //!   chat never publishes and Enter keeps its in-widget meaning. The Ctrl
 //!   chords are the exception for Ctrl+S: egui's `TextEdit` does not claim
 //!   it, so saving from inside a name or seed field is a legitimate thing
-//!   to want — and on wasm the browser's own dialog is suppressed anyway,
+//!   to want - and on wasm the browser's own dialog is suppressed anyway,
 //!   so the chord produced literally nothing. Ctrl+Z/Y keep the gate:
 //!   `TextEdit` owns those for text undo/redo.
 //!
-//! * **F — go to the selection** (#1244 f148). The camera's
+//! * **F - go to the selection** (#1244 f148). The camera's
 //!   `target_focus` is pinned to the chassis every frame, so there is no
 //!   "frame selection" to bind: the only way to bring an off-screen
 //!   selection into view in this world is to walk the player to it.
 //!
-//! Gizmo-style S/R/G/X/Y/Z keys are deliberately NOT bound — they collide
+//! Gizmo-style S/R/G/X/Y/Z keys are deliberately NOT bound - they collide
 //! with WASD/Shift movement.
 //!
 //! ## Enter under an input method (#1263)
@@ -72,7 +72,7 @@
 //! dialog's Apply both read `lost_focus() && key_pressed(Enter)`, which
 //! is egui's own idiom and is right for a Latin keyboard. Under an IME
 //! the first Enter means "accept the candidate", and egui's `TextEdit`
-//! surrenders focus on the return key with no composition check — so
+//! surrenders focus on the return key with no composition check - so
 //! that press could send a half-composed line to a room with no edit and
 //! no delete. [`enter_submitted`] is the single place both sites ask,
 //! and [`ime_composing`] is how it knows.
@@ -80,13 +80,13 @@
 //! **In the browser this is moot, because IME input cannot happen at
 //! all.** winit's web backend emits no `Ime` events and documents
 //! `set_ime_allowed` as unimplemented, and nothing mounts a hidden input
-//! over the canvas — so every text field in the wasm build silently
+//! over the canvas - so every text field in the wasm build silently
 //! swallows the keystrokes of anyone typing CJK, Korean or Vietnamese.
 //! That is not fixable from this crate; what is fixable is the silence.
 //! `install_ime_probe` watches for a keystroke going to an IME rather
 //! than to the page and `report_ime_dead_end` says so once, naming paste
 //! as the way through (both wasm-only, so not linkable from a native doc
-//! build). The real fix is upstream — a focused, visually-hidden input
+//! build). The real fix is upstream - a focused, visually-hidden input
 //! whose composition events become `egui::Event::Ime`, the shape
 //! eframe's own web backend uses.
 
@@ -101,7 +101,7 @@ use crate::state::{
 use crate::ui::layout::UiWindow;
 use crate::ui::toolbar::UiPanels;
 
-/// Which editor a [`PublishShortcut`] request targets — the three
+/// Which editor a [`PublishShortcut`] request targets - the three
 /// consumers of the shared Save/Load/Reset row.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum EditorKind {
@@ -113,19 +113,19 @@ pub enum EditorKind {
 /// Frames a pending Ctrl+S request stays alive waiting for its editor
 /// window to render and consume it. The shortcut opens and expands the
 /// window it targets, so consumption is normally the same frame's egui
-/// pass — the TTL just stops a request from firing much later if the
+/// pass - the TTL just stops a request from firing much later if the
 /// window closes in the same instant.
 const PUBLISH_REQUEST_TTL_FRAMES: u8 = 3;
 
 /// What Ctrl+S does this frame (#1208), decided from the two facts the
 /// chord already had: the front-most OPEN dirty editor in egui's stacking
 /// order, and which records are dirty at all. Before this the second fact
-/// was never consulted — an empty candidate list did nothing and said
+/// was never consulted - an empty candidate list did nothing and said
 /// nothing, while the undo chord two blocks away toasts its own no-op.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SaveChord {
     /// An open editor with unsaved edits is front-most: save it. Its
-    /// window is expanded first if collapsed — a collapsed `egui::Window`
+    /// window is expanded first if collapsed - a collapsed `egui::Window`
     /// never runs its body, and the Save row that consumes the request
     /// lives in the body, so the request used to age out unseen.
     Save(EditorKind),
@@ -140,7 +140,7 @@ pub enum SaveChord {
 /// The decision behind [`SaveChord`], pure so it is testable without an
 /// egui context. `front_most` is the top-most open dirty editor; `dirty`
 /// answers for any editor, open or not. With several dirty and none open,
-/// the first in World → Avatar → Inventory order wins — the same order
+/// the first in World → Avatar → Inventory order wins - the same order
 /// the candidate scan lists them.
 pub fn resolve_save_chord(
     front_most: Option<EditorKind>,
@@ -223,7 +223,7 @@ pub struct EditorDirtyState<'w> {
 }
 
 impl EditorDirtyState<'_> {
-    /// The same live-vs-stored derivation the editors' own save rows use —
+    /// The same live-vs-stored derivation the editors' own save rows use -
     /// no per-edit flags to drift out of sync with.
     ///
     /// Per record type, because they do not share one (#1138): World and
@@ -232,7 +232,7 @@ impl EditorDirtyState<'_> {
     /// [`avatar_is_dirty`](crate::pds::avatar::avatar_is_dirty). This doc
     /// used to claim all three were the same derivation, which is how the
     /// avatar arm stayed on `records_differ` after the Save row moved off
-    /// it — a green, enabled "Save" button beside a Ctrl+S that did
+    /// it - a green, enabled "Save" button beside a Ctrl+S that did
     /// nothing at all for a sculpted body.
     fn dirty(&self, kind: EditorKind) -> bool {
         match kind {
@@ -264,7 +264,7 @@ impl EditorDirtyState<'_> {
 struct ShortcutGate {
     /// A modal dialog owned attention on the last egui pass.
     modal_open: bool,
-    /// Some egui widget has keyboard focus — in practice a text field,
+    /// Some egui widget has keyboard focus - in practice a text field,
     /// since egui 0.35 does not focus a clicked button.
     text_focus: bool,
     /// A menu, submenu, combo box or the in-scene right-click menu was
@@ -282,7 +282,7 @@ impl ShortcutGate {
     /// resumes on the next press. An open menu is the third of those
     /// (#1236 f37): egui closes a popup on Escape without telling anyone,
     /// so the same press used to cancel the menu AND clear the selection
-    /// the user was about to gizmo — the #1139 bug shape, written for
+    /// the user was about to gizmo - the #1139 bug shape, written for
     /// popups instead of modals.
     ///
     /// Deliberately Esc only. Enter and the Ctrl chords are not keys egui
@@ -324,7 +324,7 @@ impl ShortcutGate {
 /// One rung of the Esc back-out ladder (#1236). The module contract is
 /// "one step per press, first applicable wins", and before this the rungs
 /// were an `if/else if` chain inside `global_shortcuts` that two other Esc
-/// consumers were not part of at all — the drag-to-place disarm read the
+/// consumers were not part of at all - the drag-to-place disarm read the
 /// key independently in `Update`, and the gateway picker had no rung, so a
 /// press aimed at it closed a toolbar window behind it instead.
 ///
@@ -333,14 +333,14 @@ impl ShortcutGate {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum EscStep {
     /// Abort the active gizmo drag. Owned by `editor_gizmo::drag`
-    /// (PostUpdate, later this same frame) — the ladder stands down.
+    /// (PostUpdate, later this same frame) - the ladder stands down.
     GizmoDrag,
     /// Step out of blob-element editing. Owned by `editor_gizmo::blob`,
     /// same pattern.
     BlobElement,
     /// Disarm an armed drag-to-place / drag-to-gift (#831).
     DragToPlace,
-    /// Clear the ordinary editor selection — room OR avatar.
+    /// Clear the ordinary editor selection - room OR avatar.
     Selection,
     /// The audio pop-out cleared its own selection; the ladder does
     /// nothing more with this press. One step per press, so the window
@@ -365,7 +365,7 @@ pub struct EscFacts {
     /// `PendingGeneratorDrop` is armed.
     pub drag_armed: bool,
     /// Either editor holds a gizmo selection. For the avatar this is
-    /// `has_gizmo_selection()` — all THREE selections (visuals row, worn
+    /// `has_gizmo_selection()` - all THREE selections (visuals row, worn
     /// prop, worn part), not just the visuals one (#1236 f139): the other
     /// two are what `holds_avatar_still` freezes the chassis on, so a
     /// ladder that could not see them left the body frozen and answered
@@ -405,8 +405,8 @@ pub fn esc_step(facts: EscFacts) -> EscStep {
 }
 
 /// The Esc ladder's own world access, bundled so `global_shortcuts` stays
-/// well under Bevy's 16-parameter ceiling (#1236). Two of these — the
-/// gateway picker and the pending drag — are new rungs, and the system was
+/// well under Bevy's 16-parameter ceiling (#1236). Two of these - the
+/// gateway picker and the pending drag - are new rungs, and the system was
 /// at 14 with no `Commands` at all, so the bundle came first.
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct EscLadder<'w, 's> {
@@ -421,7 +421,7 @@ pub struct EscLadder<'w, 's> {
 }
 
 impl EscLadder<'_, '_> {
-    /// True while a gizmo drag is live — also read by the undo chord,
+    /// True while a gizmo drag is live - also read by the undo chord,
     /// which must not restore a record under an in-flight drag.
     fn gizmo_dragging(&self) -> bool {
         self.gizmo_targets.iter().any(|t| t.is_active())
@@ -452,7 +452,7 @@ impl EscLadder<'_, '_> {
     }
 }
 
-/// Among `candidates` (an egui area id each), the one drawn top-most —
+/// Among `candidates` (an egui area id each), the one drawn top-most -
 /// `Memory::layer_ids()` is back-to-front, so the last hit wins.
 fn topmost<T: Copy>(ctx: &egui::Context, candidates: &[(egui::Id, T)]) -> Option<T> {
     ctx.memory(|memory| {
@@ -470,7 +470,7 @@ fn topmost<T: Copy>(ctx: &egui::Context, candidates: &[(egui::Id, T)]) -> Option
     })
 }
 
-/// The title a toolbar-managed window is drawn with — which is also its
+/// The title a toolbar-managed window is drawn with - which is also its
 /// egui identity, see [`window_area_id`].
 fn window_title(window: UiWindow) -> &'static str {
     match window {
@@ -490,8 +490,8 @@ fn window_title(window: UiWindow) -> &'static str {
 /// The egui area id of a toolbar-managed window. The audio pop-out salts
 /// its own id and is handled as an explicit ladder step instead.
 ///
-/// Derived the way `egui::Window::new` derives it — `Id::new` over the
-/// title's `Atoms::text()`, an `Option<Cow<str>>` — not over the bare
+/// Derived the way `egui::Window::new` derives it - `Id::new` over the
+/// title's `Atoms::text()`, an `Option<Cow<str>>` - not over the bare
 /// `&str`. Those hash differently, and from the egui 0.35 upgrade until
 /// #1208 this function hashed the `&str`: `topmost` matched no window, so
 /// Ctrl+S never parked a request, Ctrl+Z always reported "no editor open"
@@ -595,7 +595,7 @@ pub fn global_shortcuts(
                 esc.avatar_editor.audio_editor.close();
             }
             EscStep::GatewayPicker => {
-                // #1236 f26 — the same pair the picker's own Close button
+                // #1236 f26 - the same pair the picker's own Close button
                 // writes, so the re-open chip appears exactly as it does
                 // after a click. The picker is not a `UiPanels` flag and so
                 // was never a candidate in the window scan below; the press
@@ -693,14 +693,14 @@ pub fn global_shortcuts(
                 );
             }
             SaveChord::NothingToSave => {
-                toasts.info("Nothing to save — no unsaved edits", now);
+                toasts.info("Nothing to save - no unsaved edits", now);
             }
         }
     }
 
     // ── F: go to the selection (#1244 f148) ─────────────────────────
     // Unmodified, and not on the movement letters. The camera is pinned
-    // to the chassis every frame, so there is no "look at" to bind — the
+    // to the chassis every frame, so there is no "look at" to bind - the
     // only way to bring an off-screen selection into view is to go to it.
     if keyboard.just_pressed(KeyCode::KeyF) && gate.allows_esc() {
         let now = time.elapsed_secs_f64();
@@ -719,7 +719,7 @@ pub fn global_shortcuts(
     }
 
     // ── Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y): undo / redo (#864) ────────
-    // Routes to the front-most OPEN editor window — same `topmost` scan
+    // Routes to the front-most OPEN editor window - same `topmost` scan
     // as Ctrl+S, minus the dirty gate (an empty history toasts its own
     // no-op). Suppressed mid-gizmo-drag: restoring the record under an
     // active drag would let the drag-end commit write stale transforms
@@ -728,7 +728,7 @@ pub fn global_shortcuts(
     // Inventory is a CANDIDATE even though it has no undo stack (#1139):
     // it is an `EditorKind` and a Ctrl+S target, so skipping it here meant
     // Ctrl+Z with the Inventory window front-most silently restored the
-    // World editor stacked beneath it — a whole-record replacement, with
+    // World editor stacked beneath it - a whole-record replacement, with
     // a peer broadcast, from a keypress aimed at another window. As a
     // candidate it wins the scan and `apply_undo_shortcut` says so.
     let z = keyboard.just_pressed(KeyCode::KeyZ);
@@ -767,7 +767,7 @@ pub fn global_shortcuts(
 /// `ImeEvent` is public.
 ///
 /// A non-empty `Preedit` means the IME is composing and an empty one
-/// means it was dismissed — epaint's own words — and `Commit` is the
+/// means it was dismissed - epaint's own words - and `Commit` is the
 /// composition ending, which is the frame the dangerous Enter arrives on.
 ///
 /// The one-pass tail is the reason this is not a bare event test. Whether
@@ -808,7 +808,7 @@ fn is_composition_event(event: &egui::Event) -> bool {
 
 /// Did this text field just commit on Enter? (#1263 f372)
 ///
-/// The one place both text commits in the app ask the question — chat's
+/// The one place both text commits in the app ask the question - chat's
 /// Send and the rename dialog's Apply, which were three lines apart in
 /// shape and both read the key alone.
 ///
@@ -853,21 +853,21 @@ pub fn is_ime_keystroke(key: &str, key_code: u32) -> bool {
 /// emits no `Ime` events at all, and `bevy_window` states
 /// "iOS / Android / Web: Unsupported". The real fix is a focused,
 /// visually-hidden input element mounted over the canvas whose
-/// composition events are forwarded as `egui::Event::Ime` — the shape
-/// eframe's own web backend uses — and that is upstream-shaped work in
+/// composition events are forwarded as `egui::Event::Ime` - the shape
+/// eframe's own web backend uses - and that is upstream-shaped work in
 /// bevy_egui or winit, not a change this crate can make.
 ///
 /// So the deliverable is honesty plus the workaround that does work:
 /// composing elsewhere and pasting is a real path through, and a user
 /// who is told about it can finish what they were doing. A field that
 /// silently swallows keystrokes is indistinguishable from a broken app.
-pub const IME_UNSUPPORTED_NOTICE: &str = "Typing with an input method editor isn't supported in the browser yet — your \
+pub const IME_UNSUPPORTED_NOTICE: &str = "Typing with an input method editor isn't supported in the browser yet - your \
      keystrokes are going to the IME and not to this field. Compose the text in another \
      app and paste it in with Ctrl+V.";
 
 /// wasm: swallow the browser's own Ctrl+S/Cmd+S "save page" dialog with
 /// a capture-phase keydown listener. The app deliberately leaves
-/// `prevent_default_event_handling` false so F5 / Ctrl+R keep working —
+/// `prevent_default_event_handling` false so F5 / Ctrl+R keep working -
 /// this hook preventDefaults ONLY the save chord, and the Bevy/egui
 /// pipeline still receives the key event normally. The listener is
 /// installed once at startup and leaked (`Closure::forget`): it must
@@ -889,7 +889,7 @@ pub fn install_ctrl_s_blocker() {
     if let Err(e) = window.add_event_listener_with_callback_and_bool(
         "keydown",
         closure.as_ref().unchecked_ref(),
-        true, // capture phase — runs before the browser's default
+        true, // capture phase - runs before the browser's default
     ) {
         warn!("failed to install Ctrl+S blocker: {e:?}");
     }
@@ -917,7 +917,7 @@ static IME_ATTEMPTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 /// does not intercept.
 ///
 /// Leaked with `Closure::forget` for the same reason the Ctrl+S blocker
-/// is — it must live for the whole page lifetime.
+/// is - it must live for the whole page lifetime.
 #[cfg(target_arch = "wasm32")]
 pub fn install_ime_probe() {
     use std::sync::atomic::Ordering;
@@ -1052,7 +1052,7 @@ mod tests {
 
     /// #1139, finding 114. Sequence: click into the World Editor's name or
     /// seed field, type, press Ctrl+S. The chord shared one gate with the
-    /// plain letters, so a focused text field killed it — and on wasm the
+    /// plain letters, so a focused text field killed it - and on wasm the
     /// capture-phase blocker had already eaten the browser's own save
     /// dialog, so the keypress produced nothing whatsoever. `TextEdit`
     /// never claims Ctrl+S, so there is nothing to yield to.
@@ -1075,7 +1075,7 @@ mod tests {
     }
 
     /// #1139, findings 107 and 124. Sequence: click "Revert to saved",
-    /// then press Esc to back out of the confirm — or press Enter meaning
+    /// then press Esc to back out of the confirm - or press Enter meaning
     /// "yes" on a gift offer. A modal made only of buttons focuses no
     /// widget (egui 0.35 does not focus a clicked button), so the focus
     /// test saw nothing in the way: one Esc cancelled the dialog AND closed
@@ -1098,7 +1098,7 @@ mod tests {
     /// #1236 f37. Sequence: right-click the ground, open `Create new…`,
     /// change your mind, press Esc. egui closes the menu on Escape and
     /// tells nobody, so the same press also cleared the selection you were
-    /// about to gizmo — the #1139 double-step, written for popups instead
+    /// about to gizmo - the #1139 double-step, written for popups instead
     /// of modals. Esc alone stands down: a Ctrl+S typed with a colour
     /// picker open is still a save the user meant.
     #[test]
@@ -1232,7 +1232,7 @@ mod tests {
         assert!(NOTHING_IN_THE_WAY.allows_undo());
     }
 
-    /// A rigged record and a copy of it whose ONLY difference is a sculpt —
+    /// A rigged record and a copy of it whose ONLY difference is a sculpt -
     /// a value on the serde-skipped `resolved`, so the two are byte-identical
     /// on the wire.
     fn saved_and_sculpted() -> (AvatarRecord, AvatarRecord) {
@@ -1257,7 +1257,7 @@ mod tests {
     /// #1138. Sequence: open the Avatar window on a rigged body, drag a
     /// sculpt slider (or nudge a worn prop's offset), press Ctrl+S. The
     /// chord filters its candidate windows on `dirty(kind)`, so an avatar
-    /// this gate calls clean is never even requested — the keypress does
+    /// this gate calls clean is never even requested - the keypress does
     /// nothing at all, while the green "Save" button beside it is
     /// enabled and works. This gate asked `records_differ`, which cannot
     /// see a rigged edit.
@@ -1285,7 +1285,7 @@ mod tests {
     /// #1208, finding 262. Sequence: edit in the World Editor, Esc-close
     /// the window (or delete an item from the scene menu, which never
     /// opens a window), press Ctrl+S. The candidate scan was empty and the
-    /// chord did nothing and said nothing — while Ctrl+Z in the same state
+    /// chord did nothing and said nothing - while Ctrl+Z in the same state
     /// toasts "no editor open". The chord now opens the dirty record's
     /// window and saves it.
     #[test]
@@ -1332,7 +1332,7 @@ mod tests {
     /// on: [`window_area_id`] must be the id egui actually keys the window
     /// on, or `topmost` matches nothing and Ctrl+S, Ctrl+Z and Esc-close
     /// all go quiet. egui 0.35 changed `Window::new` to hash the title's
-    /// `Atoms::text()` — an `Option<Cow<str>>`, not the `&str` — and a
+    /// `Atoms::text()` - an `Option<Cow<str>>`, not the `&str` - and a
     /// hand-built `Id::new(title)` stopped matching.
     #[test]
     fn window_area_id_is_the_id_egui_keys_the_window_on() {
@@ -1348,8 +1348,8 @@ mod tests {
     /// #1208, finding 72. Sequence: collapse the World Editor with its
     /// title-bar arrow to see the world, edit through the gizmo, press
     /// Ctrl+S. The request was parked for an open window, but a collapsed
-    /// `egui::Window` never runs its body — and the Save row that consumes
-    /// the request is in the body — so it aged out on the TTL with no
+    /// `egui::Window` never runs its body - and the Save row that consumes
+    /// the request is in the body - so it aged out on the TTL with no
     /// effect. The chord now expands the window, and the body runs on the
     /// One Enter press, as an egui event.
     #[cfg(test)]
@@ -1408,7 +1408,7 @@ mod tests {
         ))]));
 
         // An empty preedit is egui's "the IME was dismissed", not a
-        // composition — treating it as one would extend the guard past the
+        // composition - treating it as one would extend the guard past the
         // end of every composition by a pass for no reason.
         let _ = pass(vec![]);
         let _ = pass(vec![]);
@@ -1420,8 +1420,8 @@ mod tests {
     ///
     /// Driven through a real `TextEdit` in a real context, because the
     /// thing being asserted is the interaction between egui's own
-    /// return-key arm — which surrenders focus with no composition check
-    /// (`text_edit/builder.rs:1100-1117`) — and the app's read of
+    /// return-key arm - which surrenders focus with no composition check
+    /// (`text_edit/builder.rs:1100-1117`) - and the app's read of
     /// `lost_focus()`. A hand-rolled `Response` would assert nothing about
     /// that.
     #[test]
@@ -1459,7 +1459,7 @@ mod tests {
                 let response = ui.text_edit_singleline(text);
                 // Read the outcome BEFORE re-focusing. `lost_focus()` is
                 // "focused last pass, not now", so calling `request_focus`
-                // first puts the id back and answers false — which is how
+                // first puts the id back and answers false - which is how
                 // this harness reported no submit on a plain Enter until
                 // the order was fixed. Chat does the same two things in
                 // the same order for the same reason.
@@ -1507,7 +1507,7 @@ mod tests {
             "the Enter that accepts an IME candidate must not send the line"
         );
 
-        // And the next deliberate Enter, on a settled field, does send it —
+        // And the next deliberate Enter, on a settled field, does send it -
         // otherwise the guard has broken the key it was protecting.
         pass(&mut text, vec![]);
         pass(&mut text, vec![]);
@@ -1572,7 +1572,7 @@ mod tests {
         expand_window(&ctx, UiWindow::WorldEditor);
         assert!(
             pass(t + 1.0),
-            "after expanding, the body runs on the next pass — inside PUBLISH_REQUEST_TTL_FRAMES"
+            "after expanding, the body runs on the next pass - inside PUBLISH_REQUEST_TTL_FRAMES"
         );
     }
 

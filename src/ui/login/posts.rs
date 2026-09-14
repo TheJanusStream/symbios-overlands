@@ -3,7 +3,7 @@
 //! Pulls up to [`POST_LIMIT`] most-recent posts from the configured handle
 //! that contain the configured hashtag (defaults: `codewright.bsky.social`,
 //! `#Overlands`) via the public AppView's `app.bsky.feed.getAuthorFeed`
-//! lexicon — same unauthenticated pattern as [`crate::social`] and
+//! lexicon - same unauthenticated pattern as [`crate::social`] and
 //! [`crate::avatar`]'s profile fetch.
 //!
 //! The matching `app.bsky.feed.searchPosts` lexicon would let the AppView
@@ -15,8 +15,8 @@
 //!
 //! ## Configuration
 //!
-//! - `OVERLANDS_LOGIN_FEED_HANDLE` — author handle the panel reads from.
-//! - `OVERLANDS_LOGIN_FEED_HASHTAG` — hashtag to filter on.
+//! - `OVERLANDS_LOGIN_FEED_HANDLE` - author handle the panel reads from.
+//! - `OVERLANDS_LOGIN_FEED_HASHTAG` - hashtag to filter on.
 //!
 //! Both are read at compile time via [`option_env!`] so the WASM build
 //! (which has no run-time env access) can be configured at build time.
@@ -48,14 +48,14 @@ const DEFAULT_HANDLE: &str = "codewright.bsky.social";
 const DEFAULT_HASHTAG: &str = "#Overlands";
 /// Maximum number of posts the panel renders after filtering. The card
 /// body scrolls (#898), so this is a memory/layout cap rather than a
-/// visual one — it only needs to stay below [`AUTHOR_FEED_LIMIT`], past
+/// visual one - it only needs to stay below [`AUTHOR_FEED_LIMIT`], past
 /// which the single-request fetch can't reach anyway.
 const POST_LIMIT: usize = 25;
 /// How many recent posts to pull from `getAuthorFeed` before applying the
 /// hashtag filter. 100 is the API's hard maximum per request; if the
 /// hashtag is rarer than `1 in 100` of an author's recent posts, the
 /// panel will just render fewer cards. Cursor pagination would let us
-/// search deeper but is filed as a follow-up — empty-state UX already
+/// search deeper but is filed as a follow-up - empty-state UX already
 /// handles the "no matches" case gracefully.
 const AUTHOR_FEED_LIMIT: u32 = 100;
 /// Soft cap on each post body; longer text is truncated with an ellipsis
@@ -79,20 +79,20 @@ pub fn feed_panel_title() -> String {
 }
 
 /// Attribution line under the heading, e.g. `from @codewright.bsky.social`
-/// — stated once here instead of repeated on every card (#896), since
+/// - stated once here instead of repeated on every card (#896), since
 /// `getAuthorFeed` only ever returns one author's posts.
 pub fn feed_panel_subtitle() -> String {
     format!("from @{}", feed_handle())
 }
 
-/// One displayed post — strictly the fields the UI actually renders.
+/// One displayed post - strictly the fields the UI actually renders.
 /// Built from a parsed [`PostView`] in [`fetch_posts`] so the on-wire
 /// shape changes don't ripple into the render code.
 #[derive(Debug, Clone)]
 pub struct DisplayPost {
     pub text: String,
     /// `YYYY-MM-DD` slice of the original ISO 8601 timestamp. We don't
-    /// pull in chrono just to format relative ages — the date is enough
+    /// pull in chrono just to format relative ages - the date is enough
     /// for "is this fresh?" feedback on the login screen.
     pub indexed_at: String,
     pub post_url: String,
@@ -133,9 +133,9 @@ pub struct LoginFeedFetchTask(Task<Result<Vec<DisplayPost>, String>>);
 pub enum LoginFeedAction {
     /// User did nothing meaningful this frame.
     None,
-    /// User clicked the Retry button — re-dispatch the fetch.
+    /// User clicked the Retry button - re-dispatch the fetch.
     Retry,
-    /// User clicked a post card — open the URL in a browser tab.
+    /// User clicked a post card - open the URL in a browser tab.
     OpenUrl(String),
 }
 
@@ -156,7 +156,7 @@ pub fn start_login_feed_fetch(
 }
 
 /// Free helper used by both the OnEnter system and the in-UI Retry click
-/// — keeps the spawn logic single-sourced. Caller is expected to have
+/// - keeps the spawn logic single-sourced. Caller is expected to have
 /// reset [`LoginPostFeed`]'s state to `Loading` first.
 fn spawn_post_fetch_task(commands: &mut Commands) {
     let pool = IoTaskPool::get();
@@ -263,7 +263,7 @@ async fn fetch_posts() -> Result<Vec<DisplayPost>, String> {
     Ok(parsed
         .feed
         .into_iter()
-        // Skip reposts — `reason` is set only on `reasonRepost` /
+        // Skip reposts - `reason` is set only on `reasonRepost` /
         // `reasonPin` entries; original-author posts have no reason.
         .filter(|item| item.reason.is_none())
         .map(|item| item.post)
@@ -277,7 +277,7 @@ async fn fetch_posts() -> Result<Vec<DisplayPost>, String> {
                 let truncated: String = text.chars().take(TEXT_PREVIEW_CHARS).collect();
                 text = format!("{truncated}…");
             }
-            // First 10 chars of an ISO 8601 timestamp are the date —
+            // First 10 chars of an ISO 8601 timestamp are the date -
             // good enough for "is this fresh" without pulling in chrono.
             let indexed_at = p.indexed_at.chars().take(10).collect();
             Some(DisplayPost {
@@ -295,7 +295,7 @@ async fn fetch_posts() -> Result<Vec<DisplayPost>, String> {
 ///
 /// The panel used to interpolate the chain straight into red text, so
 /// being offline read as `Couldn't fetch posts: transport: error sending
-/// request for url (https://public.api.bsky.app/xrpc/…)` — an app error
+/// request for url (https://public.api.bsky.app/xrpc/…)` - an app error
 /// naming a host the reader has no relationship with, and the only red
 /// text on the first screen. The login card two inches to the left has
 /// split friendly copy from a Details disclosure since #848; this is the
@@ -307,11 +307,11 @@ pub fn friendly_feed_error(raw: &str) -> (String, Option<String>) {
     const FEED_STAGES: &[(&str, &str)] = &[
         (
             "transport:",
-            "Couldn't reach Bluesky — check your internet connection.",
+            "Couldn't reach Bluesky - check your internet connection.",
         ),
         (
             "timed out",
-            "Bluesky didn't answer in time — it may be busy.",
+            "Bluesky didn't answer in time - it may be busy.",
         ),
         (
             "HTTP ",
@@ -385,7 +385,7 @@ pub fn render_login_feed_panel(ui: &mut egui::Ui, feed: &LoginPostFeed) -> Login
                     let theme = crate::ui::theme::current(ui.ctx());
                     // Soft inset card (`chart_fill` on the card's
                     // `window_fill`) instead of the stock stroked
-                    // `ui.group` — quieter chrome, and the per-card
+                    // `ui.group` - quieter chrome, and the per-card
                     // @handle is gone (the panel subtitle states it
                     // once; `getAuthorFeed` is single-author, #896).
                     egui::Frame::new()
@@ -435,7 +435,7 @@ pub fn render_login_feed_panel(ui: &mut egui::Ui, feed: &LoginPostFeed) -> Login
 
 /// Trigger a fresh fetch from inside the login UI system without taking
 /// the existing-task `Query` (which would push the system over Bevy's
-/// 16-arg `IntoSystem` limit). Stale tasks are left alone — their results
+/// 16-arg `IntoSystem` limit). Stale tasks are left alone - their results
 /// land in [`LoginPostFeed`] before the new task's, and the new task's
 /// result wins via the natural `Vec<DisplayPost>` overwrite in the
 /// `Loaded` arm. Race-free because both paths produce equivalent output.
@@ -452,7 +452,7 @@ mod tests {
     /// THE SEQUENCE (#1234 f16): a new user opens the app offline. The
     /// only red text on the first screen reads "Couldn't fetch posts:
     /// transport: error sending request for url
-    /// (https://public.api.bsky.app/xrpc/…)" — which is an app error
+    /// (https://public.api.bsky.app/xrpc/…)" - which is an app error
     /// naming a server they have never heard of, not "you are offline".
     /// The login card beside it has split friendly copy from a Details
     /// fold since #848.
@@ -475,7 +475,7 @@ mod tests {
     }
 
     /// Every prefix `fetch_posts` can build, plus the bound `run_or`
-    /// reports, gets a sentence — and an unrecognised one still does,
+    /// reports, gets a sentence - and an unrecognised one still does,
     /// because a raw chain must never be the primary feedback.
     #[test]
     fn every_feed_failure_shape_has_a_sentence() {
@@ -513,7 +513,7 @@ mod tests {
     #[test]
     fn rkey_handles_no_slashes() {
         // A bare token (no slashes) is itself the "last path segment" by
-        // rsplit semantics — surprising but harmless: it'll just produce
+        // rsplit semantics - surprising but harmless: it'll just produce
         // a malformed bsky.app URL the user can choose not to click.
         assert_eq!(
             rkey_from_uri("loose-token"),

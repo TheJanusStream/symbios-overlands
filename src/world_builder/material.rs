@@ -41,7 +41,7 @@ fn build_water_uniforms(surface: &WaterSurface, env: &Environment) -> WaterUnifo
         ),
         // Unit toward-sun for the glitter lobe. `sun_position` is the
         // spot the directional light looks at the origin from, so its
-        // normalised form IS the toward-sun direction — the same value
+        // normalised form IS the toward-sun direction - the same value
         // `apply_environment_state` re-derives from the live light
         // transform on every later environment change.
         sun_dir: Vec3::from_array(env.sun_position.0)
@@ -87,7 +87,7 @@ pub(super) fn spawn_water_volume(
     water_surfaces: &mut WaterSurfaces,
     owner: usize,
 ) -> Entity {
-    // Water sits at the placement transform's altitude exactly — the
+    // Water sits at the placement transform's altitude exactly - the
     // record no longer carries a `level_offset` field, and the old
     // implicit `base_wl` baseline (LEVEL_FACTOR * HEIGHT_SCALE) is
     // gone too. The default homeworld preserves its historical
@@ -118,7 +118,7 @@ pub(super) fn spawn_water_volume(
     // Flat `Plane3d` at the placement transform's altitude. The
     // previous iteration spawned a 1×1×1 `Cuboid` scaled to
     // `(world_extent, wl, world_extent)` and then discarded five out
-    // of six faces in the fragment shader — a lot of rasterisation
+    // of six faces in the fragment shader - a lot of rasterisation
     // work for zero visible fragments, and `fwidth`-after-`discard`
     // is only well-defined under uniform quad control flow. The plane
     // eliminates both.
@@ -129,7 +129,7 @@ pub(super) fn spawn_water_volume(
     // Register this surface in the runtime lookup so per-frame physics
     // (rover buoyancy, scatter biome filter) can find it without re-walking
     // the record. The mesh half-extent is recorded BEFORE the transform's
-    // scale is applied — `WaterSurfaces::surface_at` re-applies the scale
+    // scale is applied - `WaterSurfaces::surface_at` re-applies the scale
     // via the inverse transform when testing containment.
     //
     // `plane_idx` is captured before the push so it can be attached to
@@ -203,7 +203,7 @@ pub(super) fn spawn_procedural_material(
     handle
 }
 
-/// Free-function core of [`spawn_procedural_material`] — takes the
+/// Free-function core of [`spawn_procedural_material`] - takes the
 /// resources upstream's
 /// [`bevy_symbios_texture::build_procedural_material_async`] needs instead
 /// of the full [`SpawnCtx`], so it could be reused without constructing a
@@ -211,7 +211,7 @@ pub(super) fn spawn_procedural_material(
 /// [`spawn_procedural_material`] is its sole caller.
 ///
 /// Returns a [`StandardMaterial`] handle whose texture slots are populated
-/// asynchronously once the texture-generator task finishes — or
+/// asynchronously once the texture-generator task finishes - or
 /// synchronously when `texture_cache` already holds the config's
 /// fingerprint, in which case no task is spawned at all. The async-path
 /// patching is performed by `patch_procedural_material_textures`
@@ -225,12 +225,12 @@ pub fn build_procedural_material(
     settings: &SovereignMaterialSettings,
 ) -> Handle<StandardMaterial> {
     let native = settings.to_native();
-    // Every procedural material — catalogue constructs, primitives, foliage
-    // cards, avatars — bakes at the shared surface/card resolution
+    // Every procedural material - catalogue constructs, primitives, foliage
+    // cards, avatars - bakes at the shared surface/card resolution
     // (`config::textures::SURFACE`); the ground-splat path is separate and
     // stays at its own higher resolution. Every variant gets the same
     // dimensions so foliage cards and tiling surfaces share the cache layout.
-    // The `TextureCache` dedups by content fingerprint *across* generators —
+    // The `TextureCache` dedups by content fingerprint *across* generators -
     // crucially it covers primitives, which have no generator-level material
     // cache, so N identical boulders bake one texture set and an unchanged
     // config re-bakes nothing on a rebuild.
@@ -238,8 +238,8 @@ pub fn build_procedural_material(
 
     let mut material = native.standard_material();
     let cache_key = native.cache_key(size, size);
-    // #957: UV offset / rotation live overlands-side only — the upstream
-    // `MaterialSettings` has no such fields — so they're applied over the
+    // #957: UV offset / rotation live overlands-side only - the upstream
+    // `MaterialSettings` has no such fields - so they're applied over the
     // upstream material rather than inside it. `standard_material` sets a
     // uniform `uv_scale` transform and documents that a caller with its own
     // convention overwrites this one field; with offset and rotation at
@@ -247,7 +247,7 @@ pub fn build_procedural_material(
     material.uv_transform = sovereign_uv_transform(settings);
 
     // Cache hit: write handles into the material before we hand it to Bevy.
-    // Full lookup — disk-backed stores read their blob and upload it into
+    // Full lookup - disk-backed stores read their blob and upload it into
     // `images` here, so a store hit short-circuits generation exactly like a
     // memory hit (same contract as the upstream helper this mirrors).
     if let Some(key) = cache_key.as_ref()
@@ -265,7 +265,7 @@ pub fn build_procedural_material(
 
     // Cache miss: dispatch generation if a generator is selected.
     //
-    // Native — the upstream path, byte-for-byte: `TextureConfig::spawn` bakes
+    // Native - the upstream path, byte-for-byte: `TextureConfig::spawn` bakes
     // on the upstream's private rayon pool (deliberately NOT Bevy's
     // `AsyncComputeTaskPool`, which its monolithic generate() loop would
     // starve) and the upstream `patch_procedural_material_textures` system
@@ -281,7 +281,7 @@ pub fn build_procedural_material(
         ));
     }
 
-    // Wasm — Bevy's task pools collapse onto the main thread, so the upstream
+    // Wasm - Bevy's task pools collapse onto the main thread, so the upstream
     // path bakes every cache miss as a frame stall (#807: the avatar re-roll
     // freeze). Route the bake through the pooled gen-worker instead; the
     // dispatch runs as a queued command so it can reach the
@@ -301,7 +301,7 @@ pub fn build_procedural_material(
     handle
 }
 
-/// Record a texture-cache hit or miss (#811 fingerprint/eviction health —
+/// Record a texture-cache hit or miss (#811 fingerprint/eviction health -
 /// see `names::RUNTIME_TEXTURE_CACHE_HIT_COUNT`) via a queued command, so
 /// [`build_procedural_material`]'s signature doesn't grow a registry
 /// parameter. A headless/test app without the metrics resource no-ops.

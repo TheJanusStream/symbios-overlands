@@ -1,4 +1,4 @@
-//! Wood pile — a Nordic *poor* prop. A neat stack of split logs laid
+//! Wood pile - a Nordic *poor* prop. A neat stack of split logs laid
 //! end-out, their sawn faces showing the growth rings, beside a chopping
 //! stump with the axe still buried in it: the winter fuel of a croft.
 
@@ -49,7 +49,7 @@ impl CatalogueEntry for WoodPile {
 fn build_tree() -> Generator {
     // The log bodies are timber; the growth rings are a separate alpha card
     // laid on the sawn face (#940). `log_end` masks away everything outside
-    // its round slice, so wrapping it around a cylinder erases the barrel —
+    // its round slice, so wrapping it around a cylinder erases the barrel -
     // it only works on a flat quad. Only the -Z faces are capped: the pile
     // is laid end-out, so the far ends are never in shot, and a second card
     // per log would double the prop's node count for nothing.
@@ -73,7 +73,7 @@ fn build_tree() -> Generator {
             [1.35, stump_h * 0.5, 0.0],
             id_quat(),
         ),
-        // Stump top faces +Y, which is the plane's own normal — no rotation.
+        // Stump top faces +Y, which is the plane's own normal - no rotation.
         // The taper narrows the top, so the card matches the smaller radius.
         prim(
             plane(
@@ -121,8 +121,8 @@ fn build_tree() -> Generator {
     // The head has to be placed ON the haft's axis, which is easy to get
     // wrong by eye: `quat_x(HAFT_TILT)` swings the haft's +Y toward +Z, so
     // its *lower* end travels to negative Z. The head used to sit at
-    // `z = +0.2` — the opposite side of the stump from the end it belongs
-    // to — which went unnoticed while the mis-masked stump was see-through
+    // `z = +0.2` - the opposite side of the stump from the end it belongs
+    // to - which went unnoticed while the mis-masked stump was see-through
     // (#940). Deriving the position from the tilt keeps the two joined.
     const HAFT_TILT: f32 = 0.35;
     const HAFT_LEN: f32 = 1.0;

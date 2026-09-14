@@ -2,7 +2,7 @@
 //! and rides the `bevy_symbios_multiuser` data channels; each variant's
 //! docstring records which channel it is expected to travel over.
 //!
-//! Avatar records are **not** broadcast inline — Identity carries just the
+//! Avatar records are **not** broadcast inline - Identity carries just the
 //! peer's DID/handle, and the receiver fetches the signed `AvatarRecord`
 //! from the owner's PDS directly. The lightweight `AvatarStateUpdate`
 //! variant nudges peers to re-fetch after a live edit. `RoomStateUpdate`
@@ -14,14 +14,14 @@
 //! record, and partial for a **rigged** one, whose payload lives in
 //! separate wardrobe and attachment records that `AvatarStateUpdate` can
 //! only name (#1122). A peer resolves those names against the owner's PDS,
-//! so what it renders is the owner's last SAVED body — and
+//! so what it renders is the owner's last SAVED body - and
 //! `AvatarRecordsPublished` is how it learns that the bytes behind those
 //! names have moved.
 //!
 //! The wire is versioned only from #1121 on: [`OverlandsMessage::Hello`]
 //! announces [`PROTOCOL_VERSION`] alongside Identity, and the byte layout of
 //! every variant is pinned by a test in this file. Neither makes two
-//! disagreeing builds compatible — nothing can, once a layout has moved — but
+//! disagreeing builds compatible - nothing can, once a layout has moved - but
 //! together they turn a layout change from a silently dropped packet into a
 //! failing test before release and a labelled peer after it.
 //!
@@ -29,7 +29,7 @@
 //! / [`OverlandsMessage::ItemOfferResponse`] pair: both are broadcast over
 //! the Reliable channel and addressed by the recipient DID inside the
 //! payload, because `bevy_symbios_multiuser` has no directed-send primitive
-//! — non-targets authenticate the DID and drop the message on receipt.
+//! - non-targets authenticate the DID and drop the message on receipt.
 
 use serde::{Deserialize, Serialize};
 
@@ -44,7 +44,7 @@ pub enum OverlandsMessage {
         rotation: [f32; 4],
     },
     /// Reliable identity announcement sent on join and periodically
-    /// thereafter. Carries only the peer's DID/handle — the avatar record
+    /// thereafter. Carries only the peer's DID/handle - the avatar record
     /// itself is pulled directly from the DID's PDS, so bad actors cannot
     /// spoof another user's vessel by broadcasting a forged payload.
     Identity { did: String, handle: String },
@@ -56,7 +56,7 @@ pub enum OverlandsMessage {
     /// record itself, because `RoomRecord` contains internally-tagged enums
     /// (`#[serde(tag = "$type")]` on `Generator`, `Placement`, and
     /// `ScatterBounds`) that require `serde::Deserializer::deserialize_any`
-    /// — and bincode, which `bevy_symbios_multiuser` uses for its data
+    /// - and bincode, which `bevy_symbios_multiuser` uses for its data
     /// channels, explicitly does not support that method. Guests would
     /// otherwise see "Bincode does not support the
     /// serde::Deserializer::deserialize_any method" every time the owner
@@ -65,7 +65,7 @@ pub enum OverlandsMessage {
     /// byte buffer that bincode can shuttle verbatim.
     RoomStateUpdate { record_json: Vec<u8> },
     /// Hot update for the sender's own avatar. The payload is a
-    /// JSON-serialised [`AvatarRecord`] — same rationale as
+    /// JSON-serialised [`AvatarRecord`] - same rationale as
     /// `RoomStateUpdate` (bincode cannot handle the `#[serde(tag = "$type")]`
     /// open union on `AvatarBody`). Sent over the Reliable channel as a
     /// live preview of the peer's editor state, so other players see edits
@@ -77,7 +77,7 @@ pub enum OverlandsMessage {
     /// whose authenticated DID matches `target_did` acts on it.
     ///
     /// Broadcast-with-address is used because
-    /// [`bevy_symbios_multiuser::messages::Broadcast`] has no directed-send primitive —
+    /// [`bevy_symbios_multiuser::messages::Broadcast`] has no directed-send primitive -
     /// non-targets drop the message on receipt after the DID check. The
     /// `generator_json` payload is a JSON-serialised [`Generator`] for the
     /// same reason [`Self::RoomStateUpdate`] ships JSON-in-bincode:
@@ -91,15 +91,15 @@ pub enum OverlandsMessage {
     ///
     /// # Envelope and payload (#1184)
     ///
-    /// Everything the item *is* — its name, its blueprint, its wear
-    /// metadata — lives in `payload_json` as one JSON
+    /// Everything the item *is* - its name, its blueprint, its wear
+    /// metadata - lives in `payload_json` as one JSON
     /// [`ItemOfferPayload`]. This is the variant that already broke once:
     /// 59ff989 appended `wear_json` beside four bincode fields with no
     /// version bump, and every gift across that boundary has failed
     /// silently since, because bincode identifies fields by position and
     /// a peer on the other side decodes an error it can only drop. Inside
-    /// a JSON payload a new field is additive — serde skips what it does
-    /// not know and defaults what is missing — so the variant leaves the
+    /// a JSON payload a new field is additive - serde skips what it does
+    /// not know and defaults what is missing - so the variant leaves the
     /// layout-break class entirely. Same shape [`Self::RoomStateUpdate`]
     /// and [`Self::AvatarStateUpdate`] already use.
     ///
@@ -109,7 +109,7 @@ pub enum OverlandsMessage {
     /// so every peer in the room receives every gift and all but one of
     /// them drop it. Reading the address without parsing a blueprint that
     /// peer is about to discard is worth an envelope, and the two
-    /// auto-decline paths — muted sender, busy recipient — answer with
+    /// auto-decline paths - muted sender, busy recipient - answer with
     /// `offer_id` before any decode as well. Neither field is one that
     /// grows; the item is.
     ///
@@ -129,9 +129,9 @@ pub enum OverlandsMessage {
     /// Same envelope/payload split as [`Self::ItemOffer`] and for the same
     /// reason (#1184): the address is read by every peer, the answer by
     /// one. [`ItemOfferResponsePayload`] currently carries only
-    /// `accepted` — `true` means the recipient added the item to their
+    /// `accepted` - `true` means the recipient added the item to their
     /// inventory, `false` covers decline / mute / busy / full /
-    /// over-capacity — and a decline *reason* is the obvious next field,
+    /// over-capacity - and a decline *reason* is the obvious next field,
     /// which is exactly the addition this shape makes free.
     ItemOfferResponse {
         offer_id: u64,
@@ -147,7 +147,7 @@ pub enum OverlandsMessage {
     /// into an `OverlandsMessage` that is then dispatched as if it had
     /// arrived whole. Always sent on the ordered Reliable channel so `seq`
     /// order is preserved and no fragment is lost. `msg_id` is unique per
-    /// sender only — a monotonic counter — so it need not be globally unique.
+    /// sender only - a monotonic counter - so it need not be globally unique.
     ChunkedPayload {
         msg_id: u64,
         seq: u16,
@@ -159,7 +159,7 @@ pub enum OverlandsMessage {
     /// different CONTENT at the same rkeys, so any resolution a peer is
     /// carrying for them is stale and must be re-fetched.
     ///
-    /// It carries nothing — the sender is the message's identity, and the
+    /// It carries nothing - the sender is the message's identity, and the
     /// references are already on the peer's copy of the record. It exists
     /// because references alone cannot express "same rkey, new bytes": a
     /// re-broadcast `AvatarStateUpdate` names the same wardrobe and
@@ -168,7 +168,7 @@ pub enum OverlandsMessage {
     /// resolution forward and the peer never re-fetches.
     ///
     /// **Added last on purpose.** The wire has no protocol version (#1121),
-    /// and bincode encodes a variant by index — so a new arm may only be
+    /// and bincode encodes a variant by index - so a new arm may only be
     /// appended, where an older build meets an unknown discriminant and
     /// drops the message rather than mis-reading an existing one. An older
     /// peer therefore keeps today's behaviour (it sees the saved body on
@@ -186,8 +186,8 @@ pub enum OverlandsMessage {
     /// side of that commit decodes to an error, is dropped after a
     /// rate-limited warn, and leaves the sender waiting forever for an
     /// `ItemOfferResponse` that cannot come. Neither user learns why. This
-    /// variant does not FIX that — nothing can make two layouts compatible
-    /// after the fact — it makes it say so, on the peer's row in the People
+    /// variant does not FIX that - nothing can make two layouts compatible
+    /// after the fact - it makes it say so, on the peer's row in the People
     /// window and in the session log.
     ///
     /// `protocol` is [`PROTOCOL_VERSION`]; `build` is the human-readable
@@ -198,7 +198,7 @@ pub enum OverlandsMessage {
     ///
     /// Appended last, for the reason [`Self::AvatarRecordsPublished`] gives:
     /// a build that predates this arm meets an unknown discriminant and drops
-    /// the message, which is exactly the outcome we want — it cannot announce
+    /// the message, which is exactly the outcome we want - it cannot announce
     /// a version it does not have, and its SILENCE is the signal (see
     /// [`crate::config::network::PROTOCOL_ANNOUNCE_GRACE_SECS`]).
     Hello { protocol: u16, build: String },
@@ -216,12 +216,12 @@ pub enum OverlandsMessage {
     /// deriving the same recipe, and during an owner's slider drag they
     /// routinely do not.
     ///
-    /// Advisory in the strongest sense — the receiver logs a mismatch and
+    /// Advisory in the strongest sense - the receiver logs a mismatch and
     /// changes NOTHING. A peer that sends a wrong digest gets a wrong line in
     /// somebody's log, which is the correct ceiling for a diagnostic that
     /// arrives over an unauthenticated channel.
     ///
-    /// Appended last, and [`PROTOCOL_VERSION`] bumped with it — the pattern
+    /// Appended last, and [`PROTOCOL_VERSION`] bumped with it - the pattern
     /// [`Self::Hello`] documents.
     WorldDigest { record_fp: u64, digest: u64 },
 }
@@ -232,20 +232,20 @@ pub enum OverlandsMessage {
 /// field added here is additive on the wire: serde ignores members it does
 /// not know and `#[serde(default)]` fills members that are absent, which
 /// means a build that grows this struct can still trade gifts with one
-/// that has not. Every field is `default`ed for that reason — a decoder
+/// that has not. Every field is `default`ed for that reason - a decoder
 /// that refuses a payload for a missing member would give the version
 /// skew back.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(default)]
 pub struct ItemOfferPayload {
     /// The stash name the sender knows the item by. The recipient does not
-    /// have to honour it — [`crate::ui::inventory`] picks a free key.
+    /// have to honour it - [`crate::ui::inventory`] picks a free key.
     pub item_name: String,
     /// The item's blueprint. JSON all the way down because `Generator` is
     /// an internally tagged open union (`#[serde(tag = "$type")]`), which
     /// bincode's streaming decoder cannot handle at all.
     pub generator: Generator,
-    /// Wear metadata (#1108) — socket, fit and saved offset — so a gifted
+    /// Wear metadata (#1108) - socket, fit and saved offset - so a gifted
     /// wearable arrives wearable rather than as decor. Absent for plain
     /// decor.
     ///
@@ -264,7 +264,7 @@ pub struct ItemOfferPayload {
 /// the merge the wear metadata was its own `Vec<u8>` with its own decoder,
 /// so a malformed one degraded the gift to decor and the item still
 /// arrived. Folding it into one struct would have made a bad `wear` refuse
-/// the gift outright — a strictly worse outcome, since the blueprint is
+/// the gift outright - a strictly worse outcome, since the blueprint is
 /// intact and the placement is a convenience the recipient can redo.
 fn lenient_wear<'de, D>(
     deserializer: D,
@@ -279,8 +279,8 @@ where
 /// Why an [`OverlandsMessage::ItemOffer`] was refused (#1220 f127).
 ///
 /// The sender's only feedback used to be a boolean, so a mechanical
-/// throttle and a person's choice reached them as the same sentence —
-/// "@them declined" — which misattributes the throttle AND teaches the
+/// throttle and a person's choice reached them as the same sentence -
+/// "@them declined" - which misattributes the throttle AND teaches the
 /// sender not to retry in the one case where retrying works.
 ///
 /// A muted sender is deliberately NOT given its own arm: telling somebody
@@ -289,7 +289,7 @@ where
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum DeclineReason {
-    /// A person answered no — or was muted, which reports the same way.
+    /// A person answered no - or was muted, which reports the same way.
     #[default]
     Declined,
     /// The single-dialog anti-spam gate turned the offer away because
@@ -305,12 +305,12 @@ pub enum DeclineReason {
 /// The sentence the SENDER sees when a gift is refused (#1220 f127).
 ///
 /// One place, because there are four reasons and they used to share one
-/// sentence — "@them declined" — which misattributed a mechanical throttle
+/// sentence - "@them declined" - which misattributed a mechanical throttle
 /// to a person's choice and, worse, taught the sender not to retry in the
 /// one case where retrying works. A muted sender reads `Declined`
 /// deliberately: telling somebody they have been muted is a privacy leak.
 ///
-/// It lived in `ui::inventory` and had exactly one non-test caller —
+/// It lived in `ui::inventory` and had exactly one non-test caller -
 /// `network::inbound::item_offer`, which is not `ui` at all (#1297).
 /// The sentence explains a [`DeclineReason`]; it belongs beside the
 /// enum whose four variants it exists to tell apart.
@@ -318,10 +318,10 @@ pub fn offer_refusal_line(reason: DeclineReason, who: &str, item: &str) -> Strin
     match reason {
         DeclineReason::Declined => format!("{who} declined \"{item}\"."),
         DeclineReason::Busy => {
-            format!("{who} was answering another offer — try \"{item}\" again in a moment.")
+            format!("{who} was answering another offer - try \"{item}\" again in a moment.")
         }
         DeclineReason::Unavailable => {
-            format!("{who} couldn't take \"{item}\" — their inventory is full.")
+            format!("{who} couldn't take \"{item}\" - their inventory is full.")
         }
         DeclineReason::Unanswered => format!("{who} didn't answer about \"{item}\" in time."),
     }
@@ -346,7 +346,7 @@ pub struct ItemOfferResponsePayload {
     ///
     /// Read leniently: see [`lenient_reason`]. A reason a FUTURE build
     /// invents must degrade to `Declined` rather than fail the whole
-    /// response — a response that will not decode leaves the sender's
+    /// response - a response that will not decode leaves the sender's
     /// pending offer untouched until it expires three minutes later, which
     /// is a worse outcome than a slightly vague sentence.
     #[serde(deserialize_with = "lenient_reason")]
@@ -356,7 +356,7 @@ pub struct ItemOfferResponsePayload {
 /// Deserialize [`ItemOfferResponsePayload::reason`] leniently: a value this
 /// build does not recognise yields [`DeclineReason::Declined`].
 ///
-/// The same shape as [`lenient_wear`], for the same reason — one unreadable
+/// The same shape as [`lenient_wear`], for the same reason - one unreadable
 /// field must not cost the whole message.
 fn lenient_reason<'de, D>(deserializer: D) -> Result<DeclineReason, D::Error>
 where
@@ -370,8 +370,8 @@ where
 ///
 /// Bump it in the same commit as any change to that layout: a new field on an
 /// existing variant, a field's type, a field's order, or a new variant. (A new
-/// variant appended at the end is the one change an older peer survives — it
-/// drops the unknown discriminant — but it still changes what the two ends can
+/// variant appended at the end is the one change an older peer survives - it
+/// drops the unknown discriminant - but it still changes what the two ends can
 /// do together, so it still earns a bump.)
 ///
 /// Starts at 1 rather than 0 so that "the peer sent no [`OverlandsMessage::Hello`]"
@@ -381,13 +381,13 @@ where
 /// [`OverlandsMessage::WorldDigest`] (#1146); 3 moved
 /// [`OverlandsMessage::ItemOffer`] and
 /// [`OverlandsMessage::ItemOfferResponse`] onto single JSON payloads
-/// (#1184) — a deliberate break, so that the *next* field either of them
+/// (#1184) - a deliberate break, so that the *next* field either of them
 /// grows is not one.
 pub const PROTOCOL_VERSION: u16 = 3;
 
 /// This build's human-readable identity for [`OverlandsMessage::Hello`]:
 /// crate version plus the short git sha `build.rs` bakes in. Only ever
-/// displayed and logged — never compared.
+/// displayed and logged - never compared.
 pub fn build_id() -> String {
     format!(
         "{}+{}",
@@ -412,7 +412,7 @@ fn serialize_for_wire<T: serde::Serialize>(record: &T, kind: &str) -> Option<Vec
 impl OverlandsMessage {
     /// Package a [`RoomRecord`] for broadcast over the P2P channel.
     ///
-    /// `None` when the record cannot be serialized — in practice when it
+    /// `None` when the record cannot be serialized - in practice when it
     /// holds a union arm this build decoded as `Unknown` and therefore must
     /// not write back (#1111). The caller skips the broadcast: peers read
     /// the authoritative record from the owner's PDS, decoded by whatever
@@ -426,7 +426,7 @@ impl OverlandsMessage {
 
     /// Attempt to decode a [`RoomRecord`] from a `RoomStateUpdate` payload.
     /// Returns `None` if the bytes are not valid JSON or the schema drifted
-    /// incompatibly — the caller should log and ignore rather than crash.
+    /// incompatibly - the caller should log and ignore rather than crash.
     pub fn decode_room_state(bytes: &[u8]) -> Option<RoomRecord> {
         match serde_json::from_slice(bytes) {
             Ok(r) => Some(r),
@@ -525,8 +525,8 @@ impl OverlandsMessage {
     }
 
     /// Serialize a whole message to the byte form the chunker splits and the
-    /// receiver reassembles ([`Self::ChunkedPayload`]). Uses `bincode` — the
-    /// same compact codec the multiuser data channel uses on the wire — rather
+    /// receiver reassembles ([`Self::ChunkedPayload`]). Uses `bincode` - the
+    /// same compact codec the multiuser data channel uses on the wire - rather
     /// than JSON, because `serde_json` encodes the `record_json` /
     /// `generator_json` `Vec<u8>` payloads as a number array (~3.5× bloat),
     /// which would over-fragment every message and inflate the measured size
@@ -542,7 +542,7 @@ impl OverlandsMessage {
     /// [`Self::ChunkedPayload`] fragments. Bounded by
     /// [`crate::config::network::MAX_RELIABLE_PAYLOAD_BYTES`] so a hostile peer
     /// cannot craft a length prefix that provokes a huge allocation. `None` on
-    /// malformed bytes — the caller logs and drops rather than crashing.
+    /// malformed bytes - the caller logs and drops rather than crashing.
     pub fn from_chunk_bytes(bytes: &[u8]) -> Option<Self> {
         use bincode::Options;
         let opts = bincode::DefaultOptions::new()
@@ -564,7 +564,7 @@ mod item_offer_tests {
 
     /// #1220 f127. The sequence: you gift two friends in quick succession,
     /// the second one's client is still showing the first dialog, and you
-    /// are told "@second declined" — a mechanical throttle reported as a
+    /// are told "@second declined" - a mechanical throttle reported as a
     /// person's choice, and phrasing that teaches you not to retry in the
     /// one case where retrying works.
     #[test]
@@ -620,8 +620,8 @@ mod item_offer_tests {
         payload_json.clone()
     }
 
-    /// #1108: the wear metadata survives the whole wire path — JSON inside
-    /// the message, the message through bincode (the chunker's codec) —
+    /// #1108: the wear metadata survives the whole wire path - JSON inside
+    /// the message, the message through bincode (the chunker's codec) -
     /// and comes back equal, fit and offset included. Decor carries none.
     #[test]
     fn a_gifted_wearable_keeps_its_wear_metadata_across_the_wire() {
@@ -682,7 +682,7 @@ mod item_offer_tests {
     /// The whole reason the variant moved. `wear_json` was appended to
     /// `ItemOffer` in 59ff989 as a fifth bincode field, and because
     /// bincode identifies fields by position, every gift across that
-    /// boundary decoded as an error the receiver could only drop —
+    /// boundary decoded as an error the receiver could only drop -
     /// silently, for as long as it took #1121 to build a detector. Inside
     /// a JSON payload the same addition is invisible to an older peer.
     ///
@@ -777,7 +777,7 @@ mod item_offer_tests {
             assert!(!back.accepted);
         }
 
-        // 2. An older peer's payload — the shape before this field existed.
+        // 2. An older peer's payload - the shape before this field existed.
         let old = br#"{"accepted":false}"#;
         let back = OverlandsMessage::decode_item_offer_response(old)
             .expect("a payload without the field still decodes");
@@ -813,7 +813,7 @@ mod item_offer_tests {
     }
 
     /// A reason a FUTURE build invents degrades to `Declined` rather than
-    /// failing the whole response — a response that will not decode leaves
+    /// failing the whole response - a response that will not decode leaves
     /// the sender's pending offer untouched until it expires three minutes
     /// later, which is worse than a slightly vague sentence.
     #[test]
@@ -854,7 +854,7 @@ mod item_offer_tests {
 mod tests {
     use super::*;
 
-    /// Every variant, in declaration order — the list the discriminant pin
+    /// Every variant, in declaration order - the list the discriminant pin
     /// below walks. A new arm belongs at the END of both.
     fn one_of_each() -> Vec<OverlandsMessage> {
         vec![
@@ -904,7 +904,7 @@ mod tests {
     }
 
     /// The wire carries no protocol version (#1121), and bincode identifies
-    /// a variant by its INDEX — so an arm inserted anywhere but the end
+    /// a variant by its INDEX - so an arm inserted anywhere but the end
     /// silently re-points every later one, and two builds in the same room
     /// would read each other's messages as the wrong kind with no error.
     /// This pins the mapping: #1122's `AvatarRecordsPublished` is last, and
@@ -916,7 +916,7 @@ mod tests {
             assert_eq!(
                 bytes.first().copied(),
                 Some(index as u8),
-                "variant {index} moved on the wire — a new arm must be appended, never inserted"
+                "variant {index} moved on the wire - a new arm must be appended, never inserted"
             );
         }
     }
@@ -935,7 +935,7 @@ mod tests {
         ));
     }
 
-    /// The byte layout of every variant, as the DATA CHANNEL encodes it —
+    /// The byte layout of every variant, as the DATA CHANNEL encodes it -
     /// `bevy_symbios_multiuser::systems::bincode_options()`, fixint and
     /// little-endian, which is a different encoding from the varint
     /// `DefaultOptions` [`OverlandsMessage::to_chunk_bytes`] uses inside a
@@ -944,7 +944,7 @@ mod tests {
     ///
     /// Generated once from [`one_of_each`]; each entry is the full hex
     /// encoding of that variant with the field values that function supplies.
-    /// Do not "fix" a failure by re-generating it — a changed line means the
+    /// Do not "fix" a failure by re-generating it - a changed line means the
     /// wire moved, and the questions are whether the change was appended and
     /// whether [`PROTOCOL_VERSION`] went up in the same commit.
     const WIRE_LAYOUT: &[(&str, &str)] = &[
@@ -960,8 +960,8 @@ mod tests {
         ("RoomStateUpdate", "030000000000000000000000"),
         ("AvatarStateUpdate", "040000000000000000000000"),
         // #1184 moved both of these onto a single JSON payload, so what
-        // is pinned here is now the ENVELOPE — discriminant, offer id,
-        // address, payload length — and the payload itself is opaque
+        // is pinned here is now the ENVELOPE - discriminant, offer id,
+        // address, payload length - and the payload itself is opaque
         // bytes, exactly as it is for the two state updates above. That is
         // the point: fields added inside the payload no longer move any
         // line in this table, which is what stops the next `wear_json`
@@ -993,7 +993,7 @@ mod tests {
     /// #1121. The failure this pins is the one that already shipped:
     /// `ItemOffer` gained `wear_json` in 59ff989 with no version bump and no
     /// test, so the break reached users as a gift that never arrived. A field
-    /// added to any variant here now fails this assertion instead — which is
+    /// added to any variant here now fails this assertion instead - which is
     /// the whole point, because the wire cannot tell you it broke and the
     /// receiving peer only ever sees a decode error it must drop.
     ///
@@ -1008,7 +1008,7 @@ mod tests {
         assert_eq!(
             messages.len(),
             WIRE_LAYOUT.len(),
-            "a variant was added or removed without a line in WIRE_LAYOUT — \
+            "a variant was added or removed without a line in WIRE_LAYOUT - \
              append the new arm to both, and bump PROTOCOL_VERSION"
         );
         for (message, (name, expected)) in messages.iter().zip(WIRE_LAYOUT) {
@@ -1025,7 +1025,7 @@ mod tests {
     }
 
     /// A version nobody bumps is a version nobody has. This does not prove the
-    /// bump happened — no test can — but it pins the pairing so the two facts
+    /// bump happened - no test can - but it pins the pairing so the two facts
     /// live in one place: when [`WIRE_LAYOUT`] above fails, this constant is
     /// what has to move with it.
     #[test]

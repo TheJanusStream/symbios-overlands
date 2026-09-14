@@ -4,7 +4,7 @@ use crate::urban::test_support::*;
 use bevy_symbios_ground::HeightMap;
 
 /// #584 STEP-A lock: with no junction pins, `level_chain` is the #573 two-pass
-/// upward grade limit — a flat floor stays flat, a dip is bridged UPWARD (never
+/// upward grade limit - a flat floor stays flat, a dip is bridged UPWARD (never
 /// buries) at no more than the longitudinal grade.
 #[test]
 fn level_chain_no_pins_keeps_the_floor() {
@@ -26,7 +26,7 @@ fn level_chain_no_pins_keeps_the_floor() {
 }
 
 /// #584: a junction pin ramps the deck back to its natural floor at the gentler
-/// [`JUNCTION_APPROACH_GRADE`] — over a flat floor the height is exactly the
+/// [`JUNCTION_APPROACH_GRADE`] - over a flat floor the height is exactly the
 /// pin minus grade × arc-distance (until it meets the floor), so the transition
 /// spreads over many frames, not a kick at the mouth.
 #[test]
@@ -43,8 +43,8 @@ fn level_chain_pin_ramps_back_at_the_junction_grade() {
     }
 }
 
-/// #584: every road meeting a junction is levelled to ONE shared height — the
-/// max incident mouth — and the deck never carves below its terrain floor. The
+/// #584: every road meeting a junction is levelled to ONE shared height - the
+/// max incident mouth - and the deck never carves below its terrain floor. The
 /// pass is deterministic (a pure function of its inputs).
 #[test]
 fn level_network_pins_all_arm_mouths_to_the_max() {
@@ -99,7 +99,7 @@ fn level_network_pins_all_arm_mouths_to_the_max() {
     );
 }
 
-/// #584: a connector between TWO junctions satisfies both — each junction's
+/// #584: a connector between TWO junctions satisfies both - each junction's
 /// incident mouths come out level, and raising the high junction propagates up
 /// the low one through the connector (the relaxation's cross-junction coupling).
 #[test]

@@ -6,7 +6,7 @@
 //! palette, scatter and settlement rules inside the file that defines the
 //! record's serialised shape. They are different jobs with different
 //! review needs: the record's shape is a compatibility contract with the
-//! PDS, while this is the **determinism contract between peers** — every
+//! PDS, while this is the **determinism contract between peers** - every
 //! client re-derives the same seeded room from the same DID, so a change
 //! here changes what other people see standing in the same world (#1159).
 //!
@@ -17,7 +17,7 @@
 //! Nothing here decides its own values: each rule is derived by a sibling
 //! module of [`crate::seeded_defaults`] (palette, terrain, atmosphere,
 //! scatters, siting, settlement, gateway, monument, audio) and this file
-//! is where those derived shapes are *wired into a record* — the `apply_*`
+//! is where those derived shapes are *wired into a record* - the `apply_*`
 //! helpers below are that wiring and nothing more.
 
 use std::collections::HashMap;
@@ -32,14 +32,14 @@ use crate::pds::types::{Fp, Fp2, Fp3, Fp4, Fp64, TransformData};
 
 /// Zero-configuration homeworld. When a client visits a DID whose owner
 /// has never saved a custom record, this builds the canonical default
-/// recipe on the fly — a base terrain plus a base water plane — so the
+/// recipe on the fly - a base terrain plus a base water plane - so the
 /// world builder always has something valid to compile.
 ///
 /// Every seedable parameter (terrain seed, biome palette, water tint,
 /// fog, clouds) is derived from the DID via `crate::seeded_defaults`,
 /// so freshly-visited overlands are visibly distinct per owner without
 /// requiring anyone to touch the editor. Authored records that have
-/// been published to a PDS keep their stored values verbatim — the
+/// been published to a PDS keep their stored values verbatim - the
 /// seed pipeline only fills in the blank-record case here.
 pub fn build_room_for_did(did: &str) -> RoomRecord {
     build_room(crate::seeded_defaults::fnv1a_64(did), did)
@@ -47,14 +47,14 @@ pub fn build_room_for_did(did: &str) -> RoomRecord {
 
 /// Per-instance entity ceiling for one seeded tree (#810). L-system
 /// expansion is exponential in `iterations`, and the field census measured
-/// 111 → 10,242 entities per tree across seeds — the deriver steps a
+/// 111 → 10,242 entities per tree across seeds - the deriver steps a
 /// tree's iterations down until its measured expansion fits under this.
 /// 1,600 keeps the lushest healthy species observed (~1,557/tree) intact
 /// while amputating the order-of-magnitude outliers.
 pub(crate) const TREE_ENTITY_BUDGET: u64 = 1_600;
 
-/// Room-wide ceiling for **all** seeded vegetation entities — trees plus
-/// ground cover — as Σ(scatter count × per-instance) (#810, #911).
+/// Room-wide ceiling for **all** seeded vegetation entities - trees plus
+/// ground cover - as Σ(scatter count × per-instance) (#810, #911).
 ///
 /// ~8–10 % of seeds previously projected 300 k–978 k (the
 /// `MAX_ROOM_ENTITIES` fail-stop is 500 k), which is a 1.4 fps slideshow
@@ -64,7 +64,7 @@ pub(crate) const TREE_ENTITY_BUDGET: u64 = 1_600;
 ///
 /// The two tiers share one ceiling rather than holding independent ones:
 /// exceeding `MAX_ROOM_ENTITIES` makes the executor silently truncate and
-/// abandon the rest of the placement queue — a hard visual cliff — so the
+/// abandon the rest of the placement queue - a hard visual cliff - so the
 /// total is what has to be bounded. Sharing also lets the tiers trade
 /// against each other: since #812 baked props into mesh buckets a tree
 /// costs only a handful of entities, leaving most of this headroom for the
@@ -73,12 +73,12 @@ pub(crate) const ROOM_VEGETATION_ENTITY_BUDGET: u64 = 120_000;
 
 /// Grid size of the derive-time proxy heightmap used for settlement
 /// siting (#905). At the default 512-cell / ~2 m terrain this is a
-/// ~10 m proxy cell — building-footprint scale, coarse enough that
+/// ~10 m proxy cell - building-footprint scale, coarse enough that
 /// the synchronous generation stays a low-single-digit-millisecond
 /// cost inside `default_for_seed`.
 const SETTLEMENT_PROXY_GRID: u32 = 96;
 
-/// Build the seeded default room from a pre-computed seed — the
+/// Build the seeded default room from a pre-computed seed - the
 /// manual re-roll path. `seed` drives every derived value (terrain
 /// shape, palette, atmosphere, scatters, landmark, audio, …); `did`
 /// is kept only for the per-species generator builders that take the
@@ -148,14 +148,14 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
     // region. Terrain sits at the root (only valid position for
     // Terrain) and the room's water is a child of it (only valid
     // position for Water). Saving `base_terrain` to inventory now
-    // captures the entire homeworld — heightmap + water — as one
+    // captures the entire homeworld - heightmap + water - as one
     // portable blueprint.
     let mut base_region = Generator::from_kind(GeneratorKind::Terrain(terrain_cfg));
     // Water altitude is the seeded `water_level_fraction` of the
     // seeded `height_scale` (`seeded_water_y`, computed above for
     // the terrain probe). Expressed as a fraction so a tall craggy
     // room and a short rolling room can both read as "30 %
-    // submerged" — the absolute Y differs but the proportion of
+    // submerged" - the absolute Y differs but the proportion of
     // land vs water stays meaningful. Archetype + biome biases
     // happen inside `TerrainShape::from_scene`.
     base_region.children.push(Generator {
@@ -171,7 +171,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
     });
 
     // Seeded rooms grow no road network: the RoadNetwork generator (and
-    // its lot-building layer) is editor-opt-in only — the road graph +
+    // its lot-building layer) is editor-opt-in only - the road graph +
     // up-to-hundreds of lot buildings are too heavy for a good default
     // room on wasm. Rooms that already carry a RoadNetwork child (saved
     // or authored) still mesh and populate as before.
@@ -209,7 +209,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
         };
         let mut tree_gen = species_entry.build(did);
         // Apply this stand's material re-skin (#910). Purely a material
-        // edit — geometry is untouched, so the L-system mesh cache
+        // edit - geometry is untouched, so the L-system mesh cache
         // (keyed on the geometry fingerprint) still shares one derivation
         // across every variant of a species, while the separate material
         // cache keeps the variants' textures apart.
@@ -245,7 +245,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
             *iterations = (*iterations as i32 + scatter.iterations_delta).max(2) as u32;
             // #810 per-tree ceiling: step iterations down until the
             // measured expansion fits. A grammar error (`None`) is left
-            // untouched — the spawn path skips those generators, so they
+            // untouched - the spawn path skips those generators, so they
             // cost nothing either way.
             loop {
                 match crate::world_builder::lsystem::lsystem_entity_estimate(
@@ -276,7 +276,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
 
     // Ground-cover tier (#911): the cheap card props below the trees.
     // These are primitive trees, not grammars, so their per-instance cost
-    // is just the node count — exact, and no iteration stepping needed.
+    // is just the node count - exact, and no iteration stepping needed.
     let mut pending_ground_cover = Vec::with_capacity(ground_cover.scatters.len());
     for scatter in ground_cover.scatters.iter() {
         let Some(entry) = crate::catalogue::by_slug(scatter.species.slug()) else {
@@ -291,7 +291,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
 
     // #810/#911 room budget: if the measured projection exceeds the shared
     // vegetation ceiling (dense biome × several lush scatters), scale every
-    // scatter's count proportionally — both tiers thin uniformly instead of
+    // scatter's count proportionally - both tiers thin uniformly instead of
     // one scatter vanishing or one tier starving the other. `max(1)` keeps
     // each stand and patch present so the biome still reads.
     let tree_projected: u64 = pending_tree_scatters
@@ -362,7 +362,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
                 biomes: scatter.species.biome_layers(),
                 // Per-species too (#914): Above stays the default, and
                 // only the aquatic cover (lilies, wading reeds) opts
-                // into the water — the #335 lesson.
+                // into the water - the #335 lesson.
                 water: scatter.species.water_relation(),
             },
             snap_to_terrain: true,
@@ -381,7 +381,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
                 // Habitat bands (#914) are exempt from relaxation: a
                 // shoreline or shallows band covering a sliver of the
                 // disc is the band working, not the band unsatisfiable
-                // — see `water_band_is_habitat`.
+                // - see `water_band_is_habitat`.
                 if !scatter.species.water_band_is_habitat() {
                     terrain_probe.relax_unsatisfiable_bands(&mut n, scatter.center, scatter.radius);
                 }
@@ -432,7 +432,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
             count: rock.count,
             local_seed: rock.local_seed,
             biome_filter: BiomeFilter {
-                // 1=Dirt, 2=Rock — boulders avoid manicured grass.
+                // 1=Dirt, 2=Rock - boulders avoid manicured grass.
                 biomes: vec![1, 2],
                 water: WaterRelation::Above,
             },
@@ -506,7 +506,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
     });
 
     // Seeded settlement, sited on the terrain (#905): the plan places
-    // its clusters inside the probe's buildable flat regions — one
+    // its clusters inside the probe's buildable flat regions - one
     // primary landmark cluster (kept under the historical "landmark"
     // generator name the gateway and compile layers key on), an
     // optional second landmark cluster on naturally-partitioned
@@ -556,7 +556,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
             // Props are sampled with replacement, so the same prop can
             // recur (within and across clusters). Share one generator per
             // distinct prop slug (named by slug) and reference it from
-            // each copy's placement — the compiler bakes that mesh once
+            // each copy's placement - the compiler bakes that mesh once
             // and instances it, instead of carrying a near-duplicate
             // Region Asset per copy (mirrors the lot-building layer).
             for member in &cluster.props {
@@ -584,7 +584,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
     // login) arrive at the settlement frontage rather than the empty
     // region centre. (Caveat: the placement is water-avoiding, so on a
     // soaked bearing the compiled gate can walk off the recorded
-    // landing — the landing still resolves its height from the
+    // landing - the landing still resolves its height from the
     // heightmap and stays functional.)
     let mut default_landing = None;
     let gateway_entry =
@@ -600,7 +600,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
             gate_clearance,
         );
         let mut gate = entry.build(did);
-        // Socio finish for material coherence — but no ruin pass: a
+        // Socio finish for material coherence - but no ruin pass: a
         // collapsed gate that still teleports reads as a bug, not
         // flavour.
         crate::pds::material_finish::apply_socio_finish(
@@ -630,7 +630,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
         // Owner monument (#975): the themed monument carrying the room
         // owner's profile picture, standing beside the gate and turned
         // toward the landing, so the first thing an arrival sees is whose
-        // room they are in. Selected exactly like the gate — the theme's
+        // room they are in. Selected exactly like the gate - the theme's
         // bespoke entry wins via `entries_for(theme, Monument)`, with the
         // cross-theme `civic_monument` as the fallback.
         //
@@ -717,7 +717,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
     // drives palette / terrain / atmosphere. The deriver returns a
     // native `bevy_symbios_audio::SequenceRecipe`; we mirror it
     // into the DAG-CBOR-safe SovereignSequenceRecipe (structured
-    // Fp-wrapped form, per #311). Conversion is infallible — the
+    // Fp-wrapped form, per #311). Conversion is infallible - the
     // structural walk just wraps each float in `Fp`.
     let ambient = crate::seeded_defaults::AmbientRecipe::from_scene(&scene, did_seed);
     environment.ambient_audio =
@@ -739,7 +739,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
 /// room record: resolve its catalogue entry, restamp the Shape-grammar
 /// seed, register the generator under `name`, and emit a terrain-snapped,
 /// water-avoiding `Placement::Absolute`. A slug that no longer resolves
-/// is silently skipped — a removed catalogue entry must not strand the
+/// is silently skipped - a removed catalogue entry must not strand the
 /// whole room on the recovery banner.
 fn wire_settlement_member(
     member: &crate::seeded_defaults::SettlementMember,
@@ -840,17 +840,17 @@ fn apply_palette_to_material(
 ) {
     use crate::pds::texture::SovereignTextureConfig;
 
-    // R — Grass
+    // R - Grass
     if let SovereignTextureConfig::Ground(g) = &mut material.layers[0] {
         g.color_dry = Fp3(palette.grass_dry);
         g.color_moist = Fp3(palette.grass_moist);
     }
-    // G — Dirt
+    // G - Dirt
     if let SovereignTextureConfig::Ground(g) = &mut material.layers[1] {
         g.color_dry = Fp3(palette.dirt_dry);
         g.color_moist = Fp3(palette.dirt_moist);
     }
-    // B — Rock
+    // B - Rock
     //
     // The texture crate's field names are misleading: `color_light` is
     // the GAP between stones (UI label "Color Gaps") and `color_dark`
@@ -863,7 +863,7 @@ fn apply_palette_to_material(
         r.color_light = Fp3(palette.rock_gap);
         r.color_dark = Fp3(palette.rock_stone);
     }
-    // A — Snow
+    // A - Snow
     if let SovereignTextureConfig::Ground(g) = &mut material.layers[3] {
         g.color_dry = Fp3(palette.snow_dry);
         g.color_moist = Fp3(palette.snow_moist);
@@ -871,7 +871,7 @@ fn apply_palette_to_material(
 }
 
 /// Write a [`crate::seeded_defaults::TerrainShape`] onto every
-/// heightmap-shape field of a `SovereignTerrainConfig` — generator
+/// heightmap-shape field of a `SovereignTerrainConfig` - generator
 /// algorithm, FBM / Voronoi knobs, height/cell scale, erosion. The
 /// `seed`, `grid_size`, and `material` fields are intentionally left
 /// alone: `seed` is set separately from the room DID, `grid_size` is
@@ -903,7 +903,7 @@ fn apply_shape_to_terrain_config(
 
 /// Write seeded splat rules onto the four-layer material. Biome
 /// distribution (where grass/dirt/rock/snow each read as dominant on
-/// the slope/height surface) is the visible payoff here — an alpine
+/// the slope/height surface) is the visible payoff here - an alpine
 /// room has a dramatically lower snow line than an arid one even
 /// before the textures themselves differ.
 fn apply_shape_to_material(
@@ -954,15 +954,15 @@ fn apply_textures_to_material(
 /// Swap one terrain splat layer for a biome-signature surface generator,
 /// using the tileable surfaces added in `bevy_symbios_texture` 0.6:
 ///
-/// * **Arid / Coastal / Savanna / Badlands** — sand on the low/flat Grass
+/// * **Arid / Coastal / Savanna / Badlands** - sand on the low/flat Grass
 ///   layer (desert floor, beach, dry golden grassland, eroded terraces).
-/// * **Volcanic** — molten lava crust on the low/flat layer; its emissive
+/// * **Volcanic** - molten lava crust on the low/flat layer; its emissive
 ///   glow map is auto-wired by the upstream patch system.
-/// * **Tundra / Alpine / Boreal** — real crystalline snow on the
+/// * **Tundra / Alpine / Boreal** - real crystalline snow on the
 ///   high-altitude Snow layer (layer 3), replacing the plain white Ground.
-/// * **Glacial** — blue cracked ice on the low/flat layer (the crevassed
+/// * **Glacial** - blue cracked ice on the low/flat layer (the crevassed
 ///   valley floor) *and* crystalline snow on the high layer.
-/// * **Lush / Jungle / Temperate Forest / Wetland / Meadow** — unchanged;
+/// * **Lush / Jungle / Temperate Forest / Wetland / Meadow** - unchanged;
 ///   they keep the grassy Ground stack.
 ///
 /// Runs after [`apply_textures_to_material`] so the swapped layer carries
@@ -973,7 +973,7 @@ fn apply_textures_to_material(
 /// The `palette` argument is what keeps the swap from going colour-blind.
 /// Replacing a layer wholesale discards the palette
 /// [`apply_palette_to_material`] just wrote, and the Ground/Rock-shaped
-/// guards there cannot reach a Sand or Ice layer afterwards — so without
+/// guards there cannot reach a Sand or Ice layer afterwards - so without
 /// this every arid room shared one sand, and every glacier one ice. Each
 /// signature surface is therefore built *with* the room's own colours,
 /// mapped onto whichever of its fields carries the same meaning.
@@ -1142,7 +1142,7 @@ fn apply_ground(
 }
 
 /// Project per-volume water dynamics onto a [`WaterSurface`]. Leaves
-/// flow / wake / colour fields alone — colours were already set from
+/// flow / wake / colour fields alone - colours were already set from
 /// the palette, and flow / wake are opt-in features the seeded
 /// defaults shouldn't enable wholesale.
 fn apply_water_dynamics(src: &crate::seeded_defaults::WaterDynamics, dst: &mut WaterSurface) {
@@ -1160,7 +1160,7 @@ fn apply_water_dynamics(src: &crate::seeded_defaults::WaterDynamics, dst: &mut W
 /// Project the room-global [`crate::seeded_defaults::Atmosphere`]
 /// onto an [`Environment`]. Colours are already set from the palette
 /// (sun_color, sky_color, fog_color, cloud_color, etc.); this pass
-/// fills in everything else — sun position, illuminance, ambient,
+/// fills in everything else - sun position, illuminance, ambient,
 /// fog visibility, cloud cover / softness / motion, and the global
 /// water normal-map / glitter knobs.
 fn apply_atmosphere_to_environment(
@@ -1187,19 +1187,19 @@ fn apply_atmosphere_to_environment(
 
 /// Darken an [`Environment`] toward night by a theme's `luminosity`
 /// (see [`crate::seeded_defaults::theme_luminosity`]). `1.0` is a perfect
-/// no-op — full daylight, every non-nocturnal theme; below `1.0` it scales
+/// no-op - full daylight, every non-nocturnal theme; below `1.0` it scales
 /// the directional sun down hard and the ambient + sky / fog / cloud colour
 /// down more gently so a self-lit theme (neon) reads as the dominant light
 /// after dusk.
 ///
 /// The directional key takes the raw multiply (a dim moonlight sun), while
-/// ambient and the colour channels keep a generous floor — the look we
+/// ambient and the colour channels keep a generous floor - the look we
 /// want is a deep magenta-blue night the player can still navigate, not a
 /// power cut that collapses distant terrain into a black void.
 fn apply_nightfall(luminosity: f32, env: &mut Environment) {
     let l = luminosity.clamp(0.0, 1.0);
     if (l - 1.0).abs() < f32::EPSILON {
-        return; // full daylight — identity for every daylight theme
+        return; // full daylight - identity for every daylight theme
     }
     // Directional sun: scaled straight down to a moonlight key.
     env.sun_illuminance = Fp(env.sun_illuminance.0 * l);
@@ -1223,7 +1223,7 @@ mod tests {
     ///
     /// Replacing a layer discards whatever `apply_palette_to_material` wrote,
     /// and its Ground/Rock-shaped guards cannot reach a Sand or Ice layer
-    /// afterwards — so before this was wired through, every arid room shared
+    /// afterwards - so before this was wired through, every arid room shared
     /// one sand and every glacier one ice, however different their palettes.
     #[test]
     fn signature_surfaces_take_the_room_palette() {
@@ -1258,7 +1258,7 @@ mod tests {
         }
 
         // Two rooms with genuinely different palettes must not bake the same
-        // sand — the whole point of routing the palette through.
+        // sand - the whole point of routing the palette through.
         let (a, b) = (palette_for(9), palette_for(4242));
         if a.dirt_dry != b.dirt_dry {
             let mut ma = fresh();
@@ -1338,7 +1338,7 @@ mod tests {
     }
 
     /// Every biome that is not grassland should have *something* of its own
-    /// on the splat stack — the gap this map exists to close.
+    /// on the splat stack - the gap this map exists to close.
     #[test]
     fn only_grassland_biomes_keep_the_plain_ground_stack() {
         use crate::seeded_defaults::{BiomeArchetype as B, RoomPalette, SceneCharacter};
@@ -1387,7 +1387,7 @@ mod tests {
             let record = RoomRecord::default_for_did(&did);
 
             // Every room carries exactly one landmark, and it's a
-            // building — never Terrain/Water (those are positionally
+            // building - never Terrain/Water (those are positionally
             // invalid outside the base_terrain tree).
             let landmark = record
                 .generators
@@ -1463,7 +1463,7 @@ mod tests {
     fn settlement_props_dedupe_to_one_generator_per_slug() {
         // Props are sampled with replacement (within and across clusters,
         // #905), so some room's record must carry more prop placements
-        // than prop generators — the dedup actually collapsing copies.
+        // than prop generators - the dedup actually collapsing copies.
         // Structural invariants are asserted for every room checked along
         // the way; the search stops at the first room that repeats.
         let mut collapsed = None;
@@ -1554,7 +1554,7 @@ mod tests {
         );
     }
 
-    /// The DID path must equal the seed path fed the hashed DID — the
+    /// The DID path must equal the seed path fed the hashed DID - the
     /// contract that keeps `default_for_did` untouched while the manual
     /// re-roll uses `default_for_seed`. Compared through the same serde
     /// equality the editor's dirty check uses.
@@ -1580,7 +1580,7 @@ mod tests {
     }
 
     /// #810 acceptance: the seeded tree scatters respect both entity
-    /// budgets. Seeds 4 / 11 / 46 are the field-census worst offenders —
+    /// budgets. Seeds 4 / 11 / 46 are the field-census worst offenders -
     /// pre-clamp they projected ~607k / ~978k / ~346k tree entities (the
     /// 500k `MAX_ROOM_ENTITIES` fail-stop territory, a 1.4 fps slideshow on
     /// wasm and the feeder for the #811 staging-pileup OOM). The estimate
@@ -1660,8 +1660,8 @@ mod tests {
         }
     }
 
-    /// The ground-cover tier must actually reach the record, and — unlike the
-    /// trees and boulders — must deliberately *not* avoid the urban district:
+    /// The ground-cover tier must actually reach the record, and - unlike the
+    /// trees and boulders - must deliberately *not* avoid the urban district:
     /// grass between the buildings is what makes a settlement look planted
     /// rather than dropped onto bare ground. Asserted so the opt-out reads as
     /// intentional rather than as a missed flag.
@@ -1703,7 +1703,7 @@ mod tests {
         assert!(covered > 0);
     }
 
-    /// Glacial rooms stay lifeless — the epic's binding decision.
+    /// Glacial rooms stay lifeless - the epic's binding decision.
     #[test]
     fn glacial_rooms_grow_no_ground_cover() {
         use crate::pds::generator::Placement;
@@ -1765,7 +1765,7 @@ mod tests {
     fn seeded_rooms_grow_no_road_network() {
         // Roads (and the lot buildings they spawn) are too heavy for a good
         // default-room experience on wasm, so the RoadNetwork generator is
-        // editor-opt-in only — no seeded room may carry one.
+        // editor-opt-in only - no seeded room may carry one.
         for s in 0u64..64 {
             let record = RoomRecord::default_for_did(&format!("did:test:{s}"));
             assert!(
@@ -1798,7 +1798,7 @@ mod tests {
         night.sanitize();
         assert!(night.sun_illuminance.0 > 0.0 && night.sun_illuminance.0.is_finite());
 
-        // Full daylight is a perfect no-op — daylight themes are untouched.
+        // Full daylight is a perfect no-op - daylight themes are untouched.
         let mut unchanged = Environment::default();
         apply_nightfall(1.0, &mut unchanged);
         assert_eq!(unchanged.sun_illuminance.0, day.sun_illuminance.0);

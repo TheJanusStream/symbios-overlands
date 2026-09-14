@@ -1,25 +1,25 @@
 //! The record's body half: which kind of body an avatar wears (#1056).
 //!
-//! Until epic #1054 an avatar's looks were exactly one thing — a [`Generator`]
+//! Until epic #1054 an avatar's looks were exactly one thing - a [`Generator`]
 //! tree in the record's `visuals` field. The rigged-avatar integration makes
 //! the body a choice, spelled as the same `$type`-tagged open union the
 //! locomotion half already uses:
 //!
-//!   - [`AvatarBody::Rigged`] — a parametric skinned body from the
+//!   - [`AvatarBody::Rigged`] - a parametric skinned body from the
 //!     `symbios-avatar` engine, stored as a *reference*: the record key of a
 //!     wardrobe record (`network.symbios.avatar.avatar`, tid-keyed) plus the
 //!     record keys of any attachment records. The referenced records are
 //!     fetched in the same pass as the avatar record and carried on
 //!     [`RiggedBody::resolved`], which never touches the wire.
-//!   - [`AvatarBody::Generator`] — the classic tree. Post-#1060 this is the
+//!   - [`AvatarBody::Generator`] - the classic tree. Post-#1060 this is the
 //!     vehicle chassis' variant (boat / airship / skiff); until the legacy
 //!     humanoid builder is deleted it carries seeded humanoids too, which is
 //!     why the variant is named for its payload and not for a role.
-//!   - [`AvatarBody::Unknown`] — a body kind from a newer client, kept as a
+//!   - [`AvatarBody::Unknown`] - a body kind from a newer client, kept as a
 //!     bare chassis rather than replaced with a guess.
 //!
 //! A record published before this union has no `body` field at all and lands
-//! on [`AvatarBody::Absent`] through the field-level default — distinct from
+//! on [`AvatarBody::Absent`] through the field-level default - distinct from
 //! `Unknown` on purpose: an *old* record is treated as "no record" (the fetch
 //! path falls through to the seeded default, matching this module's standing
 //! no-automatic-migration rule), while a *future* record is honoured as far
@@ -36,8 +36,8 @@ use super::wardrobe::AttachmentRecord;
 ///
 /// A bound, not a budget: each reference is one PDS fetch on every peer that
 /// renders the wearer, so an unbounded list is a fan-out amplifier. Sixteen
-/// covers every socket the rig offers ([`symbios_avatar::Socket::ALL`]) —
-/// one prop per socket — with no way for a hostile record to demand hundreds
+/// covers every socket the rig offers ([`symbios_avatar::Socket::ALL`]) -
+/// one prop per socket - with no way for a hostile record to demand hundreds
 /// of fetches.
 pub const MAX_AVATAR_ATTACHMENTS: usize = 16;
 
@@ -46,7 +46,7 @@ pub const MAX_AVATAR_ATTACHMENTS: usize = 16;
 /// longer than this is not a key either side of the integration mints.
 const MAX_REF_RKEY_CHARS: usize = 64;
 
-/// Which kind of body the avatar wears — an open union, like
+/// Which kind of body the avatar wears - an open union, like
 /// [`super::LocomotionConfig`].
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(tag = "$type")]
@@ -56,7 +56,7 @@ pub enum AvatarBody {
     #[serde(rename = "network.symbios.overlands.avatar#rigged")]
     Rigged(Box<RiggedBody>),
 
-    /// A `Generator`-tree body — vehicles, and (until #1060) the legacy
+    /// A `Generator`-tree body - vehicles, and (until #1060) the legacy
     /// seeded humanoids.
     #[serde(rename = "network.symbios.overlands.avatar#generator")]
     Generator(Box<GeneratorBody>),
@@ -67,8 +67,8 @@ pub enum AvatarBody {
     #[serde(skip)]
     Absent,
 
-    /// A body kind this build does not know. Kept verbatim in spirit — the
-    /// peer renders a bare chassis — but never re-serialized, so an old
+    /// A body kind this build does not know. Kept verbatim in spirit - the
+    /// peer renders a bare chassis - but never re-serialized, so an old
     /// client cannot round-trip somebody's future body into nothing.
     /// (Last variant: serde requires `other` to close the union.)
     #[serde(other, skip_serializing)]
@@ -93,7 +93,7 @@ pub struct RiggedBody {
     pub resolved: Option<ResolvedRig>,
 }
 
-/// A [`RiggedBody`]'s references, fetched. `None` fields never occur — a
+/// A [`RiggedBody`]'s references, fetched. `None` fields never occur - a
 /// reference that fails to resolve leaves the whole `resolved` slot `None`
 /// (no body worth building) or drops just its attachment (partial failure
 /// degrades to a barer avatar, not a missing one).
@@ -108,7 +108,7 @@ pub struct ResolvedRig {
 /// One resolved attachment reference.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedAttachment {
-    /// The record key the record listed — kept so an edit can write back to
+    /// The record key the record listed - kept so an edit can write back to
     /// the same record.
     pub rkey: String,
     /// The attachment record itself, sanitised.
@@ -118,13 +118,13 @@ pub struct ResolvedAttachment {
 /// The generator variant's payload.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct GeneratorBody {
-    /// Hierarchical visuals — the cosmetic mesh tree. Sanitised by
+    /// Hierarchical visuals - the cosmetic mesh tree. Sanitised by
     /// [`sanitize_avatar_visuals`], which excludes Terrain/Water/Portal.
     pub visuals: Generator,
 }
 
 impl AvatarBody {
-    /// A generator body wrapping `visuals` — the seeded-default constructor.
+    /// A generator body wrapping `visuals` - the seeded-default constructor.
     pub fn generator(visuals: Generator) -> Self {
         Self::Generator(Box::new(GeneratorBody { visuals }))
     }
@@ -132,7 +132,7 @@ impl AvatarBody {
     /// The seeded default's rigged body (#1060): the engine record rolled
     /// from `seed`, resolved **locally** at a deterministic wardrobe key.
     ///
-    /// Nothing is fetched, and nothing needs to exist on a PDS — the
+    /// Nothing is fetched, and nothing needs to exist on a PDS - the
     /// engine's roll is deterministic, so every peer derives the same
     /// person for a DID with nothing on the wire. That is what lets an
     /// identity who has never opened the editor still look like themselves
@@ -158,7 +158,7 @@ impl AvatarBody {
     }
 
     /// The generator visuals, when this body has any. `None` for rigged,
-    /// unknown and absent bodies — the callers that walk or edit the tree
+    /// unknown and absent bodies - the callers that walk or edit the tree
     /// (spawn, gizmo, the Visuals tab) skip instead of guessing.
     pub fn visuals(&self) -> Option<&Generator> {
         match self {
@@ -184,7 +184,7 @@ impl AvatarBody {
         }
     }
 
-    /// Mutable rigged payload — the resolution pass writes through this.
+    /// Mutable rigged payload - the resolution pass writes through this.
     pub fn rigged_mut(&mut self) -> Option<&mut RiggedBody> {
         match self {
             Self::Rigged(body) => Some(body),
@@ -253,7 +253,7 @@ impl RiggedBody {
         // Drop references that are not record keys, then collapse repeats
         // (#1126). Each surviving reference is one PDS fetch on every peer
         // that renders the wearer, so a list of sixteen copies of one rkey
-        // was sixteen requests for one prop — and dressed that prop
+        // was sixteen requests for one prop - and dressed that prop
         // sixteen times over.
         //
         // Order is PRESERVED, not sorted: `attachments` is draw-order, so
@@ -361,7 +361,7 @@ mod tests {
 
     /// #1126: sixteen copies of one rkey was sixteen PDS fetches on every
     /// peer rendering the wearer, and dressed the same prop sixteen times.
-    /// The sequence: a record naming one prop repeatedly — trivially
+    /// The sequence: a record naming one prop repeatedly - trivially
     /// hand-written, and the truncation to sixteen was the only bound.
     #[test]
     fn sanitize_collapses_repeated_attachment_references() {
@@ -402,7 +402,7 @@ mod tests {
     }
 
     /// A reference is pasted into an AT-URI by everything downstream, so a
-    /// key carrying path or query syntax is dropped rather than clamped —
+    /// key carrying path or query syntax is dropped rather than clamped -
     /// truncating it would leave a shorter string that is still not a key.
     #[test]
     fn sanitize_drops_references_that_are_not_record_keys() {

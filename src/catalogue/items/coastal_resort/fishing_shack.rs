@@ -1,4 +1,4 @@
-//! Fishing shack — the Coastal-Resort *poor* landmark. A weathered
+//! Fishing shack - the Coastal-Resort *poor* landmark. A weathered
 //! driftwood hut on short stilts at the tide line, its plank door standing
 //! open on a dim lamplit room, a patched gable roof, a drying net slung on
 //! one wall and a salt barrel by the steps. The hardscrabble counterpart to
@@ -12,11 +12,11 @@
 //!    the door opened onto air. It now has steps derived from the deck's own
 //!    height, and a rail to hold on the way up.
 //! 2. **The roof had a plateau.** `taper` was 0.7, which pinches a cuboid to
-//!    a 30 % flat top — a truncated wedge, not a ridge. At 0.99 it comes to a
+//!    a 30 % flat top - a truncated wedge, not a ridge. At 0.99 it comes to a
 //!    line, and the two gables that leaves are boarded like the walls.
 //! 3. **The boards were masonry.** The kit's [`plank`] carried the
-//!    generator's hard-coded end-joint grid, so every driftwood surface —
-//!    walls, deck, roof, barrel — rendered as a coarse blocky lattice. Fixed
+//!    generator's hard-coded end-joint grid, so every driftwood surface -
+//!    walls, deck, roof, barrel - rendered as a coarse blocky lattice. Fixed
 //!    kit-wide; see [`plank`]'s own note.
 //!
 //! And one thing added rather than fixed: the door stands **open**. A shack
@@ -46,7 +46,7 @@ const DECK_W: f32 = 5.2;
 const DECK_D: f32 = 4.2;
 const DECK_Y: f32 = 1.05;
 const DECK_T: f32 = 0.28;
-/// Top of the deck boards — the floor level, and the datum for everything
+/// Top of the deck boards - the floor level, and the datum for everything
 /// above.
 const FLOOR: f32 = DECK_Y + DECK_T * 0.5;
 
@@ -56,17 +56,17 @@ const HUT_D: f32 = 3.2;
 const WALL_H: f32 = 2.3;
 /// Wall thickness, and so the depth of every reveal.
 const WALL_T: f32 = 0.16;
-/// Top of the walls — where the roof lands.
+/// Top of the walls - where the roof lands.
 const WALL_TOP: f32 = FLOOR + WALL_H;
 
-/// Outer face of the shore-facing wall — the `-Z` hero direction the render
+/// Outer face of the shore-facing wall - the `-Z` hero direction the render
 /// tool and the settlement placer both look down.
 const FRONT: f32 = -HUT_D * 0.5;
 const FRONT_MID: f32 = FRONT + WALL_T * 0.5;
 /// Glazing plane and the surface behind it, inside the reveal.
 const GLAZE_Z: f32 = FRONT + 0.1;
 const ROOM_Z: f32 = FRONT + 0.5;
-/// Centre plane of proud trim — battens, casings, corner boards.
+/// Centre plane of proud trim - battens, casings, corner boards.
 const TRIM_Z: f32 = FRONT - 0.04;
 
 /// Ridge rise above the wall top, and how far the roof oversails at the
@@ -95,7 +95,7 @@ const WIN_SILL: f32 = 1.15;
 
 // --- Palette local to this entry. ------------------------------------------
 
-/// Tarred boards of the door leaf and the patch — a different weathering from
+/// Tarred boards of the door leaf and the patch - a different weathering from
 /// the walls, which is what makes them read as separate timber.
 const TAR_BROWN: [f32; 3] = [0.34, 0.28, 0.22];
 
@@ -104,7 +104,7 @@ const TAR_BROWN: [f32; 3] = [0.34, 0.28, 0.22];
 /// The hut's boarding: driftwood plank stood **upright**, laid in the shared
 /// world frame.
 ///
-/// A shack is built from whatever washed up, nailed on end — and the
+/// A shack is built from whatever washed up, nailed on end - and the
 /// generator only lays courses up V, so vertical boarding needs the quarter
 /// turn [`util::bonded_boards`] applies (safe here precisely because the
 /// stagger is off; see that function).
@@ -124,7 +124,7 @@ fn board_wall(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
     )
 }
 
-/// A proud batten or casing — always oversized against what it laps and
+/// A proud batten or casing - always oversized against what it laps and
 /// always standing off the surface it laps, so it never shares a plane with
 /// its host.
 fn batten(size: [f32; 3], center: [f32; 3]) -> Generator {
@@ -176,7 +176,7 @@ impl CatalogueEntry for FishingShack {
 }
 
 /// The shack as a tree that stands the way it does: stilts at the bottom, the
-/// deck on them, the hut on the deck, the roof on the hut — with the steps
+/// deck on them, the hut on the deck, the roof on the hut - with the steps
 /// their own sub-assembly off the deck.
 ///
 /// Written outermost-last, because [`nest`] rebases a subtree that already
@@ -280,7 +280,7 @@ fn hut() -> Generator {
     let mid_y = FLOOR + WALL_H * 0.5;
     let inner_d = HUT_D - WALL_T * 2.0;
 
-    // Back and side walls — solid; only the shore face is cut.
+    // Back and side walls - solid; only the shore face is cut.
     parts.push(board_wall(
         [HUT_W, WALL_H, WALL_T],
         [0.0, mid_y, HUT_D * 0.5 - WALL_T * 0.5],
@@ -364,7 +364,7 @@ fn shore_elevation(parts: &mut Vec<Generator>) {
         [WIN_X, FLOOR + WIN_SILL + WIN_H * 0.5, GLAZE_Z],
         quat_x(-FRAC_PI_2),
     ));
-    // A board nailed across one pane — the shack's one repair.
+    // A board nailed across one pane - the shack's one repair.
     parts.push(batten(
         [WIN_W + 0.26, 0.11, 0.05],
         [WIN_X, FLOOR + WIN_SILL + WIN_H * 0.62, TRIM_Z],
@@ -384,14 +384,14 @@ fn shore_elevation(parts: &mut Vec<Generator>) {
     //
     // A leaf pivots about an *edge*, which is two things to get right at once:
     // where its centre goes, and which way its rotation turns. They are easy to
-    // disagree — the centre below is correct for a leaf swinging out and to the
+    // disagree - the centre below is correct for a leaf swinging out and to the
     // left, and pairing it with `quat_y(swing)` turns the leaf the other way
     // and leaves neither of its edges anywhere near the hinge. It hangs in mid
     // air beside its own doorway, which is precisely as odd as it sounds and
     // exactly what shipped.
     //
     // `quat_y` sends the leaf's local `+X` to `(cos φ, 0, −sin φ)`, and the
-    // direction wanted here — hinge to free edge — is `(−cos θ, 0, −sin θ)`.
+    // direction wanted here - hinge to free edge - is `(−cos θ, 0, −sin θ)`.
     // That is `φ = π − θ`, not `θ`. Both are derived below rather than written
     // as numbers, and [`the_open_leaf_hangs_on_its_hinge`] checks the built
     // node rather than re-deriving them.
@@ -710,8 +710,8 @@ mod tests {
         assert!(checked > 5, "only {checked} upright boarded slabs found");
     }
 
-    /// The roof comes to a ridge rather than a plateau. `taper` 0.7 — what
-    /// this carried — leaves a flat top 30 % of the hut's depth wide, which is
+    /// The roof comes to a ridge rather than a plateau. `taper` 0.7 - what
+    /// this carried - leaves a flat top 30 % of the hut's depth wide, which is
     /// a truncated wedge and reads as a botched gable from any angle above
     /// eye level.
     #[test]
@@ -730,7 +730,7 @@ mod tests {
                 return;
             }
             found = true;
-            assert_eq!(tx, 0.0, "the roof is pinched in X too — that is a hip");
+            assert_eq!(tx, 0.0, "the roof is pinched in X too - that is a hip");
             assert!(tz > 0.9, "the ridge taper {tz} leaves a plateau on top");
             let clad: Vec<_> = faces.iter().map(|o| o.face).collect();
             assert!(
@@ -746,7 +746,7 @@ mod tests {
     ///
     /// **Read out of the built tree, not recomputed from the constants.** A
     /// leaf that pivots about an *edge* has two independent things to get
-    /// right — where its centre goes and which way its rotation turns — and
+    /// right - where its centre goes and which way its rotation turns - and
     /// getting one right makes the other's error look plausible. The first
     /// version of this guard recomputed the free edge from `DOOR_SWING` with
     /// the same formula the placement used, so it agreed with a leaf whose
@@ -785,7 +785,7 @@ mod tests {
         let hung = hung.unwrap_or_else(|| {
             panic!(
                 "neither end of the leaf sits on a jamb: ends {ends:?}, jambs \
-                 {jambs:?} at z {FRONT} — the door is hung on nothing"
+                 {jambs:?} at z {FRONT} - the door is hung on nothing"
             )
         });
 
@@ -794,7 +794,7 @@ mod tests {
         let free = ends[1 - hung];
         assert!(
             free[2] < FRONT - 0.3,
-            "the leaf's free edge at z {} is barely off the wall — the doorway \
+            "the leaf's free edge at z {} is barely off the wall - the doorway \
              still reads as a closed panel",
             free[2]
         );
@@ -812,7 +812,7 @@ mod tests {
     }
 
     /// #972 lesson 8: the steps land on the deck they come off, and climb it
-    /// in even risers. The shack shipped with none at all — a 1.2 m deck and a
+    /// in even risers. The shack shipped with none at all - a 1.2 m deck and a
     /// door opening onto air.
     #[test]
     fn the_steps_reach_the_deck_in_even_risers() {
@@ -858,7 +858,7 @@ mod tests {
         }
     }
 
-    /// The shack keeps its lantern — escalation's broken-emissive ruin pass
+    /// The shack keeps its lantern - escalation's broken-emissive ruin pass
     /// needs something to snuff, and it is the hamlet's only light.
     #[test]
     fn has_a_lantern() {

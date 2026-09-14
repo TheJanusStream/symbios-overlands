@@ -1,4 +1,4 @@
-//! Coal hopper — a Steampunk prop. A riveted iron coal bunker on legs with a
+//! Coal hopper - a Steampunk prop. A riveted iron coal bunker on legs with a
 //! funnel chute and a heap of coal beneath. Scatter clutter feeding the
 //! furnaces.
 //!
@@ -53,7 +53,7 @@ impl CatalogueEntry for CoalHopper {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Iron bunker body — the root, slightly battered (tapered).
+        // Iron bunker body - the root, slightly battered (tapered).
         prim(
             solid(cuboid_tapered([1.6, 1.4, 1.6], 0.06, iron(IRON_DARK))),
             [0.0, 1.85, 0.0],
@@ -103,7 +103,7 @@ fn build_tree() -> Generator {
     }
 
     // Riveted seam straps + brass stud rows on the visible faces, and a small
-    // lit gauge on the −Z hero face — lift it above a plain iron silo.
+    // lit gauge on the −Z hero face - lift it above a plain iron silo.
     for (cx, cz, vert) in [
         (-0.42_f32, -0.81_f32, true),
         (0.42, -0.81, true),

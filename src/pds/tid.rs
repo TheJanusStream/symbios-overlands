@@ -5,7 +5,7 @@
 //! by their lexicons: many records per identity, ordered by creation. Every
 //! other overlands collection either uses `rkey = self` or a deterministic
 //! content hash ([`super::inventory`]), so this is the first place a TID has
-//! to be minted — and it is minted **client-side** rather than delegated to
+//! to be minted - and it is minted **client-side** rather than delegated to
 //! `createRecord`, because the publish paths here are `putRecord`/`applyWrites`
 //! upserts that need to know the rkey before the request goes out (and want
 //! to keep it stable across retries of the same save).
@@ -14,11 +14,11 @@
 //! (`234567abcdefghijklmnopqrstuvwxyz`), encoding a 64-bit value of
 //! `(microseconds since UNIX epoch) << 10 | 10-bit clock id`, top bit zero.
 //! The clock id only disambiguates two TIDs minted in the same microsecond
-//! in the same repo, so entropy hashed from the owner's DID is plenty —
+//! in the same repo, so entropy hashed from the owner's DID is plenty -
 //! this deliberately avoids `getrandom`, which needs a JS backend on wasm.
 //!
 //! The clock is [`chrono::Utc`], which is wasm-safe through the `wasmbind`
-//! feature already in the tree (#846) — `std::time` panics on wasm32.
+//! feature already in the tree (#846) - `std::time` panics on wasm32.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -44,8 +44,8 @@ pub fn tid_now(entropy: u64) -> String {
     tid_at(&LAST_MICROS, micros, entropy)
 }
 
-/// [`tid_now`] with its clock and its floor supplied, so the minting path —
-/// not a re-implementation of it — can be driven with a frozen clock.
+/// [`tid_now`] with its clock and its floor supplied, so the minting path -
+/// not a re-implementation of it - can be driven with a frozen clock.
 fn tid_at(floor: &AtomicU64, micros: u64, entropy: u64) -> String {
     tid_for(advance(floor, micros), entropy)
 }
@@ -55,7 +55,7 @@ fn tid_at(floor: &AtomicU64, micros: u64, entropy: u64) -> String {
 ///
 /// Trading exactness for uniqueness, and that is the right trade for a
 /// record KEY. A burst of 1000 mints inside one millisecond ends a
-/// millisecond ahead of the wall clock — a TID's timestamp is a sort order
+/// millisecond ahead of the wall clock - a TID's timestamp is a sort order
 /// with a plausible time in it, and two records that collide are worth more
 /// than a microsecond of accuracy. It also makes the sequence survive a
 /// clock that steps backwards (an NTP correction, a suspended laptop),
@@ -75,7 +75,7 @@ fn advance(floor: &AtomicU64, micros: u64) -> u64 {
 ///
 /// Deterministic rather than clock-minted, and that is the point: every
 /// client derives the same seeded body for an identity, so they must also
-/// agree on where it would be stored — otherwise the first save from one
+/// agree on where it would be stored - otherwise the first save from one
 /// device and the first save from another would publish the same body
 /// twice under two keys. The encoded "timestamp" is drawn from the seed
 /// and means nothing as a time; a TID's ordering only has to be
@@ -85,7 +85,7 @@ pub fn tid_for_seed(seed: u64) -> String {
     tid_for(seed >> 11, seed)
 }
 
-/// The TID for a given microsecond timestamp and entropy — split from
+/// The TID for a given microsecond timestamp and entropy - split from
 /// [`tid_now`] so tests can pin exact strings without a clock.
 pub fn tid_for(micros: u64, entropy: u64) -> String {
     // 53 usable timestamp bits (top bit must stay 0), 10 clock-id bits.
@@ -113,7 +113,7 @@ mod tests {
 
     #[test]
     fn later_microseconds_sort_later() {
-        // Lexicographic order IS creation order — the property the lexicons
+        // Lexicographic order IS creation order - the property the lexicons
         // key on, and the reason the alphabet is the sortable one rather
         // than RFC 4648.
         let earlier = tid_for(1_700_000_000_000_000, 5);
@@ -121,12 +121,12 @@ mod tests {
         assert!(later > earlier);
     }
 
-    /// #1120 — the sequence: mint two records inside one millisecond on
+    /// #1120 - the sequence: mint two records inside one millisecond on
     /// wasm, where `chrono`'s clock is JS `Date` and every reading in that
     /// millisecond is the same microsecond value.
     ///
-    /// Against the old `tid_now` — `tid_for(clock_reading, entropy)` with no
-    /// floor — all 1000 of these are the same 13-character string, so the
+    /// Against the old `tid_now` - `tid_for(clock_reading, entropy)` with no
+    /// floor - all 1000 of these are the same 13-character string, so the
     /// second record's `putRecord` upserts over the first (and since #1185's
     /// `validate_batch`, a bundle holding both fails the whole save instead).
     /// The floor is what makes that impossible rather than merely unlikely.
@@ -134,7 +134,7 @@ mod tests {
     /// Driven through a local floor rather than the process-global one so
     /// the assertion holds under `cargo test`'s thread-per-test runner as
     /// well as nextest's process-per-test. The clock read is the one thing
-    /// this cannot cover — there is no seam to freeze `Utc::now()` — so it
+    /// this cannot cover - there is no seam to freeze `Utc::now()` - so it
     /// is frozen at the function boundary instead.
     #[test]
     fn a_frozen_clock_still_mints_distinct_increasing_tids() {
@@ -153,7 +153,7 @@ mod tests {
         );
         assert!(
             minted.windows(2).all(|w| w[1] > w[0]),
-            "and in creation order — the lexicons key on that"
+            "and in creation order - the lexicons key on that"
         );
         assert!(
             minted.iter().all(|t| t.len() == 13),
@@ -164,7 +164,7 @@ mod tests {
         assert_eq!(minted[0], tid_for(frozen, 0x2A5));
     }
 
-    /// A clock that steps backwards — an NTP correction mid-session — must
+    /// A clock that steps backwards - an NTP correction mid-session - must
     /// not re-issue keys the process has already used.
     #[test]
     fn a_backwards_clock_does_not_reissue_a_key() {

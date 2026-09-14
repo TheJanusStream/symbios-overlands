@@ -1,4 +1,4 @@
-//! Unit tests for [`SovereignAssetReference`] — the canonical "URL or DID"
+//! Unit tests for [`SovereignAssetReference`] - the canonical "URL or DID"
 //! asset pointer that replaces the original `SignSource` enum. These tests
 //! pin the wire-format compatibility (the `$type` tags must remain
 //! `network.symbios.sign.*` so already-published room records keep
@@ -9,7 +9,7 @@
 use symbios_overlands::pds::{SignSource, SovereignAssetReference};
 
 // ---------------------------------------------------------------------------
-// Default + label() — exercised by the dropdown bridge UI.
+// Default + label() - exercised by the dropdown bridge UI.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -121,7 +121,7 @@ fn sign_source_alias_is_the_same_type() {
 
 // ---------------------------------------------------------------------------
 // Records authored before the rename must still deserialise. The $type tags
-// are the only wire-format guarantee we need — every published room record
+// are the only wire-format guarantee we need - every published room record
 // carrying a Sign panel uses one of these three tags.
 // ---------------------------------------------------------------------------
 

@@ -1,4 +1,4 @@
-//! Road sign — a Roadside prop. A green highway guide panel on twin steel
+//! Road sign - a Roadside prop. A green highway guide panel on twin steel
 //! posts, white-bordered with a blank legend block. Scatter clutter for the
 //! shoulder.
 
@@ -48,7 +48,7 @@ fn build_tree() -> Generator {
     let py = 2.4_f32; // panel centre height
 
     let mut prims = vec![
-        // Left post — the root.
+        // Left post - the root.
         prim(
             solid(cuboid_tapered([0.13, 2.9, 0.13], 0.0, steel(STEEL_GREY))),
             [-0.75, 1.45, 0.0],
@@ -62,7 +62,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // White border behind, green panel proud of it — never flush.
+    // White border behind, green panel proud of it - never flush.
     prims.push(prim(
         solid(cuboid_tapered([2.62, 1.32, 0.06], 0.0, enamel(SIGN_WHITE))),
         [0.0, py, 0.05],

@@ -1,4 +1,4 @@
-//! Biome ambient *texture* — the atonal noise bed + wind-gust layer.
+//! Biome ambient *texture* - the atonal noise bed + wind-gust layer.
 //!
 //! This owns the environment's *sound* (noise bed + band-passed gusts),
 //! driven by [`BiomeArchetype`] / [`LandformArchetype`]. The tonal,
@@ -24,7 +24,7 @@ const INSTRUMENT_ID: &str = "ambient_bed";
 /// Stable instrument id for the slow gust-swell layer.
 const GUST_INSTRUMENT_ID: &str = "gust_swell";
 
-/// Node ids inside the ambient patch — kept as constants so the wiring
+/// Node ids inside the ambient patch - kept as constants so the wiring
 /// reads top-to-bottom rather than threading magic integers.
 const NOISE_ID: NodeId = NodeId(0);
 const LFO_ID: NodeId = NodeId(1);
@@ -36,7 +36,7 @@ const REVERB_ID: NodeId = NodeId(3);
 pub(super) struct AmbientParams {
     /// Which noise colour the bed uses. Brown for the low-rumble biomes,
     /// pink for the rest. White noise is never a bed (only a band-passed
-    /// punctuation accent) — even high-passed it reads as harsh hiss.
+    /// punctuation accent) - even high-passed it reads as harsh hiss.
     noise_kind: NoiseKind,
     /// Which biquad shapes the bed. Lowpass is the classic warm wind;
     /// arid and tundra run *highpass* so their wind sits in a thin,
@@ -54,13 +54,13 @@ pub(super) struct AmbientParams {
     /// Noise amplitude. Quieter for sustained drones to avoid pumping
     /// the master into the soft clip.
     noise_amplitude: f32,
-    /// Reverb room size in `[0, 1]` — larger biomes/landforms ring
+    /// Reverb room size in `[0, 1]` - larger biomes/landforms ring
     /// longer, placing the bed in a bigger acoustic space.
     pub(super) reverb_room_size: f32,
-    /// Reverb damping in `[0, 1]` — darker (more absorbed highs) for
+    /// Reverb damping in `[0, 1]` - darker (more absorbed highs) for
     /// dense/muffled biomes, brighter for open ones.
     pub(super) reverb_damping: f32,
-    /// Reverb dry/wet mix in `[0, 1]` — kept modest so the bed stays
+    /// Reverb dry/wet mix in `[0, 1]` - kept modest so the bed stays
     /// readable rather than washing out.
     pub(super) reverb_mix: f32,
 }
@@ -78,7 +78,7 @@ enum BedFilter {
 }
 
 fn derive_params(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> AmbientParams {
-    // Noise colour follows biome character — brown for the low/dark,
+    // Noise colour follows biome character - brown for the low/dark,
     // dense-mass biomes, pink for the breezier ones. White noise is
     // deliberately *not* used for any bed: even high-passed it reads as
     // harsh, over-saturated hiss rather than wind. (It survives only as a
@@ -110,7 +110,7 @@ fn derive_params(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> AmbientParams 
         | BiomeArchetype::Badlands => BedFilter::Highpass,
         _ => BedFilter::Lowpass,
     };
-    // Landform sets the base cutoff envelope — open ranges for big
+    // Landform sets the base cutoff envelope - open ranges for big
     // skies (Mesa/Rolling), tighter for valleys/archipelago.
     let (cutoff_lo, cutoff_hi) = match scene.landform {
         LandformArchetype::Rolling => (700.0, 1_200.0),
@@ -124,13 +124,13 @@ fn derive_params(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> AmbientParams 
     // with the bed's pitch. 30-60% of the base keeps the sweep musical
     // rather than crashing through the audible bottom.
     let cutoff_sweep_hz = base_cutoff_hz * range_f32(rng, 0.3, 0.6);
-    // 1–4 whole cycles per loop region (0.0625–0.25 Hz at 60 BPM) —
+    // 1–4 whole cycles per loop region (0.0625–0.25 Hz at 60 BPM) -
     // the "ambient breathe" band, quantised so the sweep phase is
     // identical at the loop start and loop end and the seam never
     // jumps mid-sweep.
     let lfo_rate_hz = loop_synced_rate(rng, 1, 4);
     // Soft Q for a wide bed. Tundra/Volcanic lean a touch whistlier from
-    // their landform character, but the peak is kept modest — a high
+    // their landform character, but the peak is kept modest - a high
     // resonant Q on the high-pass bed sings a harsh tone rather than
     // breathing as wind.
     let filter_q = match scene.biome {
@@ -149,7 +149,7 @@ fn derive_params(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> AmbientParams 
     let noise_amplitude = range_f32(rng, 0.35, 0.55);
     // Reverb places the bed in an acoustic space. Bigger skies
     // (Mesa/Rolling) get a larger room; valleys/archipelago stay
-    // tighter. Damping follows biome brightness — dark/dense biomes
+    // tighter. Damping follows biome brightness - dark/dense biomes
     // absorb highs faster, open/arid ones keep them.
     let reverb_room_size = match scene.landform {
         LandformArchetype::Mesa => range_f32(rng, 0.7, 0.9),
@@ -242,7 +242,7 @@ fn build_patch(params: &AmbientParams, seed: u64) -> AudioPatch {
         inputs: filter_inputs,
     };
 
-    // Reverb tail places the filtered bed in an acoustic space — the
+    // Reverb tail places the filtered bed in an acoustic space - the
     // graph output. Wired only on `in`; room size / damping / mix are
     // the seeded character.
     let mut reverb_inputs = BTreeMap::new();
@@ -273,16 +273,16 @@ fn build_patch(params: &AmbientParams, seed: u64) -> AudioPatch {
 }
 
 // ---------------------------------------------------------------------------
-// Gust layer — slow band-limited swells over the steady bed
+// Gust layer - slow band-limited swells over the steady bed
 // ---------------------------------------------------------------------------
 
-/// Seeded gust-swell parameters — see [`derive_gust`].
+/// Seeded gust-swell parameters - see [`derive_gust`].
 struct GustParams {
     /// Bandpass centre the gust whistles through.
     center_hz: f32,
     /// Bandpass resonance.
     q: f32,
-    /// Swell rate (Hz) — whole cycles per loop region.
+    /// Swell rate (Hz) - whole cycles per loop region.
     swell_rate_hz: f32,
     /// Event volume for the gust voice.
     volume: f32,
@@ -381,8 +381,8 @@ fn build_gust_patch(gust: &GustParams, params: &AmbientParams, seed: u64) -> Aud
     }
 }
 
-/// Build the biome texture layer — the sustained noise bed + the gust
-/// swell — as instruments + full-timeline tracks, returning the derived
+/// Build the biome texture layer - the sustained noise bed + the gust
+/// swell - as instruments + full-timeline tracks, returning the derived
 /// [`AmbientParams`] so the theme-music layer can reuse the bed's reverb.
 pub(super) fn build_texture(
     scene: &SceneCharacter,

@@ -94,7 +94,7 @@ pub(crate) fn compile_room_record(
             &mut water_surfaces,
         );
         if generator_caches.job.0.is_none() {
-            // Nothing to (re)build — an environment / effects / metadata
+            // Nothing to (re)build - an environment / effects / metadata
             // edit. The world for this record already exists, so the
             // loading gate may release.
             commands.insert_resource(super::super::WorldCompiled);
@@ -243,15 +243,15 @@ pub(crate) fn compile_room_record(
         // The content-addressed primitive caches (#918). Without this they
         // survived every rebuild and were bounded only by a 4096-entry
         // wholesale clear or logout, so each region re-roll permanently
-        // added that region's prim meshes, materials, and — through the
-        // materials — their procedural images: ~90 image and ~100 mesh
+        // added that region's prim meshes, materials, and - through the
+        // materials - their procedural images: ~90 image and ~100 mesh
         // handles per re-roll, ~70 MB of RSS, never released (#919).
         //
         // Evicting is safe for the same reason it is for the caches above:
         // a cache entry is only a *second* owner of the handle, and every
         // live instance holds its own. What is evicted here is re-baked on
         // the next miss. That includes avatar-spawned prims, which share
-        // these caches but populate their touch-sets outside the job — a
+        // these caches but populate their touch-sets outside the job - a
         // full room rebuild costs them one re-bake, and full rebuilds are
         // already when avatars are being rebuilt anyway.
         super::super::prim_cache::retain_touched(
@@ -264,7 +264,7 @@ pub(crate) fn compile_room_record(
         );
         // The upstream `ShapeMeshCache` is keyed by float-exact terminal
         // footprint, has no eviction, and (unlike the caches above) exposes no
-        // per-key retain — so a slider drag mints a fresh `Handle<Mesh>` per
+        // per-key retain - so a slider drag mints a fresh `Handle<Mesh>` per
         // distinct footprint that is otherwise pinned for the whole session,
         // an unbounded leak. It is only a derivation-time dedup accelerator:
         // every mesh it holds is also kept alive by the spawned entities and
@@ -276,7 +276,7 @@ pub(crate) fn compile_room_record(
         // Anchor for the asset-growth watch (#921): the 1 Hz diagnostics
         // scraper snapshots handle counts into the per-rebuild mark gauges
         // whenever this counter advances. Counted here rather than sampled
-        // there so "a full rebuild happened" has exactly one definition —
+        // there so "a full rebuild happened" has exactly one definition -
         // a job whose touch-sets covered every placement, i.e. the ones
         // after which everything unreferenced should have been released.
         // (`None` in headless embedders without the diagnostics plugin.)
@@ -298,7 +298,7 @@ pub(crate) fn compile_room_record(
 
     // The compile part of the world digest (#1146): the placement
     // fingerprints in index order, plus the entity count this job actually
-    // produced. The count is the derived half and the one that matters — a
+    // produced. The count is the derived half and the one that matters - a
     // scatter's slope accept/reject (#1132) changes how many instances land,
     // so two peers that read the same record and placed a different number of
     // trees disagree here even though their records are identical.
@@ -355,7 +355,7 @@ fn plan_job(
 ) {
     // Indices whose spawned entities must be retired this plan. Filled
     // by the cursor abort + the diff below, then swept in one flat pass
-    // over the `PlacementUnit` markers — anchor-recursive despawn alone
+    // over the `PlacementUnit` markers - anchor-recursive despawn alone
     // is NOT enough, because the gizmo detaches dragged prims from
     // their anchor hierarchy and the detachment outlives the drag
     // (pre-marker, rebuilding a gizmo-edited placement duplicated the
@@ -383,17 +383,17 @@ fn plan_job(
     // Full when the heightmap was swapped (every snapped transform
     // sampled the old surface), when the placement count SHRANK
     // (removal shifts the indices of everything after the removed
-    // entry, and indices are unit identity — `PlacementMarker` values
+    // entry, and indices are unit identity - `PlacementMarker` values
     // on surviving anchors would go stale), or on the first compile
     // for this world (empty `CompiledWorld`; full coverage is what
     // keeps the end-of-job cache GC and the full-rebuild metric sound
     // after a logout / attract teardown reset it).
     //
     // Count GROWTH is deliberately NOT full (#979): every live-record
-    // mutation appends (`placements.push` — no call site inserts
+    // mutation appends (`placements.push` - no call site inserts
     // mid-list), so existing indices keep their placements, their
     // fingerprints match, and the diff below no-ops them. Only the new
-    // tail queues — which is what stops the whole room from blinking
+    // tail queues - which is what stops the whole room from blinking
     // out (flat despawn, multi-frame sliced respawn) every time an
     // item is dropped in from the catalogue or inventory, for the
     // owner and for every peer receiving the record broadcast. If a
@@ -482,7 +482,7 @@ fn plan_job(
 /// scatter units hand back a cursor for the slice loop to drive.
 /// The cursor is boxed-by-variant-size standards large (it carries a
 /// ChaCha RNG state), but the enum lives only for the duration of one
-/// `start_unit` return — no arrays of it ever exist — so the size skew
+/// `start_unit` return - no arrays of it ever exist - so the size skew
 /// clippy flags has no carrier to matter on.
 #[allow(clippy::large_enum_variant)]
 enum UnitStart {
@@ -568,7 +568,7 @@ fn start_unit(
             let half = extent * 0.5;
             // Water-avoiding placements slide to dry land before the
             // height sample (may move X/Z, preserves bearing), then off
-            // over-steep ground (#905) — the safety net under the
+            // over-steep ground (#905) - the safety net under the
             // derive-time proxy siting. Both walks are gated on the
             // seeded pipeline's `avoid_water` opt-in, so editor-authored
             // placements are never second-guessed.
@@ -602,7 +602,7 @@ fn start_unit(
                 0.0
             };
             // A seeded structure resolves against its whole footprint,
-            // not the one point under its centre (#1008) — otherwise a
+            // not the one point under its centre (#1008) - otherwise a
             // hillside tilts the building around that point and buries
             // its uphill wall. Everything else keeps the plain sample:
             // scatter instances re-sample per instance (they are point
@@ -644,7 +644,7 @@ fn start_unit(
 
     match placement {
         Placement::Absolute { generator_ref, .. } => {
-            // One dispatch — atomic; a single blueprint stays the
+            // One dispatch - atomic; a single blueprint stays the
             // smallest unit of work the slicer can schedule.
             if let Some(entity) = dispatch_top_level(ctx, generator_ref, Transform::IDENTITY) {
                 ctx.commands.entity(anchor).add_child(entity);
@@ -679,7 +679,7 @@ fn start_unit(
         } => {
             // Resolve the biome-filter water threshold from the runtime
             // registry. One global Y per scatter, sampled at its centre
-            // at unit start — placements that come before the
+            // at unit start - placements that come before the
             // home-water spawn collapse to "no water" and the filter
             // accepts by default, exactly as in the monolithic pass.
             let scatter_center_xz = match bounds {
@@ -720,14 +720,14 @@ fn start_unit(
 }
 
 /// Drive the current unit's cell loop until it finishes or the slice
-/// deadline passes. Cell-for-cell identical to the monolithic pass —
+/// deadline passes. Cell-for-cell identical to the monolithic pass -
 /// the cursor carries the RNG so resuming doesn't shift the stream.
 fn step_unit(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     cursor: &mut UnitCursor,
     deadline: Instant,
 ) -> StepOutcome {
-    // `ctx.record` is a shared reference field — copying it out gives a
+    // `ctx.record` is a shared reference field - copying it out gives a
     // borrow of the record itself, not of `ctx`, so the placement can
     // stay live across the `&mut ctx` dispatch calls below.
     let record = ctx.record;
@@ -833,7 +833,7 @@ fn step_unit(
                 terrain_cfg,
                 water_level: *water_level,
                 urban_exclusions: &urban_exclusions,
-                // `1 - normal.y` cutoff resolved once per unit (#912) — the
+                // `1 - normal.y` cutoff resolved once per unit (#912) - the
                 // trigonometry would otherwise be paid per sample.
                 slope_cutoff: super::scatter::slope_cutoff(naturalness),
             };
@@ -858,7 +858,7 @@ fn step_unit(
                 };
                 // Floating cover (#914) rides the water surface instead of
                 // the submerged terrain the sample landed on. `max` so a
-                // sample on dry shore keeps its bank height — floating only
+                // sample on dry shore keeps its bank height - floating only
                 // ever lifts, it never sinks an instance into the ground.
                 if *float_on_water && let Some(wl) = *water_level {
                     world_y = world_y.max(wl);
@@ -894,7 +894,7 @@ fn step_unit(
         }
         // A cursor only exists for Grid / Scatter, and a record change
         // replans (aborting the cursor) before the placement kind could
-        // differ — but stay total rather than panicking the frame loop.
+        // differ - but stay total rather than panicking the frame loop.
         _ => StepOutcome::Done,
     }
 }
@@ -904,7 +904,7 @@ mod tests {
     //! Planner-level ECS coverage (#979): what a replan tears down. The
     //! fingerprint inputs are unit-tested in [`super::super::job`]; these
     //! tests drive the real [`compile_room_record`] system in a minimal
-    //! headless app and watch anchor entities across record edits — the
+    //! headless app and watch anchor entities across record edits - the
     //! entity-identity view of "the room must not blink when an item is
     //! appended, and must still rebuild wholesale when one is removed".
 
@@ -945,7 +945,7 @@ mod tests {
     }
 
     /// A headless app carrying exactly the resources
-    /// [`compile_room_record`]'s signature demands — no render, no
+    /// [`compile_room_record`]'s signature demands - no render, no
     /// terrain, no heightmap (`heightmap_changed` stays `false`, so the
     /// only full-rebuild triggers reachable here are the ones under
     /// test: first compile and count shrink).
@@ -977,7 +977,7 @@ mod tests {
     }
 
     /// Update until the in-flight job drains. Panics rather than loops
-    /// forever — a queue that never empties is itself a failure.
+    /// forever - a queue that never empties is itself a failure.
     fn settle(app: &mut App) {
         for _ in 0..64 {
             app.update();
@@ -1026,7 +1026,7 @@ mod tests {
 
         let anchors_after = unit_anchors(&app);
         assert_eq!(anchors_after.len(), 4);
-        // The prefix anchors are the SAME entities — never despawned,
+        // The prefix anchors are the SAME entities - never despawned,
         // never respawned. `Entity` equality includes the generation,
         // so a despawn recycled into the same slot would still fail.
         assert_eq!(
@@ -1094,7 +1094,7 @@ mod tests {
     #[test]
     fn content_edit_after_append_stays_scoped() {
         // Composition check: an append followed by a transform edit of
-        // one OLD unit rebuilds that unit alone — the append must not
+        // one OLD unit rebuilds that unit alone - the append must not
         // have wedged the diff's index bookkeeping.
         let mut app = compile_app(test_record(2));
         settle(&mut app);

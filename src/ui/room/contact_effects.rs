@@ -1,12 +1,12 @@
 //! Room-editor tab for authored avatar-world contact effects (#246).
 //!
 //! Persistent master-detail (#825 / W4): recipe list on the left with
-//! the Add action above it, the selected recipe's editor on the right —
+//! the Add action above it, the selected recipe's editor on the right -
 //! the same split-panel layout as the Region Assets and Placements
 //! tabs. Edits [`crate::pds::ContactEffects`] in place; any change
 //! flips the shared `dirty` flag, and the world compiler's
 //! `apply_contact_recipes` rebuilds the runtime registry on the live
-//! record's next debounce flush — edits apply LIVE, no publish needed.
+//! record's next debounce flush - edits apply LIVE, no publish needed.
 
 use bevy_egui::egui;
 
@@ -34,7 +34,7 @@ fn new_recipe(existing: &[ContactEffectRecord]) -> ContactEffectRecord {
 
 /// The lowest unused `effect_N` (#1253 f321).
 ///
-/// The suffix used to be `recipes.len()` — a COUNT, not a counter — so
+/// The suffix used to be `recipes.len()` - a COUNT, not a counter - so
 /// adding three, deleting the middle one and adding another produced two
 /// rows both called `effect_2`. In a master-detail list the row label is the
 /// whole navigational affordance, and nothing else distinguishes them:
@@ -77,7 +77,7 @@ pub(super) fn draw_contact_effects_tab(
             // Add action ABOVE the list (#825), refused at the cap with the
             // reason (#1210): a 65th recipe used to be pushed, and the next
             // flush re-sorted the whole list alphabetically and dropped one
-            // — an unannounced reorder of the authored order plus a
+            // - an unannounced reorder of the authored order plus a
             // deletion. With the add refused here the sort never runs.
             let cap = crate::ui::room::caps::Cap::Recipes;
             let full = cap.is_full(effects.recipes.len());
@@ -99,7 +99,7 @@ pub(super) fn draw_contact_effects_tab(
                 );
             });
             // A ROOM-WIDE ceiling, not a property of the selected recipe
-            // (#1253 f306) — and its floor is 1, not 0. At 0 the particle
+            // (#1253 f306) - and its floor is 1, not 0. At 0 the particle
             // dispatcher breaks out before spawning anything, for every
             // sample and every recipe, while each row still reads Enabled
             // and this tab still tells the owner to test by touching the
@@ -127,17 +127,17 @@ pub(super) fn draw_contact_effects_tab(
                 .show(ui, |ui| {
                     if effects.recipes.is_empty() {
                         ui.label(
-                            egui::RichText::new("(no recipes — click + Add recipe above)")
+                            egui::RichText::new("(no recipes - click + Add recipe above)")
                                 .small()
                                 .color(crate::ui::theme::current(ui.ctx()).text_weak),
                         );
                     }
                     for (i, r) in effects.recipes.iter().enumerate() {
                         // The two fields an owner sorts by (#1253 f313):
-                        // whether it runs at all — the runtime's own
+                        // whether it runs at all - the runtime's own
                         // designer kill-switch, and therefore the field they
                         // toggle most while debugging "why is nothing
-                        // happening" — and what kind of effect it is. Both
+                        // happening" - and what kind of effect it is. Both
                         // were visible only in the detail pane, one click at
                         // a time. The disabled marker is a GLYPH as well as
                         // a tint, per the theming rules: never colour alone.
@@ -190,7 +190,7 @@ pub(super) fn draw_contact_effects_tab(
                 ui.label(
                     egui::RichText::new(
                         "Particle bursts, marks and sounds triggered when an avatar \
-                         touches a surface — a boat hitting water, a body landing on \
+                         touches a surface - a boat hitting water, a body landing on \
                          ground. Trigger one by touching the surface yourself.",
                     )
                     .small()
@@ -198,7 +198,7 @@ pub(super) fn draw_contact_effects_tab(
                 );
                 // #1269 f305. This tab writes straight into the record and
                 // arms the debounce, so a flush broadcasts the edit the
-                // same frame the slider moves — while the footer's lit
+                // same frame the slider moves - while the footer's lit
                 // "Save" told the owner nothing had gone out yet. Every
                 // other editor surface trains them that dirty means
                 // private, and the things being edited here are exactly
@@ -206,7 +206,7 @@ pub(super) fn draw_contact_effects_tab(
                 // speakers: a cooldown-0 audio cue reaches a visitor
                 // before the owner has heard it once.
                 //
-                // A NOTICE, not `text_weak` — it is a mode the owner is
+                // A NOTICE, not `text_weak` - it is a mode the owner is
                 // in, not a footnote.
                 crate::ui::editable::audience_notice(
                     ui,
@@ -231,7 +231,7 @@ pub(super) fn draw_contact_effects_tab(
     });
 }
 
-/// The selected recipe's full editor — everything that used to live in
+/// The selected recipe's full editor - everything that used to live in
 /// the per-recipe `CollapsingHeader` body before the split (#825).
 fn draw_recipe_detail(
     ui: &mut egui::Ui,
@@ -257,7 +257,7 @@ fn draw_recipe_detail(
         // on a log track so the useful low end keeps its resolution. The
         // stated convention for these editors is "ranges mirror
         // `pds::sanitize::limits`", and a value the format permits but the
-        // GUI cannot reach sends the owner to the Raw JSON tab — where the
+        // GUI cannot reach sends the owner to the Raw JSON tab - where the
         // number they set is then DISPLAYED pinned at the old maximum,
         // indistinguishable from one legitimately there.
         fp_slider_log(
@@ -316,8 +316,8 @@ fn draw_recipe_detail(
          wants and never what a Dwell one does.",
     );
     // The coupling that reaches visitors live, one click away (#1253 f310).
-    // A new recipe is born water/Enter/cooldown 0 — safe only for the phase
-    // it was born with — and Dwell is emitted every frame by construction,
+    // A new recipe is born water/Enter/cooldown 0 - safe only for the phase
+    // it was born with - and Dwell is emitted every frame by construction,
     // so switching phase turns the default into 24 overlapping voices or a
     // decal blizzard. All three channels consult the cooldown only when it
     // is `> 0.0`; the knowledge lived in one doc comment.
@@ -338,8 +338,8 @@ fn draw_recipe_detail(
             particle,
         } => {
             // The section header was the implementation formula verbatim
-            // (#1267 f319). It is still worth stating — it is the only
-            // place the two sliders' relationship is written down — but as
+            // (#1267 f319). It is still worth stating - it is the only
+            // place the two sliders' relationship is written down - but as
             // a hover on a header that says what the knobs are FOR.
             ui.collapsing("How many particles", |ui| {
                 ui.label(
@@ -351,7 +351,7 @@ fn draw_recipe_detail(
                 fp_slider(ui, "Base", &mut count.base, 0.0, 40.0, dirty);
                 // Bounded against each other (#1254 f318). The sanitiser
                 // resolved an inversion by LOWERING min to max here and by
-                // RAISING max to min for the two `Fp` pairs below — two
+                // RAISING max to min for the two `Fp` pairs below - two
                 // opposite conventions in one form, applied a quarter
                 // second after the drag, so a slider the owner never
                 // touched moved on its own and no mental model could be
@@ -476,7 +476,7 @@ fn dwell_cooldown_warning(phase: ContactPhaseKind, cooldown: f32) -> Option<Stri
     (phase == ContactPhaseKind::Dwell && cooldown <= 0.0).then(|| {
         String::from(
             "Dwell fires on every frame an avatar stays in contact, and a cooldown \
-             of 0 means nothing throttles it — give it a cooldown, or visitors get \
+             of 0 means nothing throttles it - give it a cooldown, or visitors get \
              one firing per frame for as long as they stand there.",
         )
     })
@@ -493,7 +493,7 @@ fn surface_label(s: ContactSurfaceKind) -> &'static str {
 /// What a phase is called on screen (#1267 f319).
 ///
 /// The wire enum's own words reached the picker unmapped, and "dwell" is
-/// the runtime's term for "still touching" — not a word an author would
+/// the runtime's term for "still touching" - not a word an author would
 /// reach for, and the one of the three whose meaning cannot be guessed.
 /// This is the boundary: the enum is untouched, only the reading changes.
 fn phase_label(p: ContactPhaseKind) -> &'static str {
@@ -507,7 +507,7 @@ fn phase_label(p: ContactPhaseKind) -> &'static str {
 
 fn surface_combo(ui: &mut egui::Ui, salt: usize, s: &mut ContactSurfaceKind, dirty: &mut bool) {
     // Water and terrain are the modelled surfaces (terrain landed in
-    // Phase 3, #245). `Unknown` is intentionally not offered — it's a
+    // Phase 3, #245). `Unknown` is intentionally not offered - it's a
     // forward-compat deserialize fallback, not an authorable choice.
     ui.horizontal(|ui| {
         ui.label("Surface");
@@ -562,7 +562,7 @@ fn effect_kind_label(e: &ContactEffectKind) -> &'static str {
 
 /// Effect-kind picker. Switching kind swaps in that kind's canonical
 /// default (so the sub-form below is immediately valid); re-picking the
-/// current kind is a no-op. `Unknown` is never offered — it's a
+/// current kind is a no-op. `Unknown` is never offered - it's a
 /// forward-compat decode fallback, not an authorable choice.
 fn effect_kind_combo(
     ui: &mut egui::Ui,
@@ -572,8 +572,8 @@ fn effect_kind_combo(
 ) {
     // Caption BESIDE the control and the current entry marked (#1253 f311).
     // A vertical stack of combos each printing its caption on the line below
-    // itself is genuinely ambiguous — with four in a row the reader has to
-    // guess which label belongs to which dropdown — and the house idiom in
+    // itself is genuinely ambiguous - with four in a row the reader has to
+    // guess which label belongs to which dropdown - and the house idiom in
     // the generators tab one file away is the opposite.
     ui.horizontal(|ui| {
         ui.label("Effect kind");
@@ -648,7 +648,7 @@ fn audio_form(
                 // this field the rule; f79/f340 gave it the row). Until
                 // #1248 the contact cue was the ONE URL-carrying reference
                 // the sanitiser never gated, and it fires when a visitor's
-                // own avatar touches geometry — the most reliable presence
+                // own avatar touches geometry - the most reliable presence
                 // beacon of the three.
                 ui.horizontal(|ui| {
                     ui.label("URL (.ogg)");
@@ -688,7 +688,7 @@ fn audio_form(
             AudioClipSource::Unknown => {
                 ui.label(
                     egui::RichText::new(
-                        "Unknown clip source (newer client) — read-only; \
+                        "Unknown clip source (newer client) - read-only; \
                          re-pick a source kind above.",
                     )
                     .small()
@@ -712,7 +712,7 @@ fn audio_form(
             }
             // Nothing has been asked for, which for a cue means one of two
             // things and the difference is the whole finding: a source that
-            // resolves to no key is a PERMANENT no-op — picking "audio cue"
+            // resolves to no key is a PERMANENT no-op - picking "audio cue"
             // installs an empty URL, `AudioClipKey::from_source` answers
             // `None`, and `play_contact_audio` skips the recipe forever with
             // no marker anywhere.
@@ -724,12 +724,12 @@ fn audio_form(
                 .is_none()
                 {
                     (
-                        "No sound set — this cue will never play.".to_string(),
+                        "No sound set - this cue will never play.".to_string(),
                         theme.status.warn,
                     )
                 } else {
                     (
-                        "Not loaded yet — it is fetched the first time somebody \
+                        "Not loaded yet - it is fetched the first time somebody \
                              touches this surface."
                             .to_string(),
                         theme.text_weak,
@@ -817,7 +817,7 @@ fn shape_combo(ui: &mut egui::Ui, salt: usize, shape: &mut EmitterShape, dirty: 
     };
     // Guarded and marked (#1253 f311/f312). Every arm wrote a fresh default
     // on every click with no identity guard, and the list marked nothing as
-    // selected — so opening the dropdown to SEE which shape a burst uses and
+    // selected - so opening the dropdown to SEE which shape a burst uses and
     // clicking the one it already said, which is the natural way to dismiss
     // a list, snapped a tuned 4 m radius back to 0.2. Its two sibling combos
     // in this file and the generators tab's equivalent all guard; this was
@@ -895,7 +895,7 @@ mod authoring_tests {
     use super::*;
 
     /// #1253 f321. Sequence: add three, delete the middle one, add another
-    /// — and two rows are both `effect_2`. The suffix was the LIST LENGTH,
+    /// - and two rows are both `effect_2`. The suffix was the LIST LENGTH,
     /// not a counter, and in a master-detail list the row label is the
     /// whole navigational affordance: cooldown state is keyed by position,
     /// and the sanitiser's over-64 truncation sorts BY NAME, so duplicates
@@ -925,7 +925,7 @@ mod authoring_tests {
         assert_eq!(new_recipe(&recipes).name, "effect_0");
     }
 
-    /// #1253 f310. The default a recipe is born with — Enter, cooldown 0 —
+    /// #1253 f310. The default a recipe is born with - Enter, cooldown 0 -
     /// is safe only for the phase it was born with, and changing phase is
     /// one click away in a combo that gave no hint of the coupling. The
     /// result reaches visitors live, before anything is saved.
@@ -948,7 +948,7 @@ mod phase_vocabulary_tests {
     use super::*;
 
     /// #1267 f319. The wire enum's own words reached the picker unmapped,
-    /// and "dwell" is the runtime's term for "still touching" — the one of
+    /// and "dwell" is the runtime's term for "still touching" - the one of
     /// the three an author cannot guess. The wire is untouched; only the
     /// reading changed, so this asserts the boundary rather than the enum.
     #[test]

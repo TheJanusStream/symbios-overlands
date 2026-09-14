@@ -1,4 +1,4 @@
-//! Stela — a Mesoamerican secondary. A tall carved limestone slab recording
+//! Stela - a Mesoamerican secondary. A tall carved limestone slab recording
 //! a ruler's reign in bands of glyphs, set with a jade mask inlay and paired
 //! with a round sacrificial altar stone at its foot.
 
@@ -49,7 +49,7 @@ impl CatalogueEntry for Stela {
 
 fn build_tree() -> Generator {
     let slab_h = 4.8_f32;
-    // Carved stela slab — the root. The carved face is the front (−Z).
+    // Carved stela slab - the root. The carved face is the front (−Z).
     let mut prims = vec![prim(
         solid(cuboid_tapered(
             [1.6, slab_h, 0.6],
@@ -115,7 +115,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Stacked glyph cartouches at the foot — a 2×3 grid of recessed blocks.
+    // Stacked glyph cartouches at the foot - a 2×3 grid of recessed blocks.
     for r in 0..3 {
         for sx in [-1.0_f32, 1.0] {
             prims.push(prim(
@@ -155,7 +155,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Buried footing under the slab itself — the setting stone a stela is
+    // Buried footing under the slab itself - the setting stone a stela is
     // stepped into, so the slab never stands clear of falling ground.
     prims.push(footing(1.6, 0.6, [0.0, 0.0], 4.0));
 

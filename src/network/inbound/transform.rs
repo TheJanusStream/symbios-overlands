@@ -1,4 +1,4 @@
-//! `Transform` — a peer's pose sample (#1161).
+//! `Transform` - a peer's pose sample (#1161).
 //!
 //! The highest-rate message on the wire by a wide margin, and the only one
 //! whose entire validation lives upstream: [`push_sample`](bevy_symbios_multiuser::smoother::TransformBuffer::push_sample)
@@ -48,7 +48,7 @@ pub(super) fn handle(
                 continue;
             }
             // The liveness fact the client already had and never
-            // asked for (#1224 f335) — the jitter buffer stops
+            // asked for (#1224 f335) - the jitter buffer stops
             // receiving, and nothing read that. Written to
             // `PeerResolve`, never to `RemotePeer`: a per-packet
             // write through a `Mut<RemotePeer>` would raise

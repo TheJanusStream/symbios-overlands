@@ -1,4 +1,4 @@
-//! Shipping containers — an Industrial-Park prop. A few corrugated steel
+//! Shipping containers - an Industrial-Park prop. A few corrugated steel
 //! intermodal containers stacked and offset, in mismatched faded liveries,
 //! with cast corner blocks and locking-rod door ends.
 

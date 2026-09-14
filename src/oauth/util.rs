@@ -1,11 +1,11 @@
 //! Small shared helpers for the OAuth callback plumbing, compiled on
 //! both targets (the wasm query-string parser and the native loopback
-//! listener each need the same decoder — #657 deduped the twins, and
+//! listener each need the same decoder - #657 deduped the twins, and
 //! #847 promoted the query parser itself into [`parse_query_params`]).
 
 /// Recognised parameters of an OAuth authorization-server callback query
 /// string, percent-decoded. `error` / `error_description` carry the
-/// RFC 6749 §4.1.2.1 error redirect — most commonly `access_denied`
+/// RFC 6749 §4.1.2.1 error redirect - most commonly `access_denied`
 /// when the user clicks *Deny* on the consent page. Before #847 both
 /// targets extracted only `code` / `state`, so a deny left the native
 /// listener waiting forever and the wasm page silently re-showing the
@@ -29,7 +29,7 @@ impl CallbackParams {
             ("access_denied", _) => "Login was cancelled on the authorization page. \
                  You can try again whenever you're ready."
                 .to_string(),
-            (_, Some(desc)) => format!("Login failed: {error} — {desc}"),
+            (_, Some(desc)) => format!("Login failed: {error} - {desc}"),
             (_, None) => format!("Login failed: {error}"),
         })
     }

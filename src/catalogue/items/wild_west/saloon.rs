@@ -1,4 +1,4 @@
-//! Saloon — the Wild-West landmark and the kit's lit hero. A two-storey red
+//! Saloon - the Wild-West landmark and the kit's lit hero. A two-storey red
 //! clapboard saloon with a tall false-front parapet, a covered porch and
 //! upstairs gallery, lit amber windows and a hanging sign. ~10 m wide, so it
 //! anchors the boomtown and reads as the saloon from across the home region.
@@ -6,8 +6,8 @@
 //! Primitive-built (see [`crate::catalogue::items::util`]); authored in one
 //! flat ground-relative frame via [`assemble`]. The body is a hollow shell:
 //! the front wall is a punched screen of piers, sills and headers, and behind
-//! the cut window panes is the barroom itself — back-bar, bottle shelf and a
-//! warm hanging lamp downstairs, curtained rooms up — so the windows look
+//! the cut window panes is the barroom itself - back-bar, bottle shelf and a
+//! warm hanging lamp downstairs, curtained rooms up - so the windows look
 //! *into* a lively saloon instead of being glowing panels stuck on a solid
 //! wall (#945). The false front is only the parapet *above* the roofline so
 //! it never buries the storefront (render FRONT = −Z).
@@ -27,10 +27,10 @@ use super::{
     tin,
 };
 
-/// Warm barroom lamplight — the glow that spills through the cut window panes
+/// Warm barroom lamplight - the glow that spills through the cut window panes
 /// and the batwing doors as an occupied saloon after dark.
 const BAR_WARM: [f32; 3] = [1.0, 0.64, 0.28];
-/// Back-bar bottle tints — the row of glass on the shelf behind the counter,
+/// Back-bar bottle tints - the row of glass on the shelf behind the counter,
 /// the one spot of jewel colour in the warm room.
 const BOTTLES: [[f32; 3]; 5] = [
     [0.22, 0.46, 0.26],
@@ -76,7 +76,7 @@ impl CatalogueEntry for Saloon {
 /// Build one storey of the punched front wall: a header above the openings,
 /// piers between them, and a sill under any opening that starts above the
 /// floor. `levels` is `[floor, head, top]`; `openings` are `(centre-x,
-/// half-width, sill-y)` — a sill equal to `floor` (a doorway) gets no sill
+/// half-width, sill-y)` - a sill equal to `floor` (a doorway) gets no sill
 /// panel. The wall sits in the XY plane at `z`, 0.2 m thick.
 fn punch_wall(
     prims: &mut Vec<Generator>,
@@ -133,7 +133,7 @@ fn build_tree() -> Generator {
     let body_h = 6.0_f32;
     let body_d = 7.0_f32;
     let body_top = slab_h + body_h; // 6.3
-    // Render FRONT = −Z — the front wall is the punched hero face; the barroom
+    // Render FRONT = −Z - the front wall is the punched hero face; the barroom
     // fills the shell behind it.
     let front_z = -body_d * 0.5; // -3.5
     let back_z = body_d * 0.5 - 0.1; // interior face of the rear wall
@@ -141,7 +141,7 @@ fn build_tree() -> Generator {
     let mid_y = slab_h + 3.4; // storey line / gallery floor
 
     let mut prims = vec![
-        // Clapboard floor slab — the root.
+        // Clapboard floor slab - the root.
         prim(
             solid(cuboid_tapered(
                 [10.0, slab_h, 8.0],
@@ -264,7 +264,7 @@ fn build_tree() -> Generator {
         [0.0, slab_h + 1.4, bar_z],
         id_quat(),
     ));
-    // Mirror behind the bottles — a warm-lit back panel, so the barroom reads
+    // Mirror behind the bottles - a warm-lit back panel, so the barroom reads
     // as a glowing amber room through the windows, not a dim box.
     prims.push(prim(
         cuboid_tapered([4.4, 1.6, 0.05], 0.0, glow([1.0, 0.72, 0.4], 1.6)),
@@ -294,7 +294,7 @@ fn build_tree() -> Generator {
     // --- Ground-floor punched front wall: a batwing doorway flanked by two
     //     tall lit windows.
     let g_win = 2.5_f32;
-    let g_sill = slab_h + 0.7; // 1.0 — the window sits a low sill above the floor
+    let g_sill = slab_h + 0.7; // 1.0 - the window sits a low sill above the floor
     let g_head = 3.0_f32;
     punch_wall(
         &mut prims,
@@ -308,7 +308,7 @@ fn build_tree() -> Generator {
             (g_win, 0.9, g_sill),
         ],
     );
-    // Window glazing — clear amber panes on planes filling their openings
+    // Window glazing - clear amber panes on planes filling their openings
     // (sill to head), cut open over the barroom.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(

@@ -2,11 +2,11 @@
 //!
 //! The Inventory window lists every `Generator` the owner has tucked aside
 //! across editing sessions. A click selects a row (#1301): the selected row
-//! expands in place to carry that item's controls — Wear / Take off,
-//! Rename, delete — and a pane beside the list pictures it and says what
+//! expands in place to carry that item's controls - Wear / Take off,
+//! Rename, delete - and a pane beside the list pictures it and says what
 //! the row does not ([`browser`]). Once the stash diverges from the
 //! PDS-persisted copy, "Save" commits the live-vs-stored diff as one atomic
-//! `com.atproto.repo.applyWrites` batch — one record per item (#696).
+//! `com.atproto.repo.applyWrites` batch - one record per item (#696).
 //! The stash is loaded during `AppState::Loading`
 //! (see [`crate::loading::start_inventory_record_fetch`]) so a freshly-logged-in
 //! owner always sees the previously-saved items the moment they land in-game.
@@ -14,7 +14,7 @@
 //! `InventoryRecord` does not derive `PartialEq` (the underlying `Generator`
 //! enum doesn't either, because its variants carry types that themselves
 //! would need full equality), so the dirty check round-trips through
-//! `serde_json` — same pattern the world editor uses for its Reset button.
+//! `serde_json` - same pattern the world editor uses for its Reset button.
 //!
 //! Drag-to-place: each row is a drag source. When the owner releases a drag
 //! over the 3D viewport while standing in their own room,
@@ -24,7 +24,7 @@
 //!
 //! Drag-to-gift: releasing the same drag over a peer row in the People
 //! window routes it into an `ItemOffer` instead. Gifting works in ANY room
-//! (#699) — only the ground-placement branch is owner-gated, and the drop
+//! (#699) - only the ground-placement branch is owner-gated, and the drop
 //! handler enforces that, not the drag source.
 
 mod browser;
@@ -52,7 +52,7 @@ use crate::ui::editable::{RecordAction, publish_status_line, save_load_reset_row
 /// Whether one stash row matches the (already trimmed and lower-cased)
 /// search query (#1275 f134).
 ///
-/// Pure, and deliberately so — the Catalogue's `matches` is, and this
+/// Pure, and deliberately so - the Catalogue's `matches` is, and this
 /// window has no harness of any kind. The three facets are exactly the
 /// three the row already DRAWS: its name, the kind tag beside it, and the
 /// wearable/socket suffix that replaces the tag on a worn item. Filtering
@@ -62,7 +62,7 @@ use crate::ui::editable::{RecordAction, publish_status_line, save_load_reset_row
 /// **What it must not do:** the filter decides which rows are drawn and
 /// nothing else. Drag, gift, wear, rename and delete all act on the row's
 /// own `name`, the over-cap count reads `generators.len()`, and the Save
-/// row's dirty check compares whole records — so a hidden row is still in
+/// row's dirty check compares whole records - so a hidden row is still in
 /// the stash, still saved, and still worn. That is the property
 /// `hiding_a_row_does_not_change_the_stash` pins.
 pub(crate) fn row_matches(
@@ -112,7 +112,7 @@ pub struct InventoryEditorState {
     /// Active rename modal: `(original_key, draft_key)`.
     pub renaming_generator: Option<(String, String)>,
     /// Search query for the stash list (#1275 f134). A `Local` field, not a
-    /// resource, so it survives frames without a change tick to starve —
+    /// resource, so it survives frames without a change tick to starve -
     /// the Catalogue's equivalent lives on a `ResMut` and has to bypass
     /// change detection for exactly that reason.
     pub search: String,
@@ -124,14 +124,14 @@ pub struct InventoryEditorState {
     pub delete_confirm: crate::ui::confirm::ConfirmState<String>,
     /// Pending publish-after-degraded-fetch confirmation (#840): while
     /// [`crate::state::InventoryRecordRecovery`] is present the stash
-    /// shows the empty default and saving would wipe the stored one —
+    /// shows the empty default and saving would wipe the stored one -
     /// the first publish asks first.
     pub publish_guard: crate::ui::confirm::ConfirmState<()>,
     /// Serialized form of [`StoredInventoryRecord`] for the per-frame dirty
     /// check (#1135), the same cache the room editor got in #674.
     ///
-    /// The uncached form ran `records_differ` twice — live-vs-stored and
-    /// live-vs-default — and `records_differ` is
+    /// The uncached form ran `records_differ` twice - live-vs-stored and
+    /// live-vs-default - and `records_differ` is
     /// `serde_json::to_value(a) != serde_json::to_value(b)`, so an open panel
     /// built three whole `Value` trees of the stash every frame. The stash
     /// holds up to `MAX_INVENTORY_ITEMS` generator trees, each allowed the
@@ -143,7 +143,7 @@ pub struct InventoryEditorState {
     /// #1135 took it from three trees a frame to one, and stopped there.
     /// The remaining one was still the whole stash, EVERY frame: measured
     /// at 3.0 ms with the old 50-item cap and 33.9 ms at 500. See
-    /// [`Self::live_baseline`], which #1292 added to close it — that, and
+    /// [`Self::live_baseline`], which #1292 added to close it - that, and
     /// not any limit on the wire, is what the item cap was really bounded
     /// by.
     ///
@@ -161,7 +161,7 @@ pub struct InventoryEditorState {
     stored_baseline: Option<(bevy::ecs::change_detection::Tick, Option<serde_json::Value>)>,
     /// Serialized form of the default (empty) stash, for the `can_reset`
     /// comparison. Unlike the room's, this has no DID to key on and no
-    /// procedural build behind it — `InventoryRecord::default()` is empty —
+    /// procedural build behind it - `InventoryRecord::default()` is empty -
     /// so it is built once on first use and never invalidated.
     default_baseline: Option<Option<serde_json::Value>>,
     /// Serialized form of [`LiveInventoryRecord`] for the same dirty check
@@ -170,10 +170,10 @@ pub struct InventoryEditorState {
     ///
     /// #1135 cut this footer from three whole-record serializations a frame
     /// to one, and stopped there because the LIVE side has no tick to key
-    /// on — except that it does, and the cap was small enough that nobody
+    /// on - except that it does, and the cap was small enough that nobody
     /// measured. It is not small any more: a whole-stash
-    /// `serde_json::Value` costs 3.0 ms at 50 items, 17.5 ms at 200 — past
-    /// the entire 60 fps frame budget — and 33.9 ms at 500, EVERY FRAME the
+    /// `serde_json::Value` costs 3.0 ms at 50 items, 17.5 ms at 200 - past
+    /// the entire 60 fps frame budget - and 33.9 ms at 500, EVERY FRAME the
     /// panel is open. That, not any wire limit, was what
     /// `MAX_INVENTORY_ITEMS` was really bounded by.
     ///
@@ -181,7 +181,7 @@ pub struct InventoryEditorState {
     /// The one-frame lag this introduces is the one the footer already
     /// documents and accepts for `stored_baseline`.
     live_baseline: Option<(bevy::ecs::change_detection::Tick, Option<serde_json::Value>)>,
-    /// Change tick the size readout was last MEASURED at (#1292) — the
+    /// Change tick the size readout was last MEASURED at (#1292) - the
     /// generation latch the room and avatar editors already use for the
     /// same call (#1270 f418).
     ///
@@ -211,7 +211,7 @@ pub struct PublishInventoryTask {
     /// accept-a-gift path publishes without the Inventory window open and
     /// re-opens the dialog for the next offer immediately, so a second
     /// gift, a Wear, a rename or a delete inside one round trip is normal
-    /// play — and every one of them used to be marked clean without ever
+    /// play - and every one of them used to be marked clean without ever
     /// having been written. `stored` is also what the next save's diff is
     /// computed against, so the loss compounds instead of self-healing.
     pub published: InventoryRecord,
@@ -224,7 +224,7 @@ pub struct PublishInventoryTask {
 /// [`crate::catalogue::by_slug`] and stamp a fresh deep-copied
 /// blueprint into the room's `generators` map. (A `RoomGenerators`
 /// variant for World-Editor-tab drags was documented but never armed
-/// by any UI — deleted in #832; the scene context menu's Duplicate
+/// by any UI - deleted in #832; the scene context menu's Duplicate
 /// (#824) covers stamping another instance of an existing generator.)
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub enum DropSource {
@@ -235,7 +235,7 @@ pub enum DropSource {
 
 /// Egui → world drag handoff. The UI side sets the generator name and source
 /// on drag-start; [`drop::handle_generator_drop`] consumes it on mouse release,
-/// runs the raycast, and clears it — whether or not the release landed on a
+/// runs the raycast, and clears it - whether or not the release landed on a
 /// valid ground hit.
 ///
 /// `peer_target` is refreshed every frame by [`crate::ui::people::people_ui`]
@@ -244,7 +244,7 @@ pub enum DropSource {
 /// drop handler consumes it on release to route the drag into an
 /// [`crate::protocol::OverlandsMessage::ItemOffer`] instead of a terrain
 /// placement. It intentionally is **not** cleared by the inventory or
-/// world-editor drag source on its own — the People UI owns the signal
+/// world-editor drag source on its own - the People UI owns the signal
 /// because only it can resolve "cursor is over peer row N" via egui's
 /// layout.
 #[derive(Resource, Default)]
@@ -257,7 +257,7 @@ pub struct PendingGeneratorDrop {
 /// The follow-the-cursor tooltip a live drag carries (#1220 f132).
 ///
 /// Shared by the Inventory row and the Catalogue tree, because the Catalogue
-/// is where a new user MEETS drag-to-place and drag-to-gift — and it is also
+/// is where a new user MEETS drag-to-place and drag-to-gift - and it is also
 /// the source that auto-opens the People window mid-drag, steering the user
 /// straight at a target whose affordance nothing explained. `egui_ltreeview`
 /// does paint the dragged row at the cursor, so the drag was visibly live;
@@ -276,13 +276,13 @@ pub fn drag_tooltip(ui: &egui::Ui, id_salt: &str, label: &str, owns_room: bool) 
     .show(|ui| {
         if owns_room {
             ui.label(format!(
-                "Place “{label}” — or drop on a peer in the People list to gift"
+                "Place “{label}” - or drop on a peer in the People list to gift"
             ));
         } else {
             // A visitor cannot place: ground placement is owner-only, so
             // gifting is the whole of what this drag can do for them.
             ui.label(format!(
-                "Offer “{label}” — drop on a peer in the People list"
+                "Offer “{label}” - drop on a peer in the People list"
             ));
         }
     });
@@ -305,7 +305,7 @@ pub struct PeerDropTarget {
     /// An ineligible row is recorded anyway, WITH its reason, so a release
     /// on it can be explained. Before this the row simply was not recorded,
     /// `handle_generator_drop` found no target, and the release fell through
-    /// to the silent cancel written for drops over the Inventory window —
+    /// to the silent cancel written for drops over the Inventory window -
     /// so the most common failure in the app's one gifting gesture was
     /// indistinguishable from the feature being broken.
     pub blocked: Option<&'static str>,
@@ -313,7 +313,7 @@ pub struct PeerDropTarget {
 
 /// Auto-open the People window the moment a gift-capable drag arms with
 /// peers present (#846). Peer drop targets exist ONLY as rendered People
-/// rows — with the window closed (the default) a drag had nothing to
+/// rows - with the window closed (the default) a drag had nothing to
 /// land on and a visitor's release was a silent no-op. Rising-edge only,
 /// so closing People mid-drag is respected.
 pub fn open_people_for_gift_drag(
@@ -346,7 +346,7 @@ pub struct WearSurface<'w> {
 /// drop bus a drag arms, the selection a click makes, and the picture the
 /// pane beside the list draws. Bundled because `inventory_ui` sits at
 /// Bevy's 16-parameter ceiling and the drop bus used to be a parameter of
-/// its own — this bundle took its slot. The two `ResMut`s are written only
+/// its own - this bundle took its slot. The two `ResMut`s are written only
 /// on a real gesture ([`RowGesture::acts`]); the preview is `Option`
 /// because `item_preview`'s `Startup` system inserts it.
 #[derive(bevy::ecs::system::SystemParam)]
@@ -432,11 +432,11 @@ fn apply_wear_action(
         WearAction::Wear(name) => {
             // Says why rather than returning silently (#1141). The row's
             // button is disabled for every one of these reasons, so this
-            // arm should be unreachable — but "should be unreachable" is
+            // arm should be unreachable - but "should be unreachable" is
             // exactly the assumption that let the catalogue toast a
             // success over a wear that never happened.
             if let Some(reason) = crate::ui::avatar::wear_blocked_reason(Some(&live.0), true) {
-                toasts.warn(format!("Could not wear \"{name}\" — {reason}"), now);
+                toasts.warn(format!("Could not wear \"{name}\" - {reason}"), now);
                 return;
             }
             let Some(record) = crate::ui::avatar::record_for_inventory_item(inventory, &name)
@@ -501,8 +501,8 @@ pub fn inventory_ui(
     else {
         return;
     };
-    // A selection whose name no longer resolves — a delete, a Load or
-    // Reset of the whole stash, a reload — is dropped rather than left
+    // A selection whose name no longer resolves - a delete, a Load or
+    // Reset of the whole stash, a reload - is dropped rather than left
     // naming nothing (#1301). Asked through `Deref`; the resource is
     // written only when the answer is yes.
     if browser.is_stale(&live.0) {
@@ -510,7 +510,7 @@ pub fn inventory_ui(
     }
     // Rows are draggable everywhere: releasing over a peer row in the People
     // window offers the item as a gift, which is a personal transaction and
-    // valid in ANY room (#699 — gating the drag on room ownership locked
+    // valid in ANY room (#699 - gating the drag on room ownership locked
     // visitors out of gifting entirely). Ground placement is the drop
     // handler's job to police: [`drop::handle_generator_drop`] only mutates
     // the `RoomRecord` when `session.did == room_did`, so a viewport release
@@ -523,7 +523,7 @@ pub fn inventory_ui(
 
     let ctx = contexts.ctx_mut().unwrap();
 
-    // Rename dialog — the shared modal (#838): keeps itself open on an
+    // Rename dialog - the shared modal (#838): keeps itself open on an
     // empty/taken name with the reason inline, Enter applies, Esc cancels.
     if let Some((old_name, mut new_name)) = state.renaming_generator.clone() {
         match crate::ui::confirm::rename_dialog(
@@ -546,7 +546,7 @@ pub fn inventory_ui(
                 // rename, which is what can refuse (a taken name).
                 let carry = browser.is_selected(&old_name);
                 // Through the record's own rename so wear metadata (#1096)
-                // travels with the item — and then the worn props' own
+                // travels with the item - and then the worn props' own
                 // provenance, which the stash cannot reach (#1141). The
                 // name is the only link between a row and the prop it put
                 // on the body; moving one without the other left the row
@@ -576,7 +576,7 @@ pub fn inventory_ui(
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Inventory, ctx);
     // Guarded-dirty (#879): `.open(&mut panels.inventory)` through the
     // `ResMut` would mark UiPanels changed every frame, starving the
-    // prefs save debounce — local copy in, write back only on close.
+    // prefs save debounce - local copy in, write back only on close.
     let mut open = panels.inventory;
     let response = egui::Window::new("Inventory")
         .open(&mut open)
@@ -599,7 +599,7 @@ pub fn inventory_ui(
                     .show(ui, |ui| {
                         ui.colored_label(
                             crate::ui::theme::current(ui.ctx()).danger_surface_text,
-                            "⚠ Your inventory could not be loaded — this shows an empty default.",
+                            "⚠ Your inventory could not be loaded - this shows an empty default.",
                         );
                         ui.label(egui::RichText::new(format!("Reason: {}", rec.reason)).small());
                         ui.label(
@@ -627,7 +627,7 @@ pub fn inventory_ui(
                 ui.add_space(4.0);
             }
             // Over-cap surfacing (#841): a legacy stash past the cap used
-            // to be silently truncated by sanitize on the next login —
+            // to be silently truncated by sanitize on the next login -
             // now it loads intact, reads red here, and blocks publishing
             // until the user decides what to prune.
             let cap = crate::config::state::MAX_INVENTORY_ITEMS;
@@ -637,7 +637,7 @@ pub fn inventory_ui(
                 ui.colored_label(
                     crate::ui::theme::current(ui.ctx()).status.error,
                     format!(
-                        "Saved items: {count}/{cap} — over the {cap}-item cap; \
+                        "Saved items: {count}/{cap} - over the {cap}-item cap; \
                          remove {} to enable saving",
                         if count - cap == 1 {
                             "1 item".to_owned()
@@ -650,7 +650,7 @@ pub fn inventory_ui(
                 ui.label(format!("Saved items: {count}/{cap}"));
             }
             // Search over the stash (#1275 f134). Mirrors the Catalogue's
-            // top bar — same hint-text shape, same CROSS clear button —
+            // top bar - same hint-text shape, same CROSS clear button -
             // because these are the two windows a decorating session moves
             // between and the Inventory is the one you cannot re-derive by
             // browsing. Drawn only when there is something to search: a
@@ -679,7 +679,7 @@ pub fn inventory_ui(
             // 80 pt for "the separator + Publish row + feedback line" and
             // hand the scroll area `available_height() - 80` with
             // `auto_shrink([true, false])`, which claims that height
-            // whatever its content — so a `publish_status_line` carrying a
+            // whatever its content - so a `publish_status_line` carrying a
             // long XRPC failure, wrapped to four lines in this 300 pt-wide
             // window, made the content taller than the window and egui's
             // `Resize` ratcheted it up every frame until it filled the
@@ -687,7 +687,7 @@ pub fn inventory_ui(
             // headroom left and was one wrapped error away.
             //
             // The footer now renders before the list, so a delete made this
-            // frame reaches the Save row's dirty check on the next one — a
+            // frame reaches the Save row's dirty check on the next one - a
             // single frame of lag on an indicator, against a window that
             // could climb off the screen.
             crate::ui::layout::footer(ui, "inventory_footer", |ui| {
@@ -696,14 +696,14 @@ pub fn inventory_ui(
                 // editors. Dirty is derived (a serialized diff against the stored
                 // snapshot) so the row needs no per-edit flag; Inventory now
                 // also gets Load-from-PDS (revert) and Reset-to-default
-                // (empty the stash) — it previously had Publish only.
+                // (empty the stash) - it previously had Publish only.
                 //
                 // Both baselines are cached (#1135, the #674 pattern): the stored
                 // side re-serializes only when the resource changes and the empty
                 // default only once, so an open panel serializes the LIVE stash
                 // ONCE per frame instead of three whole trees. The comparisons are
-                // value-identical to `records_differ` — `Option<Value>` on both
-                // sides, `.ok()` semantics preserved — so dirty and can_reset are
+                // value-identical to `records_differ` - `Option<Value>` on both
+                // sides, `.ok()` semantics preserved - so dirty and can_reset are
                 // frame-accurate exactly as before.
                 if state
                     .stored_baseline
@@ -718,7 +718,7 @@ pub fn inventory_ui(
                         Some(serde_json::to_value(InventoryRecord::default()).ok());
                 }
                 // The live side is cached on its own change tick too
-                // (#1292) — see `live_baseline`. `edited` is the fact the
+                // (#1292) - see `live_baseline`. `edited` is the fact the
                 // size readout below needs as well, so it is derived once.
                 let edited = state
                     .live_baseline
@@ -740,7 +740,7 @@ pub fn inventory_ui(
                     .default_baseline
                     .as_ref()
                     .is_none_or(|baseline| *baseline != live_value);
-                // Publishing is blocked while over the cap (#841) — the red
+                // Publishing is blocked while over the cap (#841) - the red
                 // header line explains; mirrors the hard-ceiling size block.
                 let within_cap =
                     live.0.generators.len() <= crate::config::state::MAX_INVENTORY_ITEMS;
@@ -749,7 +749,7 @@ pub fn inventory_ui(
                 // attemptable while dirty.
                 //
                 // Size readout: the stash is one record PER ITEM (#696), so
-                // the per-record budget applies to the largest single item —
+                // the per-record budget applies to the largest single item -
                 // not the whole stash. Same throttled cache as the other
                 // editors, custom measurement.
                 let now = time.elapsed_secs_f64();
@@ -762,7 +762,7 @@ pub fn inventory_ui(
                     // answer the question from". Both halves stopped being
                     // true in #1292: the cap is 500, and the live side has a
                     // tick-keyed cache now. `measure_publish` serializes
-                    // EVERY item to find the largest — 18.2 ms at 500 — and
+                    // EVERY item to find the largest - 18.2 ms at 500 - and
                     // the 0.5 s throttle alone meant paying that twice a
                     // second forever on a stash nobody was touching.
                     state.size_readout_tick != Some(live.last_changed()),
@@ -783,7 +783,7 @@ pub fn inventory_ui(
                         size: &size,
                         publish_shortcut: ctrl_s,
                         status: &mut feedback.status,
-                        // Inventory has no undo stack (#866) — keep the modal.
+                        // Inventory has no undo stack (#866) - keep the modal.
                         confirm: Some(&mut state.row_confirm),
                         reset: crate::ui::editable::ResetWording::EmptyStash {
                             items: live.0.generators.len(),
@@ -797,7 +797,7 @@ pub fn inventory_ui(
                     RecordAction::Publish => {
                         // Clobber protection (#840): while the session is
                         // degraded, saving this (empty-default) stash would
-                        // wipe whatever is actually stored — ask first.
+                        // wipe whatever is actually stored - ask first.
                         match recovery.as_deref() {
                             Some(rec) => crate::ui::editable::request_overwrite_confirm(
                                 &mut state.publish_guard,
@@ -898,7 +898,7 @@ pub fn inventory_ui(
                                 // "Nothing matched" is a different fact from
                                 // "nothing here" (#1275 f134), and the count
                                 // line above reports the whole stash, so the
-                                // filter says what it is hiding — otherwise a
+                                // filter says what it is hiding - otherwise a
                                 // forgotten query reads as a lost item.
                                 if names.is_empty() {
                                     ui.add_space(4.0);
@@ -943,7 +943,7 @@ pub fn inventory_ui(
                                     // a stash saved by one. It cannot be
                                     // placed, worn, renamed or written back,
                                     // and it is what disables Save for the
-                                    // whole stash — so it is not selectable,
+                                    // whole stash - so it is not selectable,
                                     // and its delete stays on the row: it is
                                     // the one thing the owner can do about it.
                                     if matches!(generator.kind, GeneratorKind::Unknown) {
@@ -998,7 +998,7 @@ pub fn inventory_ui(
                                         if crate::pds::inventory::is_drop_placeable(generator) {
                                             (RowKind::Placeable, format!("({tag})"))
                                         } else {
-                                            (RowKind::RoomScoped, format!("({tag} — room-scoped)"))
+                                            (RowKind::RoomScoped, format!("({tag} - room-scoped)"))
                                         };
                                     let selected = browser.is_selected(name);
                                     let response = stash_row(ui, name, &tag, kind, selected);
@@ -1018,7 +1018,7 @@ pub fn inventory_ui(
                                     {
                                         // Follow-the-cursor tooltip keeps the
                                         // dragger oriented while they hunt for
-                                        // a target — without it, the drag is
+                                        // a target - without it, the drag is
                                         // invisible once the pointer leaves
                                         // the row. Shared with the Catalogue
                                         // since #1220 f132.
@@ -1120,7 +1120,7 @@ pub fn inventory_ui(
                     );
                 }
                 // Delete asks first (#1200): this is the one surface with
-                // no undo. A worn item is named as such — deleting takes it
+                // no undo. A worn item is named as such - deleting takes it
                 // off too, so the prop cannot linger on the body with the
                 // only row that offered "Take off" gone (finding 131).
                 if let Some(name) = to_remove {
@@ -1130,7 +1130,7 @@ pub fn inventory_ui(
                         .is_some_and(|rig| crate::ui::avatar::is_worn_from(rig, &name));
                     let body = if worn {
                         format!(
-                            "You are wearing \"{name}\" — deleting it also takes it off. \
+                            "You are wearing \"{name}\" - deleting it also takes it off. \
                              The inventory has no undo; the stored copy keeps it until \
                              you save."
                         )
@@ -1206,7 +1206,7 @@ pub fn inventory_ui(
 /// batch (see [`crate::pds::inventory`]), so the caller must pass the
 /// stored snapshot the diff is computed against. `pub(crate)` because the
 /// unsaved-edits guard ([`crate::ui::unsaved_guard`]) and the offer-accept
-/// path ([`crate::ui::people`]) drive the same pipeline — the shared
+/// path ([`crate::ui::people`]) drive the same pipeline - the shared
 /// [`poll_publish_inventory_tasks`] system lands the result either way.
 pub(crate) fn spawn_publish_inventory_task(
     commands: &mut Commands,
@@ -1299,7 +1299,7 @@ pub fn poll_publish_inventory_tasks(
         match result {
             Ok(()) => {
                 info!("Inventory record saved to PDS");
-                // The published snapshot, not `live` (#1116) — see
+                // The published snapshot, not `live` (#1116) - see
                 // `PublishInventoryTask::published`.
                 if let Some(stored) = stored.as_mut() {
                     stored.0 = task.published.clone();
@@ -1325,7 +1325,7 @@ pub fn poll_publish_inventory_tasks(
             }
             // Surfaced OUTSIDE the Inventory window (#843): the
             // accept-a-gift flow publishes without the window open, so its
-            // failure used to be invisible — the item looked saved and
+            // failure used to be invisible - the item looked saved and
             // evaporated on the next login. Since #1137 all three records
             // report through the one helper.
             Err(e) => crate::ui::editable::report_publish_failure(
@@ -1352,14 +1352,14 @@ pub const UNREADABLE_ITEM_TAG: &str = "(from a newer version of Overlands)";
 
 /// What the owner can do about an unreadable item.
 pub const UNREADABLE_ITEM_HOVER: &str = "This item was made by a newer version of Overlands. \
-     This build cannot read it, so it cannot be placed, worn, renamed or saved — and while it \
+     This build cannot read it, so it cannot be placed, worn, renamed or saved - and while it \
      is in your inventory, the inventory cannot be saved at all. Update Overlands, or delete the item.";
 
 /// Pick an inventory key for a gift arriving via [`crate::protocol::OverlandsMessage::ItemOffer`].
 /// Policy: if the incoming name is free, use it verbatim; otherwise
 /// append `_2`, `_3`, … until we find an unused slot. This matches the
 /// user-approved design ("auto-rename with _2 suffix"). Equality of
-/// existing entries is not consulted — a gift always lands as a new item,
+/// existing entries is not consulted - a gift always lands as a new item,
 /// because two players may each have tweaked the same base blueprint and
 /// silently coalescing would lose data.
 pub fn choose_inventory_gift_key(
@@ -1387,7 +1387,7 @@ fn choose_gift_key(is_taken: impl Fn(&str) -> bool, incoming_name: &str) -> Stri
 }
 
 /// Accept a gift (#1200): land it in `live` and return the record the
-/// auto-publish writes, which is `stored` plus the gift — never `live`.
+/// auto-publish writes, which is `stored` plus the gift - never `live`.
 ///
 /// The publish on accept exists so the gift survives a session that ends
 /// before the owner presses Save. Publishing the whole live stash for it
@@ -1416,7 +1416,7 @@ pub fn accept_gift(
 
 /// Land an accepted gift in the stash (#1108): under
 /// [`choose_inventory_gift_key`]'s slot, through
-/// [`InventoryRecord::put_item`] so the wear side table stays in step — a
+/// [`InventoryRecord::put_item`] so the wear side table stays in step - a
 /// gifted wearable is wearable from the Inventory window straight away,
 /// exactly as a catalogue copy would be; decor stays decor. Returns the key
 /// it landed under.
@@ -1441,7 +1441,7 @@ mod gift_tests {
     /// "lantern" arrives and they press Accept. The old accept published
     /// the whole live stash, so both deletes went to the PDS forever. The
     /// publish payload must be the stored stash plus the gift and nothing
-    /// else — and the gift must not land on the stored "lantern" either.
+    /// else - and the gift must not land on the stored "lantern" either.
     #[test]
     fn accepting_a_gift_publishes_the_gift_and_nothing_else() {
         let mut stored = InventoryRecord::default();
@@ -1484,7 +1484,7 @@ mod gift_tests {
     }
 
     /// #1108: before this, a gift went straight into `generators` and the
-    /// wear side table never heard of it — every gifted wearable arrived as
+    /// wear side table never heard of it - every gifted wearable arrived as
     /// decor. The accept path must land wear metadata with the item, under
     /// the collision-renamed key, and leave decor as decor.
     #[test]
@@ -1524,7 +1524,7 @@ mod gift_arrival_tests {
     use super::*;
 
     /// #1220 f119. The sequence: a friend gifts you "lantern", you already
-    /// have one, you accept — and the item is in your stash as "lantern_2"
+    /// have one, you accept - and the item is in your stash as "lantern_2"
     /// with no explanation, under a name the modal never showed you. The
     /// accept arm used to discard the landed key entirely, so the one moment
     /// a gift becomes yours was the least-confirmed event in the lifecycle

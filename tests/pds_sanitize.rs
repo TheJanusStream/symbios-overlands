@@ -1,9 +1,9 @@
-//! Integration tests for `pds::sanitize` — the clamp pass that every
+//! Integration tests for `pds::sanitize` - the clamp pass that every
 //! inbound record traverses before the world compiler touches it.
 //!
 //! The overarching contract is that sanitise never panics on pathological
-//! input — NaN, infinities, negative dimensions, recursive generator trees,
-//! giant counts — and that every numeric field lands inside the
+//! input - NaN, infinities, negative dimensions, recursive generator trees,
+//! giant counts - and that every numeric field lands inside the
 //! `pds::limits` envelope afterwards.
 
 use symbios_overlands::pds::PrimCommon;
@@ -53,7 +53,7 @@ fn terrain_coefficients_clamped_to_finite() {
     // A hostile record can carry NaN / ±∞ in any terrain coefficient. They feed
     // the heightmap noise + erosion math, survive `HeightMap::normalize` (its
     // min/max fold ignores NaN), and reach `build_heightfield_collider`'s
-    // `assert!(is_finite)` — a remote crash on every peer that loads or receives
+    // `assert!(is_finite)` - a remote crash on every peer that loads or receives
     // the record. `f32::clamp` alone would not catch it (`NaN.clamp(..)` is
     // NaN), so sanitise routes each field through `clamp_finite`. Assert every
     // one is finite and inside its documented range afterwards.
@@ -152,7 +152,7 @@ fn scatter_count_clamped_to_max() {
         naturalness: Default::default(),
     });
     r.sanitize();
-    // Filter for the specific scatter this test injected — the default
+    // Filter for the specific scatter this test injected - the default
     // record carries its own seeded `tree_scatter_*` placements (see
     // `seeded_defaults::room::scatters`) which are irrelevant here.
     let injected: Vec<&Placement> = r
@@ -193,7 +193,7 @@ fn scatter_pointing_at_terrain_root_is_dropped() {
     let mut r = RoomRecord::default_for_did(TEST_DID);
     // base_terrain is a Terrain root in the default record. Scattering
     // it would request duplicate heightfield colliders, which Avian
-    // rejects — drop the placement instead of letting it through.
+    // rejects - drop the placement instead of letting it through.
     r.placements.push(Placement::Scatter {
         generator_ref: "base_terrain".into(),
         bounds: ScatterBounds::Circle {
@@ -210,7 +210,7 @@ fn scatter_pointing_at_terrain_root_is_dropped() {
         naturalness: Default::default(),
     });
     r.sanitize();
-    // Filter for the specific scatter this test injected — the default
+    // Filter for the specific scatter this test injected - the default
     // record carries its own seeded `tree_scatter_*` Scatter placements
     // (legitimate, targeting non-Terrain generators) that must NOT be
     // dropped by sanitise.
@@ -236,7 +236,7 @@ fn grid_pointing_at_terrain_root_is_dropped() {
         random_yaw: false,
     });
     r.sanitize();
-    // Filter for the specific Grid this test injected — same robustness
+    // Filter for the specific Grid this test injected - same robustness
     // fix as the sibling scatter-on-terrain test (no Grid placements
     // currently ship in the default record, but the filter keeps the
     // assertion durable if that changes).
@@ -296,7 +296,7 @@ fn absolute_pointing_at_terrain_root_is_preserved() {
     let before = r.placements.len();
     r.sanitize();
     // The default home-world record has exactly one Absolute pointing
-    // at base_terrain. Sanitise must leave it intact — that's the
+    // at base_terrain. Sanitise must leave it intact - that's the
     // canonical placement of the (singleton) terrain root.
     assert_eq!(r.placements.len(), before);
     assert!(matches!(r.placements[0], Placement::Absolute { .. }));
@@ -405,7 +405,7 @@ fn generator_rejects_water_at_root() {
 fn water_is_allowed_as_child() {
     // Inverse of the rule above: Water *is* welcome as a descendant of
     // any other generator. Saving a region blueprint to inventory relies
-    // on this — the homeworld's water lives inside the terrain root and
+    // on this - the homeworld's water lives inside the terrain root and
     // must round-trip unchanged.
     let mut root = Generator::from_kind(GeneratorKind::Terrain(Default::default()));
     root.children
@@ -425,7 +425,7 @@ fn water_is_allowed_as_child() {
 
 #[test]
 fn terrain_root_keeps_authored_children() {
-    // A Terrain root anchors a region blueprint — its children (water,
+    // A Terrain root anchors a region blueprint - its children (water,
     // L-systems, props, …) must travel with the inventory item, so the
     // sanitizer leaves the children list alone (subject to the depth /
     // total-node budget enforced elsewhere).
@@ -447,7 +447,7 @@ fn terrain_root_keeps_authored_children() {
 
 #[test]
 fn water_child_strips_authored_grandchildren() {
-    // Water itself is still a leaf — `spawn_water_volume` doesn't consume
+    // Water itself is still a leaf - `spawn_water_volume` doesn't consume
     // children, so the sanitizer strips them to keep the editor and the
     // spawner in sync.
     let mut root = Generator::default();
@@ -540,7 +540,7 @@ fn shape_generator_caps_clamp_oversized_inputs() {
     for i in 0..1024 {
         materials.insert(format!("Slot{i}"), SovereignMaterialSettings::default());
     }
-    // Slot whose key is well over the identifier cap — the upstream parser
+    // Slot whose key is well over the identifier cap - the upstream parser
     // would never match it, so the sanitiser should drop it on ingest.
     let oversized_key = "X".repeat(limits::MAX_SHAPE_ROOT_RULE_BYTES * 4);
     materials.insert(oversized_key, SovereignMaterialSettings::default());
@@ -884,7 +884,7 @@ fn default_landing_clamped_and_definanned() {
 fn inventory_stash_over_bound_is_trimmed_deterministically() {
     // #841: sanitize's trim point moved from the 50-item gameplay cap
     // (which silently deleted the user's items in alphabet order) to the
-    // hostile-PDS DoS backstop — over-cap stashes survive the load and
+    // hostile-PDS DoS backstop - over-cap stashes survive the load and
     // the Inventory UI owns the cap. The trim itself must stay
     // deterministic and lexicographic past the backstop.
     let bound = symbios_overlands::config::state::MAX_INVENTORY_SANITIZE_ITEMS;
@@ -1171,7 +1171,7 @@ fn audio_ids_straddling_the_cap_do_not_panic() {
 }
 
 /// Regression for finding 367 (#1205): a generator key past the shared
-/// name cap is cut on a char boundary — never dropped — and every
+/// name cap is cut on a char boundary - never dropped - and every
 /// placement and trait entry that named it follows the rename.
 #[test]
 fn room_generator_keys_are_cut_and_placements_follow() {

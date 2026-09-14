@@ -2,7 +2,7 @@
 //!
 //! [`build_for_did`] is the single entry point the record layer calls:
 //! it resolves the DID's [`ChassisFamily`] and dispatches to that
-//! family's builder, returning both halves of the avatar record — the
+//! family's builder, returning both halves of the avatar record - the
 //! body and a locomotion preset that *matches* it (boat → HoverBoat,
 //! airship → Helicopter, humanoid → Humanoid, skiff → Car), so the
 //! default chassis drives the way it looks.
@@ -13,7 +13,7 @@
 //! parametric `symbios-avatar` body rolled from the same seed. That body
 //! is filled in **locally** rather than fetched: the engine's roll is
 //! deterministic, so every peer derives the same person for a DID with
-//! nothing on the wire and no PDS round trip — the same promise the
+//! nothing on the wire and no PDS round trip - the same promise the
 //! generator families always kept. The wardrobe record key comes from
 //! [`crate::pds::tid::tid_for_seed`] so two devices that both save a
 //! never-edited seeded default agree on where it goes.
@@ -48,16 +48,16 @@ pub fn build_for_did(did: &str) -> (RecordBody, LocomotionConfig) {
     build_for_seed(fnv1a_64(did))
 }
 
-/// Build from a pre-computed seed — the manual re-roll path. `seed`
+/// Build from a pre-computed seed - the manual re-roll path. `seed`
 /// chooses the chassis family and drives every derived value.
 /// `build_for_did(did)` is exactly `build_for_seed(fnv1a_64(did))`.
-/// (Avatars no longer wear a pfp identity sign — #733 removed the
+/// (Avatars no longer wear a pfp identity sign - #733 removed the
 /// chest-badge / hull-decal / bow-crest panels from every chassis.)
 pub fn build_for_seed(seed: u64) -> (RecordBody, LocomotionConfig) {
     let family = ChassisFamily::for_seed(seed);
     // The rigged family short-circuits the whole part-assembly pipeline:
     // there is no tree to compose, no FX mount to snap to a blueprint
-    // landmark, and no sanitiser pass to owe — the engine record IS the
+    // landmark, and no sanitiser pass to owe - the engine record IS the
     // body, and the skinned build happens at spawn (#1057).
     if family == ChassisFamily::Humanoid {
         return (RecordBody::rigged_seeded(seed), humanoid_locomotion(seed));
@@ -72,8 +72,8 @@ pub fn build_for_seed(seed: u64) -> (RecordBody, LocomotionConfig) {
     };
     // Seeded FX: hang the style's signature particle aura (floored to the
     // chassis wake / vent / exhaust) + body voice on the built root. The mount
-    // is snapped to the seeded blueprint landmark for the aura — a boat's steam
-    // leaves its funnel, its wake rides the stern — via [`fx_mount`].
+    // is snapped to the seeded blueprint landmark for the aura - a boat's steam
+    // leaves its funnel, its wake rides the stern - via [`fx_mount`].
     let fx = AvatarFx::for_seed(seed);
     let accent = AvatarPalette::for_seed(seed).primary_accent;
     fx::attach(
@@ -105,7 +105,7 @@ fn engine_stature(seed: u64) -> f32 {
 
 /// Diegetic FX mount for `aura` on `family` (root-local frame, *before* the
 /// assembler's yaw/drop). The station is snapped to the seeded blueprint
-/// landmarks the assembler already mounts parts on — so the emitter tracks the
+/// landmarks the assembler already mounts parts on - so the emitter tracks the
 /// actual hull instead of a fixed constant, and a boat's steam leaves its
 /// funnel rather than empty air amidships. Falls back to the legacy per-family
 /// constant if the blueprint is unavailable (never for a real vehicle).
@@ -119,7 +119,7 @@ fn fx_mount(aura: ParticleAura, family: ChassisFamily, seed: u64) -> [f32; 3] {
         ChassisFamily::Humanoid => [0.0, 0.45, 0.0],
         ChassisFamily::Boat => match bp.as_ref().and_then(VehicleBlueprint::boat) {
             // Steam vents from the funnel (the shared Stack station, raised to
-            // the funnel mouth) — but only when a funnel was actually rolled:
+            // the funnel mouth) - but only when a funnel was actually rolled:
             // the Stack slot is optional (ornateness-gated), so a stackless
             // steam boat would otherwise plume from empty air. Without a funnel
             // it falls back to the low stern, reading as engine spray like the
@@ -137,7 +137,7 @@ fn fx_mount(aura: ParticleAura, family: ChassisFamily, seed: u64) -> [f32; 3] {
             None => [0.0, 0.1, -0.8],
         },
         // Vents / thruster wash / motes all issue from beneath the slung
-        // gondola — the assembler's belly line, tracking the chosen envelope.
+        // gondola - the assembler's belly line, tracking the chosen envelope.
         ChassisFamily::Airship => airship::fx_belly_anchor(seed),
         ChassisFamily::Skiff => match bp.as_ref().and_then(VehicleBlueprint::skiff) {
             // Exhaust / steam leave the tailpipe (the shared Exhaust station,
@@ -151,7 +151,7 @@ fn fx_mount(aura: ParticleAura, family: ChassisFamily, seed: u64) -> [f32; 3] {
     }
 }
 
-/// Whether this seed's boat rolled a `Stack` (funnel / vent) part — the
+/// Whether this seed's boat rolled a `Stack` (funnel / vent) part - the
 /// diegetic source a steam plume can sit atop. The `Stack` slot is optional,
 /// so a plain boat may have no funnel at all.
 fn boat_has_stack(seed: u64) -> bool {
@@ -162,8 +162,8 @@ fn boat_has_stack(seed: u64) -> bool {
 }
 
 /// The slug of the part filling `slot` in this seed's outfit (the discrete
-/// hull / envelope / chassis *class* — barge vs catamaran, twin vs zeppelin,
-/// armored vs dune — which is a part slug, not an enum), or `""` if unfilled.
+/// hull / envelope / chassis *class* - barge vs catamaran, twin vs zeppelin,
+/// armored vs dune - which is a part slug, not an enum), or `""` if unfilled.
 fn structural_slug(outfit: &AvatarOutfit, slot: PartSlot) -> &'static str {
     outfit
         .parts
@@ -176,7 +176,7 @@ fn structural_slug(outfit: &AvatarOutfit, slot: PartSlot) -> &'static str {
 /// at exactly the preset's default travel speed.
 const NOMINAL_STEP_CADENCE: f32 = 2.2;
 
-/// The travel speed — the run since #1193 — a seeded humanoid gets for its
+/// The travel speed - the run since #1193 - a seeded humanoid gets for its
 /// gait cadence, m/s: the preset's default scaled by the cadence against
 /// [`NOMINAL_STEP_CADENCE`], so a long-legged strider actually covers ground
 /// faster than a short-stepped walker.
@@ -219,7 +219,7 @@ fn humanoid_locomotion(seed: u64) -> LocomotionConfig {
 // out-accelerated the 900 kg skiff four-to-one. These derive mass + forces
 // from the picked hull / envelope / chassis *class* and the seeded blueprint
 // dimensions, keeping the drive **acceleration** inside a tuned feel band by
-// construction (`force = mass · target_accel`) — so a heavy barge is genuinely
+// construction (`force = mass · target_accel`) - so a heavy barge is genuinely
 // ponderous and a catamaran genuinely nimble, but nothing is undriveable. The
 // support invariants are honoured: the hover-boat's suspension spring +
 // buoyancy and the helicopter's `hover_thrust` all scale with the seeded mass
@@ -227,7 +227,7 @@ fn humanoid_locomotion(seed: u64) -> LocomotionConfig {
 // inside the locomotion sanitiser's clamps so the record round-trips unchanged.
 //
 // The **airplane** preset is a deliberate orphan: `ChassisFamily` has no
-// `Airplane` variant, so no seed ever produces one — it is reachable only by a
+// `Airplane` variant, so no seed ever produces one - it is reachable only by a
 // user manually picking it in the avatar editor (picker-only), and keeps its
 // plain `default_config`. A fixed-wing visual family is out of scope here.
 // ---------------------------------------------------------------------------
@@ -362,7 +362,7 @@ mod tests {
 
     /// The generator tree a seed builds, or `None` for the rigged family
     /// (#1060). Every tree-walking test below is about *assembled* geometry,
-    /// which a rigged body has none of — it skips rather than pretending.
+    /// which a rigged body has none of - it skips rather than pretending.
     fn visuals_for_seed(seed: u64) -> Option<Generator> {
         build_for_seed(seed).0.visuals().cloned()
     }
@@ -372,7 +372,7 @@ mod tests {
         build_for_did(did).0.visuals().cloned()
     }
 
-    /// A DID per VEHICLE family — the three that still assemble parts.
+    /// A DID per VEHICLE family - the three that still assemble parts.
     fn vehicle_dids() -> Vec<(ChassisFamily, String)> {
         family_dids()
             .into_iter()
@@ -430,7 +430,7 @@ mod tests {
         );
     }
 
-    /// Every derived drive acceleration lands in a tuned, driveable band —
+    /// Every derived drive acceleration lands in a tuned, driveable band -
     /// nothing is a 36 m/s² rocket or an undriveable brick.
     #[test]
     fn every_vehicle_drive_accel_is_in_the_feel_band() {
@@ -468,7 +468,7 @@ mod tests {
     }
 
     /// Every seeded vehicle locomotion must already sit inside the sanitiser's
-    /// clamps — else a peer receiving the record would drive different physics
+    /// clamps - else a peer receiving the record would drive different physics
     /// than the owner built (the locomotion analogue of the visuals round-trip).
     #[test]
     fn vehicle_locomotion_survives_sanitize_unchanged() {
@@ -484,7 +484,7 @@ mod tests {
     }
 
     /// The seeded engine voice (and any node audio) must survive the
-    /// sanitiser unchanged — the `visuals_survive_sanitize_unchanged` tree
+    /// sanitiser unchanged - the `visuals_survive_sanitize_unchanged` tree
     /// comparison skips the `audio` field, so a voice whose freqs / gains fell
     /// outside the audio clamps would rewrite the record without that test
     /// noticing (#796).
@@ -570,7 +570,7 @@ mod tests {
     #[test]
     fn visuals_survive_sanitize_unchanged() {
         // The builders must emit records already inside every sanitiser
-        // bound — if the sanitiser rewrites anything, a peer receiving
+        // bound - if the sanitiser rewrites anything, a peer receiving
         // the record would see different geometry than the owner built.
         // Rotations are compared with an epsilon because the sanitiser
         // renormalises every quaternion, which can shift the last ulp
@@ -610,7 +610,7 @@ mod tests {
     #[test]
     fn no_family_carries_a_pfp_sign() {
         // #733 removed the identity signs (chest badge / hull decal / bow
-        // crest) from every chassis — pin the removal so a future part
+        // crest) from every chassis - pin the removal so a future part
         // can't quietly reintroduce one.
         use crate::pds::generator::GeneratorKind;
         fn has_sign(g: &Generator) -> bool {
@@ -661,7 +661,7 @@ mod tests {
         );
     }
 
-    /// The DID path must be exactly the seed path fed the hashed DID —
+    /// The DID path must be exactly the seed path fed the hashed DID -
     /// this is the contract that lets `build_for_did` keep working
     /// untouched while the manual re-roll uses `build_for_seed`.
     #[test]
@@ -747,7 +747,7 @@ mod tests {
         let resolved = rig
             .resolved
             .as_ref()
-            .expect("seeded bodies resolve locally — no PDS round trip");
+            .expect("seeded bodies resolve locally - no PDS round trip");
         assert_eq!(rig.avatar.len(), 13, "a deterministic TID rkey");
         assert!(body.visuals().is_none(), "no generator tree to walk");
         assert_eq!(loco.kind_tag(), "humanoid", "a rigged body walks");

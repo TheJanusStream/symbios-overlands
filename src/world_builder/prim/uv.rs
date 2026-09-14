@@ -7,7 +7,7 @@
 //!
 //! **Every projection here emits UVs in metres of prim-local surface: a UV
 //! delta of `1.0` is one metre across the surface.** `uv_scale` on the
-//! material therefore reads as *tiles per metre* — `uv_scale: 5.0` lays a
+//! material therefore reads as *tiles per metre* - `uv_scale: 5.0` lays a
 //! 20 cm brick course whatever it is applied to.
 //!
 //! This replaces the original `1 / longest-extent` normalisation, under
@@ -26,7 +26,7 @@
 //! The discontinuous modes (`Box` between projection axes, `Cylindrical` at
 //! the azimuth wrap) split shared vertices along their seams: a shared
 //! vertex whose triangles land in different projection regions would
-//! otherwise interpolate across the whole texture inside one triangle — the
+//! otherwise interpolate across the whole texture inside one triangle - the
 //! smear band the pre-#739 spherical mapping shows at its own wrap seam.
 //! Positions and normals of a split pair are identical, so shading stays
 //! seamless; only the UV differs.
@@ -40,7 +40,7 @@ use crate::pds::generator::UvMapping;
 /// Compute per-vertex UVs for `mapping`, splitting shared vertices where
 /// the projection is discontinuous (`pos` / `nor` grow together, `idx` is
 /// re-pointed; counts are unchanged for the continuous modes). `Unknown`
-/// (a mode from a newer client) meshes as the default — Box since #742 —
+/// (a mode from a newer client) meshes as the default - Box since #742 -
 /// mirroring how an unknown
 /// [`BlobShape`](crate::pds::generator::BlobShape) meshes as a sphere.
 pub(super) fn project_uvs(
@@ -52,7 +52,7 @@ pub(super) fn project_uvs(
     match mapping {
         UvMapping::Spherical => spherical(pos),
         // `Fit` means "keep the mesher's own parameterisation", which a
-        // caller reaching this function does not have — `project_uvs`
+        // caller reaching this function does not have - `project_uvs`
         // exists precisely for meshers with none. It therefore falls back
         // to the default alongside `Unknown`, the mode from a newer client.
         UvMapping::Box | UvMapping::Fit | UvMapping::Unknown => box_mapped(pos, nor, idx),
@@ -64,8 +64,8 @@ pub(super) fn project_uvs(
 /// Scale a mesh's normalised UVs by one span per axis, in place.
 ///
 /// The adapter for meshers whose whole surface shares a single
-/// parameterisation — a torus's `U` runs the major arc and its `V` the
-/// minor, with no cap to scale differently — so unlike
+/// parameterisation - a torus's `U` runs the major arc and its `V` the
+/// minor, with no cap to scale differently - so unlike
 /// [`rescale_revolved_uvs`] there is nothing to classify.
 pub(super) fn scale_uvs(mesh: &mut Mesh, u_span_m: f32, v_span_m: f32) {
     use bevy::mesh::VertexAttributeValues;
@@ -84,7 +84,7 @@ pub(super) fn scale_uvs(mesh: &mut Mesh, u_span_m: f32, v_span_m: f32) {
 /// vertex's height rather than trusting the builder's (#938).
 ///
 /// Bevy's default `CapsuleUvProfile::Aspect` distributes `V` in proportion
-/// to *height* — each hemisphere gets `r / (L + 2r)` of the range — while
+/// to *height* - each hemisphere gets `r / (L + 2r)` of the range - while
 /// our swept capsule parametrises the stadium profile by *arc length*. Left
 /// alone the two disagree by `(π − 2)·r` over the domes, about 19% on a
 /// typical `r = 0.5`, `L = 2.0` capsule, so adding a cut to a capsule would
@@ -140,7 +140,7 @@ pub(super) fn rescale_capsule_uvs(mesh: &mut Mesh, radius: f32, length: f32) {
 /// Rescale a *revolved* mesh's normalised UVs into metres in place (#935).
 ///
 /// Bevy's `Cylinder` / `Cone` builders and our own swept-frustum mesher share
-/// one convention — a wall whose `U` runs `0..1` around the sweep and whose
+/// one convention - a wall whose `U` runs `0..1` around the sweep and whose
 /// `V` runs `0..1` up, and end caps carrying a disc laid out in `0..1` about
 /// `(0.5, 0.5)`. The two parts need *different* scales, and applying a single
 /// global one is what would turn every cap disc into an ellipse, so the two
@@ -183,7 +183,7 @@ pub(super) fn rescale_revolved_uvs(mesh: &mut Mesh, arc_len: f32, height: f32, c
 /// (possibly grown) position/normal/index buffers and regenerating tangents.
 ///
 /// Bails without touching the mesh if it lacks the float buffers or the
-/// indices the projections need — a mesher that produced something exotic
+/// indices the projections need - a mesher that produced something exotic
 /// keeps whatever UVs it made rather than losing them to a half-applied
 /// pass.
 pub(super) fn reproject_mesh(mesh: &mut Mesh, mapping: UvMapping) {
@@ -246,7 +246,7 @@ fn spherical(pos: &[[f32; 3]]) -> Vec<[f32; 2]> {
         .collect()
 }
 
-/// Mean distance of the vertices from `centre` — the radius a rotational
+/// Mean distance of the vertices from `centre` - the radius a rotational
 /// projection measures its arc lengths against.
 fn mean_radius(pos: &[[f32; 3]], centre: Vec3) -> f32 {
     (pos.iter()
@@ -278,7 +278,7 @@ fn planar(pos: &[[f32; 3]], mapping: UvMapping) -> Vec<[f32; 2]> {
 /// its summed vertex normals lean into most (the SDF-gradient normals are
 /// smoother than per-face geometric normals, so region borders wander
 /// less), with the six face orientations chosen so no face mirrors its
-/// texture. Shared vertices are duplicated per `(vertex, face)` — interior
+/// texture. Shared vertices are duplicated per `(vertex, face)` - interior
 /// vertices stay shared, only region borders split.
 fn box_mapped(pos: &mut Vec<[f32; 3]>, nor: &mut Vec<[f32; 3]>, idx: &mut [u32]) -> Vec<[f32; 2]> {
     let (lo, hi) = bounds(pos);
@@ -506,7 +506,7 @@ mod tests {
 
     /// The property the metre convention exists for (#933): texel density
     /// is a function of surface metres, not of prim size. Scaling a mass by
-    /// `k` must scale its UV span by exactly `k` — under the old
+    /// `k` must scale its UV span by exactly `k` - under the old
     /// `1 / longest-extent` normalisation both spans came out `1.0` and a
     /// small prim and a large one wore the same number of tiles.
     #[test]

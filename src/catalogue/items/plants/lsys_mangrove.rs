@@ -1,8 +1,8 @@
-//! Mangrove — a gnarled wetland tree on splayed stilt roots. A stochastic
+//! Mangrove - a gnarled wetland tree on splayed stilt roots. A stochastic
 //! 4–6 root cage (some prop roots fork mid-arc, #910) splays out and pitches
 //! down to ground level like flying buttresses, lifting a dark red-brown
 //! trunk with a gnarled crown that recurses stochastically and terminates
-//! stochastically — so iteration count reads as age without the old crown
+//! stochastically - so iteration count reads as age without the old crown
 //! ballooning into a ball that swallowed the roots. The signature wetland
 //! scatter standing out of the shallows.
 
@@ -24,7 +24,7 @@ impl CatalogueEntry for Mangrove {
         "Mangrove"
     }
     fn description(&self) -> &'static str {
-        "Gnarled wetland tree on splayed stilt roots — stands out of the shallows."
+        "Gnarled wetland tree on splayed stilt roots - stands out of the shallows."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Plant
@@ -36,7 +36,7 @@ impl CatalogueEntry for Mangrove {
 
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
-    // 0 — dark red-brown mangrove bark (roots + trunk).
+    // 0 - dark red-brown mangrove bark (roots + trunk).
     materials.insert(
         0,
         SovereignMaterialSettings {
@@ -51,7 +51,7 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 2 — dark wetland-green leaf (slot 2 matches the grammar's `,(2)`).
+    // 2 - dark wetland-green leaf (slot 2 matches the grammar's `,(2)`).
     materials.insert(
         2,
         SovereignMaterialSettings {

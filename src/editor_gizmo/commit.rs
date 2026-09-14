@@ -19,9 +19,9 @@ use super::blob::proxy::BlobElementProxy;
 /// What a finished gizmo drag actually did to the record (#1237 f144,
 /// #1243 f150).
 ///
-/// Every commit path in this module could already refuse — the original
+/// Every commit path in this module could already refuse - the original
 /// parent despawned mid-drag, a path went stale under a recompile, a
-/// duplicate hit the element cap — and every refusal was a `warn!` to a
+/// duplicate hit the element cap - and every refusal was a `warn!` to a
 /// console the user does not have. `manage_gizmo_drag` wrote every branch
 /// as `if commit_*(…) { … }` with no `else`, and `sync` keeps the dragged
 /// entity detached at its dropped pose until the selection changes, so the
@@ -42,7 +42,7 @@ pub(super) enum DragOutcome {
     Committed,
     /// The record WAS updated, but a Shift-duplicate became a plain move:
     /// the blob's element list is full (#1243 f150). The worse of the two
-    /// possible mistakes — the original was moved rather than copied.
+    /// possible mistakes - the original was moved rather than copied.
     CopyDegradedToMove,
     /// Nothing was written. The object was rebuilt or reshaped under the
     /// drag.
@@ -55,11 +55,11 @@ impl DragOutcome {
         match self {
             Self::Committed => None,
             Self::CopyDegradedToMove => Some(
-                "This blob is at its element limit — the drag moved the element \
+                "This blob is at its element limit - the drag moved the element \
                  instead of copying it.",
             ),
             Self::Refused => Some(
-                "That move could not be applied — the object was rebuilt \
+                "That move could not be applied - the object was rebuilt \
                      mid-drag. Try again.",
             ),
         }
@@ -68,7 +68,7 @@ impl DragOutcome {
 
 /// Commit a finished drag against the room record. Handles the placement
 /// vs prim split and the copy-on-drag clone path. Returns `true` when
-/// the record was actually mutated — the caller is responsible for
+/// the record was actually mutated - the caller is responsible for
 /// flagging the resource as changed (`set_changed()` is on `ResMut`,
 /// not on the inner type, so it has to live at the system boundary).
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -131,7 +131,7 @@ pub(super) fn commit_room_drag(
             // Blueprint ROOT: never reparent against the anchor. The
             // root's anchor-relative pose is `cell_tf * root_tf`, and
             // `cell_tf` carries each Scatter/Grid cell's sample position
-            // + random yaw — reparenting would bake THIS instance's cell
+            // + random yaw - reparenting would bake THIS instance's cell
             // into the shared blueprint, teleporting/spinning every other
             // instance on the next recompile (#703). The world-space drag
             // delta applied to the authored root is cell-independent.
@@ -170,12 +170,12 @@ pub(super) fn commit_room_drag(
 /// Land the editor on the clone a Shift-copy-drag just made (#1237 f145).
 ///
 /// The copy path used to rewrite the tree selection's last path index and
-/// nothing else — but the TREE WIDGET is the source of truth: after every
+/// nothing else - but the TREE WIDGET is the source of truth: after every
 /// draw `draw_tree_panel` reads its selection back over the panel's whole
 /// `TreeSelection`, so the next World-Editor frame reverted the selection
 /// to the original. The gizmo and the highlight jumped back to the object
 /// that had not moved, and the user's next drag silently edited the wrong
-/// node — against the documented contract of one of the four gestures the
+/// node - against the documented contract of one of the four gestures the
 /// Controls sheet teaches.
 ///
 /// These are the same fields `MenuChoice::DuplicateItem` writes, which is
@@ -200,7 +200,7 @@ fn select_copy(
     // camera-proximity ranking and can land on a different copy of a
     // scattered generator than the one just dropped. `world_pos` is the
     // detached entity's transform, which for a prim under the gizmo is
-    // world-space — the drop point itself.
+    // world-space - the drop point itself.
     editor.preferred_pick = Some(crate::ui::room::PreferredPick {
         generator_ref: generator_ref.to_string(),
         path: new_path,
@@ -210,7 +210,7 @@ fn select_copy(
 
 /// Commit a finished drag against the avatar's visuals tree. Returns
 /// `true` when the record was mutated (caller flips the change tick).
-/// No copy path here — see `manage_gizmo_drag`'s rising-edge note.
+/// No copy path here - see `manage_gizmo_drag`'s rising-edge note.
 #[allow(clippy::type_complexity)]
 pub(super) fn commit_avatar_drag(
     active_entity: Entity,
@@ -243,7 +243,7 @@ pub(super) fn commit_avatar_drag(
 }
 
 /// Commit a finished drag of a PART of a worn prop (#1098) into that
-/// attachment record's item tree — the avatar-visuals commit with the
+/// attachment record's item tree - the avatar-visuals commit with the
 /// tree looked up by record key. The part detached to world like a prim
 /// and reparents against its original parent (the prop root or an
 /// ancestor part), so nothing here touches the joint's rest frame: that
@@ -302,7 +302,7 @@ pub(super) fn commit_attachment_part_drag(
 /// the joint's live pose.** A rig joint is animated; its `GlobalTransform`
 /// is wherever this frame's clip put it. The record stores one offset that
 /// has to hold for every frame of every clip, and the frame it is authored
-/// against is the bind pose the engine spawns joints at — every joint
+/// against is the bind pose the engine spawns joints at - every joint
 /// unrotated at its rig position. So the released world pose is reparented
 /// against [`LocalAttachment::rest_frame`] (the body root's pose translated
 /// by the joint's rig position), *not* against the detached parent the way
@@ -350,7 +350,7 @@ pub(super) fn commit_attachment_drag(
         // The gizmo detaches its target from the hierarchy on attach, and a
         // prop always has a joint parent to be detached from. No marker
         // means the entity lost its parent mid-drag (a body rebuild landing
-        // under the gesture) — its `Transform` is then not the world pose
+        // under the gesture) - its `Transform` is then not the world pose
         // this conversion assumes, and committing it would write garbage.
         warn!("Attachment commit skipped: the dragged prop was never detached");
         return false;
@@ -400,7 +400,7 @@ pub(super) fn commit_attachment_drag(
 /// where `cell_tf` is identity for an Absolute placement but carries the
 /// sample position + random yaw of each Scatter/Grid cell. Reparenting a
 /// dragged root against its anchor therefore returns `cell_tf ⊗ new_pose`
-/// — one instance's cell baked into the shared blueprint. The delta form
+/// - one instance's cell baked into the shared blueprint. The delta form
 /// sidesteps the cell entirely:
 ///
 /// ```text
@@ -434,7 +434,7 @@ fn root_transform_with_drag_delta(
 /// Convert a post-drag world-space `Transform` back into the local-space
 /// transform expected by the recipe. Returns `None` if the original
 /// parent has despawned mid-drag (a peer state update or background
-/// recompile lands while the user is dragging) — committing in that
+/// recompile lands while the user is dragging) - committing in that
 /// case would write a world pose into a local-transform field and
 /// irreversibly corrupt the recipe. Shared with the blob-element commit
 /// in `drag.rs` (#705), whose proxies detach the same way.
@@ -450,7 +450,7 @@ pub(super) fn resolve_committed_local(
         Ok(parent_gt) => Some(GlobalTransform::from(*transform).reparented_to(parent_gt)),
         Err(_) => {
             warn!(
-                "Gizmo commit skipped: original parent despawned during drag — \
+                "Gizmo commit skipped: original parent despawned during drag - \
                  record left unchanged"
             );
             None
@@ -479,7 +479,7 @@ fn commit_transform_at_path(
 
 /// Append a sibling clone of the node at `path`. `new_local` overrides
 /// the clone's transform (the copy-on-drag path passes the dragged
-/// pose); `None` keeps the original's transform verbatim — the context
+/// pose); `None` keeps the original's transform verbatim - the context
 /// menu's in-place Duplicate (#824). Returns the new sibling's
 /// child-index on success; `None` if `path` is empty (root has no
 /// parent to clone into) or invalid. Avatar prims do not support copy.
@@ -519,7 +519,7 @@ pub(crate) fn append_sibling_at_path(
 /// `Placement::Unknown` (no schema to write into).
 ///
 /// `transform` is the anchor's WORLD pose, but a snapped placement's
-/// record Y lives in a terrain-relative frame — writing world Y verbatim
+/// record Y lives in a terrain-relative frame - writing world Y verbatim
 /// made every drag of a snapped placement leap by the terrain height on
 /// the next recompile (#701). The Y rebase below keeps the two frames
 /// straight: sideways drags preserve the surface offset (the object
@@ -586,7 +586,7 @@ fn write_transform_into_placement(
             // Scatter is translate-only (#827, user decision): the gizmo
             // no longer offers rotation handles, and the Rect angle is
             // owned by the Bounds "Rotation (deg)" slider. Deliberately
-            // do NOT derive a yaw from the anchor pose here — that wrote
+            // do NOT derive a yaw from the anchor pose here - that wrote
             // the anchor's (identity) rotation over an authored Rect
             // angle on every translate-only drag.
             match bounds {
@@ -606,7 +606,7 @@ fn write_transform_into_placement(
 mod tests {
     use super::*;
 
-    /// #703: committing a blueprint-root drag must be cell-independent —
+    /// #703: committing a blueprint-root drag must be cell-independent -
     /// for ANY placement cell (scatter sample offset + random yaw), the
     /// dragged instance recompiles to exactly the released pose, and the
     /// authored root never absorbs the cell. The old reparent-against-the-
@@ -662,7 +662,7 @@ mod tests {
         let unchanged = root_transform_with_drag_delta(&authored, &world_before, &world_before);
         assert!(unchanged.translation.distance(root_old.translation) < 1e-3);
         // f32 affine inverse + quat re-extraction wobbles the last ULP,
-        // which `acos` amplifies — 5e-3 rad (~0.3°) is far below anything
+        // which `acos` amplifies - 5e-3 rad (~0.3°) is far below anything
         // authoring-visible while still catching a real cell leak (the
         // cell yaw here is 2.1 rad).
         assert!(unchanged.rotation.angle_between(root_old.rotation) < 5e-3);
@@ -676,7 +676,7 @@ mod scatter_commit_tests {
     use crate::pds::{BiomeFilter, Fp, Fp2, ScatterBounds};
 
     /// #827: a translate-only scatter drag moves the bounds centre and
-    /// must NOT touch the Rect's authored rotation — the old code derived
+    /// must NOT touch the Rect's authored rotation - the old code derived
     /// yaw from the anchor pose (identity on a fresh spawn) and zeroed
     /// the slider-set angle on every drag.
     #[test]
@@ -739,7 +739,7 @@ mod scatter_commit_tests {
     /// one. The copy appears where you dropped it, then the gizmo and the
     /// highlight jump back to the ORIGINAL, and your next drag moves the
     /// original instead of the copy. The copy path rewrote
-    /// the tree selection's last path index and nothing else — but
+    /// the tree selection's last path index and nothing else - but
     /// `draw_tree_panel` reads the widget's own selection back over the
     /// panel's after every draw, so the tree, which still named the
     /// original, won.
@@ -752,7 +752,7 @@ mod scatter_commit_tests {
         select_copy(&mut editor, "house", vec![2, 1], Vec3::new(4.0, 1.0, -2.0));
 
         assert_eq!(editor.tree.selection.path.as_deref(), Some(&[2, 1][..]));
-        // The tree is the source of truth — it must name the clone, or the
+        // The tree is the source of truth - it must name the clone, or the
         // very next World-Editor draw reverts the selection.
         assert_eq!(
             editor.tree.view.selected().as_slice(),

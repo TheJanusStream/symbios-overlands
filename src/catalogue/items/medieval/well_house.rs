@@ -1,4 +1,4 @@
-//! Well house — a Medieval secondary. The village draw-well: a round
+//! Well house - a Medieval secondary. The village draw-well: a round
 //! fieldstone kerb over dark water, four oak posts under a steep thatched
 //! gable canopy, a windlass roller with an iron crank winding a rope down to
 //! a hanging bucket, and a second pail resting on the coping. The gathering
@@ -86,7 +86,7 @@ fn build_tree() -> Generator {
     let phz = 0.85; // post half-spacing Z
 
     let mut prims = vec![
-        // Fieldstone kerb ring — the root (solid drum).
+        // Fieldstone kerb ring - the root (solid drum).
         prim(
             solid(cylinder_tapered(
                 1.0,

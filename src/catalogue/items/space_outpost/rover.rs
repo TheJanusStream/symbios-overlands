@@ -1,8 +1,8 @@
-//! Rover — a Space-Outpost prop. A six-wheeled exploration rover with a solar
+//! Rover - a Space-Outpost prop. A six-wheeled exploration rover with a solar
 //! deck, a sensor mast and a whip antenna. Scatter clutter parked around the
 //! base.
 //!
-//! The rover drives along X, so its wheel axles run along Z — each wheel is a
+//! The rover drives along X, so its wheel axles run along Z - each wheel is a
 //! cylinder turned by a [`quat_x`] of π/2.
 
 use std::f32::consts::FRAC_PI_2;
@@ -51,7 +51,7 @@ impl CatalogueEntry for Rover {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Hull body — the root.
+        // Hull body - the root.
         prim(
             solid(cuboid_tapered([2.6, 0.55, 1.5], 0.06, hull(HULL_WHITE))),
             [0.0, 0.85, 0.0],

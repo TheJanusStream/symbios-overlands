@@ -16,7 +16,7 @@
 //! [`crate::pds::sanitize_avatar_visuals`], so the unreachable arms
 //! never fire here. The avatar caller still provides the same
 //! mutable references the room compiler needs (caches, foliage tasks,
-//! water surface registry, …) — most of those are unused for avatars
+//! water surface registry, …) - most of those are unused for avatars
 //! but the borrow shapes have to match the existing `SpawnCtx`.
 
 use std::collections::HashSet;
@@ -37,7 +37,7 @@ use crate::water::{WaterMaterial, WaterSurfaces};
 /// body) provides the world-space anchor.
 ///
 /// Existing chassis children must be despawned by the caller before
-/// invoking — the avatar mode does not tag entities with `RoomEntity`,
+/// invoking - the avatar mode does not tag entities with `RoomEntity`,
 /// so the compile pass's cleanup query won't reach them.
 ///
 /// Mutable references mirror the room compiler's
@@ -46,7 +46,7 @@ use crate::water::{WaterMaterial, WaterSurfaces};
 /// existing struct. Pass an `&RoomRecord::default()` for `record` and
 /// any matching `Query` for `terrain_meshes`. The caches **must** be
 /// the same persistent-resource handles the room compiler reads from
-/// — sharing keeps a humanoid avatar with an LSystem cape from
+/// - sharing keeps a humanoid avatar with an LSystem cape from
 /// double-baking textures already cached for an identical room asset.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_avatar_visuals_subtree(
@@ -77,7 +77,7 @@ pub fn spawn_avatar_visuals_subtree(
     // through that GC, but `spawn_lsystem_entity` and
     // `spawn_shape_entity` write to them unconditionally, so we
     // provide local sinks. The cache entries the avatar fills in stay
-    // pinned across frames — their next room rebuild will sweep them
+    // pinned across frames - their next room rebuild will sweep them
     // through the regular GC because the keys carry the avatar's
     // generator-ref string. Pinning is fine: a cached LSystem mesh is
     // cheap to keep until the avatar editor drops the kind.
@@ -131,7 +131,7 @@ pub fn spawn_avatar_visuals_subtree(
         blob_audio_cache,
         baked_audio_cache: &mut caches.baked_audio,
         water_surfaces,
-        // No placement owns avatar visuals — any water plane an avatar
+        // No placement owns avatar visuals - any water plane an avatar
         // tree spawns survives incremental room rebuilds and only falls
         // to a full-pass registry clear.
         placement_index: crate::water::WaterPlane::NO_OWNER,
@@ -140,7 +140,7 @@ pub fn spawn_avatar_visuals_subtree(
         attachment_rkey: attachment.map(str::to_string),
     };
 
-    // The visuals root carries its own transform — which the spawner
+    // The visuals root carries its own transform - which the spawner
     // applies to the entity it creates. Parent that entity to the
     // chassis so the chassis's world transform anchors the whole tree.
     // The root is tagged `AvatarVisualRoot` (with its authored base

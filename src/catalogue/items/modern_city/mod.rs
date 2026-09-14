@@ -1,4 +1,4 @@
-//! Modern-City-theme catalogue structures — a glass-and-concrete downtown.
+//! Modern-City-theme catalogue structures - a glass-and-concrete downtown.
 //!
 //! Two prosperity registers share one identity: the established
 //! ([`CITY_BAND`]) corporate kit (glass skyscraper, office block, parking
@@ -25,7 +25,7 @@ pub mod rowhouse_terrace;
 pub mod street_lamp;
 pub mod traffic_light;
 pub mod transit_stop;
-// Poor (inner-city) variants — the prosperity-Poor end of the theme.
+// Poor (inner-city) variants - the prosperity-Poor end of the theme.
 pub mod corner_store;
 pub mod tenement;
 pub mod trash_bags;
@@ -43,17 +43,17 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the established downtown kit — glass towers
+/// Shared prosperity band for the established downtown kit - glass towers
 /// and clean concrete read as a Modest-to-Rich district. The poor end is
 /// the separate inner-city kit ([`tenement`], …), tagged `Poor`.
 pub(super) const CITY_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the inner-city kit — the destitute end of the theme,
+/// Prosperity band for the inner-city kit - the destitute end of the theme,
 /// never picked for a modest or affluent room.
 pub(super) const CITY_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Curtain-wall glass — the lit facade of a tower or office. Clean panes
+/// Curtain-wall glass - the lit facade of a tower or office. Clean panes
 /// with a faint inner glow (`glow` sets the lit-window bloom); a building
 /// reads as glowing glass rather than a black slab.
 /// Glazing. `uv_scale` stays `1.0`: the `Window` generator is an alpha card
@@ -80,7 +80,7 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     }
 }
 
-/// Board-formed concrete — parking decks, cores, plinths, planters.
+/// Board-formed concrete - parking decks, cores, plinths, planters.
 pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -96,7 +96,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Brushed structural steel — mullions, poles, canopies, railings.
+/// Brushed structural steel - mullions, poles, canopies, railings.
 pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -116,7 +116,7 @@ pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Smooth painted enamel — car bodies, dumpsters, signal housings, shelter
+/// Smooth painted enamel - car bodies, dumpsters, signal housings, shelter
 /// frames. Glossy automotive finish.
 pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -134,7 +134,7 @@ pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Red brick — the body of tenements, corner stores, office bases.
+/// Red brick - the body of tenements, corner stores, office bases.
 pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -151,7 +151,7 @@ pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Weathered softwood boards — the one piece of timber in a glass-and-brick
+/// Weathered softwood boards - the one piece of timber in a glass-and-brick
 /// kit, and the rooftop water tank the inner-city skyline is known for.
 ///
 /// Authored `stagger`-free (#972 lesson 4): any value above 0.01 switches on
@@ -186,7 +186,7 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// A glazed curtain-wall façade — the crisp downtown glazing signature. A lit
+/// A glazed curtain-wall façade - the crisp downtown glazing signature. A lit
 /// glass panel gridded by proud steel mullions (verticals) and spandrel
 /// transoms (horizontals) so the face reads as a true window grid rather than
 /// a flat lit slab. The glass sits in an XY plane centred on `center`; the grid
@@ -198,7 +198,7 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
 /// `rows + 1` transoms. Reusable across the kit's glazed buildings (tower,
 /// office, storefront).
 ///
-/// The glass panel is a slab, not a `Window`-card plane — a known limitation
+/// The glass panel is a slab, not a `Window`-card plane - a known limitation
 /// shared by every caller (#942). Migrating it is per-item work (each façade
 /// needs an interior to reveal and its pane grid re-checked against `bays`),
 /// so it is done as those items come up for review rather than in one sweep.
@@ -284,7 +284,7 @@ mod tests {
         }
     }
 
-    /// The traffic light is the kit's lit hero — it must keep its emissive
+    /// The traffic light is the kit's lit hero - it must keep its emissive
     /// signal so escalation's broken-emissive ruin pass has something to kill.
     #[test]
     fn traffic_light_keeps_its_signal() {

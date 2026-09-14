@@ -5,7 +5,7 @@
 //! generator in the editor (or saved one back when roads were seeded). Once
 //! the heightmap exists, this system extracts the road network's enclosed
 //! building lots ([`crate::urban::extract_building_lots`]) and injects themed
-//! catalogue buildings onto them — straight into the live record, so they
+//! catalogue buildings onto them - straight into the live record, so they
 //! compile to entities like any authored placement and the author can save
 //! them.
 //!
@@ -13,7 +13,7 @@
 //! terrain (and thus the lots) reproduce on every peer, the building picks come
 //! from a seeded stream, so every peer that derives the record lands identical
 //! buildings even before anyone saves. The buildings are named
-//! `lot_building_{seed}_{i}`; that seed-tagged prefix is the idempotency key —
+//! `lot_building_{seed}_{i}`; that seed-tagged prefix is the idempotency key -
 //! a re-roll (new seed) strips the stale set and repopulates, an unchanged
 //! layout is left alone, and turning the layer off sweeps them.
 
@@ -39,18 +39,18 @@ const LOT_PREFIX: &str = "lot_building_";
 const FURNITURE_PREFIX: &str = "street_prop_";
 /// Distinct sub-stream salt for the furniture-pick RNG (#893).
 const FURNITURE_STREAM_SALT: u64 = 0x57F0_0F57_F00F_57F0;
-/// Cap on injected furniture placements — beyond ~160 lamps the wasm spawn
+/// Cap on injected furniture placements - beyond ~160 lamps the wasm spawn
 /// cost outruns the ambience.
 pub(crate) const MAX_FURNITURE_PROPS: usize = 160;
-/// Shallow terrain sink for furniture (m) — props stand on the verge, they
+/// Shallow terrain sink for furniture (m) - props stand on the verge, they
 /// don't need a building's foundation bite.
 const FURNITURE_SINK_M: f32 = 0.1;
 /// Theme used when the room's own theme has no landmark-role catalogue entry
-/// yet — mirrors the settlement deriver's fallback so a road-growing room of a
+/// yet - mirrors the settlement deriver's fallback so a road-growing room of a
 /// still-sparse theme is never left empty.
 const FALLBACK_THEME: ThemeArchetype = ThemeArchetype::AncientClassical;
 /// Upper bound on injected building *placements*. Buildings share one generator
-/// per distinct catalogue entry (so generators stay few — a placement per lot,
+/// per distinct catalogue entry (so generators stay few - a placement per lot,
 /// not an asset per lot); the injection clamps this to the record's free
 /// placement budget (`MAX_PLACEMENTS` − existing) so a packed map can't trip
 /// sanitiser truncation. The enclosed-lot count is usually the real limiter;
@@ -62,7 +62,7 @@ const LOT_STREAM_SALT: u64 = 0x10C5_B011_D196_5EED;
 /// leaving daylight under the downhill edge (matches the settlement deriver).
 const FOUNDATION_SINK_M: f32 = 0.35;
 
-/// Per-network, per-seed generator name prefix — the record-side half of
+/// Per-network, per-seed generator name prefix - the record-side half of
 /// the idempotency key for one layout (survives session restarts inside the
 /// saved record). Network 0 keeps the legacy shape so pre-#895 records
 /// adopt cleanly; later networks are namespaced by child index.
@@ -72,7 +72,7 @@ const FOUNDATION_SINK_M: f32 = 0.35;
 /// Shared with the editor's Theme combo (#1251 f390). The lenient
 /// case-insensitive match used to live only inside `inject_lot_buildings`,
 /// so the panel printed the raw stored string as its selected text and
-/// asserted a theme that was never growing — the combo said "Steampunk"
+/// asserted a theme that was never growing - the combo said "Steampunk"
 /// while this fell through to the room theme, with no row in its own
 /// dropdown highlighted. One predicate is what stops the two answering
 /// differently.
@@ -100,8 +100,8 @@ fn seed_prefix(seed: u64) -> String {
 }
 
 /// Session-side idempotency key (#882): the layout-relevant subset of the
-/// network config. Only fields that feed `build_road_graph` — and thus move
-/// the enclosed blocks — participate; ribbon-profile dims (half-widths,
+/// network config. Only fields that feed `build_road_graph` - and thus move
+/// the enclosed blocks - participate; ribbon-profile dims (half-widths,
 /// curbs, skirt) re-mesh roads without moving lots, so editing them must
 /// NOT churn the buildings. The seed prefix alone missed spacing/extent
 /// edits, leaving buildings standing on the previous layout until a
@@ -135,11 +135,11 @@ fn layout_fingerprint(did: &str, c: &RoadConfig) -> String {
 /// unit-testable.
 #[derive(PartialEq, Eq, Debug)]
 enum LotAction {
-    /// Buildings match the current layout — leave them alone.
+    /// Buildings match the current layout - leave them alone.
     Skip,
     /// Fresh session over a record that already carries this seed's
     /// buildings (a load): adopt the fingerprint without churning the
-    /// record — saved buildings are trusted, exactly the pre-#882
+    /// record - saved buildings are trusted, exactly the pre-#882
     /// behavior on load.
     Adopt,
     /// Layout changed (re-roll, spacing/extent edit, or nothing built
@@ -150,8 +150,8 @@ enum LotAction {
 fn lot_action(populated: bool, session_fp: Option<&str>, current_fp: &str) -> LotAction {
     // "We derived this layout and it produced nothing" is a terminal state
     // (#1245 f376). The fingerprint check used to sit BELOW the `populated`
-    // test, so a layout that grows nothing — density 0, a spacing wider than
-    // its own extent, an empty theme pool, a spent placement budget — was
+    // test, so a layout that grows nothing - density 0, a spacing wider than
+    // its own extent, an empty theme pool, a spent placement budget - was
     // never `populated`, and every unrelated edit to the record therefore
     // armed another Repopulate whose strip removed nothing and still
     // dirtied the record: one extra placement-fingerprint pass and one extra
@@ -180,7 +180,7 @@ pub(super) fn is_road_grown(p: &Placement) -> bool {
 /// The prefix IS the idempotency key: `strip_lot_buildings` matches on it,
 /// and so does `net_populated`. Rename a grown generator and the strip stops
 /// finding it, `net_populated` reports false, and a complete fresh district
-/// grows through the renamed survivor's placements — interpenetrating the
+/// grows through the renamed survivor's placements - interpenetrating the
 /// first. The editor asks this before offering Rename on the very rows it
 /// would corrupt.
 pub fn is_derived_generator_key(key: &str) -> bool {
@@ -230,8 +230,8 @@ fn placement_ref(p: &Placement) -> Option<&str> {
 
 /// Remove every injected lot building (and its placement) from `record`.
 ///
-/// Returns how many PLACEMENTS were removed — the number of objects that
-/// visibly disappear — so the caller can both skip dirtying the record when
+/// Returns how many PLACEMENTS were removed - the number of objects that
+/// visibly disappear - so the caller can both skip dirtying the record when
 /// there was nothing stale (#1245 f376) and say what it replaced (#1245
 /// f378). It used to return a bare `bool`, which answered the first question
 /// and not the second.
@@ -307,7 +307,7 @@ fn inject_lot_buildings(
     report.kept = keep;
     // One placement per lot, capped to the free placement budget so a packed
     // map can't trip sanitiser truncation. Generators are shared by entry, so
-    // the placement budget — not the generator budget — is the binding limit.
+    // the placement budget - not the generator budget - is the binding limit.
     // Counted, not merely applied (#1211): a record already carrying 900
     // authored placements grew 124 buildings out of 400 lots with no notice.
     let (cap, capped_by_budget) = placement_cap(MAX_LOT_BUILDINGS, record);
@@ -320,7 +320,7 @@ fn inject_lot_buildings(
     // the same building references it, so the compiler bakes that mesh once and
     // instances it across the placements (the record stays compact instead of
     // carrying a near-duplicate asset per lot). Per-lot variety comes from the
-    // placement transform — street-facing yaw + lot-fit scale.
+    // placement transform - street-facing yaw + lot-fit scale.
     let mut by_slug: HashMap<&'static str, String> = HashMap::new();
     let mut placed = 0usize;
     for (i, lot) in ranked.iter().enumerate() {
@@ -370,7 +370,7 @@ fn inject_lot_buildings(
         let name = if let Some(existing) = by_slug.get(slug) {
             existing.clone()
         } else if record.generators.len() >= limits::MAX_GENERATORS {
-            // No budget for a new distinct asset — never hit in practice (the
+            // No budget for a new distinct asset - never hit in practice (the
             // catalogue pool is tens of entries). Skip rather than mis-scale a
             // reuse onto a lot meant for a different building.
             report.generator_cap_skips += 1;
@@ -405,7 +405,7 @@ fn inject_lot_buildings(
             transform: TransformData {
                 translation: Fp3([lot.position[0], -FOUNDATION_SINK_M, lot.position[1]]),
                 // libm (#1132): this rotation is written INTO the record, so
-                // it is not merely derived, it is the derivation's output — and
+                // it is not merely derived, it is the derivation's output - and
                 // #882 was a lots-and-roads desync.
                 rotation: Fp4([0.0, libm::sinf(half_yaw), 0.0, libm::cosf(half_yaw)]),
                 scale: Fp3([fit, fit, fit]),
@@ -517,7 +517,7 @@ fn active_configs(record: &RoomRecord) -> Vec<(usize, RoadConfig)> {
 }
 
 /// Whether the record already carries network `net`'s content for `c`'s
-/// current seed — the record-side idempotency half.
+/// current seed - the record-side idempotency half.
 fn net_populated(record: &RoomRecord, net: usize, c: &RoadConfig) -> bool {
     let prefix = if c.populate_lots {
         net_prefix(LOT_PREFIX, net, c.seed)
@@ -543,7 +543,7 @@ pub(super) fn maybe_populate_lots(
     mut session_fp: Local<Option<String>>,
     // Trailing re-derive debounce (#884): lot extraction re-traces the
     // whole street graph, so a spacing-slider drag must cost one
-    // re-derive on release, not one per tick — the same cadence as the
+    // re-derive on release, not one per tick - the same cadence as the
     // road re-mesh.
     mut due: Local<Option<f64>>,
     // Whether the armed re-derive was driven by the ground moving rather
@@ -560,12 +560,12 @@ pub(super) fn maybe_populate_lots(
     let now = time.elapsed_secs_f64();
     let did_str = did.as_ref().map_or("", |d| d.0.as_str());
 
-    // 1 — change detection decides + arms. Sweeps (network gone) stay
+    // 1 - change detection decides + arms. Sweeps (network gone) stay
     // immediate: a toggle isn't a drag storm and leaving stale buildings
     // up for the debounce window would flash them at the old layout.
     // A terrain edit moves the ground the lots were extracted FROM (#1245
-    // f381). `layout_fingerprint` carries no terrain term — deliberately,
-    // since ribbon dims must not churn buildings — so a heightmap change
+    // f381). `layout_fingerprint` carries no terrain term - deliberately,
+    // since ribbon dims must not churn buildings - so a heightmap change
     // left the fingerprint identical, took the Skip arm, and left every
     // grown building standing on the previous street plan while
     // `maybe_rebuild_roads` re-traced the streets onto the new one. The
@@ -576,7 +576,7 @@ pub(super) fn maybe_populate_lots(
     // Gated on the session having already decided something: on the FIRST
     // heightmap of a session there is nothing stale to replace, and forcing
     // a repopulate there would destroy the buildings a loaded record
-    // carries — which is the whole of the `Adopt` arm.
+    // carries - which is the whole of the `Adopt` arm.
     let terrain_moved = heightmap.is_changed() && session_fp.is_some();
     if heightmap.is_changed() || record.is_changed() {
         let configs = active_configs(&record.0);
@@ -610,7 +610,7 @@ pub(super) fn maybe_populate_lots(
             lot_action(populated, session_fp.as_deref(), &fp)
         };
         match action {
-            // Layout matches the standing buildings — also cancels a
+            // Layout matches the standing buildings - also cancels a
             // pending re-derive when an undo walked the edit back.
             LotAction::Skip => *due = None,
             LotAction::Adopt => {
@@ -642,7 +642,7 @@ pub(super) fn maybe_populate_lots(
         }
     }
 
-    // 2 — deadline reached: re-evaluate against the CURRENT record (edits
+    // 2 - deadline reached: re-evaluate against the CURRENT record (edits
     // inside the debounce window fold in) and repopulate if still needed.
     if !due.is_some_and(|d| now >= d) {
         return;
@@ -660,7 +660,7 @@ pub(super) fn maybe_populate_lots(
     );
     let populated = configs.iter().all(|(i, c)| net_populated(&record.0, *i, c));
     // The deadline re-evaluates against the CURRENT record, so it asks the
-    // pure question again rather than trusting the arming decision — but a
+    // pure question again rather than trusting the arming decision - but a
     // terrain-driven repopulate has to survive that re-ask, and its
     // fingerprint is by construction unchanged.
     if !armed_by_terrain_now
@@ -708,7 +708,7 @@ pub(super) fn maybe_populate_lots(
                 stats.clamps.generator_cap_skips += report.generator_cap_skips;
             }
         }
-        // Street furniture (#893) — independent of the building layer.
+        // Street furniture (#893) - independent of the building layer.
         if config.furniture.enabled {
             let spots = crate::urban::extract_furniture_spots(&heightmap.0, config);
             let report = inject_street_furniture(
@@ -738,7 +738,7 @@ pub(super) fn maybe_populate_lots(
     // Say what was replaced (#1245 f378). The strip runs a third of a
     // second after the drag ends, when the owner's attention has already
     // moved on, and it removes every grown building INCLUDING ones they
-    // dragged into place with the gizmo — from a control that reads as
+    // dragged into place with the gizmo - from a control that reads as
     // cosmetic. Undo covers it (the derived write folds into the slider's
     // own entry), but only if they realise in time, and nothing told them.
     if stripped > 0 {
@@ -829,7 +829,7 @@ mod tests {
             resolve_lot_theme(&format!("  {}  ", known.to_ascii_uppercase())),
             Some(ThemeArchetype::ALL[0])
         );
-        // Empty is "room theme", not a failure — the panel prints no
+        // Empty is "room theme", not a failure - the panel prints no
         // warning for it.
         assert_eq!(resolve_lot_theme(""), None);
         assert_eq!(resolve_lot_theme("   "), None);
@@ -850,7 +850,7 @@ mod tests {
         // an empty theme pool, a spent placement budget. Before this it
         // returned Repopulate forever, so every unrelated edit to the
         // record armed another strip-that-removes-nothing and still
-        // dirtied it — one placement-fingerprint pass and one whole-room
+        // dirtied it - one placement-fingerprint pass and one whole-room
         // broadcast to every guest, a third of a second after each edit.
         assert_eq!(lot_action(false, Some(fp), fp), LotAction::Skip);
         // But a DIFFERENT layout that has grown nothing yet still runs.
@@ -864,7 +864,7 @@ mod tests {
     }
 
     /// #1245 f382. The prefix IS the idempotency key, and the editor now
-    /// asks this before offering Rename — and before letting anyone NAME a
+    /// asks this before offering Rename - and before letting anyone NAME a
     /// generator into the namespace, where the next layout edit would
     /// delete it.
     #[test]
@@ -901,7 +901,7 @@ mod tests {
     /// #1211, finding 384. Sequence: a room already carrying most of its
     /// placement budget grows a district of 20 lots; the injector filled
     /// what was left and reported only the smaller number. The report now
-    /// carries the arithmetic — found, kept, dropped, and WHICH cap bit —
+    /// carries the arithmetic - found, kept, dropped, and WHICH cap bit -
     /// so the Lots readout can say "only N placements were left".
     #[test]
     fn the_inject_report_names_the_cap_that_emptied_the_lots() {

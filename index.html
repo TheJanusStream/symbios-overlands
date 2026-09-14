@@ -8,7 +8,7 @@
     <meta name="theme-color" content="#1b1b1b">
     <meta property="og:title" content="Symbios Overlands">
     <meta property="og:description"
-        content="Procedurally seeded shared worlds on ATProto — explore, build, visit friends.">
+        content="A free and open creative virtual world - build yours, then walk into your friends'.">
     <!-- Inline SVG favicon: no extra asset to deploy, and the tab stops
          showing the 404 fallback icon (#850). -->
     <link rel="icon"
@@ -167,7 +167,7 @@
         <div class="wordmark">SYMBIOS&nbsp;OVERLANDS</div>
         <p id="load-error-lead">Symbios Overlands couldn't start.</p>
         <p id="load-error-hint" style="font-size: 14px; color: #aaa;">This is usually a download
-            hiccup or a stale cached version — reloading fixes most cases.</p>
+            hiccup or a stale cached version - reloading fixes most cases.</p>
         <button onclick="location.reload()">Reload</button>
         <details>
             <summary>Technical details</summary>
@@ -177,7 +177,7 @@
     <script type="module">
         import init from './symbios-overlands.js';
         // Right-drag orbits the camera in-game; without this the browser
-        // context menu opens on every release. Load-bearing — keep.
+        // context menu opens on every release. Load-bearing - keep.
         document.addEventListener('contextmenu', event => event.preventDefault());
 
         const progressEl = document.getElementById('loading-progress');
@@ -186,7 +186,7 @@
         const mib = bytes => (bytes / (1024 * 1024)).toFixed(1);
 
         // The bundle download is the longest and least reliable step of the
-        // browser journey, and a stalled TCP stream does not reject — it
+        // browser journey, and a stalled TCP stream does not reject - it
         // simply stops yielding chunks, so #850's byte counter turned a
         // silent wait into a visibly stuck one with no way out (#1228 f13).
         // Every chunk rearms this; if none arrives for STALL_MS the status
@@ -204,7 +204,7 @@
                 actionsEl.hidden = true;
             }
             stallTimer = setTimeout(() => {
-                statusEl.textContent = 'Download stalled — check your connection';
+                statusEl.textContent = 'Download stalled - check your connection';
                 statusEl.classList.add('stalled');
                 actionsEl.hidden = false;
             }, STALL_MS);
@@ -239,13 +239,13 @@
                 throw new Error('wasm download failed: HTTP ' + resp.status + ' for ' + url);
             }
             if (!resp.body || typeof ReadableStream === 'undefined') {
-                // Ancient browser: no progress, still correct — and nothing
+                // Ancient browser: no progress, still correct - and nothing
                 // to rearm the watch, so a slow-but-healthy download must
                 // not be accused of stalling.
                 disarmStallWatch();
                 return resp;
             }
-            // Probe Response-from-stream support BEFORE consuming the body —
+            // Probe Response-from-stream support BEFORE consuming the body -
             // once getReader() runs the original response can't be reused,
             // so an unsupported browser must bail out here, not throw later.
             try {
@@ -301,7 +301,7 @@
                 } catch (e) {
                     // winit's wasm backend historically unwinds init() with a
                     // "using exceptions for control flow" throw that is NOT a
-                    // failure — never show it as one.
+                    // failure - never show it as one.
                     if (e && String(e).toLowerCase().includes('control flow')) {
                         console.debug('init unwound via control-flow exception (benign)');
                     } else {

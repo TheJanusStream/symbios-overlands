@@ -1,8 +1,8 @@
-//! Wind turbine — a Solarpunk secondary. A tall white tower with a nacelle
+//! Wind turbine - a Solarpunk secondary. A tall white tower with a nacelle
 //! and a three-bladed rotor. The clean-energy mast of the eco-quarter.
 //!
 //! The rotor turns in the Y-Z plane (nacelle axis along X), so its three
-//! blades radiate from the hub at 120° via [`quat_x`] alone — no Z-axis
+//! blades radiate from the hub at 120° via [`quat_x`] alone - no Z-axis
 //! rotation needed.
 
 use std::f32::consts::{FRAC_PI_2, TAU};
@@ -56,7 +56,7 @@ fn build_tree() -> Generator {
     let hub_y = base_h + tower_h;
 
     let mut prims = vec![
-        // Concrete base — the root.
+        // Concrete base - the root.
         prim(
             solid(cuboid_tapered(
                 [2.0, base_h, 2.0],
@@ -100,7 +100,7 @@ fn build_tree() -> Generator {
         quat_z(-FRAC_PI_2),
     ));
 
-    // Three aerofoil blades radiating from the hub at 120° around the X axis —
+    // Three aerofoil blades radiating from the hub at 120° around the X axis -
     // a wide root chord tapering to a slim tip so they catch the light edge-on
     // instead of vanishing to a hairline.
     let blade_len = 5.8_f32;

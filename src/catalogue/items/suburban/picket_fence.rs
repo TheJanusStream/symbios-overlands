@@ -1,14 +1,14 @@
-//! Picket fence — a Suburban prop. A short run of white pointed pickets on
+//! Picket fence - a Suburban prop. A short run of white pointed pickets on
 //! two rails between capped posts: the classic front-yard boundary.
 //!
 //! Reworked under #972 after an in-world check ("tip positions and
 //! rotations are off and the texture's uv looks weird"). Every picket's
 //! point was a four-sided [`cone`](crate::catalogue::items::util::cone), and a revolved prim's vertex 0 is on
-//! `+X` (#972 lesson 35) — so each tip was a DIAMOND wider than its own
+//! `+X` (#972 lesson 35) - so each tip was a DIAMOND wider than its own
 //! picket, its corners 90 mm out on both sides of a 50 mm board. The point
 //! is now a box pinched to a line in `X` only ([`cuboid_tapered_xz`]), the
 //! same thickness as the picket, sunk into its top. And the pickets wore the
-//! kit's `Plank` at the identity, whose courses run up `V` — horizontal
+//! kit's `Plank` at the identity, whose courses run up `V` - horizontal
 //! bands across a vertical board, which reads as brick (lesson 15). Pickets
 //! and posts now carry [`upright_boards`], the quarter turn that stands the
 //! grain up; the rails, which are horizontal boards, keep the identity.
@@ -94,7 +94,7 @@ fn build_tree() -> Generator {
     let horizontal = || wood(WOOD_WHITE);
     let upright = || upright_boards(wood(WOOD_WHITE));
 
-    // Lower rail — the root.
+    // Lower rail - the root.
     let mut prims = vec![prim(
         solid(cuboid_tapered(RAIL, 0.0, horizontal())),
         [0.0, RAIL_Y[0], 0.0],
@@ -169,7 +169,7 @@ mod tests {
         }
     }
 
-    /// The pickets: upright BOARDS — over 0.5 m tall, under 0.2 m wide and
+    /// The pickets: upright BOARDS - over 0.5 m tall, under 0.2 m wide and
     /// under 0.1 m thick, which admits the shipped 120 × 50 mm pickets and
     /// excludes the square posts (#972 lesson 24: a selector tuned to the
     /// new constants finds nothing in the old build and "bites" on a count).
@@ -239,7 +239,7 @@ mod tests {
             points += 1;
             assert!(
                 (t - psize[2]).abs() < 1e-4 && w <= psize[0] + 1e-4,
-                "picket_fence: the point at {at:?} is {w} by {t} on a picket {} by {} — wider \
+                "picket_fence: the point at {at:?} is {w} by {t} on a picket {} by {} - wider \
                  than the board it tops",
                 psize[0],
                 psize[2]

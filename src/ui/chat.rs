@@ -35,7 +35,7 @@ pub struct ChatFocusRequest(pub bool);
 ///
 /// Two sources, because they answer different questions: `live` is every
 /// peer in the room whose `RemotePeer::muted` is set, and `durable` is the
-/// DID-keyed list that outlives them — a harasser who has already left, or
+/// DID-keyed list that outlives them - a harasser who has already left, or
 /// one muted in a previous session, is not in the room to carry a flag but
 /// their words are still in the scrollback.
 fn is_muted(
@@ -49,7 +49,7 @@ fn is_muted(
 /// The name to print for a chat row right now (#1218 f300).
 ///
 /// [`crate::state::ChatEntry::author`] is stamped once, at push time, from
-/// whatever was known then — so a message that beat the sender's
+/// whatever was known then - so a message that beat the sender's
 /// `getProfile` into the room kept its fallback name for the rest of the
 /// scrollback and one speaker appeared under two names in one conversation.
 /// The entry's DID is the stable identity, so the label is re-derived from
@@ -76,7 +76,7 @@ fn author_now<'a>(
 /// closes, restated. So it arrives with a fifth of the budget left, which
 /// is enough warning to finish a sentence or start trimming one.
 ///
-/// Counted in characters, like the limit itself — the whole point is that
+/// Counted in characters, like the limit itself - the whole point is that
 /// a CJK writer sees the same number of characters as everyone else.
 fn composer_counter(draft: &str) -> Option<String> {
     let max = crate::config::ui::chat::MAX_MESSAGE_CHARS;
@@ -117,8 +117,8 @@ pub fn chat_ui(
 ) {
     use crate::config::ui::chat as cfg;
 
-    // Autofocus on open (#846): however the window opened — toolbar
-    // toggle, Enter shortcut, unread-badge click — the input grabs focus
+    // Autofocus on open (#846): however the window opened - toolbar
+    // toggle, Enter shortcut, unread-badge click - the input grabs focus
     // on the rising edge, so "open chat → type" needs no extra click.
     // Reuses the #836 one-shot request the input widget already consumes.
     let just_opened = panels.chat && !*was_open;
@@ -127,7 +127,7 @@ pub fn chat_ui(
         focus_request.0 = true;
     }
 
-    // DIDs of peers the local user mutually follows — their chat author
+    // DIDs of peers the local user mutually follows - their chat author
     // tag gets the same warm-gold ★ as their People-panel row. Built
     // once per frame from the live peer set; `SocialResonance` is absent
     // until the async getRelationships query lands, so a brand-new peer
@@ -145,7 +145,7 @@ pub fn chat_ui(
 
     // Everyone the user has muted, live flag OR durable list (#1219 f130).
     // The inbound filter honours "hides their chat" only for messages that
-    // arrive AFTER the flip — so the moment a user reaches for mute, the
+    // arrive AFTER the flip - so the moment a user reaches for mute, the
     // abuse that made them reach for it is still sitting on screen. Filtering
     // at RENDER makes the mute retroactive and the unmute non-destructive:
     // nothing is deleted, so unticking the box brings the history back.
@@ -155,7 +155,7 @@ pub fn chat_ui(
         .filter_map(|(peer, _)| peer.did.clone())
         .collect();
 
-    // DIDs whose relationship query could not be answered (#1218 f297) —
+    // DIDs whose relationship query could not be answered (#1218 f297) -
     // rendered as a neutral "?" rather than as the un-highlighted state a
     // genuine non-mutual gets, which is what the failure used to look like.
     let unknown_dids: std::collections::HashSet<String> = peers
@@ -167,7 +167,7 @@ pub fn chat_ui(
     // DID → the name that peer goes by RIGHT NOW (#1218 f300).
     //
     // `ChatEntry.author` is stamped once, at push time, from whatever was
-    // known then — so a message that arrived before `getProfile` landed kept
+    // known then - so a message that arrived before `getProfile` landed kept
     // its fallback name for the rest of the scrollback and one speaker
     // appeared under two names in one conversation. The entry's DID is the
     // stable identity; the label is derived from it every frame, off the
@@ -185,7 +185,7 @@ pub fn chat_ui(
     // What would become of a message sent right now (#1213). Upstream's
     // `transmit_messages` drains the broadcast reader and returns without
     // sending when `connected_peers()` is empty, and the whole transmit
-    // chain is `run_if(resource_exists::<MatchboxSocket>)` — so with no
+    // chain is `run_if(resource_exists::<MatchboxSocket>)` - so with no
     // peers, or no socket, a send is dropped and nothing feeds that back.
     // Both facts are decided in ONE place so the note above the input and
     // the suffix on the pushed line cannot tell different stories.
@@ -196,7 +196,7 @@ pub fn chat_ui(
     // `Local<String>`: a Local is unreachable from every teardown path, so
     // a draft typed before logout was still sitting in the box for whoever
     // logged in next. Worked on a frame-local copy and written back only
-    // when it actually changed — the guarded-dirty rule (#879), so an open
+    // when it actually changed - the guarded-dirty rule (#879), so an open
     // Chat window does not flag the resource every frame.
     let mut input = chat.draft.clone();
     let mut cleared = false;
@@ -209,7 +209,7 @@ pub fn chat_ui(
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Chat, ctx);
     // Guarded-dirty (#879): `.open(&mut panels.chat)` through the
     // `ResMut` would mark UiPanels changed every frame, starving the
-    // prefs save debounce — local copy in, write back only on the ✕
+    // prefs save debounce - local copy in, write back only on the ✕
     // click (the Settings window's idiom).
     let mut open = panels.chat;
     let response = egui::Window::new("Chat")
@@ -226,8 +226,8 @@ pub fn chat_ui(
             // "the separator + input row" and hand the scroll area
             // `available_height() - 44` with `auto_shrink([true, false])`,
             // which claims that height whether or not the content fills it.
-            // Two lines have been added below the input since — #1141's
-            // emote hint and #1213's composer note — so the measured content
+            // Two lines have been added below the input since - #1141's
+            // emote hint and #1213's composer note - so the measured content
             // ran taller than the window every frame, and egui's `Resize`
             // never shrinks on its own: the window climbed to the full
             // screen height within a second of being opened (#1280). The
@@ -236,7 +236,7 @@ pub fn chat_ui(
             crate::ui::layout::footer(ui, "chat_footer", |ui| {
                 // Right-to-left layout: Send first (pinned to the right edge),
                 // then the TextEdit whose `desired_width` is set to whatever
-                // horizontal space remains — so widening the window stretches
+                // horizontal space remains - so widening the window stretches
                 // the field instead of leaving dead space beside it.
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -255,9 +255,9 @@ pub fn chat_ui(
                         // The remaining-length readout (#1264 f362),
                         // between Clear and the field so it sits
                         // against the right-hand controls. Silent
-                        // until the limit is close enough to matter —
+                        // until the limit is close enough to matter -
                         // a counter on every message would be noise
-                        // on the 99% of lines nowhere near it — and
+                        // on the 99% of lines nowhere near it - and
                         // tinted once there is nothing left.
                         if let Some(count) = composer_counter(&input) {
                             let th = crate::ui::theme::current(ui.ctx());
@@ -296,7 +296,7 @@ pub fn chat_ui(
                             // the text is broadcast. Otherwise a peer could
                             // paste an 800 KiB junk string (well under the 1
                             // MiB packet limit) and every guest would try to
-                            // word-wrap it in egui on every frame — an instant
+                            // word-wrap it in egui on every frame - an instant
                             // room-wide DoS.
                             //
                             // CHARACTERS, not bytes (#1264 f362): the
@@ -317,7 +317,7 @@ pub fn chat_ui(
                             // receiver runs the same filter defensively, so
                             // skipping it here previously left the local
                             // sender's row showing a multi-line paste while
-                            // every remote peer saw a single-line version —
+                            // every remote peer saw a single-line version -
                             // a permanent visual desync on the sender's HUD.
                             let text: String = clipped
                                 .chars()
@@ -334,7 +334,7 @@ pub fn chat_ui(
                             // used to push uncapped with a session-relative
                             // stamp.
                             // Stamped with the delivery outcome resolved above
-                            // (#1213) — the sender's HUD used to render a
+                            // (#1213) - the sender's HUD used to render a
                             // message that reached nobody exactly like one that
                             // was delivered.
                             chat.push_sent(did, author, text.clone(), delivery);
@@ -369,7 +369,7 @@ pub fn chat_ui(
                 }
 
                 // The keyword emotes have no command syntax to discover and,
-                // until this line, no surface anywhere in the UI (#1141) —
+                // until this line, no surface anywhere in the UI (#1141) -
                 // #1068 shipped a feature findable only by typing one of its
                 // words by accident. Sourced from the keyword table so the
                 // examples cannot name a word that no longer gestures.
@@ -394,7 +394,7 @@ pub fn chat_ui(
                                 continue;
                             }
                             ui.horizontal_wrapped(|ui| {
-                                // Local wall-clock HH:MM (#846) — the old stamp
+                                // Local wall-clock HH:MM (#846) - the old stamp
                                 // was minutes-since-app-launch, meaningless
                                 // across peers and sessions.
                                 ui.colored_label(
@@ -419,7 +419,7 @@ pub fn chat_ui(
                                     .as_deref()
                                     .is_some_and(|d| mutual_dids.contains(d));
                                 // Accent star for mutuals, info-blue author
-                                // tag (#856) — same roles the People window
+                                // tag (#856) - same roles the People window
                                 // uses, formerly bespoke config golds/blues.
                                 let th = crate::ui::theme::current(ui.ctx());
                                 let unknown = entry
@@ -435,8 +435,8 @@ pub fn chat_ui(
                                 };
                                 // The author tag is the mute affordance (#1222
                                 // f296). The remedy for a flood used to be two
-                                // windows away — leave the chat, open People,
-                                // find the row among a dozen, tick a box — and it
+                                // windows away - leave the chat, open People,
+                                // find the row among a dozen, tick a box - and it
                                 // arrived after the damage was permanent. The
                                 // action belongs on the message in front of you.
                                 // Own lines are not offered it: you are not a
@@ -472,7 +472,7 @@ pub fn chat_ui(
                                             .button(format!("Mute {author}"))
                                             .on_hover_text(
                                                 "Hides their avatar, chat, audio and gift \
-                                                     offers — including what they have already \
+                                                     offers - including what they have already \
                                                      said. Persists across sessions.",
                                             )
                                             .clicked()
@@ -510,7 +510,7 @@ pub fn chat_ui(
         // drift from the roster checkbox and the offer dialog: it owns the
         // change guard, the durable DID-keyed list and the log line. The
         // speaker may have left the room, in which case only the durable
-        // half lands — which is exactly right, and exactly what the
+        // half lands - which is exactly right, and exactly what the
         // hit-and-run case needs.
         let live = peers
             .iter_mut()
@@ -552,7 +552,7 @@ mod author_tests {
 
     /// #1218 f300. The sequence: someone's first two messages land before
     /// their `getProfile` does, so they were stamped with the fallback and
-    /// their later ones with `@sam.bsky.social` — the same speaker under two
+    /// their later ones with `@sam.bsky.social` - the same speaker under two
     /// names in one scrollback, neither matchable to a roster row.
     #[test]
     fn a_speaker_wears_one_name_for_the_whole_scrollback() {
@@ -584,7 +584,7 @@ mod author_tests {
     }
 
     /// #1219 f130. The sequence: you are being harassed, you tick Mute, and
-    /// the abuse that made you reach for it is still sitting in the window —
+    /// the abuse that made you reach for it is still sitting in the window -
     /// the inbound filter only ever applied to messages that had not arrived
     /// yet, and a 500-entry history rolls off very slowly in a quiet room.
     /// Filtering at render is also what makes an unmute non-destructive:
@@ -622,8 +622,8 @@ mod length_tests {
     /// The wire ceiling can never clip a message the composer permitted
     /// (#1264 f362).
     ///
-    /// The two limits are in different units on purpose — bytes bound
-    /// peer-side rendering cost, characters are what a person is held to —
+    /// The two limits are in different units on purpose - bytes bound
+    /// peer-side rendering cost, characters are what a person is held to -
     /// and the whole arrangement only works if the byte one is the looser.
     /// Set the char limit above a quarter of the byte limit and a CJK
     /// sentence the composer accepted arrives amputated, which is the
@@ -640,7 +640,7 @@ mod length_tests {
         assert_eq!(widest.chars().count(), cfg::MAX_MESSAGE_CHARS);
         assert!(widest.len() <= cfg::MAX_MESSAGE_BYTES);
 
-        // And the old cap really did clip it — the control, so this test
+        // And the old cap really did clip it - the control, so this test
         // is not describing a coincidence.
         assert!(widest.len() > 512, "512 bytes was the old ceiling");
     }
@@ -696,7 +696,7 @@ mod length_tests {
         );
 
         // Counted in characters, so a CJK draft at the same character
-        // count shows the same number — the point of the whole change.
+        // count shows the same number - the point of the whole change.
         let cjk: String =
             std::iter::repeat_n('\u{3042}', cfg::MAX_MESSAGE_CHARS * 4 / 5 + 1).collect();
         assert_eq!(composer_counter(&cjk), composer_counter(&near));

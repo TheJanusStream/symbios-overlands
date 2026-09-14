@@ -2,33 +2,33 @@
 //!
 //! While the editor selection rests on a `GeneratorKind::BlobGroup` node,
 //! this module turns the evaluated surface into an edge-line wireframe and
-//! spawns one translucent proxy mesh per [`BlobElement`] — green for
+//! spawns one translucent proxy mesh per [`BlobElement`] - green for
 //! additive elements, red for carves. Clicking a proxy (or its row in the
 //! GUI list) attaches the transform gizmo to it; dragging edits the
 //! element's `position` / `rotation` / `radii` and commits into the owning
-//! record on release, exactly one record update per gesture — the same
+//! record on release, exactly one record update per gesture - the same
 //! contract as the whole-prim gizmo. A throttled re-mesh runs during the
 //! drag so the wireframe reshapes under the user's hand without touching
 //! the record.
 //!
 //! ## Sub-module map
 //!
-//! * [`proxy`] — per-element proxy entities: shared mesh/material assets +
+//! * [`proxy`] - per-element proxy entities: shared mesh/material assets +
 //!   the per-frame reconcile that keeps proxies matching the record.
-//! * [`wireframe`] — triangle-edge extraction and the mesh/material swap
+//! * [`wireframe`] - triangle-edge extraction and the mesh/material swap
 //!   that turns the selected blob instance into a line-list wireframe.
-//!   (WebGL2 — the wasm deploy target — has no line *polygon* mode, so
+//!   (WebGL2 - the wasm deploy target - has no line *polygon* mode, so
 //!   wireframe is modelled as real `LineList` geometry instead.)
-//! * [`preview`] — throttled in-drag SDF re-mesh feeding fresh edge lines
+//! * [`preview`] - throttled in-drag SDF re-mesh feeding fresh edge lines
 //!   into the swapped wireframe handle.
-//! * [`write`](mod@write) — element ⇄ transform mapping and the drag-end
+//! * [`write`](mod@write) - element ⇄ transform mapping and the drag-end
 //!   record writeback (room + avatar).
 //!
 //! ## Frame order
 //!
 //! [`resolve_blob_edit`] runs first in the editor-gizmo `PostUpdate`
 //! chain: it derives [`BlobEditContext::active`] from the editor states +
-//! live records each frame (there is no retained mode — deselecting the
+//! live records each frame (there is no retained mode - deselecting the
 //! node deactivates everything). `proxy::reconcile_blob_proxies` then
 //! diffs proxies against the record, `sync` attaches the gizmo (proxy
 //! target suppresses the whole-prim target), `drag` runs the gesture, and
@@ -69,12 +69,12 @@ pub(crate) struct BlobEditKey {
 pub(crate) struct ActiveBlobEdit {
     pub(crate) key: BlobEditKey,
     /// Clone of the node's full kind (a `GeneratorKind::BlobGroup`).
-    /// Carrying the whole kind — not just the element list — lets the
+    /// Carrying the whole kind - not just the element list - lets the
     /// in-drag preview re-mesh with the node's own resolution + torture
     /// params for exact parity with the committed surface.
     pub(crate) kind: GeneratorKind,
     /// The live instance carrying the gizmo/wireframe/proxies: closest to
-    /// the camera when the node is instanced by a Scatter/Grid placement —
+    /// the camera when the node is instanced by a Scatter/Grid placement -
     /// the same proximity rule the whole-prim gizmo uses.
     pub(crate) blob_entity: Entity,
 }
@@ -106,7 +106,7 @@ pub struct BlobEditContext {
 
 impl BlobEditContext {
     /// Is `entity` the blob instance this edit session is hosted on? A
-    /// proxy built under a different instance is stale — the record
+    /// proxy built under a different instance is stale - the record
     /// rebuilt the prim, or the camera moved and the closest-instance rule
     /// re-homed the edit.
     pub(crate) fn hosts(&self, entity: Entity) -> bool {
@@ -146,7 +146,7 @@ pub(crate) fn node_at_path_mut<'a>(
 /// Room resolution mirrors `sync_gizmo_selection`'s gates exactly: World
 /// Editor window open, Generators tab, and the closest live instance of
 /// the `(generator_ref, path)` pair. Avatar resolution needs no panel
-/// gate — the avatar editor clears its selection when its window closes.
+/// gate - the avatar editor clears its selection when its window closes.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn resolve_blob_edit(
     mut ctx: ResMut<BlobEditContext>,
@@ -178,7 +178,7 @@ pub(super) fn resolve_blob_edit(
                 .and_then(|g| node_at_path(g, path))
                 && matches!(node.kind, GeneratorKind::BlobGroup { .. })
             {
-                // Closest live instance to the camera — same proximity
+                // Closest live instance to the camera - same proximity
                 // rule (and same tie-breaking) as the whole-prim gizmo.
                 let cam_pos = camera_query
                     .single()
@@ -214,7 +214,7 @@ pub(super) fn resolve_blob_edit(
                 && matches!(node.kind, GeneratorKind::BlobGroup { .. })
             {
                 // AvatarVisualPrim is attached only to the local player's
-                // visuals, so a path match is unique — no proximity scan.
+                // visuals, so a path match is unique - no proximity scan.
                 let found = avatar_prim_query
                     .iter()
                     .find_map(|(entity, marker)| (marker.path == *path).then_some(entity));
@@ -235,7 +235,7 @@ pub(super) fn resolve_blob_edit(
     }
 
     // Moving to a different node (or clearing the selection) drops the
-    // element selection — a retained index against a new element list
+    // element selection - a retained index against a new element list
     // would gizmo-grab an arbitrary element.
     if ctx.active.as_ref().map(|a| &a.key) != prev_key.as_ref() {
         ctx.selected_element = None;
@@ -247,7 +247,7 @@ pub(super) fn resolve_blob_edit(
         ctx.selected_element = None;
     }
 
-    // Escape (outside a drag — mid-drag Escape is the drag-abort key)
+    // Escape (outside a drag - mid-drag Escape is the drag-abort key)
     // steps back from element editing to the whole-prim gizmo.
     if ctx.selected_element.is_some()
         && keyboard.just_pressed(KeyCode::Escape)

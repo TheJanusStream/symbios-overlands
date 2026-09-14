@@ -1,4 +1,4 @@
-//! Egg sac — an Alien-Organic prop. A swollen translucent sac aglow with the
+//! Egg sac - an Alien-Organic prop. A swollen translucent sac aglow with the
 //! life inside it, girdled by glowing veins and slung in a fleshy nest with
 //! smaller satellite sacs budding alongside. Scatter clutter of the colony;
 //! the sacs are emissive trim the ruin pass can darken.
@@ -47,13 +47,13 @@ impl CatalogueEntry for EggSac {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Fleshy nest collar — the root (id_quat).
+        // Fleshy nest collar - the root (id_quat).
         prim(
             solid(cylinder_tapered(0.72, 0.34, 12, 0.25, flesh(FLESH_RED))),
             [0.0, 0.17, 0.0],
             id_quat(),
         ),
-        // Glowing egg sac — a tall translucent ovoid, emissive (deep magenta
+        // Glowing egg sac - a tall translucent ovoid, emissive (deep magenta
         // driven bright: it blooms without washing to white).
         prim_scaled(
             solid(sphere(0.68, 6, glow(SAC_GLOW, 2.7))),
@@ -63,7 +63,7 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Glowing veins girdling the sac — thin rings at staggered latitudes
+    // Glowing veins girdling the sac - thin rings at staggered latitudes
     // (staggered so no two share a plane), proud of the sac skin.
     for (y, major) in [(0.74_f32, 0.66_f32), (1.05, 0.72), (1.36, 0.62)] {
         prims.push(prim(
@@ -73,7 +73,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Satellite sacs budding from the nest — one ripe, one not.
+    // Satellite sacs budding from the nest - one ripe, one not.
     prims.push(egg_pod(
         [-0.62, 0.0, 0.34],
         0.3,

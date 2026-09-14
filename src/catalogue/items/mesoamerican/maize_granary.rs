@@ -1,4 +1,4 @@
-//! Maize granary — a Mesoamerican *poor* secondary. A cuezcomatl: a fat
+//! Maize granary - a Mesoamerican *poor* secondary. A cuezcomatl: a fat
 //! round adobe storage jar on a stone foot, capped with a conical thatch
 //! lid, where a household keeps its dried maize beside the
 //! [`adobe_hut`](super::adobe_hut).
@@ -52,18 +52,18 @@ impl CatalogueEntry for MaizeGranary {
 fn build_tree() -> Generator {
     let belly_r = 1.35_f32;
     let belly_y = 1.6_f32;
-    // Radius of the belly sphere at a given height — used to seat the coil
+    // Radius of the belly sphere at a given height - used to seat the coil
     // ridges and collar flush against its bulge.
     let belly_at = |y: f32| (belly_r * belly_r - (y - belly_y).powi(2)).max(0.0).sqrt();
 
     let mut prims = vec![
-        // Stone foot — the root.
+        // Stone foot - the root.
         prim(
             solid(cylinder_tapered(1.3, 0.4, 12, 0.0, cobble(STONE_GREY))),
             [0.0, 0.2, 0.0],
             id_quat(),
         ),
-        // Fat round adobe belly (a plain sphere — the amphora belly), the
+        // Fat round adobe belly (a plain sphere - the amphora belly), the
         // bulging body of the cuezcomatl.
         prim(
             solid(sphere(belly_r, 6, painted(ADOBE_TAN))),
@@ -72,7 +72,7 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Mud-coil ridges banding the belly — the coiled-clay courses it is
+    // Mud-coil ridges banding the belly - the coiled-clay courses it is
     // built up from.
     for cy in [0.9_f32, 1.5, 2.1] {
         prims.push(prim(

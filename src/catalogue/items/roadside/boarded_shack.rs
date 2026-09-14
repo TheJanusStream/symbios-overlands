@@ -1,4 +1,4 @@
-//! Boarded shack — a Roadside *poor* secondary. A shuttered clapboard
+//! Boarded shack - a Roadside *poor* secondary. A shuttered clapboard
 //! roadside store, its door and window planked over, under a sagging rusted
 //! roof with a faded sign still nailed up. The failed business of the
 //! busted shoulder.
@@ -57,7 +57,7 @@ fn build_tree() -> Generator {
     let front = -1.75_f32; // boarded −Z (camera) wall face
 
     let mut prims = vec![
-        // Concrete slab — the root.
+        // Concrete slab - the root.
         prim(
             solid(cuboid_tapered(
                 [5.0, slab_h, 4.0],

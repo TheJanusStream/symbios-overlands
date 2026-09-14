@@ -5,10 +5,10 @@
 //! service-auth token minted by [`get_relay_service_auth`]. It is
 //! target-specific:
 //!
-//! - **WASM** — redirect-based: the page navigates away to the auth server,
+//! - **WASM** - redirect-based: the page navigates away to the auth server,
 //!   state is parked in `sessionStorage`, and the callback lands back on
 //!   the hosted page with `?code=&state=` query parameters.
-//! - **Native** — loopback-based: a background `tiny_http` server on
+//! - **Native** - loopback-based: a background `tiny_http` server on
 //!   `127.0.0.1:3456` catches the redirect, and `webbrowser::open`
 //!   launches the user's default browser to the auth URL.
 //!
@@ -16,31 +16,31 @@
 //! DID/handle resolver (and a DNS stack that does not build on `wasm32`),
 //! the login UI asks the user for their PDS URL directly and we discover
 //! the authorization server via
-//! `{pds}/.well-known/oauth-protected-resource` (atproto OAuth §3.2) —
+//! `{pds}/.well-known/oauth-protected-resource` (atproto OAuth §3.2) -
 //! which *is* a sufficient CORS-reachable discovery path on every target.
 //!
 //! ## Sub-module map
 //!
-//! * [`discovery`] — client-metadata builder, authorization-server
+//! * [`discovery`] - client-metadata builder, authorization-server
 //!   discovery, and the URL-bar constants (`WASM_REDIRECT_URI`,
 //!   `NATIVE_CALLBACK_PORT`, `CLIENT_METADATA_URL`).
-//! * module root — the wasm browser-storage keys: `SESSION_STORAGE_KEY`
+//! * module root - the wasm browser-storage keys: `SESSION_STORAGE_KEY`
 //!   (`sessionStorage`, parks the pending auth across the redirect) and
 //!   `PERSISTED_SESSION_KEY` (`localStorage`, persists the session across
 //!   page reloads).
-//! * [`refresh`] — DPoP-nonce retry (`oauth_*_with_nonce_retry`),
+//! * [`refresh`] - DPoP-nonce retry (`oauth_*_with_nonce_retry`),
 //!   refresh-on-expiry retry (`oauth_*_with_refresh`), and the shared
 //!   `refresh_session` helper.
-//! * [`service_token`] — periodic re-mint of the short-lived relay
+//! * [`service_token`] - periodic re-mint of the short-lived relay
 //!   service-auth token (#714) so every WebRTC (re)connect presents a
 //!   valid token instead of the login-time one.
-//! * [`auth_flow`] — `begin_authorization` and `complete_authorization`
+//! * [`auth_flow`] - `begin_authorization` and `complete_authorization`
 //!   plus the `CompletedAuth` bundle.
-//! * [`util`] — shared callback plumbing (the percent-decoder both the
+//! * [`util`] - shared callback plumbing (the percent-decoder both the
 //!   wasm query parser and the native listener use).
-//! * `wasm` — browser-side `sessionStorage` / `localStorage` plumbing
+//! * `wasm` - browser-side `sessionStorage` / `localStorage` plumbing
 //!   (compiled only on `wasm32`).
-//! * [`native_server`] — the `tiny_http` loopback callback listener
+//! * [`native_server`] - the `tiny_http` loopback callback listener
 //!   (compiled only on native).
 
 mod auth_flow;
@@ -84,15 +84,15 @@ pub use util::CallbackParams;
 /// Remember which overland the browser should come back to on the next
 /// reload (#1229 f2).
 ///
-/// Target-neutral so the two sites that decide where the player *is* —
+/// Target-neutral so the two sites that decide where the player *is* -
 /// `ui::login::complete::install_completed_session` at sign-in and
-/// `player::portal::poll_portal_travel_tasks` on arrival — can call it
+/// `player::portal::poll_portal_travel_tasks` on arrival - can call it
 /// without a `cfg` of their own. Native has no persisted session, so this
 /// is a no-op there.
 ///
 /// Best effort: a `localStorage` write that fails (private browsing, a
 /// full origin quota) costs the reload its destination and nothing else,
-/// and the session in memory is unaffected — the same posture
+/// and the session in memory is unaffected - the same posture
 /// [`refresh_session`] takes for the rotated token set.
 pub fn remember_room(room_did: &str) {
     #[cfg(target_arch = "wasm32")]
@@ -115,7 +115,7 @@ pub struct PendingAuth {
     /// Relay host captured from the login form, carried across the redirect
     /// so the room URL can be reassembled after the browser hop.
     pub relay_host: String,
-    /// Target DID (for portal jumps) or empty for "home" — same UX as 0.2.
+    /// Target DID (for portal jumps) or empty for "home" - same UX as 0.2.
     pub target_did: String,
     /// Optional spawn position from the URL/CLI boot params, carried across
     /// the OAuth redirect so the post-callback spawn lands the user where
@@ -132,10 +132,10 @@ pub struct PendingAuth {
 /// authorize-redirect and the callback parse on WASM.
 ///
 /// Defined on every target although only the wasm-only `wasm` submodule
-/// reads it (#1147) — hence plain text rather than a link, since that
+/// reads it (#1147) - hence plain text rather than a link, since that
 /// module does not exist for rustdoc on native: browser
 /// storage is a flat map shared by every app on the origin, so the
-/// namespacing rule these keys follow is worth a test — and a test behind
+/// namespacing rule these keys follow is worth a test - and a test behind
 /// `cfg(target_arch = "wasm32")` is a test nothing runs, since the suite has
 /// no wasm runner. A `&str` costs nothing on native.
 pub const SESSION_STORAGE_KEY: &str = "symbios_overlands_pending_auth";
@@ -146,7 +146,7 @@ pub const SESSION_STORAGE_KEY: &str = "symbios_overlands_pending_auth";
 pub const PERSISTED_SESSION_KEY: &str = "symbios_overlands_session";
 
 /// WASM-only marker: this page load began as an *auth handoff* rather
-/// than a cold visit — the URL carries an OAuth callback (`?code=` or
+/// than a cold visit - the URL carries an OAuth callback (`?code=` or
 /// `?error=`), or `localStorage` holds a session to resume. Inserted in
 /// [`crate::run`] before the first frame, so the fact is settled outside
 /// the ECS schedule entirely.
@@ -157,7 +157,7 @@ pub const PERSISTED_SESSION_KEY: &str = "symbios_overlands_session";
 /// `ui::login::check_wasm_callback` spawns its
 /// [`CompleteAuthTask`](crate::ui::login::CompleteAuthTask) through
 /// `Commands`, and that spawn is not visible to any other system until
-/// the queue flushes — so `attract::start_attract_scene`, sharing the
+/// the queue flushes - so `attract::start_attract_scene`, sharing the
 /// same unordered `Update` tuple, saw an idle login screen and seeded a
 /// whole demo world that the imminent `Login → Loading` transition threw
 /// away. Reading the browser state at app-build time has no such race.
@@ -215,8 +215,8 @@ pub struct NativePendingAuthRes(pub std::sync::Mutex<Option<PendingAuth>>);
 
 /// Native-only: the authorization URL of the in-flight login attempt,
 /// retained for the waiting UI's "Copy login URL" affordance. Before
-/// #847 the URL was discarded right after the `webbrowser::open` call —
-/// even when that call *failed* — leaving no recovery path short of
+/// #847 the URL was discarded right after the `webbrowser::open` call -
+/// even when that call *failed* - leaving no recovery path short of
 /// restarting the flow. Inserted alongside the callback listener
 /// resources and removed with them (callback consumed, error redirect,
 /// or user cancel).
@@ -227,7 +227,7 @@ pub struct NativeAuthUrl(pub String);
 #[cfg(test)]
 mod tests {
     /// THE SEQUENCE (#1229 f2): a visitor is onboarded through a friend's
-    /// landmark link, walks home through a gateway, and reloads the page —
+    /// landmark link, walks home through a gateway, and reloads the page -
     /// and lands back in the friend's world. The persisted blob's
     /// `target_did` was written once at login completion and never again,
     /// so every later visit resumed into whichever room the session first
@@ -237,13 +237,13 @@ mod tests {
     /// [`remember_room`] is the fix, and the property that keeps it fixed
     /// is that it is called wherever the current room CHANGES. Source
     /// scanning, the idiom `oauth::service_token` uses, because the write
-    /// itself is `localStorage` — invisible on native, where the tests run
-    /// — while "did somebody add a third way to change rooms" is a
+    /// itself is `localStorage` - invisible on native, where the tests run
+    /// - while "did somebody add a third way to change rooms" is a
     /// question about the code.
     #[test]
     fn every_site_that_changes_the_current_room_remembers_it() {
         /// The two files allowed to install or reassign `CurrentRoomDid`
-        /// — the portal-arrival poll and the login installer — sorted, as
+        /// - the portal-arrival poll and the login installer - sorted, as
         /// the walk collects them. Both must call `remember_room`; a third
         /// file appearing here is a new travel path that owes the saved
         /// session the same answer.
@@ -283,7 +283,7 @@ mod tests {
                 assert!(
                     source.contains("remember_room"),
                     "{rel} changes the current room without calling \
-                     oauth::remember_room — a reload will send the user back \
+                     oauth::remember_room - a reload will send the user back \
                      to wherever they last were told to be (#1229 f2)"
                 );
                 found.push(rel);

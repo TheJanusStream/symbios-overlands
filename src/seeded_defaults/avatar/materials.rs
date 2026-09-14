@@ -1,4 +1,4 @@
-//! Seeded material-finish kit — the partner of [`super::palette`].
+//! Seeded material-finish kit - the partner of [`super::palette`].
 //!
 //! Where [`super::palette::AvatarPalette`] decides an avatar's *colours*,
 //! the [`MaterialKit`] decides their *finish*: how metallic / rough / self-
@@ -9,8 +9,8 @@
 //! and rougher).
 //!
 //! The kit produces ready-to-use [`SovereignMaterialSettings`] for a small
-//! set of named surface roles. Builders and — once the part catalogue
-//! lands — part constructors pass a palette colour to a role method and get
+//! set of named surface roles. Builders and - once the part catalogue
+//! lands - part constructors pass a palette colour to a role method and get
 //! back a fully-finished material, so the style/wear logic lives in exactly
 //! one place instead of being re-derived per builder.
 
@@ -25,7 +25,7 @@ use crate::seeded_defaults::scene::ThemeArchetype;
 
 use super::character::{AvatarCharacter, FinishRegister};
 
-/// Per-style finish family — the PBR character a style gives its hard
+/// Per-style finish family - the PBR character a style gives its hard
 /// surfaces, plus whether its accents are self-lit. The 24 themes group
 /// into four families so the kit stays compact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,7 +58,7 @@ impl FinishFamily {
     /// one place the weave kind is chosen rather than left plain.
     fn cloth_weave(self) -> WeaveKind {
         match self {
-            // Technical fabric over a hard shell — flat and even.
+            // Technical fabric over a hard shell - flat and even.
             Self::Metal | Self::Clean => WeaveKind::Plain,
             // Workwear: canvas and denim carry a diagonal wale.
             Self::Matte => WeaveKind::Twill,
@@ -106,9 +106,9 @@ pub struct MaterialKit {
     luminous: bool,
     /// Whether [`MaterialKit::skin`] is carapace rather than hide.
     chitinous: bool,
-    /// `[0, 1]` continuous wear from the anchor — drives grime + roughness.
+    /// `[0, 1]` continuous wear from the anchor - drives grime + roughness.
     wear: f32,
-    /// Bold finish register — glossier surfaces + stronger glow than the
+    /// Bold finish register - glossier surfaces + stronger glow than the
     /// naturalistic register (see [`FinishRegister`]).
     bold: bool,
 }
@@ -140,7 +140,7 @@ impl MaterialKit {
         self.luminous
     }
 
-    /// Main painted body panel — hull / chassis / envelope / shirt. Carries a
+    /// Main painted body panel - hull / chassis / envelope / shirt. Carries a
     /// generated surface texture so large panels read as brushed metal or
     /// woven fabric rather than flat paint.
     pub fn body(&self, color: [f32; 3]) -> SovereignMaterialSettings {
@@ -152,7 +152,7 @@ impl MaterialKit {
         // Knit / woven bodies (the Matte / Organic families that get a
         // fabric texture) must read close to matte: a specular highlight on
         // a shirt sparkles along the silhouette and visually inflates the
-        // torso's barrel read (#730-M1, seen on 4 seeds — it amplifies the
+        // torso's barrel read (#730-M1, seen on 4 seeds - it amplifies the
         // #728 chest depth). Cap metallic and floor roughness, but leave
         // enough range that the Bold register still reads glossier than
         // Naturalistic. Metal / Clean families keep their brushed-panel gloss.
@@ -173,7 +173,7 @@ impl MaterialKit {
         }
     }
 
-    /// Matte fabric / canvas — clothing, envelope canvas, awnings. Woven in
+    /// Matte fabric / canvas - clothing, envelope canvas, awnings. Woven in
     /// the family's own weave, and coarser than [`Self::body`]: loose cloth
     /// hangs in bigger folds than a fitted panel, so the thread reads at a
     /// larger pitch.
@@ -194,7 +194,7 @@ impl MaterialKit {
         m
     }
 
-    /// Structural metal — frames, struts, masts. Brushed-panel texture.
+    /// Structural metal - frames, struts, masts. Brushed-panel texture.
     pub fn metal(&self, color: [f32; 3]) -> SovereignMaterialSettings {
         let mut m = self.finish(color, 0.6, 0.4);
         let base = m.base_color.0;
@@ -203,15 +203,15 @@ impl MaterialKit {
         m
     }
 
-    /// Polished ornament metal — brass fittings, finials, buckles. Stays
+    /// Polished ornament metal - brass fittings, finials, buckles. Stays
     /// shinier than [`Self::metal`] and resists grime a little (kept bright
     /// even when worn).
     pub fn trim(&self, color: [f32; 3]) -> SovereignMaterialSettings {
         let mut m = self.finish(color, 0.75, 0.3);
-        // Ornament metal is wiped/maintained — pull a little wear back out.
+        // Ornament metal is wiped/maintained - pull a little wear back out.
         m.roughness = Fp(m.roughness.0 * 0.85);
         let base = m.base_color.0;
-        // Fittings are small — a buckle or finial is a few centimetres — so
+        // Fittings are small - a buckle or finial is a few centimetres - so
         // the tile has to shrink with them or the peening mips to flat brass.
         m.uv_scale = Fp(9.0);
         m.texture = SovereignTextureConfig::Metal(SovereignMetalConfig {
@@ -236,7 +236,7 @@ impl MaterialKit {
     /// still reads as the highlight.
     pub fn accent(&self, color: [f32; 3]) -> SovereignMaterialSettings {
         if self.luminous {
-            // Emissive doesn't grime — a glowing element stays bright. Bold
+            // Emissive doesn't grime - a glowing element stays bright. Bold
             // pushes the glow harder than the naturalistic register.
             SovereignMaterialSettings {
                 base_color: Fp3(color),
@@ -264,7 +264,7 @@ impl MaterialKit {
                         ..Default::default()
                     })
                 }
-                // A sash or heraldic panel is cloth, not paint — so it takes
+                // A sash or heraldic panel is cloth, not paint - so it takes
                 // the same weave as the rest of the avatar's clothing.
                 FinishFamily::Matte | FinishFamily::Organic => {
                     SovereignTextureConfig::Fabric(SovereignFabricConfig {
@@ -281,7 +281,7 @@ impl MaterialKit {
         }
     }
 
-    /// A self-lit jewel / lamp regardless of style — finials, eyes, running
+    /// A self-lit jewel / lamp regardless of style - finials, eyes, running
     /// lights. Always glows (unlike [`Self::accent`], which only glows for
     /// luminous styles).
     pub fn glow(&self, color: [f32; 3]) -> SovereignMaterialSettings {
@@ -310,7 +310,7 @@ impl MaterialKit {
         }
     }
 
-    /// Organic skin — independent of style and wear (wear is equipment
+    /// Organic skin - independent of style and wear (wear is equipment
     /// grime, not biology). Softer than cloth so faces catch the sun.
     pub fn skin(&self, color: [f32; 3]) -> SovereignMaterialSettings {
         let mut m = SovereignMaterialSettings {
@@ -327,7 +327,7 @@ impl MaterialKit {
             // generator defaults (6 plates/tile, hairline seams) are drawn
             // for an architectural face seen up close; on an avatar they
             // put one smooth plate across a forearm and mip the seams away
-            // entirely, which renders as flat colour (#1004 — initially
+            // entirely, which renders as flat colour (#1004 - initially
             // misread as the texture never reaching the GPU).
             m.metallic = Fp(0.35);
             m.roughness = Fp(0.35);
@@ -338,7 +338,7 @@ impl MaterialKit {
                 // 4 plates/m: a hand-span plate, so a forearm carries a
                 // couple of segments and the head a crown of them.
                 scale: Fp64(4.0),
-                // Bold sutures — 2.5 cm at this tile — or the carapace
+                // Bold sutures - 2.5 cm at this tile - or the carapace
                 // read vanishes past a few metres.
                 seam_width: Fp64(0.025),
                 seam_depth: Fp(0.9),
@@ -357,7 +357,7 @@ impl MaterialKit {
     fn finish(&self, color: [f32; 3], metallic: f32, roughness: f32) -> SovereignMaterialSettings {
         let grimed = grime(color, self.wear);
         // Bold reads glossier (more metallic, smoother); Naturalistic softer
-        // and more matte — applied before the wear roughening.
+        // and more matte - applied before the wear roughening.
         let (metal_mul, rough_add) = if self.bold {
             (1.25, -0.08)
         } else {
@@ -394,7 +394,7 @@ fn fabric_tex(base: [f32; 3], wear: f32) -> SovereignTextureConfig {
         color_warp: Fp3(base),
         // Weft contrast softened 0.76→0.84 and fuzz cut 0.4→0.22 base so the
         // weave calms at silhouette edges without going so flat the knit
-        // reads as bare skin — fuzz 0.15 erased the ribbing on one seed in
+        // reads as bare skin - fuzz 0.15 erased the ribbing on one seed in
         // round 2 (#730-M). Wear still coarsens it toward the battered end.
         color_weft: Fp3(shade01(base, 0.84)),
         thread_count: Fp64(22.0),
@@ -516,8 +516,8 @@ mod tests {
     }
 
     /// Every textured role must survive the sanitiser untouched. A kit that
-    /// authors a value outside the sanitiser's envelope still *renders* —
-    /// the sanitiser quietly rewrites it — but the record then differs from
+    /// authors a value outside the sanitiser's envelope still *renders* -
+    /// the sanitiser quietly rewrites it - but the record then differs from
     /// what the kit produced, so a round-trip through the PDS mutates the
     /// avatar. Only a fixpoint check catches that.
     #[test]
@@ -571,7 +571,7 @@ mod tests {
                 !matches!(kit.trim(col).texture, SovereignTextureConfig::None),
                 "{style:?} trim is untextured"
             );
-            // A luminous accent is emissive rather than textured — the glow
+            // A luminous accent is emissive rather than textured - the glow
             // is the feature, so it keeps its flat self-lit treatment.
             if !kit.emissive_accents() {
                 assert!(
@@ -618,7 +618,7 @@ mod tests {
             .collect();
         assert!(
             weaves.len() >= 3,
-            "cloth weave collapsed to {weaves:?} — the families read alike"
+            "cloth weave collapsed to {weaves:?} - the families read alike"
         );
     }
 

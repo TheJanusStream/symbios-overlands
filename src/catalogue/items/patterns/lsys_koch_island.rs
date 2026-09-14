@@ -1,4 +1,4 @@
-//! Quadratic Koch Island — closed-curve recursive fractal (ABOP Fig 1.6).
+//! Quadratic Koch Island - closed-curve recursive fractal (ABOP Fig 1.6).
 //! Each iteration replaces every line segment with a bumpy variant,
 //! producing a coastline-like silhouette. Initial F arguments rescaled
 //! 100× downward from the lsystem-explorer preset so the result sits
@@ -21,7 +21,7 @@ impl CatalogueEntry for QuadraticKochIsland {
         "Quadratic Koch Island"
     }
     fn description(&self) -> &'static str {
-        "Closed coastline-like fractal curve — ABOP Fig 1.6."
+        "Closed coastline-like fractal curve - ABOP Fig 1.6."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Pattern

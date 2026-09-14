@@ -1,31 +1,31 @@
 //! Room-record → ECS compile engine: incremental (per-placement diff)
 //! and time-sliced (per-frame budget).
 //!
-//! The engine itself is [`executor::compile_room_record`] — see the
+//! The engine itself is [`executor::compile_room_record`] - see the
 //! [`executor`] module docs for the plan/execute split and why both
 //! halves exist for the wasm build. This module is wiring + re-exports
 //! only.
 //!
 //! ## Sub-module map
 //!
-//! * [`executor`] — the `compile_room_record` system: the planning
+//! * [`executor`] - the `compile_room_record` system: the planning
 //!   diff ([`job::unit_fingerprint`] vs [`job::CompiledWorld`]) and the
 //!   sliced unit builder (`start_unit` / `step_unit`).
-//! * [`job`] — [`CompiledWorld`] / [`CompileJob`] state, the unit
+//! * [`job`] - [`CompiledWorld`] / [`CompileJob`] state, the unit
 //!   fingerprint, the slice budget, and the resume cursors.
-//! * [`spawn_ctx`] — [`SpawnCtx`] (the write-context shared with every
+//! * [`spawn_ctx`] - [`SpawnCtx`] (the write-context shared with every
 //!   sibling spawner module), [`GeneratorCaches`] system param,
 //!   [`MAX_ROOM_ENTITIES`] cap +
 //!   [`budget_exceeded`] gate, and [`spawn_ctx::transform_from_data`].
-//! * [`water`] — [`water::room_water_level`] sea-level lookup and the
+//! * [`water`] - [`water::room_water_level`] sea-level lookup and the
 //!   dry-land relocation walk for water-avoiding placements.
-//! * [`environment`] — [`apply_environment_state`] (its own system).
-//! * [`scatter`] — sampling helpers and the biome-rule evaluator.
-//! * [`census`] — offline replay of the sampling loop, for measuring what
+//! * [`environment`] - [`apply_environment_state`] (its own system).
+//! * [`scatter`] - sampling helpers and the biome-rule evaluator.
+//! * [`census`] - offline replay of the sampling loop, for measuring what
 //!   a seeded room actually places (`render --scatter-census`).
-//! * [`dispatch`] — recursive [`spawn_generator`] +
+//! * [`dispatch`] - recursive [`spawn_generator`] +
 //!   [`dispatch::dispatch_top_level`] walker into the per-generator spawners.
-//! * [`contact_recipes`] — [`apply_contact_recipes`] system.
+//! * [`contact_recipes`] - [`apply_contact_recipes`] system.
 
 // Native-only: the census replays sampling against a heightmap rebuilt via
 // `terrain::rebuild_heightmap_for_record`, which (like the render tool that
@@ -51,10 +51,10 @@ pub(crate) use census::scatter_census;
 pub(super) use contact_recipes::apply_contact_recipes;
 pub use dispatch::spawn_generator;
 /// The key a node's caches and grammar diagnostics are filed under (#1250
-/// f84) — re-exported so the editor can ask about the SELECTED node rather
+/// f84) - re-exported so the editor can ask about the SELECTED node rather
 /// than its root.
 pub(crate) use dispatch::synthetic_cache_key;
-/// The cheap-lane repaint signal (#1249 f59) — stamped by the World Editor
+/// The cheap-lane repaint signal (#1249 f59) - stamped by the World Editor
 /// every frame a widget changes, so the atmosphere follows a drag while the
 /// broadcast and the recompile keep waiting for the pause.
 pub(crate) use environment::EnvironmentPreview;
@@ -66,7 +66,7 @@ pub(crate) use scatter::ScatterPreview;
 pub(crate) use spawn_ctx::MAX_ROOM_ENTITIES;
 pub use spawn_ctx::{GeneratorCaches, SpawnCtx, budget_exceeded};
 /// Re-exported so the terrain splat pass reads the room's water line from
-/// the same single source the scatter sampler does — if the two ever
+/// the same single source the scatter sampler does - if the two ever
 /// disagreed, the damp margin drawn on the ground and the riparian band the
 /// reeds are placed in would sit at different heights (#913).
 pub(crate) use water::room_water_level;

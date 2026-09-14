@@ -1,4 +1,4 @@
-//! General store — a Wild-West secondary. A clapboard store with a false
+//! General store - a Wild-West secondary. A clapboard store with a false
 //! front, a covered boardwalk porch, a lit window and goods stacked out front.
 //! Its window is emissive trim the ruin pass can darken.
 //!
@@ -53,11 +53,11 @@ fn build_tree() -> Generator {
     let body_h = 4.0_f32;
     let body_d = 6.0_f32;
     let body_top = slab_h + body_h;
-    // Render FRONT = −Z — the shopfront, sign and porch all face −Z.
+    // Render FRONT = −Z - the shopfront, sign and porch all face −Z.
     let front_z = -body_d * 0.5;
 
     let mut prims = vec![
-        // Clapboard slab — the root.
+        // Clapboard slab - the root.
         prim(
             solid(cuboid_tapered([7.0, slab_h, 7.0], 0.0, clapboard(WOOD_RAW))),
             [0.0, slab_h * 0.5, 0.0],
@@ -163,7 +163,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Covered boardwalk porch — flat awning on posts over a raised walk.
+    // Covered boardwalk porch - flat awning on posts over a raised walk.
     let porch_y = slab_h + 2.7;
     let porch_front = front_z - 1.9;
     prims.push(prim(

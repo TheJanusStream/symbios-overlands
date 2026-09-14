@@ -1,4 +1,4 @@
-//! Column drum — an AncientClassical prop. The ruin of a fallen column: a
+//! Column drum - an AncientClassical prop. The ruin of a fallen column: a
 //! base and two standing fluted drums, a toppled drum on the ground, and a
 //! tumbled capital block. Scattered marble clutter that says "old ruins".
 
@@ -47,7 +47,7 @@ impl CatalogueEntry for ColumnDrum {
 }
 
 fn build_tree() -> Generator {
-    // Base drum — the root.
+    // Base drum - the root.
     let mut prims = vec![prim(
         solid(cylinder_tapered(0.46, 0.4, 16, 0.0, marble(MARBLE_WHITE))),
         [0.0, 0.2, 0.0],

@@ -6,8 +6,8 @@
 //!
 //! # The determinism discipline
 //!
-//! Placement must be bit-stable for a given seed across peers, and — the
-//! stronger property this module maintains — **changing a naturalness knob
+//! Placement must be bit-stable for a given seed across peers, and - the
+//! stronger property this module maintains - **changing a naturalness knob
 //! must not move the instances that knob is not about**. That rules out the
 //! obvious implementations (draw an extra sample to decide a cluster, draw a
 //! rejection roll for edge density), because every extra draw shifts the
@@ -17,7 +17,7 @@
 //!
 //! * [`ScatterNaturalness::edge_falloff`] and
 //!   [`ScatterNaturalness::clumping`] are pure *remappings* of a sample that
-//!   was already drawn — the uniform draw happens either way and is then
+//!   was already drawn - the uniform draw happens either way and is then
 //!   warped in place.
 //! * The cluster seeds those two need come from a **separate** RNG derived
 //!   from the same `local_seed` ([`cluster_centers`]), never from the
@@ -84,7 +84,7 @@ pub(crate) fn sample_bounds(
             let rot = rotation.0;
             // libm (#1132): a rotated rect's instance positions must agree
             // between a native and a browser peer, because the position is
-            // what the slope and biome filters are then sampled AT — so a
+            // what the slope and biome filters are then sampled AT - so a
             // difference here feeds the accept/reject decisions above.
             let (sin, cos) = (libm::sinf(rot), libm::cosf(rot));
             let rx = lx * cos - lz * sin;
@@ -114,7 +114,7 @@ pub(crate) fn sample_bounds(
     }
 }
 
-/// Signed `|v|^(1+falloff)` for a `[-1, 1]` axis sample — the rect
+/// Signed `|v|^(1+falloff)` for a `[-1, 1]` axis sample - the rect
 /// counterpart of the disc's radial remap.
 fn falloff_axis(v: f32, falloff: f32) -> f32 {
     if falloff <= 0.0 {
@@ -126,7 +126,7 @@ fn falloff_axis(v: f32, falloff: f32) -> f32 {
 
 /// Deterministic cluster seeds for a scatter, drawn from their own stream so
 /// they never perturb the placement RNG. Seed count scales with the square
-/// root of the instance count — enough clumps that a dense stand still reads
+/// root of the instance count - enough clumps that a dense stand still reads
 /// as patchy, few enough that a sparse one doesn't degenerate into one
 /// instance per clump.
 ///
@@ -153,8 +153,8 @@ pub(crate) fn cluster_centers(
 /// identity (flat uniform); `0.5` halves each seed's catchment radius, which
 /// leaves thickets with clearings between them.
 ///
-/// Contraction toward a point inside the region can never leave it — both
-/// bounds shapes are convex — so this cannot push an instance outside the
+/// Contraction toward a point inside the region can never leave it - both
+/// bounds shapes are convex - so this cannot push an instance outside the
 /// authored stand.
 pub(crate) fn apply_clumping(
     pos: (f32, f32),
@@ -188,7 +188,7 @@ pub(crate) struct InstanceJitter {
     pub yaw: f32,
     /// Compass direction the instance leans toward, radians.
     pub tilt_azimuth: f32,
-    /// Lean off vertical, radians. Signed — a negative angle is the same
+    /// Lean off vertical, radians. Signed - a negative angle is the same
     /// lean 180° round, which is why one draw covers the whole cone.
     pub tilt_angle: f32,
     /// Uniform scale multiplier, log-uniform about `1.0`.
@@ -197,7 +197,7 @@ pub(crate) struct InstanceJitter {
 
 /// Draw one instance's decorations. Takes exactly
 /// [`JITTER_DRAWS_PER_INSTANCE`] samples every call regardless of which
-/// knobs are enabled — that fixed group size is what keeps the side stream
+/// knobs are enabled - that fixed group size is what keeps the side stream
 /// aligned with the instance index, so toggling `tilt_jitter` cannot change
 /// the next instance's scale.
 ///
@@ -218,8 +218,8 @@ pub(crate) fn instance_jitter(rng: &mut ChaCha8Rng, n: &ScatterNaturalness) -> I
         tilt_angle: tilt * n.tilt_jitter.0,
         // Log-uniform: a 0.85× and a 1.18× instance are the same one step
         // away from nominal, which an additive spread would not give.
-        // libm (#1132). Not a discrete decision — an instance a ULP larger
-        // is invisible — but it is seeded derived geometry, and leaving one
+        // libm (#1132). Not a discrete decision - an instance a ULP larger
+        // is invisible - but it is seeded derived geometry, and leaving one
         // `f32` transcendental in the path would make "this derivation is
         // bit-identical across targets" a claim with an asterisk.
         scale: libm::expf(scale * n.scale_jitter.0),
@@ -249,7 +249,7 @@ pub(crate) fn instance_pose(
     if n.tilt_jitter.0 > 0.0 {
         // A *pure* lean: rotate about a horizontal axis pointing at
         // `tilt_azimuth`, which is `Ry(az) · Rx(θ) · Ry(-az)`. Dropping the
-        // trailing `Ry(-az)` would be simpler and wrong — it would leave a
+        // trailing `Ry(-az)` would be simpler and wrong - it would leave a
         // net yaw of `az` behind, silently spinning instances in a scatter
         // that explicitly asked for `random_yaw: false`.
         let lean = Quat::from_rotation_y(jitter.tilt_azimuth)
@@ -270,8 +270,8 @@ pub(crate) fn instance_pose(
 /// The `--room` contact sheet has no heightmap, so the biome allow-list and
 /// the slope cutoff have nothing to resolve against and
 /// [`try_sample`] would correctly refuse to place anything. This keeps the
-/// parts that *are* meaningful without terrain — the distribution warps and
-/// the per-instance pose — so the sheet still shows what clumping and
+/// parts that *are* meaningful without terrain - the distribution warps and
+/// the per-instance pose - so the sheet still shows what clumping and
 /// jitter do. Instances sit on the ground plane rather than terrain-snapped.
 ///
 /// Native-only, like the render tool that is its sole consumer.
@@ -321,7 +321,7 @@ impl ScatterPreview {
     }
 }
 
-/// Terrain steepness at a world XZ, as `1 - normal.y` — the same measure
+/// Terrain steepness at a world XZ, as `1 - normal.y` - the same measure
 /// [`dominant_biome`] scores the splat rules against, so a scatter's slope
 /// cutoff and its biome allow-list are talking about the same quantity.
 /// `0` is dead flat, `1` is a vertical face.
@@ -353,8 +353,8 @@ pub(crate) fn slope_cutoff(naturalness: &ScatterNaturalness) -> Option<f32> {
         // the handful of places in the derivation where a one-ULP difference
         // between two peers stops being invisible: a sample sitting within a
         // ULP of the cutoff gets a tree on one peer and bare ground on the
-        // other. `f32::cos` links the target's libm — glibc on native,
-        // compiler-builtins on wasm — and the two disagree in the last bit on
+        // other. `f32::cos` links the target's libm - glibc on native,
+        // compiler-builtins on wasm - and the two disagree in the last bit on
         // roughly one degree value in eighty (measured over 0-90° at 0.001°
         // steps on x86-64).
         .map(|deg| 1.0 - libm::cosf(deg.0.to_radians()))
@@ -362,7 +362,7 @@ pub(crate) fn slope_cutoff(naturalness: &ScatterNaturalness) -> Option<f32> {
 
 /// Everything a scatter sample is tested against, resolved once per unit.
 /// Grouped so the accept/reject decision can live in one place that both
-/// the executor and the offline `--scatter-census` call — the two agreeing
+/// the executor and the offline `--scatter-census` call - the two agreeing
 /// is the whole point, since the census exists to report what the compiler
 /// will actually place.
 pub(crate) struct SampleFilters<'a> {
@@ -407,7 +407,7 @@ pub(crate) fn urban_exclusions(
 ///
 /// Exactly one draw group is taken from `rng` per call whatever the outcome,
 /// so a rejection costs the stream the same as an acceptance. That is what
-/// makes every filter here purely subtractive — tighten one and the
+/// makes every filter here purely subtractive - tighten one and the
 /// instances that survive stay exactly where they were.
 pub(crate) fn try_sample(
     bounds: &ScatterBounds,
@@ -447,7 +447,7 @@ pub(crate) fn try_sample(
 
     // Microbiome bands (#913). Checked before the slope work because they
     // need only the height already in hand, where slope costs a normal
-    // lookup — and because on a riparian scatter they reject the large
+    // lookup - and because on a riparian scatter they reject the large
     // majority of samples.
     if let Some(Fp2([lo, hi])) = naturalness.altitude_band
         && !(lo..=hi).contains(&y)
@@ -456,7 +456,7 @@ pub(crate) fn try_sample(
     }
     if let Some(Fp2([lo, hi])) = naturalness.above_water_band {
         // No water line means the band has nothing to measure from, so it
-        // fails closed — the same stance the biome allow-list takes when
+        // fails closed - the same stance the biome allow-list takes when
         // there is no terrain generator to resolve against.
         let wl = filters.water_level?;
         if !(lo..=hi).contains(&(y - wl)) {
@@ -464,8 +464,8 @@ pub(crate) fn try_sample(
         }
     }
 
-    // Steepness feeds two consumers — the allow-list (via the dominant
-    // splat layer) and the explicit cutoff — so sample it once, and only if
+    // Steepness feeds two consumers - the allow-list (via the dominant
+    // splat layer) and the explicit cutoff - so sample it once, and only if
     // one of them is going to read it.
     let slope = (!filters.biome_filter.is_noop() || filters.slope_cutoff.is_some())
         .then(|| terrain_slope_at(hm, world_x, world_z));
@@ -546,7 +546,7 @@ mod tests {
     //!
     //! * **A determinism contract.** No knob may consume a draw from the
     //!   placement RNG. These are the tests that would fail if someone
-    //!   "simplified" a warp into a rejection roll — which would silently
+    //!   "simplified" a warp into a rejection roll - which would silently
     //!   move every instance in every existing record.
     //! * **An effect.** Each knob has to actually do the thing its name
     //!   claims, which is checked statistically over a few thousand
@@ -585,7 +585,7 @@ mod tests {
 
     /// The load-bearing one. `edge_falloff` warps a sample that was drawn
     /// either way, so two runs from the same seed must leave the RNG in
-    /// *exactly* the same state — otherwise turning the knob on would
+    /// *exactly* the same state - otherwise turning the knob on would
     /// reshuffle every instance after the first.
     #[test]
     fn edge_falloff_consumes_no_extra_draws() {
@@ -605,7 +605,7 @@ mod tests {
     }
 
     /// `clumping` is applied to an already-drawn sample, so it cannot
-    /// touch the stream at all — and its cluster seeds come from their own
+    /// touch the stream at all - and its cluster seeds come from their own
     /// RNG rather than the placement one.
     #[test]
     fn clumping_consumes_no_draws() {
@@ -646,7 +646,7 @@ mod tests {
         }
     }
 
-    /// Cluster seeds must be a pure function of the scatter's own seed —
+    /// Cluster seeds must be a pure function of the scatter's own seed -
     /// two peers compiling the same record have to agree on them, and a
     /// re-derivation within one peer must not drift.
     #[test]
@@ -725,7 +725,7 @@ mod tests {
     }
 
     /// Contraction toward an interior point of a convex region can never
-    /// escape it — no instance may end up outside the authored stand.
+    /// escape it - no instance may end up outside the authored stand.
     #[test]
     fn clumping_keeps_every_sample_inside_the_bounds() {
         let bounds = disc(100.0);
@@ -754,7 +754,7 @@ mod tests {
             hi = hi.max(s);
             log_sum += s.ln();
         }
-        // e^±0.18 ≈ 0.835 / 1.197 — the range the doc comment promises.
+        // e^±0.18 ≈ 0.835 / 1.197 - the range the doc comment promises.
         assert!((0.83..0.85).contains(&lo), "low end {lo}");
         assert!((1.19..1.21).contains(&hi), "high end {hi}");
         assert!(
@@ -765,7 +765,7 @@ mod tests {
     }
 
     /// With the knob off the decorations must be exact identities, not
-    /// merely small — a 1.0000001 scale would defeat the shared-handle
+    /// merely small - a 1.0000001 scale would defeat the shared-handle
     /// dedup path for no visual gain.
     #[test]
     fn jitter_knobs_off_produce_exact_identities() {
@@ -799,7 +799,7 @@ mod tests {
 
     /// Tilt must be a pure lean. The naive composition leaves a net yaw
     /// behind, which would spin instances in a scatter that explicitly
-    /// turned `random_yaw` off — a silent, hard-to-attribute regression.
+    /// turned `random_yaw` off - a silent, hard-to-attribute regression.
     #[test]
     fn tilt_leans_without_introducing_yaw() {
         let n = ScatterNaturalness {
@@ -820,7 +820,7 @@ mod tests {
                 up.angle_between(Vec3::Y),
                 j.tilt_angle.abs()
             );
-            // "No spin" means the rotation *axis* is horizontal — that is
+            // "No spin" means the rotation *axis* is horizontal - that is
             // the definition of a lean. It is deliberately not "the
             // forward vector's ground shadow is unmoved": any rigid lean
             // tips forward out of the horizontal plane, and its shadow
@@ -831,7 +831,7 @@ mod tests {
             if angle.abs() > 1e-3 {
                 assert!(
                     axis.y.abs() < 1e-3,
-                    "tilt axis is not horizontal (y = {}) — that is a spin, \
+                    "tilt axis is not horizontal (y = {}) - that is a spin, \
                      not a lean",
                     axis.y
                 );
@@ -861,7 +861,7 @@ mod tests {
     }
 
     /// A band with no terrain to resolve against must place nothing rather
-    /// than silently ignoring the constraint — the same stance the biome
+    /// than silently ignoring the constraint - the same stance the biome
     /// allow-list and the slope cutoff take.
     #[test]
     fn bands_without_a_heightmap_fail_closed() {
@@ -925,7 +925,7 @@ mod tests {
     /// The sequence that produced this: upstream's `smooth_range` was a tent,
     /// so a `SovereignSplatRule` scored zero *at* its own endpoints. Three of
     /// the four seeded rules name `slope_min: 0.0`, and the fourth (rock)
-    /// names `0.25`, whose tent is also zero at 0.0 — so on an exactly level
+    /// names `0.25`, whose tent is also zero at 0.0 - so on an exactly level
     /// texel all four weights were zero, the total fell under `f32::EPSILON`,
     /// and both the splat map and this argmax fell through to the rock
     /// channel. Every scatter with a biome allow-list then read Rock on a lawn
@@ -945,7 +945,7 @@ mod tests {
             "dead-level ground at the bottom of the range should be grass"
         );
         // Rock is the steep-face layer. On a dead-flat texel it must never be
-        // the answer at any altitude — below the snow line that is grass or
+        // the answer at any altitude - below the snow line that is grass or
         // dirt, above it snow.
         for step in 0..=100 {
             let h = step as f32 / 100.0;
@@ -960,7 +960,7 @@ mod tests {
     /// #1168: no `(height, slope)` pair leaves every rule at zero.
     ///
     /// The rock fallback is what a caller gets when nothing matches, and it is
-    /// indistinguishable from a deliberate rock texel — which is how the tent
+    /// indistinguishable from a deliberate rock texel - which is how the tent
     /// bug hid for so long. Sweeping the whole domain is the only way to see
     /// a hole: fixing the level-ground case opened a second one higher up
     /// while dirt still stopped at height 0.65, because rock owns every height

@@ -2,33 +2,33 @@
 //! in-world workflows. Right-clicking the ground, an object, or your own
 //! avatar opens a small menu offering:
 //!
-//! * **Select part** — (any room, #824) open the Avatar editor on the
+//! * **Select part** - (any room, #824) open the Avatar editor on the
 //!   exact visuals node of your OWN avatar under the cursor.
-//! * **Select item** — open the World Editor on the Region Assets tab and
+//! * **Select item** - open the World Editor on the Region Assets tab and
 //!   select the exact sub-part under the cursor (identical to the left-click
 //!   picker's Generators branch, but it also *opens* the editor).
-//! * **Select placement** — open the World Editor on the Placements tab and
+//! * **Select placement** - open the World Editor on the Placements tab and
 //!   select the enclosing placement.
-//! * **Duplicate item / placement** — (#824) in-place clone, selection
+//! * **Duplicate item / placement** - (#824) in-place clone, selection
 //!   moved to the copy (gizmo + highlight attached, ready to drag apart)
-//!   — the discoverable twin of Shift-copy-drag.
-//! * **Delete item / placement** — (#824) remove the sub-part or the
+//!   - the discoverable twin of Shift-copy-drag.
+//! * **Delete item / placement** - (#824) remove the sub-part or the
 //!   enclosing placement; a root "Delete item" sweeps its placements like
 //!   the tree's `− Delete`, and since #1209 parks behind the tree's own
 //!   confirm (opening the World Editor on Region Assets to show it).
-//! * **Create new…** — a submenu mirroring the tree's `+ New` /
+//! * **Create new…** - a submenu mirroring the tree's `+ New` /
 //!   `+ From Catalogue` / `+ From Inventory` add-root menus. Picking one
 //!   builds the region asset, appends a `Placement::Absolute` at the exact
-//!   ray-hit point, and lands on the new asset in the editor — collapsing the
+//!   ray-hit point, and lands on the new asset in the editor - collapsing the
 //!   old "make asset → make placement → drag it off the origin" sequence into
 //!   one click.
 //!
-//! * **Worn item** (#1097) — right-clicking one of your OWN worn props:
+//! * **Worn item** (#1097) - right-clicking one of your OWN worn props:
 //!   **Edit worn item** (Avatar editor, Attachments tab, that row selected
 //!   with the gizmo armed), **Re-seat**, **Save to inventory**, **Take
 //!   off**. Right-clicking your own rigged body: **Edit avatar** (Body
 //!   tab) and **Wear from inventory…**, a submenu of your wearable stash
-//!   items. Like Select part, these work in ANY room — they edit your
+//!   items. Like Select part, these work in ANY room - they edit your
 //!   avatar and inventory records, never the room.
 //!
 //! Everything except the avatar entries is owner-only; those work for
@@ -44,13 +44,13 @@
 //! That travel is accumulated from `MouseMotion`, **not** measured between the
 //! press and release cursor positions (#1296). The camera drag confines or
 //! locks the pointer for the length of the gesture (`camera::drag_cursor_grab`,
-//! added by #1242 f171), and under `CursorGrabMode::Locked` — which is what
+//! added by #1242 f171), and under `CursorGrabMode::Locked` - which is what
 //! the browser build gets, because the web backend implements pointer lock and
-//! not confinement — the OS cursor stops moving, so `Window::cursor_position`
+//! not confinement - the OS cursor stops moving, so `Window::cursor_position`
 //! returns the SAME point for the whole orbit. Every orbit therefore looked
 //! like a click, and released into a context menu. `MouseMotion` is the signal
 //! that survives pointer lock (winit synthesises it from `movementX/Y`), and
-//! it is the same one `bevy_panorbit_camera` orbits on — so the menu and the
+//! it is the same one `bevy_panorbit_camera` orbits on - so the menu and the
 //! camera now agree about what happened by construction rather than by
 //! coincidence.
 //!
@@ -96,7 +96,7 @@ const DRAG_THRESHOLD_PX: f32 = 6.0;
 /// (#1296):
 ///
 /// * A locked pointer reports no cursor movement at all, so a displacement
-///   test cannot see an orbit — see the module docs. This is the bug.
+///   test cannot see an orbit - see the module docs. This is the bug.
 /// * Displacement shrinks again when a gesture comes back on itself, so
 ///   measuring it needs a separate `dragged` flag latched across frames to
 ///   stop an orbit that returns near its origin reading as a click. The
@@ -128,8 +128,8 @@ impl RightDrag {
         }
     }
 
-    /// The button came up, ending the gesture. `true` when it was a click —
-    /// a press and release with the pointer essentially still — and so
+    /// The button came up, ending the gesture. `true` when it was a click -
+    /// a press and release with the pointer essentially still - and so
     /// should open the menu.
     fn release(&mut self) -> bool {
         matches!(self.travel.take(), Some(travel) if travel <= DRAG_THRESHOLD_PX)
@@ -146,7 +146,7 @@ pub(super) struct SceneContextMenu {
     /// [`detect_scene_right_click`]; egui's `open_bool` flips it back to
     /// closed on click / click-outside / Escape.
     open: bool,
-    /// Screen-space anchor for the popup — the release-frame cursor.
+    /// Screen-space anchor for the popup - the release-frame cursor.
     anchor: Vec2,
     /// World-space ray hit under the cursor: the spawn point for a
     /// `Create new…` placement.
@@ -159,14 +159,14 @@ pub(super) struct SceneContextMenu {
     prim: Option<PrimMarker>,
     /// The local avatar's visuals node under the cursor, if the click
     /// landed on the player's own avatar (#824 / W1). Drives the
-    /// "Select part" entry — available in ANY room, ownership is
+    /// "Select part" entry - available in ANY room, ownership is
     /// irrelevant for one's own avatar.
     avatar_prim: Option<Vec<usize>>,
     /// One of the player's own worn props under the cursor (#1097): its
     /// record key and inventory provenance. Only the local body's props
     /// carry [`LocalAttachment`], so a peer's outfit never lands here.
     worn: Option<WornHit>,
-    /// The click landed on the player's own RIGGED body (#1097) — a
+    /// The click landed on the player's own RIGGED body (#1097) - a
     /// [`RiggedRoot`] whose chassis is the [`LocalPlayer`]. Drives "Edit
     /// avatar" and "Wear from inventory…".
     own_body: bool,
@@ -200,7 +200,7 @@ enum MenuChoice {
     SelectPlacement,
     /// Open the Avatar editor on the clicked visuals node (#824 / W1).
     SelectAvatarPart,
-    /// In-place sibling clone of the clicked sub-part — the record-level
+    /// In-place sibling clone of the clicked sub-part - the record-level
     /// twin of Shift-copy-drag; the clone spawns coincident with the
     /// original and becomes the selection (gizmo + highlight attached),
     /// ready to drag apart.
@@ -208,7 +208,7 @@ enum MenuChoice {
     /// Clone the enclosing placement in place and select the clone.
     DuplicatePlacement,
     /// Remove the clicked sub-part from the blueprint (root delete sweeps
-    /// every referencing placement — the same cascade as the tree's
+    /// every referencing placement - the same cascade as the tree's
     /// `− Delete`; confirmation treatment arrives with #838).
     DeleteItem,
     /// Remove the enclosing placement.
@@ -216,7 +216,7 @@ enum MenuChoice {
     /// Open the Avatar editor's Attachments tab on the clicked worn prop,
     /// gizmo armed (#1097).
     EditWorn,
-    /// Open the worn prop's PARTS editor — its generator tree — on the
+    /// Open the worn prop's PARTS editor - its generator tree - on the
     /// exact part under the cursor (#1098).
     EditWornPart,
     /// Zero the worn prop's offset so the engine re-seats it.
@@ -278,7 +278,7 @@ pub(super) fn detect_scene_right_click(
     }
 
     // A right-click on the toolbar or an editor window is a UI interaction,
-    // not a click into the world — leave any open menu to egui's own close
+    // not a click into the world - leave any open menu to egui's own close
     // handling and don't spawn a world menu.
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -294,7 +294,7 @@ pub(super) fn detect_scene_right_click(
         return;
     }
     // Room editing is owner-only, but "Select part" on one's OWN avatar
-    // is not (#824) — so ownership no longer gates the raycast, only
+    // is not (#824) - so ownership no longer gates the raycast, only
     // which hits may open the menu (checked after the walk below).
     let owns_room = matches!(
         (session.as_deref(), room_did.as_deref()),
@@ -317,11 +317,11 @@ pub(super) fn detect_scene_right_click(
         match pick.hit_along(ray) {
             Some(super::SceneHit::Mesh { entity, point, .. }) => (Some(entity), point, false),
             // A ground hit is the menu's "place an object here" anchor, and
-            // its world point is what the placement transform is built from —
+            // its world point is what the placement transform is built from -
             // so it has to be the terrain ray's point, not the mesh ray's.
             Some(super::SceneHit::Terrain { point }) => (None, point, true),
             None => {
-                // Empty sky — dismiss any open menu.
+                // Empty sky - dismiss any open menu.
                 menu.open = false;
                 return;
             }
@@ -330,7 +330,7 @@ pub(super) fn detect_scene_right_click(
 
     // Walk from the hit mesh up the hierarchy: the deepest `PrimMarker` is
     // the sub-part, the enclosing `PlacementMarker` is the placement, and an
-    // `AvatarVisualPrim` marks the player's own avatar (#824 — the marker
+    // `AvatarVisualPrim` marks the player's own avatar (#824 - the marker
     // is only ever attached to LOCAL-player visuals). A ground hit never
     // enters this loop: it comes from the terrain ray above, which answers
     // "was this the ground" directly instead of by finding `TerrainMesh` on
@@ -364,7 +364,7 @@ pub(super) fn detect_scene_right_click(
         // A worn prop (#1097): `LocalAttachment` sits on the prop's root,
         // between its meshes and the rig joint. Only the local body's
         // props carry it. The rigged body itself: a `RiggedRoot` whose
-        // chassis is the local player — a peer's rig has no such parent.
+        // chassis is the local player - a peer's rig has no such parent.
         if picked_worn.is_none()
             && let Ok(worn) = avatar_hits.worn_props.get(entity)
         {
@@ -386,8 +386,8 @@ pub(super) fn detect_scene_right_click(
         cursor_entity = parents.get(entity).ok().map(ChildOf::parent);
     }
 
-    // What may open the menu: the player's own avatar (any room), or —
-    // owner only — ground / room objects. A hit on water, the sky cuboid,
+    // What may open the menu: the player's own avatar (any room), or -
+    // owner only - ground / room objects. A hit on water, the sky cuboid,
     // a cloud plane or a REMOTE peer is none of these; dismiss instead of
     // placing an object 2 km up on the skybox. Room hits are cleared for
     // non-owners so the render pass can key every room entry off the
@@ -447,7 +447,7 @@ pub(super) fn scene_context_menu_ui(
     // mutations below must never touch a room the user doesn't own. Same gate
     // as the detector, re-checked here as the security boundary. "Select
     // part" targets the user's OWN avatar, so an avatar hit keeps the menu
-    // alive without ownership (#824) — every room entry below additionally
+    // alive without ownership (#824) - every room entry below additionally
     // keys on `room_available`. The worn-prop and own-body entries (#1097)
     // are avatar hits too.
     let owns_room = matches!(
@@ -494,7 +494,7 @@ pub(super) fn scene_context_menu_ui(
     let now = time.elapsed_secs_f64();
 
     // Shared into every (nested) menu closure; drained after the popup returns.
-    // The `RefCell` sidesteps capturing `&mut` in sibling closures — the same
+    // The `RefCell` sidesteps capturing `&mut` in sibling closures - the same
     // idiom the generator tree's context menus use.
     let chosen: RefCell<Option<MenuChoice>> = RefCell::new(None);
 
@@ -534,7 +534,7 @@ pub(super) fn scene_context_menu_ui(
                 && ui
                     .button("Edit this part")
                     .on_hover_text(
-                        "Open the item's part tree on the exact part under the cursor — \
+                        "Open the item's part tree on the exact part under the cursor - \
                          the same editor the World Editor uses, on your worn copy",
                     )
                     .clicked()
@@ -544,7 +544,7 @@ pub(super) fn scene_context_menu_ui(
             }
             if ui
                 .button("Re-seat")
-                .on_hover_text("Zero its offset — the engine seats it just outside the body again")
+                .on_hover_text("Zero its offset - the engine seats it just outside the body again")
                 .clicked()
             {
                 *chosen.borrow_mut() = Some(MenuChoice::ReseatWorn);
@@ -556,7 +556,7 @@ pub(super) fn scene_context_menu_ui(
             };
             if ui
                 .add_enabled(inventory.is_some(), egui::Button::new(save_label))
-                .on_hover_text("Write it back — geometry, socket and offset — so wearing it again looks like this")
+                .on_hover_text("Write it back - geometry, socket and offset - so wearing it again looks like this")
                 // A disabled control with no reason (#1233 f261's third
                 // citation, which the refuter correctly separates from the
                 // two mis-worded strings): same state, same sentence as
@@ -586,7 +586,7 @@ pub(super) fn scene_context_menu_ui(
             if wearables.is_empty() {
                 ui.add_enabled(false, egui::Button::new("Wear from inventory…"))
                     .on_disabled_hover_text(
-                        "Nothing wearable in your inventory — copy a wearable from the Catalogue",
+                        "Nothing wearable in your inventory - copy a wearable from the Catalogue",
                     );
             } else {
                 ui.menu_button("Wear from inventory…", |ui| {
@@ -638,19 +638,19 @@ pub(super) fn scene_context_menu_ui(
             }
             ui.separator();
             if let Some(prim) = &picked_prim {
-                // A blueprint root has no sibling slot to clone into —
+                // A blueprint root has no sibling slot to clone into -
                 // same restriction as Shift-copy-drag; duplicating the
                 // PLACEMENT is the meaningful operation there.
                 let can_dup = !prim.path.is_empty();
                 let dup = ui.add_enabled(can_dup, egui::Button::new("Duplicate part"));
                 let dup = if can_dup {
                     dup.on_hover_text(
-                        "Clone this sub-part in place (edits every instance) — \
+                        "Clone this sub-part in place (edits every instance) - \
                          then drag the copy where you want it",
                     )
                 } else {
                     dup.on_disabled_hover_text(
-                        "An item's root has no sibling slot — duplicate the placement instead",
+                        "An item's root has no sibling slot - duplicate the placement instead",
                     )
                 };
                 if dup.clicked() {
@@ -662,7 +662,7 @@ pub(super) fn scene_context_menu_ui(
                 && ui
                     .button("Duplicate placement")
                     .on_hover_text(
-                        "Clone this placement in place and select the copy — \
+                        "Clone this placement in place and select the copy - \
                          then drag it where you want it",
                     )
                     .clicked()
@@ -808,7 +808,7 @@ pub(super) fn scene_context_menu_ui(
             };
             match crate::ui::avatar::save_worn_to_inventory(&record, &mut inv.0) {
                 Ok(name) => toasts.success(
-                    format!("Saved as \"{name}\" — wear it again from your inventory."),
+                    format!("Saved as \"{name}\" - wear it again from your inventory."),
                     now,
                 ),
                 Err(reason) => toasts.warn(reason, now),
@@ -842,7 +842,7 @@ pub(super) fn scene_context_menu_ui(
             };
             // The cap ladder this arm used to carry by hand, from the one
             // source the Inventory row and the catalogue also read
-            // (#1141) — so an unresolved body now says so here too
+            // (#1141) - so an unresolved body now says so here too
             // instead of returning silently from `rigged_mut`.
             // `inv` was already unwrapped above to find the item, so the
             // inventory is loaded by construction here (#1233 f261).
@@ -916,7 +916,7 @@ pub(super) fn scene_context_menu_ui(
             if let Some(new_path) = duplicate_prim(&mut room.0, &prim.generator_ref, &prim.path) {
                 undo_labels.set_room(format!("duplicate of {}", prim.generator_ref));
                 // Land the editor on the clone (it spawns coincident with
-                // the original — the selection highlight + gizmo make it
+                // the original - the selection highlight + gizmo make it
                 // grabbable despite the overlap).
                 panels.world_editor = true;
                 editor.selected_tab = EditorTab::Generators;
@@ -966,7 +966,7 @@ pub(super) fn scene_context_menu_ui(
             ) {
                 undo_labels.set_room(format!("delete of {}", prim.generator_ref));
                 // Sibling indices (and, for a root, placement indices)
-                // shifted under whatever was selected — clear rather than
+                // shifted under whatever was selected - clear rather than
                 // leave a stale path pointing at the wrong node.
                 editor.clear_selection();
             }
@@ -1003,12 +1003,12 @@ pub(super) fn scene_context_menu_ui(
 /// Insert `generator` under a fresh unique key, anchor an `Absolute`
 /// placement at `world_pos`, and land the editor on the new region asset
 /// (Region Assets tab). Returns the assigned key, or the cap sentence when
-/// the world is full of generators or placements (#1210) — checked before
+/// the world is full of generators or placements (#1210) - checked before
 /// either insert, so a refused create leaves nothing half-added.
 ///
 /// Reuses the tree's exact add-root path (collision-safe unique key + insert)
 /// and the same `Absolute`-placement shape as the inventory/catalogue drop, so
-/// a right-click create is indistinguishable from `+ New` + a manual drop —
+/// a right-click create is indistinguishable from `+ New` + a manual drop -
 /// except the placement lands at the ray hit instead of the origin. Pure over
 /// its inputs (no ECS world, no egui) so the create behaviour is unit-tested.
 fn create_at_point(
@@ -1053,7 +1053,7 @@ fn create_at_point(
 }
 
 /// In-place sibling clone of the node at `path` inside the named
-/// generator (#824) — the record-level twin of Shift-copy-drag, keeping
+/// generator (#824) - the record-level twin of Shift-copy-drag, keeping
 /// the original's transform verbatim. Returns the clone's path. `None`
 /// for a root (no sibling slot), an unknown generator, or a stale path.
 fn duplicate_prim(
@@ -1069,8 +1069,8 @@ fn duplicate_prim(
 }
 
 /// Route "Delete item" (#1209). A root's delete is the cascade the tree
-/// confirms — it sweeps every placement that put the generator in the
-/// world — and this menu used to run it on the click, with no dialog, no
+/// confirms - it sweeps every placement that put the generator in the
+/// world - and this menu used to run it on the click, with no dialog, no
 /// count and no toast. It now parks the same confirm the tree uses
 /// ([`crate::ui::room::generators::request_root_delete`]) and opens the
 /// World Editor on Region Assets, where `draw_generators_tab` shows and
@@ -1101,7 +1101,7 @@ fn delete_item(
 
 /// Remove the node at `path` from the named generator (#824). An empty
 /// path removes the whole root through [`RoomTreeSource::remove_root`],
-/// which also sweeps every referencing placement and trait — the same
+/// which also sweeps every referencing placement and trait - the same
 /// cascade as the tree's `− Delete`; the menu reaches it only through
 /// the confirm ([`delete_item`]). Returns `true` when the record was
 /// mutated.
@@ -1131,7 +1131,7 @@ fn delete_prim(record: &mut RoomRecord, generator_ref: &str, path: &[usize]) -> 
 
 /// Clone the placement at `index` in place and append it (#824).
 /// Returns the clone's index, or the cap sentence at the placement cap
-/// (#1210) — the 1025th used to be pushed, selected, and truncated by the
+/// (#1210) - the 1025th used to be pushed, selected, and truncated by the
 /// next flush, which read as "the button is broken".
 fn duplicate_placement(record: &mut RoomRecord, index: usize) -> Result<usize, String> {
     use crate::ui::room::caps::Cap;
@@ -1172,7 +1172,7 @@ mod tests {
     /// orbit under a locked pointer moves the view without the cursor
     /// position changing by one pixel. The old test compared the press and
     /// release cursor positions, so it saw a still pointer and called the
-    /// orbit a click — and every camera orbit released into a context menu.
+    /// orbit a click - and every camera orbit released into a context menu.
     ///
     /// `RightDrag` is fed the same `MouseMotion` the camera orbits on, which
     /// is why this can be asserted at all: there is no cursor position in it.
@@ -1212,7 +1212,7 @@ mod tests {
         assert!(drag.release(), "a click with a shaky hand is still a click");
     }
 
-    /// Not a regression — the previous code got this right too, with a
+    /// Not a regression - the previous code got this right too, with a
     /// latched `dragged` flag. Pinned because dropping that flag is only
     /// safe while travel accumulates, so this is the property that replaced
     /// it: an orbit out and back is still an orbit, with no latch to forget.
@@ -1243,7 +1243,7 @@ mod tests {
         drag.press();
         drag.moved(Vec2::new(50.0, 50.0));
         assert!(!drag.release(), "the drag itself");
-        // The pointer keeps moving with no button held — the ordinary case,
+        // The pointer keeps moving with no button held - the ordinary case,
         // since the detector drains `MouseMotion` every frame.
         drag.moved(Vec2::new(500.0, 500.0));
         drag.press();
@@ -1270,7 +1270,7 @@ mod tests {
     }
 
     /// #1209, finding 143. Sequence: right-click a building, pick "Delete
-    /// item (and its placements)" — 50 scattered copies vanished on the
+    /// item (and its placements)" - 50 scattered copies vanished on the
     /// click, no dialog, no count, no toast, while the identical cascade
     /// from the tree's `− Delete` asked first. The menu now parks the
     /// tree's confirm and opens the editor where it is shown; a sub-part
@@ -1336,7 +1336,7 @@ mod tests {
         .expect("add_root should assign a key");
 
         // #1210, finding 410 / 412: at either cap the create is refused
-        // with the sentence, and NOTHING is half-added — no generator
+        // with the sentence, and NOTHING is half-added - no generator
         // without its placement, no placement the flush would truncate.
         let mut full = empty_record();
         for i in 0..crate::pds::sanitize::limits::MAX_PLACEMENTS {
@@ -1373,7 +1373,7 @@ mod tests {
         assert!(record.generators.contains_key(&key));
         assert_eq!(record.generators.len(), 1);
 
-        // Exactly one placement — Absolute, at the hit point, snap OFF (an
+        // Exactly one placement - Absolute, at the hit point, snap OFF (an
         // explicit ray hit must not be re-snapped to the terrain height).
         assert_eq!(record.placements.len(), 1);
         match &record.placements[0] {
@@ -1433,7 +1433,7 @@ mod tests {
     }
 
     /// Seed a record with one root ("thing") carrying two children, plus an
-    /// Absolute placement referencing it — the fixture for the #824 verbs.
+    /// Absolute placement referencing it - the fixture for the #824 verbs.
     fn record_with_children() -> RoomRecord {
         let mut record = empty_record();
         let mut editor = RoomEditorState::default();
@@ -1486,7 +1486,7 @@ mod tests {
         assert!(!delete_prim(&mut record, "thing", &[7]));
         assert!(!delete_prim(&mut record, "missing", &[0]));
 
-        // Root delete: generator gone AND the referencing placement swept —
+        // Root delete: generator gone AND the referencing placement swept -
         // the same cascade as the tree's `− Delete`.
         assert!(delete_prim(&mut record, "thing", &[]));
         assert!(record.generators.is_empty());

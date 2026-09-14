@@ -1,4 +1,4 @@
-//! Standing stone — a High-Fantasy *poor* secondary. A lone moss-covered
+//! Standing stone - a High-Fantasy *poor* secondary. A lone moss-covered
 //! menhir leaning at an angle, its old glyphs only faintly aglow. The wayside
 //! marker of the hedge-magic holding.
 //!
@@ -48,7 +48,7 @@ impl CatalogueEntry for StandingStone {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Mossy base mound — the root.
+        // Mossy base mound - the root.
         prim(
             solid(cylinder_tapered(1.0, 0.3, 12, 0.2, mossy(STONE_MOSS))),
             [0.0, 0.15, 0.0],
@@ -62,7 +62,7 @@ fn build_tree() -> Generator {
         [0.0, 1.7, 0.0],
         quat_x(0.16),
     );
-    // Faintly-glowing rune strokes carved into the −Z face — children of the
+    // Faintly-glowing rune strokes carved into the −Z face - children of the
     // menhir so they lean with it (a hint of old magic, near the glow
     // threshold). Local frame: origin at the menhir centre, front face −Z.
     for stroke in rune_marks([0.0, 0.15, -0.32], 0.95, glow(RUNE_GOLD, 0.95)) {

@@ -1,9 +1,9 @@
-//! Transit Portal — the Modern-City social gateway (#762). A pair of board-
+//! Transit Portal - the Modern-City social gateway (#762). A pair of board-
 //! formed concrete pylons in steel collars carry a boxed steel span, a
 //! cantilevered glass canopy, and a lit transit roundel facing the −Z render
 //! front. Cool scanner light rakes the threshold so the walk-through reads as
 //! a fare-gate onto the transit network. The functional element is the single
-//! [`GeneratorKind::Gateway`] zone centred in the opening — walking into it
+//! [`GeneratorKind::Gateway`] zone centred in the opening - walking into it
 //! opens the destination picker; everything else is set-dressing that frames
 //! it as a gate you pass through.
 
@@ -17,10 +17,10 @@ use std::f32::consts::FRAC_PI_2;
 
 use super::{CONCRETE_GREY, GLASS_TEAL, STEEL_GREY, concrete, glass, steel};
 
-/// Cool transit cyan — the network's wayfinding accent for scanner lines and
+/// Cool transit cyan - the network's wayfinding accent for scanner lines and
 /// roundel bar.
 const TRANSIT_CYAN: [f32; 3] = [0.32, 0.72, 0.98];
-/// Deep signal blue for the broad roundel disc — deep-saturated so it holds
+/// Deep signal blue for the broad roundel disc - deep-saturated so it holds
 /// its colour at low emissive strength instead of blooming to white.
 const TRANSIT_BLUE: [f32; 3] = [0.14, 0.34, 0.82];
 
@@ -61,7 +61,7 @@ fn build_tree() -> Generator {
     let pylon_top = deck_top + pylon_h;
     let span_y = pylon_top + 0.3; // boxed crossbeam centre
 
-    // Concrete forecourt deck — the flat-base root (never tilt a root: every
+    // Concrete forecourt deck - the flat-base root (never tilt a root: every
     // child inherits its transform and would spin with it).
     let mut prims = vec![prim(
         solid(cuboid_tapered(
@@ -104,7 +104,7 @@ fn build_tree() -> Generator {
             [x, pylon_top + 0.15, 0.0],
             id_quat(),
         ));
-        // Cyan light rail on the inner front corner — thin trim runs hot.
+        // Cyan light rail on the inner front corner - thin trim runs hot.
         prims.push(prim(
             cuboid_tapered([0.08, 3.5, 0.12], 0.0, glow(TRANSIT_CYAN, 5.5)),
             [sx * 1.46, deck_top + 1.85, -0.38],
@@ -141,7 +141,7 @@ fn build_tree() -> Generator {
     ));
 
     // Transit roundel on the fascia front: a deep-blue disc crossed by a bright
-    // cyan bar — the classic wayfinding mark, facing the −Z hero front. The
+    // cyan bar - the classic wayfinding mark, facing the −Z hero front. The
     // broad disc face runs low so it reads as lit colour; the thin bar runs hot.
     prims.push(prim(
         cylinder_tapered(0.62, 0.12, 20, 0.0, glow(TRANSIT_BLUE, 2.4)),
@@ -162,7 +162,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Scanner light bar inlaid across the deck at the threshold — a broad flat
+    // Scanner light bar inlaid across the deck at the threshold - a broad flat
     // top face, so it stays low.
     prims.push(prim(
         cuboid_tapered([2.6, 0.06, 0.4], 0.0, glow(TRANSIT_CYAN, 2.2)),
@@ -199,7 +199,7 @@ mod tests {
         assert_sanitize_stable(&ModernCityGateway.build(""), "modern_city_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is furniture, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

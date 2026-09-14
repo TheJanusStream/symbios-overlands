@@ -1,9 +1,9 @@
-//! CPU perturbation pool — the simulation layer between avatar contact
+//! CPU perturbation pool - the simulation layer between avatar contact
 //! events and the water shader's displacement field.
 //!
 //! Phase 1's first cut fed each avatar's *instantaneous* position
 //! straight into the shader, so a "wake" was just "wherever the avatar
-//! is this frame" — no trail, no entry splash, no settling after the
+//! is this frame" - no trail, no entry splash, no settling after the
 //! avatar left. This module replaces that with a pool of typed,
 //! aging, decaying *perturbations*: a contact event spawns one or more
 //! disturbances that then live and fade on their own, independent of
@@ -12,7 +12,7 @@
 //! It deliberately mirrors the *lifecycle patterns* of
 //! [`crate::world_builder::particles`] (age/lifetime, a per-emitter
 //! spawn accumulator, a bounded pool) **without** its entity / quad /
-//! atlas machinery — perturbations are plain POD in a `Vec`, never ECS
+//! atlas machinery - perturbations are plain POD in a `Vec`, never ECS
 //! entities, and are "rendered" only as shader displacement.
 //!
 //! Determinism is intentionally *not* preserved: wakes are local
@@ -71,10 +71,10 @@ impl PerturbationKind {
     }
 }
 
-/// One live disturbance. Plain data — no ECS entity, no handles.
+/// One live disturbance. Plain data - no ECS entity, no handles.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Perturbation {
-    /// Index into [`crate::water::WaterSurfaces::planes`] — routes the
+    /// Index into [`crate::water::WaterSurfaces::planes`] - routes the
     /// perturbation to the right water material at pack time.
     pub plane_idx: usize,
     /// World-XZ spawn position. Perturbations do not move (v1): the
@@ -83,7 +83,7 @@ pub struct Perturbation {
     /// Unit heading frozen at spawn. Only meaningful for
     /// [`PerturbationKind::DirectionalWake`]; other kinds ignore it.
     pub dir: Vec2,
-    /// Avatar speed (m/s) at spawn — drives the anisotropic stretch of
+    /// Avatar speed (m/s) at spawn - drives the anisotropic stretch of
     /// a directional wake.
     pub speed: f32,
     /// Peak amplitude in `[0, ~3]`, already folded with the contact
@@ -115,7 +115,7 @@ pub struct PerturbationPool {
     pub live: Vec<Perturbation>,
 }
 
-/// Per-avatar Dwell emission track — just the spacing anchor: the
+/// Per-avatar Dwell emission track - just the spacing anchor: the
 /// position at which the last perturbation was shed (or the live
 /// position while emission is gated off).
 ///
@@ -128,7 +128,7 @@ pub struct PerturbationPool {
 /// holding the gate open and stamping a dense stack of concentric
 /// ripples right where it halted. Gating on the **raw** contact-sample
 /// velocity (avian `LinearVelocity`) instead has no tail and no
-/// seed-decay — it reads ~0 the instant the body stops.
+/// seed-decay - it reads ~0 the instant the body stops.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct DwellTrack {
     pub anchor: Vec2,
@@ -162,24 +162,24 @@ pub(crate) fn spawn_amplitude(intensity: f32, footprint_radius: f32) -> f32 {
 /// perturbations to shed.
 ///
 /// Gates, in order:
-/// 1. **Teleport** — a raw single-frame jump from the anchor beyond
+/// 1. **Teleport** - a raw single-frame jump from the anchor beyond
 ///    [`wcfg::DWELL_TELEPORT_DIST`] re-anchors with no emission (no
 ///    line of ripples across a portal warp).
-/// 2. **Speed** — emit only while the avatar's *raw* speed is at or
+/// 2. **Speed** - emit only while the avatar's *raw* speed is at or
 ///    above [`wcfg::DWELL_MIN_SPEED`]. Below it (decelerating to a
 ///    halt, a settling/rocking hull, slow drift, a dead standstill)
 ///    the track re-anchors at the live position and sheds
 ///    **nothing**. Raw physics velocity has no relaxation tail, so a
-///    boat that has stopped stops waking the water immediately —
+///    boat that has stopped stops waking the water immediately -
 ///    unlike the abandoned position-EMA gate whose tail kept emitting
 ///    for seconds after the stop (chainlink #254).
-/// 3. **Spacing** — among genuinely-moving avatars, shed one
+/// 3. **Spacing** - among genuinely-moving avatars, shed one
 ///    perturbation per [`wcfg::DWELL_SPACING`] of *raw* travel from
 ///    the anchor (capped at [`wcfg::DWELL_MAX_BURST`]).
 ///
 /// - `track`: previous track, or `None` on first sighting.
 /// - `curr_pos`: avatar XZ this frame.
-/// - `speed`: avatar's raw speed (m/s) this frame — the magnitude of
+/// - `speed`: avatar's raw speed (m/s) this frame - the magnitude of
 ///   the contact sample's world velocity.
 ///
 /// First sighting / teleport / sub-speed seed `anchor = curr_pos`.
@@ -194,19 +194,19 @@ pub(crate) fn step_dwell_distance(
         return (fresh, 0);
     };
 
-    // Gate 1 — teleport guard on the RAW jump from the anchor.
+    // Gate 1 - teleport guard on the RAW jump from the anchor.
     if (curr_pos - prev.anchor).length() > wcfg::DWELL_TELEPORT_DIST {
         return (fresh, 0);
     }
 
-    // Gate 2 — raw-speed gate. Re-anchor at the live position so that
+    // Gate 2 - raw-speed gate. Re-anchor at the live position so that
     // when real motion resumes the trail starts fresh from here rather
     // than discharging a backlog accrued while slow/stopped.
     if speed < wcfg::DWELL_MIN_SPEED {
         return (fresh, 0);
     }
 
-    // Gate 3 — spatial spacing of the trail (raw travel, no smoothing).
+    // Gate 3 - spatial spacing of the trail (raw travel, no smoothing).
     let d = curr_pos - prev.anchor;
     let dist = d.length();
     let spacing = wcfg::DWELL_SPACING.max(1e-3);
@@ -222,7 +222,7 @@ pub(crate) fn step_dwell_distance(
     let raw = (dist / spacing).floor() as u32; // ≥ 1 here
     let count = raw.min(wcfg::DWELL_MAX_BURST);
     let anchor = if raw > wcfg::DWELL_MAX_BURST {
-        // Large (but sub-teleport) single-step jump — drop the backlog
+        // Large (but sub-teleport) single-step jump - drop the backlog
         // and re-anchor at the live position.
         curr_pos
     } else {
@@ -251,7 +251,7 @@ pub(crate) fn tick_pool(live: &mut Vec<Perturbation>, dt: f32) {
 
 /// Enforce the global pool ceiling by dropping the oldest entries.
 /// Insertion order tracks spawn order (newer pushed later), so the
-/// front of the vec is the oldest — drain the overflow from there.
+/// front of the vec is the oldest - drain the overflow from there.
 pub(crate) fn enforce_pool_cap(live: &mut Vec<Perturbation>, max: usize) {
     if live.len() > max {
         let overflow = live.len() - max;
@@ -325,7 +325,7 @@ fn spawn_for_phase(
             pos,
             dir,
             speed,
-            // Settling rebound — gentler than the entry splash.
+            // Settling rebound - gentler than the entry splash.
             amplitude: base * 0.7,
             age: 0.0,
             lifetime: wcfg::SPLASH_LIFETIME,
@@ -358,7 +358,7 @@ fn spawn_dwell(
     // Every Dwell perturbation spawns AT the avatar. For a
     // DirectionalWake that point is the apex/tip of a teardrop the
     // shader trails out *behind* it (the whole leaf geometry lives in
-    // `wake_height_at`); no CPU-side offset is needed or wanted —
+    // `wake_height_at`); no CPU-side offset is needed or wanted -
     // offsetting here would push the apex off the vehicle.
     Perturbation {
         plane_idx,
@@ -471,7 +471,7 @@ mod tests {
         assert!(spawn_amplitude(1.0, 0.01) > 0.0);
     }
 
-    /// 60 fps frame delta — used only to advance the *position* in
+    /// 60 fps frame delta - used only to advance the *position* in
     /// trail tests; the gate itself is time-independent now.
     const DT: f32 = 1.0 / 60.0;
 
@@ -496,17 +496,17 @@ mod tests {
         assert_eq!(track.anchor, p);
     }
 
-    /// #254 REGRESSION — the real failing signal: a long fast straight
+    /// #254 REGRESSION - the real failing signal: a long fast straight
     /// run, then a deceleration to a dead stop while the position still
     /// creeps a little. Once raw speed drops below `DWELL_MIN_SPEED`
     /// **nothing more is shed**, even though the avatar keeps inching
-    /// forward — exactly the burst the old position-EMA tail produced.
+    /// forward - exactly the burst the old position-EMA tail produced.
     #[test]
     fn dwell_fast_run_then_decel_stops_emitting() {
         let mut track = step_dwell_distance(None, Vec2::ZERO, FAST).0;
         let mut x = 0.0_f32;
 
-        // Phase A — 3 s straight run at 20 m/s (≈ 60 m → ~24 stamps
+        // Phase A - 3 s straight run at 20 m/s (≈ 60 m → ~24 stamps
         // at the 2.5 m spacing).
         let mut run_total = 0u32;
         for _ in 0..180 {
@@ -520,7 +520,7 @@ mod tests {
             "the fast run itself must lay a trail, got {run_total}"
         );
 
-        // Phase B — linear decel 20 → 0 over 3 s. Position keeps
+        // Phase B - linear decel 20 → 0 over 3 s. Position keeps
         // advancing (momentum) but speed falls through the gate.
         let mut tail_after_cutoff = 0u32;
         for i in 0..180 {
@@ -568,7 +568,7 @@ mod tests {
         assert_eq!(count, 0, "sub-speed: nothing shed");
         assert_eq!(track.anchor, far, "anchor re-bases to live position");
 
-        // Resume real speed but only a sub-spacing nudge from here —
+        // Resume real speed but only a sub-spacing nudge from here -
         // the backlog from the 5 m gap must NOT burst out.
         let nudge = far + Vec2::new(wcfg::DWELL_SPACING * 0.5, 0.0);
         let (_, c2) = step(track, nudge, FAST);

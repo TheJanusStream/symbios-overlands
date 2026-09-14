@@ -10,7 +10,7 @@
 //!
 //! Each layer is sampled from an independent ChaCha sub-stream so
 //! perturbing the dirt deriver doesn't accidentally drift the grass
-//! output — adding a future per-biome knob stays a local change.
+//! output - adding a future per-biome knob stays a local change.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
@@ -23,7 +23,7 @@ use crate::seeded_defaults::scene::{BiomeArchetype, SceneCharacter, range_f32};
 const TEXTURE_STREAM_SALT: u64 = 0x7E47_0E51_0E51_0E51;
 
 /// Per-layer salts so each biome layer has its own deterministic
-/// ChaCha stream — modifying the rock deriver in isolation does not
+/// ChaCha stream - modifying the rock deriver in isolation does not
 /// shift the grass output, and vice versa.
 const GRASS_SALT: u64 = 0x4757_4757_4757_4757;
 const DIRT_SALT: u64 = 0xDEAD_BEEF_C0DE_C0DE;
@@ -176,7 +176,7 @@ impl GroundLayerKind for DirtLayer {
                 p.normal_strength = (p.normal_strength + 0.5).min(3.5);
             }
             BiomeArchetype::Coastal | BiomeArchetype::Wetland => {
-                // Sandy beach / wet peat mud — smooth: damp the micro weight.
+                // Sandy beach / wet peat mud - smooth: damp the micro weight.
                 p.micro_weight = (p.micro_weight - 0.10).max(0.15);
                 p.micro_octaves = p.micro_octaves.saturating_sub(1).max(2);
             }
@@ -260,11 +260,11 @@ fn derive_rock(scene: &SceneCharacter, seed: u64) -> RockTextureParams {
         attenuation: sample_f64(&mut rng, (1.5, 2.8)),
         normal_strength: range_f32(&mut rng, 3.0, 5.0),
     };
-    // Volcanic & alpine rocks read more aggressive — bump attenuation
+    // Volcanic & alpine rocks read more aggressive - bump attenuation
     // (more crack contrast) and octaves (sharper fracture pattern).
     match scene.biome {
         BiomeArchetype::Volcanic | BiomeArchetype::Badlands => {
-            // Sharp, high-contrast fracture — fresh basalt / eroded strata.
+            // Sharp, high-contrast fracture - fresh basalt / eroded strata.
             p.attenuation = (p.attenuation + 0.4).min(3.2);
             p.normal_strength = (p.normal_strength + 0.5).min(5.5);
         }
@@ -368,7 +368,7 @@ mod tests {
     #[test]
     fn per_layer_streams_are_independent() {
         // Two seeds whose only difference is the salt should produce
-        // unrelated grass parameters — proves the per-layer salts
+        // unrelated grass parameters - proves the per-layer salts
         // actually isolate the streams.
         let scene = SceneCharacter::for_seed(0);
         let t1 = BiomeTextures::from_scene(&scene, 1);

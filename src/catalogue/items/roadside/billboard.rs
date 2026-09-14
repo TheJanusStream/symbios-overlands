@@ -1,4 +1,4 @@
-//! Billboard — a Roadside secondary. A big printed advertising panel on a
+//! Billboard - a Roadside secondary. A big printed advertising panel on a
 //! steel truss, a maintenance catwalk along its foot and a row of floodlights
 //! washing the face. The roadside hoarding that looms over the strip.
 //!
@@ -57,7 +57,7 @@ fn build_tree() -> Generator {
     let board_y = board_bottom + board_h * 0.5;
 
     let mut prims = vec![
-        // Concrete footing pad — the root.
+        // Concrete footing pad - the root.
         prim(
             solid(cuboid_tapered(
                 [6.0, foot_h, 1.4],

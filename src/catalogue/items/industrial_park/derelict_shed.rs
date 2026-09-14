@@ -1,4 +1,4 @@
-//! Derelict shed — the Industrial-Park *poor* landmark. An abandoned
+//! Derelict shed - the Industrial-Park *poor* landmark. An abandoned
 //! corrugated works: rust-streaked walls with a panel torn out, a sagging
 //! half-collapsed roof, and a leaning vent. The derelict counterpart to the
 //! [`factory`](super::factory): same theme, opposite end of the prosperity
@@ -59,7 +59,7 @@ fn build_tree() -> Generator {
     let frontz = -(w * 0.5 - 0.18);
 
     let mut prims = vec![
-        // Cracked concrete slab — the flat root.
+        // Cracked concrete slab - the flat root.
         prim(
             solid(cuboid_tapered(
                 [l + 0.6, foot_h, w + 0.6],

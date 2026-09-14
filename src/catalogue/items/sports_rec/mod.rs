@@ -1,4 +1,4 @@
-//! Sports / Recreation-theme catalogue structures — a stadium complex and
+//! Sports / Recreation-theme catalogue structures - a stadium complex and
 //! its training grounds.
 //!
 //! Two prosperity registers share one sporting identity: the established
@@ -28,7 +28,7 @@ pub mod players_bench;
 pub mod scoreboard;
 pub mod stadium;
 pub mod ticket_booth;
-// Poor (rec-ground) variants — the prosperity-Poor end of the theme.
+// Poor (rec-ground) variants - the prosperity-Poor end of the theme.
 pub mod backstop;
 pub mod rec_court;
 pub mod tire_stack;
@@ -46,18 +46,18 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the established stadium — a working ground
+/// Shared prosperity band for the established stadium - a working ground
 /// reads as a Modest-to-Rich complex. The poor end of the theme is the
 /// separate rec-ground kit ([`rec_court`], …), tagged `Poor`, so a destitute
 /// sports room grows the cracked municipal court instead.
 pub(super) const SPORTS_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the rec-ground kit — the destitute end of the theme,
+/// Prosperity band for the rec-ground kit - the destitute end of the theme,
 /// never picked for a modest or affluent sports room.
 pub(super) const SPORTS_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Board-formed concrete — stand structure, plinths, courts, the gym base.
+/// Board-formed concrete - stand structure, plinths, courts, the gym base.
 pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -73,7 +73,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Brushed structural steel — floodlight masts, goalposts, frames, railings.
+/// Brushed structural steel - floodlight masts, goalposts, frames, railings.
 pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -93,7 +93,7 @@ pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Glossy painted enamel — seat banks, scoreboard housings, panels, the
+/// Glossy painted enamel - seat banks, scoreboard housings, panels, the
 /// hoop backboard. Smooth coloured finish.
 pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -111,7 +111,7 @@ pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Lit gym / clubhouse / booth glass — a faint inner glow (`glow`) so the
+/// Lit gym / clubhouse / booth glass - a faint inner glow (`glow`) so the
 /// glazing reads as lit rather than black.
 pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -133,7 +133,7 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     }
 }
 
-/// Rusting corrugated metal — gym cladding, dugout and stand roofs.
+/// Rusting corrugated metal - gym cladding, dugout and stand roofs.
 pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -150,7 +150,7 @@ pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Woven chain-link — perimeter fencing and the backstop.
+/// Woven chain-link - perimeter fencing and the backstop.
 pub(super) fn chainlink(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -167,7 +167,7 @@ pub(super) fn chainlink(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Cracked asphalt — the poor rec-court surface.
+/// Cracked asphalt - the poor rec-court surface.
 pub(super) fn asphalt(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -184,7 +184,7 @@ pub(super) fn asphalt(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Flat matte paint — the mown pitch, line markings, court colour, painted
+/// Flat matte paint - the mown pitch, line markings, court colour, painted
 /// trim. A plain coloured surface with no procedural texture.
 pub(super) fn painted(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -197,13 +197,13 @@ pub(super) fn painted(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Mown grass — the pitch and the field, a soft matte green.
+/// Mown grass - the pitch and the field, a soft matte green.
 pub(super) fn turf(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.95),
         metallic: Fp(0.0),
-        // No texture, so `uv_scale` is inert — pinned at 1.0 so it does not
+        // No texture, so `uv_scale` is inert - pinned at 1.0 so it does not
         // read as a stale pre-#936 repeat count.
         uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::None,
@@ -227,7 +227,7 @@ pub(super) const HOOP_ORANGE: [f32; 3] = [0.92, 0.42, 0.10];
 
 // Emissive trim colours.
 pub(super) const FLOOD_LIT: [f32; 3] = [1.0, 0.97, 0.90];
-/// Deep-saturated amber for the segmented lit display cells — a single broad
+/// Deep-saturated amber for the segmented lit display cells - a single broad
 /// flat lit panel at a brighter amber blooms to a near-white slab, so the
 /// score/clock cells use this deeper amber at a lower strength and let the dark
 /// gaps between them carry the "segmented board" read.
@@ -336,7 +336,7 @@ mod tests {
         }
     }
 
-    /// The stadium is the kit's lit hero — it must keep its emissive
+    /// The stadium is the kit's lit hero - it must keep its emissive
     /// floodlights and scoreboard so escalation's broken-emissive ruin pass
     /// has lights to snuff.
     #[test]

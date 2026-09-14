@@ -1,4 +1,4 @@
-//! Wrecked car — a Post-apocalyptic prop. A rusted, stripped, burnt-out car
+//! Wrecked car - a Post-apocalyptic prop. A rusted, stripped, burnt-out car
 //! body sagging on flat tyres. Scatter clutter strewn across the wasteland.
 //!
 //! Wheels run their axles along Z via a [`quat_x`] of π/2.
@@ -52,7 +52,7 @@ impl CatalogueEntry for WreckedCar {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Lower body / chassis — the root.
+        // Lower body / chassis - the root.
         prim(
             solid(cuboid_tapered([3.6, 0.6, 1.6], 0.05, rusted(CAR_RUST))),
             [0.0, 0.55, 0.0],

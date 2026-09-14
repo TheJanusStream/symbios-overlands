@@ -20,7 +20,7 @@ use super::material::spawn_procedural_material;
 /// Persistent cross-compile cache for L-system `StandardMaterial` handles.
 ///
 /// Without this, every `RoomRecord` change rebuilds every generator's
-/// material — enqueuing fresh foliage texture tasks for configs that haven't
+/// material - enqueuing fresh foliage texture tasks for configs that haven't
 /// moved. Keyed by `(generator_ref, slot_id)` and invalidated by
 /// [`settings_fingerprint`], so a record edit that touches *only* (say) the
 /// scatter count re-uses last pass's baked textures instead of re-baking
@@ -30,7 +30,7 @@ pub type LSystemMaterialCache = GeneratorCache<(String, u16), Handle<StandardMat
 /// Cached geometry build for a single L-system generator: the shared
 /// per-material mesh handles. Every prop (leaf / fruit / …) is baked into the
 /// mesh bucket for its material id at build time (#812), so a spawned tree is
-/// just its parent entity plus one child per bucket — no per-prop entities.
+/// just its parent entity plus one child per bucket - no per-prop entities.
 /// The handle slice is an `Arc` so a cache HIT is an O(1) refcount bump per
 /// scatter sample / grid cell instead of deep-cloning the Vec (#636).
 #[derive(Clone)]
@@ -50,7 +50,7 @@ pub struct LSystemGeometry {
 ///
 /// Keyed by `generator_ref` and invalidated by
 /// [`lsystem_geometry_fingerprint`] over the geometry-relevant fields.
-/// Material settings are orthogonal — those live in `LSystemMaterialCache`
+/// Material settings are orthogonal - those live in `LSystemMaterialCache`
 /// so a pure colour edit re-uses the cached mesh handles as-is.
 pub type LSystemMeshCache = GeneratorCache<String, LSystemGeometry>;
 
@@ -96,7 +96,7 @@ pub(super) fn lsystem_geometry_fingerprint(
     }
     h.field(mesh_resolution);
     // Prop mappings feed the baked geometry now. `HashMap` iteration order is
-    // unstable, so hash the entries sorted by key — otherwise two identical
+    // unstable, so hash the entries sorted by key - otherwise two identical
     // generators could produce different keys across compile passes.
     let mut mappings: Vec<(u16, PropMeshType)> =
         prop_mappings.iter().map(|(&k, &v)| (k, v)).collect();
@@ -106,7 +106,7 @@ pub(super) fn lsystem_geometry_fingerprint(
     h.finish()
 }
 
-/// Raw mesh buckets keyed by material id — the cacheable output of an L-system
+/// Raw mesh buckets keyed by material id - the cacheable output of an L-system
 /// build pass. Since #812 the skeleton's props are baked straight into these
 /// buckets, so there is no separate prop list to carry.
 type LSystemGeometryBuild = Vec<(u16, Mesh)>;
@@ -114,7 +114,7 @@ type LSystemGeometryBuild = Vec<(u16, Mesh)>;
 /// Fold one prop's primitive mesh (its [`PropMeshType`], posed by `transform`)
 /// into `bucket`. The prop mesh is given a neutral white vertex colour so it
 /// carries the `ATTRIBUTE_COLOR` the turtle mesher writes on every branch
-/// bucket — [`Mesh::merge`] requires the source to cover every attribute the
+/// bucket - [`Mesh::merge`] requires the source to cover every attribute the
 /// destination has, and drops attributes the destination lacks. White is a
 /// no-op multiply, so the prop renders with its material's albedo exactly as
 /// the old per-prop entity did. `bucket` must already have had its tangents
@@ -129,7 +129,7 @@ fn bake_prop_into_bucket(bucket: &mut Mesh, mesh_type: PropMeshType, transform: 
     );
     prop.transform_by(transform);
     // Both are triangle lists sharing POSITION/NORMAL/COLOR/UV_0. An error
-    // would mean a mesh-attribute mismatch bug — assert in debug, but in
+    // would mean a mesh-attribute mismatch bug - assert in debug, but in
     // release a rejected prop is just a missing decoration, never a crash.
     if let Err(e) = bucket.merge(&prop) {
         debug_assert!(false, "prop incompatible with L-system mesh bucket: {e:?}");
@@ -137,7 +137,7 @@ fn bake_prop_into_bucket(bucket: &mut Mesh, mesh_type: PropMeshType, transform: 
 }
 
 /// Parse, derive and turtle-walk an L-system generator to its raw
-/// [`Skeleton`] — the pure expansion (no ECS, no meshes) shared by the
+/// [`Skeleton`] - the pure expansion (no ECS, no meshes) shared by the
 /// mesher below and the seeded-room per-tree entity clamp
 /// ([`lsystem_entity_estimate`], consumed by `pds::room`'s tree-scatter
 /// derivation, #810). `Err` carries the grammar error (line-numbered
@@ -199,7 +199,7 @@ pub(crate) fn expand_lsystem_skeleton(
     // can allocate past our budget. Without this, a rule like
     // `A -> [16 KB of junk]` applied to a 1M-symbol state could try to
     // allocate tens of billions of symbols inside a single `derive(1)`
-    // call — the post-derive length check fires too late to prevent the
+    // call - the post-derive length check fires too late to prevent the
     // OOM that allocation triggers.
     sys.max_capacity = MAX_LSYSTEM_STATE_LEN;
     for _ in 0..iterations {
@@ -213,7 +213,7 @@ pub(crate) fn expand_lsystem_skeleton(
         // the clock frozen it evaluated to 0.0 in every rule expression, so
         // age-guarded rules silently never fired. NOTE: `derive` stamps every
         // rewritten module with the current time, so `age` measures steps
-        // since a module was LAST REWRITTEN, not since germination — it is
+        // since a module was LAST REWRITTEN, not since germination - it is
         // useful for dormant modules (bud break, flowering onset) that match
         // no rule until their guard opens. For whole-plant age, carry an
         // explicit counter parameter (`A(l,w,n) -> ... A(l*r,w*wr,n+1)`).
@@ -224,7 +224,7 @@ pub(crate) fn expand_lsystem_skeleton(
         }
         if sys.state.len() > MAX_LSYSTEM_STATE_LEN {
             let msg = format!(
-                "state exceeded {} symbols — aborting derivation (lower the iterations)",
+                "state exceeded {} symbols - aborting derivation (lower the iterations)",
                 MAX_LSYSTEM_STATE_LEN
             );
             warn!("L-system `{}` {}", generator_ref, msg);
@@ -261,7 +261,7 @@ pub(crate) fn expand_lsystem_skeleton(
         }
         if sys.state.len() > MAX_LSYSTEM_STATE_LEN {
             let msg = format!(
-                "finalization exceeded {} symbols — aborting",
+                "finalization exceeded {} symbols - aborting",
                 MAX_LSYSTEM_STATE_LEN
             );
             warn!("L-system `{}` {}", generator_ref, msg);
@@ -270,7 +270,7 @@ pub(crate) fn expand_lsystem_skeleton(
     }
 
     if sys.state.is_empty() {
-        let msg = "derivation produced an empty state — nothing to draw".to_string();
+        let msg = "derivation produced an empty state - nothing to draw".to_string();
         warn!("L-system `{}` {}", generator_ref, msg);
         return Err(msg);
     }
@@ -295,7 +295,7 @@ pub(crate) fn expand_lsystem_skeleton(
 ///
 /// Split out of `spawn_lsystem_entity` so `LSystemMeshCache` can invoke the
 /// expensive pipeline at most once per `(generator_ref, geometry_hash)` pair.
-/// Props (leaves / fruit — the term that exploded entity counts, #810) become
+/// Props (leaves / fruit - the term that exploded entity counts, #810) become
 /// merged triangles rather than one entity each, killing the per-frame
 /// `BinnedRenderPhase` churn that ratcheted wasm memory to the 4 GiB wall
 /// (#811). `Err` carries the grammar error for the editor status line
@@ -303,7 +303,7 @@ pub(crate) fn expand_lsystem_skeleton(
 #[allow(clippy::too_many_arguments)]
 // `pub(crate)` (not `pub(super)`): the render tool's `--room-census` (#810)
 // expands seeded rooms' L-systems analytically to count the entities a
-// compile would spawn — this builder is pure (no ECS), so it doubles as that
+// compile would spawn - this builder is pure (no ECS), so it doubles as that
 // counter's ground truth.
 pub(crate) fn build_lsystem_geometry(
     source_code: &str,
@@ -353,7 +353,7 @@ pub(crate) fn build_lsystem_geometry(
     // prop-only bucket when the material has no branch geometry. A prop
     // whose `prop_id` has no mapping falls back to `PropMeshType::Leaf`
     // (mirrors the old per-prop spawn path). `prop_scale <= 0` collapses
-    // every prop, so skip the fold entirely — a zero scale would also trip
+    // every prop, so skip the fold entirely - a zero scale would also trip
     // `transform_by`'s non-degenerate-scale assertion.
     let ps = prop_scale.0.max(0.0);
     if ps > 0.0 {
@@ -380,7 +380,7 @@ pub(crate) fn build_lsystem_geometry(
     }
 
     // Regenerate tangents now that props are folded in. Ignore failures the
-    // same way the turtle mesher does — a bucket missing UVs simply goes
+    // same way the turtle mesher does - a bucket missing UVs simply goes
     // untangented rather than aborting the build.
     for (_, mesh) in mesh_buckets.iter_mut() {
         let _ = mesh.generate_tangents();
@@ -395,7 +395,7 @@ pub(crate) fn build_lsystem_geometry(
 /// as one entity each, so a prop only adds to the count when its material id
 /// has no branch geometry (a fresh prop-only bucket). The distinct-material
 /// union below is therefore exactly the bucket set `build_lsystem_geometry`
-/// produces — the parity `entity_estimate_matches_built_geometry` guards. The
+/// produces - the parity `entity_estimate_matches_built_geometry` guards. The
 /// seeded-room deriver steps a tree's `iterations` down until this fits the
 /// per-tree budget, and scales scatter counts against the room budget. `None`
 /// mirrors [`expand_lsystem_skeleton`]'s grammar-error case (the spawn path
@@ -433,7 +433,7 @@ pub(crate) fn lsystem_entity_estimate(
         .map(|p| p.material_id)
         .collect();
     // Props merge into the bucket for their material id, adding a bucket only
-    // when that material had no branch geometry — union the two id sets.
+    // when that material had no branch geometry - union the two id sets.
     materials.extend(skeleton.props.iter().map(|p| p.material_id));
     materials.sort_unstable();
     materials.dedup();
@@ -494,7 +494,7 @@ pub(super) fn spawn_lsystem_entity(
         mesh_buckets: mesh_bucket_handles,
     } = match geometry {
         // Cache hit = this exact grammar compiled cleanly earlier in the
-        // session — still record Ok so a fixed-then-unchanged grammar
+        // session - still record Ok so a fixed-then-unchanged grammar
         // doesn't leave a stale error in the editor (#829).
         Some(g) => {
             ctx.record_grammar_status(generator_ref, path, None);
@@ -518,7 +518,7 @@ pub(super) fn spawn_lsystem_entity(
             ) {
                 Ok(buckets) => buckets,
                 Err(message) => {
-                    // Grammar rejected or empty state — evict any stale
+                    // Grammar rejected or empty state - evict any stale
                     // entry so a later edit that fixes the grammar
                     // triggers a rebuild instead of reusing invalid
                     // geometry, and surface the error in the editor's
@@ -533,7 +533,7 @@ pub(super) fn spawn_lsystem_entity(
             //
             // Two facts decide it. First, the win would be small: this cache
             // keys on `generator_ref`, so a scatter of 100_000 trees shares
-            // ONE set of bucket meshes — the retained vertex data scales with
+            // ONE set of bucket meshes - the retained vertex data scales with
             // the number of distinct grammars in a room (single digits), not
             // with the plant count, which is what makes it look large.
             // Second, the cost would be real and there is no cheap way back:
@@ -559,7 +559,7 @@ pub(super) fn spawn_lsystem_entity(
 
     // Parent every mesh under a single transform so the placement's
     // rotation/position anchors the whole plant/shape as a unit. Avatar
-    // mode skips the `RoomEntity` tag — the chassis owns the parent
+    // mode skips the `RoomEntity` tag - the chassis owns the parent
     // entity and despawns it directly through the Bevy hierarchy.
     let parent = if ctx.avatar_mode {
         ctx.commands.spawn((transform, Visibility::default())).id()
@@ -578,12 +578,12 @@ pub(super) fn spawn_lsystem_entity(
     // we *also* spawn a texture-generation task so the handle receives its
     // procedural albedo/normal/ORM maps on a later frame. The palette path
     // still wins when `bevy_symbios::materials::sync_*` has already
-    // resolved a shared palette slot for us — in that case we skip the
+    // resolved a shared palette slot for us - in that case we skip the
     // task, because the palette owns texture sync.
     let mut slot_handles: HashMap<u16, Handle<StandardMaterial>> = HashMap::new();
     // Slots whose material is foliage rather than bark (#916). Read off the
     // authored settings, not off the resolved handle, so the decision is the
-    // same on the palette path — a palette supplies the *handle*, not the
+    // same on the palette path - a palette supplies the *handle*, not the
     // texture config that says what the slot depicts.
     let mut swaying_slots: std::collections::HashSet<u16> = std::collections::HashSet::new();
     for (&slot, settings) in lsys_materials.iter() {
@@ -616,7 +616,7 @@ pub(super) fn spawn_lsystem_entity(
     // (branch buckets or baked-in prop buckets) that the generator's
     // `materials` map doesn't define. Without this, the per-use
     // `std_materials.add(..)` fallback below would allocate a fresh
-    // `StandardMaterial` for every scatter instance — attacker-crafted
+    // `StandardMaterial` for every scatter instance - attacker-crafted
     // geometry with unmapped ids + a scatter of 100k would otherwise push
     // millions of unique materials into the asset registry in a single frame.
     // We route through `lsystem_material_cache` so every scatter instance of
@@ -650,7 +650,7 @@ pub(super) fn spawn_lsystem_entity(
 
     // Each mesh bucket is a real ECS entity, so it contributes to the
     // room-wide spawn budget. Props are baked into these buckets at build
-    // time (#812), so the count is now just `1 + bucket count` per tree —
+    // time (#812), so the count is now just `1 + bucket count` per tree -
     // the term that used to explode (one entity per leaf) is gone, and with
     // it the per-frame `BinnedRenderPhase` churn (#811). The budget guard
     // stays as belt-and-braces against a pathological material count.
@@ -675,14 +675,14 @@ pub(super) fn spawn_lsystem_entity(
             Transform::IDENTITY,
         ));
         // Foliage buckets sway; bark and everything else stays rigid (#916).
-        // The marker is all this path does — `wind::attach_wind_materials`
+        // The marker is all this path does - `wind::attach_wind_materials`
         // swaps in the extended material once the source material exists,
         // which it cannot do here because a procedural material's textures
         // are still baking at spawn time.
         //
         // The bucket is spawned at `Transform::IDENTITY` under a parent
         // anchored at the plant's base, so the shader's "height above the
-        // entity origin" is height above the ground — which is exactly what
+        // entity origin" is height above the ground - which is exactly what
         // `WindSway::Branch` expects.
         if swaying_slots.contains(material_id) {
             child_cmd.insert(crate::wind::WindSway::Branch);
@@ -704,7 +704,7 @@ mod tests {
     use super::*;
 
     /// A real seeded tree species' L-system fields, exactly as the room
-    /// deriver builds them — grammar fields plus the prop mapping and prop
+    /// deriver builds them - grammar fields plus the prop mapping and prop
     /// scale that now feed the baked geometry (#812).
     #[allow(clippy::type_complexity)]
     fn ternary_props(
@@ -876,12 +876,12 @@ mod tests {
         assert!(merged.len() >= trunk_only.len());
     }
 
-    /// Stepping iterations down must never *increase* the estimate — the
+    /// Stepping iterations down must never *increase* the estimate - the
     /// monotonicity the per-tree budget loop in `pds::room` relies on to make
     /// progress. Before #812 props dominated the count and it shrank sharply
     /// with iterations; now props bake into buckets, so the count is bound by
     /// the (near iteration-invariant) distinct-material set and the budget
-    /// rarely binds — but the loop still needs "fewer iterations ⇒ no more
+    /// rarely binds - but the loop still needs "fewer iterations ⇒ no more
     /// entities" to hold.
     #[test]
     fn entity_estimate_does_not_grow_when_iterations_drop() {

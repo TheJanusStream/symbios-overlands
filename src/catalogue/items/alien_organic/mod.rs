@@ -1,4 +1,4 @@
-//! Alien-Organic-theme catalogue structures — a living hive-colony of chitin,
+//! Alien-Organic-theme catalogue structures - a living hive-colony of chitin,
 //! flesh and biolume.
 //!
 //! Two prosperity registers share one xenobiological identity: the established
@@ -24,7 +24,7 @@ pub mod monument;
 pub mod pod_cluster;
 pub mod spore_vent;
 pub mod tendril;
-// Poor (necrotic) variants — the prosperity-Poor end of the theme.
+// Poor (necrotic) variants - the prosperity-Poor end of the theme.
 pub mod husk_pods;
 pub mod rot_patch;
 pub mod withered_hive;
@@ -41,18 +41,18 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the thriving hive — a living biolit colony reads
+/// Shared prosperity band for the thriving hive - a living biolit colony reads
 /// as a Modest-to-Rich organism. The poor end of the theme is the separate
 /// necrotic kit ([`withered_hive`], …), tagged `Poor`, so a destitute alien
 /// room grows the dying colony instead.
 pub(super) const ORGANIC_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the necrotic kit — the destitute end of the theme,
+/// Prosperity band for the necrotic kit - the destitute end of the theme,
 /// never picked for a modest or affluent alien room.
 pub(super) const ORGANIC_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Hard glossy chitin — the hive's plated shell, ribs and carapace.
+/// Hard glossy chitin - the hive's plated shell, ribs and carapace.
 pub(super) fn chitin(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -75,7 +75,7 @@ pub(super) fn chitin(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Soft matte flesh — pods, spires, tendrils, the hive's living tissue.
+/// Soft matte flesh - pods, spires, tendrils, the hive's living tissue.
 pub(super) fn flesh(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -87,7 +87,7 @@ pub(super) fn flesh(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Wet translucent membrane — stretched walls and sac skins, a damp sheen.
+/// Wet translucent membrane - stretched walls and sac skins, a damp sheen.
 pub(super) fn membrane(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -119,18 +119,18 @@ pub(super) const SAC_GLOW: [f32; 3] = [1.0, 0.20, 0.48];
 // ---------------------------------------------------------------------------
 // Alien-Organic signature helpers (`pub(super)`, theme-local like steampunk's
 // `cog()` / nordic's `gable_roof` / fantasy's `crystal()`). The curved,
-// fleshy, bioluminescent vocabulary the kit shares — built once and reused
+// fleshy, bioluminescent vocabulary the kit shares - built once and reused
 // across the hive, pods, spires, walls and the necrotic kit.
 // ---------------------------------------------------------------------------
 
 /// A curling multi-segment flesh tendril returned as ONE positioned subtree.
 /// The base segment is the local root; each upper segment nests as a child of
-/// the one below, so it *inherits* the curl beneath it — the leans compound
+/// the one below, so it *inherits* the curl beneath it - the leans compound
 /// into a natural coil (the nordic `dragon_head` neck-as-subtree-root trick).
 /// `yaw` aims the curl azimuth, `curl` is the lean added at every joint, the
 /// radius tapers up the chain. Drop it into an [`assemble`](crate::catalogue::items::util::assemble) list as a
 /// NON-first child: the base carries a `quat_y(yaw)` rotation, so it must
-/// never be `prims[0]` (the root-rotation gotcha — a rotated assemble root
+/// never be `prims[0]` (the root-rotation gotcha - a rotated assemble root
 /// spins every sibling into its frame).
 pub(super) fn tendril(
     foot: [f32; 3],
@@ -168,10 +168,10 @@ pub(super) fn tendril(
     base
 }
 
-/// A smooth fleshy egg-pod — a res-6 ovoid (taller than wide, the `tall`
+/// A smooth fleshy egg-pod - a res-6 ovoid (taller than wide, the `tall`
 /// y-scale) seated on a short tapered collar. Returned as ONE subtree (the
 /// collar is the local root, `id_quat`, so it is safe anywhere including as an
-/// assemble root). Reused across the brood — `pod_cluster`, `egg_sac`, the
+/// assemble root). Reused across the brood - `pod_cluster`, `egg_sac`, the
 /// hive. Sphere res stays at the `(0,6)` sanitiser clamp.
 pub(super) fn egg_pod(
     foot: [f32; 3],
@@ -196,7 +196,7 @@ pub(super) fn egg_pod(
 }
 
 /// A branching glowing vein network standing proud of a FLAT membrane face
-/// (emissive reads on flat faces, not curved ones — the steampunk lesson): a
+/// (emissive reads on flat faces, not curved ones - the steampunk lesson): a
 /// central stem + four angled offshoots, thin saturated strokes. `center` is
 /// the panel-face point, `zf` the proud offset along the face normal (sign
 /// picks the front side), `h` the stem length. Reused on `membrane_wall`,
@@ -247,7 +247,7 @@ mod tests {
         }
     }
 
-    /// The chitinous hive is the kit's lit hero — it must keep its emissive
+    /// The chitinous hive is the kit's lit hero - it must keep its emissive
     /// biolume so escalation's broken-emissive ruin pass has light to snuff.
     #[test]
     fn hive_keeps_its_biolume() {

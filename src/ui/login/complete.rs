@@ -1,5 +1,5 @@
-//! Drains [`CompleteAuthTask`]s — the `code` → token exchange + service-
-//! token round-trip — and installs the resulting session resources.
+//! Drains [`CompleteAuthTask`]s - the `code` → token exchange + service-
+//! token round-trip - and installs the resulting session resources.
 //! Shared installer [`install_completed_session`] is also called by the
 //! WASM resume path so the two pipelines never drift on the post-auth step.
 
@@ -37,7 +37,7 @@ pub fn poll_complete_auth_task(
     reauth_sinks: crate::ui::reauth::ReauthSinks,
 ) {
     // `ReauthSinks` borrows the three publish-status resources for the whole
-    // system, so the re-auth branch consumes it once — hence the `Option`
+    // system, so the re-auth branch consumes it once - hence the `Option`
     // dance rather than a call inside the loop. In practice at most one
     // completion task exists at a time.
     let mut sinks = Some(reauth_sinks);
@@ -102,7 +102,7 @@ pub(crate) fn install_completed_session(
     // The boot params have now done their job (#1230 f19). `AppState::Login`
     // is re-entered by the loading screen's abort and by Log out, and until
     // this marker existed both landed on a form that auto-submitted the same
-    // destination on its first frame — so a link visitor whose destination
+    // destination on its first frame - so a link visitor whose destination
     // was unreachable could not abort, and Log out did not log out (the
     // browser bounced off a live IdP session straight back into the world).
     // The destination itself is kept: the field stays pre-filled, so a

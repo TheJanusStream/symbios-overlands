@@ -1,29 +1,29 @@
-//! Wardrobe, profile and attachment records — the rigged body's PDS half
+//! Wardrobe, profile and attachment records - the rigged body's PDS half
 //! (#1056, epic #1054).
 //!
 //! Three collections, two of them adopted from the `symbios-avatar` sibling
 //! project's lexicons rather than invented here:
 //!
-//!   - [`WARDROBE_COLLECTION`] (`network.symbios.avatar.avatar`, tid-keyed) —
+//!   - [`WARDROBE_COLLECTION`] (`network.symbios.avatar.avatar`, tid-keyed) -
 //!     one engine [`EngineAvatarRecord`] per record, many per identity. The
 //!     wardrobe is cross-app by design: any symbios application can read the
 //!     same bodies, which is the reason these records do NOT live under an
 //!     overlands NSID.
 //!   - [`AVATAR_PROFILE_COLLECTION`] (`network.symbios.avatar.profile`,
-//!     rkey = self) — the identity's default-body pointer. Overlands keeps
+//!     rkey = self) - the identity's default-body pointer. Overlands keeps
 //!     it in step with the worn body so other symbios apps agree on what the
 //!     identity looks like, and reads it as a fallback: an identity with no
 //!     overlands avatar record but a wardrobe from another app spawns
 //!     wearing their default body instead of a seeded vehicle.
 //!   - [`AVATAR_ATTACHMENT_COLLECTION`]
-//!     (`network.symbios.overlands.avatar.attachment`, tid-keyed) — one worn
+//!     (`network.symbios.overlands.avatar.attachment`, tid-keyed) - one worn
 //!     prop per record: an owned COPY of a [`Generator`] plus the rig socket
 //!     it hangs from and its offset transform. A copy rather than an
 //!     inventory reference (decision on epic #1054): editing or deleting the
 //!     inventory item must not mutate an outfit that was already dressed.
 //!
-//! Publishing all of it — body, props, profile pointer and the overlands
-//! avatar record — is ONE `com.atproto.repo.applyWrites` batch (#1117),
+//! Publishing all of it - body, props, profile pointer and the overlands
+//! avatar record - is ONE `com.atproto.repo.applyWrites` batch (#1117),
 //! planned by [`plan_avatar_writes`] against what [`AvatarRepoState`] says
 //! the repo already holds. It commits whole or not at all, which is what
 //! stops a transient failure landing the props and losing the record that
@@ -53,13 +53,13 @@ use super::body::{ResolvedAttachment, ResolvedRig, RiggedBody};
 
 /// The longest socket name accepted off the wire. The engine's socket names
 /// are short kebab strings ([`symbios_avatar::Socket::name`]); anything past
-/// this is not one, but an *unknown short* name is deliberately kept — a
+/// this is not one, but an *unknown short* name is deliberately kept - a
 /// future socket from a newer client degrades to "prop not worn", the same
 /// answer every open union here gives.
 const MAX_SOCKET_NAME_CHARS: usize = 32;
 
 /// Bounds a non-zero [`AttachmentRecord::fit_band_mm`] is clamped into.
-/// 50 mm is a doll's circlet and 1000 mm a barrel hoop — both absurd but
+/// 50 mm is a doll's circlet and 1000 mm a barrel hoop - both absurd but
 /// harmlessly renderable; outside them the fit ratio itself becomes the
 /// attack (a 1 mm band inflates a prop ~180×).
 const MIN_FIT_BAND_MM: u32 = 50;
@@ -78,7 +78,7 @@ const MAX_WARDROBE_LIST_PAGES: usize = 4;
 /// What a person is told a socket is (#1267 f220).
 ///
 /// [`symbios_avatar::Socket::name`] returns the engine's stable kebab
-/// identifier — "crown", "left-hand", "right-shoulder" — and those exact
+/// identifier - "crown", "left-hand", "right-shoulder" - and those exact
 /// strings were the display text on every wear surface: the worn row's
 /// title, the picker's chips, the Inventory's "Wear this item at the
 /// left-hand socket", the Catalogue's. Inventory is the designated wear
@@ -86,7 +86,7 @@ const MAX_WARDROBE_LIST_PAGES: usize = 4;
 ///
 /// Lives beside [`AttachmentRecord::socket`] rather than in `ui` because
 /// the wire value and its reading are one fact, and the refusal text
-/// `attachment_label` builds needs it too — `pds` must not reach into
+/// `attachment_label` builds needs it too - `pds` must not reach into
 /// `ui` for a string (#1158).
 ///
 /// An unknown name comes back as itself: a record written by a newer
@@ -118,7 +118,7 @@ pub fn socket_label(name: &str) -> &str {
 pub struct AttachmentRecord {
     #[serde(rename = "$type")]
     pub lex_type: String,
-    /// The prop itself — an owned copy of the item's `Generator` tree,
+    /// The prop itself - an owned copy of the item's `Generator` tree,
     /// sanitised with the avatar kind rules (no Terrain/Water/Portal).
     pub item: Generator,
     /// Which rig socket carries it, as the engine's stable kebab name
@@ -134,12 +134,12 @@ pub struct AttachmentRecord {
     /// item's **authored band inner diameter in whole millimetres**, which
     /// each client fits to the wearer's measured brow circumference at
     /// dress time (`src/player/attachments.rs`, `fit_scale`). Carried on
-    /// the record — not looked up — because a peer dresses from the wire
+    /// the record - not looked up - because a peer dresses from the wire
     /// alone. `0` (elided) means no fit: the prop is worn at authored
     /// size. Integer millimetres because atproto records hold no floats.
     #[serde(default, rename = "fitBandMm", skip_serializing_if = "fit_elides")]
     pub fit_band_mm: u32,
-    /// The inventory item this was worn from (#1096), by name — the
+    /// The inventory item this was worn from (#1096), by name - the
     /// provenance "Save to inventory" writes back to, and what lets the
     /// Inventory window show an item as worn. `None` for a prop attached
     /// from a bare generator (a legacy attach, a gift never stashed). A
@@ -205,7 +205,7 @@ impl AttachmentRecord {
     }
 
     /// An attachment worn **from the inventory** (#1096): the item's own
-    /// wear metadata — socket, fit, the offset it was last saved with —
+    /// wear metadata - socket, fit, the offset it was last saved with -
     /// and its name as provenance. The socket string is taken verbatim so
     /// a stash entry from a newer client degrades to "kept, not worn",
     /// exactly as a record off the wire does.
@@ -225,7 +225,7 @@ impl AttachmentRecord {
     }
 
     /// The wear metadata a save-back to the inventory writes (#1096): the
-    /// record's socket, fit and offset — its whole placement — so wearing
+    /// record's socket, fit and offset - its whole placement - so wearing
     /// the saved item again reproduces this exact look.
     pub fn wear_meta(&self) -> crate::pds::inventory::WearMeta {
         crate::pds::inventory::WearMeta {
@@ -246,7 +246,7 @@ impl AttachmentRecord {
     /// rotation and per-axis scale, clamped exactly like a region
     /// placement's. It used to be forced uniform in scale on the argument
     /// that a non-uniform scale under an animated joint shears nested
-    /// sub-assemblies — which is true, and equally true of a region asset's
+    /// sub-assemblies - which is true, and equally true of a region asset's
     /// placement, where the editor has always offered the triad and left
     /// the judgement to the author. A worn item is edited with the same
     /// tools as a placed one now, so it gets the same freedom.
@@ -294,7 +294,7 @@ async fn get_record_value<T: DeserializeOwned>(
         return Ok(None);
     }
     if !status.is_success() {
-        // Capped (#1124) — this reads wardrobe, profile and attachment
+        // Capped (#1124) - this reads wardrobe, profile and attachment
         // records of OTHER identities.
         let body = super::super::xrpc::read_capped_text(resp).await;
         if let Ok(xrpc) = serde_json::from_str::<XrpcError>(&body)
@@ -341,7 +341,7 @@ async fn delete_record(
         Ok(())
     } else {
         Err(format!(
-            "deleteRecord ({collection}/{rkey}) failed: {status} — {body}"
+            "deleteRecord ({collection}/{rkey}) failed: {status} - {body}"
         ))
     }
 }
@@ -352,8 +352,8 @@ async fn delete_record(
 
 /// The engine record as the JSON a PDS stores: its own camelCase form with
 /// the collection's `$type` injected through the record's `extra` passthrough
-/// map. The engine type deliberately has no `$type` field of its own — the
-/// NSID belongs to the application storing it — and round-tripping keeps the
+/// map. The engine type deliberately has no `$type` field of its own - the
+/// NSID belongs to the application storing it - and round-tripping keeps the
 /// key harmlessly in `extra`.
 pub fn engine_record_wire(record: &EngineAvatarRecord) -> Result<serde_json::Value, String> {
     let mut value = serde_json::to_value(record).map_err(|e| format!("serialize body: {e}"))?;
@@ -376,7 +376,7 @@ pub async fn fetch_wardrobe_record(
     fetch_wardrobe_record_at(client, &pds, did, rkey).await
 }
 
-/// [`fetch_wardrobe_record`] against an already-resolved PDS — the resolution
+/// [`fetch_wardrobe_record`] against an already-resolved PDS - the resolution
 /// fan-out uses this so one avatar fetch resolves the DID document once.
 pub(crate) async fn fetch_wardrobe_record_at(
     client: &reqwest::Client,
@@ -437,7 +437,7 @@ pub async fn list_wardrobe(
         let page: Page = decode_record_json(resp).await?;
         let empty_page = page.records.is_empty();
         for listed in page.records {
-            // at://did/collection/rkey — the rkey is the last path segment.
+            // at://did/collection/rkey - the rkey is the last path segment.
             let Some(rkey) = listed.uri.rsplit('/').next() else {
                 continue;
             };
@@ -511,7 +511,7 @@ pub(crate) async fn fetch_avatar_profile_at(
         let had_pointer = profile.default_avatar.is_some();
         profile.sanitize();
         if had_pointer && profile.default_avatar.is_none() {
-            warn!("{did}'s avatar profile named an invalid default-avatar record key — pointer dropped, wearing the fallback");
+            warn!("{did}'s avatar profile named an invalid default-avatar record key - pointer dropped, wearing the fallback");
         }
         profile
     }))
@@ -551,12 +551,12 @@ pub(crate) async fn fetch_attachment_record_at(
 // ---------------------------------------------------------------------------
 
 /// Everything one avatar save writes, precomputed so the async half is a
-/// straight walk. Built by [`plan_avatar_publish`] — pure, so the ordering
+/// straight walk. Built by [`plan_avatar_publish`] - pure, so the ordering
 /// and the fill-ins are testable without a network.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AvatarPublishPlan {
     /// The worn engine body, at its wardrobe rkey. `None` for a generator
-    /// body — the classic single-record save.
+    /// body - the classic single-record save.
     pub wardrobe: Option<(String, EngineAvatarRecord)>,
     /// Every worn attachment, at its rkey.
     pub attachments: Vec<(String, AttachmentRecord)>,
@@ -571,9 +571,9 @@ pub struct AvatarPublishPlan {
 }
 
 /// Lay out one save. For a rigged body the engine record is made
-/// publishable on the way — an empty name and a missing `createdAt` are
+/// publishable on the way - an empty name and a missing `createdAt` are
 /// filled here (`now_iso` is the application's clock; the engine crate is
-/// deliberately clock-free) — and the profile follows the worn body.
+/// deliberately clock-free) - and the profile follows the worn body.
 ///
 /// **The delete set is derived, never queued** (#1110). `stored_attachments`
 /// is the attachment rkey list of the record the PDS currently holds; what
@@ -581,7 +581,7 @@ pub struct AvatarPublishPlan {
 /// published still references. A session-scoped "detached this session"
 /// queue cannot express this: it survived Undo, Load-from-PDS, Reset and
 /// logout, so a take-off followed by an undo deleted a record the very same
-/// bundle had just re-published — and, in the other direction, every path
+/// bundle had just re-published - and, in the other direction, every path
 /// that drops a reference *without* going through the queue ("Publish & log
 /// out", Reset, re-roll, wearing a fresh body) orphaned its record in the
 /// repo forever. Deriving from the two record states covers both, and can
@@ -649,7 +649,7 @@ pub fn attachment_rkeys(record: &super::AvatarRecord) -> Vec<String> {
 /// follows, and a resolution that failed (a fetch error leaves `resolved`
 /// short of a prop the record still names) must never be read as "the owner
 /// took it off". Order follows `stored_attachments` so a plan is stable, and
-/// duplicates collapse — a repeated rkey would delete twice and fail the
+/// duplicates collapse - a repeated rkey would delete twice and fail the
 /// second time.
 fn attachment_deletes(record: &super::AvatarRecord, stored_attachments: &[String]) -> Vec<String> {
     let kept: std::collections::HashSet<&str> = record
@@ -671,16 +671,16 @@ fn attachment_deletes(record: &super::AvatarRecord, stored_attachments: &[String
 ///
 /// `applyWrites` has no upsert: `#create` and `#update` are different verbs
 /// and the wrong one fails the whole atomic batch, so the plan has to know
-/// which records are already there. The room learned this first — one
+/// which records are already there. The room learned this first - one
 /// `room_self_exists` probe feeding `manifest_exists` into
-/// `room::plan_room_writes` (private to that module) — and the bundle is the
+/// `room::plan_room_writes` (private to that module) - and the bundle is the
 /// same shape with four pointers instead of one.
 ///
 /// The attachment listing does double duty: it decides create-vs-update for
 /// every worn prop AND it is the only way to find attachment records nothing
 /// references any more. Deliberately keyed on the rkeys in the listed
 /// AT-URIs rather than on decoded values, so a record this build cannot
-/// decode is still counted as present — the alternative re-`#create`s over
+/// decode is still counted as present - the alternative re-`#create`s over
 /// it and fails the batch.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AvatarRepoState {
@@ -693,7 +693,7 @@ pub struct AvatarRepoState {
     pub worn_body: bool,
     /// Every attachment rkey the owner's attachment collection holds.
     pub attachments: std::collections::HashSet<String>,
-    /// Whether [`Self::attachments`] is the WHOLE collection — the listing
+    /// Whether [`Self::attachments`] is the WHOLE collection - the listing
     /// walk finished rather than stopping at its page cap (#1185).
     ///
     /// It decides whether the listing may be used as evidence of ABSENCE. A
@@ -705,7 +705,7 @@ pub struct AvatarRepoState {
     pub attachments_complete: bool,
 }
 
-/// Read [`AvatarRepoState`] — three existence probes and one `listRecords`
+/// Read [`AvatarRepoState`] - three existence probes and one `listRecords`
 /// walk, all before any write.
 async fn read_avatar_repo_state(
     client: &reqwest::Client,
@@ -736,14 +736,14 @@ async fn read_avatar_repo_state(
 /// Bounded by [`MAX_WARDROBE_LIST_PAGES`] pages of 100 for the same reason
 /// the wardrobe and room-child walks are: a hostile PDS handing out endless
 /// cursors must not be able to keep the client paging. A truncated listing
-/// under-reports, which can only make the orphan sweep miss a record — never
+/// under-reports, which can only make the orphan sweep miss a record - never
 /// delete one it should not.
 ///
 /// The completeness flag is what makes the listing usable as evidence of
 /// ABSENCE (#1185): only a walk that ran out of records, rather than out of
 /// pages, can say an rkey is not in the repo. Returned rather than inferred
 /// from the set's size, because "fewer than the cap" and "the walk finished"
-/// are different facts — a final page can be full.
+/// are different facts - a final page can be full.
 async fn list_attachment_rkeys(
     client: &reqwest::Client,
     pds: &str,
@@ -786,7 +786,7 @@ async fn list_attachment_rkeys(
         let page: Page = decode_record_json(resp).await?;
         let empty_page = page.records.is_empty();
         for listed in page.records {
-            // at://did/collection/rkey — the rkey is the last path segment.
+            // at://did/collection/rkey - the rkey is the last path segment.
             if let Some(rkey) = listed.uri.rsplit('/').next() {
                 out.insert(rkey.to_string());
             }
@@ -805,7 +805,7 @@ async fn list_attachment_rkeys(
 /// Turn a plan plus what the repo holds into `applyWrites` batches (#1117).
 ///
 /// Pure, so the ordering, the create-vs-update choice, the orphan sweep and
-/// the batch sizing are all testable without a network — the same reason
+/// the batch sizing are all testable without a network - the same reason
 /// [`plan_avatar_publish`] is pure.
 ///
 /// **Order: children before pointers.** Wardrobe body, then attachments,
@@ -817,7 +817,7 @@ async fn list_attachment_rkeys(
 /// window; a delete issued before the record stops referencing it is the
 /// same defect from the other end.
 ///
-/// Every per-record size preflight runs here, before any write leaves — an
+/// Every per-record size preflight runs here, before any write leaves - an
 /// oversized attachment must never be able to leave the outfit half-saved.
 pub(crate) fn plan_avatar_writes(
     plan: &AvatarPublishPlan,
@@ -890,7 +890,7 @@ pub(crate) fn plan_avatar_writes(
 }
 
 /// How a refusal names a worn prop (#1207): by the inventory item it was
-/// worn from, which is a name the owner can find on screen — never by the
+/// worn from, which is a name the owner can find on screen - never by the
 /// TID rkey, which maps to nothing they can see. A prop attached from a
 /// bare generator has no source name, so it is named by its socket.
 fn attachment_label(rkey: &str, attachment: &AttachmentRecord) -> String {
@@ -904,15 +904,15 @@ fn attachment_label(rkey: &str, attachment: &AttachmentRecord) -> String {
 }
 
 /// Everything the size readout shows for an avatar (#1207): the largest
-/// record in the bundle one save writes — the worn engine body, each worn
-/// prop, the profile and the avatar record itself — named as
+/// record in the bundle one save writes - the worn engine body, each worn
+/// prop, the profile and the avatar record itself - named as
 /// [`plan_avatar_writes`] names it when refusing one, and the refusal
 /// sentence for a body this build cannot write back.
 ///
 /// For a rigged body the avatar record is references only: the sculpt
 /// lives on the serde-skipped `resolved` and is written as the wardrobe
-/// and attachment records. Measuring the record alone — what the Avatar
-/// footer did until now — showed "4.1 KiB" beside a green Save for an
+/// and attachment records. Measuring the record alone - what the Avatar
+/// footer did until now - showed "4.1 KiB" beside a green Save for an
 /// outfit whose heaviest prop was past the ceiling, and the refusal
 /// arrived after the round trip with an rkey in it.
 pub fn measure_publish(record: &super::AvatarRecord) -> crate::pds::record_size::SizeReadout {
@@ -971,20 +971,20 @@ fn upsert(exists: bool, collection: &str, rkey: String, value: serde_json::Value
 /// records this client published and can name them even when the listing
 /// truncates at its page cap. The sweep knows about records the derived set
 /// cannot see at all: orphans left by an interrupted save, by another
-/// device, or — until this issue — by the old non-atomic bundle, which could
+/// device, or - until this issue - by the old non-atomic bundle, which could
 /// land the attachments and then fail before the record that referenced them
 /// ever went out. Nothing else in the app ever walked this collection, so
 /// those accumulated in the owner's repo forever.
 ///
 /// Referenced means the record's own `attachments` **reference list**, not
-/// the resolved outfit — the same distinction #1110 draws in
+/// the resolved outfit - the same distinction #1110 draws in
 /// [`attachment_deletes`]: a resolution that failed leaves `resolved` short
 /// of a prop the record still names, and that must never read as "the owner
 /// took it off".
 ///
-/// The sweep is attachments only. The wardrobe is a keep-all collection —
+/// The sweep is attachments only. The wardrobe is a keep-all collection -
 /// an identity accumulates bodies and the Body tab lists them for
-/// re-wearing — so an unreferenced wardrobe record is a saved body, not an
+/// re-wearing - so an unreferenced wardrobe record is a saved body, not an
 /// orphan, and sweeping that collection would delete the owner's saved
 /// selves. This asymmetry is exactly why #1110 derived attachment deletes
 /// and left everything else alone.
@@ -1000,7 +1000,7 @@ fn attachment_retirements(plan: &AvatarPublishPlan, repo: &AvatarRepoState) -> V
         .iter()
         .chain(repo.attachments.iter())
         .filter(|rkey| !referenced.contains(rkey.as_str()))
-        // **Only what the repo actually holds — when we know what it holds**
+        // **Only what the repo actually holds - when we know what it holds**
         // (#1185). An `applyWrites#delete` on a record that is not there throws
         // out of the PDS's MST and comes back as a bare 500 that fails the
         // WHOLE atomic batch: one stale rkey in the derived set loses the
@@ -1011,14 +1011,14 @@ fn attachment_retirements(plan: &AvatarPublishPlan, repo: &AvatarRepoState) -> V
         //
         // The risk lives in the DERIVED half, which comes from the local mirror
         // of the last-published record and can name an rkey the repo no longer
-        // has — another device retired it, an earlier bundle landed the record
+        // has - another device retired it, an earlier bundle landed the record
         // but not the attachment, or a partial publish left the two
         // disagreeing. The orphan half is read straight off the listing and was
         // never in doubt.
         //
         // Gated on `attachments_complete` rather than applied unconditionally,
         // because a truncated listing genuinely cannot see records the derived
-        // set can — that is the whole point of keeping both halves in the union
+        // set can - that is the whole point of keeping both halves in the union
         // (see `a_derived_delete_survives_a_listing_that_did_not_see_it`).
         // Where the listing is authoritative, trust it and drop the delete;
         // where it is not, keep the union and accept the older risk. Dropping a
@@ -1038,7 +1038,7 @@ fn attachment_retirements(plan: &AvatarPublishPlan, repo: &AvatarRepoState) -> V
 /// Execute an [`AvatarPublishPlan`] as `applyWrites` batches (#1117).
 ///
 /// Replaces a walk of four separate `putRecord`s, one of which reacted to
-/// any `5xx` — a proxy's 502 included — by deleting `avatar/self` and
+/// any `5xx` - a proxy's 502 included - by deleting `avatar/self` and
 /// re-putting it. During an outage the re-put usually failed too, and the
 /// owner's avatar record was simply gone. That path existed because some
 /// PDS implementations choked on their own update-diff logic against a
@@ -1046,7 +1046,7 @@ fn attachment_retirements(plan: &AvatarPublishPlan, repo: &AvatarRepoState) -> V
 /// existence probes in [`AvatarRepoState`] name `#create` vs `#update`
 /// explicitly, which is what the delete-then-put was crudely achieving. The
 /// room retired the same path for the same reason in #697. (The per-record
-/// size preflight is unrelated cover — it catches an oversized record, not a
+/// size preflight is unrelated cover - it catches an oversized record, not a
 /// stale CID.)
 ///
 /// Atomicity comes free with it: a bundle that fits one batch commits whole
@@ -1071,7 +1071,7 @@ pub async fn publish_avatar_bundle(
 /// The deterministic engine body for an identity: `fnv1a_64(did)` feeding
 /// the engine's one-call record-from-seed roll (`AvatarRecord::rolled`,
 /// symbios-avatar #233). Every client derives the same person from the same
-/// DID, which is the whole contract — the rigged counterpart of
+/// DID, which is the whole contract - the rigged counterpart of
 /// [`super::AvatarRecord::default_for_did`], used when #1057 gives seeded
 /// defaults a rigged option. The archetype is the host's call and overlands
 /// says humanoid; the name is a placeholder the identity's handle replaces
@@ -1080,13 +1080,13 @@ pub fn engine_default_for_did(did: &str) -> EngineAvatarRecord {
     engine_default_for_seed(crate::seeded_defaults::fnv1a_64(did))
 }
 
-/// [`engine_default_for_did`] from a pre-computed seed — the re-roll path,
+/// [`engine_default_for_did`] from a pre-computed seed - the re-roll path,
 /// and the one the seeded humanoid chassis builds through (#1060).
 ///
 /// **Stature is held to the engine's conservative range, and the wider
 /// exploration envelope is deliberately not used here.** The engine draws
 /// each shape axis with a rare wildcard over a range stretched about the
-/// default — right for an editor, where a 3-metre body is somebody
+/// default - right for an editor, where a 3-metre body is somebody
 /// exploring and one drag undoes it, and wrong for the avatar an identity
 /// is *given* before they have ever opened one: roughly one seed in thirty
 /// would hand a new arrival a 20 cm or 3 m body they never asked for, in a
@@ -1111,13 +1111,13 @@ pub fn engine_default_for_seed(seed: u64) -> EngineAvatarRecord {
 
 /// Dress `record` in a fresh engine body (#1059): a new wardrobe rkey
 /// minted from the DID's entropy, resolved locally so the editor and the
-/// spawn pipeline see the body immediately — nothing exists on the PDS
+/// spawn pipeline see the body immediately - nothing exists on the PDS
 /// until the next save publishes the bundle.
 ///
 /// The outfit survives the switch (#1201). A rigged record's attachment
 /// **reference list** is what the next save's delete set is derived from
 /// (`stored` refs − `live` refs, [`attachment_deletes`]), so replacing the
-/// record wholesale — as this did — made the next Save delete every
+/// record wholesale - as this did - made the next Save delete every
 /// attachment record the owner was wearing. That button is offered on the
 /// recovery path (a wardrobe fetch that failed), where the references are
 /// exactly what was NOT lost: only `resolved` came up short. The references
@@ -1171,7 +1171,7 @@ pub fn wear_new_engine_body(record: &mut super::AvatarRecord, did: &str) {
 /// The gap this closes: the whole wardrobe + attachment chain (#1086-#1108)
 /// reported NotFound and transport failures through `warn!` only, and the
 /// caller then `continue`d on a `None`. With gifting (#1108) making attachment
-/// records cross-owner, a guest fetching a peer depends on N+2 records — and
+/// records cross-owner, a guest fetching a peer depends on N+2 records - and
 /// "why is Bob a bare chassis for me but not for Alice" was unanswerable from
 /// a captured log.
 #[derive(Default, Clone, Debug)]
@@ -1183,7 +1183,7 @@ pub(crate) struct ResolveReport {
 }
 
 impl ResolveReport {
-    /// The report for a resolution that never ran to completion — a timeout
+    /// The report for a resolution that never ran to completion - a timeout
     /// or a DID that would not resolve. Distinguished from a missing wardrobe
     /// record, which is a real answer.
     pub(crate) fn aborted(reason: &str) -> Self {
@@ -1198,7 +1198,7 @@ impl ResolveReport {
 /// PDS, writing the result onto [`RiggedBody::resolved`].
 ///
 /// Degradation is graded, never all-or-nothing: a wardrobe reference that
-/// does not resolve leaves `resolved = None` (a bare chassis — there is no
+/// does not resolve leaves `resolved = None` (a bare chassis - there is no
 /// body worth building around missing geometry), while an attachment that
 /// does not resolve is skipped with a warning (a barer avatar beats a
 /// missing one). Every kept record arrives sanitised.
@@ -1213,7 +1213,7 @@ pub(crate) async fn resolve_rigged_body(
         Ok(Some(body)) => body,
         Ok(None) => {
             warn!(
-                "wardrobe record {}/{} not found for {did} — spawning a bare chassis",
+                "wardrobe record {}/{} not found for {did} - spawning a bare chassis",
                 WARDROBE_COLLECTION, rig.avatar
             );
             rig.resolved = None;
@@ -1222,7 +1222,7 @@ pub(crate) async fn resolve_rigged_body(
         }
         Err(err) => {
             warn!(
-                "wardrobe fetch {}/{} failed for {did}: {err:?} — spawning a bare chassis",
+                "wardrobe fetch {}/{} failed for {did}: {err:?} - spawning a bare chassis",
                 WARDROBE_COLLECTION, rig.avatar
             );
             rig.resolved = None;
@@ -1238,13 +1238,13 @@ pub(crate) async fn resolve_rigged_body(
                 record,
             }),
             Ok(None) => {
-                warn!("attachment record {rkey} not found for {did} — prop skipped");
+                warn!("attachment record {rkey} not found for {did} - prop skipped");
                 report
                     .skipped
                     .push((rkey.clone(), String::from("record not found")));
             }
             Err(err) => {
-                warn!("attachment fetch {rkey} failed for {did}: {err:?} — prop skipped");
+                warn!("attachment fetch {rkey} failed for {did}: {err:?} - prop skipped");
                 report
                     .skipped
                     .push((rkey.clone(), format!("fetch failed: {err:?}")));
@@ -1495,8 +1495,8 @@ mod tests {
     /// blip, so the rig is unresolved while its reference list still names
     /// the two props the owner wears; they click "Wear a fresh body
     /// instead", then Save. The swap used to replace the record wholesale
-    /// with an empty reference list, and the save's derived delete set —
-    /// stored refs minus live refs — then deleted both attachment records
+    /// with an empty reference list, and the save's derived delete set -
+    /// stored refs minus live refs - then deleted both attachment records
     /// from the repo. The references must carry across, and the delete
     /// set must be empty.
     #[test]
@@ -1527,7 +1527,7 @@ mod tests {
     #[test]
     fn a_seeded_body_is_always_a_plausible_height() {
         // The engine's exploration envelope reaches roughly 0.1 m to 3.1 m
-        // with a rare wildcard draw — about one seed in thirty. That is the
+        // with a rare wildcard draw - about one seed in thirty. That is the
         // right distribution for somebody dragging a slider and the wrong
         // one for the body an identity is handed on arrival.
         let (low, high) = symbios_avatar::plan::humanoid_height_range();
@@ -1572,7 +1572,7 @@ mod tests {
     #[test]
     fn sanitize_keeps_a_per_axis_offset_scale() {
         // Full transform parity with a region placement (#1095): the
-        // sanitiser clamps each axis but no longer collapses them to one —
+        // sanitiser clamps each axis but no longer collapses them to one -
         // the editor offers the triad and the author owns the judgement.
         let mut record = AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Crown);
         record.offset.scale = Fp3([2.0, 5.0, 0.5]);
@@ -1695,7 +1695,7 @@ mod tests {
     // -----------------------------------------------------------------
 
     /// A repo holding exactly `attachments` and nothing else.
-    /// A repo holding `attachments`, from a listing that did NOT finish —
+    /// A repo holding `attachments`, from a listing that did NOT finish -
     /// so the set is not evidence of absence. The conservative default, and
     /// the one the pre-#1185 tests were written against.
     fn empty_repo_with(attachments: &[&str]) -> AvatarRepoState {
@@ -1735,7 +1735,7 @@ mod tests {
     }
 
     /// Children before pointers, deletes last. Inside one atomic batch the
-    /// order is immaterial — it becomes load-bearing the moment
+    /// order is immaterial - it becomes load-bearing the moment
     /// `chunk_writes` splits the plan, because then a reader can land
     /// between two commits.
     #[test]
@@ -1795,8 +1795,8 @@ mod tests {
 
     /// The orphan sweep. Nothing in the app ever walked the attachment
     /// collection before #1117, so a record the old non-atomic bundle landed
-    /// and then failed to reference — the attachments went out first, and a
-    /// 5xx on `avatar/self` could delete the record that named them — stayed
+    /// and then failed to reference - the attachments went out first, and a
+    /// 5xx on `avatar/self` could delete the record that named them - stayed
     /// in the owner's repo forever, invisible and un-deletable through any
     /// UI.
     ///
@@ -1826,14 +1826,14 @@ mod tests {
     ///
     /// The sequence, and it is an ordinary one: a prop is worn and published,
     /// so the local mirror of the stored record names `rkey-gone`. The record
-    /// is then retired somewhere this client cannot see — another device, or
+    /// is then retired somewhere this client cannot see - another device, or
     /// an earlier bundle that landed the avatar record and lost the
     /// attachment. The owner takes the prop off here and saves.
     ///
     /// The derived delete set names `rkey-gone` because the stored record did.
     /// Before this, the batch carried `applyWrites#delete` for it, the PDS's
     /// MST threw on a key that is not there, and the whole ATOMIC batch came
-    /// back as a bare `500 Internal Server Error` — so the body, every worn
+    /// back as a bare `500 Internal Server Error` - so the body, every worn
     /// prop and the avatar record were all lost with it, behind an error that
     /// named none of them. Losing an entire save to a record that is already
     /// gone is the worst possible trade.
@@ -1931,8 +1931,8 @@ mod tests {
         );
     }
 
-    /// The wardrobe is a keep-all collection — an identity accumulates
-    /// bodies and the Body tab lists them for re-wearing — so the sweep must
+    /// The wardrobe is a keep-all collection - an identity accumulates
+    /// bodies and the Body tab lists them for re-wearing - so the sweep must
     /// never touch it. A saved body the owner is not currently wearing is
     /// not an orphan, and deleting it would delete a self.
     #[test]
@@ -1962,7 +1962,7 @@ mod tests {
     }
 
     /// The batch respects the request-body budget rather than the write
-    /// count alone (#1115) — the reason this routes through `chunk_writes`
+    /// count alone (#1115) - the reason this routes through `chunk_writes`
     /// instead of building one `Vec` and hoping.
     #[test]
     fn a_heavy_outfit_chunks_instead_of_exceeding_the_request_budget() {
@@ -2012,7 +2012,7 @@ mod tests {
     #[test]
     fn sanitize_bounds_a_hostile_fit_dimension_and_keeps_the_sentinel() {
         // The field is a divisor: a 1 mm band would scale a prop ~180× onto
-        // every peer's screen. Zero must survive untouched — it is "no fit",
+        // every peer's screen. Zero must survive untouched - it is "no fit",
         // not a small band.
         let mut tiny = AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Crown);
         tiny.fit_band_mm = 1;
@@ -2034,7 +2034,7 @@ mod tests {
         record.offset.translation = Fp3([0.123_456_78, 0.0, 0.0]);
         let json = serde_json::to_string(&record).expect("serializes");
         let back: AttachmentRecord = serde_json::from_str(&json).expect("decodes");
-        // (0.12345678 * 10000).round() / 10000 — the wire's thousandth-of-a
+        // (0.12345678 * 10000).round() / 10000 - the wire's thousandth-of-a
         // -percent grid, same as every other transform.
         assert!((back.offset.translation.0[0] - 0.1235).abs() < 1e-6);
     }

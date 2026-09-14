@@ -23,7 +23,7 @@ use crate::seeded_defaults::scene::{
 
 /// Sub-stream salt for terrain-shape sampling. Distinct from
 /// [`super::palette`]'s salt so the palette deriver and the shape
-/// deriver advance independently — changing one cannot drift the other.
+/// deriver advance independently - changing one cannot drift the other.
 const TERRAIN_SHAPE_STREAM_SALT: u64 = 0x5EED_5AFE_E000_0000;
 
 /// One splat rule (where biome layer `i` appears in normalised
@@ -37,7 +37,7 @@ pub struct SplatRule {
     pub sharpness: f32,
 }
 
-/// Full seeded terrain shape — every field maps onto its namesake in
+/// Full seeded terrain shape - every field maps onto its namesake in
 /// [`crate::pds::SovereignTerrainConfig`] / `SovereignMaterialConfig`.
 #[derive(Clone, Debug)]
 pub struct TerrainShape {
@@ -96,7 +96,7 @@ struct LandformProfile {
     /// FBM with Diamond-Square so two Rolling rooms can differ in
     /// macro character, not just in knob values.
     generator_kinds: &'static [SovereignGeneratorKind],
-    /// Diamond-Square roughness band — only consumed when the picked
+    /// Diamond-Square roughness band - only consumed when the picked
     /// algorithm is [`SovereignGeneratorKind::DiamondSquare`], but sampled
     /// unconditionally to keep the RNG stream stable.
     ds_roughness: (f32, f32),
@@ -109,7 +109,7 @@ struct LandformProfile {
     /// Thermal erosion sweep count. Craggy=high.
     thermal_iterations: (u32, u32),
     /// Maximum stable height step between adjacent heightmap cells, in
-    /// world metres — **not** an angle (the erosion runs after heights
+    /// world metres - **not** an angle (the erosion runs after heights
     /// are scaled to metres; see `ThermalErosion::talus_angle` in
     /// `symbios-ground`). Cells sit ~2 m apart, so ~0.5 m ≈ a 15°
     /// repose slope and ~1.3 m ≈ 34° scree. Low values act as a strong
@@ -117,7 +117,7 @@ struct LandformProfile {
     /// values leave everything below a genuine cliff untouched. Rolling
     /// stays low (soft hills), Craggy/Mesa run high so peaks and
     /// terrace lips keep their edges and only over-steep faces shed
-    /// scree (#904 — the old 0.03–0.12 bands mushed exactly the
+    /// scree (#904 - the old 0.03–0.12 bands mushed exactly the
     /// landforms whose identity is sharpness).
     thermal_talus_angle: (f32, f32),
     /// FBM octaves. Higher = more fine detail.
@@ -250,7 +250,7 @@ fn biome_splat_profile(b: BiomeArchetype) -> BiomeSplatProfile {
             dirt_height_min: 0.25,
             dirt_height_max: 0.70,
             rock_slope_min: 0.25,
-            // Snow rare in lush rooms — push the snow line up so it
+            // Snow rare in lush rooms - push the snow line up so it
             // only caps the highest peaks.
             snow_height_min: 0.92,
             blend_sharpness: 0.5,
@@ -272,7 +272,7 @@ fn biome_splat_profile(b: BiomeArchetype) -> BiomeSplatProfile {
             dirt_height_min: 0.20,
             dirt_height_max: 0.55,
             rock_slope_min: 0.20,
-            // Lots of snow — drop the snow line low.
+            // Lots of snow - drop the snow line low.
             snow_height_min: 0.55,
             blend_sharpness: 0.4,
         },
@@ -438,7 +438,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> TerrainShape {
             height_max: 1.0,
             slope_min: 0.0,
             slope_max: 1.0,
-            // Snow keeps the sharp transition default — a soft snow
+            // Snow keeps the sharp transition default - a soft snow
             // line reads as muddy on a stylised palette.
             sharpness: 4.0,
         },

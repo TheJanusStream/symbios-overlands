@@ -36,7 +36,7 @@ pub fn register_builtins(reg: &mut InvariantRegistry) {
 
 /// The last timestamp the log covers, for "never resolved" checks.
 ///
-/// The maximum, not the final element — see
+/// The maximum, not the final element - see
 /// [`crate::diagnostics::event::last_ts`] for why the distinction is what
 /// keeps these rules alive on a panic file (#1142).
 fn last_ts(events: &[SessionEvent]) -> f64 {
@@ -80,7 +80,7 @@ const WARDROBE_UNRESOLVED: RuleHeader = RuleHeader {
     subsystem: Subsystem::Network,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "someone here is showing as a plain figure — their look could not be loaded",
+    description: "someone here is showing as a plain figure - their look could not be loaded",
     technical: Some(
         "a peer's wardrobe record resolved with no body, so they render as a bare chassis",
     ),
@@ -95,7 +95,7 @@ impl Rule for WardrobeUnresolved {
     }
     /// Replay-only on purpose: the live signal is per-peer and arrives as a
     /// discrete event, not as a gauge a 1 Hz tick could sample. The captured
-    /// log is also where the question is actually asked — "why was Bob a bare
+    /// log is also where the question is actually asked - "why was Bob a bare
     /// chassis for me but not for Alice" is a post-mortem question (#1144).
     fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
         events
@@ -106,7 +106,7 @@ impl Rule for WardrobeUnresolved {
                     body_ok: false,
                     ..
                 } => Some(Verdict::violated(format!(
-                    "{did} resolved no wardrobe record — rendered as a bare chassis"
+                    "{did} resolved no wardrobe record - rendered as a bare chassis"
                 ))),
                 _ => None,
             })
@@ -120,7 +120,7 @@ impl Rule for WardrobeUnresolved {
 /// Not one: a single dead source in a room somebody else authored is
 /// ordinary, and a rule that fires on it would light the toolbar dot in
 /// every second room. Three is the point at which the pattern is the room
-/// rather than the asset — a host that is down, a whole batch of references
+/// rather than the asset - a host that is down, a whole batch of references
 /// pointing at a moved bucket, or a client whose network is gone.
 const ASSET_FAILURE_VERDICT_THRESHOLD: usize = 3;
 
@@ -132,7 +132,7 @@ const ASSET_FETCH_FAILING: RuleHeader = RuleHeader {
     debounce: DebouncePolicy::OncePerCondition,
     description: "pictures, sounds or ground textures in this world are failing to load",
     technical: Some(
-        "three or more asset fetches failed for one class this session — usually a host that \
+        "three or more asset fetches failed for one class this session - usually a host that \
          is down or a batch of references pointing at a moved bucket",
     ),
     when_state: None,
@@ -148,7 +148,7 @@ impl Rule for AssetFetchFailing {
     /// live signal is a discrete per-source event, and the question ("why did
     /// this room have no pictures") is asked afterwards.
     ///
-    /// Before #1246 there was no signal at all — a grep for `metrics` or
+    /// Before #1246 there was no signal at all - a grep for `metrics` or
     /// `diagnostics` across the five asset fetch paths returned nothing, so
     /// the app's designated "something is wrong" channel was blind to the one
     /// surface that fails silently by construction and depends entirely on
@@ -171,7 +171,7 @@ impl Rule for AssetFetchFailing {
 }
 
 // --- LoadingGateStall -------------------------------------------------------
-/// The loading gate is considered stalled (Critical) past this many seconds —
+/// The loading gate is considered stalled (Critical) past this many seconds -
 /// the shared threshold the live rule, the replay rule, and the loading-screen
 /// countdown (C-5) all colour against.
 pub const GATE_STALL_SECS: f64 = 120.0;
@@ -264,7 +264,7 @@ const AMBIENT_BAKE_STALL: RuleHeader = RuleHeader {
     subsystem: Subsystem::Offload,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "background sound for this world is taking too long to prepare — you may hear \
+    description: "background sound for this world is taking too long to prepare - you may hear \
                   silence",
     technical: Some("the ambient audio bake did not finish within its 30 s budget"),
     when_state: None,
@@ -304,7 +304,7 @@ const TASK_NEVER_RESOLVES: RuleHeader = RuleHeader {
     subsystem: Subsystem::Offload,
     severity: Severity::Critical,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "a background task stopped responding — part of this world may never finish \
+    description: "a background task stopped responding - part of this world may never finish \
                   loading",
     technical: Some("an offloaded job never reported completion or failure"),
     when_state: None,
@@ -320,7 +320,7 @@ impl Rule for TaskNeverResolves {
         true
     }
     /// Live body added in #1143. Before it this rule was replay-only, and its
-    /// replay had nothing to fold either — `OffloadJobStarted` had no emit
+    /// replay had nothing to fold either - `OffloadJobStarted` had no emit
     /// site in the crate, so the one rule written for "a worker job never
     /// answered" could not fire on any log, live or captured. The offload
     /// census now feeds both.
@@ -376,7 +376,7 @@ const PEER_CHURN_SPIKE: RuleHeader = RuleHeader {
     subsystem: Subsystem::Network,
     severity: Severity::Warn,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "a lot of people left this world at once — the connection may be dropping them",
+    description: "a lot of people left this world at once - the connection may be dropping them",
     technical: Some("more than 10 peer departures inside a 300 s window"),
     when_state: None,
 };
@@ -393,7 +393,7 @@ impl Rule for PeerChurnSpike {
     /// Live: departures inside the counter's retained window (#1272 f173).
     ///
     /// It was replay-only, and `ui::diagnostics` mapped the "Leaves
-    /// (session)" row to it anyway — so that row carried a dot that could
+    /// (session)" row to it anyway - so that row carried a dot that could
     /// never light, which reads as a check that passed. The counter ring
     /// (#1271 f179) is what makes a windowed count expressible at all;
     /// before it there was nothing live to threshold but a session total,
@@ -463,7 +463,7 @@ impl Rule for OfferAcceptanceAnomaly {
         true
     }
     /// Live: the same ratio over the two counters the replay's
-    /// `ItemOfferUserResponded` events increment (#1272 f173) — accepted
+    /// `ItemOfferUserResponded` events increment (#1272 f173) - accepted
     /// and declined are the two arms of a user's answer, and the busy
     /// auto-decline is counted separately and excluded from both, exactly
     /// as the replay excludes it.
@@ -543,7 +543,7 @@ impl Rule for IdentitySpoofBurst {
     /// total (#1271 f179).
     ///
     /// It used to threshold the cumulative counter, which never comes back
-    /// down — so three rejected claims in the first minute of a session lit
+    /// down - so three rejected claims in the first minute of a session lit
     /// the badge for the rest of it, re-firing every 30 seconds into the log,
     /// and the row looked identical whether it was happening now or an hour
     /// ago. A `burst` is a rate; the counter's sampled history is what can
@@ -578,7 +578,7 @@ const PEER_PROTOCOL_MISMATCHED: RuleHeader = RuleHeader {
     subsystem: Subsystem::Network,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "someone here is running a different version of Overlands — you may not see \
+    description: "someone here is running a different version of Overlands - you may not see \
                   each other properly",
     technical: Some(
         "a peer announced a different wire-protocol version, so messages between the two \
@@ -595,7 +595,7 @@ impl Rule for PeerProtocolMismatched {
     }
     /// Replay-only, and deliberately so: there is no live counter to read
     /// because the condition is not a rate. One incompatible peer in the room
-    /// is the whole finding — a second one adds nothing to the diagnosis, and
+    /// is the whole finding - a second one adds nothing to the diagnosis, and
     /// the emit sites already collapse a re-announcement to a single event.
     fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
         events
@@ -635,7 +635,7 @@ impl Rule for WorldDigestMismatch {
     /// because nothing computed a digest to disagree about. It fires on the
     /// event alone: the emit site has already established that both peers
     /// claim the same record and that our own world had settled, which is the
-    /// entire condition — there is no rate or threshold to add on top, and one
+    /// entire condition - there is no rate or threshold to add on top, and one
     /// occurrence is the whole finding.
     fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
         events
@@ -706,10 +706,10 @@ const GLARE_SUSPECTED: RuleHeader = RuleHeader {
     subsystem: Subsystem::Network,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "cannot reach the other people here — your network or a firewall may be \
+    description: "cannot reach the other people here - your network or a firewall may be \
                   blocking the connection",
     technical: Some(
-        "the relay reported peers in this world but no WebRTC data channel ever opened — \
+        "the relay reported peers in this world but no WebRTC data channel ever opened - \
          offer glare, or ICE/NAT traversal failing",
     ),
     when_state: Some(AppState::InGame),
@@ -725,7 +725,7 @@ impl Rule for GlareSuspected {
         true
     }
     /// Live: the `net.signal.awaiting_peers` gauge (set by the 1 Hz signal
-    /// scrape) has stayed raised across the whole recent window — the relay
+    /// scrape) has stayed raised across the whole recent window - the relay
     /// reported peers yet none reached `Connected`.
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         let samples: Vec<f64> = cx
@@ -747,7 +747,7 @@ impl Rule for GlareSuspected {
         })
     }
     /// Replay: a non-empty `SocketPeerListReceived` with no `PeerJoined` within
-    /// the budget (or none before the log ends) — the offline mirror of the
+    /// the budget (or none before the log ends) - the offline mirror of the
     /// live flag.
     fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
         stall_durations(
@@ -774,7 +774,7 @@ impl Rule for GlareSuspected {
 /// presented, and "sign in again" is the right advice. **`status == 0` is the
 /// browser**: its WebSocket API hides the handshake status, so the upstream
 /// signaller counts consecutive failures under one token fingerprint and, on
-/// exhaustion, records a rejection with status `0` — which is exactly what a
+/// exhaustion, records a rejection with status `0` - which is exactly what a
 /// dropped Wi-Fi connection produces. Reporting that as an expired sign-in
 /// sends the user to fix their account when their laptop lost the network,
 /// and biases the project's own reading of its failure rates. Shared by the
@@ -783,7 +783,7 @@ fn reject_detail(n: u64, status: u64) -> String {
     let times = crate::text::plural(n as usize, "time", "times");
     if status == 0 {
         format!(
-            "could not reach the world server {n} {times} — no reason given, \
+            "could not reach the world server {n} {times} - no reason given, \
              which is what a dropped connection looks like from a browser"
         )
     } else {
@@ -797,7 +797,7 @@ const RELAY_CONNECTION_REJECTED: RuleHeader = RuleHeader {
     subsystem: Subsystem::Network,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "could not reach the world server — usually your connection, though a stale \
+    description: "could not reach the world server - usually your connection, though a stale \
                   sign-in can also do it",
     technical: Some(
         "the relay connection was refused. A real 4xx status means it rejected our \
@@ -817,7 +817,7 @@ impl Rule for RelayConnectionRejected {
         true
     }
     /// Live: the `net.signal.auth_rejections` gauge ROSE across the recent
-    /// window — the relay refused a connection just now. Unlike a stalled
+    /// window - the relay refused a connection just now. Unlike a stalled
     /// handshake this leaves no peer_list, so `GlareSuspected` cannot see it.
     ///
     /// Windowed, not cumulative (#1271 f179). The gauge is a running total,
@@ -863,7 +863,7 @@ const RELAY_TOKEN_REFRESH_FAILING: RuleHeader = RuleHeader {
     subsystem: Subsystem::Network,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "your sign-in for the world server cannot be renewed — reconnecting will keep \
+    description: "your sign-in for the world server cannot be renewed - reconnecting will keep \
                   failing until you sign in again",
     technical: Some(
         "the relay service-auth token could not be re-minted several times running, so every \
@@ -883,7 +883,7 @@ impl Rule for RelayTokenRefreshFailing {
     }
     /// Live: the consecutive-failure gauge has reached the alarm threshold.
     /// The counterpart of [`RelayConnectionRejected`] on the other side of
-    /// the handshake — that one fires when the relay refuses the credential
+    /// the handshake - that one fires when the relay refuses the credential
     /// we present, this one when we cannot mint one to present. A client in
     /// this state looks healthy on every other gauge.
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
@@ -894,7 +894,7 @@ impl Rule for RelayTokenRefreshFailing {
         Some(
             if n >= crate::config::network::SERVICE_TOKEN_FAILURES_BEFORE_ALARM as f64 {
                 Verdict::violated(format!(
-                    "{n:.0} consecutive relay service-auth token refresh failures — \
+                    "{n:.0} consecutive relay service-auth token refresh failures - \
                      reconnects will present a stale credential"
                 ))
             } else {
@@ -932,7 +932,7 @@ mod tests {
         SessionEvent::new(0, t, None, Severity::Info, payload)
     }
 
-    /// A settled in-game context over `metrics` — the shape the network
+    /// A settled in-game context over `metrics` - the shape the network
     /// rules' live bodies read.
     fn ctx_with(metrics: &crate::diagnostics::MetricsRegistry) -> LiveCtx<'_> {
         LiveCtx {
@@ -953,7 +953,7 @@ mod tests {
 
     /// #1143. The live half of the one rule written for "a worker job never
     /// answered". Before the offload census it had no `eval` body at all, and
-    /// its replay body had nothing to fold either — `OffloadJobStarted` was a
+    /// its replay body had nothing to fold either - `OffloadJobStarted` was a
     /// schema variant with zero emit sites in the crate. The failure it exists
     /// for is a wasm deploy whose `gen-worker.js` is stale or missing: every
     /// job is dispatched, none ever answers, and the log reads HEALTHY.
@@ -988,7 +988,7 @@ mod tests {
         assert!(stuck.is_violated());
 
         // A job still inside its budget, and a session with nothing
-        // dispatched, must both stay quiet — a watchdog that cries at every
+        // dispatched, must both stay quiet - a watchdog that cries at every
         // heightmap bake is one nobody reads.
         assert_eq!(
             TaskNeverResolves.eval(&ctx(&metrics, Some(("heightmap", 1.0)))),
@@ -1258,7 +1258,7 @@ mod tests {
     /// badge has to go out on its own, because there is no acknowledge
     /// control and a permanently-lit alarm is an ignored alarm.
     ///
-    /// The control is the old condition, asserted on the same registry —
+    /// The control is the old condition, asserted on the same registry -
     /// a rule that cannot see what it replaced passes forever.
     #[test]
     fn a_boot_time_relay_refusal_stops_lighting_the_badge() {
@@ -1297,7 +1297,7 @@ mod tests {
     }
 
     /// The same shape over the spoof COUNTER, which had no history at all
-    /// until #1271 gave `Counter` one — and whose `Interval(30.0)` debounce
+    /// until #1271 gave `Counter` one - and whose `Interval(30.0)` debounce
     /// meant the latch also re-logged itself every 30 s forever.
     #[test]
     fn a_boot_time_spoof_burst_stops_lighting_the_badge() {
@@ -1338,7 +1338,7 @@ mod tests {
     }
 
     /// #1271 f400. `status == 0` is every wasm rejection, and wasm is the
-    /// deployed target — so the sentence it produces must not name a cause
+    /// deployed target - so the sentence it produces must not name a cause
     /// the client cannot know.
     #[test]
     fn a_status_free_refusal_is_not_reported_as_a_stale_sign_in() {
@@ -1356,7 +1356,7 @@ mod tests {
     }
 
     /// THE SEQUENCE: the PDS refuses `getServiceAuth` several ticks running.
-    /// `RelayConnectionRejected` cannot see this — it counts what the relay
+    /// `RelayConnectionRejected` cannot see this - it counts what the relay
     /// REFUSES, and a client that never mints a token never presents one, so
     /// it looked healthy on every gauge (#1215 f403). One transient failure
     /// must stay quiet; a streak past the threshold must not.

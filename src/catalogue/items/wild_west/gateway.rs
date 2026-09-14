@@ -1,16 +1,16 @@
-//! Frontier Gate — the Wild-West bespoke social gateway (#772). A ranch-style
+//! Frontier Gate - the Wild-West bespoke social gateway (#772). A ranch-style
 //! entrance arch: two hewn timber posts on fieldstone footings carry a heavy
 //! header beam, a painted board hung in the opening bears a branded wagon-wheel
 //! emblem facing the street, and a caged oil lamp glows amber on each post to
 //! light the threshold. It replaces the neutral placeholder gate for the theme.
 //!
-//! The functional element is the single [`GeneratorKind::Gateway`] zone child —
+//! The functional element is the single [`GeneratorKind::Gateway`] zone child -
 //! walking into the opening between the posts opens the destination picker.
 //! Everything else is frontier set-dressing framing that walk-through.
 //!
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], whose first prim (the stone threshold slab) is the untilted
-//! root — a rotated root would spin every post, beam and lamp with it. The
+//! root - a rotated root would spin every post, beam and lamp with it. The
 //! render FRONT is −Z, so the hung sign and its emblem face −Z.
 
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
@@ -63,7 +63,7 @@ fn build_tree() -> Generator {
     let post_top = footing_top + post_h; // 4.6
 
     let mut prims = vec![
-        // Fieldstone threshold slab — the flat-base root (never tilt a root:
+        // Fieldstone threshold slab - the flat-base root (never tilt a root:
         // every post, beam and lamp would spin into its frame).
         prim(
             solid(cuboid_tapered([5.4, 0.3, 3.0], 0.0, foundation_mat())),
@@ -116,7 +116,7 @@ fn build_tree() -> Generator {
         [0.0, post_top + 0.3, 0.0],
         id_quat(),
     ));
-    // Overhanging painted cornice board along the top — the false-front cap.
+    // Overhanging painted cornice board along the top - the false-front cap.
     prims.push(prim(
         solid(cuboid_tapered([4.9, 0.22, 0.85], 0.0, clapboard(CLAP_TAN))),
         [0.0, post_top + 0.71, 0.0],
@@ -192,7 +192,7 @@ fn build_tree() -> Generator {
             [sx * 1.05, 3.28, -0.1],
             id_quat(),
         ));
-        // The amber flame — deep-saturated warm glow, small so it stays lit
+        // The amber flame - deep-saturated warm glow, small so it stays lit
         // colour not white bloom.
         prims.push(prim(
             sphere(0.14, 4, glow([1.0, 0.66, 0.28], 4.0)),
@@ -230,7 +230,7 @@ mod tests {
         assert_sanitize_stable(&WildWestGateway.build(""), "wild_west_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is set-dressing, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

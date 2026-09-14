@@ -1,4 +1,4 @@
-//! Rune stones — a Nordic secondary. A small cluster of weathered standing
+//! Rune stones - a Nordic secondary. A small cluster of weathered standing
 //! stones, the tallest carved on its shore-facing front with a glowing runic
 //! serpent ring and glyph columns; a memorial raised beside the steading.
 //! Dressed ashlar, each satellite stone leaning a little off true.
@@ -102,7 +102,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Buried setting stone under the memorial itself — the cluster has no
+    // Buried setting stone under the memorial itself - the cluster has no
     // slab, and the tallest stone is what must not stand clear of the
     // ground; the satellites are short enough to bed into it.
     prims.push(footing(1.4, depth, [0.0, 0.0], 5.0));

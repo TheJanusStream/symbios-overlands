@@ -4,7 +4,7 @@
 //! `[[test]]` target of its own. Nothing about the tests changed; what changed
 //! is how many whole-program links a test run pays for. Each integration
 //! target statically links the entire Bevy engine, and there were nineteen of
-//! them plus a harness for each of the two binaries — twenty-four Bevy links
+//! them plus a harness for each of the two binaries - twenty-four Bevy links
 //! on any `cargo test` that touched the lib, which `.cargo/config.toml` caps
 //! at six concurrent precisely because they will not all fit in memory at
 //! once. One target links once.
@@ -43,7 +43,7 @@
 //! panic shadow (`diagnostics::panic::arm` keeps the FIRST directory it is
 //! given, for the life of the process), installs a panic hook, asserts on
 //! `alloc_track`'s process-wide allocation counters, or asserts on the offload
-//! census's global instance, is NOT safe as a module here — it was isolated by
+//! census's global instance, is NOT safe as a module here - it was isolated by
 //! having its own binary, and that isolation is what this file spends. Such a
 //! test belongs in the lib's unit tests where the fixture can be injected, or
 //! in a `[[test]]` target of its own with the reason written down.

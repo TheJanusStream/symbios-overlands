@@ -80,7 +80,7 @@ pub(super) fn spine_stations(
         .collect();
 
     // Parallel transport: seed a normal perpendicular to the first tangent,
-    // then rotate it by the minimal rotation between consecutive tangents —
+    // then rotate it by the minimal rotation between consecutive tangents -
     // the rotation-minimizing frame that keeps the tube from spiralling.
     let seed_axis = if tangents[0].dot(Vec3::Y).abs() < 0.9 {
         Vec3::Y
@@ -155,7 +155,7 @@ pub(super) fn build_spine_mesh(
     let all = spine_stations(points, samples_per_segment);
 
     // Path trim: keep the stations inside the [t0, t1] arc-length band
-    // (stations are dense — 2..64 per segment — so snapping to the nearest
+    // (stations are dense - 2..64 per segment - so snapping to the nearest
     // station is visually exact).
     let mut full_arc = vec![0.0f32; all.len()];
     for i in 1..all.len() {
@@ -177,7 +177,7 @@ pub(super) fn build_spine_mesh(
 
     // V is arc length along the spine in metres, U metres around the tube
     // at that station's own radius (#938). Both being metres keeps a texel
-    // square with no scaling factor at all — the pre-#933 form divided V by
+    // square with no scaling factor at all - the pre-#933 form divided V by
     // the mean circumference to achieve the same thing relative to the
     // prim, which is exactly the size-dependence the convention removes. A
     // per-station radius (rather than the mean) also keeps the wrap honest
@@ -196,7 +196,7 @@ pub(super) fn build_spine_mesh(
     let mut idx: Vec<u32> = Vec::new();
     let mut spans = FaceSpans::new();
 
-    // Tube surface grid — outer, plus an inner shell when hollow. The
+    // Tube surface grid - outer, plus an inner shell when hollow. The
     // surface normal of a tapering tube tilts along the tangent by the
     // radius slope (`dr/ds`), same as a cone's wall.
     let mut shells = vec![(1.0f32, false)];
@@ -228,7 +228,7 @@ pub(super) fn build_spine_mesh(
     }
 
     // End caps, normal along ∓tangent: a disc fan over the kept arc when
-    // solid (a pie for an open ring — the centre lies on the cut plane), an
+    // solid (a pie for an open ring - the centre lies on the cut plane), an
     // annular band outer → inner when hollow.
     for (st, sgn, face) in [
         (&stations[0], -1.0f32, FaceKey::Bottom),
@@ -315,7 +315,7 @@ pub(super) fn build_spine_mesh(
 
 /// Coarse analytic point cloud for the Spine's convex-hull collider: a few
 /// ring directions at every station of a low-rate resample. The hull fills
-/// the concave side of a bent spine — the usual standoff trade, matching
+/// the concave side of a bent spine - the usual standoff trade, matching
 /// every other tortured prim.
 pub(super) fn spine_hull_points(points: &[(Vec3, f32)]) -> Vec<Vec3> {
     const HULL_DIRS: u32 = 6;
@@ -404,7 +404,7 @@ pub(super) fn lathe_stations(points: &[(f32, f32)], smooth: bool) -> Vec<Vec2> {
 /// Build the Lathe mesh: the profile stations revolved around Y over the
 /// `a0..a1` angular range (path-cut), optionally **hollow** (`inner_frac >
 /// 0` → a proportional inner shell), with `t0..t1` the kept arc-length band
-/// of the silhouette (profile-cut — slice a vase's top off without
+/// of the silhouette (profile-cut - slice a vase's top off without
 /// re-authoring its stations). Open ends with a non-zero radius are closed
 /// by disc / annulus caps; an open angular wedge by two flat cut faces
 /// spanning profile → bore (or axis).
@@ -428,7 +428,7 @@ pub(super) fn build_lathe_mesh(
     let n_st = stations.len() as u32;
     let ang = |i: u32| a0 + (a1 - a0) * (i as f32 / segs as f32);
     // Metre convention (#938): V is arc length down the silhouette, U the
-    // arc swept at each station's own radius — a lathe's radius varies
+    // arc swept at each station's own radius - a lathe's radius varies
     // hugely along the profile (a vase's neck against its belly), so a
     // single mean circumference would visibly stretch one against the
     // other.
@@ -574,7 +574,7 @@ pub(super) fn build_lathe_mesh(
 
 /// Coarse analytic point cloud for the Lathe's convex-hull collider: every
 /// profile station revolved at a few angles. Concave silhouettes (a vase's
-/// waist) hull-fill — the standard standoff trade.
+/// waist) hull-fill - the standard standoff trade.
 pub(super) fn lathe_hull_points(points: &[(f32, f32)], smooth: bool) -> Vec<Vec3> {
     const HULL_DIRS: u32 = 8;
     use std::f32::consts::TAU;

@@ -1,4 +1,4 @@
-//! Veggie planter — a Solarpunk prop. A raised timber bed of crops with a
+//! Veggie planter - a Solarpunk prop. A raised timber bed of crops with a
 //! climbing-bean trellis. Scatter clutter greening the eco-quarter.
 
 use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
@@ -43,7 +43,7 @@ impl CatalogueEntry for VeggiePlanter {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Timber bed — the root.
+        // Timber bed - the root.
         prim(
             solid(cuboid_tapered([1.8, 0.5, 0.9], 0.0, timber(TIMBER_WARM))),
             [0.0, 0.25, 0.0],

@@ -1,4 +1,4 @@
-//! Gait / idle-motion parameters — the record-side counterpart of the
+//! Gait / idle-motion parameters - the record-side counterpart of the
 //! seeded [`AvatarGait`] derivation.
 //!
 //! Historically the idle-motion amplitudes were derived from the owner's
@@ -38,7 +38,7 @@ pub struct GaitParams {
 }
 
 impl GaitParams {
-    /// The gait a record without an explicit `gait` section exhibits —
+    /// The gait a record without an explicit `gait` section exhibits -
     /// the DID/seed derivation shared with
     /// [`AvatarGait::for_seed`](crate::seeded_defaults::AvatarGait::for_seed).
     /// Also the re-roll path: same seed, same gait on every peer.
@@ -55,7 +55,7 @@ impl GaitParams {
     }
 
     /// The runtime amplitude struct `player::gait` animates with. The
-    /// intensity multiplier stays separate — it scales the composed
+    /// intensity multiplier stays separate - it scales the composed
     /// offsets, not the individual amplitudes, so cadence maths keep
     /// reading the authored values.
     pub fn to_runtime(&self) -> AvatarGait {

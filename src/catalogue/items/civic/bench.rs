@@ -1,4 +1,4 @@
-//! Bench — a slatted seat on cast-iron end-frames. An escalation-Calm scatter
+//! Bench - a slatted seat on cast-iron end-frames. An escalation-Calm scatter
 //! prop: public seating signals a settled, unthreatened place to linger in
 //! any setting.
 //!
@@ -9,16 +9,16 @@
 //! 0.8 m, so the top two slats hung in the air; and every member was 70 mm
 //! square stock, which is what a bench looks like when it is made of
 //! blocks. Now the seat faces `-Z`, the stock is slimmer and the legs are
-//! turned, and each end frame is one chain — foot, leg, seat rail, then a
+//! turned, and each end frame is one chain - foot, leg, seat rail, then a
 //! raked stile ([`strut`]) running from the seat rail to above the top
-//! slat — with every backrest slat seated on that stile's own line.
+//! slat - with every backrest slat seated on that stile's own line.
 //!
 //! #972 lesson 34: **a raked part is carried by a raked member.** Three
 //! slats at one lean and a vertical leg behind them agree at exactly one
 //! height; above it the slats are in the air, and the record cannot say
 //! so. Author the carrier as a line between two points (`strut`), seat
 //! every part on that line through one function ([`stile_z`]), and guard
-//! it from the other direction — read the built stile's ends through
+//! it from the other direction - read the built stile's ends through
 //! `rotate_by` and check each slat's centre lies on the segment and below
 //! its head. Run against the shipped constants, the guard fails with the
 //! top slat 0.23 m above the tallest thing behind it.
@@ -34,7 +34,7 @@ use super::{WOOD, bronze, wood};
 
 const IRON: [f32; 3] = [0.12, 0.12, 0.13];
 
-/// Slat length — the bench's own length.
+/// Slat length - the bench's own length.
 const LEN: f32 = 1.4;
 /// The two cast end frames stand at `±FRAME_X`.
 const FRAME_X: f32 = 0.64;
@@ -45,7 +45,7 @@ const SLAT_W: f32 = 0.08;
 /// Seat slat centrelines across the seat. The front is `-Z`, the render
 /// front.
 const SEAT_SLATS_Z: [f32; 5] = [-0.2, -0.1, 0.0, 0.1, 0.2];
-/// Flat cast stock — seat rail, tie, armrest width.
+/// Flat cast stock - seat rail, tie, armrest width.
 const BAR: f32 = 0.05;
 /// Turned leg / stile radius.
 const LEG_R: f32 = 0.03;
@@ -68,7 +68,7 @@ const ARM_T: f32 = 0.04;
 /// Ankle stretcher height between the two legs of a frame.
 const STRETCHER_Y: f32 = 0.14;
 
-/// Where the stile is, in `z`, at height `y` — the one line the stile, the
+/// Where the stile is, in `z`, at height `y` - the one line the stile, the
 /// three slats and the armrest's back end all read from (#972 lesson 18:
 /// one expression, bound once).
 fn stile_z(y: f32) -> f32 {
@@ -230,7 +230,7 @@ mod tests {
     }
 
     /// A member's two ends along its own local `Y`, read from the BUILT
-    /// node — its actual quaternion and its actual half-extent (#972
+    /// node - its actual quaternion and its actual half-extent (#972
     /// lessons 21 and 23). Returned low end first.
     fn ends(g: &Generator, at: [f32; 3]) -> Option<([f32; 3], [f32; 3])> {
         let half = match &g.kind {
@@ -276,7 +276,7 @@ mod tests {
 
     /// **The top beam does not float.** Every backrest slat tops out below
     /// the head of the tallest member behind the seat on its own side, and
-    /// its centre lies on that member's line — read from the built stile's
+    /// its centre lies on that member's line - read from the built stile's
     /// ends, not from the constants that placed the slats.
     ///
     /// "Behind" is decided by where the slats themselves are, so the guard
@@ -304,7 +304,7 @@ mod tests {
         });
         assert!(
             carriers.len() >= 2,
-            "only {} members behind the seat — suspect the selector",
+            "only {} members behind the seat - suspect the selector",
             carriers.len()
         );
         for side in [-1.0_f32, 1.0] {
@@ -322,7 +322,7 @@ mod tests {
                 assert!(
                     top <= head[1] + 1e-4,
                     "bench: a slat tops out at {top} and the tallest member behind it on side \
-                     {side} reaches {} — the top beam floats",
+                     {side} reaches {} - the top beam floats",
                     head[1]
                 );
                 // Distance from the slat centre to the carrier's segment, in the
@@ -366,7 +366,7 @@ mod tests {
         assert_eq!(legs, 4, "four turned legs on the ground");
     }
 
-    /// The seat slats rest on the two seat rails — bottom on rail top, and
+    /// The seat slats rest on the two seat rails - bottom on rail top, and
     /// inside the rail's own span.
     #[test]
     fn the_seat_slats_rest_on_the_rails() {
@@ -406,8 +406,8 @@ mod tests {
         }
     }
 
-    /// Each end frame is one unbroken chain up its front line — foot pad,
-    /// leg, seat rail, arm post, armrest — from the ground to the armrest's
+    /// Each end frame is one unbroken chain up its front line - foot pad,
+    /// leg, seat rail, arm post, armrest - from the ground to the armrest's
     /// top (#972 lesson 33: state a stack as a chain, not as pairs).
     #[test]
     fn each_frame_chains_from_the_ground_to_the_armrest() {
@@ -452,13 +452,13 @@ mod tests {
             assert!(
                 arm_top > 0.6 && reach >= arm_top - 1e-4,
                 "bench side {side}: the frame chains to {reach} and the armrest tops out at \
-                 {arm_top} — something on the front line floats"
+                 {arm_top} - something on the front line floats"
             );
         }
     }
 
     /// The armrest's back end reaches the stile at the armrest's own height
-    /// — read from the built stile, not from `stile_z`.
+    /// - read from the built stile, not from `stile_z`.
     #[test]
     fn the_armrest_reaches_the_stile() {
         let root = Bench.build("");

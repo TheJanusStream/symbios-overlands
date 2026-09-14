@@ -45,7 +45,7 @@
 //! Every [`contact::ContactSample`] carries a `footprint_radius` derived
 //! from the avatar's locomotion preset via the
 //! [`locomotion::LocomotionFootprint`] trait. This is the single point of
-//! truth for "how big does this avatar look on a surface" — used by
+//! truth for "how big does this avatar look on a surface" - used by
 //! shaders to scale ripple radii, by particle systems to size emission
 //! discs, and by stain stampers to size their texture splats. A bigger
 //! avatar (hover-boat, helicopter) produces bigger effects than a

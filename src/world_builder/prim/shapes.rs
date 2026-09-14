@@ -1,12 +1,12 @@
 //! Per-variant primitive dispatch (#644): one [`PrimitiveShape`] impl per
 //! parametric [`GeneratorKind`] variant, produced by the single
-//! [`prim_parts`] constructor match. Everything downstream — mesh build,
-//! analytical collider, the spawner's `(solid, material)` split — reads the
+//! [`prim_parts`] constructor match. Everything downstream - mesh build,
+//! analytical collider, the spawner's `(solid, material)` split - reads the
 //! trait object, so adding a primitive means one impl and one constructor
 //! arm here instead of four hand-synced `match GeneratorKind` sites.
 //!
 //! [`prim_parts`] ends in `_ => None`, so a missed arm is not a compile
-//! error — the spawn router feeds it every variant on the
+//! error - the spawn router feeds it every variant on the
 //! [`crate::for_each_primitive!`] roster and an unhandled one simply spawns
 //! nothing. `world_builder::prim`'s `every_primitive_reaches_a_mesher_arm`
 //! walks that roster and is what turns the omission back into a failure.
@@ -32,7 +32,7 @@ use super::sweeps::{build_lathe_mesh, build_spine_mesh, lathe_hull_points, spine
 
 /// Vertical wall subdivisions used when a vertex deform is active: the
 /// nonlinear deforms (bulge / bend / S-bend / twist) need mid-height
-/// vertices to move — a 2-ring wall renders a `sin(π t)` bulge as nothing.
+/// vertices to move - a 2-ring wall renders a `sin(π t)` bulge as nothing.
 /// Deform-free prims keep their old minimal layouts.
 const DEFORM_ROWS: u32 = 16;
 
@@ -46,8 +46,8 @@ const DEFORM_SUBDIV_LEVELS: u32 = 4;
 /// analytical collider matching the *untortured* shape (`None` when no
 /// meaningful solid exists).
 ///
-/// A kind with two meshers — Bevy's stock builder while untortured, our
-/// swept mesher once a cut is active — must return the **same face
+/// A kind with two meshers - Bevy's stock builder while untortured, our
+/// swept mesher once a cut is active - must return the **same face
 /// vocabulary** from both, so an override survives the cut being toggled.
 /// The stock branches recover it by normal; the swept ones mark it at
 /// emission.
@@ -58,7 +58,7 @@ pub(in crate::world_builder) trait PrimitiveShape {
 
 /// A primitive variant split into the pieces every consumer needs: the
 /// shape behavior plus the `solid` / `material` fields shared by all
-/// sixteen variants. `None` for non-primitive kinds — the router's
+/// sixteen variants. `None` for non-primitive kinds - the router's
 /// primitive test.
 pub(in crate::world_builder) struct PrimParts<'a> {
     pub shape: Box<dyn PrimitiveShape + 'a>,
@@ -457,8 +457,8 @@ impl PrimitiveShape for CuboidShape<'_> {
             );
         }
         // SL box cuts (#691): the cuboid becomes a swept rectangular
-        // profile — pie path-cut, matching rectangular bore, vertical
-        // slice — with wall rows for the nonlinear deforms.
+        // profile - pie path-cut, matching rectangular bore, vertical
+        // slice - with wall rows for the nonlinear deforms.
         let (a0, a1) = if self.torture.cuts_are_identity() {
             (0.0, TAU)
         } else {
@@ -497,7 +497,7 @@ impl PrimitiveShape for SphereShape<'_> {
             // Bevy's icosphere UVs are equirectangular (azimuth, inclination
             // normalised to 0..1), so metres are one uniform scale: a full
             // equatorial circumference across U, a pole-to-pole
-            // half-circumference down V — the same figures the cut lat/lon
+            // half-circumference down V - the same figures the cut lat/lon
             // path uses, so the two agree without sharing a mesher (#938).
             let mut mesh = Sphere::new(self.radius)
                 .mesh()
@@ -546,7 +546,7 @@ impl PrimitiveShape for CylinderShape<'_> {
             // each cap whatever the cylinder measures; rescale both into
             // the metre convention (#935). The uncut branch is the only one
             // that runs here, so the kind's own radius/height *are* the
-            // geometry — no post-cut adjustment to account for.
+            // geometry - no post-cut adjustment to account for.
             let mut mesh = Cylinder::new(self.radius, self.height)
                 .mesh()
                 .resolution(self.resolution)
@@ -639,7 +639,7 @@ impl PrimitiveShape for ConeShape<'_> {
                 .resolution(self.resolution)
                 .build();
             // A cone's wall tapers to a point, so its mean circumference is
-            // that of the half-radius — the same figure the swept mesher
+            // that of the half-radius - the same figure the swept mesher
             // uses for a frustum whose top radius is zero.
             super::uv::rescale_revolved_uvs(
                 &mut mesh,
@@ -707,7 +707,7 @@ impl PrimitiveShape for TorusShape<'_> {
             // and `1.0` sit on the **top flat pole** of the tube cross-section
             // (`+Y`, the donut's broad face), not on the outer perimeter. So a
             // `[0.0, 0.5]` band keeps the inner-radius half (toward the major
-            // axis) and `[0.5, 1.0]` keeps the outer-radius half — letting a
+            // axis) and `[0.5, 1.0]` keeps the outer-radius half - letting a
             // single profile-cut remove the inner half of a ring (e.g. a
             // wheel-fender hugging only the outer tread). The `+TAU/4` phase
             // rotates the band start from the outer equator (the bare-sweep
@@ -781,14 +781,14 @@ impl PrimitiveShape for TetrahedronShape<'_> {
     fn base_mesh(&self) -> PrimMesh {
         let [p0, p1, p2, p3] = self.corners();
         let mut mesh = Tetrahedron::new(p0, p1, p2, p3).mesh().build();
-        // Four flat faces have no interior vertices — subdivide so the
+        // Four flat faces have no interior vertices - subdivide so the
         // nonlinear deforms (twist / bend / bulge) have something to move.
         if !self.torture.deforms_are_identity() {
             subdivide_flat(&mut mesh, DEFORM_SUBDIV_LEVELS);
         }
         // Classified *after* subdivision: the split lerps normals, and a
         // flat face's three corner normals are equal, so every child
-        // triangle still classifies to its parent's face — no table
+        // triangle still classifies to its parent's face - no table
         // rescaling needed.
         classified(mesh, FaceKey::Surface, tetra_face)
     }
@@ -830,7 +830,7 @@ impl PrimitiveShape for TubeShape<'_> {
         }
     }
     fn analytical_collider(&self) -> Option<Collider> {
-        // The bore is not a walk-through volume — a solid outer cylinder is
+        // The bore is not a walk-through volume - a solid outer cylinder is
         // the right standoff for a pipe / curb prop.
         Some(Collider::cylinder(self.radius, self.height))
     }
@@ -949,7 +949,7 @@ impl PrimitiveShape for SuperellipsoidShape<'_> {
     }
     fn analytical_collider(&self) -> Option<Collider> {
         // Convex for exponents ≤ 2 (the sanitiser tops out at 2.5, where the
-        // hull mildly over-covers the pinch — the usual standoff trade). A
+        // hull mildly over-covers the pinch - the usual standoff trade). A
         // coarse analytic sampling keeps this cheap; degenerate extents fall
         // back to a bounding sphere.
         let points =
@@ -1058,7 +1058,7 @@ impl PrimitiveShape for BlobGroupShape<'_> {
         )
     }
     fn analytical_collider(&self) -> Option<Collider> {
-        // Hull of the additive elements' support samples — carves are
+        // Hull of the additive elements' support samples - carves are
         // interior detail a standoff hull rightly ignores.
         let points = blob_hull_points(self.elements);
         if points.is_empty() {

@@ -1,4 +1,4 @@
-//! Owner Notice Board — the Wild-West identity monument (#975).
+//! Owner Notice Board - the Wild-West identity monument (#975).
 //!
 //! The board outside the sheriff's office: rough-sawn posts on a stone cairn
 //! carry a plank board under a tin awning, the room owner's likeness pinned to
@@ -56,7 +56,7 @@ impl CatalogueEntry for WildWestMonument {
 }
 
 fn build_tree(did: &str) -> Generator {
-    // Stone cairn footing — the root, flat, so the canted post above spins
+    // Stone cairn footing - the root, flat, so the canted post above spins
     // nothing.
     let cairn = prim(
         solid(cuboid_tapered([3.4, 0.4, 1.6], 0.16, stone(STONE_TAN))),
@@ -110,7 +110,7 @@ fn board(did: &str) -> Vec<Generator> {
     let z = -0.15;
     let bat = 0.13;
     let mut out = vec![
-        // Plank backing — the panel is single-sided, and a notice board is a
+        // Plank backing - the panel is single-sided, and a notice board is a
         // solid sheet of boards.
         prim(
             solid(cuboid_tapered(
@@ -156,7 +156,7 @@ fn board(did: &str) -> Vec<Generator> {
     out
 }
 
-/// An iron hitching rail across the front, on two short stubs — the prop that
+/// An iron hitching rail across the front, on two short stubs - the prop that
 /// says main street rather than parish noticeboard.
 fn rail() -> Generator {
     prim(

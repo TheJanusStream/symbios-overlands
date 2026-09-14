@@ -1,4 +1,4 @@
-//! Parked car — a Modern-City prop. A generic sedan: a glossy enamel body
+//! Parked car - a Modern-City prop. A generic sedan: a glossy enamel body
 //! with a glazed cabin and dark wheels, left at the kerb.
 
 use std::f32::consts::FRAC_PI_2;
@@ -47,7 +47,7 @@ impl CatalogueEntry for ParkedCar {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Lower body — the root.
+        // Lower body - the root.
         prim(
             solid(cuboid_tapered([4.2, 0.7, 1.9], 0.08, enamel(CAR_BODY))),
             [0.0, 0.6, 0.0],

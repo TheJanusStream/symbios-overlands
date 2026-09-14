@@ -148,8 +148,8 @@ impl Sanitize for AudioParams {
                 truncate_chars(url, limits::MAX_CONTACT_AUDIO_URL);
                 // The one asset reference #1127's rule never saw (#1248
                 // f345). Every other URL-carrying reference goes through
-                // it — `SignSource` directly, and the `Referenced` texture
-                // and audio arms by delegation — while a contact cue, which
+                // it - `SignSource` directly, and the `Referenced` texture
+                // and audio arms by delegation - while a contact cue, which
                 // fires when a VISITOR's own avatar touches geometry and is
                 // therefore the most reliable presence beacon of the three,
                 // was length-truncated and otherwise followed anywhere the
@@ -174,7 +174,7 @@ impl Sanitize for RecipeParticle {
         // Clamp the procedural sprite's atlas dims + per-feature loop
         // counts (the shared `SovereignTextureConfig` sanitiser) so a
         // hostile record can't smuggle an unbounded sprite bake through
-        // the contact-burst slot — the same guard the ParticleSystem
+        // the contact-burst slot - the same guard the ParticleSystem
         // sanitiser applies to its procedural texture.
         self.procedural_texture.sanitize();
 
@@ -227,7 +227,7 @@ impl Sanitize for RecipeParticle {
             self.end_color.0[i] = unit(self.end_color.0[i], if i == 3 { 0.0 } else { 1.0 });
         }
 
-        // Emitter spawn shape — same bounds the ParticleSystem
+        // Emitter spawn shape - same bounds the ParticleSystem
         // sanitiser applies (kept inline rather than coupling the two
         // sanitisers' signatures).
         match &mut self.shape {

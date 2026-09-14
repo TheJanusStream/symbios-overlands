@@ -1,18 +1,18 @@
-//! Terrain probe — flat-region segmentation over the derive-time proxy
+//! Terrain probe - flat-region segmentation over the derive-time proxy
 //! heightmap (#905).
 //!
 //! The settlement deriver used to place structures blind, by RNG angles
 //! and distances alone; the compile-time snap then draped them over
-//! whatever the terrain happened to be — including 45° rock faces. This
+//! whatever the terrain happened to be - including 45° rock faces. This
 //! module gives the deriver eyes: a low-resolution proxy of the room's
 //! heightmap (see `gen_jobs::run_heightmap_proxy`) is segmented into
-//! **buildable regions** — connected spans of ground that are both
-//! gentler than a slope limit and above the water line — and the
+//! **buildable regions** - connected spans of ground that are both
+//! gentler than a slope limit and above the water line - and the
 //! settlement deriver sites its clusters inside them.
 //!
 //! Coordinates: the terrain mesh is spawned centred on the room origin
-//! (the spawn point), so every world-facing API here uses centred XZ —
-//! `[-extent/2, +extent/2]` — matching settlement member offsets.
+//! (the spawn point), so every world-facing API here uses centred XZ -
+//! `[-extent/2, +extent/2]` - matching settlement member offsets.
 //!
 //! The proxy is an approximation of the full-resolution map, so
 //! consumers pair a conservative [slope limit](TerrainProbe::new) with
@@ -22,7 +22,7 @@
 use gen_jobs::HeightmapData;
 
 /// Cells this close to the water line (in metres of height) count as
-/// shoreline and are not buildable — keeps settlements off the beach
+/// shoreline and are not buildable - keeps settlements off the beach
 /// splash zone even when the slope there is gentle.
 const WATER_MARGIN: f32 = 0.75;
 
@@ -33,7 +33,7 @@ const MIN_REGION_CELLS: usize = 3;
 /// Share of a scatter's disc that must satisfy a microbiome band for the
 /// band to be kept (#913). Below this the band is treated as unsatisfiable
 /// and dropped, because the ground it leaves also has to survive the biome
-/// allow-list and the slope cutoff — so a band clinging to a few percent of
+/// allow-list and the slope cutoff - so a band clinging to a few percent of
 /// the disc empties the scatter rather than zoning it.
 const MIN_BAND_COVERAGE: f32 = 0.08;
 
@@ -59,7 +59,7 @@ pub struct TerrainProbe {
     grid: usize,
     /// Metres between adjacent proxy cells.
     cell: f32,
-    /// Half the world extent — world XZ = grid index × cell − half.
+    /// Half the world extent - world XZ = grid index × cell − half.
     half: f32,
     heights: Vec<f32>,
     /// Per-cell slope as rise/run to the steepest 4-neighbour.
@@ -104,7 +104,7 @@ impl TerrainProbe {
         let buildable = |i: usize| slopes[i] <= slope_limit && heights[i] > water_y + WATER_MARGIN;
 
         // Connected components over the buildable mask (4-connectivity,
-        // explicit stack — the proxy is small but recursion depth is
+        // explicit stack - the proxy is small but recursion depth is
         // unbounded in the worst case).
         let mut region_of = vec![u32::MAX; grid * grid];
         let mut regions: Vec<BuildableRegion> = Vec::new();
@@ -209,7 +209,7 @@ impl TerrainProbe {
     }
 
     /// Fraction of the proxy cells inside the disc whose height satisfies
-    /// `band` (offset into the band's frame — pass the water line for an
+    /// `band` (offset into the band's frame - pass the water line for an
     /// above-water band, `0.0` for an absolute altitude one). `None` when
     /// the disc covers no cell at all.
     fn band_coverage(
@@ -244,11 +244,11 @@ impl TerrainProbe {
     ///
     /// A microbiome band is a preference expressed over ground the scatter
     /// can actually reach. When the deriver rolls a patch centre onto
-    /// terrain that sits almost entirely below an altitude floor — or above
-    /// a riparian ceiling — the band stops zoning the patch and simply
+    /// terrain that sits almost entirely below an altitude floor - or above
+    /// a riparian ceiling - the band stops zoning the patch and simply
     /// deletes it: measured across 14 seeds, one lichen scatter went to
     /// 0/230 placed. Relaxing to "unbanded" there keeps the patch present,
-    /// which is the lesser wrong — a slightly mis-zoned patch reads as
+    /// which is the lesser wrong - a slightly mis-zoned patch reads as
     /// vegetation, an absent one reads as a bug.
     ///
     /// The test is a COVERAGE FRACTION, not "does any cell qualify".
@@ -278,7 +278,7 @@ impl TerrainProbe {
         }
         // A water band that reaches BELOW the waterline is not zoning, it is
         // an aquatic species' habitat (#914): lilies over the shallow bed,
-        // reeds wading the margin. Relaxing it would not mis-zone a patch —
+        // reeds wading the margin. Relaxing it would not mis-zone a patch -
         // it would move the species out of the water entirely (pads tiling a
         // deep lake, reeds across dry upland). A patch whose disc missed the
         // water placing nothing is the correct outcome there.
@@ -294,7 +294,7 @@ impl TerrainProbe {
 
     /// The buildable cell of `region` closest to `desired` that also
     /// keeps at least the paired radius away from every entry of
-    /// `keep_clear` — or `None` if the region has no such cell. The
+    /// `keep_clear` - or `None` if the region has no such cell. The
     /// returned position is the cell's centred world XZ.
     pub fn snap_to_region(
         &self,
@@ -418,12 +418,12 @@ mod tests {
             if (7..=9).contains(&x) { 2.0 } else { 20.0 }
         });
         // Two plateau regions; the ravine floor is its own flat strip but
-        // low — still above water 0, so it also segments. Expect exactly:
+        // low - still above water 0, so it also segments. Expect exactly:
         // left plateau, right plateau, ravine floor (x==8 column only,
         // 17 cells).
         assert_eq!(p.regions().len(), 3, "{:?}", p.regions());
         // Largest two are the plateaus (the columns bordering the ravine
-        // wall are rightly excluded — their steepest neighbour is the drop).
+        // wall are rightly excluded - their steepest neighbour is the drop).
         assert!(p.regions()[0].cell_count >= 17 * 6);
         assert!(p.regions()[1].cell_count >= 17 * 6);
         // One plateau centroid is left of origin, the other right.
@@ -489,8 +489,8 @@ mod proxy_fidelity {
     //! about the terrain's height distribution, so guard it.
     //!
     //! This was written as a throwaway diagnostic while chasing a scatter
-    //! that placed nothing, to rule the proxy in or out. It ruled it out —
-    //! the two track each other to within a couple of percent — and the
+    //! that placed nothing, to rule the proxy in or out. It ruled it out -
+    //! the two track each other to within a couple of percent - and the
     //! measurement is worth keeping, because if that ever stops being true
     //! the relaxation starts trusting the wrong map and the symptom is a
     //! silently empty patch of ground rather than a failure.
@@ -511,7 +511,7 @@ mod proxy_fidelity {
             let pmean = proxy.data.iter().sum::<f32>() / proxy.data.len() as f32;
             let fmean = full.data().iter().sum::<f32>() / full.data().len() as f32;
 
-            // Generous bounds — this guards against the proxy drifting into
+            // Generous bounds - this guards against the proxy drifting into
             // a different terrain, not against ordinary resampling error.
             let rel = |a: f32, b: f32| (a - b).abs() / b.abs().max(1.0);
             assert!(

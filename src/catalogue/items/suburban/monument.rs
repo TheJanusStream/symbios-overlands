@@ -1,10 +1,10 @@
-//! Owner Yard Board — the Suburban identity monument (#975).
+//! Owner Yard Board - the Suburban identity monument (#975).
 //!
 //! The subdivision notice board: two white-painted posts on a brick footing
 //! carry a shingled gable cap, and the room owner's portrait sits under it
 //! behind white casing, with a coach lamp on one post and clipped hedge at the
 //! foot. The board at the mouth of a street that says whose neighbourhood this
-//! is — the same object the theme's gateway already speaks in.
+//! is - the same object the theme's gateway already speaks in.
 //!
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
@@ -24,7 +24,7 @@ use super::{
 
 const PANEL: f32 = 1.8;
 const PANEL_Y: f32 = 3.0;
-/// Brick length in metres — a real 215 mm brick (#966).
+/// Brick length in metres - a real 215 mm brick (#966).
 const BRICK_LEN: f32 = 0.215;
 /// Coach-lamp amber, deep-saturated at low strength so it reads as a colour
 /// under bloom rather than washing to white.
@@ -113,7 +113,7 @@ fn pier(x: f32) -> Generator {
     )
 }
 
-/// The head beam spanning the piers — and the parent of the board and the cap
+/// The head beam spanning the piers - and the parent of the board and the cap
 /// it carries.
 fn head() -> Generator {
     prim(
@@ -128,7 +128,7 @@ fn board(did: &str) -> Vec<Generator> {
     let z = -0.14;
     let case = 0.14;
     let mut out = vec![
-        // Painted backing board — the panel is single-sided, and a notice
+        // Painted backing board - the panel is single-sided, and a notice
         // board is solid from behind.
         prim(
             solid(cuboid_tapered(
@@ -151,7 +151,7 @@ fn board(did: &str) -> Vec<Generator> {
             id_quat(),
         ),
     ];
-    // White casing round the portrait — proud, and never sized to meet the
+    // White casing round the portrait - proud, and never sized to meet the
     // backing exactly.
     for sx in [-1.0_f32, 1.0] {
         out.push(prim(
@@ -174,7 +174,7 @@ fn board(did: &str) -> Vec<Generator> {
     out
 }
 
-/// A black coach lamp on one pier — the kit's signature light, and what keeps
+/// A black coach lamp on one pier - the kit's signature light, and what keeps
 /// the paint and the shingle alive at dusk.
 fn coach_lamp(x: f32) -> Generator {
     let housing = prim(

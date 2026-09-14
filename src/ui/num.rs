@@ -7,13 +7,13 @@
 //! branch simply does not run, so the field snaps back to its old value
 //! with no error, no tooltip and no toast. Comma-decimal locales cover
 //! most of Europe and Latin America, and typing a number is the single
-//! most repeated action in the World Editor — a field that discards your
+//! most repeated action in the World Editor - a field that discards your
 //! input without saying so reads as an app that has stopped responding,
 //! and the natural conclusion (the value is locked) is wrong.
 //!
 //! **The fix has to be per-widget, so it has to be per-construction
 //! site.** egui offers `custom_parser` on the builder and nothing at the
-//! `Style` level — `Style::number_formatter` is output only
+//! `Style` level - `Style::number_formatter` is output only
 //! (`drag_value.rs:534`, `:727`). The review's own proposal was a helper
 //! inside `room::widgets`, and its refuter caught why that is not enough:
 //! 16 files build these widgets directly, so the avatar, settings, gizmo
@@ -42,8 +42,8 @@ pub(crate) fn slider<Num: egui::emath::Numeric>(
 
 /// Parse a number written the way the typist's locale writes it.
 ///
-/// egui's leniency first — whitespace anywhere is ignored, so a thousands
-/// space works, and U+2212 MINUS SIGN folds to a hyphen — then the
+/// egui's leniency first - whitespace anywhere is ignored, so a thousands
+/// space works, and U+2212 MINUS SIGN folds to a hyphen - then the
 /// separators:
 ///
 /// **Both separators present: the LAST one is the decimal point.** That
@@ -53,11 +53,11 @@ pub(crate) fn slider<Num: egui::emath::Numeric>(
 ///
 /// **Only commas, exactly one of them, not followed by exactly three
 /// digits: it is a decimal comma.** This is the case the finding is
-/// about — `1,5` — and it is unambiguous.
+/// about - `1,5` - and it is unambiguous.
 ///
 /// **Only commas, any other shape: they group digits and are dropped.**
 /// `1,234,567` can only be grouping. `1,234` genuinely cannot be
-/// resolved — 1234 to one reader and 1.234 to another — and this is the
+/// resolved - 1234 to one reader and 1.234 to another - and this is the
 /// one place the answer is a convention rather than a deduction: the
 /// three-digit group wins, so it reads as 1234. Chosen because it is the
 /// same answer the unambiguous multi-comma case gives, which keeps one
@@ -138,7 +138,7 @@ mod tests {
     /// The one genuinely ambiguous shape resolves the same way the
     /// unambiguous grouped ones do (#1264 f364).
     ///
-    /// Not an accident and not a deduction — a convention, pinned here so
+    /// Not an accident and not a deduction - a convention, pinned here so
     /// that changing it is a decision somebody makes on purpose.
     #[test]
     fn a_lone_three_digit_group_reads_as_grouping() {

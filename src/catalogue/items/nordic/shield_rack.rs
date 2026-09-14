@@ -1,4 +1,4 @@
-//! Shield rack — a Nordic prop. A timber rail between two carved posts hung
+//! Shield rack - a Nordic prop. A timber rail between two carved posts hung
 //! with painted round shields, a couple of leaning spears, and a slung war
 //! axe: the wall of arms outside a warrior's door. The shields face the
 //! shore (-Z hero front).
@@ -54,7 +54,7 @@ fn build_tree() -> Generator {
     let rail_y = 2.2;
 
     let mut prims = vec![
-        // Ground sill — the root.
+        // Ground sill - the root.
         prim(
             solid(cuboid_tapered([3.4, 0.2, 0.4], 0.0, timber(WOOD_DARK))),
             [0.0, 0.1, 0.0],

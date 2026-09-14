@@ -1,4 +1,4 @@
-//! Creep patch — an Alien-Organic prop. A spreading mat of fleshy creep
+//! Creep patch - an Alien-Organic prop. A spreading mat of fleshy creep
 //! swelling in rounded lobes, glowing nodules budding from it and a couple of
 //! little tendril-nubs writhing up. Scatter clutter carpeting the colony
 //! floor; the nodules are emissive trim the ruin pass can darken.
@@ -46,8 +46,8 @@ impl CatalogueEntry for CreepPatch {
 }
 
 fn build_tree() -> Generator {
-    // Thin creep slick — the root, a flat cylinder mat. CRITICAL: the root
-    // must carry an IDENTITY scale — assemble() reparents the nodules + nubs
+    // Thin creep slick - the root, a flat cylinder mat. CRITICAL: the root
+    // must carry an IDENTITY scale - assemble() reparents the nodules + nubs
     // under it and Bevy propagates the root's scale to all children, so a
     // flattened (non-uniform-scale) sphere root would squash the glowing
     // nodules flat into the mat (the root-SCALE sibling of the rotated-root
@@ -57,7 +57,7 @@ fn build_tree() -> Generator {
         [0.0, 0.08, 0.0],
         id_quat(),
     )];
-    // Rounded creep bulges swelling up from the mat (round blobs — not
+    // Rounded creep bulges swelling up from the mat (round blobs - not
     // z-fight), each a different swell height so the patch reads as knobbly.
     for (cx, cz, r, sy) in [
         (0.55_f32, 0.2_f32, 0.55_f32, 0.62_f32),
@@ -72,7 +72,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Glowing nodules budding from the bulges — deep green, sitting clearly
+    // Glowing nodules budding from the bulges - deep green, sitting clearly
     // proud on top of the swells so they read (now un-squashed: the root is
     // identity-scale).
     for (cx, cz, y, r) in [

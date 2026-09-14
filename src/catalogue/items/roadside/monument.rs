@@ -1,4 +1,4 @@
-//! Owner Billboard — the Roadside identity monument (#975).
+//! Owner Billboard - the Roadside identity monument (#975).
 //!
 //! The small highway board with the room owner's face on it: a chrome-collared
 //! steel pole on a concrete footing carries a cream-framed billboard, two
@@ -52,7 +52,7 @@ impl CatalogueEntry for RoadsideMonument {
 }
 
 fn build_tree(did: &str) -> Generator {
-    // Concrete footing — the root, and the only thing touching the ground:
+    // Concrete footing - the root, and the only thing touching the ground:
     // a billboard is a single mast, not a frame on legs.
     let pad = prim(
         solid(cuboid_tapered(
@@ -91,7 +91,7 @@ fn board(did: &str) -> Vec<Generator> {
     let z = -0.16;
     let fr = 0.16;
     let mut out = vec![
-        // Enamel backing — the panel is single-sided, and a billboard's back
+        // Enamel backing - the panel is single-sided, and a billboard's back
         // is a blank painted sheet, not a hole.
         prim(
             solid(cuboid_tapered(
@@ -103,7 +103,7 @@ fn board(did: &str) -> Vec<Generator> {
             id_quat(),
         ),
         pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
-        // Neon strip under the frame — deep-saturated at low strength, so it
+        // Neon strip under the frame - deep-saturated at low strength, so it
         // reads as a colour under bloom instead of washing to white.
         prim(
             cuboid_tapered([PANEL + 0.4, 0.09, 0.09], 0.0, glow(NEON_CYAN, 1.5)),

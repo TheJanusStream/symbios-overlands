@@ -1,4 +1,4 @@
-//! Chitinous hive — the Alien-Organic landmark and the kit's lit hero. A
+//! Chitinous hive - the Alien-Organic landmark and the kit's lit hero. A
 //! swelling tower of stacked chitin bulbs girdled by carapace ribs, a cluster
 //! of venting chimney-spouts at the crown, biolume pods glowing through the
 //! shell, a glowing maw ringed with fangs on its front, brood pods budding at
@@ -59,7 +59,7 @@ impl CatalogueEntry for ChitinousHive {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Base chitin bulb — the root (id_quat).
+        // Base chitin bulb - the root (id_quat).
         prim(
             solid(sphere(3.5, 4, chitin(CHITIN_DARK))),
             [0.0, 2.5, 0.0],
@@ -105,7 +105,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Biolume pods glowing through the shell — clustered, proud, deep cyan.
+    // Biolume pods glowing through the shell - clustered, proud, deep cyan.
     for i in 0..6 {
         let a = i as f32 / 6.0 * TAU + 0.3;
         let y = 3.2 + (i % 3) as f32 * 1.3;
@@ -138,7 +138,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Brood pods budding at the foot — a couple lit, the next generation.
+    // Brood pods budding at the foot - a couple lit, the next generation.
     for (px, pz, lit) in [
         (-2.6_f32, 1.4_f32, true),
         (2.5, 1.0, false),

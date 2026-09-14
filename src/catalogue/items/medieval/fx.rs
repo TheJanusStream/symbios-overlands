@@ -1,6 +1,6 @@
 //! Medieval "bring-it-to-life" helpers: small nested particle emitters
 //! and a spatial-audio patch that the kit's structures hang on signature
-//! elements — sooty smoke and leaping sparks off the blacksmith's forge,
+//! elements - sooty smoke and leaping sparks off the blacksmith's forge,
 //! a thin curl of woodsmoke from the hovel's roof hole, and a fire crackle
 //! on the forge hearth.
 //!
@@ -79,7 +79,7 @@ pub(super) fn forge_sparks(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// A short licking flame for the forge mouth — small, low, additive.
+/// A short licking flame for the forge mouth - small, low, additive.
 pub(super) fn forge_flame(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
         burst: 0,
@@ -139,7 +139,7 @@ pub(super) fn hearth_smoke(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patch
 // ---------------------------------------------------------------------------
 
-/// A warm, irregular fire crackle — band-passed noise pulsed by a slow LFO
+/// A warm, irregular fire crackle - band-passed noise pulsed by a slow LFO
 /// over a low ember rumble. The voice of the forge hearth.
 pub(super) fn fire_crackle() -> SovereignAudioConfig {
     FireCrackle {

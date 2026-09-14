@@ -1,4 +1,4 @@
-//! Trailing ivy — a fan of juvenile ivy shoots that runs out from its crown
+//! Trailing ivy - a fan of juvenile ivy shoots that runs out from its crown
 //! and hangs over whatever edge it reaches (#972, the civic planter's edge
 //! planting). A variegated leaf, cream at the margin, so it reads against
 //! the dark clipped box it is planted under.
@@ -7,28 +7,28 @@
 //! shoot has no stiffness to speak of, so the shoots are launched a little
 //! above horizontal and gravity does the rest: tropism bends each drawn
 //! segment by `elasticity·|H × T|`, and because the bend is per segment the
-//! droop knob is the segment count (playbook §4) — eleven short internodes
+//! droop knob is the segment count (playbook §4) - eleven short internodes
 //! arc over and fall, where two long ones would stay a stiff spike. The same
 //! rule, read the other way, is what clears a container's rim: each shoot's
 //! first internode is its oldest, stiffest wood and is drawn as ONE segment
 //! (`F(rise)`), so it takes one bend where the young shoot beyond it takes
-//! one per node — it climbs over the coping before gravity wins.
+//! one per node - it climbs over the coping before gravity wins.
 //!
 //! **Growth.** Subapical and one internode per step (`V(n)` carries its own
-//! node count, playbook §1 — `age` is per-rewrite), so iteration count is the
+//! node count, playbook §1 - `age` is per-rewrite), so iteration count is the
 //! shoots' length. The seed is spent on topology rather than on angles (§7):
 //! a stall alternative leaves shoots that rested a step shorter, and a
 //! branch alternative sprouts a side shoot that starts three nodes older, so
 //! the trailing edge comes out ragged instead of a fringe cut to one length.
-//! Side shoots break only from the fourth node on — past a rim, where a
-//! lateral has room — because one breaking at the rim runs along it and
+//! Side shoots break only from the fourth node on - past a rim, where a
+//! lateral has room - because one breaking at the rim runs along it and
 //! droops into the stone. (The guard language's `and` is a single `&`.)
 //!
 //! **Leaves.** Ivy on a juvenile shoot is alternate and two-ranked, so each
 //! node rolls `/(180)`. The leaf is YAWED off the stem, not pitched: a card's
 //! plane is the turtle's heading and pitch axis, and a yaw keeps it in that
 //! plane, so on a shoot hanging down a wall every leaf lies flat against the
-//! wall with its face outward — which is how ivy actually hangs.
+//! wall with its face outward - which is how ivy actually hangs.
 //!
 //! The fan is authored toward the plant's own `-Z`; a container turns the
 //! node to aim it. Slots: 0 bark (the stem), 2 leaf. There is no twig
@@ -78,7 +78,7 @@ const SHOOTS: [(f32, f32); 9] = [
 
 pub(crate) fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
-    // 0 — thin green-brown ivy stem.
+    // 0 - thin green-brown ivy stem.
     materials.insert(
         0,
         SovereignMaterialSettings {
@@ -87,8 +87,8 @@ pub(crate) fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 2 — variegated juvenile ivy leaf: five-lobed (two a side plus the
-    // tip), no teeth, a pale gold margin over a mid green — a cream one
+    // 2 - variegated juvenile ivy leaf: five-lobed (two a side plus the
+    // tip), no teeth, a pale gold margin over a mid green - a cream one
     // washes out to grey at a few metres.
     materials.insert(
         2,

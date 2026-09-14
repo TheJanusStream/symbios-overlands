@@ -14,7 +14,7 @@ use symbios_avatar::anim::driver::Source;
 use symbios_avatar::anim::{gait, gesture};
 use symbios_avatar::{Limb, Pose, Speed};
 
-/// A minimal world carrying every store the spawn path touches — the
+/// A minimal world carrying every store the spawn path touches - the
 /// same skeleton `tests/freeze_rigid_body.rs` builds.
 fn test_app() -> App {
     let mut app = App::new();
@@ -41,7 +41,7 @@ fn rigged_record(resolved: ResolvedRig) -> AvatarRecord {
 
 /// #1066: the body must face where the chassis is going.
 ///
-/// The engine and Bevy disagree about forward — `landmark::FORWARD` is
+/// The engine and Bevy disagree about forward - `landmark::FORWARD` is
 /// `+Z` (the glTF/VRM convention), Bevy's is `-Z`, and the chassis is
 /// aimed with `Transform::looking_to`, which points *its* `-Z` down the
 /// direction of travel. Without the half turn on the rigged root the
@@ -80,7 +80,7 @@ fn a_rigged_body_faces_the_way_its_chassis_travels() {
         "the body's chest must point down Bevy's forward (-Z), the axis \
          `looking_to` aims at the direction of travel; got {facing}"
     );
-    // And the turn must be a pure yaw — a body tipped or rolled here
+    // And the turn must be a pure yaw - a body tipped or rolled here
     // would plant its feet through the floor.
     let up = rigged_root_transform(0.9).rotation * Vec3::Y;
     assert!(
@@ -120,14 +120,14 @@ fn chassis_with_body(app: &mut App) -> (Entity, Entity) {
 /// bare transform only gets at `PostUpdate`'s propagation: in `Update` it
 /// still holds LAST frame's playout, so each frame's displacement was
 /// travelled over the frame BEFORE. Divided by this frame's delta instead, a
-/// peer walking steadily read `v × previous / this` — twice its speed on the
+/// peer walking steadily read `v × previous / this` - twice its speed on the
 /// frame after a dropped vsync frame, and on the frame after a 50–99 ms
 /// hitch enough to push a walk at Froude 0.49 over the engine's 0.5 walk-run
 /// transition, which has no hysteresis. `probe_a_walking_peer_against_the_
 /// walk_run_transition` measured that; this pins the arithmetic under it.
 ///
-/// **Driven through the app's real schedule shape** — `app.update()` with
-/// Bevy's own transform propagation and a manually stepped clock — rather
+/// **Driven through the app's real schedule shape** - `app.update()` with
+/// Bevy's own transform propagation and a manually stepped clock - rather
 /// than by writing `GlobalTransform` by hand, because the lag IS the
 /// schedule: a harness that writes `GlobalTransform` in-frame measures a
 /// fill the app does not have. If the premise ever changes (something
@@ -209,7 +209,7 @@ fn a_peers_speed_is_its_travel_over_the_frame_the_travel_took() {
 }
 
 /// The driver on a body, which is where the state these instruments read
-/// after a frame — the source, the cycle, the speed, the leap — now lives.
+/// after a frame - the source, the cycle, the speed, the leap - now lives.
 fn driver_of(app: &App, root: Entity) -> &AvatarDriver {
     app.world().get::<AvatarDriver>(root).expect("a driver")
 }
@@ -247,7 +247,7 @@ fn sole_pitch(rig: &symbios_avatar::Rig, pose: &Pose, limb: Limb) -> f32 {
 #[test]
 fn the_procedural_walk_lands_toe_up_and_leaves_toe_down() {
     // **#1069.** This drove `gait::step` and `gait::swing_arms` and stopped,
-    // never `gait::roll_feet` — so every procedurally-driven body walked
+    // never `gait::roll_feet` - so every procedurally-driven body walked
     // with its soles held at their rest attitude: no heel-strike, no
     // toe-off, the whole foot tilting with the shin at full stride. The
     // engine treats the three as one drive sequence and `examples/walkaudit`
@@ -255,7 +255,7 @@ fn the_procedural_walk_lands_toe_up_and_leaves_toe_down() {
     //
     // **Driven through the real pair of systems and read off the `AvatarPose`
     // the body is actually drawn in.** Written first as a loop that called
-    // step/swing_arms/plant/roll itself and asserted on that — which proves
+    // step/swing_arms/plant/roll itself and asserted on that - which proves
     // nothing about this file, because deleting the roll from the system
     // under test leaves such a test passing on its own copy of the
     // sequence. A test that reimplements its subject measures its own
@@ -317,7 +317,7 @@ fn the_procedural_walk_lands_toe_up_and_leaves_toe_down() {
 
     // Walk the chassis forward. No `LinearVelocity` and no transform
     // propagation here, so the speed the driver reads is the one this moves
-    // the `GlobalTransform` by — which is the remote-peer path, and enough
+    // the `GlobalTransform` by - which is the remote-peer path, and enough
     // to select the gait.
     const STEP_SECS: f32 = 1.0 / 60.0;
     const PACE: f32 = 1.3;
@@ -327,7 +327,7 @@ fn the_procedural_walk_lands_toe_up_and_leaves_toe_down() {
         let mut chassis_mut = app.world_mut().entity_mut(chassis);
         // Aimed into the travel the way the app's controller steers a
         // chassis (`looking_to`, whose −Z faces the movement), not a bare
-        // translation — since the foothold ledger (engine #277) the drive
+        // translation - since the foothold ledger (engine #277) the drive
         // is handed the transform the pose renders under, and a chassis
         // marching +Z while facing world −Z is a permanent moonwalk no
         // app state produces: the ledger rightly holds its plants where
@@ -357,23 +357,23 @@ fn the_procedural_walk_lands_toe_up_and_leaves_toe_down() {
     }
     assert!(
         lowest < f32::MAX,
-        "the gait never drove the body — the test never measured anything"
+        "the gait never drove the body - the test never measured anything"
     );
 
     // The literature's bands, which the engine's constants are set against:
     // heel-strike ~15-25 degrees toe-up, push-off ~15-20 toe-down. Asserted
-    // loosely, because what is guarded here is that the stage RUNS — a sole
+    // loosely, because what is guarded here is that the stage RUNS - a sole
     // held flat all cycle reads -0.0 to 0.0 and is a shuffle. What actually
     // arrives through this path is -17.2 to 20.1 degrees, which is
     // `examples/walkaudit`'s own reading upstream: the app is now driving
     // the gait the engine's instrument measures.
     assert!(
         highest > 10.0,
-        "the foot never landed toe-up: peak pitch {highest:.1} deg — roll_feet is not running"
+        "the foot never landed toe-up: peak pitch {highest:.1} deg - roll_feet is not running"
     );
     assert!(
         lowest < -10.0,
-        "the foot never left toe-down: lowest pitch {lowest:.1} deg — roll_feet is not running"
+        "the foot never left toe-down: lowest pitch {lowest:.1} deg - roll_feet is not running"
     );
 }
 
@@ -382,7 +382,7 @@ fn the_procedural_walk_lands_toe_up_and_leaves_toe_down() {
 /// highest the pelvis rode above its standing height.
 ///
 /// Both are read off the `AvatarPose` the body is actually drawn in rather
-/// than recomputed here — a test that reimplements its subject measures its
+/// than recomputed here - a test that reimplements its subject measures its
 /// own arithmetic, which is the lesson
 /// `the_procedural_walk_lands_toe_up_and_leaves_toe_down` records above.
 fn walked_at(metres_per_second: f32) -> (f32, f32) {
@@ -451,7 +451,7 @@ fn walked_at(metres_per_second: f32) -> (f32, f32) {
         let mut chassis_mut = app.world_mut().entity_mut(chassis);
         // Aimed into the travel the way the app's controller steers a
         // chassis (`looking_to`, whose −Z faces the movement), not a bare
-        // translation — since the foothold ledger (engine #277) the drive
+        // translation - since the foothold ledger (engine #277) the drive
         // is handed the transform the pose renders under, and a chassis
         // marching +Z while facing world −Z is a permanent moonwalk no
         // app state produces: the ledger rightly holds its plants where
@@ -487,8 +487,8 @@ fn walked_at(metres_per_second: f32) -> (f32, f32) {
 /// cannot separate a body moving fast from a body whose clock was
 /// relabelled under it. What a change of gait must not do is move the
 /// contact to a different part of its STEP, so the reading is taken on an
-/// axis that does not move when the duty does — half for the stance, half
-/// for the swing — which is exactly the quantity `phase_matched` preserves
+/// axis that does not move when the duty does - half for the stance, half
+/// for the swing - which is exactly the quantity `phase_matched` preserves
 /// and the quantity that jumps when nothing preserves it.
 ///
 /// Taken off the driver's own cycle as the drive actually left it, under
@@ -558,14 +558,14 @@ fn worst_phase_step(from: f32, to: f32, seconds: f32, fps: f32) -> f32 {
     let mut crossed = (false, false);
     for frame in 0..frames {
         // A ramp in speed, integrated into a position the driver reads its
-        // own speed back off — the remote-peer path, and the one that
+        // own speed back off - the remote-peer path, and the one that
         // exercises the transition without a velocity component to fake.
         let pace = from + (to - from) * (frame as f32 / frames as f32);
         at += Vec3::Z * (pace * step_secs);
         let mut chassis_mut = app.world_mut().entity_mut(chassis);
         // Aimed into the travel the way the app's controller steers a
         // chassis (`looking_to`, whose −Z faces the movement), not a bare
-        // translation — since the foothold ledger (engine #277) the drive
+        // translation - since the foothold ledger (engine #277) the drive
         // is handed the transform the pose renders under, and a chassis
         // marching +Z while facing world −Z is a permanent moonwalk no
         // app state produces: the ledger rightly holds its plants where
@@ -588,7 +588,7 @@ fn worst_phase_step(from: f32, to: f32, seconds: f32, fps: f32) -> f32 {
         // the raw ramp.** Since #1192 the pace the clock advances on is
         // eased, so a gait rebuilt here from the chassis' instantaneous
         // speed crosses the walk-run duty step on a different frame than
-        // the driven one did — and a phase read against the wrong duty
+        // the driven one did - and a phase read against the wrong duty
         // reported a near-full-step relabel that never reached a body.
         // The module's own rule: measure the subject, not this file's
         // arithmetic.
@@ -643,7 +643,7 @@ fn worst_phase_step(from: f32, to: f32, seconds: f32, fps: f32) -> f32 {
     }
     assert!(
         crossed.0 && crossed.1,
-        "the sweep never crossed the walk-run transition — it measured one gait"
+        "the sweep never crossed the walk-run transition - it measured one gait"
     );
     assert!(moves.len() > 30, "too few samples to have a median");
     let worst = moves.iter().copied().fold(0.0f32, f32::max);
@@ -680,7 +680,7 @@ fn skate_through_a_speed_change(walk_frames: usize, from: f32, to: f32, ramp_fra
 }
 
 /// As [`skate_through_a_speed_change`], with an emote optionally laid
-/// over the walk for the whole measured window — the system-level half of
+/// over the walk for the whole measured window - the system-level half of
 /// the #329 adoption: the Bow's vocabulary is the body line, pelvis and
 /// hips included, and the promise that the planted soles stay planted
 /// through it belongs to the DRIVE (the settle tail plants stance
@@ -746,7 +746,7 @@ fn skate_through(
     // through its stance, which translates the ankle horizontally while the
     // sole under it has not moved at all. Asking the ankle read 53.5 mm on
     // a body walking at a DEAD CONSTANT speed, which is the roll and not a
-    // skate — and it read the same 53.5 at every phase and under every
+    // skate - and it read the same 53.5 at every phase and under every
     // speed change, which is what a measurement of the wrong thing looks
     // like when the wrong thing is deterministic.
     // **And the SOLE POINTS under them, not the joints themselves**
@@ -757,7 +757,7 @@ fn skate_through(
     // is the same trap the ankle correction above records, one level down.
     // The sole point is the joint's rest position dropped to the ground
     // plane the body was built standing on, carried into the pose by the
-    // ankle it hangs from — which is how `roll_feet` itself models a sole.
+    // ankle it hangs from - which is how `roll_feet` itself models a sole.
     let feet: Vec<(usize, Vec<usize>)> = [Limb::HindLeft, Limb::HindRight]
         .into_iter()
         .filter_map(|limb| {
@@ -773,7 +773,7 @@ fn skate_through(
         let mut chassis_mut = app.world_mut().entity_mut(chassis);
         // Aimed into the travel the way the app's controller steers a
         // chassis (`looking_to`, whose −Z faces the movement), not a bare
-        // translation — since the foothold ledger (engine #277) the drive
+        // translation - since the foothold ledger (engine #277) the drive
         // is handed the transform the pose renders under, and a chassis
         // marching +Z while facing world −Z is a permanent moonwalk no
         // app state produces: the ledger rightly holds its plants where
@@ -860,7 +860,7 @@ fn skate_through(
     // says the FOOT is bearing, and each sole point's own height says
     // whether that point is the one in contact right now. Contact transfers
     // heel to toe through a stance, and a heel that lifts has moved without
-    // sliding — so a point is only asked to hold still while it is down.
+    // sliding - so a point is only asked to hold still while it is down.
     //
     // Per point against itself, never the lowest point of the moment: an
     // argmin whose identity moves compares a heel against a toe, which is
@@ -899,8 +899,8 @@ const STEADY_SKATE_CEILING: f32 = 0.008;
 #[test]
 fn a_walking_body_holds_its_planted_sole_at_every_pace() {
     // **#278, and the acceptance is the CURVE rather than a figure.** The
-    // issue was filed on two speeds — 26.3 mm at 1.4 m/s against 0.8 at
-    // 0.7, thirty-three times the skate for twice the pace — and a pair
+    // issue was filed on two speeds - 26.3 mm at 1.4 m/s against 0.8 at
+    // 0.7, thirty-three times the skate for twice the pace - and a pair
     // cannot show a shape. Swept, the shape is a THRESHOLD between 1.0 and
     // 1.2 m/s, which is neither the square nor the crouch the issue offered
     // as candidates.
@@ -919,7 +919,7 @@ fn a_walking_body_holds_its_planted_sole_at_every_pace() {
     // above the sole it belongs to, so a foot pitching about a point still
     // translates every joint over it, and that added about ten millimetres
     // at every speed (#1082). The second row is the defect itself. The
-    // third is with engine #278 landed — `Walk::settle` no longer rolls the
+    // third is with engine #278 landed - `Walk::settle` no longer rolls the
     // ankles when it has not planted, which is what this file was asking
     // for by driving the head with `footing: None` and settling separately.
     //
@@ -944,20 +944,20 @@ fn a_bow_over_a_walk_keeps_its_planted_soles() {
     // half, with the reasoning, is in
     // `a_gesture_leaves_the_legs_to_the_locomotion_layer`). The Bow
     // pitches the pelvis and swings the hip sockets, so at the clip
-    // level the leg chain moves — and the drive's settle tail then
+    // level the leg chain moves - and the drive's settle tail then
     // plants the stance contacts after the overlay, which is the
     // promise a walking body actually makes: bow mid-walk, and the
     // sole bearing your weight stays essentially put.
     //
     // The ceiling is NOT the steady-pace one, and the difference is the
     // gesture blend, priced deliberately: a gesture starts and ends
-    // through a 0.15 s inertializer (#1068 — dropping it snaps 75-100 mm
+    // through a 0.15 s inertializer (#1068 - dropping it snaps 75-100 mm
     // of joint travel into one frame), and the blend is applied AFTER
     // the settle tail, so through those two windows the drawn foot is a
     // mix of the settled walk and the bowed walk. A wave moves no leg,
     // so its blend dragged nothing; the whole-body bow gives the blend
     // ~13 mm of hip line to mix across, measured 13.9 mm here against
-    // 4.1 steady. The guard holds the whole action under 20 mm — a raw
+    // 4.1 steady. The guard holds the whole action under 20 mm - a raw
     // uncompensated leg track reads an order of magnitude past that.
     let bowed = skate_through(120, 1.0, 1.0, 1, Some(Emote::Bow));
     assert!(
@@ -973,7 +973,7 @@ fn a_bow_over_a_walk_keeps_its_planted_soles() {
 fn probe_whether_changing_speed_slides_a_planted_foot() {
     // **Two controls, one per end speed** (#277). A ramp case ENDS at a
     // different speed than it started, and the first run read a
-    // decelerating body as skating LESS than the steady one — which says
+    // decelerating body as skating LESS than the steady one - which says
     // nothing about changing speed and everything about ending up at
     // 0.7 m/s. Without both controls the ramp columns are uninterpretable.
     for walk in [100usize, 110, 120] {
@@ -1048,7 +1048,7 @@ fn skid_through_a_decelerating_stop(walk_frames: usize, ramp_frames: usize) -> (
     // **The body's seed is pinned, because the figure this reads is a
     // function of it** (#1194). `install_built_body` seeds each body's driver
     // off a process-wide counter, and the idle's seed decides when its
-    // settling weight shift fires and which leg it moves first — the exact
+    // settling weight shift fires and which leg it moves first - the exact
     // mechanism (engine #276) that steps the stopped foot home and so the
     // whole of what this measures. Under `cargo test` the counter's value is
     // how many bodies the OTHER tests in the process had made first, which is
@@ -1078,7 +1078,7 @@ fn skid_through_a_decelerating_stop(walk_frames: usize, ramp_frames: usize) -> (
         let mut chassis_mut = app.world_mut().entity_mut(chassis);
         // Aimed into the travel the way the app's controller steers a
         // chassis (`looking_to`, whose −Z faces the movement), not a bare
-        // translation — since the foothold ledger (engine #277) the drive
+        // translation - since the foothold ledger (engine #277) the drive
         // is handed the transform the pose renders under, and a chassis
         // marching +Z while facing world −Z is a permanent moonwalk no
         // app state produces: the ledger rightly holds its plants where
@@ -1117,7 +1117,7 @@ fn skid_through_a_decelerating_stop(walk_frames: usize, ramp_frames: usize) -> (
     assert!(!planted.is_empty(), "a walking body has a foot down");
     let ahead = gait.until_handoff(driver.cycle());
     let mut held = 0usize;
-    // **World positions, not body-local ones** — `at` is added back in.
+    // **World positions, not body-local ones** - `at` is added back in.
     // With a dead stop the two differ by a constant and the distinction
     // does not matter, which is why the original reading could omit it.
     // The moment the chassis is still MOVING during the measurement (the
@@ -1138,7 +1138,7 @@ fn skid_through_a_decelerating_stop(walk_frames: usize, ramp_frames: usize) -> (
     //
     // **Measured within a STANCE EPISODE, not from the stop instant**, and
     // the distinction is the difference between a skate and a step. A
-    // planted foot is pinned, so everything it does is a skate — but a foot
+    // planted foot is pinned, so everything it does is a skate - but a foot
     // is only planted while the gait says it is. Under the deceleration
     // ramp the body is still genuinely walking, so the foot this follows
     // completes its stance and then SWINGS, and a reading taken from the
@@ -1152,7 +1152,7 @@ fn skid_through_a_decelerating_stop(walk_frames: usize, ramp_frames: usize) -> (
     // ratcheted figure is unchanged by this: the harness got stricter
     // somewhere it was never exercised.
     // **Collected, then judged**, because whether a foot was DOWN on a
-    // given frame is only knowable against the lowest that foot gets — and
+    // given frame is only knowable against the lowest that foot gets - and
     // that is not known until the window is over. See the verdict below.
     let mut track: Vec<Vec<Vec3>> = Vec::with_capacity(60);
     for held_frame in 0..60 {
@@ -1169,7 +1169,7 @@ fn skid_through_a_decelerating_stop(walk_frames: usize, ramp_frames: usize) -> (
         // Whether each followed foot is bearing weight THIS frame, asked of
         // the gait the drive is actually running rather than inferred from
         // the foot's height. A body with no gait left is standing, and a
-        // standing foot is as pinned as a stance one — that is the interval
+        // standing foot is as pinned as a stance one - that is the interval
         // the blend drags it through, and it is the whole reading.
         let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
         let posed = pose.forward(&rig);
@@ -1183,7 +1183,7 @@ fn skid_through_a_decelerating_stop(walk_frames: usize, ramp_frames: usize) -> (
 
     // **A foot ON THE GROUND may not move; a foot in the air may.** That is
     // the whole definition of a skate, it is what a viewer actually sees,
-    // and it needs no bookkeeping from the drive — which is the point,
+    // and it needs no bookkeeping from the drive - which is the point,
     // because the drive's own answer changed underneath this harness. It
     // used to be enough to ask the gait, treating a body with no gait left
     // as standing on both feet. Since engine #276 an idle deliberately
@@ -1240,7 +1240,7 @@ fn a_stop_does_not_skate() {
     // **This was a ratchet on a known defect and is now a guard on a fixed
     // one** (#1071, engine #266 and #276). A body that stopped walking used
     // to blend from mid-stride into a stand, dragging the foot that was
-    // bearing its weight — pinned to the ground, so every millimetre of it
+    // bearing its weight - pinned to the ground, so every millimetre of it
     // a skate. It depended entirely on WHEN in the step the body stopped:
     // 15.4 mm near midstance and 297.9 mm at the worst phase.
     //
@@ -1248,18 +1248,18 @@ fn a_stop_does_not_skate() {
     // the change until the next handoff: 351.3 mm. Hold it until the next
     // midstance, which engine #266 proved is the moment the drag is
     // identically zero: 322.2 mm. Neither can win, because a body that
-    // holds keeps striding while whatever stopped it has stopped — the WAIT
+    // holds keeps striding while whatever stopped it has stopped - the WAIT
     // IS ITSELF A SKATE, at about 1.23 m per cycle held on this body, and
     // the best moment only saves 366 mm.
     //
     // What fixed it was not a moment but a mechanism (engine #276): the
     // idle is handed the stance the body arrived in, pins the contacts that
     // were bearing weight, and steps them home one at a time on its own
-    // weight shifts — a foot only ever moving while it is unloaded and off
+    // weight shifts - a foot only ever moving while it is unloaded and off
     // the ground.
     //
     // Swept over a whole cycle's worth of stopping phases, because a single
-    // phase measures one point of a curve that varies by twenty to one —
+    // phase measures one point of a curve that varies by twenty to one -
     // and the first version of this test did exactly that and read the same
     // 203.2 mm with a wait in and with it out.
     //
@@ -1268,8 +1268,8 @@ fn a_stop_does_not_skate() {
     //
     // **THE THRESHOLD WAS SET FOR CROSS-ENVIRONMENT SPREAD, NOT FOR THE
     // MEASUREMENT, FROM #1182 UNTIL THE 0.5.1 ADOPTION BELOW.** This
-    // simulation is deterministic — a fixed seed, a fixed 1/60 s step, no
-    // wall clock — and it still read differently depending on where it
+    // simulation is deterministic - a fixed seed, a fixed 1/60 s step, no
+    // wall clock - and it still read differently depending on where it
     // was COMPILED:
     //
     //     25.4 mm   this repo's dev box (Gentoo-packaged rustc 1.96.1)
@@ -1280,7 +1280,7 @@ fn a_stop_does_not_skate() {
     // documents `f32` transcendentals as platform-dependent, and the gait
     // is built out of them, so the rig's arithmetic is only reproducible
     // against a fixed toolchain BUILD, not merely a fixed version. That is
-    // #1132's finding — recorded there against terrain and scatter —
+    // #1132's finding - recorded there against terrain and scatter -
     // reaching locomotion.
     //
     // Ruled out while chasing it, so nobody re-runs these: it is not the
@@ -1303,13 +1303,13 @@ fn a_stop_does_not_skate() {
     // That was ONE global, not the two the spread suggested: the
     // process-wide counter `next_room_seed` seeds each body's idle
     // from. Traced per sim (#1194), the skid is a function of the stop
-    // phase and the idle seed alone — the same (phase, seed) pair read the
-    // same in every context — and the seed was simply how many bodies the
+    // phase and the idle seed alone - the same (phase, seed) pair read the
+    // same in every context - and the seed was simply how many bodies the
     // process had made before this one: 7..37 alone, and whatever the
     // other tests' interleaving left it at otherwise (the rigged:: filter
     // read 58.83 and then 58.16 on consecutive runs; player:: read 58.83
-    // serialised against 82.09 threaded). Phase dominates — two of the 31
-    // stopping phases read 55-82 mm and the rest 15-40 — and the seed moves
+    // serialised against 82.09 threaded). Phase dominates - two of the 31
+    // stopping phases read 55-82 mm and the rest 15-40 - and the seed moves
     // the bad phase by ±25 mm through when the idle's settling shift fires
     // and which leg it takes first. `skid_through_a_decelerating_stop` now
     // stands its body on `INSTRUMENT_SEED`, and every context reads the one
@@ -1317,14 +1317,14 @@ fn a_stop_does_not_skate() {
     //
     // (57.85 rather than the old 25.41 alone is the routing itself: slerp
     // came off glam's per-backend SIMD polynomial and `to_axis_angle`'s
-    // atan2 off the platform libm — the arithmetic changed, and
+    // atan2 off the platform libm - the arithmetic changed, and
     // reproducible was never going to mean smaller.)
     //
     // So the guard is at 60 mm, 2 mm above the one figure and nearly
-    // 4-fold below the 225.3 mm regression it exists to catch —
+    // 4-fold below the 225.3 mm regression it exists to catch -
     //
     //     57.85 mm   alone, after player::rigged::, after all of player::
-    //                — one figure on INSTRUMENT_SEED (2026-09-02, this
+    //                - one figure on INSTRUMENT_SEED (2026-09-02, this
     //                box, symbios-avatar 0.5.1)
     //
     // If CI reads past it, read the printed figure against that line: a
@@ -1335,7 +1335,7 @@ fn a_stop_does_not_skate() {
         .map(|frames| skid_through_a_stop(frames).0)
         .fold(0.0f32, f32::max);
     // The reading itself, so every run records its figure instead of only
-    // its verdict — the silent environment margin was #1183's complaint,
+    // its verdict - the silent environment margin was #1183's complaint,
     // and the figure-per-context table on #1194 only exists because a run
     // printed one.
     println!("worst stop skid: {:.2} mm", worst * 1000.0);
@@ -1343,7 +1343,7 @@ fn a_stop_does_not_skate() {
         worst < 0.06,
         "a foot standing on the ground slid {:.1} mm through a stop, against 57.85 mm \
          on INSTRUMENT_SEED in every process context (#1194) and 225.3 mm before \
-         engine #276 — a millimetre or two is an unroutable glam site (#1183/#323), \
+         engine #276 - a millimetre or two is an unroutable glam site (#1183/#323), \
          the high 50s to 80s is a body standing on an unpinned seed, and the pre-fix \
          regime reads hundreds.",
         worst * 1000.0
@@ -1354,7 +1354,7 @@ fn a_stop_does_not_skate() {
 fn crossing_the_walk_run_boundary_does_not_relabel_the_clock() {
     // **#1071's item 3, and the defect it removes is invisible in a
     // number and obvious in a body.** The duty falls all the way along
-    // the speed axis and STEPS at the transition — about 0.55 to 0.35 —
+    // the speed axis and STEPS at the transition - about 0.55 to 0.35 -
     // so a cycle fraction handed across unchanged means a different part
     // of the step on the other side, and a foot in mid-swing arrives
     // planted. `transition::carry_cycle` maps it exactly.
@@ -1369,7 +1369,7 @@ fn crossing_the_walk_run_boundary_does_not_relabel_the_clock() {
     //   with it             0.050, 0.025, 0.013
     //
     // The first converges on a tenth of a step that no amount of sampling
-    // removes, at pace 1.72 m/s and duty 0.350 — the transition frame
+    // removes, at pace 1.72 m/s and duty 0.350 - the transition frame
     // itself. The second is exactly the cadence and halves with it.
     let steps: Vec<f32> = [60.0, 120.0, 240.0]
         .into_iter()
@@ -1382,7 +1382,7 @@ fn crossing_the_walk_run_boundary_does_not_relabel_the_clock() {
         assert!(
             pair[1] <= pair[0] * 0.6,
             "the leading contact's phase stepped {:.4} of a step and then {:.4} at twice \
-             the frame rate — a step that does not halve when the sampling doubles is a \
+             the frame rate - a step that does not halve when the sampling doubles is a \
              cliff, and the clock was relabelled under the body",
             pair[0],
             pair[1],
@@ -1409,15 +1409,15 @@ fn a_faster_body_takes_a_longer_step_and_eventually_leaves_the_ground() {
     let (_, fast_crest) = walked_at(3.0);
 
     // **Both samples are walks, and that is deliberate.** A foot's split is
-    // its EXCURSION — how far it slides back under the body across one
-    // stance — and that legitimately FALLS when the body starts running,
+    // its EXCURSION - how far it slides back under the body across one
+    // stance - and that legitimately FALLS when the body starts running,
     // because a running foot is down for a third of the cycle instead of
     // two thirds. Comparing a walk against a run here reads the gait change
     // as a shorter stride and asserts the opposite of the truth.
     assert!(
         brisk_split > slow_split * 1.15,
         "a body at 1.8 m/s split its feet {brisk_split:.3} m against {slow_split:.3} at \
-         1.0 — the stride is still pinned"
+         1.0 - the stride is still pinned"
     );
     // A walking body never rises above its standing height; a running one
     // is a projectile between steps and does. That is the cleanest sign in
@@ -1429,7 +1429,7 @@ fn a_faster_body_takes_a_longer_step_and_eventually_leaves_the_ground() {
     );
     assert!(
         fast_crest > 0.005,
-        "a body at 3 m/s never left the ground: crest {:.1} mm — it is still walking",
+        "a body at 3 m/s never left the ground: crest {:.1} mm - it is still walking",
         fast_crest * 1000.0
     );
 }
@@ -1452,7 +1452,7 @@ fn a_chat_keyword_gestures_the_sender_and_nobody_else() {
 
     // Read off the `Drive` rather than off a driver: these two roots carry
     // no built body, so nothing drives them and the request is still sitting
-    // where `start_emotes` put it — which is exactly the claim, that the
+    // where `start_emotes` put it - which is exactly the claim, that the
     // request reached one body and not the other.
     let gestured = |app: &App, body: Entity| {
         app.world()
@@ -1479,7 +1479,7 @@ fn a_flood_of_keywords_gestures_once() {
     // **On a real body and through the real pair of systems since #1171**,
     // because the cooldown went upstream with the rest of the state machine
     // and a driver only exists where a body does. The claim is unchanged and
-    // it is still this app's to make — the request path has to hand a flood
+    // it is still this app's to make - the request path has to hand a flood
     // over in a way that spends the cooldown exactly once. Asserted on
     // PLAYBACK PROGRESS, which is the one thing a restart cannot fake: a
     // gesture that began again would read zero seconds in.
@@ -1545,7 +1545,7 @@ fn a_flood_of_keywords_gestures_once() {
         .expect("the first keyword should gesture");
     assert_eq!(name, "Greeting", "all three words ask for the same wave");
 
-    // Let it play a little — a quarter of a second, well inside both the
+    // Let it play a little - a quarter of a second, well inside both the
     // gesture's second and a half and the cooldown's two seconds.
     for _ in 0..24 {
         say(&mut app, &[]);
@@ -1580,8 +1580,8 @@ fn a_gesture_leaves_the_legs_to_the_locomotion_layer() {
     // the body still and slide its feet along the ground.
     //
     // Under the clips this was `overlay_gesture`'s rule, enforced with a
-    // joint mask; since #1067 it is a property of the goal-space format —
-    // a clip writes only the parts its tracks address — and THIS is the
+    // joint mask; since #1067 it is a property of the goal-space format -
+    // a clip writes only the parts its tracks address - and THIS is the
     // test that keeps it one: the engine is free to add tracks to a
     // gesture, and one that grows a leg or root track fails here before
     // a walking body ever slides a foot.
@@ -1609,7 +1609,7 @@ fn a_gesture_leaves_the_legs_to_the_locomotion_layer() {
     // rotations read as a third of a milliradian apart and every carrying
     // joint failed.
     let apart = |a: Quat, b: Quat| 1.0 - a.dot(b).abs();
-    // Judged against the rig's own zones — the same question
+    // Judged against the rig's own zones - the same question
     // `gait::swing_arms` asks to decide which limbs are legs, so a body
     // plan nobody has written yet answers it correctly too.
     //
@@ -1617,8 +1617,8 @@ fn a_gesture_leaves_the_legs_to_the_locomotion_layer() {
     // with its meaning.** It used to demand the pelvis and every leg
     // joint's LOCAL rotation stay bit-identical, which was true of the
     // folded 0.4 bow and is exactly what #329 removed: a bow is one
-    // ankle-to-crown line now, so the gesture pitches the pelvis — hip
-    // extension — and counter-rotates the limbs so the legs keep the pose
+    // ankle-to-crown line now, so the gesture pitches the pelvis - hip
+    // extension - and counter-rotates the limbs so the legs keep the pose
     // the step authored. What the locomotion layer actually owns is WHERE
     // THE LEGS ARE: every joint a ground contact hangs its chain on must
     // stay put in space, which a leg track without compensation cannot
@@ -1643,7 +1643,7 @@ fn a_gesture_leaves_the_legs_to_the_locomotion_layer() {
     let planted = walking.forward(rig);
 
     // Every emote in the roster, over the same walk, at three points of
-    // its play — the claim is about the set, not about the wave, and a
+    // its play - the claim is about the set, not about the wave, and a
     // track added to any one of them is exactly what this exists to
     // catch. Mid-gesture alone would miss a key that returns to zero by
     // the middle.
@@ -1654,19 +1654,19 @@ fn a_gesture_leaves_the_legs_to_the_locomotion_layer() {
             clip.apply(rig, &mut posed, through);
             assert_eq!(
                 posed.translation, walking.translation,
-                "{emote:?} moved the root at {through} — a Root track has no \
+                "{emote:?} moved the root at {through} - a Root track has no \
                  business in an emote"
             );
             let gestured = posed.forward(rig);
             // The Bow is the one emote whose vocabulary is the whole body
-            // line (engine #329): it pitches the pelvis — hip extension —
+            // line (engine #329): it pitches the pelvis - hip extension -
             // which swings the hip sockets on an arc, so its leg chain
             // legitimately translates ~13 mm at the clip level. The
             // planted feet are the SYSTEM's promise, not the clip's: the
             // settle tail plants stance contacts after the overlay (#253
             // order), guarded through the full drive by
             // `a_bow_over_a_walk_keeps_its_planted_soles`. What the clip
-            // level still owes is a ceiling — a raw leg track without the
+            // level still owes is a ceiling - a raw leg track without the
             // distribution's compensation swings a foot by hundreds of
             // millimetres, and that must never come back.
             let allowance = if emote == Emote::Bow { 5e-2 } else { 2e-3 };
@@ -1675,7 +1675,7 @@ fn a_gesture_leaves_the_legs_to_the_locomotion_layer() {
                 assert!(
                     moved < allowance,
                     "joint {joint} ({:?}) carries the body and {emote:?} moved it \
-                     {:.1} mm at {through} — a leg belongs to the locomotion layer",
+                     {:.1} mm at {through} - a leg belongs to the locomotion layer",
                     rig.joints[joint].zone,
                     moved * 1000.0
                 );
@@ -1687,7 +1687,7 @@ fn a_gesture_leaves_the_legs_to_the_locomotion_layer() {
             if through == 0.5 {
                 assert!(
                     upper_moved > 0,
-                    "{emote:?} changed nothing at all mid-play — the gesture is not \
+                    "{emote:?} changed nothing at all mid-play - the gesture is not \
                      applying"
                 );
             }
@@ -1739,7 +1739,7 @@ fn kick_starts_one_build_and_tears_down_when_the_body_stops_being_rigged() {
 /// was built from, the per-frame `AvatarRecord` deep compare stops.
 ///
 /// Sequence: a chassis with a rigged record, its full-atlas body already
-/// installed, and no editing going on — a peer standing in a room, which
+/// installed, and no editing going on - a peer standing in a room, which
 /// is the state a session spends nearly all of its frames in.
 #[test]
 fn a_standing_full_atlas_body_latches_out_of_the_per_frame_compare() {
@@ -1778,7 +1778,7 @@ fn a_standing_full_atlas_body_latches_out_of_the_per_frame_compare() {
     );
     assert!(
         app.world().get::<RiggedSteady>(chassis).is_some(),
-        "a reconciled chassis did not latch — the deep compare runs every frame"
+        "a reconciled chassis did not latch - the deep compare runs every frame"
     );
 
     // Standing still keeps the latch.
@@ -1820,7 +1820,7 @@ fn editing_the_record_releases_the_latch_and_kicks_a_rebuild() {
         .expect("latching pass");
     assert!(app.world().get::<RiggedSteady>(chassis).is_some());
 
-    // A different body under the same chassis — an editor slider, or a
+    // A different body under the same chassis - an editor slider, or a
     // peer's next broadcast.
     app.insert_resource(LiveAvatarRecord(rigged_record(ResolvedRig {
         body: engine_default_for_did("did:plc:someone-else"),
@@ -1831,7 +1831,7 @@ fn editing_the_record_releases_the_latch_and_kicks_a_rebuild() {
         .expect("runs");
     assert!(
         app.world().get::<RiggedBuild>(chassis).is_some(),
-        "the record changed and no rebuild was kicked — the latch swallowed the edit"
+        "the record changed and no rebuild was kicked - the latch swallowed the edit"
     );
 }
 
@@ -1868,7 +1868,7 @@ fn a_draft_atlas_body_does_not_latch_so_the_settle_rung_still_arrives() {
         .expect("runs");
     assert!(
         app.world().get::<RiggedSteady>(chassis).is_none(),
-        "a draft-atlas body latched — its full-atlas rung is owed on a TIMER, \
+        "a draft-atlas body latched - its full-atlas rung is owed on a TIMER, \
          and a latched chassis would never look at the clock again"
     );
     // With no `RiggedSettle` stamped, `settled` is true immediately, so
@@ -1900,7 +1900,7 @@ fn a_landed_body_hangs_off_an_offset_root_and_drives_to_a_pose() {
     .expect("the seeded default engine body builds");
     let offset = 0.9;
     // `Avatar` withholds `Clone` on purpose (megabytes of texture), and a
-    // closure system must be `FnMut` — so the one build is taken out of an
+    // closure system must be `FnMut` - so the one build is taken out of an
     // `Option` on the single run.
     let mut built = Some(avatar);
     app.world_mut()
@@ -1946,7 +1946,7 @@ fn a_landed_body_hangs_off_an_offset_root_and_drives_to_a_pose() {
     );
 
     // Drive one frame: zero speed is the Idle source (#1067), which must
-    // still write a pose — the body breathes and the blink is alive.
+    // still write a pose - the body breathes and the blink is alive.
     app.world_mut()
         .resource_mut::<Time>()
         .advance_by(std::time::Duration::from_millis(16));
@@ -1972,8 +1972,8 @@ struct Jumped {
 }
 
 /// Drives one body through a whole jump on a chassis that moves the way
-/// avian moves one — an impulse, then gravity, caught by a floor `ledge`
-/// metres below the one it left — and reports what the drawn body did: whether the walk cycle ever advanced in the air,
+/// avian moves one - an impulse, then gravity, caught by a floor `ledge`
+/// metres below the one it left - and reports what the drawn body did: whether the walk cycle ever advanced in the air,
 /// whether a foot was ever planted in the air, how far the lowest foot
 /// rose at the apex, and whether the landing was ever reached.
 fn jumped(launch: f32, ledge: f32) -> Jumped {
@@ -2038,7 +2038,7 @@ fn jumped(launch: f32, ledge: f32) -> Jumped {
         let mut chassis_mut = app.world_mut().entity_mut(chassis);
         // Aimed into the travel the way the app's controller steers a
         // chassis (`looking_to`, whose −Z faces the movement), not a bare
-        // translation — since the foothold ledger (engine #277) the drive
+        // translation - since the foothold ledger (engine #277) the drive
         // is handed the transform the pose renders under, and a chassis
         // marching +Z while facing world −Z is a permanent moonwalk no
         // app state produces: the ledger rightly holds its plants where
@@ -2128,14 +2128,14 @@ fn jumped(launch: f32, ledge: f32) -> Jumped {
 fn a_body_in_the_air_does_not_march_or_plant_a_foot() {
     // **#1072, and the apex is the whole of it.** This file called a body
     // airborne when |v_y| exceeded 3.5 m/s, which is TRUE at launch, FALSE
-    // through the middle of the jump — at the apex the vertical speed is
-    // zero, which is the most airborne a body ever is — and true again on
+    // through the middle of the jump - at the apex the vertical speed is
+    // zero, which is the most airborne a body ever is - and true again on
     // the way down. So the walk cycle resumed and the feet were planted at
     // the top of every jump. Airborne had to become a state.
     //
     // Driven at the preset's own launch speed: 450 N·s of impulse on an
     // 80 kg humanoid is 5.6 m/s, which is a 1.6 m apex and 1.15 s of
-    // flight — a long time to be marching.
+    // flight - a long time to be marching.
     let jump = jumped(5.6, 0.0);
     let Jumped {
         marched,
@@ -2167,7 +2167,7 @@ fn a_body_in_the_air_does_not_march_or_plant_a_foot() {
 fn a_landing_bends_the_legs_and_does_not_bury_the_body() {
     // **#1073, reported as 'the landings end up underground' and it was.**
     // A landing was built as `Leap::falling(drop)`, whose height carries
-    // `-drop` for the whole stage — because in the engine's model the body
+    // `-drop` for the whole stage - because in the engine's model the body
     // really is that much lower, having landed on a floor below the one it
     // left. Here the chassis has already carried it down, so the two added
     // and the root went under by the entire fall height: 1.6 m on the
@@ -2186,7 +2186,7 @@ fn a_landing_bends_the_legs_and_does_not_bury_the_body() {
     // produced.
     assert!(
         jump.sank < 0.5,
-        "the root sank {:.0} mm into the floor on landing — a leg compressing \
+        "the root sank {:.0} mm into the floor on landing - a leg compressing \
          cannot account for that",
         jump.sank * 1000.0,
     );
@@ -2199,7 +2199,7 @@ fn a_landing_bends_the_legs_and_does_not_bury_the_body() {
     // nothing has not bent its legs at all.
     assert!(
         jump.sank > 0.02,
-        "the root sank {:.0} mm — the landing is not absorbing anything",
+        "the root sank {:.0} mm - the landing is not absorbing anything",
         jump.sank * 1000.0,
     );
 }
@@ -2208,7 +2208,7 @@ fn a_landing_bends_the_legs_and_does_not_bury_the_body() {
 fn stepping_off_a_ledge_flies_before_it_lands() {
     // The second defect in the same line (#1073). A body that walks off an
     // edge never launches, and `Leap::new(0.0)` has a flight of
-    // `(0 + sqrt(0)) / g` — zero — so `stage_at` divided by an epsilon and
+    // `(0 + sqrt(0)) / g` - zero - so `stage_at` divided by an epsilon and
     // reported a LANDING from the first airborne frame: feet planted in
     // mid-air, all the way down. Built from the speed instead, a fall gets
     // a real arc.
@@ -2242,8 +2242,8 @@ fn stepping_off_a_ledge_flies_before_it_lands() {
 /// nothing either way; what says no gait ran is the source assertion
 /// inside the loop and the planted foot below it.
 ///
-/// The pitch is read as the angle between the body's own long axis — root
-/// to head on the posed skeleton — and the world's vertical, so it is a
+/// The pitch is read as the angle between the body's own long axis - root
+/// to head on the posed skeleton - and the world's vertical, so it is a
 /// property of the drawn body rather than a number handed back by the
 /// thing under test.
 fn swam(pace: f32) -> (bool, f32) {
@@ -2328,7 +2328,7 @@ fn swam(pace: f32) -> (bool, f32) {
         let mut chassis_mut = app.world_mut().entity_mut(chassis);
         // Aimed into the travel the way the app's controller steers a
         // chassis (`looking_to`, whose −Z faces the movement), not a bare
-        // translation — since the foothold ledger (engine #277) the drive
+        // translation - since the foothold ledger (engine #277) the drive
         // is handed the transform the pose renders under, and a chassis
         // marching +Z while facing world −Z is a permanent moonwalk no
         // app state produces: the ledger rightly holds its plants where
@@ -2377,17 +2377,17 @@ fn a_swimming_body_treads_at_rest_and_lies_down_to_travel() {
     // test that only looked at the other.
     let (planted, upright) = swam(0.0);
     assert!(!planted, "a treading body planted a foot on the bottom");
-    // Full effort on this body is 0.7 of its length a second — about 1.2
-    // m/s — so 1.4 is comfortably prone.
+    // Full effort on this body is 0.7 of its length a second - about 1.2
+    // m/s - so 1.4 is comfortably prone.
     let (_, prone) = swam(1.4);
     assert!(
         upright < 25.0,
-        "a body treading water hung {upright:.0} deg off vertical — a tread \
+        "a body treading water hung {upright:.0} deg off vertical - a tread \
          is upright"
     );
     assert!(
         prone > 60.0,
-        "a body swimming at 1.4 m/s lay {prone:.0} deg off vertical — a \
+        "a body swimming at 1.4 m/s lay {prone:.0} deg off vertical - a \
          crawl lies along the water"
     );
 }
@@ -2398,9 +2398,9 @@ fn a_standing_body_breathes_instead_of_freezing() {
     // clips a standing body played Idle_A; with them gone the replacement
     // is the engine's idle (#246), and the failure mode of forgetting to
     // wire it is silent: `Rest` writes a perfectly valid pose every frame
-    // — the same one, forever. So the guard is change over time, read off
+    // - the same one, forever. So the guard is change over time, read off
     // the drawn pose: a breathing body's joints move between frames a
-    // second apart, a statue's do not. Blinking cannot satisfy it — the
+    // second apart, a statue's do not. Blinking cannot satisfy it - the
     // eyes are geometry closure, not pose rotations.
     let mut app = test_app();
     let chassis = app
@@ -2444,7 +2444,7 @@ fn a_standing_body_breathes_instead_of_freezing() {
     let root = roots.single(app.world()).expect("one rigged root");
 
     // The chassis never moves; the body is standing. Sampled once a
-    // second for several seconds, because a breath is slow — adjacent
+    // second for several seconds, because a breath is slow - adjacent
     // 16 ms frames of a breathing body are nearly identical too.
     let mut samples: Vec<Pose> = Vec::new();
     for frame in 0..240 {
@@ -2478,7 +2478,7 @@ fn a_standing_body_breathes_instead_of_freezing() {
         .fold(0.0f32, f32::max);
     assert!(
         moved > 1e-6,
-        "four seconds of standing drew a bit-identical skeleton — the idle is not \
+        "four seconds of standing drew a bit-identical skeleton - the idle is not \
          running and every standing body in the room is a statue"
     );
 }
@@ -2489,7 +2489,7 @@ fn a_chat_keyword_changes_the_pose_the_body_is_actually_drawn_in() {
     // test here proves a piece: the keyword scan, the targeting, the
     // cooldown and the overlay arithmetic each pass on their own while the
     // wiring between them could still be wrong. This is the one that fails
-    // if the fill never hands the request over — the exact
+    // if the fill never hands the request over - the exact
     // defect that would otherwise only show up in the running app.
     let mut app = test_app();
     let chassis = app
@@ -2548,7 +2548,7 @@ fn a_chat_keyword_changes_the_pose_the_body_is_actually_drawn_in() {
     let idle = frame(&mut app);
 
     // Now say hello, through the same helper the chat and network layers
-    // call — not by poking the `Drive` directly, which would skip the half
+    // call - not by poking the `Drive` directly, which would skip the half
     // of the path most likely to be miswired.
     let request = crate::player::emote::request_for(chassis, "hello!")
         .expect("\"hello\" asks for a greeting");
@@ -2573,8 +2573,8 @@ fn a_chat_keyword_changes_the_pose_the_body_is_actually_drawn_in() {
 /// body to the bind pose: the part had just been detached to world
 /// space at its animated pose, so its parent moved out from under it
 /// and the selection itself visibly shifted the part. A part selection
-/// must hold the body exactly where it stands — the pose the driver
-/// wrote last frame is the pose it leaves on the root, bit for bit —
+/// must hold the body exactly where it stands - the pose the driver
+/// wrote last frame is the pose it leaves on the root, bit for bit -
 /// while a whole-prop selection still pins the bind pose (#1062).
 #[test]
 fn selecting_a_part_holds_the_pose_as_it_stands() {
@@ -2638,7 +2638,7 @@ fn selecting_a_part_holds_the_pose_as_it_stands() {
         let mut chassis_mut = app.world_mut().entity_mut(chassis);
         // Aimed into the travel the way the app's controller steers a
         // chassis (`looking_to`, whose −Z faces the movement), not a bare
-        // translation — since the foothold ledger (engine #277) the drive
+        // translation - since the foothold ledger (engine #277) the drive
         // is handed the transform the pose renders under, and a chassis
         // marching +Z while facing world −Z is a permanent moonwalk no
         // app state produces: the ledger rightly holds its plants where
@@ -2689,7 +2689,7 @@ fn selecting_a_part_holds_the_pose_as_it_stands() {
     assert_eq!(
         drift(held, &stride),
         0.0,
-        "a part selection re-posed the body (max joint travel {} m) — the detached part \
+        "a part selection re-posed the body (max joint travel {} m) - the detached part \
          was left behind by its own parent",
         drift(held, &stride)
     );
@@ -2715,14 +2715,14 @@ fn selecting_a_part_holds_the_pose_as_it_stands() {
 
 /// How long a doomed build may take to be *scheduled*, and how long the
 /// landing loop waits for a build to come off a chassis. A budget in
-/// seconds, not passes — see [`land_until_settled`] for why the unit matters.
+/// seconds, not passes - see [`land_until_settled`] for why the unit matters.
 const SETTLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// The pool the doomed futures run on: one thread, owned by this module,
 /// idle except for these.
 ///
 /// Deliberately NOT the global `AsyncComputeTaskPool` (#1295). Under one
-/// `cargo test` process — CI's shape, and the second gate in CLAUDE.md — that
+/// `cargo test` process - CI's shape, and the second gate in CLAUDE.md - that
 /// pool is shared with every real build the neighbouring tests kick, and
 /// Bevy's default policy sizes it at a quarter of the cores clamped to
 /// `1..=4`: **one worker** on a four-vCPU runner, four on this machine. A
@@ -2730,7 +2730,7 @@ const SETTLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 /// suite 28x slower waits tens of seconds, and the old landing loop's 2,000
 /// passes with a `yield_now` between them spanned about ten milliseconds. It
 /// passed on every machine that had an idle worker and failed on the one that
-/// had none — which nextest can never show, because it gives each test its
+/// had none - which nextest can never show, because it gives each test its
 /// own process and therefore its own pool. Reproduced here in 0.01 s by
 /// parking one two-second job ahead of the doomed future on a one-worker
 /// pool.
@@ -2746,7 +2746,7 @@ fn doomed_pool() -> &'static bevy::tasks::TaskPool {
 
 /// A [`RiggedBuild`] whose task has already decided it will produce nothing.
 ///
-/// The engine's one documented failure — limbs overlapping at a joint —
+/// The engine's one documented failure - limbs overlapping at a joint -
 /// arrives as `GenResult::Avatar(None)`, so a resolved future carrying that
 /// is the whole of the doomed case; nothing here needs a real mesher.
 ///
@@ -2843,7 +2843,7 @@ fn a_failed_build_tells_the_owner_and_leaves_the_editor_something_to_say() {
     );
     assert!(
         app.world().get::<RiggedApplied>(chassis).is_some(),
-        "the record that failed is still stamped — that is what scopes the claim"
+        "the record that failed is still stamped - that is what scopes the claim"
     );
     assert_eq!(
         toast_lines(&app),
@@ -2851,8 +2851,8 @@ fn a_failed_build_tells_the_owner_and_leaves_the_editor_something_to_say() {
         "the owner is told, once"
     );
 
-    // A second doomed build for the same record — the shape of a re-kick, or
-    // of an edit that lands on an equally impossible body — must not stack a
+    // A second doomed build for the same record - the shape of a re-kick, or
+    // of an edit that lands on an equally impossible body - must not stack a
     // second copy of the same sentence on the toast rail.
     app.world_mut()
         .entity_mut(chassis)
@@ -2898,8 +2898,8 @@ fn a_peers_failed_build_is_recorded_but_not_toasted() {
 /// THE SEQUENCE (#1255 f96, the half the review's refuter found): a doomed
 /// record with NOTHING standing used to re-dispatch its build every frame.
 ///
-/// The stamp's own comment claimed otherwise — "re-kicking the same doomed
-/// record every frame would burn a core" — but the latch it relied on also
+/// The stamp's own comment claimed otherwise - "re-kicking the same doomed
+/// record every frame would burn a core" - but the latch it relied on also
 /// required a root, and a failed build installs none. So the one case the
 /// comment names was the one case it did not cover, and a body the mesher
 /// cannot build burned a core proving it for the rest of the session.
@@ -2913,7 +2913,7 @@ fn a_doomed_record_is_not_rebuilt_every_frame() {
         attachments: Vec::new(),
     })));
     // What a failed build leaves behind: the record it was for, the marker,
-    // and — the whole point — no root.
+    // and - the whole point - no root.
     let chassis = app
         .world_mut()
         .spawn((
@@ -2953,7 +2953,7 @@ fn a_doomed_record_is_not_rebuilt_every_frame() {
         .expect("runs");
     assert!(
         app.world().get::<RiggedBuild>(chassis).is_some(),
-        "moving a slider back must re-kick — otherwise the failure is a dead end"
+        "moving a slider back must re-kick - otherwise the failure is a dead end"
     );
 }
 
@@ -2961,14 +2961,14 @@ fn a_doomed_record_is_not_rebuilt_every_frame() {
 /// walks into their world before their body exists.
 ///
 /// The rigged build is not one of the loading gate's six tasks and cannot
-/// easily become one — `spawn_local_player` is `OnEnter(InGame)`, so during
+/// easily become one - `spawn_local_player` is `OnEnter(InGame)`, so during
 /// `Loading` there is no chassis and no `RiggedBuild` for a gate row to
 /// watch. `spawn_avatar_visuals` returns early for a rigged body and nothing
 /// drew a placeholder, so the answer to "where am I?" was nothing at all.
 ///
 /// `run_system_cached` rather than `run_system_once`: the system caches its
 /// mesh and material in a `Local`, and a fresh `Local` per call would leak
-/// an asset pair per frame — which is the thing the cache exists to stop.
+/// an asset pair per frame - which is the thing the cache exists to stop.
 #[test]
 fn a_body_that_is_not_standing_yet_wears_a_stand_in() {
     let mut app = test_app();
@@ -3009,7 +3009,7 @@ fn a_body_that_is_not_standing_yet_wears_a_stand_in() {
         "a real body must not be worn under a placeholder"
     );
 
-    // …and it comes back if the body goes away again — the failed-build
+    // …and it comes back if the body goes away again - the failed-build
     // case, where `RiggedBuild` is removed with no root installed. A latched
     // "retired" state (which is what the peer stand-in uses, correctly, for
     // a peer that arrives once) would leave that case a void again.
@@ -3019,7 +3019,7 @@ fn a_body_that_is_not_standing_yet_wears_a_stand_in() {
     assert_eq!(
         app.world().get::<Mesh3d>(chassis).map(|m| m.0.clone()),
         first,
-        "one mesh for the session — a body rebuilt per slider drag must not \
+        "one mesh for the session - a body rebuilt per slider drag must not \
          leak an asset per attempt"
     );
 
@@ -3041,7 +3041,7 @@ fn a_body_that_is_not_standing_yet_wears_a_stand_in() {
 /// never coming back": on wasm the first `AvatarBuild` pulls 839 KB of
 /// engine through the gen-worker, and a `gen-worker.js` that 404s looked
 /// exactly like a slow one until the offload watchdog noticed at 60 seconds
-/// — in the diagnostics log, where nobody was looking.
+/// - in the diagnostics log, where nobody was looking.
 #[test]
 fn a_slow_build_announces_itself_once_and_a_fast_one_never_does() {
     bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default);
@@ -3067,7 +3067,7 @@ fn a_slow_build_announces_itself_once_and_a_fast_one_never_does() {
         "a build that lands promptly must not narrate itself"
     );
 
-    // Back-date the kick past the threshold — the wasm cold-start shape.
+    // Back-date the kick past the threshold - the wasm cold-start shape.
     app.world_mut()
         .get_mut::<RiggedBuild>(chassis)
         .expect("the build")
@@ -3088,7 +3088,7 @@ fn a_slow_build_announces_itself_once_and_a_fast_one_never_does() {
 /// and the avatar visibly re-pops at low texture quality every few
 /// characters.
 ///
-/// The engine's `identity` section returns TWO flags — `(changed, noted)` —
+/// The engine's `identity` section returns TWO flags - `(changed, noted)` -
 /// where `noted` means "the record changed and the body did not", and its
 /// doc warns that a host ignoring the distinction "would pay a draft build
 /// per letter". The host ORed them together, and this comparison is where
@@ -3096,7 +3096,7 @@ fn a_slow_build_announces_itself_once_and_a_fast_one_never_does() {
 /// toggle re-armed `RiggedSettle` and dispatched a fresh draft-atlas build.
 ///
 /// Fixed at the comparison rather than by routing the flags, because the
-/// record still has to reach `live.set_changed()` — `capture_avatar_history`
+/// record still has to reach `live.set_changed()` - `capture_avatar_history`
 /// takes the undo snapshot off that tick, and so does the peer preview
 /// broadcast. Only the rebuild's question was wrong, so only it is narrowed.
 #[test]

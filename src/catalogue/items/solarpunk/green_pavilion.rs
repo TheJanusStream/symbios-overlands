@@ -1,4 +1,4 @@
-//! Green-roof pavilion — a Solarpunk secondary. An open timber pavilion under
+//! Green-roof pavilion - a Solarpunk secondary. An open timber pavilion under
 //! a living turf roof, ringed by crop planters, birdsong in the rafters. The
 //! shaded commons of the eco-quarter.
 //!
@@ -54,7 +54,7 @@ fn build_tree() -> Generator {
     let roof_y = deck_h + post_h;
 
     let mut prims = vec![
-        // Concrete deck — the root.
+        // Concrete deck - the root.
         prim(
             solid(cuboid_tapered(
                 [8.0, deck_h, 6.0],
@@ -89,7 +89,7 @@ fn build_tree() -> Generator {
         [0.0, roof_y + 0.15, 0.0],
         id_quat(),
     ));
-    // Pitched living turf roof (a gentle gable, not a flat slab) — eaves at the
+    // Pitched living turf roof (a gentle gable, not a flat slab) - eaves at the
     // ceiling, ridge along X.
     let rise = 1.3_f32;
     prims.push(gable_roof(

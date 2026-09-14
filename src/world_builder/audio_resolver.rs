@@ -9,13 +9,13 @@
 //! Audio references are consumed by two different parts of the engine
 //! and the cache supports both via a single dispatch enum:
 //!
-//! * **Per-entity (constructs)** — a Generator carrying a Referenced
+//! * **Per-entity (constructs)** - a Generator carrying a Referenced
 //!   audio source spawns a construct entity that should hum / drone /
 //!   chime at its world position via spatial audio.
 //!   [`AudioReferenceTarget::AttachToEntity`] inserts an
 //!   [`AudioPlayer`] + [`PlaybackSettings`] on that entity once bytes
 //!   land.
-//! * **Resource (ambient)** — the loading-gate ambient bake (#297)
+//! * **Resource (ambient)** - the loading-gate ambient bake (#297)
 //!   uses [`AudioReferenceTarget::AmbientHandle`] to publish the
 //!   resolved handle into [`crate::loading::AmbientHandle`] so the
 //!   InGame ambient-player spawner picks it up.
@@ -29,7 +29,7 @@
 //!   has its own separate cache because contact cues are scoped to a
 //!   single room and use a different reference type
 //!   ([`crate::pds::AudioClipSource`]). The two caches don't dedup
-//!   across each other — that's a deliberate scope choice to keep #308
+//!   across each other - that's a deliberate scope choice to keep #308
 //!   from churning the proven contact-cue path.
 
 use std::collections::{HashMap, VecDeque};
@@ -45,7 +45,7 @@ use super::asset_failure::{AssetFailure, AssetFetchError, AssetStatus};
 use super::blob_fetch;
 
 /// Cache key for an audio reference. Mirrors the variant shape of the
-/// fetchable [`SovereignAssetReference`] variants — DidPfp is excluded
+/// fetchable [`SovereignAssetReference`] variants - DidPfp is excluded
 /// because it resolves to a profile picture, not an audio blob.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AudioReferenceKey {
@@ -56,7 +56,7 @@ pub enum AudioReferenceKey {
 impl AudioReferenceKey {
     /// Build a cache key from a reference. Returns `None` for
     /// non-fetchable variants (DidPfp, Unknown) and for refs whose
-    /// required fields are empty (placeholder URL etc.) — the cache
+    /// required fields are empty (placeholder URL etc.) - the cache
     /// would otherwise loop on a 404.
     pub fn from_reference(reference: &SovereignAssetReference) -> Option<Self> {
         match reference {
@@ -91,18 +91,18 @@ impl AudioReferenceKey {
 /// Where the resolved [`Handle<AudioSource>`] should be delivered.
 ///
 /// Kept as an enum (rather than a closure / dyn FnOnce) so the entry
-/// list is `Clone + 'static + Send + Sync` — required because Bevy
+/// list is `Clone + 'static + Send + Sync` - required because Bevy
 /// components must be `Send + Sync`, and the Pending entry list lives
 /// inside the cache resource.
 #[derive(Clone, Debug)]
 pub enum AudioReferenceTarget {
-    /// Spatial-construct case — attach an `AudioPlayer` + the supplied
+    /// Spatial-construct case - attach an `AudioPlayer` + the supplied
     /// `PlaybackSettings` to `entity` once the bake resolves.
     AttachToEntity {
         entity: Entity,
         settings: PlaybackSettings,
     },
-    /// Ambient case — publish into [`crate::loading::AmbientHandle`].
+    /// Ambient case - publish into [`crate::loading::AmbientHandle`].
     AmbientHandle,
 }
 
@@ -119,14 +119,14 @@ pub enum AudioReferenceEntry {
 }
 
 /// Source-keyed coalescing cache. FIFO-bounded by
-/// [`config::interaction::audio::MAX_CACHE_ENTRIES`] — the same cap
+/// [`config::interaction::audio::MAX_CACHE_ENTRIES`] - the same cap
 /// the contact-cue cache uses so the two paths get the same memory
 /// envelope.
 #[derive(Resource)]
 pub struct BlobAudioCache {
     pub by_source: HashMap<AudioReferenceKey, AudioReferenceEntry>,
     insert_order: VecDeque<AudioReferenceKey>,
-    /// `Time::elapsed_secs_f64` as of the last poll tick — the request
+    /// `Time::elapsed_secs_f64` as of the last poll tick - the request
     /// path's clock for the backoff question. Stamped through
     /// `bypass_change_detection`; see [`super::image_cache::BlobImageCache`]
     /// for why the clock lives on the cache rather than in a parameter.
@@ -157,7 +157,7 @@ impl BlobAudioCache {
 
     /// Insert `entry` for `key`, evicting the oldest if at capacity.
     /// Replacing an existing key (`Pending → Ready`) preserves the
-    /// entry's FIFO position — same contract as `BlobImageCache`.
+    /// entry's FIFO position - same contract as `BlobImageCache`.
     pub fn insert_bounded(&mut self, key: AudioReferenceKey, entry: AudioReferenceEntry) {
         let max = config::interaction::audio::MAX_CACHE_ENTRIES;
         if !self.by_source.contains_key(&key) {
@@ -253,7 +253,7 @@ pub fn request_blob_audio(
     };
     // The viewer declined to talk to hosts other people chose (#1248 f298).
     // An ambient target still has to publish its absence or the loading gate
-    // waits forever — but silently, because nothing failed.
+    // waits forever - but silently, because nothing failed.
     if key.is_external() && !cache.allow_external {
         if matches!(target, AudioReferenceTarget::AmbientHandle) {
             commands.insert_resource(crate::loading::AmbientHandle(None));
@@ -262,12 +262,12 @@ pub fn request_blob_audio(
     }
 
     let previous = match cache.by_source.get_mut(&key) {
-        // Cache hit — dispatch synchronously.
+        // Cache hit - dispatch synchronously.
         Some(AudioReferenceEntry::Ready(handle)) => {
             apply_target(commands, &target, handle.clone());
             return;
         }
-        // Fetch already in flight — enqueue the target.
+        // Fetch already in flight - enqueue the target.
         Some(AudioReferenceEntry::Pending(list)) => {
             list.push(target);
             return;
@@ -275,7 +275,7 @@ pub fn request_blob_audio(
         Some(AudioReferenceEntry::Failed(failure)) => {
             if !failure.may_retry(cache.now) {
                 // Still inside the wait. An ambient target must not be
-                // left hanging on the loading gate, though — the gate
+                // left hanging on the loading gate, though - the gate
                 // waits on the resource existing, so a failure that is
                 // not retried right now still has to publish its absence.
                 if matches!(target, AudioReferenceTarget::AmbientHandle) {
@@ -307,7 +307,7 @@ pub fn request_blob_audio(
 ///
 /// The loading gate reads [`crate::loading::AmbientHandle`] for its
 /// "Ambient soundscape" row and computes the row purely from the resource
-/// EXISTING — so `AmbientHandle(None)`, which is what a failed fetch
+/// EXISTING - so `AmbientHandle(None)`, which is what a failed fetch
 /// installs, rendered a green check identical to a successful bake and
 /// identical to a room that authored no audio at all. The sibling marker
 /// is what lets the row tell those apart.
@@ -339,12 +339,12 @@ pub fn poll_blob_audio_tasks(
         commands.entity(entity).despawn();
 
         // Take the pending list while leaving the entry's FIFO slot in
-        // place — promotion preserves the original position (matches
+        // place - promotion preserves the original position (matches
         // BlobImageCache's documented contract).
         let pending = match cache.by_source.get_mut(&task.key) {
             Some(AudioReferenceEntry::Pending(list)) => std::mem::take(list),
             Some(AudioReferenceEntry::Ready(_)) => continue, // already promoted
-            // Settled by a duplicate task's failure — one source is one
+            // Settled by a duplicate task's failure - one source is one
             // attempt, however many tasks raced for it.
             Some(AudioReferenceEntry::Failed(_)) => continue,
             None => continue,
@@ -358,7 +358,7 @@ pub fn poll_blob_audio_tasks(
                 // walked first: an AmbientHandle target must publish its
                 // absence or the loading gate waits forever, and now it
                 // publishes the REASON alongside. Entity targets get
-                // nothing attached (the construct stays silent — preferable
+                // nothing attached (the construct stays silent - preferable
                 // to a default fallback hum the room author didn't ask for).
                 let failure = AssetFailure::after(task.previous.as_ref(), reason, now);
                 for target in pending {
@@ -410,7 +410,7 @@ fn apply_target(
     }
 }
 
-/// Fetch the raw bytes for a key. Routes by variant — URL through
+/// Fetch the raw bytes for a key. Routes by variant - URL through
 /// HTTPS GET, AtprotoBlob through `getBlob`. Reuses the shared
 /// `blob_fetch` module so the OOM-guard and wasm/native split match
 /// the image cache exactly.

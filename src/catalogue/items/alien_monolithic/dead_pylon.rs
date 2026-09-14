@@ -1,4 +1,4 @@
-//! Dead pylon — an Alien-Monolithic *poor* secondary. A snapped pylon: a short
+//! Dead pylon - an Alien-Monolithic *poor* secondary. A snapped pylon: a short
 //! dead-stone stub on its base and the broken upper length fallen across the
 //! ground, all light gone. The dormant kit of the lightless site.
 //!
@@ -48,7 +48,7 @@ impl CatalogueEntry for DeadPylon {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Dead-stone base — the root.
+        // Dead-stone base - the root.
         prim(
             solid(cuboid_tapered([1.6, 0.4, 1.6], 0.0, stone(DEAD_STONE))),
             [0.0, 0.2, 0.0],
@@ -62,7 +62,7 @@ fn build_tree() -> Generator {
         [0.0, 1.4, 0.0],
         id_quat(),
     ));
-    // A loose chip tipped on the stub's broken crown — the snap.
+    // A loose chip tipped on the stub's broken crown - the snap.
     prims.push(prim(
         solid(cuboid_tapered([0.55, 0.4, 0.55], 0.3, stone(DEAD_STONE))),
         [0.1, 2.7, -0.05],

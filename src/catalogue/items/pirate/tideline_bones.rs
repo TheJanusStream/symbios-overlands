@@ -1,4 +1,4 @@
-//! Tide-line Bones — the ribs of a small wreck standing out of the shingle,
+//! Tide-line Bones - the ribs of a small wreck standing out of the shingle,
 //! with a burst chest and what the tide keeps bringing back.
 //!
 //! A keel half-buried along the strand, seven frames rising out of it and
@@ -22,7 +22,7 @@
 //! frames reads from as a *hull*: broadside, a `U` spanning athwartships
 //! projects to a vertical line, and seven of them are a fence. The first build
 //! laid her across the approach and the render showed exactly that. It is also
-//! the [`super::rotting_hulk`]'s orientation, which is worth having twice — a
+//! the [`super::rotting_hulk`]'s orientation, which is worth having twice - a
 //! wreck is a wreck.
 //!
 //! Laying her this way also means her frames span local `X`, which is the
@@ -34,8 +34,8 @@
 //! The coins are the only thing here that glows, and most of them do not. A
 //! spill of uniformly green treasure is a special effect; a heap of dull
 //! corroded coin with **two** pieces alight is a specific and much worse idea,
-//! because the eye finds those two by itself. The register's whole method — see
-//! [`WITCHFIRE`] — is one cold light among things that are not lit.
+//! because the eye finds those two by itself. The register's whole method - see
+//! [`WITCHFIRE`] - is one cold light among things that are not lit.
 //!
 //! # Reuse
 //!
@@ -61,14 +61,14 @@ use super::{
     WITCHFIRE, board, bone, fx, hemp, iron, strake, strand, tar,
 };
 
-/// The shingle it lies in — the sub-root every footprint guard measures against
+/// The shingle it lies in - the sub-root every footprint guard measures against
 /// (#972 lesson 19).
 const PAD: [f32; 3] = [7.2, 0.26, 6.0];
 const GROUND: f32 = PAD[1];
 
 /// Her lines: `(z, half-beam, height of the sheer above the keel)`, bow first.
 ///
-/// A small craft — a longboat's worth, not a ship's — because the scale has to
+/// A small craft - a longboat's worth, not a ship's - because the scale has to
 /// say "this washed up" rather than "a vessel was lost here".
 const STATIONS: [(f32, f32, f32); 3] = [
     (-2.4, 0.42, 0.62), // forward, drawing in
@@ -80,7 +80,7 @@ const STATIONS: [(f32, f32, f32); 3] = [
 /// gone into the shingle.
 ///
 /// Negative lift, because a wreck sitting *on* the beach with daylight under it
-/// is a model of a wreck — the same correction the [`super::rotting_hulk`]
+/// is a model of a wreck - the same correction the [`super::rotting_hulk`]
 /// needed.
 const HEEL: f32 = 0.24;
 const KEEL_LIFT: f32 = -0.14;
@@ -106,7 +106,7 @@ const COINS: usize = 11;
 const LIT_COINS: usize = 2;
 const COIN_R: f32 = 0.1;
 
-/// Corroded gold — dull, and deliberately *not* [`GOLD_LEAF`]'s gilding value.
+/// Corroded gold - dull, and deliberately *not* [`GOLD_LEAF`]'s gilding value.
 /// The colour is the difference between treasure and treasure that has been in
 /// the sea. Kept light enough to read against the shingle it is lying on, which
 /// is the constraint the first pass missed: a colour chosen only for its story
@@ -117,17 +117,17 @@ const COIN_CORRODED: [f32; 3] = [
     GOLD_LEAF[2] * 0.66,
 ];
 
-/// Hero side — the render tool and the settlement placer both look down `-Z`.
+/// Hero side - the render tool and the settlement placer both look down `-Z`.
 const FRONT: f32 = -1.0;
 
 const _: () = assert!(
     LIT_COINS < COINS / 3,
-    "too much of the spill is alight — a uniformly green pile of money is an \
+    "too much of the spill is alight - a uniformly green pile of money is an \
      effect, not a curse"
 );
 const _: () = assert!(
     CHEST_AT[0] - CHEST[0] * 0.5 > STATIONS[1].1,
-    "the chest is inside her own frames — it belongs on the shingle beside the \
+    "the chest is inside her own frames - it belongs on the shingle beside the \
      wreck, not in the wreckage"
 );
 
@@ -186,7 +186,7 @@ fn lines_at(z: f32) -> (f32, f32) {
 
 /// The tilt she has settled to: a heel about her own keel, which runs along `Z`.
 ///
-/// A plain `quat_z`, with no yaw folded in, because her frames span local `X` —
+/// A plain `quat_z`, with no yaw folded in, because her frames span local `X` -
 /// which is the orientation [`super::hull_frame`] draws them in. That is a real benefit
 /// of laying her fore-and-aft down the approach rather than across it, on top of
 /// the reason recorded in the module note.
@@ -194,7 +194,7 @@ fn hull_tilt() -> Fp4 {
     quat_z(HEEL)
 }
 
-/// Turn a point in her own frame — `y` up from the keel, `x` athwart — into the
+/// Turn a point in her own frame - `y` up from the keel, `x` athwart - into the
 /// world.
 ///
 /// The same plane rotation by PLUS the angle that [`hull_tilt`] carries, so the
@@ -215,7 +215,7 @@ fn frame_z(i: usize) -> f32 {
 fn wreck() -> Vec<Generator> {
     let mid_z = (STATIONS[0].0 + STATIONS[2].0) * 0.5;
     let mut out = vec![
-        // The keel — half-buried, and the one prim that turns a row of curved
+        // The keel - half-buried, and the one prim that turns a row of curved
         // timbers into a ship.
         prim(
             solid(cuboid_tapered(
@@ -232,7 +232,7 @@ fn wreck() -> Vec<Generator> {
         let (beam, height) = lines_at(z);
         out.push(super::hull_frame(
             // The ellipse centre goes one `height` above the keel in HER frame,
-            // so the raise happens before the tilt — see `hull_frame`'s
+            // so the raise happens before the tilt - see `hull_frame`'s
             // contract.
             settled(0.0, height, z),
             beam,
@@ -242,7 +242,7 @@ fn wreck() -> Vec<Generator> {
             board(HULL_OAK),
         ));
     }
-    // Two strakes still fastened, on the side she has gone over onto — struts
+    // Two strakes still fastened, on the side she has gone over onto - struts
     // between two frames' own heads, so the planking cannot float clear of the
     // timber it is nailed to (#1028).
     for (a, b) in [(1_usize, 3_usize), (3, 5)] {
@@ -274,7 +274,7 @@ fn wreck() -> Vec<Generator> {
 fn chest() -> Vec<Generator> {
     let base_y = GROUND + CHEST[1] * 0.42;
     // Oak with iron bands, not tar. A near-black chest is a black cube, which is
-    // what the first render produced — indistinguishable from a rock.
+    // what the first render produced - indistinguishable from a rock.
     let mut out = vec![
         prim(
             solid(cuboid_tapered(CHEST, 0.06, board(HULL_OAK))),
@@ -383,7 +383,7 @@ fn remains() -> Vec<Generator> {
             [at[0], GROUND + 0.15, at[2]],
             id_quat(),
         ),
-        // The jaw, dropped clear — one prim, and it is what makes a pale ball a
+        // The jaw, dropped clear - one prim, and it is what makes a pale ball a
         // skull.
         prim(
             solid(cuboid_tapered([0.18, 0.06, 0.15], 0.4, bone(BONE_PALE))),
@@ -461,7 +461,7 @@ fn build_tree() -> Generator {
         carried,
     );
     root.audio = fx::witchfire_hiss();
-    // The fire is over the MONEY, which is the whole idea — see the module note.
+    // The fire is over the MONEY, which is the whole idea - see the module note.
     let fire = fx::witchfire(
         [
             CHEST_AT[0] + CHEST[0] * 0.55 + 0.16,
@@ -557,7 +557,7 @@ mod tests {
         for r in &ribs {
             assert!(
                 (r.bounds.min.y - keel.bounds.max.y).abs() < KEEL_W * 2.2,
-                "a frame's trough is at {} against a keel topping out at {} — it \
+                "a frame's trough is at {} against a keel topping out at {} - it \
                  is standing in the beach, not on her keel",
                 r.bounds.min.y,
                 keel.bounds.max.y
@@ -575,7 +575,7 @@ mod tests {
         let lo = heights.iter().copied().fold(f32::MAX, f32::min);
         assert!(
             hi - lo > 0.5,
-            "the frames vary by only {} m — they do not describe one hull",
+            "the frames vary by only {} m - they do not describe one hull",
             hi - lo
         );
         let deepest = heights
@@ -586,7 +586,7 @@ mod tests {
             .expect("non-empty");
         assert!(
             deepest > 0 && deepest < FRAMES - 1,
-            "her deepest frame is number {deepest} of {FRAMES} — a hull's \
+            "her deepest frame is number {deepest} of {FRAMES} - a hull's \
              midships is not at its stem"
         );
     }
@@ -595,20 +595,20 @@ mod tests {
     #[test]
     fn she_has_settled_over_and_is_bedded_in() {
         // The heel shows up as the two ends of a frame being at different
-        // heights — read through [`settled`] rather than off the constant, so
+        // heights - read through [`settled`] rather than off the constant, so
         // the guard fails if `settled` and [`hull_tilt`] ever stop agreeing.
         let (beam, height) = lines_at(0.1);
         let port = settled(-beam, height, 0.1);
         let starboard = settled(beam, height, 0.1);
         assert!(
             (port[1] - starboard[1]).abs() > beam * 0.3,
-            "her two sheer edges are within {} m in height — she is sitting \
+            "her two sheer edges are within {} m in height - she is sitting \
              upright, which is not what a wreck does",
             (port[1] - starboard[1]).abs()
         );
         assert!(
             keel().bounds.min.y < GROUND,
-            "her keel's underside is at {} and the shingle is at {GROUND} — \
+            "her keel's underside is at {} and the shingle is at {GROUND} - \
              there is daylight under it",
             keel().bounds.min.y
         );
@@ -644,13 +644,13 @@ mod tests {
         assert_eq!(
             found.iter().filter(|(_, lit)| *lit).count(),
             LIT_COINS,
-            "the wrong number of coins are alight — the curse is specific, and a \
+            "the wrong number of coins are alight - the curse is specific, and a \
              uniformly green pile of money is an effect"
         );
         for (at, _) in &found {
             assert!(
                 at[1] < GROUND + 0.1,
-                "a coin is at y = {} — the trail is floating",
+                "a coin is at y = {} - the trail is floating",
                 at[1]
             );
         }
@@ -659,7 +659,7 @@ mod tests {
         for (at, _) in &found {
             assert!(
                 at[0] >= mouth_x,
-                "a coin at x = {} is behind the chest's mouth at {mouth_x} — the \
+                "a coin at x = {} is behind the chest's mouth at {mouth_x} - the \
                  spill is a heap round the box, not a trail out of it",
                 at[0]
             );
@@ -667,7 +667,7 @@ mod tests {
         let furthest = found.iter().map(|(at, _)| at[0]).fold(f32::MIN, f32::max);
         assert!(
             furthest - mouth_x > 0.9,
-            "the trail only reaches {} m from the chest — it reads as a puddle",
+            "the trail only reaches {} m from the chest - it reads as a puddle",
             furthest - mouth_x
         );
         // ...and the two lit pieces are not next to each other, so the cold
@@ -679,7 +679,7 @@ mod tests {
             .collect();
         assert!(
             (lit[0] - lit[1]).abs() > 0.6,
-            "both alight coins are within {} m of each other — that is one glow, \
+            "both alight coins are within {} m of each other - that is one glow, \
              not two pieces the eye has to find",
             (lit[0] - lit[1]).abs()
         );
@@ -710,7 +710,7 @@ mod tests {
             .expect("the chest has an oak body");
         assert!(
             body.bounds.size().y > 0.3,
-            "the chest is only {} m deep — it reads as a lid on the ground",
+            "the chest is only {} m deep - it reads as a lid on the ground",
             body.bounds.size().y
         );
     }
@@ -729,7 +729,7 @@ mod tests {
         let n = bone_count(&built());
         assert_eq!(
             n, 6,
-            "found {n} bone pieces — a skull, a jaw, a long bone and three ribs \
+            "found {n} bone pieces - a skull, a jaw, a long bone and three ribs \
              is one body's worth; a beach of skulls reads as a joke"
         );
         let small = arcs_of(BONE_PALE);
@@ -742,7 +742,7 @@ mod tests {
         for r in &small {
             assert!(
                 r.bounds.min.y < GROUND + 0.14,
-                "a rib's underside is at {} — it is standing up out of the beach \
+                "a rib's underside is at {} - it is standing up out of the beach \
                  rather than lying in it",
                 r.bounds.min.y
             );
@@ -760,7 +760,7 @@ mod tests {
         assert!(
             ship > human * 3.0,
             "her frames ({ship} m) and the ribcage ({human} m) are within a \
-             factor of three — one of them is the wrong scale"
+             factor of three - one of them is the wrong scale"
         );
     }
 
@@ -796,13 +796,13 @@ mod tests {
                 let near = (0..FRAMES).any(|i| (end[2] - frame_z(i)).abs() < 0.12);
                 assert!(
                     near,
-                    "a strake ends at z = {}, which is at no frame — planking has \
+                    "a strake ends at z = {}, which is at no frame - planking has \
                      to be nailed to something",
                     end[2]
                 );
                 assert!(
                     end[1] > GROUND + 0.1,
-                    "a strake end is at y = {} — down in the shingle rather than \
+                    "a strake end is at y = {} - down in the shingle rather than \
                      on her side",
                     end[1]
                 );

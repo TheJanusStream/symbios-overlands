@@ -1,13 +1,13 @@
-//! Universal default parts — at least one per required slot per chassis,
+//! Universal default parts - at least one per required slot per chassis,
 //! eligible for every style (empty [`BodyPart::styles`]).
 //!
 //! These are the **coverage floor**: they guarantee every required
 //! (chassis, slot) is fillable for any style/tier so the outfit deriver
 //! never stalls on an unfillable slot while the styled kits
-//! (`super`'s `#518`/`#519` content) fill in. The geometry is plain — a
+//! (`super`'s `#518`/`#519` content) fill in. The geometry is plain - a
 //! readable, *recognisable* silhouette built from the shared primitive
 //! vocabulary and finished through the seeded
-//! [`MaterialKit`](crate::seeded_defaults::MaterialKit) — a shaped hull /
+//! [`MaterialKit`](crate::seeded_defaults::MaterialKit) - a shaped hull /
 //! cabin / cigar envelope rather than bare capsules and slabs. Each builds
 //! in its slot's local attachment frame (see the module docstring on
 //! [`super`]).
@@ -244,5 +244,5 @@ pub(super) static ENTRIES: &[&dyn BodyPart] = &[
 ];
 
 // ---------------------------------------------------------------------------
-// Airship fin — a swept stabiliser the assembler clusters at the tail.
+// Airship fin - a swept stabiliser the assembler clusters at the tail.
 // ---------------------------------------------------------------------------

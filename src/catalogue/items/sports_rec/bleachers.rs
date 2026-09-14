@@ -1,4 +1,4 @@
-//! Bleachers — a Sports/Recreation secondary. An open raked stand of
+//! Bleachers - a Sports/Recreation secondary. An open raked stand of
 //! aluminium seat rows on a steel frame, with a back rail. The terrace
 //! seating that lines the pitch.
 //!
@@ -49,7 +49,7 @@ fn build_tree() -> Generator {
     let pad_h = 0.3_f32;
 
     let mut prims = vec![
-        // Concrete pad — the root.
+        // Concrete pad - the root.
         prim(
             solid(cuboid_tapered(
                 [10.0, pad_h, 5.0],

@@ -1,4 +1,4 @@
-//! Cog scrap — a Steampunk *poor* prop. A heap of rusted gears, bent rods and
+//! Cog scrap - a Steampunk *poor* prop. A heap of rusted gears, bent rods and
 //! scrap iron. The cast-offs of the soot-yard.
 //!
 //! One gear leans on its edge with a [`quat_x`] of π/2; a bent rod lies
@@ -54,7 +54,7 @@ impl CatalogueEntry for CogScrap {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Rusted toothed gear lying flat — the root.
+        // Rusted toothed gear lying flat - the root.
         cog(
             [0.0, 0.09, 0.0],
             id_quat(),
@@ -86,7 +86,7 @@ fn build_tree() -> Generator {
         iron(RUST),
         iron(DARK_IRON),
     ));
-    // A bent iron rod kinked across the heap — two segments meeting at an angle.
+    // A bent iron rod kinked across the heap - two segments meeting at an angle.
     prims.push(prim(
         solid(cylinder_tapered(0.06, 0.95, 6, 0.0, iron(DARK_IRON))),
         [-0.02, 0.42, -0.32],

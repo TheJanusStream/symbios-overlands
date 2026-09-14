@@ -1,4 +1,4 @@
-//! Birch — a slender pale-barked broadleaf (#910 WS2 expansion). A single
+//! Birch - a slender pale-barked broadleaf (#910 WS2 expansion). A single
 //! airy leader climbs one internode per iteration (iteration count = age),
 //! shedding short stochastic laterals whose twigs droop under a light
 //! tropism, each dusted with small light-green leaf cards. The white bark
@@ -20,7 +20,7 @@ static VARIANTS: &[PlantVariant] = &[
         name: "autumn_gold",
         label: "Autumn gold",
         apply: |m| {
-            // The species' signature season — white bark against pure yellow
+            // The species' signature season - white bark against pure yellow
             // is the birch that reads instantly at any distance.
             tint_leaf(
                 m,
@@ -35,7 +35,7 @@ static VARIANTS: &[PlantVariant] = &[
         name: "dark_bark",
         label: "Dark-barked (river birch)",
         apply: |m| {
-            // Warm shaggy bark instead of the chalk-white — a different
+            // Warm shaggy bark instead of the chalk-white - a different
             // species read from the same skeleton, for wetter ground.
             tint_bark(
                 m,
@@ -80,7 +80,7 @@ impl CatalogueEntry for Birch {
 
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
-    // 0 — white birch bark, dark lenticel streaks.
+    // 0 - white birch bark, dark lenticel streaks.
     materials.insert(
         0,
         SovereignMaterialSettings {
@@ -95,7 +95,7 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 1 — small fresh light-green leaf.
+    // 1 - small fresh light-green leaf.
     materials.insert(
         1,
         SovereignMaterialSettings {
@@ -115,14 +115,14 @@ fn build_kind() -> GeneratorKind {
 
     GeneratorKind::LSystem {
         // Leader A climbs one internode per iteration, stochastically
-        // dropping a short lateral B (or skipping one, a3 — the airy gap
+        // dropping a short lateral B (or skipping one, a3 - the airy gap
         // look). Laterals recurse weakly into drooping leaf twigs (light -Y
         // tropism supplies the hang). K leaf markers express next iteration;
         // finalization tufts every apex so no age shows bare twig ends.
         //
         // PHYLLOTAXIS (#917): the leader's divergence is the exact golden
         // angle 137.5° (360·τ⁻²), jittered by under ±1°. ABOP Fig 4.2 shows
-        // 137.3 / 137.5 / 137.6 producing visibly different parastichies —
+        // 137.3 / 137.5 / 137.6 producing visibly different parastichies -
         // the spiral packing collapses into radial gaps a tenth of a degree
         // off. Divergence is species identity, so the stochastic budget goes
         // on TOPOLOGY (branch vs skip, above) rather than on this angle.

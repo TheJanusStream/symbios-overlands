@@ -1,11 +1,11 @@
-//! Seeded mini-settlement spec — every home region grows a themed
+//! Seeded mini-settlement spec - every home region grows a themed
 //! cluster of catalogue structures near spawn: one landmark, a few
 //! secondary buildings ringed around it, and scatter props.
 //!
 //! Members are resolved by querying the catalogue
 //! ([`crate::catalogue::entries_for`]) for entries tagged with the room's
 //! [`ThemeArchetype`] and the matching [`StructureRole`], rather than a
-//! hardcoded slug pool — so adding a themed catalogue entry grows the
+//! hardcoded slug pool - so adding a themed catalogue entry grows the
 //! settlements automatically. A theme with no landmark entry yet falls
 //! back wholesale to [`FALLBACK_THEME`], so every room gets a coherent
 //! settlement while the catalogue fills out.
@@ -59,7 +59,7 @@ pub struct SettlementMember {
     /// Replacement seed for Shape-grammar entries' stochastic rules.
     pub grammar_seed: u64,
     /// Dry-land clearance radius (m) for the compiler's water-avoidance
-    /// walk — the member's [`crate::catalogue::Footprint::clearance`].
+    /// walk - the member's [`crate::catalogue::Footprint::clearance`].
     pub clearance: f32,
 }
 
@@ -113,7 +113,7 @@ fn effective_theme(theme: ThemeArchetype) -> ThemeArchetype {
 /// else the full theme pool. So a theme that authored a tier-specific
 /// variant (e.g. Cyberpunk's poor scrap shanty) uses it in matching rooms,
 /// while a theme without one still yields a coherent member rather than an
-/// empty pool. Props don't use this — their cross-theme tier props ride the
+/// empty pool. Props don't use this - their cross-theme tier props ride the
 /// always-present civic kit, so [`entries_for_room`] suffices there.
 fn tiered_pool(
     theme: ThemeArchetype,
@@ -277,7 +277,7 @@ fn place_props(
 
     let mut out = Vec::with_capacity(count);
     for _ in 0..count {
-        // Props are clutter — sampled with replacement.
+        // Props are clutter - sampled with replacement.
         let entry = pick(&pool, rng);
         let fp = entry.footprint();
         // Keep props on the settlement (far) hemisphere too.
@@ -304,7 +304,7 @@ fn place_props(
 // Terrain-aware settlement plan (#905)
 // ---------------------------------------------------------------------------
 
-/// Slope limit (rise/run) for buildable ground — the threshold the
+/// Slope limit (rise/run) for buildable ground - the threshold the
 /// wiring layer hands to [`TerrainProbe::new`] when segmenting the
 /// derive-time proxy. ~16°: gentle hillside, comfortably under what a
 /// snapped foundation skirt can absorb. Deliberately conservative
@@ -312,7 +312,7 @@ fn place_props(
 pub const BUILD_SLOPE_LIMIT: f32 = 0.28;
 
 /// Fraction of a region's raw area treated as actually fillable with
-/// structures — the rest is breathing room between footprints.
+/// structures - the rest is breathing room between footprints.
 const FILL_FRACTION: f32 = 0.35;
 
 /// A member's desired position may snap at most this far (m) to reach a
@@ -358,7 +358,7 @@ pub struct SettlementPlan {
 }
 
 impl SettlementPlan {
-    /// The primary cluster's landmark — present by construction (the
+    /// The primary cluster's landmark - present by construction (the
     /// primary cluster always carries one, even on the honest-adaptation
     /// fallback path).
     pub fn primary_landmark(&self) -> &SettlementMember {
@@ -375,7 +375,7 @@ impl SettlementPlan {
     /// Placement policy (#905, user-picked): prefer buildable regions
     /// near spawn but follow the flat land out when the near ground is
     /// hostile; shrink honestly when flat land is scarce (worst case a
-    /// lone landmark on the least-bad site — terrain is never modified);
+    /// lone landmark on the least-bad site - terrain is never modified);
     /// Archipelago / Valleys rooms may grow a second full landmark
     /// cluster, every landform may grow hamlets, all under
     /// [`MAX_TOTAL_MEMBERS`].
@@ -534,7 +534,7 @@ enum ClusterKind {
 
 /// Grow one cluster inside `region`. Members whose desired ring
 /// position can't snap to a buildable cell (or would blow the region's
-/// fill budget / `member_budget`) are dropped — that *is* the capacity
+/// fill budget / `member_budget`) are dropped - that *is* the capacity
 /// adaptation.
 #[allow(clippy::too_many_arguments)] // internal: a param object would just rename the call site
 fn place_cluster(
@@ -807,10 +807,10 @@ mod tests {
     /// [`theme_uses_its_own_kit_by_prosperity`].
     struct KitCase {
         theme: ThemeArchetype,
-        /// Established (Modest–Rich) theme-exclusive slugs — a poor room
+        /// Established (Modest–Rich) theme-exclusive slugs - a poor room
         /// never grows these.
         rich_kit: &'static [&'static str],
-        /// Destitute (Poor) theme-exclusive slugs — an affluent room never
+        /// Destitute (Poor) theme-exclusive slugs - an affluent room never
         /// grows these.
         poor_kit: &'static [&'static str],
         /// Expected landmark of a rich room. `None` for themes that share a
@@ -827,7 +827,7 @@ mod tests {
 
     /// The poor/rich kit register for every theme (#433/#394–#413/#460). The
     /// `rich_kit` / `poor_kit` slugs are the theme-exclusive established /
-    /// destitute entries — a band-agnostic shared landmark sits in neither.
+    /// destitute entries - a band-agnostic shared landmark sits in neither.
     const KIT_CASES: &[KitCase] = &[
         KitCase {
             theme: ThemeArchetype::Cyberpunk,
@@ -1232,7 +1232,7 @@ mod tests {
     fn theme_uses_its_own_kit_by_prosperity() {
         // The per-theme poor/rich pattern (#433/#394–#413/#460): an affluent
         // room grows the theme's established kit, a destitute one its poor kit
-        // — the two registers never cross, and where a theme pins a landmark it
+        // - the two registers never cross, and where a theme pins a landmark it
         // always heads its settlement. (Was 22 near-identical per-theme tests.)
         for case in KIT_CASES {
             let theme_member = |slug: &str| {
@@ -1387,7 +1387,7 @@ mod tests {
         scene
     }
 
-    /// Two flat plateaus split by an over-steep ravine — the canonical
+    /// Two flat plateaus split by an over-steep ravine - the canonical
     /// multi-region terrain.
     fn two_plateau_probe() -> TerrainProbe {
         probe_from(
@@ -1470,7 +1470,7 @@ mod tests {
     }
 
     /// Honest adaptation: a room with no buildable region at all still
-    /// gets its landmark — alone, on the least-bad site.
+    /// gets its landmark - alone, on the least-bad site.
     #[test]
     fn sited_hostile_room_gets_a_lone_landmark() {
         use crate::seeded_defaults::LandformArchetype::Craggy;

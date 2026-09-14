@@ -1,4 +1,4 @@
-//! Dome observatory — a tapered concrete drum crowned by a metal
+//! Dome observatory - a tapered concrete drum crowned by a metal
 //! dome with a viewing slit, a doorway, and a gallery railing. The
 //! "scientist's outpost" landmark: at home on mesas, alpine ridges,
 //! and arid plateaus where the sky is the attraction.
@@ -104,7 +104,7 @@ fn build_tree() -> Generator {
     // Dome: a metal top-hemisphere (profile-cut sphere, latitude band
     // [0.5,1.0]) wider than the drum crown, centred a touch below the crown
     // so its equator belt overhangs cleanly. (Sizing it ~equal to the tapered
-    // crown radius made the two surfaces coplanar at the seam — a z-fighting
+    // crown radius made the two surfaces coplanar at the seam - a z-fighting
     // jagged ring.) The cut drops the hidden lower half and lands the brushed
     // metal's UV rings along the dome's latitudes.
     let dome_cy = drum_h - 0.3;
@@ -125,7 +125,7 @@ fn build_tree() -> Generator {
     // the 45° surface point; the +45° X-rotation aligns its long axis
     // with the meridian *tangent* `(0, 0.707, 0.707)` so the housing
     // hugs the surface. (The -45° twin of this rotation is the surface
-    // *normal* — that variant stuck out of the crown like a monolith.)
+    // *normal* - that variant stuck out of the crown like a monolith.)
     let slit_offset = dome_r * std::f32::consts::FRAC_1_SQRT_2;
     root.children.push(prim(
         cuboid_tapered([0.55, dome_r * 0.9, 0.45], 0.0, void_mat()),
@@ -134,7 +134,7 @@ fn build_tree() -> Generator {
     ));
 
     // Catwalk: a walkway disc ringing the mid-drum with a railing
-    // torus on five posts — grounded against the wall instead of the
+    // torus on five posts - grounded against the wall instead of the
     // old free-floating hoop at the crown.
     let walk_y = 2.1;
     let walk_r = drum_r + 0.30;
@@ -179,7 +179,7 @@ fn build_tree() -> Generator {
     root
 }
 
-/// Near-black recess material — door mouths and the dome slit.
+/// Near-black recess material - door mouths and the dome slit.
 fn void_mat() -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3([0.03, 0.03, 0.04]),

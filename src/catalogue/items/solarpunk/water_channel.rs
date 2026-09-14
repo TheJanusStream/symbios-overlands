@@ -1,4 +1,4 @@
-//! Water channel — a Solarpunk prop. A timber rill carrying a ribbon of
+//! Water channel - a Solarpunk prop. A timber rill carrying a ribbon of
 //! water between low banks, past a little stone weir, fringed with reeds.
 //! Scatter clutter irrigating the gardens.
 
@@ -47,7 +47,7 @@ fn build_tree() -> Generator {
     let len = 3.6_f32;
 
     let mut prims = vec![
-        // Timber channel floor — the root, running along Z.
+        // Timber channel floor - the root, running along Z.
         prim(
             solid(cuboid_tapered([0.84, 0.12, len], 0.0, timber(TIMBER_WARM))),
             [0.0, 0.06, 0.0],

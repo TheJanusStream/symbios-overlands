@@ -1,4 +1,4 @@
-//! HoverBoat preset — 4-corner raycast suspension + buoyancy + WASD drive.
+//! HoverBoat preset - 4-corner raycast suspension + buoyancy + WASD drive.
 
 use super::{LocomotionConfig, LocomotionPreset, clamp_half_extents, clamp_pos};
 use crate::pds::types::{Fp, Fp3};

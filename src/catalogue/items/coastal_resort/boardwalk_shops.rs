@@ -1,11 +1,11 @@
-//! Boardwalk shops — a Coastal-Resort secondary. A short plank promenade
+//! Boardwalk shops - a Coastal-Resort secondary. A short plank promenade
 //! lined with three stucco kiosks under striped awnings, their serving
 //! hatches open onto lit counters: the ice-cream, postcard and beach-tat
 //! stalls of the strip.
 //!
 //! Rebuilt as a shell under #972, and the interesting decision here is what
 //! the shopfront *is*. It used to be a `Window`-textured slab hung in front of
-//! a solid stucco box — a frame with holes onto the render behind it, with
+//! a solid stucco box - a frame with holes onto the render behind it, with
 //! nothing to see through it. The obvious repair is a card over a real
 //! opening; the better one is **no glazing at all**. A seafront kiosk serves
 //! over a counter through an open hatch, so the hatch is a genuine hole, the
@@ -15,7 +15,7 @@
 //!
 //! The rest is the usual ledger: the counter and the head band *frame* the
 //! opening rather than being laid on it, each kiosk is laid out with its own
-//! stock (#972 lesson 9 — three identical stalls is one stall rendered three
+//! stock (#972 lesson 9 - three identical stalls is one stall rendered three
 //! times), the back rail is a [`util::railing`] instead of a bar on two posts,
 //! and the tree stands the way the boardwalk does.
 //!
@@ -42,11 +42,11 @@ const DECK_W: f32 = 13.4;
 const DECK_D: f32 = 5.4;
 const DECK_Y: f32 = 0.4;
 const DECK_T: f32 = 0.25;
-/// Top of the boards — the datum for everything above.
+/// Top of the boards - the datum for everything above.
 const DECK_TOP: f32 = DECK_Y + DECK_T * 0.5;
 
 /// Kiosk plan, wall height, and where the row sits in Z. Set back far enough
-/// that the promenade in front is somewhere people can actually stand — the
+/// that the promenade in front is somewhere people can actually stand - the
 /// shipped row left 1.3 m and the awnings hung over most of it.
 const KIOSK_W: f32 = 3.4;
 const KIOSK_D: f32 = 3.0;
@@ -55,7 +55,7 @@ const KIOSK_Z: f32 = 0.75;
 const WALL_T: f32 = 0.24;
 const KIOSK_X: [f32; 3] = [-4.3, 0.0, 4.3];
 
-/// Outer face of the serving elevation — the `-Z` hero direction the render
+/// Outer face of the serving elevation - the `-Z` hero direction the render
 /// tool and the settlement placer both look down.
 const FRONT: f32 = KIOSK_Z - KIOSK_D * 0.5;
 const FRONT_MID: f32 = FRONT + WALL_T * 0.5;
@@ -72,8 +72,8 @@ const HATCH_W: f32 = 2.6;
 /// Deliberately short. An awning is the biggest coloured surface on the prop,
 /// and at 1.7 m it reached within 0.25 m of the deck's front edge: from any
 /// angle above eye level the row read as three canvas plates with a boardwalk
-/// under them, and the counters, the stock and the signs — everything the
-/// rebuild is *for* — were all underneath it. It shades the counter, not the
+/// under them, and the counters, the stock and the signs - everything the
+/// rebuild is *for* - were all underneath it. It shades the counter, not the
 /// promenade.
 const AWNING_D: f32 = 1.05;
 const AWNING_FALL: f32 = 0.3;
@@ -99,7 +99,7 @@ fn wall(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
     )
 }
 
-/// A lit surface inside a kiosk — the back bar and the stock on it. Nothing
+/// A lit surface inside a kiosk - the back bar and the stock on it. Nothing
 /// lights the inside of an enclosed prop, so what shows through the hatch has
 /// to carry a low self-lit term of its own.
 fn stock(size: [f32; 3], center: [f32; 3], color: [f32; 3], lit: f32) -> Generator {
@@ -166,7 +166,7 @@ fn build_tree() -> Generator {
     parts.push(footing(DECK_W, DECK_D, [0.0, 0.0], 8.0));
 
     // Back rail along the seaward edge, in two runs so the middle is a gap
-    // people walk through — and posts and balusters, not a bar floating on
+    // people walk through - and posts and balusters, not a bar floating on
     // two stubs.
     let hz = DECK_D * 0.5 - 0.12;
     let hx = DECK_W * 0.5 - 0.12;
@@ -211,7 +211,7 @@ fn build_tree() -> Generator {
 /// its own stock behind it, the awning and the sign.
 ///
 /// `i` picks which stall it is, and that is the whole point of the parameter
-/// — three identical stalls are one stall rendered three times, which is what
+/// - three identical stalls are one stall rendered three times, which is what
 /// the shipped row was apart from an awning colour (#972 lesson 9).
 fn kiosk(i: usize) -> Generator {
     let x = KIOSK_X[i];
@@ -219,7 +219,7 @@ fn kiosk(i: usize) -> Generator {
     let inner_d = KIOSK_D - WALL_T * 2.0;
     let mut parts = Vec::new();
 
-    // Back and side walls — solid; only the serving face is cut.
+    // Back and side walls - solid; only the serving face is cut.
     parts.push(wall(
         [KIOSK_W, KIOSK_H, WALL_T],
         [x, mid_y, KIOSK_Z + KIOSK_D * 0.5 - WALL_T * 0.5],
@@ -271,7 +271,7 @@ fn kiosk(i: usize) -> Generator {
 
     // Flat roof with a coping overhang. Without it the kiosk is an
     // open-topped box, which every angle above eye level shows straight into
-    // — the one view a serving hatch is not meant to provide.
+    // - the one view a serving hatch is not meant to provide.
     parts.push(prim(
         solid(cuboid_tapered(
             [KIOSK_W + 0.26, 0.16, KIOSK_D + 0.26],
@@ -312,7 +312,7 @@ fn fit_out(parts: &mut Vec<Generator>, i: usize, x: f32) {
         0.34,
     ));
     // A lit strip under the head band, above the counter and below the
-    // awning's shadow — the thing that says the stall is open.
+    // awning's shadow - the thing that says the stall is open.
     parts.push(prim(
         cuboid_tapered([HATCH_W - 0.3, 0.1, 0.22], 0.0, glow(SIGN_GOLD, 1.8)),
         [x, DECK_TOP + HATCH_HEAD - 0.22, FRONT + 0.42],
@@ -420,7 +420,7 @@ fn awning(i: usize, x: f32) -> Generator {
     let span = AWNING_D.hypot(AWNING_FALL);
 
     let mut parts = vec![
-        // The canvas. `-pitch` so the leading edge — at `-Z` — drops toward
+        // The canvas. `-pitch` so the leading edge - at `-Z` - drops toward
         // the promenade; a positive turn would lift it instead.
         prim(
             cuboid_tapered(
@@ -431,7 +431,7 @@ fn awning(i: usize, x: f32) -> Generator {
             [x, head_y - AWNING_FALL * 0.5, FRONT - AWNING_D * 0.5],
             quat_x(-pitch),
         ),
-        // Scalloped valance at the leading edge — the one thing that stops a
+        // Scalloped valance at the leading edge - the one thing that stops a
         // canopy at this size reading as a flat coloured rectangle.
         prim(
             cuboid_tapered(
@@ -473,7 +473,7 @@ fn awning(i: usize, x: f32) -> Generator {
     nest(header, parts)
 }
 
-/// The stall's name board — a fascia laid on the render **above the awning**,
+/// The stall's name board - a fascia laid on the render **above the awning**,
 /// with a smaller lit strip inside its frame.
 ///
 /// On the wall rather than on a bracket above the roofline: hung out in front
@@ -528,7 +528,7 @@ mod tests {
     }
 
     /// #972 lesson 1, in the form this entry takes: a serving hatch is an
-    /// *opening*, so there is no glazing here at all — and in particular none
+    /// *opening*, so there is no glazing here at all - and in particular none
     /// on a solid, which is what the shipped shopfronts were.
     #[test]
     fn no_glazing_lands_on_a_solid() {
@@ -542,7 +542,7 @@ mod tests {
 
     /// #972 lesson 9: each stall has its own stock behind its own hatch.
     /// Three identical kiosks are one kiosk rendered three times, which is
-    /// what shipped — the only thing that differed was an awning colour.
+    /// what shipped - the only thing that differed was an awning colour.
     #[test]
     fn every_stall_sells_something_different() {
         let root = BoardwalkShops.build("");
@@ -581,7 +581,7 @@ mod tests {
         for (k, s) in per_stall.iter().enumerate() {
             assert!(
                 s.len() >= 4,
-                "stall {k} has {} lit things behind its hatch — the opening \
+                "stall {k} has {} lit things behind its hatch - the opening \
                  frames an empty box",
                 s.len()
             );
@@ -613,7 +613,7 @@ mod tests {
         let unshaded = clear - AWNING_D;
         assert!(
             unshaded > 0.7,
-            "the awning leaves only {unshaded} m of open promenade — from any \
+            "the awning leaves only {unshaded} m of open promenade - from any \
              angle above eye level it *is* the prop"
         );
     }
@@ -666,11 +666,11 @@ mod tests {
         });
         assert!(
             balusters >= 14,
-            "only {balusters} balusters — the back rail is a bar on two stubs"
+            "only {balusters} balusters - the back rail is a bar on two stubs"
         );
     }
 
-    /// The stalls keep their lit signs — escalation's broken-emissive ruin
+    /// The stalls keep their lit signs - escalation's broken-emissive ruin
     /// pass needs something to snuff.
     #[test]
     fn has_lit_signs() {

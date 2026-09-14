@@ -1,5 +1,5 @@
 //! Steampunk "bring-it-to-life" helpers: a white steam vent and a dark
-//! furnace-smoke emitter, plus two spatial-audio patches — a rhythmic engine
+//! furnace-smoke emitter, plus two spatial-audio patches - a rhythmic engine
 //! chug for the tower and pump house and a boiler hiss for the foundry.
 //!
 //! Particle emitters are returned as [`Generator`] nodes (a
@@ -25,7 +25,7 @@ use crate::pds::{
 // Particle emitters
 // ---------------------------------------------------------------------------
 
-/// A brisk jet of white steam venting upward — the release valve of the cog
+/// A brisk jet of white steam venting upward - the release valve of the cog
 /// tower or pump house.
 pub(super) fn steam_vent(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -55,7 +55,7 @@ pub(super) fn steam_vent(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// A dark column of sooty smoke rolling up off a chimney — the foundry in
+/// A dark column of sooty smoke rolling up off a chimney - the foundry in
 /// full blast.
 pub(super) fn furnace_smoke(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -89,7 +89,7 @@ pub(super) fn furnace_smoke(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A rhythmic engine chug — a low piston tone pumped by a steady square-ish
+/// A rhythmic engine chug - a low piston tone pumped by a steady square-ish
 /// LFO, the beat of a working beam engine.
 pub(super) fn engine_chug() -> SovereignAudioConfig {
     let piston = node(
@@ -100,7 +100,7 @@ pub(super) fn engine_chug() -> SovereignAudioConfig {
             amplitude: 0.3,
         }),
     );
-    // Steady pump — the chug rhythm.
+    // Steady pump - the chug rhythm.
     let lfo = node(
         1,
         NodeKind::Lfo(Lfo {
@@ -128,7 +128,7 @@ pub(super) fn engine_chug() -> SovereignAudioConfig {
     patch(vec![piston, lfo, chug, mix], NodeId(3))
 }
 
-/// A steady boiler hiss — high band-passed noise over a low rumble, the
+/// A steady boiler hiss - high band-passed noise over a low rumble, the
 /// pressure bleed of the foundry furnace.
 pub(super) fn boiler_hiss() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.4 }));

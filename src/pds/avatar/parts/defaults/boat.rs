@@ -1,4 +1,4 @@
-//! Boat defaults: the four hull forms, deck, and mast. Built in each slot's local attachment frame — see the module
+//! Boat defaults: the four hull forms, deck, and mast. Built in each slot's local attachment frame - see the module
 //! docstring on [`super::super`] (`parts`).
 
 use std::f32::consts::FRAC_PI_2;
@@ -37,7 +37,7 @@ pub(super) fn boat_root(body: &SovereignMaterialSettings) -> Generator {
 // hull (primary), deckhouse (secondary), and cove/trim (tertiary), then floors
 // and separates their *values* (via the shared value-contrast helpers in
 // [`super::common`]) so a dark or low-contrast seed still keeps readable part
-// boundaries — since `base_hue_deg` is uniform-random per seed, value structure
+// boundaries - since `base_hue_deg` is uniform-random per seed, value structure
 // + the per-seed secondary/tertiary hue jitters are what let two close-hued
 // boats still read apart.
 
@@ -48,13 +48,13 @@ pub(super) struct BoatColors {
     topsides: [f32; 3],
     /// Below-waterline belly / antifouling (a distinctly darker topsides).
     belly: [f32; 3],
-    /// Deckhouse / cabin — the secondary accent, value-separated from topsides.
+    /// Deckhouse / cabin - the secondary accent, value-separated from topsides.
     deck: [f32; 3],
-    /// Waterline cove line — a bright tertiary pop.
+    /// Waterline cove line - a bright tertiary pop.
     cove: [f32; 3],
-    /// Deck-edge rub-strake — value-separated trim.
+    /// Deck-edge rub-strake - value-separated trim.
     strake: [f32; 3],
-    /// Running-light beacon — a deep-saturated jewel.
+    /// Running-light beacon - a deep-saturated jewel.
     beacon: [f32; 3],
 }
 
@@ -111,14 +111,14 @@ pub(super) struct HullSpec {
     rails: bool,
 }
 
-/// Sample-grid resolution for a hull BlobGroup (cells along its longest axis —
+/// Sample-grid resolution for a hull BlobGroup (cells along its longest axis -
 /// the hull length). Smooth enough for a clean sheer without faceting; near the
 /// sanitiser's 48 ceiling but a trimaran's three hulls still bake in a few ms.
 const HULL_BLOB_RES: u32 = 44;
 
 /// Waterline boot-stripe stations as `(z_fraction, half_beam_fraction)`
-/// bow→stern. A rail swept through these hugs the hull's plan outline — fine at
-/// the bow, full at midships, tucked in at the transom — instead of a straight
+/// bow→stern. A rail swept through these hugs the hull's plan outline - fine at
+/// the bow, full at midships, tucked in at the transom - instead of a straight
 /// cuboid whose ends poke past the narrowing blob (the monohull's "unanchored
 /// side rod", #785). Near-full length + width, since the hull is fullest at the
 /// waterline.
@@ -176,8 +176,8 @@ fn hull_rail(
 }
 
 /// Build one swept boat hull into `parent` at the spec's lateral offset: a
-/// single smooth BlobGroup — a full amidships mass pulled to a fine point at
-/// the bow (+Z) and rounded to a transom aft — plus a thin waterline boot
+/// single smooth BlobGroup - a full amidships mass pulled to a fine point at
+/// the bow (+Z) and rounded to a transom aft - plus a thin waterline boot
 /// stripe. Replaces the old topsides-box + squashed-cone-prow idiom (which
 /// read as a flat-walled APC head-on, its round cone base unable to cap the
 /// square section); the blob is watertight by construction and reads pointed
@@ -292,8 +292,8 @@ pub(super) fn boat_hull_body(parent: &mut Generator, ctx: &PartCtx, spec: HullSp
 }
 
 /// The seeded monohull reference dimensions `(beam, length, freeboard)` from
-/// the boat blueprint — the shared proportion contract every hull *form* scales
-/// from — falling back to the pre-blueprint nominal if a boat part is ever built
+/// the boat blueprint - the shared proportion contract every hull *form* scales
+/// from - falling back to the pre-blueprint nominal if a boat part is ever built
 /// without a blueprint (defensive; a boat ctx always carries one).
 fn hull_dims(ctx: &PartCtx) -> (f32, f32, f32) {
     ctx.boat()
@@ -301,7 +301,7 @@ fn hull_dims(ctx: &PartCtx) -> (f32, f32, f32) {
 }
 
 pub(super) fn hull(ctx: &PartCtx) -> Generator {
-    // Monohull — a single sleek smooth launch hull. Deck-edge trim (gunwales,
+    // Monohull - a single sleek smooth launch hull. Deck-edge trim (gunwales,
     // rubbing strake) rides the deck-furniture pass (#785); the box-hull's
     // straight gunwale rails don't sit on a rounded sheer.
     let body = ctx.materials.body(ctx.palette.primary_accent);
@@ -323,7 +323,7 @@ pub(super) fn hull(ctx: &PartCtx) -> Generator {
 }
 
 pub(super) fn hull_catamaran(ctx: &PartCtx) -> Generator {
-    // Catamaran — two slim pontoon hulls under a connecting deck bridge.
+    // Catamaran - two slim pontoon hulls under a connecting deck bridge.
     let colors = boat_colors(ctx);
     let body = ctx.materials.cloth(colors.topsides);
     // The bridge deck wears the deckhouse colour (#786), tying it to the cabin.
@@ -348,8 +348,8 @@ pub(super) fn hull_catamaran(ctx: &PartCtx) -> Generator {
             },
         );
     }
-    // An *open* bridge — a narrow centre deck spanning the tunnel plus two
-    // cross-beams reaching the outer hulls — rather than a slab that buries the
+    // An *open* bridge - a narrow centre deck spanning the tunnel plus two
+    // cross-beams reaching the outer hulls - rather than a slab that buries the
     // catamaran's defining gap.
     root.children.push(prim(
         cuboid([spread * 1.03, 0.07, length * 0.5], bridge.clone()),
@@ -368,7 +368,7 @@ pub(super) fn hull_catamaran(ctx: &PartCtx) -> Generator {
 }
 
 pub(super) fn hull_trimaran(ctx: &PartCtx) -> Generator {
-    // Trimaran — a central main hull flanked by two small outrigger amas on
+    // Trimaran - a central main hull flanked by two small outrigger amas on
     // cross-beams.
     let colors = boat_colors(ctx);
     let body = ctx.materials.cloth(colors.topsides);
@@ -411,7 +411,7 @@ pub(super) fn hull_trimaran(ctx: &PartCtx) -> Generator {
 }
 
 pub(super) fn hull_barge(ctx: &PartCtx) -> Generator {
-    // Barge — a wide, flat, boxy hull with raked punt ends and gunwale walls.
+    // Barge - a wide, flat, boxy hull with raked punt ends and gunwale walls.
     // Shares the coordinated two-tone scheme (#786): planked topsides box over a
     // matte-dark bottom, a deck-coloured cap rail, and a bright cove rubbing
     // strake.
@@ -424,7 +424,7 @@ pub(super) fn hull_barge(ctx: &PartCtx) -> Generator {
     // The barge is a custom box (no HullSpec); scale its dimensions by the
     // seeded reference so a barge varies with the same knobs as the other
     // forms. `bw` widths (barge runs beamier than the monohull), `bl` lengths,
-    // `fh` freeboard heights — each a ratio of the blueprint to the nominal.
+    // `fh` freeboard heights - each a ratio of the blueprint to the nominal.
     let (beam, length, freeboard) = hull_dims(ctx);
     let (bw, bl, fh) = (beam / 0.5, length / 1.32, freeboard / 0.26);
 
@@ -475,14 +475,14 @@ pub(super) fn hull_barge(ctx: &PartCtx) -> Generator {
 
 pub(super) fn deck(ctx: &PartCtx) -> Generator {
     // A low cockpit + a shaped cabin trunk that hunkers *down* on the smooth
-    // deck — the old tall boxy tub was the boxiest thing on the rounded hull
+    // deck - the old tall boxy tub was the boxiest thing on the rounded hull
     // (#785). The cabin is a tapered wedge with a raked wrap windscreen and
     // portholes; the open cockpit aft carries a bench inside a low coaming,
     // clear of the boom that sweeps over it.
     // The deckhouse wears the *secondary* accent (value-separated from the
     // hull's primary), so hull and cabin read as two colours instead of one
     // monochrome block (#786). Windows are the bright cove tint; the nav beacon
-    // is a deep-saturated LOW-strength running light (emissive discipline —
+    // is a deep-saturated LOW-strength running light (emissive discipline -
     // scaled up from the old 0.03 masthead sphere but kept dim).
     let colors = boat_colors(ctx);
     let house = ctx.materials.body(colors.deck);
@@ -503,13 +503,13 @@ pub(super) fn deck(ctx: &PartCtx) -> Generator {
     let (beam, length, _) = hull_dims(ctx);
     let (dw, dl) = (beam / 0.5, length / 1.32);
 
-    // Low cockpit sole — the flat deck the rest sits on.
+    // Low cockpit sole - the flat deck the rest sits on.
     let mut deck = prim(
         cuboid([0.34 * dw, 0.045, 0.62 * dl], house.clone()),
         [0.0, 0.0, -0.04 * dl],
         id_quat(),
     );
-    // Cabin trunk forward — a low shaped wedge (top drawn in across + fore-aft)
+    // Cabin trunk forward - a low shaped wedge (top drawn in across + fore-aft)
     // rather than a slab, so it reads as a deckhouse, not a box.
     let ch = 0.10;
     deck.children.push(prim(
@@ -550,7 +550,7 @@ pub(super) fn deck(ctx: &PartCtx) -> Generator {
             ));
         }
     }
-    // Nav beacon on the cabin roof — the single disciplined running light.
+    // Nav beacon on the cabin roof - the single disciplined running light.
     deck.children.push(prim(
         sphere(0.024, 3, beacon),
         [0.0, ch + 0.03, 0.14 * dl],
@@ -578,8 +578,8 @@ pub(super) fn mast(ctx: &PartCtx) -> Generator {
     // A fore-and-aft sloop rig: a raked pole carrying a triangular mainsail
     // slung from a boom, topped by a streaming pennant. The always-bright cloth
     // sail (secondary accent) breaks the old bare-crossbar-plus-lollipop
-    // "crucifix" read — a fore-and-aft sail is edge-on from dead ahead, so the
-    // front tile now shows a clean pole, never a cross — and gives the
+    // "crucifix" read - a fore-and-aft sail is edge-on from dead ahead, so the
+    // front tile now shows a clean pole, never a cross - and gives the
     // near-monochrome hull its contrast element. Height comes from the
     // blueprint so a tall-rigged and a stubby seed differ.
     let spar = ctx.materials.metal(ctx.palette.secondary_accent);
@@ -619,7 +619,7 @@ pub(super) fn mast(ctx: &PartCtx) -> Generator {
         [0.0, boom_y + sail_h * 0.5, -foot * 0.5],
         id_quat(),
     ));
-    // Masthead pennant streaming aft — replaces the old lollipop nav sphere.
+    // Masthead pennant streaming aft - replaces the old lollipop nav sphere.
     // (0.012 keeps the flag thin without dropping under the sanitiser's 0.01
     // minimum cuboid dimension, which would rewrite it and break the parts'
     // survive-sanitise-unchanged round-trip.)

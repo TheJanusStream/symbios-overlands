@@ -1,7 +1,7 @@
 //! Gateway destination picker (#748). Walking into a gateway zone
 //! ([`GatewayMarker`]) opens a window listing the **room owner's** mutual
-//! follows — visitors browse the owner's social neighbourhood, not their
-//! own — with a search filter and a home row. Picking a destination
+//! follows - visitors browse the owner's social neighbourhood, not their
+//! own - with a search filter and a home row. Picking a destination
 //! routes through the same [`UnsavedGuard`] flow as classic portals, with
 //! `target_pos: None` so arrival resolves the destination record's
 //! `default_landing` (#745).
@@ -9,7 +9,7 @@
 //! Lifecycle: [`watch_gateway_zone`] opens the picker on zone entry and
 //! closes it on exit; the window's Close button instead sets
 //! [`GatewayDismissed`], which suppresses re-opening until the player
-//! leaves the zone once — otherwise the standing overlap would pop the
+//! leaves the zone once - otherwise the standing overlap would pop the
 //! window right back the next frame.
 
 use avian3d::prelude::CollidingEntities;
@@ -31,8 +31,8 @@ use crate::world_builder::GatewayMarker;
 pub struct GatewayPicker {
     pub search: String,
     /// Free-text destination (#1232 f24). The picker's reachable set is a
-    /// function of a THIRD PARTY's follow graph — the room owner's mutuals
-    /// — while its only text box filtered that list in memory under a
+    /// function of a THIRD PARTY's follow graph - the room owner's mutuals
+    /// - while its only text box filtered that list in memory under a
     /// "Search handle or name…" hint that promised a network lookup it
     /// never performed. A new account standing on its own gateway, which
     /// is precisely the user with no mutuals, saw a search box, an empty
@@ -47,12 +47,12 @@ pub struct GatewayPicker {
 /// A DID typed in full needs no lookup and goes straight to the guard; a
 /// handle costs one `resolveHandle` round trip, which is what the login
 /// form already spends before starting an OAuth dance for the same reason
-/// — a typo fails in one request with a spelling hint instead of burning
+/// - a typo fails in one request with a spelling hint instead of burning
 /// the post-arrival record-fetch retry budget.
 #[derive(Component)]
 pub struct GatewayDestinationTask {
     /// What the user typed, kept as the label the travel carries (#1231
-    /// f27) — they wrote the name, so it is the name they will recognise.
+    /// f27) - they wrote the name, so it is the name they will recognise.
     typed: String,
     task: bevy::tasks::Task<Result<String, String>>,
 }
@@ -87,7 +87,7 @@ pub fn watch_gateway_zone(
         }
         return;
     }
-    // In the zone: open unless suppressed — an in-flight travel, a pending
+    // In the zone: open unless suppressed - an in-flight travel, a pending
     // unsaved-edits prompt, or an explicit dismissal that hasn't been
     // walked off yet.
     if picker.is_none() && dismissed.is_none() && traveling.is_none() && guard.is_none() {
@@ -118,7 +118,7 @@ pub fn gateway_reopen_chip_ui(
         .resizable(false)
         .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -24.0])
         .show(ctx, |ui| {
-            if ui.button("⌖ Gateway — choose a destination").clicked() {
+            if ui.button("⌖ Gateway - choose a destination").clicked() {
                 // The zone watcher sees the dismissal gone and reopens
                 // the picker on its next run.
                 commands.remove_resource::<GatewayDismissed>();
@@ -142,7 +142,7 @@ pub fn gateway_picker_ui(
 ) {
     // Guarded-dirty (#879, generalised by #1274 f177): the widgets below take
     // `&mut` fields of this resource, and `ResMut::deref_mut` stamps the change
-    // tick on ACCESS — so drawing the window marked it changed on every frame
+    // tick on ACCESS - so drawing the window marked it changed on every frame
     // whether or not anybody typed. Nothing reads this resource's change tick
     // today, and copying its strings in and out each frame to find that out
     // would cost more than the tick does. If a consumer is ever added, call
@@ -167,7 +167,7 @@ pub fn gateway_picker_ui(
     // closure so the borrow of `picker` stays simple.
     // The DID AND the name the row rendered (#1231 f27): the profile
     // cache is filled by peer-driven fetches only, so a mutual the viewer
-    // has never shared a room with is not in it — and the overlay one
+    // has never shared a room with is not in it - and the overlay one
     // click after "@alice" said `did:plc:abcdefgh…` for the same person.
     let mut travel_to: Option<(String, String)> = None;
     /// Reserved width of the destination row's Go button, so the text
@@ -192,7 +192,7 @@ pub fn gateway_picker_ui(
                 let entry = crate::ui::affordances::text_edit_enabled(
                     ui,
                     !resolving,
-                    "Looking up that handle — the field unlocks when it resolves",
+                    "Looking up that handle - the field unlocks when it resolves",
                     egui::TextEdit::singleline(&mut picker.destination)
                         .hint_text("@alice.bsky.social")
                         .desired_width(ui.available_width() - GO_BUTTON_WIDTH),
@@ -200,11 +200,11 @@ pub fn gateway_picker_ui(
                 let entered =
                     entry.lost_focus() && entry.ctx.input(|i| i.key_pressed(egui::Key::Enter));
                 // Two different reasons disable this, so the hover has to
-                // say WHICH (#1289) — "enter a handle" while a lookup is in
+                // say WHICH (#1289) - "enter a handle" while a lookup is in
                 // flight would be wrong, and the spinner below is the only
                 // other cue for the resolving case.
                 let go_blocked = if resolving {
-                    Some("Looking up that handle — this will enable when it resolves")
+                    Some("Looking up that handle - this will enable when it resolves")
                 } else if picker.destination.trim().is_empty() {
                     Some("Enter a handle or DID to travel to")
                 } else {
@@ -241,7 +241,7 @@ pub fn gateway_picker_ui(
             );
             ui.add_space(4.0);
 
-            // Home row — always available when away from home, above the
+            // Home row - always available when away from home, above the
             // scroll list so it never has to be searched for.
             if let Some(s) = session.as_deref()
                 && s.did != owner_did
@@ -254,7 +254,7 @@ pub fn gateway_picker_ui(
                         &profile_cache,
                         AVATAR_ICON_PX,
                     );
-                    ui.monospace(format!("@{} — home", s.handle));
+                    ui.monospace(format!("@{} - home", s.handle));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Go").clicked() {
                             travel_to = Some((s.did.clone(), format!("@{}", s.handle)));
@@ -304,19 +304,19 @@ pub fn gateway_picker_ui(
                         })
                         .collect();
                     if list.truncated {
-                        ui.small("Large following — list may be incomplete.");
+                        ui.small("Large following - list may be incomplete.");
                     }
                     if rows.is_empty() {
                         // Both empty states name the rule (#1232 f24). The
                         // reachable set here is a function of somebody
                         // else's follow graph, which is not a thing a
                         // visitor can be expected to infer from "No
-                        // matches." — and the row above is the way out.
+                        // matches." - and the row above is the way out.
                         ui.label(if query.is_empty() {
-                            "This world's owner has no mutual follows yet — \
+                            "This world's owner has no mutual follows yet - \
                              enter a handle above to go somewhere."
                         } else {
-                            "No mutual follows match that filter — enter a \
+                            "No mutual follows match that filter - enter a \
                              handle above to go somewhere else."
                         });
                     }
@@ -346,7 +346,7 @@ pub fn gateway_picker_ui(
                                     // the spoofable field large with the
                                     // verified one greyed beside it inverted
                                     // the trust order the rest of the app
-                                    // gets right — a display name set to
+                                    // gets right - a display name set to
                                     // somebody else's handle produced a row
                                     // that read as that person. Chat and the
                                     // People roster show only the verified
@@ -384,8 +384,8 @@ pub fn gateway_picker_ui(
     }
 
     // The free-text destination (#1232 f24). Validated by the login form's
-    // own `validate_destination` — the two surfaces that ask "where do you
-    // want to go" agree on what an answer looks like — and a handle costs
+    // own `validate_destination` - the two surfaces that ask "where do you
+    // want to go" agree on what an answer looks like - and a handle costs
     // one `resolveHandle` round trip before the guard flow starts.
     if let Some(typed) = go_to {
         picker.destination_error = None;
@@ -396,7 +396,7 @@ pub fn gateway_picker_ui(
             // this arm is only reachable via an all-whitespace entry.
             Ok(crate::ui::login::validation::Destination::Home) => {
                 picker.destination_error = Some(String::from(
-                    "Enter a handle or DID — the home row above goes home.",
+                    "Enter a handle or DID - the home row above goes home.",
                 ));
             }
             Ok(crate::ui::login::validation::Destination::Did(did)) => {
@@ -446,8 +446,8 @@ pub fn gateway_picker_ui(
 /// Drain a finished destination lookup into the same guard flow every
 /// other travel takes (#1232 f24).
 ///
-/// A picker that has closed under the task — the player walked out of the
-/// zone, or picked a mutual instead — takes the result nowhere: a travel
+/// A picker that has closed under the task - the player walked out of the
+/// zone, or picked a mutual instead - takes the result nowhere: a travel
 /// nobody is still asking for must not fire.
 pub fn poll_gateway_destination(
     mut commands: Commands,
@@ -489,13 +489,13 @@ pub fn poll_gateway_destination(
 /// Plain language for a failed destination lookup (#1232 f24).
 ///
 /// `resolve_handle`'s errors are XRPC chains, and this row is on the same
-/// surface as the mutuals list whose lexicon leak #1232 f284 is about —
+/// surface as the mutuals list whose lexicon leak #1232 f284 is about -
 /// so it does not get to grow one of its own.
 pub fn destination_lookup_error(raw: &str) -> String {
     if raw.contains("timed out") {
-        return String::from("That lookup timed out — check your connection and try again.");
+        return String::from("That lookup timed out - check your connection and try again.");
     }
-    String::from("No account with that handle — check the spelling.")
+    String::from("No account with that handle - check the spelling.")
 }
 
 #[cfg(test)]
@@ -505,7 +505,7 @@ mod tests {
 
     /// THE SEQUENCE (#1232 f24): a visitor stands on a gateway, types a
     /// friend's handle into "Search handle or name…" and gets "No
-    /// matches." The friend exists — they are simply not a mutual follow
+    /// matches." The friend exists - they are simply not a mutual follow
     /// of whoever owns this room, and the box never performed a lookup at
     /// all. A new account on its own gateway, which is exactly the user
     /// with no mutuals, saw a search box, an empty list and a Close

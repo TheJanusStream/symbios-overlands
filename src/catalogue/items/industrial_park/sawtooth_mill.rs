@@ -1,23 +1,23 @@
-//! Sawtooth mill — a long brick weaving shed under a run of north-lit
+//! Sawtooth mill - a long brick weaving shed under a run of north-lit
 //! sawtooth roof teeth, with a pilastered elevation, a lean-to engine
 //! house, and a tapered brick chimney that smokes over the estate.
 //!
 //! The sawtooth is the point: each tooth is a `Roof(Shed)` whose sloped
-//! face carries the metal deck and whose vertical back wall is glazed —
+//! face carries the metal deck and whose vertical back wall is glazed -
 //! the north light that let a mill work by daylight. That back face only
 //! became addressable in `symbios-shape` 0.3 (the `Back` roof selector was
 //! added for exactly this silhouette), and the teeth are sized by
 //! `height=` rather than a pitch so the rise stays constant however deep
 //! the bay is cut.
 //!
-//! Footprint 24 × 14 — long across X, so the ridges run the length of the
+//! Footprint 24 × 14 - long across X, so the ridges run the length of the
 //! hall and the teeth repeat across its depth, the way a real weaving shed
 //! is laid out.
 //!
 //! Stochastic variation (per placement, from the settlement's re-stamped
 //! grammar seed): the bay mix along the elevation, whether the engine
-//! house takes a gable or a roof tank, the chimney's cap band, and — via
-//! one `Pick` key shared by the northlights and the elevation windows —
+//! house takes a gable or a roof tank, the chimney's cap band, and - via
+//! one `Pick` key shared by the northlights and the elevation windows -
 //! whether the whole mill is working (lit glazing) or idle (dark grille).
 //! Because it is one key, the building never disagrees with itself.
 //!
@@ -37,7 +37,7 @@ use super::{
 };
 use crate::pds::Fp;
 
-/// Mill glazing — cool and grimy, so the grille card reads as industrial
+/// Mill glazing - cool and grimy, so the grille card reads as industrial
 /// glass against brick. Never tinted warm: a `Window` card is one material
 /// across frame *and* glass, so a warm tint lights the glazing bars too and
 /// the frame reads as glowing plastic. The shift light comes from a plain
@@ -46,7 +46,7 @@ const GLAZING_GRIME: [f32; 3] = [0.26, 0.32, 0.34];
 /// The shop floor seen through the glass when the mill is idle.
 const SHOP_DARK: [f32; 3] = [0.06, 0.07, 0.08];
 
-/// A plain emissive (or dark) surface — no `Window` texture — set behind
+/// A plain emissive (or dark) surface - no `Window` texture - set behind
 /// the glazing to be the shop floor beyond it.
 fn shop_interior(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -86,7 +86,7 @@ impl CatalogueEntry for SawtoothMill {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
-    /// The working estate's production hall — the established register.
+    /// The working estate's production hall - the established register.
     /// The derelict end of the theme is the separate [`super::derelict_shed`].
     fn prosperity_band(&self) -> ProsperityBand {
         INDUSTRIAL_BAND
@@ -112,11 +112,11 @@ impl CatalogueEntry for SawtoothMill {
         mill.transform.translation = Fp3([-LOT_X / 2.0, 0.0, -LOT_Z / 2.0]);
         // `attach` (not a bare push): `footing` returns a root whose own
         // transform is sunk by half the buried plinth, and a plain child
-        // inherits it — which drops the whole building below grade (#1039).
+        // inherits it - which drops the whole building below grade (#1039).
         crate::catalogue::items::util::attach(&mut root, mill);
 
         // Signature life: the flue smokes over the estate's hum. The stack
-        // is centred in the far corner plot the grammar carves for it —
+        // is centred in the far corner plot the grammar carves for it -
         // the last `END_BLOCK_X` of the length, and within that the last
         // `STACK_YARD_Z` of the depth. Its height is fixed (not
         // stochastic) precisely so this plume always lands on the flue
@@ -154,7 +154,7 @@ fn materials() -> HashMap<String, SovereignMaterialSettings> {
 
 fn build_kind() -> GeneratorKind {
     let grammar_source = [
-        // ── Declarations — the knobs an author (or the editor) can turn ──
+        // ── Declarations - the knobs an author (or the editor) can turn ──
         "const PlinthH = 0.7",
         // Wall thickness, shared by the wall slabs and the window reveals.
         "const WallD = 0.34",
@@ -176,7 +176,7 @@ fn build_kind() -> GeneratorKind {
         "HallBody --> Comp(Faces) { Side: MillFacade | Top: NIL | Bottom: NIL }",
         // The bay carries an ABSOLUTE width inside the rhythm group. A
         // floating `~1` here would be read as a nominal 1 m when the group
-        // is tiled, packing eleven 1.05 m bays into the elevation — every
+        // is tiled, packing eleven 1.05 m bays into the elevation - every
         // one too narrow for an opening, so `Fit` would quietly degrade
         // the whole hall to blank brick.
         "MillFacade --> when(scope.x < 5): BrickWall \
@@ -361,7 +361,7 @@ mod tests {
 
     /// The hall's elevation must actually be pierced. An earlier draft
     /// sized the rhythm group's bay with a floating `~1`, which tiles as a
-    /// nominal 1 m — every bay then fell under `Fit`'s opening threshold
+    /// nominal 1 m - every bay then fell under `Fit`'s opening threshold
     /// and the whole hall silently rendered as blank brick. Nothing else
     /// in the suite noticed, because the grammar still derived cleanly.
     #[test]
@@ -403,7 +403,7 @@ mod tests {
                 .collect();
             assert!(
                 mats.len() <= 1,
-                "seed {seed}: the mill mixed glazing states {mats:?} — Pick lost coherence"
+                "seed {seed}: the mill mixed glazing states {mats:?} - Pick lost coherence"
             );
         }
     }

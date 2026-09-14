@@ -1,4 +1,4 @@
-//! Build script — captures two facts about the build into the environment.
+//! Build script - captures two facts about the build into the environment.
 //!
 //! `SYMBIOS_GIT_SHA` is the short git sha, so the diagnostic suite's startup
 //! snapshot (src/diagnostics/snapshot.rs) can record which commit produced a
@@ -29,7 +29,7 @@ fn main() {
     // Re-run when HEAD moves so the sha stays current without a clean rebuild.
     //
     // `.git/HEAD` alone is NOT enough: on a branch it holds `ref:
-    // refs/heads/<branch>` and does not change when you commit — only the
+    // refs/heads/<branch>` and does not change when you commit - only the
     // ref file does. Watching just HEAD meant the stamped sha went stale
     // for every commit on a branch, so session logs misattributed their
     // build (a log from a 13-commits-later binary claimed the older sha,
@@ -46,8 +46,8 @@ fn main() {
 /// The resolved `avian3d` version, read straight out of `Cargo.lock`.
 ///
 /// A dependency's version is not otherwise visible to a dependent at compile
-/// time — `CARGO_PKG_VERSION` is this package's own, and `DEP_*` exists only
-/// for `links` crates — so the lockfile is the only source. It is untracked
+/// time - `CARGO_PKG_VERSION` is this package's own, and `DEP_*` exists only
+/// for `links` crates - so the lockfile is the only source. It is untracked
 /// here (see .gitignore) but cargo always writes it before a build script
 /// runs, so this is reading a file that exists by construction rather than by
 /// luck. The parse is deliberately dumb: find the `[[package]]` stanza whose

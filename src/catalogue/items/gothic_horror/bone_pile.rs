@@ -1,4 +1,4 @@
-//! Bone pile — a Gothic-Horror *poor* prop. A grim heap of bones and skulls
+//! Bone pile - a Gothic-Horror *poor* prop. A grim heap of bones and skulls
 //! mouldering in the earth. The charnel clutter of the forsaken ground.
 //!
 //! Scattered long-bones lie tipped with a [`quat_x`].
@@ -87,7 +87,7 @@ impl CatalogueEntry for BonePile {
 fn build_tree() -> Generator {
     let b = || matte(BONE);
     let mut prims = vec![
-        // Earthen heap base — the root.
+        // Earthen heap base - the root.
         prim(
             solid(cuboid_tapered(
                 [1.3, 0.42, 1.1],

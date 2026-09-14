@@ -1,4 +1,4 @@
-//! Audio bridge widget — the sovereign-side mirror of
+//! Audio bridge widget - the sovereign-side mirror of
 //! [`super::material::draw_texture_bridge`].
 //!
 //! Renders a [`SovereignAudioConfig`] picker plus a per-variant body:
@@ -34,7 +34,7 @@
 //!
 //! The pop-out opens with a line saying who these edits reach. It is not
 //! worked out here: [`AudioAudience`] is carried in, because only the host
-//! knows — the room's edits are live to everyone present as they are made,
+//! knows - the room's edits are live to everyone present as they are made,
 //! while the avatar's depend on the body kind. Everything the monitor needs
 //! from the app, and the audience with it, arrives as one
 //! [`AudioMonitorIo`] rather than as a handful of parameters that every
@@ -46,8 +46,8 @@
 //! owner dragged the node boxes, how far they zoomed the timeline, which
 //! instrument was open, whether that slot's Auto was on. A world can hold
 //! thousands of audio slots and each editor state is a couple of hash maps
-//! and an undo ring, so that memory is bounded — [`REMEMBERED_SLOTS`] of
-//! them, least-recently-opened dropped first — and the view and the
+//! and an undo ring, so that memory is bounded - [`REMEMBERED_SLOTS`] of
+//! them, least-recently-opened dropped first - and the view and the
 //! audition setting are dropped together, so a slot cannot keep one and
 //! forget the other. The undo ring is NOT kept: it describes a chain of
 //! values the re-seeded copy is no longer the tail of.
@@ -119,7 +119,7 @@ impl AudioSlotKind {
 pub struct AudioEditorIo<'w> {
     monitor: Res<'w, AudioMonitor>,
     requests: MessageWriter<'w, MonitorRequest>,
-    /// Seeks and level changes for the voice already playing — a click on
+    /// Seeks and level changes for the voice already playing - a click on
     /// the waveform, the strip's Level slider (#1338 D1, D3). A separate
     /// channel from `requests` because these steer what plays rather than
     /// replacing it.
@@ -150,7 +150,7 @@ impl AudioEditorIo<'_> {
 /// decoded buffer at for as long as the bed plays, mono 32-bit float, and
 /// the seeded ambient bed has used 22 050 since #568 because its pad and
 /// drone content sits well inside the 11 kHz Nyquist. 96 000 therefore
-/// only ever bought four times the memory for the same sound — and on
+/// only ever bought four times the memory for the same sound - and on
 /// wasm, where freed linear memory never returns to the OS, a re-bake's
 /// high-water mark is permanent.
 ///
@@ -158,7 +158,7 @@ impl AudioEditorIo<'_> {
 /// percussive or bright construct effect can have content above 11 kHz,
 /// and the choice is the owner's to make with the cost written next to it.
 /// A recipe already at a rate that is not here still shows it and is never
-/// rewritten — see `SequenceEditorState::offered_sample_rates`.
+/// rewritten - see `SequenceEditorState::offered_sample_rates`.
 const HOST_SAMPLE_RATES: &[u32] = &[
     crate::config::interaction::audio::WORLD_BED_SAMPLE_RATE,
     44_100,
@@ -170,7 +170,7 @@ const HOST_SAMPLE_RATES: &[u32] = &[
 /// Not `SovereignSequenceRecipe::default` itself. That is a *mirror* of
 /// `bevy_symbios_audio::SequenceRecipe`, held field for field to upstream's
 /// own default by `pds::audio::tests::mirror_defaults_match_upstream` so a
-/// value that drifts upstream is caught instead of quietly re-meaning —
+/// value that drifts upstream is caught instead of quietly re-meaning -
 /// and upstream is right to default to 44 100, which is the sensible
 /// answer for a host that has not said otherwise. This world has: its beds
 /// are baked and held at [`WORLD_BED_SAMPLE_RATE`], and a new slot at
@@ -189,8 +189,8 @@ fn new_sequence_recipe() -> SovereignSequenceRecipe {
 /// A fresh sequence editor for a slot in this world: the crate's, with
 /// this host's rate choices in it.
 ///
-/// One door for both places a `Sequence` working copy is seeded — opening
-/// a slot, and a variant switch to `Sequence` — because a second one that
+/// One door for both places a `Sequence` working copy is seeded - opening
+/// a slot, and a variant switch to `Sequence` - because a second one that
 /// forgot would be an editor offering rates the world does not want, and
 /// nothing on screen would say which of the two it was.
 fn new_sequence_editor() -> SequenceEditorState {
@@ -202,9 +202,9 @@ fn new_sequence_editor() -> SequenceEditorState {
 /// How many slots keep their view and their audition settings between
 /// openings.
 ///
-/// Small on purpose. What this holds is a convenience — where the owner
+/// Small on purpose. What this holds is a convenience - where the owner
 /// dragged the node boxes, how far they zoomed the timeline, which
-/// instrument was open, whether that slot's Auto was on — and an owner
+/// instrument was open, whether that slot's Auto was on - and an owner
 /// moves between a handful of slots in a sitting, not a hundred. A world
 /// can hold thousands of audio slots, and a `PatchEditorState` is a couple
 /// of hash maps and an undo ring per slot, so an unbounded map is a leak
@@ -217,7 +217,7 @@ const REMEMBERED_SLOTS: usize = 8;
 /// re-seeded on the next opening from the record or from a stranded
 /// commit. What comes back is where things were, which is still true.
 ///
-/// The undo history is NOT in here — [`SlotView::of_patch`] and
+/// The undo history is NOT in here - [`SlotView::of_patch`] and
 /// [`SlotView::of_sequence`] drop it on the way in. Keeping the whole
 /// editor state across a close would keep the undo ring too, and that is a
 /// different promise: the working copy is re-seeded on reopening, so the
@@ -247,7 +247,7 @@ impl SlotView {
 }
 
 /// What each recently-opened slot looked like, and what its audition was
-/// set to, oldest first — a small LRU keyed by the bridge salt.
+/// set to, oldest first - a small LRU keyed by the bridge salt.
 ///
 /// ONE bound serves both, deliberately. These are two per-slot maps kept
 /// for the same reason (what the owner left this slot as), keyed by the
@@ -267,7 +267,7 @@ struct SlotMemory {
 #[derive(Default)]
 struct SlotViewAndAudition {
     /// The editor's layout, once that slot has been closed. `None` while
-    /// it is open — the live state is in [`AudioEditorState`] then — and
+    /// it is open - the live state is in [`AudioEditorState`] then - and
     /// for a slot whose strip has been drawn but whose editor has not been
     /// closed yet.
     view: Option<SlotView>,
@@ -338,8 +338,8 @@ impl SlotMemory {
 /// The window edits only its native *working copy*; it never holds a
 /// reference to the sovereign record. On a committed edit it stashes the
 /// converted [`SovereignAudioConfig`] in [`Self::pending`] under the
-/// bound [`Self::salt`]. The matching bridge call site — which *does*
-/// own the live `&mut SovereignAudioConfig` for its slot — takes that
+/// bound [`Self::salt`]. The matching bridge call site - which *does*
+/// own the live `&mut SovereignAudioConfig` for its slot - takes that
 /// value the next time it runs. This keeps the window slot-agnostic, so
 /// the same editor serves both the room-ambient slot and any
 /// per-construct slot symmetrically.
@@ -347,13 +347,13 @@ impl SlotMemory {
 /// The pending value is **delivery**, not a draft awaiting approval
 /// (#1202): the crate's editors commit on every drag end, and nothing in
 /// this window can decline a commit. It therefore survives the window
-/// closing, the Esc ladder, and the bound slot leaving the screen — the
-/// World Editor closing, a tab change, the tree selection moving — and
+/// closing, the Esc ladder, and the bound slot leaving the screen - the
+/// World Editor closing, a tab change, the tree selection moving - and
 /// lands the next time that slot's bridge draws. It used to be a single
 /// `committed` slot wiped by `close()`, and the bridge only ran while the
 /// slot was on screen, so twenty minutes of node-graph work vanished on
 /// the ordinary gesture of closing the window after the selection had
-/// moved — while the audition kept playing the doomed working copy.
+/// moved - while the audition kept playing the doomed working copy.
 #[derive(Default)]
 pub struct AudioEditorState {
     /// Whether the pop-out editor window is open.
@@ -376,7 +376,7 @@ pub struct AudioEditorState {
     /// What kind of slot the window edits, for the audition's numbers.
     kind: AudioSlotKind,
     /// What each recently-opened slot looked like and what its audition
-    /// was set to — a strip shows only its own audition, so a slot opened
+    /// was set to - a strip shows only its own audition, so a slot opened
     /// after another must not take the other's sound and waveform for its
     /// own, and a slot reopened must come back the way it was left
     /// (#1337 A4, #1338 A6). Bounded; see [`SlotMemory`].
@@ -429,14 +429,14 @@ impl AudioEditorState {
         self.patch = None;
         self.sequence = None;
         self.reseeded = false;
-        // What the record holds now is what this window is in step with —
+        // What the record holds now is what this window is in step with -
         // even when it seeds from a stranded commit, because that commit is
         // this window's own and the bridge will land it.
         self.agreed = Some(audio.clone());
         let seed = self.pending.get(salt).unwrap_or(audio);
         // The view this slot was last closed with, if it is still one of
         // the remembered few (#1338 A6). A view of the WRONG kind is not
-        // used — the slot changed variant since, so a canvas layout has
+        // used - the slot changed variant since, so a canvas layout has
         // nothing to lay out.
         let remembered = self.slots.take_view(salt);
         match seed {
@@ -491,7 +491,7 @@ impl AudioEditorState {
 
     /// Whether anything at all is staged. The cheap first question, so the
     /// guard's walk over a record's every node is skipped in the ordinary
-    /// case — which is every frame in which the owner has not just
+    /// case - which is every frame in which the owner has not just
     /// committed an audio edit.
     pub(crate) fn pending_is_empty(&self) -> bool {
         self.pending.is_empty()
@@ -509,7 +509,7 @@ impl AudioEditorState {
         self.pending.insert(salt.to_string(), audio);
     }
 
-    /// Forget a pending commit for `salt` — the slot changed variant
+    /// Forget a pending commit for `salt` - the slot changed variant
     /// under it, so the edit is for a value that no longer exists.
     fn discard(&mut self, salt: &str) {
         self.pending.remove(salt);
@@ -528,7 +528,7 @@ impl AudioEditorState {
         // value is re-seeded from the record or from a stranded commit,
         // and where the owner put the node boxes is still true either way.
         //
-        // The undo history does NOT come with it — `SlotView` drops it —
+        // The undo history does NOT come with it - `SlotView` drops it -
         // because the re-seeded value is not the tail of the chain the
         // ring describes. See `SlotView`.
         let salt = std::mem::take(&mut self.salt);
@@ -549,8 +549,8 @@ impl AudioEditorState {
     /// record changed from outside (#1333 A9). Called by the bound slot's
     /// bridge, which is the only place that holds the live value.
     ///
-    /// The view state survives — node positions, zoom, which instrument is
-    /// open — because the owner did not ask for the view to change; only
+    /// The view state survives - node positions, zoom, which instrument is
+    /// open - because the owner did not ask for the view to change; only
     /// the value did. The swap is handed to the editor's own history as a
     /// step, so a Ctrl+Z inside the window goes back to what was there
     /// before the outside change rather than jumping over it.
@@ -760,7 +760,7 @@ pub(crate) enum Reseed {
     /// yet: the record is behind on purpose and the working copy is the
     /// newer of the two.
     KeepPending,
-    /// The record changed from somewhere the editor cannot see — a room
+    /// The record changed from somewhere the editor cannot see - a room
     /// undo or redo, a revert, "Load from PDS", a re-rolled seed. Take the
     /// new value.
     Take,
@@ -771,7 +771,7 @@ pub(crate) enum Reseed {
 ///
 /// Audio commits land in the live record like any other edit, so the room's
 /// undo ring captures them. Nothing re-seeded the pop-out, which edits a
-/// copy taken once at open — so Ctrl+Z reverted the slot in the record
+/// copy taken once at open - so Ctrl+Z reverted the slot in the record
 /// while the window went on showing the newer values, and its next commit
 /// put them back. The undo silently un-happened (#1333 A9).
 pub(crate) fn reseed_decision(
@@ -811,15 +811,15 @@ pub(super) fn draw_audio_bridge(
 ) {
     // Pick up any committed edit the pop-out editor staged for this slot
     // (it edits a native working copy and writes back here, keyed by
-    // salt, so the window itself stays slot-agnostic — see
+    // salt, so the window itself stays slot-agnostic - see
     // [`AudioEditorState`]). Whether or not the window is still open or
     // still bound here: a commit is delivered, never dropped (#1202).
     if let Some(committed) = editor.land(salt) {
         *audio = committed;
         *dirty = true;
     }
-    // Anything else that moved this slot — a room undo or redo, a revert, a
-    // reload, a re-rolled seed — the open window follows.
+    // Anything else that moved this slot - a room undo or redo, a revert, a
+    // reload, a re-rolled seed - the open window follows.
     editor.follow_record(audio, salt);
     if editor.salt == salt {
         editor.bound_seen_frame = Some(ui.ctx().cumulative_frame_nr());
@@ -830,7 +830,7 @@ pub(super) fn draw_audio_bridge(
     egui::ComboBox::from_id_salt(format!("{}_audio_ty", salt))
         .selected_text(audio.label())
         .show_ui(ui, |ui| {
-            // Variant presets — switching variants resets the inner
+            // Variant presets - switching variants resets the inner
             // payload because each variant carries different state.
             let presets: [(&'static str, SovereignAudioConfig); 4] = [
                 ("None", SovereignAudioConfig::None),
@@ -862,7 +862,7 @@ pub(super) fn draw_audio_bridge(
             }
         });
 
-    // A variant switch invalidates any open editor bound to this slot —
+    // A variant switch invalidates any open editor bound to this slot -
     // its working copy is for the old variant. Close it so the next
     // "Edit audio…" reseeds cleanly, and drop anything it had staged.
     if std::mem::discriminant(&*audio) != prev_variant {
@@ -950,7 +950,7 @@ fn referenced_play_row(
     });
 }
 
-/// "Edit audio…" button — seeds the working copy and opens the pop-out.
+/// "Edit audio…" button - seeds the working copy and opens the pop-out.
 fn edit_button(
     ui: &mut egui::Ui,
     audio: &SovereignAudioConfig,
@@ -986,7 +986,7 @@ fn draw_summary(ui: &mut egui::Ui, summary: &str) {
 }
 
 /// `"3 nodes · ends in Lowpass"`: how big the patch is and what is heard
-/// (#1330 A8). It used to read "Sound patch — 3 nodes, output #2, seed 0",
+/// (#1330 A8). It used to read "Sound patch - 3 nodes, output #2, seed 0",
 /// the schema's words: an output id means nothing without the canvas, and
 /// the seed is a detail of the noise.
 fn patch_summary(patch: &SovereignAudioPatch) -> String {
@@ -1007,7 +1007,7 @@ fn patch_summary(patch: &SovereignAudioPatch) -> String {
 }
 
 /// `"5 instruments · 37 notes · 34 beats at 60 BPM"` (#1330 A8). It used to
-/// read "Sequence — 60 BPM, 5 instruments, 5 tracks, 37 events".
+/// read "Sequence - 60 BPM, 5 instruments, 5 tracks, 37 events".
 fn sequence_summary(recipe: &SovereignSequenceRecipe) -> String {
     let plural = |n: usize, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
     let notes: usize = recipe.tracks.iter().map(|t| t.events.len()).sum();
@@ -1031,7 +1031,7 @@ fn trimmed(value: f32) -> String {
 /// The pop-out is where the audio edits are actually made and it said
 /// nothing about any of this: a committed edit lands in the live record,
 /// the record is broadcast on its debounce, and every visitor re-bakes
-/// their bed from it — so a slider drag is heard, half-finished, by
+/// their bed from it - so a slider drag is heard, half-finished, by
 /// everyone in the room (#1337 A4). The World Editor's own footer has
 /// carried that sentence since #1269; the window floating above it did
 /// not, and the window is the one with the sliders in it.
@@ -1039,7 +1039,7 @@ fn trimmed(value: f32) -> String {
 /// Carried in rather than derived here, because only the host knows: the
 /// room's pop-out is always [`Live`](crate::ui::editable::EditVisibility::Live),
 /// while the avatar's
-/// depends on the body kind — a construction-kit body IS the broadcast
+/// depends on the body kind - a construction-kit body IS the broadcast
 /// payload, and a rigged one's rides a `serde(skip)` field, so its parts
 /// reach other people only on a publish. That is the same rule the Avatar
 /// window's own footer states, read from the same place.
@@ -1063,7 +1063,7 @@ pub(crate) struct AudioAudience {
 /// eight with an allow explaining why, and a ninth and tenth would be the
 /// point at which that explanation stopped being true.
 pub(crate) struct AudioMonitorIo<'a> {
-    /// The monitor itself — status, the last buffer, and where it is in it.
+    /// The monitor itself - status, the last buffer, and where it is in it.
     pub(crate) monitor: &'a AudioMonitor,
     /// Where the strip's clicks and the Level slider go.
     pub(crate) controls: &'a mut Vec<bevy_symbios_audio::ui::MonitorControl>,
@@ -1124,14 +1124,14 @@ pub(crate) fn draw_audio_editor_window(
 }
 
 /// The pop-out itself, window and body, and what the Bevy system above and
-/// the layout tests below both call — so a test drives the real window, not
+/// the layout tests below both call - so a test drives the real window, not
 /// a copy of it. `default_rect` is where the window opens the first time,
 /// `constrain` the rect it must stay in. Monitor requests the body makes
 /// land in `requests`; `muted` is the app-wide mute, which the banner's
 /// Unmute clears. Returns the window's rect when it was shown.
 // Eight, one past clippy's line, and the same reason `draw_audio_bridge`
 // above carries the allow: every one of them is a distinct thing the host
-// holds and the window does not — the context, the state, the monitor, two
+// holds and the window does not - the context, the state, the monitor, two
 // rects, the outbox, the mute and who is listening. Bundling any pair would
 // group them by arity rather than by meaning.
 #[allow(clippy::too_many_arguments)]
@@ -1150,12 +1150,12 @@ fn show_audio_editor_window(
     // The bridge for the bound slot draws BEFORE this window in the same
     // system, so "seen this frame" means the slot is on screen and every
     // commit lands at once; anything else means the edits are stranded
-    // until it is shown again — say so (#1202).
+    // until it is shown again - say so (#1202).
     let slot_on_screen = editor.bound_seen_frame == Some(ctx.cumulative_frame_nr());
     if std::mem::take(&mut editor.stop_audition) {
         requests.push(MonitorRequest::Stop);
     }
-    let shown = egui::Window::new(format!("Audio Editor — {}", editor.label))
+    let shown = egui::Window::new(format!("Audio Editor - {}", editor.label))
         .id(id.with("window"))
         .open(&mut keep_open)
         .resizable(true)
@@ -1245,7 +1245,7 @@ fn audio_editor_body(
         ui.colored_label(
             crate::ui::theme::current(ui.ctx()).status.warn,
             if stranded {
-                "Edits are kept but not applied yet — the slot this window edits \
+                "Edits are kept but not applied yet - the slot this window edits \
                  is not on screen. Reselect it in its editor to apply them."
             } else {
                 "The slot this window edits is not on screen. Edits are kept and \
@@ -1271,11 +1271,11 @@ fn audio_editor_body(
     // `Resize` then keeps `desired_size.max(last_content_size)` and never
     // gives height back: the window grew by the strip's height every frame
     // until it met the screen edge, and the strip was never drawn. Last,
-    // the canvas absorbs every change above it instead — the banner
+    // the canvas absorbs every change above it instead - the banner
     // appearing, the waveform arriving after the first bake.
     //
     // The crate's editors return EditorResponse { changed, rebake }; we
-    // treat `rebake` (a committed edit — drag ended or a non-drag widget
+    // treat `rebake` (a committed edit - drag ended or a non-drag widget
     // changed) as the write-back trigger, and hand it to the audition strip
     // on the next frame, whose Auto re-bakes a playing audition after it
     // (#1330 D2). The working copy itself is mutated in place every frame,
@@ -1304,7 +1304,7 @@ fn audio_editor_body(
         // "Hear this node" (#1338 D3): a COPY of the working copy with its
         // output moved, auditioned at the numbers this kind of slot bakes
         // at. The working copy is untouched, so nothing is committed and
-        // nothing reaches the record or the people it is broadcast to —
+        // nothing reaches the record or the people it is broadcast to -
         // hearing is not editing.
         //
         // Before the commit below, not after: `audition` borrows out of
@@ -1316,7 +1316,7 @@ fn audio_editor_body(
             // request, and the copy's differs from the original's. Telling
             // it the original would leave the monitor playing a sound no
             // strip admitted to, so the chip would read Idle, Stop would
-            // be disabled and the waveform would not be drawn — while the
+            // be disabled and the waveform would not be drawn - while the
             // node was audibly looping.
             requests.push(audition.play(&AuditionSource::patch(&heard, sample_rate, secs)));
         }
@@ -1453,7 +1453,7 @@ mod tests {
     }
 
     /// Reopening the window for a slot whose commit is still stranded
-    /// seeds from that commit, not from the record — the record is behind
+    /// seeds from that commit, not from the record - the record is behind
     /// the owner's last edit until the bridge lands it.
     #[test]
     fn reopening_a_slot_with_a_stranded_commit_seeds_from_the_commit() {
@@ -1508,7 +1508,7 @@ mod tests {
         );
 
         // THE CONTROL: another slot never had a layout, so it gets a
-        // fresh one — the cache is per slot, not a global.
+        // fresh one - the cache is per slot, not a global.
         editor.close();
         editor.open_for(&patch_slot(), "gen_birch_0", "birch", slot);
         let (_, view) = editor.patch.as_ref().expect("a patch working copy");
@@ -1560,8 +1560,8 @@ mod tests {
     ///
     /// `new_sequence_editor` is the only door that calls `set_sample_rates`
     /// (#1337 C7). If the restore path ever CONSTRUCTS a state rather than
-    /// taking the cached one — a `SequenceEditorState::default()` on a
-    /// cache miss, say — the picker quietly goes back to offering 96 000,
+    /// taking the cached one - a `SequenceEditorState::default()` on a
+    /// cache miss, say - the picker quietly goes back to offering 96 000,
     /// and nothing else in this file would notice.
     #[test]
     fn a_restored_sequence_editor_still_offers_only_this_worlds_rates() {
@@ -1636,7 +1636,7 @@ mod tests {
         editor.close();
 
         // One more slot than fits: something must go, and it must be
-        // slot_1 — the one nobody has touched for longest — not slot_0.
+        // slot_1 - the one nobody has touched for longest - not slot_0.
         editor.open_for(&patch_slot(), "newcomer", "x", slot);
         editor.close();
         assert_eq!(
@@ -1682,7 +1682,7 @@ mod tests {
         );
     }
 
-    /// Closing keeps the LAYOUT but not the UNDO RING — a deliberate
+    /// Closing keeps the LAYOUT but not the UNDO RING - a deliberate
     /// difference (#1338 A6). The working copy is re-seeded on reopening,
     /// so a Ctrl+Z on a restored history would jump to a value that was
     /// never on screen in this session.
@@ -2028,7 +2028,7 @@ mod tests {
             assert!(
                 (l.window.height() - settled.height()).abs() < 0.5
                     && (l.window.width() - settled.width()).abs() < 0.5,
-                "{case}: the window is {:.0}x{:.0} at frame {}, {:.0}x{:.0} at frame 3 — \
+                "{case}: the window is {:.0}x{:.0} at frame {}, {:.0}x{:.0} at frame 3 - \
                  it grows",
                 l.window.width(),
                 l.window.height(),
@@ -2049,13 +2049,13 @@ mod tests {
             "{case}: the canvas got {:.0} px",
             last.canvas.height()
         );
-        // #1339 E3: the three are a STACK — the audience notice, then the
-        // audition strip, then the canvas — each inside the window, in
+        // #1339 E3: the three are a STACK - the audience notice, then the
+        // audition strip, then the canvas - each inside the window, in
         // that order, and none on top of another.
         //
         // What this adds, honestly: only the notice and the canvas being
         // inside the window at all. A REORDER cannot reach these
-        // assertions, because the growth check above fires first — moving
+        // assertions, because the growth check above fires first - moving
         // the notice below the canvas was run and gave "the window is
         // 900x692 at frame 4, 900x679 at frame 3", and reordering the
         // strip and the canvas does not even compile (the audition source
@@ -2063,8 +2063,8 @@ mod tests {
         // vertical layout produce an overlap: the parent's cursor follows
         // the child's rect, so a region moved 60 points down takes
         // everything after it along (measured). What is left for these to
-        // catch is a piece of the stack moved to an ABSOLUTE position — an
-        // `egui::Area` like the crate's own picked-wire panel — which
+        // catch is a piece of the stack moved to an ABSOLUTE position - an
+        // `egui::Area` like the crate's own picked-wire panel - which
         // nothing above would see.
         let stack = [
             ("the audience notice", last.notice),
@@ -2657,7 +2657,7 @@ mod tests {
     /// A9: the pop-out edits a copy seeded once, at open. A room undo, a
     /// revert, a "Load from PDS" or a re-rolled seed all change the record
     /// under it, and before this the window went on showing the newer
-    /// values and re-applied them on its next commit — the undo silently
+    /// values and re-applied them on its next commit - the undo silently
     /// un-happened.
     #[test]
     fn an_outside_change_to_the_bound_slot_reseeds_the_working_copy() {
@@ -2694,7 +2694,7 @@ mod tests {
         );
     }
 
-    /// Nothing has been agreed yet — the window has just opened — so there
+    /// Nothing has been agreed yet - the window has just opened - so there
     /// is nothing to compare and nothing to take.
     #[test]
     fn with_nothing_agreed_yet_there_is_nothing_to_reseed_from() {
@@ -2723,7 +2723,7 @@ mod tests {
     ///
     /// The wording itself is `editable::audience_line`'s and is tested
     /// there; what this asks is that the pop-out says it at all, and says
-    /// the right one — the defect was a window full of live controls with
+    /// the right one - the defect was a window full of live controls with
     /// nothing on it about the room.
     #[test]
     fn the_pop_out_says_who_is_hearing_the_edits() {
@@ -2780,7 +2780,7 @@ mod tests {
     }
 
     /// The zero-peer line for a live edit says an arrival will see it, not
-    /// that it is private — an empty room is luck, not privacy, because a
+    /// that it is private - an empty room is luck, not privacy, because a
     /// guest is handed the unsaved state on connect. The wording is
     /// deliberate (#1269) and this pins the pop-out to it rather than to
     /// a copy of it.
@@ -2838,7 +2838,7 @@ mod tests {
     /// rather than at twice it.
     ///
     /// Asked of the preset the variant picker actually makes a slot from,
-    /// not of `SovereignSequenceRecipe::default` — that one is a mirror of
+    /// not of `SovereignSequenceRecipe::default` - that one is a mirror of
     /// upstream's default and is held there on purpose
     /// (`mirror_defaults_match_upstream`), which is exactly what caught
     /// the first attempt at this.

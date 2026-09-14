@@ -1,4 +1,4 @@
-//! Compost heap — a Solarpunk *poor* prop. A timber pallet bin heaped with
+//! Compost heap - a Solarpunk *poor* prop. A timber pallet bin heaped with
 //! rotting compost and green scraps. The humble nutrient cycle of the
 //! grassroots commune.
 
@@ -48,7 +48,7 @@ impl CatalogueEntry for CompostHeap {
 fn build_tree() -> Generator {
     let step = 0.24_f32; // board pitch (board + gap)
     let mut prims = vec![
-        // Earth floor pad — the flat root the bin sits on.
+        // Earth floor pad - the flat root the bin sits on.
         prim(
             solid(cuboid_tapered([1.5, 0.06, 1.5], 0.0, foliage(SOIL_DARK))),
             [0.0, 0.03, 0.0],
@@ -66,7 +66,7 @@ fn build_tree() -> Generator {
             ));
         }
     }
-    // Slatted walls — horizontal boards with gaps between (a real pallet, not
+    // Slatted walls - horizontal boards with gaps between (a real pallet, not
     // a solid panel): a full back + two sides + a low open front.
     for k in 0..4 {
         let y = 0.16 + k as f32 * step;
@@ -93,7 +93,7 @@ fn build_tree() -> Generator {
         }
     }
 
-    // Lumpy heaped compost — overlapping brown clumps fill the bin.
+    // Lumpy heaped compost - overlapping brown clumps fill the bin.
     prims.extend(crop_tufts(
         [0.0, 0.18, 0.0],
         [1.05, 1.05],

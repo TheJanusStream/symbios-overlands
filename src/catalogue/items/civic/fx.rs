@@ -11,7 +11,7 @@
 //! as a fuzzy orange smear: real flame is a small fast white-hot core
 //! inside a slower deep-orange body, shedding sparse embers, handing off to
 //! near-black soot that only pales as it spreads. A fountain jet splits the
-//! same way — a hard fast column plus the soft mist hanging around its
+//! same way - a hard fast column plus the soft mist hanging around its
 //! crown. Layering costs an extra emitter entity or two and buys all of
 //! that for free.
 
@@ -28,7 +28,7 @@ use crate::pds::{
 
 /// The white-hot inner cone of an open fire: short-lived, fast, narrow, and
 /// bright enough to read as the light source the outer body is lit by.
-/// Place it just above the fuel bed — the particles carry themselves clear
+/// Place it just above the fuel bed - the particles carry themselves clear
 /// of a container's rim on their own speed.
 pub(super) fn flame_core(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -89,7 +89,7 @@ pub(super) fn flame_body(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// Sparse embers thrown off the top of the flame — few, small, long-lived,
+/// Sparse embers thrown off the top of the flame - few, small, long-lived,
 /// wandering. The rate is deliberately low: embers read as *events*, and a
 /// steady stream of them looks like a sparkler, not a fire.
 pub(super) fn embers(pos: [f32; 3], seed: u64) -> Generator {
@@ -138,7 +138,7 @@ pub(super) fn water_jet(pos: [f32; 3], seed: u64) -> Generator {
         max: 300,
         life: (0.8, 1.25),
         speed: (3.8, 4.6),
-        // Real gravity — apex ≈ 0.9 m above the nozzle at these speeds,
+        // Real gravity - apex ≈ 0.9 m above the nozzle at these speeds,
         // and the lifetimes above land droplets back around the catch bowl.
         gravity: 1.0,
         accel: [0.0, 0.0, 0.0],
@@ -170,7 +170,7 @@ pub(super) fn water_jet(pos: [f32; 3], seed: u64) -> Generator {
 
 /// The fine mist hanging around a jet's crown: slow, soft, growing as it
 /// dissipates, settling under a fraction of gravity. This is what sells a
-/// jet as water rather than a blue rod — the hard column alone reads as
+/// jet as water rather than a blue rod - the hard column alone reads as
 /// plastic.
 pub(super) fn water_mist(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {

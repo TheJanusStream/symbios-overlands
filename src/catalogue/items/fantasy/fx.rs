@@ -1,5 +1,5 @@
 //! High-Fantasy "bring-it-to-life" helpers: drifting mana motes and arcane
-//! sparkles, plus two spatial-audio patches — an ethereal arcane hum for the
+//! sparkles, plus two spatial-audio patches - an ethereal arcane hum for the
 //! wizard tower and a crystal shimmer for the shrine.
 //!
 //! Particle emitters are returned as [`Generator`] nodes (a
@@ -26,7 +26,7 @@ use crate::pds::{
 // Particle emitters
 // ---------------------------------------------------------------------------
 
-/// Slow-rising motes of teal mana, glowing softly as they drift up — the
+/// Slow-rising motes of teal mana, glowing softly as they drift up - the
 /// ambient enchantment of the arcane quarter.
 pub(super) fn mana_motes(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -55,7 +55,7 @@ pub(super) fn mana_motes(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// Slow rings of fae light pulsing outward at ankle height — the ring itself
+/// Slow rings of fae light pulsing outward at ankle height - the ring itself
 /// made visible. Rises barely at all: these are ripples across the ground,
 /// not motes on the breeze.
 pub(super) fn ring_pulse(pos: [f32; 3], seed: u64) -> Generator {
@@ -88,7 +88,7 @@ pub(super) fn ring_pulse(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// Splinters shed from a crystal — angular, faceted, and falling rather than
+/// Splinters shed from a crystal - angular, faceted, and falling rather than
 /// drifting, which is what separates them from the mana motes above.
 pub(super) fn crystal_shards(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -120,7 +120,7 @@ pub(super) fn crystal_shards(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// Fine arcane sparkles whirling close around an orb or crystal — the
+/// Fine arcane sparkles whirling close around an orb or crystal - the
 /// crackle of bound magic.
 pub(super) fn arcane_sparkle(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -148,7 +148,7 @@ pub(super) fn arcane_sparkle(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// Wood-smoke curling up from a hearth chimney — a soft grey plume rising and
+/// Wood-smoke curling up from a hearth chimney - a soft grey plume rising and
 /// leaning off on the breeze, the hedge-witch's fire kept in.
 pub(super) fn chimney_smoke(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -182,7 +182,7 @@ pub(super) fn chimney_smoke(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// An ethereal arcane hum — two close-detuned sines beating slowly under a
+/// An ethereal arcane hum - two close-detuned sines beating slowly under a
 /// gentle tremolo, the resonance of bound magic.
 pub(super) fn arcane_hum() -> SovereignAudioConfig {
     let a = node(
@@ -234,7 +234,7 @@ pub(super) fn arcane_hum() -> SovereignAudioConfig {
     patch(vec![a, b, mix, lfo, vca], NodeId(4))
 }
 
-/// A high crystal shimmer — a bright sine ringing under a quick tremolo, the
+/// A high crystal shimmer - a bright sine ringing under a quick tremolo, the
 /// singing of the shrine crystal.
 pub(super) fn crystal_shimmer() -> SovereignAudioConfig {
     let tone = node(

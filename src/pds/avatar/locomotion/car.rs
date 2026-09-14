@@ -1,4 +1,4 @@
-//! Car preset — ground vehicle with raycast suspension + steering + handbrake.
+//! Car preset - ground vehicle with raycast suspension + steering + handbrake.
 
 use super::{LocomotionConfig, LocomotionPreset, clamp_half_extents, clamp_pos};
 use crate::pds::types::{Fp, Fp3};
@@ -44,7 +44,7 @@ pub struct CarParams {
     pub center_of_mass_drop: Fp,
 }
 
-/// Serde fallbacks for records published before #876 — the values the
+/// Serde fallbacks for records published before #876 - the values the
 /// uprighting/centre-of-mass code hard-coded (formerly the
 /// `config::rover::CAR_UPRIGHT_*` constants). Shared with `Default` so an
 /// old record and a fresh preset agree.

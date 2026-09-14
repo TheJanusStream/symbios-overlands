@@ -1,4 +1,4 @@
-//! Integration tests for `InventoryRecord` — the personal stash of
+//! Integration tests for `InventoryRecord` - the personal stash of
 //! `Generator` blueprints owners keep across rooms.
 
 use symbios_overlands::pds::{GeneratorKind, InventoryRecord, RoomRecord};
@@ -34,9 +34,9 @@ fn inventory_round_trips_through_json() {
 fn sanitize_bounds_the_stash_at_the_dos_backstop_not_the_gameplay_cap() {
     // #841 changed the contract this test used to pin: sanitize no longer
     // truncates to the gameplay cap (that silently deleted items in
-    // lexicographic order on login — the alphabet chose which). An
-    // over-cap stash must now SURVIVE the load — the Inventory window
-    // surfaces it red and blocks publishing until the user prunes — while
+    // lexicographic order on login - the alphabet chose which). An
+    // over-cap stash must now SURVIVE the load - the Inventory window
+    // surfaces it red and blocks publishing until the user prunes - while
     // the hostile-PDS DoS backstop still bounds the allocation.
     let cap = symbios_overlands::config::state::MAX_INVENTORY_ITEMS;
     let bound = symbios_overlands::config::state::MAX_INVENTORY_SANITIZE_ITEMS;
@@ -47,7 +47,7 @@ fn sanitize_bounds_the_stash_at_the_dos_backstop_not_the_gameplay_cap() {
         .cloned()
         .unwrap();
     // Sized FROM the backstop, not a literal (#1292). This used to build a
-    // flat 500 items, chosen when the cap was 50 and the backstop 200 — a
+    // flat 500 items, chosen when the cap was 50 and the backstop 200 - a
     // number that was comfortably over both and then became exactly the
     // cap and under the backstop, so the test failed on the raise while
     // the behaviour it guards was unchanged. A fixture that encodes the
@@ -61,7 +61,7 @@ fn sanitize_bounds_the_stash_at_the_dos_backstop_not_the_gameplay_cap() {
     inv.sanitize();
     assert!(
         inv.generators.len() > cap,
-        "an over-cap stash must survive sanitize — the {cap}-item cap is \
+        "an over-cap stash must survive sanitize - the {cap}-item cap is \
          enforced by the UI, not by silent truncation (#841)"
     );
     assert_eq!(
@@ -94,7 +94,7 @@ fn unknown_generator_survives_inventory_round_trip_as_unknown() {
 #[test]
 fn inventory_stores_every_serde_renamed_variant() {
     // Each major generator variant must survive a round-trip from the
-    // inventory — this is the stash's whole point.
+    // inventory - this is the stash's whole point.
     let mut inv = InventoryRecord::default();
     let room = RoomRecord::default_for_did(TEST_DID);
     for (k, g) in &room.generators {

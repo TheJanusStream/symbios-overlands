@@ -3,7 +3,7 @@
 //! A Bevy `Resource` cannot be reached from a panic hook (the hook runs on the
 //! panicking thread with no `World` access), so [`SessionLog::record`] mirrors
 //! each serialized line into a small global ring here. On a native crash the
-//! installed hook dumps that ring — plus a synthetic crash marker — to
+//! installed hook dumps that ring - plus a synthetic crash marker - to
 //! `session-panic-<pid>-<millis>.jsonl` next to the session log, so the last
 //! events before the fault survive even though the `BufWriter`'s unflushed tail
 //! would otherwise be lost.
@@ -12,7 +12,7 @@
 
 /// Human-readable crash reason from a panic message + optional source location.
 /// Pulled out as a pure fn so it can be unit-tested without a real panic, and
-/// shared across targets since #1145 — the wasm hook writes the same string
+/// shared across targets since #1145 - the wasm hook writes the same string
 /// into its `localStorage` terminal record that the native hook writes into
 /// the panic file, so one panic reads identically in either capture.
 pub(crate) fn format_panic_reason(msg: &str, location: Option<(&str, u32)>) -> String {
@@ -40,7 +40,7 @@ pub(crate) fn panic_message<'a>(info: &'a std::panic::PanicHookInfo<'a>) -> &'a 
 /// placeholder: the analyzer reads the last timestamp to decide whether a
 /// start event ever got its end, so a zero at the end of the file made
 /// `last - start` negative and turned off `LoadingGateStall`,
-/// `AmbientBakeStall`, `TaskNeverResolves` and `GlareSuspected` — on exactly
+/// `AmbientBakeStall`, `TaskNeverResolves` and `GlareSuspected` - on exactly
 /// the log where a job hanging before the fault is the likeliest story. An
 /// atomic beside the log is reachable from a hook and costs one relaxed store
 /// per recorded event.
@@ -55,7 +55,7 @@ pub fn note_timestamp(t_mono_secs: f64) {
 }
 
 /// The stamp for a terminal marker: the last event the capture actually
-/// contains. Deliberately equal to it rather than nudged past it — a hook
+/// contains. Deliberately equal to it rather than nudged past it - a hook
 /// knows the exit came after that event and nothing more, and an invented
 /// epsilon would read as precision the timestamp does not have.
 pub(crate) fn marker_ts() -> f64 {
@@ -81,7 +81,7 @@ mod imp {
         /// The single most-recent high-frequency snapshot line (metric vitals).
         /// Held in an overwrite slot rather than the `lines` ring so the 1 Hz
         /// `MetricsSnapshot` drip can't evict the real pre-crash events the
-        /// panic file exists to preserve (#633) — while the last known vitals
+        /// panic file exists to preserve (#633) - while the last known vitals
         /// (RSS, image/mesh handle counts, CPU) still reach the dump for an
         /// OOM / leak post-mortem.
         last_snapshot: Option<String>,
@@ -102,8 +102,8 @@ mod imp {
 
     /// Mirror one already-serialized real-event line into the shadow ring.
     ///
-    /// `seq` is unused here — the native ring renders in push order, which is
-    /// seq order — but it is part of the signature because the wasm side needs
+    /// `seq` is unused here - the native ring renders in push order, which is
+    /// seq order - but it is part of the signature because the wasm side needs
     /// it to merge two independently-evicting queues (#1180), and
     /// `SessionLog::write` has one call site per target.
     pub fn shadow_push(_seq: u64, line: &str) {
@@ -119,7 +119,7 @@ mod imp {
 
     /// Record the most-recent high-frequency snapshot line, *overwriting* any
     /// prior one. Unlike [`shadow_push`] this never grows the ring, so the
-    /// periodic metric-snapshot drip can't evict real events (#633) — yet the
+    /// periodic metric-snapshot drip can't evict real events (#633) - yet the
     /// latest vitals still land in the panic file.
     pub fn shadow_push_snapshot(_seq: u64, line: &str) {
         if let Some(m) = SHADOW.get()
@@ -165,7 +165,7 @@ mod imp {
         }
         // Final synthetic marker. `CRASH_MARKER_SEQ` is the sentinel (the real
         // sequence isn't reachable from the hook), and the timestamp is the
-        // last one an event carried — see `LAST_T_BITS`.
+        // last one an event carried - see `LAST_T_BITS`.
         let reason = super::format_panic_reason(
             super::panic_message(info),
             info.location().map(|l| (l.file(), l.line())),
@@ -227,7 +227,7 @@ mod imp {
 #[cfg(not(target_arch = "wasm32"))]
 pub use imp::{arm, install_hook, shadow_push, shadow_push_snapshot};
 
-// Wasm has no filesystem, so there is no panic FILE to write — but there is a
+// Wasm has no filesystem, so there is no panic FILE to write - but there is a
 // capture, and since #1145 it gets a terminal record too. The rolling NDJSON
 // tail lives in `crash_log` beside the `localStorage` slot it is written to;
 // these forward so `SessionLog::write` has one call site per target.
@@ -238,7 +238,7 @@ pub fn shadow_push(seq: u64, line: &str) {
     crate::diagnostics::crash_log::push_tail_line(seq, line);
 }
 /// On wasm the 1 Hz metric snapshot is part of the downloadable log (the ring
-/// IS the capture there — see `SessionLog::record_file_only`), so unlike
+/// IS the capture there - see `SessionLog::record_file_only`), so unlike
 /// native it cannot go to an overwrite slot: the vitals SERIES is the OOM
 /// post-mortem, and one sample of it shows the crash but not the climb.
 ///
@@ -258,7 +258,7 @@ mod tests {
     use super::*;
 
     /// #1142. A hook cannot read the clock, so the marker used to go out at
-    /// 0.0 — which the analyzer reads as "the session ended before its first
+    /// 0.0 - which the analyzer reads as "the session ended before its first
     /// event". The stamp now comes from the last event the capture holds.
     #[test]
     fn a_terminal_marker_is_stamped_at_the_last_event_the_capture_holds() {

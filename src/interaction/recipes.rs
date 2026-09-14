@@ -15,8 +15,8 @@
 //! (value-equal to [`crate::pds::default_contact_effects`]), so the
 //! shipped default is the water splash / droplet pair (baked onto
 //! soft-disc sprites, #367) with no decal or audio. Particle templates
-//! carry a procedural sprite billboard — a SoftDisc droplet for water, a
-//! Puff cloud for ground dust — tinted by the emitter's colour ramp;
+//! carry a procedural sprite billboard - a SoftDisc droplet for water, a
+//! Puff cloud for ground dust - tinted by the emitter's colour ramp;
 //! everything is tuned from the room editor's Effects tab.
 
 use bevy::prelude::*;
@@ -34,7 +34,7 @@ use crate::world_builder::particles::ParticleEmitter;
 use super::contact::{ContactPhase, ContactSample, SurfaceKind};
 
 /// Resolve a sovereign sprite config into the runtime emitter's
-/// `(procedural_texture, texture_atlas)` pair — the same rule the
+/// `(procedural_texture, texture_atlas)` pair - the same rule the
 /// world-builder's `snapshot_from_record` applies. `None` / `Unknown` /
 /// `Referenced` take the untextured flat-quad path; a sprite card bakes
 /// its `variant_rows × cols` atlas so the emitter sizes its frames to it.
@@ -75,7 +75,7 @@ impl ContactTrigger {
     }
 }
 
-/// Declarative burst-count model — `count = clamp(speed·gain + base,
+/// Declarative burst-count model - `count = clamp(speed·gain + base,
 /// min, max)` where `speed` is the contact sample's `world_vel`
 /// magnitude. A plain value (not a `fn` pointer) so it round-trips
 /// through the PDS [`crate::pds::CountModel`] record (#246) and stays
@@ -133,12 +133,12 @@ pub struct ContactEffectRecipe {
     pub name: String,
     pub trigger: ContactTrigger,
     pub spawn: ParticleBurst,
-    /// Designer kill-switch — `false` skips the recipe entirely without
+    /// Designer kill-switch - `false` skips the recipe entirely without
     /// removing it from the table.
     pub enabled: bool,
 }
 
-/// Runtime mirror of [`crate::pds::DecalParams`] — plain `f32`s so the
+/// Runtime mirror of [`crate::pds::DecalParams`] - plain `f32`s so the
 /// decal channel doesn't reach back into PDS types.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DecalRuntimeParams {
@@ -165,7 +165,7 @@ impl From<&DecalParams> for DecalRuntimeParams {
     }
 }
 
-/// One declarative decal rule — the [`ContactEffectKind::DecalStamp`]
+/// One declarative decal rule - the [`ContactEffectKind::DecalStamp`]
 /// analogue of [`ContactEffectRecipe`], consumed by
 /// [`super::decal::stamp_decals`].
 #[derive(Clone)]
@@ -181,7 +181,7 @@ pub struct DecalEffectRecipe {
 
 /// Runtime mirror of [`crate::pds::AudioParams`]. The clip source is
 /// the PDS enum verbatim (small, and the consumer needs exactly it to
-/// key the audio cache — no parallel enum to drift).
+/// key the audio cache - no parallel enum to drift).
 #[derive(Clone, Debug, PartialEq)]
 pub struct AudioRuntimeParams {
     pub source: AudioClipSource,
@@ -214,7 +214,7 @@ impl From<&AudioParams> for AudioRuntimeParams {
     }
 }
 
-/// One declarative audio-cue rule — the [`ContactEffectKind::AudioCue`]
+/// One declarative audio-cue rule - the [`ContactEffectKind::AudioCue`]
 /// analogue of [`ContactEffectRecipe`], consumed by
 /// [`super::audio::play_contact_audio`].
 #[derive(Clone)]
@@ -249,7 +249,7 @@ impl Default for ContactRecipeRegistry {
     fn default() -> Self {
         Self {
             recipes: default_water_recipes(),
-            // No decal / audio cue is seeded by default — the shipped
+            // No decal / audio cue is seeded by default - the shipped
             // behaviour is particle-only; both are opt-in per room
             // (#261 / #262).
             decals: Vec::new(),
@@ -265,7 +265,7 @@ impl Default for ContactRecipeRegistry {
 
 /// Shared base: a non-looping, burst-only, world-space coloured-quad
 /// emitter. Callers override `shape`, `burst_count`, lifetimes, sizes
-/// and colours. `duration` is tiny — the initial burst fires on the
+/// and colours. `duration` is tiny - the initial burst fires on the
 /// emitter's first tick, then it goes inactive and
 /// `retire_transient_emitters` despawns it once its particles age out.
 fn transient_base() -> ParticleEmitter {
@@ -304,7 +304,7 @@ fn transient_base() -> ParticleEmitter {
     }
 }
 
-/// Splash on fast water entry — an upward droplet fan.
+/// Splash on fast water entry - an upward droplet fan.
 fn water_splash_template() -> ParticleEmitter {
     let (procedural_texture, texture_atlas) = sprite_emitter_texture(&droplet_sprite());
     ParticleEmitter {
@@ -352,10 +352,10 @@ fn water_droplet_template() -> ParticleEmitter {
 /// terrain's dominant splat layer, while an author-customised colour is
 /// left untouched (record-driven overrides win).
 pub(crate) const DUST_START_COLOR: LinearRgba = LinearRgba::new(0.55, 0.45, 0.32, 0.70);
-/// Default ground-dust fade-out colour — see [`DUST_START_COLOR`].
+/// Default ground-dust fade-out colour - see [`DUST_START_COLOR`].
 pub(crate) const DUST_END_COLOR: LinearRgba = LinearRgba::new(0.50, 0.42, 0.30, 0.0);
 
-/// Dusty tan ground puff that hangs then settles — kicked up by a
+/// Dusty tan ground puff that hangs then settles - kicked up by a
 /// brisk run on terrain. Mirrors
 /// `crate::pds::contact_effects::ground_dust_record`'s `RecipeParticle`
 /// (the from-effects equivalence test guards the recipe-level fields).
@@ -368,7 +368,7 @@ fn ground_dust_template() -> ParticleEmitter {
         lifetime_max: 0.9,
         speed_min: 0.3,
         speed_max: 1.2,
-        // Dust hangs — almost no gravity, heavy drag.
+        // Dust hangs - almost no gravity, heavy drag.
         gravity_multiplier: 0.15,
         linear_drag: 0.6,
         start_size: 0.18,
@@ -476,7 +476,7 @@ fn map_surface(s: ContactSurfaceKind) -> Option<SurfaceKind> {
     match s {
         ContactSurfaceKind::Water => Some(SurfaceKind::Water),
         ContactSurfaceKind::Terrain => Some(SurfaceKind::Terrain),
-        // A future/unknown surface tag can't map to a runtime kind —
+        // A future/unknown surface tag can't map to a runtime kind -
         // skip the recipe rather than guessing.
         ContactSurfaceKind::Unknown => None,
     }
@@ -496,7 +496,7 @@ fn map_phase(p: ContactPhaseKind) -> Option<ContactPhase> {
 /// loop, tiny duration, World space, no collision; the dispatcher
 /// overrides `burst_count`, `inherit_velocity` and the footprint-scaled
 /// shape) come from [`transient_base`]; everything the designer controls
-/// — including the procedural sprite (#367) — is overlaid here.
+/// - including the procedural sprite (#367) - is overlaid here.
 fn recipe_particle_to_emitter(p: &RecipeParticle) -> ParticleEmitter {
     let (procedural_texture, texture_atlas) = sprite_emitter_texture(&p.procedural_texture);
     ParticleEmitter {
@@ -534,7 +534,7 @@ impl ContactRecipeRegistry {
     /// Compile an authored [`ContactEffects`] record into the runtime
     /// registry, routing each recipe to its channel by effect kind. A
     /// recipe is dropped (not guessed) when its surface/phase tag is
-    /// unknown, or its effect kind is unknown — the engine can't
+    /// unknown, or its effect kind is unknown - the engine can't
     /// dispatch a kind it doesn't model. Numeric fields are assumed
     /// already sanitised by [`crate::pds::RoomRecord::sanitize`].
     pub fn from_effects(effects: &ContactEffects) -> Self {
@@ -593,7 +593,7 @@ impl ContactRecipeRegistry {
                     cooldown: r.cooldown.0,
                     enabled: r.enabled,
                 }),
-                // Future/unknown effect kind — can't dispatch it.
+                // Future/unknown effect kind - can't dispatch it.
                 ContactEffectKind::Unknown => {}
             }
         }
@@ -713,7 +713,7 @@ mod tests {
             // `droplet_sprite` / `dust_sprite` helpers, so the seeded
             // template must be sprite-textured with a matching atlas on
             // both sides (the authored default and the hardcoded
-            // fallback) — guards against the two drifting apart.
+            // fallback) - guards against the two drifting apart.
             assert!(
                 a.spawn.template.procedural_texture.is_some(),
                 "authored default `{}` must carry a procedural sprite",

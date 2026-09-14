@@ -1,4 +1,4 @@
-//! Land-skiff family assembler — composes the ground vehicle from the
+//! Land-skiff family assembler - composes the ground vehicle from the
 //! seeded [`AvatarOutfit`](crate::seeded_defaults::AvatarOutfit) parts.
 //!
 //! The chassis (a shaped body with a lower skirt, rear cabin, and front
@@ -28,7 +28,7 @@ pub(super) fn build(seed: u64) -> Generator {
     // Wheel anchors + the fore/aft mount stations come from the SAME skiff
     // blueprint the chassis fenders and the wheel part read, so the wheels sit
     // exactly in their guards regardless of the seeded body size (#783). A trike
-    // chassis collapses the two front anchors to a single centreline wheel — the
+    // chassis collapses the two front anchors to a single centreline wheel - the
     // chassis draws the matching single front guard (#788).
     let dims = skiff_dims(&ctx);
     let dl = dims.1 / 1.5;
@@ -66,7 +66,7 @@ pub(super) fn build(seed: u64) -> Generator {
                 .children
                 .push(offset(part.build(&ctx), exhaust_station(dims.1))),
             // Ornament as a hood mascot on the bonnet nose (clear of every
-            // canopy volume — a canopy-relative mount buried the neon strip
+            // canopy volume - a canopy-relative mount buried the neon strip
             // inside closed greenhouses and floated it over the open roadster
             // cockpit, #780). Single-mounted: every skiff ornament (mascot /
             // bull bar / neon strip) is a front, directional piece, so unlike
@@ -79,7 +79,7 @@ pub(super) fn build(seed: u64) -> Generator {
     }
 
     // Drop the whole visual so the wheels rest at the car's suspension ground
-    // line — the chassis origin floats ≈0.87 m (half-extent 0.4 + rest 0.6 −
+    // line - the chassis origin floats ≈0.87 m (half-extent 0.4 + rest 0.6 −
     // static compression ≈0.13) and the wheel bottoms sit ≈0.32 below the
     // visual origin.
     apply_travel_pose(&mut root, 0.55);
@@ -97,7 +97,7 @@ pub(super) fn build(seed: u64) -> Generator {
 }
 
 /// Aft exhaust-pipe station (root-local, before the assembler's yaw) from the
-/// seeded body length — the single source the assembler seats the Exhaust part
+/// seeded body length - the single source the assembler seats the Exhaust part
 /// at and the FX exhaust-wisp anchor issues from, so the wisp leaves the same
 /// pipe the part builds (#798). The tub ends at z ≈ −0.75·len, so the pipe sits
 /// just inboard of the stern.

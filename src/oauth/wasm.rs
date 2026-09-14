@@ -1,7 +1,7 @@
 //! Browser-side helpers for reading/writing [`super::PendingAuth`] into
 //! `sessionStorage`, inspecting the callback query string, and scrubbing
 //! the URL bar after a successful exchange so reloads don't re-trigger
-//! the `code` exchange (which would 400 — the authorization code is
+//! the `code` exchange (which would 400 - the authorization code is
 //! single-use).
 //!
 //! Also home to the [`PersistedSession`] blob written to `localStorage`
@@ -71,7 +71,7 @@ pub fn scrub_url() {
     let _ = history.replace_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(&scrubbed));
 }
 
-/// Navigate the current tab to an authorization URL — this terminates
+/// Navigate the current tab to an authorization URL - this terminates
 /// the running Bevy app. Returns immediately on error.
 pub fn navigate_to(url: &str) {
     if let Some(window) = web_sys::window() {
@@ -88,14 +88,14 @@ pub fn navigate_to(url: &str) {
 /// without re-running the OAuth dance. Stored as JSON under
 /// [`PERSISTED_SESSION_KEY`] in `localStorage`.
 ///
-/// The DPoP private key lives here as a JWK (`serde_json::Value`) — the
+/// The DPoP private key lives here as a JWK (`serde_json::Value`) - the
 /// `DpopKey` runtime type isn't directly serialisable, but
 /// `proto_blue_oauth::client::dpop_key_from_jwk` turns the JWK back into
 /// one cheaply on resume.
 ///
 /// # Threat model note
 ///
-/// The persisted blob contains the DPoP private key in cleartext —
+/// The persisted blob contains the DPoP private key in cleartext -
 /// anyone with read access to this origin's `localStorage` can mint
 /// authenticated requests until the refresh token expires. That is the
 /// same trust boundary every browser-resident OAuth client operates
@@ -114,7 +114,7 @@ pub struct PersistedSession {
     /// rebuild `RelayHost` + `SymbiosMultiuserConfig` without prompting.
     pub relay_host: String,
     /// Destination DID at the time of login (empty = "home"). Same
-    /// rationale as `relay_host` — we want the reload to land the user
+    /// rationale as `relay_host` - we want the reload to land the user
     /// back in the room they were viewing.
     ///
     /// Spawn pose (`pos` / `rot`) is deliberately *not* persisted: it
@@ -141,7 +141,7 @@ pub fn save_persisted(session: &PersistedSession) -> Result<(), String> {
 
 /// Read the persisted session blob, returning `None` if no blob is
 /// stored or it can't be deserialised. A deserialisation failure also
-/// clears the blob — once we've decided we can't use it, leaving it in
+/// clears the blob - once we've decided we can't use it, leaving it in
 /// place would just trigger the same failure on every subsequent load.
 pub fn load_persisted() -> Option<PersistedSession> {
     let storage = local_storage()?;
@@ -167,7 +167,7 @@ pub fn clear_persisted() {
 /// after every successful `OAuthSession::refresh` so a subsequent reload
 /// doesn't restore the now-stale access token.
 ///
-/// No-ops (returns `Ok`) when no persisted blob exists — refresh is
+/// No-ops (returns `Ok`) when no persisted blob exists - refresh is
 /// allowed without persistence, e.g. on native or when the user
 /// explicitly opted out of localStorage.
 pub fn update_persisted_token_set(new_token_set: &TokenSet) -> Result<(), String> {
@@ -192,7 +192,7 @@ pub fn update_persisted_token_set(new_token_set: &TokenSet) -> Result<(), String
 ///
 /// Same no-op-without-a-blob contract as
 /// [`update_persisted_token_set`], and a no-op when the value has not
-/// changed — this runs on every arrival, and a `localStorage` write per
+/// changed - this runs on every arrival, and a `localStorage` write per
 /// travel is worth skipping when there is nothing to write.
 pub fn update_persisted_target_did(target_did: &str) -> Result<(), String> {
     let Some(mut blob) = load_persisted() else {

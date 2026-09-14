@@ -1,4 +1,4 @@
-//! Grain silo — a Rural/Farmland secondary. A tall galvanised-steel storage
+//! Grain silo - a Rural/Farmland secondary. A tall galvanised-steel storage
 //! silo with ribbed walls, a conical roof and vent cap, and an external fill
 //! chute. The vertical landmark of the farmyard.
 
@@ -50,7 +50,7 @@ fn build_tree() -> Generator {
     let r = 2.5_f32;
 
     let mut prims = vec![
-        // Concrete pad — the root.
+        // Concrete pad - the root.
         prim(
             solid(cylinder_tapered(
                 r + 0.4,

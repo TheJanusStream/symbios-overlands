@@ -1,4 +1,4 @@
-//! Aether Gate — the Steampunk bespoke social gateway (#770). A riveted-iron
+//! Aether Gate - the Steampunk bespoke social gateway (#770). A riveted-iron
 //! gatehouse built like a pair of boiler stacks: two banded iron pylons with
 //! copper aether-risers, joined across the top by an iron lintel and a copper
 //! pressure main, crowned by a great brass cog with a glowing aether core.
@@ -6,11 +6,11 @@
 //! threshold, so the walk-through opening reads as a live, steam-driven gate
 //! rather than a quiet stone arch.
 //!
-//! The one functional element is the [`GeneratorKind::Gateway`] zone child —
+//! The one functional element is the [`GeneratorKind::Gateway`] zone child -
 //! walking into it opens the destination picker. Everything else frames that
 //! opening. Primitive-built (see [`crate::catalogue::items::util`]) and
 //! authored in one flat ground-relative frame via [`assemble`], which
-//! reparents every piece under the flat iron threshold plate (the root — never
+//! reparents every piece under the flat iron threshold plate (the root - never
 //! tilt it, or the whole gate would spin with it).
 
 use std::f32::consts::FRAC_PI_2;
@@ -59,7 +59,7 @@ impl CatalogueEntry for SteampunkGateway {
     }
 }
 
-/// The aether veil — a cool blue-green threshold glow that contrasts the warm
+/// The aether veil - a cool blue-green threshold glow that contrasts the warm
 /// brass and names the gate. Deep-saturated at low strength so a broad-ish
 /// strip reads as lit colour rather than a white lightbox.
 const AETHER_TEAL: [f32; 3] = [0.42, 0.86, 0.92];
@@ -70,7 +70,7 @@ fn build_tree() -> Generator {
     let pillar_cy = 2.1_f32; // centre → top at 3.9, under the lintel
     let lintel_y = 4.15_f32;
 
-    // Riveted-iron threshold plate — the flat-base root. assemble() rebases
+    // Riveted-iron threshold plate - the flat-base root. assemble() rebases
     // every other prim into this node's frame, so it stays untilted at origin.
     let mut prims = vec![prim(
         solid(cuboid_tapered([5.2, 0.3, 3.0], 0.0, iron(IRON_DARK))),
@@ -109,7 +109,7 @@ fn build_tree() -> Generator {
             ));
         }
         // Copper aether-riser standing on the plate at the outer-back corner,
-        // rising past the lintel — a boiler stack venting steam.
+        // rising past the lintel - a boiler stack venting steam.
         let rx = x + sign * 0.5;
         let rz = 0.55_f32;
         prims.push(prim(
@@ -187,7 +187,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Brass signage banner on the lintel front (−Z) with a lit central gauge —
+    // Brass signage banner on the lintel front (−Z) with a lit central gauge -
     // the gate's face.
     prims.push(prim(
         solid(cuboid_tapered([2.4, 0.42, 0.08], 0.0, brass(BRASS))),
@@ -206,7 +206,7 @@ fn build_tree() -> Generator {
     ));
 
     // Crown: a great brass cog facing −Z with a glowing aether core, flanked by
-    // two smaller iron cogs meshing at the lintel corners — the signature
+    // two smaller iron cogs meshing at the lintel corners - the signature
     // steampunk silhouette. cog() lies flat; quat_x(−π/2) stands it to face −Z.
     prims.push(cog(
         [0.0, 4.95, -0.2],
@@ -234,7 +234,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Aether veil — a thin cool glow strip humming across the top of the
+    // Aether veil - a thin cool glow strip humming across the top of the
     // opening. Deep-saturated at low strength so it reads as lit colour.
     prims.push(prim(
         cuboid_tapered([2.7, 0.1, 0.14], 0.0, glow(AETHER_TEAL, 2.6)),
@@ -273,7 +273,7 @@ mod tests {
         assert_sanitize_stable(&SteampunkGateway.build(""), "steampunk_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is set-dressing, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

@@ -3,7 +3,7 @@
 //! The catalogue is functionally analogous to a read-only
 //! [`crate::pds::InventoryRecord`]: a flat list of named generator
 //! blueprints the user can drag into a room or pick from an "Add from
-//! Catalogue…" menu. The difference is purely sourcing — inventory
+//! Catalogue…" menu. The difference is purely sourcing - inventory
 //! entries are user-authored and PDS-published; catalogue entries are
 //! code-shipped, deterministic, and always present.
 //!
@@ -30,7 +30,7 @@ use crate::seeded_defaults::{
 };
 
 /// Top-level grouping for catalogue items. Used by the catalogue
-/// window to section the list — `Buildings` shows the architectural
+/// window to section the list - `Buildings` shows the architectural
 /// shape entries, `Plants` shows the L-system trees, `Patterns` is
 /// for the abstract fractal demos (Koch, Sierpinski, branching),
 /// `Tools` is for utility items like portals.
@@ -40,7 +40,7 @@ pub enum CatalogueCategory {
     Plants,
     Patterns,
     Tools,
-    /// Wearables (#1086) — items that also land on an avatar rig socket.
+    /// Wearables (#1086) - items that also land on an avatar rig socket.
     Attachments,
 }
 
@@ -58,8 +58,8 @@ impl CatalogueCategory {
     ///
     /// The label and the variant name deliberately differ for
     /// [`Self::Attachments`]: the product word for a worn thing is
-    /// **wearable** (#1266's decision 4), and every other surface — the
-    /// Avatar editor tab, its empty states, the undo label — already says
+    /// **wearable** (#1266's decision 4), and every other surface - the
+    /// Avatar editor tab, its empty states, the undo label - already says
     /// it. The variant keeps the wire-adjacent name it has carried since
     /// #1086. `ui::fonts::glyph_coverage_tests::ui_copy_calls_worn_things_
     /// wearables` walks this file (it is in `EXTRA_LABEL_SOURCES`) and
@@ -81,10 +81,10 @@ impl CatalogueCategory {
 /// querying the catalogue for entries of the matching role and theme,
 /// rather than from a hardcoded slug pool. It also feeds
 /// [`CatalogueEntry::category`] so the UI section is derived from the
-/// same source of truth — the two taxonomies can't drift.
+/// same source of truth - the two taxonomies can't drift.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum StructureRole {
-    /// Hero structure — one per themed settlement, anchored near spawn.
+    /// Hero structure - one per themed settlement, anchored near spawn.
     Landmark,
     /// Supporting building ringed around the landmark.
     Secondary,
@@ -96,19 +96,19 @@ pub enum StructureRole {
     Pattern,
     /// Utility item personalised at build time (portals, etc.).
     Tool,
-    /// Social gateway (#747) — the themed gate every seeded room places
+    /// Social gateway (#747) - the themed gate every seeded room places
     /// near spawn. Selected by the seeded wiring via `entries_for(theme,
     /// Gateway)`; each `ThemeArchetype` has a bespoke gateway (#749-772),
     /// with the theme-agnostic `civic_gateway` as the cross-theme
     /// fallback. Never part of the settlement Landmark/Secondary/Prop
     /// pools.
     Gateway,
-    /// Wearable item (#1086) — an entry the catalogue offers to **wear**
+    /// Wearable item (#1086) - an entry the catalogue offers to **wear**
     /// on the local avatar (via [`CatalogueEntry::wear_socket`]) as well as
     /// to place. Never part of any seeded settlement pool, and the only
     /// role whose entries may be themeless by design.
     Attachment,
-    /// Owner-identity monument (#975) — the themed monument every seeded
+    /// Owner-identity monument (#975) - the themed monument every seeded
     /// room stands beside its gateway, carrying the room owner's profile
     /// picture on a square panel
     /// (`items::util::pfp_panel`). Selected exactly like
@@ -120,7 +120,7 @@ pub enum StructureRole {
 }
 
 impl StructureRole {
-    /// Human-readable display name — used by the catalogue browser.
+    /// Human-readable display name - used by the catalogue browser.
     pub fn label(self) -> &'static str {
         match self {
             Self::Landmark => "Landmark",
@@ -157,7 +157,7 @@ impl StructureRole {
 /// suits a small prop; large structures override with their real extent.
 #[derive(Clone, Copy, Debug)]
 pub struct Footprint {
-    /// Dry-land clearance radius (m) — roughly the structure's
+    /// Dry-land clearance radius (m) - roughly the structure's
     /// bounding-circle radius around its centred anchor.
     pub clearance: f32,
     /// Minimum distance (m) from the spawn origin, so the spawn scatter
@@ -174,14 +174,14 @@ pub struct Footprint {
 /// what a body whose measurement is unavailable falls back to.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum WearFit {
-    /// A band encircling the head at the hat line — a circlet, a crown, a
+    /// A band encircling the head at the hat line - a circlet, a crown, a
     /// hat brim. `inner_diameter` is the authored band's inner diameter in
     /// metres; worn, the subtree is scaled so that diameter matches the
     /// wearer's brow circumference / π (the equivalent-circle diameter of
     /// the head's widest line above the eyes).
     ///
     /// **Authoring convention: the band circles the origin**, in the X–Z
-    /// plane at `y = 0`, ornament rising above it — because the fitted
+    /// plane at `y = 0`, ornament rising above it - because the fitted
     /// seat places the attach origin on the head's axis at the measured
     /// hat line (`src/player/attachments.rs`, `fitted_seat`), not at the
     /// generic engine crown seat (which stands well forward of the head).
@@ -221,7 +221,7 @@ pub fn entries_for(
 /// entry is kept only if its [`CatalogueEntry::prosperity_band`] and
 /// [`CatalogueEntry::escalation_band`] both accept the room's tiers. Since
 /// both bands default to `ANY`, this returns exactly the same set as
-/// [`entries_for`] until entries opt into a band — letting the settlement
+/// [`entries_for`] until entries opt into a band - letting the settlement
 /// deriver thread the room's prosperity/escalation through without any
 /// selection change for untagged content.
 pub fn entries_for_room(
@@ -239,7 +239,7 @@ pub fn entries_for_room(
 /// [`items`]; the registry in [`items::ENTRIES`] is the source of
 /// truth for what ships in the build.
 pub trait CatalogueEntry: Sync {
-    /// Stable identifier — written into [`crate::ui::inventory::
+    /// Stable identifier - written into [`crate::ui::inventory::
     /// PendingGeneratorDrop::generator_name`] when the entry is
     /// dragged. Must remain stable across builds (renaming a slug
     /// would silently misroute drag-state mid-frame).
@@ -255,7 +255,7 @@ pub trait CatalogueEntry: Sync {
     /// Themes this entry belongs to. An entry may serve several (a
     /// "well" fits both `Medieval` and `RuralFarmland`). The seeded
     /// settlement deriver only considers entries whose list contains the
-    /// room's theme. Defaults to empty — a theme-agnostic entry (the
+    /// room's theme. Defaults to empty - a theme-agnostic entry (the
     /// abstract patterns, personalised tools) the settlements never
     /// auto-place.
     fn themes(&self) -> &'static [ThemeArchetype] {
@@ -271,7 +271,7 @@ pub trait CatalogueEntry: Sync {
 
     /// Material re-skins this entry offers (#910). A
     /// [`StructureRole::Plant`] entry lists the bark/foliage palettes its
-    /// one grammar can wear, so a single skeleton covers several biomes —
+    /// one grammar can wear, so a single skeleton covers several biomes -
     /// see the `items::plants::variant` module. The seeded species pools name a
     /// variant per biome; an unnamed or unknown one falls back to the
     /// entry's authored materials. Defaults to empty (no re-skins).
@@ -295,7 +295,7 @@ pub trait CatalogueEntry: Sync {
         EscalationBand::ANY
     }
 
-    /// Placement footprint — clearance radius + spawn standoff. Defaults
+    /// Placement footprint - clearance radius + spawn standoff. Defaults
     /// to a small prop-sized footprint; structures override with their
     /// real extent so the deriver spaces a settlement without overlaps.
     fn footprint(&self) -> Footprint {
@@ -305,7 +305,7 @@ pub trait CatalogueEntry: Sync {
         }
     }
 
-    /// Section bucket — drives the row grouping in the catalogue
+    /// Section bucket - drives the row grouping in the catalogue
     /// window. Derived from [`Self::role`] so the UI grouping and the
     /// settlement taxonomy stay in lockstep; overridable for the rare
     /// entry whose display section differs from its structural role.
@@ -318,7 +318,7 @@ pub trait CatalogueEntry: Sync {
     /// ([`items::tools::my_teleporter::MyTeleporter`]) stamp the local
     /// user's DID into a slot inside the generator so the resulting
     /// blueprint is pre-targeted at the caller. Every call still
-    /// returns a fresh deep-cloned tree — the parameter only changes
+    /// returns a fresh deep-cloned tree - the parameter only changes
     /// what literal values populate it, never aliasing.
     fn build(&self, local_did: &str) -> Generator;
 
@@ -328,7 +328,7 @@ pub trait CatalogueEntry: Sync {
     /// the copy carries this socket as its
     /// [`WearMeta`](crate::pds::inventory::WearMeta), and wearing it writes
     /// an [`AttachmentRecord`](crate::pds::avatar::AttachmentRecord) at this
-    /// socket with an identity offset — the sentinel that lets the engine
+    /// socket with an identity offset - the sentinel that lets the engine
     /// seat the prop against the measured body surface. Wearable entries
     /// use [`StructureRole::Attachment`] and the pairing is guard-tested in
     /// [`items`]. Attachment-ness is overlands-only metadata: the avatar
@@ -344,7 +344,7 @@ pub trait CatalogueEntry: Sync {
     /// (see [`WearFit`]); the Wear path copies the declaration onto the
     /// [`AttachmentRecord`](crate::pds::avatar::AttachmentRecord) so peers
     /// dress the same fit from the wire. Meaningless without
-    /// [`Self::wear_socket`]. Defaults to `None` — worn at authored size.
+    /// [`Self::wear_socket`]. Defaults to `None` - worn at authored size.
     fn wear_fit(&self) -> Option<WearFit> {
         None
     }
@@ -358,7 +358,7 @@ mod tests {
     ///
     /// `gen-jobs` clamps to [`Envelope::default()`] just before `bake`
     /// (#1305). That bounds what a hostile record can cost the worker, and
-    /// it is only safe if it is a no-op on content we author — but the
+    /// it is only safe if it is a no-op on content we author - but the
     /// catalogue is a *third* producer, seen by neither the envelope's
     /// author upstream nor the record sanitiser's. That is precisely how
     /// #1304 shipped a texture envelope narrower than the shipped catalogue
@@ -383,7 +383,7 @@ mod tests {
                     clamped.clamp_to_envelope(&Envelope::default());
                     assert_eq!(
                         clamped, native,
-                        "the bake envelope rewrites the patch on \"{slug}\" — \
+                        "the bake envelope rewrites the patch on \"{slug}\" - \
                          widen the envelope upstream, never clamp shipped content"
                     );
                     *checked += 1;
@@ -394,7 +394,7 @@ mod tests {
                     clamped.clamp_to_envelope(&Envelope::default());
                     assert_eq!(
                         clamped, native,
-                        "the bake envelope rewrites the recipe on \"{slug}\" — \
+                        "the bake envelope rewrites the recipe on \"{slug}\" - \
                          widen the envelope upstream, never clamp shipped content"
                     );
                     *checked += 1;
@@ -416,7 +416,7 @@ mod tests {
         // vacuously and tell us nothing.
         assert!(
             checked > 0,
-            "no catalogue entry carries audio — the walk proved nothing"
+            "no catalogue entry carries audio - the walk proved nothing"
         );
     }
 
@@ -527,7 +527,7 @@ mod tests {
         }
         assert!(
             checked > 0,
-            "no catalogue entry carries audio — the walk proved nothing"
+            "no catalogue entry carries audio - the walk proved nothing"
         );
         assert!(
             found.is_empty(),
@@ -610,7 +610,7 @@ mod tests {
     /// A monument is never settlement dressing. The deriver fills its
     /// Landmark / Secondary / Prop slots by role, so a monument that also
     /// claimed one of those roles could be scattered through the settlement
-    /// as ordinary content — several owner portraits in one room, which is
+    /// as ordinary content - several owner portraits in one room, which is
     /// the one thing this system must not do.
     #[test]
     fn monuments_stay_out_of_the_settlement_pools() {
@@ -634,7 +634,7 @@ mod tests {
     #[test]
     fn socio_bands_default_to_any() {
         // An entry that doesn't override the band methods must accept every
-        // tier — this is what keeps theme structures (which never tag a
+        // tier - this is what keeps theme structures (which never tag a
         // band) eligible regardless of a room's prosperity / escalation.
         struct Bare;
         impl CatalogueEntry for Bare {

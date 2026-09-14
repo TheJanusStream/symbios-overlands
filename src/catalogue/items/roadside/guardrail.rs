@@ -1,4 +1,4 @@
-//! Guardrail — a Roadside prop. A short run of galvanised W-beam highway
+//! Guardrail - a Roadside prop. A short run of galvanised W-beam highway
 //! barrier on steel posts. Scatter clutter that lines the shoulder.
 
 use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, solid};
@@ -45,7 +45,7 @@ fn build_tree() -> Generator {
     let rail_y = 0.7_f32;
 
     let mut prims = vec![
-        // Galvanised W-beam rail — the root.
+        // Galvanised W-beam rail - the root.
         prim(
             solid(cuboid_tapered(
                 [4.4, 0.34, 0.1],

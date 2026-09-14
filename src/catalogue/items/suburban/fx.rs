@@ -118,7 +118,7 @@ fn chirp(base: u32, freq: f32, rate: f32, swing: f32) -> (Vec<GraphNode>, NodeId
     (vec![osc, lfo, vca], NodeId(base + 2))
 }
 
-/// Two warbling high chirp voices at different rates — the birdsong of a
+/// Two warbling high chirp voices at different rates - the birdsong of a
 /// quiet suburban street, mixed down low.
 pub(super) fn birdsong() -> SovereignAudioConfig {
     let (mut a, a_out) = chirp(0, 3100.0, 11.0, 0.555);

@@ -1,4 +1,4 @@
-//! Scarecrow — a Rural/Farmland prop. A straw-stuffed figure on a cross
+//! Scarecrow - a Rural/Farmland prop. A straw-stuffed figure on a cross
 //! frame, with a burlap head and a floppy hat, standing watch over the field
 //! as the crickets start up.
 
@@ -54,7 +54,7 @@ impl CatalogueEntry for Scarecrow {
 }
 
 fn build_tree() -> Generator {
-    // Cross-frame post — the root.
+    // Cross-frame post - the root.
     let mut prims = vec![prim(
         solid(cuboid_tapered([0.1, 2.3, 0.1], 0.0, weathered(WOOD_GREY))),
         [0.0, 1.15, 0.0],

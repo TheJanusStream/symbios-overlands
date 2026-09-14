@@ -1,4 +1,4 @@
-//! Levitating platform — an Alien-Monolithic secondary. A black obsidian slab
+//! Levitating platform - an Alien-Monolithic secondary. A black obsidian slab
 //! hovering above a glowing base ring, its underside and rim glyphs aglow. The
 //! suspended dais of the site; its glow is emissive trim the ruin pass can
 //! darken.
@@ -54,14 +54,14 @@ fn build_tree() -> Generator {
     let plat_y = 2.6_f32;
 
     let mut prims = vec![
-        // Obsidian base disc — the root.
+        // Obsidian base disc - the root.
         prim(
             solid(cylinder_tapered(2.0, 0.3, 24, 0.0, obsidian(OBSIDIAN))),
             [0.0, 0.15, 0.0],
             id_quat(),
         ),
     ];
-    // Glowing base ring — emissive.
+    // Glowing base ring - emissive.
     prims.push(prim(
         torus(0.1, 1.7, glow(ENERGY_BLUE, 2.4)),
         [0.0, 0.34, 0.0],
@@ -74,7 +74,7 @@ fn build_tree() -> Generator {
         [0.0, plat_y, 0.0],
         id_quat(),
     ));
-    // Glowing underside — the levitation field, emissive.
+    // Glowing underside - the levitation field, emissive.
     let mut field = prim(
         cuboid_tapered([4.4, 0.12, 4.4], 0.0, glow(ENERGY_BLUE, 2.2)),
         [0.0, plat_y - 0.32, 0.0],
@@ -82,7 +82,7 @@ fn build_tree() -> Generator {
     );
     field.audio = fx::monolith_hum();
     prims.push(field);
-    // Glowing rim lines framing all four top edges — a fully powered dais.
+    // Glowing rim lines framing all four top edges - a fully powered dais.
     for sz in [-1.0_f32, 1.0] {
         prims.push(prim(
             cuboid_tapered([4.6, 0.16, 0.12], 0.0, glow(GLYPH_CYAN, 2.4)),
@@ -95,7 +95,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Inscribed glyphs across the −Z hero front edge — emissive.
+    // Inscribed glyphs across the −Z hero front edge - emissive.
     for cx in [-1.6_f32, 0.0, 1.6] {
         prims.extend(rune_marks(
             [cx, plat_y - 0.12, -2.56],

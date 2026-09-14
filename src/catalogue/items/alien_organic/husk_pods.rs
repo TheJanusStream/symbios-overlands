@@ -1,4 +1,4 @@
-//! Husk pods — an Alien-Organic *poor* secondary. A cluster of burst, dried
+//! Husk pods - an Alien-Organic *poor* secondary. A cluster of burst, dried
 //! egg husks gaping open on dead stalks, their shells splayed back like spent
 //! petals around a hollow dark cavity. The spent brood of the necrotic colony.
 
@@ -99,8 +99,8 @@ fn build_tree() -> Generator {
     let mut prims: Vec<Generator> = husks.iter().map(|&(p, s)| husk(p, s)).collect();
 
     // Buried footings so a terrain-snapped clutch keeps its stalks in the
-    // ground. There is no base slab here — the stalks *are* what meets the
-    // ground — so each gets its own, held narrow enough (≈0.32·scale, and the
+    // ground. There is no base slab here - the stalks *are* what meets the
+    // ground - so each gets its own, held narrow enough (≈0.32·scale, and the
     // helper insets that further) that the stalk foot hides it on flat ground.
     for &([x, _, z], s) in &husks {
         prims.push(footing(0.32 * s, 0.32 * s, [x, z], 4.0));

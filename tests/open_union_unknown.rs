@@ -9,7 +9,7 @@
 //!
 //! Decoding is only half the contract. Every `Unknown` arm is also
 //! `skip_serializing` (#1111), so a record holding one cannot be written
-//! back — the save and the peer broadcast are refused with a sentence
+//! back - the save and the peer broadcast are refused with a sentence
 //! instead of replacing the newer client's content with `{"$type":
 //! "Unknown"}`. The tests at the end of this file pin that half.
 
@@ -99,7 +99,7 @@ fn mixed_known_and_unknown_variants_coexist() {
 #[test]
 fn unknown_variants_survive_sanitize_without_panic() {
     // Sanitize walks every placement + generator. Unknown variants must
-    // be a no-op for it, not a panic — a malicious peer could otherwise
+    // be a no-op for it, not a panic - a malicious peer could otherwise
     // gate the whole client behind a forward-compat decode branch.
     let json = r#"{
         "$type": "network.symbios.overlands.room",
@@ -121,7 +121,7 @@ fn unknown_variants_survive_sanitize_without_panic() {
 
 #[test]
 fn unknown_scatter_bounds_type_rejects_decode() {
-    // `ScatterBounds` intentionally does NOT carry an `Unknown` fallback —
+    // `ScatterBounds` intentionally does NOT carry an `Unknown` fallback -
     // it's a closed union. A mistyped entry must surface as an error so
     // the caller can flag the record as corrupt, rather than silently
     // behaving as "no bounds" and scattering forever.
@@ -166,7 +166,7 @@ fn an_unknown_generator_cannot_be_serialized_back() {
     // The defect this closes: `#[serde(other)]` governs DEcoding only, so
     // `Unknown` used to serialize as `{"$type":"Unknown"}`. An older client
     // that merely opened a room and pressed Save replaced the newer
-    // client's generator with that husk — and, because a child record is
+    // client's generator with that husk - and, because a child record is
     // content-addressed, the split-wire publish then GC'd the original as
     // an orphan. Irrecoverable, and silent.
     let room = room_with_unknown_generator();
@@ -216,8 +216,8 @@ fn a_room_this_build_fully_understands_still_publishes_and_broadcasts() {
 // #1119: the holes *below* the open unions. `#[serde(other)]` on `Placement` /
 // `GeneratorKind` catches an unknown `$type`; it does nothing for a known tag
 // whose payload carries an unknown variant of a nested closed enum. Three such
-// enums sat in the two places a record is most likely to grow — the manifest's
-// scatter filters and the Terrain / LSystem children — and each one turned a
+// enums sat in the two places a record is most likely to grow - the manifest's
+// scatter filters and the Terrain / LSystem children - and each one turned a
 // newer client's addition into a whole-record decode failure.
 // ---------------------------------------------------------------------------
 
@@ -248,7 +248,7 @@ fn unknown_water_relation_does_not_fail_the_manifest() {
     assert_eq!(room.placements.len(), 1, "the placement survives whole");
 }
 
-/// A `WaterRelation` this build cannot name filters nothing — it has no way
+/// A `WaterRelation` this build cannot name filters nothing - it has no way
 /// to know which side the newer client meant to hide, and hiding the wrong
 /// half is worse than hiding neither.
 #[test]
@@ -307,7 +307,7 @@ fn unknown_prop_mesh_type_does_not_fail_the_lsystem_child() {
 /// All three follow #1111's other half: decoded as `Unknown`, never written
 /// back. Without this a client that merely *opened* such a room and saved it
 /// would replace the newer client's relation, algorithm or prop with this
-/// build's stand-in — permanently, and without saying so.
+/// build's stand-in - permanently, and without saying so.
 #[test]
 fn the_three_new_unknown_arms_all_refuse_to_serialize() {
     use symbios_overlands::pds::{PropMeshType, SovereignGeneratorKind, WaterRelation};
@@ -329,7 +329,7 @@ fn the_three_new_unknown_arms_all_refuse_to_serialize() {
     );
 }
 
-/// `ScatterBounds` stays closed on purpose — see
+/// `ScatterBounds` stays closed on purpose - see
 /// `unknown_scatter_bounds_type_rejects_decode` above. Bounds are the one
 /// field where degrading is worse than failing: a filter that accepts
 /// everything is visible, a region that scatters everywhere is a wrecked

@@ -1,11 +1,11 @@
-//! Owner Stele — the cross-theme fallback identity monument (#975), and the
+//! Owner Stele - the cross-theme fallback identity monument (#975), and the
 //! reference every bespoke themed monument is built against.
 //!
 //! Every seeded room stands one of these beside its social gateway, turned to
 //! face the arrival landing: a stepped stone plinth carrying a stele whose
 //! bronze frame holds the room owner's profile picture on a square panel. It
 //! is the first thing a visitor sees, and it answers the first question they
-//! have — whose room is this.
+//! have - whose room is this.
 //!
 //! `themes()` is left empty on purpose. The seeded wiring reaches a bespoke
 //! monument first via `entries_for(theme, Monument)`; this one is the
@@ -18,7 +18,7 @@
 //!    unlit, single-sided. See that helper for why each of those is not
 //!    negotiable.
 //! 2. **It has to read finished with the panel blank.** The image arrives over
-//!    the network or not at all — a room owner with no picture leaves it at
+//!    the network or not at all - a room owner with no picture leaves it at
 //!    its tint forever, and the headless render tool never fetches one. So the
 //!    *frame* carries the design: if the monument only works once a face
 //!    appears in it, it does not work.
@@ -45,7 +45,7 @@ const BRONZE: [f32; 3] = [0.52, 0.40, 0.20];
 /// Plinth and stele stone.
 const STONE: [f32; 3] = [0.62, 0.60, 0.56];
 const PALE: [f32; 3] = [0.78, 0.76, 0.72];
-/// Lamp flame — deep-saturated amber at low strength, so it reads as a colour
+/// Lamp flame - deep-saturated amber at low strength, so it reads as a colour
 /// under bloom instead of washing to a white blank.
 const FLAME: [f32; 3] = [1.0, 0.66, 0.28];
 
@@ -116,7 +116,7 @@ fn build_tree(did: &str) -> Generator {
                 ],
             ),
             // Buried footing under the bottom step, sized to the drop this
-            // footprint spans (#1009) — authored around y=0 and rebased by
+            // footprint spans (#1009) - authored around y=0 and rebased by
             // `nest` like every other child.
             footing(3.4, 2.4, [0.0, 0.0], 2.6),
         ],
@@ -127,7 +127,7 @@ fn build_tree(did: &str) -> Generator {
 /// panel itself, and the coping over it.
 ///
 /// The frame is authored as four bars rather than one slab with the panel on
-/// top, so the portrait sits *in* a reveal — the same reason a window gets a
+/// top, so the portrait sits *in* a reveal - the same reason a window gets a
 /// reveal instead of a sticker.
 fn portrait(did: &str) -> Vec<Generator> {
     let front = -0.39;
@@ -157,7 +157,7 @@ fn portrait(did: &str) -> Vec<Generator> {
             [0.0, 5.17, 0.0],
             id_quat(),
         ),
-        // Dedication band under the portrait — blank bronze, because there is
+        // Dedication band under the portrait - blank bronze, because there is
         // no text renderer; it reads as the plaque a name would be cut into.
         prim(
             solid(cuboid_tapered([1.5, 0.28, 0.07], 0.0, bronze(BRONZE))),

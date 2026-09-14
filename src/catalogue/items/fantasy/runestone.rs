@@ -1,4 +1,4 @@
-//! Runestone — a High-Fantasy prop. A carved stone slab hovering above a
+//! Runestone - a High-Fantasy prop. A carved stone slab hovering above a
 //! glowing rune mark, its glyphs alight. Scatter clutter of the arcane
 //! quarter; its glow is emissive trim the ruin pass can darken.
 
@@ -11,7 +11,7 @@ use crate::seeded_defaults::ThemeArchetype;
 
 use super::{ARCANE_PURPLE, RUNE_GOLD, STONE_MOSS, mossy, rune_marks, stone};
 
-/// Dark slate of the floating slab — a cold backing the gold glyphs read on.
+/// Dark slate of the floating slab - a cold backing the gold glyphs read on.
 const SLATE: [f32; 3] = [0.33, 0.32, 0.37];
 
 pub struct Runestone;
@@ -49,7 +49,7 @@ impl CatalogueEntry for Runestone {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Mossy stone groundplate — the root.
+        // Mossy stone groundplate - the root.
         prim(
             solid(cylinder_tapered(0.85, 0.1, 16, 0.15, mossy(STONE_MOSS))),
             [0.0, 0.05, 0.0],

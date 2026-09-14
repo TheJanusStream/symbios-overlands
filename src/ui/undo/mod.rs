@@ -1,6 +1,6 @@
 //! Bounded undo/redo history for the world & avatar editors (#817).
 //!
-//! Design (#862): a ring of **whole-record clones**, not deltas — every
+//! Design (#862): a ring of **whole-record clones**, not deltas - every
 //! editor commit is path-addressed (`PlacementMarker` index,
 //! `PrimMarker { generator_ref, path }`), so an index shift from a
 //! structural edit would silently retarget a delta. A `Clone` of the
@@ -17,7 +17,7 @@
 //! `SOFT_RECORD_BUDGET_BYTES` measures the largest SINGLE PUBLISHED
 //! record after the manifest/child split (#697), not the assembled
 //! in-memory room this ring stores. GothicHorror's seeded default is
-//! 348.6 KiB assembled against 53.9 KiB largest published — a factor of
+//! 348.6 KiB assembled against 53.9 KiB largest published - a factor of
 //! six, before the owner authors anything, and in memory it is larger
 //! still (`String`s, `Vec`s, a `HashMap`, boxed enum payloads). A room
 //! may hold 256 generators of up to 1024 nodes each, plus 16 KiB of
@@ -26,7 +26,7 @@
 //! So the ring is bounded by BYTES as well as by depth
 //! ([`crate::config::ui::editor::UNDO_RING_BUDGET_BYTES`]): every entry
 //! is measured on push and the oldest are evicted until the total fits,
-//! independently of `UNDO_DEPTH`. On an ordinary room nothing changes —
+//! independently of `UNDO_DEPTH`. On an ordinary room nothing changes -
 //! 33 entries sit well inside the budget. On a big one the history gets
 //! SHORTER, which is the degradation this wanted: the failure mode it
 //! replaces is a browser tab OOM, and a tab that dies takes with it
@@ -36,7 +36,7 @@
 //!
 //! Capture rides the records' existing commit contract instead of
 //! instrumenting every widget: the editors flush widget bursts into a
-//! single debounced `set_changed()` (one tick per edit burst — a slider
+//! single debounced `set_changed()` (one tick per edit burst - a slider
 //! scrub coalesces for free), and the discrete writers (gizmo drag
 //! commit, scene context menu, viewport drag-drop, seed re-roll,
 //! Load/Reset, raw-JSON parse) each produce exactly one tick. The
@@ -45,14 +45,14 @@
 //!
 //! Two kinds of non-edit writes share that change tick and must NOT
 //! become entries:
-//! - **Foreign wholesale replacements** — portal travel
+//! - **Foreign wholesale replacements** - portal travel
 //!   (`player::portal`) and the inbound owner `RoomStateUpdate`
 //!   (`network::inbound`) swap the record's contents in place. Undoing
 //!   across one would restore a different room (or fight a concurrent
 //!   same-DID session), so they raise [`RoomWriteSignals::foreign`] and
 //!   the history resets to a fresh baseline. Travel is additionally
 //!   caught by the room-DID identity key, signal or not.
-//! - **Derived side-effects** — terrain lot auto-population
+//! - **Derived side-effects** - terrain lot auto-population
 //!   (`terrain::lots`) rewrites generators + placements as a
 //!   *consequence* of an edit. It raises [`RoomWriteSignals::derived`]
 //!   and the history folds the write into the current entry instead of
@@ -92,7 +92,7 @@ const GENERIC_LABEL: &str = "edit";
 /// placement index, generator key, prim path, and the tree-view widget's
 /// own selection. All of it is index/path-addressed, so after a
 /// wholesale record replace it either dangles or silently points at the
-/// wrong node — each entry therefore carries the selection that was
+/// wrong node - each entry therefore carries the selection that was
 /// live when the entry was captured.
 #[derive(Clone, Default)]
 pub struct RoomSelection {
@@ -105,7 +105,7 @@ pub struct RoomSelection {
     pub tree: Vec<GenNodeId>,
 }
 
-/// Avatar-editor counterpart of [`RoomSelection`] — the visuals tree is
+/// Avatar-editor counterpart of [`RoomSelection`] - the visuals tree is
 /// single-root and has no placements, so only the generator/path pair
 /// and the tree-view selection exist.
 #[derive(Clone, Default)]
@@ -118,16 +118,16 @@ pub struct AvatarSelection {
 /// One captured state: the whole record, the selection that accompanied
 /// it, and a short human label for the edit that *produced* it
 /// ("delete of oak_3 + 12 placements"). The baseline entry seeded on
-/// load/travel carries no meaningful label — it is never undone *past*.
+/// load/travel carries no meaningful label - it is never undone *past*.
 #[derive(Clone)]
 pub struct UndoEntry<R, S> {
     pub record: R,
     pub selection: S,
     pub label: String,
     /// Serialized size of `record`, measured once on push (#1270 f417).
-    /// A lower bound on what the entry costs in memory — the in-memory
+    /// A lower bound on what the entry costs in memory - the in-memory
     /// form carries pointers, capacity slack and a `HashMap`'s table on
-    /// top — which is the right direction for a budget to be wrong in.
+    /// top - which is the right direction for a budget to be wrong in.
     /// `None` when the record does not serialize, which no record type
     /// can practically hit; such an entry counts as free rather than as
     /// infinite, so an unmeasurable record cannot empty the ring.
@@ -160,14 +160,14 @@ where
 {
     entries: VecDeque<UndoEntry<R, S>>,
     cursor: usize,
-    /// Identity of the content the ring describes — the room DID for the
+    /// Identity of the content the ring describes - the room DID for the
     /// room history (`None` for the avatar's, whose identity is the
     /// session itself). A key mismatch on observation means the record
     /// was wholesale-swapped to different content (portal travel), so
     /// the ring resets even if no explicit signal fired.
     key: Option<String>,
     /// One-shot: the next observed tick is an internal restore write
-    /// (#863) — consume it instead of recording it.
+    /// (#863) - consume it instead of recording it.
     suppress_capture: bool,
     /// Sum of every entry's `bytes` (#1270 f417). Maintained
     /// incrementally, so the budget check is an integer compare and never
@@ -282,8 +282,8 @@ where
             self.total_bytes -= dropped.bytes.unwrap_or(0);
         }
         // Measured here and nowhere else (#1270 f417): a push happens at
-        // most once per debounced edit burst — a quarter of a second
-        // apart at the very fastest — and it already deep-clones the
+        // most once per debounced edit burst - a quarter of a second
+        // apart at the very fastest - and it already deep-clones the
         // whole record, so a streamed byte count beside that clone is the
         // same order of cost. `serialized_record_bytes` counts into a
         // sink rather than building the JSON, so this allocates nothing.
@@ -306,14 +306,14 @@ where
     /// The floor is what makes the byte bound safe. `entries[cursor]` is
     /// the record's CURRENT state and must never be evicted, and a ring
     /// offering zero undoable steps would be a silent removal of the
-    /// feature — so a single record larger than the whole budget keeps
+    /// feature - so a single record larger than the whole budget keeps
     /// `MIN_UNDO_DEPTH` steps and reports the shortfall through
     /// [`Self::depth_note`] rather than emptying itself.
     fn evict(&mut self) {
         use crate::config::ui::editor::{MIN_UNDO_DEPTH, UNDO_DEPTH, UNDO_RING_BUDGET_BYTES};
         // Both loops are gated on the CURSOR, not on the length. The
         // front entry is only droppable while something ahead of it is
-        // the current state — after an undo the cursor sits behind a redo
+        // the current state - after an undo the cursor sits behind a redo
         // branch, so `entries.len()` can be large while `entries[0]` IS
         // what the record currently holds. Evicting that would swap the
         // world out from under the owner.
@@ -326,7 +326,7 @@ where
     }
 
     /// Pop the front entry, keeping `total_bytes` and `cursor` honest.
-    /// Only ever called with `cursor > 0` — see [`Self::evict`].
+    /// Only ever called with `cursor > 0` - see [`Self::evict`].
     fn drop_oldest(&mut self, for_size: bool) {
         if let Some(dropped) = self.entries.pop_front() {
             self.total_bytes -= dropped.bytes.unwrap_or(0);
@@ -363,7 +363,7 @@ where
     }
 
     /// Step back one entry. Returns `(entry to restore, label of the
-    /// edit being undone)` — the label belongs to the entry we moved
+    /// edit being undone)` - the label belongs to the entry we moved
     /// *off*, which is what "Undid: …" should name. Arms the one-shot
     /// capture suppression: the caller MUST write `entry.record` into
     /// the live resource (via the bypass + single-flush contract, #863)
@@ -378,7 +378,7 @@ where
         Some((&self.entries[self.cursor], label))
     }
 
-    /// Step forward one entry. Returns `(entry to restore, its label)` —
+    /// Step forward one entry. Returns `(entry to restore, its label)` -
     /// a redo re-applies the entry it moves onto, so the toast names
     /// that entry. Same must-apply contract as [`undo`](Self::undo).
     pub fn redo(&mut self) -> Option<(&UndoEntry<R, S>, &str)> {
@@ -439,7 +439,7 @@ impl PendingUndoLabels {
         self.avatar = Some(label.into());
     }
 
-    /// True while a label is already parked for the room entry — the
+    /// True while a label is already parked for the room entry - the
     /// coarse tab-level fallback checks this so it never overwrites a
     /// specific site's label from the same edit burst.
     pub fn room_pending(&self) -> bool {
@@ -452,13 +452,13 @@ impl PendingUndoLabels {
 
     /// A handle pre-bound to one editor's slot, for shared UI helpers
     /// (the generator tree serves both editors) that shouldn't need to
-    /// know which editor they're inside. Inventory has no undo stack —
+    /// know which editor they're inside. Inventory has no undo stack -
     /// its slot swallows labels.
     pub fn slot(&mut self, kind: crate::ui::shortcuts::EditorKind) -> LabelSlot<'_> {
         LabelSlot { labels: self, kind }
     }
 
-    /// The label parked for the next room entry, unconsumed — for tests
+    /// The label parked for the next room entry, unconsumed - for tests
     /// that assert what a mutation site named its edit.
     pub fn peek_room(&self) -> Option<&str> {
         self.room.as_deref()
@@ -513,7 +513,7 @@ pub fn capture_room_history(
         return;
     };
     // Guests can't edit (the World Editor is owner-gated), but they DO
-    // receive wholesale owner broadcasts — tracking those as history
+    // receive wholesale owner broadcasts - tracking those as history
     // would burn a record clone per broadcast for a stack nobody can
     // use. Keep the ring empty until this user owns the room.
     if session.as_ref().is_none_or(|s| s.did != room_did.0) {
@@ -543,7 +543,7 @@ pub fn capture_room_history(
 /// Observe `LiveAvatarRecord` commits. The avatar record is strictly
 /// single-writer (remote `AvatarStateUpdate`s land on `RemotePeer`
 /// components, never here), so every tick is either a user edit or a
-/// #863 restore — no signal plumbing needed.
+/// #863 restore - no signal plumbing needed.
 pub fn capture_avatar_history(
     record: Option<Res<LiveAvatarRecord>>,
     editor: Res<AvatarEditorState>,
@@ -618,7 +618,7 @@ mod tests {
     /// The ring is bounded by BYTES, not only by depth (#1270 f417).
     ///
     /// The pairing is the two bounds on the same ring. With small
-    /// records the depth bound bites first and nothing changes — 33
+    /// records the depth bound bites first and nothing changes - 33
     /// entries, no eviction for size, no note on the button. With
     /// records big enough that thirty-three of them would be hundreds of
     /// megabytes, the byte bound bites first and the history gets
@@ -646,7 +646,7 @@ mod tests {
         assert_eq!(
             small.depth_note(),
             None,
-            "an untrimmed ring says nothing — silence is the common case"
+            "an untrimmed ring says nothing - silence is the common case"
         );
 
         // Records a quarter of the budget each. The old ring would hold
@@ -659,7 +659,7 @@ mod tests {
         }
         assert!(
             heavy.len() < UNDO_DEPTH + 1,
-            "the byte budget shortened the ring below the depth bound — it held \
+            "the byte budget shortened the ring below the depth bound - it held \
              {} entries",
             heavy.len()
         );
@@ -670,7 +670,7 @@ mod tests {
         );
         assert!(
             heavy.can_undo(),
-            "a shortened ring is still an undo ring — the degradation is fewer \
+            "a shortened ring is still an undo ring - the degradation is fewer \
              steps, never zero"
         );
         let note = heavy.depth_note().expect("a trimmed ring says so");
@@ -705,7 +705,7 @@ mod tests {
     /// out from under the owner and leave the cursor pointing at a
     /// different one. Both eviction loops are gated on the CURSOR for
     /// exactly this, and the price is that a ring can sit over budget
-    /// when there is nothing it is allowed to drop — which is the right
+    /// when there is nothing it is allowed to drop - which is the right
     /// trade: the next edit truncates the redo branch and the budget
     /// applies again.
     #[test]
@@ -751,7 +751,7 @@ mod tests {
         assert!(h.can_redo(), "and the redo branch survived intact");
 
         // The next real edit truncates that branch, and the budget bites
-        // again — the over-budget window is bounded by one edit.
+        // again - the over-budget window is bounded by one edit.
         edit(&mut h, "a new branch", 42);
         assert!(
             h.bytes() <= UNDO_RING_BUDGET_BYTES || h.cursor <= 2,
@@ -761,7 +761,7 @@ mod tests {
         );
     }
 
-    /// Eviction keeps the running total honest — the property every
+    /// Eviction keeps the running total honest - the property every
     /// other assertion above rests on (#1270 f417).
     ///
     /// `total_bytes` is maintained incrementally so the budget check is
@@ -795,7 +795,7 @@ mod tests {
         assert_eq!(h.bytes(), sum(&h), "after the redo branch was dropped");
 
         // A derived fold replaces the current entry with a much larger
-        // one — lot auto-population adding hundreds of generators.
+        // one - lot auto-population adding hundreds of generators.
         h.observe(
             Some("did:test:room"),
             Observation::Derived,
@@ -913,7 +913,7 @@ mod tests {
         assert!(!h.can_undo());
         assert!(!h.can_redo());
         assert_eq!(h.len(), 1);
-        // The baseline is the foreign state — a subsequent edit undoes
+        // The baseline is the foreign state - a subsequent edit undoes
         // back to it, not past it.
         edit(&mut h, "c", 3);
         assert_eq!(h.undo().expect("undo").0.record, "remote");

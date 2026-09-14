@@ -9,19 +9,19 @@ use serde::{Deserialize, Serialize};
 /// Builds [`SovereignGeneratorKind`] and everything that enumerates it from
 /// the [`gen_jobs::for_each_heightmap_generator!`] roster.
 ///
-/// The wire enum cannot simply *be* [`gen_jobs::GeneratorKind`] — see
-/// [`SovereignGeneratorKind::Unknown`] — but the two must never disagree
+/// The wire enum cannot simply *be* [`gen_jobs::GeneratorKind`] - see
+/// [`SovereignGeneratorKind::Unknown`] - but the two must never disagree
 /// about which algorithms exist, and before this they were two hand-typed
 /// lists with two hand-typed translation ladders between them.
 macro_rules! define_sovereign_generator_kind {
     ($( ($variant:ident, $label:literal) ),* $(,)?) => {
-        /// Which base terrain algorithm to run — the wire form of
+        /// Which base terrain algorithm to run - the wire form of
         /// [`gen_jobs::GeneratorKind`].
         ///
         /// Open union (#1119). `symbios-ground` gains algorithms; a Terrain
         /// child naming one this build has never compiled used to fail that
         /// child's decode outright, and `list_room_children` drops what it
-        /// cannot read — so the room loaded with no ground under it, and the
+        /// cannot read - so the room loaded with no ground under it, and the
         /// next publish from this client rewrote the manifest without the ref
         /// and orphaned the child. A fourth algorithm should cost a visitor
         /// its terracing, not the owner their terrain.
@@ -47,7 +47,7 @@ macro_rules! define_sovereign_generator_kind {
         }
 
         impl SovereignGeneratorKind {
-            /// The algorithms this build can actually run, in roster order —
+            /// The algorithms this build can actually run, in roster order -
             /// what the terrain panel offers. `Unknown` is deliberately
             /// absent: picking a real algorithm is how the owner replaces
             /// it, and until they do the save stays refused rather than
@@ -66,8 +66,8 @@ macro_rules! define_sovereign_generator_kind {
             /// The algorithm the generation job actually runs.
             ///
             /// An algorithm this build has never heard of still has to
-            /// produce a heightmap — a visitor seeing the wrong terrain is
-            /// recoverable, a visitor standing on nothing is not — so
+            /// produce a heightmap - a visitor seeing the wrong terrain is
+            /// recoverable, a visitor standing on nothing is not - so
             /// `Unknown` runs as the default. It is the only arm that
             /// translates to something other than its namesake.
             pub fn to_gen_job(self) -> gen_jobs::GeneratorKind {
@@ -82,7 +82,7 @@ macro_rules! define_sovereign_generator_kind {
 gen_jobs::for_each_heightmap_generator!(define_sovereign_generator_kind);
 
 /// Full terrain configuration stored inside a `Generator::Terrain` variant.
-/// This is a serialisable mirror of `ground-lab::TerrainConfig` — all `f32`
+/// This is a serialisable mirror of `ground-lab::TerrainConfig` - all `f32`
 /// fields are wrapped in [`Fp`] so the record stays DAG-CBOR compliant.
 ///
 /// Default-eliding wire format (#695): fields matching
@@ -211,7 +211,7 @@ pub struct SovereignSplatRule {
 /// `rules[i]` controls where layer `i` appears on the terrain (altitude and
 /// slope bands); `layers[i]` is the procedural texture generator config that
 /// bakes that layer's albedo/normal/ORM maps. Any
-/// [`SovereignTextureConfig`] variant may appear in any slot — the canonical
+/// [`SovereignTextureConfig`] variant may appear in any slot - the canonical
 /// defaults are Grass / Dirt / Rock / Snow (Ground / Ground / Rock / Ground),
 /// but a room can swap any layer for e.g. `Brick`, `Cobblestone`, `Thatch`.
 ///
@@ -223,7 +223,7 @@ pub struct SovereignSplatRule {
 pub struct SovereignMaterialConfig {
     pub texture_size: u32,
     pub tile_scale: Fp,
-    /// Splat rules for channels R, G, B, A — one per layer.
+    /// Splat rules for channels R, G, B, A - one per layer.
     pub rules: [SovereignSplatRule; 4],
     /// Procedural texture configs for channels R, G, B, A.
     pub layers: [SovereignTextureConfig; 4],
@@ -246,14 +246,14 @@ impl Default for SovereignMaterialConfig {
             // and fades over a skirt of `half / (1 + sharpness)` *outside* it.
             // Under the old tent it peaked at the midpoint and scored zero at
             // both ends, so `slope_min: 0.0` meant "absent on level ground" and
-            // every one of these rules missed a dead-flat texel — the mapper
+            // every one of these rules missed a dead-flat texel - the mapper
             // fell through to its no-rule-matched branch, which paints rock.
             //
             // Two things had to move with the semantics:
             //
             // * `sharpness: 0.5` was compensation, not taste. It widened the
             //   tents until near-level ground scored *something*; under
-            //   plateaus it makes the skirts enormous — rock's slope skirt
+            //   plateaus it makes the skirts enormous - rock's slope skirt
             //   reached down to slope 0.0 and put 31% rock on a 0.05 slope.
             //   2.0 gives an edge a third of the half-range wide, which reads
             //   as a transition rather than a wash.
@@ -271,7 +271,7 @@ impl Default for SovereignMaterialConfig {
             // these five numbers in its record and keeps them. See the issue
             // for why they are deliberately not migrated.
             rules: [
-                // R — Grass: low ground, gentle.
+                // R - Grass: low ground, gentle.
                 SovereignSplatRule {
                     height_min: Fp(0.0),
                     height_max: Fp(0.45),
@@ -279,7 +279,7 @@ impl Default for SovereignMaterialConfig {
                     slope_max: Fp(0.25),
                     sharpness: Fp(2.0),
                 },
-                // G — Dirt: the whole middle and upper band, up to the snow
+                // G - Dirt: the whole middle and upper band, up to the snow
                 // line, tolerant of moderate slopes.
                 SovereignSplatRule {
                     height_min: Fp(0.30),
@@ -288,11 +288,11 @@ impl Default for SovereignMaterialConfig {
                     slope_max: Fp(0.50),
                     sharpness: Fp(2.0),
                 },
-                // B — Rock: any height, steep faces only.
+                // B - Rock: any height, steep faces only.
                 //
                 // The gap to grass's 0.25 is deliberate. Two plateaus that
                 // *abut* both read exactly 1 on the shared boundary, and
-                // `dominant_biome` is an argmax — so which one wins there is
+                // `dominant_biome` is an argmax - so which one wins there is
                 // decided by the last bit of a `powf`, and a hairline of rock
                 // appeared along dead-level ground at exactly slope 0.25.
                 // Leaving 0.05 between them puts the handover inside the two
@@ -304,7 +304,7 @@ impl Default for SovereignMaterialConfig {
                     slope_max: Fp(1.0),
                     sharpness: Fp(2.0),
                 },
-                // A — Snow: the summit, and only where it could settle.
+                // A - Snow: the summit, and only where it could settle.
                 SovereignSplatRule {
                     height_min: Fp(0.88),
                     height_max: Fp(1.0),
@@ -314,7 +314,7 @@ impl Default for SovereignMaterialConfig {
                 },
             ],
             layers: [
-                // R — Grass
+                // R - Grass
                 SovereignTextureConfig::Ground(SovereignGroundConfig {
                     seed: 1,
                     macro_scale: Fp64(2.5),
@@ -326,11 +326,11 @@ impl Default for SovereignMaterialConfig {
                     color_moist: Fp3([0.03, 0.07, 0.01]),
                     normal_strength: Fp(4.5),
                 }),
-                // G — Dirt
+                // G - Dirt
                 SovereignTextureConfig::Ground(SovereignGroundConfig::default()),
-                // B — Rock
+                // B - Rock
                 SovereignTextureConfig::Rock(SovereignRockConfig::default()),
-                // A — Snow
+                // A - Snow
                 SovereignTextureConfig::Ground(SovereignGroundConfig {
                     seed: 99,
                     macro_scale: Fp64(4.0),
@@ -352,7 +352,7 @@ mod tests {
     use super::SovereignGeneratorKind;
 
     /// The wire enum and the dispatch enum are built from one roster, so
-    /// their membership, order and labels agree by construction — this is
+    /// their membership, order and labels agree by construction - this is
     /// what says so out loud.
     ///
     /// Before #1157 they were two hand-typed variant lists (plus a third in

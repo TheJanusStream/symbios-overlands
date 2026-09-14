@@ -77,7 +77,7 @@ fn fp64_wire_form_is_integer() {
 }
 
 /// Quantisation ceiling: a value well below half a quantum cannot survive
-/// the round trip. Expected behaviour — asserted so a future change to
+/// the round trip. Expected behaviour - asserted so a future change to
 /// [`FP_SCALE`] is a deliberate choice, not an accidental loss of
 /// precision.
 #[test]
@@ -88,7 +88,7 @@ fn fp_values_below_quantum_round_to_zero() {
     assert_eq!(back.0, 0.0);
 }
 
-/// Wire form is stable across platforms — an i32 integer with no locale
+/// Wire form is stable across platforms - an i32 integer with no locale
 /// separators and no scientific notation. Guard against someone swapping
 /// in a different serializer that tries to prettify large numbers.
 #[test]
@@ -98,12 +98,12 @@ fn fp_wire_form_has_no_scientific_notation() {
     assert!(!json.contains(','));
 }
 
-/// `NaN` and `±inf` cannot survive the cast to `i32` cleanly — the
+/// `NaN` and `±inf` cannot survive the cast to `i32` cleanly - the
 /// wrappers must **not** panic on malicious input; they just go to 0.
 /// This is a behavioural guard, not a correctness claim.
 #[test]
 fn fp_handles_nonfinite_without_panic() {
-    // We don't care what the wire form of NaN is — only that we didn't
+    // We don't care what the wire form of NaN is - only that we didn't
     // abort. An `as i32` cast of NaN is `0` in Rust (saturating cast).
     let _ = serde_json::to_string(&Fp(f32::NAN)).unwrap();
     let _ = serde_json::to_string(&Fp(f32::INFINITY)).unwrap();
@@ -111,7 +111,7 @@ fn fp_handles_nonfinite_without_panic() {
 }
 
 /// Deserialising the wire form of a typical rotation quaternion leaves the
-/// magnitude close to unit — one unit-normal round-trip fits within the
+/// magnitude close to unit - one unit-normal round-trip fits within the
 /// quantisation budget across all four components.
 #[test]
 fn fp4_unit_quaternion_round_trip_stays_unit() {

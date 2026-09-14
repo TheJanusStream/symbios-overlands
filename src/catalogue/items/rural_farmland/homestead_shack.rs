@@ -1,4 +1,4 @@
-//! Homestead shack — the Rural/Farmland *poor* landmark. A weathered board
+//! Homestead shack - the Rural/Farmland *poor* landmark. A weathered board
 //! shack with a rusting metal roof, boarded-up window, and a stovepipe
 //! trailing thin smoke. The hardscrabble counterpart to the
 //! [`barn`](super::barn): same theme, opposite end of the prosperity axis
@@ -56,7 +56,7 @@ fn build_tree() -> Generator {
     let front = w * 0.5;
 
     let mut prims = vec![
-        // Stone footing — the root.
+        // Stone footing - the root.
         prim(
             solid(cuboid_tapered(
                 [l + 0.5, foot_h, w + 0.5],
@@ -102,7 +102,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Rusting corrugated gable roof (nordic A-frame helper) — sound but
+    // Rusting corrugated gable roof (nordic A-frame helper) - sound but
     // weathered, not collapsed.
     let roof_h = 1.9_f32;
     prims.push(gable_roof(

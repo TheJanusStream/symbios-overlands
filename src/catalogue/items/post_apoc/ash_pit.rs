@@ -1,4 +1,4 @@
-//! Ash pit — a Post-apocalyptic *poor* prop. A cold, dead fire pit ringed with
+//! Ash pit - a Post-apocalyptic *poor* prop. A cold, dead fire pit ringed with
 //! stones, heaped with grey ash, charred wood and a few bones. The spent
 //! hearth of the drifter's camp.
 //!
@@ -54,7 +54,7 @@ impl CatalogueEntry for AshPit {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Ash bed — the root.
+        // Ash bed - the root.
         prim(
             solid(cylinder_tapered(0.7, 0.1, 14, 0.0, tarp(ASH_GREY))),
             [0.0, 0.05, 0.0],
@@ -62,7 +62,7 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Low mound of heaped grey ash in the centre of the bed — a flattened
+    // Low mound of heaped grey ash in the centre of the bed - a flattened
     // hemisphere so it reads as a spent heap, not a dome.
     prims.push(prim_scaled(
         solid(with_cut(

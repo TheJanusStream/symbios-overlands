@@ -1,4 +1,4 @@
-//! Rice shed — a Feudal-Japan *poor* secondary. A raised storehouse
+//! Rice shed - a Feudal-Japan *poor* secondary. A raised storehouse
 //! (takakura): a small timber granary lifted on four posts with rat-guard
 //! discs, a thatch roof, and a notched-log ladder. Keeps the harvest dry
 //! and out of reach beside the [`minka`](super::minka).
@@ -53,7 +53,7 @@ fn build_tree() -> Generator {
     let box_y = post_h + 1.0;
 
     let mut prims = vec![
-        // Stone pad — the root.
+        // Stone pad - the root.
         prim(
             solid(cuboid_tapered([3.4, 0.3, 2.8], 0.0, stone(STONE_GREY))),
             [0.0, 0.15, 0.0],

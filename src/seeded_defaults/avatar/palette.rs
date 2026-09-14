@@ -1,4 +1,4 @@
-//! Coordinated avatar palette — skin / hair / eye + primary &
+//! Coordinated avatar palette - skin / hair / eye + primary &
 //! secondary accent colours, all derived from the avatar owner's DID
 //! through the shared [`AvatarCharacter`] anchor.
 //!
@@ -8,7 +8,7 @@
 //! near-neon, a medieval one muted and earthy), nudged warm/cool by the
 //! anchor `temperature`, and dulled by the anchor `wear` (a battered
 //! avatar's paint is greyer and darker). Skin / hair / eye stay curated
-//! lookup-table picks — random skin/hair colours look wrong fast, and
+//! lookup-table picks - random skin/hair colours look wrong fast, and
 //! `wear` is equipment grime, not biology, so it leaves them untouched.
 //!
 //! Independent of [`super::super::room::palette`]: the avatar carries its
@@ -41,7 +41,7 @@ const SKIN_TONES: &[[f32; 3]] = &[
 ];
 
 /// Curated hair colours (sRGB). Includes naturals + a handful of bold
-/// fantasy accents — picks are weighted naturally by the table itself
+/// fantasy accents - picks are weighted naturally by the table itself
 /// (more natural entries → more natural draws).
 const HAIR_COLORS: &[[f32; 3]] = &[
     [0.10, 0.07, 0.05], // black
@@ -58,7 +58,7 @@ const HAIR_COLORS: &[[f32; 3]] = &[
     [0.45, 0.22, 0.62], // purple (fantasy)
 ];
 
-/// Curated eye colours. Small set — natural eye colour space is
+/// Curated eye colours. Small set - natural eye colour space is
 /// narrower than skin/hair.
 const EYE_COLORS: &[[f32; 3]] = &[
     [0.10, 0.08, 0.06], // dark brown
@@ -74,10 +74,10 @@ const EYE_COLORS: &[[f32; 3]] = &[
 /// new theme falls into a sensible bucket by editing one match arm.
 #[derive(Clone, Copy, Debug)]
 struct StyleMood {
-    /// Multiplier on the sampled OkLCH chroma — `>1` pushes toward neon,
+    /// Multiplier on the sampled OkLCH chroma - `>1` pushes toward neon,
     /// `<1` toward muted / greyed.
     chroma_mul: f32,
-    /// Added to the sampled OkLCH lightness — `+` for bright/clean styles,
+    /// Added to the sampled OkLCH lightness - `+` for bright/clean styles,
     /// `-` for dark/gloomy ones.
     light_bias: f32,
 }
@@ -87,7 +87,7 @@ impl StyleMood {
         use ThemeArchetype::*;
         match style {
             // Neon / speculative: saturated and bright (their accents also
-            // read emissive — see `materials::MaterialKit`).
+            // read emissive - see `materials::MaterialKit`).
             Cyberpunk | AlienMonolithic | Fantasy | Solarpunk | SpaceOutpost => Self {
                 chroma_mul: 1.5,
                 light_bias: 0.05,
@@ -107,7 +107,7 @@ impl StyleMood {
                 chroma_mul: 0.5,
                 light_bias: -0.05,
             },
-            // Earthy / historical: muted, slightly dark — the default mood
+            // Earthy / historical: muted, slightly dark - the default mood
             // for the historical and frontier themes.
             Medieval | AncientClassical | Nordic | Mesoamerican | Steampunk | RuralFarmland
             | Roadside | PostApoc | WildWest => Self {
@@ -115,7 +115,7 @@ impl StyleMood {
                 light_bias: -0.03,
             },
             // Sea-worn but not drab. A buccaneer's colour comes off other
-            // people's cargo — dyed coats, sashes, gold — so the chroma sits
+            // people's cargo - dyed coats, sashes, gold - so the chroma sits
             // above the earthy group it otherwise belongs to, while the
             // lightness stays down where salt, tar and powder put it. That
             // gap is the whole read: saturated colour on a dark, weathered
@@ -144,9 +144,9 @@ pub struct AvatarPalette {
     pub skin_tone: [f32; 3],
     pub hair_color: [f32; 3],
     pub eye_color: [f32; 3],
-    /// Hull / clothing primary — the most visible "this is me" colour.
+    /// Hull / clothing primary - the most visible "this is me" colour.
     pub primary_accent: [f32; 3],
-    /// Trim / pontoons / belt — complementary to primary.
+    /// Trim / pontoons / belt - complementary to primary.
     pub secondary_accent: [f32; 3],
     /// A third small-area highlight (mast / cuff / hat band).
     pub tertiary_accent: [f32; 3],
@@ -157,7 +157,7 @@ impl AvatarPalette {
         Self::for_character(&AvatarCharacter::for_did(did))
     }
 
-    /// Derive from a pre-computed seed — the manual re-roll path.
+    /// Derive from a pre-computed seed - the manual re-roll path.
     /// `for_did(did)` is exactly `for_seed(fnv1a_64(did))`.
     pub fn for_seed(seed: u64) -> Self {
         Self::for_character(&AvatarCharacter::for_seed(seed))
@@ -168,7 +168,7 @@ impl AvatarPalette {
     /// hair / eye are sampled from the curated tables (their own draws,
     /// independent of the anchor's continuous knobs).
     pub fn for_character(c: &AvatarCharacter) -> Self {
-        // Own salted sub-stream off the anchor's seed — the table picks and
+        // Own salted sub-stream off the anchor's seed - the table picks and
         // accent maths vary per DID while staying independent of the other
         // derivers' streams.
         let mut rng = ChaCha8Rng::seed_from_u64(c.seed ^ AVATAR_PALETTE_SALT);
@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn skin_hair_eye_come_from_curated_tables() {
-        // The picked tone must literally appear in the table — wear must
+        // The picked tone must literally appear in the table - wear must
         // not have leaked into the biological colours.
         for s in 0u64..32 {
             let p = AvatarPalette::for_did(&format!("did:test:{s}"));

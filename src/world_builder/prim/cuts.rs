@@ -1,6 +1,6 @@
 //! SL-style cut meshers: the swept (path-cut / hollow) frustum family
 //! (cylinder / tube / cone), the banded UV sphere, the revolved stadium
-//! capsule, and the doubly-cut torus — everything a non-identity `path_cut` /
+//! capsule, and the doubly-cut torus - everything a non-identity `path_cut` /
 //! `profile_cut` / `hollow` routes to instead of a Bevy built-in.
 
 use bevy::prelude::*;
@@ -16,14 +16,14 @@ pub(super) fn path_cut_angles(t: &crate::pds::TortureParams) -> (f32, f32) {
     (t.path_cut.0[0] * TAU, t.path_cut.0[1] * TAU)
 }
 
-/// Unified swept-ring mesher — a conical frustum (`r_bottom` at the base,
+/// Unified swept-ring mesher - a conical frustum (`r_bottom` at the base,
 /// `r_top` at the top; equal radii = a straight cylinder, `r_top = 0` = a
 /// cone) that may be **hollow** (`inner_frac > 0` → pipe / funnel; the bore
 /// follows the same slope) and/or **angularly path-cut** (`a0..a1` < full
 /// turn → trough / half-pipe / pie wedge, closed by two radial cut faces).
 /// One generator backs `Cylinder` + `Tube` + `Cone` and all their SL-style
 /// cuts; taper / twist / bend / shear ride on top via the vertex-torture
-/// post-pass — pass `rows > 1` when a deform is active so the walls carry
+/// post-pass - pass `rows > 1` when a deform is active so the walls carry
 /// the mid-height vertices the nonlinear deforms (bulge / bend / twist)
 /// need. `t0..t1` is the profile-cut **vertical slice** (SL's "slice"): the
 /// kept height band, with radii interpolated so slicing a cone yields the
@@ -46,7 +46,7 @@ pub(super) fn build_swept_frustum(
     let segs = resolution.max(3);
     let rows = rows.max(1);
     // Vertical slice: interpolate the end radii to the band edges before
-    // anything else — every wall / cap / cut-face below then just works.
+    // anything else - every wall / cap / cut-face below then just works.
     let (t0, t1) = (t0.clamp(0.0, 1.0), t1.clamp(0.0, 1.0).max(t0 + 1e-3));
     let full_h = height;
     let (r_bottom, r_top) = (
@@ -158,7 +158,7 @@ pub(super) fn build_swept_frustum(
     // Radial cut faces close the wedge opening (only when path-cut),
     // subdivided to the same `rows` as the walls so a deform bends them in
     // step. With a zero top radius the strip's top edge collapses to the
-    // apex — its last triangles degenerate, which the winding pass tolerates.
+    // apex - its last triangles degenerate, which the winding pass tolerates.
     if !full {
         for (i, sgn, face) in [
             (0u32, -1.0f32, FaceKey::PathCutStart),
@@ -190,7 +190,7 @@ pub(super) fn build_swept_frustum(
     mesh_from_parts(pos, nor, uv, idx, spans)
 }
 
-/// Unified revolved-capsule mesher — a stadium profile (bottom hemisphere →
+/// Unified revolved-capsule mesher - a stadium profile (bottom hemisphere →
 /// straight wall → top hemisphere, parametrised by arc length `t ∈ 0..1` from
 /// bottom pole to top pole) revolved around Y over a **profile band**
 /// (`t0..t1` → pill halves / domed sleeves / open cups via profile-cut) and a
@@ -316,7 +316,7 @@ pub(super) fn build_swept_capsule(
 
     // Profile end caps at any open, non-pole edge: a horizontal disc when
     // solid, a rim band joining the outer edge to the inner (scaled) edge
-    // when hollow — the same closure scheme as the banded sphere.
+    // when hollow - the same closure scheme as the banded sphere.
     for (t, ny_dir, pole, face) in [
         (t0, -1.0f32, bottom_pole, FaceKey::Bottom),
         (t1, 1.0f32, top_pole, FaceKey::Top),
@@ -400,7 +400,7 @@ pub(super) fn build_swept_capsule(
     mesh_from_parts(pos, nor, uv, idx, spans)
 }
 
-/// Unified revolved-sphere mesher — a UV sphere swept over a **latitude band**
+/// Unified revolved-sphere mesher - a UV sphere swept over a **latitude band**
 /// (`lat_t0..lat_t1` in 0..1 → domes, bowls, dishes via profile-cut) and a
 /// **longitude band** (`lon0..lon1` → orange slices / half-domes via path-cut),
 /// optionally **hollow** (`inner_frac > 0` → a shell). Open latitude edges are
@@ -427,7 +427,7 @@ pub(super) fn build_uv_sphere(
     let latt = |j: u32| lat_t0 + (lat_t1 - lat_t0) * (j as f32 / nlat as f32);
     let lonf = |i: u32| lon0 + (lon1 - lon0) * (i as f32 / nlon as f32);
     // Metre convention (#938): equirectangular arc lengths, matching the
-    // uncut icosphere path — U the swept longitude arc measured at the
+    // uncut icosphere path - U the swept longitude arc measured at the
     // equator, V the swept latitude arc. As with any equirectangular
     // mapping the U scale is exact only at the equator and tightens toward
     // the poles; that is the projection's nature, not a scaling error.
@@ -495,7 +495,7 @@ pub(super) fn build_uv_sphere(
         let (y, rc) = (radius * sp, radius * cp);
         let nrm = [0.0, ny, 0.0];
         if hollow {
-            // The rim joins the outer-shell edge to the *inner-shell* edge — both
+            // The rim joins the outer-shell edge to the *inner-shell* edge - both
             // at this latitude, so the inner edge sits at `radius * ri_frac * dir`
             // (its own Y), not at the outer Y. A flat annulus would leave the
             // inner edge floating; this conical band closes it. Normal is the
@@ -582,7 +582,7 @@ pub(super) fn build_uv_sphere(
     mesh_from_parts(pos, nor, uv, idx, spans)
 }
 
-/// Unified swept-torus mesher — a circular profile revolved along a major
+/// Unified swept-torus mesher - a circular profile revolved along a major
 /// circle, over a **major arc** (`maj0..maj1`, path-cut → arch / horseshoe /
 /// open ring), a **minor arc** (`min0..min1`, profile-cut → C-channel / gutter),
 /// optionally **hollow** (`inner_frac > 0` → a tubular shell). Open major ends
@@ -611,7 +611,7 @@ pub(super) fn build_torus(
     let majf = |i: u32| maj0 + (maj1 - maj0) * (i as f32 / nmaj as f32);
     let minf = |j: u32| min0 + (min1 - min0) * (j as f32 / nmin as f32);
     // Metre convention (#938): U runs the swept major arc, V the swept minor
-    // arc — a torus has no caps to scale differently, so both are plain arc
+    // arc - a torus has no caps to scale differently, so both are plain arc
     // lengths. `maj_arc` measures at the tube's centreline radius, which is
     // what the surface actually travels on average.
     let maj_arc = (maj1 - maj0).abs() * major_r;
@@ -773,7 +773,7 @@ impl ProfilePoint {
 pub(super) fn rect_profile(hx: f32, hz: f32) -> Vec<ProfilePoint> {
     let p = |x: f32, z: f32, nx: f32, nz: f32, face: FaceKey| ProfilePoint { x, z, nx, nz, face };
     vec![
-        // +X face, then +Z, −X, −Z — CCW when viewed from +Y.
+        // +X face, then +Z, −X, −Z - CCW when viewed from +Y.
         p(hx, -hz, 1.0, 0.0, FaceKey::SidePx),
         p(hx, hz, 1.0, 0.0, FaceKey::SidePx),
         p(hx, hz, 0.0, 1.0, FaceKey::SidePz),
@@ -785,7 +785,7 @@ pub(super) fn rect_profile(hx: f32, hz: f32) -> Vec<ProfilePoint> {
     ]
 }
 
-/// Rounded-rectangle profile (the Bevel footprint) — the same four corner
+/// Rounded-rectangle profile (the Bevel footprint) - the same four corner
 /// arcs as `build_bevel_mesh`, with smooth arc normals.
 pub(super) fn rounded_rect_profile(
     hx: f32,
@@ -878,7 +878,7 @@ fn profile_raycast(profile: &[ProfilePoint], a: f32) -> ProfilePoint {
     })
 }
 
-/// Unified prism sweep for polygonal / rounded profiles — the SL box-cut
+/// Unified prism sweep for polygonal / rounded profiles - the SL box-cut
 /// mesher (#691) backing Cuboid + Bevel. `a0..a1` is the kept **angular
 /// wedge** (a pie cut through the footprint, closed by two radial cut
 /// faces), `inner_frac > 0` bores a matching scaled hole through the prism
@@ -983,7 +983,7 @@ pub(super) fn build_profile_sweep(
                     a + 1,
                 ]);
                 // The wall walks the ring once per row, so a side's
-                // triangles are not one contiguous block — mark per segment
+                // triangles are not one contiguous block - mark per segment
                 // and let same-key spans merge within each row.
                 spans.mark(
                     &idx,
@@ -998,7 +998,7 @@ pub(super) fn build_profile_sweep(
     }
 
     // Caps: a fan from the axis when solid (the profile is star-shaped, and
-    // for a wedge the axis lies on the cut boundary — the fan is the pie),
+    // for a wedge the axis lies on the cut boundary - the fan is the pie),
     // an outer→inner strip when hollow.
     let inv_ext = 1.0
         / ring

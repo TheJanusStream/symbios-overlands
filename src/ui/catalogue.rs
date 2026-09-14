@@ -1,4 +1,4 @@
-//! Catalogue browser window — the client-shipped sibling of the
+//! Catalogue browser window - the client-shipped sibling of the
 //! Inventory window. A master-detail browser over [`crate::catalogue::ENTRIES`]:
 //! a hierarchical / sortable tree on the left (search + view-mode selector
 //! above it) and a metadata detail panel on the right. Selecting an entry
@@ -6,7 +6,7 @@
 //! rows are themselves the drag source: drag one into the active room (or
 //! onto a peer in People to gift) to stamp a fresh copy on viewport release.
 //!
-//! Drag mechanics mirror [`crate::ui::inventory::inventory_ui`] — the drag
+//! Drag mechanics mirror [`crate::ui::inventory::inventory_ui`] - the drag
 //! source is [`DropSource::Catalogue`], which makes
 //! [`handle_generator_drop`](crate::ui::inventory::handle_generator_drop)
 //! resolve the dragged slug against the catalogue registry. Browsing works
@@ -78,7 +78,7 @@ pub struct CatalogueBrowser {
 
 impl CatalogueBrowser {
     /// The entry the detail panel is showing, if any (#1288). Read by
-    /// [`crate::item_preview`] to decide what to put on its stage — the
+    /// [`crate::item_preview`] to decide what to put on its stage - the
     /// preview derives its subject from this rather than being pushed one
     /// per frame, so there is no change tick for a panel draw to dirty.
     pub fn selected_slug(&self) -> Option<&str> {
@@ -109,7 +109,7 @@ impl CatalogueBrowser {
 ///
 /// `PreUpdate`, unconditionally: a mirror inside either window's system
 /// would run only while that window is open and latch at its last value
-/// the moment it closed — which for this fact means the stage keeping the
+/// the moment it closed - which for this fact means the stage keeping the
 /// last selection alive, and its camera pass with it, for the rest of the
 /// session. With no panels resource (before login, the headless render
 /// tool) the answer is `None`; a missing browser or stash is a window with
@@ -117,9 +117,9 @@ impl CatalogueBrowser {
 ///
 /// The predicate lives with the CONSUMER
 /// ([`crate::item_preview::wanted_subject`]) and is called from here, so
-/// the rules — a closed window shows nothing, an unresolvable pick shows
+/// the rules - a closed window shows nothing, an unresolvable pick shows
 /// nothing rather than the last thing that did, the most recent pick holds
-/// the one stage — have one home. The stash is handed over with its change
+/// the one stage - have one home. The stash is handed over with its change
 /// tick, which is what restages an edited item (#1322 made that tick move
 /// only on real writes).
 ///
@@ -195,8 +195,8 @@ fn leaf_slug(id: &str) -> Option<&str> {
 /// to "copy a wearable from the Catalogue first" types the app's own word
 /// and used to get a blank pane, because the four wearables carry that word
 /// only on their category. The deliberate consequence is that a search for
-/// a taxonomy word now matches every entry filed under it — "plant" returns
-/// all the plants rather than only the ones with "plant" in the name — so
+/// a taxonomy word now matches every entry filed under it - "plant" returns
+/// all the plants rather than only the ones with "plant" in the name - so
 /// the count above the tree is a count of the section, not of the name hits.
 /// That is what a search box over a sectioned list is expected to do; the
 /// alternative (name hits only) is what made the app's own instruction fail.
@@ -221,7 +221,7 @@ fn matches(e: &dyn CatalogueEntry, q: &str) -> bool {
 ///
 /// Zero matches used to render the count label "0 entries" over an empty
 /// `TreeView` and nothing else, beside a detail pane still saying "Select an
-/// item to see its details." — three widgets none of which said the search
+/// item to see its details." - three widgets none of which said the search
 /// had come back empty, so a blank rectangle was the whole answer.
 ///
 /// Both arms name the RULE rather than the outcome, which is #1232 f24's
@@ -230,13 +230,13 @@ fn matches(e: &dyn CatalogueEntry, q: &str) -> bool {
 pub(crate) fn empty_state(query: &str) -> &'static str {
     if query.trim().is_empty() {
         // Unreachable with the shipped registry (392 entries, and every
-        // browse mode covers all of them — `every_mode_covers_all_entries`).
+        // browse mode covers all of them - `every_mode_covers_all_entries`).
         // It is here so a build that ships an empty registry says so instead
         // of looking broken.
         "This build shipped no catalogue entries."
     } else {
         "Nothing matches that search. The Catalogue looks at names, \
-         categories, roles and theme names — try \"wearables\", \"tools\", \
+         categories, roles and theme names - try \"wearables\", \"tools\", \
          or a theme like \"medieval\"."
     }
 }
@@ -356,7 +356,7 @@ fn building_theme_dirs(in_cat: &[&'static dyn CatalogueEntry], cat_id: &str) -> 
 
     let mut dirs = Vec::new();
     // Cross-theme props first. Themeless Buildings entries (the
-    // social-gateway placeholder) belong here too — serving every theme
+    // social-gateway placeholder) belong here too - serving every theme
     // as a fallback is exactly what cross-theme means.
     let cross: Vec<&'static dyn CatalogueEntry> = in_cat
         .iter()
@@ -471,16 +471,16 @@ pub(crate) fn catalogue_ui(
     mut pending_drop: ResMut<PendingGeneratorDrop>,
     // Wear wiring (#1087): mutated only on a Wear click, so the ResMut
     // never dirties the live record from mere browsing (the guarded-dirty
-    // rule) — reads go through `as_ref()`.
+    // rule) - reads go through `as_ref()`.
     mut live_avatar: Option<ResMut<crate::state::LiveAvatarRecord>>,
     // The inventory is the wear surface (#1096): the catalogue copies a
-    // vanilla item into it. Same guarded-dirty discipline — the stash's
+    // vanilla item into it. Same guarded-dirty discipline - the stash's
     // dirty state is derived live-vs-stored, so a deref_mut on click is
     // all that ever happens.
     mut live_inventory: Option<ResMut<crate::state::LiveInventoryRecord>>,
     session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
     // Whose room this is (#1220 f132): the drag tooltip promises a
-    // placement only to an owner — a visitor can gift and nothing else.
+    // placement only to an owner - a visitor can gift and nothing else.
     room_did: Option<Res<crate::state::CurrentRoomDid>>,
     mut undo_labels: ResMut<crate::ui::undo::PendingUndoLabels>,
     mut toasts: ResMut<crate::notify::Toasts>,
@@ -500,7 +500,7 @@ pub(crate) fn catalogue_ui(
 
     // Guarded-dirty (#879, generalised by #1274 f177): the search field and
     // the mode combo below take `&mut` fields of this resource, and
-    // `ResMut::deref_mut` stamps the change tick on ACCESS — so drawing the
+    // `ResMut::deref_mut` stamps the change tick on ACCESS - so drawing the
     // window marked it changed on every frame whether or not anybody typed.
     // Nothing reads this resource's change tick today, and copying its string
     // in and out each frame to find that out would cost more than the tick
@@ -509,7 +509,7 @@ pub(crate) fn catalogue_ui(
     let browser = browser.bypass_change_detection();
     // Guarded-dirty (#879): `.open(&mut panels.catalogue)` through the
     // `ResMut` would mark UiPanels changed every frame, starving the
-    // prefs save debounce — local copy in, write back only on close.
+    // prefs save debounce - local copy in, write back only on close.
     let mut open = panels.catalogue;
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Catalogue, ctx);
     let response = egui::Window::new("Catalogue")
@@ -589,7 +589,7 @@ pub(crate) fn catalogue_ui(
                                         // Enables dragging rows OUT of the
                                         // tree (`Action::DragExternal`) so a
                                         // leaf itself is a drag-to-place
-                                        // source (#832) — the natural gesture
+                                        // source (#832) - the natural gesture
                                         // used to do nothing; the only handle
                                         // was buried below the detail grid.
                                         .allow_drag_and_drop(true)
@@ -637,7 +637,7 @@ pub(crate) fn catalogue_ui(
                                 // (#1220 f132). `egui_ltreeview` paints the
                                 // dragged row at the cursor on its own
                                 // Tooltip-order layer, so the drag WAS
-                                // visibly live — what was missing is the
+                                // visibly live - what was missing is the
                                 // copy saying a drop on a peer gifts it, on
                                 // the surface where a new user meets the
                                 // gesture and which auto-opens the People
@@ -668,7 +668,7 @@ pub(crate) fn catalogue_ui(
                 // the detail its own top-down region (mirroring the tree's
                 // `allocate_ui_with_layout`). Without it the ScrollArea
                 // inherits the left-to-right flow and the heading, description
-                // and property grid render as separate side-by-side columns —
+                // and property grid render as separate side-by-side columns -
                 // and the description, handed an unbounded width, never wraps
                 // and stretches the whole window. Claiming the remaining width
                 // top-down stacks them into one wrapping column.
@@ -711,8 +711,8 @@ pub(crate) fn catalogue_ui(
 /// Hierarchical "+ From Catalogue" menu shared by every add-catalogue call
 /// site (the generator tree's root and per-node add menus, and the in-scene
 /// right-click "Create new…"). Mirrors the browser's default [`BrowseMode::Hierarchy`]
-/// tree — Category → (Buildings) Theme → Role → item, other categories listing
-/// items directly — so the menu and the browser never drift apart.
+/// tree - Category → (Buildings) Theme → Role → item, other categories listing
+/// items directly - so the menu and the browser never drift apart.
 ///
 /// Each [`CatNode::Dir`] becomes a nested submenu (labelled with the same
 /// `name  (count)` the browser shows); clicking a leaf hands `on_pick` the
@@ -852,7 +852,7 @@ fn detail_panel(
             row(ui, "Clearance", format!("{:.1} m", fp.clearance));
             row(ui, "Spawn dist", format!("{:.0} m", fp.min_spawn_dist));
             // Wearability up front (#1096): the socket it lands on and, for
-            // a fitted item, that it sizes itself — the category's
+            // a fitted item, that it sizes itself - the category's
             // flagship property, visible before anything is worn.
             if let Some(socket) = entry.wear_socket() {
                 row(
@@ -892,7 +892,7 @@ fn detail_panel(
 /// The inventory row (#1096): **Copy to inventory**, and for a wearable
 /// entry **Copy to inventory & wear**. The catalogue is a source of
 /// vanilla items; the inventory is what the player owns and customises,
-/// and the one surface things are worn and taken off from — so the
+/// and the one surface things are worn and taken off from - so the
 /// catalogue never dresses the body directly any more. "& wear" is the
 /// two steps in one click: the copy lands in the stash under the entry's
 /// name (uniquified), then that stash item is worn, so the worn prop
@@ -934,19 +934,19 @@ fn inventory_row(
         hint(ui, reason);
         return;
     };
-    // Reads through `as_ref` — deref_mut would count as an edit every
+    // Reads through `as_ref` - deref_mut would count as an edit every
     // frame the panel is open (the guarded-dirty rule).
     let cap = crate::config::state::MAX_INVENTORY_ITEMS;
     let count = inventory.as_ref().0.generators.len();
     if count >= cap {
-        let reason = format!("Inventory full ({cap}/{cap}) — remove something first.");
+        let reason = format!("Inventory full ({cap}/{cap}) - remove something first.");
         ui.add_enabled(false, egui::Button::new("Copy to inventory"))
             .on_disabled_hover_text(&reason);
         hint(ui, &reason);
         return;
     }
 
-    // Where the copy would go — shown so "& wear" is not a surprise.
+    // Where the copy would go - shown so "& wear" is not a surprise.
     let name = crate::ui::room::widgets::unique_key(&inventory.as_ref().0.generators, entry.name());
     let copy = |inventory: &mut ResMut<crate::state::LiveInventoryRecord>| -> String {
         let meta = wearable.map(|socket| WearMeta::for_entry(socket, entry.wear_fit()));
@@ -971,13 +971,13 @@ fn inventory_row(
         };
         // "& wear" needs a body to dress. The reasons it cannot are the
         // Inventory row's and the scene menu's, from one source
-        // (#1141) — including the one all three used to miss, a rigged
+        // (#1141) - including the one all three used to miss, a rigged
         // body whose wardrobe record did not resolve.
         //
         // Reads through `as_ref` for the same reason the inventory count
         // above does: deref_mut here would dirty the avatar record every
         // frame the catalogue is open.
-        // The inventory is `Some` for this whole arm — the row returned
+        // The inventory is `Some` for this whole arm - the row returned
         // early with the Catalogue's own "not loaded yet" line above, which
         // is the wording `wear_blocked_reason` adopted (#1233 f261).
         let reason = crate::ui::avatar::wear_blocked_reason(
@@ -1001,7 +1001,7 @@ fn inventory_row(
             ))
             .clicked()
         {
-            // The copy lands either way — it is a separate, already-done
+            // The copy lands either way - it is a separate, already-done
             // thing. Only the *wear* half is conditional, and the toast
             // now reports which halves actually happened (#1141): it used
             // to say "Wearing …" unconditionally, including on the path
@@ -1017,13 +1017,13 @@ fn inventory_row(
             if attached.is_some() {
                 undo_labels.set_avatar(format!("wear {saved}"));
                 toasts.success(
-                    format!("Wearing \"{saved}\" — it is in your inventory to adjust or take off."),
+                    format!("Wearing \"{saved}\" - it is in your inventory to adjust or take off."),
                     now,
                 );
             } else {
                 toasts.warn(
                     format!(
-                        "Copied to inventory as \"{saved}\", but it could not be worn — \
+                        "Copied to inventory as \"{saved}\", but it could not be worn - \
                          wear it from the Inventory window once your body is ready."
                     ),
                     now,
@@ -1041,13 +1041,13 @@ mod tests {
     /// #1297's item-preview singleton, the `PlacementFocus` shape a
     /// second time, and since #1301 the Inventory's selection beside the
     /// Catalogue's. `restage_preview` read `UiPanels` and
-    /// `CatalogueBrowser` directly to answer one question — "is anyone
-    /// looking, and at what" — which pointed the arrow from a render
+    /// `CatalogueBrowser` directly to answer one question - "is anyone
+    /// looking, and at what" - which pointed the arrow from a render
     /// pipeline into the egui layer for a `bool` and an `Option<&str>`.
     ///
     /// Asserted against the PREDICATE the consumer already owned
     /// ([`crate::item_preview::wanted_subject`]) rather than by restating
-    /// its answers, so the mirror cannot drift from the rule it carries —
+    /// its answers, so the mirror cannot drift from the rule it carries -
     /// including the rule that an unresolvable pick shows nothing rather
     /// than the last thing that did. A few answers are also named outright,
     /// so a predicate that answered `None` to everything could not pass.
@@ -1291,8 +1291,8 @@ mod tests {
         );
     }
 
-    /// #1301, counting the work (#1270's rule). The stage restages when —
-    /// and only when — the request differs from what it holds, and an
+    /// #1301, counting the work (#1270's rule). The stage restages when -
+    /// and only when - the request differs from what it holds, and an
     /// Inventory request carries the stash's change tick. So an item held
     /// selected must cost no respawn per frame, and an edit to the stash
     /// exactly one. Driven through the REAL mirror and the REAL
@@ -1301,7 +1301,7 @@ mod tests {
     ///
     /// There is no generator-compare count to take because there is no
     /// compare: the subject holds a name and a tick, never a `Generator`,
-    /// and nothing on this path compares one — which is the design, since
+    /// and nothing on this path compares one - which is the design, since
     /// a whole-tree `PartialEq` per frame is what #1135/#1292 removed.
     #[test]
     fn an_idle_selection_costs_no_restages_and_an_edit_costs_exactly_one() {
@@ -1413,8 +1413,8 @@ mod tests {
         assert!(matches(castle, "landmark"));
     }
 
-    /// The app's own instruction — "copy a wearable from the Catalogue
-    /// first" — has to find something when it is typed into the Catalogue
+    /// The app's own instruction - "copy a wearable from the Catalogue
+    /// first" - has to find something when it is typed into the Catalogue
     /// (#1275 f255).
     ///
     /// This is the whole point of searching the category and role labels,
@@ -1464,7 +1464,7 @@ mod tests {
     #[test]
     fn every_mode_covers_all_entries() {
         // The union of leaf slugs across the whole tree must equal the full
-        // registry in every mode — no entry is ever unreachable.
+        // registry in every mode - no entry is ever unreachable.
         let want: HashSet<&str> = ENTRIES.iter().map(|e| e.slug()).collect();
         for mode in BrowseMode::ALL {
             let nodes = build_nodes(mode, "");
@@ -1515,7 +1515,7 @@ mod tests {
     #[test]
     fn cross_theme_props_are_not_duplicated_under_every_theme() {
         // A civic cross-theme prop appears once (in the Cross-theme group),
-        // not once per theme — so its slug count across the tree is 1.
+        // not once per theme - so its slug count across the tree is 1.
         let nodes = build_nodes(BrowseMode::Theme, "");
         let count = all_slugs(&nodes)
             .into_iter()

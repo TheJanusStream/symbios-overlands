@@ -1,6 +1,6 @@
 //! Per-frame `GizmoTarget` attachment / detachment plumbing. Computes
 //! which entity should carry the gizmo this frame (a placement, a room
-//! prim — closest to the camera if multiple instances exist — or an
+//! prim - closest to the camera if multiple instances exist - or an
 //! avatar visual prim) and toggles `GizmoTarget` accordingly. The
 //! world-space-detach trick (bake `GlobalTransform` into local
 //! `Transform`, drop `ChildOf`) lives here so the gizmo (which only
@@ -27,7 +27,7 @@ use super::{ActiveTarget, GizmoDetachedPrim, GizmoFramePref, determine_active_ta
 /// live record can despawn every entity downstream before re-spawning
 /// fresh ones. Without the `try_` variants the query's stale entity IDs
 /// would panic when their insert/remove commands applied against
-/// already-despawned indices. Tolerating the race here is safe — the
+/// already-despawned indices. Tolerating the race here is safe - the
 /// next frame's sync pass sees the newly-spawned entity and re-attaches
 /// `GizmoTarget` on it.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -68,7 +68,7 @@ pub(super) fn sync_gizmo_selection(
     // Bundled to stay under Bevy's 16-parameter ceiling. `attachment_query`
     // is worn props on the local rigged body (#1062), addressed by
     // attachment record rkey rather than by a path into a visuals tree, and
-    // `rigged_bodies` is the rig each one hangs off — needed because a
+    // `rigged_bodies` is the rig each one hangs off - needed because a
     // prop's frame is its joint's REST frame, which only the rig knows.
     (detached_query, global_tf, attachment_query, rigged_bodies, part_query): (
         Query<&GizmoDetachedPrim>,
@@ -110,11 +110,11 @@ pub(super) fn sync_gizmo_selection(
     // the gizmo would never come back. Running every frame keeps the
     // gizmo tracking the selection through every respawn; the cost is a
     // linear pass over the placement/prim queries, which scales with the
-    // room's population (every `PrimMarker` node — not a fixed small set
+    // room's population (every `PrimMarker` node - not a fixed small set
     // when a room carries a dense scatter).
 
     // Per-frame: push the current orientation + snap preferences into
-    // the gizmo's global config. Cheap to set unconditionally —
+    // the gizmo's global config. Cheap to set unconditionally -
     // `GizmoOptions` change-detects on field write inside
     // `transform-gizmo-bevy`. Snap increments come from the same
     // resource the World/Local toggle edits (#827); the upstream angle
@@ -127,7 +127,7 @@ pub(super) fn sync_gizmo_selection(
 
     let mut active = determine_active_target(&room_state, &avatar_state);
     // The room gizmo exists only while the World-editor window is open
-    // (#702) — a selection may survive the window closing (so reopening
+    // (#702) - a selection may survive the window closing (so reopening
     // restores it), but the gizmo itself detaches. The tab gates below
     // (Region Assets → prims, Placements → placements) already restrict
     // WHICH room selection can carry it.
@@ -161,7 +161,7 @@ pub(super) fn sync_gizmo_selection(
     // the whole-prim targets below are suppressed and the proxy entity
     // (spawned by `blob::proxy::reconcile_blob_proxies` earlier this
     // frame) becomes the sole target. Shape rides along to pick the mode
-    // set — rotating a sphere is meaningless, so spheres only expose
+    // set - rotating a sphere is meaningless, so spheres only expose
     // translate + uniform scale.
     let target_proxy: Option<(Entity, BlobShape)> =
         match (blob_ctx.active.as_ref(), blob_ctx.selected_element) {
@@ -179,16 +179,16 @@ pub(super) fn sync_gizmo_selection(
     // whole-prim and placement gizmos; for a per-element edit, local is both
     // correct and the useful behaviour:
     //
-    // * SCALE — `transform-gizmo`'s Global-orientation scale is lossy for a
+    // * SCALE - `transform-gizmo`'s Global-orientation scale is lossy for a
     //   rotated target: it derives the new size from the column lengths of
-    //   `diag(world_scale) · (R · diag(scale))` — a sheared matrix — and
+    //   `diag(world_scale) · (R · diag(scale))` - a sheared matrix - and
     //   keeps the old rotation, so a world-axis stretch of a rotated
     //   ellipsoid comes out wrong (a 45°-rotated sphere stretched on world-X
     //   collapses to a symmetric disc). The Local path is a clean per-axis
     //   multiply along the element's own axes, which is exactly what
     //   sculpting an element's proportions wants. (A true world-axis stretch
-    //   would have to re-orient the element — rarely the intent.)
-    // * TRANSLATE / ROTATE — local is coherent for positioning/orienting a
+    //   would have to re-orient the element - rarely the intent.)
+    // * TRANSLATE / ROTATE - local is coherent for positioning/orienting a
     //   mass inside its blob, and for an *unrotated* element local ≡ world,
     //   so nothing changes in the common case.
     if target_proxy.is_some() {
@@ -199,10 +199,10 @@ pub(super) fn sync_gizmo_selection(
     // flight, the target must not be re-resolved. Without this, the
     // camera-proximity scan below can re-rank instances mid-gesture (the
     // dragged instance moves past a sibling, or scroll-zoom shifts the
-    // camera) — `attach_or_release_prim` would then strip `GizmoTarget`
+    // camera) - `attach_or_release_prim` would then strip `GizmoTarget`
     // from the dragged entity, which the drag system reads as a falling
     // edge and commits the drag mid-air. `is_active` is written in the
-    // gizmo crate's `Last` schedule, so it reads one frame stale — the
+    // gizmo crate's `Last` schedule, so it reads one frame stale - the
     // release frame therefore runs one extra frozen frame before normal
     // resolution resumes, which is harmless. Selection can't change
     // mid-drag (scene picks are drag-suppressed and the mouse is held on
@@ -213,7 +213,7 @@ pub(super) fn sync_gizmo_selection(
 
     // --- Resolve which prim entity (if any) should carry the gizmo ----------
     // Room prim: the live instance of the UI-selected (generator_ref,
-    // path) pair nearest the owner's last scene-click (#822 — so the
+    // path) pair nearest the owner's last scene-click (#822 - so the
     // clicked instance hosts the gizmo, surviving the respawns a drag
     // commit triggers because the preference is a position, not an
     // entity id), falling back to camera proximity for GUI-originated
@@ -255,7 +255,7 @@ pub(super) fn sync_gizmo_selection(
     // Avatar prim: the unique entity matching the selected path. The
     // `AvatarVisualPrim` component is only attached to local-player
     // visuals (see `world_builder::compile::spawn_generator`), so a
-    // single match is the local avatar's own node — no proximity scan.
+    // single match is the local avatar's own node - no proximity scan.
     let target_avatar_prim = if target_proxy.is_some() {
         None
     } else if active == ActiveTarget::Avatar {
@@ -278,7 +278,7 @@ pub(super) fn sync_gizmo_selection(
     // Worn prop: the unique entity whose `LocalAttachment` names the
     // selected record. `LocalAttachment` only rides the local player's own
     // props (a peer's outfit carries none), and rkeys are unique per record,
-    // so a match is singular — no proximity scan, like avatar visuals.
+    // so a match is singular - no proximity scan, like avatar visuals.
     let target_attachment = if target_proxy.is_some() {
         None
     } else if active == ActiveTarget::Attachment {
@@ -291,7 +291,7 @@ pub(super) fn sync_gizmo_selection(
         None
     };
 
-    // Part of a worn prop (#1098): unique by `(rkey, path)` — the markers
+    // Part of a worn prop (#1098): unique by `(rkey, path)` - the markers
     // ride only the local body's props, one instance each.
     let target_part = if target_proxy.is_some() {
         None
@@ -335,9 +335,9 @@ pub(super) fn sync_gizmo_selection(
 
     // Restrict gizmo modes per the type of thing selected. Placements
     // can't scale (their generator's construct tree owns shape) and get
-    // a variant-aware set — Scatter is translate-only (#827, see
+    // a variant-aware set - Scatter is translate-only (#827, see
     // `placement_modes`). Prims can translate / rotate / scale except
-    // for blueprint roots, which are locked to rotate + scale —
+    // for blueprint roots, which are locked to rotate + scale -
     // translating the root would just shift the whole subtree relative
     // to its own origin. Avatar visuals follow the same root rule; their
     // root translation lives in the chassis (anchored by locomotion
@@ -460,8 +460,8 @@ pub(super) fn sync_gizmo_selection(
         let is_target = target_proxy.map(|(e, _)| e) == Some(entity);
         // Proxies are spawned by `reconcile_blob_proxies` in `PostUpdate`
         // *after* `TransformSystems::Propagate`, so a freshly (re)spawned
-        // proxy — as happens when a drag-commit rebuilds the blob and the
-        // still-selected element re-targets it the same frame — carries an
+        // proxy - as happens when a drag-commit rebuilds the blob and the
+        // still-selected element re-targets it the same frame - carries an
         // identity `GlobalTransform` this pass. Baking that would teleport
         // the proxy to the world origin (#706). Recompose the true world
         // pose from the blob parent's already-propagated `GlobalTransform`
@@ -491,24 +491,24 @@ pub(super) fn sync_gizmo_selection(
 /// Mode set for a placement selection (#827): only the gestures the
 /// commit actually keeps, so no drag silently evaporates.
 ///
-/// * `Absolute` / `Grid` — translate + rotate (both written verbatim;
+/// * `Absolute` / `Grid` - translate + rotate (both written verbatim;
 ///   scale is owned by the generator tree, as before).
-/// * `Scatter` — HORIZONTAL translate only (user decision, 2026-07-16 for
+/// * `Scatter` - HORIZONTAL translate only (user decision, 2026-07-16 for
 ///   rotate; #1243… see below for Y). The GUI shows bounds, not a
-///   transform, and a Rect's angle is the Bounds "Rotation (deg)" slider —
+///   transform, and a Rect's angle is the Bounds "Rotation (deg)" slider -
 ///   a gizmo rotation was discarded (Circle) or half-kept (Rect yaw),
 ///   reading as a bug. The vertical handles were the same bug still live
 ///   (#1237 f146): `write_transform_into_placement` stores X and Z into
 ///   the bounds CENTRE and a `ScatterBounds` has no Y field at all, so a
-///   Y drag lifted the patch while held and dropped it back on release —
+///   Y drag lifted the patch while held and dropped it back on release -
 ///   the compile re-derives the anchor Y from the terrain. Dropping
 ///   `TranslateY`, `TranslateXY`, `TranslateYZ` and `TranslateView`
 ///   (which moves along the view forward axis, so it has a Y component
 ///   from almost every camera) leaves exactly the gestures the commit
 ///   keeps.
-/// * `Unknown` — nothing: the commit refuses to write into a schema it
+/// * `Unknown` - nothing: the commit refuses to write into a schema it
 ///   doesn't know, so no handle should promise otherwise.
-/// * `None` (record momentarily unavailable) — the pre-#827 set, so a
+/// * `None` (record momentarily unavailable) - the pre-#827 set, so a
 ///   transient lookup miss doesn't strip handles mid-session.
 fn placement_modes(placement: Option<&Placement>) -> EnumSet<GizmoMode> {
     let mut modes = EnumSet::new();
@@ -527,7 +527,7 @@ fn placement_modes(placement: Option<&Placement>) -> EnumSet<GizmoMode> {
     modes
 }
 
-/// Mode set for a prim selection — root prims (path == []) are locked to
+/// Mode set for a prim selection - root prims (path == []) are locked to
 /// rotate + scale; descendants get the full T+R+S triad.
 fn prim_modes(is_root: bool) -> EnumSet<GizmoMode> {
     let mut modes = EnumSet::new();
@@ -539,8 +539,8 @@ fn prim_modes(is_root: bool) -> EnumSet<GizmoMode> {
     modes
 }
 
-/// Mode set for a worn prop (#1062, widened by #1095): the full triad —
-/// translate, rotate and per-axis scale — exactly what a region placement
+/// Mode set for a worn prop (#1062, widened by #1095): the full triad -
+/// translate, rotate and per-axis scale - exactly what a region placement
 /// gets. [`crate::pds::AttachmentRecord::sanitize`] keeps each scale axis
 /// as dragged (it used to collapse them to one, and the gizmo hid the
 /// per-axis handles so no drag could be thrown away); the worn item is
@@ -557,7 +557,7 @@ fn attachment_modes() -> EnumSet<GizmoMode> {
 /// Mode set for a blob element (#705). Every shape translates. A sphere
 /// gets the full scale triad (uniform *and* per-axis): dragging one axis
 /// stretches it, and the commit promotes it to an ellipsoid so per-axis
-/// size works (#707). It still gets no rotation — a sphere's orientation is
+/// size works (#707). It still gets no rotation - a sphere's orientation is
 /// meaningless to the SDF, and once promoted the ellipsoid picks up rotate
 /// on its next selection. `Unknown` (forward-compat) stays uniform-only so
 /// a gizmo drag can't reshape a construct an older client authored.
@@ -593,14 +593,14 @@ fn element_modes(shape: BlobShape) -> EnumSet<GizmoMode> {
 /// is an *animated* rig joint, which makes both halves depend on which frame
 /// of which clip happened to be showing:
 ///
-///   * **Attach** — the record's offset is a rest-frame quantity, so the
+///   * **Attach** - the record's offset is a rest-frame quantity, so the
 ///     gizmo must appear at `rest ⊗ offset`. Baking the live world pose
 ///     instead would plant the gizmo wherever the animation had swung the
 ///     prop, and a drag from there commits an offset shifted by that swing.
 ///   * **Release** without a drag must be a no-op on the visible scene.
 ///     Reparenting against the live joint returns `joint_live⁻¹ ⊗ world`,
 ///     which equals the stored offset only while the body is exactly at
-///     rest — so a deselect one frame after the editing hold lifts would
+///     rest - so a deselect one frame after the editing hold lifts would
 ///     leave the prop permanently nudged, with nothing to correct it (the
 ///     re-dress pass only fires when the *worn set* changes).
 ///
@@ -666,7 +666,7 @@ fn attach_or_release_attachment(
 /// Attach the gizmo to `entity` (detaching it from its parent and baking
 /// world pose into local) when it becomes the target, and reverse the
 /// process when another entity takes over or the selection clears.
-/// Shared by both room and avatar prim queries — the only difference is
+/// Shared by both room and avatar prim queries - the only difference is
 /// the marker carried on the entity, which doesn't affect attach/detach.
 #[allow(clippy::too_many_arguments)]
 fn attach_or_release_prim(
@@ -863,7 +863,7 @@ mod repro_tests {
         // THE CRUX: the attached proxy must be detached WITH the blob entity
         // recorded as its original parent. If this is missing, the commit
         // treats the proxy's world transform as a blob-local one and the
-        // element jumps by the parent offset — the reported bug.
+        // element jumps by the parent offset - the reported bug.
         let detached = app
             .world()
             .get::<GizmoDetachedPrim>(proxy)
@@ -906,8 +906,8 @@ mod repro_tests {
 
     /// The real bug (#706): a proxy spawned by `reconcile_blob_proxies`
     /// (which runs in `PostUpdate` AFTER `TransformSystems::Propagate`) and
-    /// targeted the SAME frame — exactly what happens when a drag-commit
-    /// rebuilds the blob and respawns the proxy — is baked by `sync` while
+    /// targeted the SAME frame - exactly what happens when a drag-commit
+    /// rebuilds the blob and respawns the proxy - is baked by `sync` while
     /// its `GlobalTransform` is still the spawn-time identity, teleporting
     /// it to the world origin instead of the element's real world pose.
     ///
@@ -966,7 +966,7 @@ mod repro_tests {
                 blob_entity: blob,
             });
             // Element already selected: the proxy is spawned AND targeted in
-            // the same PostUpdate — the post-commit-rebuild scenario.
+            // the same PostUpdate - the post-commit-rebuild scenario.
             ctx.selected_element = Some(0);
         }
 
@@ -1109,7 +1109,7 @@ mod mode_tests {
         }
     }
 
-    /// #827 (user decision): scatter placements are translate-only — a
+    /// #827 (user decision): scatter placements are translate-only - a
     /// rotation gesture had no honest commit (Circle discarded it, Rect
     /// half-kept it and clobbered the authored slider angle).
     #[test]
@@ -1131,13 +1131,13 @@ mod mode_tests {
     }
 
     /// #1237 f146. Sequence: select a scatter of trees, drag the green Y
-    /// arrow to lift the patch — it lifts while held, then drops straight
+    /// arrow to lift the patch - it lifts while held, then drops straight
     /// back on release with no explanation. `write_transform_into_placement`
     /// stores X and Z into the bounds centre, and a `ScatterBounds` has no
     /// Y field at all; the compile re-derives the anchor Y from the
     /// terrain. This is the same class of bug #827 removed the ROTATION
     /// handle for, still live for translation on the one variant with no
-    /// Y — against this function's own stated contract, "only the gestures
+    /// Y - against this function's own stated contract, "only the gestures
     /// the commit actually keeps, so no drag silently evaporates".
     #[test]
     fn a_scatter_offers_no_handle_that_can_move_it_vertically() {

@@ -2,7 +2,7 @@
 //! plan, #695).
 //!
 //! Record weight is dominated by config structs whose fields mostly hold
-//! their `Default` values — a catalogue prop repeats an identity
+//! their `Default` values - a catalogue prop repeats an identity
 //! [`TortureParams`](super::generator::TortureParams), a near-default
 //! material and an identity transform on every one of its dozens of child
 //! prims. [`impl_default_eliding_serialize!`] replaces a struct's derived
@@ -12,7 +12,7 @@
 //!
 //! The contract that keeps round-trips exact: every struct using this macro
 //! MUST deserialize missing fields from the same `Default` the serializer
-//! compared against — i.e. carry a container-level `#[serde(default)]` (or
+//! compared against - i.e. carry a container-level `#[serde(default)]` (or
 //! equivalent per-field defaults). The macro destructures `Self`, so a new
 //! field is a compile error here rather than a silently-always-serialized
 //! (or worse, silently-dropped) one. Renamed fields cannot use the macro
@@ -22,7 +22,7 @@
 //! Reader compatibility: elision only changes what is *written*. Existing
 //! full records decode unchanged, and clients built before a struct adopted
 //! the macro can decode elided output only if they already tolerated the
-//! missing fields — the same forward-compat rule (`#[serde(default)]`,
+//! missing fields - the same forward-compat rule (`#[serde(default)]`,
 //! no `deny_unknown_fields`) every record type here follows.
 
 /// Implement a default-eliding `serde::Serialize` for a struct: fields equal
@@ -37,7 +37,7 @@
 ///
 /// A field marked `name (always)` is written unconditionally. Use this when
 /// an *absent* key already has a legacy meaning that differs from the
-/// struct's default — e.g. `ParticleParams::procedural_texture`, where a
+/// struct's default - e.g. `ParticleParams::procedural_texture`, where a
 /// missing key means "pre-sprite record, plain quads" while the struct
 /// default is the soft-disc sprite. Eliding such a field would silently
 /// rewrite the legacy meaning onto every round-trip.
@@ -94,8 +94,8 @@ macro_rules! impl_default_eliding_serialize {
 
 pub(crate) use impl_default_eliding_serialize;
 
-/// Declare a `SovereignXxx` mirror of an upstream config struct — the
-/// struct, its `Default`, `to_native()` and `from_native()` — from one
+/// Declare a `SovereignXxx` mirror of an upstream config struct - the
+/// struct, its `Default`, `to_native()` and `from_native()` - from one
 /// field list, so the four cannot drift apart (#1160).
 ///
 /// Each field is declared by its *kind* followed by `: name = default`;
@@ -109,18 +109,18 @@ pub(crate) use impl_default_eliding_serialize;
 /// | `u32`           | `u32`       | `u32`         | copy                        |
 /// | `usize`         | `u32`       | `usize`       | `as` cast each way          |
 /// | `bool`          | `bool`      | `bool`        | copy                        |
-/// | `enum(T)`       | `T`         | `T`           | clone — one shared type     |
+/// | `enum(T)`       | `T`         | `T`           | clone - one shared type     |
 /// | `nested(S)`     | `S`         | `S::native`   | `S::to_native(&)` / `from_native(&)` |
-/// | `mirror(S)`     | `S`         | `S::native`   | `S::to_native(self)` / `from_native(by value)` — `Copy` mirror enums |
+/// | `mirror(S)`     | `S`         | `S::native`   | `S::to_native(self)` / `from_native(by value)` - `Copy` mirror enums |
 ///
 /// The first token picks the wire discipline, and it is the one thing the
 /// two families of mirror disagree on:
 ///
-/// * `eliding` — the texture mirrors (#695): a container-level
+/// * `eliding` - the texture mirrors (#695): a container-level
 ///   `#[serde(default)]` on read and
 ///   [`impl_default_eliding_serialize!`] on write, so a default-valued
 ///   config collapses to `{}` on the wire.
-/// * `eliding_derived` — the texture mirrors since #1313: `eliding`, but
+/// * `eliding_derived` - the texture mirrors since #1313: `eliding`, but
 ///   the field list carries no defaults and `Default` is
 ///   `Self::from_native(&Native::default())`. The defaults were a third
 ///   copy of the upstream `impl Default`, and the wire *elides* fields
@@ -128,11 +128,11 @@ pub(crate) use impl_default_eliding_serialize;
 ///   record's absent keys. Deriving them removes the copy; the field list
 ///   itself then comes from the upstream per-field registry. An optional
 ///   `wire { … }` list gives the serializer a different field order from
-///   the declaration — needed only where a mirror's historical order
+///   the declaration - needed only where a mirror's historical order
 ///   differs from the registry's, because `serde_json` writes fields in
 ///   the order it is handed and a room child is content-addressed over
 ///   those bytes.
-/// * `verbatim` — the audio mirrors: a plain derived `Serialize` /
+/// * `verbatim` - the audio mirrors: a plain derived `Serialize` /
 ///   `Deserialize`, every field written every time in declaration order.
 ///   Generators carrying an audio patch are content-addressed over those
 ///   bytes, and the audio mirrors have always written the full form, so

@@ -1,10 +1,10 @@
-//! Church — a Wild-West secondary. A white clapboard chapel with a steepled
+//! Church - a Wild-West secondary. A white clapboard chapel with a steepled
 //! bell tower, a cross and lit lancet windows. The frontier town's chapel.
 //!
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the slab. The nave is a
-//! hollow shell — rear, front and two *punched* side walls around a warm-lit
-//! interior (a chancel reredos, an altar cross and a hanging nave light) — so
+//! hollow shell - rear, front and two *punched* side walls around a warm-lit
+//! interior (a chancel reredos, an altar cross and a hanging nave light) - so
 //! the lancets are cut panes you see *into* a glowing chapel through, not amber
 //! panels stuck on a solid wall (#947). Render FRONT = −Z: the tower entrance
 //! and rose oculus face −Z.
@@ -21,7 +21,7 @@ use crate::seeded_defaults::ThemeArchetype;
 
 use super::{CLAP_WHITE, GLASS_WARM, IRON_DARK, TIN_GREY, WOOD_RAW, clapboard, iron, tin};
 
-/// Warm chapel light — the amber glow that fills the nave and spills through
+/// Warm chapel light - the amber glow that fills the nave and spills through
 /// the cut lancet panes as candlelit worship.
 const WARM_NAVE: [f32; 3] = [1.0, 0.74, 0.42];
 
@@ -119,14 +119,14 @@ fn build_tree() -> Generator {
     let body_h = 4.5_f32;
     let body_d = 8.0_f32;
     let body_top = slab_h + body_h; // 4.8
-    // Render FRONT = −Z — the tower entrance and oculus face −Z.
+    // Render FRONT = −Z - the tower entrance and oculus face −Z.
     let front_z = -body_d * 0.5; // -4.0
     let back_in = body_d * 0.5 - 0.1; // interior face of the rear wall
     let side_x = body_w * 0.5; // outer face of each side wall
 
     let mut prims = vec![
-        // Clapboard slab — the root. Extended forward (and its centre shifted
-        // with it) so it runs under the tower and its entrance landing — the
+        // Clapboard slab - the root. Extended forward (and its centre shifted
+        // with it) so it runs under the tower and its entrance landing - the
         // bell tower projects well past the nave front. `assemble` rebases the
         // children off the root's translation, so the shift leaves every other
         // piece where it was authored.
@@ -176,7 +176,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Pitched tin gable roof — ridge running along X, gables facing ±Z.
+    // Pitched tin gable roof - ridge running along X, gables facing ±Z.
     prims.push(prim(
         solid(cuboid_tapered_xz(
             [body_w + 0.5, 2.0, body_d + 0.4],
@@ -239,7 +239,7 @@ fn build_tree() -> Generator {
             &openings,
         );
         // Glazing planes face outward (±X): a plane's quad lies in local XZ,
-        // so `quat_z(±FRAC_PI_2)` stands it on the side wall — `size` reads as
+        // so `quat_z(±FRAC_PI_2)` stands it on the side wall - `size` reads as
         // `[height, width-along-Z]`, and after that turn `panes_x` counts the
         // vertical lights, `panes_y` the horizontal, hence 3×1 for a tall
         // lancet. Panes sit just proud of the wall so they never z-fight it.
@@ -289,7 +289,7 @@ fn build_tree() -> Generator {
         [0.0, slab_h + 2.6, tower_face - 0.04],
         quat_x(-FRAC_PI_2),
     ));
-    // Oculus (rose window) above the door: a lit disc in a white ring — a plain
+    // Oculus (rose window) above the door: a lit disc in a white ring - a plain
     // emissive rose, so no `Window` alpha-card lands on a curved cylinder.
     prims.push(prim(
         torus(0.1, 0.62, clapboard(CLAP_WHITE)),

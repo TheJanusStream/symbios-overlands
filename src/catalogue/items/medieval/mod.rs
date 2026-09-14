@@ -1,4 +1,4 @@
-//! Medieval-theme catalogue structures — a fortified market town of
+//! Medieval-theme catalogue structures - a fortified market town of
 //! dressed stone, timber framing, thatch and slate.
 //!
 //! Two prosperity registers share one identity: the established
@@ -22,15 +22,15 @@
 //! Every material here is authored in physical tile sizes via
 //! [`tiles_per_metre`] (#936). [`medieval_castle`] and [`watchtower`] are
 //! grammar-built (`GeneratorKind::Shape`) and keep their own local material
-//! maps, but they are on the same metre convention — the shape mesher emits
-//! world-space UVs too — so they are converted alongside these helpers.
+//! maps, but they are on the same metre convention - the shape mesher emits
+//! world-space UVs too - so they are converted alongside these helpers.
 
 pub mod medieval_castle;
 pub mod monument;
 pub mod watchtower;
-// The theme's bespoke social gateway (#760) — the walk-through Town Gate.
+// The theme's bespoke social gateway (#760) - the walk-through Town Gate.
 pub mod gateway;
-// Established (town) secondaries + props — primitive-built.
+// Established (town) secondaries + props - primitive-built.
 pub mod banner_pole;
 pub mod barrel_stack;
 pub mod blacksmith;
@@ -39,7 +39,7 @@ pub mod handcart;
 pub mod market_hall;
 pub mod trade_stall;
 pub mod well_house;
-// Poor (cottar) variants — the prosperity-Poor end of the theme.
+// Poor (cottar) variants - the prosperity-Poor end of the theme.
 pub mod kindling_pile;
 pub mod lean_to;
 pub mod wattle_hovel;
@@ -58,18 +58,18 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the established town kit — dressed stone,
+/// Shared prosperity band for the established town kit - dressed stone,
 /// a smith and a market read as a Modest-to-Rich burgh. The poor end of
 /// the theme is the separate cottar kit ([`wattle_hovel`], …), tagged
 /// `Poor`, so a destitute Medieval room grows the daub hovel instead.
 pub(super) const MEDIEVAL_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the cottar kit — the destitute end of the theme,
+/// Prosperity band for the cottar kit - the destitute end of the theme,
 /// never picked for a modest or affluent Medieval room.
 pub(super) const MEDIEVAL_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Sawn oak framing — the body of every timber-framed build: posts,
+/// Sawn oak framing - the body of every timber-framed build: posts,
 /// braces, jetties, cart beds, market trestles. Warm grain with knots so
 /// a wall reads as wood, not a painted slab.
 pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
@@ -93,9 +93,9 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Dressed ashlar stone — chapel and castle walls, market-hall pillars,
+/// Dressed ashlar stone - chapel and castle walls, market-hall pillars,
 /// the well kerb. Coursed blocks with a pale mortar line.
-/// Framed board panelling — shutters, screens and the panelled backs of
+/// Framed board panelling - shutters, screens and the panelled backs of
 /// market stalls. Distinct from [`timber`], which is sawn structural board:
 /// this is joinery, with a raised frame around a recessed panel.
 pub(super) fn panelling(color: [f32; 3]) -> SovereignMaterialSettings {
@@ -142,7 +142,7 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Rough fieldstone cobble — undressed footings, the well shaft, lean-to
+/// Rough fieldstone cobble - undressed footings, the well shaft, lean-to
 /// footings, mud-packed rubble walls.
 pub(super) fn rough_stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -162,7 +162,7 @@ pub(super) fn rough_stone(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Lime-washed wattle-and-daub — the pale infill panels between the
+/// Lime-washed wattle-and-daub - the pale infill panels between the
 /// timber frame, and the whole of the poor hovel's walls.
 pub(super) fn daub(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -183,7 +183,7 @@ pub(super) fn daub(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Golden straw thatch — the steep roof of a cottage, market hall, or
+/// Golden straw thatch - the steep roof of a cottage, market hall, or
 /// well canopy.
 pub(super) fn thatch(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -206,7 +206,7 @@ pub(super) fn thatch(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Tiled / slate shingle — the high-status roof of the chapel and the
+/// Tiled / slate shingle - the high-status roof of the chapel and the
 /// castle, mossed with age.
 pub(super) fn shingle(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -223,7 +223,7 @@ pub(super) fn shingle(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Riveted dark iron — door bands, anvil, well windlass, cart tyres,
+/// Riveted dark iron - door bands, anvil, well windlass, cart tyres,
 /// banner finials. Brushed with a little rust.
 pub(super) fn iron(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -244,7 +244,7 @@ pub(super) fn iron(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Woven wool / linen cloth — heraldic banners and the striped awning of
+/// Woven wool / linen cloth - heraldic banners and the striped awning of
 /// the market stall.
 pub(super) fn cloth(warp: [f32; 3], weft: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -283,14 +283,14 @@ pub(super) const CLOTH_CREAM: [f32; 3] = [0.80, 0.74, 0.60];
 pub(super) const FORGE_ORANGE: [f32; 3] = [1.0, 0.52, 0.16];
 
 /// A ring of merlons (the solid teeth) around a square parapet rim, with
-/// equal-width crenel gaps between them — the defining medieval battlement
+/// equal-width crenel gaps between them - the defining medieval battlement
 /// silhouette. `top` is the rim-top centre (merlons rise from it); `hw`/`hz`
 /// the half-extents of the wall top in X/Z; `mh` the merlon height; `mw` the
 /// merlon width; `t` its radial thickness. The merlons sit *on* the rim, so
 /// they share no vertical plane with the wall below (no coplanar z-fight),
 /// and straddle the wall face so they read proud from outside. Corners are
 /// placed once (on the ±Z runs) and skipped on the ±X runs. Returns every
-/// merlon for an [`assemble`](crate::catalogue::items::util::assemble) list —
+/// merlon for an [`assemble`](crate::catalogue::items::util::assemble) list -
 /// never the root (drop them in after a base piece).
 pub(super) fn crenellations(
     top: [f32; 3],
@@ -351,7 +351,7 @@ mod tests {
         }
     }
 
-    /// The blacksmith is the kit's firelit hero — it must keep its emissive
+    /// The blacksmith is the kit's firelit hero - it must keep its emissive
     /// forge fire so escalation's broken-emissive ruin pass has something to
     /// snuff.
     #[test]

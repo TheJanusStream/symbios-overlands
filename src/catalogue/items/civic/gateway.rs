@@ -1,4 +1,4 @@
-//! Civic Gateway — the cross-theme fallback gate (#752). A dignified formal
+//! Civic Gateway - the cross-theme fallback gate (#752). A dignified formal
 //! portal in the classical civic idiom: two fluted marble columns on stepped
 //! stone bases carry an architrave, a cornice and a low triangular pediment,
 //! with a gilt civic seal set in the tympanum and warm sconce-lit threshold.
@@ -6,7 +6,7 @@
 //! `themes()` is left empty on purpose. The seeded wiring reaches a bespoke
 //! per-theme gateway via the `entries_for(theme, Gateway)` query and falls
 //! back to this neutral colonnade for any room whose theme has no gate of its
-//! own, so it must sit comfortably in every biome — hence plain stone and
+//! own, so it must sit comfortably in every biome - hence plain stone and
 //! marble rather than a theme-specific palette.
 //!
 //! The one functional element is the [`GeneratorKind::Gateway`] zone child
@@ -58,7 +58,7 @@ fn build_tree() -> Generator {
     // Columns flank a ~2.85 m gap; the walk-through opening sits between them.
     let col_x = 1.9;
 
-    // Forecourt slab — the flat-base root. Never tilt the root: `assemble`
+    // Forecourt slab - the flat-base root. Never tilt the root: `assemble`
     // rebases every child under it, so a rotated root would spin the whole gate.
     let mut prims = vec![prim(
         solid(cuboid_tapered([5.6, 0.3, 2.6], 0.0, foundation_mat())),
@@ -70,7 +70,7 @@ fn build_tree() -> Generator {
     // daylight under its downhill edge.
     prims.push(footing(5.6, 2.6, [0.0, 0.0], 3.5));
 
-    // Polished threshold inlay across the opening — a marble band, set proud of
+    // Polished threshold inlay across the opening - a marble band, set proud of
     // the slab top so its face never sits coplanar with the slab (z-fight).
     prims.push(prim(
         solid(cuboid_tapered([2.6, 0.1, 1.3], 0.0, marble(MARBLE))),
@@ -100,7 +100,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Architrave spanning the capitals — the lintel of the gate.
+    // Architrave spanning the capitals - the lintel of the gate.
     prims.push(prim(
         solid(cuboid_tapered([4.95, 0.5, 1.0], 0.0, marble(MARBLE))),
         [0.0, 4.55, 0.0],
@@ -112,7 +112,7 @@ fn build_tree() -> Generator {
         [0.0, 4.94, 0.0],
         id_quat(),
     ));
-    // Low pediment — the X taper pinches the top to a ridge, giving the front
+    // Low pediment - the X taper pinches the top to a ridge, giving the front
     // (-Z) face its triangular gable silhouette over a full-depth prism.
     prims.push(prim(
         solid(cuboid_tapered_xz(
@@ -137,7 +137,7 @@ fn build_tree() -> Generator {
         quat_x(FRAC_PI_2),
     ));
 
-    // Warm threshold strip under the architrave — a broad lit face at low
+    // Warm threshold strip under the architrave - a broad lit face at low
     // strength so it reads as lamplight on the lintel, not a white lightbox.
     prims.push(prim(
         cuboid_tapered([2.6, 0.14, 0.16], 0.0, glow(LANTERN_WARM, 2.6)),
@@ -153,7 +153,7 @@ fn build_tree() -> Generator {
             [sx * 1.48, 2.6, -0.12],
             id_quat(),
         ));
-        // Small warm orb — compact enough to run a touch hotter than the strip.
+        // Small warm orb - compact enough to run a touch hotter than the strip.
         prims.push(prim(
             sphere(0.14, 3, glow(LANTERN_WARM, 4.2)),
             [sx * 1.34, 2.6, -0.12],
@@ -186,7 +186,7 @@ mod tests {
         assert_sanitize_stable(&CivicGateway.build(""), "civic_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is furniture, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

@@ -1,11 +1,11 @@
-//! Sandbag wall — a staggered, stacked-bag emplacement. An
+//! Sandbag wall - a staggered, stacked-bag emplacement. An
 //! escalation-Conflict scatter prop: improvised fortification reads the same
 //! across every setting.
 //!
 //! Bags are superellipsoids, not boxes. A filled sandbag is a *pillow*: it
 //! bulges between the courses above and below it, and its edges are round
-//! because there is nothing rigid inside to hold a corner. Cuboids — even
-//! tapered ones — give a stack of hard-edged slabs that reads as crates or
+//! because there is nothing rigid inside to hold a corner. Cuboids - even
+//! tapered ones - give a stack of hard-edged slabs that reads as crates or
 //! roof tiles, which is exactly what this prop used to look like.
 
 use crate::catalogue::items::util::{
@@ -81,7 +81,7 @@ fn burlap(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Painted olive steel — matte enough to hold a diffuse shade instead of
+/// Painted olive steel - matte enough to hold a diffuse shade instead of
 /// mirroring the sky into black. See the helmet's placement comment.
 fn helmet_steel() -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -95,7 +95,7 @@ fn helmet_steel() -> SovereignMaterialSettings {
 /// Per-bag placement wobble, cycled by bag index: `(dx, dy, dz, yaw, roll)`.
 ///
 /// Hand-picked rather than hashed from the index. A hash would want `sin` /
-/// `fract` over the index, and neither is bit-identical across platforms —
+/// `fract` over the index, and neither is bit-identical across platforms -
 /// which would make this generator's serialized bytes, and so its
 /// content-addressed identity, host-dependent. Seven entries against courses
 /// of five, four, three and two also means the pattern never lines up

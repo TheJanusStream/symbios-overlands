@@ -1,4 +1,4 @@
-//! Floodlight — an Industrial-Park prop, and the kit's lit hero. A steel mast
+//! Floodlight - an Industrial-Park prop, and the kit's lit hero. A steel mast
 //! carrying a bank of four glaring floodlight heads on a crossbar, lighting
 //! the yard. Its emissive lamps are the trim escalation's ruin pass kills.
 
@@ -52,7 +52,7 @@ fn build_tree() -> Generator {
     let top = base_y + mast_h;
 
     let mut prims = vec![
-        // Cast concrete footing — the root (flat, id_quat).
+        // Cast concrete footing - the root (flat, id_quat).
         prim(
             solid(cuboid_tapered(
                 [1.5, base_y, 1.5],
@@ -64,7 +64,7 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Braced steel lattice mast — plant steelwork, not a lamppost.
+    // Braced steel lattice mast - plant steelwork, not a lamppost.
     prims.extend(lattice_mast(base_y, mast_h, 0.5, tank_steel(PIPE_GREY)));
 
     // Crossbar carrying the lamp bank.
@@ -77,7 +77,7 @@ fn build_tree() -> Generator {
     crossbar.audio = ballast_buzz();
     prims.push(crossbar);
 
-    // Four floodlight heads, aimed down at the -Z yard — glare on the hero
+    // Four floodlight heads, aimed down at the -Z yard - glare on the hero
     // front. Each is a rigid subtree (housing root + lens + hood children) so
     // the down-tilt keeps the lens and visor aligned to the housing.
     for hx in [-1.15_f32, -0.4, 0.4, 1.15] {

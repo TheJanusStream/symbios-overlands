@@ -1,6 +1,6 @@
 //! Built-in ECS-state invariant rules (Pillar D-3).
 //!
-//! Unlike the log-expressible rules (D-2), these read live engine state — the
+//! Unlike the log-expressible rules (D-2), these read live engine state - the
 //! metrics registry (collider / asset / frame-time / ShapeMeshCache gauges from
 //! E-3) and the per-tick ECS scalars the tick system pre-gathers into
 //! [`LiveCtx`] (player-vs-ground, NaN bodies, orphan visuals, respawns). They
@@ -73,7 +73,7 @@ impl Rule for TerrainColliderMissing {
     }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         // The loading gate guarantees a solid terrain collider before InGame,
-        // so zero colliders means the terrain body failed to spawn — but the
+        // so zero colliders means the terrain body failed to spawn - but the
         // gauge samples at 1 Hz, so give the entry frame its grace (#869):
         // fire immediately only when colliders were seen IN THIS WORLD and
         // then vanished; otherwise require a few seconds of in-game dwell.
@@ -81,7 +81,7 @@ impl Rule for TerrainColliderMissing {
         // "Seen" is the tick system's per-InGame-stint latch, NOT a scan of
         // the gauge ring (#922): the ring spans state transitions, so at
         // session start it still holds the boot/attract world's colliders
-        // and its newest sample can be the boot→room handover's zero — a
+        // and its newest sample can be the boot→room handover's zero - a
         // ring scan read that as an in-game vanish and put one false
         // CRITICAL at the top of every session report, which is how a
         // reader learns to ignore criticals.
@@ -93,7 +93,7 @@ impl Rule for TerrainColliderMissing {
             .ingame_elapsed_secs
             .is_some_and(|t| t >= TERRAIN_GRACE_SECS);
         Some(if cx.colliders_seen_ingame || dwell_elapsed {
-            Verdict::violated("0 colliders in-game — terrain body missing")
+            Verdict::violated("0 colliders in-game - terrain body missing")
         } else {
             Verdict::Clear
         })
@@ -146,7 +146,7 @@ const NAN_IN_PHYSICS: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "something here has an impossible position — physics may behave strangely",
+    description: "something here has an impossible position - physics may behave strangely",
     technical: Some("a dynamic physics body has a non-finite transform or velocity"),
     when_state: None,
 };
@@ -181,7 +181,7 @@ const ASSET_HANDLE_SPIKE: RuleHeader = RuleHeader {
     severity: Severity::Warn,
     debounce: DebouncePolicy::Interval(60.0),
     description: "this world keeps taking more memory the longer it stays open",
-    technical: Some("mesh-handle count grew steeply across the ~2 min window — a likely leak"),
+    technical: Some("mesh-handle count grew steeply across the ~2 min window - a likely leak"),
     when_state: None,
 };
 impl Rule for AssetHandleSpike {
@@ -205,7 +205,7 @@ impl Rule for AssetHandleSpike {
 // The #919-shaped watchdog. That leak was reported HEALTHY for a whole
 // session because nothing watched the discriminating signal: not the handle
 // count's *value* (legitimate load moves it arbitrarily) but the count
-// **never falling across consecutive full rebuilds** — the boundary where
+// **never falling across consecutive full rebuilds** - the boundary where
 // everything unreferenced should have been released. The executor counts
 // full rebuilds and the 1 Hz scraper snapshots handle counts into the
 // `runtime.rebuild.*` mark gauges when the counter advances; these rules
@@ -239,7 +239,7 @@ fn leaking_class(deltas: &[f64]) -> Option<f64> {
 }
 
 /// Images a single resident texture-cache entry pins: albedo + normal +
-/// ORM. Entries carrying an emissive map pin a fourth — the discount
+/// ORM. Entries carrying an emissive map pin a fourth - the discount
 /// below deliberately uses the floor, so cache growth is never
 /// over-credited and a real leak that coincides with warm-up still
 /// clears the bar.
@@ -248,7 +248,7 @@ const TEXTURE_CACHE_IMAGES_PER_ENTRY: f64 = 3.0;
 /// Image growth across the window with the texture cache's expected
 /// contribution discounted (#981): per rebuild, up to `entries-added ×
 /// images-per-entry` of image-count growth is the bounded cache filling
-/// toward its cap — the healthiest thing a cache can do, yet it wears
+/// toward its cap - the healthiest thing a cache can do, yet it wears
 /// the exact leak signature for the session's first minutes. #980's log
 /// fired the growth rule five times on nothing else (images 47→496
 /// while the cache went 11→128). Cache *shrink* is not credited back:
@@ -274,7 +274,7 @@ const ASSET_GROWTH_ACROSS_REBUILDS: RuleHeader = RuleHeader {
     debounce: DebouncePolicy::Interval(60.0),
     description: "memory is not being given back when this world is rebuilt",
     technical: Some(
-        "asset handles grew on every recent full rebuild and never fell — the leak signature",
+        "asset handles grew on every recent full rebuild and never fell - the leak signature",
     ),
     when_state: None,
 };
@@ -294,7 +294,7 @@ impl Rule for AssetGrowthAcrossRebuilds {
         }
         // Images: "never falls" is judged on the raw marks (did anything
         // ever get released?), but the floor is judged on the total the
-        // texture cache can't explain — see `unexplained_image_total`.
+        // texture cache can't explain - see `unexplained_image_total`.
         // Judging monotonicity on the *adjusted* deltas instead would let
         // one over-discounted rebuild (cache filled faster than images
         // grew) manufacture a fake fall and mask a genuine leak in the
@@ -338,7 +338,7 @@ const MEMORY_RETENTION_ACROSS_REBUILDS: RuleHeader = RuleHeader {
     description: "memory keeps climbing each time this world is rebuilt, even though nothing \
                   new is being held",
     technical: Some(
-        "process memory climbs across full rebuilds while asset handles stay flat — \
+        "process memory climbs across full rebuilds while asset handles stay flat - \
          allocator retention rather than a handle leak",
     ),
     when_state: None,
@@ -353,7 +353,7 @@ impl Rule for MemoryRetentionAcrossRebuilds {
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         let memory = rebuild_deltas(cx, names::RUNTIME_REBUILD_MEMORY_BYTES)?;
         // Only attribute the climb to retention when the handle story is
-        // genuinely flat — if handles are moving, the growth rule above owns
+        // genuinely flat - if handles are moving, the growth rule above owns
         // the diagnosis and this one stays quiet rather than excusing it.
         let flat = |name: &str| {
             rebuild_deltas(cx, name)
@@ -368,11 +368,11 @@ impl Rule for MemoryRetentionAcrossRebuilds {
                 // Platform-split explanation (#981): the old copy said
                 // "expected on wasm" even when firing on a native session
                 // (#980), where the honest reading is glibc arena
-                // retention — real RSS the OS never gets back, worth a
+                // retention - real RSS the OS never gets back, worth a
                 // malloc_trim experiment if it compounds across re-rolls.
                 Verdict::violated(format!(
                     "+{:.0} MB over the last {REBUILD_DELTA_WINDOW} full rebuilds with asset \
-                     handles flat — {}",
+                     handles flat - {}",
                     grew / (1024.0 * 1024.0),
                     if cfg!(target_arch = "wasm32") {
                         "wasm linear memory never shrinks (#565): the high-water mark is \
@@ -391,7 +391,7 @@ impl Rule for MemoryRetentionAcrossRebuilds {
 }
 
 // --- ShapeMeshCacheGrowth ---------------------------------------------------
-/// Upstream `ShapeMeshCache` growth over the window — the documented
+/// Upstream `ShapeMeshCache` growth over the window - the documented
 /// unbounded-growth leak. Tunable.
 const SHAPE_CACHE_GROWTH_LEAK: f64 = 500.0;
 
@@ -402,7 +402,7 @@ const SHAPE_MESH_CACHE_GROWTH: RuleHeader = RuleHeader {
     severity: Severity::Warn,
     debounce: DebouncePolicy::Interval(60.0),
     description: "a shape cache keeps growing and is never trimmed, so memory will climb",
-    technical: Some("the upstream ShapeMeshCache is growing unbounded — a known leak"),
+    technical: Some("the upstream ShapeMeshCache is growing unbounded - a known leak"),
     when_state: None,
 };
 impl Rule for ShapeMeshCacheGrowth {
@@ -431,7 +431,7 @@ const RESPAWN_THRASHING: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Warn,
     debounce: DebouncePolicy::Interval(10.0),
-    description: "you keep being put back at the start — something is dropping you through \
+    description: "you keep being put back at the start - something is dropping you through \
                   the ground",
     technical: Some("the local player respawned repeatedly inside the recent window"),
     when_state: Some(AppState::InGame),
@@ -533,8 +533,8 @@ impl Rule for FrameHitch {
     }
     /// The isolated-stall companion to [`FrameTimeSpike`], which is a
     /// SUSTAINED-load rule and stays one (#1144). A 1 Hz read of a ~16.5 ms
-    /// EMA cannot register a 500 ms freeze — by the next scrape the average
-    /// has forgotten it — so the two questions need two rules over two
+    /// EMA cannot register a 500 ms freeze - by the next scrape the average
+    /// has forgotten it - so the two questions need two rules over two
     /// metrics: "is the frame rate bad right now" and "did any single frame
     /// hang".
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
@@ -558,13 +558,13 @@ const LOOPING_VOICES_OVERLOAD_COUNT: f64 = 48.0;
 struct LoopingVoicesOverload;
 const LOOPING_VOICES_OVERLOAD: RuleHeader = RuleHeader {
     // `Offload` subsystem so the toolbar dot and tab badges route to the
-    // Offload tab — the one that renders the Audio health card (with its
+    // Offload tab - the one that renders the Audio health card (with its
     // interpretation line + inline mute shortcut).
     id: "audio.looping_voices_overload",
     subsystem: Subsystem::Offload,
     severity: Severity::Warn,
     debounce: DebouncePolicy::Interval(30.0),
-    description: "a lot of sounds are playing at once — that may be what is slowing things down",
+    description: "a lot of sounds are playing at once - that may be what is slowing things down",
     technical: Some("the looping-voice count is high enough that mixing can drag the frame"),
     when_state: None,
 };
@@ -589,15 +589,15 @@ impl Rule for LoopingVoicesOverload {
 // The wasm32 linear memory tops out at 4 GiB and NEVER SHRINKS (dlmalloc keeps
 // every grown page), so heap growth is a one-way trip: once allocation fails,
 // the panic machinery itself can't allocate its message and the client dies as
-// a bare `unreachable` trap — with the in-memory session log lost (#811, field
+// a bare `unreachable` trap - with the in-memory session log lost (#811, field
 // crash at ~4 GiB). These rules turn the existing `runtime.memory.wasm_bytes`
 // gauge into an escalating early warning while there is still headroom to
 // download the log, save, and reload the tab. Native has no such gauge, so
 // `eval` yields no verdict there and the rules stay dormant.
 
-/// Warn tier — plenty of headroom left, but the ratchet only goes up.
+/// Warn tier - plenty of headroom left, but the ratchet only goes up.
 const WASM_MEMORY_HIGH_BYTES: f64 = 2.5 * 1024.0 * 1024.0 * 1024.0;
-/// Critical tier — allocation failure is plausibly one big compile away.
+/// Critical tier - allocation failure is plausibly one big compile away.
 const WASM_MEMORY_CRITICAL_BYTES: f64 = 3.25 * 1024.0 * 1024.0 * 1024.0;
 
 struct WasmMemoryHigh;
@@ -606,7 +606,7 @@ const WASM_MEMORY_HIGH: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Warn,
     debounce: DebouncePolicy::Interval(120.0),
-    description: "this browser tab is using a lot of memory and never gives it back — Save \
+    description: "this browser tab is using a lot of memory and never gives it back - Save \
                   and reload it soon",
     technical: Some("the wasm heap is past 2.5 GiB and cannot shrink"),
     when_state: None,
@@ -637,7 +637,7 @@ const WASM_MEMORY_CRITICAL: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Critical,
     debounce: DebouncePolicy::Interval(30.0),
-    description: "this browser tab is about to run out of memory — Save now, download the \
+    description: "this browser tab is about to run out of memory - Save now, download the \
                   session log, and reload",
     technical: Some("the wasm heap is past 3.25 GiB; an out-of-memory abort is imminent"),
     when_state: None,
@@ -653,7 +653,7 @@ impl Rule for WasmMemoryCritical {
         let bytes = gauge_last(cx, names::RUNTIME_MEMORY_WASM_BYTES)?;
         Some(if bytes > WASM_MEMORY_CRITICAL_BYTES {
             Verdict::violated(format!(
-                "wasm heap {:.2} GiB — the 4 GiB wall is next",
+                "wasm heap {:.2} GiB - the 4 GiB wall is next",
                 bytes / (1024.0 * 1024.0 * 1024.0)
             ))
         } else {
@@ -713,7 +713,7 @@ mod tests {
     #[test]
     fn terrain_collider_missing_seen_then_lost_fires_inside_grace() {
         // Colliders existed IN THIS WORLD (the tick system's latch) and
-        // vanished — a genuine in-game loss fires even inside the grace
+        // vanished - a genuine in-game loss fires even inside the grace
         // window.
         let mut m = MetricsRegistry::default();
         m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 142.0);
@@ -727,9 +727,9 @@ mod tests {
     /// The #922 regression shape: at session start the gauge ring still
     /// holds the boot/attract world's colliders, followed by the
     /// boot→room handover's zeros, and the rule evaluates 0.2 s after
-    /// InGame — before the fresh room has been re-sampled. With "seen"
+    /// InGame - before the fresh room has been re-sampled. With "seen"
     /// read from the ring this fired a false CRITICAL at the top of
-    /// every session report; with the per-stint latch (false — nothing
+    /// every session report; with the per-stint latch (false - nothing
     /// seen in THIS world yet) it must stay clear and let the dwell
     /// grace decide.
     #[test]
@@ -822,7 +822,7 @@ mod tests {
     /// (#919 / #921). The leaking one stepped ~+90 images per re-roll and
     /// never fell; the healthy one oscillates around a plateau. The
     /// discriminator is monotonicity across rebuilds, not any threshold on
-    /// the value — a healthy session's plateau can sit *higher* than a
+    /// the value - a healthy session's plateau can sit *higher* than a
     /// young leaking session and must still read as clear.
     #[test]
     fn asset_growth_across_rebuilds_separates_leak_from_plateau() {
@@ -837,7 +837,7 @@ mod tests {
         assert!(v.is_violated(), "the #919 shape must fire");
 
         // Healthy shape (session 1784657742693): deltas alternate sign
-        // around a plateau — clear, despite sitting numerically higher.
+        // around a plateau - clear, despite sitting numerically higher.
         let mut m = MetricsRegistry::default();
         observe_marks(
             &mut m,
@@ -850,7 +850,7 @@ mod tests {
         );
 
         // Monotone but tiny growth (a few variants accumulating in a
-        // bounded cache) stays under the floor — clear.
+        // bounded cache) stays under the floor - clear.
         let mut m = MetricsRegistry::default();
         observe_marks(
             &mut m,
@@ -876,7 +876,7 @@ mod tests {
     }
 
     /// The #980 false alarm, replayed (#981): image marks rise on every
-    /// rebuild — the leak signature — but the texture-cache marks show the
+    /// rebuild - the leak signature - but the texture-cache marks show the
     /// rise is the bounded cache filling toward its cap (each entry pins
     /// albedo + normal + ORM). The discounted total sits under the floor,
     /// so the verdict is Clear instead of five stale WARNs.
@@ -919,7 +919,7 @@ mod tests {
                 .eval(&ctx(&m))
                 .unwrap()
                 .is_violated(),
-            "a saturated cache explains nothing — the growth is real"
+            "a saturated cache explains nothing - the growth is real"
         );
     }
 
@@ -968,7 +968,7 @@ mod tests {
         );
     }
 
-    /// The retention detail must name this build's platform story — the
+    /// The retention detail must name this build's platform story - the
     /// old copy said "expected on wasm" even on native sessions (#980).
     /// Tests compile for the host, so the native arm is what's assertable.
     #[test]
@@ -999,7 +999,7 @@ mod tests {
 
     /// The retention rule owns exactly the class the growth rule doesn't:
     /// memory climbing while handles are flat (#625's ~52 MB/re-roll). When
-    /// handles are moving too, it stays quiet — the growth rule owns that
+    /// handles are moving too, it stays quiet - the growth rule owns that
     /// diagnosis and one condition must not double-report as both.
     #[test]
     fn memory_retention_fires_only_when_handles_are_flat() {

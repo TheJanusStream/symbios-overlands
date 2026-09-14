@@ -1,4 +1,4 @@
-//! Fuel barrels — a Post-apocalyptic prop. A clutch of rusted oil drums, two
+//! Fuel barrels - a Post-apocalyptic prop. A clutch of rusted oil drums, two
 //! standing and one toppled, ringed with ribbing. Scatter clutter of the
 //! holdout's stores.
 //!

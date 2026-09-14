@@ -1,4 +1,4 @@
-//! Owner Boardwalk Sign — the Coastal-Resort identity monument (#975).
+//! Owner Boardwalk Sign - the Coastal-Resort identity monument (#975).
 //!
 //! The painted board at the head of a pier: two creosoted pilings on a
 //! concrete kerb carry a white-framed sign, the room owner's portrait fills
@@ -74,13 +74,13 @@ fn build_tree(did: &str) -> Generator {
     parts.push(life_ring(-1.4));
     parts.push(string_lamp(1.4));
     // Buried footing under the kerb, sized to the drop this footprint spans
-    // (#1009) — authored around y=0 and rebased by `nest` like every other
+    // (#1009) - authored around y=0 and rebased by `nest` like every other
     // child.
     parts.push(footing(3.6, 1.4, [0.0, 0.0], 2.6));
     nest(kerb, parts)
 }
 
-/// A round creosoted piling — round, because a resort pier's are, and a square
+/// A round creosoted piling - round, because a resort pier's are, and a square
 /// post would read as a fence.
 fn piling(x: f32) -> Generator {
     let pile = prim(
@@ -118,7 +118,7 @@ fn sign(did: &str) -> Vec<Generator> {
     let z = -0.15;
     let fr = 0.15;
     let mut out = vec![
-        // Plank backing — the panel is single-sided, and a boardwalk sign is
+        // Plank backing - the panel is single-sided, and a boardwalk sign is
         // a solid board seen from both sides of the pier.
         prim(
             solid(cuboid_tapered(
@@ -166,7 +166,7 @@ fn sign(did: &str) -> Vec<Generator> {
     out
 }
 
-/// A life ring hung on one piling — the prop that says seaside at a glance.
+/// A life ring hung on one piling - the prop that says seaside at a glance.
 fn life_ring(x: f32) -> Generator {
     prim(
         solid(torus(0.09, 0.32, enamel(BUOY_RED))),

@@ -1,4 +1,4 @@
-//! Skiff defaults: chassis, the two canopy forms, and wheels. Built in each slot's local attachment frame — see the module
+//! Skiff defaults: chassis, the two canopy forms, and wheels. Built in each slot's local attachment frame - see the module
 //! docstring on [`super::super`] (`parts`).
 
 use std::f32::consts::FRAC_PI_2;
@@ -13,8 +13,8 @@ use crate::pds::texture::SovereignMaterialSettings;
 use super::super::PartCtx;
 use super::common::{ensure_delta, floor_value, luma, to_value};
 
-/// The seeded skiff landmarks — body tub size + the wheel/fender/anchor
-/// contract — from the blueprint (nominal fallback if ever built without one).
+/// The seeded skiff landmarks - body tub size + the wheel/fender/anchor
+/// contract - from the blueprint (nominal fallback if ever built without one).
 /// Returned as `(body_w, body_len, track, wheelbase, ride_y, wheel_r)`; the
 /// chassis fenders, the wheel part, and the assembler wheel anchors all read
 /// these so the three can never disagree (the magic-number coupling the
@@ -59,7 +59,7 @@ pub(crate) fn skiff_wheel_anchors(
     }
 }
 
-/// Push a mudguard over each wheel `anchor` into `parent` — the hollow-Torus
+/// Push a mudguard over each wheel `anchor` into `parent` - the hollow-Torus
 /// channel arch (see [`chassis`]), sized to `wheel_r` and finished in
 /// `material`. Shared by every chassis variant so their guards always match the
 /// assembler's wheels.
@@ -86,7 +86,7 @@ pub(crate) fn push_wheel_fenders(
 
 /// The seeded skiff colour scheme, value-floored + value-separated (#787), so a
 /// dark seed's body / greenhouse / trim keep readable boundaries. Lamps stay
-/// fixed warm/red — a running light reads wrong in accent paint. Shared with the
+/// fixed warm/red - a running light reads wrong in accent paint. Shared with the
 /// styled chassis variants (#788).
 pub(crate) struct SkiffColors {
     /// Bodywork (primary accent, value-floored).
@@ -95,7 +95,7 @@ pub(crate) struct SkiffColors {
     pub(crate) lower: [f32; 3],
     /// Brightwork trim (secondary accent, value-separated from the body).
     pub(crate) trim: [f32; 3],
-    /// Greenhouse glazing — value-separated from the body by a wider delta so
+    /// Greenhouse glazing - value-separated from the body by a wider delta so
     /// the glass never washes into the paint (seed-3 brown-on-brown, #787).
     pub(crate) glass: [f32; 3],
 }
@@ -126,7 +126,7 @@ pub(super) fn chassis(ctx: &PartCtx) -> Generator {
     let (body_w, body_len, track, _, _, wheel_r) = dims;
     let (dw, dl) = (body_w / 0.76, body_len / 1.5);
 
-    // Body — a rounded Superellipsoid slab (a soft auto-body panel, not a
+    // Body - a rounded Superellipsoid slab (a soft auto-body panel, not a
     // sheared box: the biggest step toward the humanoid's blob-era softness,
     // #787). It's the structural root, so it carries no root *scale* (which
     // would displace the mounted canopy / wheels); the roundness is intrinsic
@@ -142,7 +142,7 @@ pub(super) fn chassis(ctx: &PartCtx) -> Generator {
         [0.0, 0.0, 0.0],
         id_quat(),
     );
-    // Dark lower rocker / skirt — a slimmer rounded superellipsoid tucked under
+    // Dark lower rocker / skirt - a slimmer rounded superellipsoid tucked under
     // so the body doesn't read as one slab down to the sills.
     c.children.push(prim(
         superellipsoid(
@@ -166,12 +166,12 @@ pub(super) fn chassis(ctx: &PartCtx) -> Generator {
         [0.0, 0.13, -0.16 * dl],
         id_quat(),
     ));
-    // A mudguard arches over each wheel — a hollow Torus channel laid on the
+    // A mudguard arches over each wheel - a hollow Torus channel laid on the
     // axle, concentric with its tyre (see [`push_wheel_fenders`]). Kept as-is:
     // the fenders read well (#787), and sharing the helper keeps every chassis
     // variant's guards matched to the assembler's wheels (#788).
     push_wheel_fenders(&mut c, &skiff_wheel_anchors(dims, false), wheel_r, &lower);
-    // Front bumper / grille bar — a rounded 3D chrome bar across the nose
+    // Front bumper / grille bar - a rounded 3D chrome bar across the nose
     // (a cylinder laid along X), not a flat slab.
     c.children.push(prim(
         cylinder(0.028, 0.56 * dw, 12, chrome.clone()),
@@ -179,7 +179,7 @@ pub(super) fn chassis(ctx: &PartCtx) -> Generator {
         quat_xyzw(quat_z(FRAC_PI_2)),
     ));
     // Headlights: a dark bezel ring around a bright lens, both shallow cylinders
-    // facing forward — 3D relief instead of a flat painted patch.
+    // facing forward - 3D relief instead of a flat painted patch.
     for sx in [-1.0f32, 1.0] {
         c.children.push(prim(
             cylinder(0.055, 0.03, 12, bezel.clone()),
@@ -200,7 +200,7 @@ pub(super) fn chassis(ctx: &PartCtx) -> Generator {
             quat_xyzw(quat_x(FRAC_PI_2)),
         ));
     }
-    // Flank vent — three louvre slats on each hood side (mid-scale detail).
+    // Flank vent - three louvre slats on each hood side (mid-scale detail).
     for sx in [-1.0f32, 1.0] {
         for i in 0..3 {
             c.children.push(prim(
@@ -229,7 +229,7 @@ pub(super) fn chassis(ctx: &PartCtx) -> Generator {
             id_quat(),
         ));
     }
-    // Rear-deck spare wheel — a torus + hub standing on the tail, rescuing the
+    // Rear-deck spare wheel - a torus + hub standing on the tail, rescuing the
     // blank BACK tile (#787). The spare's own radius echoes the road wheels.
     let spare_r = wheel_r * 0.62;
     c.children.push(prim(
@@ -251,7 +251,7 @@ pub(super) fn canopy(ctx: &PartCtx) -> Generator {
     let frame = ctx.materials.metal(colors.lower);
     let roof_mat = ctx.materials.body(colors.body);
     // A real greenhouse: inset glass panels held in a proud pillar/rail cage,
-    // capped by a flush body-coloured roof — no crate-lid overhang (#787). The
+    // capped by a flush body-coloured roof - no crate-lid overhang (#787). The
     // glazing is value-separated from the body (skiff_colors::glass) so the
     // windows never wash into the paint.
     //
@@ -261,7 +261,7 @@ pub(super) fn canopy(ctx: &PartCtx) -> Generator {
         [0.0, 0.0, 0.0],
         id_quat(),
     );
-    // Flush roof panel (matches the cage footprint — does not overhang).
+    // Flush roof panel (matches the cage footprint - does not overhang).
     c.children.push(prim(
         cuboid([0.48, 0.045, 0.5], roof_mat),
         [0.0, 0.11, -0.02],
@@ -304,7 +304,7 @@ pub(super) fn canopy_roadster(ctx: &PartCtx) -> Generator {
     let seat = ctx.materials.cloth(colors.trim);
     let column = ctx.materials.metal([0.12, 0.12, 0.14]);
     // Open-top speedster: a low raked windscreen at the cockpit's front lip and
-    // a faired headrest behind — no roof, so the cabin reads open. The root is a
+    // a faired headrest behind - no roof, so the cabin reads open. The root is a
     // flat cowl deck (identity rotation) so the raked windscreen *child* tilts
     // alone and can't spin the whole part (the rotated-root trap).
     let mut c = prim(
@@ -327,7 +327,7 @@ pub(super) fn canopy_roadster(ctx: &PartCtx) -> Generator {
             rake,
         ));
     }
-    // Seat back — a rounded bucket back rising in the open cockpit, so the
+    // Seat back - a rounded bucket back rising in the open cockpit, so the
     // interior reads occupiable (#787). A shallow superellipsoid, cushion-toned.
     c.children.push(prim(
         superellipsoid([0.15, 0.1, 0.04], 0.5, 0.6, seat),
@@ -365,7 +365,7 @@ pub(super) fn canopy_coupe(ctx: &PartCtx) -> Generator {
     let colors = skiff_colors(ctx);
     let glass = ctx.materials.glass(colors.glass);
     let frame = ctx.materials.metal(colors.lower);
-    // Closed fastback hardtop — the glazed cabin tapers in and shears rearward
+    // Closed fastback hardtop - the glazed cabin tapers in and shears rearward
     // into a sloping roofline, distinct from the upright greenhouse box. Glazing
     // is value-separated from the body (#787).
     let mut c = prim(
@@ -397,7 +397,7 @@ pub(super) fn canopy_coupe(ctx: &PartCtx) -> Generator {
 }
 
 pub(super) fn wheel(ctx: &PartCtx) -> Generator {
-    // Dark rubber regardless of palette — a wheel reads wrong in accent paint.
+    // Dark rubber regardless of palette - a wheel reads wrong in accent paint.
     let tyre = ctx.materials.metal([0.07, 0.07, 0.08]);
     let rim = ctx.materials.metal(ctx.palette.secondary_accent);
     let hub = ctx.materials.trim(ctx.palette.tertiary_accent);
@@ -407,7 +407,7 @@ pub(super) fn wheel(ctx: &PartCtx) -> Generator {
     let (_, _, _, _, _, wheel_r) = skiff_dims(ctx);
     let minor = wheel_r * 0.286;
     let major = wheel_r - minor;
-    // Tyre: a torus gives a rounded tread cross-section — a real tyre, not a
+    // Tyre: a torus gives a rounded tread cross-section - a real tyre, not a
     // flat-sided disc (outer radius ≈ major + minor).
     let mut w = prim(torus(minor, major, tyre), [0.0, 0.0, 0.0], id_quat());
     // Rim plate filling the hub (shares the torus axis; the assembler lays the

@@ -1,10 +1,10 @@
-//! Tensor-field urban layout — deterministic, terrain-conforming road networks
+//! Tensor-field urban layout - deterministic, terrain-conforming road networks
 //! for rooms whose author adds a `RoadNetwork` generator.
 //!
 //! `symbios-tensor` is used purely as a road-**topology** generator: we take
 //! its tensor-field [`symbios_tensor::RoadGraph`] and build our own road geometry that *drapes*
 //! over overlands' existing terrain (sampling the heightmap per vertex), rather
-//! than the crate's carve-and-bridge path — which regrades the heightmap into
+//! than the crate's carve-and-bridge path - which regrades the heightmap into
 //! flat road shelves and shatters the natural relief of our ~1 km rooms.
 //! Nothing is carved here; the terrain stays natural and the road conforms to
 //! its surface.
@@ -15,11 +15,11 @@
 //! curves have no gaps) and continuous arc-length UVs (so a texture flows down
 //! the street). The profile is a chamfered curb framing a flat deck, over a
 //! skirt that drops a fixed depth below the deck and is capped by a textured
-//! bottom — so where the road runs out high over a dip the underside floats
+//! bottom - so where the road runs out high over a dip the underside floats
 //! clear as a bridge, not a hollow strip.
 //!
-//! Roads are editor-opt-in (#775): a seeded room grows none — the graph trace
-//! plus its lot-building layer are too heavy for a good default room on wasm —
+//! Roads are editor-opt-in (#775): a seeded room grows none - the graph trace
+//! plus its lot-building layer are too heavy for a good default room on wasm -
 //! so everything here serves records that carry a `RoadNetwork` child (or that
 //! were saved back when roads were still seeded). Generation is localized to
 //! that network's district window (`district_half_extent`, 170 m by default,
@@ -27,34 +27,34 @@
 //! to the district interior so no street runs off to the visible edge; a room
 //! may run up to [`MAX_ROAD_NETWORKS`](crate::pds::room::MAX_ROAD_NETWORKS) of
 //! them at once (#895). Everything is deterministic in the network's own
-//! layout seed — a sub-stream kept separate from the terrain seed, so streets
-//! can be re-rolled without disturbing the land — and recomputed at load,
+//! layout seed - a sub-stream kept separate from the terrain seed, so streets
+//! can be re-rolled without disturbing the land - and recomputed at load,
 //! never stored, like the heightmap itself.
 //!
 //! `symbios-tensor` consumes a `symbios_ground::HeightMap`; overlands' own
-//! [`bevy_symbios_ground::HeightMap`] is the same crate/type — both crates
+//! [`bevy_symbios_ground::HeightMap`] is the same crate/type - both crates
 //! resolve to the same `symbios-ground` version, so the heightmap passes
 //! straight through with no conversion.
 //!
 //! ## Sub-module map
 //!
-//! * [`graph`] — tensor-field trace and rationalisation, then the sanitation
+//! * [`graph`] - tensor-field trace and rationalisation, then the sanitation
 //!   pass that welds coincident nodes and drops the degenerate edges whose
 //!   unstable direction spikes a miter.
-//! * [`chains`] — extraction of continuous runs of connected nodes between
+//! * [`chains`] - extraction of continuous runs of connected nodes between
 //!   intersections, plus the district-interior clip.
-//! * [`truncation`] — per-end pull-back, so a ribbon stops at the
+//! * [`truncation`] - per-end pull-back, so a ribbon stops at the
 //!   intersection boundary instead of overlapping into the hub.
-//! * [`levelling`] — the single heightmap-sampling pass, and the
+//! * [`levelling`] - the single heightmap-sampling pass, and the
 //!   network-wide resolve of flat junction heights and per-chain deck
 //!   heights, so the pre-pass and the ribbon agree to the bit.
-//! * [`ribbon`] — cross-section extrusion along a levelled chain: miter
+//! * [`ribbon`] - cross-section extrusion along a levelled chain: miter
 //!   frames, arc-length UVs, and the deck / curb / skirt / bottom strips.
-//! * [`hubs`] — junction decks, built to meet every incident road at its
+//! * [`hubs`] - junction decks, built to meet every incident road at its
 //!   exact levelled mouth.
-//! * [`diagnostics`] — the `render --road-dump` topology and geometry-risk
+//! * [`diagnostics`] - the `render --road-dump` topology and geometry-risk
 //!   report (degree histogram, dead-end spurs, spike-risk bends).
-//! * [`math`] — small vector helpers shared across the builders.
+//! * [`math`] - small vector helpers shared across the builders.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
@@ -96,7 +96,7 @@ pub(crate) use crate::urban::truncation::{compute_truncations, trim_polyline};
 // constants below are pure *rendering* details with no gameplay/aesthetic
 // reason to vary per room, so they stay in code.
 
-/// Lift (m) of the deck above the sampled terrain — keeps the deck clear of the
+/// Lift (m) of the deck above the sampled terrain - keeps the deck clear of the
 /// ground and the curb framing it proud.
 pub(crate) const ROAD_DEPTH_BIAS_M: f32 = 0.2;
 /// Drop edges whose endpoints fall beyond this fraction of the district
@@ -143,7 +143,7 @@ pub struct RoadGeometry {
 }
 
 impl RoadGeometry {
-    /// True when no faces were emitted — the caller skips spawning a mesh.
+    /// True when no faces were emitted - the caller skips spawning a mesh.
     pub fn is_empty(&self) -> bool {
         self.vertices.is_empty()
     }
@@ -216,8 +216,8 @@ impl RoadGeometry {
 }
 
 /// The road split into its material surfaces, so the caller can give each the
-/// look it needs — a dark wet-asphalt **deck**, a concrete/metal **structure**
-/// (curb + skirt + bottom cap) and emissive neon **edge-lines** — without
+/// look it needs - a dark wet-asphalt **deck**, a concrete/metal **structure**
+/// (curb + skirt + bottom cap) and emissive neon **edge-lines** - without
 /// stacking textures on the splat material (WebGL2's 16-sampler ceiling). Each
 /// non-empty part is uploaded as its own mesh + material.
 #[derive(Default)]
@@ -228,15 +228,15 @@ pub struct RoadParts {
     pub structure: RoadGeometry,
     /// Thin strips riding proud of each curb's inner top crease.
     pub neon: RoadGeometry,
-    /// Street (chain) count of the built network — for the editor's stats
+    /// Street (chain) count of the built network - for the editor's stats
     /// readout (#888), not the geometry.
     pub chains: usize,
-    /// Junction (active degree ≥ 3) count — see [`Self::chains`].
+    /// Junction (active degree ≥ 3) count - see [`Self::chains`].
     pub junctions: usize,
 }
 
 impl RoadParts {
-    /// Total vertex count across the three surfaces — the editor's
+    /// Total vertex count across the three surfaces - the editor's
     /// mesh-weight readout (#888).
     pub fn vertex_count(&self) -> usize {
         self.deck.vertices.len() + self.structure.vertices.len() + self.neon.vertices.len()
@@ -245,7 +245,7 @@ impl RoadParts {
 
 /// Build terrain-conforming road geometry from a [`RoadConfig`], or `None` if
 /// the config is disabled or the tracer can't produce a network. Deterministic
-/// in `config.seed`. Does **not** modify `hm` — the road drapes over the
+/// in `config.seed`. Does **not** modify `hm` - the road drapes over the
 /// natural terrain. Which rooms *get* a road config is the seeding layer's
 /// policy ([`crate::pds::room`]); this just renders whatever it's handed.
 pub fn build_road_geometry(hm: &HeightMap, config: &RoadConfig) -> Option<RoadParts> {
@@ -253,7 +253,7 @@ pub fn build_road_geometry(hm: &HeightMap, config: &RoadConfig) -> Option<RoadPa
     let dims = Dims::from_config(config);
     let chains = extract_chains(&graph, &sub, &dims);
 
-    // Active degree per node — distinguishes a junction end (≥3) from a mid-chain
+    // Active degree per node - distinguishes a junction end (≥3) from a mid-chain
     // / district-clip terminus, so only real intersections grow a hub.
     let mut degree = vec![0u32; graph.nodes.len()];
     for e in &graph.edges {
@@ -311,8 +311,8 @@ pub fn build_road_geometry(hm: &HeightMap, config: &RoadConfig) -> Option<RoadPa
 }
 
 /// A building footprint extracted from the road network's enclosed city blocks,
-/// in the **room placement frame** — XZ centred on spawn, matching the road
-/// mesh's `-half` spawn offset — so each maps straight onto a
+/// in the **room placement frame** - XZ centred on spawn, matching the road
+/// mesh's `-half` spawn offset - so each maps straight onto a
 /// [`Placement::Absolute`](crate::pds::generator::Placement) translation.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BuildingLot {
@@ -379,7 +379,7 @@ const FURNITURE_CURB_CLEARANCE_M: f32 = 0.6;
 
 /// Extract street-furniture spots (#893): a point every `spacing` metres of
 /// arc along each chain, alternating sides, offset outside the curb's outer
-/// footprint. Deterministic in the config (pure geometry — no RNG here; the
+/// footprint. Deterministic in the config (pure geometry - no RNG here; the
 /// injector's seeded stream picks *which* prop stands at each spot).
 pub fn extract_furniture_spots(hm: &HeightMap, config: &RoadConfig) -> Vec<FurnitureSpot> {
     if !config.furniture.enabled {
@@ -577,7 +577,7 @@ mod tests {
         }
     }
 
-    /// Draping must not touch the terrain — the heightmap is rendered as-is.
+    /// Draping must not touch the terrain - the heightmap is rendered as-is.
     #[test]
     fn draping_leaves_the_heightmap_untouched() {
         let original = sloped_heightmap();

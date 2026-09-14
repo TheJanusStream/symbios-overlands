@@ -1,4 +1,4 @@
-//! Glow-mushroom — a High-Fantasy prop. A cluster of luminous toadstools, pale
+//! Glow-mushroom - a High-Fantasy prop. A cluster of luminous toadstools, pale
 //! stems under glowing caps. Scatter clutter lighting the arcane quarter; the
 //! caps are emissive trim the ruin pass can darken.
 
@@ -43,11 +43,11 @@ impl CatalogueEntry for GlowMushroom {
 }
 
 fn build_tree() -> Generator {
-    // A clump of luminous toadstools — domed bioluminescent caps on pale
+    // A clump of luminous toadstools - domed bioluminescent caps on pale
     // stems, the tallest leading. The mossy clump is the assemble root so it
     // sits on the ground; the stools are rebased children rising from it.
     let prims = vec![
-        // Mossy clump base — the root.
+        // Mossy clump base - the root.
         prim(
             solid(cylinder_tapered(0.8, 0.1, 14, 0.3, matte(STONE_MOSS))),
             [0.0, 0.05, 0.0],

@@ -1,10 +1,10 @@
-//! Fleshy spire — an Alien-Organic secondary. A writhing organic tower: a
+//! Fleshy spire - an Alien-Organic secondary. A writhing organic tower: a
 //! lumpy S-curving trunk of fused flesh bulbs studded with biolume pods,
 //! membrane frills fanning from its flanks and a glowing biolume crown at the
 //! tip, keening eerily. Its lights are emissive trim the ruin pass can darken.
 //!
 //! The trunk is a stack of overlapping flesh spheres leaning alternately left
-//! and right — the interpenetrating blobs fuse into one writhing mass (they
+//! and right - the interpenetrating blobs fuse into one writhing mass (they
 //! are round, so the overlap reads as flesh, not z-fight) and break the
 //! smooth-column silhouette into something living.
 
@@ -56,7 +56,7 @@ impl CatalogueEntry for FleshySpire {
 
 fn build_tree() -> Generator {
     // Lumpy S-curving trunk: overlapping flesh bulbs, alternating lean.
-    // (cx, y, cz, r) — centres close enough that adjacent radii overlap.
+    // (cx, y, cz, r) - centres close enough that adjacent radii overlap.
     let trunk = [
         (0.0_f32, 1.0_f32, 0.0_f32, 1.3_f32),
         (0.18, 2.0, 0.15, 1.12),
@@ -79,14 +79,14 @@ fn build_tree() -> Generator {
         prims.push(prim(solid(sphere(r, 5, mat)), [cx, y, cz], id_quat()));
     }
 
-    // Glowing biolume crown bulb at the tip — emissive.
+    // Glowing biolume crown bulb at the tip - emissive.
     prims.push(prim(
         sphere(0.5, 5, glow(BIOLUME_CYAN, 2.0)),
         [0.1, 5.7, 0.05],
         id_quat(),
     ));
 
-    // Biolume pods studding the trunk — deep cyan, proud on the flesh.
+    // Biolume pods studding the trunk - deep cyan, proud on the flesh.
     for (y, ang, gr) in [
         (2.3_f32, 0.6_f32, 0.26_f32),
         (3.4, 3.4, 0.22),
@@ -102,7 +102,7 @@ fn build_tree() -> Generator {
 
     // Membrane frills fanning from the flanks: thin translucent sails, broad
     // face turned radially outward, with a glowing green rib up the outer edge
-    // (emissive reads on the flat face — the steampunk lesson).
+    // (emissive reads on the flat face - the steampunk lesson).
     for i in 0..3 {
         let a = i as f32 / 3.0 * TAU + 0.4;
         let y = 2.4 + i as f32 * 0.7;

@@ -1,4 +1,4 @@
-//! Floodlight mast — a Sports/Recreation prop. A tall steel tower carrying a
+//! Floodlight mast - a Sports/Recreation prop. A tall steel tower carrying a
 //! lit bank of lamps. Scatter clutter around the pitches; its lamp bank is
 //! emissive trim the ruin pass can darken.
 
@@ -49,7 +49,7 @@ impl CatalogueEntry for FloodlightMast {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Concrete base — the root.
+        // Concrete base - the root.
         prim(
             solid(cuboid_tapered(
                 [0.9, 0.3, 0.9],
@@ -81,7 +81,7 @@ fn build_tree() -> Generator {
         [0.0, 9.2, -0.25],
         quat_x(0.5),
     ));
-    // Gridded lamp bank facing the −Z render front — emissive (the ruin pass
+    // Gridded lamp bank facing the −Z render front - emissive (the ruin pass
     // can darken it). The grid of cells reads as a lamp array.
     let mut bank = super::lamp_bank([0.0, 9.6, -0.5], 2.4, 1.1, 4, 2, -1.0);
     // The backing frame carries the bank's one ballast buzz.

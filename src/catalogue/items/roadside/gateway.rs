@@ -1,4 +1,4 @@
-//! Welcome Arch — the Roadside theme's bespoke social gateway (#765). The
+//! Welcome Arch - the Roadside theme's bespoke social gateway (#765). The
 //! neutral placeholder gateway is re-skinned here as a small-town highway
 //! welcome gantry: twin steel
 //! posts on board-formed concrete footings, a box-truss span, a glowing
@@ -6,7 +6,7 @@
 //! hung across the opening. The blacktop runs straight through the middle.
 //!
 //! As with every gateway the only functional element is the single
-//! [`GeneratorKind::Gateway`] zone child centred in the opening — walking
+//! [`GeneratorKind::Gateway`] zone child centred in the opening - walking
 //! into it opens the destination picker listing the room owner's mutual
 //! follows. Everything else frames that zone so it reads as a gate you
 //! drive through rather than a billboard you pass.
@@ -38,7 +38,7 @@ impl CatalogueEntry for RoadsideGateway {
         "Welcome Arch"
     }
     fn description(&self) -> &'static str {
-        "Twin steel posts under a glowing sodium-amber arch and a lit WELCOME marquee — the drive-through gantry that greets the strip."
+        "Twin steel posts under a glowing sodium-amber arch and a lit WELCOME marquee - the drive-through gantry that greets the strip."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Gateway
@@ -59,7 +59,7 @@ impl CatalogueEntry for RoadsideGateway {
 }
 
 fn build_tree() -> Generator {
-    // Forecourt blacktop slab — the flat-base root. Never tilt a root: every
+    // Forecourt blacktop slab - the flat-base root. Never tilt a root: every
     // child inherits its transform, so a rotated slab would spin the whole
     // gantry. The road runs straight through the middle of this pad.
     let mut prims = vec![prim(
@@ -100,7 +100,7 @@ fn build_tree() -> Generator {
     // [0.0, 0.5]` keeps the θ∈[0, π] semicircle (feet at ±major_r); the
     // −90° X tip stands that flat semicircle upright into an arch rising in
     // +Y. A structural steel ring set back, and a sodium-amber neon tube
-    // hugging its −Z front — a thin tube, so the glow can run hot without
+    // hugging its −Z front - a thin tube, so the glow can run hot without
     // washing to white.
     prims.push(prim(
         with_cut(
@@ -143,7 +143,7 @@ fn build_tree() -> Generator {
 
     // Threshold accents framing the opening: a neon jamb strip up the front
     // inner edge of each post, and a low light bar across the walk-through
-    // line — deep-saturated amber, thin trim hot, the ground bar low.
+    // line - deep-saturated amber, thin trim hot, the ground bar low.
     for x in [-1.4_f32, 1.4] {
         prims.push(prim(
             cuboid_tapered([0.1, 3.4, 0.06], 0.0, glow(SIGN_AMBER, 5.0)),
@@ -183,7 +183,7 @@ mod tests {
         assert_sanitize_stable(&RoadsideGateway.build(""), "roadside_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is set-dressing, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

@@ -1,4 +1,4 @@
-//! Dead shrub — a leafless gnarled scrub. The gravity-tropism ternary
+//! Dead shrub - a leafless gnarled scrub. The gravity-tropism ternary
 //! grammar with no foliage, weathered grey-brown deadwood, and a tight
 //! iteration count so it reads as a low twisted skeleton. The stubborn
 //! survivor of arid, volcanic and badland ground.
@@ -21,7 +21,7 @@ impl CatalogueEntry for DeadShrub {
         "Dead Shrub"
     }
     fn description(&self) -> &'static str {
-        "Leafless gnarled deadwood scrub — the survivor of dry, scorched ground."
+        "Leafless gnarled deadwood scrub - the survivor of dry, scorched ground."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Plant
@@ -53,7 +53,7 @@ fn build_kind() -> GeneratorKind {
         // stochastic twisting splits (the \\ and / rolls twist the branch
         // plane out of flat). The apex carries its own width A(w) and shrinks
         // it each split, so branches taper to solid thin twigs instead of
-        // collapsing into a fat clod — an open, gnarled, leafless skeleton with
+        // collapsing into a fat clod - an open, gnarled, leafless skeleton with
         // sky between the twigs. A windswept sideways+down tropism adds lean.
         source_code: "#define a 55\n\
                       #define s 0.5\n\

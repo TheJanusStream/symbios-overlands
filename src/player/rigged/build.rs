@@ -18,20 +18,20 @@ use super::{
 /// click: with no body ever installed there is no geometry to select, and
 /// with one standing the edit is a silent no-op on stale geometry.
 pub(in crate::player) const BUILD_FAILED_LINE: &str =
-    "This body can't be built at these proportions — press Ctrl+Z, or move the shape sliders back.";
+    "This body can't be built at these proportions - press Ctrl+Z, or move the shape sliders back.";
 
 /// The part of an engine record the BUILT BODY depends on (#1257 f110).
 ///
 /// Three of `EngineAvatarRecord`'s fields cannot change a mesh or a texel:
 /// the wardrobe display `name`, the `seed` of the last re-roll, and the
 /// `locks` a re-roll must respect. The engine's own editor already knows
-/// this and says so — its sections return `(changed, noted)`, where `noted`
+/// this and says so - its sections return `(changed, noted)`, where `noted`
 /// means "the record changed and the body did not", and its doc warns that a
 /// host ignoring the distinction "would pay a draft build per letter". The
 /// host collapsed the two flags, and this comparison is where that landed:
 /// `built.record == resolved.body` over the WHOLE record, so typing a name
 /// re-armed `RiggedSettle` and dispatched a fresh draft-atlas build every
-/// quarter-second of typing — visibly re-popping the body through the low
+/// quarter-second of typing - visibly re-popping the body through the low
 /// atlas, and on wasm paying a worker round trip per keystroke burst.
 ///
 /// Fixed HERE rather than by routing the flags, because the record still has
@@ -70,13 +70,13 @@ pub(in crate::player) fn kick_rigged_builds(
     settle: Query<&RiggedSettle>,
     roots: Query<(Entity, &ChildOf), With<RiggedRoot>>,
     // #1255: the last build for this chassis produced no body. Only
-    // meaningful alongside `RiggedApplied.record` — see the component.
+    // meaningful alongside `RiggedApplied.record` - see the component.
     failed: Query<(), With<RiggedBuildFailed>>,
 ) {
     let now = time.elapsed_secs();
     // One pass over the roots instead of one per body (#1135). The inner scan
     // was `O(bodies × roots)` every frame, and both terms are the peer count
-    // — so the cost of standing in a room grew with its square.
+    // - so the cost of standing in a room grew with its square.
     let chassis_with_root: bevy::platform::collections::HashSet<Entity> = roots
         .iter()
         .map(|(_, child_of)| child_of.parent())
@@ -88,8 +88,8 @@ pub(in crate::player) fn kick_rigged_builds(
                      source_changed: bool| {
         // The gate that makes standing still free (#1135).
         //
-        // Everything below this — a full `AvatarRecord` deep-equality against
-        // the body that is standing, per body, every frame — used to run for
+        // Everything below this - a full `AvatarRecord` deep-equality against
+        // the body that is standing, per body, every frame - used to run for
         // thousands of consecutive frames to conclude "unchanged". It can be
         // skipped only when nothing that feeds it can have moved, and that is
         // three conditions, not one:
@@ -97,7 +97,7 @@ pub(in crate::player) fn kick_rigged_builds(
         //   * the record this chassis draws from has not changed since the
         //     last look. A bare `Changed<>` gate would stop here and be
         //     WRONG, because the record can change while a build is in flight
-        //     — the change is noticed, no build is kicked (one at a time per
+        //     - the change is noticed, no build is kicked (one at a time per
         //     chassis), and it is the NEXT frame's mismatch that kicks the
         //     newer one. `RiggedSteady` is therefore a latch, not a tick: set
         //     only once the chassis is genuinely reconciled, and cleared by
@@ -111,8 +111,8 @@ pub(in crate::player) fn kick_rigged_builds(
         //   * a root is actually standing, and no build is in flight.
         //
         // A FAILED build is reconciled too (#1255). The stamp below always
-        // claimed this — "re-kicking the same doomed record every frame
-        // would burn a core" — but only delivered it for a chassis that
+        // claimed this - "re-kicking the same doomed record every frame
+        // would burn a core" - but only delivered it for a chassis that
         // already had a body standing, because both this gate and the latch
         // further down also require a root. A build that fails installs no
         // root, so the one case the comment names, a doomed record with
@@ -121,7 +121,7 @@ pub(in crate::player) fn kick_rigged_builds(
         //
         // `RiggedBuildFailed` is deliberately NOT cleared here. It is only
         // ever read beside `RiggedApplied.record`, so a record that really
-        // changed invalidates it through the value compare below — while a
+        // changed invalidates it through the value compare below - while a
         // `source_changed` that turns out to touch nothing (the resource is
         // shared by every local surface) leaves the chassis reconciled
         // instead of re-dispatching the doomed build one more time.
@@ -156,8 +156,8 @@ pub(in crate::player) fn kick_rigged_builds(
                 let same_record = built.is_some_and(|built| {
                     build_identity(&built.record) == build_identity(&resolved.body)
                 });
-                // The draft/settle ladder (#1059): while a record is moving —
-                // an editor slider mid-drag, a stream of peer previews — a
+                // The draft/settle ladder (#1059): while a record is moving -
+                // an editor slider mid-drag, a stream of peer previews - a
                 // build is only worth the draft atlas, because the next edit
                 // obsoletes it; once it has been still for SETTLE_SECS the
                 // full-atlas build is owed, even though nothing changed.
@@ -174,7 +174,7 @@ pub(in crate::player) fn kick_rigged_builds(
                 let atlas_owed = built.is_some_and(|built| built.atlas < atlas);
                 // A record whose last build FAILED is reconciled: there is
                 // nothing left to try (#1255). The atlas ladder is skipped
-                // for it deliberately — a draft failure is not a texture
+                // for it deliberately - a draft failure is not a texture
                 // problem, so re-running it at the full atlas only spends a
                 // second build to fail identically.
                 let doomed = same_record && failed.contains(chassis);
@@ -253,7 +253,7 @@ pub(in crate::player) fn land_rigged_builds(
     // `Has<LocalPlayer>` because only the owner's own body is worth a toast
     // (#1255): a peer's failed build is their editor's problem, and the
     // metrics and session-log lines below already cover both. `Has<..Failed>`
-    // is the rising edge — a run of consecutive doomed builds says it once
+    // is the rising edge - a run of consecutive doomed builds says it once
     // and lets the editor's banner carry the standing state.
     mut builds: Query<(
         Entity,
@@ -317,8 +317,8 @@ pub(in crate::player) fn land_rigged_builds(
             // on a console they cannot see, a Diagnostics counter, and a
             // session-log line. What they actually saw was their own body
             // missing from their own camera (no rigged root was ever
-            // installed and nothing draws a placeholder), or — with a body
-            // already standing — an edit that did nothing at all.
+            // installed and nothing draws a placeholder), or - with a body
+            // already standing - an edit that did nothing at all.
             commands.entity(chassis).insert(RiggedBuildFailed);
             if is_local
                 && !was_failing
@@ -397,24 +397,24 @@ pub(in crate::player) fn install_built_body(
 ///
 /// Two corrections, both of them convention mismatches rather than tuning:
 ///
-/// * **Height** — the engine's ground plane is `y = 0`, so the body drops by
+/// * **Height** - the engine's ground plane is `y = 0`, so the body drops by
 ///   half the collider so its feet meet the chassis capsule's bottom.
-/// * **Facing** — a half turn about Y. `symbios_avatar::rig::landmark::FORWARD`
+/// * **Facing** - a half turn about Y. `symbios_avatar::rig::landmark::FORWARD`
 ///   is `+Z`, the glTF/VRM convention the engine shares; Bevy's forward is
 ///   `-Z`, and the chassis is steered by
 ///   `Transform::looking_to(movement_direction, Y)`, which aims *its* `-Z`
 ///   down the direction of travel. Hanging the body off that with no rotation
 ///   pointed the engine's `+Z` face directly away from where the avatar was
-///   going — walking correctly, moonwalking visibly. The half turn is applied
+///   going - walking correctly, moonwalking visibly. The half turn is applied
 ///   here, on the one entity that bridges the two conventions, rather than by
 ///   re-aiming the chassis (which the camera, the vehicles and the locomotion
 ///   drive all share) or by rotating the clips (which are authored in the
 ///   engine's frame and are consistent with the body).
 ///
-/// Everything below this entity inherits the turn together — geometry, rig,
+/// Everything below this entity inherits the turn together - geometry, rig,
 /// clips, and the socket anchors that
 /// [`crate::player::attachments::LocalAttachment::rest_frame`] reconstructs an
-/// offset against — so worn props stay put relative to the body they are on.
+/// offset against - so worn props stay put relative to the body they are on.
 pub(super) fn rigged_root_transform(offset: f32) -> Transform {
     Transform::from_xyz(0.0, -offset, 0.0)
         .with_rotation(Quat::from_rotation_y(std::f32::consts::PI))

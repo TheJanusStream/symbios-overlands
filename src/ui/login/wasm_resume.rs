@@ -17,7 +17,7 @@ use super::{CompleteAuthTask, CompletedSession, LoginError};
 /// authorization server's callback parameters. On `?code=&state=`, scrub
 /// the URL so a reload cannot replay the single-use code, then kick off
 /// the exchange. On `?error=` (user denied, expired request, …), scrub
-/// the URL, drop the now-useless pending blob, and surface the error —
+/// the URL, drop the now-useless pending blob, and surface the error -
 /// before #847 a deny silently re-showed the form over a stale
 /// `PendingAuth` blob.
 pub fn check_wasm_callback(
@@ -33,7 +33,7 @@ pub fn check_wasm_callback(
     *ran = true;
     // The boot handoff marker (#978) held the attract backdrop off for
     // exactly this frame; from here the `CompleteAuthTask` spawned below
-    // — or, on the bail-out paths, the idle form itself — is the honest
+    // - or, on the bail-out paths, the idle form itself - is the honest
     // signal, reaching the backdrop through `mirror_login_activity`
     // (#1297). Both this removal and that spawn ride the same command
     // queue, so no frame ever sees the marker gone with the task not yet
@@ -80,7 +80,7 @@ pub struct ResumeAuthTask(bevy::tasks::Task<Result<CompletedSession, String>>);
 ///
 /// A `Resource` rather than the `Local<bool>` it used to be, because the
 /// Retry button on a resume failure has to be able to re-arm it. The
-/// alternative — the only exit the screen had — was "Not you? Sign in
+/// alternative - the only exit the screen had - was "Not you? Sign in
 /// differently", which throws the saved session away, and a relay outage
 /// is not a reason to forget who somebody is.
 ///
@@ -96,7 +96,7 @@ pub struct ResumeLatch {
 
 impl ResumeLatch {
     /// Re-arm the one-shot so [`check_wasm_resume`] runs again next frame.
-    /// The persisted blob is untouched — that is the whole difference
+    /// The persisted blob is untouched - that is the whole difference
     /// between this and the "Not you?" hatch.
     pub fn rearm(&mut self) {
         self.spent = false;
@@ -125,7 +125,7 @@ pub fn check_wasm_resume(
         return;
     }
     latch.spent = true;
-    // See `check_wasm_callback` — the boot handoff marker is spent once
+    // See `check_wasm_callback` - the boot handoff marker is spent once
     // this one-shot has decided, and the `ResumeAuthTask` spawned below
     // takes over as the attract backdrop's "not idle" signal (through
     // `mirror_login_activity`, #1297).
@@ -166,7 +166,7 @@ pub fn check_wasm_resume(
 }
 
 /// Spawn the async task that rebuilds the session from `blob`. Splits cleanly
-/// from `spawn_complete_task` because the callback exchange is skipped — the
+/// from `spawn_complete_task` because the callback exchange is skipped - the
 /// token set is already in hand from localStorage; we only need to rebuild
 /// the `OAuthSession` object and (if expired) refresh.
 fn spawn_resume_task(
@@ -197,8 +197,8 @@ fn spawn_resume_task(
                 server_metadata: blob.server_metadata.clone(),
             };
             // If the persisted access token has expired, rotate it before any
-            // downstream call. A failure here is terminal — the refresh token
-            // has been invalidated server-side and the user must re-auth — so
+            // downstream call. A failure here is terminal - the refresh token
+            // has been invalidated server-side and the user must re-auth - so
             // drop the persisted blob and surface the error to the login UI.
             if oauth_session.is_expired_jittered()
                 && let Err(e) = crate::oauth::refresh_session(&oauth_session, &refresh_ctx).await
@@ -232,7 +232,7 @@ fn spawn_resume_task(
         // The bound #1129 introduced, which this one path never got
         // (#1228 f3). The wasm reqwest client routes through the browser's
         // fetch API and has no idle-body timeout, so an expired token on a
-        // flaky network left `refresh_session` pending forever — and this
+        // flaky network left `refresh_session` pending forever - and this
         // is the most common return path of the deployed target, sitting
         // behind a spinner whose only escape hatch forgets the user.
         //
@@ -281,7 +281,7 @@ pub fn poll_resume_task(
                 // Keep the `has_persisted` cache honest (#1228 f6). The
                 // refresh arm above clears the stored blob on its way out,
                 // and the login card answers "does this machine have a
-                // saved session?" once per visit — a stale yes would both
+                // saved session?" once per visit - a stale yes would both
                 // hide the Retry button and send `entry_plan` down its
                 // Idle arm, so a landmark link would stop naming its
                 // destination the moment a resume failed.

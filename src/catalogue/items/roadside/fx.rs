@@ -1,5 +1,5 @@
 //! Roadside "bring-it-to-life" helpers: a thin shoulder-dust emitter the
-//! forecourt kicks up, and two spatial-audio patches — a buzzing-neon hum
+//! forecourt kicks up, and two spatial-audio patches - a buzzing-neon hum
 //! for the lit signs and a distant highway drone for the lot.
 //!
 //! Particle emitters are returned as [`Generator`] nodes (a
@@ -25,7 +25,7 @@ use crate::pds::{
 // Particle emitters
 // ---------------------------------------------------------------------------
 
-/// A thin veil of warm grey dust drifting low across the lot — grit lifted
+/// A thin veil of warm grey dust drifting low across the lot - grit lifted
 /// off the cracked forecourt on the draught of passing trucks.
 pub(super) fn road_dust(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -58,7 +58,7 @@ pub(super) fn road_dust(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A buzzing neon hum — a mains tone with a band-passed noise crackle pulsed
+/// A buzzing neon hum - a mains tone with a band-passed noise crackle pulsed
 /// by a fast LFO, the electrical fizz of a lit sign.
 pub(super) fn neon_buzz() -> SovereignAudioConfig {
     // Mains hum under the buzz.
@@ -115,7 +115,7 @@ pub(super) fn neon_buzz() -> SovereignAudioConfig {
     patch(vec![hum, noise, lfo, bp, crackle, mix], NodeId(5))
 }
 
-/// A low distant highway drone — broadband noise rolled off through a
+/// A low distant highway drone - broadband noise rolled off through a
 /// lowpass and swelled by a slow LFO, the whoosh of traffic over the rise.
 pub(super) fn highway_drone() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));

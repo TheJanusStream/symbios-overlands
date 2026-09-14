@@ -3,15 +3,15 @@
 //! Any system pushes a [`Toast`] into the [`Toasts`] resource with the
 //! current `Time::elapsed_secs_f64`; `ui::toast::toast_ui` renders the
 //! queue and prunes expired entries each frame. This module is the queue
-//! and its semantics — coalescing, bounding, eviction, expiry — and knows
+//! and its semantics - coalescing, bounding, eviction, expiry - and knows
 //! nothing about egui, themes or where on the screen a toast lands. Those
 //! are [`crate::ui::toast`]'s.
 //!
 //! **Why the split** (#1158). Feedback is not a UI concern that gameplay
 //! happens to touch; it is a cross-cutting one that the UI happens to
 //! draw. `Toasts` was the single most-imported `crate::ui::` type in the
-//! tree — 37 references across `network`, `player`, `loading`, `terrain`
-//! and `oauth` — so every one of those modules depended on the egui layer
+//! tree - 37 references across `network`, `player`, `loading`, `terrain`
+//! and `oauth` - so every one of those modules depended on the egui layer
 //! to say a sentence to the user, and their unit tests had to drag egui
 //! state into scope to assert that a code path reached a human. Moving the
 //! queue here is what lets those modules keep the channel and drop the
@@ -19,7 +19,7 @@
 //!
 //! Before this channel existed every surface hand-rolled its own transient
 //! status (`Local<Option<(String, f64)>>` pairs in the Diagnostics window)
-//! or — far more commonly — reported nothing at all: portal failures, gift
+//! or - far more commonly - reported nothing at all: portal failures, gift
 //! outcomes, and placement no-ops were silent.
 
 use bevy::prelude::*;
@@ -28,7 +28,7 @@ use crate::config::ui::toast as cfg;
 
 /// What flavour of feedback a toast carries; drives only its accent
 /// colour. Deliberately smaller than the diagnostics [`Severity`]
-/// ladder — toasts are user-facing, so Trace/Critical have no place.
+/// ladder - toasts are user-facing, so Trace/Critical have no place.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ToastKind {
     Info,
@@ -40,7 +40,7 @@ pub enum ToastKind {
 /// The app-wide toast queue. Push from any system with the current
 /// `Time::elapsed_secs_f64`; the render system prunes expired entries
 /// each frame. Bounded to [`crate::config::ui::toast::MAX_VISIBLE`]
-/// entries — a burst of notifications drops the oldest rather than
+/// entries - a burst of notifications drops the oldest rather than
 /// growing a scrollback (toasts are glanceable feedback, not a log; the
 /// diagnostics event log is the durable record).
 #[derive(Resource, Default)]
@@ -66,7 +66,7 @@ pub struct Toast {
     pub(crate) repeats: u32,
 }
 
-/// Cut `text` to at most `max_chars` characters plus an ellipsis — on a
+/// Cut `text` to at most `max_chars` characters plus an ellipsis - on a
 /// char boundary by construction, since it counts scalars, never bytes.
 /// Shared by the toast queue and the loading rows (#1205): both quote
 /// strings someone else wrote, and neither may grow without bound.
@@ -80,7 +80,7 @@ pub(crate) fn elide(text: &str, max_chars: usize) -> String {
 }
 
 impl Toasts {
-    /// Queue a toast. `now` is `Time::elapsed_secs_f64` — passed in
+    /// Queue a toast. `now` is `Time::elapsed_secs_f64` - passed in
     /// rather than read here so the queue logic stays unit-testable.
     ///
     /// **Repeats coalesce** (#1277 f23). A repeating event used to spend
@@ -88,7 +88,7 @@ impl Toasts {
     /// pushes on every respawn, so a fall loop filled all
     /// [`cfg::MAX_VISIBLE`] slots with the same sentence within a second
     /// and evicted the publish failure, gift offer or arrival message
-    /// raised in those seconds — exactly when the session was in trouble
+    /// raised in those seconds - exactly when the session was in trouble
     /// and other feedback mattered most.
     ///
     /// The comparison is against the **newest queued entry only**, never a
@@ -136,14 +136,14 @@ impl Toasts {
         self.push(ToastKind::Error, text, now);
     }
 
-    /// Drop everything — logout cleanup calls this so a toast from one
+    /// Drop everything - logout cleanup calls this so a toast from one
     /// session can never linger into the next login's first frames.
     pub fn clear(&mut self) {
         self.queue.clear();
     }
 
     /// What the user was actually told, oldest first. For tests in other
-    /// modules that assert a code path reached the human — the queue itself
+    /// modules that assert a code path reached the human - the queue itself
     /// stays private so nothing outside can reorder or mutate it.
     #[cfg(test)]
     pub(crate) fn shown(&self) -> Vec<(ToastKind, &str)> {
@@ -173,7 +173,7 @@ impl Toasts {
         self.queue.is_empty()
     }
 
-    /// The queue in RENDER order — newest first.
+    /// The queue in RENDER order - newest first.
     ///
     /// The stack grows DOWNWARD from a fixed top edge (#1286), so the
     /// first row drawn is the one that never moves and fresh feedback
@@ -254,19 +254,19 @@ mod tests {
     ///
     /// This is the pairing the finding describes, and both halves are
     /// asserted over the SAME script, because the defect was never the
-    /// duplicate cards — it was the unrelated message they evicted while
+    /// duplicate cards - it was the unrelated message they evicted while
     /// nobody was reading them. `respawn_if_fallen` runs in `FixedUpdate`,
     /// so a fall loop reaches `MAX_VISIBLE` in well under a second.
     #[test]
     fn a_repeating_message_coalesces_instead_of_evicting_the_others() {
         // The shape that shipped: something the user needs, then a loop.
         let mut old_way = Toasts::default();
-        old_way.error("Saving your world failed — the server refused it.", 0.0);
+        old_way.error("Saving your world failed - the server refused it.", 0.0);
         for i in 0..cfg::MAX_VISIBLE + 4 {
             // Distinct text stands in for the un-coalesced behaviour: the
             // point is what a queue of MAX_VISIBLE arrivals does to the
             // entry underneath it.
-            old_way.warn(format!("Returned to spawn — you fell out. {i}"), 0.1);
+            old_way.warn(format!("Returned to spawn - you fell out. {i}"), 0.1);
         }
         assert!(
             !old_way
@@ -278,9 +278,9 @@ mod tests {
 
         // The shape that ships now.
         let mut toasts = Toasts::default();
-        toasts.error("Saving your world failed — the server refused it.", 0.0);
+        toasts.error("Saving your world failed - the server refused it.", 0.0);
         for _ in 0..cfg::MAX_VISIBLE + 4 {
-            toasts.warn("Returned to spawn — you fell out of the world.", 0.1);
+            toasts.warn("Returned to spawn - you fell out of the world.", 0.1);
         }
         assert_eq!(toasts.queue.len(), 2, "the loop occupies exactly one slot");
         assert!(
@@ -293,7 +293,7 @@ mod tests {
     /// Coalescing compares the NEWEST entry only, so two interleaved
     /// bursts stay two messages (#1277 f23).
     ///
-    /// Scanning the whole queue would merge them — and would resurrect a
+    /// Scanning the whole queue would merge them - and would resurrect a
     /// card the user had already read past, by refreshing an expiry
     /// several seconds old. Adjacency is what makes "this is still
     /// happening" a true statement.
@@ -315,7 +315,7 @@ mod tests {
     }
 
     /// A coalesced card lives `DURATION_SECS` from the LAST occurrence,
-    /// not from the first — so a loop that stops, stops being shown
+    /// not from the first - so a loop that stops, stops being shown
     /// (#1277 f23).
     #[test]
     fn a_repeat_refreshes_the_expiry_rather_than_extending_it() {
@@ -337,7 +337,7 @@ mod tests {
     /// bottom anchor the stack grew upward and the render iterated
     /// oldest-first to put the newest at the bottom; from a fixed top
     /// edge it grows downward and the same rule needs `.rev()`. Getting
-    /// this wrong is not a crash — it is the newest toast jumping down
+    /// this wrong is not a crash - it is the newest toast jumping down
     /// the screen every time another arrives, which is precisely what
     /// makes a stack unreadable during a burst.
     #[test]

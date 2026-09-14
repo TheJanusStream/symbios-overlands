@@ -1,4 +1,4 @@
-//! Splat-stains overlay — the terrain consumer of the interaction
+//! Splat-stains overlay - the terrain consumer of the interaction
 //! framework (Phase 3, #245).
 //!
 //! A low-res RGBA texture is CPU-stamped from terrain
@@ -6,25 +6,25 @@
 //! and re-uploaded so `splat.wgsl` can darken/wet/dust the ground where
 //! avatars have been:
 //!
-//! - **R — wetness**: deposited only while the avatar is still carrying
+//! - **R - wetness**: deposited only while the avatar is still carrying
 //!   water (a terrain contact within [`scfg::WET_CARRY_SECS`] of its
 //!   last water contact). Decays over ~30 s. Shader: lower roughness +
 //!   slightly darker albedo (a damp patch).
-//! - **G — dust**: deposited proportional to ground speed; decays fast
+//! - **G - dust**: deposited proportional to ground speed; decays fast
 //!   (~2 s). Shader: briefly lightens + desaturates albedo (a haze).
-//! - **B — footprint**: deposited on every terrain contact; decays very
+//! - **B - footprint**: deposited on every terrain contact; decays very
 //!   slowly (~5 min). Shader: darkens albedo + flattens the normal
 //!   (a trodden indent).
-//! - **A — reserved**.
+//! - **A - reserved**.
 //!
-//! ## Addressing — toroidal, no camera recenter
+//! ## Addressing - toroidal, no camera recenter
 //!
 //! World XZ maps to UV by `fract(xz / WORLD_PERIOD)` (CPU here, and in
 //! the shader), sampled with a Repeat sampler. There is **no**
 //! camera-recentred ring buffer and therefore **no origin pop** (the
 //! "follows camera without re-centering pop" acceptance criterion is
 //! met by construction). The trade-off is that stains repeat every
-//! [`scfg::WORLD_PERIOD`] metres — invisible in practice for ephemeral
+//! [`scfg::WORLD_PERIOD`] metres - invisible in practice for ephemeral
 //! marks at a 64 m period, and the only thing within a period of the
 //! camera at a time is the local avatar's own fresh trail.
 //!
@@ -66,7 +66,7 @@ pub struct StainsImage {
     last_decay: f32,
     /// `true` when the shadow has non-zero content (something was
     /// stamped, or residual stain is still decaying). While `false` the
-    /// per-frame system early-returns — zero idle cost.
+    /// per-frame system early-returns - zero idle cost.
     dirty: bool,
 }
 
@@ -145,7 +145,7 @@ impl StainsImage {
             cell[0] *= fr;
             cell[1] *= fg;
             cell[2] *= fb;
-            // A is reserved/unused — keep it pinned at zero.
+            // A is reserved/unused - keep it pinned at zero.
             cell[3] = 0.0;
             max_residual = max_residual.max(cell[0]).max(cell[1]).max(cell[2]);
         }
@@ -204,7 +204,7 @@ pub fn setup_stains(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     commands.insert_resource(StainsImage::new(handle));
 }
 
-/// Per-frame stains update — folds the issue's three conceptual systems
+/// Per-frame stains update - folds the issue's three conceptual systems
 /// (stamp / decay / upload) into one to avoid double `get_mut` of the
 /// image and a stamp→upload latency gap:
 ///
@@ -213,7 +213,7 @@ pub fn setup_stains(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 ///    the shadow (real elapsed `dt`, so the fade curve is cadence-
 ///    independent).
 /// 3. If anything changed this frame (stamped or decayed), quantise the
-///    shadow into the GPU image — the re-upload.
+///    shadow into the GPU image - the re-upload.
 ///
 /// Early-returns with zero work when nothing has ever been stamped and
 /// no residual remains (idle grass scene → no regression).
@@ -278,7 +278,7 @@ pub fn update_stains(
         let residual = stains.decay(dt);
         decayed = true;
         if residual < 1.0 / 255.0 {
-            // Everything has faded below one quantisation step — zero
+            // Everything has faded below one quantisation step - zero
             // the shadow and go clean so the next idle frames are free.
             stains.shadow.fill([0.0; 4]);
             stains.dirty = false;
@@ -312,7 +312,7 @@ mod tests {
         let dim = scfg::TEXEL_DIM;
         // Origin maps to texel 0.
         assert_eq!(StainsImage::texel(0.0, 0.0), (0, 0));
-        // Exactly one period away wraps back to the same texel — the
+        // Exactly one period away wraps back to the same texel - the
         // defining property that makes "no recenter pop" hold.
         let p = scfg::WORLD_PERIOD;
         assert_eq!(StainsImage::texel(p, p), StainsImage::texel(0.0, 0.0));

@@ -1,7 +1,7 @@
 //! Throttled live re-mesh while an element drag is in progress.
 //!
 //! The record is only written on drag release (one recompile, one peer
-//! broadcast — the whole-prim gizmo's contract), so without this the
+//! broadcast - the whole-prim gizmo's contract), so without this the
 //! wireframe would stay frozen at the drag's starting shape. Instead,
 //! every [`crate::config::ui::blob_edit::PREVIEW_INTERVAL_SECS`] the
 //! dragged proxy's transform is folded into a *clone* of the node's kind
@@ -50,7 +50,7 @@ pub(in crate::editor_gizmo) fn blob_drag_preview(
 ) {
     let dragged = proxies.iter().find(|(_, _, t)| t.is_active());
 
-    // Drain a finished re-mesh. Only landed while the drag is still live —
+    // Drain a finished re-mesh. Only landed while the drag is still live -
     // see module docs for why a post-drag result must be dropped.
     if let Some(task) = &mut state.task
         && let Some(result) = future::block_on(future::poll_once(task))
@@ -60,7 +60,7 @@ pub(in crate::editor_gizmo) fn blob_drag_preview(
             && let (Some(line), Some(active)) = (result, &ctx.active)
             && let Ok(swap) = swaps.get(active.blob_entity)
         {
-            // The swap owns a strong handle, so the id is always live —
+            // The swap owns a strong handle, so the id is always live -
             // insert can only fail on a dropped handle's stale id.
             let _ = meshes.insert(&swap.line_mesh, line);
         }
@@ -75,7 +75,7 @@ pub(in crate::editor_gizmo) fn blob_drag_preview(
         return;
     }
     // The dragged proxy is world-space (gizmo detach); its blob-local pose
-    // is recovered against the blob entity's frame — the same conversion
+    // is recovered against the blob entity's frame - the same conversion
     // the commit will do on release.
     let Ok(blob_gt) = global_tf.get(active.blob_entity) else {
         return;

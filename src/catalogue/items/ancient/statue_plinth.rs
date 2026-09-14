@@ -1,4 +1,4 @@
-//! Statue plinth — an AncientClassical prop. A marble pedestal carrying a
+//! Statue plinth - an AncientClassical prop. A marble pedestal carrying a
 //! weathered draped figure with a lost head: the civic statuary of a
 //! classical square.
 
@@ -45,7 +45,7 @@ impl CatalogueEntry for StatuePlinth {
 }
 
 fn build_tree() -> Generator {
-    // Pedestal base — the root.
+    // Pedestal base - the root.
     let mut prims = vec![prim(
         solid(cuboid_tapered(
             [1.3, 0.3, 1.3],

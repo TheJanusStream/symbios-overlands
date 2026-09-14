@@ -1,5 +1,5 @@
 //! Chain extraction: the road graph split into the continuous runs the ribbon
-//! mesher extrudes along — maximal walks through degree-2 nodes between
+//! mesher extrudes along - maximal walks through degree-2 nodes between
 //! intersections, re-split into maximal sub-runs inside the district interior
 //! so no street reaches the visible room edge. Only public adjacency (node
 //! degree + `active` edge flags) is walked, so nothing here depends on
@@ -22,7 +22,7 @@ pub(crate) struct Chain {
     pub(crate) end_nodes: [usize; 2],
     /// Per-end boundary-clip markers (index matches `end_nodes`). `true` when the
     /// run was cut at the district-interior boundary because the next sampled
-    /// node fell *outside* — i.e. a road running off the network perimeter, which
+    /// node fell *outside* - i.e. a road running off the network perimeter, which
     /// leaves an open cross-section and must be capped like a dead-end (#582). A
     /// genuine graph terminus is `false` here: a degree-1 dead-end is capped by
     /// degree (#579) and a loop closure / used-edge break stays open.
@@ -33,7 +33,7 @@ pub(crate) struct Chain {
 
 /// Split the planar graph into continuous chains: runs of degree-2 nodes
 /// between intersections / endpoints, clipped to the district interior. Walks
-/// the public adjacency by node degree — no dependency on tensor internals.
+/// the public adjacency by node degree - no dependency on tensor internals.
 pub(crate) fn extract_chains(graph: &RoadGraph, hm: &HeightMap, dims: &Dims) -> Vec<Chain> {
     let center = hm.width() as f32 * hm.scale() * 0.5;
     let interior_r2 = (center * ROAD_INTERIOR_FRACTION).powi(2);
@@ -75,7 +75,7 @@ pub(crate) fn extract_chains(graph: &RoadGraph, hm: &HeightMap, dims: &Dims) -> 
             push_interior_runs(&nodes, &pos, &inside, half_w(ei), &mut chains);
         }
     }
-    // Pure loops (every node degree 2) — start anywhere on an unused edge.
+    // Pure loops (every node degree 2) - start anywhere on an unused edge.
     for ei in 0..graph.edges.len() {
         if used[ei] || !graph.edges[ei].active {
             continue;

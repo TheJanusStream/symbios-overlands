@@ -1,4 +1,4 @@
-//! Owner Scrap Shrine — the Post-Apocalyptic identity monument (#975).
+//! Owner Scrap Shrine - the Post-Apocalyptic identity monument (#975).
 //!
 //! Somebody welded this: a rusted plate frame on a broken concrete footing,
 //! the room owner's picture behind a sheet-steel surround with a salvaged work
@@ -53,7 +53,7 @@ impl CatalogueEntry for PostApocMonument {
 }
 
 fn build_tree(did: &str) -> Generator {
-    // Broken slab — the root, and flat, so the canted posts above spin
+    // Broken slab - the root, and flat, so the canted posts above spin
     // nothing.
     let slab = prim(
         solid(cuboid_tapered(
@@ -116,7 +116,7 @@ fn board(did: &str) -> Vec<Generator> {
     let z = -0.15;
     let fr = 0.16;
     let mut out = vec![
-        // Sheet backing — the panel is single-sided, and this is the plate it
+        // Sheet backing - the panel is single-sided, and this is the plate it
         // was bolted to.
         prim(
             solid(cuboid_tapered(
@@ -149,7 +149,7 @@ fn board(did: &str) -> Vec<Generator> {
             id_quat(),
         ),
     ];
-    // Welded surround — deliberately uneven, because it was cut with an angle
+    // Welded surround - deliberately uneven, because it was cut with an angle
     // grinder by somebody in a hurry.
     for sx in [-1.0_f32, 1.0] {
         out.push(prim(

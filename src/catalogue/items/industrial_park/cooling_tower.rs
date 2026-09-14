@@ -1,4 +1,4 @@
-//! Cooling tower — an Industrial-Park secondary. A waisted concrete
+//! Cooling tower - an Industrial-Park secondary. A waisted concrete
 //! hyperboloid shell billowing a fat white steam plume, hissing softly at the
 //! rim. The unmistakable silhouette of a power or process plant.
 
@@ -52,7 +52,7 @@ fn build_tree() -> Generator {
     let inlet_h = 1.9;
 
     let mut prims = vec![
-        // Ground ring — the flat root.
+        // Ground ring - the flat root.
         prim(
             solid(cylinder_tapered(4.6, base_h, 28, 0.0, conc())),
             [0.0, base_h * 0.5, 0.0],
@@ -81,7 +81,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Hyperboloid shell — many thin rings on a smooth waisted profile (the
+    // Hyperboloid shell - many thin rings on a smooth waisted profile (the
     // old build used seven fat steps that read as a stack of cans).
     let rings = 15;
     let shell_h = 15.5_f32;

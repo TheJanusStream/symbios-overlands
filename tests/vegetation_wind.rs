@@ -96,7 +96,7 @@ fn a_marked_entity_swaps_to_the_wind_material() {
 
 /// The batching contract the whole scatter tier rests on. Every instance of a
 /// ground-cover prop shares one `StandardMaterial` handle (the prim cache is
-/// content-addressed), and they must therefore share one wind material too —
+/// content-addressed), and they must therefore share one wind material too -
 /// a per-instance material would fork the handle per instance and undo the
 /// batching that makes hundreds of cards affordable.
 #[test]
@@ -173,7 +173,7 @@ fn the_two_profiles_do_not_share_a_material() {
 /// A procedural material's textures are still baking when the entity is
 /// spawned; the bake lands in `Assets<StandardMaterial>` frames later. An
 /// `ExtendedMaterial` embeds its base *by value*, so without the mirror the
-/// foliage would keep the untextured copy forever — alpha-masked cards with
+/// foliage would keep the untextured copy forever - alpha-masked cards with
 /// no alpha, which render as opaque squares.
 #[test]
 fn a_later_texture_bake_reaches_the_wind_material() {
@@ -195,7 +195,7 @@ fn a_later_texture_bake_reaches_the_wind_material() {
     // Two frames, not one: `AssetEvent`s are emitted by bevy_asset in `Last`,
     // so a modification made during frame N is only readable by a system in
     // frame N+1's `Update`. That one-frame lag is why the mirror is a system
-    // reacting to events rather than something the bake could call directly —
+    // reacting to events rather than something the bake could call directly -
     // and it is invisible in practice, the frame in question being one where
     // the texture had not finished baking anyway.
     app.update();
@@ -247,7 +247,7 @@ fn a_wind_change_reaches_live_materials() {
         .expect("material asset exists");
     assert_eq!(mat.extension.uniforms.wind_dir, turned);
     assert_eq!(mat.extension.uniforms.speed, 11.0);
-    // The per-profile half must survive the patch — only the two global
+    // The per-profile half must survive the patch - only the two global
     // fields are the environment's to write.
     assert_eq!(mat.extension.uniforms.height_bias, 0.0);
     assert!(mat.extension.uniforms.strength > 0.0);
@@ -281,8 +281,8 @@ fn a_material_built_after_a_wind_change_uses_it() {
 }
 
 /// Retention (#919's shape): once the foliage using a wind material is gone,
-/// nothing may keep the material — and through it a `StandardMaterial` and
-/// its images — alive. The links map holds an `AssetId`, not a `Handle`,
+/// nothing may keep the material - and through it a `StandardMaterial` and
+/// its images - alive. The links map holds an `AssetId`, not a `Handle`,
 /// precisely so a re-roll does not accumulate a session's worth of dead
 /// foliage.
 #[test]

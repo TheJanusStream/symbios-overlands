@@ -1,4 +1,4 @@
-//! L-system generator tab — source/finalization code editors, rewrite-rule
+//! L-system generator tab - source/finalization code editors, rewrite-rule
 //! tuning, material slots, and the `PropMeshType` mapping table.
 
 use bevy_egui::egui;
@@ -61,7 +61,7 @@ pub(super) fn draw_lsystem_forge(
             }
         });
 
-    // Latest compile outcome (#829) — a grammar typo used to mean "the
+    // Latest compile outcome (#829) - a grammar typo used to mean "the
     // world silently stops updating"; now the parser's line-numbered
     // error lands right under the code that caused it.
     grammar_status_line(ui, grammar_status);
@@ -146,7 +146,7 @@ pub(super) fn draw_lsystem_forge(
                         let referenced = source_code.contains(&format!("Mat({id})"));
                         let hover = if referenced {
                             format!(
-                                "Remove slot {id}. The grammar still names `Mat({id})` — \
+                                "Remove slot {id}. The grammar still names `Mat({id})` - \
                                  those branches will fall back to the default material."
                             )
                         } else {
@@ -229,7 +229,7 @@ pub(super) fn draw_lsystem_forge(
                     let referenced = source_code.contains(&format!("~{id}"));
                     let hover = if referenced {
                         format!(
-                            "Remove the `~{id}` mapping. The grammar still writes it — \
+                            "Remove the `~{id}` mapping. The grammar still writes it - \
                              those props will fall back to a leaf."
                         )
                     } else {

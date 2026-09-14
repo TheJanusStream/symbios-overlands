@@ -1,14 +1,14 @@
-//! Ship's lantern — the fx hero (#1090): the first wearable that carries
+//! Ship's lantern - the fx hero (#1090): the first wearable that carries
 //! the catalogue's whole richness toolkit on a body. An emissive hold (the
 //! glass housing and the flame core), a small ember emitter, and a spatial
-//! creak patch, all riding the left hand through every gait — the emitter
+//! creak patch, all riding the left hand through every gait - the emitter
 //! simulates in world space, so a carried lantern sheds a faint trail of
 //! embers behind a walking body for free.
 //!
 //! Structured around the oversized-draft technique's one hard boundary:
 //! **fx stay OUT of the draft.** Particle emission velocity and shape
-//! sampling go through the emitter's global affine — a 0.1-scaled ancestor
-//! would shrink them — while particle *sizes* are world units and would
+//! sampling go through the emitter's global affine - a 0.1-scaled ancestor
+//! would shrink them - while particle *sizes* are world units and would
 //! not shrink, so an emitter inside a scaled draft tears its own
 //! parameters apart. The root is therefore the carry ring at TRUE size
 //! (its 10 mm rod is honest wrought iron, comfortably on the sanitiser
@@ -32,7 +32,7 @@ use bevy_symbios_audio::{
 
 use super::{aged_iron, brass};
 
-/// The size the cage is DRAWN at relative to the size it is carried at —
+/// The size the cage is DRAWN at relative to the size it is carried at -
 /// the [`super::circlet`] technique. A lantern's bars are 9 mm iron; drawn
 /// at 90 mm they clear the sanitiser's 10 mm prim-local floor with room to
 /// spare.
@@ -47,7 +47,7 @@ const EMBER_SEED: u64 = 0x1A57_F1A3;
 /// whole object reads as lit by one fire.
 const LAMPLIGHT: [f32; 3] = [1.0, 0.62, 0.26];
 
-/// The glass housing: oiled horn-glass around a flame — most of the glow.
+/// The glass housing: oiled horn-glass around a flame - most of the glow.
 fn glow_glass() -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3([0.38, 0.25, 0.13]),
@@ -112,7 +112,7 @@ impl CatalogueEntry for Lantern {
 /// engine seats the origin just outside the palm; the lantern hangs below
 /// it, exactly as the satchel hangs below its hip origin). The collar is
 /// the root deliberately: children inherit the root transform whole, so a
-/// rotated root — the carry ring's quarter-turn — would lay the entire
+/// rotated root - the carry ring's quarter-turn - would lay the entire
 /// lantern on its side (the flag write-up's leaning-mast trap, and this
 /// file hit it: the first build used the ring as root and rendered
 /// horizontal). The ring is a rotated CHILD instead; below hangs one
@@ -123,7 +123,7 @@ fn build_tree() -> Generator {
     // housing grazed visibly into the thigh at rest (the hand hangs beside
     // the leg, and the engine seat's palm margin cannot know how far a
     // prop hangs). 15% off keeps it a ship's lantern and clears the worst
-    // of the embed; the ring and collar stay true-sized — a hand is a
+    // of the embed; the ring and collar stay true-sized - a hand is a
     // hand.
     let scale = 0.85 / DRAFT;
 
@@ -133,7 +133,7 @@ fn build_tree() -> Generator {
         [0.0, 0.0, 0.0],
         id_quat(),
     );
-    // Carry ring above the collar, stood into the X–Y plane — the same
+    // Carry ring above the collar, stood into the X–Y plane - the same
     // quarter-turn the satchel's belt loop takes. Its lower rod sinks
     // into the collar's top.
     let ring = prim(
@@ -146,7 +146,7 @@ fn build_tree() -> Generator {
     // The sub-root prim is the stem, centred on the DRAFT origin; every
     // other part is authored in that same draft-local frame and pushed
     // directly as its child. NOT `nest`: nest rebases by the parent's own
-    // translation, which is in the root's TRUE frame — mixing it with
+    // translation, which is in the root's TRUE frame - mixing it with
     // draft-frame children is exactly the cross-frame arithmetic the
     // draft technique exists to avoid.
     let iron = || uv_for_scale(aged_iron(), scale);
@@ -380,7 +380,7 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert!(
             found[0].iter().all(|&s| (s - 1.0).abs() < 1e-6),
-            "the ember emitter sits under a scaled ancestor ({:?}) — its \
+            "the ember emitter sits under a scaled ancestor ({:?}) - its \
              emission would shrink while its particle sizes did not",
             found[0]
         );

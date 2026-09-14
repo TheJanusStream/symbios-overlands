@@ -1,8 +1,8 @@
 //! Per-element proxy entities: the clickable, gizmo-draggable stand-ins
 //! for a BlobGroup's elements while the node is under in-scene edit.
 //!
-//! Proxies are translucent unlit meshes — green for additive elements,
-//! red for carves ([`crate::config::ui::blob_edit`]) — spawned as children
+//! Proxies are translucent unlit meshes - green for additive elements,
+//! red for carves ([`crate::config::ui::blob_edit`]) - spawned as children
 //! of the blob prim entity so the record's element-local coordinates
 //! place them correctly through any placement/instance transform. Being
 //! real meshes makes them `MeshRayCast`-pickable (scene click-select) and
@@ -13,7 +13,7 @@
 //! record every frame: GUI edits mutate the record immediately (only the
 //! change *tick* is debounced), so proxies track slider drags live without
 //! waiting for a rebuild. Asset churn is avoided by sharing one unit mesh
-//! per scale-clean shape family (sphere/ellipsoid, box, cylinder, cone —
+//! per scale-clean shape family (sphere/ellipsoid, box, cylinder, cone -
 //! radii ride the `Transform` scale) and regenerating a capsule's / torus'
 //! mesh only when its radii change (their curved sections would distort
 //! under non-uniform scale).
@@ -49,8 +49,8 @@ pub(crate) struct BlobElementProxy {
 impl BlobElementProxy {
     /// Does this element CARVE rather than add (#1243 f151)? Read by the
     /// highlight, which marks carves with a shape cue: add-vs-carve was
-    /// carried by hue alone — green against red, the canonical unsafe
-    /// pair — on a translucent ghost read through a wireframe shell.
+    /// carried by hue alone - green against red, the canonical unsafe
+    /// pair - on a translucent ghost read through a wireframe shell.
     pub(crate) fn is_carve(&self) -> bool {
         self.subtract
     }
@@ -100,7 +100,7 @@ impl FromWorld for BlobEditAssets {
                 base_color: Color::srgba(rgba[0], rgba[1], rgba[2], a),
                 alpha_mode: AlphaMode::Blend,
                 unlit: true,
-                // Visible from inside the accumulated surface — the camera
+                // Visible from inside the accumulated surface - the camera
                 // regularly ends up inside a blob while sculpting it.
                 cull_mode: None,
                 double_sided: true,
@@ -178,7 +178,7 @@ fn is_baked_mesh(shape: BlobShape) -> bool {
 /// missing ones, and patch pose/mesh/material in place on the rest.
 ///
 /// A proxy currently held by the gizmo (detached, world-space transform)
-/// keeps its pose — the drag owns it; writing record-local values onto it
+/// keeps its pose - the drag owns it; writing record-local values onto it
 /// would teleport it mid-gesture.
 #[allow(clippy::type_complexity)]
 pub(in crate::editor_gizmo) fn reconcile_blob_proxies(
@@ -377,7 +377,7 @@ mod tests {
         );
         app.update();
         assert_eq!(proxy_count(&mut app), 2);
-        // Shrink the element list — reconcile must drop the orphan.
+        // Shrink the element list - reconcile must drop the orphan.
         if let GeneratorKind::BlobGroup { elements, .. } = &mut app
             .world_mut()
             .resource_mut::<BlobEditContext>()

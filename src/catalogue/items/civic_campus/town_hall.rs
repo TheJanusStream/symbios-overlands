@@ -1,4 +1,4 @@
-//! Town hall — the Civic/Campus landmark and the kit's lit hero. A
+//! Town hall - the Civic/Campus landmark and the kit's lit hero. A
 //! neoclassical stone hall behind a marble columned portico and pediment,
 //! crowned by a verdigris copper dome lantern, its tall windows and flanking
 //! lamps glowing over the steps. ~14 m wide, so it anchors the quarter and
@@ -67,7 +67,7 @@ fn build_tree() -> Generator {
     let fz = -1.0_f32;
 
     let mut prims = vec![
-        // Marble stylobate base — the root.
+        // Marble stylobate base - the root.
         prim(
             solid(cuboid_tapered(
                 [16.0, base_h, 12.0],
@@ -106,7 +106,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Front steps descending to the quad — each course sits a touch lower and
+    // Front steps descending to the quad - each course sits a touch lower and
     // further out, so no two tread faces share a plane.
     for k in 0..3 {
         let kf = k as f32;
@@ -121,7 +121,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Marble colonnade across the front — proper based-and-capitalled columns.
+    // Marble colonnade across the front - proper based-and-capitalled columns.
     for x in [-5.0_f32, -3.0, -1.0, 1.0, 3.0, 5.0] {
         prims.extend(column(
             x,
@@ -162,7 +162,7 @@ fn build_tree() -> Generator {
     ));
     prims.extend(dome_lantern(body_top + 0.4));
 
-    // Flanking entrance lamps on steel posts — emissive globes out front.
+    // Flanking entrance lamps on steel posts - emissive globes out front.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
             solid(cylinder_tapered(0.1, 2.2, 8, 0.0, steel(STEEL_GREY))),

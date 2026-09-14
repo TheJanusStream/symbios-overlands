@@ -1,4 +1,4 @@
-//! Trade stall — a Medieval prop. A trestle market stall: an oak board on
+//! Trade stall - a Medieval prop. A trestle market stall: an oak board on
 //! trestles under a striped wool awning, a back display board hung with
 //! strings of onions and a balance scale, and crates, sacks, loaves and a
 //! wheel of cheese set out. The everyday commerce of the square, flavoured to
@@ -52,7 +52,7 @@ fn build_tree() -> Generator {
     let table_y = 0.95;
 
     let mut prims = vec![
-        // Trestle board — the root.
+        // Trestle board - the root.
         prim(
             solid(cuboid_tapered([2.2, 0.12, 1.0], 0.0, timber(WOOD_OAK))),
             [0.0, table_y, 0.0],

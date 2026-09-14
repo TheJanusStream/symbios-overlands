@@ -1,4 +1,4 @@
-//! Airplane preset — arcade flight model: continuous thrust, lift =
+//! Airplane preset - arcade flight model: continuous thrust, lift =
 //! `lift_per_speed × forward airspeed`, drag along the velocity vector,
 //! pitch / roll / yaw from input.
 
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// Airplane preset: arcade flight model. W/S pitch, A/D roll, Q/E yaw,
 /// Space throttle up, Shift throttle down. Lift = `lift_per_speed` ×
 /// forward airspeed (no AOA simulation); drag damps motion along the
-/// negative-velocity direction. No take-off mechanic — the avatar is
+/// negative-velocity direction. No take-off mechanic - the avatar is
 /// always "airborne" and crashes on terrain contact like any other
 /// physics body.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -32,10 +32,10 @@ pub struct AirplaneParams {
     pub lift_per_speed: Fp,
     /// Air-resistance coefficient applied along the velocity vector (N·s/m).
     pub drag_coefficient: Fp,
-    /// Minimum forward airspeed (m/s) below which lift drops to zero —
+    /// Minimum forward airspeed (m/s) below which lift drops to zero -
     /// approximates a stall without simulating AOA.
     pub min_airspeed: Fp,
-    /// Hands-off throttle fraction of `thrust` — the airplane flies by
+    /// Hands-off throttle fraction of `thrust` - the airplane flies by
     /// default; Space/Shift add/subtract the same fraction (so 1.0 =
     /// full, 0.0 = idle). Promoted from a hard-coded constant by #876;
     /// field-level serde default keeps pre-#876 records at the
@@ -44,7 +44,7 @@ pub struct AirplaneParams {
     pub cruise_throttle: Fp,
 }
 
-/// Serde fallback for records published before #876 — the constant the
+/// Serde fallback for records published before #876 - the constant the
 /// throttle table hard-coded. Shared with `Default`.
 fn default_cruise_throttle() -> Fp {
     Fp(0.5)

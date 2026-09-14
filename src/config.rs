@@ -8,8 +8,8 @@
 //! record-carried, and their tuning lives on the `Sovereign*` types'
 //! `Default` impls in [`crate::pds`] with their hostile-input ceilings in
 //! `pds::sanitize::limits`. Before #1157 this file also held a full
-//! pre-record terrain pipeline — hydraulic/voronoi/thermal erosion and four
-//! splat layers, 62 constants — that adjusted nothing at all: they had been
+//! pre-record terrain pipeline - hydraulic/voronoi/thermal erosion and four
+//! splat layers, 62 constants - that adjusted nothing at all: they had been
 //! superseded by `SovereignTerrainConfig` and nothing referenced them. A
 //! decoy knob in the file a contributor is told to look in first is worse
 //! than no knob.
@@ -96,7 +96,7 @@ pub(crate) mod rover {
     // --- Drive ---------------------------------------------------------------
     pub const DRIVE_FORCE: f32 = 1_800.0;
     pub const TURN_TORQUE: f32 = 400.0;
-    /// Longitudinal speed (m/s) past which — while reversing — the steer
+    /// Longitudinal speed (m/s) past which - while reversing - the steer
     /// response inverts. A real car's heading turns the opposite way for a
     /// fixed wheel angle in reverse vs. forward; this deadband keeps
     /// turn-in-place and the forward sign around a standstill so the sign
@@ -110,10 +110,10 @@ pub(crate) mod rover {
 
     // --- Car rollover stability + recovery (#804) ----------------------------
     // The CoM fraction, engage tilt, righting acceleration, and righting
-    // damping moved onto `CarParams` as record tuning (#876) — their defaults
+    // damping moved onto `CarParams` as record tuning (#876) - their defaults
     // there are the values that used to live here.
     /// Below this squared magnitude the `up × world-up` righting axis has
-    /// degenerated (the chassis is dead-inverted — a saddle it could perch on),
+    /// degenerated (the chassis is dead-inverted - a saddle it could perch on),
     /// so the assist falls back to the roll axis to tip it off its roof.
     pub const CAR_UPRIGHT_DEGENERATE_SQ: f32 = 1.0e-4;
 
@@ -189,14 +189,14 @@ pub(crate) mod rover {
 // Login-screen attract backdrop (attract.rs)
 // ---------------------------------------------------------------------------
 pub(crate) mod attract {
-    /// Attract-camera orbit radius (m) — frames a whole settlement.
+    /// Attract-camera orbit radius (m) - frames a whole settlement.
     /// Must stay within [`super::camera::ZOOM_UPPER_LIMIT`], which the
     /// orbit crate clamps the target radius against.
     pub const ORBIT_RADIUS: f32 = 150.0;
-    /// Attract-camera pitch (rad) — a gentle aerial angle, well inside
+    /// Attract-camera pitch (rad) - a gentle aerial angle, well inside
     /// the [`super::camera`] pitch envelope.
     pub const ORBIT_PITCH: f32 = 0.5;
-    /// Yaw drift rate (rad/s): one full lap every ~2.6 minutes — slow
+    /// Yaw drift rate (rad/s): one full lap every ~2.6 minutes - slow
     /// enough to read as a vista, fast enough to show it's alive.
     pub const YAW_RATE: f32 = 0.04;
     /// Focus lift above the terrain-centre height (m), so the framing
@@ -214,10 +214,10 @@ pub(crate) mod camera {
     pub const ORBIT_PITCH: f32 = 0.4;
     /// Initial camera world-space position [x, y, z].
     pub const INITIAL_POS: [f32; 3] = [0.0, 8.0, 12.0];
-    /// Closest zoom (m) — keeps the camera from tunnelling inside the
+    /// Closest zoom (m) - keeps the camera from tunnelling inside the
     /// avatar's own visuals (#853).
     pub const ZOOM_LOWER_LIMIT: f32 = 2.0;
-    /// Farthest zoom (m) — frames a whole settlement while staying well
+    /// Farthest zoom (m) - frames a whole settlement while staying well
     /// inside the fog-visibility envelope ([`fog::VISIBILITY`]), past
     /// which everything is haze anyway.
     pub const ZOOM_UPPER_LIMIT: f32 = 200.0;
@@ -231,7 +231,7 @@ pub(crate) mod camera {
     /// Clearance (m) the terrain clamp keeps between the camera and the
     /// ground surface.
     pub const TERRAIN_CLEARANCE: f32 = 1.0;
-    /// Sample count along the focus→camera ray for the terrain clamp —
+    /// Sample count along the focus→camera ray for the terrain clamp -
     /// at the 200 m zoom ceiling this probes every ~12.5 m, finer than
     /// any terrain feature the 2 m-cell heightmap can express.
     pub const TERRAIN_CLAMP_SAMPLES: u32 = 16;
@@ -296,18 +296,18 @@ pub(crate) mod terrain {
         // --- Avatar-wake perturbation simulation -------------------------
         // Behaviour constants for the CPU perturbation pool
         // (`crate::interaction::perturbation`). These are engine-tuning
-        // values, not authored per-volume — the per-volume amplitude /
+        // values, not authored per-volume - the per-volume amplitude /
         // wavelength / decay knobs live on `pds::WaterSurface`. Lifetimes
         // are seconds; rates are spawns-per-second.
         pub mod wake {
             /// Lifetime of a `SplashRing` spawned on water Enter/Exit. Short
-            /// — an entry splash is a brief event, not a lingering swell.
+            /// - an entry splash is a brief event, not a lingering swell.
             pub const SPLASH_LIFETIME: f32 = 0.9;
             /// Lifetime of a `RadialRipple` shed during slow Dwell.
             ///
             /// NOTE: with `DWELL_MIN_SPEED` (2.0) ≥
             /// `DIRECTIONAL_SPEED_THRESHOLD` (1.2), every Dwell stamp is
-            /// now a `DirectionalWake` — the `RadialRipple` Dwell path
+            /// now a `DirectionalWake` - the `RadialRipple` Dwell path
             /// (and therefore this constant) is currently unreachable.
             /// Kept because slow-wade ripples were a deliberate design
             /// casualty of the #254 raw-speed gate, not a removed
@@ -329,9 +329,9 @@ pub(crate) mod terrain {
             /// Tuned as a *vehicle-wake* knob: since Dwell only fires
             /// at raw speed ≥ `DWELL_MIN_SPEED` (2.0 m/s), this is no
             /// longer a footfall cadence. A single shader teardrop is
-            /// `wake_decay_radius·(0.8 + 0.3·speed)` long — ≥ 5.6 m
+            /// `wake_decay_radius·(0.8 + 0.3·speed)` long - ≥ 5.6 m
             /// even at the 2 m/s gate with the default decay radius of
-            /// 4.0 — so consecutive stamps at 2.5 m still overlap into
+            /// 4.0 - so consecutive stamps at 2.5 m still overlap into
             /// a continuous wake with no dotting, while emitting ~4×
             /// fewer overlapping stamps than the old 0.6 m (which
             /// saturated the uniform cap into an unrealistic
@@ -339,7 +339,7 @@ pub(crate) mod terrain {
             pub const DWELL_SPACING: f32 = 2.5;
             /// Minimum speed (m/s) for Dwell to shed anything. Gated on
             /// the **raw** contact-sample velocity
-            /// (avian `LinearVelocity` for the local player) — *not* a
+            /// (avian `LinearVelocity` for the local player) - *not* a
             /// smoothed position signal. The earlier dual-EMA gate
             /// (fast vs slow position low-pass) was abandoned: a
             /// position EMA has a relaxation tail proportional to the
@@ -349,7 +349,7 @@ pub(crate) mod terrain {
             /// stamping a dense stack of concentric ripples right where
             /// it halts (chainlink #254, confirmed by in-engine
             /// instrumentation). Raw physics velocity has no tail and no
-            /// seed-decay — it reads ~0 the instant the body stops — so
+            /// seed-decay - it reads ~0 the instant the body stops - so
             /// `speed < DWELL_MIN_SPEED` cleanly suppresses the
             /// decelerate-to-halt burst (a settling/rocking hull also
             /// has near-zero net velocity, so it is covered too). Raise
@@ -367,8 +367,8 @@ pub(crate) mod terrain {
             ///
             /// Must sit comfortably ABOVE `DWELL_MAX_BURST ·
             /// DWELL_SPACING` (4 · 2.5 = 10 m) so that a legitimate
-            /// frame hitch — e.g. a 30 m/s boat through a ~0.4 s stall
-            /// ≈ 12 m — produces a *capped* burst rather than being
+            /// frame hitch - e.g. a 30 m/s boat through a ~0.4 s stall
+            /// ≈ 12 m - produces a *capped* burst rather than being
             /// misread as a warp and silently dropping the wake. Only a
             /// genuine portal jump (well beyond a hitch) should reset.
             pub const DWELL_TELEPORT_DIST: f32 = 16.0;
@@ -390,7 +390,7 @@ pub(crate) mod terrain {
             /// hovers a hair above the surface) without making an
             /// avatar flying well clear of the water emit ripples.
             pub const CONTACT_SLACK: f32 = 0.15;
-            /// Waterline tolerance (m) for *leaving* water contact —
+            /// Waterline tolerance (m) for *leaving* water contact -
             /// the wide arm of a Schmitt trigger. Once an avatar is in
             /// contact it stays in contact until its body bottom rises
             /// more than `CONTACT_EXIT_SLACK` above the surface. Must
@@ -420,7 +420,7 @@ pub(crate) mod terrain {
         /// `src/player/humanoid.rs`) plus a margin for capsule rest
         /// height and heightmap bilerp error.
         pub const CONTACT_SLACK: f32 = 0.30;
-        /// Grounding tolerance (m) for *leaving* terrain contact — the
+        /// Grounding tolerance (m) for *leaving* terrain contact - the
         /// wide arm of a Schmitt trigger, identical in spirit to
         /// `water::wake::CONTACT_EXIT_SLACK`. Absorbs the few-cm
         /// physics jitter of a capsule resting on a heightfield so a
@@ -434,7 +434,7 @@ pub(crate) mod terrain {
         pub const INTENSITY_VEL_REF: f32 = 5.0;
         /// Intensity floor while simply grounded (no vertical speed).
         /// Keeps a standing avatar registering a faint, continuous
-        /// contact so footprints accrue when standing still — the
+        /// contact so footprints accrue when standing still - the
         /// "stand still → faint footprint" acceptance criterion.
         pub const INTENSITY_GROUNDED_FLOOR: f32 = 0.12;
     }
@@ -457,7 +457,7 @@ pub(crate) mod terrain {
         pub const TEXEL_DIM: usize = 256;
         /// World-space side length (m) the texture tiles over. At
         /// `TEXEL_DIM` 256 this is `WORLD_PERIOD / 256` ≈ 0.25 m per
-        /// texel — fine enough for a footprint, coarse enough that the
+        /// texel - fine enough for a footprint, coarse enough that the
         /// window comfortably surrounds the local avatar.
         pub const WORLD_PERIOD: f32 = 64.0;
         /// Seconds between `decay_stains` passes. Decay is computed from
@@ -467,7 +467,7 @@ pub(crate) mod terrain {
         /// Half-life (s) of the wetness channel (R). ~4 half-lives in
         /// 30 s ⇒ a wet patch is visually gone after ~30 s.
         pub const WET_HALFLIFE: f32 = 8.0;
-        /// Half-life (s) of the dust channel (G) — a brief haze that
+        /// Half-life (s) of the dust channel (G) - a brief haze that
         /// flashes the albedo lighter then clears within ~2 s.
         pub const DUST_HALFLIFE: f32 = 0.4;
         /// Half-life (s) of the footprint-indent channel (B). ~4
@@ -519,7 +519,7 @@ pub(crate) mod terrain {
         ///
         /// Damp soil really is markedly darker than dry, but this is a
         /// multiply on top of the #900-tuned palette rather than a change
-        /// to it — so it must stay modest enough that it reads as wet
+        /// to it - so it must stay modest enough that it reads as wet
         /// ground and never as a different biome.
         pub const MOISTURE_STRENGTH: f32 = 0.28;
 
@@ -563,7 +563,7 @@ pub(crate) mod textures {
     pub const SPLAT: u32 = 512;
     /// General surface- and card-material resolution (pixels per side) for
     /// every procedural material baked through
-    /// `crate::world_builder::material::build_procedural_material` — catalogue
+    /// `crate::world_builder::material::build_procedural_material` - catalogue
     /// constructs, primitives, foliage cards, avatars. Halved from the old
     /// 512 to cut bake time and memory; close-up architecture is the main
     /// place the drop is visible, and the per-class split lets that be
@@ -583,15 +583,15 @@ pub(crate) mod textures {
 // ---------------------------------------------------------------------------
 /// Tuning for the foliage wind-sway vertex shader (#916).
 ///
-/// The motion is authored per *profile* — foliage hanging off an L-system
-/// plant sways differently from a hand-sized ground-cover card — and the two
+/// The motion is authored per *profile* - foliage hanging off an L-system
+/// plant sways differently from a hand-sized ground-cover card - and the two
 /// profiles differ only in these numbers; the shader itself has no branch.
 /// Direction and speed are not here: those come from the room's
 /// `Environment::cloud_wind_dir` / `cloud_speed`, so one wind drives the
 /// clouds and the foliage together.
 pub(crate) mod vegetation_wind {
     /// L-system foliage. `AMPLITUDE` is metres of lean at full weight, and
-    /// weight reaches 1 at `REFERENCE_HEIGHT` metres above the plant's base —
+    /// weight reaches 1 at `REFERENCE_HEIGHT` metres above the plant's base -
     /// so a leaf in a 4 m canopy travels about a hand's width, and one on a
     /// waist-high shrub barely moves.
     pub mod branch {
@@ -630,7 +630,7 @@ pub(crate) mod interaction {
     /// same avatar while the viewer has effects set to Reduced (#1221 f308).
     ///
     /// The sanitiser permits a `cooldown` of 0, and `stamp_decals` only
-    /// consults the cooldown when it is `> 0.0` — so a Dwell recipe with
+    /// consults the cooldown when it is `> 0.0` - so a Dwell recipe with
     /// zero stamps once per frame per avatar, which is what turns a
     /// permitted 64 m quad into a wall. A one-second floor keeps an
     /// authored effect legible and takes the per-frame case away.
@@ -638,7 +638,7 @@ pub(crate) mod interaction {
 
     /// Projected-decal stamper (consumer channel C). Per-recipe decal
     /// appearance (ttl / size / alpha / colour / normal offset) is
-    /// **PDS-authored** since #261 — see
+    /// **PDS-authored** since #261 - see
     /// [`crate::pds::DecalParams`] (whose `Default` is the canonical
     /// seed). The only knob left here is the engine-side population
     /// cap, which is a behaviour bound, not artistic per-room data.
@@ -659,7 +659,7 @@ pub(crate) mod interaction {
         /// dropped (never queued).
         pub const MAX_CONCURRENT_VOICES: usize = 24;
         /// Distance (m) between the spatial listener's ears, mounted on
-        /// the camera. Roughly a head width — Bevy's 4 m default is far
+        /// the camera. Roughly a head width - Bevy's 4 m default is far
         /// too wide and over-pans contact cues.
         pub const LISTENER_EAR_GAP: f32 = 0.3;
         /// Cap on a fetched audio clip body (bytes). Generous for a
@@ -709,8 +709,8 @@ pub(crate) mod network {
     /// as "this build predates the protocol handshake" (#1121).
     ///
     /// `Hello` rides the same reliable broadcast as `Identity`, once every
-    /// [`IDENTITY_BROADCAST_INTERVAL_TICKS`] ticks — one second at the 60 Hz
-    /// fixed step — plus one immediately on connect. Three seconds is
+    /// [`IDENTITY_BROADCAST_INTERVAL_TICKS`] ticks - one second at the 60 Hz
+    /// fixed step - plus one immediately on connect. Three seconds is
     /// therefore three chances missed, not one, so a slow handshake or a
     /// single dropped announce does not accuse a compatible peer. The cost of
     /// being wrong is one wrong chip on one row, and it corrects itself the
@@ -724,7 +724,7 @@ pub(crate) mod network {
     /// exactly the fixed timestep. The live value is therefore read from
     /// `Time<Fixed>` at plugin build (see
     /// [`crate::network::SmootherConfigRes::from_fixed_timestep`]) rather than
-    /// assumed here — that keeps the buffer's expected cadence provably equal
+    /// assumed here - that keeps the buffer's expected cadence provably equal
     /// to the real broadcast rate, so the synthetic playout clock cannot drift
     /// against wall clock and repeatedly slam the `MAX_JITTER_DRIFT_SECS`
     /// ceiling. This constant is used only as a fallback if `Time<Fixed>` is
@@ -735,7 +735,7 @@ pub(crate) mod network {
     /// runs faster than ours, `(last + expected).max(now)` would
     /// accumulate drift forever, eventually pushing the newest sample so
     /// far into the future that `now - KINEMATIC_RENDER_DELAY_SECS`
-    /// becomes older than every buffered sample — the Hermite spline
+    /// becomes older than every buffered sample - the Hermite spline
     /// then degenerates into a snap to the earliest sample and the
     /// remote mesh lags visibly.  The ceiling rebases drift to live
     /// wall-clock instead of letting it run away.
@@ -775,8 +775,8 @@ pub(crate) mod network {
     // `matchbox_socket` 0.14 nor `bevy_symbios_multiuser` 0.6 raises,
     // negotiates, or chunks around it (native advertises no
     // `a=max-message-size`, so browser peers cap browser→native at the same
-    // 64 KiB RFC-8841 default). The send is fire-and-forget — the app never
-    // sees the failure — so a full `RoomStateUpdate` for a heavily-authored
+    // 64 KiB RFC-8841 default). The send is fire-and-forget - the app never
+    // sees the failure - so a full `RoomStateUpdate` for a heavily-authored
     // room silently stops reaching guests. We therefore split large reliable
     // payloads into sub-ceiling chunks at the application layer and reassemble
     // them on the far side.
@@ -790,7 +790,7 @@ pub(crate) mod network {
     pub const RELIABLE_CHUNK_DATA_BYTES: usize = 48 * 1024;
 
     /// Absolute ceiling on a single reliable payload's serialized size. Past
-    /// this the broadcast is refused (logged + counted) rather than chunked —
+    /// this the broadcast is refused (logged + counted) rather than chunked -
     /// mirrors [`crate::pds::record_size::HARD_RECORD_CEILING_BYTES`] (a record
     /// this large cannot be published anyway) and stays under the multiuser
     /// crate's private 1 MiB bincode limit that would otherwise reject the
@@ -811,7 +811,7 @@ pub(crate) mod network {
     /// The budget used to count payload only, which a flooding peer walked
     /// straight past: a one-byte fragment with a fresh `msg_id` allocates a
     /// slot vector for the whole declared message plus a `Partial` and a
-    /// HashMap entry — some hundreds of bytes — and charged one byte for it.
+    /// HashMap entry - some hundreds of bytes - and charged one byte for it.
     /// The cap could therefore never be reached, and partials grew until the
     /// ten-second age sweep happened to catch them.
     ///
@@ -851,9 +851,9 @@ pub(crate) mod network {
     /// peer's references are tried again, and how far that wait doubles
     /// (#1113).
     ///
-    /// A reference that cannot resolve — a wardrobe rkey minted by "wear a
+    /// A reference that cannot resolve - a wardrobe rkey minted by "wear a
     /// fresh body" but not yet published, a deleted record, a PDS that is
-    /// down — used to be retried by every client in the room on every
+    /// down - used to be retried by every client in the room on every
     /// frame, because nothing recorded the failure: one peer with a
     /// dangling pointer turned every guest into a continuous load generator
     /// against `plc.directory` and a stranger's PDS. The backoff is per
@@ -872,13 +872,13 @@ pub(crate) mod network {
     /// alternating between two valid outfits presents a changed set every
     /// time. Each round trip then costs every guest in the room a DID
     /// document plus a wardrobe record plus up to sixteen attachments, to
-    /// hosts of the peer's choosing, on the shared `IoTaskPool` — the same
+    /// hosts of the peer's choosing, on the shared `IoTaskPool` - the same
     /// pool room loads, gifts and profile fetches queue on.
     ///
     /// So this floor is unconditional rather than "unless the set changed":
     /// a condition on the set is exactly what the alternating case defeats.
-    /// Five seconds is invisible to the legitimate case — a wearer's own
-    /// edits are already debounced and only need to arrive eventually —
+    /// Five seconds is invisible to the legitimate case - a wearer's own
+    /// edits are already debounced and only need to arrive eventually -
     /// and turns an unbounded amplifier into a bounded trickle.
     pub const RIG_RESOLVE_MIN_INTERVAL_SECS: f64 = 5.0;
     /// Ceiling for the doubling in [`RIG_RESOLVE_RETRY_BASE_SECS`]. A minute
@@ -887,14 +887,14 @@ pub(crate) mod network {
     /// visitor is still there.
     pub const RIG_RESOLVE_RETRY_MAX_SECS: f64 = 60.0;
 
-    /// First wait (seconds) before a failed per-peer fetch — the avatar
-    /// record, the bsky profile, the relationship query — is tried again,
+    /// First wait (seconds) before a failed per-peer fetch - the avatar
+    /// record, the bsky profile, the relationship query - is tried again,
     /// and how far that wait doubles (#1217/#1218).
     ///
     /// Each of those fetches used to be one-shot: spawned from a single
     /// site on the peer's DID resolving, with no failure state and no
     /// retry. One HTTP hiccup at join time therefore lasted the whole
-    /// session — a DID-seeded stranger standing in for the avatar someone
+    /// session - a DID-seeded stranger standing in for the avatar someone
     /// actually published, or a permanent "identifying…" on a peer who was
     /// talking to you. Doubling from two seconds keeps a transient blip
     /// invisible while an outage settles into a slow poll instead of a load
@@ -914,7 +914,7 @@ pub(crate) mod network {
     /// The public web profile for a DID (#1223 f291).
     ///
     /// The app has no report path of its own and its mute is machine-local,
-    /// so the escalation a user actually has is the one Bluesky provides —
+    /// so the escalation a user actually has is the one Bluesky provides -
     /// block and report at the ATProto layer, where they mean something
     /// beyond this client. `bsky.app` resolves a DID in the actor position
     /// exactly as it resolves a handle.
@@ -925,8 +925,8 @@ pub(crate) mod network {
     /// Seconds of silence from a peer before the roster says they are not
     /// responding (#1224 f335).
     ///
-    /// A peer entity was despawned by exactly ONE path — the transport's
-    /// `Disconnected` event — and the client had no liveness check of its
+    /// A peer entity was despawned by exactly ONE path - the transport's
+    /// `Disconnected` event - and the client had no liveness check of its
     /// own. So whenever the transport failed to report a drop (a wedged
     /// data channel, a suspended browser tab, a relay that loses a peer
     /// without closing the channel) a body stood frozen indefinitely,
@@ -943,8 +943,8 @@ pub(crate) mod network {
     /// same presence line the disconnect path writes (#1224 f335).
     ///
     /// Long, because the cost of being wrong is asymmetric: a peer wrongly
-    /// swept reappears on their next packet — `handle_peer_connections`
-    /// never saw them leave — but a body removed from under a conversation
+    /// swept reappears on their next packet - `handle_peer_connections`
+    /// never saw them leave - but a body removed from under a conversation
     /// is jarring. Two minutes is well past any transport hiccup and well
     /// short of "this room has been lying to me all session".
     pub const PEER_GHOST_SECS: f64 = 120.0;
@@ -981,7 +981,7 @@ pub(crate) mod network {
     /// for a large room, re-chunk) the whole record ~60×/s, flooding the
     /// ordered Reliable channel and stalling every other reliable message
     /// behind head-of-line blocking. The final drag state is always flushed,
-    /// so guests still converge on the released value — just ~7 Hz instead of
+    /// so guests still converge on the released value - just ~7 Hz instead of
     /// per-frame.
     pub const ROOM_BROADCAST_MIN_INTERVAL_SECS: f64 = 0.15;
 
@@ -989,7 +989,7 @@ pub(crate) mod network {
     /// screen before it is auto-declined and evicted. Without this, an
     /// ignored garbage offer would hold the busy-gate forever and lock the
     /// recipient out of receiving legitimate gifts for the rest of the
-    /// session — the dialog's anti-flood property "exactly one offer at a
+    /// session - the dialog's anti-flood property "exactly one offer at a
     /// time" turns into a denial-of-service vector when no human is watching
     /// to dismiss it. 90 s is long enough for an attentive user to read and
     /// respond; past that, declining on the user's behalf is friendlier than
@@ -1000,7 +1000,7 @@ pub(crate) mod network {
     /// before it is treated as abandoned and swept. A peer that goes
     /// offline, ignores the packet, or runs a modified client that drops
     /// the response would otherwise leave the sender's entry resident
-    /// forever — across a long session, that's an unbounded leak any
+    /// forever - across a long session, that's an unbounded leak any
     /// peer can provoke. Picked well above
     /// [`OFFER_DIALOG_TIMEOUT_SECS`] so a genuine reply (declined-on-
     /// timeout from the recipient) still races its own pending entry.
@@ -1008,8 +1008,8 @@ pub(crate) mod network {
 
     /// Maximum number of (DID → `AvatarRecord`) entries kept in
     /// `PeerAvatarCache`. The cache is only cleared on logout, so a
-    /// busy hub-room — or a malicious relay cycling thousands of
-    /// authenticated DIDs in and out — would otherwise grow the
+    /// busy hub-room - or a malicious relay cycling thousands of
+    /// authenticated DIDs in and out - would otherwise grow the
     /// resident set without bound across a long session. 256 covers
     /// the vast majority of real rooms (a portal-cluster hop brings
     /// in low-double-digit peers) while bounding worst-case memory.
@@ -1022,7 +1022,7 @@ pub(crate) mod network {
     /// more expensive one: each entry holds a decoded `Image` rather than a
     /// record. It is populated by every peer Identity and cleared only on
     /// logout, so a relay or peer set churning DIDs grew a guest's heap for
-    /// the length of the session — and wasm never returns heap to the OS.
+    /// the length of the session - and wasm never returns heap to the OS.
     /// Same bound as its sibling for the same reason: a portal-cluster hop
     /// brings in low-double-digit peers.
     pub const MAX_BSKY_PROFILE_CACHE_ENTRIES: usize = 256;
@@ -1034,7 +1034,7 @@ pub(crate) mod network {
     /// `AVATAR_ICON_PX` (18 logical px), so 64 covers 3.5× device pixel
     /// ratio with room to spare. What it replaces is what the source
     /// actually is: the bsky CDN resizes, but the wasm path fetches from
-    /// the DID's own PDS, where the blob is whatever the owner uploaded —
+    /// the DID's own PDS, where the blob is whatever the owner uploaded -
     /// up to the 4096 px decode cap, which is 64 MiB of RGBA for ONE
     /// entry. Storing the icon at icon size makes each entry 16 KiB, so
     /// the bound above is a few megabytes rather than gigabytes.
@@ -1055,7 +1055,7 @@ pub(crate) mod network {
     /// stops treating the outage as a hiccup and says so (#1215).
     ///
     /// At [`SERVICE_TOKEN_REFRESH_SECS`] apart, three in a row is a bit over
-    /// two minutes of a credential that cannot be renewed — comfortably past
+    /// two minutes of a credential that cannot be renewed - comfortably past
     /// any single transient PDS error, and still inside the window where the
     /// user's own remedy (sign in again) is worth offering before they have
     /// spent an hour building in a world they can no longer rejoin.
@@ -1066,7 +1066,7 @@ pub(crate) mod network {
     /// discovery. Without at least one STUN server the client gathers only
     /// host (and mDNS `.local`) candidates, so two peers on different networks
     /// can complete relay signalling yet never form a peer-to-peer data
-    /// channel — each then sees an empty region. STUN covers full-cone and
+    /// channel - each then sees an empty region. STUN covers full-cone and
     /// (port-)restricted-cone NATs; symmetric NAT additionally needs a TURN
     /// relay (see [`TURN`]). Peers on the same LAN connect via host candidates
     /// regardless, which is why the missing ICE config went unnoticed in
@@ -1081,7 +1081,7 @@ pub(crate) mod network {
     /// server and therefore needs provisioned credentials, so it is unset by
     /// default: fill in a deployed TURN endpoint + long-term credentials (or
     /// later wire them from runtime config) to reach peers that STUN alone
-    /// cannot — chiefly those behind symmetric NAT or UDP-blocking firewalls.
+    /// cannot - chiefly those behind symmetric NAT or UDP-blocking firewalls.
     /// An empty `url` runs STUN-only. `matchbox_socket` 0.14 exposes a single
     /// [`bevy_symbios_multiuser::prelude::RtcIceServerConfig`], so the TURN url
     /// shares the entry's credential with the STUN urls; browsers apply the
@@ -1155,7 +1155,7 @@ pub mod state {
     /// * **The Inventory panel's dirty check**, which was the real
     ///   ceiling and is not a wire limit at all. It built a whole-stash
     ///   `serde_json::Value` every frame the panel was open: 3.0 ms at 50
-    ///   items, 17.5 ms at 200 — past the entire 60 fps budget — and 33.9 ms
+    ///   items, 17.5 ms at 200 - past the entire 60 fps budget - and 33.9 ms
     ///   at 500. #1292 caches it on the resource's change tick, so an idle
     ///   panel now pays nothing and only an edit re-serializes.
     ///
@@ -1165,13 +1165,13 @@ pub mod state {
     /// next lever if the cap ever rises again.
     pub const MAX_INVENTORY_ITEMS: usize = 500;
 
-    /// Hard DoS bound `InventoryRecord::sanitize` truncates at — NOT the
+    /// Hard DoS bound `InventoryRecord::sanitize` truncates at - NOT the
     /// gameplay cap above (#841). Sanitize used to truncate straight to
     /// [`MAX_INVENTORY_ITEMS`] in lexicographic key order, silently
     /// deleting items the user had watched get saved (the alphabet chose
-    /// which). An over-cap legacy stash now survives the load — the
+    /// which). An over-cap legacy stash now survives the load - the
     /// Inventory window shows it red and blocks publishing until it's
-    /// pruned — while a hostile PDS still can't force an unbounded
+    /// pruned - while a hostile PDS still can't force an unbounded
     /// allocation. Matches the [`MAX_INVENTORY_LIST_PAGES`] fetch ceiling
     /// (6 pages × 100 records), so nothing the fetch can return is ever
     /// truncated.
@@ -1181,15 +1181,15 @@ pub mod state {
     /// inventory-item fetch walks before stopping (#696, raised for #1292).
     ///
     /// Six pages cover the [`MAX_INVENTORY_ITEMS`] cap with one page of
-    /// headroom — enough that an over-cap stash LOADS INTACT and can be
+    /// headroom - enough that an over-cap stash LOADS INTACT and can be
     /// pruned (#841's rule: never silently delete what the owner watched
-    /// get saved) — while a hostile PDS handing out endless cursors cannot
+    /// get saved) - while a hostile PDS handing out endless cursors cannot
     /// keep the client paging forever.
     ///
     /// **Page count is no longer the memory bound.** It used to be: each
     /// page is capped at `xrpc::MAX_FETCH_BODY_BYTES` (16 MiB) on its own,
     /// so raising 2 → 6 would have tripled what a malicious PDS could make
-    /// the client hold, from 32 MiB to 96 MiB — and on wasm the heap never
+    /// the client hold, from 32 MiB to 96 MiB - and on wasm the heap never
     /// shrinks, so that is permanent for the session. The walk carries one
     /// [`MAX_INVENTORY_FETCH_BYTES`] budget across all of its pages
     /// instead, which is *tighter* than the ceiling the two-page walk had.
@@ -1203,7 +1203,7 @@ pub mod state {
     /// with it.
     ///
     /// 24 MiB against a measured 4.2 MiB for 600 median items and 14 MiB
-    /// for 600 at the catalogue's p90 — headroom for a stash of unusually
+    /// for 600 at the catalogue's p90 - headroom for a stash of unusually
     /// heavy items, and still below the 32 MiB the old two-page walk
     /// allowed.
     pub const MAX_INVENTORY_FETCH_BYTES: usize = 24 * 1024 * 1024;
@@ -1225,7 +1225,7 @@ pub mod state {
 }
 
 // ---------------------------------------------------------------------------
-// Diagnostic suite (diagnostics/) — epic #588
+// Diagnostic suite (diagnostics/) - epic #588
 // ---------------------------------------------------------------------------
 pub(crate) mod diagnostics {
     /// In-memory ring-buffer capacity for the session-event stream. Larger
@@ -1239,7 +1239,7 @@ pub(crate) mod diagnostics {
     /// …or whenever this many un-flushed events have accrued, whichever first.
     pub const FLUSH_EVERY_N_EVENTS: usize = 64;
     /// Default directory (relative to the working dir) the native sink writes
-    /// to. Repo-root `diagnostics/` — git-ignored and, unlike `target/`,
+    /// to. Repo-root `diagnostics/` - git-ignored and, unlike `target/`,
     /// survives `cargo clean`, so an agent's post-mortem file is not wiped by
     /// an unrelated rebuild. Overridable via [`DIR_ENV`].
     /// Native only: the wasm build has no filesystem, so its sink is the
@@ -1257,7 +1257,7 @@ pub(crate) mod diagnostics {
     /// in-memory ring alone.
     #[cfg(not(target_arch = "wasm32"))]
     pub const DIR_ENV: &str = "SYMBIOS_DIAG_DIR";
-    /// Env var — set to `0` to disable native session-log persistence entirely
+    /// Env var - set to `0` to disable native session-log persistence entirely
     /// (tests / CI). The in-memory ring still works.
     /// Native only: the wasm build has no filesystem, so its sink is the
     /// in-memory ring alone.
@@ -1267,7 +1267,7 @@ pub(crate) mod diagnostics {
     /// A frame longer than this is a hitch worth recording individually
     /// (#1144). Six 60 Hz frames: long enough that ordinary scheduling jitter
     /// and a heavy-but-normal frame stay out of the histogram, short enough to
-    /// catch the sub-second stalls that actually matter now — a rigged-body
+    /// catch the sub-second stalls that actually matter now - a rigged-body
     /// install, a world-compile slice, a texture upload, an egui panel rebuild.
     pub const FRAME_HITCH_MS: f64 = 100.0;
 
@@ -1288,7 +1288,7 @@ pub(crate) mod avatar {
 // ---------------------------------------------------------------------------
 // HTTP client defaults (lib.rs, avatar.rs, social.rs, ui/login/, ui/room/)
 // ---------------------------------------------------------------------------
-/// Retry policy for room ASSET fetches — sign images, referenced textures,
+/// Retry policy for room ASSET fetches - sign images, referenced textures,
 /// terrain splat layers, ambient beds and contact audio cues (#1247).
 ///
 /// Separate constants from [`network::PEER_FETCH_RETRY_BASE_SECS`] even
@@ -1323,7 +1323,7 @@ pub(crate) mod http {
     pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
     /// Attempt to build a reqwest `Client` with connect + total-request
     /// timeouts and the project's User-Agent. Falls back to the default
-    /// client on builder failure — reqwest's default has no timeouts, so
+    /// client on builder failure - reqwest's default has no timeouts, so
     /// this is a conservative hardening rather than a correctness gate.
     pub fn default_client() -> reqwest::Client {
         let builder = reqwest::Client::builder().user_agent(super::avatar::USER_AGENT);
@@ -1347,7 +1347,7 @@ pub(crate) mod http {
             // pick it (#1154). The manifest asks for reqwest with
             // `default-features = false, features = ["rustls-tls"]`, but
             // proto-blue-common/oauth/xrpc depend on reqwest WITH defaults,
-            // which unifies `default-tls` back into the graph — and
+            // which unifies `default-tls` back into the graph - and
             // reqwest's `TlsBackend::default()` prefers native-tls whenever
             // `default-tls` is present. So every native PDS and OAuth
             // request went through OpenSSL while rustls sat linked and
@@ -1356,13 +1356,13 @@ pub(crate) mod http {
             // entirely, which is why this went unseen).
             //
             // This makes the runtime choice explicit. It does not remove
-            // OpenSSL from the binary — that needs proto-blue to declare
+            // OpenSSL from the binary - that needs proto-blue to declare
             // `default-features = false` upstream. `cargo tree -i openssl`
             // is in the doc-verification checklist so its return is noticed.
             .use_rustls_tls();
         // Not `unwrap_or_default()`: that silently substituted
-        // `Client::new()` — no timeout, no redirect policy, and default-tls
-        // — for the client this function is entirely about configuring.
+        // `Client::new()` - no timeout, no redirect policy, and default-tls
+        // - for the client this function is entirely about configuring.
         // A builder failure here is a broken build, not a runtime
         // condition to paper over, and every caller of this is on a path
         // where a silently unconfigured client is worse than a loud stop.
@@ -1403,7 +1403,7 @@ pub(crate) mod http {
     /// use and reused for every native HTTP `block_on` call. Replaces
     /// the per-request `Builder::new_current_thread().build()…block_on`
     /// boilerplate that used to be duplicated across ~18 fetch sites
-    /// — each of which paid for a fresh `mio` reactor, an epoll fd,
+    /// - each of which paid for a fresh `mio` reactor, an epoll fd,
     /// and a timer wheel only to drop them at the end of the call.
     ///
     /// `multi_thread` (not `current_thread`) so concurrent `block_on`s
@@ -1422,7 +1422,7 @@ pub(crate) mod http {
 
     /// Run `fut` to completion on the shared HTTP Tokio runtime,
     /// blocking the calling thread until it resolves. Use from inside an
-    /// `IoTaskPool::spawn(async move { … })` task on native — the pool
+    /// `IoTaskPool::spawn(async move { … })` task on native - the pool
     /// worker thread has no Tokio reactor of its own, and reqwest's
     /// async machinery needs one. On WASM the browser's fetch event
     /// loop drives futures directly, so this helper is native-only;
@@ -1439,14 +1439,14 @@ pub(crate) mod http {
     /// Before it, twenty call sites each hand-wrote the same
     /// `#[cfg(wasm32)] { fut.await } #[cfg(not)] { block_on(fut) }` fork,
     /// and the doc on [`default_client`] assigned wasm timeout enforcement
-    /// to "the caller" — which two of twenty callers actually did. The
+    /// to "the caller" - which two of twenty callers actually did. The
     /// other eighteen awaited a bare browser fetch, and a browser fetch has
     /// no idle-body timeout: a PDS that accepts a connection and then drips
     /// nothing leaves the corresponding task pending forever, while the
     /// native client self-heals at [`REQUEST_TIMEOUT`]. Since any DID you
     /// share a room with points the client at that user's PDS, a tarpit
     /// host could wedge avatar icons, terrain textures, inventory and the
-    /// login completion flow — on the deployed target, silently.
+    /// login completion flow - on the deployed target, silently.
     ///
     /// A `with_timeout` helper callers must *remember* to wrap around the
     /// wasm arm would have the same failure mode as the doc comment did.
@@ -1462,7 +1462,7 @@ pub(crate) mod http {
     /// Belt and braces behind [`run_or`]'s per-request bound: that races a
     /// browser timer inside the task, this watches the wall clock from
     /// outside it. Twice [`REQUEST_TIMEOUT`] so the inner bound always wins
-    /// a fair race — reaching this one means the task itself stopped
+    /// a fair race - reaching this one means the task itself stopped
     /// making progress, which no amount of waiting will fix, and an editor
     /// stuck on `Publishing` cannot save, log out or travel.
     pub const PUBLISH_TASK_DEADLINE: Duration = Duration::from_secs(REQUEST_TIMEOUT.as_secs() * 2);
@@ -1516,7 +1516,7 @@ pub(crate) mod login {
     pub const DEFAULT_RELAY_HOST: &str = "37.143.131.78.nip.io";
     pub const DEFAULT_TARGET_DID: &str = "";
     /// Where the login form's "New here?" link sends visitors without an
-    /// ATProto account — Bluesky's signup lives on its app root.
+    /// ATProto account - Bluesky's signup lives on its app root.
     pub const SIGNUP_URL: &str = "https://bsky.app";
 }
 
@@ -1525,7 +1525,7 @@ pub(crate) mod login {
 // ---------------------------------------------------------------------------
 pub(crate) mod ui {
     pub mod chat {
-        /// How long a chat message may be, in CHARACTERS — the limit the
+        /// How long a chat message may be, in CHARACTERS - the limit the
         /// user is held to, and the one the counter and the field's own
         /// `char_limit` are derived from.
         ///
@@ -1534,7 +1534,7 @@ pub(crate) mod ui {
         /// UTF-8 string: 512 Latin characters, about 256 of Greek,
         /// Cyrillic, Hebrew or Arabic, about 170 CJK and about 128 emoji.
         /// A Japanese writer got a third of the message length everyone
-        /// else got, with no counter, no `char_limit` and no warning —
+        /// else got, with no counter, no `char_limit` and no warning -
         /// they learned about it by watching their own sentence get
         /// amputated in their own HUD, on both sides silently.
         pub const MAX_MESSAGE_CHARS: usize = 512;
@@ -1549,7 +1549,7 @@ pub(crate) mod ui {
         ///
         /// Four bytes per permitted character, which is the most UTF-8
         /// can spend on one, so a message the sender was allowed to write
-        /// can never be clipped by this on arrival —
+        /// can never be clipped by this on arrival -
         /// `the_wire_ceiling_cannot_truncate_a_permitted_message` holds
         /// that. The peer-side cost this bounds went up 4x with it and is
         /// still far below what the rolling history cap allows.
@@ -1566,8 +1566,8 @@ pub(crate) mod ui {
         /// rolling cap above is what makes it destructive: 500 messages
         /// evict the room's entire prior conversation, permanently, before
         /// the victim can reach a mute control two windows away. A burst of
-        /// eight covers every legitimate pattern — a pasted multi-line
-        /// thought sent as several lines, two people answering at once —
+        /// eight covers every legitimate pattern - a pasted multi-line
+        /// thought sent as several lines, two people answering at once -
         /// and costs a flooder their whole advantage.
         pub const BURST_MESSAGES: f64 = 8.0;
         /// Sustained rate (messages per second) the bucket refills at. One
@@ -1581,13 +1581,13 @@ pub(crate) mod ui {
         pub const THROTTLE_REPORT_INTERVAL_SECS: f64 = 10.0;
         // Author + mutual colours moved to the semantic theme (#856):
         // author tag = `status.info`, mutual star = `accent` (the old
-        // warm gold sat in the warn-amber family — a friend must not
+        // warm gold sat in the warn-amber family - a friend must not
         // read as a caution). The `★` glyph still carries the mutual cue
         // for colour-blind viewers / greyscale captures.
     }
 
     // Window geometry (positions AND default sizes) lives in
-    // `crate::ui::layout` since #833 — defaults are computed from the
+    // `crate::ui::layout` since #833 - defaults are computed from the
     // screen rect there, not pixel constants here.
 
     /// Where the Feedback affordance sends people (#1291).
@@ -1597,7 +1597,7 @@ pub(crate) mod ui {
     /// `app.userinput.discussion` one, living in the same repo as this
     /// project's own `network.symbios.overlands.*` records. So a person
     /// who can sign in to Overlands can already post here with the
-    /// identity they arrived with — which is why the affordance is worth
+    /// identity they arrived with - which is why the affordance is worth
     /// having on the login screen as well as in game.
     ///
     /// The DID is the owner's and the rkey is the space record's, so the
@@ -1612,13 +1612,13 @@ pub(crate) mod ui {
     /// 0.8 is the smallest step that still leaves the 9-to-11 pt `Small`
     /// tier readable; 2.0 is where the 1280x720 toolbar's ~1100 pt of
     /// non-wrapping controls stop fitting at all (see #1261). Both ends
-    /// have to stay reachable BY THE SLIDER — a scale a user cannot undo
+    /// have to stay reachable BY THE SLIDER - a scale a user cannot undo
     /// from inside the app is a lockout.
     pub const UI_SCALE_MIN: f32 = 0.8;
     pub const UI_SCALE_MAX: f32 = 2.0;
 
     pub mod diagnostics {
-        /// Severity → HUD colour `[R, G, B]` — the single map the diagnostics
+        /// Severity → HUD colour `[R, G, B]` - the single map the diagnostics
         /// event-log tint, the anomaly badges/pills, the per-metric dots and the
         /// toolbar worst-active dot all read (C-6), so a warning is the same
         /// amber everywhere. Trace/Info are neutral greys; Warn amber, Error
@@ -1626,18 +1626,18 @@ pub(crate) mod ui {
         ///
         /// **Widened by #1259 f236.** The old ramp was three oranges: Warn
         /// `[210,170,90]` and Error `[210,120,90]` were identical in R and B,
-        /// 50 apart in G, a 1.47:1 luminance ratio — and Error and Critical
+        /// 50 apart in G, a 1.47:1 luminance ratio - and Error and Critical
         /// were 40 apart in channel-sum. Severity was legible only to
         /// somebody comparing two dots side by side. The steps now clear the
         /// palette's own distinctness bar AND fall monotonically in
         /// luminance (Warn 0.557 → Error 0.307 → Critical 0.182), so the
         /// ramp still ranks correctly in greyscale or under any of the
-        /// dichromacies — hue is no longer carrying it alone.
+        /// dichromacies - hue is no longer carrying it alone.
         ///
         /// Trace was `[96,96,96]`: 2.71:1 against the window, under WCAG's
         /// 3:1 floor, on a tier that tints whole event-log lines.
         ///
-        /// **Info quietened by #1271 f184.** It was `[220,220,220]` —
+        /// **Info quietened by #1271 f184.** It was `[220,220,220]` -
         /// 12.56:1 on the dark window against the Warn tier's 9.95:1, so
         /// the routine chatter was the brightest thing in the event log
         /// and an alarm line was quieter than the noise around it. An
@@ -1659,14 +1659,14 @@ pub(crate) mod ui {
         // backdrop gradient stops live there too (#896). Only geometry
         // stays here. The login screen (#896) is composed of a hero
         // wordmark plus two frameless cards centred as a pair from the
-        // live screen rect — the same screen-relative philosophy as
+        // live screen rect - the same screen-relative philosophy as
         // `ui::layout` (#833), but computed locally since the login
         // screen has no toolbar carving the rect and no drag-to-move.
         /// Height (px) of the full-width "Enter the Overlands" button.
         /// Tall enough to read as the screen's primary call to action,
         /// not just another control.
         pub const ENTER_BUTTON_HEIGHT: f32 = 44.0;
-        /// Button label text size (px) — larger than body text to
+        /// Button label text size (px) - larger than body text to
         /// match the enlarged hit area.
         pub const ENTER_BUTTON_TEXT_SIZE: f32 = 18.0;
 
@@ -1685,7 +1685,7 @@ pub(crate) mod ui {
         pub const CARD_CORNER_RADIUS: f32 = 8.0;
         /// Top of the hero wordmark, as a fraction of screen height.
         pub const HERO_TOP_FRAC: f32 = 0.12;
-        /// Top of the card pair, as a fraction of screen height —
+        /// Top of the card pair, as a fraction of screen height -
         /// clamped below the hero's actual bottom edge at render time
         /// so short viewports never overlap the two.
         pub const CARDS_TOP_FRAC: f32 = 0.28;
@@ -1700,7 +1700,7 @@ pub(crate) mod ui {
         pub const WORDMARK_TEXT_SIZE: f32 = 32.0;
         /// Hero tagline text size (px).
         pub const TAGLINE_TEXT_SIZE: f32 = 15.0;
-        /// Feed-card heading text size (px) — the card lost its window
+        /// Feed-card heading text size (px) - the card lost its window
         /// title bar (#896), so the heading renders in the body.
         pub const FEED_HEADING_TEXT_SIZE: f32 = 16.0;
         /// Padding inside the "New world" backdrop-re-roll chip (#978).
@@ -1728,7 +1728,7 @@ pub(crate) mod ui {
 
         /// Seconds between refreshes of the record-size readout in the
         /// shared Save/Load/Reset row (#694). Each refresh serializes the
-        /// full live record to count its bytes — cheap enough at 2 Hz even
+        /// full live record to count its bytes - cheap enough at 2 Hz even
         /// for a large room record, wasteful at 60 Hz.
         pub const SIZE_READOUT_REFRESH_SECS: f64 = 0.5;
 
@@ -1737,7 +1737,7 @@ pub(crate) mod ui {
         /// record clone.
         ///
         /// This used to say "typically under the 100 KiB publish soft
-        /// budget — so 32 bounds a ring at a few MiB". It does not:
+        /// budget - so 32 bounds a ring at a few MiB". It does not:
         /// [`crate::pds::record_size::SOFT_RECORD_BUDGET_BYTES`] measures
         /// the largest single PUBLISHED record after the manifest/child
         /// split (#697), while the ring stores the ASSEMBLED in-memory
@@ -1753,21 +1753,21 @@ pub(crate) mod ui {
         ///
         /// 8 MiB. The heaviest seeded default assembles to 348.6 KiB, so
         /// this holds a little over twenty of the worst case the
-        /// catalogue can produce and all 33 of anything ordinary — the
+        /// catalogue can produce and all 33 of anything ordinary - the
         /// bound only bites on a room far bigger than anything shipped,
         /// which is exactly when it needs to.
         ///
         /// Measured on the SERIALIZED form, which is a lower bound on the
         /// in-memory cost (`String`s, `Vec` capacity slack, a `HashMap`'s
         /// table). Wrong in the safe direction, and it matters most on
-        /// wasm, where a transient high-water mark is permanent — the
+        /// wasm, where a transient high-water mark is permanent - the
         /// linear heap never gives memory back.
         pub const UNDO_RING_BUDGET_BYTES: usize = 8 * 1024 * 1024;
 
         /// Undoable steps the byte budget may never trim below (#1270
         /// f417). A single record larger than [`UNDO_RING_BUDGET_BYTES`]
         /// on its own would otherwise evict the ring down to the
-        /// baseline, which is a silent removal of undo — and undo matters
+        /// baseline, which is a silent removal of undo - and undo matters
         /// most in exactly the enormous world that would trigger it.
         pub const MIN_UNDO_DEPTH: usize = 2;
     }
@@ -1780,7 +1780,7 @@ pub(crate) mod ui {
         pub const DURATION_SECS: f64 = 6.0;
 
         /// Queue cap: a burst past this drops the oldest entry. Toasts
-        /// are glanceable feedback, not a log — the diagnostics event
+        /// are glanceable feedback, not a log - the diagnostics event
         /// log is the durable record.
         pub const MAX_VISIBLE: usize = 6;
 
@@ -1803,7 +1803,7 @@ pub(crate) mod ui {
         ///
         /// **Why not a corner at all.** #1261 f43 moved the stack off the
         /// top-RIGHT because every right-anchored window in `ui::layout`
-        /// — Chat, People, Inventory, Controls, Settings — opens in that
+        /// - Chat, People, Inventory, Controls, Settings - opens in that
         /// corner, and the toast area is a real pointer area at
         /// `Order::Foreground`, so a stack of up to [`MAX_VISIBLE`] rows
         /// covered their title bars and ate clicks for the toast's full
@@ -1813,13 +1813,13 @@ pub(crate) mod ui {
         /// feedback was in the far corner of a 5760-wide desktop.
         ///
         /// Centre-top is where a user is already looking and no window
-        /// slot claims it — `SlotAnchor` is Left, Right or CenterLeft,
+        /// slot claims it - `SlotAnchor` is Left, Right or CenterLeft,
         /// and a CenterLeft editor's title bar starts well left of centre.
         ///
         /// 44 and not 8: `ui::modes`' movement-mode banner sits at the
         /// panel-free top + 8 with a popup frame, and it is a standing
         /// state cue that a transient message should not sit on top of.
-        /// Measured from the PANEL-FREE rect, not `content_rect` — an
+        /// Measured from the PANEL-FREE rect, not `content_rect` - an
         /// anchored `Area` aligns within `content_rect`, which INCLUDES
         /// the toolbar panel, which is why anything anchored `CENTER_TOP`
         /// lands underneath it (the same trap `ui::layout`'s header
@@ -1831,10 +1831,10 @@ pub(crate) mod ui {
     /// the ground ring that shows where an armed drag will land.
     pub mod drop_preview {
         /// Ring + post colour when the release would place here
-        /// [R, G, B, A] — the blob-edit "add" green family.
+        /// [R, G, B, A] - the blob-edit "add" green family.
         pub const VALID_COLOR: [f32; 4] = [0.15, 0.85, 0.30, 0.9];
         /// Ring colour when the ground under the cursor can't take the
-        /// drop (visiting someone else's overland) — the "carve" red.
+        /// drop (visiting someone else's overland) - the "carve" red.
         pub const INVALID_COLOR: [f32; 4] = [0.90, 0.15, 0.15, 0.9];
         /// Footprint radius when the dragged item has no catalogue
         /// clearance metadata (inventory blueprints).
@@ -1845,7 +1845,7 @@ pub(crate) mod ui {
 
     /// Gizmo snap increments (`crate::editor_gizmo::GizmoFramePref`,
     /// #827): the defaults the Snap toggle starts from. Chosen for
-    /// building-scale alignment work — half-metre grid, 15° angles
+    /// building-scale alignment work - half-metre grid, 15° angles
     /// (24 stops per turn), quarter scale steps.
     pub mod gizmo_snap {
         pub const DISTANCE_M: f32 = 0.5;
@@ -1858,7 +1858,7 @@ pub(crate) mod ui {
     /// resolved.
     pub mod face_pick {
         /// Wireframe colour [R, G, B, A] for the picked face's triangles.
-        /// Cyan — deliberately none of the neighbouring signals: not the
+        /// Cyan - deliberately none of the neighbouring signals: not the
         /// selection box's amber, not the blob proxies' add-green /
         /// carve-red, not the wireframe's blue-grey.
         pub const HIGHLIGHT_COLOR: [f32; 4] = [0.25, 0.95, 1.0, 0.9];
@@ -1898,12 +1898,12 @@ pub(crate) mod ui {
 
         /// Where the fade begins. The band between this and
         /// [`MAX_DISTANCE_M`] exists so a tag thins out as its owner
-        /// walks away instead of blinking off mid-stride — a hard cutoff
+        /// walks away instead of blinking off mid-stride - a hard cutoff
         /// reads as a bug in exactly the frame the user is watching.
         pub const FADE_START_M: f32 = 35.0;
 
         /// Least alpha a drawn tag is given, so the fade never bottoms out
-        /// into "present but invisible" — below this the tag is dropped.
+        /// into "present but invisible" - below this the tag is dropped.
         pub const MIN_ALPHA: f32 = 0.15;
 
         /// Clearance between the top of a peer's rendered bounds and the
@@ -1913,7 +1913,7 @@ pub(crate) mod ui {
         pub const HEAD_CLEARANCE_M: f32 = 0.35;
 
         /// Height above the chassis origin used when a peer has no
-        /// rendered bounds yet — a body still resolving from the PDS, or
+        /// rendered bounds yet - a body still resolving from the PDS, or
         /// a chassis whose meshes have not spawned. Roughly a person plus
         /// the clearance above; the tag is the only thing on screen for
         /// that peer, so it must not fall to the origin.
@@ -1935,14 +1935,14 @@ pub(crate) mod ui {
     /// #822 / W5): wire boxes around what the gizmo will affect.
     pub mod selection_highlight {
         /// Box colour [R, G, B, A] for the selected node's subtree on the
-        /// gizmo-hosting instance. Warm amber — the classic selection
+        /// gizmo-hosting instance. Warm amber - the classic selection
         /// accent, distinct from the blob proxies' add-green/carve-red
         /// and the wireframe's cool blue-grey.
         pub const SELECTED_COLOR: [f32; 4] = [1.0, 0.82, 0.25, 0.95];
 
         /// Box colour for the OTHER live instances of the same blueprint
         /// node (a scattered generator edits every instance at once, so
-        /// the blast radius is shown honestly — but dimly, one box per
+        /// the blast radius is shown honestly - but dimly, one box per
         /// instance, so a 50-house scatter reads as context rather than
         /// noise).
         pub const SIBLING_COLOR: [f32; 4] = [1.0, 0.82, 0.25, 0.25];
@@ -1956,16 +1956,16 @@ pub(crate) mod ui {
     /// gizmo-draggable per-element proxies (`crate::editor_gizmo::blob`).
     pub mod blob_edit {
         /// Additive-element proxy tint [R, G, B, A] (linear-ish sRGB floats).
-        /// Green — "this element adds material". Alpha keeps the evaluated
+        /// Green - "this element adds material". Alpha keeps the evaluated
         /// wireframe surface readable through the proxy.
         pub const PROXY_ADD_COLOR: [f32; 4] = [0.15, 0.85, 0.30, 0.28];
-        /// Carve-element proxy tint. Red — "this element removes material".
+        /// Carve-element proxy tint. Red - "this element removes material".
         /// Slightly more opaque than [`PROXY_ADD_COLOR`]: carves sit inside
         /// the accumulated surface, so they need the extra presence to read
         /// through the wireframe shell.
         pub const PROXY_CARVE_COLOR: [f32; 4] = [0.90, 0.15, 0.15, 0.34];
         /// Alpha override applied to whichever element is selected for
-        /// gizmo editing — same hue as its band, unmistakably brighter.
+        /// gizmo editing - same hue as its band, unmistakably brighter.
         pub const PROXY_SELECTED_ALPHA: f32 = 0.55;
         /// Wireframe line colour [R, G, B] of the swapped-in edge mesh. A
         /// cool pale blue-grey: visible against terrain, sky and the
@@ -1987,7 +1987,7 @@ pub(crate) mod ui {
 // Invariants
 // ---------------------------------------------------------------------------
 // The cross-constant relationships this file's doc comments promise, as
-// compile-time assertions — a violation is a build failure, not a test
+// compile-time assertions - a violation is a build failure, not a test
 // failure, so it cannot be reached on any platform.
 //
 // This is the half of #1157 that deletion could not fix. The dead-code lint
@@ -2006,13 +2006,13 @@ const _: () = assert!(state::MAX_INVENTORY_LIST_PAGES * 100 <= state::MAX_INVENT
 
 // The fetch must be able to READ BACK a full stash (#1292). Without this a
 // raise to MAX_INVENTORY_ITEMS alone would let the owner save items that the
-// next login silently drops on the floor — the walk stops after
+// next login silently drops on the floor - the walk stops after
 // MAX_INVENTORY_LIST_PAGES with no signal that a cursor remained.
 const _: () = assert!(state::MAX_INVENTORY_LIST_PAGES * 100 >= state::MAX_INVENTORY_ITEMS);
 
 // "Page count is no longer the memory bound" (#1292). Per-page caps MULTIPLY:
 // each page may spend MAX_FETCH_BODY_BYTES, so the two-page walk this replaced
-// allowed 32 MiB and six pages would allow 96 MiB — and on wasm the heap never
+// allowed 32 MiB and six pages would allow 96 MiB - and on wasm the heap never
 // shrinks, so a login-time spike is resident for the session. The walk's own
 // budget must stay tighter than what two pages already allowed…
 const _: () =
@@ -2025,7 +2025,7 @@ const _: () = assert!(
 );
 
 // "Four pages cover the sanitize::limits::MAX_GENERATORS = 256 room cap with
-// headroom" — a claim about a number in another file, which has been raised
+// headroom" - a claim about a number in another file, which has been raised
 // once already.
 const _: () =
     assert!(state::MAX_ROOM_GENERATOR_PAGES * 100 >= crate::pds::sanitize::limits::MAX_GENERATORS);
@@ -2056,7 +2056,7 @@ mod http_client_tests {
 
     /// The regression this closes is not a wrong value but a silent one.
     /// `default_client` ended in `builder.build().unwrap_or_default()`, so
-    /// any builder failure produced `Client::new()` instead — no request
+    /// any builder failure produced `Client::new()` instead - no request
     /// timeout, no redirect policy, and reqwest's default TLS backend,
     /// which is the OpenSSL path this function exists to steer away from.
     /// Every hardening choice above would have been discarded without a
@@ -2075,8 +2075,8 @@ mod http_client_tests {
 
     /// `use_rustls_tls` is feature-gated in reqwest, so this is really a
     /// compile-time assertion with a runtime shell: if someone resolves
-    /// #1154 the other way — dropping `rustls-tls` from the manifest and
-    /// accepting OpenSSL — this stops compiling rather than quietly
+    /// #1154 the other way - dropping `rustls-tls` from the manifest and
+    /// accepting OpenSSL - this stops compiling rather than quietly
     /// changing which TLS stack the client speaks.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]

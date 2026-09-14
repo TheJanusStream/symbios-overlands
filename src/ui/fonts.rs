@@ -4,11 +4,11 @@
 //! glyphs, so a Chinese/Japanese/Korean chat message or profile string
 //! rendered as tofu. The fix has two halves:
 //!
-//! * **Base font** — Noto Sans Regular (Latin/Cyrillic/Greek, ~600 KB)
+//! * **Base font** - Noto Sans Regular (Latin/Cyrillic/Greek, ~600 KB)
 //!   is compiled in via `include_bytes!` and installed at startup as
 //!   the primary proportional font, with egui's embedded fonts kept as
 //!   fallback tail ([`build_font_definitions`]).
-//! * **CJK fallback** — Noto Sans CJK SC (~16 MB) is far too heavy to
+//! * **CJK fallback** - Noto Sans CJK SC (~16 MB) is far too heavy to
 //!   compile in (it would triple the wasm download), so it ships as a
 //!   plain asset (`assets/fonts/`) and loads lazily: the first time a
 //!   CJK code point is sighted ([`detect_script_needs`]), the file is
@@ -18,13 +18,13 @@
 //!
 //! `ctx.set_fonts` is a full atlas swap, so the state machine
 //! ([`CjkFonts`]) guarantees it happens at most twice per session
-//! (base install, CJK upgrade) — never per frame.
+//! (base install, CJK upgrade) - never per frame.
 //!
 //! **"Brief tofu-then-correct" is the native account of the CJK load.**
 //! On wasm it is a ~16 MB download raced against a three-minute timeout,
 //! which on a slow link is neither brief nor obviously a font at all, and
 //! a missing asset leaves the session in a terminal `Failed`. None of
-//! that is worth blocking a session over — but it is worth *saying*, so
+//! that is worth blocking a session over - but it is worth *saying*, so
 //! the transitions reach the toast channel through [`surface_font_status`]
 //! rather than the log alone (#1262 f361).
 //!
@@ -32,7 +32,7 @@
 //!
 //! **No face for Hebrew, Arabic, Thai or the Indic scripts.** The base
 //! font is Latin/Cyrillic/Greek, egui's embedded tail adds Ubuntu-Light
-//! and two emoji faces, and the one fetchable fallback is CJK — so those
+//! and two emoji faces, and the one fetchable fallback is CJK - so those
 //! scripts are tofu for the whole session with no trigger that could
 //! change it. Shipping the faces is an asset-weight decision for the
 //! owner, not something this module can take on its own; what it does
@@ -41,11 +41,11 @@
 //! **No bidi, so do not ship an RTL face without reading this.** epaint
 //! 0.35 shapes through harfrust and guesses segment properties, so a
 //! single-script Arabic or Hebrew run joins and orders correctly once a
-//! covering face exists — but there is no bidirectional *reordering*
+//! covering face exists - but there is no bidirectional *reordering*
 //! across runs (the TODO is epaint's own, at `text/font.rs:830`, and
 //! `text_layout.rs` records that run segmentation "would need
 //! script-aware splitting once RTL/bidi support is added"). A mixed
-//! line — an Arabic name beside a Latin handle or a digit — therefore
+//! line - an Arabic name beside a Latin handle or a digit - therefore
 //! comes out in logical segment order, which is wrong. Adding an RTL
 //! face without fixing that trades empty boxes for confidently wrong
 //! text, which is harder for a reader to diagnose, not easier. Whoever
@@ -65,17 +65,17 @@ use bevy::prelude::*;
 use bevy::tasks::Task;
 use bevy_egui::{EguiContexts, egui};
 
-/// Noto Sans Regular, compiled in. OFL-1.1 — see `assets/fonts/README.md`.
+/// Noto Sans Regular, compiled in. OFL-1.1 - see `assets/fonts/README.md`.
 const BASE_FONT: &[u8] = include_bytes!("../../assets/fonts/NotoSans-Regular.ttf");
 
 /// Runtime path of the CJK fallback, relative to the app root on both
 /// targets (native: the working directory; wasm: the deploy origin,
-/// resolved against `window.location` by `cjk_font_url` — a plain
+/// resolved against `window.location` by `cjk_font_url` - a plain
 /// code reference, as that helper only exists on wasm builds).
 const CJK_FONT_ASSET_PATH: &str = "assets/fonts/NotoSansCJKsc-Regular.otf";
 
-/// Wall-clock cap on the wasm font fetch. Generous — the OTF is ~16 MB
-/// and a slow link is still worth waiting out — but bounded, because
+/// Wall-clock cap on the wasm font fetch. Generous - the OTF is ~16 MB
+/// and a slow link is still worth waiting out - but bounded, because
 /// browser reqwest has no builder timeout and a hung fetch would pin
 /// the state machine in `Fetching` forever (same rationale as #849's
 /// record-fetch race).
@@ -84,11 +84,11 @@ const CJK_FETCH_TIMEOUT_SECS: u64 = 180;
 
 /// Lazy-CJK state machine. At most one fetch per session; `Failed` is
 /// terminal (a retry loop against a missing asset would just spam the
-/// network/log — the operator fixes the deploy and the next session
+/// network/log - the operator fixes the deploy and the next session
 /// picks it up).
 #[derive(Default)]
 pub enum CjkStatus {
-    /// No CJK text seen yet — nothing loaded.
+    /// No CJK text seen yet - nothing loaded.
     #[default]
     Dormant,
     /// CJK text seen; the font bytes are on their way.
@@ -131,7 +131,7 @@ fn needs_cjk(text: &str) -> bool {
 /// The bundled base font is Latin/Cyrillic/Greek and the only fallback
 /// that can ever be fetched is the CJK OTF, so every script listed here
 /// is tofu for the whole session. `sample` is probe data for
-/// `the_unsupported_script_table_names_real_gaps`, never drawn — the
+/// `the_unsupported_script_table_names_real_gaps`, never drawn - the
 /// guard asks the real charmaps whether the gap is still a gap, so a
 /// font change that closes one fails the test instead of leaving a
 /// message that lies to the user.
@@ -142,7 +142,7 @@ struct ScriptGap {
     ///
     /// Test-only by design: it exists so the guard can ask the real
     /// charmaps whether this row is still true, and a deliberately
-    /// *assigned letter* is the probe — deriving one from the block's low
+    /// *assigned letter* is the probe - deriving one from the block's low
     /// bound would often land on an unassigned or combining code point,
     /// which no face owns and which would therefore pass vacuously.
     #[cfg_attr(not(test), allow(dead_code))]
@@ -289,7 +289,7 @@ fn unsupported_script(text: &str) -> Option<&'static str> {
 }
 
 /// Build the app's font set: Noto Sans primary, egui's embedded fonts
-/// as tail, plus — once loaded — the CJK fallback at the very end of
+/// as tail, plus - once loaded - the CJK fallback at the very end of
 /// both families.
 pub(crate) fn build_font_definitions(cjk: Option<Vec<u8>>) -> egui::FontDefinitions {
     let mut defs = egui::FontDefinitions::default();
@@ -322,8 +322,8 @@ pub(crate) fn build_font_definitions(cjk: Option<Vec<u8>>) -> egui::FontDefiniti
 /// f243).
 ///
 /// 9 pt was the app's floor and it was reserved for exactly the text a
-/// confused user most needs to read: the whole toast body — the only
-/// success/failure channel there is — the login *Details* disclosure
+/// confused user most needs to read: the whole toast body - the only
+/// success/failure channel there is - the login *Details* disclosure
 /// carrying the raw error chain, anomaly descriptions tinted with the
 /// severity ramp, the peer build-incompatibility chip and the avatar
 /// recovery banner. There are ~100 `.small()` call sites and the three
@@ -449,7 +449,7 @@ fn chat_sources(chat: &crate::state::ChatHistory) -> impl Iterator<Item = &str> 
 ///
 /// Two kinds of source, and which one a surface belongs to is a cost
 /// question. **Change-gated ECS arms** carry text that is small and
-/// rarely rewritten — the chat scrollback and its draft, the login feed,
+/// rarely rewritten - the chat scrollback and its draft, the login feed,
 /// peer handles, a mutuals listing, the one open gift dialog, the item
 /// names in the stash. **The drawn-text channel**
 /// ([`note_drawn_text`]) carries everything else: drafts that live in
@@ -458,8 +458,8 @@ fn chat_sources(chat: &crate::state::ChatHistory) -> impl Iterator<Item = &str> 
 /// a record-wide scan a permanent per-frame cost. The channel is bounded
 /// by what is on screen, which is the right bound.
 ///
-/// The CJK half latches — once the fetch starts there is nothing left to
-/// detect — while the script-gap half keeps watching, because a second
+/// The CJK half latches - once the fetch starts there is nothing left to
+/// detect - while the script-gap half keeps watching, because a second
 /// unsupported script can turn up at any point in a session.
 #[allow(clippy::too_many_arguments)]
 pub fn detect_script_needs(
@@ -536,7 +536,7 @@ pub fn detect_script_needs(
     }
 
     if hit_cjk {
-        info!("CJK text sighted — loading the CJK font fallback");
+        info!("CJK text sighted - loading the CJK font fallback");
         cjk.status = CjkStatus::Fetching;
         cjk.task = Some(spawn_cjk_load());
     }
@@ -547,9 +547,9 @@ pub fn detect_script_needs(
         && !gaps.reported.contains(name)
     {
         gaps.reported.insert(name);
-        warn!("{name} text sighted; no bundled or fetchable face covers it — it renders as tofu");
+        warn!("{name} text sighted; no bundled or fetchable face covers it - it renders as tofu");
         toasts.warn(
-            format!("{name} text can't be shown — this app bundles no font for that script."),
+            format!("{name} text can't be shown - this app bundles no font for that script."),
             time.elapsed_secs_f64(),
         );
     }
@@ -572,11 +572,11 @@ pub(crate) fn status_toast(
     match status {
         CjkStatus::Fetching if slow_load => Some((
             crate::notify::ToastKind::Info,
-            "Loading the font for this text — it is a large download and may take a moment.",
+            "Loading the font for this text - it is a large download and may take a moment.",
         )),
         CjkStatus::Failed => Some((
             crate::notify::ToastKind::Warn,
-            "Some text can't be displayed — the font for it failed to load. It will stay as \
+            "Some text can't be displayed - the font for it failed to load. It will stay as \
              empty boxes until you reload.",
         )),
         _ => None,
@@ -589,8 +589,8 @@ pub(crate) fn status_toast(
 /// Every transition used to report to the log alone, so a 16 MB fetch, a
 /// 180-second timeout and a permanently failed load were all indis-
 /// tinguishable from a rendering bug. The resource is only marked
-/// changed by a real transition — the idle poll bypasses change
-/// detection — so this fires once per transition, not per frame.
+/// changed by a real transition - the idle poll bypasses change
+/// detection - so this fires once per transition, not per frame.
 pub fn surface_font_status(
     cjk: Res<CjkFonts>,
     mut toasts: ResMut<crate::notify::Toasts>,
@@ -646,7 +646,7 @@ fn spawn_cjk_load() -> Task<Result<Vec<u8>, String>> {
     }
 }
 
-/// Absolute URL of the CJK asset next to the served page — derived from
+/// Absolute URL of the CJK asset next to the served page - derived from
 /// `window.location` so it works on any origin/path the app deploys to.
 #[cfg(target_arch = "wasm32")]
 fn cjk_font_url() -> Option<String> {
@@ -672,7 +672,7 @@ pub fn poll_cjk_fetch(mut contexts: EguiContexts, mut cjk: ResMut<CjkFonts>) {
     match result {
         Ok(bytes) => {
             let Ok(ctx) = contexts.ctx_mut() else {
-                // No context this frame — reinstall the finished bytes as
+                // No context this frame - reinstall the finished bytes as
                 // a fresh one-shot task result next frame would be more
                 // machinery than the case deserves; just fail closed.
                 warn!("CJK font loaded but no egui context to install into");
@@ -685,7 +685,7 @@ pub fn poll_cjk_fetch(mut contexts: EguiContexts, mut cjk: ResMut<CjkFonts>) {
         }
         Err(e) => {
             warn!(
-                "CJK font load failed — CJK text will render as tofu this session: {e} \
+                "CJK font load failed - CJK text will render as tofu this session: {e} \
                  (is {CJK_FONT_ASSET_PATH} deployed?)"
             );
             cjk.status = CjkStatus::Failed;
@@ -797,7 +797,7 @@ mod tests {
         ] {
             assert_eq!(unsupported_script(covered), None, "{covered} is covered");
         }
-        // CJK is a gap the app CAN close, so it is not one of these — it
+        // CJK is a gap the app CAN close, so it is not one of these - it
         // has a fetch, and reporting it would tell the user to give up on
         // text that is about to render.
         assert_eq!(unsupported_script("\u{4F60}\u{597D}"), None);
@@ -808,7 +808,7 @@ mod tests {
     /// can be hurt by, and stays quiet on the rest (#1262 f361).
     ///
     /// `slow_load` is a parameter precisely so both answers are reachable
-    /// from a native test run — the wasm branch is otherwise unreachable
+    /// from a native test run - the wasm branch is otherwise unreachable
     /// by every gate this repo has.
     #[test]
     fn the_font_lifecycle_speaks_only_when_it_has_something_to_say() {
@@ -824,7 +824,7 @@ mod tests {
         // worse lie than silence.
         assert_eq!(status_toast(&CjkStatus::Fetching, false), None);
 
-        // Terminal, and the only state the user can do nothing about —
+        // Terminal, and the only state the user can do nothing about -
         // this is the one that used to be a `warn!` nobody reads.
         assert_eq!(
             status_toast(&CjkStatus::Failed, false).map(|(k, _)| k),
@@ -900,9 +900,9 @@ mod tests {
 
 /// The crate's source scans over its own UI, and the helpers they share.
 ///
-/// Four laws live here — glyphs the bundled fonts cannot draw, the hosted
+/// Four laws live here - glyphs the bundled fonts cannot draw, the hosted
 /// editor's glyph list, numeric widgets built without the locale parser,
-/// and US spellings in copy — because they ask the same question of the
+/// and US spellings in copy - because they ask the same question of the
 /// same files and a second copy of the walk or the literal lexer is how
 /// two scans drift apart. `pub(crate)` so a scan that has to live
 /// elsewhere can still borrow the helpers rather than re-deriving them:
@@ -916,7 +916,7 @@ pub(crate) mod glyph_coverage_tests {
     ///
     /// `network::presence` derives the People roster's status chip and its
     /// hover sentence, so its literals are drawn by `people_ui` and are
-    /// exactly as capable of shipping tofu as anything under `src/ui` — the
+    /// exactly as capable of shipping tofu as anything under `src/ui` - the
     /// `⋯` this list was added for is one the bundled fonts cannot draw.
     /// Add a path here when a module starts producing text a UI surface
     /// prints without touching it.
@@ -930,7 +930,7 @@ pub(crate) mod glyph_coverage_tests {
         // the loading screen's ambient row and by the arrival toast.
         "src/world_builder/asset_failure.rs",
         // #1267: `GeneratorKind::display_name` / `blurb` are the creation
-        // menus' entries and the gift modal's kind line — the labels the
+        // menus' entries and the gift modal's kind line - the labels the
         // CamelCase serde tags used to be.
         "src/pds/generator.rs",
         // #1267: `socket_label` names every wear surface's socket, and
@@ -938,8 +938,8 @@ pub(crate) mod glyph_coverage_tests {
         "src/pds/avatar/wardrobe.rs",
         // #1275 f255: `CatalogueCategory::label` and `StructureRole::label`
         // ARE the Catalogue's section headers and its detail-grid rows. The
-        // category shipped as "Attachments" through the whole of t10 — the
-        // one surface still using the retired word — precisely because this
+        // category shipped as "Attachments" through the whole of t10 - the
+        // one surface still using the retired word - precisely because this
         // file is not under `src/ui` and no scan could see it.
         "src/catalogue/mod.rs",
     ];
@@ -948,7 +948,7 @@ pub(crate) mod glyph_coverage_tests {
     /// from `bevy_symbios_avatar::editor` (#1257 f116).
     ///
     /// The walk above is rooted at `src/ui` plus [`EXTRA_LABEL_SOURCES`],
-    /// and both are paths under this crate — so the one surface the avatar
+    /// and both are paths under this crate - so the one surface the avatar
     /// epic moved a whole editor into was the one surface no gate could see.
     /// The two most-used controls in the Body tab are a pair of these
     /// arrows, and a silently-tofu arrow is unfindable in review because it
@@ -958,12 +958,12 @@ pub(crate) mod glyph_coverage_tests {
     /// source lives in the cargo registry, at a path that depends on the
     /// resolved version and on `CARGO_HOME`, which is not something a test
     /// can rely on in CI or a vendored build. **Refresh this on a
-    /// `bevy_symbios_avatar` bump** — it is named in the dependency-bump
+    /// `bevy_symbios_avatar` bump** - it is named in the dependency-bump
     /// checklist for exactly that reason. Being stale costs coverage, never
     /// a false failure; the list is a floor, not a claim of completeness.
     const HOSTED_EDITOR_GLYPHS: &[char] = &[
         '·', // U+00B7, axis readouts
-        '—', // U+2014, section dashes
+        '-', // U+2014, section dashes
         '•', // U+2022, list bullets
         '…', // U+2026, truncation
         '▶', // U+25B6, seed-hunt step forward
@@ -980,16 +980,16 @@ pub(crate) mod glyph_coverage_tests {
     /// mark, ballot cross and input arrow on inspection: Noto Sans is a
     /// Latin/Greek/Cyrillic face and egui's embedded tail is emoji plus a
     /// few icons, so a text-only symbol is tofu unless one of them happens
-    /// to carry it — and which ones they carry is not guessable (`✔` yes,
+    /// to carry it - and which ones they carry is not guessable (`✔` yes,
     /// `✓` no; `↔` yes, `←` no). Probe, never assume. **Refresh this on a
-    /// `bevy_symbios_audio` bump** — the dependency-bump checklist says how.
+    /// `bevy_symbios_audio` bump** - the dependency-bump checklist says how.
     ///
     /// 0.4.4 put its buttons in words (#1331), and the plus, the arrow
     /// circle, the die, the clipboard and the wastebasket left the list with
     /// them. 0.4.10 dropped the left arrow: B3 renamed a node input's rows
     /// "from #1 LFO" releases ago and nothing in the crate has drawn U+2B05
     /// since (#1339). What stays is what the scan of its `src/ui` finds
-    /// drawn — thirteen code points, read out of the packaged 0.4.10 by
+    /// drawn - thirteen code points, read out of the packaged 0.4.10 by
     /// the crate's own `print_editor_glyph_inventory`, which lexes string
     /// literals. Three code points in that source are test FIXTURES and
     /// must never reach this list: é U+00E9, the die U+1F3B2, and U+270E,
@@ -998,13 +998,13 @@ pub(crate) mod glyph_coverage_tests {
         '±', // U+00B1, a wire's effective sweep, "about 150 ± 250 Hz" (0.4.9)
         '·', // U+00B7, the wire-drop tooltip's separator (0.4.2)
         '×', // U+00D7, the pitch multiplier
-        '—', // U+2014, the valid-graph readout, the strip's caption note
+        '-', // U+2014, the valid-graph readout, the strip's caption note
         '“', // U+201C, the instrument name in the patch header
         '”', // U+201D
         '…', // U+2026, "Reassign all notes of '<id>' to…" (0.4.2)
         '⏹', // U+23F9, the audition strip's Stop (0.4.3; the host drew it before)
         '▶', // U+25B6, the audition strip's Audition (0.4.3)
-        '✏', // U+270F, an instrument's "✏ Edit" — the glyph this list was added for
+        '✏', // U+270F, an instrument's "✏ Edit" - the glyph this list was added for
         '✔', // U+2714, the valid-graph readout
         '✖', // U+2716, remove instrument / connection / lane, a broken graph's readout
         '➡', // U+27A1, the wire-drop tooltip's arrow (0.4.2)
@@ -1027,13 +1027,13 @@ pub(crate) mod glyph_coverage_tests {
             Self { faces }
         }
 
-        /// Whether some face in the chain owns a glyph for `c` — the exact
+        /// Whether some face in the chain owns a glyph for `c` - the exact
         /// question epaint's face resolution asks per character.
         ///
         /// Deliberately NOT `Fonts::has_glyph`: in epaint 0.35 that compares
         /// the *face* a char resolves to against the face that owns `�`, so
-        /// every glyph Noto Sans (our primary, which has U+FFFD) carries —
-        /// arrows, ⚠, ✔ — reports as missing. Nor a laid-out galley: its
+        /// every glyph Noto Sans (our primary, which has U+FFFD) carries -
+        /// arrows, ⚠, ✔ - reports as missing. Nor a laid-out galley: its
         /// atlas rects are not a tofu signature. The charmap is.
         fn draws(&self, c: char) -> bool {
             use skrifa::MetadataProvider;
@@ -1052,8 +1052,8 @@ pub(crate) mod glyph_coverage_tests {
     /// that cost real coverage (#1266).
     ///
     /// **A backslash-continued literal was invisible past its first
-    /// line.** Almost every sentence in this UI is written that way — a
-    /// confirm body, a hover, a banner — so a scan for a word in prose saw
+    /// line.** Almost every sentence in this UI is written that way - a
+    /// confirm body, a hover, a banner - so a scan for a word in prose saw
     /// only the opening fragment. Twelve of the fifteen "PDS" strings the
     /// vocabulary sweep had to find lived on continuation lines.
     ///
@@ -1067,7 +1067,7 @@ pub(crate) mod glyph_coverage_tests {
     /// open a string that swallows the rest of the file. Escapes stay
     /// opaque, with one exception: **`\u{…}` is decoded**, because an
     /// escaped code point is a glyph on screen exactly like a raw one and
-    /// the glyph scan must see it (#1318 — the Edit-audio pencil that
+    /// the glyph scan must see it (#1318 - the Edit-audio pencil that
     /// shipped as tofu was written `\u{270E}`, six ASCII characters to the
     /// lexer that existed then). A continued literal still comes back
     /// carrying the source's own indentation. That is fine for every
@@ -1152,8 +1152,8 @@ pub(crate) mod glyph_coverage_tests {
 
     /// `source` with every `bevy::log` macro invocation blanked out.
     ///
-    /// A log line is not UI copy — nobody reads `info!("Room record saved
-    /// to PDS")` on a screen — and the logs are by far the largest
+    /// A log line is not UI copy - nobody reads `info!("Room record saved
+    /// to PDS")` on a screen - and the logs are by far the largest
     /// population of strings in this tree that legitimately speak the
     /// wire's vocabulary. Without this cut the vocabulary scans would
     /// either fail on the logs or need a per-line exception list, and an
@@ -1200,15 +1200,15 @@ pub(crate) mod glyph_coverage_tests {
     /// Every non-ASCII glyph a UI label can show must exist in the base
     /// font set (#1105): the Attachments tab's "◈ Drag in world" shipped a
     /// code point neither Noto Sans nor egui's embedded faces carry, and
-    /// it rendered as tofu in-world — nothing at build time can see a
+    /// it rendered as tofu in-world - nothing at build time can see a
     /// missing glyph, so this walks `src/ui/**` and asks the real font
     /// atlas. CJK is exempt because it is the lazily-loaded fallback's
     /// job ([`needs_cjk`]).
     ///
     /// [`EXTRA_LABEL_SOURCES`] extends the walk to files that produce UI
     /// label text from OUTSIDE `src/ui` (#1223). The whole of `src/` cannot
-    /// be walked instead — it is full of log lines and wire strings nobody
-    /// renders — so a module that hands `src/ui` a string to draw verbatim
+    /// be walked instead - it is full of log lines and wire strings nobody
+    /// renders - so a module that hands `src/ui` a string to draw verbatim
     /// has to name itself here.
     /// Every `.rs` file under `rel`, recursively.
     ///
@@ -1236,7 +1236,7 @@ pub(crate) mod glyph_coverage_tests {
     /// in this crate puts its tests.
     ///
     /// Needed because a scan that bans a string is itself a file
-    /// containing that string — both scans below found their own needles
+    /// containing that string - both scans below found their own needles
     /// before this existed. Test code draws no widgets and ships no copy,
     /// so cutting it is not a compromise. An item-level `#[cfg(test)]`
     /// earlier in a file would truncate the scan early: that costs
@@ -1251,14 +1251,14 @@ pub(crate) mod glyph_coverage_tests {
         // module. That stopped being true, and silently: `toolbar.rs`
         // carries a `#[cfg(test)] const` at line 250 of 1900, and
         // `room/placements.rs` and `room/generators/tree.rs` each carry a
-        // `#[cfg(test)] thread_local!` counter — so for those three files
+        // `#[cfg(test)] thread_local!` counter - so for those three files
         // every scan built on this helper (the four vocabulary scans, the
         // glyph law, the raw-number-widget ban, the panel-flag guard) had
         // been reading the first few hundred lines and calling it the
         // file. A blind scan passes, which is the failure mode none of
         // them can report.
         //
-        // Found by `every_panel_flag_write_is_guarded`'s floor assertion —
+        // Found by `every_panel_flag_write_is_guarded`'s floor assertion -
         // the guard count fell by one when a fourth such item was added.
         // That floor is the only reason this was visible at all.
         //
@@ -1285,7 +1285,7 @@ pub(crate) mod glyph_coverage_tests {
     /// spaces, newlines kept.
     ///
     /// For a scan that has to read Rust's PUNCTUATION rather than its
-    /// words — matching brackets, finding the `;` that ends a statement.
+    /// words - matching brackets, finding the `;` that ends a statement.
     /// The disabled-control scan in [`super::super::affordances`] does
     /// exactly that, and without this it read the `;` in
     ///
@@ -1296,7 +1296,7 @@ pub(crate) mod glyph_coverage_tests {
     /// as the end of the statement above it, and reported a control that
     /// states its reason perfectly well as missing one. A scan that cries
     /// wolf is a scan somebody deletes, so the lexing is shared rather
-    /// than re-derived per scan — the same reasoning as
+    /// than re-derived per scan - the same reasoning as
     /// [`non_test_source`] and [`string_literals`].
     ///
     /// Blanked rather than removed, like the log-line cut below, so byte
@@ -1382,7 +1382,7 @@ pub(crate) mod glyph_coverage_tests {
         out
     }
 
-    /// Whether the line after `at` declares a module — the shape that
+    /// Whether the line after `at` declares a module - the shape that
     /// makes a `#[cfg(test)]` the file's test module rather than one
     /// test-only item among the production code.
     fn opens_a_module(source: &str, at: usize) -> bool {
@@ -1449,7 +1449,7 @@ pub(crate) mod glyph_coverage_tests {
                     // CJK loads its face on sight and the scripts in
                     // `UNSUPPORTED_SCRIPTS` are gaps the app names to the
                     // user (#1262 f360): neither is a finding here. Both
-                    // reach this scan only through `\u{…}` escapes — the
+                    // reach this scan only through `\u{…}` escapes - the
                     // gap table's own sample words (#1318).
                     let text = c.to_string();
                     if c.is_ascii()
@@ -1481,7 +1481,7 @@ pub(crate) mod glyph_coverage_tests {
         );
     }
 
-    /// Zero-width format characters — ZWSP, ZWJ, the bidi controls, BOM.
+    /// Zero-width format characters - ZWSP, ZWJ, the bidi controls, BOM.
     /// epaint lays them out as nothing, so they cannot be tofu, and the
     /// scan only meets them at all now that `\u{…}` is decoded: the name
     /// sanitiser's tests spell `\u{200B}` and `\u{200D}` out.
@@ -1544,7 +1544,7 @@ pub(crate) mod glyph_coverage_tests {
     ///
     /// Same law as [`every_ui_label_glyph_is_in_the_base_font_set`], asked
     /// of the one editor this crate draws but does not own. It has already
-    /// bitten twice inside `src/ui` — #861 for ✓/● and #1105 for ◈ — and
+    /// bitten twice inside `src/ui` - #861 for ✓/● and #1105 for ◈ - and
     /// nothing at build time can see a missing glyph.
     #[test]
     fn every_hosted_editor_glyph_is_in_the_base_font_set() {
@@ -1560,7 +1560,7 @@ pub(crate) mod glyph_coverage_tests {
              (tofu on the Body tab):\n  {}",
             missing.join("\n  ")
         );
-        // The list is only worth anything if it is actually being probed —
+        // The list is only worth anything if it is actually being probed -
         // an empty one would pass vacuously for the rest of time.
         assert!(HOSTED_EDITOR_GLYPHS.len() >= 6);
         assert!(
@@ -1598,7 +1598,7 @@ pub(crate) mod glyph_coverage_tests {
     ///
     /// The table drives a message telling the user their script cannot be
     /// displayed. If a font change ever closes one of those gaps, the
-    /// message becomes a lie about text that is rendering perfectly well —
+    /// message becomes a lie about text that is rendering perfectly well -
     /// so the row is probed against the same charmaps epaint resolves
     /// through, and a closed gap fails here rather than shipping.
     #[test]
@@ -1611,7 +1611,7 @@ pub(crate) mod glyph_coverage_tests {
             .collect();
         assert!(
             drawn.is_empty(),
-            "these scripts are no longer gaps — drop their rows, the toast \
+            "these scripts are no longer gaps - drop their rows, the toast \
              would be telling users text they can see cannot be shown:\n  {}",
             drawn.join("\n  ")
         );
@@ -1621,7 +1621,7 @@ pub(crate) mod glyph_coverage_tests {
     /// (#1264 f364).
     ///
     /// egui offers no `Style`-level parser hook, so a decimal comma has to
-    /// be handled per widget, which means per construction site — and
+    /// be handled per widget, which means per construction site - and
     /// there are 78 of them across 16 files. A helper nobody is obliged to
     /// call fixes this once and loses it again the next time somebody
     /// reaches for `egui::DragValue::new`, which is exactly how the defect
@@ -1637,7 +1637,7 @@ pub(crate) mod glyph_coverage_tests {
 
         // The control. Both scans in this module found their own needles
         // until test source was excluded, and the fix could just as easily
-        // have blinded them entirely — a scan that cannot see the thing it
+        // have blinded them entirely - a scan that cannot see the thing it
         // bans passes forever and proves nothing.
         assert!(builds_a_raw_numeric_widget(
             "  ui.add(egui::DragValue::new(&mut v));"
@@ -1667,7 +1667,7 @@ pub(crate) mod glyph_coverage_tests {
         }
         assert!(
             raw.is_empty(),
-            "numeric widgets built without the locale parser — use \
+            "numeric widgets built without the locale parser - use \
              `crate::ui::num::drag` / `::slider`, which accept a decimal comma:\n  {}",
             raw.join("\n  ")
         );
@@ -1679,7 +1679,7 @@ pub(crate) mod glyph_coverage_tests {
     ///
     /// A window over the preceding source rather than a per-line test,
     /// because `cargo fmt` puts the constructor on its own line the
-    /// moment the call wraps — so the call and the construction are
+    /// moment the call wraps - so the call and the construction are
     /// routinely two lines apart, and a per-line rule flags every correct
     /// site.
     fn raw_text_fields(source: &str) -> Vec<(usize, String)> {
@@ -1710,7 +1710,7 @@ pub(crate) mod glyph_coverage_tests {
     /// Every text field goes through `affordances::text_edit` (#1284).
     ///
     /// egui 0.35 paints a FOCUSED field's frame with
-    /// `visuals.selection.stroke`, which in this app is `selection_text` —
+    /// `visuals.selection.stroke`, which in this app is `selection_text` -
     /// the near-black label colour of a selected chip. Since #1283 gave a
     /// resting field a gray-105 edge, focusing one *removed* its border.
     /// The helper scopes a proper ring to the widget; a field added
@@ -1727,7 +1727,7 @@ pub(crate) mod glyph_coverage_tests {
         sources.extend(rust_sources_under("src/editor_gizmo"));
         assert!(sources.len() > 20, "the walk found no sources to scan");
 
-        // The controls, both ways round — a scan that cannot see what it
+        // The controls, both ways round - a scan that cannot see what it
         // bans passes forever.
         assert_eq!(
             raw_text_fields("ui.add(egui::TextEdit::singleline(&mut s));").len(),
@@ -1761,7 +1761,7 @@ pub(crate) mod glyph_coverage_tests {
         }
         assert!(
             raw.is_empty(),
-            "text fields built without the focus ring — use \
+            "text fields built without the focus ring - use \
              `crate::ui::affordances::text_edit` / `::text_edit_enabled`, which paint \
              a focused field's edge in the accent instead of erasing it:\n  {}",
             raw.join("\n  ")
@@ -1794,7 +1794,7 @@ pub(crate) mod glyph_coverage_tests {
     /// Every `panels.<field> = <rhs>;` assignment, as `(line, field, rhs)`.
     ///
     /// A `==` comparison is not a write, and neither is the `panels.x` on
-    /// the right of a `let` — both are excluded by requiring a single `=`
+    /// the right of a `let` - both are excluded by requiring a single `=`
     /// immediately after the field name.
     fn panel_flag_writes(source: &str) -> Vec<(usize, String, String)> {
         let mut out = Vec::new();
@@ -1856,7 +1856,7 @@ pub(crate) mod glyph_coverage_tests {
     /// frame (#1270 f121, the #879 guarded-dirty rule).
     ///
     /// `UiPanels` is a `Resource`, so any `ResMut::deref_mut` stamps its
-    /// change tick — and `prefs::save_prefs_when_changed` ORs
+    /// change tick - and `prefs::save_prefs_when_changed` ORs
     /// `panels.is_changed()` into a 1.0 s trailing debounce. A resource
     /// that is never quiet therefore produces a full prefs
     /// serialise-and-write about once a second, forever: `std::fs::write`
@@ -1940,7 +1940,7 @@ pub(crate) mod glyph_coverage_tests {
             for (line, field, rhs) in panel_flag_writes(code) {
                 if rhs != "true" && rhs != "false" {
                     faults.push(format!(
-                        "{}:{line}: `panels.{field} = {rhs};` writes a non-literal — if \
+                        "{}:{line}: `panels.{field} = {rhs};` writes a non-literal - if \
                          that is the window's own open flag it runs every frame",
                         short(&path)
                     ));
@@ -1953,7 +1953,7 @@ pub(crate) mod glyph_coverage_tests {
                 } else {
                     faults.push(format!(
                         "{}:{line}: binds `panels.{field}` into `{local}` but never closes \
-                         the window — expected `{guard} {{ panels.{field} = false; }}`",
+                         the window - expected `{guard} {{ panels.{field} = false; }}`",
                         short(&path)
                     ));
                 }
@@ -1967,7 +1967,7 @@ pub(crate) mod glyph_coverage_tests {
         );
         assert!(
             guards_seen >= 8,
-            "only {guards_seen} guarded windows found — the binding scan has gone blind"
+            "only {guards_seen} guarded windows found - the binding scan has gone blind"
         );
     }
 
@@ -1986,8 +1986,8 @@ pub(crate) mod glyph_coverage_tests {
             // Two declaration forms. A system parameter carries `mut`; a
             // `#[derive(SystemParam)]` STRUCT FIELD does not, and holds
             // exactly the same hazard (#1276 f39). Four bundles were built
-            // during this backlog alone — `AccountChip`, `RosterDeps`,
-            // `ChatDeps`, `LoginCardDeps` — precisely because the systems
+            // during this backlog alone - `AccountChip`, `RosterDeps`,
+            // `ChatDeps`, `LoginCardDeps` - precisely because the systems
             // that draw windows keep hitting Bevy's 16-parameter ceiling,
             // so the bundles are where new `ResMut`s now land.
             let rest = line.strip_prefix("mut ").unwrap_or(line);
@@ -2006,7 +2006,7 @@ pub(crate) mod glyph_coverage_tests {
         out
     }
 
-    /// Whether `code` takes a `&mut` through `param` — either directly
+    /// Whether `code` takes a `&mut` through `param` - either directly
     /// (`&mut settings.theme`) or through the `SystemParam` bundle it is a
     /// field of (`&mut card.settings.theme`), which is the shape a bundled
     /// `ResMut` wears at every use site (#1276 f39).
@@ -2050,21 +2050,21 @@ pub(crate) mod glyph_coverage_tests {
     }
 
     /// No egui widget is handed a `&mut` straight through a `ResMut`
-    /// (#1274 f177) — the general form of the rule `panels.*` already has.
+    /// (#1274 f177) - the general form of the rule `panels.*` already has.
     ///
     /// Bevy's `ResMut::deref_mut` stamps the change tick on ACCESS and never
     /// compares, so `ui.checkbox(&mut wireframe.global, ..)` marks
     /// `WireframeConfig` changed on every frame the tab is drawn, and Bevy
-    /// re-runs `wireframe_config_changed` — and re-uploads the global
-    /// material — on each of them. The file it shipped in documents the
+    /// re-runs `wireframe_config_changed` - and re-uploads the global
+    /// material - on each of them. The file it shipped in documents the
     /// idiom for `UiPanels` seventy lines further up.
     ///
     /// **This is deliberately the general rule rather than a second
     /// panel-shaped one.** `every_panel_flag_write_is_guarded` knows what a
     /// panel flag MEANS (a window opening and closing, so its writes are
     /// bool literals on known edges) and could not be widened without
-    /// losing that. What generalises is the hazard itself — a `&mut`
-    /// reaching a widget through a `ResMut` — and it is one line to state
+    /// losing that. What generalises is the hazard itself - a `&mut`
+    /// reaching a widget through a `ResMut` - and it is one line to state
     /// over the resources a file actually declares. A rule that only knew
     /// about `panels` is how the ninth window got written.
     ///
@@ -2111,7 +2111,7 @@ pub(crate) mod glyph_coverage_tests {
             "banning every &mut through a ResMut would ban the writes that mean it"
         );
         // A `ResMut` inside a `#[derive(SystemParam)]` bundle is declared
-        // without `mut` and reached through the bundle — invisible to both
+        // without `mut` and reached through the bundle - invisible to both
         // halves of the rule until #1276 f39.
         let bundled = "    settings: ResMut<'w, LocalSettings>,\n\
                        ui.selectable_value(&mut card.settings.theme, pref, pref.label());";
@@ -2122,7 +2122,7 @@ pub(crate) mod glyph_coverage_tests {
             "a bundled ResMut carries the same hazard as a bare one"
         );
         // Borrowing the whole resource OUT of a bundle is not a field
-        // write — the parameter has to be an interior path segment.
+        // write - the parameter has to be an interior path segment.
         assert!(!borrows_through("ui.add(&mut card.settings)", "settings"));
         assert!(borrows_through(
             "ui.add(&mut card.settings.theme)",
@@ -2150,7 +2150,7 @@ pub(crate) mod glyph_coverage_tests {
             for (line, param) in resource_fields_handed_to_widgets(code, &params) {
                 faults.push(format!(
                     "{}:{line}: hands a widget `&mut {param}.…` straight through a \
-                     ResMut — copy it into a local and write back on a change",
+                     ResMut - copy it into a local and write back on a change",
                     short(&path)
                 ));
             }
@@ -2163,7 +2163,7 @@ pub(crate) mod glyph_coverage_tests {
     ///
     /// "Base color" on a plant, "Start colour" on particles and "Sun
     /// colour" in Environment; "Center X / Z" on a grid placement and
-    /// "District centre (m)" on a road — inside one editor, on labels an
+    /// "District centre (m)" on a road - inside one editor, on labels an
     /// owner reads hundreds of times a session. UK spelling won because
     /// the rest of the copy already leaned that way, and this is what
     /// keeps the next label from drifting back.
@@ -2200,7 +2200,7 @@ pub(crate) mod glyph_coverage_tests {
         }
         assert!(
             drift.is_empty(),
-            "US spellings in UI copy — this product says \"colour\" and \"centre\":\n  {}",
+            "US spellings in UI copy - this product says \"colour\" and \"centre\":\n  {}",
             drift.join("\n  ")
         );
     }
@@ -2213,7 +2213,7 @@ pub(crate) mod glyph_coverage_tests {
     // shipped side by side:
     //
     // **The place is a `world`.** "Overlands" survives only as the product
-    // name — wordmark, splash, OAuth pages, "a newer version of
+    // name - wordmark, splash, OAuth pages, "a newer version of
     // Overlands". "room" stays on the wire, where it is the schema's own
     // noun, and never reaches a label.
     //
@@ -2234,7 +2234,7 @@ pub(crate) mod glyph_coverage_tests {
     //
     // Why scans and not just a sweep: "stash" was five strings when the
     // review found it, six by the time it was triaged and EIGHT by the
-    // time it was swept — the extras added by tranches worked in between,
+    // time it was swept - the extras added by tranches worked in between,
     // by people (me) who had read the finding. A vocabulary decision that
     // is only written down in prose is a vocabulary decision that drifts.
 
@@ -2244,10 +2244,10 @@ pub(crate) mod glyph_coverage_tests {
     ///
     /// The rule is shape, not a list: copy is written for a reader, so it
     /// either contains a space or is a single capitalised word ("Items",
-    /// "Wearables", "Generators" — the tab and heading names this decision
+    /// "Wearables", "Generators" - the tab and heading names this decision
     /// is mostly about). An identifier is lower-or-upper-case joined by
-    /// `_`, `-`, `.`, `/` or `:` with no space. `ui.label("socket")` — a
-    /// bare lowercase word with no separator — is deliberately COPY, and
+    /// `_`, `-`, `.`, `/` or `:` with no space. `ui.label("socket")` - a
+    /// bare lowercase word with no separator - is deliberately COPY, and
     /// deliberately so: it is a real label on a real panel.
     fn is_ui_copy(literal: &str) -> bool {
         if literal.trim().is_empty() {
@@ -2310,7 +2310,7 @@ pub(crate) mod glyph_coverage_tests {
         for path in ui_copy_sources() {
             for literal in copy_literals(&path) {
                 if let Some(why) = rule(&literal) {
-                    drift.push(format!("{}: {why} — {literal:?}", short(&path)));
+                    drift.push(format!("{}: {why} - {literal:?}", short(&path)));
                 }
             }
         }
@@ -2359,7 +2359,7 @@ pub(crate) mod glyph_coverage_tests {
         // "room" is the WIRE's noun and stays there, so the rule is aimed
         // at prose: a determiner in front of it, a possessive after it, or
         // a label that opens with it. That leaves `timed_out("room
-        // publish")`-style internal labels alone — and those are exactly
+        // publish")`-style internal labels alone - and those are exactly
         // the strings that turned out to reach a toast, which is why they
         // were renamed rather than exempted.
         const PROSE: &[&str] = &[
@@ -2435,12 +2435,12 @@ pub(crate) mod glyph_coverage_tests {
         // Controls. Each scan carries the sentence that USED to ship and
         // the one that ships now, so a rule that stopped seeing anything
         // fails here rather than passing forever (#1264's lesson).
-        assert!(stray_place_noun("Loading your overland — @{}").is_some());
+        assert!(stray_place_noun("Loading your overland - @{}").is_some());
         assert!(stray_place_noun("Travel to {}'s overland").is_some());
         assert!(stray_place_noun("Travel to a mutual follow of this room's owner").is_some());
         assert!(stray_place_noun("Contact effects from the room you're in:").is_some());
         assert!(stray_place_noun("Room theme").is_some());
-        assert!(stray_place_noun("Loading your world — @{}").is_none());
+        assert!(stray_place_noun("Loading your world - @{}").is_none());
         assert!(
             stray_place_noun("Enter the Overlands").is_none(),
             "the product name is not the place noun"
@@ -2459,7 +2459,7 @@ pub(crate) mod glyph_coverage_tests {
 
         assert_no_drift(
             stray_place_noun,
-            "UI copy that is not about a \"world\" — the place has one name",
+            "UI copy that is not about a \"world\" - the place has one name",
         );
     }
 
@@ -2468,7 +2468,7 @@ pub(crate) mod glyph_coverage_tests {
         assert!(stray_buildable_noun("Region Assets").is_some());
         assert!(stray_buildable_noun("Rename Generator").is_some());
         assert!(stray_buildable_noun("Stored Generators: {count}/{cap}").is_some());
-        assert!(stray_buildable_noun("Inventory — your saved item blueprints").is_some());
+        assert!(stray_buildable_noun("Inventory - your saved item blueprints").is_some());
         assert!(stray_buildable_noun("Delete this item from your stash").is_some());
         assert!(stray_buildable_noun("Items").is_none());
         assert!(stray_buildable_noun("Delete this item from your inventory").is_none());
@@ -2484,7 +2484,7 @@ pub(crate) mod glyph_coverage_tests {
     }
 
     /// Scope note: `src/ui/login` is exempt because the login screen owns
-    /// the PDS override field itself — its label, its validation and the
+    /// the PDS override field itself - its label, its validation and the
     /// errors that point at it. An operator field has to name the thing it
     /// configures. Everything else in the app is a user surface.
     #[test]
@@ -2506,7 +2506,7 @@ pub(crate) mod glyph_coverage_tests {
             }
             for literal in copy_literals(&path) {
                 if let Some(why) = stray_save_vocabulary(&literal) {
-                    drift.push(format!("{}: {why} — {literal:?}", short(&path)));
+                    drift.push(format!("{}: {why} - {literal:?}", short(&path)));
                 }
             }
         }
@@ -2524,7 +2524,7 @@ pub(crate) mod glyph_coverage_tests {
         // The Catalogue's own section header, which shipped until #1275.
         assert!(stray_worn_noun("Attachment").is_some());
         assert!(
-            stray_worn_noun("Vehicles carry no attachments — pilot a body to wear this.").is_some()
+            stray_worn_noun("Vehicles carry no attachments - pilot a body to wear this.").is_some()
         );
         assert!(stray_worn_noun("Wearables").is_none());
 
@@ -2540,7 +2540,7 @@ pub(crate) mod glyph_coverage_tests {
     /// `ui::diagnostics` renders `RuleHeader::description` verbatim in the
     /// Active Anomalies strip and beside every per-metric pill, and hangs
     /// `technical` on the hover. Neither string lives under `src/ui`, so
-    /// none of the four scans above could ever see them — and it showed:
+    /// none of the four scans above could ever see them - and it showed:
     /// the shipped set said "a PDS record fetch exhausted its retry
     /// budget" and "relay reported peers in the room but no WebRTC data
     /// channel opened (offer glare or ICE/NAT failure)", to a user who
@@ -2579,14 +2579,14 @@ pub(crate) mod glyph_coverage_tests {
                 checked += 1;
                 for check in checks {
                     if let Some(why) = check(literal) {
-                        drift.push(format!("{}.{field}: {why} — {literal:?}", h.id));
+                        drift.push(format!("{}.{field}: {why} - {literal:?}", h.id));
                     }
                 }
             }
         }
         assert!(
             checked > 30,
-            "the registry handed back {checked} strings — the walk found nothing"
+            "the registry handed back {checked} strings - the walk found nothing"
         );
         assert!(
             drift.is_empty(),
@@ -2708,7 +2708,7 @@ pub(crate) mod glyph_coverage_tests {
     /// indentation (#1266).
     ///
     /// **This one has cost two tranches.** A Rust string continued with a
-    /// trailing backslash is one string with no gap in it — but a Python
+    /// trailing backslash is one string with no gap in it - but a Python
     /// triple-quoted heredoc, which is how a lot of this repo's bulk
     /// rewrites are done, reads that backslash as ITS OWN line
     /// continuation, joins the lines, and bakes the following indentation
@@ -2748,7 +2748,7 @@ pub(crate) mod glyph_coverage_tests {
         }
         assert!(
             found.is_empty(),
-            "labels carrying a run of spaces from the source's indentation — a \
+            "labels carrying a run of spaces from the source's indentation - a \
              backslash continuation eaten by a heredoc:\n  {}",
             found.join("\n  ")
         );

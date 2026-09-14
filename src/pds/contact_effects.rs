@@ -1,4 +1,4 @@
-//! PDS-authored contact-effect recipes (#246 — config/GUI slice).
+//! PDS-authored contact-effect recipes (#246 - config/GUI slice).
 //!
 //! Serializable mirror of the runtime `interaction::recipes` types so
 //! designers can tune splash / droplet effects from the room editor
@@ -9,7 +9,7 @@
 //! Decoupled from `GeneratorKind::ParticleSystem` on purpose: the
 //! particle template here ([`RecipeParticle`]) is a *trimmed*,
 //! purpose-built struct (no rate / looping / duration / seed / collision
-//! — a transient contact burst fixes those), so this schema can evolve
+//! - a transient contact burst fixes those), so this schema can evolve
 //! without touching the live ParticleSystem wire format. It does reuse
 //! the existing [`EmitterShape`] / [`ParticleBlendMode`] open unions
 //! (adding a *user* of them is wire-safe; only mutating them is not).
@@ -36,7 +36,7 @@ pub enum ContactSurfaceKind {
 }
 
 /// Serializable mirror of `interaction::contact::ContactPhase`. Open
-/// union — see [`ContactSurfaceKind`].
+/// union - see [`ContactSurfaceKind`].
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[serde(tag = "$type")]
 pub enum ContactPhaseKind {
@@ -51,7 +51,7 @@ pub enum ContactPhaseKind {
     Unknown,
 }
 
-/// Declarative burst-count model — the serializable replacement for the
+/// Declarative burst-count model - the serializable replacement for the
 /// runtime `fn(&ContactSample) -> u32` curve (a fn pointer cannot
 /// round-trip). `count = clamp(speed * gain + base, min, max)`, where
 /// `speed` is the contact sample's `world_vel` magnitude. The original
@@ -66,7 +66,7 @@ pub struct CountModel {
 }
 
 /// Trimmed particle template for a contact burst. Only the fields a
-/// transient one-shot burst needs — `rate_per_second`, `looping`,
+/// transient one-shot burst needs - `rate_per_second`, `looping`,
 /// `duration`, `seed`, collision and texturing are fixed by the
 /// dispatcher / hardcoded for v1 coloured-quad effects.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -105,7 +105,7 @@ pub struct RecipeParticle {
 /// a quad that grows from `start_size`→`end_size` and fades
 /// `start_alpha`→`end_alpha` over `ttl`, lifted `normal_offset` off the
 /// surface to avoid z-fighting. v1 is a flat-colour quad (no texture
-/// atlas yet — a textured source is a later extension).
+/// atlas yet - a textured source is a later extension).
 ///
 /// [`Default`] is the canonical seed (mirrors the engine values that
 /// were previously `config::interaction::decal` consts), so a freshly
@@ -138,7 +138,7 @@ impl Default for DecalParams {
 }
 
 /// Where an authored audio cue's clip comes from. Open union (`$type`
-/// tag + [`Self::Unknown`]) — the forward-compat seam for a future
+/// tag + [`Self::Unknown`]) - the forward-compat seam for a future
 /// **procedurally synthesised** source (a planned
 /// `bevy_symbios_synthesizer`): such a record decodes to `Unknown` on
 /// today's clients and is skipped, never an error. Named
@@ -151,12 +151,12 @@ pub enum AudioClipSource {
     /// audio feature); other containers need extra `bevy` features.
     #[serde(rename = "network.symbios.contact.audio.url")]
     Url { url: String },
-    /// ATProto blob pinned to a DID — resolves the PDS then
+    /// ATProto blob pinned to a DID - resolves the PDS then
     /// `com.atproto.sync.getBlob`, same path Sign textures use.
     #[serde(rename = "network.symbios.contact.audio.atproto_blob")]
     AtprotoBlob { did: String, cid: String },
     /// A future/unknown source (e.g. forthcoming procedural synthesis)
-    /// — decoded, never authored on this client; the cue is skipped.
+    /// - decoded, never authored on this client; the cue is skipped.
     #[serde(other, skip_serializing)]
     Unknown,
 }
@@ -202,15 +202,15 @@ impl Default for AudioParams {
 }
 
 /// The effect a matched contact produces. Open union (`$type` tag +
-/// [`Self::Unknown`]) — same forward-compat contract as
+/// [`Self::Unknown`]) - same forward-compat contract as
 /// [`ContactSurfaceKind`]: a record authored against a future effect
 /// kind decodes to `Unknown` here and is skipped at compile time
 /// rather than failing the whole room.
 // The `ParticleBurst` variant carries a `RecipeParticle` whose
 // `procedural_texture` is a full `SovereignTextureConfig` (~288 bytes,
 // #367). Boxing it would force serde through a wrapping layer and churn
-// the round-trip tests / deserialize shim for no real gain — recipes
-// live in a small per-room `Vec`, never a hot path — so the size penalty
+// the round-trip tests / deserialize shim for no real gain - recipes
+// live in a small per-room `Vec`, never a hot path - so the size penalty
 // is fine, consistent with how `GeneratorKind` handles the same config.
 #[allow(clippy::large_enum_variant)]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -234,7 +234,7 @@ pub enum ContactEffectKind {
     /// One-shot audio cue played through `bevy_audio` (#262).
     #[serde(rename = "network.symbios.contact.effect.audio")]
     AudioCue { audio: AudioParams },
-    /// A future/unknown effect kind — decoded, never authored. Dropped
+    /// A future/unknown effect kind - decoded, never authored. Dropped
     /// by the runtime mapper.
     #[serde(other, skip_serializing)]
     Unknown,
@@ -245,9 +245,9 @@ pub enum ContactEffectKind {
 ///
 /// `Serialize` is derived (we always *write* the current tagged shape);
 /// `Deserialize` is hand-written ([`RawContactEffectRecord`]) so a
-/// **pre-#261 record** — which carried `count` / `radius_scale` /
+/// **pre-#261 record** - which carried `count` / `radius_scale` /
 /// `velocity_inherit` / `particle` *flat on the record* with no
-/// `effect` key — still loads, folded into a
+/// `effect` key - still loads, folded into a
 /// [`ContactEffectKind::ParticleBurst`]. (Forward-compat caveat: a
 /// pre-#261 *client* cannot read a migrated room's new `effect` shape;
 /// acceptable for this single-binary app where clients upgrade
@@ -264,7 +264,7 @@ pub struct ContactEffectRecord {
     /// Min seconds between emissions per avatar (`0` = every matching
     /// frame; throttles continuous `Dwell` recipes).
     pub cooldown: Fp,
-    /// Designer kill-switch — `false` skips the recipe.
+    /// Designer kill-switch - `false` skips the recipe.
     pub enabled: bool,
     pub effect: ContactEffectKind,
 }
@@ -313,7 +313,7 @@ impl<'de> Deserialize<'de> for ContactEffectRecord {
     {
         let raw = RawContactEffectRecord::deserialize(d)?;
         let effect = match raw.effect {
-            // New tagged shape — use it as authored.
+            // New tagged shape - use it as authored.
             Some(e) => e,
             // No `effect` key: fold the legacy flat particle fields
             // into a ParticleBurst. A legacy record always carried
@@ -348,12 +348,12 @@ impl<'de> Deserialize<'de> for ContactEffectRecord {
 /// Soft round droplet sprite for water splash / droplet bursts (#367).
 /// Near-white so the emitter's blue-white colour ramp tints it through
 /// the texture multiply (the same convention the seeded ambient
-/// particles use). A single variant — the transient burst draws frame 0
+/// particles use). A single variant - the transient burst draws frame 0
 /// (`AnimationFrameMode::Still`), so a multi-cell atlas would bake cells
 /// the burst never shows.
 ///
 /// Shared with `interaction::recipes` (the hardcoded runtime fallback
-/// templates) so the authored default and the fallback can't drift — the
+/// templates) so the authored default and the fallback can't drift - the
 /// `from_effects_maps_defaults_equivalently` test guards the pairing.
 pub(crate) fn droplet_sprite() -> SovereignTextureConfig {
     SovereignTextureConfig::SoftDisc(SovereignSoftDiscConfig {
@@ -380,7 +380,7 @@ pub(crate) fn dust_sprite() -> SovereignTextureConfig {
     })
 }
 
-/// The canonical splash particle — the fallback used when a malformed
+/// The canonical splash particle - the fallback used when a malformed
 /// legacy record omits `particle` entirely. Kept tiny and benign.
 fn canonical_particle() -> RecipeParticle {
     let (start_color, end_color) = droplet_colours();
@@ -403,7 +403,7 @@ fn canonical_particle() -> RecipeParticle {
     }
 }
 
-/// Build a [`ContactEffectKind::ParticleBurst`] — keeps the default
+/// Build a [`ContactEffectKind::ParticleBurst`] - keeps the default
 /// recipe builders readable now the payload is nested.
 fn particle_effect(
     count: CountModel,
@@ -437,7 +437,7 @@ impl Default for ContactEffects {
 }
 
 impl ContactEffects {
-    /// `true` when the set equals the canonical default registry — the
+    /// `true` when the set equals the canonical default registry - the
     /// wire-format skip predicate for `RoomRecord::contact_effects` (#695):
     /// a room that never customised its contact effects doesn't spend
     /// ~2.6 KiB re-stating the built-in recipes.
@@ -446,20 +446,20 @@ impl ContactEffects {
     }
 }
 
-/// White→blue droplet, fading alpha to 0 — the shared look of both
+/// White→blue droplet, fading alpha to 0 - the shared look of both
 /// hardcoded water effects (matches the old `transient_base` colours).
 fn droplet_colours() -> (Fp4, Fp4) {
     (Fp4([0.85, 0.93, 1.0, 0.95]), Fp4([0.70, 0.85, 1.0, 0.0]))
 }
 
-/// Dusty tan → transparent — the kicked-up ground-dust puff. Kept in
+/// Dusty tan → transparent - the kicked-up ground-dust puff. Kept in
 /// sync with `interaction::recipes::ground_dust_template` (the
 /// from-effects equivalence test guards the recipe-level fields).
 fn dust_colours() -> (Fp4, Fp4) {
     (Fp4([0.55, 0.45, 0.32, 0.70]), Fp4([0.50, 0.42, 0.30, 0.0]))
 }
 
-/// The canonical seeded recipe set — the exact behaviour of the
+/// The canonical seeded recipe set - the exact behaviour of the
 /// pre-Phase-4 hardcoded `interaction::recipes::default_water_recipes`,
 /// expressed as authored data so seeded and upgraded rooms are
 /// pixel-identical until a designer edits them.
@@ -546,7 +546,7 @@ pub fn default_contact_effects() -> ContactEffects {
                     },
                 ),
             },
-            // Ground dust — the recipe #244 deliberately deferred until
+            // Ground dust - the recipe #244 deliberately deferred until
             // the Phase 3 `Terrain` surface existed (#245). A brisk run
             // (raw speed ≥ 4 m/s) kicks up a short-lived tan puff;
             // throttled by a Dwell cooldown so it puffs a few times a
@@ -577,7 +577,7 @@ fn ground_dust_record() -> ContactEffectRecord {
         cooldown: Fp(0.2),
         enabled: true,
         effect: particle_effect(
-            // clamp(speed*3, 4, 18) — denser puff the faster you run.
+            // clamp(speed*3, 4, 18) - denser puff the faster you run.
             CountModel {
                 gain: Fp(3.0),
                 base: Fp(0.0),
@@ -592,7 +592,7 @@ fn ground_dust_record() -> ContactEffectRecord {
                 lifetime_max: Fp(0.9),
                 speed_min: Fp(0.3),
                 speed_max: Fp(1.2),
-                // Dust hangs — almost no gravity, heavy drag.
+                // Dust hangs - almost no gravity, heavy drag.
                 gravity_multiplier: Fp(0.15),
                 linear_drag: Fp(0.6),
                 start_size: Fp(0.18),

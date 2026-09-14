@@ -1,4 +1,4 @@
-//! Pallet stack — an Industrial-Park prop. A stack of wooden pallets beside a
+//! Pallet stack - an Industrial-Park prop. A stack of wooden pallets beside a
 //! couple of shipping crates, waiting on the loading apron.
 
 use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_y, solid};
@@ -66,7 +66,7 @@ fn build_tree() -> Generator {
                 id_quat(),
             ));
         }
-        // Bottom deck — three slats.
+        // Bottom deck - three slats.
         for sz in [-0.45_f32, 0.0, 0.45] {
             p.children.push(prim(
                 solid(cuboid_tapered([1.2, 0.035, 0.12], 0.0, deck())),
@@ -74,7 +74,7 @@ fn build_tree() -> Generator {
                 id_quat(),
             ));
         }
-        // Top deck — five slats with gaps.
+        // Top deck - five slats with gaps.
         for i in 0..5 {
             let sz = -0.45 + i as f32 * 0.225;
             p.children.push(prim(

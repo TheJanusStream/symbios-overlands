@@ -1,4 +1,4 @@
-//! Airship defaults: envelope forms, gondola, and the tail fin. Built in each slot's local attachment frame — see the module
+//! Airship defaults: envelope forms, gondola, and the tail fin. Built in each slot's local attachment frame - see the module
 //! docstring on [`super::super`] (`parts`).
 
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
@@ -27,33 +27,33 @@ const GONDOLA_DRESS_SALT: u64 = 0x60_D0_1A_DE_55_00_00_01;
 // ---------------------------------------------------------------------------
 //
 // Airships read as flat monochrome blobs when the whole envelope is a single
-// `body(primary)` panel — worse still, the metal finish family bakes a glossy
+// `body(primary)` panel - worse still, the metal finish family bakes a glossy
 // brushed-panel look onto the huge gas bag, so a battered industrial ship reads
 // as chocolate plastic (the survey's "materials look weird"). And the fins used
-// the *tertiary* accent — an independent third draw that clashes (chartreuse
+// the *tertiary* accent - an independent third draw that clashes (chartreuse
 // fins on a magenta envelope). The scheme below spends only the envelope's
 // two-hue palette: the envelope wears the primary (value-floored so a dark ship
 // keeps a body), while the fins, gondola, and frame all derive from the
 // *complement* (secondary), value-separated from the envelope so they read as
 // distinct parts without a third hue. The tertiary survives only as small
-// disciplined pops — the registry stripe, nose finial, and the *normalized*
+// disciplined pops - the registry stripe, nose finial, and the *normalized*
 // interior-light window colour (so every gondola reads lit without a blowout).
 
 /// The seeded airship two-hue scheme, value-floored + value-separated.
 #[derive(Clone, Copy)]
 pub(crate) struct AirshipColors {
-    /// Envelope canvas (primary accent, value-floored — the huge surface never
+    /// Envelope canvas (primary accent, value-floored - the huge surface never
     /// collapses to a near-black or sky-grey blob).
     pub(crate) envelope: [f32; 3],
-    /// Fins + gondola cabin — the envelope's complement (secondary),
+    /// Fins + gondola cabin - the envelope's complement (secondary),
     /// value-separated from the envelope so parts read apart *without* pulling
     /// the clashing tertiary third draw (fixes chartreuse-fins-on-magenta).
     pub(crate) accent: [f32; 3],
-    /// Structural metal — frame rings, gore battens, keel beam, cross-struts:
+    /// Structural metal - frame rings, gore battens, keel beam, cross-struts:
     /// a darker shade of `accent` so the rigging reads against both the
     /// envelope and the gondola.
     pub(crate) frame: [f32; 3],
-    /// Registry stripe band + nose finial — a bright tertiary small-area pop,
+    /// Registry stripe band + nose finial - a bright tertiary small-area pop,
     /// value-floored so a dark tertiary still registers.
     pub(crate) stripe: [f32; 3],
     /// Normalized interior-light window colour (see [`window_light`]).
@@ -65,7 +65,7 @@ pub(crate) struct AirshipColors {
 /// (a dark accent lights up instead of reading as a dead pane), and cap it
 /// below white (a near-white accent doesn't blow the pane out to a featureless
 /// slab). Standardizes the gondola glazing that used to inherit the raw
-/// tertiary at a fixed glow strength — dead on dark seeds, blown out on pale
+/// tertiary at a fixed glow strength - dead on dark seeds, blown out on pale
 /// ones, only right when the tertiary happened to be cyan (#789, absorbing the
 /// #781 window item; seed 12 is the target look).
 pub(crate) fn window_light(accent: [f32; 3]) -> [f32; 3] {
@@ -134,14 +134,14 @@ pub(crate) fn window_material(color: [f32; 3]) -> SovereignMaterialSettings {
 // Lathe envelope continuum (#791)
 // ---------------------------------------------------------------------------
 //
-// The envelopes were scaled spheres with bolted-on nose/tail cones — the sphere
+// The envelopes were scaled spheres with bolted-on nose/tail cones - the sphere
 // ↔ cone junction left a visible crease, and the handful of hardcoded
 // `(half-extents, cone)` tuples gave the population only ~5 fixed silhouettes.
 // Each form is now a single smooth Lathe body of revolution whose profile
 // radius `r(t)` is a seeded function: the four templates (zeppelin / blimp /
 // lobed / twin) set the shape knobs, the blueprint's `len_mult` / `radius_mult`
 // perturb them per seed, and the rings, gore battens, and mount landmarks all
-// derive from `r(t)` instead of a table — a continuum, watertight by
+// derive from `r(t)` instead of a table - a continuum, watertight by
 // construction.
 
 /// A seeded airship-envelope silhouette: the radius profile `r(t)` for a single
@@ -190,7 +190,7 @@ impl EnvProfile {
 /// The seeded profile for an envelope `slug`, its length + girth scaled by the
 /// blueprint multipliers. The single source of truth shared by the envelope
 /// *part* (which laths it) and the *assembler* (which seats the gondola / fins /
-/// pods on landmarks derived from it) — see [`crate::pds::avatar::default_visuals`].
+/// pods on landmarks derived from it) - see [`crate::pds::avatar::default_visuals`].
 pub(crate) fn airship_profile(slug: &str, len_mult: f32, radius_mult: f32) -> EnvProfile {
     // `(length, max_r, nose_power, tail_power, waist, ripple_freq, ripple_amp)`
     // per form. Zeppelin: long + slender, sharpish nose. Blimp: short + fat,
@@ -209,7 +209,7 @@ pub(crate) fn airship_profile(slug: &str, len_mult: f32, radius_mult: f32) -> En
     };
     let length = l * len_mult;
     // Floor the length:diameter aspect so the shortest+fattest clamp corner
-    // (len_mult 0.85 × radius_mult 1.2) can't render a wider-than-long balloon —
+    // (len_mult 0.85 × radius_mult 1.2) can't render a wider-than-long balloon -
     // only the already-fat blimp base ever approaches 1:1; the slimmer forms
     // stay well clear, so the cap never touches them (#791 review).
     const MIN_ASPECT: f32 = 1.18;
@@ -226,7 +226,7 @@ pub(crate) fn airship_profile(slug: &str, len_mult: f32, radius_mult: f32) -> En
 }
 
 /// The envelope profile for the seed being built (blueprint mults, or the
-/// nominal `1.0` when a non-airship ctx exercises the part — the sanitiser
+/// nominal `1.0` when a non-airship ctx exercises the part - the sanitiser
 /// round-trip test).
 pub(crate) fn ctx_profile(ctx: &PartCtx, slug: &str) -> EnvProfile {
     let (lm, rm) = ctx
@@ -241,7 +241,7 @@ pub(crate) fn ctx_profile(ctx: &PartCtx, slug: &str) -> EnvProfile {
 const ENV_STATIONS: usize = 13;
 
 /// Build a single smooth Lathe gas-bag from a profile, laid along Z (nose +Z)
-/// via `quat_x(90°)` — the pole radii pinch to a point so there are no cone
+/// via `quat_x(90°)` - the pole radii pinch to a point so there are no cone
 /// junctions. `x` offsets it from the centreline (the twin's two hulls).
 pub(crate) fn lathe_spindle(
     p: &EnvProfile,
@@ -336,7 +336,7 @@ pub(crate) fn push_env_gores(
 /// A structural frame ring (torus in the plane ⟂ Z) at `z`, major radius `r`.
 /// `r` should be ≈ the bag radius at `z`; the tube is seated one minor-radius
 /// PROUD of it (major radius `r + 0.024`) so it reads as a raised frame ring
-/// hugging the surface without going coplanar/tangent at the silhouette — a
+/// hugging the surface without going coplanar/tangent at the silhouette - a
 /// tube straddling the skin z-fights there into a dashed stipple (#789 review).
 pub(crate) fn env_ring(material: &SovereignMaterialSettings, z: f32, r: f32) -> Generator {
     prim(
@@ -346,7 +346,7 @@ pub(crate) fn env_ring(material: &SovereignMaterialSettings, z: f32, r: f32) -> 
     )
 }
 
-/// Hidden structural core for an airship envelope at the origin — the unscaled
+/// Hidden structural core for an airship envelope at the origin - the unscaled
 /// root the assembler mounts the gondola / fins / pods to (a root scale would
 /// stretch and fling them), with the visible Lathe spindle as its child.
 pub(crate) fn env_core(body: &SovereignMaterialSettings) -> Generator {
@@ -358,7 +358,7 @@ pub(crate) fn env_core(body: &SovereignMaterialSettings) -> Generator {
 }
 
 pub(super) fn envelope(ctx: &PartCtx) -> Generator {
-    // Zeppelin — a long, slender rigid dirigible: a single smooth Lathe spindle
+    // Zeppelin - a long, slender rigid dirigible: a single smooth Lathe spindle
     // (no sphere↔cone junction crease) with a sharpish nose, prominent segment
     // rings, and full-length gore seams.
     let c = airship_colors(ctx);
@@ -370,7 +370,7 @@ pub(super) fn envelope(ctx: &PartCtx) -> Generator {
     let mut env = env_core(&skin);
     env.children.push(lathe_spindle(&p, 0.0, skin));
     // Longitudinal gore battens + a registry band down each flank, then the
-    // rigid segment rings — all seated from the profile radius.
+    // rigid segment rings - all seated from the profile radius.
     push_env_gores(&mut env, &p, 0.0, 8, &frame, Some(&stripe));
     push_env_rings(&mut env, &p, 0.0, 5, &frame);
     // Pointed nose finial just past the profile nose.
@@ -383,7 +383,7 @@ pub(super) fn envelope(ctx: &PartCtx) -> Generator {
 }
 
 pub(super) fn envelope_blimp(ctx: &PartCtx) -> Generator {
-    // Blimp — a short, fat, soft non-rigid envelope: a full Lathe spindle with
+    // Blimp - a short, fat, soft non-rigid envelope: a full Lathe spindle with
     // blunt rounded ends, only a couple of soft bands (fewer gores than the
     // rigid zeppelin), a stubbier silhouette.
     let c = airship_colors(ctx);
@@ -406,7 +406,7 @@ pub(super) fn envelope_blimp(ctx: &PartCtx) -> Generator {
 }
 
 pub(super) fn envelope_lobed(ctx: &PartCtx) -> Generator {
-    // Lobed — a multi-cell caterpillar of three gas bags decreasing toward the
+    // Lobed - a multi-cell caterpillar of three gas bags decreasing toward the
     // tail, jointed by rings; a deliberately segmented, knobbly silhouette.
     let c = airship_colors(ctx);
     let skin = envelope_material(c.envelope);
@@ -414,7 +414,7 @@ pub(super) fn envelope_lobed(ctx: &PartCtx) -> Generator {
     let stripe = ctx.materials.trim(c.stripe);
 
     // A single Lathe spindle whose profile RIPPLE pinches it into a string of
-    // beads (the caterpillar) — one watertight surface instead of three bolted
+    // beads (the caterpillar) - one watertight surface instead of three bolted
     // spheres joined by neck cylinders. The lobing reads from the profile
     // outline; rings cinch the pinched waists.
     let p = ctx_profile(ctx, "default_envelope_lobed");
@@ -435,7 +435,7 @@ pub(super) fn envelope_lobed(ctx: &PartCtx) -> Generator {
 }
 
 pub(super) fn envelope_twin(ctx: &PartCtx) -> Generator {
-    // Twin — a catamaran dirigible: two parallel Lathe spindles joined by a
+    // Twin - a catamaran dirigible: two parallel Lathe spindles joined by a
     // braced centre truss that carries the cruciform tail. Its defining feature
     // is the pair of side-by-side hulls seen head-on.
     let c = airship_colors(ctx);
@@ -456,14 +456,14 @@ pub(super) fn envelope_twin(ctx: &PartCtx) -> Generator {
             [x, 0.0, p.nose_z() + 0.03],
             id_quat(),
         ));
-        // A few gore battens per hull (no flank stripe — the inner flanks face
+        // A few gore battens per hull (no flank stripe - the inner flanks face
         // the narrow tunnel where a band would just be hidden).
         push_env_gores(&mut env, &p, x, 4, &frame, None);
     }
     // Fin station: the tail-inboard point the cruciform fins + empennage share
     // with `airship_mounts` (both use −0.4·length).
     let tail = -0.4 * p.length;
-    // Centre truss (#789): an exposed airframe — the two hulls nearly touch at
+    // Centre truss (#789): an exposed airframe - the two hulls nearly touch at
     // the centreline, so a truss at hull-centre height buries itself in their
     // shadow. It drops LOW so its crossings dip below the hull bottoms into
     // clear air, in the brighter `accent` metal so the bracing reads.
@@ -513,7 +513,7 @@ pub(crate) struct GondolaDims {
     pub(crate) hh: f32,
     pub(crate) hl: f32,
     /// The car's lowest surface (keel bottom for the enclosed cabin, tub/deck
-    /// floor for the open archetypes) — where the observation bubble seats
+    /// floor for the open archetypes) - where the observation bubble seats
     /// flush. A fixed offset would dangle it below the shallow open cars (#790
     /// review), so each archetype supplies its own underside.
     pub(crate) keel_y: f32,
@@ -527,7 +527,7 @@ fn dress_rng(ctx: &PartCtx, tweak: u64) -> ChaCha8Rng {
 }
 
 /// Ornateness → hanging-lantern count: plain gondolas stay spare, ornate ones
-/// are festooned — so the tier finally reads on the geometry (#790).
+/// are festooned - so the tier finally reads on the geometry (#790).
 fn lantern_count(ctx: &PartCtx) -> usize {
     match ctx.ornateness {
         OrnatenessTier::Plain => 0,
@@ -536,9 +536,9 @@ fn lantern_count(ctx: &PartCtx) -> usize {
     }
 }
 
-/// Draw the gondola's lit glazing in one of two seeded styles — a continuous
+/// Draw the gondola's lit glazing in one of two seeded styles - a continuous
 /// mullioned window band (the salon look) or a row of round portholes (dark rim
-/// + glowing lens) — both toned to the normalized interior-light colour (#789).
+/// + glowing lens) - both toned to the normalized interior-light colour (#789).
 pub(crate) fn gondola_windows(g: &mut Generator, ctx: &PartCtx, dims: GondolaDims) {
     let c = airship_colors(ctx);
     let frame = ctx.materials.metal(c.frame);
@@ -626,7 +626,7 @@ pub(crate) fn dress_gondola(g: &mut Generator, ctx: &PartCtx, dims: GondolaDims)
         }
     }
 
-    // Hanging lanterns at the keel corners — a dark yoke + a glowing bulb.
+    // Hanging lanterns at the keel corners - a dark yoke + a glowing bulb.
     let n = lantern_count(ctx);
     for spot in [[-1.0f32, 0.72], [1.0, 0.72], [-1.0, -0.72], [1.0, -0.72]]
         .iter()
@@ -645,7 +645,7 @@ pub(crate) fn dress_gondola(g: &mut Generator, ctx: &PartCtx, dims: GondolaDims)
         ));
     }
 
-    // Observation bubble: a profile-cut bottom half-dome at the bow underside —
+    // Observation bubble: a profile-cut bottom half-dome at the bow underside -
     // a downward view port. Ornate ships, or a lucky adorned one. Seated FLUSH
     // at the car's own underside (`keel_y`), not a fixed cabin-depth offset that
     // dangled it below the shallow open cars (#790 review). Glassy (not the
@@ -655,7 +655,7 @@ pub(crate) fn dress_gondola(g: &mut Generator, ctx: &PartCtx, dims: GondolaDims)
         || (ctx.ornateness == OrnatenessTier::Adorned && unit_f32(&mut rng) < 0.5);
     if bubble {
         let z = hl * 0.55;
-        // profile_cut [0, 0.5] keeps the southern (bottom) hemisphere — a dome
+        // profile_cut [0, 0.5] keeps the southern (bottom) hemisphere - a dome
         // bulging downward; the flat cut face seats flush at the underside.
         let dome = with_cut(
             sphere(0.13, 4, ctx.materials.glass(c.window)),
@@ -731,9 +731,9 @@ pub(super) fn fin(ctx: &PartCtx) -> Generator {
     // each copy into a cruciform tail. Centred at the origin (not pre-raised) so
     // the assembler's rotation spins it about its own centre cleanly. Tapered +
     // swept so it reads as a stabiliser, with a glowing trailing edge.
-    // The blade wears the envelope's complement (`accent`, value-separated) —
+    // The blade wears the envelope's complement (`accent`, value-separated) -
     // NOT the tertiary third draw that put chartreuse fins on a magenta ship
-    // (#789) — and the trailing edge uses the ship's normalized running-light
+    // (#789) - and the trailing edge uses the ship's normalized running-light
     // colour so it reads as a nav light without a blowout.
     let c = airship_colors(ctx);
     let mut f = prim(
@@ -758,7 +758,7 @@ pub(super) fn fin(ctx: &PartCtx) -> Generator {
 /// Push a vertical pylon strut into `pod` reaching up (+Y) from the nacelle
 /// into the envelope's lower flank, so the pod reads as slung under the hull
 /// rather than floating. Shared by every pod variant (the assembler mounts the
-/// pod X-symmetrically, so the strut stays on the centreline — no mirror flip).
+/// pod X-symmetrically, so the strut stays on the centreline - no mirror flip).
 pub(crate) fn pod_pylon(pod: &mut Generator, material: &SovereignMaterialSettings) {
     pod.children.push(prim(
         cuboid([0.05, 0.5, 0.09], material.clone()),
@@ -767,7 +767,7 @@ pub(crate) fn pod_pylon(pod: &mut Generator, material: &SovereignMaterialSetting
     ));
 }
 
-/// The pod nacelle barrel — a cylinder laid along the travel axis (`quat_x(90°)`
+/// The pod nacelle barrel - a cylinder laid along the travel axis (`quat_x(90°)`
 /// aims the barrel's +Y along +Z, the authored travel-forward direction).
 /// The shared root of every engine-pod variant (their spinners / cowls / screws
 /// mount as its children). `segs` lets a rounder variant ask for more sides.
@@ -797,7 +797,7 @@ pub(crate) fn pod_tail(z: f32, material: SovereignMaterialSettings) -> Generator
 pub(super) fn pod(ctx: &PartCtx) -> Generator {
     // The default engine pod: a nacelle laid along the travel axis (+Z front)
     // with a nose spinner, a torus prop-guard ring, a simple two-blade airscrew,
-    // and a tapered tail — the airship's visible propulsion (a flying family
+    // and a tapered tail - the airship's visible propulsion (a flying family
     // that had none). Wears the ship's `accent` metal so the pods read as one
     // mechanical set with the gondola / fins; a glowing hub gives a running
     // light. Authored X-symmetric (pylon up the centreline) so the assembler's

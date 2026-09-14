@@ -1,4 +1,4 @@
-//! Cathedral — the Gothic-Horror landmark and the kit's lit hero. A tall dark
+//! Cathedral - the Gothic-Horror landmark and the kit's lit hero. A tall dark
 //! stone nave with a great glowing rose window and lancets, buttress piers
 //! with pinnacles, a steep slate roof and twin front spires. ~14 m wide, so it
 //! looms over the necropolis and reads as the cathedral from across the home
@@ -70,7 +70,7 @@ fn build_tree() -> Generator {
     let st = || stone(STONE_DARK);
 
     let mut prims = vec![
-        // Stone base — the root.
+        // Stone base - the root.
         prim(
             solid(cuboid_tapered([14.0, base_h, 9.0], 0.0, st())),
             [0.0, base_h * 0.5, 0.0],
@@ -86,7 +86,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Steep slate gable roof — ridge along Z so the gable faces the -Z front.
+    // Steep slate gable roof - ridge along Z so the gable faces the -Z front.
     prims.push(prim(
         solid(cuboid_tapered_xz(
             [w + 0.5, 3.8, d + 0.5],

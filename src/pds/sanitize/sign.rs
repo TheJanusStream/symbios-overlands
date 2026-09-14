@@ -47,13 +47,13 @@ pub(crate) fn is_fetchable_endpoint(endpoint: &str) -> bool {
 
 /// Whether an asset-reference URL is one this client will follow (#1127).
 ///
-/// Asset references arrive inside records authored by *other identities* —
-/// a room reached through a portal or a gateway is a stranger's — and every
+/// Asset references arrive inside records authored by *other identities* -
+/// a room reached through a portal or a gateway is a stranger's - and every
 /// visitor's client fetches whatever they name. Unrestricted, that made a
 /// record a way to point every visitor at an arbitrary address: `http://`
 /// to a beacon that logs who visited, or, on native clients, to loopback
 /// and RFC1918 addresses that only exist inside the visitor's own network.
-/// Nothing is read back to the author, so this is a blind request — which
+/// Nothing is read back to the author, so this is a blind request - which
 /// makes it useful for reconnaissance and tracking rather than exfiltration,
 /// and no less worth refusing.
 ///
@@ -91,7 +91,7 @@ pub(crate) fn is_fetchable_reference(url: &str) -> bool {
 /// Why a typed asset URL will be refused, or `None` if it will be followed
 /// (#1248 f79 / f340).
 ///
-/// The refusal is enforced by `url.clear()` in the sanitiser — a policy that
+/// The refusal is enforced by `url.clear()` in the sanitiser - a policy that
 /// deletes the owner's typed text about a quarter of a second after they type
 /// it, with nothing said. Keeping the *reason* beside the predicate is what
 /// lets the field refuse the draft and explain itself instead, so the text is
@@ -105,16 +105,16 @@ pub(crate) fn refusal_reason(url: &str) -> Option<String> {
         return None;
     }
     let Ok(parsed) = url::Url::parse(url) else {
-        return Some("Not a full web address yet — it needs to start https://".to_string());
+        return Some("Not a full web address yet - it needs to start https://".to_string());
     };
     if parsed.scheme() != "https" {
         return Some(format!(
-            "Only https addresses are loaded — {}:// is refused.",
+            "Only https addresses are loaded - {}:// is refused.",
             parsed.scheme()
         ));
     }
     Some(
-        "Addresses inside a private network are refused — this one would only \
+        "Addresses inside a private network are refused - this one would only \
          work on your own machine."
             .to_string(),
     )
@@ -123,7 +123,7 @@ pub(crate) fn refusal_reason(url: &str) -> Option<String> {
 /// Whether the host is written as an address rather than a name, and that
 /// address is one only the visitor can reach.
 ///
-/// Only literals are judged — a name is left to DNS, per the caveat on
+/// Only literals are judged - a name is left to DNS, per the caveat on
 /// [`is_fetchable_reference`].
 fn is_private_host(parsed: &url::Url) -> bool {
     match parsed.host() {
@@ -191,12 +191,12 @@ pub(super) fn sanitize_sign(
 /// `scale · t + scale · material_offset`, so `scale = repeat` and
 /// `material_offset = offset / repeat`.
 ///
-/// **Idempotent by construction** — the reset to the identity is what makes
+/// **Idempotent by construction** - the reset to the identity is what makes
 /// a second sanitize pass a no-op, which the sanitize fixpoint requires.
 ///
 /// The one lossy case is a legacy *anisotropic* window: a single `uv_scale`
 /// cannot say "twice across U, once across V". The larger repeat wins, so an
-/// axis may show *less* of the image than before but never more — a crop is
+/// axis may show *less* of the image than before but never more - a crop is
 /// recoverable by eye, invented content is not.
 fn migrate_legacy_uv_window(
     uv_repeat: &mut Fp2,
@@ -277,7 +277,7 @@ mod reference_url_tests {
         }
     }
 
-    /// The control. Refusing everything would be a safe and useless rule —
+    /// The control. Refusing everything would be a safe and useless rule -
     /// ordinary hosted assets must still load.
     #[test]
     fn ordinary_https_references_survive_untouched() {
@@ -311,7 +311,7 @@ mod reference_url_tests {
     /// which rule it was checking.
     ///
     /// Note what that means today: the gate exercises the DEBUG branch, so
-    /// the release rule — loopback over plain http refused outright — is
+    /// the release rule - loopback over plain http refused outright - is
     /// checked by the `else` arm only when someone builds without
     /// assertions. The one-line assertion below it covers the case that
     /// actually matters either way.
@@ -342,7 +342,7 @@ mod reference_url_tests {
 
     /// #1248 f79 / f340: the rule is enforced by DELETING the owner's typed
     /// text, so the editor has to be able to ask the same question and get
-    /// a sentence back. The two must agree exactly — a field that refused
+    /// a sentence back. The two must agree exactly - a field that refused
     /// what the sanitiser accepts would block a working URL, and one that
     /// accepted what the sanitiser refuses would hand the text back to the
     /// blanking.

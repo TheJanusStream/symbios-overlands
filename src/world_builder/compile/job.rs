@@ -8,10 +8,10 @@
 //! per frame ([`SLICE_BUDGET`]), resuming mid-scatter / mid-grid via
 //! [`UnitCursor`]. Two properties fall out of that split:
 //!
-//! - **Incrementality** — an edit that touches one generator rebuilds
+//! - **Incrementality** - an edit that touches one generator rebuilds
 //!   only the placements referencing it; environment-only edits queue
 //!   nothing at all.
-//! - **Bounded stalls** — even a full rebuild (first load, heightmap
+//! - **Bounded stalls** - even a full rebuild (first load, heightmap
 //!   change) spreads its spawning over frames instead of freezing the
 //!   wasm main thread for the whole world.
 //!
@@ -42,7 +42,7 @@ pub(super) const SLICE_BUDGET: Duration = Duration::from_millis(5);
 #[derive(Default)]
 pub(super) struct CompiledUnit {
     /// `None` when the unit has never compiled (or was invalidated and
-    /// not yet rebuilt) — always re-queued by the next plan.
+    /// not yet rebuilt) - always re-queued by the next plan.
     pub(super) fingerprint: Option<String>,
     /// The unit's `PlacementMarker` anchor. `None` for
     /// `Placement::Unknown` (which spawns nothing) and for
@@ -57,7 +57,7 @@ pub(super) struct CompiledUnit {
 /// Reset by `ui::logout::cleanup_on_logout` and the attract-scene teardown
 /// (both despawn every `RoomEntity` outside the planner, so an identical
 /// record afterwards must compile from scratch). A placements-length
-/// *shrink* resets it wholesale — indices are unit identity, and
+/// *shrink* resets it wholesale - indices are unit identity, and
 /// `PlacementMarker` values on surviving anchors would go stale under a
 /// removal shift. A length *growth* only extends it (#979): live-record
 /// mutations append, so surviving indices keep their placements and the
@@ -82,7 +82,7 @@ impl CompileJob {
     /// spinner with a warning that it "may pause a few seconds", although
     /// the job has counted its own work since #351. No new bookkeeping: the
     /// numbers are `units_built`, the queue length, and the unit currently
-    /// mid-build. What was actually missing is this accessor — every field
+    /// mid-build. What was actually missing is this accessor - every field
     /// of [`ActiveJob`] is `pub(super)`, so a `Res<CompileJob>` parameter on
     /// its own could read nothing.
     ///
@@ -104,7 +104,7 @@ pub(super) struct QueuedUnit {
 }
 
 /// Cache touch-sets accumulated across every slice of one job. Only a
-/// job with full coverage may GC against them — an incremental job
+/// job with full coverage may GC against them - an incremental job
 /// touches only the rebuilt units' keys, and evicting everything else
 /// would orphan the untouched world's mesh/material handles.
 #[derive(Default)]
@@ -114,8 +114,8 @@ pub(super) struct TouchSets {
     pub(super) shape_material: HashSet<(String, String)>,
     pub(super) shape_mesh: HashSet<String>,
     /// Content-hash keys of the primitive caches (#919). Unlike the sets
-    /// above these are not generator refs — the prim caches are keyed by
-    /// content so one entry can serve many generators — but the GC
+    /// above these are not generator refs - the prim caches are keyed by
+    /// content so one entry can serve many generators - but the GC
     /// argument is identical: a full job touches every key the live world
     /// needs, so anything untouched is unreachable.
     pub(super) prim_mesh: HashSet<u64>,
@@ -124,13 +124,13 @@ pub(super) struct TouchSets {
 
 pub(super) struct ActiveJob {
     /// Unit indices still to build, ascending (preserves the authored
-    /// placement order — water registered before the scatters that
+    /// placement order - water registered before the scatters that
     /// sample it, matching the monolithic pass).
     pub(super) queue: VecDeque<QueuedUnit>,
     /// Resume state for the unit currently mid-build, when its grid /
     /// scatter loop outlived the previous slice.
     pub(super) cursor: Option<UnitCursor>,
-    /// `true` when this job (re)builds every placement — the only case
+    /// `true` when this job (re)builds every placement - the only case
     /// where the end-of-job cache GC is sound, and the case the loading
     /// gate's first pass always hits.
     pub(super) full: bool,
@@ -140,7 +140,7 @@ pub(super) struct ActiveJob {
     pub(super) entities_spawned: u32,
     pub(super) budget_warned: bool,
     /// Units abandoned when the budget tripped (#1211): how many, and the
-    /// first index — the owner's clue to which rows are missing.
+    /// first index - the owner's clue to which rows are missing.
     pub(super) skipped_units: u32,
     pub(super) skipped_from: Option<usize>,
     /// The room's water level at plan time, for `start_unit`'s dry-land
@@ -192,7 +192,7 @@ pub(super) enum CursorKind {
         /// Linearised next cell: `((ix * cy) + iy) * cz + iz`, matching
         /// the monolithic loop's iteration order.
         next_cell: u64,
-        /// Present when `random_yaw` — seeded once at unit start.
+        /// Present when `random_yaw` - seeded once at unit start.
         rng: Option<ChaCha8Rng>,
     },
     Scatter {
@@ -200,7 +200,7 @@ pub(super) enum CursorKind {
         attempts: u32,
         /// Positions only (#912). Every per-instance decoration moved to
         /// `jitter_rng`, which is what makes the naturalness filters
-        /// purely subtractive — see `super::scatter`.
+        /// purely subtractive - see `super::scatter`.
         rng: ChaCha8Rng,
         /// Per-instance scale / tilt / yaw stream, seeded off the same
         /// `local_seed` but salted apart from `rng`. Boxed because a
@@ -211,7 +211,7 @@ pub(super) enum CursorKind {
         /// at unit start from `local_seed`. Always populated, so enabling
         /// clumping changes only the contraction.
         clusters: Vec<(f32, f32)>,
-        /// Water level sampled from the registry at scatter start —
+        /// Water level sampled from the registry at scatter start -
         /// once per unit, matching the monolithic pass.
         water_level: Option<f32>,
     },
@@ -245,7 +245,7 @@ pub(super) fn placement_generator_ref(placement: &Placement) -> Option<&str> {
 ///   walk samples it),
 /// - the terrain config + room water level for biome-filtered scatters
 ///   (`dominant_biome` reads the terrain rules; the filter's water
-///   relation reads the registry — the room level is a sound proxy for
+///   relation reads the registry - the room level is a sound proxy for
 ///   the home-water plane those filters target in practice; a
 ///   scatter near a *moved scattered pond* can go stale until the next
 ///   full rebuild, which heightmap edits and placement-count changes
@@ -255,7 +255,7 @@ pub(super) fn placement_generator_ref(placement: &Placement) -> Option<&str> {
 /// the whole record: the room water level and the terrain config, both
 /// serialised up front. Before this existed, every `unit_fingerprint`
 /// call re-scanned all generators (`room_water_level` +
-/// `find_terrain_config`) — O(placements × generators) per pass in the
+/// `find_terrain_config`) - O(placements × generators) per pass in the
 /// editing loop (#673). Scoped to a single pass ONLY: the fingerprint is
 /// the planner's change-detection source of truth, so caching these
 /// across passes would be a correctness trap.
@@ -279,7 +279,7 @@ impl FingerprintPass {
 
 /// Routed through `serde_json::to_value` so any `HashMap`-backed field
 /// serialises key-sorted (`Value::Object` is BTreeMap-backed; the
-/// `preserve_order` feature is off). `None` on serialisation failure —
+/// `preserve_order` feature is off). `None` on serialisation failure -
 /// the planner treats that as "always rebuild".
 pub(super) fn unit_fingerprint(
     record: &RoomRecord,
@@ -335,7 +335,7 @@ mod tests {
 
     /// #1230 f281. The loading screen's longest and least legible phase was
     /// a numberless spinner under a warning that it "may pause a few
-    /// seconds" — although the job has counted `units_built` since #351.
+    /// seconds" - although the job has counted `units_built` since #351.
     /// The finding's refuter was right that the screen could not read them:
     /// every field of `ActiveJob` is `pub(super)`, so a `Res<CompileJob>`
     /// parameter alone would have read nothing. This is the accessor that

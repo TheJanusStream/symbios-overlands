@@ -1,4 +1,4 @@
-//! Deck chair — a Coastal-Resort prop. A folding timber-framed lounger with
+//! Deck chair - a Coastal-Resort prop. A folding timber-framed lounger with
 //! a striped canvas seat reclined against a raised back. Scatter clutter for
 //! the foreshore and the pool deck.
 
@@ -44,7 +44,7 @@ impl CatalogueEntry for DeckChair {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Flat canvas seat — the root.
+        // Flat canvas seat - the root.
         prim(
             cuboid_tapered([0.62, 0.06, 1.2], 0.0, canvas(AWNING_TEAL, AWNING_WHITE)),
             [0.0, 0.45, 0.0],

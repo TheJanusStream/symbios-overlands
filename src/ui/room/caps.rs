@@ -1,13 +1,13 @@
 //! The room record's structural caps, each with its number and its ONE
 //! user-facing sentence (#1210).
 //!
-//! Every cap here is enforced by [`crate::pds::sanitize`] — on fetch, and
+//! Every cap here is enforced by [`crate::pds::sanitize`] - on fetch, and
 //! on the editor's own quarter-second debounce flush over the LIVE record.
 //! Until this module the editor never read a cap: the 257th generator was
 //! inserted and, a quarter second later, whichever generator sorted LAST
 //! alphabetically was deleted; the 1025th placement was pushed, selected,
 //! and truncated; a 65th recipe re-sorted the whole list and dropped one;
-//! nesting past sixteen levels was amputated — all silently, with no count
+//! nesting past sixteen levels was amputated - all silently, with no count
 //! anywhere on screen. #841 established the fix for the inventory cap:
 //! refuse at every insert, disable the control with the reason, show
 //! `N/cap`. This is that pattern for the room, with the number and the
@@ -29,7 +29,7 @@ pub(crate) enum Cap {
     Recipes,
     /// Nodes in one generator tree, root included.
     NodesPerGenerator,
-    /// Nesting depth of one generator tree — the root is depth 0, and a
+    /// Nesting depth of one generator tree - the root is depth 0, and a
     /// node at the cap keeps no children.
     Depth,
     /// Material slots on a Shape generator.
@@ -70,17 +70,17 @@ impl Cap {
         used >= self.max()
     }
 
-    /// Why an add is refused — the disabled control's hover, and the toast
+    /// Why an add is refused - the disabled control's hover, and the toast
     /// for the doors that cannot be disabled (a drop, a drag, a menu that
     /// buffered its action).
     pub(crate) fn full_reason(self) -> String {
         let max = self.max();
         match self {
-            Self::Generators => format!("World full ({max}/{max} items) — delete one first"),
-            Self::Placements => format!("World full ({max}/{max} placements) — delete one first"),
-            Self::Recipes => format!("Recipe limit reached ({max}/{max}) — delete one first"),
+            Self::Generators => format!("World full ({max}/{max} items) - delete one first"),
+            Self::Placements => format!("World full ({max}/{max} placements) - delete one first"),
+            Self::Recipes => format!("Recipe limit reached ({max}/{max}) - delete one first"),
             Self::NodesPerGenerator => {
-                format!("This item is full ({max} parts) — delete a part first")
+                format!("This item is full ({max} parts) - delete a part first")
             }
             Self::Depth => format!("Nesting limit reached ({max} levels)"),
             Self::MaterialSlots => format!("All {max} material slots are used"),
@@ -117,13 +117,13 @@ impl Cap {
     }
 }
 
-/// Why a remove control at a list's minimum is disabled — a control that
+/// Why a remove control at a list's minimum is disabled - a control that
 /// is present and does nothing reads as a bug.
 pub(crate) const SPINE_MIN_REASON: &str = "A spine needs at least 2 points";
 pub(crate) const LATHE_MIN_REASON: &str = "A lathe needs at least 2 stations";
 pub(crate) const BLOB_MIN_REASON: &str = "A blob group needs at least one element";
 
-/// Number of nodes in `generator`'s tree, root included — what
+/// Number of nodes in `generator`'s tree, root included - what
 /// [`Cap::NodesPerGenerator`] counts.
 pub(crate) fn node_count(generator: &crate::pds::Generator) -> usize {
     1 + generator.children.iter().map(node_count).sum::<usize>()
@@ -142,7 +142,7 @@ pub(crate) fn subtree_depth(generator: &crate::pds::Generator) -> usize {
 }
 
 /// Whether a subtree of `depth` (see [`subtree_depth`]) may hang under a
-/// parent at `parent_depth` — the root of a generator is depth 0.
+/// parent at `parent_depth` - the root of a generator is depth 0.
 pub(crate) fn fits_under(parent_depth: usize, depth: usize) -> bool {
     parent_depth + 1 + depth <= Cap::Depth.max()
 }

@@ -1,4 +1,4 @@
-//! Town Gate — the Medieval social gateway (#760). A fortified burgh
+//! Town Gate - the Medieval social gateway (#760). A fortified burgh
 //! gatehouse replacing the neutral placeholder arch for this theme: two
 //! battlemented dressed-ashlar towers flank a round-arched carriage passage,
 //! their crenellated wall-walk bridging the span above a raised iron
@@ -8,7 +8,7 @@
 //! (camera) face.
 //!
 //! The only functional element is the single [`GeneratorKind::Gateway`] zone
-//! standing in the passage — walking into it opens the destination picker of
+//! standing in the passage - walking into it opens the destination picker of
 //! the room owner's mutual follows. Everything else is masonry framing that
 //! reads the box as a gate you pass under.
 
@@ -70,7 +70,7 @@ fn build_tree() -> Generator {
     let apex_y = spring_y + arch_r;
     let front = -1.0_f32; // hero convention: gate front faces −Z
 
-    // ── Cobbled threshold slab: the flat-base root (never tilt a root — every
+    // ── Cobbled threshold slab: the flat-base root (never tilt a root - every
     //    child inherits its transform). ──
     let mut prims = vec![prim(
         solid(cuboid_tapered(
@@ -106,7 +106,7 @@ fn build_tree() -> Generator {
             [cx, tower_top - 0.15, 0.0],
             id_quat(),
         ));
-        // Battlemented parapet ring — the defining medieval silhouette.
+        // Battlemented parapet ring - the defining medieval silhouette.
         prims.extend(crenellations(
             [cx, tower_top, 0.0],
             thw + 0.14,
@@ -128,7 +128,7 @@ fn build_tree() -> Generator {
             [cx, 2.75, loop_z],
             id_quat(),
         ));
-        // Warm shutter-glow window high on the tower front — the gate reads
+        // Warm shutter-glow window high on the tower front - the gate reads
         // inhabited at dusk. Broad lit face → low strength so it holds colour.
         prims.push(prim(
             cuboid_tapered([0.42, 0.55, 0.08], 0.0, glow(FORGE_ORANGE, 2.6)),
@@ -174,8 +174,8 @@ fn build_tree() -> Generator {
         quat_x(-FRAC_PI_2),
     ));
 
-    // ── Curtain wall bridging the towers above the arch — the horizontal span
-    //    tying the gatehouse together — with its own crenellated wall-walk. ──
+    // ── Curtain wall bridging the towers above the arch - the horizontal span
+    //    tying the gatehouse together - with its own crenellated wall-walk. ──
     let wall_h = 0.85_f32;
     let wall_cy = apex_y + wall_h * 0.5; // bottom flush with the arch apex
     prims.push(prim(
@@ -221,7 +221,7 @@ fn build_tree() -> Generator {
     }
 
     // ── Heraldic banner over the arch on the solid curtain-wall front (−Z),
-    //    with an applied gold cross device — the town's colours. Each layer
+    //    with an applied gold cross device - the town's colours. Each layer
     //    steps further toward the camera so the cross reads proud on the cloth.
     prims.push(prim(
         solid(cuboid_tapered([1.0, 0.06, 0.06], 0.0, timber(WOOD_DARK))),
@@ -244,7 +244,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // ── Iron cresset torches flanking the threshold — the emissive accent. An
+    // ── Iron cresset torches flanking the threshold - the emissive accent. An
     //    iron sconce cup and a hot little flame on each tower's inner-front
     //    corner, framing the mouth of the passage. Thin flame → runs hot. ──
     for sx in [-1.0_f32, 1.0] {
@@ -270,7 +270,7 @@ fn build_tree() -> Generator {
         //
         // A round arch cannot be filled by a box. Stopping at the
         // springline would draw the very edge this overhaul removes,
-        // straight across the opening — so the veil carries on up past the
+        // straight across the opening - so the veil carries on up past the
         // apex into the wall that sits on it, and the arch ribs read in
         // front of the glow. That wall is the shallower piece, so the veil
         // takes its depth rather than the towers'.
@@ -294,7 +294,7 @@ mod tests {
         assert_sanitize_stable(&MedievalGateway.build(""), "medieval_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is masonry, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

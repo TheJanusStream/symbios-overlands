@@ -1,6 +1,6 @@
 //! OkLab / OkLCH ↔ sRGB color conversion.
 //!
-//! OkLab (Björn Ottosson, 2020) is a perceptually-uniform color space —
+//! OkLab (Björn Ottosson, 2020) is a perceptually-uniform color space -
 //! equal-magnitude movements in L, C, h produce roughly equal perceived
 //! changes. The seeded palette deriver works in OkLCH so coordinated
 //! colors (terrain, water, sky, cloud) can be sampled by perturbing
@@ -33,7 +33,7 @@ fn linear_to_srgb(c: f32) -> f32 {
 // Coefficients are copied verbatim from Ottosson's published article
 // (linked above) so anyone cross-referencing the implementation against
 // the paper sees an exact match. The extra decimals past f32's ~7-digit
-// limit are silently rounded at compile time — keeping them lets the
+// limit are silently rounded at compile time - keeping them lets the
 // compiler do a single round-to-nearest from the published values
 // instead of inheriting whatever shorter literal we'd hand-truncate to.
 #[allow(clippy::excessive_precision)]
@@ -52,7 +52,7 @@ pub fn linear_srgb_to_oklab([r, g, b]: [f32; 3]) -> [f32; 3] {
 }
 
 /// OkLab → linear sRGB. May produce out-of-gamut negative values for
-/// high-chroma inputs — the public sRGB helpers clamp after the inverse
+/// high-chroma inputs - the public sRGB helpers clamp after the inverse
 /// transfer function.
 //
 // As above: coefficients are kept at paper precision so the compiler
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn round_trip_typical_grass() {
-        // The existing grass_dry constant — a deeply useful sanity check
+        // The existing grass_dry constant - a deeply useful sanity check
         // because the palette deriver perturbs around this exact triple.
         let grass = [0.07, 0.12, 0.03];
         let back = oklch_to_srgb(srgb_to_oklch(grass));

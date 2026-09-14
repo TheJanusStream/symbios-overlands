@@ -15,7 +15,7 @@ use crate::state::LiveRoomRecord;
 /// without waiting for the editor's debounce (#1249 f59).
 ///
 /// **The lane this opens.** Every widget edit re-arms the 0.25 s flush, and
-/// `set_changed()` fires only when that timer drains — so during a
+/// `set_changed()` fires only when that timer drains - so during a
 /// continuous drag the record is never marked changed, and colour and
 /// atmosphere sliders, which are tuned by eye, showed nothing at all until
 /// the hand stopped. The debounce is right for the two expensive consumers
@@ -30,7 +30,7 @@ use crate::state::LiveRoomRecord;
 pub struct EnvironmentPreview;
 
 /// Apply the active `RoomRecord`'s `Environment` to every atmospheric
-/// resource in the scene — sun, ambient, sky cuboid, clear colour, and
+/// resource in the scene - sun, ambient, sky cuboid, clear colour, and
 /// distance fog. Runs on every `RoomRecord` change so an editor slider
 /// (or peer broadcast) retints the world without restarting the session.
 ///
@@ -45,7 +45,7 @@ pub(crate) fn apply_environment_state(
     // `cloud_layer` query below (which holds `&mut Transform`). Bevy's
     // borrow checker conservatively assumes any pair of queries that
     // touch `Transform` could match the same entity unless we tell it
-    // otherwise — and a directional light entity never carries the
+    // otherwise - and a directional light entity never carries the
     // `CloudLayer` marker, so the filter has no runtime cost.
     mut lights: Query<(&mut DirectionalLight, &mut Transform), Without<CloudLayer>>,
     mut clear_color: ResMut<ClearColor>,
@@ -87,12 +87,12 @@ pub(crate) fn apply_environment_state(
         // Re-orient the directional light so its forward points toward
         // the origin from `sun_position`. Sanitise has already rejected
         // a zero-length vector, but `look_at` still requires the
-        // target ≠ eye AND a non-collinear up vector — a `sun_position`
+        // target ≠ eye AND a non-collinear up vector - a `sun_position`
         // sitting on the world Y axis would make forward ‖ Vec3::Y and
         // panic the cross-product inside `look_at`. Swap to Vec3::Z as
         // the up reference when that happens (any non-Y axis works
         // because the resulting roll is invisible for a directional
-        // light — only the forward direction is observed).
+        // light - only the forward direction is observed).
         if sun_pos.length_squared() > 1.0e-6 {
             transform.translation = sun_pos;
             let forward = -sun_pos.normalize();
@@ -179,7 +179,7 @@ pub(crate) fn apply_environment_state(
     // Water sun-glitter tracks the same runtime sun as the cloud deck
     // (#662). Patched here rather than at water spawn only, because a
     // sun-position slider drag retints the world without recompiling the
-    // water volumes — every live water material shares the one global sun.
+    // water volumes - every live water material shares the one global sun.
     for (_, mat) in water_materials.iter_mut() {
         mat.extension.uniforms.sun_dir = Vec4::new(sun_dir.x, sun_dir.y, sun_dir.z, 0.0);
     }

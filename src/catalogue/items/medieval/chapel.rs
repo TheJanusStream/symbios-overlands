@@ -1,9 +1,9 @@
-//! Chapel — a Medieval secondary. A parish church of dressed ashlar on a
+//! Chapel - a Medieval secondary. A parish church of dressed ashlar on a
 //! fieldstone footing: a steep slate gable nave with pointed-arch stained
 //! lancets down each flank, stepped corner buttresses, a battlemented west
 //! tower with corner pinnacles and a pointed-arch oak doorway, and an east
 //! window with a stone cross at the gable. The quiet civic heart of the
-//! burgh — built from the shared `gable_roof` (nordic), `pointed_arch`
+//! burgh - built from the shared `gable_roof` (nordic), `pointed_arch`
 //! (gothic) and `crenellations` (medieval) vocabulary.
 
 use crate::catalogue::items::gothic_horror::pointed_arch;
@@ -56,7 +56,7 @@ impl CatalogueEntry for Chapel {
     }
 }
 
-/// Coloured leaded glass for the lancets — a deep jewel surface so the
+/// Coloured leaded glass for the lancets - a deep jewel surface so the
 /// daylit chapel glints without the forge's emissive glow.
 fn stained() -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -132,7 +132,7 @@ fn build_tree() -> Generator {
     let east = l * 0.5; // +X chancel gable
 
     let mut prims = vec![
-        // Fieldstone footing — the root (identity rotation).
+        // Fieldstone footing - the root (identity rotation).
         prim(
             solid(cuboid_tapered(
                 [l + 1.0, foot_h, w + 1.0],
@@ -269,7 +269,7 @@ fn build_tree() -> Generator {
         [tx, tower_top - 0.15, 0.0],
         id_quat(),
     ));
-    // Battlemented parapet — the medieval crenellation ring.
+    // Battlemented parapet - the medieval crenellation ring.
     prims.extend(crenellations(
         [tx, tower_top, 0.0],
         thw + 0.12,

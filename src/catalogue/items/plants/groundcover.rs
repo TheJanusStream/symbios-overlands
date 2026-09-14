@@ -1,13 +1,13 @@
-//! Ground-cover props (#911) — the cheap scatter tier below the trees.
+//! Ground-cover props (#911) - the cheap scatter tier below the trees.
 //!
 //! Every entry here is a handful of primitives, not an L-system: the
 //! seeded ground-cover scatter places these by the hundred, so per-instance
 //! entity cost is the binding constraint. Two shapes cover the whole tier:
 //!
-//! * **Crossed cards** — two alpha-masked quads at 90°, each carrying one of
+//! * **Crossed cards** - two alpha-masked quads at 90°, each carrying one of
 //!   the WS1 vegetation textures. Crossing them means the prop reads from
 //!   every yaw instead of vanishing edge-on, which a single card does.
-//! * **Cushion mounds** — one squashed sphere centred on the ground plane,
+//! * **Cushion mounds** - one squashed sphere centred on the ground plane,
 //!   for the encrusting cover (moss, lichen). These carry opaque *surface*
 //!   textures rather than alpha cards, so a flat quad would read as a square
 //!   stamped on the terrain; a buried-hemisphere dome has no such edge.
@@ -16,7 +16,7 @@
 //!
 //! A `Plane` is horizontal by default, so a standing card is the root rotated
 //! `+90°` about X. Children inherit the root's rotation, so the crossing card
-//! cannot simply be given a world-space `Ry(90)` — its *local* rotation must
+//! cannot simply be given a world-space `Ry(90)` - its *local* rotation must
 //! be `Rx(-90)·Ry(90)·Rx(90)`, which reduces to `Rz(-90)`. Getting this wrong
 //! splays the second card flat instead of crossing it (see the rotated-root
 //! trap in the catalogue notes).
@@ -89,7 +89,7 @@ fn crossed_cards(width: f32, height: f32, material: SovereignMaterialSettings) -
 /// A flat quad would be simpler, but moss and lichen carry *opaque* surface
 /// textures rather than alpha cards, so a quad reads as an unmistakable square
 /// patch stamped on the terrain. A squashed sphere centred on the ground plane
-/// shows only its dome — no silhouette edge to give the trick away, and no
+/// shows only its dome - no silhouette edge to give the trick away, and no
 /// coplanar z-fight, since nothing is flush with the surface.
 fn cushion(radius: f32, height: f32, material: SovereignMaterialSettings) -> Generator {
     prim_scaled(
@@ -102,7 +102,7 @@ fn cushion(radius: f32, height: f32, material: SovereignMaterialSettings) -> Gen
     )
 }
 
-/// Matte card material — ground cover is never glossy, and `base_color` stays
+/// Matte card material - ground cover is never glossy, and `base_color` stays
 /// near white so the generator's own palette shows through unmodulated.
 fn card_material(texture: SovereignTextureConfig) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -150,7 +150,7 @@ ground_cover_entry!(
     GrassTuft,
     "gc_grass_tuft",
     "Grass Tuft",
-    "A crossed-card clump of grass blades — the ground-cover workhorse.",
+    "A crossed-card clump of grass blades - the ground-cover workhorse.",
     || crossed_cards(
         0.55,
         0.45,
@@ -164,7 +164,7 @@ ground_cover_entry!(
     DryGrassTuft,
     "gc_dry_grass_tuft",
     "Dry Grass Tuft",
-    "Sun-bleached grass clump — savanna, badlands and arid ground cover.",
+    "Sun-bleached grass clump - savanna, badlands and arid ground cover.",
     || crossed_cards(
         0.6,
         0.4,
@@ -184,7 +184,7 @@ ground_cover_entry!(
     Wildflower,
     "gc_wildflower",
     "Wildflower Clump",
-    "Grass tuft topped with a blossom — meadow and verge colour.",
+    "Grass tuft topped with a blossom - meadow and verge colour.",
     || {
         let mut root = crossed_cards(
             0.45,
@@ -231,7 +231,7 @@ ground_cover_entry!(
     FernClump,
     "gc_fern_clump",
     "Fern Clump",
-    "Low frond rosette — forest-floor and jungle understory cover.",
+    "Low frond rosette - forest-floor and jungle understory cover.",
     || crossed_cards(
         0.8,
         0.6,
@@ -248,7 +248,7 @@ ground_cover_entry!(
     ReedClump,
     "gc_reed_clump",
     "Reed Clump",
-    "Tall shoreline reeds with cattail heads — wetland and pond margins.",
+    "Tall shoreline reeds with cattail heads - wetland and pond margins.",
     || crossed_cards(
         0.7,
         1.5,
@@ -260,7 +260,7 @@ ground_cover_entry!(
     DwarfShrub,
     "gc_dwarf_shrub",
     "Dwarf Shrub",
-    "Low woody cushion — tundra and alpine ground cover.",
+    "Low woody cushion - tundra and alpine ground cover.",
     || crossed_cards(
         0.5,
         0.35,
@@ -280,7 +280,7 @@ ground_cover_entry!(
     ShoreGrass,
     "gc_shore_grass",
     "Shore Grass",
-    "Salt-bleached blue-green dune grass — the coastal waterline fringe.",
+    "Salt-bleached blue-green dune grass - the coastal waterline fringe.",
     || crossed_cards(
         0.65,
         0.5,
@@ -302,9 +302,9 @@ ground_cover_entry!(
     LilyPad,
     "gc_lily_pad",
     "Lily Pads",
-    "Floating lily pads with a blossom — still-water cover for wetland pools.",
+    "Floating lily pads with a blossom - still-water cover for wetland pools.",
     || {
-        // Pads are HORIZONTAL cards — a `Plane` needs no rotation — floating
+        // Pads are HORIZONTAL cards - a `Plane` needs no rotation - floating
         // at the water surface (the scatter opts into `float_on_water`).
         // Lifted a few centimetres so the card is never coplanar with the
         // water plane (see the z-fight gotcha in the catalogue notes); the
@@ -372,7 +372,7 @@ ground_cover_entry!(
     MossPatch,
     "gc_moss_patch",
     "Moss Patch",
-    "Velvet moss cushion — damp forest and boreal floors.",
+    "Velvet moss cushion - damp forest and boreal floors.",
     || cushion(
         0.7,
         0.16,
@@ -384,7 +384,7 @@ ground_cover_entry!(
     LichenPatch,
     "gc_lichen_patch",
     "Lichen Patch",
-    "Crustose lichen crust over stone — tundra ground cover.",
+    "Crustose lichen crust over stone - tundra ground cover.",
     || cushion(
         0.55,
         0.09,
@@ -456,7 +456,7 @@ mod tests {
 
     /// Lily pads float at the water surface, so their cards must be
     /// horizontal (no rotation on the pad quads) and lifted clear of the
-    /// water plane — a card at exactly y = 0 would be coplanar with the
+    /// water plane - a card at exactly y = 0 would be coplanar with the
     /// surface it floats on (the z-fight trap).
     #[test]
     fn lily_pads_are_horizontal_and_clear_of_the_water_plane() {
@@ -482,7 +482,7 @@ mod tests {
     }
 
     /// The encrusting covers are squashed domes centred on the ground plane,
-    /// not flat quads — a flat quad carrying an opaque surface texture reads
+    /// not flat quads - a flat quad carrying an opaque surface texture reads
     /// as a square stamped on the terrain, and would z-fight if laid flush.
     #[test]
     fn cushions_are_squashed_domes_on_the_ground_plane() {

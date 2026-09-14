@@ -1,4 +1,4 @@
-//! Harbour Tavern — the buccaneer port's public house.
+//! Harbour Tavern - the buccaneer port's public house.
 //!
 //! A two-storey timber-framed tavern on a rubble plinth: a boarded false
 //! front rising past the eaves, a first-floor gallery slung over the lane on
@@ -11,7 +11,7 @@
 //! reads taller and squarer from the street than it is. It is the one piece
 //! of architecture that says *frontier boom town* in any period, which is
 //! also the risk: `wild_west::saloon` is built on the same device. The
-//! separation is in everything behind it — this one is **ship-built**, clad
+//! separation is in everything behind it - this one is **ship-built**, clad
 //! in [`strake`] rather than clapboard, on rubble rather than dust, with a
 //! gallery and a hanging sign where the saloon has a boardwalk and a
 //! porch. If the two ever start to read alike, the answer is more harbour
@@ -23,7 +23,7 @@
 //! and it follows
 //! the idiom exactly (#972 lessons 1, 6, 7 and 9): every card is a flat
 //! `Plane` set back in a real reveal, lapped past the opening so no edge is
-//! coplanar with the jamb, over an interior with something in it — and the
+//! coplanar with the jamb, over an interior with something in it - and the
 //! taproom is laid out **bay by bay**, because a shell with the furniture all
 //! at one end has a black rectangle in every other bay.
 
@@ -47,7 +47,7 @@ use super::{
 
 // --- The building, stated once ---------------------------------------------
 
-/// Cobbled apron the tavern stands on — the sub-root every footprint guard
+/// Cobbled apron the tavern stands on - the sub-root every footprint guard
 /// measures against (#972 lesson 19).
 const APRON: [f32; 3] = [15.0, 0.30, 13.0];
 /// Apron top.
@@ -55,7 +55,7 @@ const GROUND: f32 = APRON[1];
 
 /// Rubble plinth under the frame.
 const PLINTH: [f32; 3] = [11.4, 0.42, 9.4];
-/// Plinth top — the taproom floor.
+/// Plinth top - the taproom floor.
 const FLOOR: f32 = GROUND + PLINTH[1];
 
 /// The framed body: width, ground-storey height, depth.
@@ -66,7 +66,7 @@ const STOREY_1: f32 = FLOOR + BODY[1];
 const UPPER_H: f32 = 2.90;
 const EAVES: f32 = STOREY_1 + UPPER_H;
 
-/// The hero plane — the street elevation. `-Z` is where the render tool and
+/// The hero plane - the street elevation. `-Z` is where the render tool and
 /// the settlement placer both look from.
 const FRONT_Z: f32 = -BODY[2] * 0.5;
 
@@ -74,14 +74,14 @@ const FRONT_Z: f32 = -BODY[2] * 0.5;
 const WIN_W: f32 = 1.85;
 const WIN_H: f32 = 1.55;
 const SILL: f32 = FLOOR + 0.95;
-/// Upper-floor opening — shorter, as an upper storey's windows are.
+/// Upper-floor opening - shorter, as an upper storey's windows are.
 const UP_W: f32 = 1.45;
 const UP_H: f32 = 1.25;
 /// Upper sill, held clear of the gallery railing that stands in front of it.
 ///
 /// Derived rather than picked. At a tidy `+0.72` the sill landed at 4.74 and
 /// the railing on the gallery below topped out at 4.92, so the balustrade
-/// crossed the bottom of every upper window — which is #972 lesson 24's fault
+/// crossed the bottom of every upper window - which is #972 lesson 24's fault
 /// exactly: a rail in front of an opening hides the one thing the opening was
 /// cut for. The sill now sits a clear margin above whatever the railing
 /// reaches, so re-proportioning the gallery cannot reopen it.
@@ -96,7 +96,7 @@ const DOOR_H: f32 = 2.3;
 ///
 /// The reveal is what makes a window read as a hole rather than as a picture:
 /// without it the card, the jamb and the wall are all on one plane. The lap
-/// (#972 lesson 7) keeps the card's edges off the reveal's own planes — a
+/// (#972 lesson 7) keeps the card's edges off the reveal's own planes - a
 /// card sized exactly to its opening puts four edges into four coplanar ties,
 /// and the frame is opaque so the overhang is never seen.
 const REVEAL: f32 = 0.28;
@@ -105,7 +105,7 @@ const CARD_LAP: f32 = 0.06;
 /// How far interior surfaces stay behind the wall face they meet.
 ///
 /// A floor run out to `FRONT_Z` exactly puts its leading edge on the same
-/// plane as the piers' front faces — coplanar along the whole sill line,
+/// plane as the piers' front faces - coplanar along the whole sill line,
 /// which is what showed in-world (#1028).
 const FLOOR_INSET: f32 = 0.06;
 
@@ -118,7 +118,7 @@ const ROOM_BACK: f32 = FRONT_Z + 3.6;
 /// Bay centres across the street elevation. Three bays: window, door, window.
 const BAYS: [f32; 3] = [-3.3, 0.0, 3.3];
 
-/// Gallery — the first-floor balcony slung over the lane.
+/// Gallery - the first-floor balcony slung over the lane.
 const GALLERY_D: f32 = 1.9;
 const GALLERY_Y: f32 = STOREY_1 - 0.12;
 /// Gallery railing height, measured from its deck.
@@ -161,7 +161,7 @@ impl CatalogueEntry for HarbourTavern {
 /// Ship-built boarding in the shared world course frame, standing UP.
 ///
 /// The tavern is clad by shipwrights out of the same stock as a hull, so its
-/// walls are vertical boarding rather than lap siding — [`bonded_boards`]
+/// walls are vertical boarding rather than lap siding - [`bonded_boards`]
 /// applies the quarter turn and pre-rotates the world offset to match, which
 /// is the half of #972 lesson 15 that is easy to skip and invisible when you
 /// do (every slab still gets vertical boards; they just each start at their
@@ -172,7 +172,7 @@ fn clad(center: [f32; 3], color: [f32; 3]) -> crate::pds::SovereignMaterialSetti
 
 /// One glazed opening: the card on its flat quad, set back in the reveal.
 ///
-/// Returns the card alone — the wall around it is the caller's, because the
+/// Returns the card alone - the wall around it is the caller's, because the
 /// piers and sill walls that frame an opening are structure and belong to the
 /// elevation, not to the window.
 fn light(x: f32, sill: f32, w: f32, h: f32, panes: (u32, u32)) -> Generator {
@@ -201,7 +201,7 @@ fn taproom() -> Vec<Generator> {
         // they are lit.
         // Held FLOOR_INSET behind the wall face. Run to FRONT_Z exactly, the
         // floor's leading edge and the piers' front faces share one plane and
-        // z-fight along the whole sill line — the battery's casemate fault
+        // z-fight along the whole sill line - the battery's casemate fault
         // arriving indoors (#1028).
         prim(
             solid(cuboid_tapered(
@@ -320,8 +320,8 @@ fn taproom() -> Vec<Generator> {
 /// The street elevation: piers, sill walls, spandrels and the head band that
 /// frame the three bays, plus the cards that fill them.
 ///
-/// Built as a shell (#972 lesson 1). The alternative — a solid wall with
-/// glazing laid on it — is the fault the ledger has caught more than any
+/// Built as a shell (#972 lesson 1). The alternative - a solid wall with
+/// glazing laid on it - is the fault the ledger has caught more than any
 /// other, and it is worse here than anywhere: the whole subject of a tavern
 /// is the light coming out of it.
 fn street_elevation() -> Vec<Generator> {
@@ -405,7 +405,7 @@ fn street_elevation() -> Vec<Generator> {
     // This is the pivot-about-an-edge shape (#972 lesson 21's corollary),
     // and the first build failed it in the purest way available: the leaf's
     // CENTRE was placed on the swung arc and its ROTATION was left at the
-    // identity — a wall-parallel slab hanging diagonally beside its own
+    // identity - a wall-parallel slab hanging diagonally beside its own
     // doorway (#1028). Centre and turn now come from ONE direction vector:
     // `quat_y(θ)` carries local +X to (cos θ, 0, −sin θ), so the same
     // (cos, −sin) pair that aims the leaf also places its midpoint along it
@@ -493,7 +493,7 @@ fn upper_storey() -> Vec<Generator> {
             id_quat(),
         ));
         out.push(light(x, UP_SILL, UP_W, UP_H, (2, 3)));
-        // A lit chamber behind each — #972 lesson 6's vertical half. From the
+        // A lit chamber behind each - #972 lesson 6's vertical half. From the
         // lane the eye goes UP through an upper window, so what it frames is
         // the room's far corner; unlit, all three read as black rectangles,
         // which is the one thing a card must never do.
@@ -543,7 +543,7 @@ fn gallery() -> Generator {
     // The long run takes a COARSER pitch than the shared default.
     //
     // `BALUSTER_PITCH` (0.42 m) is calibrated for a prop seen at prop
-    // distance — a boardwalk you stand next to. On an eleven-metre gallery it
+    // distance - a boardwalk you stand next to. On an eleven-metre gallery it
     // is twenty-four balusters, and the railing alone came to a third of the
     // whole building's record for detail that is two pixels wide from the
     // street. Widened until it still reads as *balusters* rather than as a
@@ -570,7 +570,7 @@ fn gallery() -> Generator {
     // clear the gallery's own railing (4.92 m) and stop under the upper sills,
     // and on a two-storey building those two levels are the same level. The
     // choice is between a canopy that fouls the balustrade and one that roofs
-    // the whole elevation — the motel's fault, where a walkway canopy at
+    // the whole elevation - the motel's fault, where a walkway canopy at
     // wall-top height turned the building into a grey rectangle with a lane
     // underneath. A ship's gallery is open to the sky, so this one is too.
 
@@ -639,7 +639,7 @@ fn head() -> Vec<Generator> {
             id_quat(),
         ));
     }
-    // Stack, clearing the ridge — a flue that stops inside its own roof is
+    // Stack, clearing the ridge - a flue that stops inside its own roof is
     // the fault the farmhouse and the suburban house both shipped.
     let stack_top = EAVES + roof_h + 0.9;
     out.push(prim(
@@ -651,7 +651,7 @@ fn head() -> Vec<Generator> {
         [BAYS[1] + 2.4, (STOREY_1 + stack_top) * 0.5, 2.2],
         id_quat(),
     ));
-    // The flue is OPEN — a hollow pot, not a capped slab. A chimney with a
+    // The flue is OPEN - a hollow pot, not a capped slab. A chimney with a
     // lid is a column with a hat on it, and the smoke rising from it starts
     // out of a solid (#1028). `tube` gives a real bore with an inner wall
     // and an annular rim, so from any angle above the eaves you look into a
@@ -664,7 +664,7 @@ fn head() -> Vec<Generator> {
 
     // The sign: a wrought bracket off the false front with a painted board
     // swinging under it. A tavern's name goes on a hanging sign, not on the
-    // fascia — that is what tells a stranger it is a public house.
+    // fascia - that is what tells a stranger it is a public house.
     let arm = 1.5_f32;
     let bx = -BODY[0] * 0.5 + 0.9;
     let by = EAVES + 0.35;
@@ -698,11 +698,11 @@ fn head() -> Vec<Generator> {
     ));
     // Painted face, deep-saturated at low strength: a broad pale lit panel
     // blooms to a white blank (the standing gotcha).
-    // Painted face — small and deep-saturated, so it holds its hue where a
+    // Painted face - small and deep-saturated, so it holds its hue where a
     // broad pale lit panel would bloom to a white blank.
     //
     // Thin in Z, matching the board it lies on. The first build carried a
-    // leftover quarter-turn in its DIMENSIONS — thin in X, tall in Z — so
+    // leftover quarter-turn in its DIMENSIONS - thin in X, tall in Z - so
     // the lit face stood edge-on to the street and stuck through the board
     // sideways, which read in-world as the sign's device rotated 90° off
     // (#1028). The board is thin in Z; anything mounted on it must be too.
@@ -713,7 +713,7 @@ fn head() -> Vec<Generator> {
     ));
     // Gilt beading round it, and a lamp so the sign reads after dark.
     // Gilt beading, its ring IN the board's plane: a torus lies in XZ with
-    // its axis on +Y, so facing the street (−Z) is a quarter-turn about X —
+    // its axis on +Y, so facing the street (−Z) is a quarter-turn about X -
     // the `quat_z` the first build used stood the ring edge-on beside the
     // board, the same 90° family of error as the face above.
     out.push(prim(
@@ -738,7 +738,7 @@ fn build_tree() -> Generator {
     on_plinth.extend(head());
     on_plinth.push(gallery());
 
-    // Flank and rear walls, as single slabs — they carry no openings, so a
+    // Flank and rear walls, as single slabs - they carry no openings, so a
     // punched grid would cost twenty prims to say nothing.
     for sx in [-1.0_f32, 1.0] {
         let c = [
@@ -766,7 +766,7 @@ fn build_tree() -> Generator {
         back_c,
         id_quat(),
     ));
-    // Storey band ringing all four elevations — a RING, so it takes the
+    // Storey band ringing all four elevations - a RING, so it takes the
     // building's own centre and its projection goes into its SIZE (#972
     // lesson 31); centred on the trim plane it becomes a cantilevered shelf.
     let band_c = [0.0, STOREY_1 - 0.16, 0.0];
@@ -805,7 +805,7 @@ fn build_tree() -> Generator {
         // (#972 lesson 8). At a tidy `FRONT_Z - 2.6` the tuns stood 0.42 m
         // past the paving, which is the class of error no camera angle here
         // would show.
-        // Inside the apron AND clear of the plinth — both constraints, stated
+        // Inside the apron AND clear of the plinth - both constraints, stated
         // (#972 lesson 8 has the first half; #1028 supplied the second: at
         // x ±5.7 the tun grazed the plinth's own 5.7 m half-width and the
         // hawser coil sat inside its corner). The x is derived from the
@@ -823,7 +823,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
         if i == 0 {
-            // Forward of the plinth's front face, not inboard of the tun —
+            // Forward of the plinth's front face, not inboard of the tun -
             // inboard put it straight back over the plinth corner the tun
             // had just been moved off (#1028; the clearance guard caught it).
             carried.push(prim(
@@ -833,7 +833,7 @@ fn build_tree() -> Generator {
             ));
         }
     }
-    // A ship's bell by the door — last orders.
+    // A ship's bell by the door - last orders.
     carried.push(prim(
         solid(cuboid_tapered(
             [0.4, 0.08, 0.08],
@@ -939,7 +939,7 @@ mod tests {
 
     /// Every bay has its own thing to look at (#972 lesson 9).
     ///
-    /// The fault this guards is not "the taproom is empty" — it is "the
+    /// The fault this guards is not "the taproom is empty" - it is "the
     /// taproom was authored for the room and everything ended up at one end",
     /// which the mini-mart shipped and which reads as one beautiful bay
     /// beside two black rectangles. So it is checked per bay, against the
@@ -960,7 +960,7 @@ mod tests {
             });
             assert!(
                 filled,
-                "bay at x = {x} has nothing standing behind its opening — it \
+                "bay at x = {x} has nothing standing behind its opening - it \
                  will read as a black rectangle whatever the shell does"
             );
         }
@@ -970,7 +970,7 @@ mod tests {
     ///
     /// A balustrade in front of an opening hides the one thing the opening was
     /// cut for, and on a two-storey front the gallery rail and the upper sill
-    /// are within a few centimetres of each other by default — the first build
+    /// are within a few centimetres of each other by default - the first build
     /// had the rail crossing the bottom 0.18 m of all three upper lights.
     /// Checked against the BUILT railing rather than the constant, since the
     /// helper adds its own stock to whatever height it is given.
@@ -993,7 +993,7 @@ mod tests {
         assert!(
             rail_top < UP_SILL,
             "the gallery railing tops out at {rail_top} and the upper sills \
-             are at {UP_SILL} — the balustrade is standing in front of the \
+             are at {UP_SILL} - the balustrade is standing in front of the \
              windows it is under"
         );
     }
@@ -1002,7 +1002,7 @@ mod tests {
     ///
     /// Two claims that were two shipped faults. A flue stopping inside the
     /// roof mass is the farmhouse's and suburban house's fault; a flue with a
-    /// capped top is this entry's (#1028) — a column with a hat on it, whose
+    /// capped top is this entry's (#1028) - a column with a hat on it, whose
     /// smoke rose out of a solid. The crown must be a `Tube`, because a tube
     /// is the one prim whose top face is an annulus: from any angle above the
     /// eaves you look into a bore, not onto a lid.
@@ -1027,7 +1027,7 @@ mod tests {
         let pot = solids
             .iter()
             .find(|p| p.kind_tag == "Tube")
-            .expect("the flue crown is a Tube — a capped chimney is a lid");
+            .expect("the flue crown is a Tube - a capped chimney is a lid");
         assert!(
             (pot.bounds.min.y - shaft.bounds.max.y).abs() < 0.05,
             "the pot floats at {} over a shaft topping out at {}",
@@ -1040,7 +1040,7 @@ mod tests {
         );
         assert!(
             pot.bounds.max.y > ridge + 0.4,
-            "the flue tops out at {} and the ridge at {ridge} — it has to \
+            "the flue tops out at {} and the ridge at {ridge} - it has to \
              clear the roof it comes through",
             pot.bounds.max.y
         );
@@ -1049,8 +1049,8 @@ mod tests {
     /// Street furniture stands clear of the plinth as well as on the apron.
     ///
     /// The other half of #972 lesson 8, supplied in-world (#1028): the tuns
-    /// were derived from the APRON's edge, which put one at x ±5.7 — exactly
-    /// the plinth's own half-width — and the hawser coil inside the plinth's
+    /// were derived from the APRON's edge, which put one at x ±5.7 - exactly
+    /// the plinth's own half-width - and the hawser coil inside the plinth's
     /// corner. Two solids sharing space is invisible in a still when they
     /// are the same tone, so it is checked as an AABB overlap against the
     /// plinth's real extent.
@@ -1060,7 +1060,7 @@ mod tests {
         let ph = [PLINTH[0] * 0.5, PLINTH[1], PLINTH[2] * 0.5];
         let mut furniture = 0;
         for p in measure::solids(&g) {
-            // Ground furniture: casks and coils — revolved prims on the
+            // Ground furniture: casks and coils - revolved prims on the
             // apron, below the plinth top.
             if !matches!(p.kind_tag, "Cylinder" | "Torus") {
                 continue;
@@ -1069,7 +1069,7 @@ mod tests {
             // STREET furniture stands on the apron; the taproom's casks stand
             // on the plinth, a storey of masonry higher, and are inside the
             // building on purpose. Selecting on the piece's FEET is what
-            // separates the populations — the first draft filtered on centre
+            // separates the populations - the first draft filtered on centre
             // height and promptly flagged the bar's own stillage (#972
             // lesson 24, again).
             if b.min.y > FLOOR - 0.05 || b.center().y < GROUND {
@@ -1088,7 +1088,7 @@ mod tests {
         }
         assert!(
             furniture >= 3,
-            "only {furniture} pieces of street furniture examined — the \
+            "only {furniture} pieces of street furniture examined - the \
              selector has stopped finding the tuns and the coil"
         );
     }
@@ -1098,8 +1098,8 @@ mod tests {
     ///
     /// Both were 90°/coplanar faults from #1028: the floor's leading edge
     /// shared the piers' front plane and z-fought along the sill line, and
-    /// the lit face kept a quarter-turn in its DIMENSIONS — thin in X
-    /// instead of Z — so it stood edge-on through the board. The dimension
+    /// the lit face kept a quarter-turn in its DIMENSIONS - thin in X
+    /// instead of Z - so it stood edge-on through the board. The dimension
     /// check is the one that catches that class: a face mounted on a board
     /// must be thin on the same axis the board is.
     #[test]
@@ -1129,7 +1129,7 @@ mod tests {
             .expect("the taproom floor is in the tree");
         assert!(
             floor.0[2] - floor.1[2] * 0.5 > FRONT_Z + FLOOR_INSET * 0.5,
-            "the floor's leading edge is at {} — on the wall face at {FRONT_Z}",
+            "the floor's leading edge is at {} - on the wall face at {FRONT_Z}",
             floor.0[2] - floor.1[2] * 0.5
         );
         // The sign face: the lit plate hanging out over the lane.
@@ -1139,7 +1139,7 @@ mod tests {
             .expect("the sign's lit face is in the tree");
         assert!(
             face.1[2] < face.1[0] && face.1[2] < face.1[1],
-            "the sign face {:?} is not thin toward the street — it is standing \
+            "the sign face {:?} is not thin toward the street - it is standing \
              edge-on through its own board, the 90°-off fault",
             face.1
         );
@@ -1149,7 +1149,7 @@ mod tests {
     /// about-an-edge shape).
     ///
     /// The first build placed the leaf's centre on the swung arc and left its
-    /// rotation at the identity — a wall-parallel slab floating beside the
+    /// rotation at the identity - a wall-parallel slab floating beside the
     /// doorway (#1028), which is the same family as the fishing shack's
     /// unhinged door. So this guard does what that ledger entry prescribes:
     /// read the BUILT leaf's actual quaternion and half-extent, rotate
@@ -1187,7 +1187,7 @@ mod tests {
         assert!(
             on_hinge,
             "neither end of the leaf ({ends:?}) lands on the hinge jamb at \
-             {jamb:?} — the door is hung on nothing"
+             {jamb:?} - the door is hung on nothing"
         );
         // And the free end stands OUT from the wall, or the "open" door is
         // lying flat against the elevation.
@@ -1203,7 +1203,7 @@ mod tests {
             .expect("two ends");
         assert!(
             free[1] < FRONT_Z - 0.4,
-            "the free edge sits at z = {} — the leaf is not standing open",
+            "the free edge sits at z = {} - the leaf is not standing open",
             free[1]
         );
     }
@@ -1235,7 +1235,7 @@ mod tests {
         }
         assert!(
             checked > 10,
-            "only {checked} ground parts examined — the selector has stopped \
+            "only {checked} ground parts examined - the selector has stopped \
              finding the plinth and the street furniture"
         );
     }

@@ -1,4 +1,4 @@
-//! Owner Daguerreotype — the Steampunk identity monument (#975).
+//! Owner Daguerreotype - the Steampunk identity monument (#975).
 //!
 //! A brass-cased portrait on a riveted iron pedestal: the room owner's picture
 //! sits behind a heavy brass bezel with a cog turning at each side, copper
@@ -54,7 +54,7 @@ impl CatalogueEntry for SteampunkMonument {
 }
 
 fn build_tree(did: &str) -> Generator {
-    // Sooted brick base course — the root, and flat.
+    // Sooted brick base course - the root, and flat.
     let base = prim(
         solid(cuboid_tapered([3.0, 0.44, 1.7], 0.06, brick(BRICK_SOOT))),
         [0.0, 0.22, 0.0],
@@ -93,7 +93,7 @@ fn portrait(did: &str) -> Vec<Generator> {
     let z = -0.40;
     let bez = 0.17;
     let mut out = vec![
-        // Backing — the panel is single-sided and a case has a back to it.
+        // Backing - the panel is single-sided and a case has a back to it.
         prim(
             solid(cuboid_tapered(
                 [PANEL + 0.2, PANEL + 0.2, 0.09],

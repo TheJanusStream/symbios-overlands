@@ -1,6 +1,6 @@
 //! Sovereign (DAG-CBOR-safe) mirrors of the [`bevy_symbios_audio`]
 //! crate's authoring types. Every `f32` field is wrapped in [`Fp`] so
-//! the wire stream carries fixed-point integers — DAG-CBOR forbids
+//! the wire stream carries fixed-point integers - DAG-CBOR forbids
 //! floats and the PDS would reject any record carrying them otherwise.
 //!
 //! # Type hierarchy
@@ -9,8 +9,8 @@
 //!   slot. Variants: `None` / `Referenced{source}` /
 //!   `Patch{patch}` / `Sequence{recipe}` / `Unknown`.
 //! - [`SovereignAudioPatch`] mirrors `bevy_symbios_audio::AudioPatch`.
-//! - [`SovereignNodeGraph`] mirrors `NodeGraph` — the DAG topology.
-//! - [`SovereignGraphNode`] mirrors `GraphNode` — one node placed in
+//! - [`SovereignNodeGraph`] mirrors `NodeGraph` - the DAG topology.
+//! - [`SovereignGraphNode`] mirrors `GraphNode` - one node placed in
 //!   the graph.
 //! - [`SovereignNodeKind`] mirrors the closed `NodeKind` enum, with a
 //!   forward-compat `Unknown` arm that maps to `Silence` on
@@ -27,7 +27,7 @@
 //! `bevy_symbios_audio` equivalent) and `from_native` (builds the
 //! sovereign mirror from a native value). The round-trip is loss-free
 //! modulo `Fp` quantisation (each float quantises to its nearest
-//! `FP_SCALE` tick — ~0.0001 precision, well below audio-rate
+//! `FP_SCALE` tick - ~0.0001 precision, well below audio-rate
 //! perceptual thresholds for any field these types carry).
 //!
 //! [`Fp`]: super::types::Fp
@@ -55,23 +55,23 @@ pub enum SovereignAudioConfig {
     /// No audio for this slot.
     #[default]
     None,
-    /// External asset pointer — fetched bytes are decoded by the
+    /// External asset pointer - fetched bytes are decoded by the
     /// audio resolver into a `Handle<AudioSource>`.
     Referenced { source: SovereignAssetReference },
-    /// Procedural single-voice patch — full structured mirror of
+    /// Procedural single-voice patch - full structured mirror of
     /// [`bevy_symbios_audio::AudioPatch`].
     Patch { patch: SovereignAudioPatch },
-    /// Procedural multi-voice mixdown — full structured mirror of
+    /// Procedural multi-voice mixdown - full structured mirror of
     /// [`bevy_symbios_audio::SequenceRecipe`].
     Sequence { recipe: SovereignSequenceRecipe },
-    /// Forward-compat seam — a record from a future engine version
+    /// Forward-compat seam - a record from a future engine version
     /// decodes here rather than failing the whole load.
     #[serde(other, skip_serializing)]
     Unknown,
 }
 
 impl SovereignAudioConfig {
-    /// `true` for the silent [`Self::None`] slot — the wire-format skip
+    /// `true` for the silent [`Self::None`] slot - the wire-format skip
     /// predicate for generator `audio` fields (#695).
     pub fn is_none(&self) -> bool {
         matches!(self, Self::None)
@@ -89,7 +89,7 @@ impl SovereignAudioConfig {
     }
 
     /// Build a `Patch` variant from a native
-    /// [`bevy_symbios_audio::AudioPatch`]. Conversion is infallible —
+    /// [`bevy_symbios_audio::AudioPatch`]. Conversion is infallible -
     /// the structural walk wraps every float in [`Fp`] without losing
     /// data outside `FP_SCALE` quantisation.
     pub fn from_patch(patch: &bevy_symbios_audio::AudioPatch) -> Self {
@@ -162,7 +162,7 @@ pub struct SovereignNodeGraph {
 
 impl Default for SovereignNodeGraph {
     fn default() -> Self {
-        // Match the native default — one Silence node at NodeId(0).
+        // Match the native default - one Silence node at NodeId(0).
         Self {
             nodes: vec![SovereignGraphNode::default()],
             output: SovereignNodeId::default(),
@@ -202,7 +202,7 @@ pub struct SovereignGraphNode {
     /// Wired inputs, keyed by port name. Each port holds a *list* of
     /// connections whose resolved values are summed at bake time, so
     /// several sources can feed one port (signal mixing, modulation
-    /// stacking) — mirrors `GraphNode::inputs` after the audio crate's
+    /// stacking) - mirrors `GraphNode::inputs` after the audio crate's
     /// single-`Connection` → `Vec<Connection>` change.
     #[serde(default)]
     pub inputs: BTreeMap<String, Vec<SovereignConnection>>,
@@ -273,7 +273,7 @@ pub enum SovereignConnection {
         #[serde(default = "default_connection_amount")]
         amount: Fp,
     },
-    /// Forward-compat — a future Connection variant decodes here.
+    /// Forward-compat - a future Connection variant decodes here.
     /// Mapped to `Constant { value: 0.0 }` (silent) on `to_native`.
     #[serde(other, skip_serializing)]
     Unknown,
@@ -324,7 +324,7 @@ impl SovereignConnection {
 /// written by a newer engine decodes here rather than failing the whole
 /// record. Since symbios-audio 0.2 it maps to `NodeKind::Unknown` on
 /// `to_native` instead of collapsing to `Silence`, so the bake still plays
-/// silence — upstream samples that variant as `0.0` — but says so once per
+/// silence - upstream samples that variant as `0.0` - but says so once per
 /// bake instead of doing it mutely.
 ///
 /// It is `skip_serializing`, and that is load-bearing: `Unknown` is a unit
@@ -365,7 +365,7 @@ impl SovereignNodeKind {
             // Not `N::Silence`: upstream has its own `Unknown`, which samples
             // 0.0 and makes `try_bake` warn once per bake naming how many of
             // them the graph holds. Same audible result, no longer mute about
-            // it — and it keeps the round-trip honest, so the roster tests
+            // it - and it keeps the round-trip honest, so the roster tests
             // below can assert that a *known* kind never lands here.
             Self::Unknown => N::Unknown,
             Self::Sine(c) => N::Sine(c.to_native()),
@@ -415,7 +415,7 @@ impl SovereignNodeKind {
             // that one is a stale mirror and shouts.
             N::Unknown => Self::Unknown,
             // `NodeKind` is `#[non_exhaustive]`, so this arm cannot be
-            // deleted — but it must never be *taken*. What the comment
+            // deleted - but it must never be *taken*. What the comment
             // here used to say about forward compatibility is true of a
             // mirror *reader*, which meets an unknown `kind` tag on the
             // wire and needs somewhere to put it; it was never true of
@@ -433,11 +433,11 @@ impl SovereignNodeKind {
                 debug_assert!(
                     false,
                     "bevy_symbios_audio::NodeKind::{other:?} has no mirror arm in \
-                     pds::audio — add one, or every world holding this node \
+                     pds::audio - add one, or every world holding this node \
                      becomes unpublishable"
                 );
                 bevy::log::warn!(
-                    "audio node kind {other:?} is newer than this build's mirror — \
+                    "audio node kind {other:?} is newer than this build's mirror - \
                      it will play as silence, and saving a world that holds it \
                      will be refused"
                 );
@@ -468,7 +468,7 @@ define_sovereign_mirror!(verbatim
         #[serde(default = "default_amplitude")]
         fp: amplitude = 1.0,
         /// Band-limiting mode. `#[serde(default)]` so records authored
-        /// before this field existed decode to `Naive` — matching the audio
+        /// before this field existed decode to `Naive` - matching the audio
         /// crate's own back-compat default.
         #[serde(default)]
         mirror(SovereignAntiAlias): anti_alias = SovereignAntiAlias::Naive,
@@ -514,11 +514,11 @@ impl SovereignSawPolarity {
     }
 }
 
-/// Mirror of [`bevy_symbios_audio::AntiAlias`] — band-limiting mode for
+/// Mirror of [`bevy_symbios_audio::AntiAlias`] - band-limiting mode for
 /// the discontinuous oscillators (square / saw / triangle).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SovereignAntiAlias {
-    /// Raw generator — aliased, the historical default.
+    /// Raw generator - aliased, the historical default.
     #[default]
     Naive,
     /// PolyBLEP / polyBLAMP band-limited generator.
@@ -682,14 +682,14 @@ fn default_amplitude() -> Fp {
     Fp(1.0)
 }
 
-/// Default gain (`1.0`) for [`SovereignMix`] / [`SovereignGain`] —
+/// Default gain (`1.0`) for [`SovereignMix`] / [`SovereignGain`] -
 /// unity pass-through.
 fn default_gain() -> Fp {
     Fp(1.0)
 }
 
 define_sovereign_mirror!(verbatim
-    /// Mirror of [`bevy_symbios_audio::Mix`] — additive bus, sums all wired
+    /// Mirror of [`bevy_symbios_audio::Mix`] - additive bus, sums all wired
     /// input ports scaled by `gain`.
     SovereignMix => bevy_symbios_audio::Mix {
         #[serde(default = "default_gain")]
@@ -697,7 +697,7 @@ define_sovereign_mirror!(verbatim
 });
 
 define_sovereign_mirror!(verbatim
-    /// Mirror of [`bevy_symbios_audio::Gain`] — voltage-controlled
+    /// Mirror of [`bevy_symbios_audio::Gain`] - voltage-controlled
     /// amplifier, `in * (gain + input("gain"))`.
     SovereignGain => bevy_symbios_audio::Gain {
         #[serde(default = "default_gain")]
@@ -705,7 +705,7 @@ define_sovereign_mirror!(verbatim
 });
 
 define_sovereign_mirror!(verbatim
-    /// Mirror of [`bevy_symbios_audio::Gate`] — note-gate signal driven by
+    /// Mirror of [`bevy_symbios_audio::Gate`] - note-gate signal driven by
     /// the sequencer's gate window. `invert` is a plain `bool` (no `Fp`).
     SovereignGate => bevy_symbios_audio::Gate {
         #[serde(default)]
@@ -713,7 +713,7 @@ define_sovereign_mirror!(verbatim
 });
 
 define_sovereign_mirror!(verbatim
-    /// Mirror of [`bevy_symbios_audio::Chorus`] — internally-modulated
+    /// Mirror of [`bevy_symbios_audio::Chorus`] - internally-modulated
     /// fractional-delay chorus effect.
     SovereignChorus => bevy_symbios_audio::Chorus {
         fp: rate_hz = 0.8,
@@ -724,7 +724,7 @@ define_sovereign_mirror!(verbatim
 });
 
 define_sovereign_mirror!(verbatim
-    /// Mirror of [`bevy_symbios_audio::Reverb`] — mono Freeverb
+    /// Mirror of [`bevy_symbios_audio::Reverb`] - mono Freeverb
     /// reverberator.
     SovereignReverb => bevy_symbios_audio::Reverb {
         fp: room_size = 0.5,
@@ -759,8 +759,8 @@ impl Default for SovereignSequenceRecipe {
     /// caught rather than silently re-meaning. Putting the world's
     /// preferred bed rate here (#1337 C7) is therefore the wrong door and
     /// the guard says so: what a NEW slot starts at is the *editor's*
-    /// question, answered by `ui::room::audio::new_sequence_recipe` — the
-    /// Sequence preset the variant picker makes a slot from — and by
+    /// question, answered by `ui::room::audio::new_sequence_recipe` - the
+    /// Sequence preset the variant picker makes a slot from - and by
     /// [`WORLD_BED_SAMPLE_RATE`](crate::config::interaction::audio::WORLD_BED_SAMPLE_RATE).
     fn default() -> Self {
         Self {
@@ -860,14 +860,14 @@ pub struct SovereignEvent {
     pub pitch_multiplier: Fp,
     pub volume: Fp,
     pub gate_beats: Fp,
-    /// Extra tail baked *after* the gate closes, in beats — enough for
+    /// Extra tail baked *after* the gate closes, in beats - enough for
     /// the envelope's release to ring out. `0.0` cuts the note the
     /// instant the gate closes (a hard one-shot). `#[serde(default)]`
     /// so records authored before this field existed decode as `0.0`,
     /// matching the audio crate's own back-compat default.
     #[serde(default)]
     pub release_beats: Fp,
-    /// How `pitch_multiplier` is realised — resample (`Varispeed`,
+    /// How `pitch_multiplier` is realised - resample (`Varispeed`,
     /// default) or synthesis-time retune (`TimePreserving`).
     /// `#[serde(default)]` keeps pre-existing recipes on the historical
     /// resample path.
@@ -915,15 +915,15 @@ impl SovereignEvent {
     }
 }
 
-/// Mirror of [`bevy_symbios_audio::PitchMode`] — how an event's
+/// Mirror of [`bevy_symbios_audio::PitchMode`] - how an event's
 /// `pitch_multiplier` is realised at mixdown time.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SovereignPitchMode {
-    /// Resample the native bake — pitch and duration coupled (the
+    /// Resample the native bake - pitch and duration coupled (the
     /// historical default).
     #[default]
     Varispeed,
-    /// Retune oscillators at synthesis time — pitch and duration
+    /// Retune oscillators at synthesis time - pitch and duration
     /// independent.
     TimePreserving,
     #[serde(other, skip_serializing)]
@@ -949,7 +949,7 @@ impl SovereignPitchMode {
 
 #[cfg(test)]
 mod tests {
-    //! Parity guards for the audio mirror (#1160, finding 94 of #1109) —
+    //! Parity guards for the audio mirror (#1160, finding 94 of #1109) -
     //! the audio half of what `pds::texture`'s
     //! `mirror_defaults_match_upstream` has had since the texture mirror
     //! was macro-generated.
@@ -962,7 +962,7 @@ mod tests {
     /// This is the one way a hand-written mirror can be wrong that the
     /// compiler never sees: `to_native` names every field, so a missing
     /// one is a build error, but a mistyped default constant compiles
-    /// fine — and then decides what an *unset* field sounds like, on
+    /// fine - and then decides what an *unset* field sounds like, on
     /// every peer, without any record changing (`amplitude`, `anti_alias`,
     /// `invert`, `release_beats` and `pitch_mode` all default on decode).
     ///
@@ -1040,14 +1040,14 @@ mod tests {
     /// Every node kind the audio crate ships has a mirror arm, the arm
     /// round-trips, and no two kinds share one.
     ///
-    /// **The roster comes from upstream** — `NodeKind::defaults()`, added in
+    /// **The roster comes from upstream** - `NodeKind::defaults()`, added in
     /// symbios-audio 0.2 and generated there from `for_each_node_kind!`.
     /// This used to be a hand-written list of eighteen kinds sitting on the
     /// dependency-bump checklist beside the avian canary, and the trouble
     /// with that is the shape of the failure it was guarding against:
     /// `NodeKind` is `#[non_exhaustive]`, so a kind added upstream could not
     /// reach `from_native`'s wildcard in a test run *unless somebody
-    /// remembered to add it here too* — and the person most likely to forget
+    /// remembered to add it here too* - and the person most likely to forget
     /// is the person doing the bump. Walking upstream's own roster makes the
     /// next addition a red test on the bump itself.
     ///
@@ -1061,7 +1061,7 @@ mod tests {
         let roster = native::NodeKind::defaults();
         assert!(
             roster.len() >= 18,
-            "upstream roster shrank to {} kinds — a removal is a wire break, \
+            "upstream roster shrank to {} kinds - a removal is a wire break, \
              not a bump",
             roster.len()
         );
@@ -1076,7 +1076,7 @@ mod tests {
             assert_ne!(
                 mirror,
                 SovereignNodeKind::Unknown,
-                "{kind:?} has no mirror arm — every world holding one would \
+                "{kind:?} has no mirror arm - every world holding one would \
                  become unpublishable"
             );
             assert_eq!(
@@ -1094,7 +1094,7 @@ mod tests {
 
     /// The two `Unknown`s are each other's image, in both directions.
     ///
-    /// Neither is reachable from a roster walk — that is the point of them —
+    /// Neither is reachable from a roster walk - that is the point of them -
     /// so the pairing needs its own assertion. Before symbios-audio 0.2 the
     /// mirror's `Unknown` flattened to `N::Silence` on the way out, which
     /// erased the distinction between "this build knows this node is silent"

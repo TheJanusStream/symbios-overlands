@@ -1,4 +1,4 @@
-//! Harbour Battery — the Pirate theme's landmark.
+//! Harbour Battery - the Pirate theme's landmark.
 //!
 //! A two-tier stone water-battery standing over the roads: four casemate
 //! ports at quay level and six embrasures on the terreplein above, every one
@@ -13,7 +13,7 @@
 //! different road: a wall wants openings, an opening wants something behind
 //! it, and a `Window` card is how a *domestic* opening is filled. A battery
 //! is the building where that is simply the wrong question. Its openings are
-//! embrasures and casemate ports — genuine holes with a gun in them — so the
+//! embrasures and casemate ports - genuine holes with a gun in them - so the
 //! alpha-card idiom never enters into it (#972 lesson 24: ask what the real
 //! thing does before reaching for the idiom, and the boardwalk's open serving
 //! hatch is the same answer arrived at from a kiosk).
@@ -28,7 +28,7 @@
 //! Ten openings, ten things to look at, because a shell is not enough and the
 //! fit-out has to be laid out bay by bay (#972 lesson 9). Every casemate has
 //! its own gun, its own lit floor, its own warm rear lining held 2.5 m back,
-//! and its own lantern hung **below** the port head — the head spans the
+//! and its own lantern hung **below** the port head - the head spans the
 //! opening, so anything at ceiling level is in the shadow of its own reveal
 //! (#972 lesson 10). The guard house has a lit passage, a barred inner gate,
 //! a table and a powder budge-barrel.
@@ -66,12 +66,12 @@ use super::{
 // ---------------------------------------------------------------------------
 //
 // Every dimension below is derived from these. #972 lesson 18: a quantity
-// that exists twice is a quantity that will disagree with itself — the
+// that exists twice is a quantity that will disagree with itself - the
 // factory's stack built its brick frame from one reading of "the middle" and
 // placed itself from another, and the courses came out 0.8 m out of the frame
 // every other surface on the building shared.
 
-/// Cobbled apron the whole work stands on — and the sub-root every footprint
+/// Cobbled apron the whole work stands on - and the sub-root every footprint
 /// guard measures against (#972 lesson 19).
 ///
 /// Sized to **hug** the work rather than to sit under it as a plate. The first
@@ -81,7 +81,7 @@ use super::{
 /// now 0.7 m clear of the talus in X.
 ///
 /// The depth is a different quantity and stays generous, because it is not
-/// chosen — it is *derived*, by the gorge flight. Thirteen treads at a 0.30 m
+/// chosen - it is *derived*, by the gorge flight. Thirteen treads at a 0.30 m
 /// going run 3.9 m out from the back of the wall, and the apron has to contain
 /// them or the flight lands on bare ground, which is the fault
 /// `every_part_stands_on_the_apron` exists to catch. Shrinking Z here would
@@ -90,20 +90,20 @@ const APRON: [f32; 3] = [22.0, 0.35, 20.0];
 /// Apron top: quay level.
 const QUAY: f32 = APRON[1];
 
-/// Battered talus at the foot of the scarp — footprint at its base.
+/// Battered talus at the foot of the scarp - footprint at its base.
 const TALUS: [f32; 3] = [20.6, 0.90, 11.6];
 /// Talus batter, `[x, z]`. A masonry talus runs about one in six; over its
 /// 0.9 m this is the fraction that gives that slope, and it pinches the
 /// **top**, which is the way a talus is built and the opposite of a corbel.
 const TALUS_BATTER: [f32; 2] = [0.03, 0.06];
-/// Talus top — and the sill the casemate ports fire over.
+/// Talus top - and the sill the casemate ports fire over.
 const CASEMATE_SILL: f32 = QUAY + TALUS[1];
 
 /// Vertical scarp wall above the talus: width, height, depth.
 const WALL: [f32; 3] = [19.8, 2.60, 10.8];
 /// Wall top.
 const WALL_TOP: f32 = CASEMATE_SILL + WALL[1];
-/// The wall's seaward face — the hero plane the guns run out through.
+/// The wall's seaward face - the hero plane the guns run out through.
 const FACE_Z: f32 = -WALL[2] * 0.5;
 
 /// Clear height of a casemate port, and the head band above it.
@@ -112,7 +112,7 @@ const PORT_H: f32 = 1.70;
 const PORT_W: f32 = 1.90;
 /// Head band over the ports, spanning the whole face in one prim.
 const HEAD_H: f32 = WALL[1] - PORT_H;
-/// Port head — the underside of the head band.
+/// Port head - the underside of the head band.
 const PORT_HEAD: f32 = CASEMATE_SILL + PORT_H;
 
 /// Depth of every chamber cut into the mass: the four casemates and the guard
@@ -120,7 +120,7 @@ const PORT_HEAD: f32 = CASEMATE_SILL + PORT_H;
 ///
 /// #972 lesson 6: goods against the back wall of a 7 m shop are unreadable
 /// specks, so the display run is held forward. The same arithmetic upward and
-/// inward — 2.5 m is far enough that the chamber has depth and near enough
+/// inward - 2.5 m is far enough that the chamber has depth and near enough
 /// that its lit lining is the thing you see through the port rather than a
 /// dark smudge.
 const CHAMBER_D: f32 = 2.5;
@@ -129,7 +129,7 @@ const CHAMBER_BACK: f32 = FACE_Z + CHAMBER_D;
 
 /// How far a chamber's fit-out is held inside the opening it sits in.
 ///
-/// Everything loose in a chamber — the floor, the rear lining — is sized to
+/// Everything loose in a chamber - the floor, the rear lining - is sized to
 /// the CLEAR span less this on each side, so no piece of fit-out ever runs
 /// into the masonry that frames it or shares a plane with it. The first build
 /// sized the floor at `PORT_W + 0.9`, which put 0.45 m of it inside each pier.
@@ -143,12 +143,12 @@ const CHAMBER_INSET: f32 = 0.05;
 /// floor laid over stone, which is what it is.
 const FLOOR_SINK: f32 = 0.03;
 
-/// Guard house opening — clear width, and its head (shared with the ports so
+/// Guard house opening - clear width, and its head (shared with the ports so
 /// the elevation has one head line).
 const GUARD_W: f32 = 2.60;
 const GUARD_HEAD: f32 = PORT_HEAD;
 
-/// Cordon — the projecting ring at the wall head. A ring is centred on the
+/// Cordon - the projecting ring at the wall head. A ring is centred on the
 /// **building** and its projection goes into its SIZE (#972 lesson 31); a
 /// ring centred on a trim plane becomes a cantilevered shelf the width of the
 /// site.
@@ -156,7 +156,7 @@ const CORDON_PROJECT: f32 = 0.40;
 const CORDON_H: f32 = 0.32;
 const CORDON_TOP: f32 = WALL_TOP + CORDON_H;
 
-/// Terreplein deck — the gun platform, set inside the cordon.
+/// Terreplein deck - the gun platform, set inside the cordon.
 const DECK: [f32; 3] = [19.2, 0.28, 10.2];
 /// Deck top: the level the guns and their crews stand on.
 const DECK_TOP: f32 = CORDON_TOP + DECK[1];
@@ -176,7 +176,7 @@ const MERLON_W: f32 = 1.45;
 /// soft budget. Guns are ~7 prims each and they were 40 % of the build.
 ///
 /// Five embrasures over two ports still reads unmistakably as a two-tier
-/// battery — the thing that carries that read is the *tier*, not the count —
+/// battery - the thing that carries that read is the *tier*, not the count -
 /// and it costs about half the record.
 const EMBRASURES: usize = 5;
 /// Height of an embrasure's sole above the deck.
@@ -184,7 +184,7 @@ const SOLE_H: f32 = 0.45;
 /// Parapet top.
 const PARAPET_TOP: f32 = DECK_TOP + PARAPET_H;
 
-/// Rear (gorge) parapet — a breast wall, lower than the seaward face so the
+/// Rear (gorge) parapet - a breast wall, lower than the seaward face so the
 /// guns and the colours read over it from every landward angle.
 const GORGE_H: f32 = 0.85;
 
@@ -195,7 +195,7 @@ const FLIGHT_W: f32 = 4.4;
 
 /// Gorge steps: rise and going per tread. Both authored, and the count
 /// derived from them, so the flight always lands exactly on the deck
-/// (#972 lesson 16's shape — pin the relationship, not the number).
+/// (#972 lesson 16's shape - pin the relationship, not the number).
 const RISER: f32 = 0.292;
 const GOING: f32 = 0.30;
 
@@ -266,7 +266,7 @@ fn wing_span() -> (f32, f32) {
 
 /// The x-centre of one wing's casemate port, given the wing's sign.
 ///
-/// One port per wing rather than two — see [`EMBRASURES`] for why the counts
+/// One port per wing rather than two - see [`EMBRASURES`] for why the counts
 /// came down. A single wide port centred in each wing also gives the lower
 /// tier a stronger rhythm against the five embrasures above it than two
 /// crowded ones did.
@@ -278,7 +278,7 @@ fn port_centres(side: f32) -> [f32; 1] {
 /// One gun on its truck carriage, pointing out along `-Z`.
 ///
 /// `bore_y` is the axis height, `muzzle_z` where the muzzle ends up, and
-/// `len` the barrel length — so the same gun serves the long pieces on the
+/// `len` the barrel length - so the same gun serves the long pieces on the
 /// terreplein and the shorter ones in the casemates.
 ///
 /// # What makes it read as a gun rather than a rod on blocks
@@ -292,7 +292,7 @@ fn port_centres(side: f32) -> [f32; 1] {
 /// 2. **Trunnions carry it.** The barrel is held *up* by two stub axles that
 ///    pass into the carriage cheeks. Without them the cheeks stand beside the
 ///    barrel touching nothing, which is exactly why it looked like it was
-///    hanging in the air — there was no member anywhere between the carriage
+///    hanging in the air - there was no member anywhere between the carriage
 ///    and the gun.
 /// 3. **The cheeks are stepped.** A real carriage cheek falls away toward the
 ///    breech in steps so the gun can be elevated; a plain slab reads as
@@ -301,7 +301,7 @@ fn port_centres(side: f32) -> [f32; 1] {
 /// The barrel is a **leaf** prim carrying its own quarter turn: a rotated
 /// parent with offset children spins those offsets out of the geometry and
 /// then hides the fault from every guard here, all of which walk translations
-/// only (#972 lesson 22). So the carriage is not nested under the barrel —
+/// only (#972 lesson 22). So the carriage is not nested under the barrel -
 /// both hang off the same flat sub-root.
 fn gun(x: f32, bore_y: f32, muzzle_z: f32, len: f32, seed: u32) -> Generator {
     let r = len * 0.075;
@@ -318,7 +318,7 @@ fn gun(x: f32, bore_y: f32, muzzle_z: f32, len: f32, seed: u32) -> Generator {
     let mut carried = vec![
         // Barrel: tapered breech-to-muzzle, laid along Z, and BORED. `quat_x`
         // turns a Y-axis cylinder's +Y toward +Z, so the taper's narrow end
-        // (the cylinder's top) points seaward — which is the muzzle.
+        // (the cylinder's top) points seaward - which is the muzzle.
         prim(
             solid(with_cut(
                 cylinder_tapered(r, len, 12, 0.28, bronze(BRONZE_GUN, seed)),
@@ -329,14 +329,14 @@ fn gun(x: f32, bore_y: f32, muzzle_z: f32, len: f32, seed: u32) -> Generator {
             barrel_c,
             quat_x(-FRAC_PI_2),
         ),
-        // Cascabel at the breech — and it caps the bore, so the hollow reads
+        // Cascabel at the breech - and it caps the bore, so the hollow reads
         // as a muzzle opening rather than as a tube you can see through.
         prim(
             sphere(r * 0.66, 3, bronze(BRONZE_GUN, seed ^ 0x07)),
             [x, bore_y, breech_z + r * 0.3],
             id_quat(),
         ),
-        // One reinforcing ring at the breech — what makes a tapered drum read
+        // One reinforcing ring at the breech - what makes a tapered drum read
         // as an ordnance piece rather than as a pipe. The muzzle astragal the
         // first draft also carried is a 30 mm bead that no view of this
         // building resolves, and at seven guns it was seven prims of record.
@@ -368,7 +368,7 @@ fn gun(x: f32, bore_y: f32, muzzle_z: f32, len: f32, seed: u32) -> Generator {
     }
 
     // Two stepped cheeks, and a truck under each. Painted the deep red a
-    // period sea-service carriage actually wore — the one place in the kit
+    // period sea-service carriage actually wore - the one place in the kit
     // where `ENSIGN_RED` lands on something structural rather than on cloth,
     // and the thing that stops seven guns reading as seven brown sticks.
     let cheek_top = bore_y + r * 0.15;
@@ -414,7 +414,7 @@ fn gun(x: f32, bore_y: f32, muzzle_z: f32, len: f32, seed: u32) -> Generator {
         ));
     }
 
-    // Breeching rope through the cascabel — the detail that says the gun is
+    // Breeching rope through the cascabel - the detail that says the gun is
     // rigged rather than parked. Worth its prim on the terreplein pieces,
     // which are seen whole; the casemate guns skip it, since a rope behind a
     // barrel in a 2.5 m chamber is invisible through the port.
@@ -444,8 +444,8 @@ fn gun(x: f32, bore_y: f32, muzzle_z: f32, len: f32, seed: u32) -> Generator {
 ///
 /// Three spheres in a pyramid is the obvious modelling and is what the first
 /// draft had, at seven garlands and twenty-one prims. A pinched
-/// superellipsoid gives the same silhouette — a low heap with a rounded
-/// crown — for a third of the record, and at the distance a garland is ever
+/// superellipsoid gives the same silhouette - a low heap with a rounded
+/// crown - for a third of the record, and at the distance a garland is ever
 /// seen from, the individual balls were never resolvable anyway.
 ///
 /// The exponents are chosen to read as *stacked spheres* rather than as a
@@ -483,7 +483,7 @@ fn casemate(x: f32, seed: u32) -> Generator {
     // its own hole on each side, so it ran into the piers; and its underside
     // sat exactly on the talus top, so those two faces were coplanar across
     // the whole footprint. Narrower than the opening and sunk below the sill
-    // fixes both by construction — there is no shared plane left to fight
+    // fixes both by construction - there is no shared plane left to fight
     // over, and nothing of it inside the masonry.
     let floor = prim(
         solid(cuboid_tapered(
@@ -494,7 +494,7 @@ fn casemate(x: f32, seed: u32) -> Generator {
             ],
             0.0,
             // Dim, because an interior has to read darker than the sunlit
-            // masonry round its opening — a floor tuned to look good on its
+            // masonry round its opening - a floor tuned to look good on its
             // own comes out brighter than the wall and flattens the very
             // depth the port exists to show.
             lit_interior([0.30, 0.27, 0.24], 0.16),
@@ -526,7 +526,7 @@ fn casemate(x: f32, seed: u32) -> Generator {
             ],
             id_quat(),
         ),
-        // The lantern hangs inside the cone the port admits — see
+        // The lantern hangs inside the cone the port admits - see
         // `every_chamber_is_lit_within_the_cone_its_own_opening_admits` for
         // what that means and why "hang it low" is the wrong reading of #972
         // lesson 10 for an opening whose sill is near eye height.
@@ -582,7 +582,7 @@ fn guard_house() -> Generator {
         ),
         // Lantern under the head, on the same reasoning as the casemates'.
         lantern([0.62, floor_y + 1.55, CHAMBER_BACK - 0.5], 0.6, 0x61),
-        // Powder budge-barrel and a table — a bay with nothing in it is a
+        // Powder budge-barrel and a table - a bay with nothing in it is a
         // black rectangle however well the shell is built (#972 lesson 9).
         prim(
             solid(cylinder_tapered(0.28, 0.62, 12, -0.12, strake(HULL_OAK))),
@@ -594,7 +594,7 @@ fn guard_house() -> Generator {
             [-0.78, floor_y + 0.5, CHAMBER_BACK - 0.55],
             id_quat(),
         ),
-        // Table, its top scrubbed pale the way a deck is — the tone that
+        // Table, its top scrubbed pale the way a deck is - the tone that
         // separates worked timber from tarred timber at a glance.
         prim(
             solid(cuboid_tapered([0.9, 0.07, 0.5], 0.0, board(DECK_HOLY))),
@@ -696,7 +696,7 @@ fn parapet() -> Vec<Generator> {
 
     for i in 0..EMBRASURES {
         let x = -DECK[0] * 0.5 + MERLON_W + clear * 0.5 + i as f32 * pitch;
-        // Sole under the embrasure — the sill a gun fires over.
+        // Sole under the embrasure - the sill a gun fires over.
         let sole_c = [x, DECK_TOP + SOLE_H * 0.5, z];
         out.push(prim(
             solid(cuboid_tapered(
@@ -714,7 +714,7 @@ fn parapet() -> Vec<Generator> {
             2.7,
             0xA0 + i as u32,
         ));
-        // Shot garland behind each gun — every bay gets its own thing to look
+        // Shot garland behind each gun - every bay gets its own thing to look
         // at from the deck as well as from the sea.
         out.push(shot_pile([x, DECK_TOP, z + 1.5], 0xB0 + i as u32));
     }
@@ -725,7 +725,7 @@ fn parapet() -> Vec<Generator> {
 ///
 /// Replaces a sentry box, which was the first thing tried here and did not
 /// work. A sentry box is a hut, and a hut at this scale on a stone platform
-/// reads as an outhouse — the user's word for it in-world was "hut(?)", the
+/// reads as an outhouse - the user's word for it in-world was "hut(?)", the
 /// question mark being the whole problem. A **chest** is furniture-scale and
 /// has no other reading: a low boarded body under a pitched lid with iron
 /// straps and a hasp is a chest from any angle and at any distance.
@@ -741,7 +741,7 @@ fn powder_locker(x: f32, z: f32) -> Generator {
             solid(cuboid_tapered(
                 body,
                 0.0,
-                // Boarded UP, the way a chest's carcase is built — the quarter
+                // Boarded UP, the way a chest's carcase is built - the quarter
                 // turn is free on unstaggered plank (#972 lesson 15).
                 crate::catalogue::items::util::bonded_boards(
                     board(WHARF_GREY),
@@ -799,8 +799,8 @@ fn powder_locker(x: f32, z: f32) -> Generator {
 
 /// A rack of rammers and sponges standing by the guns.
 ///
-/// Replaces a furled tarpaulin, which was the other prop that did not read —
-/// "roll of cloth(?)" — and which also intersected the hut beside it. A rolled
+/// Replaces a furled tarpaulin, which was the other prop that did not read -
+/// "roll of cloth(?)" - and which also intersected the hut beside it. A rolled
 /// anything is an ambiguous cylinder; a rack of long poles with pale heads on
 /// them is a rack of tools, and on a gun deck it is the one piece of kit that
 /// says what the platform is *for* without needing a caption.
@@ -874,8 +874,8 @@ fn rammer_rack(x: f32, z: f32) -> Generator {
 
 /// The colours on their staff, at the gorge end of the deck./// The colours on their staff, at the gorge end of the deck.
 ///
-/// The flag itself is the kit's shared [`jolly_roger`] — two BlobGroups, a
-/// rippled cloth and a bone relief seated in its face — so the skull cannot
+/// The flag itself is the kit's shared [`jolly_roger`] - two BlobGroups, a
+/// rippled cloth and a bone relief seated in its face - so the skull cannot
 /// poke through the back of the flag the way a sphere laid on a slab did.
 fn colours() -> Generator {
     let staff_h = 5.6;
@@ -952,8 +952,8 @@ fn gorge_steps() -> Generator {
     // Landing: the piece that actually makes the flight meet the building.
     // It bears on the cordon and reaches in to the deck's own edge, so the
     // top tread arrives at a floor rather than at a 0.7 m gap over a
-    // projecting moulding. Sized from both — the cordon's outer face and the
-    // deck's edge — so it cannot come apart if either is re-proportioned.
+    // projecting moulding. Sized from both - the cordon's outer face and the
+    // deck's edge - so it cannot come apart if either is re-proportioned.
     let landing_back = DECK[2] * 0.5;
     let landing_d = start_z - landing_back;
     out.push(prim(
@@ -986,7 +986,7 @@ fn gorge_steps() -> Generator {
     // The bottom tread is the flight's sub-root: it is the thing the rest of
     // the flight stands beside, and nesting the treads under *each other*
     // instead would build a thirteen-deep chain against a MAX_GENERATOR_DEPTH
-    // of 16 for no editing benefit — a flight is moved as one object or not
+    // of 16 for no editing benefit - a flight is moved as one object or not
     // at all.
     nest(
         prim(
@@ -1014,7 +1014,7 @@ fn build_tree() -> Generator {
     let mut carried = vec![
         footing(TALUS[0], TALUS[2], [0.0, 0.0], 15.0),
         // A band of storm-beach shingle bedded into the seaward edge of the
-        // apron — the tide line the work stands at. Held inside the apron's
+        // apron - the tide line the work stands at. Held inside the apron's
         // own extent rather than measured off the wall (#972 lesson 8), and
         // deliberately the cold grey counterpart to the resort kit's golden
         // sand: the two maritime themes separate on their shore before they
@@ -1034,7 +1034,7 @@ fn build_tree() -> Generator {
     //
     // The talus is the wing's sub-root because it is what the wing stands on
     // (#972 lesson 3: a tree that stands the way the prop does). It also
-    // keeps the root's direct children down to the tiers themselves — the
+    // keeps the root's direct children down to the tiers themselves - the
     // first draft hung all seventy-nine pieces flat off the apron, which the
     // subtree guard caught and which is the flat-list smell the whole lesson
     // exists to name.
@@ -1067,7 +1067,7 @@ fn build_tree() -> Generator {
             // Only as deep as the chamber it frames. Full-depth piers ran
             // the whole 10.8 m of the wall, so they occupied the same volume
             // as the rear mass behind them AND presented a face at the same
-            // x = ±9.9 over eight metres of overlap — two coplanar walls
+            // x = ±9.9 over eight metres of overlap - two coplanar walls
             // fighting for depth down the middle of the base, which is what
             // showed in-world. Abutting the rear mass instead of passing
             // through it removes the shared plane rather than nudging it.
@@ -1160,7 +1160,7 @@ fn build_tree() -> Generator {
     let mut on_deck = parapet();
     on_deck.push(colours());
     // Two props with unmistakable silhouettes, placed well apart. The pair
-    // they replace — a sentry box and a furled tarpaulin — were unreadable
+    // they replace - a sentry box and a furled tarpaulin - were unreadable
     // individually AND intersecting each other, which is the combination that
     // makes a deck look like a bin rather than a working battery.
     on_deck.push(powder_locker(
@@ -1176,7 +1176,7 @@ fn build_tree() -> Generator {
     //
     // The breast wall is TWO runs with the flight's opening between them. One
     // continuous wall walled the stair off from the deck it climbs to, which
-    // is a flight to nowhere — obvious the moment somebody walks up it, and
+    // is a flight to nowhere - obvious the moment somebody walks up it, and
     // invisible in every elevation.
     let gorge_z = DECK[2] * 0.5 - PARAPET_D * 0.5;
     let gap_half = FLIGHT_W * 0.5 + 0.12;
@@ -1301,7 +1301,7 @@ mod tests {
     /// A seeded room's whole budget is spent on a handful of entries, and this
     /// is the biggest single one in it, so "is it too heavy" is a question
     /// somebody has to be able to answer without measuring by hand. The first
-    /// build was 270 nodes and 138 KB — two and a half times the next heaviest
+    /// build was 270 nodes and 138 KB - two and a half times the next heaviest
     /// landmark in the catalogue, and on its own enough to put a seeded room
     /// over the soft budget. Everything that came out came out for that
     /// reason: two casemate ports, one embrasure, a muzzle astragal, two
@@ -1312,7 +1312,7 @@ mod tests {
     /// The ceiling is a little above the current figure so the entry can be
     /// detailed further, and well under the doubling that would make it an
     /// outlier again. It was raised once, from 85 to 95 KB, when the guns
-    /// gained their bores, trunnions and stepped cheeks (#1025) — detail the
+    /// gained their bores, trunnions and stepped cheeks (#1025) - detail the
     /// user asked for after seeing them in-world, on the prop that is the
     /// whole point of the building.
     ///
@@ -1335,12 +1335,12 @@ mod tests {
             bytes < 95_000,
             "the battery serialises to {bytes} B over {nodes} nodes; the next \
              heaviest landmark in the catalogue is ~55 KB, and this entry IS \
-             the largest published record in any seeded room — it sits at 91 % \
+             the largest published record in any seeded room - it sits at 91 % \
              of the 100 KiB soft budget, so there is no slack above it"
         );
         assert!(
             nodes < 215,
-            "{nodes} nodes — a gun is ~10 prims and there are seven of them, \
+            "{nodes} nodes - a gun is ~10 prims and there are seven of them, \
              so the guns are the first place to look when this trips"
         );
     }
@@ -1361,7 +1361,7 @@ mod tests {
     ///
     /// Worth asserting rather than assuming. The pressure to add a window to
     /// a big stone building is constant, and the moment one arrives it should
-    /// arrive as a card on a plane over a real opening — which is a decision
+    /// arrive as a card on a plane over a real opening - which is a decision
     /// somebody should have to make deliberately rather than by reflex.
     #[test]
     fn the_battery_carries_no_glazing() {
@@ -1382,7 +1382,7 @@ mod tests {
     fn every_opening_has_a_gun_in_it() {
         let g = built();
         // A gun barrel is the only tapered cylinder in bronze on this build,
-        // and it is selected by *that* rather than by size — a selector on an
+        // and it is selected by *that* rather than by size - a selector on an
         // incidental property is as much a source of false results as the
         // assertion is (#972 lesson 24).
         fn count_barrels(g: &Generator) -> usize {
@@ -1423,13 +1423,13 @@ mod tests {
     /// physically crossed the sightline, and the fix there was a second lamp
     /// *below* the thing that spanned the head. Generalised to "hang it low"
     /// it is wrong here, and the first draft of this guard duly failed the
-    /// guard house's lantern for hanging at 1.87 m — a lantern that is in
+    /// guard house's lantern for hanging at 1.87 m - a lantern that is in
     /// fact perfectly visible, because the guard house sill is at the quay
     /// and a standing viewer looks straight into it.
     ///
     /// The real invariant is the **cone**. An opening admits a wedge bounded
-    /// by two rays from the viewer's eye — one grazing the head, one grazing
-    /// the sill — and what matters is whether the lit thing falls inside that
+    /// by two rays from the viewer's eye - one grazing the head, one grazing
+    /// the sill - and what matters is whether the lit thing falls inside that
     /// wedge at its own depth. For an opening *above* eye level the binding
     /// constraint is the sill, not the head: looking up, you see the ceiling
     /// and lose the floor. For one at eye level neither binds. Stating it as
@@ -1440,7 +1440,7 @@ mod tests {
         /// Eye height of somebody standing on the quay.
         const EYE: f32 = 1.7;
         /// How far off the face they are standing. Close enough that the
-        /// cone is genuinely narrow — the further back you go, the more
+        /// cone is genuinely narrow - the further back you go, the more
         /// forgiving this becomes, so the near view is the one to check.
         const VIEW_DIST: f32 = 6.0;
         let g = built();
@@ -1494,7 +1494,7 @@ mod tests {
                 p[1] < top && p[1] > bottom,
                 "a lantern at {p:?} falls outside the {bottom}..{top} band its \
                  own opening admits to an eye at {EYE} m standing {VIEW_DIST} m \
-                 off the face — it is behind the sill or behind the head, and \
+                 off the face - it is behind the sill or behind the head, and \
                  either way the chamber reads unlit from the quay"
             );
         }
@@ -1505,7 +1505,7 @@ mod tests {
     /// The in-world fault this replaces: the wall piers ran the full 10.8 m
     /// depth of the wall while the rear mass filled everything behind the
     /// chambers, so eight metres of the two interpenetrated AND presented
-    /// faces on the same x = ±9.9 plane — a coplanar seam fighting for depth
+    /// faces on the same x = ±9.9 plane - a coplanar seam fighting for depth
     /// down the middle of the base, on the most-looked-at part of the
     /// building.
     ///
@@ -1518,7 +1518,7 @@ mod tests {
     fn no_two_masonry_blocks_interpenetrate() {
         use crate::pds::SovereignTextureConfig as Tex;
         // Coursed ashlar is what the structural blocks wear, and it is what
-        // defines them — selecting on size would sweep in the copings and the
+        // defines them - selecting on size would sweep in the copings and the
         // sentry box (#972 lesson 24).
         fn blocks(g: &Generator, at: [f32; 3], out: &mut Vec<([f32; 3], [f32; 3])>) {
             let t = g.transform.translation.0;
@@ -1547,7 +1547,7 @@ mod tests {
         blocks(&built(), [0.0; 3], &mut found);
         assert!(
             found.len() >= 5,
-            "only {} masonry blocks found — the selector has stopped seeing \
+            "only {} masonry blocks found - the selector has stopped seeing \
              the piers and the rear mass",
             found.len()
         );
@@ -1557,7 +1557,7 @@ mod tests {
                 assert!(
                     !(clash(0) && clash(1) && clash(2)),
                     "two masonry blocks share space: {ca:?} (half {ea:?}) and \
-                     {cb:?} (half {eb:?}) — coplanar faces inside an overlap \
+                     {cb:?} (half {eb:?}) - coplanar faces inside an overlap \
                      are what z-fights"
                 );
             }
@@ -1568,7 +1568,7 @@ mod tests {
     ///
     /// Three relationships, because the fault was three faults: the flight
     /// stopped short of the deck edge, its top treads ran through the cordon's
-    /// oversail, and the breast wall it climbed to had no opening in it — a
+    /// oversail, and the breast wall it climbed to had no opening in it - a
     /// stair to a parapet. Each is checked against the built tree, and each
     /// would be invisible in an elevation.
     #[test]
@@ -1581,7 +1581,7 @@ mod tests {
             .find(|p| {
                 let s = p.bounds.size();
                 // The top tread shares the landing's width AND its top face,
-                // so depth is the only property that tells them apart —
+                // so depth is the only property that tells them apart -
                 // select on what defines the thing (#972 lesson 24).
                 (s.x - FLIGHT_W).abs() < 0.05
                     && (p.bounds.max.y - DECK_TOP).abs() < 1e-3
@@ -1640,7 +1640,7 @@ mod tests {
         assert!(
             gap >= FLIGHT_W,
             "the opening in the breast wall is {gap} m for a {FLIGHT_W} m \
-             flight — somebody coming up the stair walks into a wall"
+             flight - somebody coming up the stair walks into a wall"
         );
     }
 
@@ -1648,7 +1648,7 @@ mod tests {
     ///
     /// The casemate platform ran 0.45 m into the pier on each side AND sat
     /// exactly on the talus top, so its underside was coplanar with the sill
-    /// across its whole footprint — one grey rectangle fighting the wall
+    /// across its whole footprint - one grey rectangle fighting the wall
     /// beside it, which is what showed in-world. Stated as clearance rather
     /// than as the numbers that produced it, so re-proportioning a chamber
     /// cannot reopen either half.
@@ -1682,7 +1682,7 @@ mod tests {
         assert_eq!(
             fit_out.len(),
             want,
-            "expected {want} lit fit-out slabs, found {} — the selector has \
+            "expected {want} lit fit-out slabs, found {} - the selector has \
              stopped seeing the floors or the linings",
             fit_out.len()
         );
@@ -1704,7 +1704,7 @@ mod tests {
             assert!(
                 c[2] + e[2] <= CHAMBER_BACK - CHAMBER_INSET + 1e-3,
                 "a fit-out slab reaches z = {} and the rear mass begins at \
-                 {CHAMBER_BACK} — the two share a plane",
+                 {CHAMBER_BACK} - the two share a plane",
                 c[2] + e[2]
             );
         }
@@ -1723,7 +1723,7 @@ mod tests {
             assert!(
                 c[1] - e[1] < sill - 1e-3,
                 "a chamber floor's underside is at {} and its sill at {sill} \
-                 — laid exactly on it, those two faces z-fight across the \
+                 - laid exactly on it, those two faces z-fight across the \
                  whole floor",
                 c[1] - e[1]
             );
@@ -1733,8 +1733,8 @@ mod tests {
     /// The deck props are readable objects standing apart from each other
     /// (#1026).
     ///
-    /// The pair this replaces were unreadable individually — "hut(?)" and
-    /// "roll of cloth(?)" — and intersecting each other as well, which is the
+    /// The pair this replaces were unreadable individually - "hut(?)" and
+    /// "roll of cloth(?)" - and intersecting each other as well, which is the
     /// combination that makes a gun deck look like a bin. Legibility is not
     /// testable; **separation** is, and it is the half that shipped broken.
     #[test]
@@ -1751,7 +1751,7 @@ mod tests {
             .collect();
         assert!(
             props.len() >= 8,
-            "only {} deck-prop pieces found — the locker and the rack are not \
+            "only {} deck-prop pieces found - the locker and the rack are not \
              both there",
             props.len()
         );
@@ -1769,7 +1769,7 @@ mod tests {
             .fold(f32::MAX, f32::min);
         assert!(
             right_edge - left_edge > 1.0,
-            "the two deck props are {} m apart — they were intersecting when \
+            "the two deck props are {} m apart - they were intersecting when \
              this entry shipped",
             right_edge - left_edge
         );
@@ -1792,7 +1792,7 @@ mod tests {
         for (name, got, want) in levels {
             assert!(
                 (got - want).abs() < 1e-5,
-                "{name}: {got} is not {want} — the stack has opened up"
+                "{name}: {got} is not {want} - the stack has opened up"
             );
         }
     }
@@ -1810,7 +1810,7 @@ mod tests {
     );
     const _: () = assert!(HEAD_H > 0.4, "that head band is a lintel, not a band");
 
-    /// The cordon is a RING — centred on the building, with its projection in
+    /// The cordon is a RING - centred on the building, with its projection in
     /// its size (#972 lesson 31). Centring a ring on a trim plane makes a
     /// cantilevered shelf the width of the site, and it is the kind of slab
     /// nobody would author on purpose.
@@ -1842,7 +1842,7 @@ mod tests {
     /// Nothing stands off the apron it is nested under (#972 lessons 8 and
     /// 19). The gorge steps are what this is really guarding: a flight whose
     /// run is derived from its rise grows and shrinks with the building, and
-    /// the moment it outgrows the paving it lands on bare ground — which no
+    /// the moment it outgrows the paving it lands on bare ground - which no
     /// camera angle here would show.
     #[test]
     fn every_part_stands_on_the_apron() {
@@ -1877,7 +1877,7 @@ mod tests {
         // below the sill, so the population is never empty.
         assert!(
             checked > 8,
-            "only {checked} ground parts were examined — the selector has \
+            "only {checked} ground parts were examined - the selector has \
              stopped finding the flight and the talus"
         );
     }
@@ -1917,7 +1917,7 @@ mod tests {
     }
 
     /// No hot emissive surface is a broad panel. Above a strength of 2.0 at
-    /// most one of a prim's three dimensions may exceed 0.3 m — a hot run has
+    /// most one of a prim's three dimensions may exceed 0.3 m - a hot run has
     /// to be a bar or a point, never a lid (#972 lesson 30, stated as the
     /// prohibition rather than as a census of the lights).
     #[test]
@@ -1971,7 +1971,7 @@ mod tests {
     /// guns and the colours, so one gizmo drag moves the whole upper work.
     ///
     /// Pinned as a subtree *size*, which is the editability contract and the
-    /// thing that breaks silently later — a refactor that flattens the deck
+    /// thing that breaks silently later - a refactor that flattens the deck
     /// back onto the root leaves every world position identical and every
     /// render identical.
     #[test]
@@ -1984,8 +1984,8 @@ mod tests {
             .children
             .iter()
             .find(|c| match &c.kind {
-                // Selected by the property that DEFINES it — a deck's own
-                // thickness and plan — rather than by child count, which is a
+                // Selected by the property that DEFINES it - a deck's own
+                // thickness and plan - rather than by child count, which is a
                 // selector that has broken in three files now.
                 K::Cuboid { size, .. } => {
                     (size.0[1] - DECK[1]).abs() < 1e-4 && (size.0[0] - DECK[0]).abs() < 1e-4
@@ -1996,7 +1996,7 @@ mod tests {
         let n = count(deck);
         assert!(
             n > 40,
-            "the deck subtree holds {n} nodes — the parapet, the guns and the \
+            "the deck subtree holds {n} nodes - the parapet, the guns and the \
              colours have been flattened back onto the root"
         );
         assert!(

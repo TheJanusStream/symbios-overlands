@@ -1,18 +1,18 @@
 //! In-world identity: overhead peer nametags, and the two-way link between
 //! a People row and the body it names (#1226 f325).
 //!
-//! Every social action the product ships — Mute, Visit, drag-to-gift, the
-//! mutual-★ — is keyed to a roster row, and until this module existed
+//! Every social action the product ships - Mute, Visit, drag-to-gift, the
+//! mutual-★ - is keyed to a roster row, and until this module existed
 //! nothing connected a row to the body standing in front of you. There was
 //! no nametag, no overhead label, no hover identification and no picking
 //! path for a peer's mesh, so "gift the lamp to @alice" and "mute whoever
-//! just parked their avatar in my camera" were both guesswork — and every
+//! just parked their avatar in my camera" were both guesswork - and every
 //! wrong guess at the second one writes a durable, account-scoped block.
 //!
 //! Two halves, one fact:
 //!
 //! * [`measure_peer_nametags`] + [`peer_nametags_ui`] hang a name over each
-//!   remote body. The text is [`PeerLabel`] and nothing else — the same
+//!   remote body. The text is [`PeerLabel`] and nothing else - the same
 //!   ladder (handle → DID head → "A traveler") the roster row, the chat
 //!   author tag, the arrival lines and the gift modal all print, so the
 //!   name over the body is character-for-character the name in the list.
@@ -32,7 +32,7 @@
 //! a background [`egui::Painter`] and hover is resolved by hit-testing the
 //! pointer against the tag rects by hand. An interactive `egui::Area` over
 //! the 3D scene would set `wants_pointer_input`, and
-//! `camera::gate_camera_on_gui` reads exactly that — a hoverable label
+//! `camera::gate_camera_on_gui` reads exactly that - a hoverable label
 //! floating in the middle of the viewport would silently break orbiting the
 //! camera through it.
 
@@ -52,9 +52,9 @@ use crate::state::{LocalSettings, RemotePeer, SocialResonance};
 /// Which peer the pointer is pointing at, on each of the two surfaces that
 /// can name one (#1226 f325).
 ///
-/// Rebuilt from scratch every frame by the surface that owns each field —
+/// Rebuilt from scratch every frame by the surface that owns each field -
 /// `ui::people::people_ui` owns [`Self::row`], [`peer_nametags_ui`] owns
-/// [`Self::tag`] — because a hover is a fact about *this* frame and a stale
+/// [`Self::tag`] - because a hover is a fact about *this* frame and a stale
 /// one aims a highlight at a body the user has already moved away from.
 ///
 /// Written through [`Self::set_row`] / [`Self::set_tag`] rather than
@@ -100,7 +100,7 @@ impl PeerFocus {
 ///
 /// Pure, and the whole gate: the setting, the chassis's own visibility, and
 /// distance. Extracted because the system around it needs a camera, a
-/// window and a live egui context to run at all — the same reason every
+/// window and a live egui context to run at all - the same reason every
 /// user-facing decision in `network::presence` is a free function.
 ///
 /// `chassis_hidden` is `sync_mute_visibility`'s answer, not a re-derivation
@@ -129,7 +129,7 @@ pub fn nametag_alpha(enabled: bool, chassis_hidden: bool, distance_m: f32) -> Op
 ///
 /// Deliberately [`PeerLabel::addressed`] and not a fifth spelling of the
 /// ladder. The whole point of an overhead name is that the user can carry
-/// it to the People window and find the row — a body labelled
+/// it to the People window and find the row - a body labelled
 /// `did:plc:z72i7hdy…` beside a row labelled `identifying…` is two names
 /// for one stranger and helps nobody.
 pub fn nametag_text(label: &PeerLabel, mutual: bool) -> String {
@@ -144,7 +144,7 @@ pub fn nametag_text(label: &PeerLabel, mutual: bool) -> String {
 ///
 /// The top of the body's merged render bounds plus a clearance, so the tag
 /// sits above a hat rather than through it, and so it works for every
-/// chassis family the product ships — a humanoid, a skiff and an airship
+/// chassis family the product ships - a humanoid, a skiff and an airship
 /// are wildly different heights and none of them knows its own.
 ///
 /// `bounds` is `None` for a peer with no rendered meshes yet: a body still
@@ -173,7 +173,7 @@ pub struct PeerNametag {
     pub peer: Entity,
     /// The name, already through [`nametag_text`].
     pub text: String,
-    /// Whether the local user and this peer follow each other — the tag is
+    /// Whether the local user and this peer follow each other - the tag is
     /// drawn in the identity accent when they do, matching the roster's
     /// warm treatment of the same row.
     pub mutual: bool,
@@ -183,7 +183,7 @@ pub struct PeerNametag {
     pub screen: egui::Pos2,
     /// Fade from [`nametag_alpha`].
     pub alpha: f32,
-    /// Metres from the camera — painted far-to-near so a near tag lands on
+    /// Metres from the camera - painted far-to-near so a near tag lands on
     /// top of a far one rather than under it.
     pub distance: f32,
 }
@@ -198,7 +198,7 @@ pub struct PeerNametags {
 ///
 /// Runs in `PostUpdate` after `TransformSystems::Propagate` and before
 /// bevy_egui's `EguiPostUpdateSet::EndPass`, which is where
-/// `EguiPrimaryContextPass` — and therefore [`peer_nametags_ui`] — actually
+/// `EguiPrimaryContextPass` - and therefore [`peer_nametags_ui`] - actually
 /// runs. That ordering is the reason this is two systems and not one: the
 /// egui pass has no declared order against transform propagation, so a
 /// projection done inside it reads a `GlobalTransform` that may be a frame
@@ -235,7 +235,7 @@ pub fn measure_peer_nametags(
 
     for (entity, peer, resolve, gt, visibility, resonance) in peers.iter() {
         // `sync_mute_visibility` is the one writer; this reads its verdict.
-        // `Inherited` on a root chassis means visible — peers are spawned
+        // `Inherited` on a root chassis means visible - peers are spawned
         // unparented, so there is no ancestor to inherit anything from.
         let hidden = *visibility == Visibility::Hidden;
         let anchor = nametag_anchor(
@@ -308,7 +308,7 @@ pub fn peer_nametags_ui(
     painter.set_clip_rect(clip);
 
     // A pointer over a floating window is not over the world, whatever the
-    // arithmetic says — the window is painted on top of the tag. Asked as
+    // arithmetic says - the window is painted on top of the tag. Asked as
     // "is the topmost layer here the background?" because our own tags are
     // a bare painter and register no area: they can never answer yes to
     // this and shadow themselves.
@@ -388,7 +388,7 @@ pub fn peer_nametags_ui(
         }
 
         // Painted far-to-near, so the LAST tag containing the pointer is the
-        // nearest one — which is the body the user means.
+        // nearest one - which is the body the user means.
         if pointer.is_some_and(|p| rect.contains(p)) {
             hovered = Some(tag.peer);
         }
@@ -408,7 +408,7 @@ pub fn peer_nametags_ui(
 /// Deliberately driven by [`PeerFocus::row`] alone. Lighting a body up
 /// because the pointer drifted across its tag while orbiting the camera
 /// would fire constantly and mean nothing; the roster hover is a
-/// deliberate question — "which one is this?" — and deserves the answer.
+/// deliberate question - "which one is this?" - and deserves the answer.
 pub fn draw_focused_peer_highlight(
     mut gizmos: Gizmos,
     focus: Res<PeerFocus>,
@@ -450,7 +450,7 @@ mod tests {
     use super::*;
 
     /// #1226 f325. The sequence: somebody parks their avatar in your camera
-    /// and you mute them — and the body must stop carrying a name in the
+    /// and you mute them - and the body must stop carrying a name in the
     /// same frame it stops being drawn. `sync_mute_visibility` owns that
     /// decision for both, which is the whole reason this reads a
     /// `Visibility` instead of re-deriving `peer.muted || !resolve.placed`.
@@ -518,7 +518,7 @@ mod tests {
             format!("★ {}", handle.addressed())
         );
         // The `@` sigil belongs to the Handle tier and nothing else (#1218
-        // f299) — a tag is one more surface that must not invent one.
+        // f299) - a tag is one more surface that must not invent one.
         assert!(!nametag_text(&did, true).contains('@'));
         assert!(!nametag_text(&anon, false).contains('@'));
     }
@@ -547,7 +547,7 @@ mod tests {
         assert!((offset.z - 5.0).abs() < 1e-5);
     }
 
-    /// A peer with no meshes yet — the body is still being fetched — still
+    /// A peer with no meshes yet - the body is still being fetched - still
     /// gets a name, because the name is the only thing on screen saying
     /// somebody is standing there.
     #[test]

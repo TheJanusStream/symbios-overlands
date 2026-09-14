@@ -1,4 +1,4 @@
-//! Inbound message dispatch — drains the `NetworkQueue<OverlandsMessage>`
+//! Inbound message dispatch - drains the `NetworkQueue<OverlandsMessage>`
 //! and routes each variant through the appropriate side-effect: jitter
 //! buffer push for `Transform`, identity authentication + avatar fetch
 //! kick-off for `Identity`, owner-DID-gated room-state replacement for
@@ -8,9 +8,9 @@
 //! [`handle_incoming_messages`] is now only the drain, the coalesce and the
 //! dispatch; each variant is handled by a function in a sibling module
 //! ([`transform`], [`identity`], [`record_updates`], [`chat`],
-//! [`item_offer`]). This file's header used to argue the opposite — that
+//! [`item_offer`]). This file's header used to argue the opposite - that
 //! per-variant functions "would just push 12+ parameters around without
-//! improving readability" — and that was wrong in the way that matters
+//! improving readability" - and that was wrong in the way that matters
 //! (#1161): **the parameter list is the point.** A `match` with eleven arms
 //! over a peer-supplied enum is the hostile-peer surface, and a handler
 //! whose signature names exactly the state its message kind may touch is
@@ -18,8 +18,8 @@
 //! Writing them out immediately showed that four handlers could not reach
 //! state they appeared to have.
 //!
-//! The bundle the finding proposed — one `InboundCtx` of `&mut` references
-//! to the system's parameters — does not compile: Bevy gives each parameter
+//! The bundle the finding proposed - one `InboundCtx` of `&mut` references
+//! to the system's parameters - does not compile: Bevy gives each parameter
 //! its own `'w`/`'s`, a struct forces them to unify, and `&mut T<'w>` is
 //! invariant in `'w`. `reborrow()` rescues `Commands` and `Query` and does
 //! not exist for derived [`SystemParam`]s. [`InboundBuffers`] stays as the
@@ -50,9 +50,9 @@ use super::presence::PeerResolve;
 
 /// Message kinds that can be coalesced to the latest-per-sender within a
 /// single drain. Each fully supersedes any earlier instance from the same
-/// peer — `Identity` re-kicks one avatar fetch per DID change,
+/// peer - `Identity` re-kicks one avatar fetch per DID change,
 /// `AvatarStateUpdate` overwrites `peer.avatar` wholesale, and
-/// `RoomStateUpdate` wholesale-replaces the live room record — so decoding and
+/// `RoomStateUpdate` wholesale-replaces the live room record - so decoding and
 /// sanitising the stale ones is pure wasted work a flooding peer could
 /// weaponise into a main-thread DoS (the sanitize pass on a deeply-nested
 /// generator tree is not cheap). `RoomStateUpdate` is the heaviest of the three
@@ -71,13 +71,13 @@ enum CoalesceKey {
     /// `Hello` rides the identity cadence and every instance carries the same
     /// two values, so all but the last in a drain are literally redundant.
     Hello,
-    /// `AvatarRecordsPublished` carries no payload and is idempotent — it
+    /// `AvatarRecordsPublished` carries no payload and is idempotent - it
     /// forgets a resolution, and forgetting it twice is forgetting it once
     /// (#1224 f336). It was the one heavyweight arm that neither coalesced
     /// nor checked authority, so a modified client could hold the message
     /// down and impose steady per-frame cost on every guest: each instance
     /// took `peer.avatar.as_mut()`, which raises the change tick
-    /// unconditionally, and two `Changed<RemotePeer>` systems then re-ran —
+    /// unconditionally, and two `Changed<RemotePeer>` systems then re-ran -
     /// a whole-record deep compare in `detect_remote_change` and a
     /// whole-outfit diff in `sync_rigged_attachments`, which is exactly the
     /// work #1135's latch exists to avoid.
@@ -98,7 +98,7 @@ fn coalesce_key(msg: &OverlandsMessage) -> Option<CoalesceKey> {
 /// A drained message decoupled from the multiuser `NetworkReceived` wrapper so
 /// the dispatch loop can process both directly-received messages *and*
 /// messages reassembled from [`OverlandsMessage::ChunkedPayload`] fragments
-/// (#716) uniformly — a reassembled message carries its originating peer's
+/// (#716) uniformly - a reassembled message carries its originating peer's
 /// `sender` so every downstream authority check still applies. Field names
 /// mirror `NetworkReceived`, so the dispatch body reads `msg.sender` /
 /// `msg.payload` unchanged.
@@ -138,12 +138,12 @@ pub(super) struct InboundBuffers<'w, 's> {
     /// opening under it would be answered on top of the one already owed.
     held_offer: Option<Res<'w, crate::state::HeldOffer>>,
     /// Per-sender chat budgets (#1222 f296). A `Local`, because they are
-    /// this system's own bookkeeping and nothing else reads them — and
+    /// this system's own bookkeeping and nothing else reads them - and
     /// because a resource would have to be torn down at logout to avoid
     /// carrying one session's flooder into the next.
     chat_budgets: Local<'s, super::presence::ChatBudgets>,
     /// Durable mute list (#844): applied the moment a peer's DID
-    /// resolves, so a muted harasser stays muted across reconnects — and
+    /// resolves, so a muted harasser stays muted across reconnects - and
     /// written in the other direction too (#1219 f331), so a mute applied
     /// before the DID landed is promoted rather than lost with the entity.
     muted_dids: ResMut<'w, crate::state::MutedDids>,
@@ -172,7 +172,7 @@ pub(super) struct InboundBuffers<'w, 's> {
 ///
 /// A resolution is a fetch of the records the reference list names, so it
 /// stays correct for exactly as long as that list does. Requiring an exact
-/// match — wardrobe rkey *and* the ordered attachment rkeys — is what keeps
+/// match - wardrobe rkey *and* the ordered attachment rkeys - is what keeps
 /// this from carrying a stale outfit across a real change: any edit to what
 /// the peer wears alters the list and forces a fresh resolve.
 fn carry_resolution(existing: Option<&AvatarRecord>, incoming: &mut AvatarRecord) {
@@ -194,7 +194,7 @@ fn carry_resolution(existing: Option<&AvatarRecord>, incoming: &mut AvatarRecord
 ///
 /// The counterpart to [`carry_resolution`], for the one event that changes
 /// the records behind an unchanged reference set: their owner saved. Only
-/// the resolution goes — the references stay, because they still name the
+/// the resolution goes - the references stay, because they still name the
 /// right records; it is the bytes at those rkeys that moved.
 fn forget_rig_resolution(record: &mut AvatarRecord) {
     if let Some(rig) = record.body.rigged_mut() {
@@ -236,7 +236,7 @@ pub(super) fn handle_incoming_messages(
     // messages from one peer would otherwise fire N redundant avatar
     // fetches / run the heavy decode+sanitize pass N times, letting a
     // flooding peer pin the main thread. Only the last of each kind per
-    // sender survives — see [`CoalesceKey`].
+    // sender survives - see [`CoalesceKey`].
     // Pre-pass (#716): peel `ChunkedPayload` fragments off into the
     // reassembly buffer and splice any completed message back into the work
     // list as a normal `Incoming`. A fragment that does not complete its
@@ -277,11 +277,11 @@ pub(super) fn handle_incoming_messages(
     }
     // Tracks whether an incoming-offer dialog is (or will be) up this
     // frame. Seeded from the resource and flipped to `true` the moment we
-    // stage one via `commands.insert_resource` — `Commands` don't apply
+    // stage one via `commands.insert_resource` - `Commands` don't apply
     // until end-of-system, so reading the resource again would report the
     // stale pre-frame state and let a peer pack many `ItemOffer`s into one
     // frame, bypassing the busy-gate.
-    // A held offer counts as busy (#1220 f288) — it is owed the screen the
+    // A held offer counts as busy (#1220 f288) - it is owed the screen the
     // moment a slot frees, and a second dialog answered on top of it would
     // shuffle the two.
     let mut dialog_open = incoming_dialog.is_some() || bufs.held_offer.is_some();
@@ -367,7 +367,7 @@ pub(super) fn handle_incoming_messages(
                 // Fragments are consumed by the reassembly pre-pass above and
                 // never reach dispatch. One arriving here means a peer nested
                 // a `ChunkedPayload` inside a reassembled message (malformed or
-                // hostile) — ignore it rather than recurse.
+                // hostile) - ignore it rather than recurse.
                 debug!(
                     "Ignoring nested/unexpected ChunkedPayload from {:?}",
                     msg.sender
@@ -466,7 +466,7 @@ mod tests {
 
     /// #1122. Sequence: a peer wears a circlet, sculpts their face, then
     /// presses Save. The records their references name now hold new
-    /// bytes at the SAME rkeys — so the obvious fix, re-broadcasting the
+    /// bytes at the SAME rkeys - so the obvious fix, re-broadcasting the
     /// record on publish success, changes nothing: the rule above correctly
     /// carries the pre-save resolution forward and the peer keeps the old
     /// body until its owner happens to change what they wear. That is why
@@ -505,11 +505,11 @@ mod tests {
                 .body
                 .rigged_ref()
                 .is_some_and(|rig| rig.attachments == vec![String::from("att-1")]),
-            "the outfit is not forgotten — only the copy of the records"
+            "the outfit is not forgotten - only the copy of the records"
         );
     }
 
-    /// The other half of the rule — carrying it when the peer actually
+    /// The other half of the rule - carrying it when the peer actually
     /// changed what they wear would show everyone a stale outfit.
     #[test]
     fn a_changed_reference_set_is_re_resolved() {

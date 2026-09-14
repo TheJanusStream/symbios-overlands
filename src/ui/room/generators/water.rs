@@ -1,6 +1,6 @@
 //! Per-volume water editor: the full [`WaterSurface`] knob set
 //! grouped into colour / wave / material / flow sub-panels. Vertical
-//! position is set via the generator's placement transform — there's
+//! position is set via the generator's placement transform - there's
 //! no separate level-offset slider any more.
 
 use bevy_egui::egui;
@@ -17,7 +17,7 @@ pub(super) fn draw_water_editor(ui: &mut egui::Ui, surface: &mut WaterSurface, d
             color_picker_rgba(ui, "Deep (grazing)", &mut surface.deep_color, dirty);
             ui.label(
                 egui::RichText::new(
-                    "Alpha controls the opacity at each viewing extreme — shallow is typically \
+                    "Alpha controls the opacity at each viewing extreme - shallow is typically \
                      low (transparent looking down), deep is high (opaque at grazing).",
                 )
                 .small()
@@ -109,7 +109,7 @@ pub(super) fn draw_water_editor(ui: &mut egui::Ui, surface: &mut WaterSurface, d
             ui.label(
                 "Blends the surface look from classic Gerstner standing waves \
                  (0) toward a river-style flow map (1). Independent of the \
-                 physics push — set this without flow strength for a glassy \
+                 physics push - set this without flow strength for a glassy \
                  \"infinity-pool\" effect, or both for a flowing river.",
             );
             fp_slider(ui, "Flow amount", &mut surface.flow_amount, 0.0, 1.0, dirty);

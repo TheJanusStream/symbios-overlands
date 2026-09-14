@@ -1,4 +1,4 @@
-//! Glyph stone — an Alien-Monolithic prop. A short obsidian standing stone
+//! Glyph stone - an Alien-Monolithic prop. A short obsidian standing stone
 //! inscribed with a glowing glyph. Scatter clutter marking the site; the glyph
 //! is emissive trim the ruin pass can darken.
 
@@ -44,7 +44,7 @@ impl CatalogueEntry for GlyphStone {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Obsidian standing stone — the root, its top tapered to a leaning
+        // Obsidian standing stone - the root, its top tapered to a leaning
         // wedge so it reads as a hewn standing stone, not a plain plinth.
         prim(
             solid(cuboid_tapered([0.9, 1.8, 0.4], 0.14, obsidian(OBSIDIAN))),
@@ -52,7 +52,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
-    // Inscribed glyphs down the −Z hero face — asymmetric alien script
+    // Inscribed glyphs down the −Z hero face - asymmetric alien script
     // standing proud of the dark stone, not the old blank light panel.
     for g in glyph_column(0.0, 0.55, 1.35, -0.24, &[0.7, 0.55], glow(GLYPH_CYAN, 2.4)) {
         prims.push(g);

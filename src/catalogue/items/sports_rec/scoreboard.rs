@@ -1,4 +1,4 @@
-//! Scoreboard — a Sports/Recreation prop. A freestanding lit display on two
+//! Scoreboard - a Sports/Recreation prop. A freestanding lit display on two
 //! steel posts. Scatter clutter at the pitch ends; its screen is emissive
 //! trim the ruin pass can darken.
 
@@ -44,7 +44,7 @@ impl CatalogueEntry for Scoreboard {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Dark display housing — the root.
+        // Dark display housing - the root.
         prim(
             solid(cuboid_tapered(
                 [4.5, 2.4, 0.4],
@@ -69,14 +69,14 @@ fn build_tree() -> Generator {
         [0.0, 2.4, 0.0],
         id_quat(),
     ));
-    // Steel cornice cap proud of the housing top (not flush — no z-fight).
+    // Steel cornice cap proud of the housing top (not flush - no z-fight).
     prims.push(prim(
         solid(cuboid_tapered([4.7, 0.2, 0.55], 0.0, steel(STEEL_GREY))),
         [0.0, 5.85, 0.0],
         id_quat(),
     ));
 
-    // Segmented lit display facing the −Z render front — a low idle PA hum
+    // Segmented lit display facing the −Z render front - a low idle PA hum
     // sits on the board. Emissive (the ruin pass can snuff it).
     let mut disp = super::score_display(0.0, 4.5, -0.26, 4.0, 1.9);
     disp[0].audio = fx::tannoy_hum();

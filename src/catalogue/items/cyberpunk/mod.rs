@@ -1,4 +1,4 @@
-//! Cyberpunk-theme catalogue structures — the kit's quality benchmark for
+//! Cyberpunk-theme catalogue structures - the kit's quality benchmark for
 //! every theme that follows.
 //!
 //! Two prosperity registers share one neon identity: the affluent
@@ -22,8 +22,8 @@
 //! `1.0`, and a *broad face* (a billboard panel, a screen) reaches that
 //! point at a far lower strength than a *thin tube* (a band, an edge strip,
 //! a ring). So the two can't share a value: thin neon trim runs hot
-//! (`~5–9`) — the white-hot core plus a coloured bloom halo is exactly how
-//! a neon tube reads — while broad faces stay moderate (`~1.5–3.5`) so they
+//! (`~5–9`) - the white-hot core plus a coloured bloom halo is exactly how
+//! a neon tube reads - while broad faces stay moderate (`~1.5–3.5`) so they
 //! read as lit *colour*, not a featureless white lightbox. A framed face
 //! (panel ringed by a hot tube border) gets the best of both.
 
@@ -37,7 +37,7 @@ pub mod monument;
 pub mod neon_kiosk;
 pub mod neon_megatower;
 pub mod parking_stack;
-// Poor (undercity) variants — the prosperity-Poor end of the theme.
+// Poor (undercity) variants - the prosperity-Poor end of the theme.
 pub mod busted_terminal;
 pub mod container_stack;
 pub mod ewaste_pile;
@@ -56,18 +56,18 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the established neon kit — these glossy
+/// Shared prosperity band for the established neon kit - these glossy
 /// megastructures read as a Modest-to-Rich settlement. The poor end of the
 /// theme is the separate scrap-shanty kit ([`scrap_shanty`], …), tagged
 /// `Poor`, so a destitute cyberpunk room grows the undercity instead.
 pub(super) const CYBER_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the scrap-shanty undercity kit — the destitute end
+/// Prosperity band for the scrap-shanty undercity kit - the destitute end
 /// of the theme, never picked for a modest or affluent cyberpunk room.
 pub(super) const CYBER_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Dark, glossy structural metal — the body shared by every cyberpunk
+/// Dark, glossy structural metal - the body shared by every cyberpunk
 /// build. Standing-seam panel lines + a touch of grime so the neon trim
 /// reflects off a *surface*, not a flat slab.
 pub(super) fn metal(color: [f32; 3]) -> SovereignMaterialSettings {
@@ -92,7 +92,7 @@ pub(super) fn metal(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// A lit window-grid facade — frames + grimy glass with a faint inner glow,
+/// A lit window-grid facade - frames + grimy glass with a faint inner glow,
 /// so a tower reads as a glowing building rather than a black box. `glow`
 /// sets how brightly the panes shine (city-light bloom).
 pub(super) fn window_wall(glass: [f32; 3], glow: f32) -> SovereignMaterialSettings {
@@ -135,7 +135,7 @@ pub(super) fn pane_grid(
     m
 }
 
-/// Ridged corrugated steel — shipping containers and lean-to roofing. The
+/// Ridged corrugated steel - shipping containers and lean-to roofing. The
 /// correct surface for the scrap-shanty undercity, with built-in rust.
 pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -158,7 +158,7 @@ pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Corroded brushed metal with heavy rust — battered scrap panels, drums,
+/// Corroded brushed metal with heavy rust - battered scrap panels, drums,
 /// dead chassis. The poor counterpoint to the glossy [`metal`].
 pub(super) fn rust(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -181,7 +181,7 @@ pub(super) fn rust(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Rusted chain-link / mesh — undercity fencing and cage panels.
+/// Rusted chain-link / mesh - undercity fencing and cage panels.
 pub(super) fn chain_link() -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3([0.5, 0.52, 0.54]),
@@ -195,7 +195,7 @@ pub(super) fn chain_link() -> SovereignMaterialSettings {
     }
 }
 
-/// Board-formed concrete — parking decks, stair cores, plinths.
+/// Board-formed concrete - parking decks, stair cores, plinths.
 pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -212,7 +212,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Rusted iron louvre / grille — wall vents and exhaust louvres.
+/// Rusted iron louvre / grille - wall vents and exhaust louvres.
 pub(super) fn grille() -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3([0.14, 0.13, 0.13]),
@@ -226,7 +226,7 @@ pub(super) fn grille() -> SovereignMaterialSettings {
     }
 }
 
-/// Sagging tarp / plastic sheeting over a makeshift shelter — woven-fabric
+/// Sagging tarp / plastic sheeting over a makeshift shelter - woven-fabric
 /// weave normal so it reads as cloth, not a painted plank.
 pub(super) fn tarp(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -245,7 +245,7 @@ pub(super) const NEON_CYAN: [f32; 3] = [0.10, 0.95, 1.00];
 pub(super) const NEON_MAGENTA: [f32; 3] = [1.00, 0.12, 0.78];
 pub(super) const NEON_LIME: [f32; 3] = [0.55, 1.00, 0.20];
 
-// Scrap-shanty palette — weathered container steel, rust, faded tarp.
+// Scrap-shanty palette - weathered container steel, rust, faded tarp.
 pub(super) const CONTAINER_BLUE: [f32; 3] = [0.18, 0.30, 0.38];
 pub(super) const CONTAINER_RUST: [f32; 3] = [0.45, 0.28, 0.18];
 pub(super) const RUST_BROWN: [f32; 3] = [0.34, 0.22, 0.14];

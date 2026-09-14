@@ -14,7 +14,7 @@ use bevy::prelude::Resource;
 use crate::diagnostics::anomaly::rule::{DebouncePolicy, Rule, RuleId, Verdict};
 use crate::diagnostics::event::{Severity, Subsystem};
 
-/// Per-rule runtime state — the debounce ledger and the badge source.
+/// Per-rule runtime state - the debounce ledger and the badge source.
 #[derive(Clone, Debug, Default)]
 pub struct RuleRuntimeState {
     /// Session-relative time of the most recent fire.
@@ -30,8 +30,8 @@ pub struct RuleRuntimeState {
 /// The severity floor for anything that reads as an ALARM: the toolbar's
 /// worst-active dot and the click-through it offers (#1271 f184).
 ///
-/// Two shipped rules are [`Severity::Info`] — `runtime.orphan_avatar_visual`
-/// and `runtime.memory_retention_across_rebuilds` — and before this the dot
+/// Two shipped rules are [`Severity::Info`] - `runtime.orphan_avatar_visual`
+/// and `runtime.memory_retention_across_rebuilds` - and before this the dot
 /// fired for either of them. A user who has learned that the dot means "open
 /// this, something is wrong" clicks it and finds a note. An alarm that fires
 /// for information is an alarm that gets ignored, and it is ignored for the
@@ -64,7 +64,7 @@ impl InvariantRegistry {
 
     /// Apply a rule's [`DebouncePolicy`] to a fresh verdict, updating the ledger,
     /// and return `Some(detail)` when the caller should actually FIRE (log +
-    /// badge) — or `None` when the fire is debounced or the verdict is `Clear`.
+    /// badge) - or `None` when the fire is debounced or the verdict is `Clear`.
     /// `now` is session-relative seconds.
     pub fn note_verdict(
         &mut self,
@@ -123,7 +123,7 @@ impl InvariantRegistry {
         })
     }
 
-    /// A rule's human-readable one-liner, for the GUI badge text (#837 —
+    /// A rule's human-readable one-liner, for the GUI badge text (#837 -
     /// the ids alone read as internal identifiers, not player language).
     pub fn rule_description(&self, id: RuleId) -> Option<&'static str> {
         self.header_of(id).map(|h| h.description)
@@ -142,7 +142,7 @@ impl InvariantRegistry {
             .map(|r| r.header())
     }
 
-    /// The worst severity currently active at or above `min` — for the
+    /// The worst severity currently active at or above `min` - for the
     /// toolbar warning dot.
     ///
     /// The floor is a parameter and not a default because there is no
@@ -157,7 +157,7 @@ impl InvariantRegistry {
             .max()
     }
 
-    /// How many currently-violated rules sit at or above `min` — the
+    /// How many currently-violated rules sit at or above `min` - the
     /// count the toolbar dot prints beside itself. It has to share the
     /// dot's floor: a dot that appears for one Warn while saying "3"
     /// because two Info rules are also live is counting something the
@@ -182,16 +182,16 @@ impl InvariantRegistry {
     }
 
     /// The subsystem owning the worst currently-active badge at or above
-    /// `min` — the toolbar dot's click target routes to the matching
+    /// `min` - the toolbar dot's click target routes to the matching
     /// Diagnostics tab (#835).
     pub fn worst_active_subsystem(&self, min: Severity) -> Option<Subsystem> {
         self.worst_header(min).map(|h| h.subsystem)
     }
 
-    /// What the worst currently-active badge at or above `min` SAYS — the
+    /// What the worst currently-active badge at or above `min` SAYS - the
     /// toolbar dot's hover (#1271 f409).
     ///
-    /// The dot used to say only "{n} active anomalies — click to open
+    /// The dot used to say only "{n} active anomalies - click to open
     /// Diagnostics", naming neither the subsystem nor the problem, so a
     /// user who noticed it could not tell whether it was about their
     /// connection without opening a panel and picking the right tab. The
@@ -200,7 +200,7 @@ impl InvariantRegistry {
         self.worst_header(min).map(|h| h.description)
     }
 
-    /// Count currently-violated rules whose subsystem is `subsystem` — the
+    /// Count currently-violated rules whose subsystem is `subsystem` - the
     /// GUI's per-tab anomaly counter (C-6). Zero when nothing in that subsystem
     /// is active, so the tab label stays clean.
     pub fn active_count_for(&self, subsystem: Subsystem) -> usize {
@@ -318,7 +318,7 @@ mod tests {
         assert_eq!(reg.worst_active_subsystem(ALARM_FLOOR), None);
 
         // A real alarm lights it, and the count it prints is the alarm
-        // count — not the two badges the strip is showing.
+        // count - not the two badges the strip is showing.
         reg.note_verdict("runtime.frame_time_spike", d, &violated(), 1.0);
         assert_eq!(reg.worst_active(ALARM_FLOOR), Some(Severity::Warn));
         assert_eq!(reg.active_badges().count(), 2);

@@ -1,4 +1,4 @@
-//! Holo-billboard — a Cyberpunk secondary. Two dark-metal posts holding a
+//! Holo-billboard - a Cyberpunk secondary. Two dark-metal posts holding a
 //! large advertising screen above street level: a recessed housing filled
 //! with a mosaic of lit ad-tiles behind scanlines and a hot neon frame.
 //! Reads as the settlement's advertising glow.
@@ -81,7 +81,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Ad-tile mosaic — a grid of lit panels in mixed neon hues at *moderate*
+    // Ad-tile mosaic - a grid of lit panels in mixed neon hues at *moderate*
     // glow (a broad face blows out to white well before a thin tube does, so
     // these stay 1.5–2.3 and keep their hue), with the odd dark "off" pixel.
     let (cols, rows) = (5usize, 3usize);
@@ -109,7 +109,7 @@ fn build_tree() -> Generator {
         }
     }
 
-    // Scanlines — thin dark strips across the screen face.
+    // Scanlines - thin dark strips across the screen face.
     for k in 0..5 {
         let y = cy + (k as f32 - 2.0) * 0.72;
         root.children.push(prim(
@@ -119,7 +119,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Hot magenta neon frame — a crisp lit border reads the broad face as a
+    // Hot magenta neon frame - a crisp lit border reads the broad face as a
     // framed sign rather than a floating slab.
     let (half_w, half_h, bar) = (2.85_f32, 1.95_f32, 0.22_f32);
     for sy in [-1.0_f32, 1.0] {
@@ -153,7 +153,7 @@ fn build_tree() -> Generator {
     root
 }
 
-/// A darker shade of a body colour — for recessed housings and scanlines.
+/// A darker shade of a body colour - for recessed housings and scanlines.
 fn shade(c: [f32; 3]) -> [f32; 3] {
     [c[0] * 0.6, c[1] * 0.6, c[2] * 0.6]
 }

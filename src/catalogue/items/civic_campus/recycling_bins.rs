@@ -1,4 +1,4 @@
-//! Recycling bins — a Civic/Campus *poor* prop. A row of three colour-coded
+//! Recycling bins - a Civic/Campus *poor* prop. A row of three colour-coded
 //! wheelie bins, lids ajar, on small castors. The overflowing clutter of the
 //! underfunded quarter.
 

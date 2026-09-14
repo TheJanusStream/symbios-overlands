@@ -1,4 +1,4 @@
-//! Cross-family ornaments — a flown pennant, a neon strip, a finial, and a
+//! Cross-family ornaments - a flown pennant, a neon strip, a finial, and a
 //! tattered banner. These serve every vehicle family (the `VEHICLES` chassis
 //! list); see the [`super`] module docstring for the mood-group / band scheme.
 
@@ -24,7 +24,7 @@ fn pennant(ctx: &PartCtx) -> Generator {
         id_quat(),
     );
     p.children.push(prim(
-        // 0.01 is the sanitiser's minimum cuboid dimension — a thinner flag
+        // 0.01 is the sanitiser's minimum cuboid dimension - a thinner flag
         // would be clamped and diverge from what peers render.
         cuboid(
             [0.18, 0.10, 0.01],
@@ -49,14 +49,14 @@ fn neon_strip(ctx: &PartCtx) -> Generator {
 
 fn ornament_finial(ctx: &PartCtx) -> Generator {
     // The style-universal ornament floor (empty styles, every family): a little
-    // turned finial — a pedestal topped by a banded orb. Being fully 3D it reads
+    // turned finial - a pedestal topped by a banded orb. Being fully 3D it reads
     // from every angle (unlike a flat badge) so it works as a boat masthead knob,
-    // a skiff hood mascot, or an airship nose crest, on any theme — the humble
+    // a skiff hood mascot, or an airship nose crest, on any theme - the humble
     // accent that keeps every population's Ornament slot fillable (#792).
     let post = ctx.materials.metal(ctx.palette.secondary_accent);
     let orb = ctx.materials.trim(ctx.palette.tertiary_accent);
     let collar = ctx.materials.accent(ctx.palette.primary_accent);
-    // Hidden hub at the mount so the post and orb share one un-translated frame —
+    // Hidden hub at the mount so the post and orb share one un-translated frame -
     // a translated post-as-root would carry its +0.07 into the orb / collar (the
     // transform-inheritance gotcha), floating the orb off the pedestal top.
     let mut root = prim(
@@ -85,7 +85,7 @@ fn ornament_finial(ctx: &PartCtx) -> Generator {
 fn ornament_tattered(ctx: &PartCtx) -> Generator {
     // The battered-only ornament counterpart (empty styles, wear = Battered): a
     // bent staff flying a ragged swallowtail banner, so a beaten-up craft flies a
-    // tattered colour where a pristine one wouldn't — the top wear tier reads on
+    // tattered colour where a pristine one wouldn't - the top wear tier reads on
     // the ornament roll (#792). Cheap: the pennant staff, canted, with a torn
     // (deeply forked) darker cloth.
     let staff = ctx.materials.metal(darken(ctx.palette.secondary_accent));
@@ -134,7 +134,7 @@ pub(super) static PENNANT: PartDef = PartDef {
     slot: PartSlot::Ornament,
     chassis: VEHICLES,
     styles: REGAL,
-    // A flown pennant is a fancy flourish — an adorned / ornate craft only.
+    // A flown pennant is a fancy flourish - an adorned / ornate craft only.
     ornateness: FANCY,
     wear: WearBand::ANY,
     build: pennant,
@@ -165,7 +165,7 @@ pub(super) static ORNAMENT_TATTERED: PartDef = PartDef {
     chassis: VEHICLES,
     styles: UNIVERSAL,
     ornateness: OrnatenessBand::ANY,
-    // The beaten-up counterpart to the finial / pennant — battered craft only.
+    // The beaten-up counterpart to the finial / pennant - battered craft only.
     wear: BATTERED,
     build: ornament_tattered,
 };

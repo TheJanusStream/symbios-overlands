@@ -88,9 +88,9 @@ fn draw_splat_rule(ui: &mut egui::Ui, rule: &mut SovereignSplatRule, dirty: &mut
     // Bounded against each other (#1238 f90). These two pairs are the
     // WORST of the four: `SovereignSplatRule` has no `Sanitize` impl
     // anywhere, so an inverted band was never corrected and never
-    // flagged — it simply matched nothing, for good.
+    // flagged - it simply matched nothing, for good.
     // The band this layer paints in, in fractions of the terrain's full
-    // range — not metres (#1268 f66).
+    // range - not metres (#1268 f66).
     ui.label(
         egui::RichText::new(
             "Where this layer shows: 0 is the lowest ground in the world and 1 the \
@@ -128,9 +128,9 @@ fn draw_splat_rule(ui: &mut egui::Ui, rule: &mut SovereignSplatRule, dirty: &mut
 /// The `uv_transform` rows every material editor shares (#957): pattern
 /// slide and spin in degrees CCW.
 ///
-/// Factored out because every material editor — the primitive one in
+/// Factored out because every material editor - the primitive one in
 /// `construct::draw_universal_material`, the L-system and Shape slot lists,
-/// and the Sign panel (#964) — edits the same
+/// and the Sign panel (#964) - edits the same
 /// [`SovereignMaterialSettings`] and all of them flow to the same
 /// `world_builder::material::sovereign_uv_transform`. Both knobs ride the
 /// material rather than the mesh, so dragging them re-keys only the
@@ -251,7 +251,7 @@ pub(super) fn draw_texture_bridge_opts(
             }
             opt!("None", SovereignTextureConfig::None);
             // Slotted between None and the procedural-generator list so
-            // the existing 24-variant order stays contiguous — muscle
+            // the existing 24-variant order stays contiguous - muscle
             // memory survives the addition.
             if allow_referenced {
                 opt!(
@@ -418,7 +418,7 @@ pub(super) fn draw_texture_bridge_opts(
     match texture {
         SovereignTextureConfig::None => {}
         // #1251 f87: an empty arm under the bare word "Unknown" left the
-        // owner with an unexplained blank panel and, reasonably, a click —
+        // owner with an unexplained blank panel and, reasonably, a click -
         // permanently replacing content a newer client could still have
         // rendered.
         SovereignTextureConfig::Unknown => {

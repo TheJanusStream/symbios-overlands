@@ -1,4 +1,4 @@
-//! Colonnade — an AncientClassical secondary. A stoa: a row of fluted
+//! Colonnade - an AncientClassical secondary. A stoa: a row of fluted
 //! marble columns on a stepped sandstone stylobate carrying an architrave
 //! and cornice. The open civic portico of a classical agora.
 
@@ -48,7 +48,7 @@ fn build_tree() -> Generator {
     let l = 9.0_f32;
     let shaft_h = 3.2;
 
-    // Three-step stylobate — the root is the bottom step.
+    // Three-step stylobate - the root is the bottom step.
     let mut prims = vec![
         prim(
             solid(cuboid_tapered(

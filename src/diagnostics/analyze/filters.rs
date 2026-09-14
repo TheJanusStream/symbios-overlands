@@ -8,8 +8,8 @@ use super::sections::CATEGORY_ORDER;
 /// Filters for `--analyze-session`: restrict the report's *analysis* sections to
 /// events matching a subsystem / category / minimum severity / time window. Every
 /// field is optional; an unset field doesn't filter, and an all-`None` filter is
-/// a no-op passthrough. The header (session identity) is never filtered — it
-/// identifies the run — see [`super::report_with`]. Built from CLI strings by
+/// a no-op passthrough. The header (session identity) is never filtered - it
+/// identifies the run - see [`super::report_with`]. Built from CLI strings by
 /// [`Filters::parse`]; applied purely, so it unit-tests without file IO.
 #[derive(Default, Clone, Debug)]
 pub struct Filters {

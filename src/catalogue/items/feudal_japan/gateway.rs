@@ -1,4 +1,4 @@
-//! Torii Gateway — the Feudal-Japan bespoke social gateway (#757), the
+//! Torii Gateway - the Feudal-Japan bespoke social gateway (#757), the
 //! themed replacement for the neutral placeholder arch. A vermilion torii
 //! read as a walk-through: two lacquered pillars on stone footings carry a
 //! pierced nuki tie beam and the upswept Myōjin crown (shimaki + kasagi),
@@ -6,7 +6,7 @@
 //! the threshold.
 //!
 //! The only functional element is the single [`GeneratorKind::Gateway`]
-//! zone centred in the opening — walking into it opens the destination
+//! zone centred in the opening - walking into it opens the destination
 //! picker of the room owner's mutual follows. Everything else frames that
 //! zone so it reads as a sacred threshold you pass through.
 
@@ -50,7 +50,7 @@ impl CatalogueEntry for FeudalJapanGateway {
 }
 
 fn build_tree() -> Generator {
-    let span = 1.7_f32; // half the pillar spacing — inner faces bracket a ~2.6 m opening
+    let span = 1.7_f32; // half the pillar spacing - inner faces bracket a ~2.6 m opening
     let pillar_r = 0.3_f32;
     let pillar_h = 4.6_f32;
     let base_top = 0.4_f32; // top of the stone footing strip the pillars stand on
@@ -67,7 +67,7 @@ fn build_tree() -> Generator {
         ])
     };
 
-    // Stone footing strip — the FLAT-BASE ROOT (never tilt a root: every
+    // Stone footing strip - the FLAT-BASE ROOT (never tilt a root: every
     // child would spin with it).
     let mut prims = vec![prim(
         solid(cuboid_tapered(
@@ -130,7 +130,7 @@ fn build_tree() -> Generator {
         [0.0, kasagi_y, 0.0],
         id_quat(),
     ));
-    // Two upswept tips angling out and up from the crown ends — the Myōjin
+    // Two upswept tips angling out and up from the crown ends - the Myōjin
     // curve that names the gate.
     let tip_len = 1.5_f32;
     let phi = 0.32_f32;
@@ -162,7 +162,7 @@ fn build_tree() -> Generator {
     ));
 
     // Threshold accent: a warm lantern-glow sill spanning the opening just
-    // under the nuki — a thin edge strip, so it runs hotter than a broad face
+    // under the nuki - a thin edge strip, so it runs hotter than a broad face
     // without blooming white.
     prims.push(prim(
         cuboid_tapered([2.6, 0.1, 0.14], 0.0, glow(LANTERN_GLOW, 4.0)),
@@ -212,7 +212,7 @@ mod tests {
         assert_sanitize_stable(&FeudalJapanGateway.build(""), "feudal_japan_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is set-dressing, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

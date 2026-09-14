@@ -1,7 +1,7 @@
-//! Tea house — a Feudal-Japan secondary. A small raised timber pavilion
+//! Tea house - a Feudal-Japan secondary. A small raised timber pavilion
 //! with shoji-paper walls, an open front veranda, and a hip tile roof, set
 //! beside a stone water basin (tsukubai) fed by a bamboo spout. The basin
-//! trickles and a thread of incense rises — the quiet of the tea garden.
+//! trickles and a thread of incense rises - the quiet of the tea garden.
 
 use crate::catalogue::items::util::{
     assemble, attach, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_y,
@@ -56,7 +56,7 @@ fn build_tree() -> Generator {
     let corners = [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)];
 
     let mut prims = vec![
-        // Stone footing — the root.
+        // Stone footing - the root.
         prim(
             solid(cuboid_tapered([6.5, 0.3, 5.5], 0.0, stone(STONE_GREY))),
             [0.0, 0.15, 0.0],
@@ -108,7 +108,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Shoji lattice (kumiko): dark mullions proud of each paper panel — four
+    // Shoji lattice (kumiko): dark mullions proud of each paper panel - four
     // uprights and two rails per wall.
     let zf = 2.26;
     for i in 0..4 {

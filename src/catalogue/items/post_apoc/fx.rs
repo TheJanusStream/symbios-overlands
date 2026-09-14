@@ -1,5 +1,5 @@
 //! Post-apocalyptic "bring-it-to-life" helpers: drifting ash and a barrel-fire
-//! flame, plus two spatial-audio patches — a desolate wind for the camp and a
+//! flame, plus two spatial-audio patches - a desolate wind for the camp and a
 //! fire crackle for the burning drums.
 //!
 //! Particle emitters are returned as [`Generator`] nodes (a
@@ -25,7 +25,7 @@ use crate::pds::{
 // ---------------------------------------------------------------------------
 
 /// A grey veil of ash and grit drifting low across the wasteland on a dry
-/// wind — the dust haze of the dead world.
+/// wind - the dust haze of the dead world.
 pub(super) fn ash_drift(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
         shape: EmitterShape::Box {
@@ -84,7 +84,7 @@ pub(super) fn fire_flame(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A desolate dry wind — band-limited noise breathing very slowly through a
+/// A desolate dry wind - band-limited noise breathing very slowly through a
 /// lowpass, the empty air of the wasteland.
 pub(super) fn desolate_wind() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));
@@ -120,7 +120,7 @@ pub(super) fn desolate_wind() -> SovereignAudioConfig {
     patch(vec![noise, lp, lfo, vca], NodeId(3))
 }
 
-/// A warm irregular fire crackle — band-passed noise pulsed by a fast LFO over
+/// A warm irregular fire crackle - band-passed noise pulsed by a fast LFO over
 /// a low ember rumble. The voice of a burning barrel.
 pub(super) fn fire_crackle() -> SovereignAudioConfig {
     FireCrackle {

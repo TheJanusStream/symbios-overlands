@@ -1,20 +1,20 @@
 //! Bridge between the egui editors' selection state and the in-world 3D
 //! transform gizmo. The gizmo itself is driven by `transform-gizmo-bevy`
-//! — this module:
+//! - this module:
 //!
 //! * attaches a `GizmoTarget` to whichever entity the owner is currently
-//!   editing, in either editor — Room editor: a `Placement::Absolute`
+//!   editing, in either editor - Room editor: a `Placement::Absolute`
 //!   root, or any node inside a named generator's tree; Avatar editor:
 //!   any node in the local player's `visuals` tree, or one of their worn
-//!   props (#1062) — and removes it from any previously-selected entity.
+//!   props (#1062) - and removes it from any previously-selected entity.
 //! * commits the dragged `Transform` back into the live record on mouse
-//!   release — `RoomRecord` for room edits, `LiveAvatarRecord` for avatar
-//!   edits — so the downstream recompile, the Publish-to-PDS button and
+//!   release - `RoomRecord` for room edits, `LiveAvatarRecord` for avatar
+//!   edits - so the downstream recompile, the Publish-to-PDS button and
 //!   the peer broadcast all see the final pose exactly once per drag.
 //!
 //! **Three target kinds, three addressing schemes.** A room prim is a
 //! `(generator_ref, path)` pair, an avatar visual is a `path` into the
-//! record's own tree — and a worn prop is neither: it is a `(record rkey,
+//! record's own tree - and a worn prop is neither: it is a `(record rkey,
 //! socket)` pair naming an attachment record of its own, hung off a rig
 //! joint rather than off any visuals tree. That is why [`ActiveTarget`] has
 //! a third variant instead of the attachment being folded into `Avatar`,
@@ -25,7 +25,7 @@
 //! site mutex (selecting a row in one editor clears the other's
 //! selection). This module reads both editor states each frame and
 //! dispatches gizmo plumbing to whichever has a non-empty selection. If
-//! both somehow do (mid-frame race), avatar wins — the locomotion-freeze
+//! both somehow do (mid-frame race), avatar wins - the locomotion-freeze
 //! gate is keyed on avatar selection, so deferring to it preserves
 //! physics behaviour.
 //!
@@ -40,7 +40,7 @@
 //! and singular, so no proximity scan is needed there.
 //!
 //! **World-space detach.** `transform-gizmo-bevy` reads the target
-//! entity's *local* `Transform` and treats it as the world pose — it has
+//! entity's *local* `Transform` and treats it as the world pose - it has
 //! no notion of `GlobalTransform`. A child prim deep in the blueprint
 //! hierarchy would therefore render its gizmo at the prim's local offset
 //! rather than at its actual world position. To bridge that, we remove
@@ -57,23 +57,23 @@
 //!
 //! ## Sub-module map
 //!
-//! * [`sync`] — per-frame target-resolution + `GizmoTarget`
+//! * [`sync`] - per-frame target-resolution + `GizmoTarget`
 //!   attach/detach + the world-space-detach trick.
-//! * [`drag`] — drag-session state machine (rising / active / falling
+//! * [`drag`] - drag-session state machine (rising / active / falling
 //!   edges), Escape abort, copy-on-drag ghost rendering.
-//! * [`commit`] — drag-end writeback into [`crate::pds::RoomRecord`] /
+//! * [`commit`] - drag-end writeback into [`crate::pds::RoomRecord`] /
 //!   [`crate::state::LiveAvatarRecord`] (placement vs prim split,
 //!   copy-on-drag clone, path-walked transform overwrite, and the
 //!   rest-frame attachment offset).
-//! * [`blob`] — in-scene BlobGroup element editing (#705): wireframe
+//! * [`blob`] - in-scene BlobGroup element editing (#705): wireframe
 //!   surface swap, red/green per-element proxies, per-element gizmo
 //!   targeting and the element writeback.
-//! * [`context_menu`] — the right-click scene menu (#720): select item /
+//! * [`context_menu`] - the right-click scene menu (#720): select item /
 //!   select placement / create new at the hit point.
-//! * [`highlight`] — selection wire boxes (#822 / W5): the selected
+//! * [`highlight`] - selection wire boxes (#822 / W5): the selected
 //!   node's subtree bright, sibling scatter instances dim, so the
 //!   gizmo's blast radius is visible before a drag.
-//! * [`face_pick`] — click-to-pick face selection (#961): the same scene
+//! * [`face_pick`] - click-to-pick face selection (#961): the same scene
 //!   click that selects a prim also names the face under the cursor for
 //!   the Faces panel, while the panel has picking armed.
 
@@ -84,7 +84,7 @@ mod drag;
 mod face_pick;
 mod highlight;
 /// The subtree-bounds walk behind the selection wire box, shared with the
-/// peer nametag surface (#1226) — see [`highlight::subtree_world_bounds`].
+/// peer nametag surface (#1226) - see [`highlight::subtree_world_bounds`].
 pub(crate) use commit::append_sibling_at_path;
 pub(crate) use highlight::subtree_world_bounds;
 mod sync;
@@ -104,7 +104,7 @@ use transform_gizmo_bevy::{GizmoOrientation, GizmoTarget};
 
 use crate::state::AppState;
 // Aliased because this module already imports `transform_gizmo_bevy`'s own
-// `GizmoTarget` above — the COMPONENT that marks the entity currently
+// `GizmoTarget` above - the COMPONENT that marks the entity currently
 // carrying the gizmo. This one is the avatar editor's aim: what the owner
 // has selected for a gizmo to be attached TO. Both keep the word, since a
 // grep for `GizmoTarget` should find either.
@@ -123,18 +123,18 @@ use crate::world_builder::{
 /// Because prims are detached from their parent into world space when
 /// the gizmo attaches (see [`sync`]), that rotation is the *accumulated*
 /// product of every parent rotation along the path from the blueprint
-/// root — exactly what the owner expects when arranging children of a
+/// root - exactly what the owner expects when arranging children of a
 /// tilted construct.
 ///
 /// Wraps `transform_gizmo_bevy::GizmoOrientation` so call sites don't
 /// have to know about the upstream type. Also carries the snap
-/// preference (#827) — same lifecycle, same two owner-facing rows, so it
+/// preference (#827) - same lifecycle, same two owner-facing rows, so it
 /// rides the resource both editors already hold instead of costing each
 /// UI system another parameter slot.
 #[derive(Resource, Clone, Copy, PartialEq, Debug)]
 pub struct GizmoFramePref {
     pub orientation: GizmoOrientation,
-    /// Snap gizmo drags to fixed increments (#827). Off by default —
+    /// Snap gizmo drags to fixed increments (#827). Off by default -
     /// free-form dragging is the common case; precision alignment opts
     /// in per session.
     pub snap: bool,
@@ -175,7 +175,7 @@ impl Default for GizmoFramePref {
 /// world-frame scale is lossy for a rotated element), so the toggle is
 /// shown disabled-at-Local with an explanatory hover rather than letting
 /// it appear to do nothing.
-/// Returns `true` when a click/edit actually changed the preference —
+/// Returns `true` when a click/edit actually changed the preference -
 /// callers route the pref through `bypass_change_detection` (the borrow
 /// is open every frame the tab bar draws) and `set_changed()` only on a
 /// real edit, so the #871 prefs persistence isn't re-armed each frame.
@@ -194,10 +194,10 @@ pub fn draw_gizmo_frame_toggle(
         .response
         // `on_disabled_hover_text`, not `on_hover_text` (#1289). This region
         // is `add_enabled_ui(false, …)`, so it is ALWAYS disabled and the
-        // enabled hover could never fire — the explanation was written and
+        // enabled hover could never fire - the explanation was written and
         // then shown to nobody.
         .on_disabled_hover_text(
-            "Element sculpting is pinned to the element's local axes — \
+            "Element sculpting is pinned to the element's local axes - \
              world-axis scaling of a rotated element is imprecise. The \
              World/Local toggle applies to the whole-object gizmo.",
         );
@@ -222,7 +222,7 @@ pub fn draw_gizmo_frame_toggle(
 /// The three increments live in a POPUP hanging off the checkbox, not
 /// inline (#1261 f156). Inline, ticking Snap appended three `DragValue`s
 /// to a plain non-wrapping `ui.horizontal` that already held five tab
-/// labels, two separators and the World/Local pair — so everything to
+/// labels, two separators and the World/Local pair - so everything to
 /// the right of the checkbox jumped about 190 px on the tick, and the
 /// things to the right are Undo and Redo. At the room editor's 820 pt
 /// default width they were pushed off the edge entirely: layout jitter
@@ -333,14 +333,14 @@ pub(crate) enum ActiveTarget {
     /// than a flavour of `Avatar` because the two are addressed
     /// differently: an avatar visual is a path into the record's `visuals`
     /// tree, while an attachment is a `(record rkey, socket)` pair naming a
-    /// record of its own — no path can reach it — and its drag frame is the
+    /// record of its own - no path can reach it - and its drag frame is the
     /// carrying joint's rest frame rather than the record root's.
     Attachment,
     /// A PART of a worn prop (#1098): a node inside the attachment
     /// record's item tree, addressed by `(rkey, path)` through
     /// [`AttachmentPrim`]. Dragged
-    /// and committed exactly like an avatar visual part — detach to world,
-    /// reparent against the original parent — into that record's tree.
+    /// and committed exactly like an avatar visual part - detach to world,
+    /// reparent against the original parent - into that record's tree.
     AttachmentPart,
 }
 
@@ -376,14 +376,14 @@ pub(crate) fn determine_active_target(
 ///
 /// Published every frame so the "Go to selection" button and its key can
 /// answer "where is my selection" without re-deriving the instance choice
-/// `sync_gizmo_selection` already made — which is nearest the CAMERA for a
+/// `sync_gizmo_selection` already made - which is nearest the CAMERA for a
 /// GUI-originated selection, and therefore not somewhere the caller could
 /// guess.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
 pub struct GizmoFocus {
     /// Centre of the gizmo host's merged subtree bounds, world space.
     pub centre: Option<Vec3>,
-    /// Half the largest bound axis — the stand-off distance the player is
+    /// Half the largest bound axis - the stand-off distance the player is
     /// put down beyond.
     pub radius: f32,
 }
@@ -420,7 +420,7 @@ pub fn publish_gizmo_focus(
 /// Their own group solely so they can carry a NEGATIVE depth bias. Every
 /// one of them is drawn with Bevy's immediate-mode [`Gizmos`], nothing in
 /// the crate ever touched `GizmoConfig`, and the default `depth_bias: 0.0`
-/// occlusion-tests each line against the scene — so the indicator whose
+/// occlusion-tests each line against the scene - so the indicator whose
 /// entire purpose is "show the blast radius before a drag" (#822) was
 /// simply not drawn for anything enclosed by other geometry, which is the
 /// case where the owner most needs it. The authors already knew: the
@@ -435,7 +435,7 @@ pub fn publish_gizmo_focus(
 pub struct EditorOverlayGizmos;
 
 /// How far in front of the depth buffer the editor overlays draw. `-1.0`
-/// is "always in front" — an indicator is not part of the scene, and a
+/// is "always in front" - an indicator is not part of the scene, and a
 /// half-hidden one is worse than none.
 const EDITOR_OVERLAY_DEPTH_BIAS: f32 = -1.0;
 
@@ -498,7 +498,7 @@ impl Plugin for EditorGizmoPlugin {
                     .run_if(in_state(AppState::InGame)),
             )
             // A left-click into the open 3D scene either PICKS the object under
-            // the cursor (#702 — Region Assets / Placements tab, world editor
+            // the cursor (#702 - Region Assets / Placements tab, world editor
             // open) or clears the selection when nothing selectable was hit.
             // Runs in `Update` (the egui-pointer guard reads the same frame's
             // context, exactly as `ui::inventory::drop` does) and is gated so a
@@ -521,7 +521,7 @@ impl Plugin for EditorGizmoPlugin {
             // A face-pick arm outlives nothing (#1237 f140/f141): it is
             // dropped on the first frame the Faces panel that could honour
             // it stops drawing. Registered in EVERY state, not just
-            // `InGame` — the arm must not survive a trip through Login
+            // `InGame` - the arm must not survive a trip through Login
             // either, and the check is two branches on one bool.
             .add_systems(Update, face_pick::disarm_unbacked_face_pick)
             .add_systems(
@@ -543,33 +543,33 @@ impl Plugin for EditorGizmoPlugin {
 /// Scene click-select (#702): while the World-editor window is open on the
 /// Region Assets or Placements tab (and the signed-in user owns the room),
 /// a left-click into the 3D viewport raycasts the scene's meshes and
-/// selects what it hits — the exact sub-part of an asset on Region Assets,
-/// the owning placement on Placements — exactly as if the matching GUI row
+/// selects what it hits - the exact sub-part of an asset on Region Assets,
+/// the owning placement on Placements - exactly as if the matching GUI row
 /// had been clicked. With the Avatar window open, clicking the local
 /// avatar's own visual parts selects the matching visuals node in the
 /// Avatar editor the same way (#823); the avatar branch outranks the room
 /// one, matching the cross-editor mutex. Hitting nothing selectable (sky,
 /// terrain, water, remote peers) clears the selection, which makes the
 /// gizmo vanish via [`sync`]. On any other tab, or with the editors
-/// closed, a scene click just clears — the pre-#702 behaviour.
+/// closed, a scene click just clears - the pre-#702 behaviour.
 ///
 /// Mesh raycast for everything selectable: most catalogue props carry no
 /// collider, so `SpatialQuery` would see through them, while `MeshRayCast`
 /// hits anything rendered. The one exception is the ground, which since
-/// #1134 has no main-world vertices to hit — see [`ScenePick::hit_under_cursor`]
+/// #1134 has no main-world vertices to hit - see [`ScenePick::hit_under_cursor`]
 /// for why terrain still has to be found, given that it can never be picked.
 ///
 /// **Drag safety.** Picking is suppressed whenever any [`GizmoTarget`]
 /// reports `is_focused()` (pointer hovering a handle) or `is_active()` (a
 /// drag in progress). `transform-gizmo-bevy` writes both flags in its
 /// `Last`-schedule update, so on the mouse-down frame they already reflect
-/// the prior frame's hover — and the owner always hovers a handle before
-/// pressing — so a click that *starts* a drag is caught here and leaves
+/// the prior frame's hover - and the owner always hovers a handle before
+/// pressing - so a click that *starts* a drag is caught here and leaves
 /// the selection (and the drag) untouched.
 ///
 /// **Face picking (#961).** While the Faces panel has [`FacePick`] armed,
 /// the same click additionally resolves *which face* of the prim was under
-/// the cursor and hands it to the panel — one click, two answers, because a
+/// the cursor and hands it to the panel - one click, two answers, because a
 /// face is only ever picked on the prim that is being selected anyway.
 /// While armed, a click that resolves nothing leaves the selection alone
 /// instead of clearing it: dropping the panel the user is aiming from would
@@ -603,7 +603,7 @@ fn pick_on_scene_click(
         Res<Time>,
     ),
 ) {
-    // Left button only — the orbit/pan camera owns Right/Middle, so this
+    // Left button only - the orbit/pan camera owns Right/Middle, so this
     // can never fight a camera gesture.
     if !mouse.just_pressed(MouseButton::Left) {
         return;
@@ -612,11 +612,11 @@ fn pick_on_scene_click(
         return;
     };
     // Clicks on the toolbar or any editor window are UI interactions, not
-    // a "click into the world" — leave the selection alone.
+    // a "click into the world" - leave the selection alone.
     if ctx.is_pointer_over_egui() {
         return;
     }
-    // The click is starting (or continuing) a gizmo interaction — keep the
+    // The click is starting (or continuing) a gizmo interaction - keep the
     // selection so the drag can run.
     if gizmo_targets
         .iter()
@@ -630,7 +630,7 @@ fn pick_on_scene_click(
     // rides along for face picking (#961).
     //
     // A terrain hit is deliberately NOT an entity here: terrain has never
-    // been selectable, and the doc above says so — the ground clears the
+    // been selectable, and the doc above says so - the ground clears the
     // selection. Since #1134 it takes a physics ray to notice the ground at
     // all, and the reason to keep noticing is occlusion: without it, a click
     // on a hillside would reach through the hill and select whatever stands
@@ -642,8 +642,8 @@ fn pick_on_scene_click(
     };
 
     // Which face the cursor landed on, resolved only while the panel asks
-    // for one. The group table is per render entity — a split prim's child
-    // mesh carries its own — so the hit entity is the one to ask, and the
+    // for one. The group table is per render entity - a split prim's child
+    // mesh carries its own - so the hit entity is the one to ask, and the
     // ancestor walks below only decide *whose* face it is.
     let picked_face = if face_pick.is_armed() {
         hit.and_then(|hit| {
@@ -673,7 +673,7 @@ fn pick_on_scene_click(
 
     // Blob element proxies take pick precedence (#705): while a BlobGroup
     // is under edit, clicking one of its red/green proxy meshes selects
-    // that element for the gizmo — in whichever editor owns the session,
+    // that element for the gizmo - in whichever editor owns the session,
     // so this runs before the avatar branches and the room-editor gates.
     // The proxy carries its own mesh, so the raycast hit *is* the proxy
     // entity (no ancestor walk needed).
@@ -687,7 +687,7 @@ fn pick_on_scene_click(
 
     // Avatar pick (#823): with the Avatar window open, clicking one of
     // the LOCAL avatar's own visual parts selects that node in the
-    // Avatar editor — ancestor-expand + row focus, exactly like the room
+    // Avatar editor - ancestor-expand + row focus, exactly like the room
     // pick below. `AvatarVisualPrim` is only attached to local-player
     // visuals, so remote peers can never be picked. Runs before the
     // avatar-clear (a hit IS a new avatar selection) and before the room
@@ -696,7 +696,7 @@ fn pick_on_scene_click(
     // gizmo dispatch is unambiguous.
     // Worn-prop pick (#1062): a prop hangs off a rig joint, not off the
     // record's visuals tree, so it has no `AvatarVisualPrim` path to walk
-    // into — `LocalAttachment` names its record instead. Checked in the same
+    // into - `LocalAttachment` names its record instead. Checked in the same
     // ancestor walk and before the visuals branch, because the two subtrees
     // are disjoint (`sync_rigged_attachments` spawns props with
     // `is_local = false`, so no prop carries a visuals path) and a hit on a
@@ -705,7 +705,7 @@ fn pick_on_scene_click(
     if panels.avatar {
         let mut cursor_entity = hit_entity;
         // A part of a worn prop (#1098) is the deepest marker on the path;
-        // it wins only while that prop's PARTS editor is open — otherwise
+        // it wins only while that prop's PARTS editor is open - otherwise
         // a click on a worn prop still selects the whole prop (its offset
         // gizmo), which is what a player adjusting fit expects.
         let mut part_hit: Option<AttachmentPrim> = None;
@@ -749,10 +749,10 @@ fn pick_on_scene_click(
     }
 
     // A scene click that did NOT land on the avatar takes the avatar
-    // editor's selections away — same cross-editor mutex direction as
+    // editor's selections away - same cross-editor mutex direction as
     // before #702, and the World editor's own click-to-deselect. One
     // helper for the visuals row, the worn prop (#1062) and the part
-    // (#1098, missing here until #1103 — a miss used to leave the part
+    // (#1098, missing here until #1103 - a miss used to leave the part
     // gizmo up); the face-pick exemption lives inside it.
     avatar_state.release_on_scene_miss(face_pick.is_armed());
 
@@ -830,8 +830,8 @@ fn pick_on_scene_click(
             }
         }
         // Environment / Effects / Raw JSON (#824): a hit switches to the
-        // tab that can show it — the exact sub-part on Region Assets when
-        // a prim was hit, the enclosing placement otherwise — mirroring
+        // tab that can show it - the exact sub-part on Region Assets when
+        // a prim was hit, the enclosing placement otherwise - mirroring
         // the right-click menu's Select entries. Empty scenery clears.
         _ => {
             if let Some((marker, marker_entity)) = picked_prim {
@@ -851,7 +851,7 @@ fn pick_on_scene_click(
     }
 }
 
-/// Point the Region Assets tree at the sub-part a scene click landed on —
+/// Point the Region Assets tree at the sub-part a scene click landed on -
 /// selection, gizmo instance preference, ancestor reveal, row focus.
 ///
 /// Shared by the pick's Generators branch and its switch-tabs-and-select
@@ -926,13 +926,13 @@ pub(super) enum SceneHit {
 }
 
 /// The two rays a scene click needs, bundled so both pick sites cast them the
-/// same way — and so neither blows past Bevy's system-parameter ceiling.
+/// same way - and so neither blows past Bevy's system-parameter ceiling.
 ///
 /// Cast once per click and shared by every branch that wants to know what was
 /// clicked: the proxy, avatar and room branches of [`pick_on_scene_click`],
 /// and the context menu's ground/object split.
 ///
-/// **Why two rays.** Terrain meshes carry no main-world vertex data (#1134 —
+/// **Why two rays.** Terrain meshes carry no main-world vertex data (#1134 -
 /// ~19 MB per re-roll that would never be returned to a wasm heap), so
 /// [`MeshRayCast`] returns `None` for them and would happily report a prop
 /// *behind* a hill as the nearest hit. The heightfield collider
@@ -944,7 +944,7 @@ pub(super) enum SceneHit {
 ///
 /// The physics ray is predicate-filtered to the terrain rather than run
 /// unfiltered, because from most camera angles the nearest collider under the
-/// cursor is the player chassis, a peer or a prop sensor — none of which is
+/// cursor is the player chassis, a peer or a prop sensor - none of which is
 /// the ground, and all of which the mesh ray already accounts for.
 #[derive(bevy::ecs::system::SystemParam)]
 pub(super) struct ScenePick<'w, 's> {
@@ -979,7 +979,7 @@ impl ScenePick<'_, '_> {
             .map(|(entity, hit)| (*entity, hit.triangle_index, hit.point, hit.distance));
         // Predicate-filtered rather than layer-filtered because from most
         // camera angles the nearest collider under the cursor is the player
-        // chassis, a peer or a prop sensor — none of them the ground, and all
+        // chassis, a peer or a prop sensor - none of them the ground, and all
         // of them already accounted for by the mesh ray.
         let filter = SpatialQueryFilter::default();
         let terrain = &self.terrain;
@@ -1008,8 +1008,8 @@ impl ScenePick<'_, '_> {
 
 /// Merge the mesh ray's answer with the terrain ray's: nearest wins.
 ///
-/// Split out from [`ScenePick::hit_along`] so the ordering rule — the one
-/// thing #1134 could silently get wrong — is testable without a window, a
+/// Split out from [`ScenePick::hit_along`] so the ordering rule - the one
+/// thing #1134 could silently get wrong - is testable without a window, a
 /// camera or a physics world.
 pub(super) fn nearer_hit(
     mesh: Option<(Entity, Option<usize>, Vec3, f32)>,
@@ -1083,7 +1083,7 @@ mod pick_tests {
     /// in the mesh ray's list and won on distance, so the click cleared the
     /// selection. Making the terrain mesh `RENDER_WORLD`-only takes it out of
     /// that list without any error, and the mesh ray then happily reports the
-    /// hidden prop as the nearest hit — the owner would select something they
+    /// hidden prop as the nearest hit - the owner would select something they
     /// cannot see, through a hill. Merging the terrain ray back in by distance
     /// is what restores the old answer.
     #[test]
@@ -1106,7 +1106,7 @@ mod pick_tests {
             Some(SceneHit::Mesh { triangle_index, .. }) => assert_eq!(
                 triangle_index,
                 Some(7),
-                "the hit triangle must survive the merge — face picking reads it"
+                "the hit triangle must survive the merge - face picking reads it"
             ),
             _ => panic!("the nearer prop was not picked"),
         }
@@ -1114,7 +1114,7 @@ mod pick_tests {
 
     /// Sequence: the owner right-clicks bare ground to place an object. The
     /// mesh ray now returns nothing at all there, so without the terrain ray
-    /// the menu reads it as empty sky and dismisses — "place here" would stop
+    /// the menu reads it as empty sky and dismisses - "place here" would stop
     /// working on exactly the surface it exists for.
     #[test]
     fn bare_ground_is_a_hit_even_though_the_mesh_ray_returns_nothing() {
@@ -1125,7 +1125,7 @@ mod pick_tests {
                 Vec3::new(0.0, 0.0, -30.0),
                 "the placement anchor must be the terrain ray's point"
             ),
-            _ => panic!("bare ground read as empty sky — the context menu would dismiss"),
+            _ => panic!("bare ground read as empty sky - the context menu would dismiss"),
         }
     }
 

@@ -1,4 +1,4 @@
-//! Gas station — the Roadside landmark and the kit's lit hero. A flat
+//! Gas station - the Roadside landmark and the kit's lit hero. A flat
 //! steel-columned canopy lit from beneath shelters a pump island beside a
 //! brick convenience store, and a tall pylon price sign glows out over the
 //! highway. ~20 m of forecourt, so it anchors the strip and reads as the
@@ -61,7 +61,7 @@ fn build_tree() -> Generator {
     let pad_top = 0.2_f32;
 
     let mut prims = vec![
-        // Asphalt forecourt pad — the root.
+        // Asphalt forecourt pad - the root.
         prim(
             solid(cuboid_tapered(
                 [20.0, pad_top, 16.0],
@@ -237,7 +237,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // --- Pylon price sign at the −Z front corner — the beacon. ---
+    // --- Pylon price sign at the −Z front corner - the beacon. ---
     let pylon = [8.0_f32, -6.0];
     prims.push(prim(
         solid(cuboid_tapered([0.5, 7.0, 0.5], 0.0, steel(STEEL_GREY))),

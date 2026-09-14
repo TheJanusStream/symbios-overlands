@@ -1,4 +1,4 @@
-//! Membrane wall — an Alien-Organic secondary. A living rampart: translucent
+//! Membrane wall - an Alien-Organic secondary. A living rampart: translucent
 //! membrane skin stretched between knuckled chitin ribs, threaded with a
 //! branching web of glowing veins on its face, spined along the top and rooted
 //! in a creep sill. Its veins are emissive trim the ruin pass can darken.
@@ -76,7 +76,7 @@ fn rib(x: f32) -> Vec<Generator> {
 }
 
 fn build_tree() -> Generator {
-    // Three knuckled ribs — the first shaft is the root (id_quat).
+    // Three knuckled ribs - the first shaft is the root (id_quat).
     let mut prims = rib(-3.0);
     prims.extend(rib(0.0));
     prims.extend(rib(3.0));
@@ -110,7 +110,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Buried footing under the creep sill — the wall's only ground course — so
+    // Buried footing under the creep sill - the wall's only ground course - so
     // a terrain-snapped rampart shows plinth instead of daylight beneath it.
     prims.push(footing(6.6, 0.7, [0.0, 0.0], 5.0));
 

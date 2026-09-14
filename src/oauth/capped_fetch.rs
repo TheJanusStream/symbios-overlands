@@ -13,7 +13,7 @@
 //! [`proto_blue_common::fetch::HttpResponse`], not `reqwest::Response`. Its
 //! body is a `Vec<u8>` that is **already fully buffered**, and upstream says
 //! so on `HttpResponse::text`: *"`async` for source-compatibility with
-//! reqwest callers even though no I/O is performed here — the body is
+//! reqwest callers even though no I/O is performed here - the body is
 //! already buffered."* `text()` is `String::from_utf8(self.body)`, which
 //! reuses that allocation. Capping there would truncate a `String` that has
 //! already cost whatever the server chose to send; there is nothing left to
@@ -28,13 +28,13 @@
 //! ```
 //!
 //! `bytes()` buffers the whole stream with no ceiling, and `.to_vec()` then
-//! copies it again — so a hostile or broken PDS costs twice the body it
+//! copies it again - so a hostile or broken PDS costs twice the body it
 //! sends. That handler is injectable
 //! ([`proto_blue_oauth::OAuthClient::with_fetch_handler`],
 //! [`proto_blue_oauth::OAuthSession::with_fetch_handler`]), the seam the
 //! refresh-dance tests already use to script a transport. Replacing it fixes
 //! every proto-blue request at once, rather than the seven that happened to
-//! be enumerated — including the token exchange and the refresh, which were
+//! be enumerated - including the token exchange and the refresh, which were
 //! not on the list and are the two that run before a session exists.
 //!
 //! # What else changed by having our own transport
@@ -59,8 +59,8 @@ use proto_blue_common::fetch::{HttpHeaders, HttpMethod};
 /// The same number [`crate::pds::xrpc::MAX_FETCH_BODY_BYTES`] uses for one
 /// peer-controlled body, deliberately rather than something tuned to what
 /// these endpoints actually return. Every body on this transport is small
-/// JSON — a token set, a `getSession` identity, an `applyWrites` result
-/// list — so a tight cap would look defensible and would be a latent bug:
+/// JSON - a token set, a `getSession` identity, an `applyWrites` result
+/// list - so a tight cap would look defensible and would be a latent bug:
 /// the cost of guessing low is a legitimate response silently refused, on
 /// the paths that log a user in. This bounds the allocation without
 /// pretending to know the payload.
@@ -110,12 +110,12 @@ impl Default for CappedFetcher {
 /// The error a refused body reports.
 ///
 /// [`FetchError::Body`] rather than a new variant: to every caller above
-/// this — `exchange_code`, `refresh_token`, `oauth_get_with_nonce_retry` —
+/// this - `exchange_code`, `refresh_token`, `oauth_get_with_nonce_retry` -
 /// an oversized body is a body that could not be read, which is what that
 /// variant already means. It matters that this is not [`FetchError::Timeout`]
 /// or a `RefreshFailed`: [`crate::oauth::refresh::refresh_is_terminal`]
 /// classifies only `invalid_grant` and "No refresh token" as terminal, so a
-/// refusal here stays retryable, which is right — the next attempt may reach
+/// refusal here stays retryable, which is right - the next attempt may reach
 /// a PDS that is behaving.
 fn oversized(seen: usize, cap: usize) -> FetchError {
     FetchError::Body(format!(
@@ -164,7 +164,7 @@ impl FetchHandler for CappedFetcher {
 
         // And the one that does the actual work: a server can omit
         // `Content-Length` and frame with connection-close, or simply lie.
-        // Accumulating chunk by chunk is what makes the ceiling real —
+        // Accumulating chunk by chunk is what makes the ceiling real -
         // `bytes()` would have bought the whole body before we could look.
         let mut body: Vec<u8> = Vec::new();
         loop {
@@ -195,7 +195,7 @@ impl FetchHandler for CappedFetcher {
 // stop the browser from allocating it first.
 //
 // The same limitation, for the same reason, as `pds::xrpc::read_capped_body`
-// — recorded here rather than left to be rediscovered. It is not nothing:
+// - recorded here rather than left to be rediscovered. It is not nothing:
 // the wasm heap never shrinks, so refusing to copy an oversized body into a
 // long-lived `HttpResponse` is what keeps a single hostile reply from
 // raising the floor for the rest of the session.
@@ -332,7 +332,7 @@ mod tests {
     }
 
     /// The whole fix is *which constructor* the production paths call, and
-    /// nothing observable changes if one of them goes back to `::new` — the
+    /// nothing observable changes if one of them goes back to `::new` - the
     /// app logs in exactly the same, right up until a PDS answers with a
     /// body it chose the size of. `OAuthClient` and `OAuthSession` keep
     /// their fetcher private, so there is no handle to assert on from
@@ -346,7 +346,7 @@ mod tests {
 
         // Split needles: a scan that bans a string is itself a file
         // containing that string, and this one found its own line first
-        // time out. `non_test_source` does not save it — that helper cuts
+        // time out. `non_test_source` does not save it - that helper cuts
         // at `#[cfg(test)]`, and this module is gated
         // `#[cfg(all(test, not(target_arch = "wasm32")))]`, which does not
         // match, so the scan reads its own test module.
@@ -391,14 +391,14 @@ mod tests {
             assert!(
                 capping.iter().any(|seen| seen == file),
                 "the scan did not find a `with_fetch_handler` construction in \
-                 {file} — either that path went back to an uncapped transport \
+                 {file} - either that path went back to an uncapped transport \
                  or this scan has gone blind. Saw: {capping:?}"
             );
         }
         assert!(
             uncapped.is_empty(),
             "{uncapped:?} construct an OAuth client or session with `::new`, \
-             which installs proto-blue's uncapped `ReqwestFetcher` — the body \
+             which installs proto-blue's uncapped `ReqwestFetcher` - the body \
              read there has no ceiling (#1176). Use `with_fetch_handler` with \
              a `CappedFetcher`."
         );

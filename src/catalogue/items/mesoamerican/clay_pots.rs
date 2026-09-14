@@ -1,5 +1,5 @@
-//! Clay pots — a Mesoamerican *poor* prop. A cluster of unglazed terracotta
-//! ollas — a big water jar and a few smaller pots — with a spill of dried
+//! Clay pots - a Mesoamerican *poor* prop. A cluster of unglazed terracotta
+//! ollas - a big water jar and a few smaller pots - with a spill of dried
 //! maize cobs. The everyday clutter of a commoner's yard.
 
 use std::f32::consts::FRAC_PI_2;
@@ -50,7 +50,7 @@ impl CatalogueEntry for ClayPots {
 }
 
 fn build_tree() -> Generator {
-    // Big round-bellied water olla — the root: a fat terracotta belly (the
+    // Big round-bellied water olla - the root: a fat terracotta belly (the
     // amphora-belly sphere) with a narrow neck and a flared rim.
     let mut prims = vec![prim(
         solid(sphere(0.52, 6, painted(CLAY_TERRACOTTA))),

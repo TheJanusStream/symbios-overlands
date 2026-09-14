@@ -1,8 +1,8 @@
-//! Roman peristyle villa — a pedimented temple-front porch carried on a
+//! Roman peristyle villa - a pedimented temple-front porch carried on a
 //! marble colonnade, flanked by lower colonnaded wings under hipped
 //! terracotta roofs, with a rear peristyle garden ringed by a low
 //! portico. Dressed in veined marble, coursed sandstone ashlar and
-//! terracotta tile — the affluent residence of the AncientClassical kit.
+//! terracotta tile - the affluent residence of the AncientClassical kit.
 //!
 //! Was the hard-coded default Shape generator under
 //! `crate::ui::room::widgets` before the catalogue existed; relocated
@@ -48,7 +48,7 @@ impl CatalogueEntry for Villa {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
-    /// An affluent residence — the prosperous end of the kit.
+    /// An affluent residence - the prosperous end of the kit.
     fn prosperity_band(&self) -> ProsperityBand {
         ProsperityBand::only(ProsperityTier::Rich)
     }
@@ -74,7 +74,7 @@ impl CatalogueEntry for Villa {
         house.transform.translation = crate::pds::Fp3([-10.0, 0.0, -8.0]);
         // `attach` (not a bare push): `footing` returns a root whose own
         // transform is sunk by half the buried plinth, and a plain child
-        // inherits it — which drops the whole building below grade (#1039).
+        // inherits it - which drops the whole building below grade (#1039).
         crate::catalogue::items::util::attach(&mut root, house);
         root
     }
@@ -83,13 +83,13 @@ impl CatalogueEntry for Villa {
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
 
-    // Veined white marble — columns, entablature, pediment tympanum.
+    // Veined white marble - columns, entablature, pediment tympanum.
     materials.insert("Marble".to_string(), marble(MARBLE_WHITE));
-    // Coursed sandstone ashlar — dressed stylobate / podium courses.
+    // Coursed sandstone ashlar - dressed stylobate / podium courses.
     materials.insert("Sandstone".to_string(), sandstone(SANDSTONE_GOLD));
-    // Weathered sandstone — the lower garden walls and walks.
+    // Weathered sandstone - the lower garden walls and walks.
     materials.insert("Travertine".to_string(), sandstone(SANDSTONE_WEATHERED));
-    // Fired terracotta — the tile roofs.
+    // Fired terracotta - the tile roofs.
     materials.insert("Tile".to_string(), terracotta(TERRACOTTA));
 
     // Deep shadow filling the intercolumniations behind the colonnade.
@@ -102,7 +102,7 @@ fn build_kind() -> GeneratorKind {
         },
     );
 
-    // Planted court inside the rear peristyle — a Roman hortus.
+    // Planted court inside the rear peristyle - a Roman hortus.
     materials.insert(
         "Garden".to_string(),
         SovereignMaterialSettings {
@@ -128,15 +128,15 @@ fn build_kind() -> GeneratorKind {
         "Lot --> Split(Z) { 9: HouseRange | 7: GardenRange }",
         "HouseRange --> Split(X) { 7: HouseWing | 6: CentralBlock | 7: HouseWing }",
         "CentralBlock --> Split(Z) { 7: FrontPorch | 2: HallLink }",
-        // ── 2. Flanking wings — colonnade walls under a hipped tile roof ──
+        // ── 2. Flanking wings - colonnade walls under a hipped tile roof ──
         "HouseWing --> Extrude(5.5) Split(Y) { 0.5: Stylobate | ~1: Colonnade | 0.6: Entablature | 1.6: HipRoof }",
         "HallLink --> Extrude(5.0) Split(Y) { 0.5: Stylobate | ~1: Colonnade | 0.6: Entablature | 1.2: HipRoof }",
-        // ── 3. Temple front — a taller colonnade carrying a pediment ──
+        // ── 3. Temple front - a taller colonnade carrying a pediment ──
         "FrontPorch --> Extrude(7.0) Split(Y) { 0.5: Stylobate | ~1: Colonnade | 0.6: Architrave | 1.7: Pediment }",
         "Pediment --> Roof(Gable, 32, 0.4) { Slope: TileSlope | GableEnd: PedimentField }",
         "PedimentField --> Mat(\"Marble\") I(\"Tympanum\")",
         "Architrave --> Mat(\"Marble\") I(\"Architrave\")",
-        // ── 4. Shared colonnade facade — entasis piers, shadowed bays ──
+        // ── 4. Shared colonnade facade - entasis piers, shadowed bays ──
         "Colonnade --> Comp(Faces) { Side: ColonnadeFace }",
         "ColonnadeFace --> Repeat(X, 1.6) { ColumnBay }",
         "ColumnBay --> Split(X) { 0.5: Column | ~1: Intercolumniation }",
@@ -149,7 +149,7 @@ fn build_kind() -> GeneratorKind {
         "Entablature --> Mat(\"Marble\") I(\"Entablature\")",
         "HipRoof --> Roof(Hip, 22, 0.4) { Slope: TileSlope | All: TileSlope }",
         "TileSlope --> Mat(\"Tile\") I(\"Tile\")",
-        // ── 6. Rear peristyle garden — low walks around a planted court ──
+        // ── 6. Rear peristyle garden - low walks around a planted court ──
         "GardenRange --> Split(Z) { ~1: CourtBody | 3: RearPortico }",
         "CourtBody --> Split(X) { 3.5: GardenWalk | ~1: GardenCourt | 3.5: GardenWalk }",
         "GardenWalk --> Extrude(3.2) Split(Y) { 0.4: GardenBase | ~1: Colonnade | 0.5: Entablature }",
@@ -216,8 +216,8 @@ mod tests {
         }
     }
 
-    /// Walks every grammar line through the shared harness — the same
-    /// `parse_statement` / `add_statement` path the runtime uses — then
+    /// Walks every grammar line through the shared harness - the same
+    /// `parse_statement` / `add_statement` path the runtime uses - then
     /// derives against the entry's footprint and checks every `Mat("...")`
     /// slot resolves.
     #[test]

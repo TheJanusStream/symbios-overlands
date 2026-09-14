@@ -1,24 +1,24 @@
 //! Travel visibility (#842): the in-flight overlay and the portal
 //! approach prompt.
 //!
-//! Portal travel used to be invisible — [`TravelingTo`] suppressed every
+//! Portal travel used to be invisible - [`TravelingTo`] suppressed every
 //! drive system with zero on-screen sign, and classic portals never said
 //! WHERE they lead while committing travel on mere collider contact.
 //! This module adds the two read-only surfaces:
 //!
-//! * [`travel_overlay_ui`] — a card while a travel is in flight:
+//! * [`travel_overlay_ui`] - a card while a travel is in flight:
 //!   destination name, spinner, elapsed seconds. It covers BOTH halves of
-//!   the journey (#1231 f20) — the record fetch, which a *Cancel travel*
+//!   the journey (#1231 f20) - the record fetch, which a *Cancel travel*
 //!   button can give up on, and the terrain regen plus world compile that
 //!   follow it, behind a veil, because the alternative was watching the
 //!   destination assemble from inside the ground.
-//! * [`portal_prompt_ui`] — a bottom-center line while the player is
+//! * [`portal_prompt_ui`] - a bottom-center line while the player is
 //!   NEAR (not yet touching) an inter-room portal, naming the
 //!   destination before contact commits the travel.
 //!
 //! Destination naming goes through [`travel_label`]: the name the surface
 //! that started the travel already had, else the bsky profile cache, else
-//! the DID's head — all of it spelled by
+//! the DID's head - all of it spelled by
 //! [`PeerLabel`](crate::network::presence::PeerLabel), the app's one
 //! naming ladder.
 
@@ -37,7 +37,7 @@ use crate::world_builder::PortalMarker;
 const PORTAL_PROMPT_RADIUS_M: f32 = 7.0;
 
 /// Opacity of the veil painted over the scene while the destination is
-/// still being built. Not fully opaque on purpose — the world coming up
+/// still being built. Not fully opaque on purpose - the world coming up
 /// underneath is the progress cue the compile itself cannot give.
 const ARRIVAL_VEIL_ALPHA: f32 = 0.88;
 
@@ -77,9 +77,9 @@ pub fn travel_overlay_ui(
     let started = *started_at.get_or_insert(now);
 
     // The veil (#1231 f20). Until the arrival gate existed the player was
-    // released at the landing pose the frame the RECORD landed — `y = 0`
+    // released at the landing pose the frame the RECORD landed - `y = 0`
     // for a gateway hop, frequently below the terrain still standing where
-    // they left — and the destination materialised around them over
+    // they left - and the destination materialised around them over
     // several seconds. Freezing them there without a veil would only trade
     // a moving underground camera for a still one.
     if traveling.phase == TravelPhase::Building {
@@ -115,9 +115,9 @@ pub fn travel_overlay_ui(
                 ));
             });
             match traveling.phase {
-                // A fetch can outlast a minute — `fetch_room_record`
+                // A fetch can outlast a minute - `fetch_room_record`
                 // resolves the DID and then reads the record, each under
-                // its own 30 s bound — and the player sits motionless for
+                // its own 30 s bound - and the player sits motionless for
                 // all of it. #1129 established that a stalled network
                 // operation must be escapable; this was the one that
                 // wasn't, and the target-match guard in
@@ -147,7 +147,7 @@ pub fn travel_overlay_ui(
                 // says for the same work.
                 TravelPhase::Building => {
                     ui.label(
-                        egui::RichText::new("Terrain and props — this can pause for a moment.")
+                        egui::RichText::new("Terrain and props - this can pause for a moment.")
                             .small()
                             .color(crate::ui::theme::current(ui.ctx()).text_weak),
                     );
@@ -161,7 +161,7 @@ pub fn travel_overlay_ui(
 /// Pure, and it exists because the account chip is the ONLY route home
 /// that does not require walking into a gateway collider. The gateway
 /// picker's home row lives inside a window that exists only while the
-/// player overlaps a `GatewayMarker` sensor — and a landmark link can put
+/// player overlaps a `GatewayMarker` sensor - and a landmark link can put
 /// the arrival anywhere, with no map, compass or marker pointing at the
 /// gate. A first-time visitor who could not find their way back had one
 /// exit, and it was Log out.
@@ -196,8 +196,8 @@ pub fn home_travel_blocked(
 /// and `BskyProfileCache` is filled only by peer-driven fetches, so it was
 /// never going to have the answer.
 ///
-/// The lookup is [`crate::pds::resolve_did_handle`] — the bidirectionally
-/// verified one #1227 built, not `getProfile`'s claim — because this is a
+/// The lookup is [`crate::pds::resolve_did_handle`] - the bidirectionally
+/// verified one #1227 built, not `getProfile`'s claim - because this is a
 /// prompt about whether to enter a stranger's world, and a prompt that can
 /// be made to print somebody else's name is worse than one that prints an
 /// identifier.
@@ -214,7 +214,7 @@ pub struct WorldNames {
 
 /// How many worlds one session will name. A room's portals are authored by
 /// its owner and bounded by the record's placement cap, but travel
-/// accumulates rooms — so the map is bounded like the profile cache beside
+/// accumulates rooms - so the map is bounded like the profile cache beside
 /// it, and past the cap every reader falls back to the DID.
 const MAX_WORLD_NAMES: usize = 64;
 
@@ -249,13 +249,13 @@ pub struct ResolvePortalNameTask {
 /// Deliberately NOT part of [`portal_prompt_ui`] or of `toolbar_ui`: a UI
 /// system that spawns network tasks is how a render path acquires a fetch
 /// storm. One lookup per DID per session, and the portal half starts only
-/// for a portal already inside the prompt radius — so a room full of
+/// for a portal already inside the prompt radius - so a room full of
 /// portals costs nothing until somebody walks up to one.
 ///
 /// The **current room** was added by #1276 f46, and it is the answer to
 /// that finding's own refuter. The account chip printed the room's raw
-/// `did:plc:…` at a visitor; the obvious fix — run it through the profile
-/// cache — buys a shorter DID and not a name, because [`BskyProfileCache`]
+/// `did:plc:…` at a visitor; the obvious fix - run it through the profile
+/// cache - buys a shorter DID and not a name, because [`BskyProfileCache`]
 /// is filled by peer-driven fetches only, and the owner of a world you are
 /// visiting is usually not standing in it. This is the same lookup the
 /// portal prompt already trusted for the same question, and it is a
@@ -348,16 +348,16 @@ fn nearest_portal_did(
 /// the unsaved-edits question (#1297 group 3).
 ///
 /// The portal is the app's one PHYSICAL travel trigger: you walk into a
-/// collider. The other four surfaces that start a travel — a gateway row,
+/// collider. The other four surfaces that start a travel - a gateway row,
 /// People *Visit*, the account menu's destination list, and the guard's
-/// own re-ask — are all `ui`, and all raise
+/// own re-ask - are all `ui`, and all raise
 /// [`GuardedAction::PortalTravel`] themselves. The portal used to as
 /// well, which made `player` the only non-`ui` module inserting a `ui`
 /// dialog resource. It publishes the contact instead and this raises the
 /// dialog, so all five raise sites sit on one side of the line.
 ///
 /// The removal and the insert ride ONE command flush, so no frame ever
-/// sees the contact consumed with no guard standing — which matters
+/// sees the contact consumed with no guard standing - which matters
 /// because `handle_portal_interaction` keys its re-entry check on exactly
 /// those two facts.
 ///
@@ -394,15 +394,15 @@ pub fn portal_prompt_ui(
     guard: Option<Res<UnsavedGuard>>,
     profile_cache: Res<BskyProfileCache>,
     names: Res<WorldNames>,
-    // A gateway underfoot outranks a portal nearby (#1261 f35) — see the
+    // A gateway underfoot outranks a portal nearby (#1261 f35) - see the
     // gate below.
     gateway_dismissed: Option<Res<crate::ui::gateway::GatewayDismissed>>,
 ) {
     if traveling.is_some() || guard.is_some() {
         return;
     }
-    // #1261 f35: the gateway re-open chip anchors at exactly this point —
-    // `CENTER_BOTTOM` with a -24 offset — so standing in a gateway zone
+    // #1261 f35: the gateway re-open chip anchors at exactly this point -
+    // `CENTER_BOTTOM` with a -24 offset - so standing in a gateway zone
     // within 7 m of an owner-placed portal drew two opaque cards of
     // different widths through each other. This window is
     // `.interactable(false)`, so nothing was stealing the chip's clicks;
@@ -410,7 +410,7 @@ pub fn portal_prompt_ui(
     //
     // The chip wins because it is about where the player IS STANDING and
     // it is the one with a control on it. The picker, which the chip
-    // replaces, sits at -64 and never collided — that offset is the
+    // replaces, sits at -64 and never collided - that offset is the
     // evidence the stacking was reasoned about for two of the three
     // surfaces and not the third.
     if gateway_dismissed.is_some() {
@@ -439,7 +439,7 @@ pub fn portal_prompt_ui(
         .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -24.0])
         .show(ctx, |ui| {
             ui.label(format!(
-                "Portal to {destination}'s world — keep walking to travel"
+                "Portal to {destination}'s world - keep walking to travel"
             ));
         });
 }
@@ -452,7 +452,7 @@ mod tests {
     /// through a landmark link, which can drop them anywhere, and wants to
     /// go back to their own. The only home affordance in the app was a row
     /// inside a window that exists solely while standing inside the host's
-    /// gate — with no map, compass or marker pointing at it. Their one
+    /// gate - with no map, compass or marker pointing at it. Their one
     /// remaining exit was Log out, which is the action the app itself
     /// guards as destructive.
     #[test]

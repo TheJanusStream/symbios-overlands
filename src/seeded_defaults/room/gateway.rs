@@ -1,4 +1,4 @@
-//! Seeded gateway spot (#747, relocated #774) — where a room's social
+//! Seeded gateway spot (#747, relocated #774) - where a room's social
 //! gateway stands and where its forecourt landing pose lies.
 //!
 //! Every seeded room gets exactly one gateway: it is the room's
@@ -8,13 +8,13 @@
 //! origin→landmark approach: it stands on that axis a short way *in
 //! front of* the settlement landmark (clearing its footprint), facing
 //! the origin, and the default landing sits just in front of the gate
-//! facing back toward the gate and the settlement beyond it. Visitors —
-//! and the owner logging in — arrive at the settlement frontage rather
+//! facing back toward the gate and the settlement beyond it. Visitors -
+//! and the owner logging in - arrive at the settlement frontage rather
 //! than an empty field at the region centre.
 //!
 //! Facing convention: yaw follows the spawn path's
 //! `Quat::from_rotation_y(deg)`, whose forward vector is
-//! `(-sin, 0, -cos)` — so a pose facing world-direction `(dx, dz)` has
+//! `(-sin, 0, -cos)` - so a pose facing world-direction `(dx, dz)` has
 //! `yaw = atan2(-dx, -dz)`. The World Editor's `PlayerPose::from_transform`
 //! (Environment tab) is the empirically-verified inverse.
 
@@ -39,7 +39,7 @@ const MIN_LANDING_DIST: f32 = 6.0;
 pub struct GatewaySpot {
     /// World XZ of the gate structure's origin.
     pub offset: [f32; 2],
-    /// Structure yaw (radians around Y), facing the spawn origin — the
+    /// Structure yaw (radians around Y), facing the spawn origin - the
     /// same convention as the settlement landmark.
     pub yaw_rad: f32,
     /// World XZ of the default landing on the gate's forecourt.
@@ -133,7 +133,7 @@ mod tests {
         assert!(d_g < d_l && d_g >= MIN_GATE_DIST, "gate dist {d_g}");
         assert!(d_a < d_g && d_a >= MIN_LANDING_DIST, "landing dist {d_a}");
         // Gate, landing and landmark are colinear from the origin (same
-        // bearing) — the gatehouse sits squarely on the approach.
+        // bearing) - the gatehouse sits squarely on the approach.
         let cross = spot.offset[0] * landmark[1] - spot.offset[1] * landmark[0];
         assert!(cross.abs() < 1e-2, "gate off the landmark bearing: {cross}");
         assert_landing_faces_gate(&spot, "for_landmark");

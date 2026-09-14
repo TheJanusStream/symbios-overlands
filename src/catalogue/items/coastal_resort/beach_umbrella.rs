@@ -1,4 +1,4 @@
-//! Beach umbrella — a Coastal-Resort prop. A striped canvas parasol on a
+//! Beach umbrella - a Coastal-Resort prop. A striped canvas parasol on a
 //! steel pole planted in a little disc of rippled sand. The beach furniture
 //! that scatters the resort foreshore.
 
@@ -46,7 +46,7 @@ impl CatalogueEntry for BeachUmbrella {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Sand apron disc — the root.
+        // Sand apron disc - the root.
         prim(
             solid(cylinder_tapered(1.6, 0.1, 20, 0.0, sand(SAND_TAN))),
             [0.0, 0.05, 0.0],

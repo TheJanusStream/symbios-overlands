@@ -5,8 +5,8 @@
 //! # Groups, not faces
 //!
 //! Draw calls scale with *materials*, not faces. A cuboid whose six sides all
-//! wear the prim's own material stays exactly one mesh and one entity — the
-//! pre-#959 spawn path, byte for byte — and a cuboid with one painted face
+//! wear the prim's own material stays exactly one mesh and one entity - the
+//! pre-#959 spawn path, byte for byte - and a cuboid with one painted face
 //! becomes two. Two faces that resolve to the same material and the same
 //! projection share a group, so a "front and back are glass, the rest is
 //! concrete" prim costs two draw calls, not six.
@@ -19,8 +19,8 @@
 //!
 //! # Cache keying
 //!
-//! [`FacePlan::signature`] hashes the *structure* of the split — which faces
-//! land in which group, and each group's projection — and deliberately not
+//! [`FacePlan::signature`] hashes the *structure* of the split - which faces
+//! land in which group, and each group's projection - and deliberately not
 //! the materials themselves. Recolouring a face therefore reuses its cached
 //! mesh, while genuinely re-partitioning (two faces becoming one material,
 //! say) mints a new key. A prim with no overrides keeps the plain geometry
@@ -38,7 +38,7 @@ use super::faces::FaceTable;
 /// triangles carry.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GroupPlan {
-    /// `None` — the prim's own `material`; `Some(i)` — the material of the
+    /// `None` - the prim's own `material`; `Some(i)` - the material of the
     /// record's `faces[i]` override.
     pub source: Option<usize>,
     /// Effective projection: the override's `uv_mapping`, or the prim's own
@@ -69,7 +69,7 @@ impl FacePlan {
             .unwrap_or(0)
     }
 
-    /// `true` when the prim renders as one mesh with one material — no
+    /// `true` when the prim renders as one mesh with one material - no
     /// overrides, or overrides that all resolve to the base material and
     /// projection. This is the path that must stay identical to pre-#959.
     pub fn is_whole(&self) -> bool {
@@ -114,7 +114,7 @@ pub fn plan_faces(kind: &GeneratorKind) -> FacePlan {
     for (i, ov) in overrides.iter().enumerate() {
         let mapping = ov.uv_mapping.unwrap_or(base_mapping);
         // An override that lands on the base material *and* the base
-        // projection is a no-op — it must not split the prim into two
+        // projection is a no-op - it must not split the prim into two
         // identical draw calls.
         if &ov.material == base_material && mapping == base_mapping {
             continue;
@@ -152,14 +152,14 @@ pub fn group_material<'a>(
 pub struct GroupMesh {
     pub mesh: Mesh,
     pub faces: FaceTable,
-    /// Index into [`FacePlan::groups`] — how the spawner finds the material.
+    /// Index into [`FacePlan::groups`] - how the spawner finds the material.
     pub group: usize,
 }
 
 /// Build one mesh per material group.
 ///
-/// A group whose faces are all *dormant* — an override addressing a face the
-/// current cut state does not produce — yields no triangles and is dropped,
+/// A group whose faces are all *dormant* - an override addressing a face the
+/// current cut state does not produce - yields no triangles and is dropped,
 /// which is exactly the "the override waits until the face comes back"
 /// behaviour the record model promises.
 pub fn build_primitive_groups(kind: &GeneratorKind, plan: &FacePlan) -> Vec<GroupMesh> {
@@ -222,7 +222,7 @@ pub fn build_primitive_groups(kind: &GeneratorKind, plan: &FacePlan) -> Vec<Grou
 }
 
 /// Copy `tris` (indices into `src`'s triangle list) into a new mesh with a
-/// compacted vertex buffer — only the vertices those triangles reference,
+/// compacted vertex buffer - only the vertices those triangles reference,
 /// renumbered.
 ///
 /// Compaction rather than "same vertices, fewer indices" because a split
@@ -319,7 +319,7 @@ mod tests {
     }
 
     /// An override that repaints a face in the prim's *own* material changes
-    /// nothing — splitting there would buy a second draw call for an
+    /// nothing - splitting there would buy a second draw call for an
     /// identical pixel.
     #[test]
     fn a_no_op_override_does_not_split() {

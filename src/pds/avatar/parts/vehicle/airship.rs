@@ -1,4 +1,4 @@
-//! Styled airship parts — a teardrop envelope, engine pods, and gondola
+//! Styled airship parts - a teardrop envelope, engine pods, and gondola
 //! variants. See the [`super`] module docstring for the mood-group / band
 //! tagging scheme; the shared envelope / gondola / pod primitives live in
 //! [`crate::pds::avatar::parts::defaults::airship`].
@@ -20,7 +20,7 @@ use super::super::{PartCtx, PartDef, PartSlot};
 use super::{AIRSHIP, GRUBBY, HISTORIC, NEON, STEAM};
 
 fn teardrop_envelope(ctx: &PartCtx) -> Generator {
-    // Steampunk teardrop — a single smooth Lathe spindle whose profile is a
+    // Steampunk teardrop - a single smooth Lathe spindle whose profile is a
     // SHARP nose over a FULL rounded tail with the waist biased forward (the
     // classic teardrop), no sphere↔cone junction (#791). Built as a child of a
     // hidden unscaled core (the assembler mounts the gondola / fins to the root,
@@ -45,7 +45,7 @@ fn teardrop_envelope(ctx: &PartCtx) -> Generator {
 }
 
 fn pod_ducted(ctx: &PartCtx) -> Generator {
-    // NEON engine pod: a ducted fan — a short fat nacelle behind a cowl ring
+    // NEON engine pod: a ducted fan - a short fat nacelle behind a cowl ring
     // that shrouds a glowing fan disc, so the tech airships read as fan-driven.
     // Wears the ship's `accent` metal + a normalized glow so it sits in the
     // two-hue scheme (#789) rather than drawing a fresh colour.
@@ -56,7 +56,7 @@ fn pod_ducted(ctx: &PartCtx) -> Generator {
 
     // Short fat nacelle.
     let mut p = pod_nacelle(0.15, 0.36, 14, body);
-    // A fat shroud ring (the duct cowl) proud of the intake — a closed hoop, so
+    // A fat shroud ring (the duct cowl) proud of the intake - a closed hoop, so
     // the pod reads as ducted, not an open airscrew like the default (#790
     // review: it looked identical to the default open-prop).
     p.children.push(prim(
@@ -92,7 +92,7 @@ fn pod_ducted(ctx: &PartCtx) -> Generator {
 
 fn pod_screw(ctx: &PartCtx) -> Generator {
     // STEAM engine pod: a riveted nacelle driving a brass Archimedes screw
-    // (Helix prim, #527) — the steampunk airscrew. The screw + spinner wear the
+    // (Helix prim, #527) - the steampunk airscrew. The screw + spinner wear the
     // registry `stripe` (brass) pop; the boiler bands the `frame` metal.
     let c = airship_colors(ctx);
     let body = ctx.materials.metal(c.accent);
@@ -127,7 +127,7 @@ fn pod_screw(ctx: &PartCtx) -> Generator {
 
 fn gondola_basket(ctx: &PartCtx) -> Generator {
     // Open wicker basket (a balloon-style car): a floor + four low woven walls
-    // around an OPEN top, ringed by a bright rim — the HISTORIC alternative to
+    // around an OPEN top, ringed by a bright rim - the HISTORIC alternative to
     // the enclosed cabin. Built as explicit walls rather than a hollowed
     // superellipsoid, which read as a solid shortened box from the side/front
     // (#790 review); the open-topped box reads unmistakably as a tub. Hidden hub
@@ -195,9 +195,9 @@ fn gondola_basket(ctx: &PartCtx) -> Generator {
 
 fn gondola_cargo(ctx: &PartCtx) -> Generator {
     // Girder cargo frame: an open box frame of girders over a floor plate,
-    // holding a couple of lashed crates — the GRUBBY freight hauler. Built on a
+    // holding a couple of lashed crates - the GRUBBY freight hauler. Built on a
     // hidden hub at the car centre (origin) so the shared dressing seats
-    // correctly — the visible frame hangs off it (the env_core pattern; a
+    // correctly - the visible frame hangs off it (the env_core pattern; a
     // floor-plate root would shift every dressing child down by its offset).
     let c = airship_colors(ctx);
     let girder = ctx.materials.metal(c.frame);

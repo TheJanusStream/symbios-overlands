@@ -1,4 +1,4 @@
-//! Suburban house — a Suburban secondary, and the building the neighbourhood
+//! Suburban house - a Suburban secondary, and the building the neighbourhood
 //! is made of: a two-storey family home in lap siding under a ridged shingle
 //! roof, with an attached gable-end garage, a covered porch, a brick flue and
 //! a car on the drive.
@@ -7,15 +7,15 @@
 //! standing lessons of #972 all land on this one entry:
 //!
 //! 1. **The glazing fills real holes.** The front elevation is assembled from
-//!    the siding that *frames* three bays of openings — four piers, two sill
-//!    walls, three spandrels and a head band — and each opening is filled by a
+//!    the siding that *frames* three bays of openings - four piers, two sill
+//!    walls, three spandrels and a head band - and each opening is filled by a
 //!    [`window_card`] on a flat quad, set back in the reveal, with a dim lit
 //!    fit-out behind it. Before the overhaul the windows were solid glass
 //!    slabs pinned to the outside of a solid body, so the generator's
 //!    alpha-masked panes cut holes onto the siding they were stuck to.
 //! 2. **The tiling materials are laid the way the real thing is.** The siding
 //!    runs as unbroken courses through pier, spandrel and band as if the wall
-//!    were clad in one pass ([`util::bonded_siding`]) — it used to carry the
+//!    were clad in one pass ([`util::bonded_siding`]) - it used to carry the
 //!    generator's hard-coded three-butt-joints-per-tile grid, which turned
 //!    lap siding into coarse masonry, and every slab restarted its own
 //!    courses at its own centre. The chimney's brick lies flat at a real
@@ -27,7 +27,7 @@
 //!
 //! Deliberately silent: the kit's [`fx::birdsong`](super::fx::birdsong) and
 //! sprinkler mist live on the community center and the gateway, which are one
-//! per settlement. This is a *secondary* — a street holds several — so an
+//! per settlement. This is a *secondary* - a street holds several - so an
 //! emitter here would stack into a chorus.
 //!
 //! [`util::bonded_siding`]: crate::catalogue::items::util::bonded_siding
@@ -56,14 +56,14 @@ use super::{
 const W: f32 = 10.0;
 const D: f32 = 8.0;
 const BODY_H: f32 = 6.0;
-/// Plinth height — the floor level, and the datum every storey is measured
+/// Plinth height - the floor level, and the datum every storey is measured
 /// from.
 const BASE_H: f32 = 0.4;
 /// Wall thickness, and so the depth of every window reveal.
 const WALL_T: f32 = 0.3;
 
 /// Outer face of the front wall. The porch, door, windows and porch light all
-/// look down `-Z` — the render tool's and the settlement placer's hero
+/// look down `-Z` - the render tool's and the settlement placer's hero
 /// direction.
 const FRONT: f32 = -D * 0.5;
 /// Centre of a wall slab whose outer face lies on [`FRONT`].
@@ -76,7 +76,7 @@ const GLAZE_Z: f32 = FRONT + WALL_T * 0.72;
 /// would z-fight.
 const TRIM_Z: f32 = FRONT - 0.03;
 
-/// Mid-floor level, above the plinth top — the storey line the band board
+/// Mid-floor level, above the plinth top - the storey line the band board
 /// marks.
 const STOREY: f32 = 2.9;
 /// Wall-plate level: the top of the piers, and where the roof lands.
@@ -84,7 +84,7 @@ const PLATE: f32 = 5.3;
 
 /// Every opening on the hero face is this wide, in three bays.
 const OPEN_W: f32 = 1.4;
-/// Bay centres in X — left, entrance, right.
+/// Bay centres in X - left, entrance, right.
 const BAY_X: [f32; 3] = [-2.6, 0.0, 2.6];
 /// Ground-storey window sill and head, above the plinth top.
 const G_SILL: f32 = 1.3;
@@ -92,7 +92,7 @@ const G_HEAD: f32 = 2.7;
 /// Upper-storey window sill and head.
 const U_SILL: f32 = 3.9;
 const U_HEAD: f32 = 5.3;
-/// Head of the entrance opening — the middle bay runs to the floor.
+/// Head of the entrance opening - the middle bay runs to the floor.
 const DOOR_H: f32 = 2.2;
 
 // --- The garage wing. ------------------------------------------------------
@@ -102,12 +102,12 @@ const DOOR_H: f32 = 2.2;
 const G_W: f32 = 5.1;
 const G_D: f32 = 6.2;
 const G_H: f32 = 3.2;
-/// Garage centre in X — its `-X` face lands 0.1 inside the house wall.
+/// Garage centre in X - its `-X` face lands 0.1 inside the house wall.
 const G_X: f32 = W * 0.5 - 0.1 + G_W * 0.5;
 /// Garage centre in Z. Set back from the house front so the street reads two
 /// masses rather than one flat wall.
 const G_Z: f32 = -0.4;
-/// Garage slab top. Held below the house floor — a real garage floor steps
+/// Garage slab top. Held below the house floor - a real garage floor steps
 /// down, and it keeps the two plinths from sharing a horizontal plane where
 /// they overlap.
 const G_BASE: f32 = 0.34;
@@ -116,7 +116,7 @@ const G_FRONT: f32 = G_Z - G_D * 0.5;
 
 // --- Palette local to this entry. ------------------------------------------
 
-/// Brick length in metres for the flue — a real 215 mm brick.
+/// Brick length in metres for the flue - a real 215 mm brick.
 const BRICK_LEN: f32 = 0.215;
 /// Front door paint. The one saturated colour on the elevation, and the thing
 /// that tells two otherwise-identical houses apart.
@@ -125,12 +125,12 @@ const DOOR_PAINT: [f32; 3] = [0.40, 0.13, 0.12];
 /// [`PORCH_WARM`](super::PORCH_WARM): a small lens at low strength then reads
 /// as a warm *colour* under bloom instead of washing to a white blank.
 const LAMP_AMBER: [f32; 3] = [1.0, 0.58, 0.20];
-/// Window joinery — painted white, as the trim is.
+/// Window joinery - painted white, as the trim is.
 const JOINERY: [f32; 3] = WOOD_WHITE;
 /// Domestic concrete: plinth, drive, steps, chimney cap.
 const SLAB_GREY: [f32; 3] = [0.60, 0.59, 0.57];
 
-/// Lap siding laid in the wall's own frame — see [`util::bonded_siding`].
+/// Lap siding laid in the wall's own frame - see [`util::bonded_siding`].
 /// `face` names the face whose courses this material lines up; with the
 /// stagger off there are no U features left, so every side face agrees on
 /// `V = -y` and no elevation needs a per-face override.
@@ -148,7 +148,7 @@ fn wall(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
     )
 }
 
-/// A proud painted board — sill, band, frieze, fascia, door casing. Trim is
+/// A proud painted board - sill, band, frieze, fascia, door casing. Trim is
 /// always oversized against what it laps and always stands off the surface it
 /// laps, so it never shares a plane with its host.
 fn trim(size: [f32; 3], center: [f32; 3]) -> Generator {
@@ -163,7 +163,7 @@ fn trim(size: [f32; 3], center: [f32; 3]) -> Generator {
 ///
 /// The coplanar rule, applied to a card: sized to the opening *exactly*, each
 /// edge of the quad lands on the reveal's own plane, and a flush edge is a tie
-/// the rasteriser has to break — the failure mode is a hairline of whatever
+/// the rasteriser has to break - the failure mode is a hairline of whatever
 /// stands behind, running down the reveal. Lapping costs nothing to hide,
 /// because the frame is opaque and the pier's outer face is nearer the camera
 /// than the recessed card, so the overhang is never seen.
@@ -185,7 +185,7 @@ fn glazing(size: [f32; 2], center: [f32; 3]) -> Generator {
 ///
 /// Depth discipline again, from the other direction: the bedroom lining is
 /// seven metres back, so from the pavement the camera looks *up* through the
-/// opening and the top panes frame the dim ceiling — the black-rectangle
+/// opening and the top panes frame the dim ceiling - the black-rectangle
 /// failure the card idiom is meant to avoid, arrived at by way of a room that
 /// is simply too deep. A pale blind held a third of a metre behind the glass
 /// gives every pane something warm to show, which is also what a house looks
@@ -236,7 +236,7 @@ impl CatalogueEntry for SuburbanHouse {
 }
 
 /// The house as a tree that stands the way the house does (#970): the plinth
-/// at the bottom, and above it three sub-assemblies that each move as one —
+/// at the bottom, and above it three sub-assemblies that each move as one -
 /// the shell (with the roof on its wall plate and the flue on the roof), the
 /// garage wing (with its drive and the car on it), and the porch.
 ///
@@ -275,7 +275,7 @@ fn build_tree() -> Generator {
 
 /// Ground floor deck, and under it everything the house is: the walls that
 /// frame the openings, the glazing that fills them, the fit-out behind the
-/// glass, the upper storey, and — on the wall plate — the roof.
+/// glass, the upper storey, and - on the wall plate - the roof.
 ///
 /// The deck is the sub-root because it is the lowest piece of the shell and
 /// everything else in the shell stands on or above it.
@@ -353,10 +353,10 @@ fn shell() -> Generator {
     nest(deck, parts)
 }
 
-/// The hero face, built as the siding that *frames* three bays of openings —
+/// The hero face, built as the siding that *frames* three bays of openings -
 /// four piers, two sill walls under the ground windows, three spandrels
 /// between the storeys, and the head band that carries the wall up to the
-/// plate — plus the glazing and the front door filling what is left.
+/// plate - plus the glazing and the front door filling what is left.
 ///
 /// Every piece is coplanar with every other at [`FRONT_MID`] and shares one
 /// course frame, so the courses run through pier, sill and spandrel as if the
@@ -394,7 +394,7 @@ fn front_elevation(parts: &mut Vec<Generator>) {
         ));
     }
 
-    // Spandrels between the storeys — the entrance bay's reaches lower, down
+    // Spandrels between the storeys - the entrance bay's reaches lower, down
     // to the door head.
     for (x, low) in [(BAY_X[0], G_HEAD), (BAY_X[1], DOOR_H), (BAY_X[2], G_HEAD)] {
         parts.push(wall(
@@ -459,8 +459,8 @@ fn front_door(parts: &mut Vec<Generator>) {
     ));
 }
 
-/// Horizontal articulation. The two rings — the storey band at the floor line
-/// and the frieze under the eaves — wrap all four elevations as single prims,
+/// Horizontal articulation. The two rings - the storey band at the floor line
+/// and the frieze under the eaves - wrap all four elevations as single prims,
 /// which reads better than four boards per side and costs less; the sills are
 /// local to the bays they serve.
 fn front_trim(parts: &mut Vec<Generator>) {
@@ -488,7 +488,7 @@ fn front_trim(parts: &mut Vec<Generator>) {
 ///
 /// Depth discipline matters more than quantity. Goods against the back wall of
 /// an 8 m room sit six metres behind the glass and shrink to unreadable
-/// specks, so the furniture is parked two metres in — close enough that a pane
+/// specks, so the furniture is parked two metres in - close enough that a pane
 /// frames a recognisable object.
 fn ground_fitout(parts: &mut Vec<Generator>, inner_w: f32, inner_d: f32) {
     parts.push(prim(
@@ -597,7 +597,7 @@ fn upper_storey(inner_w: f32, inner_d: f32) -> Generator {
     )
 }
 
-/// The head band closing the wall above the upper windows — and, standing on
+/// The head band closing the wall above the upper windows - and, standing on
 /// it, the roof. Literally the wall plate: the piece the roof lands on, which
 /// is why the roof is its child.
 fn wall_plate() -> Generator {
@@ -633,7 +633,7 @@ fn roof() -> Generator {
         deck,
         vec![
             // Fascia board under the eave, proud of the roof's base outline
-            // and hanging below it — the shadow line that stops the roof
+            // and hanging below it - the shadow line that stops the roof
             // reading as a lid dropped on a box.
             trim([W + 1.5, 0.2, D + 1.5], [0.0, base_y - 0.04, 0.0]),
             flue(base_y + h),
@@ -644,7 +644,7 @@ fn roof() -> Generator {
 /// Brick flue, cap and pot, rising from the roof slope near the ridge.
 ///
 /// It starts inside the roof mass and clears the ridge by better than half a
-/// metre. The version this replaces topped out at 7.9 against a ridge at 9.0 —
+/// metre. The version this replaces topped out at 7.9 against a ridge at 9.0 -
 /// buried in its own roof, with a nub poking through where the taper let it.
 fn flue(ridge_y: f32) -> Generator {
     let top = ridge_y + 0.85;
@@ -705,7 +705,7 @@ fn garage_wing() -> Generator {
 ///
 /// The roof's ridge runs along **Z**, so the wing presents a gable to the
 /// street and the elevation reads as two masses meeting rather than one long
-/// wall — the flat-topped frustum it replaces read as neither.
+/// wall - the flat-topped frustum it replaces read as neither.
 fn garage() -> Generator {
     let top = G_BASE + G_H;
     let body = wall(
@@ -793,7 +793,7 @@ fn drive() -> Generator {
 /// Two steps up to a covered entrance: square posts on the upper step, a head
 /// beam across them, and a pitched roof dying into the wall above the door.
 ///
-/// The lower step is the sub-root — the piece on the ground — so a drag on the
+/// The lower step is the sub-root - the piece on the ground - so a drag on the
 /// porch takes the whole thing. The roof slab is tilted, and it is a leaf:
 /// a tilted node spins everything under it, which is the point on a roof and a
 /// bug on anything that carries.
@@ -859,7 +859,7 @@ mod tests {
     }
 
     /// Walk the tree, summing translations, and hand every node to `f` with
-    /// its world position — which is what the record spawns, since a child's
+    /// its world position - which is what the record spawns, since a child's
     /// transform is relative to its parent's.
     fn walk(g: &Generator, at: [f32; 3], f: &mut impl FnMut(&Generator, [f32; 3])) {
         let t = g.transform.translation.0;
@@ -891,7 +891,7 @@ mod tests {
                     "Window cards upload clamp-to-edge; uv_scale must stay 1.0"
                 );
                 // And every card oversails its opening, so no edge of it ever
-                // lands on the reveal's own plane — the coplanar rule applied
+                // lands on the reveal's own plane - the coplanar rule applied
                 // to a quad, see [`GLAZE_LAP`].
                 assert!(
                     size.0[0] > OPEN_W && size.0[1] > OPEN_W,
@@ -937,7 +937,7 @@ mod tests {
         });
         assert!(
             near >= 3,
-            "only {near} lit pieces sit within 2.5 m of the glazing — the \
+            "only {near} lit pieces sit within 2.5 m of the glazing - the \
              openings will read as black rectangles"
         );
     }
@@ -965,7 +965,7 @@ mod tests {
     /// without an offset the fourteen slabs of this shell each restart their
     /// courses at their own centre and every joint reads as a break in the
     /// siding. The offset that puts a face in the shared world frame is that
-    /// face's own projection of the slab's position — subtle enough in a
+    /// face's own projection of the slab's position - subtle enough in a
     /// render that only this catches it.
     #[test]
     fn every_siding_surface_sits_in_the_world_course_frame() {
@@ -1001,7 +1001,7 @@ mod tests {
     /// `PlankConfig::stagger` above 0.01 switches on a hard-coded grid of
     /// three butt joints per tile across U. At this tile that is a 557 mm
     /// joint every third of a metre, and the wall stops reading as board and
-    /// starts reading as coarse masonry — which is exactly how this house
+    /// starts reading as coarse masonry - which is exactly how this house
     /// rendered before. Pinned here because the config makes it look like a
     /// harmless de-correlation knob.
     #[test]
@@ -1012,7 +1012,7 @@ mod tests {
             };
             assert_eq!(
                 cfg.stagger.0, 0.0,
-                "siding slab at {pos:?} carries end joints — three per tile, \
+                "siding slab at {pos:?} carries end joints - three per tile, \
                  hard-coded, which reads as brick not board"
             );
             // The band grid only tiles in V if the course count is whole.
@@ -1094,7 +1094,7 @@ mod tests {
     }
 
     /// LESSON 3's other half: the refactor was structure-only. Pin the world
-    /// positions the nesting has to reproduce — a rebase that drops a parent's
+    /// positions the nesting has to reproduce - a rebase that drops a parent's
     /// translation moves a whole sub-assembly, and the tree still looks
     /// perfectly well-formed afterwards.
     #[test]
@@ -1107,7 +1107,7 @@ mod tests {
                     && (p[2] - q[2]).abs() < 1e-4
             };
             // The wall plate, the roof deck above it, and the flue cap on top
-            // of that — three levels of nesting, one per rebase.
+            // of that - three levels of nesting, one per rebase.
             for want in [
                 [0.0, BASE_H + PLATE + (BODY_H - PLATE) * 0.5, FRONT_MID],
                 [0.0, BASE_H + BODY_H - 0.06 + 1.2, 0.0],

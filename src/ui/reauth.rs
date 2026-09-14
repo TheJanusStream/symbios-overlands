@@ -1,7 +1,7 @@
 //! Signing in again without losing the world you just built (#1214 f397).
 //!
-//! When the OAuth refresh token dies mid-session — revoked, rotated, or
-//! simply old enough — every authenticated write fails identically and for
+//! When the OAuth refresh token dies mid-session - revoked, rotated, or
+//! simply old enough - every authenticated write fails identically and for
 //! good. Before this module the owner's only two doors were a Save that
 //! could never succeed and a "Discard & log out" that threw the session's
 //! edits away, because the Live records are memory-only and nothing
@@ -9,7 +9,7 @@
 //! cannot work.
 //!
 //! The third door is here: re-run the same authorization flow `ui::login`
-//! drives, and install its result **in place** — a new `AtprotoSession`,
+//! drives, and install its result **in place** - a new `AtprotoSession`,
 //! `OauthRefreshCtx` and service token, with `AppState` left in `InGame`
 //! and every Live record untouched.
 //!
@@ -17,7 +17,7 @@
 //!
 //! The Live records in memory belong to the DID that was signed in when
 //! they were edited. Installing a *different* account's session over them
-//! would point the next Save at somebody else's repo — the same class of
+//! would point the next Save at somebody else's repo - the same class of
 //! defect the record-integrity tranche exists to prevent, arrived at from a
 //! recovery path. So [`install_reauthenticated_session`] refuses any
 //! completion whose DID does not match, keeps the expired state up, and
@@ -26,8 +26,8 @@
 //! ## What differs on wasm, and why the copy differs with it
 //!
 //! Authorization is a full-page redirect on the web build
-//! (`oauth::wasm::navigate_to`), so the tab — and with it every unsaved
-//! edit — is gone the moment the flow starts. The in-place install is
+//! (`oauth::wasm::navigate_to`), so the tab - and with it every unsaved
+//! edit - is gone the moment the flow starts. The in-place install is
 //! therefore native-only in effect, and the modal says so rather than
 //! offering a recovery it cannot deliver. Persisting the dirty records
 //! across that redirect would fix it and is a larger piece of work than
@@ -50,7 +50,7 @@ use crate::state::{AppState, CurrentRoomDid, PublishFeedback, PublishStatus, Rel
 /// it, so a fresh login never opens under the previous session's banner.
 #[derive(Resource, Debug, Clone)]
 pub struct SessionExpired {
-    /// The DID the expired session held. A re-auth MUST land on this one —
+    /// The DID the expired session held. A re-auth MUST land on this one -
     /// the Live records in memory are its records.
     pub did: String,
     /// That DID's handle, for the copy: "@alice" is what the owner knows.
@@ -58,7 +58,7 @@ pub struct SessionExpired {
     /// `Time::elapsed_secs_f64` when the expiry was first observed.
     pub at_secs: f64,
     /// The owner closed the modal. The state stands (Save is still
-    /// refused, and the account chip still offers the door) — this only
+    /// refused, and the account chip still offers the door) - this only
     /// stops the dialog re-taking the screen on every frame.
     pub dismissed: bool,
     /// Why the last attempt did not settle it, if one did not: chiefly a
@@ -125,7 +125,7 @@ pub fn redirect_cost() -> Option<&'static str> {
     if cfg!(target_arch = "wasm32") {
         Some(
             "Signing in reloads this page, and unsaved edits are lost with it. \
-             Nothing else on this screen can save them either — the session that \
+             Nothing else on this screen can save them either - the session that \
              would have written them is gone.",
         )
     } else {
@@ -207,7 +207,7 @@ pub fn reauth_modal(
         });
     });
 
-    // Esc / backdrop click is "Not now" — the shared modal contract
+    // Esc / backdrop click is "Not now" - the shared modal contract
     // (#1236 f53). While the browser leg is in flight there is no button
     // to be equivalent TO, so the dialog holds; it says "Waiting for your
     // browser…" and that is the state it is describing.
@@ -271,7 +271,7 @@ pub fn reauth_refusal(
 /// Retire a refusal that was about a session which no longer exists.
 ///
 /// `Idle`, never `Success`: no write landed, and the record is still dirty.
-/// A transient failure is left alone — it is still this session's news, and
+/// A transient failure is left alone - it is still this session's news, and
 /// the owner has not seen it acknowledged.
 fn clear_terminal(status: &mut PublishStatus) -> bool {
     if matches!(status, PublishStatus::Failed { terminal: true, .. }) {
@@ -285,7 +285,7 @@ fn clear_terminal(status: &mut PublishStatus) -> bool {
 ///
 /// Deliberately narrower than `login::complete::install_completed_session`:
 /// it must NOT set `AppState`, insert `CurrentRoomDid`, or re-point
-/// `SymbiosMultiuserConfig` — the last of those is what a portal hop does,
+/// `SymbiosMultiuserConfig` - the last of those is what a portal hop does,
 /// and it would tear the socket down and sweep the room's peers for no
 /// reason. Nor does it insert a fresh `TokenSourceRes`: the live signaller
 /// holds a clone of the one that was threaded into it at connect time, so a
@@ -362,7 +362,7 @@ mod tests {
     /// world in memory, they click "Sign in again", and the browser signs
     /// them in as their OTHER account. Installing that session would leave
     /// @alice's world, body and stash in memory pointed at @bob's repo, and
-    /// the next Save — the very thing they signed in to do — would write
+    /// the next Save - the very thing they signed in to do - would write
     /// them there.
     #[test]
     fn a_re_auth_as_a_different_account_is_refused_by_name() {
@@ -374,7 +374,7 @@ mod tests {
         assert!(refusal.contains("@bob"), "{refusal}");
         assert!(refusal.contains("@alice"), "{refusal}");
 
-        // A handle change on the SAME account is not a different account —
+        // A handle change on the SAME account is not a different account -
         // handles are mutable on atproto and the DID is the identity.
         assert_eq!(
             reauth_refusal(&expected, "did:plc:alice", "alice.example.com"),
@@ -413,7 +413,7 @@ mod tests {
 
     /// THE SEQUENCE: the owner signs back in as the right account. Their
     /// Save button is disabled by a `Failed { terminal: true }` recorded
-    /// against a session that no longer exists — leaving it would sign them
+    /// against a session that no longer exists - leaving it would sign them
     /// in and then keep refusing the save they signed in to make.
     #[test]
     fn a_successful_re_auth_retires_the_refusal_it_was_about() {
@@ -425,7 +425,7 @@ mod tests {
         assert!(clear_terminal(&mut terminal));
         assert!(
             matches!(terminal, PublishStatus::Idle),
-            "Idle, not Success — no write landed and the record is still dirty"
+            "Idle, not Success - no write landed and the record is still dirty"
         );
 
         // A transient failure is this session's news and stays on screen.
@@ -456,8 +456,8 @@ mod tests {
                 did: String::from("did:plc:alice"),
                 handle: String::from("alice"),
                 pds_url: String::from("https://pds.example"),
-                // Never used here — the detector reads only `did` and
-                // `handle` — but `AtprotoSession` owns a live signing
+                // Never used here - the detector reads only `did` and
+                // `handle` - but `AtprotoSession` owns a live signing
                 // session, so the fixture builds a real (unused) one.
                 session: std::sync::Arc::new(proto_blue_oauth::session::OAuthSession::new(
                     proto_blue_oauth::types::TokenSet {

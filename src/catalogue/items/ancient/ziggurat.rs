@@ -1,4 +1,4 @@
-//! Ziggurat — four stepped sandstone tiers with a front stair ramp and
+//! Ziggurat - four stepped sandstone tiers with a front stair ramp and
 //! a glowing shrine at the summit. Reads as a desert temple in arid
 //! regions, a jungle pyramid in lush ones, and an obsidian monument on
 //! volcanic worlds (the landmark deriver only varies scale/yaw/seed,
@@ -128,7 +128,7 @@ fn build_tree() -> Generator {
     // Monumental front staircase climbing the −Z face from the base-front
     // ground line to the summit edge, flanked by two balustrades (alfardas)
     // in the Mesoamerican manner. The slab is laid flush against the stepped
-    // face — its run is the horizontal setback between the base and summit
+    // face - its run is the horizontal setback between the base and summit
     // fronts, so it projects just ahead of each receding tier instead of
     // floating out in front of the whole pyramid.
     let top_front = tiers[3].0 * 0.5; // summit-tier half-footprint

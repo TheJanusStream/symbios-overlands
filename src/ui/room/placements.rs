@@ -1,4 +1,4 @@
-//! Placements tab — persistent master-detail (#825 / W4): a left list
+//! Placements tab - persistent master-detail (#825 / W4): a left list
 //! panel with the Add actions ABOVE it, and a right detail panel for the
 //! selected `Absolute`, `Scatter`, or `Grid` placement, plus the
 //! `ScatterBounds` and `BiomeFilter` sub-widgets. Same split-panel
@@ -7,7 +7,7 @@
 //!
 //! New placements spawn AT THE PLAYER'S POSITION (snap-to-terrain on, so
 //! they land on the ground where the owner is standing) instead of at
-//! the world origin — an origin add 500 m away read as "the button is
+//! the world origin - an origin add 500 m away read as "the button is
 //! broken".
 
 use bevy_egui::egui;
@@ -51,7 +51,7 @@ fn placement_label(index: usize, placement: &Placement) -> String {
 ///
 /// A seeded settlement hands the owner several hundred machine-authored
 /// rows on arrival, interleaved with their own, in raw record order with
-/// no filter, no sort and no grouping — and the single control that looked
+/// no filter, no sort and no grouping - and the single control that looked
 /// like a filter (`draw_biome_filter`) edits a RECORD field on the
 /// selected scatter, filtering terrain layers at compile time rather than
 /// the list.
@@ -82,8 +82,8 @@ pub(super) fn visible_rows(
         .iter()
         .enumerate()
         .filter(|(i, p)| {
-            // Filter on the row's OWN text — which already embeds the
-            // generator name — so "where are this asset's placements" is
+            // Filter on the row's OWN text - which already embeds the
+            // generator name - so "where are this asset's placements" is
             // answered for free.
             needle.is_empty() || placement_label(*i, p).to_lowercase().contains(&needle)
         })
@@ -204,7 +204,7 @@ pub(super) fn remove_placements(placements: &mut Vec<Placement>, mut rows: Vec<u
     }
 }
 
-/// The player's ground position as an anchor for a fresh placement —
+/// The player's ground position as an anchor for a fresh placement -
 /// `[x, z]` when the pose is known, world origin otherwise.
 pub(super) fn anchor_xz(player_pose: Option<PlayerPose>) -> [f32; 2] {
     player_pose.map(|p| [p.x, p.z]).unwrap_or([0.0, 0.0])
@@ -265,7 +265,7 @@ fn new_grid_placement(target: String, anchor: [f32; 2]) -> Placement {
     }
 }
 
-// Rows the placement list was asked to DRAW on this thread — the
+// Rows the placement list was asked to DRAW on this thread - the
 // instrument for #1270 f420. The fix is about a count, not a duration,
 // and this repo has no way to assert on a frame time.
 //
@@ -297,7 +297,7 @@ pub(super) fn draw_placements_tab(
     let mut all_names: Vec<String> = record.generators.keys().cloned().collect();
     all_names.sort();
     // Targets valid for Scatter/Grid: any root generator that is neither
-    // a Terrain (unique by design — duplicating it would spawn
+    // a Terrain (unique by design - duplicating it would spawn
     // conflicting heightfield colliders) nor a Water (water is
     // child-only, so it can never legally be a root). Absolute is
     // unrestricted.
@@ -325,7 +325,7 @@ pub(super) fn draw_placements_tab(
         .min_size(180.0)
         .show(ui, |ui| {
             // Add actions ABOVE the list (#825). Every add stands down at
-            // the placement cap with the reason (#1210) — the 1025th used
+            // the placement cap with the reason (#1210) - the 1025th used
             // to be pushed, selected, and truncated by the next flush.
             let anchor = anchor_xz(player_pose);
             let cap = crate::ui::room::caps::Cap::Placements;
@@ -340,11 +340,11 @@ pub(super) fn draw_placements_tab(
             ui.horizontal(|ui| {
                 // Refused with no region asset to point at (#1239 f71).
                 // The cap gate was already here; what was missing is the
-                // one its two SIBLINGS have always had — `+ Scatter` and
+                // one its two SIBLINGS have always had - `+ Scatter` and
                 // `+ Grid` refuse an ineligible target for exactly this
                 // reason. Unconditionally enabled, `+ Absolute` took
-                // `all_names.first().unwrap_or_default()` — the EMPTY
-                // string — and minted a row reading "#0 Absolute › " that
+                // `all_names.first().unwrap_or_default()` - the EMPTY
+                // string - and minted a row reading "#0 Absolute › " that
                 // spawns nothing, survives `sanitize` (only Scatter/Grid
                 // with ineligible targets are dropped), and is published;
                 // its Generator dropdown is empty, so it cannot be
@@ -352,7 +352,7 @@ pub(super) fn draw_placements_tab(
                 let absolute_refusal = if full {
                     full_reason.as_str()
                 } else {
-                    "Add an item first — a placement has to point at one"
+                    "Add an item first - a placement has to point at one"
                 };
                 if ui
                     .add_enabled(
@@ -371,7 +371,7 @@ pub(super) fn draw_placements_tab(
                     *selected = Some(record.placements.len() - 1);
                     *dirty = true;
                 }
-                // Scatter and Grid require an eligible target — disable the
+                // Scatter and Grid require an eligible target - disable the
                 // buttons when every generator in the record is a Terrain or
                 // Water root, so the user can't seed an immediately-invalid
                 // placement that the sanitiser would just drop on next save.
@@ -449,7 +449,7 @@ pub(super) fn draw_placements_tab(
             }
 
             // Bulk actions (#1244 f415). Rendered only with more than one
-            // row selected — a single selection has its own per-row
+            // row selected - a single selection has its own per-row
             // controls and the detail panel beside it.
             let mut selection = selected_rows(*selected, list.extra);
             let mut retarget: Option<String> = None;
@@ -500,7 +500,7 @@ pub(super) fn draw_placements_tab(
                 scroll.show(ui, |ui| {
                     ui.label(
                         egui::RichText::new(if record.placements.is_empty() {
-                            "(no placements — click + Absolute above)"
+                            "(no placements - click + Absolute above)"
                         } else {
                             "(no rows match the filter)"
                         })
@@ -514,7 +514,7 @@ pub(super) fn draw_placements_tab(
                 // `format!`s, ~2048 widget layouts and 2048 text galleys
                 // per frame to show the twenty rows that fit. #1244 gave
                 // this list a filter and a sort, which is how to find a
-                // row — not a reason to lay out the ones nobody can see.
+                // row - not a reason to lay out the ones nobody can see.
                 //
                 // Every row is one `ui.horizontal` of a `selectable_label`
                 // and a `remove_button`, so the height is uniform and
@@ -589,7 +589,7 @@ pub(super) fn draw_placements_tab(
                     placement_label(idx, &record.placements[idx])
                 ));
                 record.placements.remove(idx);
-                // Indices above the removal shifted down — keep the same
+                // Indices above the removal shifted down - keep the same
                 // ROW selected where possible, clear if it was the one
                 // removed.
                 *selected = match *selected {
@@ -616,7 +616,7 @@ pub(super) fn draw_placements_tab(
                 let Some(idx) = *selected else {
                     ui.label(
                         egui::RichText::new(
-                            "Select a placement on the left — or click an object in \
+                            "Select a placement on the left - or click an object in \
                              the world.",
                         )
                         .small()
@@ -665,10 +665,10 @@ fn draw_placement_detail(
                 // terrain(x, z) + authored Y; unsnapped world Y =
                 // authored Y.
                 if *snap_to_terrain {
-                    // ON: drop onto the surface — zero the offset (#701).
+                    // ON: drop onto the surface - zero the offset (#701).
                     transform.translation.0[1] = 0.0;
                 } else if let Some(hm) = heightmap {
-                    // OFF: stay in place — bake the ground height into the
+                    // OFF: stay in place - bake the ground height into the
                     // now-absolute Y (#700). Read through the shared
                     // resolver so the object does not move when the flag
                     // flips: a seeded structure is rendered at its
@@ -704,7 +704,7 @@ fn draw_placement_detail(
                     if ui
                         .add(crate::ui::num::drag(&mut avoid_water_clearance.0).range(0.0..=100.0))
                         .on_hover_text(
-                            "Dry-land radius the walk must clear — roughly the \
+                            "Dry-land radius the walk must clear - roughly the \
                              structure's footprint radius. 0 checks the centre only.",
                         )
                         .changed()
@@ -748,7 +748,7 @@ fn draw_placement_detail(
                 .checkbox(float_on_water, "Float on water")
                 .on_hover_text(
                     "Spawn instances at the water surface instead of on the \
-                     terrain under it — floating cover like lily pads. \
+                     terrain under it - floating cover like lily pads. \
                      Instances on dry ground keep their terrain height.",
                 )
                 .changed()
@@ -855,7 +855,7 @@ fn draw_placement_detail(
         Placement::Unknown => {
             ui.colored_label(
                 crate::ui::theme::current(ui.ctx()).status.warn,
-                "Unknown placement type — editable only via Raw JSON.",
+                "Unknown placement type - editable only via Raw JSON.",
             );
         }
     }
@@ -865,13 +865,13 @@ fn draw_placement_detail(
 /// heightmap to snap against (#1238 f60).
 ///
 /// Both snap rebases depend on `FinishedHeightMap`, and the resource is
-/// REMOVED for the whole duration of a terrain regeneration — i.e. exactly
+/// REMOVED for the whole duration of a terrain regeneration - i.e. exactly
 /// after any terrain edit, which is the most likely moment to be
 /// re-seating placements. Without it, un-snapping an `Absolute` left the
 /// authored offset (usually 0) as an absolute world Y and the object
 /// dropped to sea level, while `Grid` left its anchor Y stale in the other
 /// direction; `*dirty` fired either way, so the wrong pose was committed
-/// and broadcast. The checkbox's own hover text promised the opposite —
+/// and broadcast. The checkbox's own hover text promised the opposite -
 /// "turning it OFF keeps it where it is".
 ///
 /// Returns true on the frame the value changed, so the callers keep their
@@ -890,7 +890,7 @@ fn snap_toggle(
         )
         .on_hover_text(hover)
         .on_disabled_hover_text(
-            "Waiting for the terrain rebuild — snapping needs a heightmap, and \
+            "Waiting for the terrain rebuild - snapping needs a heightmap, and \
              toggling without one would move this object.",
         );
     if response.changed() {
@@ -907,7 +907,7 @@ fn draw_scatter_bounds(ui: &mut egui::Ui, bounds: &mut ScatterBounds, dirty: &mu
     // A shape change is not a move (#1238 f64). Both arms used to build
     // the new bounds with a hard-coded `center: [0, 0]`, so squaring off a
     // scatter placed 400 m from spawn teleported the whole stand to the
-    // world origin — and the coordinates it had were gone from the UI, so
+    // world origin - and the coordinates it had were gone from the UI, so
     // recovery meant noticing and undoing. Radius↔extents carries too: a
     // circle's radius becomes the rect's half-extents and back, so the
     // patch keeps roughly the ground it covered.
@@ -969,7 +969,7 @@ fn draw_scatter_bounds(ui: &mut egui::Ui, bounds: &mut ScatterBounds, dirty: &mu
     }
 }
 
-/// Numeric X/Z entry for a scatter bounds centre (#825) — precise
+/// Numeric X/Z entry for a scatter bounds centre (#825) - precise
 /// placement no longer needs the gizmo, which stays available as the
 /// coarse channel.
 fn scatter_center_row(ui: &mut egui::Ui, center: &mut Fp2, dirty: &mut bool) {
@@ -978,7 +978,7 @@ fn scatter_center_row(ui: &mut egui::Ui, center: &mut Fp2, dirty: &mut bool) {
         for v in center.0.iter_mut() {
             if ui
                 .add(crate::ui::num::drag(v).speed(1.0))
-                .on_hover_text("Type exact coordinates — or drag the gizmo in the scene")
+                .on_hover_text("Type exact coordinates - or drag the gizmo in the scene")
                 .changed()
             {
                 *dirty = true;
@@ -988,7 +988,7 @@ fn scatter_center_row(ui: &mut egui::Ui, center: &mut Fp2, dirty: &mut bool) {
 }
 
 fn draw_biome_filter(ui: &mut egui::Ui, filter: &mut BiomeFilter, dirty: &mut bool) {
-    ui.label("Biome filter (allowed layers — none checked = any)");
+    ui.label("Biome filter (allowed layers - none checked = any)");
     let labels = ["Grass", "Dirt", "Rock", "Snow"];
     ui.horizontal(|ui| {
         for (i, label) in labels.iter().enumerate() {
@@ -1023,7 +1023,7 @@ fn draw_biome_filter(ui: &mut egui::Ui, filter: &mut BiomeFilter, dirty: &mut bo
     });
 }
 
-/// Placement-naturalness section (#912) — the dials that turn a uniform
+/// Placement-naturalness section (#912) - the dials that turn a uniform
 /// sprinkle into something that reads as grown.
 ///
 /// Every one of these is safe to drag mid-session: none of them consumes a
@@ -1036,7 +1036,7 @@ fn draw_naturalness(ui: &mut egui::Ui, n: &mut ScatterNaturalness, dirty: &mut b
     ui.label("Naturalness");
 
     // `fp_slider` hands back no response, so these spell the slider out to
-    // hang a hover text off it — the knobs are not self-explanatory from
+    // hang a hover text off it - the knobs are not self-explanatory from
     // their labels alone.
     let mut slider = |label: &str, value: &mut Fp, hi: f32, hint: &str| {
         let mut v = value.0;
@@ -1106,7 +1106,7 @@ fn draw_naturalness(ui: &mut egui::Ui, n: &mut ScatterNaturalness, dirty: &mut b
     };
     band(
         "Limit by height above water",
-        "Reject samples outside this band above the world's water line — the \
+        "Reject samples outside this band above the world's water line - the \
          moisture proxy. [0, 4] is a riparian shoreline band. Needs a Water \
          item; without one the scatter places nothing.",
         &mut n.above_water_band,
@@ -1115,7 +1115,7 @@ fn draw_naturalness(ui: &mut egui::Ui, n: &mut ScatterNaturalness, dirty: &mut b
     );
     band(
         "Limit by altitude",
-        "Reject samples outside this world-Y band — a treeline, or an alpine \
+        "Reject samples outside this world-Y band - a treeline, or an alpine \
          floor. Absolute metres, so it depends on the terrain's height scale.",
         &mut n.altitude_band,
         [0.0, 100.0],
@@ -1127,7 +1127,7 @@ fn draw_naturalness(ui: &mut egui::Ui, n: &mut ScatterNaturalness, dirty: &mut b
         .checkbox(&mut limited, "Limit by slope")
         .on_hover_text(
             "Reject samples on ground steeper than the limit. Needs a \
-             heightmap — a scatter with this on places nothing without one.",
+             heightmap - a scatter with this on places nothing without one.",
         )
         .changed()
     {
@@ -1209,14 +1209,14 @@ mod tests {
 
     /// #1238 f64. Sequence: place a scatter around a clearing 400 m from
     /// spawn, then switch its bounds from Circle to Rect to square it off
-    /// — the whole stand teleports to the world origin, and the
+    /// - the whole stand teleports to the world origin, and the
     /// coordinates it had are gone from the UI. Both arms built the new
     /// bounds with a hard-coded `center: [0, 0]`, three lines from
     /// `new_scatter_placement`, which uses the very same centre-binding
     /// pattern to preserve one.
     ///
-    /// Exercises the pure half of the swap — the same expression the radio
-    /// arms read — rather than driving egui radio buttons.
+    /// Exercises the pure half of the swap - the same expression the radio
+    /// arms read - rather than driving egui radio buttons.
     #[test]
     fn a_bounds_shape_change_keeps_the_patch_where_it_is() {
         fn carry(bounds: &ScatterBounds) -> (Fp2, Fp2) {
@@ -1253,7 +1253,7 @@ mod tests {
     /// #1244 f414. Sequence: a seeded settlement hands the owner several
     /// hundred machine-authored placements on arrival, interleaved with
     /// their own, in raw record order with no filter, no sort and no
-    /// grouping — and the only control that looked like a filter
+    /// grouping - and the only control that looked like a filter
     /// (`draw_biome_filter`) edits a RECORD field on the selected scatter.
     /// The filter runs over the row's own label, which already embeds the
     /// generator name, so "where are this asset's placements" is answered
@@ -1278,7 +1278,7 @@ mod tests {
             vec![0, 2]
         );
         assert!(visible_rows(&placements, "nothing", PlacementSort::Order).is_empty());
-        // Grouped by target — the question the finding leads with.
+        // Grouped by target - the question the finding leads with.
         assert_eq!(
             visible_rows(&placements, "", PlacementSort::Generator),
             vec![3, 1, 0, 2]
@@ -1299,7 +1299,7 @@ mod tests {
     /// The body was a plain `ScrollArea::vertical().show(..)` whose closure
     /// walked the entire `rows` vector. Each iteration built a fresh
     /// `String` through `placement_label`, then laid out a `ui.horizontal`
-    /// holding a `selectable_label` and a `remove_button` — two widgets,
+    /// holding a `selectable_label` and a `remove_button` - two widgets,
     /// each allocating an egui id and a text galley. At `MAX_PLACEMENTS` =
     /// 1024 that is 1024 string formats and ~2048 galleys per frame to
     /// display roughly twenty rows.
@@ -1378,7 +1378,7 @@ mod tests {
         let ceiling = (VIEWPORT_HEIGHT / 18.0).ceil() as usize + 4;
         assert!(
             drawn > 0,
-            "nothing was drawn at all — a list that shows no rows passes every \
+            "nothing was drawn at all - a list that shows no rows passes every \
              'fewer than 1024' assertion and is a worse bug than the one being fixed"
         );
         assert!(
@@ -1392,7 +1392,7 @@ mod tests {
     /// #1244 f415. Sequence: select forty placements and delete them. The
     /// selection was a single `Option<usize>` and every removal was one
     /// red "−" per row, so a 200-row cleanup was 200 clicks. The ANCHOR
-    /// never moves while a range is extended — otherwise a 40-row
+    /// never moves while a range is extended - otherwise a 40-row
     /// shift-click would re-target the gizmo forty times.
     #[test]
     fn shift_and_ctrl_click_build_a_selection_without_moving_the_anchor() {
@@ -1427,7 +1427,7 @@ mod tests {
         );
     }
 
-    /// The shift-range follows the DISPLAY order, not the record order —
+    /// The shift-range follows the DISPLAY order, not the record order -
     /// or a filtered or re-sorted list would select rows the user cannot
     /// see (#1244 f414 + f415 meeting).
     #[test]
@@ -1440,7 +1440,7 @@ mod tests {
     }
 
     /// #1244 f415. Removing several rows at once must not let an earlier
-    /// removal shift a later index — the classic way a bulk delete takes
+    /// removal shift a later index - the classic way a bulk delete takes
     /// the wrong things with it.
     #[test]
     fn a_bulk_delete_removes_exactly_the_chosen_rows() {
@@ -1455,7 +1455,7 @@ mod tests {
 
     /// #1244 f415. Retargeting after an asset revision is the commonest
     /// large-world edit and had no supported route at all short of the
-    /// Raw JSON tab. `Unknown` is left alone — the editor refuses to write
+    /// Raw JSON tab. `Unknown` is left alone - the editor refuses to write
     /// into a schema it cannot read.
     #[test]
     fn retarget_rewrites_every_known_variant_and_skips_the_unknown() {

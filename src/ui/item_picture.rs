@@ -5,7 +5,7 @@
 //! One body for both, because the rule it carries is the whole point and
 //! must not drift between two copies: draw the picture only when the stage
 //! is SHOWING this pane's item, and hold the same space with a plain tile
-//! otherwise — on the frame an item is picked (the camera has not been
+//! otherwise - on the frame an item is picked (the camera has not been
 //! reframed yet), while the other window holds the stage, or for an item
 //! that is never staged at all.
 
@@ -21,7 +21,7 @@ pub(crate) const CATALOGUE_SIDE: f32 = 180.0;
 /// Smaller than the Catalogue's by owner decision (option A on #1301): the
 /// Inventory is a right-anchored window that must sit beside a 820-wide
 /// World Editor and above People at 1280x720 (the #833 trio), which caps
-/// its slot at 335 points — the World Editor sits at x = 115..935, and the
+/// its slot at 335 points - the World Editor sits at x = 115..935, and the
 /// Inventory's only free spot is beside it. At 335 a 180-point picture
 /// left a 119-point list; at 112 the list keeps the Catalogue's own
 /// [`crate::ui::layout::LIST_MIN_WIDTH`], which
@@ -58,7 +58,7 @@ impl PictureOf<'_> {
 /// The item's picture (#1288): the live off-screen render of whatever
 /// [`crate::item_preview`] currently has on its stage.
 ///
-/// Drawn only when the preview says it is SHOWING this item — which it
+/// Drawn only when the preview says it is SHOWING this item - which it
 /// does not say on the frame the item is picked, because the camera has
 /// not been reframed onto the new geometry yet. Drawing it a frame early
 /// would put the previous item's picture, or the new one seen from the
@@ -81,7 +81,7 @@ pub(crate) fn draw_preview(
         }
         None => {
             // Same square either way so the pane does not reflow between
-            // the frame a selection lands and the frame its picture does —
+            // the frame a selection lands and the frame its picture does -
             // the reason `draw_avatar_icon`'s miss arm allocates too.
             let (rect, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
             if ui.is_rect_visible(rect) {
@@ -98,7 +98,7 @@ mod tests {
     use super::*;
 
     /// #1301. The two panes share one stage, and a slug and a stash name
-    /// are both plain strings — so a catalogue entry named like a stash
+    /// are both plain strings - so a catalogue entry named like a stash
     /// item must not be shown in the Inventory's pane, nor the reverse.
     #[test]
     fn a_pane_shows_only_a_picture_of_its_own_kind_of_item() {

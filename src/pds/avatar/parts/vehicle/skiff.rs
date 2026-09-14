@@ -1,4 +1,4 @@
-//! Styled skiff parts — canopies, exhausts, chassis variants, and wheels (#788).
+//! Styled skiff parts - canopies, exhausts, chassis variants, and wheels (#788).
 //! See the [`super`] module docstring for the mood-group / band tagging scheme;
 //! the shared skiff dims / colours / wheel anchors live in
 //! [`crate::pds::avatar::parts::defaults::skiff`].
@@ -21,7 +21,7 @@ use super::super::{PartCtx, PartDef, PartSlot};
 use super::{COASTAL, GRUBBY, HISTORIC, MARTIAL, NEON, SKIFF, UNIVERSAL, WORN_PLUS};
 
 fn bubble_canopy(ctx: &PartCtx) -> Generator {
-    // A sleek, elongated teardrop cockpit bubble — the sporty alternative to the
+    // A sleek, elongated teardrop cockpit bubble - the sporty alternative to the
     // default boxy cabin greenhouse.
     let mut c = prim(
         sphere(0.3, 4, ctx.materials.glass(ctx.palette.secondary_accent)),
@@ -84,11 +84,11 @@ fn exhaust_tailpipe(ctx: &PartCtx) -> Generator {
 // from the shared [`skiff_dims`] contract, draws its own mudguards via
 // [`push_wheel_fenders`] (so the guards match the assembler's wheels), and
 // wears the value-floored [`skiff_colors`] scheme (#787). The trike collapses
-// its front axle to a single centreline wheel — the assembler keys that off the
+// its front axle to a single centreline wheel - the assembler keys that off the
 // `skiff_chassis_trike` slug.
 
 fn skiff_headlamps(c: &mut Generator, ctx: &PartCtx, xs: &[f32], z: f32) {
-    // A dark bezel ring + bright lens per position — shared 3D-relief lamp.
+    // A dark bezel ring + bright lens per position - shared 3D-relief lamp.
     let bezel = ctx.materials.metal([0.09, 0.09, 0.11]);
     let lamp = ctx.materials.glow([1.0, 0.95, 0.8]);
     for &x in xs {
@@ -107,7 +107,7 @@ fn skiff_headlamps(c: &mut Generator, ctx: &PartCtx, xs: &[f32], z: f32) {
 
 fn chassis_dune(ctx: &PartCtx) -> Generator {
     // A dune buggy: a low exposed pod on an open tube frame with a roll bar and
-    // an exposed rear engine — no full bodywork.
+    // an exposed rear engine - no full bodywork.
     let colors = skiff_colors(ctx);
     let pod = ctx.materials.body(colors.body);
     let frame = ctx.materials.metal(colors.trim);
@@ -218,7 +218,7 @@ fn chassis_trike(ctx: &PartCtx) -> Generator {
 
 fn chassis_armored(ctx: &PartCtx) -> Generator {
     // A plated rover (martial): angular armour panels over a boxy hull, a sloped
-    // glacis, side skirts and a skid plate — faceted where the civilian body is
+    // glacis, side skirts and a skid plate - faceted where the civilian body is
     // rounded.
     let colors = skiff_colors(ctx);
     let body = ctx.materials.body(colors.body);
@@ -419,7 +419,7 @@ pub(super) static CHASSIS_DUNE: PartDef = PartDef {
     slug: "skiff_chassis_dune",
     slot: PartSlot::Chassis,
     chassis: SKIFF,
-    // An open buggy is the workaday / off-road read — grimy industrial /
+    // An open buggy is the workaday / off-road read - grimy industrial /
     // frontier craft plus the agrarian / roadside / suburban beaters GRUBBY now
     // folds in.
     styles: GRUBBY,

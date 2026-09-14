@@ -12,8 +12,8 @@
 //!
 //! This module is now the single home of window geometry:
 //!
-//! * Every toolbar-managed window has a [`Slot`] — a default size plus
-//!   a horizontal [`SlotAnchor`] — and its default position is computed
+//! * Every toolbar-managed window has a [`Slot`] - a default size plus
+//!   a horizontal [`SlotAnchor`] - and its default position is computed
 //!   from the panel-free rect the toolbar publishes as [`PanelFreeRect`]
 //!   (the toolbar system is chained first, so it is current by the time
 //!   any window asks) the first time it opens. Social panels anchor right, diagnostics left, the big
@@ -58,7 +58,7 @@ use std::collections::HashMap;
 /// `max_height`, so the window's measured content comes to
 /// `(available_height - guess) + the footer's real height`. The moment
 /// the footer outgrows the guess by a pixel the content is taller than
-/// the window — and egui's `Resize` responds like this on every frame it
+/// the window - and egui's `Resize` responds like this on every frame it
 /// is not being actively dragged (`egui-0.35.0/src/containers/resize.rs`,
 /// `Resize::begin`):
 ///
@@ -70,7 +70,7 @@ use std::collections::HashMap;
 /// `desired_size` never decreases on its own, so the overshoot is added
 /// to the window *every frame*: `available_height` grows, the scroll area
 /// grows with it, and the window climbs until `constrain_to` clamps it at
-/// the screen edge. That is #1280 — Chat filled the viewport in under a
+/// the screen edge. That is #1280 - Chat filled the viewport in under a
 /// second once #1141 and #1213 had each added a line below its input row.
 ///
 /// # Why it is a bottom panel, after two attempts that were not
@@ -132,7 +132,7 @@ pub fn footer<R>(
 /// The scrollable remainder above a [`footer`], as a normal top-down
 /// `Ui` sized to exactly what the footer left.
 ///
-/// **Do not set `max_height` on a scroll area inside `body`** — that is
+/// **Do not set `max_height` on a scroll area inside `body`** - that is
 /// the guess this pair exists to delete (see [`footer`]).
 pub fn fill_above<R>(ui: &mut egui::Ui, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
     // No separator here: the bottom panel draws the dividing line
@@ -140,9 +140,9 @@ pub fn fill_above<R>(ui: &mut egui::Ui, body: impl FnOnce(&mut egui::Ui) -> R) -
     //
     // The remainder, claimed as a FIXED rect (#1282). `with_layout`
     // advances the parent's cursor by the CHILD's `min_rect`, so a body
-    // that reports more than the space it was handed — a `ScrollArea`
+    // that reports more than the space it was handed - a `ScrollArea`
     // hitting its `min_scrolled_size` floor, a row wider than the
-    // window, anything carrying a minimum of its own — passes that
+    // window, anything carrying a minimum of its own - passes that
     // excess up to `Resize`, which takes the max and never gives it
     // back. Advancing by the rect we MEANT to give makes the fixed
     // point a guarantee instead of something that happens to hold for
@@ -162,15 +162,15 @@ pub fn fill_above<R>(ui: &mut egui::Ui, body: impl FnOnce(&mut egui::Ui) -> R) -
     out
 }
 
-/// A persisted rect, nudged onto the current screen — or `None` when it
+/// A persisted rect, nudged onto the current screen - or `None` when it
 /// cannot be made to fit and the computed layout should run again
 /// (#1261 f45).
 ///
 /// Sliding is enough for the common case (a window parked near the right
 /// edge of a wider display), and it preserves the arrangement the user
 /// made, which is the whole point of persisting it. A rect that is
-/// simply too BIG for this screen cannot be preserved — shrinking it
-/// would invent a size the user never chose — so that one falls through
+/// simply too BIG for this screen cannot be preserved - shrinking it
+/// would invent a size the user never chose - so that one falls through
 /// to `place_in` and re-tidies.
 fn fit_to_screen(
     pos: egui::Pos2,
@@ -194,8 +194,8 @@ const MARGIN: f32 = 10.0;
 /// measured against (`tests::the_inventory_list_keeps_the_catalogue_floor_beside_its_picture`).
 pub(crate) const LIST_MIN_WIDTH: f32 = 180.0;
 
-/// The spacing egui 0.35 gives a `Separator`. Not a style field — it is
-/// hard-coded in `Style::separator_style` (`widget_style.rs`) — so it is
+/// The spacing egui 0.35 gives a `Separator`. Not a style field - it is
+/// hard-coded in `Style::separator_style` (`widget_style.rs`) - so it is
 /// restated here, and the measurement test above is what catches an egui
 /// that changes it.
 const SEPARATOR_SPACING: f32 = 6.0;
@@ -237,7 +237,7 @@ pub(crate) fn beside_pane<R>(
 
 /// Horizontal placement of a [`SlotAnchor::CenterLeft`] window: this
 /// fraction of the leftover width goes to its left. 0.25 reads as
-/// "left of center" — enough room that the right-anchored social
+/// "left of center" - enough room that the right-anchored social
 /// column stays clear on a 1280px window.
 const CENTER_LEFT_FRACTION: f32 = 0.25;
 
@@ -273,12 +273,12 @@ pub enum UiWindow {
 /// slot starts at the top of the available rect (below the toolbar).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SlotAnchor {
-    /// Right edge — the glanceable social column (Chat, People) plus
+    /// Right edge - the glanceable social column (Chat, People) plus
     /// Inventory, which participates in drag-to-gift onto People rows.
     Right,
-    /// Left edge — Diagnostics.
+    /// Left edge - Diagnostics.
     Left,
-    /// Left of center — the big editors, so they neither bury the
+    /// Left of center - the big editors, so they neither bury the
     /// right-anchored column nor pin themselves into the corner.
     CenterLeft,
 }
@@ -309,7 +309,7 @@ impl UiWindow {
 
     /// Default geometry. Sizes carried over from the old constants,
     /// with two trims so the right column stacks inside a 720px-tall
-    /// window (Bevy's default): People 300→280, Inventory 400→340 —
+    /// window (Bevy's default): People 300→280, Inventory 400→340 -
     /// both windows scroll, and top+Inventory+People must fit
     /// 40+340+10+280 ≤ 690 for the #833 acceptance layout.
     ///
@@ -318,7 +318,7 @@ impl UiWindow {
     /// 935; opened first, it leaves the Inventory one free spot, beside it
     /// at 945, and 1280 - 945 = 335. Swept through the trio test's six
     /// orders: clean to 335, red at 336. The width buys the list-and-pane
-    /// split its list — see `ui::item_picture::INVENTORY_SIDE`.
+    /// split its list - see `ui::item_picture::INVENTORY_SIDE`.
     pub fn slot(self) -> Slot {
         use SlotAnchor::*;
         let (anchor, size) = match self {
@@ -328,7 +328,7 @@ impl UiWindow {
             Self::Diagnostics => (Left, [280.0, 480.0]),
             // 760 wide so the embedded generator tree's 260px side
             // panel leaves a usable detail panel (#830). Height is an
-            // estimate for collision math only — the window itself
+            // estimate for collision math only - the window itself
             // auto-heights (its call site applies width only).
             Self::Avatar => (CenterLeft, [760.0, 620.0]),
             Self::WorldEditor => (CenterLeft, [820.0, 620.0]),
@@ -337,13 +337,13 @@ impl UiWindow {
             // The de-anchored Controls sheet (#834): a compact card
             // near the right edge once it stops being center-pinned.
             // The height is the OWNER variant's real content (#1235 f245)
-            // — heading, ~11 grid rows, the emote hint, the portal
+            // - heading, ~11 grid rows, the emote hint, the portal
             // paragraph, the avatar block, then a separator, a heading,
             // 4 editor rows, two notes and "Got it". At 280 the collision
             // math was computed against less than half the window, so the
             // sheet was placed as if it could not overlap anything.
             Self::Controls => (Right, [340.0, 580.0]),
-            // Compact preference card (#857) — same right-edge family
+            // Compact preference card (#857) - same right-edge family
             // as the Controls sheet it usually appears near.
             Self::Settings => (Right, [300.0, 200.0]),
         };
@@ -353,7 +353,7 @@ impl UiWindow {
 
 /// Persisted window rects, keyed by [`UiWindow::key`] as `[x, y, w, h]`.
 /// Written whenever a shown window's rect actually changes (drag,
-/// resize — not every frame, so the #820 save debounce can settle) and
+/// resize - not every frame, so the #820 save debounce can settle) and
 /// saved/restored through [`crate::prefs::PersistedPrefs`]. A persisted
 /// rect beats the computed default; `constrain_to` at the call sites
 /// keeps a rect from a bigger screen on-screen and below the toolbar.
@@ -369,7 +369,7 @@ pub struct WindowLayout {
 /// so the every-frame stamp writes don't re-arm the prefs save
 /// debounce forever.
 /// The viewport minus the top-level panels, published every frame by the
-/// toolbar — the one top-level panel — once it has laid itself out.
+/// toolbar - the one top-level panel - once it has laid itself out.
 ///
 /// egui 0.35 panels carve the `Ui` they are shown into rather than the
 /// `Context`, so `ctx.available_rect()` is gone and the context no longer
@@ -408,12 +408,12 @@ impl WindowChrome<'_> {
     /// Default position + size for `id`: the persisted rect when this
     /// machine has one **that still fits this screen**, otherwise the slot
     /// default staggered around the currently-open windows. Cheap to call
-    /// every frame — egui only consumes `default_pos`/`default_size` on a
+    /// every frame - egui only consumes `default_pos`/`default_size` on a
     /// window's first show.
     ///
     /// The fit check is #1261 f45. A persisted rect used to short-circuit
-    /// unconditionally, which meant the whole #833 staggering machinery —
-    /// and everything its acceptance tests exercise — was dead for every
+    /// unconditionally, which meant the whole #833 staggering machinery -
+    /// and everything its acceptance tests exercise - was dead for every
     /// window after its first appearance on a machine. Undock a laptop
     /// from a 4K monitor and the rects that were tidy at 3840x2160 arrive
     /// off the side of a 1280x720 screen, with "delete prefs.json" as the
@@ -453,8 +453,8 @@ impl WindowChrome<'_> {
     /// Forget every persisted rect, so the next open of each window runs
     /// the computed staggering again (#1261 f45).
     ///
-    /// The #833 guarantee — open World Editor, Inventory and People in
-    /// any order and get zero overlap — held only until each window had
+    /// The #833 guarantee - open World Editor, Inventory and People in
+    /// any order and get zero overlap - held only until each window had
     /// been shown once, because [`remember`](Self::remember) writes a
     /// rect on the very first frame and [`place`](Self::place) returns it
     /// thereafter. From then on a machine inherits whatever geometry its
@@ -462,7 +462,7 @@ impl WindowChrome<'_> {
     /// "delete prefs.json". This is the recovery path.
     ///
     /// Returns whether anything was actually forgotten, so the caller can
-    /// say so — and so a click on an already-tidy layout does not dirty
+    /// say so - and so a click on an already-tidy layout does not dirty
     /// the prefs resource. The live open-set is deliberately untouched:
     /// it is this frame's fact about which windows are up, and clearing
     /// it would make the re-tidy stagger around nothing.
@@ -546,7 +546,7 @@ fn resolve_overlaps(
 
     // No free spot: cascade to the last in-bounds diagonal offset so
     // the overlap is at least a readable stack, not a superimposition.
-    // Step horizontally TOWARD the screen center — a right-anchored
+    // Step horizontally TOWARD the screen center - a right-anchored
     // window cascading further right would leave the screen on step one.
     let dx = if preferred.x > avail.center().x {
         -CASCADE_STEP
@@ -572,7 +572,7 @@ fn resolve_overlaps(
 /// #1280, as a law rather than two fixes: no window may size a scroll
 /// area by subtracting a guessed footer height.
 ///
-/// `available_height() - <anything>` is the signature of the defect —
+/// `available_height() - <anything>` is the signature of the defect -
 /// the number on the right is a prediction of how tall the widgets
 /// BELOW the scroll area will turn out to be, and every one of those
 /// predictions is wrong the day somebody adds a line. Chat's was 44 pt
@@ -614,7 +614,7 @@ mod reserve_scan {
             }
             let source = std::fs::read_to_string(path).expect("UI source is readable");
             for (i, line) in source.lines().enumerate() {
-                // Comments are where the defect gets EXPLAINED — both
+                // Comments are where the defect gets EXPLAINED - both
                 // fixed sites quote the line they used to run.
                 if line.trim_start().starts_with("//") {
                     continue;
@@ -634,7 +634,7 @@ mod reserve_scan {
         offenders.sort();
         assert!(
             offenders.is_empty(),
-            "a guessed footer reserve grows its window without bound (#1280) — \
+            "a guessed footer reserve grows its window without bound (#1280) - \
              measure the footer with `layout::footer` + \
              `layout::fill_above` instead:\n  {}",
             offenders.join("\n  ")
@@ -662,7 +662,7 @@ mod growth {
     /// How tall the window asks to be to begin with.
     const START_HEIGHT: f32 = 200.0;
 
-    /// A footer that is unambiguously taller than `RESERVE` — three
+    /// A footer that is unambiguously taller than `RESERVE` - three
     /// labels, the shape of Chat's note + input row + emote hint.
     fn footer(ui: &mut egui::Ui) {
         ui.label("one");
@@ -704,8 +704,8 @@ mod growth {
 
     /// THE DEFECT, reproduced: reserve a constant for a footer that is
     /// taller than it, claim the rest with `auto_shrink([true, false])`,
-    /// and egui's `Resize` — which only ever takes the MAX of its
-    /// desired size and last frame's content — walks the window to the
+    /// and egui's `Resize` - which only ever takes the MAX of its
+    /// desired size and last frame's content - walks the window to the
     /// bottom of the screen.
     #[test]
     fn the_guessed_reserve_is_what_grows() {
@@ -736,15 +736,15 @@ mod growth {
     ///
     /// The other half of #1280's fix, and the half that took a second
     /// pass. Measuring the footer makes content height equal available
-    /// height *for a well-behaved body* — but a `ScrollArea` at its
+    /// height *for a well-behaved body* - but a `ScrollArea` at its
     /// `min_scrolled_size` floor, a row wider than the window, or any
     /// widget with a minimum of its own reports more than it was handed,
     /// and `with_layout` passed that straight up to `Resize`, which
     /// takes the max and never gives it back. `fill_above` now advances
     /// the parent by the rect it MEANT to give.
     ///
-    /// The body here is deliberately absurd — a rect four times the
-    /// window's height — because the guarantee has to be structural, not
+    /// The body here is deliberately absurd - a rect four times the
+    /// window's height - because the guarantee has to be structural, not
     /// a property of the bodies that happen to be in the app today.
     #[test]
     fn an_oversized_body_cannot_grow_the_window() {
@@ -797,14 +797,14 @@ mod growth {
 mod tests {
     use super::*;
 
-    /// A 1280x720 window with a ~30px toolbar carved off the top — the
+    /// A 1280x720 window with a ~30px toolbar carved off the top - the
     /// Bevy default the #833 acceptance criterion is stated against.
     fn default_avail() -> egui::Rect {
         egui::Rect::from_min_max(egui::pos2(0.0, 30.0), egui::pos2(1280.0, 720.0))
     }
 
     /// Simulate windows opening one at a time, each staggering around
-    /// those already open — exactly what `WindowChrome::place` does
+    /// those already open - exactly what `WindowChrome::place` does
     /// with an empty persisted layout.
     fn open_in_sequence(ids: &[UiWindow], avail: egui::Rect) -> Vec<egui::Rect> {
         let mut open: Vec<egui::Rect> = Vec::new();
@@ -839,7 +839,7 @@ mod tests {
     /// THE SEQUENCE: arrange the windows on a docked 3840x2160 monitor,
     /// undock, open them on the laptop. Before this, `place` returned the
     /// stored rect unconditionally, so they arrived off the side of the
-    /// screen — and `constrain_to` at each call site clamps position but
+    /// screen - and `constrain_to` at each call site clamps position but
     /// never size, so a window sized on the big display kept that size.
     #[test]
     fn a_persisted_rect_that_no_longer_fits_gives_way_to_the_computed_layout() {
@@ -860,7 +860,7 @@ mod tests {
         assert_eq!(size, egui::vec2(400.0, 300.0));
         assert!(avail.contains_rect(egui::Rect::from_min_size(pos, size)));
 
-        // Above the toolbar — the #833 defect, from the other direction.
+        // Above the toolbar - the #833 defect, from the other direction.
         let (pos, _) =
             fit_to_screen(egui::pos2(300.0, 0.0), egui::vec2(400.0, 300.0), avail).expect("kept");
         assert!(pos.y >= avail.top(), "{pos:?} is under the toolbar");
@@ -884,7 +884,7 @@ mod tests {
         let mut layout = WindowLayout::default();
         assert!(layout.rects.is_empty());
         // The same shape `WindowChrome::reset_layout` runs, on the field
-        // it owns — the `SystemParam` itself needs a World to build.
+        // it owns - the `SystemParam` itself needs a World to build.
         let forgot = if layout.rects.is_empty() {
             false
         } else {
@@ -905,7 +905,7 @@ mod tests {
     fn acceptance_trio_never_overlaps_in_any_open_order() {
         // #833 acceptance: on a 1280x720 window, opening World Editor +
         // Inventory + People yields zero overlap and nothing under the
-        // toolbar — in whatever order the user clicks the toggles.
+        // toolbar - in whatever order the user clicks the toggles.
         use UiWindow::{Inventory, People, WorldEditor};
         let orders: [[UiWindow; 3]; 6] = [
             [WorldEditor, Inventory, People],
@@ -926,8 +926,8 @@ mod tests {
     ///
     /// Measured rather than added up, because the sum has three terms egui
     /// owns: `Window::default_size` is the OUTER size, so the frame's
-    /// margin and stroke come off first — and the stroke is a point wider
-    /// in high contrast (#1283) — and the separator's spacing is not a
+    /// margin and stroke come off first - and the stroke is a point wider
+    /// in high contrast (#1283) - and the separator's spacing is not a
     /// style field at all. The arithmetic says 335 - 14 - 22 - 112 = 187;
     /// this says what egui actually lays out.
     #[test]
@@ -1028,9 +1028,9 @@ mod tests {
     /// #1261 f43: the toast stack must not open in the corner the
     /// right-anchored window column owns.
     ///
-    /// The toast area is a real pointer area at `Order::Foreground` —
+    /// The toast area is a real pointer area at `Order::Foreground` -
     /// deliberately, so a click on a toast cannot fall through to the 3D
-    /// scene — which also means it eats clicks on whatever is under it.
+    /// scene - which also means it eats clicks on whatever is under it.
     /// It was anchored `RIGHT_TOP` once, which is where all five of these
     /// windows open, so for the toast's full life it covered their title
     /// bars and swallowed clicks on them (#1261 f43).
@@ -1058,7 +1058,7 @@ mod tests {
             assert_eq!(
                 pos.y,
                 avail.top() + MARGIN,
-                "{id:?} does not open against the top edge any more — recheck the toast band"
+                "{id:?} does not open against the top edge any more - recheck the toast band"
             );
             assert_eq!(pos.x, avail.right() - size.x - MARGIN, "{id:?}");
             leftmost_window_edge = leftmost_window_edge.min(pos.x);
@@ -1071,7 +1071,7 @@ mod tests {
         assert!(
             stack_right < leftmost_window_edge,
             "a centred toast stack reaches {stack_right:.0} and the window column \
-             starts at {leftmost_window_edge:.0} — it would eat their title-bar clicks"
+             starts at {leftmost_window_edge:.0} - it would eat their title-bar clicks"
         );
 
         // And it starts below the toolbar, not under it: the offset is
@@ -1101,7 +1101,7 @@ mod tests {
 
     #[test]
     fn stale_live_rects_are_ignored_for_collision() {
-        // Not a WindowChrome test (that needs a world) — assert the
+        // Not a WindowChrome test (that needs a world) - assert the
         // constant relationship the filter depends on: a rect stamped
         // LIVE_STALE_FRAMES+1 ago must not count.
         let now: u32 = 100;
@@ -1194,8 +1194,8 @@ mod placement {
     /// body gets everything above it.
     ///
     /// This is the guard the first two attempts did not have. Both of
-    /// them measured the footer correctly and the growth tests passed —
-    /// the window's total size was right the whole time — while the
+    /// them measured the footer correctly and the growth tests passed -
+    /// the window's total size was right the whole time - while the
     /// footer was drawn at the TOP of the window over the scrollback,
     /// with the bottom half of the window dead. Total size cannot see
     /// where anything is, so something has to ask.
@@ -1223,7 +1223,7 @@ mod placement {
         );
 
         // And between them they account for the whole window, so there is
-        // no dead band — the visible half of #1285 was a window whose
+        // no dead band - the visible half of #1285 was a window whose
         // lower two thirds were empty.
         let used = l.body.height() + l.footer.height();
         assert!(
@@ -1250,9 +1250,9 @@ mod placement {
     /// Which container an anchored, auto-sized control sits in (#1290).
     #[derive(Clone, Copy, PartialEq, Debug)]
     enum Anchored {
-        /// A bare `egui::Area` — the login screen's "New world" chip.
+        /// A bare `egui::Area` - the login screen's "New world" chip.
         Area,
-        /// A non-resizable, title-bar-less `egui::Window` — both approach
+        /// A non-resizable, title-bar-less `egui::Window` - both approach
         /// prompts.
         Window,
     }
@@ -1262,7 +1262,7 @@ mod placement {
     /// (#1290).
     ///
     /// **The hazard this measures.** An `Area` with no explicit size hands
-    /// its `Ui` a `max_rect` built from the size it MEASURED last pass —
+    /// its `Ui` a `max_rect` built from the size it MEASURED last pass -
     /// once settled, `ui.available_width()` is exactly the content's own
     /// width. That is an equilibrium with no slack in it: any pass where
     /// the content wants even one point more, a wrappable widget wraps
@@ -1275,7 +1275,7 @@ mod placement {
     /// is the term that differs between palettes. A probe without one
     /// measures a control that has room to grow and reports no defect.
     ///
-    /// Two settle passes before the switch and six after — the latch needs
+    /// Two settle passes before the switch and six after - the latch needs
     /// one pass to bite and a recovery, if there were one, would take
     /// another.
     fn anchored_width_across_a_palette_switch(
@@ -1340,7 +1340,7 @@ mod placement {
     /// wide, reading "New / worl / d", and stays that way.
     ///
     /// **High contrast is the trigger and one point is the whole margin.**
-    /// Every palette settles this chip at the same 70.8 pt on its own —
+    /// Every palette settles this chip at the same 70.8 pt on its own -
     /// no palette is wrong. But high contrast's `border_stroke_width` is a
     /// point wider (#1283 gave controls a real frame), so the pass that
     /// switches into it offers 69.8 pt of content width for a label that
@@ -1377,11 +1377,11 @@ mod placement {
     }
 
     /// An anchored non-resizable `egui::Window` does NOT carry the `Area`
-    /// latch (#1290) — recorded so the two approach prompts are not
+    /// latch (#1290) - recorded so the two approach prompts are not
     /// "fixed" for a defect they never had.
     ///
     /// A `Window` wraps its `Area` in a `Resize`, which keeps its own
-    /// remembered size and — unlike a bare area — lets its content ASK for
+    /// remembered size and - unlike a bare area - lets its content ASK for
     /// more room and grows to it. That is the whole difference, and it is
     /// the same one #898 recorded from the other direction: a `ScrollArea`
     /// collapses to a slit inside an auto-sized `Area` and behaves inside
@@ -1406,8 +1406,8 @@ mod placement {
     /// The control: the pre-#1285 idiom really did put the footer at the
     /// top, so the assertions above are not describing a coincidence.
     ///
-    /// Reproduces the old shape — a top-down child of a bottom-up parent
-    /// — and asserts the failure. `Ui::with_layout` hands that child the
+    /// Reproduces the old shape - a top-down child of a bottom-up parent
+    /// - and asserts the failure. `Ui::with_layout` hands that child the
     /// parent's whole available rect, so it draws from the rect's top
     /// while the parent accounts for its height at the bottom.
     #[test]

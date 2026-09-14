@@ -1,4 +1,4 @@
-//! Farmhouse — a Rural/Farmland secondary. A two-storey clapboard house on a
+//! Farmhouse - a Rural/Farmland secondary. A two-storey clapboard house on a
 //! fieldstone foundation under a ridged shingle roof, with a covered porch
 //! across the whole front, a fieldstone chimney climbing the gable end, and
 //! hearth smoke on the golden-hour air.
@@ -7,7 +7,7 @@
 //! barn it shares a farmyard with:
 //!
 //! 1. **The glazing fills real holes.** The front is the clapboard that
-//!    *frames* three bays — four piers, sill walls, spandrels and a frieze —
+//!    *frames* three bays - four piers, sill walls, spandrels and a frieze -
 //!    with a [`window_card`] on a flat quad set back in each reveal and a lit
 //!    room behind it. The five windows used to be `Window`-textured slabs
 //!    pinned to a solid body, and the generator masks its panes *away*, so
@@ -44,13 +44,13 @@ use super::{CLAPBOARD_CREAM, ROOF_GREY, STONE_GREY, TRIM_WHITE, clapboard, fx, s
 const W: f32 = 10.5;
 const D: f32 = 8.5;
 const BODY_H: f32 = 6.0;
-/// Fieldstone footing — the floor level, and the datum every storey is
+/// Fieldstone footing - the floor level, and the datum every storey is
 /// measured from.
 const FOOT_H: f32 = 0.5;
 /// Wall thickness, and so the depth of every window reveal.
 const WALL_T: f32 = 0.3;
 
-/// Outer face of the front wall — the `-Z` hero direction the render tool and
+/// Outer face of the front wall - the `-Z` hero direction the render tool and
 /// the settlement placer both look down.
 const FRONT: f32 = -D * 0.5;
 /// Centre of a wall slab whose outer face lies on [`FRONT`].
@@ -64,7 +64,7 @@ const ROOM_Z: f32 = FRONT + 0.62;
 /// end up inside the wall rather than coplanar with its outer face.
 const TRIM_Z: f32 = FRONT - 0.04;
 
-/// Bay centres in X — left, entrance, right.
+/// Bay centres in X - left, entrance, right.
 const BAY_X: [f32; 3] = [-3.1, 0.0, 3.1];
 /// The centre bay is the entrance on the ground storey.
 const DOOR_BAY: usize = 1;
@@ -76,7 +76,7 @@ const G_HEAD: f32 = 2.3;
 /// Upper-storey window sill and head.
 const U_SILL: f32 = 3.6;
 const U_HEAD: f32 = 5.2;
-/// Head of the entrance opening — the middle bay runs to the floor.
+/// Head of the entrance opening - the middle bay runs to the floor.
 const DOOR_H: f32 = 2.35;
 /// The storey line the belt course marks.
 const STOREY: f32 = 3.05;
@@ -98,7 +98,7 @@ const RIDGE_TAPER: f32 = 0.99;
 /// beam sits at.
 const PORCH_D: f32 = 2.6;
 const PORCH_BEAM: f32 = 2.55;
-/// Fall across the porch roof — a shed slope, derived once so the roof, the
+/// Fall across the porch roof - a shed slope, derived once so the roof, the
 /// beam and the fascia all agree.
 const PORCH_FALL: f32 = 0.8;
 
@@ -107,7 +107,7 @@ const PORCH_FALL: f32 = 0.8;
 /// The number that has to be checked, and the one it is natural to get
 /// wrong: a shed roof pitched away from the wall is **highest** where it
 /// lands on it, so raising the porch head or steepening the fall pushes this
-/// up into the first-floor sills — and from the pavement the roof then reads
+/// up into the first-floor sills - and from the pavement the roof then reads
 /// as slicing the bottom off every upper window. Derived here so the guard
 /// can state the relationship rather than a magic number.
 fn porch_roof_back() -> f32 {
@@ -117,18 +117,18 @@ const PORCH_X: [f32; 4] = [-4.5, -1.5, 1.5, 4.5];
 
 // --- Palette local to this entry. ------------------------------------------
 
-/// Front door paint — the one saturated colour on the elevation.
+/// Front door paint - the one saturated colour on the elevation.
 const DOOR_PAINT: [f32; 3] = [0.34, 0.16, 0.12];
 /// Porch lamp. Deep-saturated amber rather than the kit's paler
 /// `LAMP_WARM`: a small lens at low strength reads as a warm *colour* under
 /// bloom instead of washing to a white blank.
 const LAMP_AMBER: [f32; 3] = [1.0, 0.60, 0.22];
-/// Porch decking — bare weathered boards, not the house's paint.
+/// Porch decking - bare weathered boards, not the house's paint.
 const DECK_GREY: [f32; 3] = [0.52, 0.48, 0.42];
 
 // --- Shared construction. --------------------------------------------------
 
-/// Lap siding laid in the wall's own frame — see [`util::bonded_siding`].
+/// Lap siding laid in the wall's own frame - see [`util::bonded_siding`].
 /// With the stagger off there are no U features left, so every side face
 /// agrees on `V = -y` and no elevation needs a per-face override.
 ///
@@ -147,7 +147,7 @@ fn wall(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
     )
 }
 
-/// A proud painted board — sill, casing, belt course, frieze, fascia, rake.
+/// A proud painted board - sill, casing, belt course, frieze, fascia, rake.
 /// Trim is always oversized against what it laps and always stands off the
 /// surface it laps, so it never shares a plane with its host.
 fn trim(size: [f32; 3], center: [f32; 3]) -> Generator {
@@ -162,7 +162,7 @@ fn trim(size: [f32; 3], center: [f32; 3]) -> Generator {
     )
 }
 
-/// How far a glazing card oversails its opening on every edge — the coplanar
+/// How far a glazing card oversails its opening on every edge - the coplanar
 /// rule applied to a card (#972 lesson 7).
 const GLAZE_LAP: f32 = 0.06;
 
@@ -178,7 +178,7 @@ fn glazing(size: [f32; 2], center: [f32; 3]) -> Generator {
     )
 }
 
-/// A lit room behind one opening — the surface a card's masked-away panes
+/// A lit room behind one opening - the surface a card's masked-away panes
 /// actually show, and the reason the shell is worth building.
 fn room(size: [f32; 2], center: [f32; 3], warm: bool) -> Generator {
     let mat = if warm {
@@ -272,14 +272,14 @@ fn build_tree() -> Generator {
     root
 }
 
-/// The chimney's X centre — clear of the gable wall by half its own breadth,
+/// The chimney's X centre - clear of the gable wall by half its own breadth,
 /// so it stands *against* the house rather than inside it (#972 lesson 11).
 fn chimney_x() -> f32 {
     -(W * 0.5 + 0.55)
 }
 
 /// Where the chimney tops out. Derived from the ridge, because a flue that
-/// does not clear its own roof draws smoke back down it — and the old one
+/// does not clear its own roof draws smoke back down it - and the old one
 /// stopped 1.4 m under the ridge line with the smoke plume starting inside
 /// the roof mass.
 fn chimney_top() -> f32 {
@@ -290,7 +290,7 @@ fn chimney_top() -> f32 {
 
 /// Ground floor deck, and under it everything the house is: the walls that
 /// frame the openings, the glazing, the rooms behind the glass, the belt
-/// course, and — on the wall plate — the roof and the chimney.
+/// course, and - on the wall plate - the roof and the chimney.
 fn shell() -> Generator {
     let mut parts = Vec::new();
     let mid_y = FOOT_H + BODY_H * 0.5;
@@ -393,8 +393,8 @@ fn front_elevation(parts: &mut Vec<Generator>) {
             FaceKey::SideNz,
         ));
     }
-    // Spandrels between the storeys — the entrance bay's reaches lower, down
-    // to the door head — and the frieze band over the top row.
+    // Spandrels between the storeys - the entrance bay's reaches lower, down
+    // to the door head - and the frieze band over the top row.
     for (b, &x) in BAY_X.iter().enumerate() {
         let low = if b == DOOR_BAY { DOOR_H } else { G_HEAD };
         parts.push(wall(
@@ -430,7 +430,7 @@ fn entrance(parts: &mut Vec<Generator>) {
         [x, FOOT_H + (DOOR_H - 0.34) * 0.5, GLAZE_Z - 0.05],
         id_quat(),
     ));
-    // Transom light over the leaf — depth discipline for a doorway (#972
+    // Transom light over the leaf - depth discipline for a doorway (#972
     // lesson 6): the camera looking up through the head gets something warm
     // rather than the underside of the landing.
     parts.push(glazing(
@@ -585,7 +585,7 @@ fn chimney() -> Generator {
 /// between the outer pairs, a pitched shed roof, and stone steps.
 ///
 /// The deck is the sub-root, so one drag takes the posts, the roof and the
-/// steps with it. Everything is derived from the deck's own extent — the
+/// steps with it. Everything is derived from the deck's own extent - the
 /// steps land on it, the posts stand inside its edge and the roof's fall
 /// gives the fascia its height (#972 lesson 8).
 fn porch() -> Generator {
@@ -619,7 +619,7 @@ fn porch() -> Generator {
             [px, FOOT_H + PORCH_BEAM * 0.5, FRONT - PORCH_D + 0.24],
             id_quat(),
         ));
-        // Sawn bracket in the head of each post — the one piece of ornament
+        // Sawn bracket in the head of each post - the one piece of ornament
         // a farmhouse porch actually has.
         parts.push(trim(
             [0.5, 0.16, 0.1],
@@ -722,7 +722,7 @@ mod tests {
 
     /// #972 lesson 1: one `Window` card per opening plus the door's transom,
     /// each on a `Plane` at `uv_scale` 1.0. The exact count is the part that
-    /// bites — a card moved onto a solid still renders, it just renders as a
+    /// bites - a card moved onto a solid still renders, it just renders as a
     /// frame with holes onto the siding behind it.
     #[test]
     fn every_opening_is_a_card_on_a_plane() {
@@ -811,7 +811,7 @@ mod tests {
                     want.iter()
                         .any(|w| (w[0] - got[0]).abs() < 1e-3 && (w[1] - got[1]).abs() < 1e-3),
                     "siding at {at:?} carries uv_offset {got:?}, which is no face's \
-                     projection of its own position — its courses restart at its centre"
+                     projection of its own position - its courses restart at its centre"
                 );
             }
             for o in faces {
@@ -830,7 +830,7 @@ mod tests {
 
     /// The roof has a ridge, not a plateau: pinching Z alone collapses the
     /// top to a line, and the two triangles it leaves are the gables. A
-    /// uniform taper — what this used to carry — gives a square-topped hip,
+    /// uniform taper - what this used to carry - gives a square-topped hip,
     /// which no farmhouse has and which a head-on render cannot distinguish.
     #[test]
     fn the_roof_is_ridged_and_its_gables_are_clad() {
@@ -858,7 +858,7 @@ mod tests {
                 return; // the porch's shed roof
             }
             found = true;
-            assert_eq!(tx, 0.0, "the roof is pinched in X too — that is a hip");
+            assert_eq!(tx, 0.0, "the roof is pinched in X too - that is a hip");
             assert!(tz > 0.9, "the ridge taper {tz} leaves a plateau on top");
             let clad: Vec<_> = faces.iter().map(|o| o.face).collect();
             assert!(
@@ -870,7 +870,7 @@ mod tests {
     }
 
     /// The flue clears its own roof. It used to stop 1.4 m under the ridge
-    /// line, which puts the smoke plume inside the roof mass — and no angle
+    /// line, which puts the smoke plume inside the roof mass - and no angle
     /// the contact sheet takes looks along the ridge to show it.
     #[test]
     fn the_chimney_clears_the_ridge() {
@@ -884,7 +884,7 @@ mod tests {
         // ...and stands *against* the gable: keyed a little way into the
         // wall so no daylight gap opens between them, and proud enough to
         // read as a chimney rather than as a pilaster. Both sides of that
-        // matter — the breast is 1.25 m across, so an eye-picked x is as
+        // matter - the breast is 1.25 m across, so an eye-picked x is as
         // likely to bury it as to float it.
         let half = 0.625;
         let inner = chimney_x() + half;
@@ -903,7 +903,7 @@ mod tests {
 
     /// The porch roof passes *under* the first-floor sills. A shed roof is
     /// highest where it meets the wall, so the head height and the fall push
-    /// this up together — and a roof crossing the sill line reads from the
+    /// this up together - and a roof crossing the sill line reads from the
     /// pavement as slicing the bottom off every upper window, which a
     /// three-quarter render angle hides almost completely.
     #[test]
@@ -966,7 +966,7 @@ mod tests {
         }
     }
 
-    /// The house keeps a lit window and a lit lamp — escalation's
+    /// The house keeps a lit window and a lit lamp - escalation's
     /// broken-emissive ruin pass needs something to snuff.
     #[test]
     fn has_lit_rooms() {

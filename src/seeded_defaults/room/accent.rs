@@ -1,4 +1,4 @@
-//! Theme accents — the *light* nudge a [`ThemeArchetype`] applies back
+//! Theme accents - the *light* nudge a [`ThemeArchetype`] applies back
 //! onto the natural derivers so a settlement's surroundings echo its
 //! artificial theme (cyberpunk magenta haze, alien biolume motes,
 //! gothic gloom). Strictly additive and bounded: the biome palette stays
@@ -13,7 +13,7 @@
 use super::particles::ParticleMood;
 use crate::seeded_defaults::scene::{SceneCharacter, ThemeArchetype};
 
-/// Smoky dark-red the fog/sky drift toward as a room's escalation rises —
+/// Smoky dark-red the fog/sky drift toward as a room's escalation rises -
 /// the haze of a fought-over settlement.
 const SMOKE_RED: [f32; 3] = [0.50, 0.16, 0.10];
 
@@ -23,14 +23,14 @@ const SMOKE_RED: [f32; 3] = [0.50, 0.16, 0.10];
 pub struct ThemeAccent {
     /// sRGB colour the fog + sky are blended toward.
     pub tint: [f32; 3],
-    /// Blend weight (`0..~0.4`) for [`Self::tint`] into fog/sky — kept
+    /// Blend weight (`0..~0.4`) for [`Self::tint`] into fog/sky - kept
     /// small so the biome palette still dominates.
     pub tint_strength: f32,
     /// Additive cloud cover (`0..~0.45`) for smoggy / overcast / smoke-
     /// filled themes.
     pub haze: f32,
     /// Multiplicative brightness on fog / sky / cloud colour (`1.0` =
-    /// unchanged). Prosperity nudges this — affluent rooms read a touch
+    /// unchanged). Prosperity nudges this - affluent rooms read a touch
     /// brighter, destitute ones dimmer.
     pub brightness: f32,
     /// Ambient particle mood override (`None` keeps the biome's mood).
@@ -64,7 +64,7 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: None,
             },
-            // Cold northern light — steel-blue fjord air over the steading.
+            // Cold northern light - steel-blue fjord air over the steading.
             Nordic => Self {
                 tint: [0.55, 0.66, 0.85],
                 tint_strength: 0.16,
@@ -72,7 +72,7 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: None,
             },
-            // Soft blossom air — a warm rose haze with cherry petals drifting.
+            // Soft blossom air - a warm rose haze with cherry petals drifting.
             FeudalJapan => Self {
                 tint: [0.92, 0.74, 0.76],
                 tint_strength: 0.12,
@@ -80,7 +80,7 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: Some(ParticleMood::Petals),
             },
-            // Humid jungle-gold air — warm amber haze over the temple city.
+            // Humid jungle-gold air - warm amber haze over the temple city.
             Mesoamerican => Self {
                 tint: [0.80, 0.66, 0.36],
                 tint_strength: 0.14,
@@ -88,7 +88,7 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: None,
             },
-            // City smog — a cool grey haze hanging over the downtown.
+            // City smog - a cool grey haze hanging over the downtown.
             ModernCity => Self {
                 tint: [0.60, 0.62, 0.66],
                 tint_strength: 0.12,
@@ -162,7 +162,7 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: Some(ParticleMood::DustMotes),
             },
-            // Bright clear-sky seaside air — a light sky-blue wash, no haze.
+            // Bright clear-sky seaside air - a light sky-blue wash, no haze.
             CoastalResort => Self {
                 tint: [0.55, 0.74, 0.92],
                 tint_strength: 0.10,
@@ -170,7 +170,7 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: None,
             },
-            // Dusty sodium-amber highway air — warm grit hangs over the strip.
+            // Dusty sodium-amber highway air - warm grit hangs over the strip.
             Roadside => Self {
                 tint: [0.66, 0.56, 0.42],
                 tint_strength: 0.13,
@@ -178,7 +178,7 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: Some(ParticleMood::DustMotes),
             },
-            // Dignified warm-sandstone air — a soft golden academic light.
+            // Dignified warm-sandstone air - a soft golden academic light.
             CivicCampus => Self {
                 tint: [0.86, 0.80, 0.66],
                 tint_strength: 0.09,
@@ -186,7 +186,7 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: None,
             },
-            // Bright field-day air — a clean, faintly green daylight over the
+            // Bright field-day air - a clean, faintly green daylight over the
             // turf, no haze.
             SportsRec => Self {
                 tint: [0.78, 0.86, 0.74],
@@ -195,7 +195,7 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: None,
             },
-            // Fresh clean green air — a bright, haze-free verdant wash.
+            // Fresh clean green air - a bright, haze-free verdant wash.
             Solarpunk => Self {
                 tint: [0.62, 0.82, 0.66],
                 tint_strength: 0.10,
@@ -203,7 +203,7 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: None,
             },
-            // Thin rust-grey atmosphere — a pale dusty sky with regolith motes.
+            // Thin rust-grey atmosphere - a pale dusty sky with regolith motes.
             SpaceOutpost => Self {
                 tint: [0.64, 0.58, 0.54],
                 tint_strength: 0.10,
@@ -211,7 +211,7 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: Some(ParticleMood::DustMotes),
             },
-            // Arcane air — a soft violet wash thick with drifting magic motes.
+            // Arcane air - a soft violet wash thick with drifting magic motes.
             // Strength reduced from 0.14 (#903): the violet-rose cast now
             // also leans in at the palette level.
             Fantasy => Self {
@@ -221,7 +221,7 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: Some(ParticleMood::Fireflies),
             },
-            // Sun-bleached frontier dust — a warm tan haze with drifting motes.
+            // Sun-bleached frontier dust - a warm tan haze with drifting motes.
             WildWest => Self {
                 tint: [0.80, 0.68, 0.46],
                 tint_strength: 0.12,
@@ -229,7 +229,7 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: Some(ParticleMood::DustMotes),
             },
-            // Salt haze and spent powder — a cold blue-green sea air, thick
+            // Salt haze and spent powder - a cold blue-green sea air, thick
             // enough to read as weather over the roads, with spray motes
             // blowing through it. Deliberately the opposite reading to
             // `CoastalResort`, which is the same water under a holiday sky: a
@@ -245,7 +245,7 @@ impl ThemeAccent {
                 particle_mood: Some(ParticleMood::MistMotes),
             },
             // Sun-baked sandstone-gold air over the marble and ruins. Kept a
-            // tint only (no particle mood) so it stays a quiet daylight key —
+            // tint only (no particle mood) so it stays a quiet daylight key -
             // it is also the settlement fallback theme (see #461).
             AncientClassical => Self {
                 tint: [0.82, 0.70, 0.46],
@@ -287,7 +287,7 @@ impl ThemeAccent {
         a
     }
 
-    /// `true` if this accent changes nothing — lets callers skip the
+    /// `true` if this accent changes nothing - lets callers skip the
     /// blend entirely for the common neutral case.
     pub fn is_noop(&self) -> bool {
         self.tint_strength <= 0.0
@@ -307,7 +307,7 @@ impl ThemeAccent {
     }
 
     /// [`Self::tint_rgb`] followed by the [`Self::brightness`] multiply,
-    /// clamped to `[0, 1]` — the full colour adjustment applied to fog /
+    /// clamped to `[0, 1]` - the full colour adjustment applied to fog /
     /// sky / cloud.
     pub fn adjust_rgb(&self, c: [f32; 3]) -> [f32; 3] {
         let t = self.tint_rgb(c);
@@ -322,13 +322,13 @@ impl ThemeAccent {
 
 /// How much natural daylight a theme keeps, `0..=1`. `1.0` is the full
 /// biome-derived day/dusk and is the default for every theme; a value
-/// below `1.0` darkens the room toward night so a *self-lit* theme — neon
-/// signage, biolume — becomes the dominant light source instead of
+/// below `1.0` darkens the room toward night so a *self-lit* theme - neon
+/// signage, biolume - becomes the dominant light source instead of
 /// competing with a noon sun (whose floor sits at ~9 000 lux even at dusk).
 ///
 /// Consumed by the wiring layer's nightfall pass (`apply_nightfall` in
 /// [`crate::pds::room`]), which scales the sun + ambient down and darkens
-/// the sky / fog / cloud colour together — dimming the sun alone would
+/// the sky / fog / cloud colour together - dimming the sun alone would
 /// leave a bright daytime sky cuboid over a dark ground.
 ///
 /// Kept a standalone per-variant function rather than a [`ThemeAccent`]
@@ -343,7 +343,7 @@ pub fn theme_luminosity(theme: ThemeArchetype) -> f32 {
         // Moonlit gloom: dim the day so the cathedral's stained glass and
         // lantern glow carry the scene (the big lever for the mood, #462).
         GothicHorror => 0.25,
-        // Self-lit / dim themes — drop the sun so the kit's emissive trim
+        // Self-lit / dim themes - drop the sun so the kit's emissive trim
         // carries (epic #458 staging table):
         // biolume motes only read against darkness,
         AlienOrganic => 0.30,
@@ -357,7 +357,7 @@ pub fn theme_luminosity(theme: ThemeArchetype) -> f32 {
         IndustrialPark => 0.70,
         // void/night so module windows + status panels feature.
         SpaceOutpost => 0.35,
-        // ashen overcast — a mild dim, the mood carried mostly by accent haze.
+        // ashen overcast - a mild dim, the mood carried mostly by accent haze.
         PostApoc => 0.75,
         _ => 1.0,
     }
@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn zero_accent_is_noop_and_identity() {
         // A zero-strength, unity-brightness accent must leave the natural
-        // derivers untouched — the invariant `is_noop` gates on.
+        // derivers untouched - the invariant `is_noop` gates on.
         let neutral = ThemeAccent {
             tint: [0.0, 0.0, 0.0],
             tint_strength: 0.0,
@@ -548,7 +548,7 @@ mod tests {
     #[test]
     fn calm_mid_room_adds_nothing_to_the_theme_accent() {
         // Mid prosperity + peace must leave the plain theme accent untouched
-        // — the socio layer only kicks in for wealth/conflict extremes. (Every
+        // - the socio layer only kicks in for wealth/conflict extremes. (Every
         // theme now carries an identity accent, so there is no fully-neutral
         // theme to assert is_noop against; NEUTRAL itself is covered above.)
         for theme in ThemeArchetype::ALL {

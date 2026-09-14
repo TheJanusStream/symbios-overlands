@@ -1,4 +1,4 @@
-//! Ruined chapel — the Gothic-Horror *poor* landmark. A roofless, crumbling
+//! Ruined chapel - the Gothic-Horror *poor* landmark. A roofless, crumbling
 //! little chapel of broken mossy walls and a shattered arch, rubble strewn at
 //! its foot and a leaning grave-cross. The forsaken counterpart to the
 //! [`cathedral`](super::cathedral): same faith, opposite end of the prosperity
@@ -60,7 +60,7 @@ fn build_tree() -> Generator {
     let ms = || mossy(STONE_MOSS);
 
     let mut prims = vec![
-        // Stone footing — the root.
+        // Stone footing - the root.
         prim(
             solid(cuboid_tapered([7.0, foot_h, 5.0], 0.0, ms())),
             [0.0, foot_h * 0.5, 0.0],

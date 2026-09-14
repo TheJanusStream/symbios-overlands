@@ -4,8 +4,8 @@
 //! `webrtc-sctp` association rejects a larger whole message with
 //! `ErrOutboundPacketTooLarge` *before* fragmentation, and neither
 //! `matchbox_socket` nor `bevy_symbios_multiuser` raises, negotiates, or
-//! chunks around that ceiling. The send is fire-and-forget — the failing
-//! `channel.send` result is discarded deep in matchbox — so a full
+//! chunks around that ceiling. The send is fire-and-forget - the failing
+//! `channel.send` result is discarded deep in matchbox - so a full
 //! `RoomStateUpdate` for a heavily-authored room silently stops reaching
 //! guests with only a bare console `ERROR` line to show for it.
 //!
@@ -49,9 +49,9 @@ struct Partial {
     chunks: Vec<Option<Vec<u8>>>,
     /// How many distinct slots are filled (completion is `received == total`).
     received: u16,
-    /// Monotonic time the first fragment arrived — the age-eviction key.
+    /// Monotonic time the first fragment arrived - the age-eviction key.
     first_seen: f64,
-    /// Bytes buffered for this partial — kept so eviction can decrement the
+    /// Bytes buffered for this partial - kept so eviction can decrement the
     /// running [`ChunkReassembly::total_bytes`] in O(1). Payload only; the
     /// bookkeeping cost is [`Partial::overhead`].
     bytes: usize,
@@ -80,7 +80,7 @@ pub struct ChunkReassembly {
     /// Running sum of [`Partial::footprint`] across `partials`, for the
     /// buffer cap.
     total_bytes: usize,
-    /// When the stale sweep may next run (#1114) — see
+    /// When the stale sweep may next run (#1114) - see
     /// [`config::network::REASSEMBLY_SWEEP_INTERVAL_SECS`].
     next_sweep_at: f64,
 }
@@ -138,7 +138,7 @@ impl ChunkReassembly {
                 bytes: 0,
             });
             // A fragment whose `total` disagrees with the one that opened this
-            // reassembly is corrupt/spoofed — drop the whole partial.
+            // reassembly is corrupt/spoofed - drop the whole partial.
             if entry.total != total {
                 corrupt = true;
             } else {
@@ -157,7 +157,7 @@ impl ChunkReassembly {
                     entry.bytes += n;
                     self.total_bytes += n;
                 }
-                // else: a duplicate fragment — ignore it (reliable-ordered
+                // else: a duplicate fragment - ignore it (reliable-ordered
                 // delivery should not resend, but be defensive).
             }
         }
@@ -168,7 +168,7 @@ impl ChunkReassembly {
 
         self.enforce_budget();
 
-        // Completion — reassemble in `seq` order and decode.
+        // Completion - reassemble in `seq` order and decode.
         let done = self
             .partials
             .get(&key)
@@ -200,7 +200,7 @@ impl ChunkReassembly {
     ///
     /// The per-peer bound is evicted first and evicts only that peer's own
     /// partials, so a flooding peer can never displace another peer's
-    /// in-flight message — the reason a count bound is per-sender at all.
+    /// in-flight message - the reason a count bound is per-sender at all.
     fn make_room_for_new_partial(&mut self, sender: PeerId) {
         while self.count_for(sender) >= config::network::MAX_REASSEMBLIES_PER_PEER {
             match self.oldest(|(peer, _)| *peer == sender) {
@@ -238,7 +238,7 @@ impl ChunkReassembly {
     }
 
     /// Drop partials whose first fragment arrived more than
-    /// [`config::network::MAX_REASSEMBLY_AGE_SECS`] ago — a sender that
+    /// [`config::network::MAX_REASSEMBLY_AGE_SECS`] ago - a sender that
     /// vanished mid-message.
     fn evict_stale(&mut self, now: f64) {
         let cutoff = config::network::MAX_REASSEMBLY_AGE_SECS;
@@ -331,7 +331,7 @@ impl SendOutcome {
 /// dirty, and a toast every interval would bury the queue it shares with
 /// every other notification. Cleared on the next successful send of the same
 /// kind, so an owner who trims the world back under the ceiling and later
-/// crosses it again is told again — the news is the crossing.
+/// crosses it again is told again - the news is the crossing.
 #[derive(Resource, Default)]
 pub struct OversizeNotices(std::collections::HashSet<&'static str>);
 
@@ -352,7 +352,7 @@ pub(crate) fn warn_once_on_refusal(
             if notices.0.insert(subject) {
                 toasts.warn(
                     format!(
-                        "Live sync paused — your {subject} is {}, over the {} peer-sync \
+                        "Live sync paused - your {subject} is {}, over the {} peer-sync \
                          limit. Guests see your last saved version until you trim it.",
                         human_bytes(bytes),
                         human_bytes(config::network::MAX_RELIABLE_PAYLOAD_BYTES),
@@ -369,14 +369,14 @@ pub(crate) fn warn_once_on_refusal(
     outcome
 }
 
-/// How many bytes `msg` would put on the wire — the exact quantity
+/// How many bytes `msg` would put on the wire - the exact quantity
 /// [`send_chunked`] measures against
 /// [`config::network::MAX_RELIABLE_PAYLOAD_BYTES`].
 ///
 /// Exposed so a readout can show the owner the number the refusal is
 /// actually decided on (#1123). The World Editor's existing gauge measures
 /// the largest single PDS record, which is a different quantity against a
-/// different limit — and a green record gauge beside a dead live sync is
+/// different limit - and a green record gauge beside a dead live sync is
 /// exactly what made the drop unreadable.
 ///
 /// `None` when the message will not serialize, which is the same condition
@@ -385,7 +385,7 @@ pub fn wire_payload_bytes(msg: &OverlandsMessage) -> Option<usize> {
     msg.to_chunk_bytes().ok().map(|b| b.len())
 }
 
-/// Where a chunked reliable send is addressed — every peer, or one peer.
+/// Where a chunked reliable send is addressed - every peer, or one peer.
 pub(crate) enum ChunkDest {
     Broadcast,
     To(PeerId),
@@ -411,15 +411,15 @@ fn emit_reliable(
 /// * Over [`config::network::MAX_RELIABLE_PAYLOAD_BYTES`] → refused, counted
 ///   ([`samplers::broadcast_oversize_dropped`]) and logged as an
 ///   [`EventPayload::OutboundMessageOversize`] error rather than handed to a
-///   send that would silently fail. The recipient does not receive it — and
+///   send that would silently fail. The recipient does not receive it - and
 ///   the caller is told so ([`SendOutcome::Refused`]) rather than left to
 ///   assume it landed (#1123).
 /// * In between → split into `ceil(len / chunk)` fragments, all sharing a
 ///   fresh `msg_id`.
 ///
 /// A free function (rather than only a [`ChunkSend`] method) so a system that
-/// already holds its own `seq`/`metrics`/`session_log` — the peer-connect
-/// handler, whose param budget cannot also fit the `ChunkSend` bundle — can
+/// already holds its own `seq`/`metrics`/`session_log` - the peer-connect
+/// handler, whose param budget cannot also fit the `ChunkSend` bundle - can
 /// reuse the identical path.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_chunked(
@@ -455,7 +455,7 @@ pub(crate) fn send_chunked(
             },
         );
         error!(
-            "Refusing to send {} — {} exceeds the {} reliable-payload ceiling; \
+            "Refusing to send {} - {} exceeds the {} reliable-payload ceiling; \
              the recipient will not receive it. Reduce the amount of authored content.",
             variant_label(&msg),
             human_bytes(len),
@@ -547,7 +547,7 @@ mod tests {
     ///
     /// `SendMessage` is two `MessageWriter`s over `Broadcast`/`SendTo`, so a
     /// bare `App` with those two message types registered is enough to
-    /// observe the send for real — no relay, no socket. Counting the emitted
+    /// observe the send for real - no relay, no socket. Counting the emitted
     /// messages is what separates "refused" from "sent and lost".
     fn drive_send(msg: OverlandsMessage) -> (SendOutcome, usize) {
         use bevy::ecs::system::RunSystemOnce;
@@ -584,7 +584,7 @@ mod tests {
         (outcome, emitted)
     }
 
-    /// #1123 — the refusal has to be a fact the caller receives, not a line
+    /// #1123 - the refusal has to be a fact the caller receives, not a line
     /// in a console the owner does not have.
     ///
     /// Before the fix `send_chunked` returned `()` on every path, so the
@@ -607,7 +607,7 @@ mod tests {
     }
 
     /// The other two paths report `Sent`, and a chunked send emits every
-    /// fragment — so a caller keying bookkeeping on `is_sent` is not
+    /// fragment - so a caller keying bookkeeping on `is_sent` is not
     /// throwing away large-but-legal messages.
     #[test]
     fn sends_under_the_ceiling_report_sent() {
@@ -625,7 +625,7 @@ mod tests {
         assert_eq!(emitted, expected, "every fragment reached the transport");
     }
 
-    /// The owner is told once per crossing, not once per send — and told
+    /// The owner is told once per crossing, not once per send - and told
     /// again if they cross back over later.
     ///
     /// `broadcast_room_state` fires every `ROOM_BROADCAST_MIN_INTERVAL_SECS`
@@ -654,7 +654,7 @@ mod tests {
             shown[0].1
         );
 
-        // A different subject latches independently — the avatar and the
+        // A different subject latches independently - the avatar and the
         // world cross the ceiling for different reasons.
         warn_once_on_refusal(refused, &mut notices, &mut toasts, "avatar", 0.3);
         assert_eq!(toasts.shown().len(), 2);
@@ -667,7 +667,7 @@ mod tests {
     }
 
     /// A serialize failure is not a send. It is a bug rather than a user
-    /// condition, so it carries no toast — but a caller must not treat it
+    /// condition, so it carries no toast - but a caller must not treat it
     /// as delivery either.
     #[test]
     fn a_serialize_failure_is_not_reported_as_sent() {
@@ -738,7 +738,7 @@ mod tests {
         let mut r = ChunkReassembly::default();
         let peer = test_peer(2);
         let frags = fragments(&big_message(3));
-        // Deliver fragment 0 twice — the second must be a no-op.
+        // Deliver fragment 0 twice - the second must be a no-op.
         let (s0, t0, d0) = frags[0].clone();
         assert!(r.ingest(peer, 1, s0, t0, d0.clone(), 0.0).is_none());
         let bytes_after_one = r.total_bytes;
@@ -807,7 +807,7 @@ mod tests {
     // -----------------------------------------------------------------
 
     /// One-byte fragment of a message that declares many more, with a fresh
-    /// `msg_id` each time — the cheapest way to make a guest allocate.
+    /// `msg_id` each time - the cheapest way to make a guest allocate.
     fn sliver(state: &mut ChunkReassembly, peer: PeerId, msg_id: u64, now: f64) {
         state.ingest(peer, msg_id, 0, 19, vec![0u8], now);
     }
@@ -816,7 +816,7 @@ mod tests {
     fn a_flood_of_one_byte_fragments_cannot_open_unbounded_reassemblies() {
         // Before: the budget counted payload bytes only, so 100k slivers
         // charged 100 KB against a 4 MiB cap while actually holding a slot
-        // vector, a Partial and a map entry apiece — the cap was
+        // vector, a Partial and a map entry apiece - the cap was
         // unreachable and the partial count grew until the ten-second age
         // sweep happened to catch it.
         let mut state = ChunkReassembly::default();
@@ -897,7 +897,7 @@ mod tests {
     #[test]
     fn the_stale_sweep_runs_on_a_timer_not_on_every_fragment() {
         // The sweep is O(partials); running it per fragment made the drain
-        // quadratic under flood. It must still happen — just not every time.
+        // quadratic under flood. It must still happen - just not every time.
         let mut state = ChunkReassembly::default();
         let peer = test_peer(6);
         sliver(&mut state, peer, 1, 0.0);

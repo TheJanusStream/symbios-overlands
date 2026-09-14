@@ -86,7 +86,7 @@ pub(super) fn draw_generator_particles(
         .show(ui, |ui| {
             // Bounded against each other (#1238 f90): an inverted pair used
             // to be accepted here and repaired ~0.25 s later by the
-            // sanitiser CLAMPING the max up to the min — losing the typed
+            // sanitiser CLAMPING the max up to the min - losing the typed
             // max, in the panel the user was looking at, unexplained.
             crate::ui::room::widgets::fp_range_sliders(
                 ui,
@@ -206,7 +206,7 @@ pub(super) fn draw_generator_particles(
                 ui.label("Seed:");
                 // Deferred commit (#1238 f85). This rebuilt its buffer
                 // from the record every frame and wrote back on any
-                // change that happened to parse — so the field could not
+                // change that happened to parse - so the field could not
                 // be CLEARED and retyped (an empty string does not parse,
                 // and the old number came straight back on the next
                 // frame), and every digit that did parse committed a
@@ -218,7 +218,7 @@ pub(super) fn draw_generator_particles(
                     ("particle_seed", salt),
                     &seed.to_string(),
                     150.0,
-                    "Emitter seed — press Enter (or click away) to apply. The \
+                    "Emitter seed - press Enter (or click away) to apply. The \
                      same seed reproduces the same particles.",
                     |draft| {
                         draft

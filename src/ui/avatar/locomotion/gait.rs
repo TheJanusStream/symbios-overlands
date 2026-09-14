@@ -1,10 +1,10 @@
-//! Idle-motion (gait) section of the Locomotion tab — the editor surface
+//! Idle-motion (gait) section of the Locomotion tab - the editor surface
 //! for the record's optional [`GaitParams`] (#875).
 //!
 //! A record without a `gait` section renders the DID/seed-derived idle
 //! motion (see [`crate::pds::avatar::gait`]), so the sliders start from
 //! that derivation and the record only materialises an explicit section
-//! once the owner actually moves one — untouched avatars keep publishing
+//! once the owner actually moves one - untouched avatars keep publishing
 //! byte-identical records.
 
 use bevy_egui::egui;
@@ -15,7 +15,7 @@ use crate::player::gait::GaitMode;
 
 /// Draw the "Idle motion" collapsing section. `fallback_seed` feeds both
 /// the slider baseline for a record without an explicit `gait` section
-/// and the ⟲ re-derive button — it is the master seed from the editor's
+/// and the ⟲ re-derive button - it is the master seed from the editor's
 /// seed row (falling back to the DID seed), so re-deriving idle motion
 /// agrees with what a whole-avatar re-roll of the same seed would set.
 pub(super) fn draw_gait_section(
@@ -32,7 +32,7 @@ pub(super) fn draw_gait_section(
             let Some(mode) = GaitMode::for_locomotion(locomotion) else {
                 ui.label(
                     egui::RichText::new(
-                        "This preset has no idle profile — the Airplane rolls its \
+                        "This preset has no idle profile - the Airplane rolls its \
                          chassis directly, so a visual-root sway would double up. \
                          Idle-motion tuning applies when a different preset is \
                          active.",
@@ -54,7 +54,7 @@ pub(super) fn draw_gait_section(
             if gait.is_none() {
                 ui.label(
                     egui::RichText::new(
-                        "Derived from the avatar seed — move a slider to customise.",
+                        "Derived from the avatar seed - move a slider to customise.",
                     )
                     .small()
                     .weak(),
@@ -112,7 +112,7 @@ pub(super) fn draw_gait_section(
                 .button("⟲ Re-derive from seed")
                 .on_hover_text(
                     "Replace the idle-motion tuning with the values the current \
-                     master seed derives — what an untouched avatar of this seed \
+                     master seed derives - what an untouched avatar of this seed \
                      would show.",
                 )
                 .clicked()

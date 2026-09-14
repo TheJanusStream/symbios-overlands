@@ -1,4 +1,4 @@
-//! Bathhouse — an AncientClassical secondary. A small Roman bath: a
+//! Bathhouse - an AncientClassical secondary. A small Roman bath: a
 //! sandstone block with a barrel-vaulted lead roof, an arched marble
 //! entrance flanked by columns, and a still open-air plunge pool in front.
 
@@ -67,7 +67,7 @@ fn build_tree() -> Generator {
     let front = w * 0.5;
 
     let mut prims = vec![
-        // Sandstone footing — the root.
+        // Sandstone footing - the root.
         prim(
             solid(cuboid_tapered(
                 [l + 0.8, foot_h, w + 0.8],
@@ -117,7 +117,7 @@ fn build_tree() -> Generator {
         [0.0, foot_h + col_h * 0.5, front - 0.1],
         id_quat(),
     ));
-    // Marble arch over the doorway — the top half of a torus standing in the
+    // Marble arch over the doorway - the top half of a torus standing in the
     // XY plane (`quat_x(-FRAC_PI_2)` lays the local +Z meridian up, `path_cut
     // [0,0.5]` keeps the upper semicircle).
     prims.push(prim(

@@ -24,7 +24,7 @@ pub(crate) fn room_water_level(record: &RoomRecord) -> Option<f32> {
 }
 
 /// Slide a water-avoiding anchor along its bearing through the origin
-/// — alternating outward / inward in `DRY_STEP`-metre increments — to
+/// - alternating outward / inward in `DRY_STEP`-metre increments - to
 /// the first probe where the terrain rises above the room's water
 /// line plus a freeboard margin. Bearing-aligned steps keep a
 /// spawn-facing yaw valid, and the walk is a pure function of the
@@ -43,7 +43,7 @@ pub(super) fn relocate_above_water(
     const DRY_STEP: f32 = 6.0;
     /// Probe budget: 30 outward + 30 inward = ±180 m of shoreline hunt.
     const DRY_MAX_PROBES: u32 = 60;
-    /// Required terrain clearance over the water line (m) — enough
+    /// Required terrain clearance over the water line (m) - enough
     /// that a structure's plinth course stays dry.
     const FREEBOARD: f32 = 0.75;
 
@@ -52,7 +52,7 @@ pub(super) fn relocate_above_water(
     };
     // A candidate is dry when its centre and (for non-zero clearance) a
     // ring of eight points at the clearance radius all clear the water
-    // line — a wide building can't pass on a dry anchor while its far
+    // line - a wide building can't pass on a dry anchor while its far
     // wing floods.
     let dry = |x: f32, z: f32| {
         if sample(x, z) < water_y + FREEBOARD {
@@ -63,7 +63,7 @@ pub(super) fn relocate_above_water(
         }
         (0..8).all(|i| {
             let a = i as f32 * std::f32::consts::TAU / 8.0;
-            // libm (#1132): same accept/reject shape as the slope walk — a
+            // libm (#1132): same accept/reject shape as the slope walk - a
             // site is dry only if all eight probes clear the freeboard.
             sample(x + libm::sinf(a) * clearance, z + libm::cosf(a) * clearance)
                 >= water_y + FREEBOARD
@@ -164,7 +164,7 @@ mod water_avoidance_tests {
 
         // Clearance ring: an anchor just past the shoreline (x = 22) is
         // dry at its centre but a 10 m footprint ring dips back into
-        // the sea — the walk must push it further inland until the
+        // the sea - the walk must push it further inland until the
         // whole disc clears.
         let mut wide = Vec3::new(22.0, 0.0, 0.0);
         relocate_above_water(&hm, extent, half, &mut wide, 2.0, 10.0);

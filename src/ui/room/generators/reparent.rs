@@ -2,7 +2,7 @@
 //! buffered [`PendingAction`] application, the drag-and-drop
 //! [`apply_reparent`] state machine with its cycle / stale-path guards,
 //! and the `(root, path)` node-walk helpers. No egui rendering lives here
-//! — the tree-panel widget in [`super::tree`] stages actions and this
+//! - the tree-panel widget in [`super::tree`] stages actions and this
 //! module mutates the [`GeneratorTreeSource`] (#650).
 
 use bevy::math::Affine3A;
@@ -26,7 +26,7 @@ use super::{GenNodeId, GeneratorTreeSource};
 pub(super) enum PendingAction {
     /// Append a freshly-defaulted child of the chosen kind to `parent`.
     /// `kind_tag` is one of the `&'static str` tags returned by
-    /// `available_kinds_for` — the apply step calls
+    /// `available_kinds_for` - the apply step calls
     /// [`make_default_for_kind`] to materialise the variant's seed value.
     AddChild {
         parent: GenNodeId,
@@ -38,7 +38,7 @@ pub(super) enum PendingAction {
     /// `&LiveInventoryRecord` / the catalogue entry is in scope), so the
     /// apply step doesn't need to re-borrow anything and never has to look
     /// the entry up by name. The generator payload is boxed so the enum's
-    /// stack footprint stays small — `Generator` carries a deep tree and
+    /// stack footprint stays small - `Generator` carries a deep tree and
     /// would otherwise dwarf every other variant.
     AddChildPrebuilt {
         parent: GenNodeId,
@@ -49,7 +49,7 @@ pub(super) enum PendingAction {
     /// coincident sibling, a root becomes a new root under a fresh name.
     /// Copying a sub-assembly is the core reuse gesture of any large-world
     /// editor, and the one surface that can reach an unplaced or
-    /// off-screen generator — the tree — could not do it: drag resolves
+    /// off-screen generator - the tree - could not do it: drag resolves
     /// only to `Action::Move`, so the gesture the owner WILL try is
     /// destructive to the source, and the only Duplicate in the app
     /// required physically finding the object in the world and
@@ -74,8 +74,8 @@ pub(super) enum PendingAction {
 }
 
 /// Drain a single buffered context-menu action and mutate the source in
-/// the right way for it. Encapsulates the structural-edit machinery — add
-/// child / rename / save to inventory / delete — so the tree-build pass
+/// the right way for it. Encapsulates the structural-edit machinery - add
+/// child / rename / save to inventory / delete - so the tree-build pass
 /// stays a pure read of the source's roots.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply_pending(
@@ -87,7 +87,7 @@ pub(super) fn apply_pending(
     toasts: &mut crate::notify::Toasts,
     now: f64,
     // Undo-entry label channel (#865). Only set on arms that actually
-    // mutate the record (`dirty = true`) — a parked label with no
+    // mutate the record (`dirty = true`) - a parked label with no
     // matching change tick would mislabel the NEXT edit.
     label: &mut crate::ui::undo::LabelSlot,
     // The editor's one-node clipboard (#1244 f422).
@@ -149,11 +149,11 @@ pub(super) fn apply_pending(
             if id.path.is_empty() {
                 // A single-root source (the avatar's visuals tree, a worn
                 // item's parts) has nowhere to put a second root, and
-                // `add_root` refuses — say THAT rather than the generator
+                // `add_root` refuses - say THAT rather than the generator
                 // cap, which is not why.
                 if !source.allow_multiple_roots() {
                     toasts.warn(
-                        "This tree holds one top-level item — duplicate a part \
+                        "This tree holds one top-level item - duplicate a part \
                          inside it instead.",
                         now,
                     );
@@ -172,7 +172,7 @@ pub(super) fn apply_pending(
                     }
                     None => toasts.warn(
                         format!(
-                            "Couldn't duplicate this {kind} — {}",
+                            "Couldn't duplicate this {kind} - {}",
                             super::super::caps::Cap::Generators.full_reason()
                         ),
                         now,
@@ -215,7 +215,7 @@ pub(super) fn apply_pending(
         PendingAction::Copy(id) => {
             if let Some(node) = find_node(&*source, &id) {
                 let kind = node.kind_tag();
-                toasts.info(format!("Copied {kind} — paste it under any row"), now);
+                toasts.info(format!("Copied {kind} - paste it under any row"), now);
                 *clipboard = Some(node.clone());
             }
         }
@@ -263,11 +263,11 @@ pub(super) fn apply_pending(
             {
                 // Cap enforcement (#841): the context-menu item is
                 // disabled when full, but the buffered action could race
-                // a same-frame insert — never exceed the cap here either.
+                // a same-frame insert - never exceed the cap here either.
                 let cap = crate::config::state::MAX_INVENTORY_ITEMS;
                 if inv.0.generators.len() >= cap {
                     toasts.warn(
-                        format!("Inventory full ({cap}/{cap}) — item not saved."),
+                        format!("Inventory full ({cap}/{cap}) - item not saved."),
                         now,
                     );
                     return;
@@ -279,20 +279,20 @@ pub(super) fn apply_pending(
                 };
                 let safe_name = unique_key(&inv.0.generators, &prefix);
                 inv.0.generators.insert(safe_name.clone(), node.clone());
-                // First feedback this action ever had (#841) — and NO
+                // First feedback this action ever had (#841) - and NO
                 // `*dirty = true`: that flag arms the ROOM debounce +
                 // peer broadcast, but this mutation touched only the
                 // inventory record (its own dirty state is derived
                 // live-vs-stored and needs no flag).
                 toasts.success(
-                    format!("Saved as \"{safe_name}\" — open Inventory to place or gift it."),
+                    format!("Saved as \"{safe_name}\" - open Inventory to place or gift it."),
                     now,
                 );
             }
         }
         PendingAction::Delete(id) => {
             if id.path.is_empty() {
-                // Root delete — CASCADING: `remove_root`
+                // Root delete - CASCADING: `remove_root`
                 // also sweeps every Placement + traits entry referencing
                 // this generator name (a 200-tree scatter dies with it).
                 // Since #838 it never fires from the click itself: park it
@@ -324,7 +324,7 @@ pub(super) fn apply_pending(
         } => {
             // A root dropped INTO another node stops being a root, and
             // `remove_root` sweeps every placement that put it in the
-            // world — the same cascade as a root delete, which is
+            // world - the same cascade as a root delete, which is
             // confirmed. The drag was not (#1209): a 200-oak scatter
             // vanished behind an undo entry that read "reparent of". It
             // parks behind the same kind of confirm, naming the count;
@@ -332,7 +332,7 @@ pub(super) fn apply_pending(
             // Caps first (#1210): a drop that would land the subtree past
             // the nesting or node cap used to be amputated by the next
             // flush, and a promotion to root at the generator cap went
-            // through `add_root`'s refusal AFTER extraction — deleting the
+            // through `add_root`'s refusal AFTER extraction - deleting the
             // subtree outright. Refused here, with the reason, before any
             // mutation.
             if let Some(reason) = reparent_refusal(&*source, &drag_source, &target) {
@@ -417,7 +417,7 @@ pub(crate) struct PendingReparent {
 fn nest_warning(root: &str, placements: usize) -> String {
     format!(
         "Nesting \"{root}\" under another node removes the {placements} placement{} that put it \
-         in the world — the same as deleting it and re-adding it as a child. Undo (Ctrl+Z) can \
+         in the world - the same as deleting it and re-adding it as a child. Undo (Ctrl+Z) can \
          restore it this session.",
         if placements == 1 { "" } else { "s" },
     )
@@ -426,7 +426,7 @@ fn nest_warning(root: &str, placements: usize) -> String {
 /// Park the cascading root delete behind the shared confirm, naming the
 /// blast radius (#838). ONE builder for every door onto the cascade
 /// (#1209): the tree's `− Delete` and the scene menu's "Delete item (and
-/// its placements)" — which used to run the identical sweep with no
+/// its placements)" - which used to run the identical sweep with no
 /// confirmation at all. Answered in `draw_generators_tab`.
 pub(crate) fn request_root_delete(
     confirm: &mut crate::ui::confirm::ConfirmState<GenNodeId>,
@@ -458,19 +458,19 @@ pub(crate) fn request_root_delete(
 /// Apply a single drag-and-drop reparent. Handles the four kinds of
 /// movement that the unified tree allows:
 ///
-/// * **inner → inner** — move a child subtree to a different parent in
+/// * **inner → inner** - move a child subtree to a different parent in
 ///   the same root tree, or to a different root tree entirely.
-/// * **inner → root** — promote a child subtree to a brand-new top-level
+/// * **inner → root** - promote a child subtree to a brand-new top-level
 ///   generator, auto-keyed via `unique_key` from its kind tag.
-/// * **root → inner** — demote a top-level generator into a child of
+/// * **root → inner** - demote a top-level generator into a child of
 ///   some node. The departing root's `Placement` references and `traits`
 ///   mapping are swept (same discipline as a root delete) so we never
 ///   leave an orphan.
-/// * **root → root** — a no-op. Top-level generators live in a `HashMap`
+/// * **root → root** - a no-op. Top-level generators live in a `HashMap`
 ///   that has no order, so reordering at the root is meaningless.
 ///
 /// Cycle protection: a node can't be reparented into itself or any of
-/// its descendants. The check is conservative — when in doubt we drop
+/// its descendants. The check is conservative - when in doubt we drop
 /// the move.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply_reparent(
@@ -502,7 +502,7 @@ pub(super) fn apply_reparent(
     // Dropping a node immediately before or after *itself* is a no-op.
     // The anchor still carries the pre-removal path, so an `After(self)`
     // would (post-extraction) resolve to the slot the right sibling
-    // shifted into and insert the node one position too far right —
+    // shifted into and insert the node one position too far right -
     // `adjust_path_after_removal` deliberately leaves the removed index
     // unchanged, so `sibling_index_in` can't compensate. Bail before any
     // mutation rather than fix it up downstream.
@@ -543,7 +543,7 @@ pub(super) fn apply_reparent(
     }
 
     // The frame the source currently hangs in, captured *before* any
-    // extraction — for a cross-root move the old chain may not survive
+    // extraction - for a cross-root move the old chain may not survive
     // Phase 1. Phase 3 uses it to keep the subtree looking exactly where
     // it looked, so a drag in the tree changes the hierarchy and nothing
     // else (#926).
@@ -556,7 +556,7 @@ pub(super) fn apply_reparent(
     };
 
     // Blast radius of a root → inner move, measured BEFORE the sweep so
-    // the undo entry can say what the cascade took (#1209) — "reparent of
+    // the undo entry can say what the cascade took (#1209) - "reparent of
     // <root>" hid a 200-placement loss.
     let swept = if drag_source.path.is_empty() && !target_is_virtual {
         source.placement_ref_count(&drag_source.root)
@@ -591,8 +591,8 @@ pub(super) fn apply_reparent(
         let extracted = parent.children.remove(last_idx);
 
         // Removing index `last_idx` from `parent_id`'s children shifts the
-        // index of every later sibling — and the index at the matching
-        // depth of every descendant of those siblings — down by one. Any
+        // index of every later sibling - and the index at the matching
+        // depth of every descendant of those siblings - down by one. Any
         // GenNodeId that still carries a pre-removal path through that
         // parent is now stale and would either resolve to the wrong node
         // or fail `find_node` outright (silently dropping the extracted
@@ -623,13 +623,13 @@ pub(super) fn apply_reparent(
 
     // Phase 2: insert at the destination.
     let new_id = if target_is_virtual {
-        // Promotion to top-level. Auto-key from the kind tag — matches
+        // Promotion to top-level. Auto-key from the kind tag - matches
         // the "+ New" toolbar's behaviour.
         let prefix = extracted.kind_tag().to_lowercase();
         let Some(new_name) = source.add_root(&prefix, extracted) else {
             // Source refused the add (e.g. single-root already filled).
             // We've already removed the source subtree above; in that
-            // unusual case the data loss is intentional — a no-op exit
+            // unusual case the data loss is intentional - a no-op exit
             // would silently undo the user's drag.
             return;
         };
@@ -639,7 +639,7 @@ pub(super) fn apply_reparent(
         // index in `target.children`. Phase 1 already rewrote `target`
         // and any anchor in `position` to their post-removal coordinates,
         // so `target_children_len` and `sibling_index_in` already report
-        // the correct post-removal layout — no further index fix-up is
+        // the correct post-removal layout - no further index fix-up is
         // needed even when source and target share a parent.
         let target_children_len = match find_node(&*source, &target) {
             Some(n) => n.children.len(),
@@ -686,13 +686,13 @@ pub(super) fn apply_reparent(
 
 /// The affine transform of `id`'s frame, accumulated from its root
 /// generator down through every ancestor's local transform (the root's own
-/// transform included — the spawner applies it too). Returns `None` if any
+/// transform included - the spawner applies it too). Returns `None` if any
 /// link in the chain is missing.
 ///
 /// "World" here means *the root generator's frame*, deliberately stopping
 /// short of the `Placement` that anchors that root into the region. A root
-/// can be placed many times over — a `Scatter` stamps one generator across
-/// hundreds of poses — so there is no single world pose to preserve
+/// can be placed many times over - a `Scatter` stamps one generator across
+/// hundreds of poses - so there is no single world pose to preserve
 /// against. Within one root tree (the overwhelmingly common drag, and the
 /// only kind an avatar's single-root tree has) the placement is a shared
 /// prefix that cancels out of the rebase entirely, so this is exact.
@@ -724,7 +724,7 @@ fn affine_of(t: &TransformData) -> Affine3A {
 /// (a zero scale anywhere above the drop target) or when the result is not
 /// finite: an un-rebased drop is merely surprising, whereas writing a NaN
 /// transform into the record poisons the node for good. Decomposing back
-/// to TRS also drops any shear the chain introduced — only reachable via
+/// to TRS also drops any shear the chain introduced - only reachable via
 /// non-uniform scale combined with rotation, which the runtime's own
 /// `Transform` propagation cannot represent either.
 fn rebase_local(local: &mut TransformData, old_parent: Affine3A, new_parent: Affine3A) {
@@ -852,7 +852,7 @@ pub(super) fn find_node_mut<'a>(
 }
 
 // ---------------------------------------------------------------------------
-// Tests — exercise `apply_reparent`, `sweep_root_refs`, and the cycle /
+// Tests - exercise `apply_reparent`, `sweep_root_refs`, and the cycle /
 // invariant guards. These cover the bug-prone parts of Phase 2 + Phase 3
 // so future refactors can't silently regress (a) dangling-Placement
 // cleanup or (b) cycle protection.
@@ -888,7 +888,7 @@ mod tests {
 
     /// #1209, finding 75. Sequence: drag the "oak" root onto another
     /// node in the tree to tidy the hierarchy. `remove_root` swept every
-    /// placement referencing it — 200 scattered oaks gone with no
+    /// placement referencing it - 200 scattered oaks gone with no
     /// warning, behind an undo entry that read "reparent of host". The
     /// same cascade reached via `− Delete` is confirmed with a count. The
     /// drop now parks behind a confirm naming the count, applies only on
@@ -984,7 +984,7 @@ mod tests {
     /// subtree under a node at depth 15, or promote a subtree to root
     /// with 256 generators already. The first landed and was amputated by
     /// the next flush; the second went through `add_root` AFTER
-    /// extraction — `None` at the cap, and the comment said the data loss
+    /// extraction - `None` at the cap, and the comment said the data loss
     /// was intentional. Both are refused before any mutation, with the
     /// cap's sentence.
     #[test]
@@ -1259,7 +1259,7 @@ mod tests {
 
     /// #926: a drag changes the hierarchy, not the appearance. Moving a
     /// node between two parents with different poses must rewrite its local
-    /// transform so its world pose is bit-for-bit where it was — including
+    /// transform so its world pose is bit-for-bit where it was - including
     /// when the two chains differ in rotation and scale, not just position.
     #[test]
     fn reparent_preserves_world_pose_across_posed_parents() {
@@ -1270,17 +1270,17 @@ mod tests {
 
         let mut record = empty_record();
         let mut host = posed(Transform::from_xyz(1.0, 0.0, -2.0));
-        // from[0] — the donor parent, rotated and scaled.
+        // from[0] - the donor parent, rotated and scaled.
         host.children.push(posed(
             Transform::from_xyz(3.0, 1.0, 0.5)
                 .with_rotation(Quat::from_rotation_y(0.7))
                 .with_scale(Vec3::splat(2.0)),
         ));
-        // from[0][0] — the node that will be dragged.
+        // from[0][0] - the node that will be dragged.
         host.children[0].children.push(posed(
             Transform::from_xyz(0.25, 0.5, -0.75).with_rotation(Quat::from_rotation_x(0.3)),
         ));
-        // to[1] — the receiving parent, posed differently again.
+        // to[1] - the receiving parent, posed differently again.
         host.children.push(posed(
             Transform::from_xyz(-4.0, 2.5, 6.0)
                 .with_rotation(Quat::from_rotation_z(-1.1))
@@ -1345,7 +1345,7 @@ mod tests {
             .0;
         assert!(
             local_after != [0.25, 0.5, -0.75],
-            "local transform was left untouched — nothing was rebased"
+            "local transform was left untouched - nothing was rebased"
         );
     }
 
@@ -1409,7 +1409,7 @@ mod tests {
         assert!(is_ancestor_of(&root, &child));
         assert!(is_ancestor_of(&root, &grandchild));
         assert!(is_ancestor_of(&child, &grandchild));
-        // Self is *not* a proper ancestor — `apply_reparent` checks for
+        // Self is *not* a proper ancestor - `apply_reparent` checks for
         // self-equality separately.
         assert!(!is_ancestor_of(&root, &root));
         assert!(!is_ancestor_of(&child, &root));
@@ -1608,7 +1608,7 @@ mod tests {
         };
         let mut dirty = false;
 
-        // Drag A (path [0]) inside C (path [2], originally — after A is
+        // Drag A (path [0]) inside C (path [2], originally - after A is
         // extracted C lives at [1]).
         apply_reparent(
             &mut RoomTreeSource::new(&mut record),
@@ -1644,7 +1644,7 @@ mod tests {
     /// Regression: `DirPosition::After(anchor)` where the anchor is a
     /// sibling that follows the dragged node must drop at the correct
     /// post-removal index. With five children A,B,C,D,E and B dragged
-    /// "After E", the result should be A,C,D,E,B — not A,C,D,B,E.
+    /// "After E", the result should be A,C,D,E,B - not A,C,D,B,E.
     #[test]
     fn reparent_after_later_sibling_uses_post_removal_index() {
         let mut record = empty_record();
@@ -1744,7 +1744,7 @@ mod tests {
     /// and want a copy inside "house_b". Dragging it in the tree MOVES it
     /// out of house_a (egui_ltreeview resolves only `Action::Move`, and
     /// `apply_reparent` is extract-then-insert), and the only Duplicate in
-    /// the app was on the in-world right-click menu — which cannot reach
+    /// the app was on the in-world right-click menu - which cannot reach
     /// an unplaced or off-screen generator at all. The only cross-root
     /// copy route was Save to Inventory → + From Inventory, consuming one
     /// of 50 slots and round-tripping through another window.
@@ -1799,7 +1799,7 @@ mod tests {
         assert_eq!(
             record.generators["house_a"].children.len(),
             1,
-            "Copy is not a move — the source is untouched"
+            "Copy is not a move - the source is untouched"
         );
 
         apply(

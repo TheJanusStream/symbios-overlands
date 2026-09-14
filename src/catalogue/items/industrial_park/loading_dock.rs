@@ -1,4 +1,4 @@
-//! Loading dock — an Industrial-Park secondary. A raised concrete dock with
+//! Loading dock - an Industrial-Park secondary. A raised concrete dock with
 //! roller bay doors and rubber bumpers under a steel canopy, a side ramp, and
 //! a box trailer backed up to one bay.
 
@@ -49,11 +49,11 @@ fn build_tree() -> Generator {
     let d = 7.0_f32;
     let dock_h = 1.2;
     let wall_h = 4.5;
-    // Working face (roller doors, trucks) on -Z — the render hero front.
+    // Working face (roller doors, trucks) on -Z - the render hero front.
     let face = -d * 0.5;
 
     let mut prims = vec![
-        // Raised concrete dock platform — the root.
+        // Raised concrete dock platform - the root.
         prim(
             solid(cuboid_tapered([l, dock_h, d], 0.0, concrete(CONCRETE_GREY))),
             [0.0, dock_h * 0.5, 0.0],

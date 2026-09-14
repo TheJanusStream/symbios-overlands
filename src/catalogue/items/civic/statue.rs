@@ -1,13 +1,13 @@
-//! Statue — a draped bronze figure raising a torch, a tablet held at her
+//! Statue - a draped bronze figure raising a torch, a tablet held at her
 //! hip, on a stepped marble plinth with a dedication plate. A
 //! prosperity-Rich scatter prop: commemorative statuary signals an
 //! established, well-off settlement in any setting, and a torch-bearer is
-//! the one civic allegory — light, learning, liberty — that reads the same
+//! the one civic allegory - light, learning, liberty - that reads the same
 //! in a medieval square and a cyberpunk plaza.
 //!
 //! **The figure is one skin** (#972 lesson 40): a single
 //! [`blob_group`] of sixteen elements in one weathered bronze, because an
-//! organic silhouette is exactly what a stack of tapered prims cannot give —
+//! organic silhouette is exactly what a stack of tapered prims cannot give -
 //! the shipped "orator" was a traffic cone with a ball on it. She stands in
 //! contrapposto: a flared robe (one capped cone from hem to waist), the left
 //! knee pushing the drapery forward, three fold ridges falling from the
@@ -149,7 +149,7 @@ struct Faults {
     base_high: f32,
     /// Lift the whole figure off its base.
     figure_lift: f32,
-    /// Slide the raised forearm and its hand sideways — both ends of the
+    /// Slide the raised forearm and its hand sideways - both ends of the
     /// link, so the gap cannot be closed by the elbow (lesson 40c).
     forearm_gap: f32,
     /// Lift the torch out of the fist.
@@ -160,7 +160,7 @@ struct Faults {
     tablet_away: f32,
 }
 
-/// Outdoor statuary bronze with its green patina — the finish the owner
+/// Outdoor statuary bronze with its green patina - the finish the owner
 /// asked for. The kit's [`bronze`] is burnished metal with a trace of
 /// tarnish, and on a figure its brown rust mottle reads as rust, not
 /// patina; here the metal's corrosion colour IS the verdigris, laid on
@@ -189,7 +189,7 @@ fn statue_bronze() -> SovereignMaterialSettings {
 const STATUE_BRONZE: [f32; 3] = [0.30, 0.21, 0.12];
 const PATINA: [f32; 3] = [0.24, 0.50, 0.42];
 
-/// Gilt for the flame: bright, unweathered — gilding does not patinate.
+/// Gilt for the flame: bright, unweathered - gilding does not patinate.
 fn gilt() -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(GOLD),
@@ -429,8 +429,8 @@ fn build_with(f: &Faults) -> Generator {
     )
 }
 
-/// What the whole statue may mesh to. Measured at 4 084 — the skin is most
-/// of it — against the orator's 1 272; a Rich-only prop can carry it.
+/// What the whole statue may mesh to. Measured at 4 084 - the skin is most
+/// of it - against the orator's 1 272; a Rich-only prop can carry it.
 #[cfg(test)]
 const STATUE_TRIANGLES: usize = 4_600;
 
@@ -558,7 +558,7 @@ mod tests {
         let covers =
             |c: [f32; 3], h: [f32; 3]| (pc[0] - c[0]).abs() < h[0] && (pc[1] - c[1]).abs() < h[1];
         // The host: of the solids behind the plate's centre, the one whose
-        // front face is nearest its back — the face it is mounted on.
+        // front face is nearest its back - the face it is mounted on.
         let host = all
             .iter()
             .filter(|(c, h, s)| *s && covers(*c, *h) && (back - c[2]).abs() < h[2])
@@ -568,7 +568,7 @@ mod tests {
         assert!(host < f32::MAX, "the plate is mounted on nothing");
         assert!(
             back - host <= 0.005,
-            "the plate's back is {:.3} m inside the die's face — it is buried in the die",
+            "the plate's back is {:.3} m inside the die's face - it is buried in the die",
             back - host
         );
         assert!(
@@ -584,7 +584,7 @@ mod tests {
                 assert!(
                     c[2] - h[2] >= front + 0.004,
                     "a box at {c:?} presents a face at z {:.3}, nearer the viewer than the \
-                     plate's {front:.3} — it stands in front of the plate",
+                     plate's {front:.3} - it stands in front of the plate",
                     c[2] - h[2]
                 );
             }
@@ -673,7 +673,7 @@ mod tests {
         assert!(
             bottom <= top - 0.002,
             "the skin's lowest point is {bottom:.3} and the cast base tops out at {top:.3} \
-             — the figure floats"
+             - the figure floats"
         );
         assert!(
             bottom >= top - 0.03,
@@ -773,19 +773,19 @@ mod tests {
         let off = ((hc[0] - c[0]).powi(2) + (hc[2] - c[2]).powi(2)).sqrt();
         assert!(
             off < r * 0.5,
-            "the handle's axis passes {off:.3} from the fist's centre — outside the grip"
+            "the handle's axis passes {off:.3} from the fist's centre - outside the grip"
         );
         let (bottom, top) = (hc[1] - hh * 0.5, hc[1] + hh * 0.5);
         assert!(
             bottom < c[1] && top > c[1] + r,
-            "the handle runs {bottom:.3}..{top:.3} and the fist is at {:.3} — the torch \
+            "the handle runs {bottom:.3}..{top:.3} and the fist is at {:.3} - the torch \
              floats above the fist",
             c[1]
         );
     }
 
     /// The torch is gripped: its handle passes through the raised fist
-    /// (lesson 40 — a built capsule end against a built part).
+    /// (lesson 40 - a built capsule end against a built part).
     #[test]
     fn the_torch_is_in_the_raised_fist() {
         guard_torch_held(&Statue.build(""));
@@ -816,7 +816,7 @@ mod tests {
         let point = add(cc, rotate_by(q, [0.0, ch * 0.5, 0.0]));
         assert!(
             point[1] < handle_top && point[1] > handle_top - 0.05,
-            "the cup's point is at {:.3} and the handle tops out at {handle_top:.3} — the \
+            "the cup's point is at {:.3} and the handle tops out at {handle_top:.3} - the \
              cup is not seated on the handle",
             point[1]
         );
@@ -833,7 +833,7 @@ mod tests {
             let fc = &b;
             assert!(
                 base < rim && base > point[1],
-                "a flame tongue's base is at {base:.3}, the cup runs {:.3}..{rim:.3} — the \
+                "a flame tongue's base is at {base:.3}, the cup runs {:.3}..{rim:.3} - the \
                  flame floats off its cup",
                 point[1]
             );
@@ -884,7 +884,7 @@ mod tests {
             .any(|(p, r)| gap(p) < r * 0.5);
         assert!(
             held,
-            "no hand of the figure reaches the tablet at {tc:?} — it is not held"
+            "no hand of the figure reaches the tablet at {tc:?} - it is not held"
         );
     }
 

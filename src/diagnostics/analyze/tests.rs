@@ -1,4 +1,4 @@
-//! Unit tests for the analyzer — kept as one module because the fixture
+//! Unit tests for the analyzer - kept as one module because the fixture
 //! helpers (`ev`, `startup_info`, `snapshot`, …) are shared across the
 //! parse / sections / filters / diff groups.
 
@@ -14,8 +14,8 @@ fn ev(t: f64, sev: Severity, payload: EventPayload) -> SessionEvent {
     SessionEvent::new(0, t, Some(1_700_000_000_000), sev, payload)
 }
 
-/// The panic hook's synthetic crash marker: `seq = CRASH_MARKER_SEQ`, and —
-/// as every panic file written before #1142 has it — `t_mono_secs = 0.0`.
+/// The panic hook's synthetic crash marker: `seq = CRASH_MARKER_SEQ`, and -
+/// as every panic file written before #1142 has it - `t_mono_secs = 0.0`.
 fn crash_marker(reason: &str) -> SessionEvent {
     SessionEvent::new(
         crate::diagnostics::event::CRASH_MARKER_SEQ,
@@ -129,7 +129,7 @@ fn report_healthy_session_has_header_and_healthy_verdict() {
         unparseable: 0,
     };
     let r = report("session-latest.jsonl", &parsed);
-    assert!(r.contains("=== session analysis — session-latest.jsonl ==="));
+    assert!(r.contains("=== session analysis - session-latest.jsonl ==="));
     assert!(r.contains("did: did:plc:me"));
     assert!(r.contains("v0.1.0 (deadbee) x86_64/debug"));
     assert!(r.contains("120.0s   (3 events)"));
@@ -172,7 +172,7 @@ fn report_tallies_severities_and_flags_missing_exit() {
 #[test]
 fn session_id_is_the_first_events_wall_stamp_not_a_later_one() {
     // The first event has no wall clock; a later one does. The session id
-    // must stay `—` (it mirrors `SessionLog::session_start_wall_ms`), not
+    // must stay `-` (it mirrors `SessionLog::session_start_wall_ms`), not
     // borrow the later stamp and misidentify the run.
     let parsed = ParsedLog {
         events: vec![
@@ -195,8 +195,8 @@ fn session_id_is_the_first_events_wall_stamp_not_a_later_one() {
     };
     let r = report("x.jsonl", &parsed);
     assert!(
-        r.contains("session-id: —"),
-        "session-id must be — when the first event has no wall_ms: {r}"
+        r.contains("session-id: -"),
+        "session-id must be - when the first event has no wall_ms: {r}"
     );
 }
 
@@ -315,7 +315,7 @@ fn report_renders_timeline_and_loading_gate_stage_timings() {
     assert!(r.contains("[Loading Gate]"), "{r}");
     assert!(r.contains("Loading → InGame:  2.7s"), "{r}");
     // record-fetch distro folds only the two SUCCESSFUL completions (0.8,
-    // 0.4) — the Exhausted failure (30.0s) is excluded, so n=2 not 3 and the
+    // 0.4) - the Exhausted failure (30.0s) is excluded, so n=2 not 3 and the
     // max stays 0.8.
     assert!(r.contains("record fetch"), "{r}");
     assert!(
@@ -348,10 +348,10 @@ fn loading_gate_section_marks_a_missing_gate() {
     };
     let r = report("s.jsonl", &parsed);
     assert!(
-        r.contains("Loading → InGame:  — (no loading gate in this log)"),
+        r.contains("Loading → InGame:  - (no loading gate in this log)"),
         "{r}"
     );
-    // Every stage row still renders, but as an empty distro — so no `(n=…)`
+    // Every stage row still renders, but as an empty distro - so no `(n=…)`
     // count appears anywhere when nothing ran.
     assert!(r.contains("[Loading Gate]"), "{r}");
     assert!(r.contains("record fetch"), "{r}");
@@ -377,7 +377,7 @@ fn snapshot(at: f64) -> EventPayload {
 /// matches (a new variant is a compile error there); this pins the arrays to
 /// them, so a reorder or mid-array insert can't silently misalign a
 /// matrix/category column. (A pure *append* left out of the array is caught
-/// at compile time by the index-fn match, and — belt-and-suspenders —
+/// at compile time by the index-fn match, and - belt-and-suspenders -
 /// surfaced as `unclassified` at runtime rather than panicking.)
 #[test]
 fn order_arrays_match_their_index() {
@@ -452,7 +452,7 @@ fn event_tallies_matrix_and_categories_exclude_snapshots() {
     assert!(out.contains("total"), "{out}");
     // By category: Lifecycle (loading + session end) = 2 is busiest; the two
     // MetricsSnapshot events are excluded, so Snapshot is 1 (startup only),
-    // not 3 — the proof that snapshots stayed out of the tally.
+    // not 3 - the proof that snapshots stayed out of the tally.
     assert!(out.contains("by category:"), "{out}");
     assert!(out.contains("Lifecycle 2"), "{out}");
     assert!(out.contains("Snapshot 1"), "{out}");
@@ -573,7 +573,7 @@ fn metric_trends_chart_gauge_counter_and_histogram_series() {
 }
 
 /// A log with no metric snapshots (e.g. a crash before the first scrape)
-/// renders the section but marks it empty — never a silent omission.
+/// renders the section but marks it empty - never a silent omission.
 #[test]
 fn metric_trends_absent_when_no_snapshots() {
     let parsed = ParsedLog {
@@ -646,7 +646,7 @@ fn baseline_log() -> ParsedLog {
     }
 }
 
-/// The candidate log: the fix landed — gate reaches InGame fast, no spoofs,
+/// The candidate log: the fix landed - gate reaches InGame fast, no spoofs,
 /// faster fetch, lower memory.
 fn candidate_log() -> ParsedLog {
     use crate::diagnostics::event::RecordKind;
@@ -693,7 +693,7 @@ fn diff_report_surfaces_verdict_gate_metric_and_invariant_deltas() {
     let r = diff_report("baseline.jsonl", &a, "candidate.jsonl", &b);
 
     // Header labels both sessions.
-    assert!(r.contains("=== session diff — A vs B ==="), "{r}");
+    assert!(r.contains("=== session diff - A vs B ==="), "{r}");
     assert!(r.contains("A: baseline.jsonl"), "{r}");
     assert!(r.contains("B: candidate.jsonl"), "{r}");
 
@@ -704,7 +704,7 @@ fn diff_report_surfaces_verdict_gate_metric_and_invariant_deltas() {
 
     // Gate delta: A never reached InGame; B reached it in 2.6s.
     assert!(r.contains("[Loading Gate Delta]"), "{r}");
-    assert!(r.contains("Loading → InGame:  — → 2.6s"), "{r}");
+    assert!(r.contains("Loading → InGame:  - → 2.6s"), "{r}");
     // Record-fetch mean improved 2.0s → 0.5s.
     assert!(
         r.contains("record fetch") && r.contains("2.0s → 0.5s"),
@@ -806,8 +806,8 @@ fn metric_delta_gauge_display_reconciles_with_its_delta() {
 }
 
 /// A counter that fired in A but whose candidate B has *no metric snapshots
-/// at all* (crashed before the first scrape) must read `N → —` (unknown),
-/// never `N → 0` — a data-less run is not an improvement.
+/// at all* (crashed before the first scrape) must read `N → -` (unknown),
+/// never `N → 0` - a data-less run is not an improvement.
 #[test]
 fn metric_delta_absent_counter_without_snapshots_is_unknown_not_resolved() {
     let a = ParsedLog {
@@ -840,7 +840,7 @@ fn metric_delta_absent_counter_without_snapshots_is_unknown_not_resolved() {
         !r.contains("3 → 0"),
         "an absent-because-no-snapshots counter must not read as resolved: {r}"
     );
-    assert!(r.contains("3 → —"), "it should read as unknown: {r}");
+    assert!(r.contains("3 → -"), "it should read as unknown: {r}");
 }
 
 /// Snapshots that carry only histograms (no gauge/counter series this section
@@ -949,7 +949,7 @@ fn subsystem_filter_scopes_sections_but_not_the_header() {
     assert!(r.contains("v0.1.0 (deadbee)"), "{r}");
     // Filter line documents the lens + match count (1 Network event of 5).
     assert!(
-        r.contains("[Filter]  subsystem=Network  —  1 of 5 events match"),
+        r.contains("[Filter]  subsystem=Network  -  1 of 5 events match"),
         "{r}"
     );
     // Verdict reflects only the Network subset: the spoof Warn, not the
@@ -963,7 +963,7 @@ fn severity_filter_is_a_minimum_threshold() {
     let filters = Filters::parse(None, None, Some("error"), None, None).unwrap();
     let r = report_with("s.jsonl", &log, &filters);
     // Only the Error (Offload) matches; the Warn spoof is below threshold.
-    assert!(r.contains("severity≥Error  —  1 of 5 events match"), "{r}");
+    assert!(r.contains("severity≥Error  -  1 of 5 events match"), "{r}");
     assert!(r.contains("1 error"), "{r}");
 }
 
@@ -973,7 +973,7 @@ fn time_window_filter_bounds_both_ends_inclusive() {
     // [4.0, 60.0] captures the t=5 spoof and t=50 offload fail, not t=0/1/90.
     let filters = Filters::parse(None, None, None, Some(4.0), Some(60.0)).unwrap();
     let r = report_with("s.jsonl", &log, &filters);
-    assert!(r.contains("t∈[4.0s, 60.0s]  —  2 of 5 events match"), "{r}");
+    assert!(r.contains("t∈[4.0s, 60.0s]  -  2 of 5 events match"), "{r}");
 }
 
 #[test]
@@ -983,7 +983,7 @@ fn filter_matching_nothing_reports_it_and_keeps_the_header() {
     let r = report_with("s.jsonl", &log, &filters);
     assert!(r.contains("did: did:plc:me"), "header still present: {r}");
     assert!(r.contains("0 of 5 events match"), "{r}");
-    assert!(r.contains("(no events match — nothing to analyze)"), "{r}");
+    assert!(r.contains("(no events match - nothing to analyze)"), "{r}");
     // No analysis sections emitted when nothing matches.
     assert!(!r.contains("[Verdict]"), "{r}");
 }
@@ -998,7 +998,7 @@ fn no_filter_report_equals_report_with_default() {
     );
 }
 
-/// A record write (region save) is a timeline milestone (#624) — an in-game
+/// A record write (region save) is a timeline milestone (#624) - an in-game
 /// save must be visible in the post-mortem, not just record reads.
 #[test]
 fn timeline_shows_record_writes() {
@@ -1035,7 +1035,7 @@ fn timeline_shows_record_writes() {
     assert!(r.contains("Room saved to PDS"), "{r}");
     assert!(r.contains("Avatar saved to PDS"), "{r}");
     assert!(r.contains("Inventory saved to PDS"), "{r}");
-    // Writes land in the Loading/Fetch bucket (PDS record I/O) — 3 of them.
+    // Writes land in the Loading/Fetch bucket (PDS record I/O) - 3 of them.
     assert!(
         r.contains("Fetch 3"),
         "record writes count under Fetch: {r}"
@@ -1074,7 +1074,7 @@ fn timeline_shows_avatar_reseed() {
 /// #1142. The panic hook has no `World`, so it stamped the crash marker
 /// `t_mono_secs = 0.0`. `duration_secs` was last-minus-first, so the report
 /// header for the one artefact handed over after a crash read a NEGATIVE
-/// session length — and the same zero fed `rules::last_ts`, which every
+/// session length - and the same zero fed `rules::last_ts`, which every
 /// "started but never finished" arm subtracts from, so `LoadingGateStall`,
 /// `AmbientBakeStall`, `TaskNeverResolves` and `GlareSuspected` all quietly
 /// stopped detecting anything on exactly that log. Reading "nothing was
@@ -1108,12 +1108,12 @@ fn a_panic_file_reports_its_real_duration_and_still_sees_a_hung_job() {
         "the marker still names the fault: {r}"
     );
     assert!(
-        r.contains("crash marker — the panic hook wrote this"),
+        r.contains("crash marker - the panic hook wrote this"),
         "and a crash must not read like a clean shutdown: {r}"
     );
 }
 
-/// The marker is identified by its sentinel `seq`, not by being last — a
+/// The marker is identified by its sentinel `seq`, not by being last - a
 /// truncated file can end anywhere, and a reader that keys on position would
 /// mistake a real trailing event for the marker.
 #[test]
@@ -1130,7 +1130,7 @@ fn the_crash_marker_is_recognised_by_its_sentinel_seq() {
 /// on Bevy's `AppExit`, which a tab close never sends, and the only panic
 /// hook was `console_error_panic_hook` (console, nothing persisted). So every
 /// recovered tail ended without a `SessionEnd` and the report said
-/// "crash or truncated log" for a user who simply closed the tab — while a
+/// "crash or truncated log" for a user who simply closed the tab - while a
 /// real OOM trap said exactly the same thing.
 ///
 /// The three now read apart, and the case worth escalating is the one with NO

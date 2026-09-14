@@ -1,6 +1,6 @@
 //! Nordic "bring-it-to-life" helpers: small nested particle emitters and
 //! spatial-audio patches that the kit's structures hang on signature
-//! elements — woodsmoke from the mead hall's roof louver, leaping flame
+//! elements - woodsmoke from the mead hall's roof louver, leaping flame
 //! and drifting embers on the signal beacon, a fire crackle on the brazier
 //! and a low wind moan over the hall.
 //!
@@ -26,7 +26,7 @@ use crate::pds::{
 // Particle emitters
 // ---------------------------------------------------------------------------
 
-/// A lazy grey-blue column of woodsmoke rising and spreading — the hearth
+/// A lazy grey-blue column of woodsmoke rising and spreading - the hearth
 /// venting through a hall's roof louver or a croft's smoke hole.
 pub(super) fn hearth_smoke(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -56,7 +56,7 @@ pub(super) fn hearth_smoke(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// A tall licking bonfire flame — the signal beacon's brazier ablaze atop
+/// A tall licking bonfire flame - the signal beacon's brazier ablaze atop
 /// its pole.
 pub(super) fn beacon_flame(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -84,7 +84,7 @@ pub(super) fn beacon_flame(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// Glowing embers torn loose from a fire and carried upward on the heat —
+/// Glowing embers torn loose from a fire and carried upward on the heat -
 /// the beacon's sparks streaming into the cold air.
 pub(super) fn rising_embers(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -116,7 +116,7 @@ pub(super) fn rising_embers(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A warm, irregular fire crackle — band-passed noise pulsed by a slow LFO
+/// A warm, irregular fire crackle - band-passed noise pulsed by a slow LFO
 /// over a low ember rumble. The voice of the beacon brazier.
 pub(super) fn fire_crackle() -> SovereignAudioConfig {
     FireCrackle {
@@ -130,7 +130,7 @@ pub(super) fn fire_crackle() -> SovereignAudioConfig {
     .patch()
 }
 
-/// A low, hollow wind moan — band-limited noise breathing slowly through a
+/// A low, hollow wind moan - band-limited noise breathing slowly through a
 /// lowpass. The voice of the timbers of the great hall.
 pub(super) fn wind_moan() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));

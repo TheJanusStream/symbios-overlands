@@ -1,4 +1,4 @@
-//! Tyre stack — a Sports/Recreation *poor* prop. A leaning stack of training
+//! Tyre stack - a Sports/Recreation *poor* prop. A leaning stack of training
 //! tyres with one rolled off to the side. The improvised gear of the
 //! municipal rec ground.
 
@@ -53,7 +53,7 @@ impl CatalogueEntry for TireStack {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Bottom tyre — the root, lying flat.
+        // Bottom tyre - the root, lying flat.
         prim(
             solid(torus(0.18, 0.42, painted(RUBBER))),
             [0.0, 0.18, 0.0],

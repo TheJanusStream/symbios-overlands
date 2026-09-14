@@ -1,24 +1,24 @@
-//! Avatar record — player vessel / body definition.
+//! Avatar record - player vessel / body definition.
 //!
 //! Each player's avatar is published to their own PDS at
 //! `collection = network.symbios.overlands.avatar, rkey = self`. The record
 //! is split into disjoint halves:
 //!
-//!   - `body` — which body the avatar wears (#1056), as the open union
+//!   - `body` - which body the avatar wears (#1056), as the open union
 //!     [`AvatarBody`]: a **rigged** engine body referenced out of the
 //!     cross-app wardrobe (see [`wardrobe`]) plus worn attachment records,
-//!     or a **generator** body — a hierarchical
+//!     or a **generator** body - a hierarchical
 //!     [`super::generator::Generator`] tree (cuboids, capsules, lsystems, …)
 //!     using identical machinery to room generators, with avatar-specific
 //!     allowed kinds enforced by
 //!     [`super::sanitize::sanitize_avatar_visuals`] (no Terrain/Water/
 //!     Portal). Remote peers render this.
-//!   - `locomotion` — a tagged-union [`LocomotionConfig`] selecting one of
+//!   - `locomotion` - a tagged-union [`LocomotionConfig`] selecting one of
 //!     five physics presets (HoverBoat / Humanoid / Airplane / Helicopter /
 //!     Car), each carrying its own collider dimensions + tuning. Remote
-//!     peers *deserialize but ignore* this — only the local player's
+//!     peers *deserialize but ignore* this - only the local player's
 //!     locomotion drives the rigid body.
-//!   - `gait` — optional idle-motion tuning for generator bodies.
+//!   - `gait` - optional idle-motion tuning for generator bodies.
 //!
 //! Locomotion presets live in the [`locomotion`] submodule, one file per
 //! preset; each parameter struct impls
@@ -30,8 +30,8 @@
 //! pre-#1056 record (whose looks lived in a `visuals` field) decodes with
 //! [`AvatarBody::Absent`] and the fetch path treats it as "no record",
 //! falling through to the cross-app profile and then to
-//! [`AvatarRecord::default_for_did`]. Older still — the legacy
-//! `network.symbios.avatar.hover_rover` / `…humanoid` era — lands the same
+//! [`AvatarRecord::default_for_did`]. Older still - the legacy
+//! `network.symbios.avatar.hover_rover` / `…humanoid` era - lands the same
 //! place. Old records require a manual republish.
 
 pub mod body;
@@ -61,7 +61,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// [`AvatarBody`] carries a single ANONYMOUS root, but the tree widget,
 /// the gizmo's face picking and the world compiler's grammar-diagnostic
-/// cache all key on `(root, path)` — so they need a stable string, and
+/// cache all key on `(root, path)` - so they need a stable string, and
 /// this is it. It was an associated const on
 /// `ui::room::generators::AvatarVisualsTreeSource`, which meant
 /// `world_builder::compile` had to reach into a panel module to build a
@@ -81,17 +81,17 @@ pub struct AvatarRecord {
     /// Which body the avatar wears (#1056): a rigged engine body by
     /// wardrobe reference, or a `Generator` tree. Field-level default so a
     /// pre-#1056 record (which has `visuals` instead) decodes to
-    /// [`AvatarBody::Absent`] and the fetch path treats it as "no record" —
+    /// [`AvatarBody::Absent`] and the fetch path treats it as "no record" -
     /// the standing no-automatic-migration rule.
     #[serde(default)]
     pub body: AvatarBody,
     /// Physics preset selecting the player's chassis collider + control
-    /// scheme + tuning. Local-only — remote peers ignore this.
+    /// scheme + tuning. Local-only - remote peers ignore this.
     pub locomotion: LocomotionConfig,
     /// Idle-motion tuning (bounce / sway / head-turn amplitudes). Optional
     /// on the wire: records published before the field existed (or by
     /// clients that never touched the sliders) omit it, and every peer
-    /// falls back to the DID-seeded [`GaitParams::for_seed`] derivation —
+    /// falls back to the DID-seeded [`GaitParams::for_seed`] derivation -
     /// identical to the pre-#874 behavior. Field-level `default` (not a
     /// container default) so a present-but-partial record still fails
     /// loudly instead of half-deserializing.
@@ -101,11 +101,11 @@ pub struct AvatarRecord {
 
 impl AvatarRecord {
     /// Synthesise a starting avatar derived entirely from the owner's
-    /// DID — every fresh player gets a unique chassis without ever
+    /// DID - every fresh player gets a unique chassis without ever
     /// touching the editor.
     ///
     /// The DID first resolves to the [`crate::seeded_defaults::AvatarCharacter`]
-    /// anchor — one of four visual families
+    /// anchor - one of four visual families
     /// ([`crate::seeded_defaults::ChassisFamily`]: hover-boat, airship,
     /// humanoid figure, land-skiff) plus a style + ornateness / wear. The
     /// assembler in [`default_visuals`] composes the silhouette from the
@@ -119,7 +119,7 @@ impl AvatarRecord {
         Self::default_for_seed(crate::seeded_defaults::fnv1a_64(did))
     }
 
-    /// Build the seeded default avatar from a pre-computed seed — the
+    /// Build the seeded default avatar from a pre-computed seed - the
     /// manual re-roll path. `seed` chooses the chassis family and drives
     /// every derived value (avatars carry no identity sign since #733).
     /// `default_for_did` is exactly `default_for_seed(fnv1a_64(did))`.
@@ -130,7 +130,7 @@ impl AvatarRecord {
             body,
             locomotion,
             // Explicit rather than None so a re-roll re-rolls the idle
-            // motion with the same seed as the visuals — peers rendering
+            // motion with the same seed as the visuals - peers rendering
             // the published record see the identical gait.
             gait: Some(GaitParams::for_seed(seed)),
         }
@@ -150,7 +150,7 @@ impl AvatarRecord {
     /// A record wearing the identity's cross-app default body (#1056): the
     /// fallback for an identity with no overlands avatar record but a
     /// wardrobe published by another symbios application. Locomotion is the
-    /// humanoid preset — a rigged body walks — and gait is `None` because a
+    /// humanoid preset - a rigged body walks - and gait is `None` because a
     /// skinned body's motion comes from the engine's procedural layer, not
     /// the generator-visual bobber.
     pub fn wearing(wardrobe_rkey: impl Into<String>) -> Self {
@@ -166,21 +166,21 @@ impl AvatarRecord {
 /// **The** answer to "does this avatar record hold unsaved work?" (#1138).
 ///
 /// [`crate::state::records_differ`] compares serialised forms, which is right
-/// for every other record — but a rigged body's payload lives on
+/// for every other record - but a rigged body's payload lives on
 /// `RiggedBody::resolved`, which is deliberately `serde(skip)` (#1059).
 /// Sculpting a body or nudging a worn prop's offset is therefore invisible to
 /// a plain serde compare. So this asks the wire question about the record
 /// *and* a value question about the resolution the publish bundle carries
 /// alongside it.
 ///
-/// Every avatar dirty gate routes through here — the editor's Save row, the
+/// Every avatar dirty gate routes through here - the editor's Save row, the
 /// Ctrl+S shortcut, and the unsaved-edits guard. It is a free function and
 /// not a method precisely so no site can reach for `records_differ` by
 /// habit: two derivations of "avatar dirty" is what left Ctrl+S a silent
 /// no-op for exactly the edits the rigged-body epic added, while the green
 /// Save button beside it worked.
 ///
-/// `stored` is whatever the comparison is against — the last published
+/// `stored` is whatever the comparison is against - the last published
 /// record for a dirty check, the seeded default for "is Reset meaningful?".
 pub fn avatar_is_dirty(live: &AvatarRecord, stored: &AvatarRecord) -> bool {
     avatar_dirty_against(
@@ -194,21 +194,21 @@ pub fn avatar_is_dirty(live: &AvatarRecord, stored: &AvatarRecord) -> bool {
 /// [`avatar_is_dirty`] with both wire forms supplied by the caller
 /// (#1270 f273).
 ///
-/// The editor asks this question three times a frame — for the Save row,
+/// The editor asks this question three times a frame - for the Save row,
 /// for "would Reset change anything?", and for the recovery banner's
-/// reload button — against two baselines that change far less often than
+/// reload button - against two baselines that change far less often than
 /// once a frame. Serialising all six records per frame is what the
 /// finding was; the editor caches the live value on its change tick and
 /// the two baselines on theirs, and this is the shape that lets it.
 ///
 /// The values must be `serde_json::to_value(record).ok()` of the records
-/// beside them, which is what `crate::state::records_differ` compares —
+/// beside them, which is what `crate::state::records_differ` compares -
 /// `the_cached_and_uncached_dirty_checks_agree` pins that the two entry
 /// points answer identically.
 ///
 /// The resolution half compares by REFERENCE. It used to clone both
-/// `ResolvedRig`s — a whole `symbios_avatar::AvatarRecord` plus every
-/// resolved attachment, twice, per call — to compare them and drop them
+/// `ResolvedRig`s - a whole `symbios_avatar::AvatarRecord` plus every
+/// resolved attachment, twice, per call - to compare them and drop them
 /// again.
 pub fn avatar_dirty_against(
     live: &AvatarRecord,
@@ -246,7 +246,7 @@ struct GetAvatarResponse {
 /// with the default.
 ///
 /// Two shapes fall through to the profile lookup: a true 404, and a record
-/// that decodes with [`AvatarBody::Absent`] — the pre-#1056 schema, which
+/// that decodes with [`AvatarBody::Absent`] - the pre-#1056 schema, which
 /// this module's standing rule leaves unmigrated. An identity that published
 /// a wardrobe through another symbios app comes back as a record
 /// [`AvatarRecord::wearing`] their profile's default body.
@@ -299,7 +299,7 @@ pub async fn fetch_avatar_record(
 /// The cross-app fallback behind every "no overlands record" answer: an
 /// identity whose `network.symbios.avatar.profile` names a default body
 /// spawns wearing it instead of a seeded vehicle. Only a *fully resolved*
-/// body is returned — a profile pointing at a deleted wardrobe record falls
+/// body is returned - a profile pointing at a deleted wardrobe record falls
 /// through to `Ok(None)` (seeded default), because a bare humanoid chassis
 /// with no geometry says less about the identity than the vehicle would.
 /// Transport errors propagate as `Err`, keeping the caller's
@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn a_pre_1056_record_decodes_with_an_absent_body() {
         // The old schema had `visuals` where `body` now stands. The field is
-        // simply unknown to the current shape, so the record decodes — with
+        // simply unknown to the current shape, so the record decodes - with
         // an Absent body the fetch path converts to "no record". This is the
         // no-automatic-migration rule made testable.
         let mut value =
@@ -392,7 +392,7 @@ mod tests {
 
         assert!(
             !crate::state::records_differ(&saved, &edited),
-            "the wire form is identical — which is exactly why the plain check is not enough"
+            "the wire form is identical - which is exactly why the plain check is not enough"
         );
         assert!(
             avatar_is_dirty(&edited, &saved),
@@ -408,7 +408,7 @@ mod tests {
     /// handing `avatar_dirty_against` cached wire forms; Ctrl+S and the
     /// unsaved-edits guard still call the plain one. Two derivations of
     /// "avatar dirty" is the exact defect #1138 was filed for, so the fact
-    /// that matters is that these two remain one — including on the
+    /// that matters is that these two remain one - including on the
     /// serde-skipped resolution half, which no cached `Value` can see.
     #[test]
     fn the_cached_and_uncached_dirty_checks_agree() {
@@ -420,7 +420,7 @@ mod tests {
             });
         }
         // A sculpt (invisible to the wire), a wire edit, and no edit at
-        // all — the three shapes the two entry points have to agree on.
+        // all - the three shapes the two entry points have to agree on.
         let mut sculpted = saved.clone();
         if let Some(resolved) = sculpted
             .body

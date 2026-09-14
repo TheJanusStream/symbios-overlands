@@ -1,4 +1,4 @@
-//! Lecture hall — a Civic/Campus secondary. A modern concrete auditorium
+//! Lecture hall - a Civic/Campus secondary. A modern concrete auditorium
 //! with a full-height glass curtain wall, a cantilevered entrance canopy and
 //! a clerestory band of glazing. The teaching block of the campus.
 //!
@@ -55,7 +55,7 @@ fn build_tree() -> Generator {
     let fz = -1.0_f32;
 
     let mut prims = vec![
-        // Concrete slab — the root.
+        // Concrete slab - the root.
         prim(
             solid(cuboid_tapered(
                 [12.0, slab_h, 9.0],
@@ -81,7 +81,7 @@ fn build_tree() -> Generator {
         [0.0, slab_h + body_h * 0.5, 0.0],
         id_quat(),
     ));
-    // Full-height glass curtain wall on the front — a steel-mullioned glazed
+    // Full-height glass curtain wall on the front - a steel-mullioned glazed
     // grid set into the -3.5 front wall, the modern teaching-block signature.
     prims.extend(curtain_wall(
         [0.0, slab_h + 2.0, fz * 3.55],

@@ -25,7 +25,7 @@ pub(super) fn build_tube_mesh(outer: f32, inner: f32, height: f32, resolution: u
     let mut spans = FaceSpans::new();
 
     // Walls: outer normal points out (+1), inner points in (-1). UVs are
-    // metres (#935) — each shell's U spans its own circumference, so the
+    // metres (#935) - each shell's U spans its own circumference, so the
     // bore's tighter wrap gets its own (shorter) run of texture rather than
     // the outer wall's stretched over it.
     for &(radius, sign, face) in &[
@@ -229,7 +229,7 @@ pub(super) fn build_helix_mesh(
     let phi_of = |j: u32| min0 + (min1 - min0) * (j as f32 / tube_segs as f32);
     // Metre convention (#938): U is arc length travelled along the coil, V
     // arc length around the tube's cross-section. One turn of a helix
-    // covers `sqrt(circumference² + pitch²)` — the hypotenuse, not the
+    // covers `sqrt(circumference² + pitch²)` - the hypotenuse, not the
     // circumference, or a steeply pitched spring would wear its texture
     // squashed along the rise.
     let turn_len = ((TAU * radius).powi(2) + pitch * pitch).sqrt();
@@ -308,7 +308,7 @@ pub(super) fn build_helix_mesh(
         }
     }
     // End caps: a fan over the kept arc when solid, an annular band when
-    // hollow. The coil climbs +Y, so its first end is the bottom — these are
+    // hollow. The coil climbs +Y, so its first end is the bottom - these are
     // the helix's own ends, not cut faces (a helix is always open).
     for (i_edge, sgn, face) in [
         (0u32, -1.0f32, FaceKey::Bottom),
@@ -354,7 +354,7 @@ pub(super) fn build_helix_mesh(
     mesh_from_parts(pos, nor, uv, idx, spans)
 }
 
-/// Box with chamfered / rounded vertical edges — an extruded rounded-rectangle
+/// Box with chamfered / rounded vertical edges - an extruded rounded-rectangle
 /// prism. `bevel` is the corner radius (clamped inside the footprint);
 /// `segments` is `1` for a flat chamfer (octagonal prism), higher for a
 /// rounded corner. Side normals follow the profile (smooth on arcs, flat on

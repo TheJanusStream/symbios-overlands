@@ -1,4 +1,4 @@
-//! The one place the client knows — and says — whether it is connected.
+//! The one place the client knows - and says - whether it is connected.
 //!
 //! Before #1213 the app had no answer to "am I connected?". A socket that
 //! never opened, a relay that never welcomed us and a Wi-Fi drop mid-session
@@ -13,13 +13,13 @@
 //! once. [`track_link_state`] writes [`LinkState`] from signals the upstream
 //! plugin already publishes and overlands ignored:
 //!
-//! * `resource_exists::<MatchboxSocket>` — a socket *object* exists. The
+//! * `resource_exists::<MatchboxSocket>` - a socket *object* exists. The
 //!   plugin removes the resource when the message loop dies, which is the
 //!   only observable trace a local outage leaves (`open_socket`'s
 //!   `any_channel_closed()` teardown branch).
-//! * `MatchboxSocket::id()` — the relay welcomed us and assigned our
+//! * `MatchboxSocket::id()` - the relay welcomed us and assigned our
 //!   `PeerId`. This, not the socket's existence, is what "connected" means.
-//! * [`LocalSocketReopened`] — a fresh socket was just spawned; the relay
+//! * [`LocalSocketReopened`] - a fresh socket was just spawned; the relay
 //!   has not answered yet.
 //!
 //! ## A message is not a state (#1279)
@@ -32,7 +32,7 @@
 //! registered `run_if(in_state(AppState::InGame))`. But
 //! `ui::login::complete::install_completed_session` inserts
 //! `SymbiosMultiuserConfig` and only *then* sets `AppState::Loading`, so the
-//! socket opens and the relay answers during `Loading` — 0.65 s and 1.9 s
+//! socket opens and the relay answers during `Loading` - 0.65 s and 1.9 s
 //! before `InGame` in the two login segments of the session log that
 //! reported this. The message expired unread, no second one was ever
 //! written, and [`LinkPhase::Connected`] became unreachable for the life of
@@ -46,7 +46,7 @@
 //! here can miss an edge any more, because there is no edge to miss:
 //! [`next_phase`] is a pure function of what is true *now*, with no history
 //! parameter at all. Widening the run condition alone would have fixed the
-//! reported symptom and left the mechanism — any later ordering change,
+//! reported symptom and left the mechanism - any later ordering change,
 //! state gate or two-frame stall would have silently dropped the fact again.
 //!
 //! [`LocalSocketReopened`] survives as an edge, and only an edge: it covers
@@ -54,7 +54,7 @@
 //! resource has not been inserted yet.
 //!
 //! Everything else in the tranche reads [`LinkState`]; nothing else reads
-//! the three signals. The user-facing wording lives here too — the chip
+//! the three signals. The user-facing wording lives here too - the chip
 //! label, the roster header, the chat composer note, the delivery suffix,
 //! the presence lines and the offer-expiry sentence are all functions on
 //! [`LinkPhase`] / [`LinkState`] / [`ChatDelivery`], so the four surfaces
@@ -76,7 +76,7 @@ use crate::state::{AppState, ChatHistory, RemotePeer};
 /// no reason to say so.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LinkPhase {
-    /// No socket object exists — never opened, or torn down after its
+    /// No socket object exists - never opened, or torn down after its
     /// message loop died. Nothing sent now leaves this machine.
     #[default]
     Down,
@@ -97,7 +97,7 @@ impl LinkPhase {
     }
 
     /// The toolbar chip's label. Short enough for a reserved-width slot
-    /// (see `ui::toolbar::LINK_CHIP_WIDTH`) and never colour-only — the
+    /// (see `ui::toolbar::LINK_CHIP_WIDTH`) and never colour-only - the
     /// word carries the state on its own for a greyscale viewer.
     pub fn chip_label(self) -> &'static str {
         match self {
@@ -112,12 +112,12 @@ impl LinkPhase {
     pub fn sentence(self) -> &'static str {
         match self {
             LinkPhase::Down => {
-                "Not connected — nothing you send is reaching anyone. The client is retrying."
+                "Not connected - nothing you send is reaching anyone. The client is retrying."
             }
             LinkPhase::Connecting => {
-                "Connecting — waiting for the relay to answer. Nothing you send arrives yet."
+                "Connecting - waiting for the relay to answer. Nothing you send arrives yet."
             }
-            LinkPhase::Connected => "Connected — you can see and be seen by everyone here.",
+            LinkPhase::Connected => "Connected - you can see and be seen by everyone here.",
         }
     }
 
@@ -127,8 +127,8 @@ impl LinkPhase {
     pub fn roster_header(self, total: usize) -> String {
         match self {
             LinkPhase::Connected => format!("In room ({total})"),
-            LinkPhase::Connecting => "Connecting — can't see who's here yet".to_owned(),
-            LinkPhase::Down => "Not connected — can't see who's here".to_owned(),
+            LinkPhase::Connecting => "Connecting - can't see who's here yet".to_owned(),
+            LinkPhase::Down => "Not connected - can't see who's here".to_owned(),
         }
     }
 
@@ -138,7 +138,7 @@ impl LinkPhase {
         match self {
             LinkPhase::Connected => "(no other peers)",
             LinkPhase::Connecting => "(the roster fills in when the relay answers)",
-            LinkPhase::Down => "(this list is not who is here — you are offline)",
+            LinkPhase::Down => "(this list is not who is here - you are offline)",
         }
     }
 }
@@ -153,7 +153,7 @@ impl LinkPhase {
 /// down socket never even reaches that check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ChatDelivery {
-    /// Not one of our outgoing messages — inbound chat, presence lines and
+    /// Not one of our outgoing messages - inbound chat, presence lines and
     /// system notices. Renders no suffix.
     #[default]
     NotApplicable,
@@ -161,7 +161,7 @@ pub enum ChatDelivery {
     Reached(usize),
     /// Reached nobody, and the link was up: we really are alone here.
     NobodyHere,
-    /// Reached nobody because our own link was down — it never left this
+    /// Reached nobody because our own link was down - it never left this
     /// machine, and saying "nobody answered" would blame the room for it.
     NotConnected,
 }
@@ -173,7 +173,7 @@ impl ChatDelivery {
         match self {
             ChatDelivery::NotApplicable | ChatDelivery::Reached(_) => None,
             ChatDelivery::NobodyHere => Some("· nobody here to hear it"),
-            ChatDelivery::NotConnected => Some("· not sent — you're offline"),
+            ChatDelivery::NotConnected => Some("· not sent - you're offline"),
         }
     }
 
@@ -185,7 +185,7 @@ impl ChatDelivery {
 
 /// The client's own view of its relay link, and the only thing the UI reads.
 ///
-/// Written by [`track_link_state`] on an edge only — never every frame — so
+/// Written by [`track_link_state`] on an edge only - never every frame - so
 /// a `Changed<LinkState>` filter (and anything downstream of the guarded
 /// dirty rule, #879) stays meaningful.
 #[derive(Resource, Debug, Clone, Copy, Default)]
@@ -213,7 +213,7 @@ impl LinkState {
     }
 
     /// Has the link been continuously up since `t`? False when it is down
-    /// now, and false when it came up *after* `t` — which is the case that
+    /// now, and false when it came up *after* `t` - which is the case that
     /// matters: an offer sent into a dead socket, answered by a relay we
     /// only reached afterwards, never reached its recipient either.
     pub fn up_continuously_since(&self, t: f64) -> bool {
@@ -237,10 +237,10 @@ impl LinkState {
         match self.delivery(peer_count) {
             ChatDelivery::Reached(_) | ChatDelivery::NotApplicable => None,
             ChatDelivery::NobodyHere => {
-                Some("No one else is here — messages you send now go nowhere.")
+                Some("No one else is here - messages you send now go nowhere.")
             }
             ChatDelivery::NotConnected => {
-                Some("You're not connected — messages you send now go nowhere.")
+                Some("You're not connected - messages you send now go nowhere.")
             }
         }
     }
@@ -254,11 +254,11 @@ impl LinkState {
     /// not answering is a social signal the user will act on.
     pub fn offer_expiry_line(&self, sent_at_secs: f64, item: &str, who: &str) -> String {
         // `who` arrives already addressed off the shared ladder (#1218
-        // f299) — this must not glue an `@` onto a DID head.
+        // f299) - this must not glue an `@` onto a DID head.
         if self.up_continuously_since(sent_at_secs) {
             format!("Offer of \"{item}\" to {who} expired without an answer.")
         } else {
-            format!("Offer of \"{item}\" to {who} never reached them — your connection dropped.")
+            format!("Offer of \"{item}\" to {who} never reached them - your connection dropped.")
         }
     }
 }
@@ -266,7 +266,7 @@ impl LinkState {
 /// The chat line and toast raised when the link drops. One honest sentence
 /// about the local client, in place of the per-peer "left the room." lines
 /// that told the user everybody walked out on them (#1213 f398 + f402).
-pub const LINK_LOST_LINE: &str = "Connection lost — rejoining…";
+pub const LINK_LOST_LINE: &str = "Connection lost - rejoining…";
 
 /// The matching line when the relay welcomes us again. Only ever pushed
 /// after [`LINK_LOST_LINE`] was pushed, so a first connect and a portal hop
@@ -274,7 +274,7 @@ pub const LINK_LOST_LINE: &str = "Connection lost — rejoining…";
 pub const LINK_RESTORED_LINE: &str = "Reconnected.";
 
 /// Narration bookkeeping. A separate resource from [`LinkState`] so that
-/// [`reset_link_state`] can clear the edge and the state together — an edge
+/// [`reset_link_state`] can clear the edge and the state together - an edge
 /// kept in a `Local` would survive a logout and narrate the next session's
 /// first frame as an outage.
 #[derive(Resource, Debug, Clone, Default)]
@@ -296,12 +296,12 @@ pub struct LinkNarration {
 ///
 /// A named function rather than an inline `in_state(..).or(in_state(..))` so
 /// the window is one testable fact instead of a run condition nobody can
-/// assert on — the gate being wrong by one state is exactly what #1279 was.
+/// assert on - the gate being wrong by one state is exactly what #1279 was.
 ///
 /// `Loading` is in the window because that is when the relay actually
 /// answers: `install_completed_session` inserts `SymbiosMultiuserConfig`
 /// before it sets `Loading`, so the socket opens, the welcome lands, and the
-/// world is still compiling. `Login` is out — no session exists there, and
+/// world is still compiling. `Login` is out - no session exists there, and
 /// leaving it out is what keeps [`reset_link_state`]'s clean slate clean.
 pub(crate) fn link_is_tracked(state: Res<State<AppState>>) -> bool {
     matches!(state.get(), AppState::Loading | AppState::InGame)
@@ -310,7 +310,7 @@ pub(crate) fn link_is_tracked(state: Res<State<AppState>>) -> bool {
 /// The phase, as a pure function of what is true *this frame*.
 ///
 /// Split out from [`track_link_state`] because `MatchboxSocket` wraps a live
-/// `WebRtcSocket` and cannot be constructed in a test — the transition table
+/// `WebRtcSocket` and cannot be constructed in a test - the transition table
 /// is the part worth pinning, and this is the shape that lets a test pin it.
 ///
 /// There is deliberately no `current` parameter (#1279). The phase used to be
@@ -324,7 +324,7 @@ pub(crate) fn link_is_tracked(state: Res<State<AppState>>) -> bool {
 /// absent on the frame the reopen fires: checking `socket_present` first
 /// would read that frame as `Down` and flicker the chip on every reconnect.
 /// `reopened` outranks `peer_id_assigned` for the same reason it outranks
-/// everything — it means *this socket is not the one you were connected to*.
+/// everything - it means *this socket is not the one you were connected to*.
 /// Upstream cannot in fact raise both at once (every teardown branch of
 /// `manage_socket` removes `MatchboxSocket` and returns, so the fresh-open
 /// path that writes the reopen only runs on a later frame, with no socket
@@ -362,7 +362,7 @@ pub(super) fn track_link_state(
     // after something else moved us.
     let reopened_now = reopened.read().count() > 0;
     // `WebRtcSocket::id` needs `&mut` because it lazily drains the id channel
-    // into a `OnceCell` — but only until the cell is filled, after which it
+    // into a `OnceCell` - but only until the cell is filled, after which it
     // answers from the cell. So reading it here cannot steal the signal from
     // upstream's `detect_welcome_handshake`: whichever of us drains the
     // channel first initialises the same cell, and the other still sees
@@ -385,8 +385,8 @@ pub(super) fn track_link_state(
 ///
 /// Registered on `OnExit(AppState::InGame)`, which covers both logout and
 /// the login-screen return. Without it the narration edge would carry
-/// `Connected` into the next session and report its first frame — where no
-/// socket exists yet — as an outage.
+/// `Connected` into the next session and report its first frame - where no
+/// socket exists yet - as an outage.
 pub(super) fn reset_link_state(mut link: ResMut<LinkState>, mut narration: ResMut<LinkNarration>) {
     *link = LinkState::default();
     *narration = LinkNarration::default();
@@ -395,8 +395,8 @@ pub(super) fn reset_link_state(mut link: ResMut<LinkState>, mut narration: ResMu
 /// Sweep ghost peers and narrate the link's transitions (#1213 f398+f402).
 ///
 /// The sweep is the load-bearing half. Overlands despawned a `RemotePeer` in
-/// exactly two places — a `PeerConnectionState::Disconnected` event and
-/// logout — and neither covers a local socket teardown: upstream's
+/// exactly two places - a `PeerConnectionState::Disconnected` event and
+/// logout - and neither covers a local socket teardown: upstream's
 /// `poll_peers` takes its early-return branch when the message loop is dead
 /// and emits nothing, `open_socket` then removes the socket resource, and
 /// the whole peer-polling chain is gated off behind
@@ -419,7 +419,7 @@ pub(super) fn narrate_link_state(
 ) {
     // A room change re-points the socket at a new relay URL; the teardown
     // that follows a frame or two later is ours, not an outage. Arm only on
-    // a change between two live URLs — the `None -> Some` of the first login
+    // a change between two live URLs - the `None -> Some` of the first login
     // would otherwise swallow the session's first genuine drop.
     let current_url = config.as_deref().map(|c| c.room_url.clone());
     if narration.room_url.is_some() && current_url != narration.room_url {
@@ -443,8 +443,8 @@ pub(super) fn narrate_link_state(
     let expected = std::mem::take(&mut narration.expected_teardown);
 
     if previous.is_up() && !phase.is_up() {
-        // Falling edge. Sweep unconditionally — a ghost is a ghost whether
-        // or not we asked for the teardown — and narrate only when the drop
+        // Falling edge. Sweep unconditionally - a ghost is a ghost whether
+        // or not we asked for the teardown - and narrate only when the drop
         // is news to the user.
         for entity in &peers {
             // `try_despawn` for the reason portal.rs gives: a parent
@@ -479,7 +479,7 @@ mod tests {
 
     /// A `PeerId` for a fixture peer. `PeerId` is a newtype over a `Uuid`
     /// from a crate overlands does not depend on directly, and it has no
-    /// `Default` — its `Deserialize` is the only constructor reachable from
+    /// `Default` - its `Deserialize` is the only constructor reachable from
     /// here, and it is stable because the relay uses the same one.
     fn peer(n: u8) -> PeerId {
         serde_json::from_str(&format!("\"00000000-0000-0000-0000-0000000000{n:02}\""))
@@ -540,7 +540,7 @@ mod tests {
         }
     }
 
-    /// The reopen edge outranks the socket's absence — `open_socket` writes
+    /// The reopen edge outranks the socket's absence - `open_socket` writes
     /// `LocalSocketReopened` in the frame it *queues* the socket, so the
     /// resource is still gone when the message arrives. Reading presence
     /// first would render that frame "Offline" and flicker the chip on
@@ -595,7 +595,7 @@ mod tests {
     #[test]
     fn the_phase_is_derived_not_latched() {
         // A socket that has been welcomed reads Connected on the FIRST
-        // frame it is ever asked about — no prior Connected required.
+        // frame it is ever asked about - no prior Connected required.
         assert_eq!(next_phase(true, false, true), LinkPhase::Connected);
         // And a socket that has not been reads Connecting even if the
         // caller has been Connected all session: nothing latches.
@@ -630,7 +630,7 @@ mod tests {
         );
         assert_eq!(
             up_again_since.offer_expiry_line(20.0, "Lamp", "@alice"),
-            "Offer of \"Lamp\" to @alice never reached them — your connection dropped.",
+            "Offer of \"Lamp\" to @alice never reached them - your connection dropped.",
         );
     }
 
@@ -688,7 +688,7 @@ mod tests {
     }
 
     /// Every phase has a distinct chip label and a distinct sentence, and
-    /// only `Connected` reads as up — so the chip can never be the thing
+    /// only `Connected` reads as up - so the chip can never be the thing
     /// that says "fine" during an outage.
     #[test]
     fn every_phase_names_itself() {
@@ -706,9 +706,9 @@ mod tests {
     }
     /// THE SEQUENCE: welcomed, three peers in the room, the message loop
     /// dies and the plugin removes the socket. Before #1213 nothing
-    /// despawned a `RemotePeer` on a LOCAL teardown — upstream's
+    /// despawned a `RemotePeer` on a LOCAL teardown - upstream's
     /// `poll_peers` early-returns without emitting `Disconnected` when the
-    /// loop is dead — so three frozen ghosts stayed in the room, People
+    /// loop is dead - so three frozen ghosts stayed in the room, People
     /// kept counting them, and each was still a live drag-to-gift target.
     #[test]
     fn a_local_teardown_sweeps_the_ghost_peers_and_says_so_once() {
@@ -743,9 +743,9 @@ mod tests {
     }
 
     /// THE SEQUENCE: the link drops, is announced, and comes back. The
-    /// recovery half was entirely mute before #1213 — upstream reopens the
+    /// recovery half was entirely mute before #1213 - upstream reopens the
     /// socket and is welcomed again on every reconnect, and overlands
-    /// observed neither — so even a user who worked out what had happened
+    /// observed neither - so even a user who worked out what had happened
     /// was never told the client had fixed it.
     #[test]
     fn a_reconnect_is_announced_after_a_loss_was() {
@@ -770,7 +770,7 @@ mod tests {
                 .any(|e| matches!(e.payload, EventPayload::LinkRestored { .. })),
         );
         // A second flap gets its own matched pair, and the narration
-        // strictly alternates — a "Reconnected." can only ever follow a
+        // strictly alternates - a "Reconnected." can only ever follow a
         // "Connection lost", never another "Reconnected.".
         set_phase(&mut app, LinkPhase::Connecting, 5.0);
         app.update();
@@ -788,7 +788,7 @@ mod tests {
     }
 
     /// THE SEQUENCE: the session's first connect. `Down -> Connecting ->
-    /// Connected` is what every login does, and it must be silent — a
+    /// Connected` is what every login does, and it must be silent - a
     /// "Reconnected." on the first frame in a world would be a lie about a
     /// drop that never happened.
     #[test]
@@ -811,7 +811,7 @@ mod tests {
     /// THE SEQUENCE: a portal hop. `player::portal` re-points the socket at
     /// the destination's room URL and sweeps the peers itself; the teardown
     /// that follows is one we asked for, so it is swept but never narrated
-    /// — the user who just walked through a portal must not be told their
+    /// - the user who just walked through a portal must not be told their
     /// connection dropped.
     #[test]
     fn a_room_change_is_swept_but_not_narrated() {
@@ -840,7 +840,7 @@ mod tests {
     }
 
     /// THE SEQUENCE: log in, connect, log out, log back in. The narration
-    /// edge has to die with the session — carried in a `Local` it would
+    /// edge has to die with the session - carried in a `Local` it would
     /// survive, and the next login's first frame (no socket yet) would
     /// narrate itself as an outage.
     #[test]
@@ -864,7 +864,7 @@ mod tests {
 
     /// The resource is written on an edge only (#879). A `LinkState` that
     /// re-wrote itself every frame would mark itself changed every frame and
-    /// starve anything watching it — the exact shape of the prefs-debounce
+    /// starve anything watching it - the exact shape of the prefs-debounce
     /// bug the guarded-dirty rule exists for.
     #[test]
     fn the_link_state_is_written_only_on_an_edge() {
@@ -894,7 +894,7 @@ mod tests {
         );
 
         // One edge, then steady again. `LocalSocketReopened` is the only
-        // signal a socketless test app can raise — and it is the only one
+        // signal a socketless test app can raise - and it is the only one
         // left that is a message at all.
         app.world_mut()
             .resource_mut::<Messages<LocalSocketReopened>>()
@@ -907,7 +907,7 @@ mod tests {
         let after_edge = app.world().resource::<Changes>().0;
         assert_eq!(after_edge, baseline + 1, "the edge is exactly one write");
 
-        // With the socket resource absent the very next frame reads Down —
+        // With the socket resource absent the very next frame reads Down -
         // which is the real teardown signal, and the one write it earns.
         app.update();
         assert_eq!(app.world().resource::<LinkState>().phase(), LinkPhase::Down);
@@ -924,7 +924,7 @@ mod tests {
     /// `AppState`. `MatchboxSocket` cannot be built here, so the socket half
     /// of the signals is exercised by [`next_phase`] in the sequence test
     /// below; what THIS app can prove is the half #1279 actually got wrong
-    /// — which states the tracker is allowed to observe at all.
+    /// - which states the tracker is allowed to observe at all.
     fn gated_tracker_app() -> App {
         let mut app = App::new();
         // `MinimalPlugins` carries no `StatesPlugin`, and `init_state`
@@ -951,7 +951,7 @@ mod tests {
     ///
     /// `install_completed_session` inserts `SymbiosMultiuserConfig` and only
     /// THEN sets `Loading`, so the socket opens and the welcome lands during
-    /// `Loading` — 0.65 s and 1.9 s before `InGame` in the two login
+    /// `Loading` - 0.65 s and 1.9 s before `InGame` in the two login
     /// segments of the session log that reported this. Registered
     /// `run_if(in_state(InGame))`, the tracker was not running yet and the
     /// phase stayed `Down`; because the welcome was a message written once
@@ -964,7 +964,7 @@ mod tests {
 
         let mut app = gated_tracker_app();
 
-        // Login: no session, nothing to track — the tracker must not run.
+        // Login: no session, nothing to track - the tracker must not run.
         app.world_mut()
             .resource_mut::<Messages<LocalSocketReopened>>()
             .write(LocalSocketReopened);
@@ -989,7 +989,7 @@ mod tests {
         );
     }
 
-    /// `link_is_tracked` as a plain predicate — the run condition is a
+    /// `link_is_tracked` as a plain predicate - the run condition is a
     /// system, so this is the shape a test can assert on.
     fn link_is_tracked_in(state: AppState) -> bool {
         let mut app = App::new();
@@ -1006,13 +1006,13 @@ mod tests {
 
     /// THE SEQUENCE, in full (#1279): the relay welcomes us during
     /// `Loading`, and the phase is `Connected` by the time the player is in
-    /// the world — and stays that way, for as many frames as the socket
+    /// the world - and stays that way, for as many frames as the socket
     /// lives.
     ///
     /// This is the whole bug in one replay. Each step is the live facts of
-    /// one frame — the app state, whether the socket resource exists,
+    /// one frame - the app state, whether the socket resource exists,
     /// whether a reopen fired, and whether the relay has assigned our
-    /// `PeerId` — and the assertion is what a user reading the toolbar chip
+    /// `PeerId` - and the assertion is what a user reading the toolbar chip
     /// would see. The old code failed the `InGame` steps: the welcome was a
     /// message, `next_phase` could only reach `Connected` through it, and
     /// the frames that could have read it were frames the tracker was gated
@@ -1023,13 +1023,13 @@ mod tests {
         let login = [
             // Sign-in complete: the config is inserted, `Loading` begins,
             // and upstream queues the socket in the same frame it writes
-            // the reopen — the resource is not there yet.
+            // the reopen - the resource is not there yet.
             (AppState::Loading, false, true, false, LinkPhase::Connecting),
             // The socket resource lands. Still no answer from the relay.
             (AppState::Loading, true, false, false, LinkPhase::Connecting),
             // ~1.5 s of world compile with the handshake in flight.
             (AppState::Loading, true, false, false, LinkPhase::Connecting),
-            // The relay welcomes us and names us. STILL IN `Loading` — this
+            // The relay welcomes us and names us. STILL IN `Loading` - this
             // is the frame the old tracker was not running for, 0.65 s
             // before the loading gate opened.
             (AppState::Loading, true, false, true, LinkPhase::Connected),
@@ -1051,8 +1051,8 @@ mod tests {
             );
         }
 
-        // A thousand frames later — long past any message's two-frame life
-        // — the same live facts still read Connected. The chip that was
+        // A thousand frames later - long past any message's two-frame life
+        // - the same live facts still read Connected. The chip that was
         // stuck on "Connecting…" for a whole session is the assertion this
         // one replaces.
         assert_eq!(next_phase(true, false, true), LinkPhase::Connected);
@@ -1062,7 +1062,7 @@ mod tests {
     /// THE SEQUENCE, repeated (#1279): log out and log in again.
     ///
     /// `reset_link_state` runs `OnExit(InGame)`, so the second login starts
-    /// from a cleared `LinkState` exactly as the first did — which is why
+    /// from a cleared `LinkState` exactly as the first did - which is why
     /// the reported bug happened TWICE in one session log rather than once.
     /// A fix that only worked on the first login would leave the second
     /// stuck, so the relogin is asserted end to end.
@@ -1091,7 +1091,7 @@ mod tests {
         assert_eq!(app.world().resource::<LinkState>().phase(), LinkPhase::Down);
         enter(&mut app, AppState::Login);
 
-        // Second login. The gate must open again — a fix that latched
+        // Second login. The gate must open again - a fix that latched
         // anything into the first session would leave this one at Down.
         enter(&mut app, AppState::Loading);
         app.world_mut()

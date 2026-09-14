@@ -1,4 +1,4 @@
-//! Steampunk-theme catalogue structures — a brass-and-iron works wreathed in
+//! Steampunk-theme catalogue structures - a brass-and-iron works wreathed in
 //! amber steam.
 //!
 //! Two prosperity registers share one industrial-Victorian identity: the
@@ -26,7 +26,7 @@ pub mod monument;
 pub mod pipework;
 pub mod pressure_tank;
 pub mod pump_house;
-// Poor (soot-yard) variants — the prosperity-Poor end of the theme.
+// Poor (soot-yard) variants - the prosperity-Poor end of the theme.
 pub mod cog_scrap;
 pub mod scrap_boiler;
 pub mod tinkerers_shack;
@@ -48,18 +48,18 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the established works — a running foundry reads
+/// Shared prosperity band for the established works - a running foundry reads
 /// as a Modest-to-Rich concern. The poor end of the theme is the separate
 /// soot-yard kit ([`tinkerers_shack`], …), tagged `Poor`, so a destitute
 /// steampunk room grows the scrap yard instead.
 pub(super) const STEAM_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the soot-yard kit — the destitute end of the theme,
+/// Prosperity band for the soot-yard kit - the destitute end of the theme,
 /// never picked for a modest or affluent steampunk room.
 pub(super) const STEAM_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Polished brass — gauges, bands, cog teeth, lamp fittings, valve wheels.
+/// Polished brass - gauges, bands, cog teeth, lamp fittings, valve wheels.
 pub(super) fn brass(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -79,7 +79,7 @@ pub(super) fn brass(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Riveted dark iron — structural plate, frames, beams, pipes.
+/// Riveted dark iron - structural plate, frames, beams, pipes.
 pub(super) fn iron(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -99,7 +99,7 @@ pub(super) fn iron(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Orange copper — pipe runs, boiler vats, still coils.
+/// Orange copper - pipe runs, boiler vats, still coils.
 pub(super) fn copper(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -119,7 +119,7 @@ pub(super) fn copper(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Sooty brick — foundry, pump house and tower base walls.
+/// Sooty brick - foundry, pump house and tower base walls.
 pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -136,7 +136,7 @@ pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Rusting corrugated iron — shack walls, lean-to roofs, ducting.
+/// Rusting corrugated iron - shack walls, lean-to roofs, ducting.
 pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -153,7 +153,7 @@ pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Lit amber gauge / window glass — a faint inner glow (`glow`) so the dial
+/// Lit amber gauge / window glass - a faint inner glow (`glow`) so the dial
 /// reads as lit rather than dark.
 pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -191,7 +191,7 @@ pub(super) fn pane_grid(tint: [f32; 3], glow: f32, panes: (u32, u32)) -> Soverei
     m
 }
 
-/// Weathered plank — gangways, crates, the shack's patched cladding.
+/// Weathered plank - gangways, crates, the shack's patched cladding.
 ///
 /// `stagger` is held at zero (#972 lesson 4): any value above 0.01 switches on
 /// the generator's hard-coded three-butt-joints-per-tile grid, which the config
@@ -219,13 +219,13 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Build a toothed cog — the kit's signature silhouette. A cylindrical gear
+/// Build a toothed cog - the kit's signature silhouette. A cylindrical gear
 /// blank with `teeth` radial trapezoidal teeth around the rim, a raised hub
 /// and four cut-out lightening holes, lying flat in its local XZ plane (axis
 /// along local Y). Returned as one positioned subtree: `center`/`rot` orient
 /// the whole gear (`quat_x(±FRAC_PI_2)` stands it on edge or mounts it on a
 /// wall, facing ±Z). Drop it straight into an [`assemble`](super::util::assemble)
-/// list — the rebase keeps the gear's translation in the prop's world frame
+/// list - the rebase keeps the gear's translation in the prop's world frame
 /// and the teeth/hub ride its rotation. A smooth disc reads as a poker chip;
 /// the teeth are what make it a cog.
 pub(super) fn cog(
@@ -243,7 +243,7 @@ pub(super) fn cog(
         center,
         rot,
     );
-    // Radial teeth around the rim — each box juts outward, trapezoidal tip.
+    // Radial teeth around the rim - each box juts outward, trapezoidal tip.
     let tooth_len = radius * 0.42;
     let tooth_w = (TAU * radius / teeth as f32) * 0.55;
     for i in 0..teeth {
@@ -322,7 +322,7 @@ mod tests {
         }
     }
 
-    /// The cog tower is the kit's lit hero — it must keep its emissive clock
+    /// The cog tower is the kit's lit hero - it must keep its emissive clock
     /// and furnace glow so escalation's broken-emissive ruin pass has lights
     /// to snuff.
     #[test]

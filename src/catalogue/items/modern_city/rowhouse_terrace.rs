@@ -1,4 +1,4 @@
-//! Rowhouse terrace — a run of five brownstones sharing party walls, each
+//! Rowhouse terrace - a run of five brownstones sharing party walls, each
 //! with its own cladding, height and entrance, all under one cornice line.
 //!
 //! The item exists to show a terrace behaving the way a real one does: it
@@ -20,7 +20,7 @@
 //! stoop to roofline without any of those rules knowing which house they
 //! are in.
 //!
-//! Footprint 22 × 11 — a shallow city block frontage. `Repeat` cycles three
+//! Footprint 22 × 11 - a shallow city block frontage. `Repeat` cycles three
 //! bay widths so the party walls do not land on a metronome.
 
 use std::collections::HashMap;
@@ -35,7 +35,7 @@ use crate::seeded_defaults::{ProsperityBand, ThemeArchetype};
 
 use super::{BRICK_RED, CITY_BAND, LAMP_WARM, STEEL_GREY, brick, concrete, steel};
 
-/// Cool neutral glazing for the sash card. Never tinted warm — see
+/// Cool neutral glazing for the sash card. Never tinted warm - see
 /// [`sash_glass`].
 const SASH_GLASS: [f32; 3] = [0.42, 0.48, 0.54];
 /// The unlit interior seen through a dark window.
@@ -45,7 +45,7 @@ const ROOM_UNLIT: [f32; 3] = [0.07, 0.08, 0.10];
 ///
 /// Two departures from the shared helper, both deliberate:
 ///
-/// 1. **Coarser grid.** The kit's glass is tuned for curtain walls — a
+/// 1. **Coarser grid.** The kit's glass is tuned for curtain walls - a
 ///    4 × 5 grid of twenty panes, which on a 1.2 m house window reads as
 ///    an office elevation shrunk down. A sash is a handful of large lights.
 /// 2. **No bright tint, no emission.** A `Window` card is a single
@@ -53,7 +53,7 @@ const ROOM_UNLIT: [f32; 3] = [0.07, 0.08, 0.10];
 ///    lit room lights the joinery too, and the frame reads as glowing
 ///    plastic rather than painted timber. The card therefore stays a cool
 ///    neutral, and the light comes from a separate emissive surface set
-///    behind it (see the `LitWindow` rule) — which is also what makes the
+///    behind it (see the `LitWindow` rule) - which is also what makes the
 ///    masked panes read as an opening rather than a frame over solid wall.
 ///
 /// Local to this item on purpose: changing the kit helper would restyle
@@ -78,7 +78,7 @@ fn sash_glass() -> SovereignMaterialSettings {
     }
 }
 
-/// A plain emissive surface — no `Window` texture — set behind the sash to
+/// A plain emissive surface - no `Window` texture - set behind the sash to
 /// be the lit room. Flat, unpatterned and warm: all the character comes
 /// from the card in front of it.
 fn room_light(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
@@ -95,16 +95,16 @@ fn room_light(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
 const LOT_X: f32 = 22.0;
 const LOT_Z: f32 = 11.0;
 
-/// Second cladding brick — a browner stock alongside the kit's red.
+/// Second cladding brick - a browner stock alongside the kit's red.
 const BRICK_BROWN: [f32; 3] = [0.38, 0.27, 0.21];
 /// Painted render on the houses that were stuccoed over.
 const STUCCO_CREAM: [f32; 3] = [0.74, 0.71, 0.65];
-/// Pale dressed stone — cornices, stoops, sills.
+/// Pale dressed stone - cornices, stoops, sills.
 const TRIM_STONE: [f32; 3] = [0.80, 0.78, 0.74];
 /// Slate roofing and the tarred flat decks behind a parapet.
 const SLATE_GREY: [f32; 3] = [0.27, 0.29, 0.33];
 const DECK_TAR: [f32; 3] = [0.20, 0.20, 0.21];
-/// Painted front doors — the one saturated note on a brick street.
+/// Painted front doors - the one saturated note on a brick street.
 const DOOR_GREEN: [f32; 3] = [0.16, 0.30, 0.24];
 
 pub struct RowhouseTerrace;
@@ -122,7 +122,7 @@ impl CatalogueEntry for RowhouseTerrace {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
-    /// Residential street frontage for the established downtown — the
+    /// Residential street frontage for the established downtown - the
     /// destitute end of the theme is the separate [`super::tenement`].
     fn prosperity_band(&self) -> ProsperityBand {
         CITY_BAND
@@ -147,7 +147,7 @@ impl CatalogueEntry for RowhouseTerrace {
         terrace.transform.translation = Fp3([-LOT_X / 2.0, 0.0, -LOT_Z / 2.0]);
         // `attach` (not a bare push): `footing` returns a root whose own
         // transform is sunk by half the buried plinth, and a plain child
-        // inherits it — which drops the whole building below grade (#1039).
+        // inherits it - which drops the whole building below grade (#1039).
         crate::catalogue::items::util::attach(&mut root, terrace);
         root
     }
@@ -157,12 +157,12 @@ impl CatalogueEntry for RowhouseTerrace {
 /// cladding slots are what the per-house lottery chooses between.
 fn materials() -> HashMap<String, SovereignMaterialSettings> {
     let mut m = HashMap::new();
-    // Cladding — one of these is stamped per house and inherited downward.
+    // Cladding - one of these is stamped per house and inherited downward.
     m.insert("BrickRed".to_string(), brick(BRICK_RED));
     m.insert("BrickBrown".to_string(), brick(BRICK_BROWN));
     m.insert("Stucco".to_string(), concrete(STUCCO_CREAM));
     m.insert("StoneFace".to_string(), concrete(TRIM_STONE));
-    // Trim — always named explicitly, so it never inherits the cladding.
+    // Trim - always named explicitly, so it never inherits the cladding.
     m.insert("Trim".to_string(), concrete(TRIM_STONE));
     m.insert("Slate".to_string(), concrete(SLATE_GREY));
     m.insert("Deck".to_string(), concrete(DECK_TAR));
@@ -192,7 +192,7 @@ fn build_kind() -> GeneratorKind {
         // ── 2. Per-house identity ──
         //    Two independent draws, each from the house's own seed stream.
         //    `Mat` here propagates to every terminal below that does not
-        //    name its own material — that is the whole cladding mechanism.
+        //    name its own material - that is the whole cladding mechanism.
         "House --> 36% Mat(\"BrickRed\") Storeyed \
                    | 26% Mat(\"BrickBrown\") Storeyed \
                    | 22% Mat(\"Stucco\") Storeyed \
@@ -227,7 +227,7 @@ fn build_kind() -> GeneratorKind {
         "SashBay --> Split(Y) { 0.7: Wall | ~1: Glazing | 0.55: Lintel }",
         "BalconyBay --> Split(Y) { 0.55: BalconyRail | ~1: Glazing | 0.55: Lintel }",
         "BalconyRail --> Extrude(0.5) Mat(\"Iron\") I(\"Rail\")",
-        // Lit and dark windows mix along a street — this is deliberately a
+        // Lit and dark windows mix along a street - this is deliberately a
         // per-window roll, not a `Pick`.
         "Glazing --> 46% LitWindow | 54% DarkWindow",
         // The opening is cut to the wall's own depth, so the sash card sits
@@ -269,7 +269,7 @@ fn build_kind() -> GeneratorKind {
         footprint: Fp3([LOT_X, 0.0, LOT_Z]),
         seed: 23,
         materials: materials(),
-        // A terrace is square-plan throughout — nothing is turned.
+        // A terrace is square-plan throughout - nothing is turned.
         round_meshes: Vec::new(),
     }
 }
@@ -378,7 +378,7 @@ mod tests {
         }
     }
 
-    /// The elevation must be pierced, and banded vertically — a taller
+    /// The elevation must be pierced, and banded vertically - a taller
     /// house has to gain window rows, not stretch one. Guards the
     /// rhythm-group sizing that silently blanked the mill's hall.
     #[test]
@@ -440,7 +440,7 @@ mod tests {
         }
         assert!(
             seen_multi,
-            "no seed produced a row of mixed cladding — the per-house lottery is not firing"
+            "no seed produced a row of mixed cladding - the per-house lottery is not firing"
         );
     }
 
@@ -473,7 +473,7 @@ mod tests {
             assert_eq!(
                 present, 1,
                 "seed {seed}: the row mixed rooflines \
-                 (cornice {cornices}, parapet {parapets}, slate {slates}) — Pick lost coherence"
+                 (cornice {cornices}, parapet {parapets}, slate {slates}) - Pick lost coherence"
             );
         }
     }

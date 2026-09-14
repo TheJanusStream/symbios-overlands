@@ -1,4 +1,4 @@
-//! Prospector's shack — the Wild-West *poor* landmark. A tiny weathered
+//! Prospector's shack - the Wild-West *poor* landmark. A tiny weathered
 //! timber shack with a crooked stovepipe, a lean-to of tin and a pick left in
 //! the dirt. The bust counterpart to the [`saloon`](super::saloon): same
 //! frontier, opposite end of the prosperity axis (`Poor`), so a destitute room
@@ -52,11 +52,11 @@ impl CatalogueEntry for ProspectorShack {
 fn build_tree() -> Generator {
     let wall_h = 2.2_f32;
     let wall_top = wall_h;
-    // Render FRONT = −Z — door, window and clutter face −Z.
+    // Render FRONT = −Z - door, window and clutter face −Z.
     let front_z = -1.5_f32;
 
     let mut prims = vec![
-        // Weathered timber walls — the root.
+        // Weathered timber walls - the root.
         prim(
             solid(cuboid_tapered([3.4, wall_h, 3.0], 0.0, clapboard(WOOD_RAW))),
             [0.0, wall_h * 0.5, 0.0],
@@ -168,7 +168,7 @@ fn build_tree() -> Generator {
         [-2.0, 1.1, front_z + 0.7],
         id_quat(),
     ));
-    // A gold pan resting on the ground — a shallow tin basin.
+    // A gold pan resting on the ground - a shallow tin basin.
     prims.push(prim(
         solid(with_cut(
             sphere(0.46, 6, tin([0.62, 0.6, 0.56])),

@@ -84,7 +84,7 @@ pub(super) fn chaff_drift(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// The slow groan and creak of a wind pump — a low band-passed noise rasp
+/// The slow groan and creak of a wind pump - a low band-passed noise rasp
 /// swelling under a deep groan, turning lazily in the breeze.
 pub(super) fn windmill_creak() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));
@@ -153,7 +153,7 @@ pub(super) fn windmill_creak() -> SovereignAudioConfig {
     patch(vec![noise, bp, lfo, creak, groan, mix, lp], NodeId(6))
 }
 
-/// Evening crickets — two narrow high chirps pulsed at insect rates.
+/// Evening crickets - two narrow high chirps pulsed at insect rates.
 pub(super) fn crickets() -> SovereignAudioConfig {
     let voice = |base: u32, freq: f32, rate: f32| -> (Vec<GraphNode>, NodeId) {
         let osc = node(

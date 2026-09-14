@@ -1,4 +1,4 @@
-//! Blacksmith — a Medieval secondary and the kit's firelit hero. A
+//! Blacksmith - a Medieval secondary and the kit's firelit hero. A
 //! timber-framed open forge, daub-walled on three sides and open to the −Z
 //! front where the work is done: a tall corbelled fieldstone chimney with a
 //! tapered smoke hood over a glowing stone hearth, an iron anvil on an oak
@@ -65,7 +65,7 @@ fn build_tree() -> Generator {
     let back = dz * 0.5; // +Z back wall line
 
     let mut prims = vec![
-        // Fieldstone footing — the root.
+        // Fieldstone footing - the root.
         prim(
             solid(cuboid_tapered(
                 [lx + 1.0, foot_h, dz + 1.0],
@@ -162,7 +162,7 @@ fn build_tree() -> Generator {
         [hx, foot_h + 1.9, hearth_z + 0.05],
         id_quat(),
     ));
-    // Glowing forge mouth set into the −Z face of the hearth — the emissive
+    // Glowing forge mouth set into the −Z face of the hearth - the emissive
     // heart, crackling. A flat face so the glow reads cleanly.
     let mouth = [hx, foot_h + 0.7, hearth_z - 0.66];
     let mut fire = prim(

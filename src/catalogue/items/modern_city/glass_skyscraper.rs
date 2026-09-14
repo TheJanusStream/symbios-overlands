@@ -1,4 +1,4 @@
-//! Glass skyscraper — the Modern-City landmark. A curtain-wall tower of lit
+//! Glass skyscraper - the Modern-City landmark. A curtain-wall tower of lit
 //! blue glass banded by steel spandrels, stepping back once near the top to
 //! a flat roof of mechanical units, an antenna mast, and an aircraft-warning
 //! beacon. Rooftop steam drifts over a low air-handler hum. ~46 m tall, so
@@ -18,14 +18,14 @@ use super::{CONCRETE_GREY, GLASS_BLUE, LAMP_WARM, STEEL_GREY, concrete, fx, stee
 
 /// Glaze the four faces of a square shaft (half-width `hw`, height `h` from
 /// `y0`) with a [`window_card`] on a [`plane`] apiece, standing just proud of
-/// the core so the cut panes reveal the lit interior behind — the curtain wall
+/// the core so the cut panes reveal the lit interior behind - the curtain wall
 /// as real glazing, not a `Window` texture tiled over a solid box. `cols`/`rows`
 /// are the horizontal/vertical pane counts; on the ±X faces the plane is turned
 /// with [`quat_z`], which swaps the card's axes, so they pass `(rows, cols)`.
 fn glaze_faces(prims: &mut Vec<Generator>, hw: f32, y0: f32, h: f32, cols: u32, rows: u32) {
     let cy = y0 + h * 0.5;
     let eps = 0.06;
-    // ±Z faces — size reads [width-X, height-Y].
+    // ±Z faces - size reads [width-X, height-Y].
     for s in [-1.0_f32, 1.0] {
         let q = if s < 0.0 {
             quat_x(-FRAC_PI_2)
@@ -41,7 +41,7 @@ fn glaze_faces(prims: &mut Vec<Generator>, hw: f32, y0: f32, h: f32, cols: u32, 
             q,
         ));
     }
-    // ±X faces — the quat_z turn maps the card's U onto Y, so size is
+    // ±X faces - the quat_z turn maps the card's U onto Y, so size is
     // [height, width-Z] and the pane counts swap to (rows, cols).
     for s in [-1.0_f32, 1.0] {
         let q = if s < 0.0 {
@@ -62,7 +62,7 @@ fn glaze_faces(prims: &mut Vec<Generator>, hw: f32, y0: f32, h: f32, cols: u32, 
 
 /// Ring `bays - 1` intermediate vertical mullions around each face of a square
 /// glass shaft of half-width `hw`, from `y0` over height `h`, held proud of the
-/// glazing — turns a plain glass box into a read-as-glazed curtain-wall grid.
+/// glazing - turns a plain glass box into a read-as-glazed curtain-wall grid.
 fn shaft_mullions(prims: &mut Vec<Generator>, hw: f32, y0: f32, h: f32, bays: u32) {
     let cy = y0 + h * 0.5;
     for i in 1..bays {
@@ -125,7 +125,7 @@ fn build_tree() -> Generator {
     let upper_h = 16.0_f32;
 
     let mut prims = vec![
-        // Concrete plaza base — the root.
+        // Concrete plaza base - the root.
         prim(
             solid(cuboid_tapered(
                 [16.0, plaza_h, 16.0],
@@ -137,7 +137,7 @@ fn build_tree() -> Generator {
         ),
     ];
     // Buried footing under the plaza base. Authored in the same ground
-    // frame as every other prim here — `assemble` rebases it.
+    // frame as every other prim here - `assemble` rebases it.
     prims.push(footing(16.0, 16.0, [0.0, 0.0], 16.0));
 
     // Lower shaft: a lit blue core, glazed on every face. The core is an
@@ -177,7 +177,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Intermediate vertical mullions ringing the lower shaft — the glazed grid.
+    // Intermediate vertical mullions ringing the lower shaft - the glazed grid.
     shaft_mullions(&mut prims, lower_w * 0.5, lower_y0, lower_h, 4);
 
     // Glazed two-storey ground lobby on the −Z render front: a recessed dark
@@ -199,7 +199,7 @@ fn build_tree() -> Generator {
         [0.0, lower_y0 + 2.1, front_z - 0.32],
         id_quat(),
     ));
-    // Glass doors — a cut window card on a plane over the reception.
+    // Glass doors - a cut window card on a plane over the reception.
     prims.push(prim(
         plane([5.2, 4.0], window_card([0.16, 0.22, 0.28], 4, 2, 0.3, 0.03)),
         [0.0, lower_y0 + 2.1, front_z - 0.42],
@@ -281,7 +281,7 @@ fn build_tree() -> Generator {
         [0.0, roof_y + 0.42, 0.0],
         id_quat(),
     ));
-    // Mechanical penthouse — a stepped cluster of rooftop plant.
+    // Mechanical penthouse - a stepped cluster of rooftop plant.
     prims.push(prim(
         solid(cuboid_tapered(
             [4.4, 1.6, 4.0],
@@ -339,7 +339,7 @@ mod tests {
     }
 
     /// #954: every `Window` card (all four curtain-wall faces + the lobby) sits
-    /// on a `Plane` at `uv_scale` 1.0 — spans once, no per-metre tiling — and,
+    /// on a `Plane` at `uv_scale` 1.0 - spans once, no per-metre tiling - and,
     /// a landmark embedded in room records, the tree survives a serde round-trip.
     #[test]
     fn glazing_is_planes_and_round_trips() {

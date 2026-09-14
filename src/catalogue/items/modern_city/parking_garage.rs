@@ -1,4 +1,4 @@
-//! Parking garage — a Modern-City secondary. An open concrete deck
+//! Parking garage - a Modern-City secondary. An open concrete deck
 //! structure: stacked slabs on a column grid with spandrel rails and a
 //! stair/elevator core, a few cars parked on the ground level. The blunt
 //! infrastructure between the glass towers.
@@ -17,8 +17,8 @@ use super::{
     CAR_BODY, CAR_GLASS, CONCRETE_GREY, STEEL_GREY, TIRE_BLACK, concrete, enamel, glass, steel,
 };
 
-/// A small parked car as a self-contained subtree — an enamel body, a glazed
-/// cabin, and four round wheels — yawed as a whole by its root.
+/// A small parked car as a self-contained subtree - an enamel body, a glazed
+/// cabin, and four round wheels - yawed as a whole by its root.
 fn parked_car(cx: f32, cz: f32, yaw: f32, body: [f32; 3]) -> Generator {
     let mut root = prim(
         solid(cuboid_tapered([3.6, 0.7, 1.7], 0.08, enamel(body))),
@@ -101,7 +101,7 @@ fn build_tree() -> Generator {
     let total_h = decks as f32 * deck_gap;
 
     let mut prims = vec![
-        // Ground slab — the root.
+        // Ground slab - the root.
         prim(
             solid(cuboid_tapered(
                 [w + 1.0, 0.5, d + 1.0],

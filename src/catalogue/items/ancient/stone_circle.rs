@@ -1,4 +1,4 @@
-//! Stone circle — a ring of eight tapered monoliths with two lintel
+//! Stone circle - a ring of eight tapered monoliths with two lintel
 //! capstones and a low central altar carrying a faintly glowing orb.
 //! The wilderness landmark: no walls, no roof, just megaliths that
 //! read at any scale and fit every biome from tundra to volcanic.
@@ -6,7 +6,7 @@
 //! Frame convention mirrors the lighthouse: the root is the altar
 //! block whose base sits at the generator origin; the monolith ring is
 //! positioned relative to it. The placement's terrain snap puts the
-//! altar on the ground — on slopes the outer stones float or sink a
+//! altar on the ground - on slopes the outer stones float or sink a
 //! little, which suits a ruin.
 
 use crate::catalogue::items::util::{tile, tiles_per_metre};
@@ -68,7 +68,7 @@ fn megalith_mat() -> SovereignMaterialSettings {
 fn build_tree() -> Generator {
     let orb_glow = [0.55, 0.85, 1.0];
 
-    // Altar block — the root; base at the generator origin.
+    // Altar block - the root; base at the generator origin.
     let altar_h = 0.9;
     let mut root = prim(
         solid(cuboid_tapered([2.4, altar_h, 1.6], 0.10, megalith_mat())),
@@ -102,8 +102,8 @@ fn build_tree() -> Generator {
     let is_pair = |i: usize| pairs.iter().any(|&p| i == p || i == p + 1);
     let tall = 4.0;
     let stone_height = |i: usize| if is_pair(i) { tall } else { 3.0 };
-    // Each upright extends `root_depth` below grade — the henge's per-stone
-    // "foundation" — so slope-snapped rings never show daylight under a
+    // Each upright extends `root_depth` below grade - the henge's per-stone
+    // "foundation" - so slope-snapped rings never show daylight under a
     // stone. Trilithon uprights take their *lintel's* yaw (the chord
     // mid-angle) so their rotated top corners tuck under the lintel ends
     // instead of jutting out as "ears"; the plain stones face the centre.
@@ -132,7 +132,7 @@ fn build_tree() -> Generator {
     }
 
     // Lintel capstones bridging each trilithon pair (adjacent uprights 45°
-    // apart) — the trilithon silhouette. Each sits at its pair's chord
+    // apart) - the trilithon silhouette. Each sits at its pair's chord
     // midpoint, yawed to run along the chord, overhanging both uprights and
     // sunk a touch so its underside overlaps the upright tops rather than
     // resting coplanar with them.

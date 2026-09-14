@@ -1,4 +1,4 @@
-//! Resort pier — a Coastal-Resort secondary. A long timber-plank deck on
+//! Resort pier - a Coastal-Resort secondary. A long timber-plank deck on
 //! concrete pilings striding out over the surf to a canvas-roofed pavilion
 //! at its head, railed the whole way. Sea spray flings up off the end
 //! pilings and a slow surf wash rolls under the deck, the signature life of
@@ -59,7 +59,7 @@ fn build_tree() -> Generator {
     let center_z = z0 + length * 0.5;
 
     let mut prims = vec![
-        // Plank deck — the root, raised on the pilings.
+        // Plank deck - the root, raised on the pilings.
         prim(
             solid(cuboid_tapered([4.0, 0.3, length], 0.0, plank(DECK_PALE))),
             [0.0, deck_y, center_z],

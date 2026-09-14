@@ -1,10 +1,10 @@
-//! Solar panel — a Solarpunk prop. A glossy gridded photovoltaic array tilted
+//! Solar panel - a Solarpunk prop. A glossy gridded photovoltaic array tilted
 //! to the sun on a steel A-frame over a concrete footing. Scatter clutter
 //! powering the eco-quarter.
 //!
 //! The footing pad is the [`assemble`] root (flat, `id_quat`); the tilted PV
 //! panel is a rotation-safe child (a tilted panel can never be the root, or
-//! its rotation spins the legs out of place — the prior version did exactly
+//! its rotation spins the legs out of place - the prior version did exactly
 //! that). The panel's lit gridded face tilts toward the −Z hero camera.
 
 use crate::catalogue::items::space_outpost::pv_panel;
@@ -50,7 +50,7 @@ impl CatalogueEntry for SolarPanel {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Concrete footing pad — the flat root.
+        // Concrete footing pad - the flat root.
         prim(
             solid(cuboid_tapered(
                 [2.6, 0.12, 1.9],
@@ -84,7 +84,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Gridded PV panel — a rotation-safe child, lit gridded face tilted up and
+    // Gridded PV panel - a rotation-safe child, lit gridded face tilted up and
     // toward the −Z camera (high edge at +Z back, low edge at −Z front).
     let mut panel = pv_panel(2.4, 1.7, pv(PV_BLUE), steel(STEEL_GREY));
     panel.transform.translation = Fp3([0.0, 1.18, 0.0]);

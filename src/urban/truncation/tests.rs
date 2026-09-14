@@ -4,8 +4,8 @@ use crate::urban::{Chain, Dims, RoadParts, build_road_graph, extract_chains, ext
 use bevy_symbios_ground::HeightMap;
 
 /// #575: a clean orthogonal cross truncates every arm by exactly the outer
-/// footprint half-width `wo` — the adjacent-boundary solve's closed form for
-/// right-angle arms — while the non-junction far ends are left untrimmed.
+/// footprint half-width `wo` - the adjacent-boundary solve's closed form for
+/// right-angle arms - while the non-junction far ends are left untrimmed.
 #[test]
 fn truncation_pulls_arms_back_at_an_orthogonal_cross() {
     let dims = Dims::from_config(&cfg(7));
@@ -81,7 +81,7 @@ fn trim_polyline_consumes_short_chain() {
     assert!(trim_polyline(&pts, 4.0, 4.0).len() < 2);
 }
 
-/// #575: truncation never changes the geometry's determinism — the same
+/// #575: truncation never changes the geometry's determinism - the same
 /// chains yield byte-identical pull-backs each run.
 #[test]
 fn truncation_is_deterministic() {
@@ -112,7 +112,7 @@ fn truncation_caps_an_acute_fork() {
     let dims = Dims::from_config(&cfg(7));
     let w = dims.minor_half_width;
     let cap = MAX_TRUNCATION_FACTOR * (w + dims.curb_top_width + dims.chamfer_width);
-    // Two arms leaving node 0 ~5° apart — a sliver fork. Long arms (60 m) so
+    // Two arms leaving node 0 ~5° apart - a sliver fork. Long arms (60 m) so
     // the baseline heading is unambiguous and nothing else trims them.
     let ang = 5.0_f32.to_radians();
     let arm = |a: f32, far: usize| Chain {
@@ -141,7 +141,7 @@ fn truncation_caps_an_acute_fork() {
 /// #575: a T-junction's straight through road is two anti-parallel adjacent
 /// arms, so its 2×2 boundary solve is singular and takes the parallel
 /// fallback `(w_a + w_b)/2 = wo`. Every arm (through pair + side street)
-/// truncates to `wo`. (This is the commonest real junction — the fallback is
+/// truncates to `wo`. (This is the commonest real junction - the fallback is
 /// load-bearing, so it gets its own pin.)
 #[test]
 fn truncation_handles_a_t_junction_through_pair() {
@@ -169,7 +169,7 @@ fn truncation_handles_a_t_junction_through_pair() {
 
 /// #575: a wide-open 120° Y is so splayed the adjacent-boundary solve returns
 /// *less* than the half-width floor, so every arm pins to `half_w` (not `wo`).
-/// Pins the floor branch — the dominant organic-junction regime — which a
+/// Pins the floor branch - the dominant organic-junction regime - which a
 /// dropped floor-init would silently under-truncate.
 #[test]
 fn truncation_floors_a_wide_y_at_the_half_width() {
@@ -185,7 +185,7 @@ fn truncation_floors_a_wide_y_at_the_half_width() {
             clip: [false, false],
         }
     };
-    // 90° / 210° / 330° — three arms 120° apart.
+    // 90° / 210° / 330° - three arms 120° apart.
     let chains = [arm(90.0, 1), arm(210.0, 2), arm(330.0, 3)];
     let trims = compute_truncations(&chains, |nd| nd == 0, &dims);
     for (ci, t) in trims.iter().enumerate() {
@@ -200,7 +200,7 @@ fn truncation_floors_a_wide_y_at_the_half_width() {
 
 /// #575 regression (review wf_e27b3d8b-91d): a short connector between two
 /// junctions is shorter than its combined pull-back, so before the clamp it
-/// trimmed to nothing and BOTH junctions silently lost an arm — and a
+/// trimmed to nothing and BOTH junctions silently lost an arm - and a
 /// mouth-driven hub with < 3 arms is dropped entirely (a hole at a real
 /// intersection). The clamp keeps a meshable stub, so each junction still
 /// records all three mouths and grows its hub.
@@ -266,7 +266,7 @@ fn short_junction_connector_keeps_both_hubs() {
 /// #575 regression on the real pilot network (review wf_e27b3d8b-91d measured
 /// 12 of 45 junctions losing their hub before the clamp): replays
 /// `build_road_geometry`'s mouth collection and asserts every junction keeps
-/// exactly the mouths its incident chains carry — no arm is silently trimmed
+/// exactly the mouths its incident chains carry - no arm is silently trimmed
 /// out of existence, so no real intersection is left a hole.
 #[test]
 fn pilot_junctions_keep_every_mouth_after_truncation() {

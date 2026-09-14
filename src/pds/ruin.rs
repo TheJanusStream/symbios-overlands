@@ -1,4 +1,4 @@
-//! Escalation-driven geometric damage — the "Ruins" modifier.
+//! Escalation-driven geometric damage - the "Ruins" modifier.
 //!
 //! After a settlement member is built and material-finished (see
 //! [`material_finish`](crate::pds::material_finish)), [`apply_ruin`] leans,
@@ -6,16 +6,16 @@
 //! escalation tier, so a fought-over settlement reads as battered and
 //! ruined while a peaceful one stands untouched:
 //!
-//! - [`EscalationTier::Calm`] — no-op.
-//! - [`EscalationTier::Tense`] — light wear: a slight lean, a small settle
+//! - [`EscalationTier::Calm`] - no-op.
+//! - [`EscalationTier::Tense`] - light wear: a slight lean, a small settle
 //!   into the ground, a touch smaller.
-//! - [`EscalationTier::Conflict`] — heavy ruin: a pronounced topple, a
+//! - [`EscalationTier::Conflict`] - heavy ruin: a pronounced topple, a
 //!   deeper sink, a fraction of the top-level parts collapsed away (with
 //!   the survivors knocked askew), and a little rubble scattered at the
 //!   base.
 //!
 //! Collapse is **support-aware** (#776): parts carry a coarse conservative
-//! bounding box and removal proceeds top-down — a part that still holds a
+//! bounding box and removal proceeds top-down - a part that still holds a
 //! standing part above it cannot be destroyed, and a sweep afterwards fells
 //! anything left without a contact chain to the ground (a lamp whose roof
 //! is gone). A collapsed part either vanishes or topples to the ground as
@@ -52,7 +52,7 @@ const GROUND_TOL: f32 = 0.35;
 /// rather than vanish outright.
 const FELL_FRACTION: f32 = 0.5;
 /// Askew multiplier for survivors that still hold a standing part above
-/// them — a wall under an intact roof barely leans, so their contact isn't
+/// them - a wall under an intact roof barely leans, so their contact isn't
 /// visually broken; free-standing survivors take the full stagger.
 const SUPPORTER_ASKEW: f32 = 0.25;
 
@@ -99,7 +99,7 @@ pub fn apply_ruin(node: &mut Generator, escalation: f32, seed: u64) {
     }
 }
 
-/// Snuff or gutter the emissive on a fraction of materials — the dead and
+/// Snuff or gutter the emissive on a fraction of materials - the dead and
 /// flickering neon of a fought-over settlement. Cross-theme safe: materials
 /// with no emission (most non-cyberpunk surfaces) are left untouched, so
 /// this is a no-op anywhere there's nothing to break.
@@ -174,7 +174,7 @@ impl Bounds {
 /// kinds with no support-relevant volume (particles, water, portals, …).
 /// Prim meshes are origin-centred (Bevy primitive convention), so most arms
 /// are symmetric boxes; Lathe / Spine / BlobGroup carry explicit local
-/// coordinates and use them. Torture / cuts are ignored — staying a little
+/// coordinates and use them. Torture / cuts are ignored - staying a little
 /// too big is the conservative direction for a support test.
 fn kind_bounds(kind: &GeneratorKind) -> Option<Bounds> {
     use GeneratorKind as K;
@@ -367,7 +367,7 @@ fn xz_overlap(a: &Bounds, b: &Bounds) -> bool {
     a.min[0] < b.max[0] && b.min[0] < a.max[0] && a.min[2] < b.max[2] && b.min[2] < a.max[2]
 }
 
-/// Whether the two boxes touch (within [`SUPPORT_TOL`]) on all three axes —
+/// Whether the two boxes touch (within [`SUPPORT_TOL`]) on all three axes -
 /// the contact edge of the support graph.
 fn in_contact(a: &Bounds, b: &Bounds) -> bool {
     (0..3).all(|k| a.min[k] <= b.max[k] + SUPPORT_TOL && b.min[k] <= a.max[k] + SUPPORT_TOL)
@@ -395,20 +395,20 @@ enum Fate {
 /// Collapse a fraction of the top-level parts without leaving anything
 /// hanging in the air. Two passes over a coarse support model (#776):
 ///
-/// 1. **Top-down removal** — parts are visited highest-top first and roll
+/// 1. **Top-down removal** - parts are visited highest-top first and roll
 ///    `collapse_p`; a part that still holds a standing part above it is
 ///    skipped, so roofs go before the walls beneath them. The part with the
 ///    lowest base is the anchor and never collapses, so nothing fully
 ///    vanishes.
-/// 2. **Ground-connectivity sweep** — any standing part left without a
+/// 2. **Ground-connectivity sweep** - any standing part left without a
 ///    contact chain to the ground (its base near the structure's lowest
 ///    point, the root's own prim, or a supported neighbour) collapses too:
 ///    the lamp whose roof was destroyed falls with it.
 ///
-/// A collapsed part vanishes or is felled ([`FELL_FRACTION`]) — toppled hard
+/// A collapsed part vanishes or is felled ([`FELL_FRACTION`]) - toppled hard
 /// and dropped to rest at the base as debris. Survivors are knocked askew,
 /// scaled down by [`SUPPORTER_ASKEW`] when they still hold something up.
-/// Nodes without children — grammars whose geometry is internal — are
+/// Nodes without children - grammars whose geometry is internal - are
 /// untouched.
 fn collapse_children(node: &mut Generator, collapse_p: f32, max_lean: f32, rng: &mut ChaCha8Rng) {
     let n = node.children.len();
@@ -462,7 +462,7 @@ fn collapse_children(node: &mut Generator, collapse_p: f32, max_lean: f32, rng: 
 
     // Pass 2: fell every standing part with no contact chain to the ground.
     // Support only propagates through standing supported parts, so one
-    // fixpoint suffices — a chain through a collapsed part never proves
+    // fixpoint suffices - a chain through a collapsed part never proves
     // anything.
     let standing = |fate: &[Fate], i: usize| fate[i] == Fate::Stands;
     let mut supported = vec![false; n];
@@ -546,7 +546,7 @@ fn fell_part(child: &mut Generator, b: &Bounds, base_y: f32, rng: &mut ChaCha8Rn
     child.transform.translation.0[1] += (base_y + lying_half * 0.9) - centre[1];
 }
 
-/// Broken masonry rubble — board-formed concrete with formwork pitting, in
+/// Broken masonry rubble - board-formed concrete with formwork pitting, in
 /// a weathered grey that varies a little block-to-block.
 fn rubble_material(grey: f32) -> SovereignMaterialSettings {
     let color = [grey, grey * 0.97, grey * 0.92];
@@ -606,7 +606,7 @@ fn scatter_rubble(node: &mut Generator, rng: &mut ChaCha8Rng) {
 }
 
 /// Compose a small horizontal tilt `(ax, _, az)` onto an existing yaw
-/// quaternion — a rubble block knocked off-level.
+/// quaternion - a rubble block knocked off-level.
 fn tumble(yaw: [f32; 4], ax: f32, az: f32) -> [f32; 4] {
     let len = (ax * ax + az * az).sqrt();
     if len < 1e-5 {
@@ -636,7 +636,7 @@ mod tests {
     use super::*;
 
     fn structure() -> Generator {
-        // A root with three child parts — stands in for a primitive-built
+        // A root with three child parts - stands in for a primitive-built
         // catalogue member.
         let part = |y: f32| Generator {
             kind: GeneratorKind::Cuboid {
@@ -710,7 +710,7 @@ mod tests {
             "conflict ({conflict_sink}) should sink more than tense ({tense_sink})"
         );
         // Tense keeps every part (no collapse); conflict can drop some and
-        // adds rubble — in either case it never fully empties the member.
+        // adds rubble - in either case it never fully empties the member.
         assert_eq!(tense.children.len(), 3, "tense keeps all parts");
         assert!(!conflict.children.is_empty());
     }
@@ -761,7 +761,7 @@ mod tests {
         }
 
         // Across rooms, a conflict ruin should snuff or gutter some neon
-        // (dim it below its authored 8.0) — broken signage.
+        // (dim it below its authored 8.0) - broken signage.
         let any_broken = (0u64..20).any(|s| {
             let mut node = lit(1.0);
             node.children = vec![lit(2.0), lit(3.0), lit(4.0)];
@@ -795,13 +795,13 @@ mod tests {
 
     // -- support-aware collapse (#776) ------------------------------------
 
-    /// Roof slab size — X extent outside the rubble band (0.15..0.45) so the
+    /// Roof slab size - X extent outside the rubble band (0.15..0.45) so the
     /// part stays identifiable after ruin adds rubble cuboids.
     const ROOF: [f32; 3] = [4.0, 0.3, 4.0];
     /// Pendant hanging just under the roof (in contact with it, nothing
     /// below it).
     const PENDANT: [f32; 3] = [0.5, 0.24, 0.5];
-    /// Free-standing crate on the slab — the lowest-based part, so it is
+    /// Free-standing crate on the slab - the lowest-based part, so it is
     /// the collapse anchor and the columns stay genuinely removable.
     const CRATE: [f32; 3] = [0.6, 0.6, 0.6];
 
@@ -915,7 +915,7 @@ mod tests {
             let mut p = pavilion();
             apply_ruin(&mut p, 0.95, seed);
             // The crate has the lowest base, so it is the anchor: always
-            // present, standing (its authored XZ untouched — fell/askew
+            // present, standing (its authored XZ untouched - fell/askew
             // never move a standing anchor laterally).
             let crate_part = p
                 .children
@@ -952,7 +952,7 @@ mod tests {
     /// Every primitive on the [`crate::for_each_primitive!`] roster has a
     /// `kind_bounds` arm.
     ///
-    /// `kind_bounds` ends in a `_ => None` catch-all — correct for the
+    /// `kind_bounds` ends in a `_ => None` catch-all - correct for the
     /// variants with no support-relevant volume (water, portals, particles),
     /// and silently wrong for a primitive that never got an arm: it would
     /// take no part in the support model, so the damage pass would leave it

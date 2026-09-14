@@ -1,4 +1,4 @@
-//! Flowering tree — a small ornamental blossom tree (#910 WS2 expansion)
+//! Flowering tree - a small ornamental blossom tree (#910 WS2 expansion)
 //! for meadows and lush valleys. A short trunk carries a stochastic
 //! sympodial crown (the same organic fork family as the redesigned
 //! sympodial broadleaf, scaled down); at finalization every apex blooms
@@ -35,7 +35,7 @@ impl CatalogueEntry for FloweringTree {
 
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
-    // 0 — dark ornamental bark.
+    // 0 - dark ornamental bark.
     materials.insert(
         0,
         SovereignMaterialSettings {
@@ -50,7 +50,7 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 1 — fresh green crown leaf.
+    // 1 - fresh green crown leaf.
     materials.insert(
         1,
         SovereignMaterialSettings {
@@ -64,7 +64,7 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 2 — pink blossom cluster (Flower sprite; the default petal palette
+    // 2 - pink blossom cluster (Flower sprite; the default petal palette
     // is already the soft cherry pink).
     materials.insert(
         2,
@@ -81,7 +81,7 @@ fn build_kind() -> GeneratorKind {
 
     GeneratorKind::LSystem {
         // Short axiom trunk, then the stochastic sympodial fork family
-        // (two-fork / three-fork / extend) at reduced scale — a garden
+        // (two-fork / three-fork / extend) at reduced scale - a garden
         // tree, not a park giant. Finalization blooms each apex into a
         // mixed dome: green leaf ring below (,(1)), pink blossom cards
         // above and outward (,(2)) so the crown reads leaf-lined with

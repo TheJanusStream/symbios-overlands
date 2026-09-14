@@ -5,18 +5,18 @@
 //! `LinearVelocity` for locals, 1-frame finite-difference for peers
 //! whose components do not currently carry the velocity), probes each
 //! surface registry, and emits [`ContactSample`]s into the
-//! [`AvatarContacts`] resource — clearing it first so consumers only
+//! [`AvatarContacts`] resource - clearing it first so consumers only
 //! see this frame's data.
 //!
 //! Two internal state caches survive across frames:
 //!
-//! - [`PeerVelocityCache`] — last frame's `(position, time)` per peer
+//! - [`PeerVelocityCache`] - last frame's `(position, time)` per peer
 //!   entity, used for the finite-difference velocity fallback. Entries
 //!   for despawned peers are pruned each frame.
-//! - [`ContactPersistence`] — last frame's [`SurfaceContact`] per
+//! - [`ContactPersistence`] - last frame's [`SurfaceContact`] per
 //!   avatar, used to emit `Enter` / `Dwell` / `Exit` phases
 //!   automatically. A despawned avatar's last surface is silently
-//!   dropped — we don't synthesise an `Exit` for a vanished entity
+//!   dropped - we don't synthesise an `Exit` for a vanished entity
 //!   because the consumer would have no place to spawn an effect.
 //!
 //! The pure logic (probe, phase computation, intensity) is split out so
@@ -58,7 +58,7 @@ pub struct ContactPersistence {
 /// CPU mirror of the terrain surface, the land analogue of
 /// [`WaterSurfaces`]. Wraps a [`TerrainQuery`] (heightmap + splat
 /// mapper) so the classifier can read ground height, surface normal and
-/// splat weights at any world XZ without a physics raycast — the
+/// splat weights at any world XZ without a physics raycast - the
 /// heightfield collider *is* this heightmap, so a height query is
 /// equivalent to (and cheaper / deterministic vs.) casting a ray at it.
 ///
@@ -67,7 +67,7 @@ pub struct ContactPersistence {
 /// whenever the terrain regenerates.
 ///
 /// Memory: the wrapped [`TerrainQuery`] owns a clone of the heightmap
-/// (`grid² × 4` bytes — ~1 MiB at the default 512 grid) plus the tiny
+/// (`grid² × 4` bytes - ~1 MiB at the default 512 grid) plus the tiny
 /// [`SplatMapper`](bevy_symbios_ground::SplatMapper). One copy total, on
 /// the main world only.
 #[derive(Resource)]
@@ -110,12 +110,12 @@ pub(crate) struct Transition {
 /// Probe the water registry against an avatar's body bottom. Returns
 /// `Some(SurfaceContact::Water)` when in contact, else `None`. Terrain
 /// is probed separately by [`probe_terrain`]; [`emit_for_avatar`]
-/// selects between them (water wins when both hit — an avatar wading in
+/// selects between them (water wins when both hit - an avatar wading in
 /// a shallow pond reads as "in water", not "on ground").
 ///
 /// Contact is tested at the avatar's **body bottom**
 /// (`world_pos.y − total_height/2`), not the chassis origin. Probing
-/// the origin made emission razor-sensitive to height — a vehicle
+/// the origin made emission razor-sensitive to height - a vehicle
 /// whose origin floats above the waterline (hull in the water, origin
 /// not) produced nothing, since `WaterSurfaces::query` culls points
 /// above the surface. Probing the body bottom with `query_signed`
@@ -128,7 +128,7 @@ pub(crate) struct Transition {
 /// [`wcfg::CONTACT_SLACK`]; once in contact the avatar stays in
 /// contact until its body bottom rises past the much wider
 /// [`wcfg::CONTACT_EXIT_SLACK`]. The hysteresis band absorbs the
-/// settling bob of a decelerating hull — without it the body bottom
+/// settling bob of a decelerating hull - without it the body bottom
 /// chatters across a single threshold every frame, flipping
 /// Exit→Enter and spawning a burst of splash rings as the boat halts.
 ///
@@ -174,7 +174,7 @@ pub(crate) fn probe_water(
 /// Mirrors the water Schmitt trigger ([`probe_water`]): the body bottom
 /// must be within [`gcfg::CONTACT_SLACK`] above the ground to *enter*
 /// contact, and stays in contact until it rises past the wider
-/// [`gcfg::CONTACT_EXIT_SLACK`] — the hysteresis absorbs the few-cm
+/// [`gcfg::CONTACT_EXIT_SLACK`] - the hysteresis absorbs the few-cm
 /// jitter of a capsule resting on a heightfield so a standing avatar
 /// does not chatter Exit→Enter (which would restart footprint
 /// stamping every frame).
@@ -274,7 +274,7 @@ pub(crate) fn compute_transitions(
 
 /// "Same surface" for phase-tracking purposes: same kind AND same
 /// surface-specific key (water plane index, eventually terrain region
-/// id). A change in `depth` does not count as a surface change —
+/// id). A change in `depth` does not count as a surface change -
 /// that's what `Dwell` is for.
 fn same_specific_surface(a: &SurfaceContact, b: &SurfaceContact) -> bool {
     if a.kind() != b.kind() {
@@ -285,7 +285,7 @@ fn same_specific_surface(a: &SurfaceContact, b: &SurfaceContact) -> bool {
             SurfaceContact::Water { plane_idx: ai, .. },
             SurfaceContact::Water { plane_idx: bi, .. },
         ) => ai == bi,
-        // There is exactly one terrain — any two terrain contacts are
+        // There is exactly one terrain - any two terrain contacts are
         // the same specific surface (so a stationary avatar dwells
         // rather than re-entering every frame).
         (SurfaceContact::Terrain { .. }, SurfaceContact::Terrain { .. }) => true,
@@ -297,7 +297,7 @@ fn same_specific_surface(a: &SurfaceContact, b: &SurfaceContact) -> bool {
 
 /// 0..1 engagement scalar driven by the surface-specific payload.
 ///
-/// - Water: submersion depth normalised by avatar height — fully
+/// - Water: submersion depth normalised by avatar height - fully
 ///   submerged reads as 1.0 (`world_vel` unused).
 /// - Terrain: downward impact speed normalised by
 ///   [`gcfg::INTENSITY_VEL_REF`], floored at
@@ -338,7 +338,7 @@ pub fn classify_contacts(
     contacts.samples.clear();
 
     let Some(water) = water.as_deref() else {
-        // No water registry yet (still loading) — keep persistence
+        // No water registry yet (still loading) - keep persistence
         // intact so a partial frame doesn't fabricate an Exit, and
         // skip emission entirely. (Water is spawned per room before
         // the terrain CPU mirror resolves, so gating on water alone
@@ -389,7 +389,7 @@ pub fn classify_contacts(
         // promises audio, and this list is what feeds the contact one-shots
         // (`interaction::audio`), the particle bursts
         // (`interaction::particle_channel`) and the decals
-        // (`interaction::decal`) — so a hidden body's splashes, footsteps and
+        // (`interaction::decal`) - so a hidden body's splashes, footsteps and
         // scorch marks all kept arriving from a source the user could no
         // longer see or aim at. Skipped AFTER the velocity cache is updated,
         // so an unmute resumes with a real speed rather than a spurious
@@ -426,7 +426,7 @@ pub fn classify_contacts(
 
     // Prune persistence for avatars that are no longer in either
     // query. We do NOT synthesise an Exit transition for a vanished
-    // entity — consumers can't act on a sample for a despawned avatar
+    // entity - consumers can't act on a sample for a despawned avatar
     // anyway.
     persistence
         .last_surface
@@ -524,7 +524,7 @@ mod tests {
         let water = flat_water();
         let h = 2.0;
 
-        // Body bottom 0.3 m above the surface — beyond the tight
+        // Body bottom 0.3 m above the surface - beyond the tight
         // enter slack (0.15) but inside the wide exit slack (0.6).
         let just_above = pos_for_body_bottom(0.3, h);
         // Not yet in contact → tight threshold rejects it.
@@ -661,7 +661,7 @@ mod tests {
         // footprints still accrue.
         let still = intensity_for(&c, Vec3::ZERO, &cfg);
         assert!((still - gcfg::INTENSITY_GROUNDED_FLOOR).abs() < 1e-6);
-        // Upward velocity is not an impact — still just the floor.
+        // Upward velocity is not an impact - still just the floor.
         let rising = intensity_for(&c, Vec3::new(0.0, 3.0, 0.0), &cfg);
         assert!((rising - gcfg::INTENSITY_GROUNDED_FLOOR).abs() < 1e-6);
         // Half the reference downward speed → ~0.5.

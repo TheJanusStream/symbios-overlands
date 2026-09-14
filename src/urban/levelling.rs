@@ -1,8 +1,8 @@
-//! Deck heights — the one place the heightmap is sampled, so nothing drifts.
+//! Deck heights - the one place the heightmap is sampled, so nothing drifts.
 //! Each chain is trimmed, densified and sampled ONCE here (#584), and both the
 //! levelling pre-pass and the ribbon mesher consume that cached sample, so the
 //! deck floor is bit-identical between them and the mouths leave no seam.
-//! Heights resolve upward-only — the deck rises to clear the terrain under it,
+//! Heights resolve upward-only - the deck rises to clear the terrain under it,
 //! never sinks: a longitudinal grade limit that bridges dips (#573), then ramp
 //! cones down from each junction's pinned height. Junctions are flat and lifting
 //! one can lift the next, so the network relaxes to a monotone-upward fixed point.
@@ -15,13 +15,13 @@ use crate::urban::{Chain, RIBBON_STEP_M, ROAD_DEPTH_BIAS_M, densify, frame_right
 /// deck is lifted to clear the MAX of these, so no part of the drivable surface
 /// ever buries (the uphill edge sits flush, the downhill edge rides proud).
 const DECK_SAMPLES: usize = 5;
-/// Cap (rise/run) on the deck's *downhill* drop between frames — keeps the grade
+/// Cap (rise/run) on the deck's *downhill* drop between frames - keeps the grade
 /// gentle and lets the deck bridge dips as an embankment instead of diving in.
 /// Up/down inclines are tolerable; only the lateral roll is engineered out.
 pub(crate) const MAX_LONGITUDINAL_GRADE: f32 = 0.18;
 /// Gentler grade (rise/run) for a junction APPROACH ramp (#584): when a road is
 /// pinned up to meet a flat junction, it ramps back to its natural draped height
-/// over `rise / this` metres — long enough to read as a smooth transition, not a
+/// over `rise / this` metres - long enough to read as a smooth transition, not a
 /// short kick right at the intersection. Separate from (and below) the global
 /// drainage grade so the rest of the road is unaffected.
 pub(crate) const JUNCTION_APPROACH_GRADE: f32 = 0.09;
@@ -29,13 +29,13 @@ pub(crate) const JUNCTION_APPROACH_GRADE: f32 = 0.09;
 /// junction heights to the max incident mouth and re-ramps; heights only ever rise
 /// and are bounded by the highest terrain floor, so it converges. One pass
 /// propagates a height change across one chain, so a connected run of N junctions
-/// needs ~N passes — set well above the longest junction-path real networks reach.
+/// needs ~N passes - set well above the longest junction-path real networks reach.
 const MAX_LEVEL_ITERS: usize = 64;
 /// Junction-levelling has converged once no junction height moved more than this
 /// (m) in a pass (#584).
 const LEVEL_CONVERGE_EPS_M: f32 = 1.0e-3;
 
-/// One frame's terrain-sampled geometry, independent of the final deck height —
+/// One frame's terrain-sampled geometry, independent of the final deck height -
 /// the heightmap-sampling output of [`sample_chain`], reused by both the levelling
 /// pre-pass and the mesh pass so the deck floor is bit-identical between them
 /// (#584; the float-drift seam closes by having ONE sampling site).
@@ -51,7 +51,7 @@ pub(crate) struct RawFrame {
 }
 
 /// A chain's trimmed, densified, terrain-sampled frames plus inter-frame segment
-/// lengths — everything the deck height and mesh need that does NOT depend on the
+/// lengths - everything the deck height and mesh need that does NOT depend on the
 /// chosen deck height. Sampled ONCE per chain (the only heightmap-sampling site).
 pub(crate) struct ChainSample {
     pub(crate) frames: Vec<RawFrame>,
@@ -59,7 +59,7 @@ pub(crate) struct ChainSample {
 }
 
 /// Trim a chain at its junction ends (#575), densify it, and sample the terrain
-/// floor per frame (Pass A) — `None` if nothing meshable survives. The single
+/// floor per frame (Pass A) - `None` if nothing meshable survives. The single
 /// heightmap-sampling site for a chain (#584).
 pub(crate) fn sample_chain(
     chain: &Chain,
@@ -105,10 +105,10 @@ pub(crate) fn sample_chain(
 }
 
 /// Resolve the deck base height per frame from the terrain `floor` (#573/#584).
-/// Two parts, each an upward-only lower bound (the deck only ever rises — it never
+/// Two parts, each an upward-only lower bound (the deck only ever rises - it never
 /// buries): first the longitudinal grade-limit at [`MAX_LONGITUDINAL_GRADE`] (a
-/// gentle drainage grade that bridges dips), then — for each junction end carrying
-/// a height `pin` — a ramp cone down from that pinned height at the gentler
+/// gentle drainage grade that bridges dips), then - for each junction end carrying
+/// a height `pin` - a ramp cone down from that pinned height at the gentler
 /// [`JUNCTION_APPROACH_GRADE`], so a road pinned up to a flat junction ramps back
 /// to its natural height over enough of its length to read smooth. With both pins
 /// `None` this is exactly the #573 two-pass levelling (a strict refactor).
@@ -146,13 +146,13 @@ pub(crate) fn level_chain(floor: &[f32], seg: &[f32], pin: [Option<f32>; 2]) -> 
 
 /// Resolve a FLAT height per junction and the final deck height per chain across
 /// the whole network (#584). Each junction is lifted to the max of (a) the terrain
-/// under its mouth-centroid + the depth bias — so a junction on a local rise stays
-/// flat by lifting its mouths to clear it rather than doming the hub — and (b) the
+/// under its mouth-centroid + the depth bias - so a junction on a local rise stays
+/// flat by lifting its mouths to clear it rather than doming the hub - and (b) the
 /// highest road mouth meeting it; every incident road is then ramped up to that
 /// height by [`level_chain`]'s pin cones. A chain joins two junctions, and raising
 /// one can raise the next, so junction heights are RELAXED to a monotone-upward
 /// fixed point. Heights only ever rise and are bounded by the highest terrain
-/// floor, so it converges; capped at [`MAX_LEVEL_ITERS`] (graceful degradation —
+/// floor, so it converges; capped at [`MAX_LEVEL_ITERS`] (graceful degradation -
 /// every chain still levels watertight, just under-pinned). Returns `base_y` per
 /// chain (empty where the chain had no meshable sample).
 pub(crate) fn level_network(
@@ -261,7 +261,7 @@ pub(crate) fn level_network(
 }
 
 /// Per-junction incident-mouth height SPREAD (max − min over the roads meeting it)
-/// for junctions with ≥ 2 meshed incident roads — 0 once the network levelling has
+/// for junctions with ≥ 2 meshed incident roads - 0 once the network levelling has
 /// pinned every incident mouth to one height (#584 diagnostic).
 pub(crate) fn junction_mouth_spreads(
     chains: &[Chain],

@@ -1,4 +1,4 @@
-//! Cog tower — the Steampunk landmark and the kit's lit hero. A riveted iron
+//! Cog tower - the Steampunk landmark and the kit's lit hero. A riveted iron
 //! tower on a sooty brick base, its face dominated by a great exposed brass
 //! gear and a glowing clock dial, furnace vents glowing at its foot and steam
 //! venting from a pipe at the top. ~12 m tall, so it anchors the works and
@@ -66,7 +66,7 @@ fn build_tree() -> Generator {
     let gear_z = -1.95_f32;
 
     let mut prims = vec![
-        // Sooty brick base — the root.
+        // Sooty brick base - the root.
         prim(
             solid(cuboid_tapered([5.0, base_h, 5.0], 0.0, brick(BRICK_SOOT))),
             [0.0, base_h * 0.5, 0.0],
@@ -81,7 +81,7 @@ fn build_tree() -> Generator {
         [0.0, base_h + shaft_h * 0.5, 0.0],
         id_quat(),
     ));
-    // Exposed corner straps — break the flat box into an industrial frame.
+    // Exposed corner straps - break the flat box into an industrial frame.
     for sx in [-1.0_f32, 1.0] {
         for sz in [-1.0_f32, 1.0] {
             prims.push(prim(
@@ -100,7 +100,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Furnace vents glowing at the base of the hero (−Z) face — emissive.
+    // Furnace vents glowing at the base of the hero (−Z) face - emissive.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
             cuboid_tapered([0.9, 0.6, 0.12], 0.0, glow(FURNACE_ORANGE, 2.5)),
@@ -109,7 +109,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Exposed gear train on the hero (−Z) face — the signature silhouette.
+    // Exposed gear train on the hero (−Z) face - the signature silhouette.
     // cog() lies flat; quat_x(−π/2) stands it to face −Z, teeth ringing it.
     let gear_y = base_h + 4.7;
     prims.push(cog(
@@ -140,7 +140,7 @@ fn build_tree() -> Generator {
         iron(IRON_DARK),
     ));
 
-    // Glowing clock dial high on the hero face — emissive, with hands.
+    // Glowing clock dial high on the hero face - emissive, with hands.
     let clock_y = base_h + shaft_h - 2.2;
     prims.push(prim(
         solid(torus(0.2, 1.1, brass(BRASS))),
@@ -187,7 +187,7 @@ fn build_tree() -> Generator {
     ));
 
     // Hollow steam vent stack at a back corner of the cornice, with a flared
-    // collar — tall enough to read as a vent against the ~12 m tower.
+    // collar - tall enough to read as a vent against the ~12 m tower.
     prims.push(prim(
         solid(tube(0.34, 0.22, 3.0, 10, brass(BRASS))),
         [1.45, shaft_top + 1.9, 1.45],

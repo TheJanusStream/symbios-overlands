@@ -16,14 +16,14 @@ use super::visuals;
 
 /// [`visuals::spawn_avatar_visuals`] with its synchronous main-thread wall
 /// time recorded under `runtime.avatar_rebuild.ms` (#807): the histogram
-/// attributes the re-roll hitch — with texture bakes offloaded on wasm, what
+/// attributes the re-roll hitch - with texture bakes offloaded on wasm, what
 /// remains in here is dominated by part meshing.
 ///
-/// The registry is reached through `deps.caches.metrics` — `Option`al, so a
-/// headless / test app without the diagnostics plugin never panics — and
+/// The registry is reached through `deps.caches.metrics` - `Option`al, so a
+/// headless / test app without the diagnostics plugin never panics - and
 /// deliberately NOT as an own `ResMut<MetricsRegistry>` parameter on the
 /// calling systems: `GeneratorCaches` (inside `deps`) carries that access
-/// since #921, and a sibling parameter aliases it — a B0002 panic at
+/// since #921, and a sibling parameter aliases it - a B0002 panic at
 /// schedule build (#924).
 #[allow(clippy::too_many_arguments)]
 fn timed_spawn_avatar_visuals(
@@ -64,24 +64,24 @@ fn timed_spawn_avatar_visuals(
 pub(crate) struct AppliedAvatar(pub(crate) AvatarRecord);
 
 /// The body the local chassis's visual children were last painted for,
-/// with nothing worn ([`crate::pds::AvatarBody::sans_attachments`]) —
+/// with nothing worn ([`crate::pds::AvatarBody::sans_attachments`]) -
 /// the local twin of [`AppliedAvatar`] (#1104).
 ///
 /// [`rebuild_local_visuals`] used to respawn on *every* `LiveAvatarRecord`
 /// change, and [`visuals::spawn_avatar_visuals`] clears every chassis child
-/// — the rigged body's root included — so a worn prop's offset nudge tore
+/// - the rigged body's root included - so a worn prop's offset nudge tore
 /// the whole body down; the rigged pipeline then saw no root, kicked an
 /// async build, and the avatar was gone until it landed. Worn props are
 /// dressed from the record by `attachments::sync_rigged_attachments`, so
 /// they never needed the body respawned. Lives on the chassis (not a
-/// `Local`) so a fresh chassis — room travel, respawn — carries no
+/// `Local`) so a fresh chassis - room travel, respawn - carries no
 /// snapshot and paints from scratch.
 #[derive(Component)]
 pub(super) struct AppliedLocalBody(crate::pds::AvatarBody);
 
 impl AppliedLocalBody {
     /// The snapshot for a chassis whose children were just painted from
-    /// `body` — stamped by every local paint site (first spawn, the
+    /// `body` - stamped by every local paint site (first spawn, the
     /// locomotion hot-swap, and the visuals rebuild itself).
     pub(super) fn painted(body: &crate::pds::AvatarBody) -> Self {
         Self(body.sans_attachments())
@@ -91,7 +91,7 @@ impl AppliedLocalBody {
 /// Whether a record change owes the chassis a visual respawn through
 /// [`visuals::spawn_avatar_visuals`] (#1104): nothing painted yet, a
 /// body-kind change, or a generator tree that differs from the one
-/// painted. Two rigged bodies never do — that path spawns nothing for
+/// painted. Two rigged bodies never do - that path spawns nothing for
 /// them, and the rigged pipeline (`rigged::kick_rigged_builds`) already
 /// compares the engine record itself and replaces the standing root only
 /// once the new build has landed, so a body edit no longer shows a naked
@@ -112,7 +112,7 @@ fn needs_visual_respawn(
 
 /// Request flag set when the local player's locomotion needs to be
 /// rebuilt on the main thread. This exists because Avian components
-/// cannot be added/removed from `Query`-held mutable borrows — we have
+/// cannot be added/removed from `Query`-held mutable borrows - we have
 /// to defer the surgery to a commands-only system.
 #[derive(Component)]
 pub(super) struct NeedsLocomotionRebuild;
@@ -121,7 +121,7 @@ pub(super) struct NeedsLocomotionRebuild;
 /// whenever the locomotion *variant* changes (intra-variant tuning edits
 /// are handled by the per-frame sync systems). A
 /// `Local<Option<&'static str>>` memoises the last-seen kind so we don't
-/// rebuild on every frame the resource is `Changed` — the kinematics
+/// rebuild on every frame the resource is `Changed` - the kinematics
 /// sliders fire `Changed` constantly and would otherwise drop a dozen
 /// rebuilds per second.
 pub(super) fn detect_local_locomotion_change(
@@ -149,8 +149,8 @@ pub(super) fn detect_local_locomotion_change(
 /// DEFERRED while the visuals-edit freeze parks the chassis (#867,
 /// `Without<VisualsEditFreeze>`): stripping + reinserting the `Collider`
 /// on a parked body that is touching the terrain corrupts avian's
-/// contact/island bookkeeping — the same class as the #740
-/// `RigidBodyDisabled` cycle the freeze itself avoids — and the broken
+/// contact/island bookkeeping - the same class as the #740
+/// `RigidBodyDisabled` cycle the freeze itself avoids - and the broken
 /// pair surfaces on freeze release as a clean fall through the world
 /// followed by a runaway respawn→NaN feedback (the #867 meltdown).
 /// `NeedsLocomotionRebuild` simply stays parked on the entity; the
@@ -199,7 +199,7 @@ pub(super) fn apply_local_locomotion_rebuild(
 }
 
 /// Despawn any avatar-visual entity that has been orphaned from the
-/// chassis hierarchy — typically the entity the editor gizmo detached
+/// chassis hierarchy - typically the entity the editor gizmo detached
 /// (and stamped with a world-space `Transform`) so it could render at
 /// the actual world pose during a drag. The chassis-children iteration
 /// in `spawn_avatar_visuals` cleans up the live tree, but a detached
@@ -207,7 +207,7 @@ pub(super) fn apply_local_locomotion_rebuild(
 /// chassis, so it survives the despawn cascade and lingers as a phantom
 /// mesh until a tag-based sweep like this finds it.
 ///
-/// Selecting orphans by `Without<ChildOf>` keeps the sweep narrow —
+/// Selecting orphans by `Without<ChildOf>` keeps the sweep narrow -
 /// every node spawned by the avatar pipeline is parented to either the
 /// chassis or another visuals node, so a missing parent uniquely
 /// identifies the gizmo-detached case (and any future error path that
@@ -222,7 +222,7 @@ fn despawn_orphan_avatar_visuals(
 }
 
 /// Non-variant changes (slider tweaks inside the *same* preset, or
-/// visuals-tree edits) only need new visual children — rigid-body
+/// visuals-tree edits) only need new visual children - rigid-body
 /// identity stays intact.
 ///
 /// The `NeedsLocomotionRebuild` skip only applies while the body rebuild
@@ -230,8 +230,8 @@ fn despawn_orphan_avatar_visuals(
 /// whole frozen editing session, a kind-changing re-seed would otherwise
 /// starve the cosmetic repaint too and the re-roll stayed invisible
 /// until the editor closed (#870). While the freeze marker is present
-/// the visuals repaint here on every record change — physics components
-/// stay untouched, which is exactly what the deferral protects — at the
+/// the visuals repaint here on every record change - physics components
+/// stay untouched, which is exactly what the deferral protects - at the
 /// cost of one redundant repaint when the deferred rebuild lands at
 /// release.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -291,14 +291,14 @@ pub(super) fn rebuild_local_visuals(
 
 /// Rebuild a remote peer's visual children whenever their avatar record
 /// actually changes (initial fetch, live-preview broadcast, or visuals
-/// edit). Remote peers are pure kinematic visual transforms — they never
+/// edit). Remote peers are pure kinematic visual transforms - they never
 /// carry a `RigidBody`, so installing a `Collider` / `Mass` / `LockedAxes`
 /// here would register them as Static, and every per-frame `Transform`
 /// update from `smooth_remote_transforms` would thrash the broadphase
 /// spatial trees. We therefore only rebuild visuals and leave physics
 /// alone. The `AppliedAvatar` snapshot gates this path so that muting or
 /// relabelling a peer (both of which also trigger `Changed<RemotePeer>`)
-/// doesn't redundantly despawn and rebuild every mesh — that expensive
+/// doesn't redundantly despawn and rebuild every mesh - that expensive
 /// path is reserved for genuine avatar-record changes.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn detect_remote_change(
@@ -319,7 +319,7 @@ pub(super) fn detect_remote_change(
 ) {
     for (entity, peer, applied, children) in peers.iter() {
         // A muted peer's record does not get to spend this client's frame
-        // time (#1219 f287) — the rebuild despawns and re-spawns a whole
+        // time (#1219 f287) - the rebuild despawns and re-spawns a whole
         // visual tree, for a body that is hidden anyway. `Changed<RemotePeer>`
         // fires on the mute flip itself, so an unmute lands here on the very
         // next frame and rebuilds.
@@ -334,8 +334,8 @@ pub(super) fn detect_remote_change(
         }
         // The same discipline as the local path (#1104, extended to peers by
         // #1112): a changed record does not by itself owe a respawn, and
-        // `spawn_avatar_visuals` clears EVERY chassis child — the rigged
-        // root and its worn props included — while spawning nothing for a
+        // `spawn_avatar_visuals` clears EVERY chassis child - the rigged
+        // root and its worn props included - while spawning nothing for a
         // rigged body.
         //
         // A live preview is the case that made this visible. `resolved` is
@@ -344,7 +344,7 @@ pub(super) fn detect_remote_change(
         // a difference on every debounced keystroke and tore the peer's body
         // down until a wardrobe round-trip and a fresh build replaced it.
         // `kick_rigged_builds` deliberately treats rigged-but-unresolved as
-        // a WAIT so the standing body survives exactly that window — this
+        // a WAIT so the standing body survives exactly that window - this
         // path was undoing that decision from the other side.
         let live_body = record.body.sans_attachments();
         let applied_body = applied.map(|a| a.0.body.sans_attachments());
@@ -393,7 +393,7 @@ pub(super) fn lift_player_above_new_ground(
 /// `is_added()` trigger cannot cover: a travel whose destination terrain
 /// config serialises identically to the origin's never produces a new
 /// `FinishedHeightMap` at all, and a gateway hop with a drop-pin landing
-/// arrives at a literal `y = 0.0` — so the one arrival most in need of a
+/// arrives at a literal `y = 0.0` - so the one arrival most in need of a
 /// lift was the one arrival that never got one.
 pub(super) fn snap_above_ground(
     hm: &bevy_symbios_ground::HeightMap,
@@ -461,7 +461,7 @@ mod tests {
     }
 
     /// The peer half of the same decision (#1112). A live-preview
-    /// broadcast arrives with `resolved` empty — it never rides the wire —
+    /// broadcast arrives with `resolved` empty - it never rides the wire -
     /// so the record differs from the applied snapshot on every debounced
     /// keystroke. `detect_remote_change` used to compare whole records and
     /// despawn every chassis child on any difference, which for a rigged
@@ -480,7 +480,7 @@ mod tests {
         );
         assert_ne!(
             standing, off_the_wire,
-            "the records genuinely differ — which is why comparing them was the bug"
+            "the records genuinely differ - which is why comparing them was the bug"
         );
         assert!(
             !needs_visual_respawn(
@@ -492,9 +492,9 @@ mod tests {
     }
 
     /// #1104 bug 2, reproduced in-app: a worn prop's offset nudge used to
-    /// flip `LiveAvatarRecord`'s change tick into a whole-body respawn —
+    /// flip `LiveAvatarRecord`'s change tick into a whole-body respawn -
     /// `spawn_avatar_visuals` clears every chassis child, the rigged root
-    /// included — so the avatar vanished until the async rebuild landed.
+    /// included - so the avatar vanished until the async rebuild landed.
     /// After the edit the standing root must be the same entity.
     #[test]
     fn an_attachment_only_edit_keeps_the_rigged_body_standing() {

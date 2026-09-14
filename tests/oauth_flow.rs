@@ -29,7 +29,7 @@ fn client_metadata_redirect_matches_target() {
 #[test]
 fn client_metadata_scope_is_granular() {
     // #736: the broad `transition:generic` grant is replaced by granular
-    // permissions — write access to exactly the collections the app writes,
+    // permissions - write access to exactly the collections the app writes,
     // plus a concrete-lxm/wildcard-aud rpc grant for relay service auth.
     // The rpc shape matters: `rpc:*?aud=*` is spec-invalid, and pinning
     // `aud` instead of `lxm` would bake one relay's DID into the static
@@ -41,12 +41,12 @@ fn client_metadata_scope_is_granular() {
     assert!(scope.split(' ').any(|s| s == rpc), "{scope}");
 }
 
-/// #1065: every collection the app writes must carry a `repo:` grant — in
+/// #1065: every collection the app writes must carry a `repo:` grant - in
 /// the code's scope *and* in the hosted metadata document the authorization
 /// server actually reads.
 ///
 /// The pre-existing pair of tests could not catch this. One compared the
-/// code's scope against the hosted doc — both were equally stale, so they
+/// code's scope against the hosted doc - both were equally stale, so they
 /// agreed and passed. The other enumerated the five collections by hand,
 /// which is the same list that was wrong. Two instruments checking each
 /// other rather than checking reality: the wardrobe trio (#1054) shipped
@@ -84,7 +84,7 @@ fn client_metadata_scope_covers_every_written_collection() {
 fn client_metadata_scope_matches_hosted_document() {
     // The WASM build's `client_id` is the hosted metadata URL, so the
     // authorization server reads the scope from
-    // `assets/client-metadata.json` — if that file drifts from the scope
+    // `assets/client-metadata.json` - if that file drifts from the scope
     // the code sends in the PAR request, login breaks only in production.
     let hosted: serde_json::Value =
         serde_json::from_str(include_str!("../assets/client-metadata.json"))
@@ -124,7 +124,7 @@ fn parse_callback_query_missing() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn parse_callback_query_error_redirect() {
-    // #847: the AS's deny redirect (RFC 6749 §4.1.2.1) must parse —
+    // #847: the AS's deny redirect (RFC 6749 §4.1.2.1) must parse -
     // before this, `error` was dropped and a deny left the native
     // listener waiting forever.
     let p = oauth::parse_callback_query(
@@ -169,13 +169,13 @@ fn callback_error_message_wording() {
 }
 
 // ---------------------------------------------------------------------------
-// Extended coverage — not in the original inline tests but valuable.
+// Extended coverage - not in the original inline tests but valuable.
 // ---------------------------------------------------------------------------
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn parse_callback_query_empty_values() {
-    // Server bug or truncated redirect — we must not panic; both values
+    // Server bug or truncated redirect - we must not panic; both values
     // parse as empty strings rather than `None`, because the key *was*
     // present. Callers decide how to handle empty codes.
     let p = oauth::parse_callback_query("/callback?code=&state=");
@@ -199,7 +199,7 @@ fn parse_callback_query_ignores_unknown_params() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn parse_callback_query_plus_in_percent_encoding() {
-    // `%20` should become a space. Regression guard — native callback
+    // `%20` should become a space. Regression guard - native callback
     // decoder has to respect the full percent-encoding alphabet.
     let p = oauth::parse_callback_query("/callback?code=hello%20world&state=s");
     assert_eq!(p.code.as_deref(), Some("hello world"));
@@ -239,7 +239,7 @@ fn browser_storage_keys_are_namespaced() {
     // same host can clobber a pending auth or a persisted session.
     //
     // This used to be `#[cfg(target_arch = "wasm32")]`, which made it a test
-    // nothing ever ran — the suite has no wasm runner (#1147). The constants
+    // nothing ever ran - the suite has no wasm runner (#1147). The constants
     // are now defined on every target so the rule is actually checked.
     for key in [oauth::SESSION_STORAGE_KEY, oauth::PERSISTED_SESSION_KEY] {
         assert!(!key.is_empty());

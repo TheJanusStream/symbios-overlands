@@ -3,7 +3,7 @@ use crate::urban::test_support::*;
 use crate::urban::{Chain, Dims, RoadParts, build_road_geometry};
 use bevy_symbios_ground::HeightMap;
 
-/// Every emitted vertex must be finite — a NaN from a degenerate miter or
+/// Every emitted vertex must be finite - a NaN from a degenerate miter or
 /// normalize would poison the mesh.
 #[test]
 fn geometry_is_finite() {
@@ -32,7 +32,7 @@ fn deck_is_welded_with_unit_normals() {
     assert!(deck_quads > 0, "no deck quads");
     assert!(
         parts.deck.vertices.len() < 4 * deck_quads,
-        "deck is not welded ({} verts for {deck_quads} quads — flat per-face?)",
+        "deck is not welded ({} verts for {deck_quads} quads - flat per-face?)",
         parts.deck.vertices.len()
     );
     for geo in surfaces(&parts) {
@@ -44,7 +44,7 @@ fn deck_is_welded_with_unit_normals() {
 }
 
 /// WS3: the drivable deck never sinks below the terrain. Every deck vertex
-/// sits at or above the ground beneath it — the upward-only drape. (Road
+/// sits at or above the ground beneath it - the upward-only drape. (Road
 /// geometry is authored in the heightmap frame, so `get_height_at` at the
 /// vertex XZ is the terrain under it.)
 #[test]
@@ -63,7 +63,7 @@ fn deck_never_buries() {
 
 /// The skirt drops a FIXED `skirt_depth` below the deck instead of reaching down
 /// to the terrain, so a deck that grade-levels HIGH over a deep dip leaves the
-/// road underside floating clear — a bridge, not an earth-filled embankment.
+/// road underside floating clear - a bridge, not an earth-filled embankment.
 /// Builds a road crossing a narrow deep dip and asserts (a) the structure over
 /// the dip clears the dip floor by a wide margin and (b) the skirt bottom sits
 /// exactly `skirt_depth` below the deck above it.
@@ -110,7 +110,7 @@ fn high_deck_skirt_floats_clear_over_a_dip() {
         &mut parts,
     );
 
-    // Over the dip centre nothing reaches down to the 0 m floor — the underside
+    // Over the dip centre nothing reaches down to the 0 m floor - the underside
     // floats clear. (A dynamic terrain-reaching skirt would sit at ~floor − 0.3.)
     let over_dip = |v: &[f32; 3]| (v[0] - 96.0).abs() < 8.0;
     let mut struct_min = f32::INFINITY;
@@ -119,7 +119,7 @@ fn high_deck_skirt_floats_clear_over_a_dip() {
             let terrain = hm.get_height_at(v[0], v[2]); // ~0 over the dip
             assert!(
                 v[1] > terrain + 2.0,
-                "structure vertex {v:?} dives toward the dip floor {terrain} — not a bridge"
+                "structure vertex {v:?} dives toward the dip floor {terrain} - not a bridge"
             );
             struct_min = struct_min.min(v[1]);
         }
@@ -134,7 +134,7 @@ fn high_deck_skirt_floats_clear_over_a_dip() {
         struct_min.is_finite() && deck_min.is_finite(),
         "road did not span the dip"
     );
-    // The skirt bottom sits EXACTLY skirt_depth below the deck it hangs from —
+    // The skirt bottom sits EXACTLY skirt_depth below the deck it hangs from -
     // the fixed-depth contract, independent of the terrain below.
     assert!(
         (deck_min - struct_min - dims.skirt_depth).abs() < 0.05,
@@ -145,7 +145,7 @@ fn high_deck_skirt_floats_clear_over_a_dip() {
 }
 
 /// #576 on the real pilot network (it carries acute junctions down to ~23°):
-/// every deck normal — ribbon *and* hub — faces up, so back-face culling
+/// every deck normal - ribbon *and* hub - faces up, so back-face culling
 /// keeps the drivable surface visible from above, and every vertex is finite.
 /// Guards against a folded / downward-wound hub fan on real data.
 #[test]
@@ -169,10 +169,10 @@ fn pilot_deck_is_finite_and_faces_up() {
 
 /// #579: a degree-1 dead-end gets a flat cross-section cap (closing the open
 /// hollow tube), facing outward; an UNclipped degree-2 end does NOT (a mid-run
-/// node, loop closure or used-edge break — perimeter clips are #582's job and
+/// node, loop closure or used-edge break - perimeter clips are #582's job and
 /// carry `clip=true`, set false throughout here). The cap faces along the road
-/// tangent (±x for an x-running chain), HORIZONTAL — no ribbon face does (deck
-/// +y, curb/skirt ±z lateral) — so counting its ±x normals uniquely detects it.
+/// tangent (±x for an x-running chain), HORIZONTAL - no ribbon face does (deck
+/// +y, curb/skirt ±z lateral) - so counting its ±x normals uniquely detects it.
 #[test]
 fn dead_end_gets_a_cross_section_cap() {
     let dims = Dims::from_config(&cfg(7));
@@ -245,7 +245,7 @@ fn dead_end_gets_a_cross_section_cap() {
 }
 
 /// #579 (review wf_aabe1626 HIGH): the cap's explicit triangulation must TILE
-/// the concave profile exactly — no gap, no overlap, no spill past the
+/// the concave profile exactly - no gap, no overlap, no spill past the
 /// silhouette (the bug the apex-fan had). The cross-section is rigid, so the
 /// summed triangle areas must equal the profile polygon's shoelace area.
 #[test]
@@ -282,7 +282,7 @@ fn dead_end_cap_triangulation_tiles_the_profile() {
 }
 
 /// #579 (review wf_aabe1626): the cap is a VERTICAL cross-section, so its normal
-/// must stay HORIZONTAL on sloped terrain — using the road tangent would tilt it
+/// must stay HORIZONTAL on sloped terrain - using the road tangent would tilt it
 /// by the longitudinal grade and mis-shade the cul-de-sac on a hill.
 #[test]
 fn dead_end_cap_normal_is_horizontal_on_a_slope() {
@@ -335,7 +335,7 @@ fn dead_end_cap_normal_is_horizontal_on_a_slope() {
 }
 
 /// #582: a boundary-clip end (a road running off the network perimeter) is
-/// capped like a dead-end even though its node is degree-2 — the cap is driven
+/// capped like a dead-end even though its node is degree-2 - the cap is driven
 /// by `chain.clip[slot]`, independent of degree. Same ±x-horizontal-normal
 /// signature as the #579 dead-end cap, so counting those isolates it.
 #[test]
@@ -407,7 +407,7 @@ fn clip_end_emits_a_cap_cross_section() {
 }
 
 /// #582 (mirrors the #579 review wf_aabe1626 finding): a clip cap is a VERTICAL
-/// cross-section, so its normal must stay HORIZONTAL on sloped terrain — the
+/// cross-section, so its normal must stay HORIZONTAL on sloped terrain - the
 /// road tangent would tilt it by the longitudinal grade and mis-shade the
 /// perimeter end on a hill. Driven through the clip path (degree-2 end).
 #[test]

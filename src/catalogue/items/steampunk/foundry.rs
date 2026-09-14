@@ -1,4 +1,4 @@
-//! Foundry — a Steampunk secondary. A sooty brick hall with two banded brick
+//! Foundry - a Steampunk secondary. A sooty brick hall with two banded brick
 //! chimneys belching smoke, copper pipes up the wall and a glowing furnace
 //! door. The roaring heart of the works.
 //!
@@ -56,7 +56,7 @@ fn build_tree() -> Generator {
     let wall = -4.0_f32;
 
     let mut prims = vec![
-        // Sooty brick hall — the root.
+        // Sooty brick hall - the root.
         prim(
             solid(cuboid_tapered([12.0, hall_h, 8.0], 0.0, brick(BRICK_SOOT))),
             [0.0, hall_h * 0.5, 0.0],
@@ -72,7 +72,7 @@ fn build_tree() -> Generator {
         [0.0, hall_h, 0.0],
         id_quat(),
     ));
-    // Pitched iron gable roof — ridge running along X.
+    // Pitched iron gable roof - ridge running along X.
     prims.push(prim(
         solid(cuboid_tapered_xz(
             [12.6, 1.9, 8.6],

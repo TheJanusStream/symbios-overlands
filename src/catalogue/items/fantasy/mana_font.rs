@@ -1,4 +1,4 @@
-//! Mana font — a High-Fantasy prop. A small stone basin brimming with glowing
+//! Mana font - a High-Fantasy prop. A small stone basin brimming with glowing
 //! mana around a crystal-tipped spout. Scatter clutter of the arcane quarter;
 //! the pool and tip are emissive trim the ruin pass can darken.
 
@@ -46,7 +46,7 @@ impl CatalogueEntry for ManaFont {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Fluted pedestal foot — the root.
+        // Fluted pedestal foot - the root.
         prim(
             solid(cylinder_tapered(0.7, 0.4, 12, 0.45, stone(STONE_GREY))),
             [0.0, 0.2, 0.0],
@@ -64,7 +64,7 @@ fn build_tree() -> Generator {
             [0.0, 0.88, 0.0],
             id_quat(),
         ),
-        // Glowing mana pool — emissive, and the voice of the font.
+        // Glowing mana pool - emissive, and the voice of the font.
         {
             let mut pool = prim(
                 cylinder_tapered(0.9, 0.1, 16, 0.0, glow(MANA_TEAL, 1.8)),
@@ -82,7 +82,7 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Faceted crystal tip on the spout — emissive.
+    // Faceted crystal tip on the spout - emissive.
     prims.push(crystal(
         [0.0, 1.45, 0.0],
         0.16,

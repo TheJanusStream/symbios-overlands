@@ -1,4 +1,4 @@
-//! Bell tower — a Gothic-Horror secondary. A tall dark stone campanile with
+//! Bell tower - a Gothic-Horror secondary. A tall dark stone campanile with
 //! louvered belfry openings, a hung bronze bell, a lit lancet low on the shaft
 //! and a steep pinnacle. A cold wind keens through it. Its window is emissive
 //! trim the ruin pass can darken.
@@ -61,7 +61,7 @@ fn build_tree() -> Generator {
     let bronze = || iron([0.46, 0.34, 0.16]);
 
     let mut prims = vec![
-        // Stepped stone base — the root.
+        // Stepped stone base - the root.
         prim(
             solid(cuboid_tapered([3.8, base_h, 3.8], 0.0, st())),
             [0.0, base_h * 0.5, 0.0],

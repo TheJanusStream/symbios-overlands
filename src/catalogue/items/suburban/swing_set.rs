@@ -1,4 +1,4 @@
-//! Swing set — a Suburban prop. A galvanised A-frame swing set with two
+//! Swing set - a Suburban prop. A galvanised A-frame swing set with two
 //! chain-hung seats: the centrepiece of a back yard.
 
 use crate::catalogue::items::coastal_resort::{POOL_AQUA, water};
@@ -15,12 +15,12 @@ use super::{enamel, fx};
 const FRAME: [f32; 3] = [0.60, 0.62, 0.64];
 /// Dark chain.
 const SEAT: [f32; 3] = [0.14, 0.16, 0.18];
-/// Bright seat colours — a red bucket seat and a blue plank seat.
+/// Bright seat colours - a red bucket seat and a blue plank seat.
 const SEAT_RED: [f32; 3] = [0.75, 0.18, 0.16];
 const SEAT_BLUE: [f32; 3] = [0.18, 0.34, 0.62];
 /// Seat width, across the swing's travel.
 const SEAT_W: f32 = 0.5;
-/// How far in from the seat's centreline each chain hangs — just inside the
+/// How far in from the seat's centreline each chain hangs - just inside the
 /// ends, which is where a real swing's chains are shackled.
 const CHAIN_INSET: f32 = SEAT_W * 0.5 - 0.03;
 
@@ -62,7 +62,7 @@ fn build_tree() -> Generator {
     let leg_len = 2.6_f32;
     let splay = 0.358_f32;
 
-    // Top bar — the root.
+    // Top bar - the root.
     let mut prims = vec![prim(
         solid(cuboid_tapered([4.0, 0.12, 0.12], 0.0, enamel(FRAME))),
         [0.0, bar_y, 0.0],
@@ -74,7 +74,7 @@ fn build_tree() -> Generator {
     // The tilt is **negative** in `sz`, and that sign is the whole shape.
     // `quat_x(θ)` carries a prim's local `+Y` toward `+Z`, so a positive tilt
     // on the leg standing at `+z` throws its *top* further out and drags its
-    // *foot* toward the centreline — a V, meeting at the ground, with the top
+    // *foot* toward the centreline - a V, meeting at the ground, with the top
     // bar bridging thin air (#973). Negating it converges the tops on `z = 0`
     // under the bar and splays the feet, which is the A the frame is named
     // for. `splay` was always tuned for this sign: at 0.358 rad a half-leg
@@ -90,12 +90,12 @@ fn build_tree() -> Generator {
         }
     }
 
-    // Two chain-hung seats — one red, one blue.
+    // Two chain-hung seats - one red, one blue.
     //
     // A seat hangs from its **sides**, so the pair of chains is offset along
     // the seat's width (X) and sits on its depth centreline (Z). Offsetting
     // them in Z instead hung both chains off the seat's front and back edges,
-    // on one point of its width — a swing that would corkscrew rather than
+    // on one point of its width - a swing that would corkscrew rather than
     // swing, and visibly wrong from the side (#974). `SEAT_W` is the seat's
     // width and the chain inset is derived from it, so the two cannot drift.
     for (i, sx) in [-0.85_f32, 0.85].into_iter().enumerate() {
@@ -148,7 +148,7 @@ mod tests {
     /// #974: each seat hangs from its **sides**.
     ///
     /// The chains straddle the seat's width and sit on its depth centreline.
-    /// Offset along the depth instead — which is how this was authored — both
+    /// Offset along the depth instead - which is how this was authored - both
     /// chains hang off the seat's front and back edges at one point of its
     /// width, so the seat is slung on an axis it would corkscrew around rather
     /// than swing on.
@@ -192,7 +192,7 @@ mod tests {
             let span = chains[1][0] - chains[0][0];
             assert!(
                 span > SEAT_W * 0.7 && span < SEAT_W,
-                "chains span {span} across a {SEAT_W} m seat — they must straddle \
+                "chains span {span} across a {SEAT_W} m seat - they must straddle \
                  its width without overhanging it"
             );
             seats += 1;
@@ -249,7 +249,7 @@ mod tests {
             );
             assert!(
                 top[2].abs() < 0.05,
-                "leg at {t:?} meets the bar at z = {}, not on its centreline — \
+                "leg at {t:?} meets the bar at z = {}, not on its centreline - \
                  the legs splay upward and the frame is a V",
                 top[2]
             );
@@ -262,7 +262,7 @@ mod tests {
             // And the top reaches the bar it is meant to hold. `assemble`
             // rebases every child against the root, and the root *is* the top
             // bar, so a leg's coordinates are already relative to the bar's
-            // centre — the top must land within the bar's own depth of zero.
+            // centre - the top must land within the bar's own depth of zero.
             assert!(
                 top[1].abs() < 0.1,
                 "leg at {t:?} stops {} from the bar's centre",

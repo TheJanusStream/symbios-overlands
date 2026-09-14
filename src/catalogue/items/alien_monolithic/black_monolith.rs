@@ -1,4 +1,4 @@
-//! Black monolith — the Alien-Monolithic landmark and the kit's lit hero. A
+//! Black monolith - the Alien-Monolithic landmark and the kit's lit hero. A
 //! tall polished obsidian slab hovering a hand's breadth above a glowing base
 //! ring, its face inscribed with luminous glyph lines. ~10 m tall, so it
 //! anchors the site and reads as the monolith from across the home region. Its
@@ -60,14 +60,14 @@ fn build_tree() -> Generator {
     let slab_cy = lift + slab_h * 0.5;
 
     let mut prims = vec![
-        // Obsidian base disc — the root.
+        // Obsidian base disc - the root.
         prim(
             solid(cylinder_tapered(2.6, 0.3, 24, 0.0, obsidian(OBSIDIAN))),
             [0.0, 0.15, 0.0],
             id_quat(),
         ),
     ];
-    // Glowing base ring — emissive.
+    // Glowing base ring - emissive.
     prims.push(prim(
         torus(0.12, 2.2, glow(ENERGY_BLUE, 2.6)),
         [0.0, 0.34, 0.0],
@@ -85,7 +85,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // A thin glowing seam splitting the −Z hero face top-to-bottom — the
+    // A thin glowing seam splitting the −Z hero face top-to-bottom - the
     // monolith's powered core showing through.
     let zf = -(slab_d * 0.5 + 0.04);
     prims.push(prim(
@@ -93,7 +93,7 @@ fn build_tree() -> Generator {
         [0.0, slab_cy, zf],
         id_quat(),
     ));
-    // Inscribed glyph column down the −Z hero face — asymmetric alien script,
+    // Inscribed glyph column down the −Z hero face - asymmetric alien script,
     // not the old uniform "+++ ladder" of light bars.
     for g in glyph_column(
         0.0,
@@ -106,7 +106,7 @@ fn build_tree() -> Generator {
         prims.push(g);
     }
 
-    // Hovering capstone — a beveled obsidian cap floating a hand above the
+    // Hovering capstone - a beveled obsidian cap floating a hand above the
     // slab crown, a glowing glyph plate on its underside casting down. The
     // monolith-signature crown.
     let cap_y = lift + slab_h + 0.85;

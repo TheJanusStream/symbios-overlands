@@ -1,4 +1,4 @@
-//! Rec court — the Sports/Recreation *poor* landmark. A cracked asphalt
+//! Rec court - the Sports/Recreation *poor* landmark. A cracked asphalt
 //! multi-use court with faded markings, a bent basketball hoop and a sagging
 //! chain-link fence. The hardscrabble counterpart to the
 //! [`stadium`](super::stadium): same sport, opposite end of the prosperity
@@ -63,7 +63,7 @@ fn build_tree() -> Generator {
     let pad_h = 0.2_f32;
 
     let mut prims = vec![
-        // Cracked asphalt court — the root.
+        // Cracked asphalt court - the root.
         prim(
             solid(cuboid_tapered(
                 [14.0, pad_h, 9.0],

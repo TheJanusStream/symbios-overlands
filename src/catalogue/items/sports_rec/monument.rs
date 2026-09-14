@@ -1,4 +1,4 @@
-//! Owner Scoreboard — the Sports-and-Rec identity monument (#975).
+//! Owner Scoreboard - the Sports-and-Rec identity monument (#975).
 //!
 //! The board at the end of the ground: a steel truss on two concrete pads
 //! carries a black scoreboard housing, the room owner's portrait is the big
@@ -104,7 +104,7 @@ fn housing(did: &str) -> Vec<Generator> {
     let z = -0.18;
     let bez = 0.15;
     let mut out = vec![
-        // Housing box — the panel is single-sided, and a scoreboard is a solid
+        // Housing box - the panel is single-sided, and a scoreboard is a solid
         // black case from behind.
         prim(
             solid(cuboid_tapered(
@@ -116,7 +116,7 @@ fn housing(did: &str) -> Vec<Generator> {
             id_quat(),
         ),
         pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
-        // Score strip below the screen — two lit digit blocks and a red
+        // Score strip below the screen - two lit digit blocks and a red
         // period marker, the layout the kit's own scoreboards use.
         prim(
             cuboid_tapered([0.62, 0.34, 0.06], 0.0, glow(SCORE_LIT, 2.0)),

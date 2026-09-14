@@ -1,10 +1,10 @@
-//! Monolith Gateway — the Alien-Monolithic bespoke social gateway (#749). Two
+//! Monolith Gateway - the Alien-Monolithic bespoke social gateway (#749). Two
 //! black obsidian monolith pylons flank a walk-through gap, bridged by a
 //! glyph-lit obsidian lintel, humming over a charged threshold. Replaces the
 //! neutral placeholder gate for this theme.
 //!
 //! The one functional element is the [`GeneratorKind::Gateway`] zone child
-//! centred in the opening — walking into it opens the destination picker.
+//! centred in the opening - walking into it opens the destination picker.
 //! Everything else is set-dressing that frames the zone as a gate you pass
 //! through: the pylons, the lintel span, and the emissive threshold trim, with
 //! the walk-through opening kept clear in the middle. Its glyphs, collars and
@@ -66,7 +66,7 @@ fn build_tree() -> Generator {
     let zf_lintel = -(0.5 + 0.04); // proud of the lintel's −Z hero face
 
     let mut prims = vec![
-        // Obsidian forecourt plinth — the flat-base root. Never tilt a root:
+        // Obsidian forecourt plinth - the flat-base root. Never tilt a root:
         // `assemble` applies its transform to every child, so a rotated root
         // would spin the whole gate.
         prim(
@@ -86,7 +86,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Obsidian lintel monolith bridging the pylon tops — the span across the
+    // Obsidian lintel monolith bridging the pylon tops - the span across the
     // gate, laid like a monolith on its side.
     prims.push(prim(
         solid(cuboid_tapered(
@@ -98,7 +98,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Glowing energy collars ringing each pylon — emissive halo rings standing
+    // Glowing energy collars ringing each pylon - emissive halo rings standing
     // proud of the shaft.
     for sx in [-1.0_f32, 1.0] {
         for (k, major) in [0.6_f32, 0.54].into_iter().enumerate() {
@@ -111,7 +111,7 @@ fn build_tree() -> Generator {
         }
     }
 
-    // Inscribed glyph columns down the −Z hero front of each pylon — asymmetric
+    // Inscribed glyph columns down the −Z hero front of each pylon - asymmetric
     // alien script, emissive, varied stroke heights so the column doesn't read
     // as one stamp repeated.
     for sx in [-1.0_f32, 1.0] {
@@ -127,7 +127,7 @@ fn build_tree() -> Generator {
         }
     }
 
-    // Glowing threshold bar just under the lintel spanning the opening — a thin
+    // Glowing threshold bar just under the lintel spanning the opening - a thin
     // luminous line, run at the theme's warm-but-safe strength so it reads as a
     // charged lintel seam without blooming white.
     prims.push(prim(
@@ -136,7 +136,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Keystone destination sigil at the lintel front centre — a single deep
+    // Keystone destination sigil at the lintel front centre - a single deep
     // violet glyph facing the −Z hero side.
     for g in glyph_column(
         0.0,
@@ -150,7 +150,7 @@ fn build_tree() -> Generator {
     }
 
     // Lit threshold line inlaid in the plinth, running the walk axis through the
-    // opening — a broad face-up strip held at low strength so it stays lit blue,
+    // opening - a broad face-up strip held at low strength so it stays lit blue,
     // not a white lightbox.
     prims.push(prim(
         cuboid_tapered([0.6, 0.06, 2.4], 0.0, glow(ENERGY_BLUE, 1.6)),
@@ -196,7 +196,7 @@ mod tests {
         );
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is furniture, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

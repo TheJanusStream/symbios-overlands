@@ -1,4 +1,4 @@
-//! Owner Crew Marker — the Space-Outpost identity monument (#975).
+//! Owner Crew Marker - the Space-Outpost identity monument (#975).
 //!
 //! The crew placard bolted by an airlock: a white composite pylon on a scorched
 //! landing pad, the room owner's portrait behind a cyan-lit viewport bezel, a
@@ -77,7 +77,7 @@ fn placard(did: &str) -> Vec<Generator> {
     let z = -0.36;
     let bez = 0.14;
     let mut out = vec![
-        // Recessed hull panel — the backing the single-sided panel needs.
+        // Recessed hull panel - the backing the single-sided panel needs.
         prim(
             solid(cuboid_tapered(
                 [PANEL + 0.3, PANEL + 0.3, 0.08],
@@ -112,7 +112,7 @@ fn placard(did: &str) -> Vec<Generator> {
         ),
         prim(
             // Resolution 6: the sanitiser clamps a sphere there, and anything
-            // higher is silently rewritten — which fails the round-trip test
+            // higher is silently rewritten - which fails the round-trip test
             // rather than rendering differently.
             solid(sphere(0.12, 6, glow(BEACON_RED, 2.0))),
             [0.62, 6.34, 0.0],
@@ -124,7 +124,7 @@ fn placard(did: &str) -> Vec<Generator> {
             id_quat(),
         ),
     ];
-    // Lit viewport bezel — thin strips, so the light reads as an edge seal
+    // Lit viewport bezel - thin strips, so the light reads as an edge seal
     // rather than a washed panel.
     for sx in [-1.0_f32, 1.0] {
         out.push(prim(

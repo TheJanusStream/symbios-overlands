@@ -12,7 +12,7 @@ impl Sanitize for SovereignTerrainConfig {
     fn sanitize(&mut self) {
         self.grid_size = self.grid_size.clamp(2, limits::MAX_GRID_SIZE);
         // Every `f32` coefficient below feeds the heightmap noise / erosion
-        // math, whose output lands in `build_heightfield_collider` — an
+        // math, whose output lands in `build_heightfield_collider` - an
         // `assert!(is_finite)` that panics the physics step on a single NaN or
         // infinity. Two subtleties make a plain range clamp insufficient:
         // `HeightMap::normalize` does NOT scrub non-finite values (its min/max
@@ -21,7 +21,7 @@ impl Sanitize for SovereignTerrainConfig {
         // NaN). `clamp_finite` replaces any non-finite value with the field
         // default *before* clamping, closing the path a hostile record uses to
         // crash a peer that loads or receives it. Ranges mirror the terrain
-        // editor's sliders — magnitude multipliers keep the usual forward-compat
+        // editor's sliders - magnitude multipliers keep the usual forward-compat
         // headroom, while the frequency-exponent fields (`lacunarity`,
         // `base_frequency`) get none, since values past the editor range only
         // alias the noise lattice (see `limits::MAX_LACUNARITY`).
@@ -42,7 +42,7 @@ impl Sanitize for SovereignTerrainConfig {
         // Noise / erosion coefficients. `unit` bounds the fields whose semantics
         // are a `[0, 1]` fraction; the scale-like fields carry documented
         // `limits` ceilings. Every hydraulic term is a multiplier / blend factor
-        // (never a divisor — see `HydraulicErosion::erode`), so a `0.0` floor is
+        // (never a divisor - see `HydraulicErosion::erode`), so a `0.0` floor is
         // safe. Defaults match `SovereignTerrainConfig::default`.
         let unit = |v: f32, default: f32| clamp_finite(v, 0.0, 1.0, default);
         self.persistence = Fp(unit(self.persistence.0, 0.5));

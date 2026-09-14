@@ -1,4 +1,4 @@
-//! Dead tree — a Gothic-Horror prop. A bare, gnarled, leafless tree, its
+//! Dead tree - a Gothic-Horror prop. A bare, gnarled, leafless tree, its
 //! branches clawing at the fog. Scatter clutter haunting the necropolis.
 //!
 //! Branches tilt with a [`quat_x`].
@@ -48,7 +48,7 @@ impl CatalogueEntry for DeadTree {
 fn build_tree() -> Generator {
     let dw = || wood(DEADWOOD);
     let mut prims = vec![
-        // Gnarled trunk — the root, tapering up.
+        // Gnarled trunk - the root, tapering up.
         prim(
             solid(cylinder_tapered(0.36, 3.6, 8, 0.5, dw())),
             [0.0, 1.8, 0.0],

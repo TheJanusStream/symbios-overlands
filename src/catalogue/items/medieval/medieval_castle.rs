@@ -1,10 +1,10 @@
-//! Procedural medieval castle — courtyard-based layout with corner
+//! Procedural medieval castle - courtyard-based layout with corner
 //! towers, gatehouse, cloistered wings, and a great keep (sometimes
 //! ruined). Adapted from `bevy_symbios_shape`'s `medieval_castle`
 //! example.
 //!
 //! Heavy use of stochastic alternatives (`weight%` syntax) means each
-//! place dropped into a room generates a slightly different castle —
+//! place dropped into a room generates a slightly different castle -
 //! tower heights vary, some get spires vs battlements, the keep may
 //! be intact or ruined, walls intersperse arrow-slits among solid
 //! sections. Variation is driven by the per-generator `seed`; the
@@ -37,7 +37,7 @@ impl CatalogueEntry for MedievalCastle {
     fn role(&self) -> StructureRole {
         StructureRole::Landmark
     }
-    /// The burgh's seat of power — the established town landmark, shared
+    /// The burgh's seat of power - the established town landmark, shared
     /// across the Modest-to-Rich band (the landmark scale shrinks the keep
     /// for a modest town). The destitute end grows the [`super::wattle_hovel`]
     /// instead.
@@ -65,7 +65,7 @@ impl CatalogueEntry for MedievalCastle {
         castle.transform.translation = crate::pds::Fp3([-37.5, 0.0, -37.5]);
         // `attach` (not a bare push): `footing` returns a root whose own
         // transform is sunk by half the buried plinth, and a plain child
-        // inherits it — which drops the whole building below grade (#1039).
+        // inherits it - which drops the whole building below grade (#1039).
         crate::catalogue::items::util::attach(&mut root, castle);
         root
     }
@@ -74,7 +74,7 @@ impl CatalogueEntry for MedievalCastle {
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
 
-    // Dressed ashlar — a brighter coursed-block masonry with a pale mortar
+    // Dressed ashlar - a brighter coursed-block masonry with a pale mortar
     // line, so the keep reads as cut stone instead of a dark muddy mass.
     materials.insert(
         "Stone".to_string(),
@@ -142,7 +142,7 @@ fn build_kind() -> GeneratorKind {
         },
     );
 
-    // The candle-lit room behind the keep's leaded windows — a plain
+    // The candle-lit room behind the keep's leaded windows - a plain
     // emissive surface, no texture, so all the pattern comes from the pane
     // card in front of it. This is what makes the castle read inhabited.
     materials.insert(
@@ -156,7 +156,7 @@ fn build_kind() -> GeneratorKind {
         },
     );
 
-    // "Dark" — solid near-black, no texture. Used for arrow slits, gate
+    // "Dark" - solid near-black, no texture. Used for arrow slits, gate
     // mouth, cloister arches; reads as deep shadow / void.
     materials.insert(
         "Dark".to_string(),
@@ -339,7 +339,7 @@ mod tests {
 
     /// Walks every grammar line through the shared harness. Critical for
     /// the castle because its rules use weighted alternatives (`70% A |
-    /// 30% B`) the simple villa doesn't — regressions there would only
+    /// 30% B`) the simple villa doesn't - regressions there would only
     /// surface as runtime warnings.
     #[test]
     fn grammar_parses_and_resolves_materials() {

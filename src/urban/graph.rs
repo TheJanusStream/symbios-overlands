@@ -1,5 +1,5 @@
 //! District graph: the road network's planar topology, traced once and shared by
-//! the mesher and the lot layer — so a building can only stand on a street the
+//! the mesher and the lot layer - so a building can only stand on a street the
 //! player actually sees. The authored district window is copied into its own
 //! sub-heightmap (never written back; nothing carves the terrain), traced by
 //! `symbios-tensor`, then rationalized. Sanitation clears the tracer artefacts
@@ -21,7 +21,7 @@ use crate::pds::generator::RoadConfig;
 /// to `hm` (the `sub` copy is the only mutable surface, and nothing carves it).
 ///
 /// Shared by [`crate::urban::build_road_geometry`] (the draped mesh) and
-/// [`crate::urban::extract_building_lots`] (footprints) so both read the *same* graph — a
+/// [`crate::urban::extract_building_lots`] (footprints) so both read the *same* graph - a
 /// building can only sit on a street if it was placed from the geometry the
 /// player actually sees.
 pub(crate) fn build_road_graph(
@@ -31,13 +31,13 @@ pub(crate) fn build_road_graph(
     let (mut graph, sub, lo) = build_road_graph_raw(hm, config)?;
     // Clean tracer / rationalize artefacts (grazing false junctions and dead-end
     // stubs) out of the topology, and weld near-miss dead-ends into junctions,
-    // before it is meshed *or* lotted — see [`sanitize_graph`]. Both consumers read
+    // before it is meshed *or* lotted - see [`sanitize_graph`]. Both consumers read
     // the same cleaned graph. Weld tolerance is per-room (a fraction of spacing).
     sanitize_graph(&mut graph, WELD_TOL_FRACTION * config.minor_spacing.0);
     Some((graph, sub, lo))
 }
 
-/// The raw rationalized graph — `generate_roads` + `rationalize_graph`, *before*
+/// The raw rationalized graph - `generate_roads` + `rationalize_graph`, *before*
 /// [`sanitize_graph`]. Split out so the diagnostic dump can compare the graph
 /// before and after sanitation (see [`crate::urban::road_graph_diagnostics`]).
 pub(crate) fn build_road_graph_raw(
@@ -55,7 +55,7 @@ pub(crate) fn build_road_graph_raw(
         return None;
     }
     // District centre (#889): the authored XZ offset in cells, clamped so the
-    // window always stays fully inside the heightmap — pushing the centre past
+    // window always stays fully inside the heightmap - pushing the centre past
     // an edge slides the district back rather than truncating it.
     let max_lo = full_w - side;
     let lo_axis = |offset_m: f32| -> usize {
@@ -115,7 +115,7 @@ pub(crate) fn build_road_graph_raw(
 // runs out; `rationalize_graph` straightens and fillets but never cleans the
 // *topology*. So the mesher inherits two artefacts the `--road-dump` diagnostic
 // measured as dominant: grazing false junctions (~23 % of hubs) and short
-// dead-end stubs. We clear both here by deactivating edges — the exact `active`
+// dead-end stubs. We clear both here by deactivating edges - the exact `active`
 // mechanism `prune_unused_roads` uses, so node lists / positions are untouched
 // and the planar structure stays valid for `extract_blocks` / `extract_lots`.
 
@@ -144,21 +144,21 @@ const MERGE_NODE_EPS_M: f32 = 1.0;
 /// a mid-span T-junction.
 const WELD_T_MARGIN: f32 = 0.05;
 /// Minimum crossing angle (deg) between a dead-end's heading and the edge it would
-/// weld onto. Shallower than this the two roads run near-parallel — a graze, not a
-/// junction — and are left alone. The additive counterpart to the #571 graze CUT:
+/// weld onto. Shallower than this the two roads run near-parallel - a graze, not a
+/// junction - and are left alone. The additive counterpart to the #571 graze CUT:
 /// that removes false junctions, this creates the missing true ones.
 const WELD_MIN_CROSS_ANGLE_DEG: f32 = 25.0;
 /// Weld tolerance as a fraction of the room's minor-road spacing (#583): a dead-end
 /// whose perpendicular gap to a non-incident edge is under `fraction × minor_spacing`
 /// welds into it. Per-room-relative so a dense room can't cross-weld the next street.
 /// At 0.08 it is ≈7.5 m on the densest seeded room (94 m spacing) up to ≈14 m on the
-/// sparsest, and ≥ 4 m even on the 55 m struct default — always well under spacing yet
+/// sparsest, and ≥ 4 m even on the 55 m struct default - always well under spacing yet
 /// at/above the tracer's 4 m snap radius (the sizing sweep showed the candidate count
 /// is flat from 4–8 m on every road-growing seed, so the exact value isn't delicate).
 pub(crate) const WELD_TOL_FRACTION: f32 = 0.08;
 
 /// Clean the road graph in place and deterministically. First **merge**
-/// coincident nodes (collapsing near-zero segments and near-duplicate vertices —
+/// coincident nodes (collapsing near-zero segments and near-duplicate vertices -
 /// the source of the glitch spikes and lumpy double-hubs), then **cut** the
 /// remaining stub / graze artefacts to a fixed point (a cut can expose a fresh
 /// stub, and vice-versa, so passes repeat until one cuts nothing).
@@ -169,7 +169,7 @@ pub(crate) fn sanitize_graph(graph: &mut RoadGraph, weld_tol: f32) {
         // remaining stub / graze artefacts (subtractive). A weld only raises node
         // degree (never makes a fresh dead-end) and always meets the split edge
         // perpendicularly (never a graze), so it neither feeds the cuts nor is
-        // undone by them — the loop still converges.
+        // undone by them - the loop still converges.
         let welds = weld_endpoint_dangles(graph, weld_tol);
         let targets = sanitize_targets(graph);
         for ei in &targets {
@@ -275,13 +275,13 @@ fn uf_union(parent: &mut [usize], a: usize, b: usize) {
 }
 
 /// Merge coincident nodes in place. Two sources of coincidence get collapsed:
-/// active edges shorter than [`MERGE_EDGE_LEN_M`] (degenerate segments — the
+/// active edges shorter than [`MERGE_EDGE_LEN_M`] (degenerate segments - the
 /// unstable direction that spikes the miter) and distinct active nodes within
 /// [`MERGE_NODE_EPS_M`] (snap-welded duplicates that render as double-hubs /
 /// parallel edges). Each cluster collapses to its lowest-index node; edges are
 /// rewired to representatives, and self-loops / duplicate edges are deactivated.
 ///
-/// Only `edge.start/end`, `edge.active` and `node.edges` change — positions are
+/// Only `edge.start/end`, `edge.active` and `node.edges` change - positions are
 /// untouched, and `extract_blocks` rebuilds its own adjacency from the active
 /// edges, so the planar structure stays valid for the lot layer.
 pub(crate) fn merge_coincident_nodes(graph: &mut RoadGraph) {
@@ -321,7 +321,7 @@ pub(crate) fn merge_coincident_nodes(graph: &mut RoadGraph) {
     // 2. Merge near-duplicate active nodes that are NOT directly connected by an
     //    edge (grid-bucketed, O(n)). Skipping adjacent pairs is load-bearing: the
     //    tensor graph is sampled at ~1 m, so merging adjacent samples would
-    //    collapse and distort real curves — those are left to the near-zero rule
+    //    collapse and distort real curves - those are left to the near-zero rule
     //    above. Only genuine snap-welded duplicates (two *distinct* roads meeting
     //    at the same point) are merged here.
     let mut is_active = vec![false; n];
@@ -397,14 +397,14 @@ pub(crate) fn merge_coincident_nodes(graph: &mut RoadGraph) {
 //
 // The tracer welds a junction only where a trace passes within `snap_radius`
 // (~4 m) of an existing edge; a road that ends just beyond that is left as a
-// free degree-1 dead-end touching another road's flank — so the mesher caps it
+// free degree-1 dead-end touching another road's flank - so the mesher caps it
 // as a cul-de-sac (#579) instead of meeting the junction. We close that gap by
 // splitting the touched edge at the foot-of-perpendicular and welding the
 // endpoint in, creating a real (degree-3) junction the hub builder then renders.
-// Purely additive — the opposite of the subtractive stub/graze cuts.
+// Purely additive - the opposite of the subtractive stub/graze cuts.
 
 /// Active adjacency as `(neighbour, edge_id)` per node, built from the `active`
-/// edge flags — NOT `node.edges`, which [`sanitize_targets`] leaves carrying stale
+/// edge flags - NOT `node.edges`, which [`sanitize_targets`] leaves carrying stale
 /// ids after a cut. Shared by the endpoint-weld search (#583).
 pub(crate) fn active_adjacency(graph: &RoadGraph) -> Vec<Vec<(usize, usize)>> {
     let mut adj = vec![Vec::new(); graph.nodes.len()];
@@ -445,10 +445,10 @@ fn weld_self_chain(adj: &[Vec<(usize, usize)>], p: usize) -> std::collections::H
 /// nearest active, non-incident, non-self-chain edge whose foot-of-perpendicular
 /// from `p` lies strictly interior (≥ [`WELD_T_MARGIN`] from each end), within
 /// `tol` metres, and meets `p`'s heading transversely (crossing angle
-/// ≥ [`WELD_MIN_CROSS_ANGLE_DEG`] — not a near-parallel graze). Returns
+/// ≥ [`WELD_MIN_CROSS_ANGLE_DEG`] - not a near-parallel graze). Returns
 /// `(edge_id, t)` with `t` the parametric foot along the edge; the caller
 /// reconstructs the split point from the edge's own endpoints so the `glam` `Vec2`
-/// type never crosses this boundary. Planar (XZ) — the mesher re-drapes elevation.
+/// type never crosses this boundary. Planar (XZ) - the mesher re-drapes elevation.
 /// Deterministic: ties break to the nearest foot, then the lowest edge id.
 pub(crate) fn weld_candidate(
     graph: &RoadGraph,
@@ -510,7 +510,7 @@ pub(crate) fn weld_candidate(
 ///
 /// Candidates are chosen against a FROZEN snapshot of the active graph, so the
 /// result is independent of application order (deterministic). A planned weld whose
-/// target edge a prior weld this pass already split is skipped — its dead-end is
+/// target edge a prior weld this pass already split is skipped - its dead-end is
 /// reconsidered on the next sanitation pass against the new geometry. Welds only
 /// ever raise a node's degree, never create a degree-1 node, so the candidate set
 /// strictly shrinks and the enclosing fixed-point loop terminates.

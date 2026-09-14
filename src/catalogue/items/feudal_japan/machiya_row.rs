@@ -1,9 +1,9 @@
-//! Machiya row — a block of Kyoto merchant town-houses, lattice-fronted on
+//! Machiya row - a block of Kyoto merchant town-houses, lattice-fronted on
 //! the street and running back down their long "eel bed" lots.
 //!
 //! A machiya is defined by its plan before anything else: a narrow frontage
 //! and an absurd depth (*unagi no nedoko*, "eel's bed"), because the street
-//! frontage was what got taxed. This grammar takes that literally — every
+//! frontage was what got taxed. This grammar takes that literally - every
 //! house is a `Split(Z)` into three zones, front to back:
 //!
 //! 1. the **omoya**, the two-storey street block with the shop in it;
@@ -15,8 +15,8 @@
 //! terrace is all frontage and no depth, a machiya row is all depth. The two
 //! items also divide the stochastic labour differently. The terrace shares
 //! its *roofline* across the row and varies everything else per house; here
-//! `Pick` shares the **roof family** and the **hour of day** — because a
-//! street has one roof vocabulary and one sunset — while the per-house rolls
+//! `Pick` shares the **roof family** and the **hour of day** - because a
+//! street has one roof vocabulary and one sunset - while the per-house rolls
 //! take storey height, shop-versus-residence front, lattice pattern, the
 //! presence of a fire-wall and the presence of a storehouse.
 //!
@@ -24,17 +24,17 @@
 //! ground floor. In Kyoto the lattice pattern advertised the trade, so it is
 //! a per-house roll: a close *itoya* weave, a coarser one, or a braced
 //! screen with a mid-rail. It is built as real slats standing off a recessed
-//! interior surface — so the gaps read as gaps, and at night the room behind
+//! interior surface - so the gaps read as gaps, and at night the room behind
 //! shows through them.
 //!
 //! Above it sits the **mushikomado**, the "insect cage window": a low loft
 //! storey in earthen plaster with fat plastered bars. And on the houses that
-//! prospered, an **udatsu** — a plastered fire wall standing up through the
+//! prospered, an **udatsu** - a plastered fire wall standing up through the
 //! eaves at the party line. Not having one was the Edo-period idiom for
 //! failing to get ahead in life, which makes it the most honest stochastic
 //! element in the catalogue.
 //!
-//! Footprint 21 × 14.4 — four to five houses across a deep block.
+//! Footprint 21 × 14.4 - four to five houses across a deep block.
 
 use std::collections::HashMap;
 
@@ -69,7 +69,7 @@ const COURT_D: f32 = 3.6;
 /// however different the houses above them are.
 const SHOP_H: f32 = 3.0;
 /// The three upper storeys a house can roll. `LOFT_H` is the old
-/// *tsushi-nikai* crawl loft — too low to stand in, which was the point
+/// *tsushi-nikai* crawl loft - too low to stand in, which was the point
 /// under sumptuary law; `TALL_H` is the later, franker second storey.
 const LOFT_H: f32 = 1.5;
 const UPPER_H: f32 = 2.1;
@@ -94,7 +94,7 @@ const TUCK_MARGIN: f32 = 0.02;
 
 // ── Street furniture ──────────────────────────────────────────────────────
 
-/// Height of the hisashi band — the shop canopy over the shopfront.
+/// Height of the hisashi band - the shop canopy over the shopfront.
 const HISASHI_H: f32 = 0.42;
 /// How far the hisashi projects over the street.
 const HISASHI_OUT: f32 = 0.85;
@@ -102,7 +102,7 @@ const HISASHI_OUT: f32 = 0.85;
 /// Height of the stone plinth a residence stands on, and of its door leaf.
 ///
 /// These two are the deepest absolute stack on the street face, and the
-/// face they divide is only `SHOP_H - HISASHI_H` tall to begin with — so
+/// face they divide is only `SHOP_H - HISASHI_H` tall to begin with - so
 /// they are the pair most likely to overflow when anything above them
 /// moves. The `the_entry_stack_fits_the_shopfront` test does that arithmetic
 /// rather than leaving it to a derive failure.
@@ -156,7 +156,7 @@ fn required_roof_tuck() -> f32 {
 /// springing.
 ///
 /// Derived rather than authored, so raising `ROOF_PITCH_DEG` widens the band
-/// with it instead of silently pushing every wall through the eaves — the
+/// with it instead of silently pushing every wall through the eaves - the
 /// failure mode that cost the stave church two rounds of review (#1042).
 fn roof_tuck() -> f32 {
     required_roof_tuck() + TUCK_MARGIN
@@ -168,7 +168,7 @@ fn roof_tuck() -> f32 {
 const NOREN_INDIGO: [f32; 3] = [0.11, 0.18, 0.33];
 /// Raked pale gravel of the tsuboniwa.
 const GRAVEL_PALE: [f32; 3] = [0.68, 0.66, 0.60];
-/// Ochre earthen plaster of the loft storey — warmer than the kura's lime.
+/// Ochre earthen plaster of the loft storey - warmer than the kura's lime.
 /// Held clear of green: a desaturated yellow goes khaki once the sky light
 /// cools its shadow side, and the whole loft storey reads military.
 const PLASTER_OCHRE: [f32; 3] = [0.79, 0.68, 0.49];
@@ -181,8 +181,8 @@ const INTERIOR_WARM: [f32; 3] = [1.0, 0.74, 0.40];
 ///
 /// No texture at all: everything the eye reads here is the slat pattern in
 /// front of it. Tinting a patterned card warm to fake a lit room is the
-/// mistake the terrace documents — a `Window` card is one material across
-/// frame *and* glass — and the same reasoning applies to a lattice, where
+/// mistake the terrace documents - a `Window` card is one material across
+/// frame *and* glass - and the same reasoning applies to a lattice, where
 /// the "frame" is the timber itself and must stay timber-coloured.
 fn interior(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -221,7 +221,7 @@ impl CatalogueEntry for MachiyaRow {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
-    /// The merchant town, not the farmstead — the destitute end of the theme
+    /// The merchant town, not the farmstead - the destitute end of the theme
     /// stays the [`minka`](super::minka) kit.
     fn prosperity_band(&self) -> ProsperityBand {
         FEUDAL_BAND
@@ -364,7 +364,7 @@ fn build_kind() -> GeneratorKind {
         "DoorBay --> Split(Y) { DoorH: DoorLeaf | ~1: Ranma }",
         "DoorLeaf --> Extrude(0.12) Mat(\"TimberDark\") I(\"Door\")",
         "Ranma --> Extrude(0.1) Mat(\"ShojiDay\") I(\"Ranma\")",
-        // ── 6. Koshi — the hero ───────────────────────────────────────────
+        // ── 6. Koshi - the hero ───────────────────────────────────────────
         //    Real slats standing off a recessed room surface, so the gaps
         //    are gaps and the room shows through them after dark.
         "KoshiRun --> Split(Y) { 0.42: Kamachi | ~1: Koshi | 0.3: KoshiHead }",
@@ -388,7 +388,7 @@ fn build_kind() -> GeneratorKind {
         "Rafter --> Extrude(0.07) Mat(\"Timber\") I(\"Rafter\")",
         "SoffitPanel --> Mat(\"Timber\") I(\"Soffit\")",
         // ── 8. The loft storey ────────────────────────────────────────────
-        // No skirt up here — the boarding is a ground-floor detail.
+        // No skirt up here - the boarding is a ground-floor detail.
         "LoftStorey --> Comp(Faces) { Front: LoftFace | Top: NIL | Bottom: NIL | _: FlankPlaster }",
         "LoftFace --> when(scope.x < 2.4): PlasterWall | else: LoftBays",
         // A crawl loft gets insect-cage windows; a full storey gets shoji.
@@ -396,7 +396,7 @@ fn build_kind() -> GeneratorKind {
         "MushikoRow --> Split(X) { 0.5: PlasterWall | { 0.6: PlasterWall | 1.0: MushikoBay }* | 0.5: PlasterWall }",
         "MushikoBay --> Split(Y) { 0.4: PlasterWall | ~1: Mushikomado | 0.32: PlasterWall }",
         "Mushikomado --> Extrude(WallD) Comp(Faces) { Back: MushikoGrille | Front: LoftInterior | _: RevealFace }",
-        // Fat plastered bars, not timber — that is why it is a cage.
+        // Fat plastered bars, not timber - that is why it is a cage.
         "MushikoGrille --> Repeat(X, 0.2) { MushikoCell }",
         "MushikoCell --> Split(X) { 0.1: FatBar | ~1: NIL }",
         "FatBar --> Extrude(0.08) Mat(\"Plaster\") I(\"Bar\")",
@@ -404,7 +404,7 @@ fn build_kind() -> GeneratorKind {
         "ShojiBay --> Split(Y) { 0.55: PlasterWall | ~1: ShojiWindow | 0.45: PlasterWall }",
         "ShojiWindow --> Extrude(WallD) Comp(Faces) { Back: ShojiScreen | Front: LoftInterior | _: RevealFace }",
         // A shoji is a gridded frame, not a sheet. Left as one flat panel it
-        // reads as a poster pasted on the wall — the mullions are what make
+        // reads as a poster pasted on the wall - the mullions are what make
         // the paper look like paper.
         "ShojiScreen --> Split(Y) { ~1: ShojiTier | 0.05: Mullion | ~1: ShojiTier }",
         "ShojiTier --> Repeat(X, 0.3) { ShojiCell }",
@@ -412,11 +412,11 @@ fn build_kind() -> GeneratorKind {
         "Mullion --> Extrude(0.04) Mat(\"Timber\") I(\"Mullion\")",
         "ShojiDay --> Mat(\"ShojiDay\") I(\"Shoji\")",
         "ShojiNight --> Mat(\"ShojiNight\") I(\"Shoji\")",
-        // ── 9. The hour — one decision for the whole street ───────────────
+        // ── 9. The hour - one decision for the whole street ───────────────
         "DayRoom --> Mat(\"InteriorDay\") I(\"Room\")",
         "NightRoom --> Mat(\"InteriorNight\") I(\"Room\")",
         "LoftInterior --> Mat(\"InteriorDay\") I(\"Room\")",
-        // ── 10. Roofs — one family for the whole street ───────────────────
+        // ── 10. Roofs - one family for the whole street ───────────────────
         //    `ridge=X` is what makes this a row rather than a terrace of
         //    gable ends: machiya sit hirairi, eaves-side to the street.
         "RoofZone --> Pick(\"street\") { 44% Irimoya | 32% Kirizuma | 24% Yosemune }",
@@ -441,7 +441,7 @@ fn build_kind() -> GeneratorKind {
         "Planting --> Scatter(Top, 3) { GardenStone }",
         "GardenStone --> Size(0.52, 0.4, 0.46) Center(XYZ) Mat(\"Rock\") I(\"Stone\")",
         // ── 12. The kura ──────────────────────────────────────────────────
-        //    Lime-plastered, near windowless, with a stone base course —
+        //    Lime-plastered, near windowless, with a stone base course -
         //    the point of it was to survive the fire that took the house.
         "RearBlock --> Extrude(KuraH) Split(Y) { ~1: KuraWalls | RoofTuck: NIL | KuraRoofH: KuraRoof }",
         "KuraWalls --> Comp(Faces) { Top: NIL | Bottom: NIL | Front: KuraFace | _: KuraWall }",
@@ -473,7 +473,7 @@ fn build_kind() -> GeneratorKind {
         footprint: Fp3([LOT_X, 0.0, LOT_Z]),
         seed: 3,
         materials: materials(),
-        // Nothing here is turned — a machiya is all square timber.
+        // Nothing here is turned - a machiya is all square timber.
         round_meshes: Vec::new(),
     }
 }
@@ -595,7 +595,7 @@ mod tests {
         let deepest_plan = FRONT_D + COURT_D;
         assert!(
             deepest_plan < LOT_Z,
-            "the front block and courtyard already fill the lot — no room for a kura"
+            "the front block and courtyard already fill the lot - no room for a kura"
         );
         assert!(
             LOT_Z - deepest_plan > 3.0,
@@ -605,7 +605,7 @@ mod tests {
 
     /// The tuck band exists for exactly one reason: a wall standing `WALL_D`
     /// proud of the mass would otherwise pierce its own overhanging eaves.
-    /// Assert it covers that and is not padded far beyond it — a fat band
+    /// Assert it covers that and is not padded far beyond it - a fat band
     /// would open a visible gap under the roof instead.
     #[test]
     fn the_tuck_band_clears_the_wall_head() {
@@ -614,20 +614,20 @@ mod tests {
         assert!(
             declared > required,
             "walls stand {WALL_D} proud under a {ROOF_PITCH_DEG}° roof, \
-             which needs more than a {required:.3} tuck — the grammar \
+             which needs more than a {required:.3} tuck - the grammar \
              declares only {declared:.3}"
         );
         assert!(
             declared < required + 0.05,
             "the declared tuck {declared:.3} is far above the {required:.3} \
-             it needs — that opens a gap under the eaves"
+             it needs - that opens a gap under the eaves"
         );
     }
 
     /// The street face is the tightest budget in the grammar: the canopy,
     /// the plinth and the door leaf are all absolute, and they divide a face
     /// only `SHOP_H` tall. Anything that grows here overflows the split
-    /// rather than degrading, so do the arithmetic here — a derive failure
+    /// rather than degrading, so do the arithmetic here - a derive failure
     /// names the scope but not the constant that outgrew it.
     #[test]
     fn the_entry_stack_fits_the_shopfront() {
@@ -640,13 +640,13 @@ mod tests {
         );
         assert!(
             house_front - DOOR_H > 0.2,
-            "the ranma transom above the door is thinner than 0.2 — \
+            "the ranma transom above the door is thinner than 0.2 - \
              it will read as a seam, not an opening"
         );
     }
 
     /// The lattice is the item. Assert the street actually grows slats, and
-    /// that several distinct houses grew them — "derives cleanly" is not
+    /// that several distinct houses grew them - "derives cleanly" is not
     /// "has a shopfront".
     #[test]
     fn the_street_is_latticed() {
@@ -655,7 +655,7 @@ mod tests {
             let slats = count(&model, "Slat");
             assert!(
                 slats >= 30,
-                "seed {seed}: the shopfronts degraded to blank wall — only {slats} lattice slats"
+                "seed {seed}: the shopfronts degraded to blank wall - only {slats} lattice slats"
             );
             // Slats cluster into runs, one per house front. Distinct X bands
             // ⇒ more than one house grew a lattice.
@@ -684,7 +684,7 @@ mod tests {
             let loft_openings = count(&model, "Bar") + count(&model, "Shoji");
             assert!(
                 loft_openings >= 6,
-                "seed {seed}: the loft storey is blank — {loft_openings} openings"
+                "seed {seed}: the loft storey is blank - {loft_openings} openings"
             );
             assert!(
                 count(&model, "Rafter") >= 20,
@@ -710,7 +710,7 @@ mod tests {
             assert!(houses > 0, "seed {seed}: no roofs at all");
             assert!(
                 gables == 0 || gables >= 4,
-                "seed {seed}: {gables} gable ends across the row — \
+                "seed {seed}: {gables} gable ends across the row - \
                  Pick lost coherence and mixed roof families"
             );
         }
@@ -745,14 +745,14 @@ mod tests {
                 );
             }
         }
-        assert!(saw_night, "no seed lit the street — the hour Pick is stuck");
+        assert!(saw_night, "no seed lit the street - the hour Pick is stuck");
         assert!(
             saw_day,
-            "no seed left the street dark — the hour Pick is stuck"
+            "no seed left the street dark - the hour Pick is stuck"
         );
     }
 
-    /// Some houses raise an udatsu and some do not — and when one is raised
+    /// Some houses raise an udatsu and some do not - and when one is raised
     /// it must stand above the eaves of even the tallest neighbour, or it
     /// reads as a buttress rather than a fire wall.
     #[test]
@@ -776,7 +776,7 @@ mod tests {
         assert!(without > 0 || with < 12, "every seed raised an udatsu");
     }
 
-    /// The courtyard must be gravelled and stoned — `Scatter` silently
+    /// The courtyard must be gravelled and stoned - `Scatter` silently
     /// producing nothing would leave a bald pad no test would otherwise see.
     #[test]
     fn the_courtyards_are_planted() {

@@ -4,7 +4,7 @@
 //! Outbound `Transform` broadcasts are driven by `FixedUpdate` (not `Update`)
 //! so the packet rate is independent of render FPS.  When the local avatar
 //! is nearly stationary the broadcast rate drops from ~64 Hz to ~2 Hz to
-//! save bandwidth and downstream CPU — with a forced "final frame"
+//! save bandwidth and downstream CPU - with a forced "final frame"
 //! broadcast on the tick we cross into rest so remote peers land on the
 //! true parked pose.
 //!
@@ -17,13 +17,13 @@
 //!
 //! Each peer also announces the wire layout it speaks
 //! ([`crate::protocol::OverlandsMessage::Hello`], #1121) on the same reliable
-//! cadence as Identity. It is advisory — nothing is gated on it — because by
+//! cadence as Identity. It is advisory - nothing is gated on it - because by
 //! the time two builds disagree the damage is already done inside the
 //! transport, where a message from the other layout fails to decode and is
 //! dropped before this module sees it. What the announcement buys is a name
 //! for that: a chip on the peer's row and a `PeerProtocolMismatch` in the
 //! session log, on both ends. A peer that announces NOTHING is the case that
-//! exists today — every build older than the handshake — and
+//! exists today - every build older than the handshake - and
 //! [`lifecycle::flag_unannounced_peers`] reports it once the grace elapses.
 //!
 //! Avatar records are sovereign: after a peer announces its DID, we spawn
@@ -44,24 +44,24 @@
 //!
 //! ## Sub-module map
 //!
-//! * [`peer_cache`] — DID-keyed [`PeerAvatarCache`] + the async
+//! * [`peer_cache`] - DID-keyed [`PeerAvatarCache`] + the async
 //!   peer-avatar fetch task and its drainer.
-//! * [`lifecycle`] — peer connect/disconnect, stale-offer-dialog evictor,
+//! * [`lifecycle`] - peer connect/disconnect, stale-offer-dialog evictor,
 //!   mute-visibility sync.
-//! * [`link`] — [`link::LinkState`], the one place the client knows whether
+//! * [`link`] - [`link::LinkState`], the one place the client knows whether
 //!   it is connected, and the ghost-peer sweep + narration on its edges
 //!   (#1213).
-//! * [`presence`] — how far a peer has resolved: the one naming ladder
+//! * [`presence`] - how far a peer has resolved: the one naming ladder
 //!   ([`presence::PeerLabel`]), the one status chip
 //!   ([`presence::peer_status`]), the shared retry backoff, and the
 //!   stand-in body a peer wears until their real one arrives
 //!   (#1217/#1218).
-//! * [`inbound`] — [`inbound::handle_incoming_messages`] dispatcher.
-//! * [`broadcast`] — outbound `Transform` / `Identity` /
+//! * [`inbound`] - [`inbound::handle_incoming_messages`] dispatcher.
+//! * [`broadcast`] - outbound `Transform` / `Identity` /
 //!   `AvatarStateUpdate` / `RoomStateUpdate` writers.
-//! * [`chunk`] — app-layer fragmentation/reassembly that carries reliable
+//! * [`chunk`] - app-layer fragmentation/reassembly that carries reliable
 //!   messages past WebRTC's 64 KiB SCTP message ceiling (#716).
-//! * [`smoother`] — jitter-buffered playout (cubic Hermite spline).
+//! * [`smoother`] - jitter-buffered playout (cubic Hermite spline).
 
 mod broadcast;
 pub mod chunk;
@@ -104,8 +104,8 @@ impl SmootherConfigRes {
     /// tick, so `timestep_secs` is exactly the true inter-broadcast spacing.
     /// Feeding it straight into `expected_send_interval_secs` makes the
     /// upstream `(last + expected).max(now)` playout anchor track wall clock
-    /// with zero systematic drift — regardless of whether the fixed rate is
-    /// Bevy's 64 Hz default or an explicit override — so the playout timeline
+    /// with zero systematic drift - regardless of whether the fixed rate is
+    /// Bevy's 64 Hz default or an explicit override - so the playout timeline
     /// never accumulates toward the `MAX_JITTER_DRIFT_SECS` rebase ceiling.
     pub fn from_fixed_timestep(timestep_secs: f64) -> Self {
         Self(SmootherConfig {
@@ -121,14 +121,14 @@ impl SmootherConfigRes {
 impl Default for SmootherConfigRes {
     /// Fallback used only if `Time<Fixed>` is unavailable at build time; the
     /// constant mirrors Bevy's default fixed timestep. In practice the plugin
-    /// always reads the live timestep — see [`NetworkPlugin::build`].
+    /// always reads the live timestep - see [`NetworkPlugin::build`].
     fn default() -> Self {
         Self::from_fixed_timestep(config::network::EXPECTED_BROADCAST_INTERVAL_SECS)
     }
 }
 
 /// Read the real `FixedUpdate` timestep (seconds) that transform broadcasts
-/// will actually run at — this is the true inter-broadcast spacing, since
+/// will actually run at - this is the true inter-broadcast spacing, since
 /// [`broadcast::broadcast_local_state`] emits one packet per fixed tick.
 ///
 /// Falls back to the mirrored default constant only if `Time<Fixed>` is
@@ -167,9 +167,9 @@ impl Plugin for NetworkPlugin {
             .init_resource::<link::LinkNarration>()
             .insert_resource(SmootherConfigRes::from_fixed_timestep(fixed_timestep_secs))
             // #1279: the link is TRACKED from `Loading`, not from `InGame`.
-            // The relay answers while the world is still compiling — the
+            // The relay answers while the world is still compiling - the
             // socket config is inserted just before the `Loading` transition
-            // — so a tracker gated on `InGame` starts observing after the one
+            // - so a tracker gated on `InGame` starts observing after the one
             // signal that means "connected" has already happened. It is
             // registered apart from the chain below precisely because it
             // needs the wider window; `narrate_link_state` must NOT have it,
@@ -209,7 +209,7 @@ impl Plugin for NetworkPlugin {
                     lifecycle::sweep_stale_pending_offers,
                     lifecycle::flag_unannounced_peers,
                     // The liveness the transport does not always report
-                    // (#1224 f335) — a ghost is worse than an absence.
+                    // (#1224 f335) - a ghost is worse than an absence.
                     lifecycle::sweep_quiet_peers,
                     smoother::smooth_remote_transforms,
                     presence::retire_peer_placeholders,
@@ -227,15 +227,15 @@ impl Plugin for NetworkPlugin {
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             )
-            // A session that ends must not carry its link state — or the
-            // narration edge — into the next one, or the first frame of the
+            // A session that ends must not carry its link state - or the
+            // narration edge - into the next one, or the first frame of the
             // next login (no socket yet) reads as an outage (#1213).
             .add_systems(
                 OnExit(AppState::InGame),
                 (link::reset_link_state, presence::reset_mute_audio),
             )
             // Network broadcast is tied to a fixed tick so the outbound rate
-            // is independent of rendering FPS — otherwise a 144 Hz monitor
+            // is independent of rendering FPS - otherwise a 144 Hz monitor
             // would blast peers with 2.4× the intended packet rate and a
             // 30 Hz machine would stutter.
             .add_systems(
@@ -269,7 +269,7 @@ mod tests {
 
     /// The load-bearing #630 guard: the broadcast interval is read from the
     /// *live* `Time<Fixed>`, not a hardcoded value. Installing a non-default
-    /// 30 Hz timestep must flow through to the buffer cadence — a regression
+    /// 30 Hz timestep must flow through to the buffer cadence - a regression
     /// that reverts to a constant (the original `1/60`, or `init_resource`'s
     /// default) would still report ~1/64 here and fail.
     #[test]
@@ -291,8 +291,8 @@ mod tests {
         );
     }
 
-    /// With the stock plugin set, the read yields Bevy's 64 Hz default — the
-    /// cadence transform broadcasts actually run at — proving the historical
+    /// With the stock plugin set, the read yields Bevy's 64 Hz default - the
+    /// cadence transform broadcasts actually run at - proving the historical
     /// `1/60` assumption (which drifted +6.7%/s into the rebase ceiling) is
     /// gone. `1/64` is a power of two, so the round-trip is exact.
     #[test]

@@ -1,4 +1,4 @@
-//! Trash bags — a Modern-City *poor* prop. A heap of black refuse sacks
+//! Trash bags - a Modern-City *poor* prop. A heap of black refuse sacks
 //! against a tipped-over steel can with a spill of litter: the alley clutter
 //! of the inner city.
 
@@ -54,7 +54,7 @@ impl CatalogueEntry for TrashBags {
 fn build_tree() -> Generator {
     let bag = |r: f32| solid(sphere(r, 3, enamel(BAG_BLACK)));
 
-    // Big bag — the root.
+    // Big bag - the root.
     let mut prims = vec![prim(bag(0.5), [0.0, 0.45, 0.0], id_quat())];
     // More bags heaped around it, each cinched with a pinched tie knot on top.
     for (r, x, y, z) in [
@@ -92,7 +92,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // A spill of assorted litter — paper, a flattened pizza box, a bottle.
+    // A spill of assorted litter - paper, a flattened pizza box, a bottle.
     for (x, z) in [(-1.9_f32, -0.3_f32), (-1.6, 0.4), (1.0, -0.5)] {
         prims.push(prim(
             cuboid_tapered([0.22, 0.04, 0.18], 0.0, enamel(LITTER_PALE)),

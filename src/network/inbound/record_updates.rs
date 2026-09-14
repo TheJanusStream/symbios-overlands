@@ -2,7 +2,7 @@
 //! whether either is worth fetching (#1161).
 //!
 //! What these four share is that each carries, or points at, a whole
-//! **record** — the same shapes the PDS stores — and so each is the place a
+//! **record** - the same shapes the PDS stores - and so each is the place a
 //! peer-supplied payload becomes local state. Every one of them therefore
 //! decodes, sanitises and ownership-checks before it writes, and the
 //! ownership rule differs per message: an avatar is its sender's to
@@ -39,7 +39,7 @@ pub(super) fn handle_avatar_state(
     // AUTHORITY FIRST, matching the `RoomStateUpdate` arm below
     // (#1126). This used to decode and sanitize up to ~900 KiB
     // of JSON and only then check whether the sender was a peer
-    // we had authenticated — so a peer that never sent a valid
+    // we had authenticated - so a peer that never sent a valid
     // Identity could make every guest walk a maximal generator
     // tree once per frame and throw the result away. The
     // heaviest message in the protocol already resolves the
@@ -75,7 +75,7 @@ pub(super) fn handle_avatar_state(
     }
     let Some(mut new_record) = OverlandsMessage::decode_avatar_state(&record_json) else {
         // Emit the typed decode-failure event (#634) so the
-        // `net.silent_decode_failure` rule sees this arm too — it
+        // `net.silent_decode_failure` rule sees this arm too - it
         // already matches all three, but only ItemOffer was emitting.
         session_log.warn(
             now,
@@ -96,7 +96,7 @@ pub(super) fn handle_avatar_state(
         if peer.peer_id != from {
             continue;
         }
-        // The DID was resolved above, before the decode — a peer
+        // The DID was resolved above, before the decode - a peer
         // without one never reaches here.
         let peer_did = sender_did.clone();
         // A live preview IS the peer's real record, so it retires
@@ -178,7 +178,7 @@ pub(super) fn handle_records_published(
     peers: &mut Query<PeerParts>,
 ) {
     // The sender saved their rigged body (#1122). Same rkeys,
-    // new bytes behind them — so drop the resolution we are
+    // new bytes behind them - so drop the resolution we are
     // carrying and let `spawn_peer_rig_resolutions` fetch the
     // published records. Without this the owner's Save reached
     // nobody: the re-broadcast preview names the same
@@ -191,7 +191,7 @@ pub(super) fn handle_records_published(
     // make every guest fan out to hosts of its choosing, and a
     // message a peer sends at will must not lift it. The
     // reference-set backoff does go, because it records that
-    // THESE references failed to resolve — which a publish is
+    // THESE references failed to resolve - which a publish is
     // precisely the news that invalidates.
     for (peer_entity, mut peer, _, _) in peers.iter_mut() {
         if peer.peer_id != sender {
@@ -199,8 +199,8 @@ pub(super) fn handle_records_published(
         }
         // Nothing to forget is nothing to do (#1224 f336).
         // `peer.avatar.as_mut()` raises the change tick
-        // unconditionally — even for a peer with no record, and
-        // even when the resolution is already `None` — so an
+        // unconditionally - even for a peer with no record, and
+        // even when the resolution is already `None` - so an
         // unguarded notice was a free way to dirty a peer and
         // re-run two `Changed<RemotePeer>` systems. Read first,
         // and take the mutable borrow only when the answer
@@ -220,7 +220,7 @@ pub(super) fn handle_records_published(
     }
 }
 
-/// Replace the live room record — but only from the peer who owns it, and
+/// Replace the live room record - but only from the peer who owns it, and
 /// only after the same-owner split (#1203) has decided whose copy wins.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn handle_room_state(
@@ -253,7 +253,7 @@ pub(super) fn handle_room_state(
     };
     // The owner's OTHER session (#1203): same DID as this
     // session, so the gate below passes it like any owner
-    // broadcast — but the local record may hold edits the
+    // broadcast - but the local record may hold edits the
     // other session has never seen.
     let same_owner = match (&sender_did, session.as_deref()) {
         (Some(did), Some(session)) => did == &session.did,
@@ -261,7 +261,7 @@ pub(super) fn handle_room_state(
     };
 
     if !is_owner {
-        // Dropped correctly, but silently until #1144 — and this
+        // Dropped correctly, but silently until #1144 - and this
         // is the one inbound drop with a hostile reading: a guest
         // broadcasting forged room state at frame rate.
         session_log.warn(
@@ -276,12 +276,12 @@ pub(super) fn handle_room_state(
 
     // Decode the JSON payload shipped by the owner. The wire
     // format is JSON-in-bincode because `RoomRecord`'s tagged
-    // enums are incompatible with bincode's streaming decoder —
+    // enums are incompatible with bincode's streaming decoder -
     // see `OverlandsMessage::RoomStateUpdate` docs.
     let Some(mut new_record) = OverlandsMessage::decode_room_state(&record_json) else {
         // Typed decode-failure event (#634). `sender_did` is
-        // guaranteed `Some` here — the `is_owner` gate above required
-        // it — but default defensively rather than unwrap.
+        // guaranteed `Some` here - the `is_owner` gate above required
+        // it - but default defensively rather than unwrap.
         session_log.warn(
             now,
             EventPayload::RoomStateDecodeFailed {
@@ -297,7 +297,7 @@ pub(super) fn handle_room_state(
     };
 
     // Clamp every unbounded numeric field before the world
-    // compiler touches the recipe — a malicious owner could
+    // compiler touches the recipe - a malicious owner could
     // otherwise ship a grid_size or L-system iteration count
     // designed to OOM every guest.
     new_record.sanitize();
@@ -326,7 +326,7 @@ pub(super) fn handle_room_state(
                             sender_did: sender_did.clone().unwrap_or_default(),
                             reason: String::from(
                                 "held: the owner's other session changed the world \
-                                 while this session has unpublished edits — asking \
+                                 while this session has unpublished edits - asking \
                                  which copy to keep",
                             ),
                         },
@@ -334,7 +334,7 @@ pub(super) fn handle_room_state(
                     if bufs.held_room.is_none() {
                         bufs.toasts.warn(
                             "Your world changed in another session while you have \
-                             unpublished edits here — choose which copy to keep.",
+                             unpublished edits here - choose which copy to keep.",
                             now,
                         );
                     }
@@ -362,7 +362,7 @@ pub(super) fn handle_room_state(
         // captured log could show a room broadcast being REJECTED
         // or failing to DECODE but never being accepted. Two peers
         // comparing logs after a desync therefore could not
-        // establish the first thing worth knowing — whether they
+        // establish the first thing worth knowing - whether they
         // were even deriving the same recipe. The record
         // fingerprint here is the same one the world digest is
         // keyed by, so the two line up.
@@ -376,7 +376,7 @@ pub(super) fn handle_room_state(
         record.0 = new_record;
         // Foreign wholesale write (#862): mostly guests (whose
         // history is empty anyway), but a second session of
-        // the SAME owner DID passes the is_owner gate too —
+        // the SAME owner DID passes the is_owner gate too -
         // the local ring must reset rather than offer undos
         // across the other session's replacement.
         bufs.undo_signals.foreign = true;

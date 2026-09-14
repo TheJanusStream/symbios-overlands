@@ -1,4 +1,4 @@
-//! Farm junk — a Rural/Farmland *poor* prop. A heap of cast-off equipment:
+//! Farm junk - a Rural/Farmland *poor* prop. A heap of cast-off equipment:
 //! rusted oil drums, a busted plough, scrap sheet metal and an old tyre, left
 //! to rot at the field edge.
 
@@ -54,7 +54,7 @@ impl CatalogueEntry for FarmJunk {
 }
 
 fn build_tree() -> Generator {
-    // Standing rusted drum — the root.
+    // Standing rusted drum - the root.
     let mut prims = vec![prim(
         solid(cylinder_tapered(0.35, 1.0, 12, 0.0, enamel(RUST))),
         [0.0, 0.5, 0.0],
@@ -132,7 +132,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Old tyre flat on the ground — a real round tyre.
+    // Old tyre flat on the ground - a real round tyre.
     prims.push(prim(
         solid(torus(0.12, 0.32, enamel(TIRE))),
         [-1.1, 0.13, -0.6],

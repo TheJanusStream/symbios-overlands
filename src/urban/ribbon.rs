@@ -3,7 +3,7 @@
 //! depth, so a deck riding high over a dip floats clear as a bridge rather than
 //! filling it. Frames miter through bends to hold a constant width, UVs run on
 //! arc length so the texture flows down the street, and each profile face is its
-//! own strip — normals average ALONG the road while the creases across it stay
+//! own strip - normals average ALONG the road while the creases across it stay
 //! sharp. Deck, structure and neon go to separate buffers; an end no hub closes
 //! (a dead-end #579, a perimeter clip #582) gets an explicit cross-section cap.
 
@@ -95,8 +95,8 @@ pub(crate) fn densify(pts: &[(f32, f32)], step: f32) -> Vec<(f32, f32)> {
 
 /// Per-vertex extrusion frame. The deck is **flat across** (no lateral banking,
 /// so vehicles don't roll side-to-side) and drainage-correct: `base_y` is the
-/// flat deck height — lifted to clear the highest terrain under the road and
-/// longitudinally grade-limited — and `skirt_bottom_y` is a FIXED `skirt_depth`
+/// flat deck height - lifted to clear the highest terrain under the road and
+/// longitudinally grade-limited - and `skirt_bottom_y` is a FIXED `skirt_depth`
 /// below it (no terrain reach), so a deck riding high over a dip floats clear as
 /// a bridge. `arc` is the running arc length (for V UVs).
 struct Frame {
@@ -147,12 +147,12 @@ pub(crate) fn quad_normal(
 
 /// Extrude the curb/skirt profile along one chain into `parts`. The deck drapes
 /// over the terrain **flat-across and upward-only** (it never sinks below the
-/// terrain — see [`Frame`]), shifted into the full-terrain frame by `world_offset`.
+/// terrain - see [`Frame`]), shifted into the full-terrain frame by `world_offset`.
 /// The drivable deck top, the structural curb/skirt and the emissive neon
 /// edge-lines are routed to their respective [`RoadParts`] buffers.
 /// `sample` is the chain's terrain-sampled frames ([`crate::urban::sample_chain`]) and `base_y`
 /// the resolved per-frame deck height ([`crate::urban::level_chain`], with junction pins folded
-/// in by the network pass) — both supplied by the caller so the heightmap is
+/// in by the network pass) - both supplied by the caller so the heightmap is
 /// sampled exactly once and the pre-pass and mesh agree to the bit (#584).
 #[allow(clippy::too_many_arguments)] // each arg is a distinct input/sink.
 pub(crate) fn extrude_ribbon(
@@ -174,7 +174,7 @@ pub(crate) fn extrude_ribbon(
         .enumerate()
         .map(|(i, r)| {
             let by = base_y[i];
-            // The skirt drops a FIXED `skirt_depth` below the deck — it no longer
+            // The skirt drops a FIXED `skirt_depth` below the deck - it no longer
             // reaches down to meet the terrain. Where the deck rides high over a
             // dip the underside stays shallow and floats clear, so a high road
             // reads as a bridge rather than a solid earth-filled embankment.
@@ -300,7 +300,7 @@ pub(crate) fn extrude_ribbon(
         }
     }
 
-    // End caps: an open chain end leaves the extruded cross-section open — a
+    // End caps: an open chain end leaves the extruded cross-section open - a
     // visible hollow tube into the road's underside. Close it with a flat
     // cross-section cap facing outward (away from the ribbon). Two ends need it:
     // a degree-1 dead-end / cul-de-sac (#579), and a district-edge clip running
@@ -317,8 +317,8 @@ pub(crate) fn extrude_ribbon(
             (&frames[last], &frames[last.saturating_sub(1)])
         };
         // The cap is the (vertical) end cross-section, so its true normal is the
-        // HORIZONTAL lateral-perp `(rx,rz)⊥` — independent of the deck/skirt grade
-        // — oriented away from the ribbon. Using the road tangent would tilt the
+        // HORIZONTAL lateral-perp `(rx,rz)⊥` - independent of the deck/skirt grade
+        // - oriented away from the ribbon. Using the road tangent would tilt the
         // normal by the longitudinal slope and mis-shade the cap (review
         // wf_aabe1626).
         let perp = [-fe.rz, fe.rx];
@@ -341,7 +341,7 @@ pub(crate) fn extrude_ribbon(
 /// closes. Routed to `structure`.
 ///
 /// The profile is CONCAVE (the deck dips between the two raised curbs), so it is
-/// triangulated EXPLICITLY by its convex sub-regions — the skirt **body**
+/// triangulated EXPLICITLY by its convex sub-regions - the skirt **body**
 /// rectangle (full width, deck level down to the skirt floor) plus the two
 /// **curb** wedges above deck level. A single fan from any centreline apex cannot
 /// tile this: the vertical curb inner faces are back-facing from the centreline,

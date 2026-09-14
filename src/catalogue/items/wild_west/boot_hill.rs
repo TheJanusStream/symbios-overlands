@@ -1,4 +1,4 @@
-//! Boot hill — a Wild-West *poor* secondary. A dusty rise of leaning wooden
+//! Boot hill - a Wild-West *poor* secondary. A dusty rise of leaning wooden
 //! grave crosses behind a broken rail. The bust town's lonely cemetery.
 //!
 //! The crosses lean with a [`quat_x`].
@@ -61,7 +61,7 @@ fn cross(x: f32, z: f32, tilt: f32) -> Generator {
     post
 }
 
-/// A low elongated mound of turned earth — a grave, its long axis along Z.
+/// A low elongated mound of turned earth - a grave, its long axis along Z.
 fn grave_mound(x: f32, z: f32) -> Generator {
     prim_scaled(
         solid(sphere(0.5, 4, canvas([0.5, 0.42, 0.3]))),
@@ -73,7 +73,7 @@ fn grave_mound(x: f32, z: f32) -> Generator {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Dusty rise — the root.
+        // Dusty rise - the root.
         prim(
             solid(cylinder_tapered(2.6, 0.3, 16, 0.3, canvas(DUST_TAN))),
             [0.0, 0.15, 0.0],

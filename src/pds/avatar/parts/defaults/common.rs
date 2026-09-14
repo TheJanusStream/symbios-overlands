@@ -1,10 +1,10 @@
 //! Shared colour / seeded-choice helpers every default-part family file
 //! uses. The universal default parts are ordinary
 //! [`PartDef`](super::super::PartDef) table rows (with empty styles and
-//! `ANY` bands) alongside the styled kits — one table idiom for every part
+//! `ANY` bands) alongside the styled kits - one table idiom for every part
 //! (#798).
 
-/// Multiply a colour toward black by `f` (`0` = black, `1` = unchanged) —
+/// Multiply a colour toward black by `f` (`0` = black, `1` = unchanged) -
 /// the local "darker shade of the same hue" used for trousers / skirts /
 /// bumpers so a second large surface stays tonally related to the primary.
 /// Shared across the whole part catalogue (the styled vehicle kits darken
@@ -13,7 +13,7 @@ pub(in crate::pds::avatar::parts) fn shade(c: [f32; 3], f: f32) -> [f32; 3] {
     [c[0] * f, c[1] * f, c[2] * f]
 }
 
-/// A hard darken to 40 % — the shorthand for a shadowed underside / lining /
+/// A hard darken to 40 % - the shorthand for a shadowed underside / lining /
 /// tyre / bumper that the humanoid and vehicle kits both reach for.
 pub(in crate::pds::avatar::parts) fn darken(c: [f32; 3]) -> [f32; 3] {
     shade(c, 0.4)
@@ -43,7 +43,7 @@ pub(super) fn mix(c: [f32; 3], target: [f32; 3], t: f32) -> [f32; 3] {
 }
 
 /// Retint `c` to hit `target_l` luma by mixing toward white (to brighten) or
-/// black (to darken) — keeps the hue, moves only the value.
+/// black (to darken) - keeps the hue, moves only the value.
 pub(super) fn to_value(c: [f32; 3], target_l: f32) -> [f32; 3] {
     let l = luma(c);
     if (l - target_l).abs() < 1e-3 {
@@ -75,7 +75,7 @@ pub(super) fn floor_value(c: [f32; 3], min_l: f32) -> [f32; 3] {
 }
 
 /// Push `c`'s value away from `ref_l` until they differ by at least
-/// `min_delta` (staying on whichever side `c` already sits) — keeps two
+/// `min_delta` (staying on whichever side `c` already sits) - keeps two
 /// adjacent surfaces (hull/deck, body/glass, coat/facing) from merging into
 /// one mass on a low-contrast seed.
 ///
@@ -99,7 +99,7 @@ pub(in crate::pds::avatar::parts) fn ensure_delta(
     }
 }
 
-/// Deepen + saturate a colour toward its dominant channel — a running-light
+/// Deepen + saturate a colour toward its dominant channel - a running-light
 /// glow wants to be a saturated jewel, not a pastel.
 pub(super) fn saturate(c: [f32; 3]) -> [f32; 3] {
     let l = luma(c);

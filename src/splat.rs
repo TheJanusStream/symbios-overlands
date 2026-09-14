@@ -26,7 +26,7 @@ pub struct SplatUniforms {
     pub triplanar_scale: f32,
     /// Blend sharpness for triplanar axis transitions (4 is a good default).
     pub triplanar_sharpness: f32,
-    /// World Y of the room's water surface — the datum the damp-ground
+    /// World Y of the room's water surface - the datum the damp-ground
     /// darkening measures from (#913). Sourced from
     /// `world_builder::compile::room_water_level`, the same single
     /// definition the scatter sampler's riparian band uses, so the
@@ -74,7 +74,7 @@ pub struct StainsUniforms {
 
 /// Texture bind slots the splat material's extension consumes: the weight map
 /// plus the albedo + normal `2d_array`s (3), and on native the extra stains
-/// overlay (4; dropped on wasm — see [`SplatExtension`] for the WebGL2
+/// overlay (4; dropped on wasm - see [`SplatExtension`] for the WebGL2
 /// ceiling rationale). Surfaced as the `runtime.texture_bind_slots` gauge
 /// (C-5) so the GUI can show headroom against the 16-slot ceiling.
 #[cfg(not(target_arch = "wasm32"))]
@@ -89,8 +89,8 @@ pub const SPLAT_TEXTURE_BIND_SLOTS: u32 = 3;
 /// - 102/103  albedo `texture_2d_array` (4 layers) + sampler
 /// - 104/105  normal `texture_2d_array` (4 layers) + sampler
 /// - 106      [`SplatUniforms`] uniform
-/// - 107/108  stains overlay (RGBA: wet/dust/footprint) + sampler (native only — see below)
-/// - 109      [`StainsUniforms`] uniform (native only — see below)
+/// - 107/108  stains overlay (RGBA: wet/dust/footprint) + sampler (native only - see below)
+/// - 109      [`StainsUniforms`] uniform (native only - see below)
 ///
 /// The stains overlay (bindings 107/108/109) is disabled on `wasm32`
 /// because wgpu-hal's GLES backend caps each fragment shader at
@@ -179,7 +179,7 @@ mod uniform_layout_tests {
     //! WebGL2 rejects a uniform block whose size is not a multiple of 16
     //! bytes (`DownlevelFlags::BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED` is
     //! unsupported there), and the device-side validator is the only thing
-    //! that catches it — so on native everything looks fine and the wasm
+    //! that catches it - so on native everything looks fine and the wasm
     //! deploy fails at pipeline creation with a message that names neither
     //! the struct nor the field that broke it.
     //!
@@ -200,7 +200,7 @@ mod uniform_layout_tests {
         assert_eq!(
             size % 16,
             0,
-            "SplatUniforms is {size} bytes — WebGL2 needs a multiple of 16. \
+            "SplatUniforms is {size} bytes - WebGL2 needs a multiple of 16. \
              Add or adjust a `_pad` field, and mirror it in splat.wgsl."
         );
     }
@@ -224,7 +224,7 @@ mod uniform_layout_tests {
     }
 
     /// The Rust and WGSL declarations of a uniform block are two hand-written
-    /// copies of one layout, and nothing in the build compiles the shader —
+    /// copies of one layout, and nothing in the build compiles the shader -
     /// WGSL is loaded at runtime. So adding a field to one and forgetting the
     /// other produces no error anywhere: the GPU simply reads the block at the
     /// wrong offsets and the terrain renders subtly wrong.
@@ -232,7 +232,7 @@ mod uniform_layout_tests {
     /// Every field in both blocks is 4 bytes (`f32` / `u32`), so the Rust
     /// block's size divided by four must equal the shader's field count. That
     /// is a cheap tie between the two copies. If a non-4-byte field is ever
-    /// added this assertion needs revisiting rather than deleting — the drift
+    /// added this assertion needs revisiting rather than deleting - the drift
     /// it guards against is the same either way.
     #[test]
     fn wgsl_uniform_blocks_mirror_the_rust_ones() {
@@ -260,8 +260,8 @@ mod uniform_layout_tests {
     }
 
     /// The damp-ground effect (#913) must be inert by default, so a room
-    /// with no water generator — and every frame before the splat pass
-    /// resolves a water line — renders exactly the pre-#913 terrain.
+    /// with no water generator - and every frame before the splat pass
+    /// resolves a water line - renders exactly the pre-#913 terrain.
     #[test]
     fn moisture_defaults_to_disabled() {
         let u = SplatUniforms::default();

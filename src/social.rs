@@ -1,4 +1,4 @@
-//! Social-graph resonance — asynchronously queries the public ATProto
+//! Social-graph resonance - asynchronously queries the public ATProto
 //! `app.bsky.graph.getRelationships` lexicon for every newly-identified peer
 //! and tags them with a [`SocialResonance`] component reflecting the
 //! mutual-follow relationship.
@@ -14,7 +14,7 @@
 //! (#746): a TTL-cached, on-demand listing of *everyone* a given DID
 //! mutually follows, built from the public AppView's paginated
 //! `getFollows` ∩ `getFollowers`. The gateway destination picker (#748)
-//! is its consumer — it lists the **room owner's** mutuals, so visitors
+//! is its consumer - it lists the **room owner's** mutuals, so visitors
 //! browse the owner's social neighbourhood, not their own.
 
 use std::collections::HashMap;
@@ -58,7 +58,7 @@ pub struct ResonanceRetry(RetryBackoff);
 /// Whether the relationship query should be (re)dispatched for a peer.
 ///
 /// Never asked, or asked and could not be answered (#1218 f297). A `Failed`
-/// peer waits out its backoff and is then asked again — before the `Failed`
+/// peer waits out its backoff and is then asked again - before the `Failed`
 /// arm existed, the first hiccup WAS the answer for the session, and it was
 /// the same answer a genuine stranger gets.
 fn should_query(
@@ -107,7 +107,7 @@ fn dispatch_resonance_queries(
         }
         let local_did = sess.did.clone();
         let remote = remote_did.to_string();
-        // `IoTaskPool` — not `AsyncComputeTaskPool` — is the correct pool for
+        // `IoTaskPool` - not `AsyncComputeTaskPool` - is the correct pool for
         // blocking HTTP work. AsyncCompute is CPU-bound (rayon-sized, scales
         // with `physical_cores`); a handful of hung reqwest connections
         // there starves the whole async-compute budget (terrain generation,
@@ -116,7 +116,7 @@ fn dispatch_resonance_queries(
         let pool = IoTaskPool::get();
         let task = pool.spawn(async move {
             let fut = query_resonance(local_did, remote);
-            // A timeout is a failure to ASK, not an answer (#1218 f297) —
+            // A timeout is a failure to ASK, not an answer (#1218 f297) -
             // `Unknown` rendered identically to a genuine non-mutual.
             crate::config::http::run_or(fut, SocialResonance::Failed).await
         });
@@ -144,7 +144,7 @@ fn poll_resonance_tasks(
         // Log the resolved resonance for the diagnostics timeline (#635a). The
         // The task now returns `SocialResonance::Failed` for every way the
         // question can go unanswered (#1218 f297), so this line distinguishes
-        // "they don't follow you" from "we couldn't ask" — it could not
+        // "they don't follow you" from "we couldn't ask" - it could not
         // before, and neither could the ★.
         session_log.info(
             time.elapsed_secs_f64(),
@@ -217,7 +217,7 @@ async fn query_resonance(local_did: String, remote_did: String) -> SocialResonan
     };
 
     for entry in parsed.relationships {
-        // notFoundActor entries have no following/followedBy — skip them.
+        // notFoundActor entries have no following/followedBy - skip them.
         if entry
             .kind
             .as_deref()
@@ -242,7 +242,7 @@ async fn query_resonance(local_did: String, remote_did: String) -> SocialResonan
 /// repeated opens without hammering the AppView.
 const MUTUALS_TTL_SECS: f64 = 300.0;
 
-/// Failed lookups retry much sooner — a transient AppView hiccup should
+/// Failed lookups retry much sooner - a transient AppView hiccup should
 /// not lock the gateway out for the full TTL.
 const MUTUALS_FAILED_RETRY_SECS: f64 = 15.0;
 
@@ -250,8 +250,8 @@ const MUTUALS_FAILED_RETRY_SECS: f64 = 15.0;
 const GRAPH_PAGE_LIMIT: u32 = 100;
 
 /// Hard cap on pages walked per direction (follows / followers), i.e. at
-/// most 1000 accounts per side. Enormous accounts get a truncated —
-/// flagged — intersection instead of an unbounded crawl; the picker
+/// most 1000 accounts per side. Enormous accounts get a truncated -
+/// flagged - intersection instead of an unbounded crawl; the picker
 /// surfaces the flag so the cap is never silent.
 const MAX_GRAPH_PAGES: u32 = 10;
 
@@ -265,7 +265,7 @@ pub struct MutualEntry {
 }
 
 /// A resolved mutuals listing. `truncated` is true when either direction
-/// of the graph walk hit [`MAX_GRAPH_PAGES`] — the intersection is then a
+/// of the graph walk hit [`MAX_GRAPH_PAGES`] - the intersection is then a
 /// lower bound, not the complete set.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MutualsList {
@@ -276,7 +276,7 @@ pub struct MutualsList {
 /// Lifecycle of one owner's cache slot.
 #[derive(Clone, Debug)]
 pub enum MutualsState {
-    /// Fetch task in flight — never considered stale, so re-requests
+    /// Fetch task in flight - never considered stale, so re-requests
     /// while pending are free no-ops.
     Loading,
     Ready(MutualsList),
@@ -285,7 +285,7 @@ pub enum MutualsState {
 
 #[derive(Clone, Debug)]
 pub struct CachedMutuals {
-    /// `Time::elapsed_secs_f64` when the state was written (wasm-safe —
+    /// `Time::elapsed_secs_f64` when the state was written (wasm-safe -
     /// no `std::time` on the wasm32 target).
     pub at_secs: f64,
     pub state: MutualsState,
@@ -308,7 +308,7 @@ impl MutualsCache {
     /// Drop `owner_did`'s slot so the next [`request_mutuals`] dispatches
     /// immediately (#1232 f284). The failed state's only recovery was a
     /// 15 s TTL re-arm under a line reading "Retrying shortly…", with no
-    /// way to ask now — unlike the loading screen's rows, which have had a
+    /// way to ask now - unlike the loading screen's rows, which have had a
     /// *Retry now* since #1230.
     pub fn forget(&mut self, owner_did: &str) {
         self.by_owner.remove(owner_did);
@@ -335,7 +335,7 @@ pub struct MutualsFetchTask {
 }
 
 /// Ensure a mutuals listing for `owner_did` is resident or in flight.
-/// Call freely every frame (e.g. from an open picker) — fresh and pending
+/// Call freely every frame (e.g. from an open picker) - fresh and pending
 /// slots are no-ops. `now` is `Time::elapsed_secs_f64`.
 pub fn request_mutuals(
     commands: &mut Commands,
@@ -396,7 +396,7 @@ fn poll_mutuals_tasks(
     }
 }
 
-/// `app.bsky.actor.defs#profileView` — the subset the picker needs.
+/// `app.bsky.actor.defs#profileView` - the subset the picker needs.
 #[derive(Deserialize, Clone)]
 struct ProfileView {
     did: String,
@@ -432,7 +432,7 @@ async fn walk_graph(
         // Out of budget (#1232 f284): stop with what we have rather than
         // let the whole-operation bound drop the walk. Twenty sequential
         // requests under one 30 s timer meant a well-connected owner's
-        // gateway — the gateway most worth using — reliably produced
+        // gateway - the gateway most worth using - reliably produced
         // nothing at all, and the flag below is exactly the "this is a
         // lower bound" signal the picker already renders.
         if crate::state::now_epoch_secs() >= deadline_secs {
@@ -481,8 +481,8 @@ async fn walk_graph(
 /// is stable across refreshes regardless of AppView page order.
 /// Clamp an AppView display name at INGEST (#1222 f295).
 ///
-/// A display name is fully attacker-controlled — it is whatever the account
-/// holder typed — and it arrived here with only a whitespace-emptiness
+/// A display name is fully attacker-controlled - it is whatever the account
+/// holder typed - and it arrived here with only a whitespace-emptiness
 /// filter, in contrast to the careful clamping applied to peer-supplied chat
 /// text and gift item names. Stripping control characters kills the
 /// bidi-override and newline tricks that let one row impersonate another;
@@ -520,7 +520,7 @@ fn intersect_mutuals(follows: Vec<ProfileView>, followers: &[ProfileView]) -> Ve
     mutuals
 }
 
-/// Enumerate `owner_did`'s mutual follows from the public AppView —
+/// Enumerate `owner_did`'s mutual follows from the public AppView -
 /// unauthenticated, so it works for any owner, not just the local user.
 async fn fetch_mutuals(owner_did: String) -> Result<MutualsList, String> {
     let client = crate::config::http::default_client();
@@ -538,7 +538,7 @@ async fn fetch_mutuals(owner_did: String) -> Result<MutualsList, String> {
 /// Wall-clock budget for both graph walks together (#1232 f284).
 ///
 /// Comfortably inside [`crate::config::http::REQUEST_TIMEOUT`], which is
-/// what `run_or` races the whole operation against on wasm — so the walk
+/// what `run_or` races the whole operation against on wasm - so the walk
 /// gives up first and its partial intersection escapes, instead of the
 /// future being dropped with everything in it. On native `run_or` is a
 /// pass-through and each request carries its own builder timeout, so until
@@ -552,14 +552,14 @@ const MUTUALS_WALK_BUDGET_SECS: i64 = 20;
 /// Plain language for a mutuals-fetch failure (#1232 f284).
 ///
 /// The picker interpolated the raw reason, so
-/// `app.bsky.graph.getFollows => 429` reached the user — a lexicon name on
+/// `app.bsky.graph.getFollows => 429` reached the user - a lexicon name on
 /// a control an ordinary visitor operates. The raw string is still what the
 /// log and the session capture record; this is only what is shown.
 pub fn mutuals_error(raw: &str) -> String {
     if raw.contains("timed out") {
         String::from("The network directory didn't answer in time.")
     } else if raw.contains("transport error") {
-        String::from("Couldn't reach the network directory — check your connection.")
+        String::from("Couldn't reach the network directory - check your connection.")
     } else {
         String::from("Couldn't reach the network directory.")
     }
@@ -656,14 +656,14 @@ mod display_name_tests {
 
     /// #1222 f295. The sequence: an attacker sets their Bluesky display
     /// name to somebody else's handle, and the gateway picker renders it as
-    /// the PRIMARY text with the verified handle greyed beside it — so a
+    /// the PRIMARY text with the verified handle greyed beside it - so a
     /// visitor choosing a destination clicks the wrong person's world. The
     /// display name arrived with only a whitespace-emptiness filter, in
     /// contrast to the careful clamping applied to peer-supplied chat and
     /// gift names.
     #[test]
     fn a_display_name_is_clamped_and_stripped_at_ingest() {
-        // Control characters — newlines and bidi overrides — are what let a
+        // Control characters - newlines and bidi overrides - are what let a
         // name break out of its row or reverse the reading order.
         let sneaky =
             clamp_display_name(Some(String::from("alice\nsecond line"))).expect("still a name");
@@ -696,8 +696,8 @@ mod resonance_tests {
 
     /// #1218 f297. The sequence: the AppView times out on the one
     /// relationship query for a peer you actually follow. Before the
-    /// `Failed` arm, that returned `SocialResonance::None` — whose own doc
-    /// comment asserts the two of you do NOT follow each other — and both
+    /// `Failed` arm, that returned `SocialResonance::None` - whose own doc
+    /// comment asserts the two of you do NOT follow each other - and both
     /// consumers rendered exactly the un-highlighted state a stranger gets.
     /// The ★ is the only trust signal the social UI carries, and it failed
     /// closed with no way to tell "no" from "couldn't ask".
@@ -738,7 +738,7 @@ mod resonance_tests {
     }
 
     /// THE SEQUENCE (#1232 f284): a visitor opens a gateway in the world of
-    /// somebody well-connected — the gateway most worth using. Twenty
+    /// somebody well-connected - the gateway most worth using. Twenty
     /// sequential graph pages run under one whole-operation timer, the
     /// timer wins, and the picker renders `app.bsky.graph.getFollows =>
     /// 429`: a lexicon name on a control an ordinary visitor operates,

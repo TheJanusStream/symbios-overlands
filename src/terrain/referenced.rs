@@ -21,13 +21,13 @@ use super::TerrainSplatState;
 /// look failed: `texture_bake_job` maps the variant to a default ground
 /// config, so the placeholder under everyone's feet is a plausible dirt
 /// surface rather than an obvious blank. The owner had no way to tell "my
-/// texture loaded" from "the fallback loaded" — which is worse than a blank,
+/// texture loaded" from "the fallback loaded" - which is worse than a blank,
 /// and worse than the Sign's flat tint, because the wrong answer is
 /// convincing.
 ///
 /// It doubles as the layer cache. Nothing kept the resolved handles across a
 /// terrain regeneration, and every terrain edit removes `TextureTasksStarted`
-/// to force one — so a slider flush re-issued up to four HTTP fetches from
+/// to force one - so a slider flush re-issued up to four HTTP fetches from
 /// cold. Holding the handles here (keyed by the source AND the texture size
 /// they were decoded at) means an unchanged layer is reused.
 #[derive(Resource, Default)]
@@ -80,7 +80,7 @@ impl ReferencedLayerStatus {
         })
     }
 
-    /// Drop a failed layer so the next terrain generation re-fetches it —
+    /// Drop a failed layer so the next terrain generation re-fetches it -
     /// the "Retry now" click.
     pub fn clear_failure(&mut self, idx: usize) -> bool {
         if matches!(self.layers.get(idx), Some(Some(LayerFetch::Failed { .. }))) {
@@ -115,7 +115,7 @@ pub(super) struct PendingSplatLayerFetch {
     texture_size: u32,
     task: bevy::tasks::Task<blob_fetch::FetchedBytes>,
     /// The reference this fetch is for, so the poll system can record its
-    /// outcome against the source rather than the slot — the owner may have
+    /// outcome against the source rather than the slot - the owner may have
     /// edited the layer while it was in flight.
     source: SovereignAssetReference,
     /// The failure this attempt retries, so the wait keeps doubling.
@@ -147,7 +147,7 @@ pub(super) fn spawn_splat_layer_fetch(
     // #1247 f346).
     let previous = match status.layers.get(layer_idx).and_then(|e| e.as_ref()) {
         Some(entry) if entry.source() == source => match entry {
-            // Already resolved at this size — reuse the handles rather than
+            // Already resolved at this size - reuse the handles rather than
             // re-downloading the image every terrain edit.
             LayerFetch::Ready {
                 texture_size: size,
@@ -175,7 +175,7 @@ pub(super) fn spawn_splat_layer_fetch(
     };
 
     // Empty / forward-compat / image-pfp variants don't resolve to
-    // splat-usable bytes — bail without spawning a task that would
+    // splat-usable bytes - bail without spawning a task that would
     // just fail.
     let request = match source {
         SovereignAssetReference::Url { url } if !url.is_empty() => {
@@ -252,7 +252,7 @@ pub(super) fn poll_splat_layer_fetches(
         };
         commands.entity(entity).despawn();
 
-        // The procedural placeholder stays in place either way — but the
+        // The procedural placeholder stays in place either way - but the
         // owner is now told, because a plausible dirt surface standing in
         // for their image is the failure that looks most like success.
         let bytes = match result {
@@ -274,7 +274,7 @@ pub(super) fn poll_splat_layer_fetches(
 
         // Override both albedo and normal slots. The Referenced image
         // doesn't ship a separate normal map, so the normal slot gets a
-        // flat-up normal — the surface looks less detailed than a
+        // flat-up normal - the surface looks less detailed than a
         // procedural layer (no per-pixel bumps), which is a reasonable
         // v0.1.0 trade for explicit-asset support.
         state.layer_albedo[pending.layer_idx] = Some(handles.albedo.clone());
@@ -285,7 +285,7 @@ pub(super) fn poll_splat_layer_fetches(
             albedo: handles.albedo,
             normal: handles.normal,
         });
-        // Force a rebuild of the array atlas — the previous one (if
+        // Force a rebuild of the array atlas - the previous one (if
         // any) was built from the procedural placeholder.
         state.applied = false;
         info!(
@@ -343,7 +343,7 @@ fn decode_and_upload_splat_layer(
         .to_rgba8();
     let albedo: Vec<u8> = resized.into_raw();
 
-    // Flat tangent-space normal: (128, 128, 255, 255) — z-up.
+    // Flat tangent-space normal: (128, 128, 255, 255) - z-up.
     let pixel_count = (texture_size as usize) * (texture_size as usize);
     let mut normal = Vec::with_capacity(pixel_count * 4);
     for _ in 0..pixel_count {
@@ -360,7 +360,7 @@ fn decode_and_upload_splat_layer(
         normal,
         roughness,
         // No glow layer on a decoded splat image, and the base level is the
-        // only level we synthesise — the upload mip-chains it.
+        // only level we synthesise - the upload mip-chains it.
         emissive: None,
         mip_level_count: 1,
         width: texture_size,
@@ -380,7 +380,7 @@ fn decode_and_upload_splat_layer(
 mod tests {
     //! Pure-function tests for the splat-layer Referenced resolver
     //! (#310). The fetch dispatch + poll system flow requires a Bevy
-    //! App harness which would compile-in the full plugin stack —
+    //! App harness which would compile-in the full plugin stack -
     //! prohibitive for fast unit tests. The decode-and-upload helper
     //! is the load-bearing piece (bytes → resized RGBA → TextureMap →
     //! Assets<Image>) and is tested directly here.
@@ -409,7 +409,7 @@ mod tests {
 
     /// The #1246 f347 sequence: the owner edits the layer's URL while the
     /// old one is still recorded as failed. The status must answer for the
-    /// reference the field NAMES, not for the slot — otherwise a fresh URL
+    /// reference the field NAMES, not for the slot - otherwise a fresh URL
     /// inherits the previous one's failure line and its backoff.
     #[test]
     fn a_layer_status_belongs_to_its_source_not_its_slot() {
@@ -509,7 +509,7 @@ mod tests {
             decode_and_upload_splat_layer(&bytes, 8, &mut images).expect("decode succeeds");
         let normal = images.get(handles.normal.id()).expect("normal");
         // `map_to_images` mip-chains the base, so the first 8*8*4 bytes
-        // are the base level. Check the first pixel only — the
+        // are the base level. Check the first pixel only - the
         // generator's mipmap pipeline shouldn't disturb the base
         // level's first texel.
         let data = normal.data.as_ref().expect("normal has data");

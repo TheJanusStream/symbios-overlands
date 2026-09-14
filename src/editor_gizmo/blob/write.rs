@@ -3,18 +3,18 @@
 //! A proxy's local `Transform` (in the blob prim's mesh space) encodes the
 //! element per shape:
 //!
-//! * translation ⇄ `position`, rotation ⇄ `rotation` — all shapes.
-//! * **Sphere** — proxy is the shared unit sphere, `scale = splat(radii[0])`;
+//! * translation ⇄ `position`, rotation ⇄ `rotation` - all shapes.
+//! * **Sphere** - proxy is the shared unit sphere, `scale = splat(radii[0])`;
 //!   commit reads the mean scale component back into `radii[0]` (the gizmo
 //!   is restricted to uniform scale for spheres, so the mean is exact
 //!   there and merely robust against a non-uniform parent frame).
-//! * **Ellipsoid** / **Box** — unit sphere / unit cube, `scale = radii`;
+//! * **Ellipsoid** / **Box** - unit sphere / unit cube, `scale = radii`;
 //!   commit reads per-axis.
-//! * **Cylinder** / **Cone** — unit meshes (radius 1, half-height 1),
+//! * **Cylinder** / **Cone** - unit meshes (radius 1, half-height 1),
 //!   `scale = (radii[0], radii[1], radii[0])`; commit folds `(x+z)/2` into
 //!   the radius and `y` into the half-height (flat caps and straight walls
 //!   scale cleanly, unlike a capsule's).
-//! * **Capsule** / **Torus** — the proxy mesh is baked at the element's
+//! * **Capsule** / **Torus** - the proxy mesh is baked at the element's
 //!   real radii with `scale = ONE`, because non-uniform scale would
 //!   distort a capsule's caps or a torus' tube. The drag's scale is
 //!   therefore a *multiplier*: commit folds `(x+z)/2` into the tube/ring
@@ -61,7 +61,7 @@ fn clamp_dim(v: f32) -> f32 {
     }
 }
 
-/// Unit rotation or identity — mirrors the mesher's `resolve()` guard.
+/// Unit rotation or identity - mirrors the mesher's `resolve()` guard.
 fn safe_unit(q: Quat) -> Quat {
     if q.length_squared() > 1e-6 {
         q.normalize()
@@ -111,8 +111,8 @@ pub(crate) fn apply_local_to_element(e: &mut BlobElement, tf: &Transform) {
     match e.shape {
         BlobShape::Sphere | BlobShape::Unknown => {
             // A sphere is uniform by construction. A non-uniform drag means
-            // the user is stretching it on some axis — which only an
-            // ellipsoid can represent — so promote it in place (#707).
+            // the user is stretching it on some axis - which only an
+            // ellipsoid can represent - so promote it in place (#707).
             // `Unknown` is a forward-compat placeholder and never promotes.
             let spread = s.max_element() - s.min_element();
             if e.shape == BlobShape::Sphere
@@ -144,8 +144,8 @@ pub(crate) fn apply_local_to_element(e: &mut BlobElement, tf: &Transform) {
 /// (#1243 f150).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct ElementLanding {
-    /// The element index the edit landed at — `index`, or `index + 1` for
-    /// a duplicate — so the caller can move the selection onto it.
+    /// The element index the edit landed at - `index`, or `index + 1` for
+    /// a duplicate - so the caller can move the selection onto it.
     pub index: usize,
     /// A Shift-duplicate that became a plain MOVE because the element
     /// list is full. The user asked for a copy and got their original
@@ -157,8 +157,8 @@ pub(crate) struct ElementLanding {
 /// Write the committed element into the generator tree. `None` when the
 /// tree reshaped mid-drag and the write was skipped.
 ///
-/// A duplicate against a full element list degrades to a plain move — the
-/// user still gets the pose they dragged to, minus the copy — and SAYS so
+/// A duplicate against a full element list degrades to a plain move - the
+/// user still gets the pose they dragged to, minus the copy - and SAYS so
 /// through [`ElementLanding::degraded_to_move`] (#1243 f150). Before that
 /// the caller saw an index either way and simply moved the selection.
 fn commit_element_into_generator(
@@ -214,7 +214,7 @@ pub(crate) fn commit_blob_element_drag(
         ),
         // A worn prop's generator tree lives in its own attachment record,
         // which has no blob-element editing session (#1062; the parts
-        // editor of #1098 does not open one either) — the target kind can
+        // editor of #1098 does not open one either) - the target kind can
         // never reach here rather than being unimplemented.
         ActiveTarget::Attachment | ActiveTarget::AttachmentPart | ActiveTarget::None => None,
     }
@@ -280,7 +280,7 @@ mod tests {
     #[test]
     fn sphere_promotes_to_ellipsoid_on_per_axis_scale() {
         // Stretching one axis of a sphere must promote it to an ellipsoid
-        // carrying the per-axis radii — the whole point of #707.
+        // carrying the per-axis radii - the whole point of #707.
         let mut e = sphere_at([1.0, -2.0, 3.0], 0.4);
         let tf = Transform {
             scale: Vec3::new(0.4, 0.9, 0.4), // Y stretched
@@ -334,9 +334,9 @@ mod tests {
 
     #[test]
     fn ellipsoid_rotation_round_trips_and_preserves_radii_under_rotated_parent() {
-        // #708 (rotation): rotating an element with the gizmo — world OR local
+        // #708 (rotation): rotating an element with the gizmo - world OR local
         // frame, both of which compose the delta onto the proxy rotation
-        // cleanly (no lossy extraction, unlike scale) — must (a) leave the
+        // cleanly (no lossy extraction, unlike scale) - must (a) leave the
         // radii untouched and (b) reproduce the dragged world orientation
         // after the world→local reparent that the commit performs.
         let blob_gt = GlobalTransform::from(
@@ -383,7 +383,7 @@ mod tests {
         // The gizmo path detaches the proxy to world and reparents against
         // the blob's `GlobalTransform` at commit. When the blob sits under a
         // rotated parent (e.g. an avatar facing a direction), that reparent
-        // must not shear the per-axis radii away — a `rotation ∘ scale`
+        // must not shear the per-axis radii away - a `rotation ∘ scale`
         // local transform decomposes cleanly, so the semi-axes round-trip.
         let blob_gt = GlobalTransform::from(
             Transform::from_xyz(3.0, 1.0, -2.0).with_rotation(Quat::from_rotation_y(0.9)),

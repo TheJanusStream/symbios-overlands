@@ -3,11 +3,11 @@
 //! cached image is consumed by the chat and People panels (where it
 //! renders as a small icon next to each author's name).
 //!
-//! In-world avatar bodies do **not** carry the profile picture anymore —
+//! In-world avatar bodies do **not** carry the profile picture anymore -
 //! the unified-avatar work moved that decoration to the egui side. The
-//! cache is still keyed on DID so a peer who rejoins a room — or several
+//! cache is still keyed on DID so a peer who rejoins a room - or several
 //! peers entering a portal at once that share DIDs with peers seen
-//! earlier in the session — can skip the HTTPS round trip entirely and
+//! earlier in the session - can skip the HTTPS round trip entirely and
 //! render with the already-resident image.
 //!
 //! On native builds the profile blob is fetched straight from
@@ -42,8 +42,8 @@ impl Plugin for AvatarPlugin {
 }
 
 /// Baked result of a completed bsky profile fetch. Cached per-DID so a
-/// peer who rejoins a room — or several peers entering a portal at once
-/// that share DIDs with peers seen earlier in the session — can skip the
+/// peer who rejoins a room - or several peers entering a portal at once
+/// that share DIDs with peers seen earlier in the session - can skip the
 /// HTTPS round trip entirely and render with the already-resident image.
 #[derive(Clone)]
 pub struct CachedBskyProfile {
@@ -67,7 +67,7 @@ pub struct CachedBskyProfile {
 ///
 /// **Dropping an entry is not enough to free its image.** `add_image` is
 /// given an `EguiTextureHandle::Strong`, so egui holds a strong handle of
-/// its own and the asset outlives anything this map does — which is why
+/// its own and the asset outlives anything this map does - which is why
 /// both [`insert`](Self::insert) and [`clear`](Self::clear) hand the
 /// removed entries back rather than dropping them: the caller has
 /// `EguiUserTextures` and must call `remove_image` on each.
@@ -80,7 +80,7 @@ pub struct BskyProfileCache {
 impl BskyProfileCache {
     /// Empty the cache, returning every entry so the caller can release
     /// its egui texture. Dropping the returned entries alone frees
-    /// nothing — see the type docs.
+    /// nothing - see the type docs.
     #[must_use = "the returned entries still hold egui's strong image handles"]
     pub fn clear(&mut self) -> Vec<CachedBskyProfile> {
         self.order.clear();
@@ -123,7 +123,7 @@ pub struct AvatarFetchPending {
 
 /// Result of an ATProto profile fetch: the image blob (if any) and the
 /// authoritative handle published alongside the DID's profile record.
-/// Peer-supplied handles on the wire are untrusted — only the handle
+/// Peer-supplied handles on the wire are untrusted - only the handle
 /// returned by `app.bsky.actor.getProfile` for the authenticated DID is
 /// authoritative.
 #[derive(Default)]
@@ -134,7 +134,7 @@ pub struct AvatarFetchResult {
     /// who has no picture (#1217 f326).
     ///
     /// Every failure path used to return `AvatarFetchResult::default()`,
-    /// which is byte-identical to a clean profile with nothing in it — so
+    /// which is byte-identical to a clean profile with nothing in it - so
     /// the caller could not tell a transport error from a bare account, and
     /// a failure therefore had no state, no retry and no surface. A peer
     /// whose `getProfile` hiccuped once at join time was nameless for the
@@ -162,7 +162,7 @@ pub struct AvatarFetchTask {
 /// Fetched profile-picture bytes waiting for a frame with decode budget left
 /// (#1128).
 ///
-/// The fetch's OTHER result — the profile-verified handle — is promoted the
+/// The fetch's OTHER result - the profile-verified handle - is promoted the
 /// moment the task completes, before any of this: a peer's name in the chat
 /// HUD must not wait behind a queue of image decodes, and the join line is
 /// written from it. Only the picture waits.
@@ -182,7 +182,7 @@ pub struct PendingAvatarImage {
 /// [`MAX_DECODES_PER_FRAME`](crate::world_builder::image_cache::MAX_DECODES_PER_FRAME),
 /// applied to the other fetched-image path: the transfer is off-thread but
 /// `image::load_from_memory` runs in this poll system, and on wasm that is the
-/// frame thread — `IoTaskPool` there is `spawn_local`, so moving the decode
+/// frame thread - `IoTaskPool` there is `spawn_local`, so moving the decode
 /// into the task would move it nowhere. A portal hop that brings in a dozen
 /// peers at once resolves a dozen profile fetches within a frame or two of
 /// each other, and each is a full-resolution decode of whatever that peer
@@ -203,14 +203,14 @@ fn fetch_local_avatar(
 
 /// Presence line for a peer who has just become announceable (#844/#1218
 /// f338): "joined" is announced at identification, not at raw socket
-/// connect — that's the first moment there is a trustworthy name to print.
+/// connect - that's the first moment there is a trustworthy name to print.
 /// Styled as the same system authorship the portal arrival line uses; does
 /// NOT bump the unread badge (presence is ambience, not a message).
 ///
 /// One line per peer, ever, enforced by [`PeerResolve::announced`], and off
 /// the SAME [`PeerLabel`] ladder the departure line uses. The two used to be
 /// triggered by different facts: departures degraded through three name
-/// tiers and printed unconditionally, arrivals required a resolved handle —
+/// tiers and printed unconditionally, arrivals required a resolved handle -
 /// so a peer whose `getProfile` failed produced a farewell to somebody the
 /// log said had never arrived.
 fn announce_arrival(
@@ -220,7 +220,7 @@ fn announce_arrival(
     muted: bool,
 ) {
     // A muted person is not announced (#1219 f289), and `announced` stays
-    // false so their departure is suppressed by the same fact — the presence
+    // false so their departure is suppressed by the same fact - the presence
     // pair balances on one decision instead of two. Presence lines are chat
     // rows carrying a name, and they were the one channel a blocked user
     // retained to put theirs in front of the person who blocked them: a
@@ -240,7 +240,7 @@ fn announce_arrival(
 ///
 /// [`trigger_avatar_fetches`] removes [`AvatarFetchPending`] before spawning
 /// and never re-adds it, and [`AvatarFetchPending`] is inserted from exactly
-/// one site — the moment a peer's DID resolves. One HTTP hiccup there was
+/// one site - the moment a peer's DID resolves. One HTTP hiccup there was
 /// therefore permanent for the session: the roster said "identifying…"
 /// forever and the arrival line never printed. Re-inserting the marker is
 /// all a retry needs; the existing pipeline does the rest.
@@ -276,7 +276,7 @@ fn trigger_avatar_fetches(
         let did = pending.did.clone();
         commands.entity(entity).remove::<AvatarFetchPending>();
 
-        // Cache hit — install the verified handle directly. The bsky CDN
+        // Cache hit - install the verified handle directly. The bsky CDN
         // charges us a round trip per DID per session otherwise, and a
         // portal clustering 20 familiar peers at once would stall every
         // chassis on the IoTaskPool until those fetches unwind.
@@ -364,7 +364,7 @@ fn poll_avatar_tasks(
 
         // Promote the profile-verified handle to the authoritative one on
         // the peer entity. The handle field on `OverlandsMessage::Identity`
-        // is peer-supplied and cannot be trusted — a malicious peer could
+        // is peer-supplied and cannot be trusted - a malicious peer could
         // claim any string they like to impersonate another user in the
         // chat HUD or disconnect log. Only a handle resolved from the
         // authenticated DID's profile record is safe to display.
@@ -392,7 +392,7 @@ fn poll_avatar_tasks(
 
         let Some(bytes) = result.bytes else { continue };
 
-        // Past the frame's decode budget — park the bytes and pick them up
+        // Past the frame's decode budget - park the bytes and pick them up
         // next frame. The handle above has already landed, so nothing the
         // player reads by name is waiting on this.
         if decoded_this_frame >= MAX_AVATAR_DECODES_PER_FRAME {
@@ -420,7 +420,7 @@ fn poll_avatar_tasks(
 ///
 /// Split out of [`poll_avatar_tasks`] so a fetch that lands past the frame's
 /// decode budget and one that is picked up a frame later run the identical
-/// path — the only difference between them being when.
+/// path - the only difference between them being when.
 fn decode_and_cache_avatar(
     did: &str,
     bytes: &[u8],
@@ -545,7 +545,7 @@ async fn fetch_image_bytes(
         "{}/xrpc/com.atproto.sync.getBlob?did={}&cid={}",
         pds, did, cid
     );
-    // Same size-cap rationale as the native path — a hostile PDS
+    // Same size-cap rationale as the native path - a hostile PDS
     // serving `com.atproto.sync.getBlob` can otherwise stream a
     // multi-gigabyte body and OOM the WASM client.
     let bytes = crate::pds::xrpc::fetch_blob_bytes_capped(client, &blob_url).await;
@@ -576,7 +576,7 @@ mod profile_cache_tests {
 
     /// #1125: the cache was populated by every peer Identity and emptied
     /// only at logout, so a relay or peer set churning DIDs grew a guest's
-    /// heap for the whole session — and wasm never gives heap back.
+    /// heap for the whole session - and wasm never gives heap back.
     #[test]
     fn the_cache_evicts_oldest_first_past_its_bound() {
         let mut cache = BskyProfileCache::default();
@@ -670,8 +670,8 @@ mod presence_tests {
     }
 
     /// #1217 f326. The sequence: a peer's `getProfile` call errors once, at
-    /// join time. `AvatarFetchPending` is inserted from exactly one site —
-    /// the moment their DID resolves — and `trigger_avatar_fetches` removes
+    /// join time. `AvatarFetchPending` is inserted from exactly one site -
+    /// the moment their DID resolves - and `trigger_avatar_fetches` removes
     /// it before spawning and never re-adds it. So the roster said
     /// "identifying…" for the rest of the session, the arrival line never
     /// printed, and chat from them was signed with a fallback.
@@ -681,7 +681,7 @@ mod presence_tests {
         app.add_plugins((bevy::app::TaskPoolPlugin::default(), bevy::time::TimePlugin));
         app.add_systems(Update, retry_peer_profile_fetches);
 
-        // Dated before the app's clock started, so the wait has elapsed —
+        // Dated before the app's clock started, so the wait has elapsed -
         // `TimePlugin` recomputes `Time` in `First`, so an advance made from
         // a test would be gone by the time the system runs.
         let elapsed = app
@@ -727,15 +727,15 @@ mod presence_tests {
 
         assert!(
             app.world().entity(elapsed).contains::<AvatarFetchPending>(),
-            "re-arming the marker is all a retry needs — the pipeline does the rest"
+            "re-arming the marker is all a retry needs - the pipeline does the rest"
         );
         assert!(!app.world().entity(waiting).contains::<AvatarFetchPending>());
         assert!(!app.world().entity(landed).contains::<AvatarFetchPending>());
     }
 
     /// #1218 f338. The presence log has to balance. A peer whose profile
-    /// fetch fails still arrives — announced off the same ladder the
-    /// departure line uses — because the alternative is a farewell to
+    /// fetch fails still arrives - announced off the same ladder the
+    /// departure line uses - because the alternative is a farewell to
     /// somebody the room was never told about.
     #[test]
     fn an_arrival_is_announced_once_with_the_best_name_available() {
@@ -756,7 +756,7 @@ mod presence_tests {
         );
         assert!(resolve.announced);
 
-        // The handle lands later — the room is not told twice.
+        // The handle lands later - the room is not told twice.
         announce_arrival(
             &mut chat,
             &mut resolve,
@@ -770,7 +770,7 @@ mod presence_tests {
     }
 
     /// #1219 f289. The sequence: a harasser is muted, disconnects and rejoins
-    /// on a loop, and the chat log fills with their name — the one channel a
+    /// on a loop, and the chat log fills with their name - the one channel a
     /// blocked person keeps for putting it in front of you. Suppressing the
     /// ARRIVAL is what suppresses the departure too: `announced` stays false,
     /// and `should_announce_departure` reads it.
@@ -798,8 +798,8 @@ mod presence_tests {
     }
 
     /// #1217 f326. Every failure path used to return
-    /// `AvatarFetchResult::default()` — byte-identical to a clean profile
-    /// with no picture — so the caller could not tell a transport error from
+    /// `AvatarFetchResult::default()` - byte-identical to a clean profile
+    /// with no picture - so the caller could not tell a transport error from
     /// a bare account, and a failure had no state to retry from.
     #[test]
     fn a_failure_is_distinguishable_from_a_profile_with_nothing_in_it() {

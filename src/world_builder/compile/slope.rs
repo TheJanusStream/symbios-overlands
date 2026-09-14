@@ -1,4 +1,4 @@
-//! Steep-ground relocation walk (#905) — the compile-time safety net
+//! Steep-ground relocation walk (#905) - the compile-time safety net
 //! under the derive-time settlement siting.
 //!
 //! The settlement deriver places members against a low-resolution proxy
@@ -12,7 +12,7 @@
 //! missing one). Pure function of the shared heightmap → peers agree.
 //!
 //! Applied to the same placements that opt into the water walk
-//! (`avoid_water: true`) — that flag is the seeded pipeline's marker,
+//! (`avoid_water: true`) - that flag is the seeded pipeline's marker,
 //! so editor-authored placements are never second-guessed.
 
 use bevy::prelude::*;
@@ -69,9 +69,9 @@ pub(super) fn relocate_off_steep_ground(
         }
         (0..8).all(|i| {
             let a = i as f32 * std::f32::consts::TAU / 8.0;
-            // libm (#1132): these eight probes feed an accept/reject — a
+            // libm (#1132): these eight probes feed an accept/reject - a
             // candidate site either clears the slope limit at all of them or
-            // the search moves on — so a one-ULP difference in a probe
+            // the search moves on - so a one-ULP difference in a probe
             // position can relocate a building between two peers.
             let (px, pz) = (x + libm::sinf(a) * clearance, z + libm::cosf(a) * clearance);
             slope(px, pz) <= STEEP_LIMIT && water_y.is_none_or(|w| sample(px, pz) >= w + FREEBOARD)
@@ -151,7 +151,7 @@ mod tests {
     #[test]
     fn dry_check_composes_with_the_slope_walk() {
         // The plateau at world X > 20 is flat but the water line sits
-        // just above the ramp's foot — a candidate that is flat but
+        // just above the ramp's foot - a candidate that is flat but
         // drowned must be skipped. Plateau height 84 stays dry.
         let hm = ramp_then_plateau();
         let mut t = Vec3::new(10.0, 0.0, 0.0);

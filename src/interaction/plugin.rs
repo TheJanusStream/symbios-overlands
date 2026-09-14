@@ -5,7 +5,7 @@
 //! [`AvatarContacts`] each frame inside [`ContactProducerSet`].
 //!
 //! Water-wake consumer (Phase 1, revised): a three-stage pipeline
-//! turns contacts into shader displacement —
+//! turns contacts into shader displacement -
 //!
 //! ```text
 //!   ContactProducerSet
@@ -17,7 +17,7 @@
 //! Ticking before spawning means a perturbation spawned this frame
 //! renders at `age = 0` on its first visible frame.
 //!
-//! Everything is gated by [`crate::state::AppState::InGame`] — water
+//! Everything is gated by [`crate::state::AppState::InGame`] - water
 //! surfaces only exist after the world compiler runs, so the pipeline
 //! would only churn empty resources during `Login` / `Loading`.
 
@@ -108,8 +108,8 @@ impl Plugin for InteractionPlugin {
         // PDS-authored consumer channels (#261 decal / #262 audio).
         // Each registers its own resources + systems but stays inert
         // (early-returns, zero cost) until a room authors the matching
-        // `ContactEffectKind` recipe — `registry.decals` /
-        // `registry.audio` are empty by default — so a room that omits
+        // `ContactEffectKind` recipe - `registry.decals` /
+        // `registry.audio` are empty by default - so a room that omits
         // `contact_effects` keeps the particle-only water-wake / stains
         // behaviour unchanged.
         super::decal::build(app);

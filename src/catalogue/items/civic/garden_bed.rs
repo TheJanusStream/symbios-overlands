@@ -1,9 +1,9 @@
-//! Garden bed — a low stone-kerbed bed of mixed, naturalistic planting. An
+//! Garden bed - a low stone-kerbed bed of mixed, naturalistic planting. An
 //! escalation-Calm scatter prop: cultivated ground signals a settlement
 //! tended rather than fought over, in any setting.
 //!
-//! Where the Rich [`planter`](super::planter) is formal — one clipped
-//! standard and one trailing edge — this bed is mixed and loose (#972): a
+//! Where the Rich [`planter`](super::planter) is formal - one clipped
+//! standard and one trailing edge - this bed is mixed and loose (#972): a
 //! shrub off-centre at the back, two coneflowers in two colours, and two
 //! ferns low at the front, each a real L-system species nested in the prop
 //! rather than a sphere. The shrub and ferns are the catalogue's own
@@ -12,7 +12,7 @@
 //! scale (a nested plant's cards scale with its node, so one number
 //! instances the whole species) and at a YOUNGER age: in these grammars the
 //! iteration count is the plant's age, so a bed-sized specimen is grown
-//! rather than shrunk — shorter fern fronds that stop arching into the kerb,
+//! rather than shrunk - shorter fern fronds that stop arching into the kerb,
 //! and a bush with half the leaves. The coneflower is new, and its second
 //! copy wears the species' gold re-skin and its own seed, so the two are
 //! different individuals of one grammar. Every copy of the bed in a room
@@ -83,7 +83,7 @@ const CORNER_BOTTOM: f32 = -0.04;
 const SOIL_LAP: f32 = 0.02;
 
 /// One planting: which species, where in plan, its uniform scale, its turn
-/// about Y, its seed, and its age — the iteration count, which in these
+/// about Y, its seed, and its age - the iteration count, which in these
 /// grammars IS the plant's age (playbook §3), so a bed can hold a younger,
 /// smaller specimen of a species without touching the species.
 struct Planting {
@@ -203,7 +203,7 @@ fn build_tree(layout: &Layout) -> Generator {
 
     let mut on_soil = Vec::new();
     // Kerb: the front and back stones run the bed's full length and the two
-    // end stones fit between them — butt joints, abutting faces.
+    // end stones fit between them - butt joints, abutting faces.
     let kerb_h = KERB_TOP - KERB_BOTTOM;
     let kerb_y = (KERB_TOP + KERB_BOTTOM) * 0.5;
     for sz in [-1.0_f32, 1.0] {
@@ -256,7 +256,7 @@ fn build_tree(layout: &Layout) -> Generator {
 
 /// What the whole bed may mesh to, stone and planting together. Measured
 /// at 3 212 (bush 2 168, coneflowers 268 + 328, ferns 170 each, stones 108)
-/// — under the 3 924 of the spheres and cones it replaced, because the
+/// - under the 3 924 of the spheres and cones it replaced, because the
 /// shrub and ferns are nested YOUNGER (fewer iterations) rather than
 /// merely smaller.
 #[cfg(test)]
@@ -390,7 +390,7 @@ mod tests {
             for q in p.points() {
                 assert!(
                     q[0].abs() < hx && q[2].abs() < hz,
-                    "a plant crowned at {:?} reaches [{:.3}, {:.3}, {:.3}] — outside the \
+                    "a plant crowned at {:?} reaches [{:.3}, {:.3}, {:.3}] - outside the \
                      bed's plan ({hx} x {hz}); nothing in this bed is meant to trail",
                     p.crown,
                     q[0],

@@ -1,4 +1,4 @@
-//! Post-apocalyptic-theme catalogue structures — a scavenged survivor
+//! Post-apocalyptic-theme catalogue structures - a scavenged survivor
 //! settlement of fortified ruins and welded scrap.
 //!
 //! Two prosperity registers share one wasteland identity: the established
@@ -24,7 +24,7 @@ pub mod scrap_wall;
 pub mod signal_fire;
 pub mod tire_wall;
 pub mod wrecked_car;
-// Poor (drifter) variants — the prosperity-Poor end of the theme.
+// Poor (drifter) variants - the prosperity-Poor end of the theme.
 pub mod ash_pit;
 pub mod rubble_barricade;
 pub mod survivor_lean_to;
@@ -43,18 +43,18 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the holdout — a fortified, lit, defended camp
+/// Shared prosperity band for the holdout - a fortified, lit, defended camp
 /// reads as a Modest-to-Rich survivor settlement. The poor end of the theme is
 /// the separate drifter kit ([`survivor_lean_to`], …), tagged `Poor`, so a
 /// destitute wasteland room grows the lone hovel instead.
 pub(super) const POSTAPOC_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the drifter kit — the destitute end of the theme, never
+/// Prosperity band for the drifter kit - the destitute end of the theme, never
 /// picked for a modest or affluent wasteland room.
 pub(super) const POSTAPOC_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Heavily-rusted scrap metal — welded walls, drums, car bodies, the mast.
+/// Heavily-rusted scrap metal - welded walls, drums, car bodies, the mast.
 pub(super) fn rusted(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -78,7 +78,7 @@ pub(super) fn rusted(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Cracked, stained concrete — the ruin's surviving walls and slabs.
+/// Cracked, stained concrete - the ruin's surviving walls and slabs.
 pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -95,7 +95,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Rusting corrugated sheet — shanty walls, fences, lean-to roofs.
+/// Rusting corrugated sheet - shanty walls, fences, lean-to roofs.
 pub(super) fn sheet(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -113,7 +113,7 @@ pub(super) fn sheet(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Grey weathered plank — salvaged timber framing and boards.
+/// Grey weathered plank - salvaged timber framing and boards.
 pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -132,7 +132,7 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Matte cloth / rubber / dirt — tarps, tyres, ash, sandbags. A plain surface
+/// Matte cloth / rubber / dirt - tarps, tyres, ash, sandbags. A plain surface
 /// with no procedural texture.
 pub(super) fn tarp(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -159,18 +159,18 @@ pub(super) const ASH_GREY: [f32; 3] = [0.26, 0.25, 0.24];
 // Emissive trim colours. Deep-saturated so bloom keeps them coloured instead
 // of blowing out to a near-white blob: the fire stays incandescent orange and
 // the warning beacon stays a true red rather than washing to coral. The
-// worklight is deliberately near-white — a salvaged halogen work lamp.
+// worklight is deliberately near-white - a salvaged halogen work lamp.
 pub(super) const FIRE_ORANGE: [f32; 3] = [1.0, 0.42, 0.10];
 pub(super) const WORKLIGHT: [f32; 3] = [1.0, 0.95, 0.82];
 pub(super) const SIGNAL_RED: [f32; 3] = [1.0, 0.09, 0.05];
 
 // ---------------------------------------------------------------------------
-// Ruin-signature helpers — the collapse-and-decay vocabulary shared across the
+// Ruin-signature helpers - the collapse-and-decay vocabulary shared across the
 // kit (the fortified ruin's blasted base, the barricade heap, the lean-to's
 // rubble), so "broken reinforced concrete" reads the same everywhere.
 // ---------------------------------------------------------------------------
 
-/// Cheap deterministic fractional hash of an index — gives each scattered
+/// Cheap deterministic fractional hash of an index - gives each scattered
 /// chunk a stable pseudo-random offset/size without an rng, so a pile never
 /// looks gridded yet round-trips bit-identically through the sanitiser.
 pub(super) fn frac(x: f32) -> f32 {
@@ -178,11 +178,11 @@ pub(super) fn frac(x: f32) -> f32 {
 }
 
 /// A deterministic scatter of broken angular concrete chunks heaped around
-/// `center` — collapse debris at a wall base, a barricade, a rubble heap. `n`
+/// `center` - collapse debris at a wall base, a barricade, a rubble heap. `n`
 /// chunks within `spread` radius, the largest roughly `base` across, each
 /// yawed and sized by a hash of its index. Returns loose decorative prims for
 /// the caller to extend `prims` with *before* [`crate::catalogue::items::util::assemble`]
-/// (never the root — these carry yaw).
+/// (never the root - these carry yaw).
 pub(super) fn rubble_chunks(center: [f32; 3], spread: f32, base: f32, n: usize) -> Vec<Generator> {
     let mut out = Vec::with_capacity(n);
     for k in 0..n {
@@ -204,9 +204,9 @@ pub(super) fn rubble_chunks(center: [f32; 3], spread: f32, base: f32, n: usize) 
 }
 
 /// A few thin rusted reinforcing bars jutting at angles from a snapped
-/// reinforced-concrete edge — the unmistakable signature of blasted structure.
+/// reinforced-concrete edge - the unmistakable signature of blasted structure.
 /// Bars sprout upward from `center`, each leaning out on its own axis. Loose
-/// decorative prims (carry tilt — never the root).
+/// decorative prims (carry tilt - never the root).
 pub(super) fn rebar_stubs(center: [f32; 3], len: f32, n: usize) -> Vec<Generator> {
     let mut out = Vec::with_capacity(n);
     for k in 0..n {
@@ -227,7 +227,7 @@ pub(super) fn rebar_stubs(center: [f32; 3], len: f32, n: usize) -> Vec<Generator
 }
 
 /// A short stack of half-buried tyres (flat tori) packed with rubble at
-/// `center` — a salvaged barrier unit. Two tyres with a dirt-filled bore disc,
+/// `center` - a salvaged barrier unit. Two tyres with a dirt-filled bore disc,
 /// used to pack out the tyre wall and shore up barricades. Loose prims.
 pub(super) fn tyre_stack(center: [f32; 3], rise: f32) -> Vec<Generator> {
     let mut out = Vec::new();
@@ -269,7 +269,7 @@ mod tests {
         }
     }
 
-    /// The fortified ruin is the kit's lit hero — it must keep its emissive
+    /// The fortified ruin is the kit's lit hero - it must keep its emissive
     /// barrel fire and worklight so escalation's broken-emissive ruin pass has
     /// fire to snuff.
     #[test]

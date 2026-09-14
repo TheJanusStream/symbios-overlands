@@ -57,7 +57,7 @@ fn sample_particles(
     })))
 }
 
-/// Build a textured-particle Generator — used by the new round-trip
+/// Build a textured-particle Generator - used by the new round-trip
 /// tests for the #200 follow-up.
 fn sample_textured_particles(
     texture: SignSource,
@@ -378,7 +378,7 @@ fn default_particles_round_trips() {
 #[test]
 fn seed_serialises_as_string() {
     // u64 seeds must serialise as JSON strings (DAG-CBOR rejects
-    // numbers above 2^53 — same reason terrain seeds use the
+    // numbers above 2^53 - same reason terrain seeds use the
     // `u64_as_string` adapter).
     let g = sample_particles(
         EmitterShape::Point,
@@ -512,7 +512,7 @@ fn unknown_texture_filter_decodes_to_unknown() {
 #[test]
 fn missing_texture_fields_decode_to_defaults() {
     // Records without the new fields (pre-#200) must deserialise
-    // cleanly — `texture` / `texture_atlas` to `None`, `frame_mode`
+    // cleanly - `texture` / `texture_atlas` to `None`, `frame_mode`
     // to `Still`, `texture_filter` to `Linear`.
     let json = base_particles_json(DEFAULT_SHAPE, DEFAULT_BLEND, DEFAULT_SPACE);
     let kind: GeneratorKind = serde_json::from_str(&json).expect("legacy decode");
@@ -606,7 +606,7 @@ fn sanitiser_truncates_textured_url() {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers for the forward-compat tests — substitute one sub-union slot
+// Helpers for the forward-compat tests - substitute one sub-union slot
 // at a time, leaving the others at their default-known values.
 // ---------------------------------------------------------------------------
 

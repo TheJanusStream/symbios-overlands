@@ -8,13 +8,13 @@
 //      offset is applied to the local position instead.
 //   2. Weights the displacement by height above the entity's own origin:
 //      `w = saturate((world.y - origin.y) * height_scale + height_bias)`.
-//      That one expression covers both callers without a branch —
+//      That one expression covers both callers without a branch -
 //      see `WindUniforms::height_scale` in `src/wind.rs` for the two
 //      configurations and why they differ.
 //   3. Leans along `wind_dir` with a slow `bend` wave, adds a faster
 //      perpendicular `flutter` so leaves shimmer rather than merely lean, and
 //      drops the tip slightly as it leans so the frond reads as bending
-//      rather than stretching. Cheap sines throughout — the GPU Gems 3 ch.16
+//      rather than stretching. Cheap sines throughout - the GPU Gems 3 ch.16
 //      (Crysis) leaf layer, minus the trunk bending we deliberately don't do
 //      (foliage-only, by design: bark stays rigid and keeps a plain
 //      `StandardMaterial`).
@@ -28,7 +28,7 @@
 // material handle per instance and destroy the batching the entire scatter
 // tier depends on (one mesh + one material for the whole scatter).
 //
-// Designed to run on WebGL2: arithmetic only — no new vertex attributes, no
+// Designed to run on WebGL2: arithmetic only - no new vertex attributes, no
 // textures, no storage buffers, and no dependency on the depth prepass (which
 // `camera.rs` omits on wasm).
 //
@@ -49,12 +49,12 @@
 
 // The prepass binds a *different, smaller* view layout than the main pass:
 // `Globals` sits at `@group(0) @binding(1)` here but at binding 11 there, and
-// `bevy_pbr::prepass_bindings` declares neither — the stock prepass shader
+// `bevy_pbr::prepass_bindings` declares neither - the stock prepass shader
 // has no use for the clock, so nothing in the tree declares it at the prepass
 // index. Importing `mesh_view_bindings::globals` instead compiles cleanly and
 // then fails at pipeline creation with
 // `Shader global ResourceBinding { group: 0, binding: 11 } is not available
-// in the pipeline layout` — a hard panic the moment a shadow-casting light
+// in the pipeline layout` - a hard panic the moment a shadow-casting light
 // sees foliage, which no forward-only render reaches.
 @group(0) @binding(1) var<uniform> globals: Globals;
 #else
@@ -69,7 +69,7 @@
 // Mirror of `WindUniforms` in `src/wind.rs`. The two are hand-written copies
 // of one layout and nothing in the build compiles this file, so a field added
 // to one and not the other reads at the wrong offsets at runtime rather than
-// failing to build — `wind::tests::wgsl_block_mirrors_the_rust_one` is what
+// failing to build - `wind::tests::wgsl_block_mirrors_the_rust_one` is what
 // catches that.
 struct WindUniforms {
     wind_dir: vec2<f32>,
@@ -134,7 +134,7 @@ fn wind_offset(world_pos: vec3<f32>, origin: vec3<f32>) -> vec3<f32> {
 // is only ever attached to foliage buckets and ground-cover cards, neither of
 // which is skinned or morphed. Everything else is kept faithfully, because
 // dropping any of it silently breaks a pass that only some configurations
-// reach — `UNCLIPPED_DEPTH_ORTHO_EMULATION` in particular is what keeps
+// reach - `UNCLIPPED_DEPTH_ORTHO_EMULATION` in particular is what keeps
 // directional-light shadow maps from clipping on hardware without native
 // depth-clip control.
 @vertex
@@ -167,7 +167,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 #ifdef VERTEX_NORMALS
     // Left as the rest-pose normal. Recomputing it would mean rebuilding the
     // tangent frame per vertex for a sub-degree change on geometry that is
-    // double-sided alpha-masked foliage — invisible, and it would have to be
+    // double-sided alpha-masked foliage - invisible, and it would have to be
     // duplicated identically in the forward pass to avoid a shading seam.
     out.world_normal = mesh_functions::mesh_normal_local_to_world(
         vertex.normal,
@@ -216,7 +216,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 
 // Forward variant. Mirrors `bevy_pbr::render::mesh.wgsl`'s vertex entry point
 // (again without skinning / morph targets) so the standard PBR fragment
-// shader — which this material keeps, via `ShaderRef::Default` — receives
+// shader - which this material keeps, via `ShaderRef::Default` - receives
 // exactly the inputs it expects.
 @vertex
 fn vertex(vertex: Vertex) -> VertexOutput {

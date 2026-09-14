@@ -2,7 +2,7 @@
 //! currently in the room, with a per-peer Mute toggle. The mute flag writes
 //! straight into `RemotePeer.muted`; audio-mix / visibility code keys off the
 //! same component. Diagnostics still renders its own copy of the roster
-//! (with DIDs) — this window is the user-facing social view, Diagnostics is
+//! (with DIDs) - this window is the user-facing social view, Diagnostics is
 //! the debug view.
 //!
 //! Drag-to-gift: peer rows double as drop targets for the inventory /
@@ -14,7 +14,7 @@
 //!
 //! Incoming offer modal: when [`crate::state::IncomingOfferDialog`] is set,
 //! [`incoming_offer_ui`] renders the Accept / Decline / Mute & Decline
-//! prompt. Exactly one dialog is ever active — concurrent offers are
+//! prompt. Exactly one dialog is ever active - concurrent offers are
 //! auto-declined with "busy" at the network layer, see
 //! [`crate::network`].
 
@@ -42,14 +42,14 @@ use crate::ui::inventory::{PeerDropTarget, PendingGeneratorDrop};
 /// Pure, because the sort is a claim about identity and the review found it
 /// making a false one: the key was `handle.unwrap_or("~")`, so every peer
 /// whose handle had not resolved shared a single key. Two strangers were
-/// adjacent, tied and interchangeable — and a bare query iteration follows
+/// adjacent, tied and interchangeable - and a bare query iteration follows
 /// archetype order, so a tie is resolved by whatever the last component
 /// insert did. A row that can swap places between two frames in which
 /// nothing about anybody changed is a row you cannot aim a durable,
 /// account-scoped mute at.
 ///
 /// Three tiers, most-deliberate first: mutuals, then the label ladder the
-/// row actually renders ([`PeerLabel::sort_key`]), then the peer id — which
+/// row actually renders ([`PeerLabel::sort_key`]), then the peer id - which
 /// is unique, stable for the connection's lifetime, and exists precisely so
 /// the previous tiers never have to tie.
 fn roster_sort_key(
@@ -70,7 +70,7 @@ fn roster_sort_key(
 /// highlight, its hover text, and the toast `handle_generator_drop` raises
 /// on a release. Before this the condition was an anonymous boolean that
 /// silently suppressed the highlight, the target and the explanation
-/// together — so the user's release did nothing and said nothing.
+/// together - so the user's release did nothing and said nothing.
 ///
 /// Order matters: a muted peer is muted whether or not they have identified,
 /// and saying "still identifying" about somebody you deliberately blocked
@@ -80,14 +80,14 @@ pub fn gift_block_reason(peer: &RemotePeer, link_is_up: bool) -> Option<&'static
         // A gift sent while our link is down spends an inventory item on an
         // offer that can never be answered, and then blames the recipient
         // three minutes later (#1213 f404).
-        return Some("You're not connected right now — the offer wouldn't reach them.");
+        return Some("You're not connected right now - the offer wouldn't reach them.");
     }
     if peer.muted {
         return Some("You've muted this person. Unmute them to send a gift.");
     }
     if peer.did.is_none() {
         return Some(
-            "Still identifying — a gift is addressed to an account, and theirs hasn't \
+            "Still identifying - a gift is addressed to an account, and theirs hasn't \
              arrived yet. Try again in a moment.",
         );
     }
@@ -99,7 +99,7 @@ pub fn gift_block_reason(peer: &RemotePeer, link_is_up: bool) -> Option<&'static
 /// Five states used to make the button VANISH, and an absent control cannot
 /// carry a tooltip. Three of the five are visible elsewhere (the guard is a
 /// blocking modal, a travel paints a banner, a mute ticks its own checkbox),
-/// but "you are already in their world" had no cue anywhere — and a control
+/// but "you are already in their world" had no cue anywhere - and a control
 /// that comes and goes reads as an unreliable feature rather than a
 /// temporarily unavailable one.
 pub fn visit_block_reason(
@@ -109,7 +109,7 @@ pub fn visit_block_reason(
     guarded: bool,
 ) -> Option<&'static str> {
     if peer.did.is_none() {
-        return Some("Still identifying — their world is addressed by account.");
+        return Some("Still identifying - their world is addressed by account.");
     }
     if already_here {
         return Some("You're already in their world.");
@@ -131,7 +131,7 @@ pub fn visit_block_reason(
 /// Bundled because `people_ui` sat at Bevy's 16-parameter ceiling (#1213
 /// took the last slot) and this tranche needs to add to it: the `⋯` menu's
 /// clipboard (#1223 f291) had nowhere to go. Bundling first, then adding, is
-/// the order — an over-ceiling system fails at app build with a trait error
+/// the order - an over-ceiling system fails at app build with a trait error
 /// that names none of this.
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct RosterDeps<'w> {
@@ -188,7 +188,7 @@ pub fn people_ui(
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::People, ctx);
     // Guarded-dirty (#879): `.open(&mut panels.people)` through the
     // `ResMut` would mark UiPanels changed every frame, starving the
-    // prefs save debounce — local copy in, write back only on close.
+    // prefs save debounce - local copy in, write back only on close.
     let mut open = panels.people;
     let response = egui::Window::new("People")
         .open(&mut open)
@@ -201,7 +201,7 @@ pub fn people_ui(
             let peer_count = peers.iter().count();
             let total = peer_count + session.is_some() as usize;
             // "In room (N)" is a claim about the ROOM, and a client whose
-            // link is down is in no position to make one (#1213 f395) —
+            // link is down is in no position to make one (#1213 f395) -
             // that copy is exactly what made an outage read as an empty
             // product. The wording lives on `LinkPhase` so this window, the
             // toolbar chip and the chat note cannot drift.
@@ -228,7 +228,7 @@ pub fn people_ui(
                     // carries across both windows. No Mute button on self.
                     if let Some(s) = session.as_deref() {
                         // Same info-blue the chat uses for the local
-                        // author tag (#856) — the "you" cue carries across.
+                        // author tag (#856) - the "you" cue carries across.
                         let self_color = crate::ui::theme::current(ui.ctx()).status.info;
                         ui.horizontal(|ui| {
                             crate::ui::affordances::status_dot(ui, self_color);
@@ -245,21 +245,21 @@ pub fn people_ui(
 
                     // Remote peers. A peer whose profile has not resolved
                     // shows the head of their authenticated DID, and one
-                    // that has not identified at all shows "A traveler" —
+                    // that has not identified at all shows "A traveler" -
                     // the same ladder the presence lines use (#1218), in
                     // place of the bespoke "identifying…" this row invented.
                     //
                     // Sorted (#844): bare query iteration follows archetype
                     // order, so rows JUMPED when `SocialResonance` resolved
                     // (a component insert moves the entity). Mutuals first,
-                    // then case-insensitive handle — the same deliberate
+                    // then case-insensitive handle - the same deliberate
                     // order the gateway picker uses; a stable list also
                     // de-risks drag-to-gift aim.
                     //
                     // Sorted on the LABEL ladder, not on the handle (#1226
                     // f325): `handle.unwrap_or("~")` gave every handle-less
                     // peer one key, so two strangers were adjacent and
-                    // interchangeable — and, tied, they took whatever order
+                    // interchangeable - and, tied, they took whatever order
                     // the sort happened to leave them in, under a pointer
                     // aiming a durable mute. `peer_id` breaks the last tie so
                     // the list cannot reshuffle between two frames in which
@@ -285,13 +285,13 @@ pub fn people_ui(
                         // A drop onto a peer we cannot reach spends an
                         // inventory item on an offer that can never be
                         // answered, and then blames the recipient three
-                        // minutes later (#1213 f404) — so the row is inert
+                        // minutes later (#1213 f404) - so the row is inert
                         // whenever the link is not up, alongside the mute
                         // and DID-resolution gates it already had.
                         // Why this row cannot take a gift, if it cannot
                         // (#1220 f330). An ineligible row used to give no
                         // highlight during the drag AND no explanation on
-                        // release — `handle_generator_drop` found no target
+                        // release - `handle_generator_drop` found no target
                         // and fell through to the silent egui-cancel written
                         // for releases over the Inventory window. Silence on
                         // release is indistinguishable from a broken
@@ -318,7 +318,7 @@ pub fn people_ui(
                             if matches!(resonance, Some(SocialResonance::Mutual)) {
                                 // Accent, not gold (#856): the old
                                 // (240,190,70) star sat in the warn-amber
-                                // family — a friend must not read as a
+                                // family - a friend must not read as a
                                 // caution. Brand highlight = accent.
                                 ui.colored_label(
                                     crate::ui::theme::current(ui.ctx()).accent,
@@ -347,7 +347,7 @@ pub fn people_ui(
                             }
                             // Outgoing-gift badge (#843): while an offer to
                             // this peer awaits their answer, say so on the
-                            // row — the sender used to have no trace at all.
+                            // row - the sender used to have no trace at all.
                             let offers_pending = peer
                                 .did
                                 .as_deref()
@@ -372,7 +372,7 @@ pub fn people_ui(
                             }
                             // While a gift drag is armed, an ineligible row
                             // says so on the row itself rather than waiting
-                            // for a hover (#1220 f330) — the user is
+                            // for a hover (#1220 f330) - the user is
                             // mid-drag, hunting for a target, and is not
                             // going to stop and hover. Only during a drag,
                             // so an idle roster is not littered with
@@ -387,10 +387,10 @@ pub fn people_ui(
                                 .on_hover_text(reason);
                             }
                             // How this person is loading, in ONE chip
-                            // (#1217/#1218). Six separate failures — no
+                            // (#1217/#1218). Six separate failures - no
                             // identity, a failed avatar fetch, a failed
                             // profile fetch, an incomplete outfit, a body
-                            // still building — each used to reach the screen
+                            // still building - each used to reach the screen
                             // nowhere at all, and the temptation was to give
                             // each its own badge. `peer_status` picks the
                             // worst one; a row that can carry four warnings
@@ -417,7 +417,7 @@ pub fn people_ui(
                             // Wire-compatibility chip (#1121). Until this
                             // existed, a gift to an incompatible peer looked
                             // exactly like a gift to a peer who had not
-                            // answered yet — the offer badge above sat there
+                            // answered yet - the offer badge above sat there
                             // forever and neither end could learn why. The
                             // chip does not make the two builds compatible;
                             // it makes the pending badge legible.
@@ -467,7 +467,7 @@ pub fn people_ui(
                                     // it is what turns an unreportable
                                     // stranger into somebody the user can
                                     // block at the ATProto layer, warn a
-                                    // friend about, or report off-platform —
+                                    // friend about, or report off-platform -
                                     // the product ships no report path of its
                                     // own.
                                     ui.menu_button("…", |ui| {
@@ -500,7 +500,7 @@ pub fn people_ui(
                                             None => {
                                                 ui.label(
                                                     egui::RichText::new(
-                                                        "No account id yet — this peer \
+                                                        "No account id yet - this peer \
                                                          hasn't identified itself.",
                                                     )
                                                     .small()
@@ -515,7 +515,7 @@ pub fn people_ui(
                                     // A mute is remembered against an ACCOUNT
                                     // (#844), so a peer with no authenticated
                                     // DID can only be muted for as long as
-                                    // this entity lives — the tooltip's
+                                    // this entity lives - the tooltip's
                                     // "Persists across sessions" was simply
                                     // false for them, and the checkbox did
                                     // half its job in silence (#1218 f290).
@@ -615,7 +615,7 @@ pub fn people_ui(
                         // deliberate "which one is this?", answered by a
                         // wire box around that body and a brighter tag over
                         // it (`ui::nametag::draw_focused_peer_highlight`).
-                        // Recorded for ANY hover, not just a drag — aiming a
+                        // Recorded for ANY hover, not just a drag - aiming a
                         // mute is the case that matters most and involves no
                         // drag at all.
                         if ui.rect_contains_pointer(row_rect) {
@@ -648,7 +648,7 @@ pub fn people_ui(
                             // Recorded WITH its reason so the drop handler
                             // can say something instead of falling through
                             // to the silent cancel (#1220 f330). The DID may
-                            // be absent — that is one of the reasons — so
+                            // be absent - that is one of the reasons - so
                             // the target carries an empty one; nothing on
                             // this path sends a message.
                             pending_drop.peer_target = Some(PeerDropTarget {
@@ -691,7 +691,7 @@ pub fn people_ui(
             row_focus
         });
     // A closed or collapsed window hovers nothing, and `show` hands back
-    // `None` for the body in both cases — so the link clears itself without
+    // `None` for the body in both cases - so the link clears itself without
     // this needing to know which of the two happened.
     let row_focus = response.as_ref().and_then(|r| r.inner.flatten());
     crate::ui::nametag::PeerFocus::set_row(&mut deps.focus, row_focus);
@@ -708,7 +708,7 @@ pub fn people_ui(
 /// the item is copied into the owner's live inventory under a
 /// collision-safe key (see [`crate::ui::inventory::store_accepted_gift`]) and a publish
 /// task is spawned immediately so the new item is on the PDS before the
-/// user closes the window — the user explicitly opted into "auto-publish
+/// user closes the window - the user explicitly opted into "auto-publish
 /// on accept" for less-likely-to-lose-items behaviour.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn incoming_offer_ui(
@@ -745,7 +745,7 @@ pub fn incoming_offer_ui(
     };
 
     let mut action: Option<OfferAction> = None;
-    // A true `egui::Modal`, matching the unsaved-edits guard — the
+    // A true `egui::Modal`, matching the unsaved-edits guard - the
     // app's one modality pattern (#834). It always paints topmost and
     // blocks background input, so it can never end up buried under the
     // (previously also center-anchored) Controls sheet with its
@@ -756,7 +756,7 @@ pub fn incoming_offer_ui(
         ui.add_space(4.0);
         // Who is asking is the most consequential thing in this dialog and
         // the user has a countdown to judge it (#1218 f299). When the handle
-        // has not resolved, SAY that — the old copy put the raw DID inside an
+        // has not resolved, SAY that - the old copy put the raw DID inside an
         // `@`-prefixed sentence, which reads as a name and is not one.
         if dialog.sender_label.is_named() {
             ui.label(format!(
@@ -780,7 +780,7 @@ pub fn incoming_offer_ui(
         // What's actually being offered (#843): kind + rough serialized
         // size. The generator arrives decoded + sanitized before the
         // dialog opens; the size is measured once per offer (cached by
-        // offer_id — serializing per frame would be wasted work).
+        // offer_id - serializing per frame would be wasted work).
         let bytes = match *offer_size {
             Some((id, bytes)) if id == dialog.offer_id => bytes,
             _ => {
@@ -813,11 +813,11 @@ pub fn incoming_offer_ui(
                 if len >= cap {
                     ui.colored_label(
                         crate::ui::theme::current(ui.ctx()).status.error,
-                        "Inventory full — remove an item to accept.",
+                        "Inventory full - remove an item to accept.",
                     );
                     // A real action, not a panel flag (#1220 f288). This
                     // modal blocks background input, so the old button
-                    // raised the Inventory UNDER it — unclickable, while the
+                    // raised the Inventory UNDER it - unclickable, while the
                     // countdown declined the gift out from under the user.
                     // The offer is held instead: the dialog closes, the
                     // Inventory works, and the offer comes straight back the
@@ -826,7 +826,7 @@ pub fn incoming_offer_ui(
                         .button("Make room for it")
                         .on_hover_text(
                             "Sets this offer aside and opens your Inventory. It comes \
-                             back as soon as you free a slot — the sender's countdown \
+                             back as soon as you free a slot - the sender's countdown \
                              keeps running.",
                         )
                         .clicked()
@@ -838,7 +838,7 @@ pub fn incoming_offer_ui(
             None => {
                 ui.colored_label(
                     crate::ui::theme::current(ui.ctx()).status.warn,
-                    "Your inventory hasn't loaded — nothing can be accepted into it yet.",
+                    "Your inventory hasn't loaded - nothing can be accepted into it yet.",
                 );
             }
         }
@@ -860,7 +860,7 @@ pub fn incoming_offer_ui(
                     ),
                 )
                 .on_disabled_hover_text(if live_inventory.is_some() {
-                    "Your inventory is full — free a slot with \"Make room for it\"."
+                    "Your inventory is full - free a slot with \"Make room for it\"."
                 } else {
                     "Your inventory hasn't loaded yet."
                 });
@@ -882,7 +882,7 @@ pub fn incoming_offer_ui(
         });
         ui.add_space(4.0);
         // The lifecycle sweep auto-declines the dialog after the TTL
-        // (`config::network::OFFER_DIALOG_TIMEOUT_SECS`) — surface that
+        // (`config::network::OFFER_DIALOG_TIMEOUT_SECS`) - surface that
         // instead of letting the offer vanish invisibly mid-decision.
         // Read off the same wall clock the sweep uses (#1216). On the
         // virtual clock this number was not seconds: "declines in 40s" did
@@ -893,11 +893,11 @@ pub fn incoming_offer_ui(
         .max(0.0)
         .ceil() as u64;
         ui.small(format!(
-            "Declines automatically in {remaining}s — Esc to decline now."
+            "Declines automatically in {remaining}s - Esc to decline now."
         ));
     });
     // Esc (or a click on the dimmed backdrop) = Decline: the safe,
-    // non-destructive dismissal — the sender gets an honest response
+    // non-destructive dismissal - the sender gets an honest response
     // instead of a dialog that lingers until the TTL sweep.
     if action.is_none() && modal.should_close() {
         action = Some(OfferAction::Decline);
@@ -916,7 +916,7 @@ pub fn incoming_offer_ui(
         panels.inventory = true;
         toasts.info(
             format!(
-                "\"{}\" is held — free a slot and it will come back.",
+                "\"{}\" is held - free a slot and it will come back.",
                 dialog.item_name
             ),
             now,
@@ -940,7 +940,7 @@ pub fn incoming_offer_ui(
         busy_declines.0 = 0;
     }
     let accepted = matches!(action, OfferAction::Accept);
-    // Count the local user's offer disposition (E-4) — accept vs any decline.
+    // Count the local user's offer disposition (E-4) - accept vs any decline.
     if accepted {
         crate::diagnostics::samplers::offer_accepted(&mut metrics);
     } else {
@@ -953,8 +953,8 @@ pub fn incoming_offer_ui(
     if matches!(action, OfferAction::MuteAndDecline) {
         // Hoisted OUT of the peer loop (#1219 f120). This used to write the
         // durable list from inside `for peer in peers.iter_mut()`, so a
-        // stranger who spammed a gift and disconnected — the hit-and-run case
-        // the durable list exists for — matched nothing and was never
+        // stranger who spammed a gift and disconnected - the hit-and-run case
+        // the durable list exists for - matched nothing and was never
         // recorded, and their next visit reached the user exactly as before.
         // The dialog's sender DID is relay-authenticated; the comment here
         // always said it was safe to key on unconditionally, and now it is.
@@ -975,14 +975,14 @@ pub fn incoming_offer_ui(
     if accepted {
         if let Some(live) = live_inventory.as_mut() {
             // The gift lands in `live`; what gets PUBLISHED is `stored` plus
-            // the gift (#1200) — the owner's other unsaved edits are theirs
+            // the gift (#1200) - the owner's other unsaved edits are theirs
             // to save or revert, not this dialog's to commit.
             let stored = stored_inventory
                 .as_deref()
                 .map(|s| s.0.clone())
                 .unwrap_or_default();
             // Bind the landed key (#1220 f119). `accept_gift` renames on a
-            // collision — "lantern" becomes "lantern_2" — and discarding the
+            // collision - "lantern" becomes "lantern_2" - and discarding the
             // key meant the one moment a gift becomes yours was the least
             // confirmed event in the lifecycle, under a name the recipient
             // was never shown.
@@ -1001,7 +1001,7 @@ pub fn incoming_offer_ui(
                     // the one person who cannot find the item afterwards if
                     // the name they were shown is not the name it has.
                     format!(
-                        "\"{}\" is in your inventory as \"{key}\" — you already had one \
+                        "\"{}\" is in your inventory as \"{key}\" - you already had one \
                          by that name.",
                         dialog.item_name
                     )
@@ -1033,7 +1033,7 @@ pub fn incoming_offer_ui(
             if inventory_recovery.is_some() {
                 toasts.info(
                     format!(
-                        "Saved \"{}\" locally — your inventory could not be loaded, so \
+                        "Saved \"{}\" locally - your inventory could not be loaded, so \
                          open Inventory to save it deliberately.",
                         dialog.item_name
                     ),
@@ -1052,7 +1052,7 @@ pub fn incoming_offer_ui(
                 );
             }
         } else {
-            // Live inventory resource absent — should not happen in
+            // Live inventory resource absent - should not happen in
             // `AppState::InGame`, but decline rather than drop the
             // response and leave the sender hanging. The user's response was
             // an accept, so it records as such but at Warn severity because
@@ -1087,7 +1087,7 @@ pub fn incoming_offer_ui(
             dialog.offer_id,
             dialog.sender_did.clone(),
             accepted,
-            // A person answered (#1220 f127) — including "Mute & Decline",
+            // A person answered (#1220 f127) - including "Mute & Decline",
             // which reports as a plain decline for privacy.
             crate::protocol::DeclineReason::Declined,
         ),
@@ -1104,7 +1104,7 @@ enum OfferAction {
     MuteAndDecline,
     /// Set the offer aside and open the Inventory (#1220 f288). Not an
     /// answer: no response goes to the sender, and the offer returns when a
-    /// slot frees or is declined when its clock runs out — see
+    /// slot frees or is declined when its clock runs out - see
     /// `network::lifecycle::resolve_held_offer`.
     Hold,
 }
@@ -1146,7 +1146,7 @@ mod gate_tests {
     /// #1226 f325 (the half that survived its refuter: the ROW already
     /// renders distinct DID heads, but the SORT still put every stranger
     /// under one key). The sequence: two people join, neither handle has
-    /// resolved, and their rows are tied — so the order between them is
+    /// resolved, and their rows are tied - so the order between them is
     /// whatever the last component insert left in archetype order, and it
     /// can change under a pointer that is on its way to a Mute checkbox.
     #[test]
@@ -1160,8 +1160,8 @@ mod gate_tests {
         );
     }
 
-    /// Even two peers who never identified at all — no handle, no DID, the
-    /// same rendered "A traveler" — hold a stable order, because the peer id
+    /// Even two peers who never identified at all - no handle, no DID, the
+    /// same rendered "A traveler" - hold a stable order, because the peer id
     /// is the last tier and it is unique per connection.
     #[test]
     fn two_anonymous_peers_still_hold_a_stable_order() {
@@ -1182,7 +1182,7 @@ mod gate_tests {
         assert!(roster_sort_key(&stranger, None) < roster_sort_key(&anon, None));
     }
 
-    /// Mutuals stay first, ahead of the ladder — the deliberate order #844
+    /// Mutuals stay first, ahead of the ladder - the deliberate order #844
     /// established and the gateway picker shares.
     #[test]
     fn a_mutual_outranks_an_alphabetically_earlier_stranger() {
@@ -1195,7 +1195,7 @@ mod gate_tests {
     }
 
     /// #1220 f330. The sequence: someone joins, you drag a lamp onto their
-    /// row before their DID has resolved, release — and absolutely nothing
+    /// row before their DID has resolved, release - and absolutely nothing
     /// happens. No highlight during the drag, no toast on release, because
     /// an ineligible row was never recorded as a target and the drop fell
     /// through to the silent cancel written for releases over the Inventory

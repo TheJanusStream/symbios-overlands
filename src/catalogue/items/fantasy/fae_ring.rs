@@ -1,4 +1,4 @@
-//! Fae ring — a High-Fantasy secondary. A mossy circle of little standing
+//! Fae ring - a High-Fantasy secondary. A mossy circle of little standing
 //! stones and glowing mushrooms around a softly-lit spell mark, mana motes
 //! rising from its centre. The fairy ring of the arcane quarter; its glow is
 //! emissive trim the ruin pass can darken.
@@ -55,7 +55,7 @@ fn build_tree() -> Generator {
     let ring_r = 3.4_f32;
 
     let mut prims = vec![
-        // Mossy floor disc — the root.
+        // Mossy floor disc - the root.
         prim(
             solid(cylinder_tapered(4.0, 0.2, 24, 0.0, mossy(STONE_MOSS))),
             [0.0, 0.1, 0.0],
@@ -63,7 +63,7 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Glowing sigil inscribed at the centre — twin rune rings (not a flat
+    // Glowing sigil inscribed at the centre - twin rune rings (not a flat
     // glowing puddle) with little glyph marks between them.
     for major in [1.35_f32, 0.85] {
         prims.push(prim(

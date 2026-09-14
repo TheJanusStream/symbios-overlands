@@ -1,4 +1,4 @@
-//! Seeded avatar outfit — the slot-filling deriver, avatar analogue of
+//! Seeded avatar outfit - the slot-filling deriver, avatar analogue of
 //! [`super::super::room::settlement::Settlement`].
 //!
 //! Given an [`AvatarCharacter`], it fills every *required* slot for the
@@ -75,7 +75,7 @@ impl AvatarOutfit {
         }
 
         // Optional slots: rolled against ornateness, then filled only if a
-        // part serves the slot *at the avatar's tiers* — the bands hard-gate
+        // part serves the slot *at the avatar's tiers* - the bands hard-gate
         // here (no widen), so a plain avatar never picks up an ornate-only
         // accent, and a slot no part serves yet stays empty.
         for &slot in optional_slots(c.chassis) {
@@ -96,7 +96,7 @@ impl AvatarOutfit {
 
 /// Pick a part slug for `slot` from the band-gated styled pool. When `widen`
 /// is set and the bands leave the pool empty, fall back to the unbanded style
-/// pool (which still includes the universal defaults) — used for required
+/// pool (which still includes the universal defaults) - used for required
 /// slots so they're never left empty. Optional slots pass `widen = false` so
 /// their bands hard-gate. Yields `None` only if nothing serves the slot.
 fn pick_slug(
@@ -123,7 +123,7 @@ fn pick_slug(
     }
 }
 
-/// Roll whether an optional slot is included — likelier the more ornate the
+/// Roll whether an optional slot is included - likelier the more ornate the
 /// avatar.
 fn roll_optional(ornateness: OrnatenessTier, rng: &mut ChaCha8Rng) -> bool {
     let p = match ornateness {
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn optional_inclusion_rises_with_ornateness() {
-        // The optional gate is monotone in ornateness — Ornate avatars roll
+        // The optional gate is monotone in ornateness - Ornate avatars roll
         // optionals far more often than Plain ones.
         let count = |tier: OrnatenessTier| {
             let mut rng = ChaCha8Rng::seed_from_u64(0xABCD);

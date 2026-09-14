@@ -36,14 +36,14 @@ pub(super) fn draw_tab(
         .show(ui, |ui| {
             // #1265 f109: this used to teach a collapse-the-window
             // workaround for the #814 full-body freeze. #1103 reversed that
-            // freeze — `holds_avatar_still` is exactly `has_gizmo_selection`
+            // freeze - `holds_avatar_still` is exactly `has_gizmo_selection`
             // now, and `release_hidden_selections` clears every avatar-side
             // selection when a tab that cannot show it is picked, so no
             // gizmo can be aimed while this tab is on screen. Name the
             // gizmo, not the window.
             ui.label(
                 egui::RichText::new(
-                    "⏵ Drive with WASD while this window is open — \
+                    "⏵ Drive with WASD while this window is open - \
                      your avatar only holds still while a gizmo is \
                      aimed at it.",
                 )
@@ -75,7 +75,7 @@ pub(super) fn draw_tab(
 }
 
 /// Egui detail panel for one locomotion preset. Implemented on each
-/// `*Params` struct in this module's siblings — `draw_locomotion_tab`
+/// `*Params` struct in this module's siblings - `draw_locomotion_tab`
 /// dispatches to whichever variant the live `LocomotionConfig` carries.
 pub trait LocomotionPanel {
     fn draw(&mut self, ui: &mut egui::Ui, dirty: &mut bool, facts: &LocalMovement);
@@ -84,7 +84,7 @@ pub trait LocomotionPanel {
 /// The name of the preset whose tuning a switch away from `current` would
 /// throw away, or `None` when it would throw away nothing (#1256 f102).
 ///
-/// "Nothing" means the live config still equals its own preset defaults —
+/// "Nothing" means the live config still equals its own preset defaults -
 /// the exact comparison the retired #838 confirm modal used to gate on. An
 /// untuned switch stays silent, because the sentence is about loss, not
 /// about having clicked.
@@ -99,14 +99,14 @@ fn discarded_tuning(current: &LocomotionConfig) -> Option<&'static str> {
 
 /// What the owner is told at the moment their tuning is replaced.
 ///
-/// Undo alone was not enough: the loss was INVISIBLE when it happened — the
-/// panel simply redrew with different sliders — so by the time anyone
+/// Undo alone was not enough: the loss was INVISIBLE when it happened - the
+/// panel simply redrew with different sliders - so by the time anyone
 /// noticed, the 32-entry ring could have rolled past it. `undo_label` only
 /// names a future undo ENTRY; the undo toast fires on Ctrl+Z, which is
 /// exactly the gesture someone who does not know they lost anything will
 /// never make.
 fn switch_discard_line(from: &str, to: &str) -> String {
-    format!("Switched to {to} — your {from} tuning was replaced with defaults. Ctrl+Z restores it.")
+    format!("Switched to {to} - your {from} tuning was replaced with defaults. Ctrl+Z restores it.")
 }
 
 /// Render the picker row (one selectable label per preset, switching
@@ -119,12 +119,12 @@ fn switch_discard_line(from: &str, to: &str) -> String {
 /// defaults, the switch is one entry in the ring, and `undo_label` names it.
 ///
 /// #1256 f102: undo alone was not enough, because the loss was INVISIBLE at
-/// the moment it happened — the panel simply redrew with different sliders,
+/// the moment it happened - the panel simply redrew with different sliders,
 /// so by the time an owner noticed their tuning was gone the 32-entry ring
 /// could have rolled past it. The switch now says what it replaced, at the
 /// moment it replaces it, and `toasts` is threaded here for that. A switch
 /// that discards nothing (the config still IS its own defaults) stays
-/// silent — the sentence is about loss, not about clicking.
+/// silent - the sentence is about loss, not about clicking.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_locomotion_tab(
     ui: &mut egui::Ui,
@@ -172,7 +172,7 @@ pub fn draw_locomotion_tab(
         LocomotionConfig::Unknown => {
             ui.colored_label(
                 crate::ui::theme::current(ui.ctx()).status.warn,
-                "This avatar's locomotion preset was authored against a newer schema — \
+                "This avatar's locomotion preset was authored against a newer schema - \
                  pick a preset above to replace it.",
             );
         }
@@ -183,7 +183,7 @@ pub fn draw_locomotion_tab(
 }
 
 // ---------------------------------------------------------------------------
-// Shared widgets — narrower than `ui::room::widgets::fp_slider` (this one
+// Shared widgets - narrower than `ui::room::widgets::fp_slider` (this one
 // takes a step size and emits no inline label, leaving the caller to draw
 // labels next to a stack of related sliders).
 // ---------------------------------------------------------------------------
@@ -225,7 +225,7 @@ pub(super) fn fp3_extents(ui: &mut egui::Ui, label: &str, value: &mut [f32; 3], 
 mod tests {
     use super::*;
 
-    /// Move one authored value on whichever preset this is — the smallest
+    /// Move one authored value on whichever preset this is - the smallest
     /// possible "the owner tuned something".
     fn tune(cfg: &mut LocomotionConfig) {
         match cfg {
@@ -241,14 +241,14 @@ mod tests {
     }
 
     /// THE SEQUENCE (#1256 f102): tune the Car preset for ten minutes,
-    /// click Helicopter to compare, click Car again — and every value is
+    /// click Helicopter to compare, click Car again - and every value is
     /// back to default, with no warning at any point.
     ///
     /// #838 guarded this with a confirm modal; #866 retired that in favour
     /// of undo, on the grounds that "a switch is now one Ctrl+Z away and the
     /// toast names it". No toast fired here: `undo_label.set` only names a
     /// future undo ENTRY, and the undo toast appears when the user presses
-    /// Ctrl+Z — which is exactly the gesture someone who does not know they
+    /// Ctrl+Z - which is exactly the gesture someone who does not know they
     /// lost anything will never make. Undo is only a remedy for someone who
     /// notices within 32 edits.
     #[test]
@@ -275,7 +275,7 @@ mod tests {
             );
         }
 
-        // And the sentence says what happened and how to undo it — the
+        // And the sentence says what happened and how to undo it - the
         // whole point being that it arrives at the moment of the loss.
         let line = switch_discard_line("Car", "Helicopter");
         assert!(line.contains("Car") && line.contains("Helicopter"));
@@ -286,7 +286,7 @@ mod tests {
     }
 
     /// A record authored against a newer schema has no preset defaults to
-    /// compare against, so a switch away from it claims no loss — the panel
+    /// compare against, so a switch away from it claims no loss - the panel
     /// above already tells the owner to replace it.
     #[test]
     fn an_unrecognised_preset_claims_no_lost_tuning() {

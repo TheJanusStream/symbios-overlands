@@ -1,4 +1,4 @@
-//! Motel — a Roadside secondary. A five-bay strip of rooms behind a covered
+//! Motel - a Roadside secondary. A five-bay strip of rooms behind a covered
 //! walkway: brick piers framing a real door and a real window per room, lit
 //! rooms behind the glass, one door standing open, a glazed office at the end,
 //! and a neon MOTEL pylon on its own footing out on the lot.
@@ -8,10 +8,10 @@
 //!
 //! 1. **Four `Window`-textured slabs and a borrowed `curtain_wall`** on a solid
 //!    brick mass (#972 lesson 20). The generator masks its panes away, so each
-//!    was a frame with holes onto the brick behind it — and the office's
+//!    was a frame with holes onto the brick behind it - and the office's
 //!    glazing came from another kit's helper, which is a lit glass *box* behind
 //!    fins and cannot be a window anywhere.
-//! 2. **The doors were flat enamel panels.** No opening, no reveal, no room —
+//! 2. **The doors were flat enamel panels.** No opening, no reveal, no room -
 //!    so the one thing a motel elevation is *made* of had no depth at all.
 //! 3. **Nothing stood on anything.** The walkway posts were 0.6 m off the back
 //!    of the slab, the walkway roof oversailed it by 0.9, and the pylon's mast
@@ -92,7 +92,7 @@ const CANOPY_FRONT: f32 = WALK_FRONT - ROOF_OVER;
 /// The canopy laps onto the wall it is fixed to rather than meeting its face.
 const CANOPY_BACK: f32 = FRONT + 0.35;
 
-/// Canopy fascia — the biggest coloured surface on the prop, and what carries
+/// Canopy fascia - the biggest coloured surface on the prop, and what carries
 /// the strip's identity.
 const FASCIA_H: f32 = 0.42;
 const FASCIA_T: f32 = 0.14;
@@ -102,7 +102,7 @@ const FASCIA_T: f32 = 0.14;
 const GLAZE_Z: f32 = FRONT + WALL_T * 0.7;
 const ROOM_Z: f32 = FRONT + 2.3;
 const LEAF_Z: f32 = FRONT + WALL_T * 0.45;
-/// Centre plane of proud trim — door casings, room-number plaques, curtains.
+/// Centre plane of proud trim - door casings, room-number plaques, curtains.
 const TRIM_Z: f32 = FRONT - 0.05;
 /// How far a glazing card oversails its opening (#972 lesson 7).
 const GLAZE_LAP: f32 = 0.06;
@@ -129,7 +129,7 @@ const DOOR_SWING: f32 = 1.05;
 const POST_S: f32 = 0.17;
 const POST_Z: f32 = WALK_FRONT + 0.24;
 
-/// Brick length, in metres — a real brick, laid flat, in one course frame
+/// Brick length, in metres - a real brick, laid flat, in one course frame
 /// shared by every masonry surface on the prop (#972 lesson 2).
 const BRICK_LEN: f32 = 0.215;
 
@@ -137,7 +137,7 @@ const BRICK_LEN: f32 = 0.215;
 
 /// Warm lamplight in an occupied room.
 const ROOM_WARM: [f32; 3] = [0.72, 0.56, 0.34];
-/// Drawn curtain behind the glass — the one pale note in a lit room.
+/// Drawn curtain behind the glass - the one pale note in a lit room.
 const CURTAIN_PALE: [f32; 3] = [0.78, 0.74, 0.64];
 /// Paint on the parking bays and wheel stops.
 const LINE_PAINT: [f32; 3] = [0.86, 0.84, 0.74];
@@ -150,7 +150,7 @@ fn wall_mat(center: [f32; 3], face: FaceKey) -> SovereignMaterialSettings {
 }
 
 /// One brick slab of the shell. The centre is bound once and handed to the
-/// material *and* the transform — passing a bonding helper a different reading
+/// material *and* the transform - passing a bonding helper a different reading
 /// of "the middle of the wall" is the one way to defeat the frame guard
 /// silently (#972 lesson 18).
 fn wall(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
@@ -161,7 +161,7 @@ fn wall(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
     )
 }
 
-/// Board-formed concrete in the world frame — the lot's kerbs, the walkway,
+/// Board-formed concrete in the world frame - the lot's kerbs, the walkway,
 /// the pylon footing.
 fn slab_mat(center: [f32; 3], face: FaceKey) -> SovereignMaterialSettings {
     let mut m = concrete(CONCRETE_GREY);
@@ -194,7 +194,7 @@ fn glazing(size: [f32; 2], center: [f32; 3], panes: (u32, u32)) -> Generator {
     )
 }
 
-/// A lit surface inside a room — what a card's masked-away panes actually
+/// A lit surface inside a room - what a card's masked-away panes actually
 /// show. Kept below the sunlit brick around the opening, or the depth
 /// flattens.
 fn lit(size: [f32; 3], center: [f32; 3], color: [f32; 3], strength: f32) -> Generator {
@@ -205,7 +205,7 @@ fn lit(size: [f32; 3], center: [f32; 3], color: [f32; 3], strength: f32) -> Gene
     )
 }
 
-/// A painted enamel part — door leaf, casing, fascia, wheel stop.
+/// A painted enamel part - door leaf, casing, fascia, wheel stop.
 fn painted(size: [f32; 3], center: [f32; 3], color: [f32; 3]) -> Generator {
     prim(
         solid(cuboid_tapered(size, 0.0, enamel(color))),
@@ -265,7 +265,7 @@ impl CatalogueEntry for Motel {
 }
 
 /// The strip as a tree that stands the way it does: the lot at the bottom,
-/// and on it the three things that stand on it — the walkway with its posts and
+/// and on it the three things that stand on it - the walkway with its posts and
 /// machines, the room block on its own base course, and the pylon on its
 /// footing. Each of those is a **sub-root that is the surface**, which is the
 /// guard shape that found all three of the shipped build's overhangs (#972
@@ -288,7 +288,7 @@ fn build_tree() -> Generator {
 }
 
 /// Painted bays and wheel stops, both ends of every line derived from the lot's
-/// own extent — the shipped build put its furniture at round numbers measured
+/// own extent - the shipped build put its furniture at round numbers measured
 /// off the building and hung it over the edge.
 fn parking() -> Vec<Generator> {
     let z0 = WALK_FRONT - 0.3;
@@ -345,7 +345,7 @@ fn walkway() -> Generator {
     }
     // Ice and vending, each standing against a **pier** rather than against
     // the office. The first rebuild put both outside the office door, where
-    // they hid the one bay whose glazing is the point of the bay — the same
+    // they hid the one bay whose glazing is the point of the bay - the same
     // shape as #972 lesson 9, arrived at from outside the glass.
     let pier = |a: f32, b: f32| (a + b) * 0.5;
     parts.push(painted(
@@ -374,7 +374,7 @@ fn walkway() -> Generator {
 
 // --- The room block. -------------------------------------------------------
 
-/// The brick base course — the block's sub-root, standing 60 mm **proud** of
+/// The brick base course - the block's sub-root, standing 60 mm **proud** of
 /// the wall above it. Flush is a coplanar seam running the whole perimeter on
 /// the most looked-at part of the building, and it is invisible in a still.
 fn block() -> Generator {
@@ -395,7 +395,7 @@ fn block() -> Generator {
         [0.0, (FRONT + BACK) * 0.5],
         10.0,
     ));
-    // Back and flank walls — only the road elevation is cut.
+    // Back and flank walls - only the road elevation is cut.
     parts.push(wall(
         [BLOCK_W, WALL_H, WALL_T],
         [0.0, FLOOR + WALL_H * 0.5, BACK - WALL_T * 0.5],
@@ -426,7 +426,7 @@ fn block() -> Generator {
 /// The service side: a staff door with its own step, bathroom vents over each
 /// room, and a downpipe at each end.
 ///
-/// A motel's back genuinely has no windows, which is the trap — the answer to
+/// A motel's back genuinely has no windows, which is the trap - the answer to
 /// "nothing happens here" is not a fifteen-metre blank slab, it is the plant
 /// that really is there. Every standoff is derived from the wall's **own** face
 /// rather than picked by eye (#972 lesson 11), and the door's step stands on
@@ -632,7 +632,7 @@ fn open_leaf(dx: f32) -> Generator {
     )
 }
 
-/// A painted part carrying a yaw — only the swung leaf, and it is a **leaf
+/// A painted part carrying a yaw - only the swung leaf, and it is a **leaf
 /// node**: a turned parent spins its children's offsets out of the record and
 /// out of every translation-only guard at once (#972 lesson 22).
 fn painted_turned(
@@ -645,7 +645,7 @@ fn painted_turned(
 }
 
 /// The office bay: a wider light over a lit reception, its own glazed door, and
-/// a key rack on the back wall — the bay needs its own thing to look at, not
+/// a key rack on the back wall - the bay needs its own thing to look at, not
 /// the room fit-out shifted sideways (#972 lesson 9).
 fn office(bx: f32, parts: &mut Vec<Generator>) {
     let (dx, wx) = (bx - 0.9, bx + 0.55);
@@ -880,7 +880,7 @@ mod tests {
         }
     }
 
-    /// The sub-root of the lot's `n`th sub-assembly, with its world position —
+    /// The sub-root of the lot's `n`th sub-assembly, with its world position -
     /// the shape every footprint guard below leans on (#972 lesson 19).
     fn sub_root(root: &Generator, pick: &dyn Fn(&Generator) -> bool) -> (Generator, [f32; 3]) {
         let base = root.transform.translation.0;
@@ -921,7 +921,7 @@ mod tests {
         );
     }
 
-    /// #972 lesson 1: every pane is a card on a flat quad at `uv_scale` 1.0 —
+    /// #972 lesson 1: every pane is a card on a flat quad at `uv_scale` 1.0 -
     /// four room windows, the office light and the office door's glazed panel.
     #[test]
     fn every_opening_is_a_card_on_a_quad() {
@@ -1040,7 +1040,7 @@ mod tests {
         });
         assert!(
             checked >= 12,
-            "only {checked} clad surfaces found — suspect the selector before the content"
+            "only {checked} clad surfaces found - suspect the selector before the content"
         );
     }
 
@@ -1152,7 +1152,7 @@ mod tests {
         assert!(
             ends.iter()
                 .any(|e| (e[0] - hinge[0]).abs() < 0.02 && (e[1] - hinge[1]).abs() < 0.02),
-            "motel: the leaf's ends are at {ends:?}, neither on the hinge at {hinge:?} — \
+            "motel: the leaf's ends are at {ends:?}, neither on the hinge at {hinge:?} - \
              the door is hung on nothing"
         );
         let free = ends
@@ -1161,7 +1161,7 @@ mod tests {
             .unwrap();
         assert!(
             free[1] < FRONT - 0.4,
-            "motel: the leaf's free edge at z {} is still on the wall — a shut door is a \
+            "motel: the leaf's free edge at z {} is still on the wall - a shut door is a \
              darker rectangle, not a way in",
             free[1]
         );

@@ -1,4 +1,4 @@
-//! Dumpster — a Modern-City prop. A steel waste container with slanted
+//! Dumpster - a Modern-City prop. A steel waste container with slanted
 //! plastic lids and small caster wheels, parked in the alley behind the
 //! buildings.
 
@@ -44,7 +44,7 @@ impl CatalogueEntry for Dumpster {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Body — the root, slightly battered with a sloped (tapered) profile.
+        // Body - the root, slightly battered with a sloped (tapered) profile.
         prim(
             solid(cuboid_tapered(
                 [2.4, 1.4, 1.5],

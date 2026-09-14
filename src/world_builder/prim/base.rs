@@ -26,7 +26,7 @@ pub(super) fn orient_to_normals(pos: &[[f32; 3]], nor: &[[f32; 3]], idx: &mut [u
 }
 
 /// Assemble a CPU mesh from raw attribute buffers, fixing winding against the
-/// normals and generating tangents — the shared tail of the hand-built tube /
+/// normals and generating tangents - the shared tail of the hand-built tube /
 /// bevel builders.
 ///
 /// `spans` is the face identity accumulated as the caller appended its
@@ -55,8 +55,8 @@ pub(super) fn mesh_from_parts(
 }
 
 /// Split every triangle into four (edge midpoints), `levels` times, lerping
-/// positions / normals / UVs. Purely flat refinement — face shapes and
-/// shading are unchanged — used to give the low-poly prims (Wedge /
+/// positions / normals / UVs. Purely flat refinement - face shapes and
+/// shading are unchanged - used to give the low-poly prims (Wedge /
 /// Tetrahedron) the interior vertices the nonlinear vertex deforms (twist /
 /// bend / bulge) need to show at all. Vertices are duplicated per triangle;
 /// at the 1-2k-triangle scale these prims reach, sharing isn't worth the

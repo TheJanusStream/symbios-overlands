@@ -1,6 +1,6 @@
 //! The Body tab: the rigged engine body in overlands chrome (#1059).
 //!
-//! Every axis widget here is the sibling crate's own — the public sections
+//! Every axis widget here is the sibling crate's own - the public sections
 //! `bevy_symbios_avatar::editor` exposes (upstream #231), hosted inside this
 //! window's theme, undo ring and debounce instead of the viewer's
 //! `SidePanel`. That is the one-source-of-truth contract: a new engine axis
@@ -9,7 +9,7 @@
 //!
 //! The tab has three shapes:
 //!
-//!   - a **generator body**: one affordance — wear a rigged body. Wearing
+//!   - a **generator body**: one affordance - wear a rigged body. Wearing
 //!     mints a fresh wardrobe rkey and resolves the DID-seeded engine
 //!     default locally; nothing touches the PDS until Save publishes the
 //!     bundle. The classic chassis stays reachable through the footer's
@@ -17,12 +17,12 @@
 //!   - a **rigged body, unresolved** (offline fetch, deleted reference):
 //!     say so, and offer a fresh body.
 //!   - a **rigged body, resolved**: the engine sections, the derived
-//!     readout, and the wardrobe — every body this identity has published,
+//!     readout, and the wardrobe - every body this identity has published,
 //!     wearable with a click, plus save-as-copy for branching a look.
 //!
 //! Archetype exposure: the engine identity section carries the
 //! humanoid/quadruped toggle, and both build, animate and dress end to end
-//! (#1057/#1058 run on the rig, not on an anatomy) — so quadrupeds are
+//! (#1057/#1058 run on the rig, not on an anatomy) - so quadrupeds are
 //! deliberately NOT hidden here.
 
 use bevy::prelude::Commands;
@@ -35,7 +35,7 @@ use crate::pds::avatar::wardrobe::{EngineAvatarRecord, wear_new_engine_body};
 
 /// The Body tab, wired to the editor (#1161).
 ///
-/// [`draw_body_tab`] below is the drawing half — it reports what the owner
+/// [`draw_body_tab`] below is the drawing half - it reports what the owner
 /// did through a [`BodyTabOutcome`] and touches nothing else. This is the
 /// half that acts on it: the undo label, the toast, the change flag and the
 /// wardrobe refresh, which is a `Commands` spawn and so cannot live inside
@@ -88,7 +88,7 @@ pub(super) struct BodyTabOutcome {
 /// The standing "your body could not be built" banner (#1255).
 ///
 /// Same frame idiom as the record-recovery banner one level up in
-/// `avatar::mod` — a `danger_surface` fill with its paired text colour, so
+/// `avatar::mod` - a `danger_surface` fill with its paired text colour, so
 /// the severity survives the high-contrast palette and does not depend on
 /// hue alone. The engine returns a bare `None` with no reason value, so the
 /// copy names the one documented cause rather than inventing a diagnosis it
@@ -107,7 +107,7 @@ fn build_failed_banner(ui: &mut egui::Ui) {
             ui.label(
                 egui::RichText::new(
                     "Limbs overlapping at a joint is the usual cause. Press Ctrl+Z, or move \
-                     the shape sliders back — the body rebuilds as soon as the numbers work.",
+                     the shape sliders back - the body rebuilds as soon as the numbers work.",
                 )
                 .small(),
             );
@@ -117,7 +117,7 @@ fn build_failed_banner(ui: &mut egui::Ui) {
 
 /// The name a branched wardrobe entry gets (#1201): the parent's name with
 /// " copy", numbered past the first, and never one the wardrobe already
-/// lists — a wardrobe of identically-named rows is unusable, and an empty
+/// lists - a wardrobe of identically-named rows is unusable, and an empty
 /// name would publish as the "Wanderer" fallback beside its parent.
 pub(super) fn copy_name(parent: &str, is_taken: impl Fn(&str) -> bool) -> String {
     let base = parent.trim();
@@ -143,8 +143,8 @@ pub(super) struct WardrobeListing {
     /// Whether a fetch is in flight, for the button's spinner text.
     pub fetching: bool,
     /// Why the last fetch failed, if it did (#1141). Without this a
-    /// failed walk cleared the spinner and left `entries` at `None` —
-    /// the same state as never having fetched — so a PDS or auth error
+    /// failed walk cleared the spinner and left `entries` at `None` -
+    /// the same state as never having fetched - so a PDS or auth error
     /// rendered as the neutral "Refresh to list…" hint and looked to the
     /// owner like they had simply not clicked yet.
     pub error: Option<String>,
@@ -164,7 +164,7 @@ pub(super) struct WardrobeListing {
 /// branch inside the draw closure was not.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum WardrobeStatus {
-    /// A fetch is in flight — the Refresh button already says so.
+    /// A fetch is in flight - the Refresh button already says so.
     Fetching,
     /// The last fetch failed, with the reason.
     Failed(String),
@@ -182,12 +182,12 @@ impl WardrobeStatus {
     pub(super) fn message(&self) -> Option<String> {
         match self {
             Self::Fetching | Self::Listed => None,
-            Self::Failed(reason) => Some(format!("Couldn't load your wardrobe — {reason}")),
+            Self::Failed(reason) => Some(format!("Couldn't load your wardrobe - {reason}")),
             Self::Untried => Some(String::from(
                 "Refresh to list the bodies saved to your wardrobe.",
             )),
             Self::Empty => Some(String::from(
-                "No bodies in the wardrobe yet — saving stores this one.",
+                "No bodies in the wardrobe yet - saving stores this one.",
             )),
         }
     }
@@ -219,7 +219,7 @@ impl WardrobeListing {
 /// `build_failed` is the standing state of the owner's own body: the last
 /// build the engine ran for this record produced nothing (#1255). It is
 /// drawn here, above the sliders, because the sliders are what caused it and
-/// are the only way out — the toast that fires at the moment of failure has
+/// are the only way out - the toast that fires at the moment of failure has
 /// expired long before an owner works out which axis to move.
 pub(super) fn draw_body_tab(
     ui: &mut egui::Ui,
@@ -235,7 +235,7 @@ pub(super) fn draw_body_tab(
 
     let Some(rig) = record.body.rigged_ref() else {
         ui.label(
-            "This avatar has a construction-kit body — the classic one, built \
+            "This avatar has a construction-kit body - the classic one, built \
              body. A rigged body is the parametric skinned kind: sculpted by \
              sliders, animated procedurally, dressable at sockets.",
         );
@@ -249,13 +249,13 @@ pub(super) fn draw_body_tab(
                     outcome.label = Some(String::from("wear rigged body"));
                 }
                 ui.small(
-                    "Rolled from your identity — re-roll, sculpt and dress it \
+                    "Rolled from your identity - re-roll, sculpt and dress it \
                      from here. Saving stores it in your wardrobe; the \
                      footer's Reset returns to a construction-kit body.",
                 );
             }
             None => {
-                ui.small("Log in to wear a rigged body — it lives in your wardrobe.");
+                ui.small("Log in to wear a rigged body - it lives in your wardrobe.");
             }
         }
         return outcome;
@@ -264,7 +264,7 @@ pub(super) fn draw_body_tab(
     if rig.resolved.is_none() {
         ui.label(
             "This avatar wears a rigged body whose wardrobe record could not \
-             be resolved — it may have been deleted, or the fetch failed.",
+             be resolved - it may have been deleted, or the fetch failed.",
         );
         if let Some(did) = did {
             let worn = rig.attachments.len();
@@ -275,16 +275,16 @@ pub(super) fn draw_body_tab(
                 outcome.label = Some(String::from("wear rigged body"));
             }
             // Says what the swap keeps (#1201): the button used to read as
-            // "start over", and it once did — dropping the reference list
+            // "start over", and it once did - dropping the reference list
             // and, at the next Save, every worn prop's record.
             ui.small(match worn {
                 0 => String::from("A fresh DID-seeded body. Nothing is worn, so nothing is lost."),
                 1 => String::from(
-                    "A fresh DID-seeded body under your outfit — the 1 prop you wear \
+                    "A fresh DID-seeded body under your outfit - the 1 prop you wear \
                      stays referenced and returns when its record loads.",
                 ),
                 n => format!(
-                    "A fresh DID-seeded body under your outfit — the {n} props you wear \
+                    "A fresh DID-seeded body under your outfit - the {n} props you wear \
                      stay referenced and return when their records load."
                 ),
             });
@@ -310,13 +310,13 @@ pub(super) fn draw_body_tab(
 
             // #1256 f107: the engine's `identity` section carries its own
             // `seed` DragValue with ◀/▶ arrows and its own `locked`
-            // category row — stature/build/frame/… — while the window
+            // category row - stature/build/frame/… - while the window
             // hosting it has a "Whole-avatar seed" block eight rows above
             // with Chassis/Style/Ornateness/Wear locks. Same word, same
             // window, two scopes, and one of them replaces the entire
             // record. The host cannot rename an upstream widget, but it can
             // say which seed this is before drawing it.
-            ui.label(egui::RichText::new("Body seed — sculpting only").strong());
+            ui.label(egui::RichText::new("Body seed - sculpting only").strong());
             ui.small(
                 "Rolls this body's proportions and colouring. The whole-avatar seed above \
                  replaces the entire avatar, including which kind of body it is.",
@@ -348,7 +348,7 @@ pub(super) fn draw_body_tab(
                 };
                 // Fill the list the first time the section is opened
                 // (#1141). This closure only runs while the header is
-                // expanded, so nothing is fetched until someone looks —
+                // expanded, so nothing is fetched until someone looks -
                 // and `attempted` latches, so a fetch that fails is not
                 // retried in a loop; the Refresh button is the retry.
                 if !listing.attempted && !listing.fetching && listing.entries.is_none() {
@@ -367,7 +367,7 @@ pub(super) fn draw_body_tab(
                     {
                         outcome.wants_wardrobe_refresh = true;
                     }
-                    // Branch the current look: a NEW rkey, same body — the next
+                    // Branch the current look: a NEW rkey, same body - the next
                     // save publishes it as its own wardrobe entry and the old
                     // record stays untouched for whatever else wears it.
                     if ui
@@ -402,7 +402,7 @@ pub(super) fn draw_body_tab(
                             })
                             .unwrap_or_default();
                         outcome.toast = Some(format!(
-                            "Branched to a new wardrobe entry \"{name}\" — Save to store it."
+                            "Branched to a new wardrobe entry \"{name}\" - Save to store it."
                         ));
                         outcome.changed = true;
                         outcome.label = Some(String::from("save body as copy"));
@@ -465,7 +465,7 @@ pub(super) fn draw_body_tab(
     outcome
 }
 
-/// Swap the worn body in a resolved rig, keeping the worn attachments — an
+/// Swap the worn body in a resolved rig, keeping the worn attachments - an
 /// outfit belongs to the avatar record, not to the body it happens to dress.
 fn resolved_replace(rig: &mut crate::pds::avatar::RiggedBody, body: EngineAvatarRecord) {
     match rig.resolved.as_mut() {
@@ -492,7 +492,7 @@ mod tests {
     ///
     /// Sequence from the finding: the PDS wardrobe walk fails during
     /// Loading (expired token, a 5xx, a DNS blip). Before this the Err
-    /// arm was a `warn!` and nothing else — the spinner cleared,
+    /// arm was a `warn!` and nothing else - the spinner cleared,
     /// `entries` stayed `None`, and the tab re-showed "Refresh to list…",
     /// which is exactly what a pristine session shows. Clicking Refresh
     /// again produced the same silent nothing, so the owner had no way to
@@ -536,7 +536,7 @@ mod tests {
     ///
     /// The rows are still the last thing the PDS confirmed, so throwing
     /// them away on a transient failure would lose more than it explains
-    /// — but leaving them unannotated would present stale rows as
+    /// - but leaving them unannotated would present stale rows as
     /// current.
     #[test]
     fn a_failure_over_a_loaded_list_outranks_the_rows() {
@@ -546,7 +546,7 @@ mod tests {
             EngineAvatarRecord::default(),
         )]);
         stale.attempted = true;
-        stale.error = Some(String::from("network — timed out"));
+        stale.error = Some(String::from("network - timed out"));
         assert!(matches!(stale.status(), WardrobeStatus::Failed(_)));
         assert!(
             stale.entries.is_some(),
@@ -574,7 +574,7 @@ mod tests {
         assert_eq!(empty.status(), WardrobeStatus::Empty);
         assert_eq!(
             empty.status().message().as_deref(),
-            Some("No bodies in the wardrobe yet — saving stores this one.")
+            Some("No bodies in the wardrobe yet - saving stores this one.")
         );
     }
 

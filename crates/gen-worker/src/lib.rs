@@ -6,7 +6,7 @@
 //! registers it as the worker entry point. Everything is `wasm32`-gated so the
 //! crate is an empty rlib on native (the app depends on it only on wasm).
 //!
-//! Messages use the `MsgpackCodec` (NOT gloo's default Bincode) — see that
+//! Messages use the `MsgpackCodec` (NOT gloo's default Bincode) - see that
 //! type for why. `GenJob`/`GenResult` are `Serialize`/`Deserialize`.
 
 #[cfg(target_arch = "wasm32")]
@@ -22,7 +22,7 @@ pub async fn GenWorker(job: gen_jobs::GenJob) -> gen_jobs::GenResult {
 }
 
 /// MessagePack worker-message codec. gloo-worker's default `Bincode` is **not**
-/// self-describing, so it cannot `deserialize_any` — which the audio cores'
+/// self-describing, so it cannot `deserialize_any` - which the audio cores'
 /// internally-tagged `#[serde(tag = "...")]` enums (in `AudioPatch`'s node
 /// graph) require, panicking the worker with `DeserializeAnyNotSupported`.
 /// MessagePack is self-describing AND binary-compact (JSON would bloat the

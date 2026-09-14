@@ -1,4 +1,4 @@
-//! Barn — the Rural/Farmland landmark. The classic red barn: vertical
+//! Barn - the Rural/Farmland landmark. The classic red barn: vertical
 //! board-and-batten on a fieldstone foundation under a true gambrel roof,
 //! presenting its gable end and its big sliding doors to the approach, one
 //! leaf rolled open on a lit hay floor, with a hayloft door and hoist beam in
@@ -12,18 +12,18 @@
 //!    uniformly-tapered blocks, which is a *hip*: tapering a cuboid pinches
 //!    it on both axes at once, so the barn's celebrated end profile was
 //!    quietly rounded away on all four sides and the hayloft door opened onto
-//!    a slope. It is now four real roof planes — steep skirt, shallow upper
-//!    pitch — over trapezoidal gable panels clad in the same boarding as the
+//!    a slope. It is now four real roof planes - steep skirt, shallow upper
+//!    pitch - over trapezoidal gable panels clad in the same boarding as the
 //!    walls, which is what makes the silhouette read as a barn from a
 //!    distance at which nothing else about it does.
 //! 2. **The boards stand up.** The `Plank` generator lays courses up V, so
-//!    the kit's barn board came out as horizontal lap siding — a farmhouse
+//!    the kit's barn board came out as horizontal lap siding - a farmhouse
 //!    material on a barn. [`util::bonded_boards`] turns it through the one
 //!    quarter turn the pattern survives (see that function for why), and the
 //!    barn finally wears board-and-batten.
 //! 3. **The doors open on something.** A closed barn is a red box with a big
 //!    flat panel on it, and the two lit windows beside it were `Window` cards
-//!    stuck to a solid wall — frames with holes onto the boarding behind.
+//!    stuck to a solid wall - frames with holes onto the boarding behind.
 //!    Rolling one leaf back onto its pier buys four metres of real depth and
 //!    makes the hay floor, the mow wall and the hanging lantern the point of
 //!    the prop.
@@ -56,11 +56,11 @@ const FOOT_H: f32 = 0.55;
 const WALL_H: f32 = 5.4;
 /// Wall thickness, and so the depth of every reveal.
 const WALL_T: f32 = 0.3;
-/// Top of the boarded wall — the eaves line, and the datum the gambrel
+/// Top of the boarded wall - the eaves line, and the datum the gambrel
 /// profile below is measured from.
 const WALL_TOP: f32 = FOOT_H + WALL_H;
 
-/// Outer face of the gable the barn presents — the `-Z` hero direction the
+/// Outer face of the gable the barn presents - the `-Z` hero direction the
 /// render tool and the settlement placer both look down.
 const FRONT: f32 = -D * 0.5;
 /// Centre of a wall slab whose outer face lies on [`FRONT`].
@@ -75,7 +75,7 @@ const TRIM_Z: f32 = FRONT - 0.05;
 
 // --- The gambrel profile, in (x, y-above-[`WALL_TOP`]) pairs. --------------
 
-/// Half-width at the eaves — the wall's own corner, so the skirt lands on it.
+/// Half-width at the eaves - the wall's own corner, so the skirt lands on it.
 const EAVE_X: f32 = W * 0.5;
 /// Where the steep lower skirt breaks into the shallow upper pitch.
 const KNUCKLE_X: f32 = 4.0;
@@ -89,7 +89,7 @@ const APEX_TAPER: f32 = 0.99;
 /// How far the roof planes oversail the eaves and the gables.
 const EAVE_OVER: f32 = 0.55;
 const RAKE_OVER: f32 = 0.5;
-/// Roof slab thickness — real enough to show a shadow under the eave.
+/// Roof slab thickness - real enough to show a shadow under the eave.
 const ROOF_T: f32 = 0.26;
 
 /// Where the lower skirt's outer edge actually lands, as `(x, y above
@@ -97,7 +97,7 @@ const ROOF_T: f32 = 0.26;
 ///
 /// The skirt runs on past the wall corner at its own pitch by [`EAVE_OVER`],
 /// so the eave's position is a *consequence* of the gambrel profile. Every
-/// part that hangs off it — the fascia, the barge board's outer end — derives
+/// part that hangs off it - the fascia, the barge board's outer end - derives
 /// from here rather than from a hand-picked pair, which is the same discipline
 /// #972 lesson 11 arrived at from the other direction: a mounted part's
 /// standoff comes from its host, never from the eye.
@@ -132,7 +132,7 @@ const LOFT_SILL: f32 = 0.25;
 // --- Palette local to this entry. ------------------------------------------
 
 /// The doors are painted a shade deeper than the walls, as they are on a
-/// real barn — same paint, more coats, more weather.
+/// real barn - same paint, more coats, more weather.
 const DOOR_RED: [f32; 3] = [0.42, 0.10, 0.08];
 /// The unlit interior lining: dark, warm, and darker than the sunlit boarding
 /// around the opening, or the depth the open door exists to show flattens.
@@ -141,7 +141,7 @@ const MOW_DARK: [f32; 3] = [0.20, 0.15, 0.11];
 // --- Shared construction. --------------------------------------------------
 
 /// The barn's board-and-batten, stood upright and laid in the shared world
-/// frame — see [`util::bonded_boards`].
+/// frame - see [`util::bonded_boards`].
 fn boards(color: [f32; 3], center: [f32; 3], face: FaceKey) -> SovereignMaterialSettings {
     util::bonded_boards(barn_board(color), face, center)
 }
@@ -156,7 +156,7 @@ fn board_wall(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
     )
 }
 
-/// A proud painted trim board — corner boards, casings, battens, barge
+/// A proud painted trim board - corner boards, casings, battens, barge
 /// boards. Always oversized against what it laps and always standing off the
 /// surface it laps, so it never shares a plane with its host.
 fn trim(size: [f32; 3], center: [f32; 3]) -> Generator {
@@ -184,7 +184,7 @@ fn trim_facing(
     )
 }
 
-/// How far a glazing card oversails its opening on every edge — the coplanar
+/// How far a glazing card oversails its opening on every edge - the coplanar
 /// rule applied to a card (#972 lesson 7).
 const GLAZE_LAP: f32 = 0.06;
 
@@ -218,7 +218,7 @@ fn side_glazing(size: [f32; 2], center: [f32; 3], sx: f32) -> Generator {
     )
 }
 
-/// A room panel behind an opening — the surface a card's masked-away panes
+/// A room panel behind an opening - the surface a card's masked-away panes
 /// actually show. Nothing lights the inside of an enclosed prop, so these
 /// carry a low self-lit term of their own.
 fn room(size: [f32; 3], center: [f32; 3], lit: bool) -> Generator {
@@ -296,14 +296,14 @@ fn build_tree() -> Generator {
 // --- The shell. ------------------------------------------------------------
 
 /// Threshing floor, and on it everything the barn is: the walls that frame
-/// the openings, the glazing, the fit-out behind it, the doors, and — on the
-/// eaves line — the roof.
+/// the openings, the glazing, the fit-out behind it, the doors, and - on the
+/// eaves line - the roof.
 fn shell() -> Generator {
     let mut parts = Vec::new();
     let mid_y = FOOT_H + WALL_H * 0.5;
     let inner_d = D - WALL_T * 2.0;
 
-    // Back gable wall — solid; only the approach face is cut.
+    // Back gable wall - solid; only the approach face is cut.
     parts.push(board_wall(
         [W, WALL_H, WALL_T],
         [0.0, mid_y, D * 0.5 - WALL_T * 0.5],
@@ -394,7 +394,7 @@ fn side_walls(parts: &mut Vec<Generator>) {
 /// flanking windows.
 ///
 /// Left to right the wall is an outer pier, a window bay (sill band under,
-/// head band over), an inner pier, the doorway, and the mirror of all of it —
+/// head band over), an inner pier, the doorway, and the mirror of all of it -
 /// plus the head band that carries the wall over the doors.
 fn gable_elevation(parts: &mut Vec<Generator>) {
     let door_x = DOOR_W * 0.5;
@@ -468,7 +468,7 @@ fn gable_elevation(parts: &mut Vec<Generator>) {
 /// light nobody sees.
 fn fit_out(parts: &mut Vec<Generator>) {
     let mow_z = FRONT + 4.4;
-    // Mow wall — the surface the doorway actually frames.
+    // Mow wall - the surface the doorway actually frames.
     parts.push(prim(
         cuboid_tapered(
             [W - 1.4, WALL_H - 0.4, 0.2],
@@ -544,7 +544,7 @@ fn sliding_doors(parts: &mut Vec<Generator>) {
     let leaf_z = TRIM_Z - 0.24;
     let open_cx = -(DOOR_W * 0.5 + leaf_w * 0.5 + 0.03);
     // Track rail, spanning exactly the doorway plus the run the open leaf
-    // parks on — derived from both, so it can neither fall short of the
+    // parks on - derived from both, so it can neither fall short of the
     // parked leaf nor run on across the window beside it.
     let (ra, rb) = (open_cx - leaf_w * 0.5 - 0.25, DOOR_W * 0.5 + 0.25);
     parts.push(trim(
@@ -738,7 +738,7 @@ fn roof() -> Generator {
 fn hayloft(parts: &mut Vec<Generator>) {
     // In the *lower* gable, not the upper one. The upper panel pinches to a
     // point, so a 1.9 m door placed there is wider than the wall it hangs on
-    // by the time it reaches its own head — a fault the four-angle sheet
+    // by the time it reaches its own head - a fault the four-angle sheet
     // shows only as a stray white edge against the sky, and the guard below
     // now states as an invariant.
     let cy = WALL_TOP + LOFT_SILL + LOFT_H * 0.5;
@@ -792,7 +792,7 @@ fn cupola() -> Generator {
     let y = WALL_TOP + RIDGE_Y + 0.19;
     let mut parts = Vec::new();
     // Louvres on the two faces the approach sees, as slats rather than as a
-    // painted stripe — a cupola is a vent, and it should read as one.
+    // painted stripe - a cupola is a vent, and it should read as one.
     for sz in [-1.0_f32, 1.0] {
         for i in 0..4 {
             parts.push(prim(
@@ -888,7 +888,7 @@ mod tests {
     /// *and* stood upright, and the offset is turned with it. Miss the
     /// rotation on the offset and every slab still gets vertical boards, but
     /// each one starts them at its own centre and the joints step at every
-    /// wall break — which a contact sheet will not show.
+    /// wall break - which a contact sheet will not show.
     #[test]
     fn boarding_is_upright_and_shares_one_frame() {
         use crate::pds::generator::FaceKey;
@@ -944,7 +944,7 @@ mod tests {
     /// The gambrel is a gambrel: two distinct pitches, the upper shallower
     /// than the lower, both steeper than a shed and neither of them a hip.
     ///
-    /// A uniformly-tapered block has no pitch to measure at all — which is
+    /// A uniformly-tapered block has no pitch to measure at all - which is
     /// exactly why the old roof passed for a barn in a thumbnail and read as
     /// a hipped shed the moment anything looked at its end.
     #[test]
@@ -1030,7 +1030,7 @@ mod tests {
 
     /// #972 lesson 11, upward: the hayloft door hangs on a panel wide enough
     /// to hold it at *every* height it reaches. A gable pinches, so a door
-    /// sized against the panel's base sails straight out through its rake —
+    /// sized against the panel's base sails straight out through its rake -
     /// which the original placement did, in the upper panel, where the wall
     /// is 0.42 m wide at the door's own head.
     #[test]

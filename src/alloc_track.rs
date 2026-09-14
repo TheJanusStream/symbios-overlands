@@ -1,22 +1,22 @@
-//! Wasm tracking allocator (#811) — live-bytes-by-size-class accounting and a
+//! Wasm tracking allocator (#811) - live-bytes-by-size-class accounting and a
 //! giant-allocation fingerprint ring.
 //!
 //! The OOM investigation exhausted gauge correlation: the runaway phases
 //! allocate ~0.5 GB/s in near-geometric steps while every world/render/asset
-//! gauge sits flat — the signature of one collection doubling its capacity,
+//! gauge sits flat - the signature of one collection doubling its capacity,
 //! not per-frame churn. This wraps the system allocator (dlmalloc on wasm)
 //! and answers the two questions correlation can't (items live in the
 //! wasm-gated `wasm` submodule):
 //!
-//! * **shape** — live bytes per size class (`wasm::snapshot`): a runaway in
+//! * **shape** - live bytes per size class (`wasm::snapshot`): a runaway in
 //!   the `giant` (≥ 16 MiB) class is one huge buffer; a runaway in `small` is
 //!   a million-object leak;
-//! * **identity** — every allocation ≥ `wasm::GIANT_BYTES` records its exact
+//! * **identity** - every allocation ≥ `wasm::GIANT_BYTES` records its exact
 //!   size into a ring (`wasm::giant_sizes_since`); a request for, say,
 //!   768 MiB is a fingerprint that identifies its collection (and a ×2 size
 //!   sequence is a `Vec` doubling caught red-handed).
 //!
-//! Counting is a few `Relaxed` atomic ops per alloc/dealloc — wasm is
+//! Counting is a few `Relaxed` atomic ops per alloc/dealloc - wasm is
 //! single-threaded, so these compile to plain memory ops; the allocator
 //! itself never allocates. Native builds keep the default allocator (real
 //! profilers exist there); everything here is wasm-gated.
@@ -69,11 +69,11 @@ pub mod wasm {
         class(bytes).fetch_sub(bytes as u64, Relaxed);
     }
 
-    /// [`GlobalAlloc`] wrapper over the system allocator — see module docs.
+    /// [`GlobalAlloc`] wrapper over the system allocator - see module docs.
     pub struct TrackingAlloc;
 
     // SAFETY: delegates every operation verbatim to `System` and touches only
-    // static atomics on the side — no allocation, no reentrancy, no locks.
+    // static atomics on the side - no allocation, no reentrancy, no locks.
     unsafe impl GlobalAlloc for TrackingAlloc {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
             let p = unsafe { System.alloc(layout) };
@@ -122,7 +122,7 @@ pub mod wasm {
     }
 
     /// The sizes of giant allocations numbered `since..giant_total()`
-    /// (oldest first), clamped to the last [`RING`] — the caller tracks
+    /// (oldest first), clamped to the last [`RING`] - the caller tracks
     /// `since` across scrapes and logs each new fingerprint once.
     pub fn giant_sizes_since(since: u64) -> Vec<u64> {
         let total = GIANT_TOTAL.load(Relaxed);
@@ -140,7 +140,7 @@ static GLOBAL_TRACKING_ALLOC: wasm::TrackingAlloc = wasm::TrackingAlloc;
 /// Native attribution tracer (`--features alloc-trace`, #811): the wasm
 /// tracker measured a per-frame ~16–27 MiB exact-fit allocation churn
 /// (~70 MB/s transient) that ratchets the never-shrinking wasm heap via
-/// fragmentation — but wasm can't produce a callstack. The same code runs
+/// fragmentation - but wasm can't produce a callstack. The same code runs
 /// natively, so this feature wraps the native allocator and prints a
 /// backtrace for every giant allocation: one minute of play names the
 /// collection. Prints the first [`native::FULL_REPORTS`] with full stacks,

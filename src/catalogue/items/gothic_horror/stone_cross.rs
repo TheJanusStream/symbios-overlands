@@ -1,4 +1,4 @@
-//! Stone cross — a Gothic-Horror prop. A weathered ringed cross on a stepped
+//! Stone cross - a Gothic-Horror prop. A weathered ringed cross on a stepped
 //! base, lichened with age. Scatter clutter marking the graves.
 
 use std::f32::consts::FRAC_PI_2;
@@ -48,7 +48,7 @@ impl CatalogueEntry for StoneCross {
 fn build_tree() -> Generator {
     let ms = || mossy(STONE_MOSS);
     let mut prims = vec![
-        // Lowest Calvary step — the root.
+        // Lowest Calvary step - the root.
         prim(
             solid(cuboid_tapered([1.5, 0.32, 1.5], 0.05, ms())),
             [0.0, 0.16, 0.0],

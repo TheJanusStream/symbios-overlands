@@ -28,7 +28,7 @@ fn sample_sign(source: SignSource, alpha_mode: AlphaModeKind) -> Generator {
 #[test]
 fn sign_without_filter_field_defaults_to_linear() {
     // Build the wire form of a pre-#663 record: serialize a current Sign
-    // and strip the new key — everything else (including the full
+    // and strip the new key - everything else (including the full
     // `material` object every legacy record carries) stays authentic.
     let g = sample_sign(
         SignSource::Url {
@@ -114,7 +114,7 @@ fn sign_with_did_pfp_source_round_trips() {
 fn unknown_sign_source_decodes_to_unknown() {
     // Synthesise a Sign whose `source` carries a future variant tag.
     // The decoder must surface it as `SignSource::Unknown` rather than
-    // failing the whole generator decode — otherwise a record authored
+    // failing the whole generator decode - otherwise a record authored
     // by a forward-compat client would render as an opaque error block.
     let json = r#"{
         "$type": "network.symbios.gen.sign",
@@ -265,7 +265,7 @@ fn folding_the_legacy_uv_window_is_idempotent() {
 
 /// A record written after the unification has no `uv_repeat` key at all.
 /// Its serde default is the identity, so the fold is a no-op rather than a
-/// scale of zero — the failure mode that would blank every new sign.
+/// scale of zero - the failure mode that would blank every new sign.
 #[test]
 fn a_sign_without_the_legacy_keys_is_untouched_by_the_fold() {
     let json = serde_json::json!({
@@ -417,7 +417,7 @@ fn sign_kind_tag_is_unique() {
 #[test]
 fn default_sign_round_trips() {
     // The UI's "+ Sign" entry constructs `default_sign`. It must be a
-    // valid record on its own — sanitise leaves it unchanged and JSON
+    // valid record on its own - sanitise leaves it unchanged and JSON
     // round-trip preserves shape.
     let g = Generator::from_kind(GeneratorKind::default_sign());
     let json = serde_json::to_string(&g).expect("serialise");
@@ -463,7 +463,7 @@ fn a_saved_sign_still_carries_the_legacy_keys_for_old_clients() {
         wire.get("uv_offset").is_some(),
         "uv_offset must still be written"
     );
-    // At the identity — the fold moved the meaning into the material, and an
+    // At the identity - the fold moved the meaning into the material, and an
     // old client reading this renders the image spanning the panel once.
     assert_eq!(wire["uv_repeat"], serde_json::json!([10000, 10000]));
     assert_eq!(wire["uv_offset"], serde_json::json!([0, 0]));

@@ -1,4 +1,4 @@
-//! Broken monolith — the Alien-Monolithic *poor* landmark. A toppled, cracked
+//! Broken monolith - the Alien-Monolithic *poor* landmark. A toppled, cracked
 //! slab of dead grey stone, its glyph-grooves dark, a stump still standing on
 //! a fractured base. The dormant counterpart to the
 //! [`black_monolith`](super::black_monolith): same array, opposite end of the
@@ -51,7 +51,7 @@ impl CatalogueEntry for BrokenMonolith {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Fractured base disc — the root.
+        // Fractured base disc - the root.
         prim(
             solid(cylinder_tapered(2.4, 0.3, 16, 0.0, stone(DEAD_STONE))),
             [0.0, 0.15, 0.0],
@@ -65,7 +65,7 @@ fn build_tree() -> Generator {
         [0.0, 1.6, 0.0],
         id_quat(),
     ));
-    // Dark glyph groove down the stump's −Z face (no glow — light gone).
+    // Dark glyph groove down the stump's −Z face (no glow - light gone).
     prims.push(prim(
         cuboid_tapered([0.16, 2.0, 0.06], 0.0, stone([0.12, 0.12, 0.14])),
         [0.0, 1.6, -0.42],

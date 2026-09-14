@@ -35,7 +35,7 @@ pub(in crate::catalogue::items) fn id_quat() -> Fp4 {
     Fp4([0.0, 0.0, 0.0, 1.0])
 }
 
-/// Like [`prim`] but with a non-identity scale — e.g. a flattened sphere for a
+/// Like [`prim`] but with a non-identity scale - e.g. a flattened sphere for a
 /// cloud-pruned foliage pad or a smooth ellipsoid pod.
 pub(in crate::catalogue::items) fn prim_scaled(
     kind: GeneratorKind,
@@ -85,13 +85,13 @@ pub(in crate::catalogue::items) fn assemble(mut prims: Vec<Generator>) -> Genera
 /// than a flat list. Both let every piece be authored in one world frame;
 /// the difference is what the owner gets in the editor. Under `assemble`,
 /// every piece hangs off the root, so dragging a fountain's bowl leaves its
-/// jet, its rim and its spray behind — each has to be moved by hand.
+/// jet, its rim and its spray behind - each has to be moved by hand.
 /// Nested, a part carries everything it holds up, and one gizmo drag moves
 /// a whole sub-assembly.
 ///
 /// A prop reads best nested the way it was built: the root at the bottom,
 /// each course parented to the one it stands on. That is also the order to
-/// *write* it in — innermost first — because a subtree passed in here still
+/// *write* it in - innermost first - because a subtree passed in here still
 /// carries its own world translation, and only its own children have been
 /// rebased so far:
 ///
@@ -106,7 +106,7 @@ pub(in crate::catalogue::items) fn assemble(mut prims: Vec<Generator>) -> Genera
 /// ```
 ///
 /// Rotation and scale propagate too, so a parent that is *tilted* spins
-/// everything above it — which is the point on a leaning mast, and a bug on
+/// everything above it - which is the point on a leaning mast, and a bug on
 /// a plinth. Keep a sub-assembly's own root axis-aligned unless the tilt is
 /// meant to carry.
 pub(in crate::catalogue::items) fn nest(
@@ -130,7 +130,7 @@ pub(in crate::catalogue::items) fn nest(
 ///
 /// The trap this closes: `assemble` and `nest` rebase the pieces handed
 /// *to* them, but a child pushed onto the finished root afterwards is
-/// read in the root's own local space and never rebased — so geometry
+/// read in the root's own local space and never rebased - so geometry
 /// authored in the prop's ground frame, from the same constants as
 /// everything else, silently lands one root-height out. It is an easy
 /// mistake to make because the signature line reads perfectly:
@@ -142,7 +142,7 @@ pub(in crate::catalogue::items) fn nest(
 /// ```
 ///
 /// Reach for this instead of `root.children.push` whenever the child is
-/// authored in the same frame as the prims — signature FX are the usual
+/// authored in the same frame as the prims - signature FX are the usual
 /// case, since they hang off a chimney or a hearth the prims placed.
 ///
 /// Like its two siblings this rebases translation only. A root carrying a
@@ -158,26 +158,26 @@ pub(in crate::catalogue::items) fn attach(root: &mut Generator, child: Generator
     root.children.push(child);
 }
 
-/// Rotation around X — tilts ramps and dome slits.
+/// Rotation around X - tilts ramps and dome slits.
 pub(in crate::catalogue::items) fn quat_x(angle_rad: f32) -> Fp4 {
     let half = angle_rad * 0.5;
     Fp4([half.sin(), 0.0, 0.0, half.cos()])
 }
 
-/// Rotation around Y — yaws monoliths to face the circle centre.
+/// Rotation around Y - yaws monoliths to face the circle centre.
 pub(in crate::catalogue::items) fn quat_y(angle_rad: f32) -> Fp4 {
     let half = angle_rad * 0.5;
     Fp4([0.0, half.sin(), 0.0, half.cos()])
 }
 
-/// Rotation around Z — lays a Y-axis cylinder onto the horizontal X axis
+/// Rotation around Z - lays a Y-axis cylinder onto the horizontal X axis
 /// (`FRAC_PI_2`), e.g. a conduit / pipe run spanning left-to-right.
 pub(in crate::catalogue::items) fn quat_z(angle_rad: f32) -> Fp4 {
     let half = angle_rad * 0.5;
     Fp4([0.0, 0.0, half.sin(), half.cos()])
 }
 
-/// Hamilton product of two `[x, y, z, w]` rotations — the combined rotation
+/// Hamilton product of two `[x, y, z, w]` rotations - the combined rotation
 /// that applies `b` first, then `a`. Composing two unit quaternions stays
 /// unit, so the result needs no renormalisation.
 pub(in crate::catalogue::items) fn quat_mul(a: Fp4, b: Fp4) -> Fp4 {
@@ -210,7 +210,7 @@ pub(in crate::catalogue::items) fn cuboid_tapered(
     }
 }
 
-/// Cuboid with independent X/Z taper — a ridged roof or asymmetric frustum.
+/// Cuboid with independent X/Z taper - a ridged roof or asymmetric frustum.
 /// Each component pinches the top on that axis (`0.0` keeps the full width,
 /// `1.0` pinches it to a line), so `[0.1, 0.9]` yields a long ridge along X
 /// with steep slopes on the Z sides; the uniform [`cuboid_tapered`] can only
@@ -267,7 +267,7 @@ pub(in crate::catalogue::items) fn sphere(
     }
 }
 
-/// Barr superellipsoid — the rounded-mass workhorse. `exponent_ns` shapes
+/// Barr superellipsoid - the rounded-mass workhorse. `exponent_ns` shapes
 /// the north–south (latitude) profile, `exponent_ew` the east–west
 /// cross-section: `0.2` is a hard box, `~0.65` a filled pillow (sandbags,
 /// cushions, bedrolls), `1.0` a true ellipsoid, `2.5` a pinched octahedron.
@@ -316,7 +316,7 @@ pub(in crate::catalogue::items) fn torus(
     }
 }
 
-/// Hollow cylinder — a pipe / ring / conduit / halo. `inner_radius` is the
+/// Hollow cylinder - a pipe / ring / conduit / halo. `inner_radius` is the
 /// bore (`< radius`); annular caps close the ends. Axis along Y like
 /// [`cylinder_tapered`].
 pub(in crate::catalogue::items) fn tube(
@@ -335,7 +335,7 @@ pub(in crate::catalogue::items) fn tube(
     }
 }
 
-/// Helical tube — a spring / data-stream coil / spiral rail. `radius` is the
+/// Helical tube - a spring / data-stream coil / spiral rail. `radius` is the
 /// coil radius, `tube_radius` the wire thickness, `pitch` the vertical rise
 /// per full turn, `turns` the revolution count. The coil climbs the Y axis,
 /// centred on the origin (total height `turns * pitch`).
@@ -357,7 +357,7 @@ pub(in crate::catalogue::items) fn helix(
     }
 }
 
-/// A metaball group meshed by surface nets — the catalogue's route to forms
+/// A metaball group meshed by surface nets - the catalogue's route to forms
 /// the primitive vocabulary cannot state.
 ///
 /// Elements evaluate in list order, each smoothly blended into everything
@@ -374,7 +374,7 @@ pub(in crate::catalogue::items) fn helix(
 /// `resolution` is sample cells along the longest axis; the sanitiser caps it
 /// at [`MAX_BLOB_RESOLUTION`](crate::pds::sanitize::limits::MAX_BLOB_RESOLUTION)
 /// (48) and the element count at 16. Bake cost climbs with the cube of it, so
-/// prefer the smallest that hides the faceting — a metre-scale prop reads
+/// prefer the smallest that hides the faceting - a metre-scale prop reads
 /// clean around 24–32.
 pub(in crate::catalogue::items) fn blob_group(
     elements: Vec<crate::pds::generator::BlobElement>,
@@ -388,7 +388,7 @@ pub(in crate::catalogue::items) fn blob_group(
     }
 }
 
-/// An axis-aligned box element for a [`blob_group`] — flat faces inside a
+/// An axis-aligned box element for a [`blob_group`] - flat faces inside a
 /// smooth blend, which is what keeps a blobbed slab reading as a slab.
 pub(in crate::catalogue::items) fn blob_box(
     position: [f32; 3],
@@ -422,7 +422,7 @@ pub(in crate::catalogue::items) fn blob_ellipsoid(
 }
 
 /// A capsule element for a [`blob_group`], its axis along local `+Y` before
-/// `rotation` — the element to reach for when a limb, a bone or a rope needs
+/// `rotation` - the element to reach for when a limb, a bone or a rope needs
 /// to melt into the mass rather than abut it.
 pub(in crate::catalogue::items) fn blob_capsule(
     position: [f32; 3],
@@ -443,8 +443,8 @@ pub(in crate::catalogue::items) fn blob_capsule(
 
 /// A capped-cone element for a [`blob_group`], its axis along local `+Y`:
 /// `base_radius` at `-half_height`, `tip_radius` at `+half_height`. The
-/// element for a mass that flares — a robe from waist to hem, a skirt of
-/// drapery — in one piece where a stack of ellipsoids would read as beads.
+/// element for a mass that flares - a robe from waist to hem, a skirt of
+/// drapery - in one piece where a stack of ellipsoids would read as beads.
 pub(in crate::catalogue::items) fn blob_cone(
     position: [f32; 3],
     base_radius: f32,
@@ -462,7 +462,7 @@ pub(in crate::catalogue::items) fn blob_cone(
     }
 }
 
-/// Flip a [`blob_group`] element to **carve** instead of add — eye sockets,
+/// Flip a [`blob_group`] element to **carve** instead of add - eye sockets,
 /// nostrils, creases, a slot in a mass. Subtraction is smooth like the union
 /// is, so a carved socket has a soft rim rather than a knife edge.
 pub(in crate::catalogue::items) fn carved(
@@ -476,7 +476,7 @@ pub(in crate::catalogue::items) fn carved(
 /// `longest_axis`, in metres.
 ///
 /// Surface nets samples a grid and polygonises where the field crosses zero,
-/// so a feature thinner than about two cells is **missed in places** — the
+/// so a feature thinner than about two cells is **missed in places** - the
 /// mesh comes out with holes in it rather than merely coarse. The pirate
 /// flag found this the expensive way: a 0.06 m cloth 1.9 m wide at
 /// resolution 30 is 63 mm cells, so the sheet was thinner than one cell and
@@ -490,7 +490,7 @@ pub(in crate::catalogue::items) fn blob_cell_size(longest_axis: f32, resolution:
     longest_axis / resolution.max(1) as f32
 }
 
-/// Right-triangular prism — a ramp / awning / roof pitch / buttress. `size`
+/// Right-triangular prism - a ramp / awning / roof pitch / buttress. `size`
 /// is the bounding box; the slope rises from the front-bottom (`+Z`, `-Y`) to
 /// the back-top (`-Z`, `+Y`) across the full width (X).
 pub(in crate::catalogue::items) fn wedge(
@@ -504,9 +504,9 @@ pub(in crate::catalogue::items) fn wedge(
 }
 
 /// Stamp the SL-style topology cuts onto a swept primitive (Sphere / Cylinder
-/// / Cone / Torus / Tube): `path_cut` (`[begin, end]` kept angular fraction —
+/// / Cone / Torus / Tube): `path_cut` (`[begin, end]` kept angular fraction -
 /// a half-torus arch, an orange-slice wedge), `profile_cut` (`[begin, end]`
-/// kept latitude band — domes / bowls), and `hollow` (bore fraction).
+/// kept latitude band - domes / bowls), and `hollow` (bore fraction).
 /// Non-swept kinds pass through unchanged. Honoured by the unified sweep
 /// mesher in `crate::world_builder::prim`.
 pub(in crate::catalogue::items) fn with_cut(
@@ -523,19 +523,19 @@ pub(in crate::catalogue::items) fn with_cut(
     kind
 }
 
-/// Give one face of a primitive its own material (#955) — the SL model: an
+/// Give one face of a primitive its own material (#955) - the SL model: an
 /// override is the face's **whole** material, not a delta, so it keeps its
 /// own colour, texture, uv scale/offset/rotation whatever the base material
 /// later becomes.
 ///
 /// This is what replaces the "stack a thin slab on the surface to recolour
 /// it" idiom, which pays a whole extra prim (and a z-fight risk) for a
-/// colour change. Cost here is one extra draw call per *distinct* material —
+/// colour change. Cost here is one extra draw call per *distinct* material -
 /// the spawn-time face plan groups faces by material, so five faces sharing
 /// one override cost one group, and an override equal to the base costs
 /// nothing at all.
 ///
-/// Face names are per family — `Top`/`Bottom`/`SidePx`… on the flat family,
+/// Face names are per family - `Top`/`Bottom`/`SidePx`… on the flat family,
 /// `Wall`/`Bore`/`Top`/`Bottom` plus the cut faces on the revolved one; see
 /// [`FaceKey`]. Naming a face the kind doesn't emit is *dormant*, not an
 /// error: it waits, harmlessly, until a cut produces that face. Repeating a
@@ -566,7 +566,7 @@ pub(in crate::catalogue::items) fn with_face(
 }
 
 /// Mark a primitive kind solid so the spawner attaches its matching
-/// collider — structural pieces players can stand on or bump into.
+/// collider - structural pieces players can stand on or bump into.
 /// Decorative trim (railings, orbs, lamps) stays non-solid.
 pub(in crate::catalogue::items) fn solid(mut kind: GeneratorKind) -> GeneratorKind {
     match &mut kind {
@@ -593,7 +593,7 @@ const FOUNDATION_REVEAL: f32 = 0.15;
 /// Total footprint shrink applied to a foundation versus the base slab it
 /// sits under (callers author both at the same footprint). The slab's
 /// reveal band overlaps the plinth's, so equal footprints leave their
-/// vertical side faces coplanar all around the perimeter — which z-fights
+/// vertical side faces coplanar all around the perimeter - which z-fights
 /// on flat ground. Holding the plinth this much smaller makes the slab
 /// oversail it (≈half this per side), breaking the shared plane and tucking
 /// the plinth out of sight on flat ground while it still fills slope gaps.
@@ -648,14 +648,14 @@ pub(in crate::catalogue::items) fn foundation_disc(radius: f32, depth: f32) -> G
 ///
 /// This is what a settlement building should carry. Since #1008 a seeded
 /// structure is snapped to the *highest* ground under its footprint, so
-/// it never sinks into a hillside — but the ground then falls away under
+/// it never sinks into a hillside - but the ground then falls away under
 /// its downhill edge, and this is what closes that gap. Depth tracks the
 /// footprint because the drop a building spans is proportional to how
 /// wide it is; pass the same `clearance` the entry's
 /// [`Footprint`](crate::catalogue::Footprint) declares.
 ///
 /// `size_x`/`size_z` are the *building's* base footprint, not its
-/// clearance — the plinth should sit under the walls, not out at the
+/// clearance - the plinth should sit under the walls, not out at the
 /// keep-clear radius.
 pub(in crate::catalogue::items) fn footing(
     size_x: f32,
@@ -679,9 +679,9 @@ pub(in crate::catalogue::items) fn footing_disc(radius: f32, clearance: f32) -> 
     )
 }
 
-/// Strong self-lit material — lamps, orbs, finials.
+/// Strong self-lit material - lamps, orbs, finials.
 /// Flat quad in the local XZ plane, `size` = `[x_extent, z_extent]`, normal
-/// `+Y`. Stand it up with [`quat_x`]`(-FRAC_PI_2)` to face `-Z` — that maps
+/// `+Y`. Stand it up with [`quat_x`]`(-FRAC_PI_2)` to face `-Z` - that maps
 /// the quad's local Z extent onto world Y, so `size` reads as
 /// `[width, height]` for a wall opening.
 pub(in crate::catalogue::items) fn plane(
@@ -701,8 +701,8 @@ pub(in crate::catalogue::items) fn plane(
 /// [`Sign`](GeneratorKind::Sign) whose source is
 /// [`DidPfp`](crate::pds::SignSource::DidPfp), so the engine fetches
 /// `app.bsky.actor.getProfile` for that DID and follows the avatar URL. The
-/// reference is *live* — the owner changes their picture and it appears next
-/// session without the record being rewritten — and every panel pointing at
+/// reference is *live* - the owner changes their picture and it appears next
+/// session without the record being rewritten - and every panel pointing at
 /// one DID coalesces onto a single HTTPS round trip in the shared
 /// `BlobImageCache`.
 ///
@@ -711,7 +711,7 @@ pub(in crate::catalogue::items) fn plane(
 /// 1. **Square, always.** A profile picture is square; stretched onto an
 ///    oblong panel it distorts a person's face, which is the one subject
 ///    where distortion is unmistakable. The size is therefore *one scalar*
-///    rather than a pair — the aspect cannot be got wrong at a call site.
+///    rather than a pair - the aspect cannot be got wrong at a call site.
 /// 2. **`uv_scale` stays `1.0`.** Sign images upload clamp-to-edge, and the
 ///    panel mesh already spans the image exactly once. A scale above one is a
 ///    *crop*, not a tile: it shrinks the image into a corner and smears the
@@ -720,10 +720,10 @@ pub(in crate::catalogue::items) fn plane(
 ///    a face lit by the scene's sun reads as a lit *object* rather than as an
 ///    image. Portal's own pfp face made the same call.
 /// 4. **Single-sided.** The image would be mirrored on the back. Put a
-///    backing plate behind the panel — which every monument wants anyway, as
+///    backing plate behind the panel - which every monument wants anyway, as
 ///    the plate the portrait is fixed to.
 /// 5. **The tint is pure white, always.** `base_color` *multiplies* the
-///    fetched image, so any other colour silently stains the owner's face —
+///    fetched image, so any other colour silently stains the owner's face -
 ///    a themed "blank" tint looked right on an empty panel and turned every
 ///    real portrait sepia, blue or half-black the moment one loaded (#976).
 ///    The blank state is therefore a white square, and the *frame* is what
@@ -732,14 +732,14 @@ pub(in crate::catalogue::items) fn plane(
 /// # Orientation, and why this returns a positioned node
 ///
 /// The panel is a flat quad in the local XZ plane, and the rotation that
-/// stands it up is **`quat_x(FRAC_PI_2)`** — not the `-FRAC_PI_2` that
+/// stands it up is **`quat_x(FRAC_PI_2)`** - not the `-FRAC_PI_2` that
 /// stands up an ordinary [`plane`], which is the trap this helper now closes
 /// by applying the rotation itself.
 ///
 /// The mesh's wound front face is `−Y` (see `world_builder::sign`), so the
 /// negative rotation turns the panel's visible side to `+Z`, *away* from
 /// whoever the prop faces, and maps the image's downward axis to world `+Y`
-/// — backwards and upside-down at once, which is exactly how all 24
+/// - backwards and upside-down at once, which is exactly how all 24
 /// monuments shipped before #976. The positive rotation puts the front on
 /// `−Z`, `V` on world `−Y` and `U` on world `−X`, which is the viewer's
 /// right.
@@ -758,11 +758,11 @@ pub(in crate::catalogue::items) fn pfp_panel(
         uv_repeat: Fp2([1.0, 1.0]),
         uv_offset: Fp2([0.0, 0.0]),
         material: SovereignMaterialSettings {
-            // See rule 5 — anything but white stains the portrait.
+            // See rule 5 - anything but white stains the portrait.
             base_color: Fp3([1.0, 1.0, 1.0]),
             roughness: Fp(0.55),
             metallic: Fp(0.0),
-            // See rule 2 — the mesh already spans the image once.
+            // See rule 2 - the mesh already spans the image once.
             uv_scale: Fp(1.0),
             // The fetched image *is* the texture; a procedural one here would
             // be painted over the moment the blob lands.
@@ -778,7 +778,7 @@ pub(in crate::catalogue::items) fn pfp_panel(
 }
 
 /// The rotation that turns a prim's own axis (`+Y`) onto the unit direction
-/// `dir` — the one place this family converts "it points that way" into a
+/// `dir` - the one place this family converts "it points that way" into a
 /// quaternion (#972 lesson 23 for authoring: a hand-rolled rotate is a coin
 /// flip, and it was flipped three times in one file before [`strut`]
 /// existed).
@@ -806,7 +806,7 @@ pub(in crate::catalogue::items) fn aim_y(dir: [f32; 3]) -> Fp4 {
     }
 }
 
-/// A cylinder spanning two world points — the catalogue's ONE conversion
+/// A cylinder spanning two world points - the catalogue's ONE conversion
 /// from "this rope/spar/shore runs from A to B" into a rotation.
 ///
 /// This exists because the conversion was hand-rolled three times in one file
@@ -815,15 +815,15 @@ pub(in crate::catalogue::items) fn aim_y(dir: [f32; 3]) -> Fp4 {
 /// away from the hull it propped (`quat_z(-lean)` where the handedness wanted
 /// `+`), and a set of capstan bars "laid flat" by snapping to whichever
 /// quarter turn was nearest. Each looked plausible at three of four angles.
-/// #972 lesson 23 named this failure for guards — a hand-rolled rotate is a
-/// coin flip — and the same is true of authoring.
+/// #972 lesson 23 named this failure for guards - a hand-rolled rotate is a
+/// coin flip - and the same is true of authoring.
 ///
 /// The rotation is the axis-angle turn from the cylinder's own axis (`+Y`)
 /// onto the run: axis = `Ŷ × d̂`, angle = `atan2(|Ŷ × d̂|, Ŷ · d̂)`, packed as
 /// a quaternion via the half-angle. Degenerate runs (straight up, straight
 /// down) fall out naturally: up is the identity, down is a half-turn about X.
 ///
-/// Returns a leaf prim centred on the midpoint. A leaf, deliberately — a
+/// Returns a leaf prim centred on the midpoint. A leaf, deliberately - a
 /// strut carries nothing, so its rotation displaces nothing, which keeps
 /// every translation-only guard sound (#972 lesson 22).
 pub(in crate::catalogue::items) fn strut(
@@ -847,7 +847,7 @@ pub(in crate::catalogue::items) fn strut(
     )
 }
 
-/// Default clear spacing between balusters, in metres — see [`railing`].
+/// Default clear spacing between balusters, in metres - see [`railing`].
 ///
 /// Real balustrades run a 100 mm gap, which on a twelve-metre boardwalk is
 /// ninety-odd prims for a handrail. This is the coarsest pitch that still
@@ -860,9 +860,9 @@ pub(in crate::catalogue::items) const BALUSTER_PITCH: f32 = 0.42;
 /// heavier post at each end (#972).
 ///
 /// This exists because the same wrong thing was built four times. A railing
-/// authored as **one slab** — a 0.55 m plate on the hotel's balconies, a
+/// authored as **one slab** - a 0.55 m plate on the hotel's balconies, a
 /// 0.5 m plate along the beach house's porch, a single bar with no posts at
-/// all on the boardwalk and the lifeguard tower — reads as a parapet *wall*,
+/// all on the boardwalk and the lifeguard tower - reads as a parapet *wall*,
 /// and a parapet wall in front of a window hides the one thing the opening
 /// was cut for. What makes a railing read as a railing is that you can see
 /// through it, which is a property of having gaps, which is a property of
@@ -873,7 +873,7 @@ pub(in crate::catalogue::items) const BALUSTER_PITCH: f32 = 0.42;
 /// or `Z` axis, which is every railing in this family. `height` is measured
 /// from that level to the top of the handrail.
 ///
-/// Returns a flat list, so the caller decides what it hangs off — normally
+/// Returns a flat list, so the caller decides what it hangs off - normally
 /// [`nest`]ed under the deck it stands on, which is also what makes the
 /// footprint guards able to check it.
 pub(in crate::catalogue::items) fn railing(

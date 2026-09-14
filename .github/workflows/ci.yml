@@ -20,7 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Reads the pinned version out of rust-toolchain.toml (#1148) — that
+      # Reads the pinned version out of rust-toolchain.toml (#1148) - that
       # file is the single source of truth, and this action honours it,
       # which `dtolnay/rust-toolchain@stable` did not: it installed whatever
       # was newest and ignored the pin entirely.
@@ -109,7 +109,7 @@ jobs:
   # There was no supply-chain gate at all before this, over a ~985-package
   # lockfile, for a client that speaks WebRTC to untrusted peers and holds
   # DPoP keys. Its first local run found three live rustls-webpki
-  # vulnerabilities and a licence the allow-list did not cover — none of
+  # vulnerabilities and a licence the allow-list did not cover - none of
   # which anything here would have reported.
   #
   # `Cargo.lock` is untracked by decision, so the lockfile is generated here:

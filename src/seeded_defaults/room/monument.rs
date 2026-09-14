@@ -1,10 +1,10 @@
-//! Seeded owner-monument spot (#975) — where a room's identity monument
+//! Seeded owner-monument spot (#975) - where a room's identity monument
 //! stands relative to its social gateway.
 //!
 //! Every seeded room gets exactly one, for the same reason it gets exactly one
 //! gateway: it is the room's identity, not settlement dressing. The monument
 //! carries the owner's profile picture on a square panel, so it wants to be
-//! *seen on arrival* rather than discovered later — which fixes its placement
+//! *seen on arrival* rather than discovered later - which fixes its placement
 //! to the one spot the engine already knows a visitor will be standing in and
 //! looking from.
 //!
@@ -15,7 +15,7 @@
 //! gate is straight ahead; the monument is off to one side, facing you.
 //!
 //! Which side is seeded from the owner's DID, so a street of rooms does not
-//! read as a template — but it is *stable* for a given room, because a
+//! read as a template - but it is *stable* for a given room, because a
 //! monument that moved between sessions would be a bug, not variety.
 //!
 //! Facing convention matches [`GatewaySpot`]: a
@@ -84,7 +84,7 @@ impl MonumentSpot {
     }
 }
 
-/// One stable bit from the DID — which side of the approach the monument
+/// One stable bit from the DID - which side of the approach the monument
 /// stands on.
 ///
 /// Uses the room seed's own [`fnv1a_64`], which is bit-exact across platforms
@@ -118,7 +118,7 @@ mod tests {
             let sep = (dx * dx + dz * dz).sqrt();
             assert!(
                 sep > 3.5 + 4.0,
-                "{did}: monument {sep} m from the gate — inside their combined footprints"
+                "{did}: monument {sep} m from the gate - inside their combined footprints"
             );
         }
     }

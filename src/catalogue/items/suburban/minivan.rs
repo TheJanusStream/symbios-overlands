@@ -1,14 +1,14 @@
-//! Minivan — a Suburban prop. The family hauler: a rounded lower body with
+//! Minivan - a Suburban prop. The family hauler: a rounded lower body with
 //! a short sloping hood, a raked windscreen, a tall glazed greenhouse broken
 //! by pillars under a flat roof with rails, and dark wheels with hub caps,
 //! parked at the kerb. Nose toward `+X`; the broadside is what reads.
 //!
 //! Rebuilt from scratch under #972 after an in-world check ("looks very
 //! clumsy and blocky and overall low quality"). The shipped van was three
-//! tapered boxes — a body, a taller box on it and a `Window`-textured box
+//! tapered boxes - a body, a taller box on it and a `Window`-textured box
 //! on that (#972 lesson 20 outright: the generator masks its panes away, so
 //! the cabin was a frame with holes onto the box behind it, with window
-//! frames across the roof) — plus slab pillars and slab bumpers. Now the
+//! frames across the roof) - plus slab pillars and slab bumpers. Now the
 //! lower body and the nose are [`superellipsoid`]s (a box with a rolled
 //! edge, the shape pressed steel actually takes), the hood is a [`wedge`]
 //! turned to slope toward the nose, the windscreen and tailgate glass are
@@ -19,7 +19,7 @@
 //! #972 lesson 38: **a car is a rolled edge, not a chamfer.** Boxes with a
 //! taper read as "blocky" however many are stacked, because a taper is a
 //! flat face at another angle. What reads as bodywork is a continuous
-//! curve from side to top — one superellipsoid at a low exponent does it in
+//! curve from side to top - one superellipsoid at a low exponent does it in
 //! a single prim, and every detail then sits on a surface whose width at
 //! any height is a function you can evaluate (the door handles here sit at
 //! the body's own width at their own height, not at a round number).
@@ -47,11 +47,11 @@ const TRIM: [f32; 3] = [0.16, 0.16, 0.18];
 const NOSE_X: f32 = 2.3;
 const TAIL_X: f32 = -2.3;
 const HALF_W: f32 = 0.96;
-/// Ground clearance under the body — the sill sits just under the axle
+/// Ground clearance under the body - the sill sits just under the axle
 /// line, so the lower half of each tyre shows below it (at 0.2 the tyres
 /// read as slivers under a slab).
 const CLEAR: f32 = 0.32;
-/// The belt line — the top of the lower body and the foot of the glass.
+/// The belt line - the top of the lower body and the foot of the glass.
 const BELT: f32 = 1.15;
 /// Where the hood meets the body (the A-pillar foot) and its leading edge.
 const HOOD_REAR_X: f32 = 1.35;
@@ -59,7 +59,7 @@ const HOOD_FRONT_Y: f32 = 0.9;
 /// The roof: its underside is the head of the glass.
 const GLASS_TOP: f32 = 1.66;
 const ROOF_T: f32 = 0.08;
-/// The windscreen's head — the roof's front edge.
+/// The windscreen's head - the roof's front edge.
 const WS_TOP_X: f32 = 0.55;
 /// The tailgate glass: near-vertical, its top a little forward of its foot.
 const TAIL_GLASS_FOOT_X: f32 = -2.25;
@@ -109,7 +109,7 @@ impl CatalogueEntry for Minivan {
 const ROLLED: f32 = 0.35;
 
 /// The lower body's half-width at height `y`, from the superellipsoid's own
-/// cross-section — where a side detail has to sit to touch the paint.
+/// cross-section - where a side detail has to sit to touch the paint.
 fn body_half_width_at(y: f32) -> f32 {
     let b = (BELT - CLEAR) * 0.5;
     let t = ((y - (BELT + CLEAR) * 0.5) / b).abs().min(1.0);
@@ -148,7 +148,7 @@ fn build_tree() -> Generator {
     let glass_w = HALF_W * 2.0 + 0.02;
 
     let mut prims = vec![
-        // Lower body — the root: a rolled-edge box from the tail to the
+        // Lower body - the root: a rolled-edge box from the tail to the
         // A-pillar foot, sill to belt.
         prim(
             solid(superellipsoid(

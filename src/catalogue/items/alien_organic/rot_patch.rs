@@ -1,4 +1,4 @@
-//! Rot patch — an Alien-Organic *poor* prop. A dark slick of necrotic sludge
+//! Rot patch - an Alien-Organic *poor* prop. A dark slick of necrotic sludge
 //! swelling in lobes and pocked with sagging blisters, a couple of them wet
 //! and bulging. The decay clutter of the dying colony.
 
@@ -50,8 +50,8 @@ impl CatalogueEntry for RotPatch {
 }
 
 fn build_tree() -> Generator {
-    // Sludge slick — the root, a thin flat cylinder mat. CRITICAL: the root
-    // must carry an IDENTITY scale — assemble() reparents the blisters under
+    // Sludge slick - the root, a thin flat cylinder mat. CRITICAL: the root
+    // must carry an IDENTITY scale - assemble() reparents the blisters under
     // it and Bevy propagates the root's scale to all children, so a flattened
     // (non-uniform-scale) sphere root would squash every blister flat into the
     // slick (the root-SCALE sibling of the rotated-root gotcha). The flattening
@@ -70,7 +70,7 @@ fn build_tree() -> Generator {
             [1.0, 0.22, 1.0],
         ));
     }
-    // Sagging blisters bulging from the rot — matte and wet, varied heights,
+    // Sagging blisters bulging from the rot - matte and wet, varied heights,
     // standing clearly proud of the slick (now un-squashed: the root is
     // identity-scale).
     for (cx, cz, r, wet) in [

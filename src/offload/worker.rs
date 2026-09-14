@@ -3,26 +3,26 @@
 //! Runs each [`GenJob`] on a [`gen_worker`] one-shot worker (spawned via
 //! `gloo-worker`), off the main thread. The worker JS (`gen-worker.js`,
 //! emitted by `wasm-bindgen --target web` from the `gen-worker` crate) must be
-//! deployed beside the app's JS — see `deploy.yml`.
+//! deployed beside the app's JS - see `deploy.yml`.
 //!
 //! Workers are **pooled and bounded**, not spawned per job (#802/#807): a
 //! fresh `Worker` costs worker-thread creation + `gen-worker.js` module
 //! fetch/eval + wasm instantiation, which the audio diagnostics measured at
-//! 130 ms–1.0 s per voice bake — dwarfing the ~ms of actual synth compute. A
+//! 130 ms–1.0 s per voice bake - dwarfing the ~ms of actual synth compute. A
 //! finished bridge goes back to a small idle pool and the next job reuses it,
 //! so steady-state jobs pay only the round-trip + compute.
 //!
 //! Concurrency is capped at [`MAX_WORKERS`]: once that many workers exist,
 //! further jobs wait for a bridge instead of spawning more (a re-rolled
-//! avatar dispatches dozens of texture bakes at once — unbounded spawn-on-
+//! avatar dispatches dozens of texture bakes at once - unbounded spawn-on-
 //! demand would flood the browser with worker instantiations, reintroducing
 //! the very cost the pool removes). Idle bridges beyond [`MAX_IDLE_WORKERS`]
-//! are dropped — the bridge `Drop` sends `Destroy`, terminating that worker
+//! are dropped - the bridge `Drop` sends `Destroy`, terminating that worker
 //! exactly as the old spawn-per-job path did.
 //!
 //! Waiting is **two-lane**, not one FIFO: audio bakes and heightmaps are
 //! latency-sensitive (a region re-seed's ambient bed was measured waiting
-//! 5 s behind a 50-job surface-texture flood — silent world), while texture
+//! 5 s behind a 50-job surface-texture flood - silent world), while texture
 //! bakes are a bulk stream whose only cost is pop-in. [`release`] hands a
 //! freed bridge to the urgent lane first, so an audio bake waits at most one
 //! in-flight job even mid-flood.
@@ -57,10 +57,10 @@ struct Pool {
     /// Live workers: running + idle. Spawning is allowed while `live <
     /// MAX_WORKERS`; a released bridge that is dropped (pool full) decrements.
     live: usize,
-    /// Latency-sensitive jobs (audio bakes, heightmaps) waiting for a bridge —
+    /// Latency-sensitive jobs (audio bakes, heightmaps) waiting for a bridge -
     /// served FIFO, ahead of every bulk waiter.
     urgent_waiters: VecDeque<futures_channel::oneshot::Sender<Bridge>>,
-    /// Bulk jobs (texture bakes) waiting for a bridge — served FIFO once the
+    /// Bulk jobs (texture bakes) waiting for a bridge - served FIFO once the
     /// urgent lane is empty.
     bulk_waiters: VecDeque<futures_channel::oneshot::Sender<Bridge>>,
 }
@@ -82,7 +82,7 @@ thread_local! {
 /// Texture bakes only delay their own pop-in.
 ///
 /// An avatar build joins them (#1061), and it is the most visible of the
-/// four: until it lands the wearer is a bare chassis — a person shaped like
+/// four: until it lands the wearer is a bare chassis - a person shaped like
 /// nothing, walking around a room. A texture that arrives late is a surface
 /// that sharpens; a body that arrives late is somebody missing. It is also
 /// the heaviest job in the roster, which is the argument *against* the
@@ -109,7 +109,7 @@ fn is_urgent(job: &GenJob) -> bool {
 /// in the offload census, and
 /// [`sample_offload_census`](crate::diagnostics::offload_watch::sample_offload_census)
 /// emits `OffloadTaskTimeout` for it. The `WorkerSpawnFailed` variant remains
-/// unemitted — its delete-or-keep decision belongs to the dead-variant sweep.
+/// unemitted - its delete-or-keep decision belongs to the dead-variant sweep.
 ///
 /// `gloo-worker` defaults (`as_module = true`, `with_loader = false`) match a
 /// `wasm-bindgen --target web` build: it generates the worker bootstrap and
@@ -172,7 +172,7 @@ fn release(mut bridge: Bridge) {
         if pool.idle.len() < MAX_IDLE_WORKERS {
             pool.idle.push(bridge);
         } else {
-            // Dropped here — the last bridge's Drop destroys the worker.
+            // Dropped here - the last bridge's Drop destroys the worker.
             pool.live -= 1;
         }
     });
@@ -180,7 +180,7 @@ fn release(mut bridge: Bridge) {
 
 /// Run one job on a pooled gen-worker and await its result.
 ///
-/// A bridge is exclusively owned while its job runs — a concurrent job takes a
+/// A bridge is exclusively owned while its job runs - a concurrent job takes a
 /// different pooled bridge, spawns its own worker under the cap, or waits in
 /// its lane. If the run panics (worker error), the bridge is simply not
 /// released; the pool's live count stays consumed, which is moot because a

@@ -1,11 +1,11 @@
-//! Lychgate — the Gothic-Horror social gateway (#758). The roofed churchyard
+//! Lychgate - the Gothic-Horror social gateway (#758). The roofed churchyard
 //! gate where coffins once rested before burial: two dressed-ashlar piers
 //! carry a steep dead-timber gable, a pointed-arch frames the opening, and a
 //! rose-glass lantern hangs lit over the threshold. A wrought-iron cross
 //! crowns the front gable and cold graveyard mist creeps at its foot.
 //!
 //! The only functional element is the [`GeneratorKind::Gateway`] zone child
-//! centred in the walk-through opening — stepping into it opens the
+//! centred in the walk-through opening - stepping into it opens the
 //! destination picker. Everything else is set-dressing that reads the frame
 //! as a gate you pass beneath. This bespoke entry wins the
 //! `entries_for(GothicHorror, Gateway)` query over the neutral placeholder.
@@ -62,7 +62,7 @@ fn build_tree() -> Generator {
     let pier_x = 1.6_f32; // pier centres flanking a ~2.6 m opening
     let zf = -1.3_f32; // -Z gable front (hero convention)
 
-    // Churchyard-cobble threshold flagstone — the flat-base root. Never tilt
+    // Churchyard-cobble threshold flagstone - the flat-base root. Never tilt
     // a root: `assemble` applies its transform to every child.
     let mut prims = vec![prim(
         solid(cuboid_tapered([4.2, 0.3, 2.4], 0.0, mossy(STONE_MOSS))),
@@ -98,7 +98,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Two-centred pointed arch framing the opening on the front face — the
+    // Two-centred pointed arch framing the opening on the front face - the
     // theme's signature Gothic silhouette springing from the pier inners.
     prims.extend(pointed_arch([0.0, 1.0, zf + 0.9], 1.3, 0.12, st()));
 
@@ -133,7 +133,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Wrought-iron cross crowning the front gable apex — the churchyard emblem
+    // Wrought-iron cross crowning the front gable apex - the churchyard emblem
     // facing the -Z approach.
     prims.push(prim(
         solid(cuboid_tapered([0.12, 0.8, 0.1], 0.0, ir())),
@@ -209,7 +209,7 @@ mod tests {
         assert_sanitize_stable(&GothicHorrorGateway.build(""), "gothic_horror_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is furniture, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

@@ -1,13 +1,13 @@
 //! Chat-keyword emotes: a message plays a gesture on its sender's body (#1068).
 //!
 //! The expressive half of the motion roster had no way into the world. Four
-//! gestures — a greeting, a yes, a no and a bow — exist because
+//! gestures - a greeting, a yes, a no and a bow - exist because
 //! *"a social space is other people"* and they carry meaning to a viewer without
 //! a shared language, and then nothing ever asked for one. This is the surface
 //! that asks: say hello in chat and your avatar waves.
 //!
 //! **Chat text stays chat text.** There is no command syntax and no slash-emote
-//! vocabulary to learn or to typo — the message is sent and displayed exactly as
+//! vocabulary to learn or to typo - the message is sent and displayed exactly as
 //! written, and the gesture is a side effect of words the sender was going to
 //! type anyway. That is deliberate: an emote nobody has to learn is one every
 //! visitor uses on their first day.
@@ -15,8 +15,8 @@
 //! # The clip removal came through here, and this survived it verbatim
 //!
 //! This surface was built against the baked clips and designed to outlive
-//! them, and it did (#1067): what this module owns is the *trigger* — the
-//! keyword table, the arbitration, the timing — and none of that is clip
+//! them, and it did (#1067): what this module owns is the *trigger* - the
+//! keyword table, the arbitration, the timing - and none of that is clip
 //! shaped. [`Emote::gesture_name`] now points at the engine's goal-space
 //! gestures (symbios-avatar #248), which write only the parts they address,
 //! so the old rule that a gesture rides the upper body while the legs go on
@@ -26,7 +26,7 @@
 //!
 //! # What it does not do
 //!
-//! Only rigged bodies gesture. A generator chassis — a boat, an airship — has
+//! Only rigged bodies gesture. A generator chassis - a boat, an airship - has
 //! no rig to pose and no gesture that would mean anything on it, so a keyword
 //! from one is simply a chat message.
 
@@ -58,8 +58,8 @@ impl Emote {
     ///
     /// The names are the baked roster's, kept verbatim through the removal
     /// (#1067) because the engine's `gesture::by_name` answers to them by
-    /// design (symbios-avatar #248). The pairing — every emote resolves a
-    /// gesture — is guarded by test in `rigged`, so a rename on either side
+    /// design (symbios-avatar #248). The pairing - every emote resolves a
+    /// gesture - is guarded by test in `rigged`, so a rename on either side
     /// fails the suite instead of leaving a keyword silently inert.
     #[must_use]
     pub fn gesture_name(self) -> &'static str {
@@ -109,7 +109,7 @@ impl Emote {
         }
     }
 
-    /// A one-line hint naming one example word per emote — the chat
+    /// A one-line hint naming one example word per emote - the chat
     /// window's caption and the Controls sheet's line (#1141).
     ///
     /// Built from [`Self::keywords`] rather than written out. The whole
@@ -127,11 +127,11 @@ impl Emote {
         format!(
             // #1269 f136: the gesture is raised inside the SUBMIT branch,
             // after the message is pushed and immediately before the
-            // broadcast — never while typing. This line is the only place
+            // broadcast - never while typing. This line is the only place
             // in the app that documents keyword emotes at all, so a hint
             // that misdescribes the trigger sends a first-session user
             // looking for a bug.
-            "Say {} — and your avatar gestures when you send it.",
+            "Say {} - and your avatar gestures when you send it.",
             examples.join(", ")
         )
     }
@@ -164,8 +164,8 @@ impl Emote {
 
 /// Ask a chassis's rigged body to play a gesture.
 ///
-/// The target is the **chassis** — the physics entity a peer or the local
-/// player is — rather than the rigged root under it, because that is the entity
+/// The target is the **chassis** - the physics entity a peer or the local
+/// player is - rather than the rigged root under it, because that is the entity
 /// the chat and network layers already hold. Resolving it to a body is
 /// [`super::rigged::start_emotes`]'s job, and a chassis with no rigged body
 /// simply drops the request.
@@ -180,7 +180,7 @@ pub struct EmoteRequest {
 /// Turn a chat message into an emote request, if it asks for one.
 ///
 /// Shared by both trigger sites so the local echo and the remote path cannot
-/// drift apart — the sender must see the same gesture everybody else sees, and
+/// drift apart - the sender must see the same gesture everybody else sees, and
 /// two copies of this rule is how that stops being true.
 pub fn request_for(chassis: Entity, text: &str) -> Option<EmoteRequest> {
     Emote::from_text(text).map(|emote| EmoteRequest { chassis, emote })
@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn every_emote_names_a_gesture_the_engine_can_build() {
         // An emote whose name the engine does not answer to is silent at
-        // runtime and silent in review — the keyword scans, the request is
+        // runtime and silent in review - the keyword scans, the request is
         // written, and the drive's `by_name` lookup quietly returns `None`
         // every frame. So the names are checked against the engine's own
         // resolver rather than against a doc, and a rename on EITHER side

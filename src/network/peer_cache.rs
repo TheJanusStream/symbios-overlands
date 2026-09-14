@@ -73,7 +73,7 @@ impl PeerAvatarCache {
 /// In-flight `fetch_avatar_record` task attached to a throwaway entity so
 /// the [`poll_peer_avatar_fetches`] system can drain it without a dedicated
 /// resource. The `peer_id` field identifies which remote peer the result
-/// belongs to — the peer's ECS entity may have despawned by the time the
+/// belongs to - the peer's ECS entity may have despawned by the time the
 /// task completes (late disconnect), so the poller has to look it up.
 #[derive(Component)]
 pub(super) struct PeerAvatarFetchTask {
@@ -91,7 +91,7 @@ pub(super) fn spawn_peer_avatar_fetch(
     did: String,
     spawned_at: f64,
 ) {
-    // `IoTaskPool` is the correct home for blocking HTTP calls — the
+    // `IoTaskPool` is the correct home for blocking HTTP calls - the
     // `AsyncComputeTaskPool` is sized to the CPU-core count and must not be
     // starved by threads blocked on network sockets.
     let pool = bevy::tasks::IoTaskPool::get();
@@ -119,8 +119,8 @@ pub(super) fn spawn_peer_avatar_fetch(
 
 /// A rigged reference resolution in flight for one peer (#1059).
 ///
-/// A live-preview `AvatarStateUpdate` decodes with `resolved = None` — the
-/// resolution never rides the wire — so a peer wearing a rigged body needs
+/// A live-preview `AvatarStateUpdate` decodes with `resolved = None` - the
+/// resolution never rides the wire - so a peer wearing a rigged body needs
 /// its wardrobe + attachment references re-fetched before anything can be
 /// built. The rkeys are snapshotted so a preview that changes the references
 /// mid-flight simply drops this result and re-resolves.
@@ -129,7 +129,7 @@ pub(super) struct PeerRigResolveTask {
     peer_id: PeerId,
     /// The peer this resolves for, so a failure can record its backoff.
     peer_entity: Entity,
-    /// The identity whose records these are — carried so the landing site can
+    /// The identity whose records these are - carried so the landing site can
     /// name it in `WardrobeResolved` / `AttachmentFetchFailed` (#1144) without
     /// re-reading the peer, which may have disconnected by then.
     did: String,
@@ -159,7 +159,7 @@ pub(super) struct PeerRigResolveBackoff {
 }
 
 impl PeerRigResolveBackoff {
-    /// Whether this backoff still holds for `rig` at time `now` — the same
+    /// Whether this backoff still holds for `rig` at time `now` - the same
     /// references, and the wait not yet elapsed.
     fn holds(&self, rig: &crate::pds::avatar::RiggedBody, now: f64) -> bool {
         self.avatar_rkey == rig.avatar
@@ -179,7 +179,7 @@ impl PeerRigResolveBackoff {
         // Shared arithmetic (#1217): the peer-fetch retries introduced by
         // #1217/#1218 double the same way, and "doubling from base, capped
         // at max" now means one thing in one place. A set that CHANGED
-        // starts over — the wait exists because those records could not be
+        // starts over - the wait exists because those records could not be
         // fetched, and these are different records.
         let wait_secs = super::presence::next_wait_secs(
             same_set.then(|| previous.map(|b| b.wait_secs)).flatten(),
@@ -210,7 +210,7 @@ pub(super) struct PeerRigResolveFloor {
 impl PeerRigResolveFloor {
     /// Whether this floor still bars a new resolution at `now`.
     ///
-    /// Takes no reference set on purpose — see
+    /// Takes no reference set on purpose - see
     /// [`config::network::RIG_RESOLVE_MIN_INTERVAL_SECS`]. A peer
     /// alternating between two valid outfits presents a changed set on
     /// every update, so any set-conditional test would wave it through.
@@ -245,9 +245,9 @@ pub(super) fn spawn_peer_rig_resolutions(
     let now = time.elapsed_secs_f64();
     for (peer_entity, peer, backoff, floor) in &peers {
         // A muted peer gets none of this (#1219 f287). The fan-out is N+2
-        // records per attempt — a DID document, a wardrobe record and up to
+        // records per attempt - a DID document, a wardrobe record and up to
         // sixteen attachments, to hosts of THEIR choosing, on the shared
-        // `IoTaskPool` — and it is the largest lever a peer retains over a
+        // `IoTaskPool` - and it is the largest lever a peer retains over a
         // client that has decided it is done with them. Re-resolved on
         // unmute: this system runs every frame and `resolved` never rides
         // the wire, so nothing has to be remembered.
@@ -267,7 +267,7 @@ pub(super) fn spawn_peer_rig_resolutions(
         // "Resolved" means resolved COMPLETELY (#1122). A prop worn from
         // the inventory has a minted TID that is not on the owner's PDS
         // until they save, so its record 404s and `resolve_rigged_body`
-        // skips it — leaving `resolved` `Some` with a SHORT attachment
+        // skips it - leaving `resolved` `Some` with a SHORT attachment
         // list. Treating that as done meant the prop was never fetched
         // again, not even after the owner published it: peers saw the
         // circlet only once its wearer next changed something else.
@@ -285,7 +285,7 @@ pub(super) fn spawn_peer_rig_resolutions(
             continue;
         }
         // Per-peer rate floor (#1126), checked whether or not the reference
-        // set changed — a set-conditional check is precisely what a peer
+        // set changed - a set-conditional check is precisely what a peer
         // alternating between two valid outfits walks through.
         if floor.is_some_and(|f| f.holds(now)) {
             continue;
@@ -314,7 +314,7 @@ pub(super) fn spawn_peer_rig_resolutions(
                 (rig.resolved, report)
             };
             // The report travels with the resolution so the landing site can
-            // say what was skipped and why (#1144) — a `None` alone cannot
+            // say what was skipped and why (#1144) - a `None` alone cannot
             // distinguish a deleted wardrobe record from a timeout.
             crate::config::http::run_or(
                 fut,
@@ -342,7 +342,7 @@ pub(super) fn spawn_peer_rig_resolutions(
 }
 
 /// Land finished resolutions onto their peers. A result whose reference
-/// snapshot no longer matches the peer's current record is dropped — the
+/// snapshot no longer matches the peer's current record is dropped - the
 /// spawn system re-resolves against the newer references next frame.
 pub(super) fn poll_peer_rig_resolutions(
     mut commands: Commands,
@@ -367,7 +367,7 @@ pub(super) fn poll_peer_rig_resolutions(
 
         // Report the outcome before acting on it (#1144). This chain is N+2
         // records per peer and, since gifting made attachment records
-        // cross-owner, the one most likely to fail partially — yet it used to
+        // cross-owner, the one most likely to fail partially - yet it used to
         // leave nothing behind but console `warn!` lines, so "why is Bob a
         // bare chassis for me but not for Alice" was unanswerable from a
         // captured log.
@@ -395,7 +395,7 @@ pub(super) fn poll_peer_rig_resolutions(
         }
         // The shortfall reaches the roster (#1217 f332). Until now the ONLY
         // trace of a worn item that could not be fetched was a session-log
-        // line — and the failure is per-viewer, so two people in the same
+        // line - and the failure is per-viewer, so two people in the same
         // room saw different outfits with no way to discover the
         // disagreement. The module's own comment named the consequence
         // ("why is Bob a bare chassis for me but not for Alice") without
@@ -453,7 +453,7 @@ pub(super) fn poll_peer_rig_resolutions(
         let complete = resolved.attachments.len() >= rig.attachments.len();
         // A short set is a partial failure (#1122): the body is installed so
         // the peer is not left bare, but the missing props are worth another
-        // try — most often because their owner has not saved them yet, and
+        // try - most often because their owner has not saved them yet, and
         // the record appears at that rkey the moment they do. The doubling
         // backoff that bounds an outright failure bounds this too, so a prop
         // that is never published settles into a slow poll rather than a
@@ -519,11 +519,11 @@ pub(super) fn poll_peer_avatar_fetches(
                 (r, true, FetchState::Landed)
             }
             Ok(None) => {
-                // A 404 resolved to the DID-seeded default — still a successful
+                // A 404 resolved to the DID-seeded default - still a successful
                 // fetch (the peer simply hasn't published an avatar).
                 crate::diagnostics::samplers::avatar_fetch_succeeded(&mut metrics);
                 info!(
-                    "Peer {} ({}) has no avatar record — synthesising default",
+                    "Peer {} ({}) has no avatar record - synthesising default",
                     peer_id, did
                 );
                 (
@@ -543,12 +543,12 @@ pub(super) fn poll_peer_avatar_fetches(
                     },
                 );
                 warn!(
-                    "Avatar fetch failed for {} ({}): {:?} — falling back to default",
+                    "Avatar fetch failed for {} ({}): {:?} - falling back to default",
                     peer_id, did, err
                 );
                 // The two "no record" outcomes are NOT the same fact (#1217
-                // f323). A 404 above is a finished question — this person has
-                // not published an avatar — and the DID-seeded default IS
+                // f323). A 404 above is a finished question - this person has
+                // not published an avatar - and the DID-seeded default IS
                 // their appearance. A transport failure is an unanswered one,
                 // and rendering it identically meant a one-second blip at
                 // join time replaced someone's authored body with a
@@ -577,13 +577,13 @@ pub(super) fn poll_peer_avatar_fetches(
         // newer state for this peer. An `AvatarStateUpdate` broadcast (the
         // live-preview nudge from a peer dragging a slider in the Avatar
         // Editor) can land between the fetch kick-off and its completion;
-        // overwriting it here would permanently fracture visual state —
+        // overwriting it here would permanently fracture visual state -
         // this client would see the old PDS record while every other peer
         // in the room sees the live preview.
         if let Some((mut peer, mut resolve)) = peers.iter_mut().find(|(p, _)| p.peer_id == peer_id)
         {
             // A stand-in installed by an earlier FAILED attempt may be
-            // replaced — that is the whole point of the retry (#1217 f323).
+            // replaced - that is the whole point of the retry (#1217 f323).
             // A live preview may not: `AvatarStateUpdate` sets `avatar` to
             // `Landed`, so the state read here distinguishes "nothing real
             // is standing" from "something newer already arrived".
@@ -610,7 +610,7 @@ mod tests {
 
     /// #1122. Sequence: a peer wears a prop from their inventory, which
     /// mints a fresh TID; the preview broadcast names it, every guest
-    /// resolves, and that record is not on the owner's PDS yet — so it 404s
+    /// resolves, and that record is not on the owner's PDS yet - so it 404s
     /// and `resolve_rigged_body` skips the prop. The result is `Some` with a
     /// SHORT attachment list, and treating `Some` as "done" meant no guest
     /// ever fetched that prop again, not even after the owner saved it: the
@@ -640,7 +640,7 @@ mod tests {
         assert!(rig_is_fully_resolved(&worn));
     }
 
-    /// A body with nothing worn is finished the moment it resolves — the
+    /// A body with nothing worn is finished the moment it resolves - the
     /// completeness rule must not turn every plain avatar into a re-fetch
     /// loop.
     #[test]
@@ -656,9 +656,9 @@ mod tests {
 
     /// #1219 f287. The sequence: you mute a hostile peer and assume you have
     /// disengaged, while their record keeps driving your client's network on
-    /// every edit they make. This fan-out is the biggest lever they retain —
+    /// every edit they make. This fan-out is the biggest lever they retain -
     /// N+2 records per attempt, to hosts of their choosing, on the shared
-    /// `IoTaskPool` — and it had no mute check at all.
+    /// `IoTaskPool` - and it had no mute check at all.
     ///
     /// Asserts the negative only, deliberately: the unmuted control would
     /// spawn a REAL HTTPS round trip, and under `cargo test --lib`, where
@@ -726,8 +726,8 @@ mod tests {
     /// does nothing against references that SUCCEED. Because `resolved` is
     /// `#[serde(skip)]`, every live-preview update arrives unresolved, so a
     /// peer alternating between two valid outfits made every guest in the
-    /// room re-run the whole fan-out — a DID document, a wardrobe record
-    /// and up to sixteen attachments — per round trip, to hosts of that
+    /// room re-run the whole fan-out - a DID document, a wardrobe record
+    /// and up to sixteen attachments - per round trip, to hosts of that
     /// peer's choosing, on the shared IoTaskPool.
     ///
     /// The floor is therefore unconditional. The issue proposed "unless the

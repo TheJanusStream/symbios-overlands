@@ -1,20 +1,20 @@
 //! Per-generator grammar compile status (#829).
 //!
 //! L-system and Shape grammars are the flagship creative feature, but
-//! their parse/derivation errors used to go to `warn!` only — invisible
+//! their parse/derivation errors used to go to `warn!` only - invisible
 //! on native without a terminal and unreachable in the browser. The
 //! spawn paths now record every compile outcome here, keyed by the
 //! generator name the editors select with, and the grammar forges render
 //! the entry under their code editors: a red error with the line number,
-//! or a quiet "compiled" tick — so silence is distinguishable from
+//! or a quiet "compiled" tick - so silence is distinguishable from
 //! success.
 //!
 //! Scope: the ROOM compile records under the room generator's key; the
 //! LOCAL avatar's visuals record under the avatar editor's fixed root
 //! key; REMOTE peers' grammars are deliberately not recorded (a
 //! neighbour's broken tree is not the local editor's business). Entries
-//! self-heal — every recompile overwrites its key, and a room's arrival
-//! compile rewrites all of them — and logout resets the resource.
+//! self-heal - every recompile overwrites its key, and a room's arrival
+//! compile rewrites all of them - and logout resets the resource.
 
 use std::collections::HashMap;
 
@@ -25,7 +25,7 @@ use bevy::prelude::*;
 pub enum GrammarStatus {
     /// Parsed, derived and meshed without complaint.
     Ok,
-    /// Rejected — `message` is the same text the `warn!` log carries
+    /// Rejected - `message` is the same text the `warn!` log carries
     /// (line-numbered where the parser knows one), minus the generator
     /// name the UI already shows.
     Error { message: String },

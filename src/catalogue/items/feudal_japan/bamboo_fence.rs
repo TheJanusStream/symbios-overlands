@@ -1,4 +1,4 @@
-//! Bamboo fence — a Feudal-Japan prop. A short run of split-bamboo
+//! Bamboo fence - a Feudal-Japan prop. A short run of split-bamboo
 //! palisade: upright canes lashed to two horizontal rails with dark cord,
 //! the everyday boundary of a garden or lane.
 
@@ -48,7 +48,7 @@ fn build_tree() -> Generator {
     let span = 4.0_f32;
     let cane_h = 1.7;
 
-    // Lower rail — the root.
+    // Lower rail - the root.
     let mut prims = vec![prim(
         solid(cuboid_tapered([span, 0.1, 0.1], 0.0, timber(BAMBOO_TAN))),
         [0.0, 0.5, 0.0],
@@ -70,7 +70,7 @@ fn build_tree() -> Generator {
             [x, cane_h * 0.5, 0.0],
             id_quat(),
         ));
-        // Segment node rings — the bamboo signature.
+        // Segment node rings - the bamboo signature.
         for ny in [0.35_f32, 0.8, 1.25] {
             prims.push(prim(
                 cylinder_tapered(0.085, 0.04, 8, 0.0, timber([0.48, 0.48, 0.26])),

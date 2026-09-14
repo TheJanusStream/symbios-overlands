@@ -4,7 +4,7 @@
 //! project (terrain seed in [`crate::pds::RoomRecord::default_for_did`],
 //! avatar palette in [`crate::pds::AvatarRecord::default_for_did`], and
 //! every downstream `seeded_defaults` deriver). Every peer visiting the
-//! same DID derives the identical seed locally — there is no
+//! same DID derives the identical seed locally - there is no
 //! authoritative server.
 
 /// FNV-1a 64-bit hash of a string. Bit-exact across platforms by
@@ -29,7 +29,7 @@ mod tests {
 
     #[test]
     fn known_vector_a() {
-        // FNV-1a("a") — published reference value.
+        // FNV-1a("a") - published reference value.
         assert_eq!(fnv1a_64("a"), 0xaf63dc4c8601ec8c);
     }
 

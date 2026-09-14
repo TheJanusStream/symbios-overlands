@@ -1,24 +1,24 @@
 //! Shared quantised-fade materials for particle emitters.
 //!
-//! The naive per-particle approach — allocate a `StandardMaterial` at
-//! spawn and rewrite its colour every frame — is the single most
+//! The naive per-particle approach - allocate a `StandardMaterial` at
+//! spawn and rewrite its colour every frame - is the single most
 //! expensive pattern this renderer can express: every particle becomes
 //! its own material instance (defeating Bevy's automatic mesh batching,
 //! so N particles are N draw calls), and every per-frame
 //! `Assets::get_mut` marks the asset modified, forcing the renderer to
 //! re-prepare that particle's material bind group every frame. On
-//! WebGL2 — the demo's floor — both costs are at their worst.
+//! WebGL2 - the demo's floor - both costs are at their worst.
 //!
 //! Instead each emitter bakes its colour fade into a small **ramp** of
 //! shared materials at first emission ([`RAMP_STEPS`] buckets along the
 //! start→end gradient, or a single bucket when the two colours are
 //! equal). A particle's fade is then a `MeshMaterial3d` *handle swap*
-//! when its lifetime fraction crosses into the next bucket — an
+//! when its lifetime fraction crosses into the next bucket - an
 //! asset-id copy identical in cost to the atlas-frame mesh swap, with
 //! zero asset mutation. All particles of an emitter sharing a bucket
 //! (and mesh) batch into one draw.
 //!
-//! Size fade is untouched by quantisation — it lives on
+//! Size fade is untouched by quantisation - it lives on
 //! `Transform::scale` and stays perfectly smooth.
 
 use std::sync::Arc;
@@ -66,7 +66,7 @@ impl EmitterMaterialRamp {
 /// lerped start→end; additive emitters route the bucket colour through
 /// `emissive` as well, so the additive accumulator stays lit on dark
 /// backgrounds where pure-alpha would wash out. A non-fading emitter
-/// (`start_color == end_color`) bakes a single bucket — its whole
+/// (`start_color == end_color`) bakes a single bucket - its whole
 /// particle population shares one material.
 ///
 /// The optional texture is registered against the shared blob image

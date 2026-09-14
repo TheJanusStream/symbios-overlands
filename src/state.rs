@@ -20,10 +20,10 @@ use crate::config;
 use crate::network::ChatDelivery;
 use crate::pds::{AvatarRecord, Generator, InventoryRecord, RoomRecord};
 
-/// Application state machine. `Loading` waits on all six loading tasks —
+/// Application state machine. `Loading` waits on all six loading tasks -
 /// the async heightmap generation task, the ATProto PDS room-record fetch,
 /// the local avatar-record fetch, the local inventory-record fetch, the
-/// seeded ambient-audio bake, *and* the room compile (`WorldCompiled`) —
+/// seeded ambient-audio bake, *and* the room compile (`WorldCompiled`) -
 /// before handing off to `InGame`, so the terrain collider is solid, every
 /// recipe (room + avatar + inventory) is resident, the ambient bed is ready
 /// to play, and the world's entities exist when the first gameplay frame
@@ -53,12 +53,12 @@ pub struct RemotePeer {
     pub avatar: Option<AvatarRecord>,
     /// What wire protocol this peer announced (#1121), from its
     /// [`crate::protocol::OverlandsMessage::Hello`]. `None` means no `Hello`
-    /// has arrived — which after
+    /// has arrived - which after
     /// [`crate::config::network::PROTOCOL_ANNOUNCE_GRACE_SECS`] is itself the
     /// answer: the peer is running a build from before the handshake existed,
     /// and its wire layout is unknowable.
     pub build: Option<PeerBuild>,
-    /// `Time::elapsed_secs_f64` at the moment this peer connected — the clock
+    /// `Time::elapsed_secs_f64` at the moment this peer connected - the clock
     /// the `Hello` grace period runs against.
     pub connected_at: f64,
 }
@@ -88,7 +88,7 @@ pub enum PeerCompatibility {
     Mismatched(u16),
     /// No `Hello` yet, and the grace period has not elapsed.
     Pending,
-    /// No `Hello`, and the grace period has elapsed — a pre-handshake build.
+    /// No `Hello`, and the grace period has elapsed - a pre-handshake build.
     Unannounced,
 }
 
@@ -97,7 +97,7 @@ impl RemotePeer {
     ///
     /// The `Unannounced` arm is the case that matters in practice and the one
     /// a version field alone would miss: every build that shipped before
-    /// #1121 announces nothing, so silence — not a number — is how the live
+    /// #1121 announces nothing, so silence - not a number - is how the live
     /// incompatibility presents itself.
     pub fn compatibility(&self, now: f64) -> PeerCompatibility {
         match &self.build {
@@ -126,15 +126,15 @@ pub enum SocialResonance {
     None,
     /// Query finished: both `following` and `followedBy` were present.
     Mutual,
-    /// The query could not be answered — a non-2xx response, a transport
+    /// The query could not be answered - a non-2xx response, a transport
     /// error, a JSON decode failure or the wrapping timeout (#1218 f297).
     ///
     /// This arm exists because the three failure paths used to return
     /// [`None`](Self::None), whose doc comment asserts a fact about the
     /// social graph that a failed lookup cannot support. The ★ is the only
-    /// trust signal the social UI carries — it is what a user leans on
+    /// trust signal the social UI carries - it is what a user leans on
     /// deciding whether to accept a gift or follow a stranger through a
-    /// portal — and a signal that fails closed with no distinction between
+    /// portal - and a signal that fails closed with no distinction between
     /// "no" and "couldn't ask" quietly under-reports friends.
     ///
     /// Retried on the shared doubling backoff, so a transient AppView hiccup
@@ -146,15 +146,15 @@ pub enum SocialResonance {
 /// the message originated from a known peer entity (or from the local
 /// session) so the chat panel can look up the author's bsky profile
 /// picture in [`crate::avatar::BskyProfileCache`] and render it as a
-/// small icon next to the handle. Messages with no DID — e.g. an
-/// unauthenticated test write — render text-only with a placeholder.
+/// small icon next to the handle. Messages with no DID - e.g. an
+/// unauthenticated test write - render text-only with a placeholder.
 #[derive(Clone, Debug)]
 pub struct ChatEntry {
     pub did: Option<String>,
     pub author: String,
     pub text: String,
     /// Wall-clock arrival time as Unix seconds (#846). The old field was
-    /// a pre-formatted minutes-since-app-launch string — meaningless
+    /// a pre-formatted minutes-since-app-launch string - meaningless
     /// across peers and sessions. Raw epoch here; the HUD renders local
     /// HH:MM via [`clock_hhmm`].
     pub at_epoch_secs: i64,
@@ -168,7 +168,7 @@ pub struct ChatEntry {
 }
 
 /// Current wall-clock time as Unix seconds. `chrono`'s clock is backed
-/// by JS `Date` on wasm (`wasmbind`), so this is safe on both targets —
+/// by JS `Date` on wasm (`wasmbind`), so this is safe on both targets -
 /// `std::time::SystemTime` panics on wasm32 (known gotcha).
 pub fn now_epoch_secs() -> i64 {
     chrono::Utc::now().timestamp()
@@ -183,7 +183,7 @@ pub fn now_epoch_secs() -> i64 {
 /// advances `elapsed` by a quarter second, not by the wall-clock gap. Two
 /// machines that were asleep for different lengths therefore accumulate
 /// different amounts of "time", and a gift offer can expire on the sender
-/// while the recipient still has a live dialog — the sender toasted that
+/// while the recipient still has a live dialog - the sender toasted that
 /// nobody answered while the recipient was accepting.
 ///
 /// Clamped at zero: a wall clock can step backwards (NTP, a timezone-naive
@@ -217,7 +217,7 @@ pub fn clock_hhmm(epoch_secs: i64) -> String {
 #[derive(Resource, Default)]
 pub struct ChatHistory {
     pub messages: Vec<ChatEntry>,
-    /// Messages arrived since the Chat window was last open — drives the
+    /// Messages arrived since the Chat window was last open - drives the
     /// toolbar's "Chat (n)" badge (#835), which is the only way an
     /// incoming message is visible at all with the window shut.
     ///
@@ -229,7 +229,7 @@ pub struct ChatHistory {
     /// anyway.
     pub unread: usize,
     /// The half-typed line sitting in the chat input (#1140). It lived in
-    /// a `Local<String>` on `chat_ui`, which no teardown can reach — so a
+    /// a `Local<String>` on `chat_ui`, which no teardown can reach - so a
     /// sentence typed before logging out was still in the box when the
     /// NEXT user logged in on the same machine. Anything session-scoped
     /// has to live somewhere logout can scrub, and the history it belongs
@@ -239,7 +239,7 @@ pub struct ChatHistory {
 
 impl ChatHistory {
     /// Append a wall-clock-stamped entry, enforcing the rolling cap
-    /// (#846). The cap used to live only on the inbound path — local
+    /// (#846). The cap used to live only on the inbound path - local
     /// sends and the presence/system lines grew the history unboundedly.
     /// EVERY writer routes through here now.
     pub fn push(
@@ -252,7 +252,7 @@ impl ChatHistory {
     }
 
     /// Append a line the LOCAL user just sent, stamped with what actually
-    /// became of it (#1213). Only `chat_ui` calls this — every other writer
+    /// became of it (#1213). Only `chat_ui` calls this - every other writer
     /// is reporting something that already arrived, and uses [`push`].
     ///
     /// [`push`]: ChatHistory::push
@@ -307,13 +307,13 @@ pub struct CurrentRoomDid(pub String);
 /// second is a local build that cannot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TravelPhase {
-    /// Fetching the destination's room record. Cancellable — nothing has
+    /// Fetching the destination's room record. Cancellable - nothing has
     /// been swapped yet, and the fetch can outlast a minute on a bad
     /// network (#1231 f25).
     Fetching,
     /// The record has landed and been installed; the terrain is
     /// regenerating and the world is compiling a time-slice at a time.
-    /// Nothing to cancel — the world being left no longer exists.
+    /// Nothing to cancel - the world being left no longer exists.
     Building,
 }
 
@@ -326,8 +326,8 @@ pub enum TravelPhase {
 /// is several seconds before the destination exists: the freeze released
 /// and the card vanished while terrain regen had not started and the
 /// time-sliced compile had not run, so the player was dropped at the
-/// landing pose — `y = 0` for a gateway hop, frequently below the ground
-/// still under their feet — to watch the world assemble around them with
+/// landing pose - `y = 0` for a gateway hop, frequently below the ground
+/// still under their feet - to watch the world assemble around them with
 /// no overlay, spinner or line. Every suppressor in the app already keys
 /// off `TravelingTo.is_some()`, so carrying a phase on it rather than
 /// adding a second marker is what makes it impossible to miss one.
@@ -336,14 +336,14 @@ pub struct TravelingTo {
     pub target_did: String,
     /// Arrival position. `Some` for a classic portal with a baked target;
     /// `None` (#745, gateway travel) defers to the destination record's
-    /// `default_landing` — resolved when the fetched record lands, falling
+    /// `default_landing` - resolved when the fetched record lands, falling
     /// back to the legacy origin scatter when the destination has none.
     pub target_pos: Option<Vec3>,
     /// The name the surface that started this travel already had for the
     /// destination (#1231 f27), or `None` when it had none.
     ///
     /// `BskyProfileCache` is filled by peer-driven fetches only, so a
-    /// gateway row that just rendered "@alice" does NOT put her in it —
+    /// gateway row that just rendered "@alice" does NOT put her in it -
     /// and the overlay one click later fell back to `did:plc:abcdefgh…`
     /// for the same person. The row had the handle; it just threw it away.
     pub target_label: Option<String>,
@@ -394,7 +394,7 @@ pub enum PublishStatus {
 /// Per-record publish-status resource. Generic over the record type so
 /// the Room, Avatar and Inventory editors each get their **own**
 /// instance: publishing one record can no longer overwrite another
-/// editor's status line — the bug that came from a single shared
+/// editor's status line - the bug that came from a single shared
 /// `PublishFeedback`. One is registered per record in [`crate::run`]
 /// (`PublishFeedback<RoomRecord>`, `<AvatarRecord>`,
 /// `<InventoryRecord>`).
@@ -405,7 +405,7 @@ pub struct PublishFeedback<R: Send + Sync + 'static> {
     /// feeding the shared row's budget readout (#694, #1207). Refreshed by
     /// each editor at
     /// [`crate::config::ui::editor::SIZE_READOUT_REFRESH_SECS`] cadence
-    /// while its window is open — a full serialize per frame would be
+    /// while its window is open - a full serialize per frame would be
     /// wasted work. Default (unmeasured) until the window first opens.
     pub live_size: crate::pds::record_size::SizeReadout,
     /// When `live_size` was last refreshed (`Time::elapsed_secs_f64`).
@@ -414,7 +414,7 @@ pub struct PublishFeedback<R: Send + Sync + 'static> {
 }
 
 impl PublishStatus {
-    /// Whether a save is in flight — the one state the Save row disables
+    /// Whether a save is in flight - the one state the Save row disables
     /// every button in.
     pub fn is_publishing(&self) -> bool {
         matches!(self, Self::Publishing { .. })
@@ -441,12 +441,12 @@ impl<R: Send + Sync + 'static> Default for PublishFeedback<R> {
 ///
 /// The two causes have **opposite remedies**, and the room banner used to
 /// assert the first one whatever had happened. A decode failure is permanent
-/// — the record on the PDS exists, this build cannot read it, no amount of
+/// - the record on the PDS exists, this build cannot read it, no amount of
 /// retrying helps, and deliberately overwriting it is the way out. An
 /// unreachable server is the reverse: the stored record is very probably
 /// healthy and simply unread, and that same overwrite is a hard delete of it.
 /// So the cause has to travel with the reason string; a free-text `reason`
-/// alone let "PDS unreachable — …" render under the headline "incompatible
+/// alone let "PDS unreachable - …" render under the headline "incompatible
 /// with this build", above a button that destroys the record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecoveryCause {
@@ -454,14 +454,14 @@ pub enum RecoveryCause {
     /// build's schema (lexicon drift, a partially-migrated field). Permanent,
     /// and the one cause that knows the stored record is unusable *here*.
     Decode,
-    /// The record was never read at all — the retry budget ran out, or the
+    /// The record was never read at all - the retry budget ran out, or the
     /// identity did not resolve. Says nothing about the stored record's
     /// health, so nothing may be offered that destroys it.
     Unreachable,
 }
 
 /// Present when the room-record fetch fell through to the default homeworld
-/// without reading the owner's real record — either the PDS response could
+/// without reading the owner's real record - either the PDS response could
 /// not be decoded against the current `RoomRecord` schema, or the fetch never
 /// succeeded ([`RecoveryCause`]). The world editor shows a recovery banner
 /// while this resource is set, and on `Decode` only it also offers the
@@ -469,7 +469,7 @@ pub enum RecoveryCause {
 /// record.
 #[derive(Resource, Debug, Clone)]
 pub struct RoomRecordRecovery {
-    /// Which of the two situations this is — the banner's headline, its
+    /// Which of the two situations this is - the banner's headline, its
     /// detail prefix and whether the destructive reset is offered at all
     /// all branch on it.
     pub cause: RecoveryCause,
@@ -479,7 +479,7 @@ pub struct RoomRecordRecovery {
 }
 
 /// Present when the avatar-record fetch fell back to the DID default for
-/// an unrecoverable reason — decode failure or an exhausted retry budget
+/// an unrecoverable reason - decode failure or an exhausted retry budget
 /// (#840). Live and Stored are both the default, so "dirty" reads clean
 /// while the real record still sits on the PDS: the Avatar editor shows
 /// a banner and the first publish asks for confirmation before it
@@ -492,7 +492,7 @@ pub struct AvatarRecordRecovery {
 }
 
 /// Present when the inventory fetch fell back to the empty default after
-/// its (short) retry budget (#840) — the session is "degraded": the
+/// its (short) retry budget (#840) - the session is "degraded": the
 /// stash shows empty while items may still exist on the PDS, and an
 /// unconfirmed publish would wipe them. Same lifecycle as
 /// [`AvatarRecordRecovery`].
@@ -502,7 +502,7 @@ pub struct InventoryRecordRecovery {
     pub reason: String,
 }
 
-/// The local player's **live** avatar record — what the editor sliders
+/// The local player's **live** avatar record - what the editor sliders
 /// mutate in real time and what gets broadcast to peers. Diverges from
 /// `StoredAvatarRecord` until the owner presses "Publish" (or reverts).
 #[derive(Resource, Clone)]
@@ -532,7 +532,7 @@ pub struct OtherSessionRoom {
 /// What the inbound arm does with a same-owner `RoomStateUpdate`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SameOwnerUpdate {
-    /// Identical to the local live record — the echo. Touch nothing.
+    /// Identical to the local live record - the echo. Touch nothing.
     Ignore,
     /// Local is clean: install it, and say so.
     Apply,
@@ -554,7 +554,7 @@ pub fn classify_same_owner_update(
     }
 }
 
-/// The local **live** room record — what the World Editor's widgets,
+/// The local **live** room record - what the World Editor's widgets,
 /// the 3D gizmo commit and the inventory drag-drop mutate in place, and
 /// what the world compiler / terrain / network broadcast read each
 /// frame. Diverges from [`StoredRoomRecord`] until the owner Publishes
@@ -570,15 +570,15 @@ pub fn classify_same_owner_update(
 /// exists for it.
 ///
 /// Lives here rather than in `ui::undo` (#1158): its writers are
-/// `network::inbound`, `terrain::lots` and `player::portal` — domain
+/// `network::inbound`, `terrain::lots` and `player::portal` - domain
 /// systems that were importing the egui layer for two bools. The undo
 /// STACK stays in `ui::undo`, which is where an editor's history
 /// belongs; this is the signal that crosses into it.
 #[derive(Resource, Default)]
 pub struct RoomWriteSignals {
-    /// Portal travel / inbound owner broadcast — clear the history.
+    /// Portal travel / inbound owner broadcast - clear the history.
     pub foreign: bool,
-    /// Lot auto-population — fold into the current entry.
+    /// Lot auto-population - fold into the current entry.
     pub derived: bool,
 }
 
@@ -627,7 +627,7 @@ pub struct LocalSettings {
     pub effects_intensity: EffectsIntensity,
     /// Hang each remote peer's name over their body (#1226 f325). On by
     /// default: without it there is no in-world identity at all, and every
-    /// social action the product ships — Mute, Visit, drag-to-gift — is
+    /// social action the product ships - Mute, Visit, drag-to-gift - is
     /// addressed to a roster row that nothing connects to a body. Off is
     /// for the user who would rather have an uncluttered view of a busy
     /// room than a name over everybody in it.
@@ -635,7 +635,7 @@ pub struct LocalSettings {
     /// Interface scale, applied as egui's `zoom_factor` (#1259 f239).
     ///
     /// The app shipped with no text-size control of any kind, so the
-    /// three-palette picker was the whole of its accessibility surface —
+    /// three-palette picker was the whole of its accessibility surface -
     /// and egui's built-in Ctrl+plus / Ctrl+minus, which has always
     /// worked, was documented nowhere and forgotten at every launch
     /// because nothing serialises egui's `Options`. This field is the
@@ -648,15 +648,15 @@ pub struct LocalSettings {
     /// on the way in: a prefs file naming 0.05 would leave the UI
     /// unreadable with no way to reach the slider that fixes it.
     pub ui_scale: f32,
-    /// Follow `Url` asset references — images and sounds a record names by
-    /// web address — as opposed to the ATProto ones (`AtprotoBlob`,
+    /// Follow `Url` asset references - images and sounds a record names by
+    /// web address - as opposed to the ATProto ones (`AtprotoBlob`,
     /// `DidPfp`), which stay inside Bluesky infrastructure (#1248 f298).
     ///
     /// **What this is really about.** A room reached through a portal or a
     /// gateway is a stranger's, and its record can name any host it likes.
     /// Standing in it makes your client fetch from that host, which discloses
-    /// your IP address, roughly where you are, and — for a contact cue, which
-    /// fires on touch — when you arrived and when you left. #1127 removed the
+    /// your IP address, roughly where you are, and - for a contact cue, which
+    /// fires on touch - when you arrived and when you left. #1127 removed the
     /// crude half of that (http, loopback, private ranges); what remains is
     /// inherent to following an address somebody else chose, and until now it
     /// was neither disclosed nor refusable.
@@ -676,7 +676,7 @@ pub struct LocalSettings {
 /// broadcast. The engine bounded resource use carefully and never bounded
 /// GRIEFING: it caps the decal pile at 64 quads while permitting each to be
 /// 64 m across at full opacity with a zero cooldown, so a visitor's screen
-/// filled with solid colour the moment their feet touched the ground — and
+/// filled with solid colour the moment their feet touched the ground - and
 /// the only escape was to leave the room, which is exactly what a griefer
 /// wants. There was an app-wide audio mute and no visual equivalent at all.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -687,7 +687,7 @@ pub enum EffectsIntensity {
     /// Bound the worst of it: decals shrink and fade, and a zero cooldown
     /// gets a floor so a Dwell recipe cannot stamp once per frame.
     Reduced,
-    /// None at all — the same early-return the empty-registry path already
+    /// None at all - the same early-return the empty-registry path already
     /// takes.
     Off,
 }
@@ -745,7 +745,7 @@ impl Default for LocalSettings {
     }
 }
 
-/// The owner's **live** inventory record — the in-memory copy the Inventory
+/// The owner's **live** inventory record - the in-memory copy the Inventory
 /// window mutates in place. Divergence from [`StoredInventoryRecord`] drives
 /// the "Save" button's dirty indicator.
 #[derive(Resource, Clone)]
@@ -797,7 +797,7 @@ impl EditableRecord for InventoryRecord {
 /// `Generator` tree carries data the editor never compares
 /// structurally), so all three editors diff through the same serde
 /// model that is already DAG-CBOR / round-trip tested: "dirty" means
-/// "would serialise differently to the stored record" — exactly what a
+/// "would serialise differently to the stored record" - exactly what a
 /// Publish would change. Used uniformly so Avatar no longer behaves
 /// differently from Room/Inventory just because it happens to derive
 /// `PartialEq`.
@@ -806,12 +806,12 @@ pub fn records_differ<R: serde::Serialize>(a: &R, b: &R) -> bool {
 }
 
 /// A currently-displayed incoming item-offer modal. Exactly one can be
-/// active at a time — this is an explicit anti-spam measure: concurrent
+/// active at a time - this is an explicit anti-spam measure: concurrent
 /// offers from other peers are auto-declined with a "busy" reply so a
 /// malicious client cannot flood a victim with request dialogs or tie
 /// their client up answering queued prompts.
 ///
-/// Muted senders never reach this resource — see
+/// Muted senders never reach this resource - see
 /// [`crate::network`]'s `inbound::handle_incoming_messages`, which
 /// short-circuits muted-peer offers into a silent auto-decline before the
 /// dialog is constructed.
@@ -824,7 +824,7 @@ pub struct IncomingOfferDialog {
     /// ([`crate::network::PeerLabel`], #1218 f299).
     ///
     /// A `String` here used to fall back to the raw DID, which the modal
-    /// then rendered inside an `@`-prefixed sentence — presenting
+    /// then rendered inside an `@`-prefixed sentence - presenting
     /// `@did:plc:z72i7hdynmk6r22z27h6tvur` as the identity the user must
     /// judge, twice, in the app's one blocking dialog, on a countdown. The
     /// typed label is what lets the modal say "we don't know who this is"
@@ -839,7 +839,7 @@ pub struct IncomingOfferDialog {
     /// log, whose other stamps are all on this clock.
     pub arrived_at_secs: f64,
     /// Wall-clock seconds the offer arrived (#1216). The TTL and the
-    /// on-screen countdown both run on THIS one — see [`real_secs_since`]
+    /// on-screen countdown both run on THIS one - see [`real_secs_since`]
     /// for why a deadline the sender is also counting cannot use the
     /// suspend-clamped virtual clock.
     pub arrived_at_epoch: i64,
@@ -848,8 +848,8 @@ pub struct IncomingOfferDialog {
 /// An incoming offer the recipient set aside to make room for (#1220 f288).
 ///
 /// The dialog is a true `egui::Modal`: it paints topmost and blocks
-/// background pointer input. So its own "Open Inventory" button — offered on
-/// the one failure path it exists for, a full stash — raised the Inventory
+/// background pointer input. So its own "Open Inventory" button - offered on
+/// the one failure path it exists for, a full stash - raised the Inventory
 /// window UNDER a modal that swallowed every click on it, while the
 /// countdown declined the gift out from under the user. The only way to
 /// reach the Inventory was to Decline first, which is the outcome the button
@@ -863,7 +863,7 @@ pub struct IncomingOfferDialog {
 pub struct HeldOffer(pub IncomingOfferDialog);
 
 /// DIDs the SIGNED-IN user has muted, persisted across sessions via the
-/// prefs layer (#820/#844). The live cache stays `RemotePeer::muted` —
+/// prefs layer (#820/#844). The live cache stays `RemotePeer::muted` -
 /// this set is the durable source: applied when a peer's DID resolves,
 /// updated by every mute toggle. Without it a mute lived on the
 /// session-scoped peer entity, so a harasser reset the block by simply
@@ -871,7 +871,7 @@ pub struct HeldOffer(pub IncomingOfferDialog);
 ///
 /// Scoped to the account, not the machine (#1223 f292). It is stored in
 /// machine-local prefs like everything else, but under the owner's DID in
-/// [`MutedByOwner`] — a block list is a statement about who *you* will not
+/// [`MutedByOwner`] - a block list is a statement about who *you* will not
 /// hear, and a shared computer used to hand one user's list to the next,
 /// invisibly, since a muted peer renders as a hidden body and a faint dot.
 #[derive(Resource, Default, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
@@ -904,8 +904,8 @@ impl MutedDids {
 /// The persisted shape behind [`MutedDids`], which holds only the signed-in
 /// owner's entry. Kept as a separate resource rather than folded into
 /// `MutedDids` because every reader in the crate wants "the list that
-/// applies to me right now", and exactly two places — login and the prefs
-/// save — care whose it is.
+/// applies to me right now", and exactly two places - login and the prefs
+/// save - care whose it is.
 #[derive(Resource, Default, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct MutedByOwner(pub std::collections::HashMap<String, std::collections::HashSet<String>>);
 
@@ -946,7 +946,7 @@ pub struct BusyAutoDeclines(pub u32);
 pub struct PendingOutgoingOffers {
     pub by_id: std::collections::HashMap<u64, PendingOutgoingOffer>,
     /// Monotonic counter for generating fresh offer_ids. Scoped per-client
-    /// so the ids only have to be unique within this session — the peer
+    /// so the ids only have to be unique within this session - the peer
     /// echoes the value back unchanged, and we correlate by id alone.
     pub next_id: u64,
 }
@@ -956,7 +956,7 @@ pub struct PendingOutgoingOffer {
     pub target_did: String,
     /// How to name the recipient in the sender's own toasts, off the ONE
     /// ladder ([`crate::network::PeerLabel`], #1218 f299) and already
-    /// carrying its `@` when — and only when — it is a real handle.
+    /// carrying its `@` when - and only when - it is a real handle.
     ///
     /// This used to be a bare handle string with `@` glued on at four call
     /// sites, so a recipient whose profile had not resolved was toasted at
@@ -979,7 +979,7 @@ impl PendingOutgoingOffers {
     /// arm the offer's expiry timer until that message has actually been
     /// handed to the transport (#1123). Registering first meant a send the
     /// chunker refused still logged `ItemOfferSent` and still expired
-    /// minutes later as "no answer" — blaming a recipient who was never
+    /// minutes later as "no answer" - blaming a recipient who was never
     /// asked. Peeking costs nothing if the send is refused: the id is not
     /// consumed and the next gift reuses it.
     pub fn peek_next_id(&self) -> u64 {
@@ -1020,7 +1020,7 @@ mod same_owner_update_tests {
     /// #1203. Sequence: edit the world on the laptop for half an hour
     /// without saving; open the same world in a browser on another
     /// machine; the browser's broadcast arrives. The laptop must not
-    /// replace its live record — it holds the copy and asks. Two more
+    /// replace its live record - it holds the copy and asks. Two more
     /// sequences ride on the same decision: the echo of our own record
     /// coming back must be ignored (or the two sessions ping-pong
     /// replacements and reset each other's undo rings), and a clean
@@ -1053,12 +1053,12 @@ mod effects_intensity_tests {
 
     /// #1221 f308. The sequence: you portal into a stranger's room and your
     /// screen fills with solid colour the moment your feet touch the ground
-    /// — a Dwell decal recipe at 64 m, alpha 1.0, cooldown 0, stamping once
+    /// - a Dwell decal recipe at 64 m, alpha 1.0, cooldown 0, stamping once
     /// per frame per avatar. The engine bounded resource use (64 live
     /// quads) and never bounded griefing, and the only exit was to leave.
     #[test]
     fn each_level_bounds_a_different_half_of_the_attack() {
-        // Full is what the room authored — the setting must not change the
+        // Full is what the room authored - the setting must not change the
         // product for people who never touch it.
         assert!(EffectsIntensity::Full.plays());
         assert_eq!(EffectsIntensity::Full.decal_scale(), 1.0);
@@ -1114,7 +1114,7 @@ mod mute_list_tests {
 
     /// #1223 f292. A `HashSet` iterates arbitrarily, and a settings list
     /// whose rows reshuffle between frames is one you cannot reliably click
-    /// an Unmute button in — the click lands on whoever moved into that row.
+    /// an Unmute button in - the click lands on whoever moved into that row.
     #[test]
     fn the_mute_list_renders_in_a_stable_order() {
         let mut muted = MutedDids::default();
@@ -1133,7 +1133,7 @@ mod peer_compatibility_tests {
     use super::*;
     use crate::config::network::PROTOCOL_ANNOUNCE_GRACE_SECS;
 
-    /// Mint a `PeerId` without naming the `uuid` crate — it wraps a `Uuid`,
+    /// Mint a `PeerId` without naming the `uuid` crate - it wraps a `Uuid`,
     /// which deserializes from its hyphenated string form.
     fn any_peer_id() -> bevy_symbios_multiuser::prelude::PeerId {
         serde_json::from_value(serde_json::Value::String(String::from(
@@ -1158,8 +1158,8 @@ mod peer_compatibility_tests {
     /// running a build from before `ItemOffer` gained `wear_json` (59ff989)
     /// connects, and every message it exchanges with us that touches a moved
     /// variant fails to decode inside the transport and is dropped. Before
-    /// this reading existed there was nothing anywhere — not on the wire, not
-    /// on the peer, not in the log — that distinguished that peer from a
+    /// this reading existed there was nothing anywhere - not on the wire, not
+    /// on the peer, not in the log - that distinguished that peer from a
     /// healthy one, so a failed gift was indistinguishable from a slow one.
     ///
     /// The grace period is the whole subtlety: such a peer sends no `Hello`,
@@ -1206,7 +1206,7 @@ mod peer_compatibility_tests {
         assert_eq!(
             theirs.compatibility(100.0),
             PeerCompatibility::Mismatched(crate::protocol::PROTOCOL_VERSION + 7),
-            "a declared disagreement needs no grace — it is already the answer"
+            "a declared disagreement needs no grace - it is already the answer"
         );
     }
 }
@@ -1217,7 +1217,7 @@ mod wall_clock_tests {
 
     /// THE SEQUENCE (#1216): a peer offers a gift and shuts the laptop lid.
     /// Both ends are counting the same TTL, and the virtual clock stops on
-    /// whichever machine slept — so the two disagreed about whether the
+    /// whichever machine slept - so the two disagreed about whether the
     /// offer was still alive, and the sender was told the recipient never
     /// answered while the recipient was accepting.
     #[test]
@@ -1247,7 +1247,7 @@ mod wall_clock_tests {
     }
 
     /// The offer's wall-clock stamp is taken by `register` itself, not
-    /// passed in — every caller reading its own clock is how the two
+    /// passed in - every caller reading its own clock is how the two
     /// stamps would drift apart.
     #[test]
     fn registering_an_offer_stamps_the_wall_clock_itself() {

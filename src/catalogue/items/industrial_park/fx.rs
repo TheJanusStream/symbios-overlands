@@ -113,7 +113,7 @@ pub(super) fn stack_vent(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A heavy machinery hum — a low fundamental and its octave with a touch of
+/// A heavy machinery hum - a low fundamental and its octave with a touch of
 /// motor noise, darkened by a lowpass: the drone of a working plant.
 pub(super) fn machine_hum() -> SovereignAudioConfig {
     let s1 = node(
@@ -172,7 +172,7 @@ pub(super) fn machine_hum() -> SovereignAudioConfig {
     patch(vec![s1, s2, noise, bp, mix, lp], NodeId(5))
 }
 
-/// A steady steam hiss — high band-passed noise swelling slowly, venting from
+/// A steady steam hiss - high band-passed noise swelling slowly, venting from
 /// a pressure relief on a tank or pipe.
 pub(super) fn steam_hiss() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));

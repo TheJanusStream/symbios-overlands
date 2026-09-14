@@ -1,9 +1,12 @@
-//! Headless render tool — renders any subject (avatar / catalogue item /
-//! worn attachment / primitive / whole seeded room) through the **real** spawn path
+//! Headless render tool - renders any subject (avatar / catalogue item /
+//! worn attachment / primitive / whole seeded room / the compiled world)
+//! through the **real** spawn path
 //! ([`crate::player::visuals::spawn_avatar_visuals`], which routes every node
-//! kind — primitives, Shape grammar, L-system — through the same machinery the
-//! game uses) into a multi-angle **contact-sheet** PNG. Lets the agent
-//! self-validate geometry/materials without manual in-game screenshots.
+//! kind - primitives, Shape grammar, L-system - through the same machinery the
+//! game uses) into a multi-angle **contact-sheet** PNG, or one camera along a
+//! rig into an animated **clip** (GIF). Lets the agent self-validate
+//! geometry/materials without manual in-game screenshots, and make the
+//! pictures a README needs.
 //!
 //! Lives in the library (not the `render` bin) so it can reach the
 //! crate-internal `SpawnCtx`/cache resources; the bin is a one-line shim.
@@ -12,41 +15,63 @@
 //! cargo run --bin render -- --avatar 1          # seed or DID
 //! cargo run --bin render -- --catalogue villa   # any catalogue slug
 //! cargo run --bin render -- --prim tube         # a single primitive kind
-//! cargo run --bin render -- --room 3            # the seeded settlement
+//! cargo run --bin render -- --room 3            # the seeded settlement, flat
+//! cargo run --bin render -- --world 3           # the seeded WORLD, as the game
+//! #                                             # compiles it (terrain, streets,
+//! #                                             # district, water, sky)
+//! cargo run --bin render -- --world 3 --frames 60 --sweep 30
+//! #                                             # a 60-frame orbit clip → .gif
+//! cargo run --bin render -- --world 3 --walker 7 --focus walker --frames 48
+//! #                                             # a seeded body walking it
+//! cargo run --bin render -- --catalogue villa --frames 36 --sweep 360
+//! #                                             # a turntable clip
 //! cargo run --bin render -- --generator g.json  # a dumped/edited Generator
 //! cargo run --bin render -- --catalogue lsys_palm --ages 2,3,4,5
 //! #                                             # age-progression grid (#908)
 //! cargo run --bin render -- --wear satchel      # a wearable, worn (#1088)
+//! cargo run --bin render -- --stitch a-frames,b-frames --out ab.gif
+//! #                                             # PNG frame dirs → one GIF
 //! # → /tmp/avatar-render/<label>.png  (front / ¾ / side / back tiles;
-//! #   with --ages one such row per iteration count)
+//! #   with --ages one such row per iteration count), or <label>.gif
 //! ```
 //!
 //! `--wear <slug>` is the attachments instrument (#1088): it dresses seeded
 //! rigged bodies in a catalogue wearable and sheets one body per row, so a
 //! garment is judged on the anatomy it has to fit rather than in isolation.
 //! `--wear-bodies N` sets how many bodies (default 4) and `--wear-socket
-//! <engine socket>` overrides where it is seated — the tool for "what would
+//! <engine socket>` overrides where it is seated - the tool for "what would
 //! this look like on the other hip". Output is labelled
 //! `wear-<slug>-<socket>`.
 //!
-//! Subject precedence, when more than one is given: `--generator` >
-//! `--room` > `--prim` > `--wear` > `--catalogue` > `--avatar`, with the
-//! no-render modes ahead of all of them.
+//! `--world` (see `world.rs`) is the only subject that is *compiled* rather
+//! than spawned: it registers the game's own terrain, road, lot, placement
+//! and atmosphere pipelines and waits for them to settle. It always shoots
+//! one camera on the rig; `--frames N` turns any single-camera shot into a
+//! clip, with the camera path set by `--focus` / `--dist` / `--elev` /
+//! `--yaw` / `--sweep` (and their `-end` dollies) - see `rig.rs`.
 //!
-//! The same binary also hosts thirteen no-render modes that short-circuit
+//! Subject precedence, when more than one is given: `--generator` >
+//! `--world` > `--terrain` > `--room` > `--prim` > `--wear` > `--catalogue`
+//! > `--avatar`, with the no-render modes ahead of all of them.
+//!
+//! The same binary also hosts fifteen no-render modes that short-circuit
 //! before any render app stands up: the avatar surveys (`--family-seeds`,
 //! `--outfit`, `--find-part`), the fit audits (`--settlement-drop`,
 //! `--foundation-audit`, `--gateway-fit`), the census / plot tooling
 //! (`--room-census`, `--scatter-census`, `--scatter-plot`), `--dump` (print a
 //! subject's `Generator` JSON), `--road-dump` (road-graph topology stats),
-//! and the offline session-log analyzers `--analyze-session` /
-//! `--diff-sessions`. See the per-arg docs on `Args`.
+//! `--describe` (a seeded room's roll and atmosphere, without a render),
+//! `--stitch` (PNG frame directories → one GIF) and the offline session-log
+//! analyzers `--analyze-session` / `--diff-sessions`. See the per-arg docs
+//! on `Args`.
 
 use std::time::Duration;
 
 use bevy::app::ScheduleRunnerPlugin;
 use bevy::prelude::*;
+use bevy::time::TimeSystems;
 use bevy::window::ExitCondition;
+use bevy_symbios_avatar::AvatarSystems;
 use clap::Parser;
 
 use crate::pds::AvatarBody;
@@ -54,15 +79,20 @@ use crate::pds::avatar::default_visuals::{build_for_did, build_for_seed};
 use crate::pds::types::{Fp, Fp2};
 use crate::pds::{Generator, GeneratorKind, RoomRecord};
 
+mod gif;
 mod headless;
+mod rig;
 mod text_tools;
+mod world;
 
-use headless::{Capture, Frames, RenderJob, Subject, drive, setup};
+use headless::{Capture, Clock, RenderJob, Subject, drive, setup};
+use rig::{CameraRig, Focus};
 use text_tools::{
-    analyze_session, diff_sessions, dump_road_graph, find_part, print_family_seeds,
+    analyze_session, describe_rooms, diff_sessions, dump_road_graph, find_part, print_family_seeds,
     print_foundation_audit, print_gateway_fit, print_outfit, print_settlement_drop, room_census,
     scatter_census, scatter_plot,
 };
+use world::{WalkerSpec, WorldSpec};
 
 /// Camera yaw per tile (degrees), left→right: front, ¾, side, back. Avatars /
 /// vehicles face local -Z, so the camera sits on the -Z side (`cos 180 = -1`)
@@ -71,28 +101,30 @@ const ANGLES: [f32; 4] = [180.0, 135.0, 90.0, 0.0];
 /// Default perspective FOV (matches Bevy's `PerspectiveProjection` default).
 const FOV: f32 = std::f32::consts::FRAC_PI_4;
 /// Frames to run (after framing) before capturing, so procedural textures
-/// finish baking + patching into their materials — and, since [`STEP`]
-/// advances the clock by a fixed slice each frame, so particle emitters
-/// reach their steady-state plume before the shutter opens.
+/// finish baking + patching into their materials - and, since the clock
+/// advances by a fixed slice each frame, so particle emitters reach their
+/// steady-state plume before the shutter opens.
 const WARMUP: u32 = 200;
-/// Simulated seconds per frame in the headless app. The runner spins at
-/// `Duration::ZERO`, so the real delta is a sub-millisecond artefact of how
-/// fast the machine happens to be; particle emitters driven by it would emit
-/// almost nothing by capture time and the sheet would vary per machine.
-/// Overriding `Time` with a fixed slice makes the FX state at capture a
-/// function of [`WARMUP`] alone.
-const STEP: f32 = 1.0 / 30.0;
 const OUT_DIR: &str = "/tmp/avatar-render";
+/// The default clip frame rate. GIF counts delays in centiseconds, so 12.5
+/// (8 cs) is the nearest rate to "about a dozen a second" the format can
+/// actually express; see `rig::delay_cs`.
+const DEFAULT_FPS: f32 = 12.5;
+/// The default single-camera frame, width × height. 16:9, and a width that
+/// is a multiple of 64 so the GPU readback needs no row padding.
+const DEFAULT_FRAME: (u32, u32) = (896, 504);
 
 #[derive(Parser)]
-#[command(about = "Headless contact-sheet renderer for avatars / catalogue / primitives / rooms")]
+#[command(
+    about = "Headless contact-sheet / clip renderer for avatars, catalogue, primitives, rooms and worlds"
+)]
 struct Args {
     /// Avatar subject: a u64 seed or a DID string.
     #[arg(long)]
     avatar: Option<String>,
     /// List the first `--family-count` seeds whose
     /// [`ChassisFamily`](crate::seeded_defaults::ChassisFamily) matches
-    /// (`humanoid` | `boat` | `airship` | `skiff`) and exit — a survey aid for
+    /// (`humanoid` | `boat` | `airship` | `skiff`) and exit - a survey aid for
     /// the avatar overhaul: pick seeds from the printed list, then render each
     /// with `--avatar <seed>`. Highest precedence (prints, never renders).
     #[arg(long)]
@@ -102,18 +134,18 @@ struct Args {
     #[arg(long, default_value_t = 8)]
     family_count: usize,
     /// Print one avatar's resolved outfit (chassis / style / socio tiers /
-    /// slot→slug) and exit — a `u64` seed or a DID. A no-render survey aid for
+    /// slot→slug) and exit - a `u64` seed or a DID. A no-render survey aid for
     /// the avatar overhaul: the built geometry carries no slugs, so this is how
     /// to see which optional parts an avatar rolled.
     #[arg(long)]
     outfit: Option<String>,
     /// Scan seeds and print the first `--family-count` whose outfit rolls the
     /// given part slug (e.g. `boat_bow_ram`), with each one's style + tiers,
-    /// then exit — finds render-verification seeds for a styled part.
+    /// then exit - finds render-verification seeds for a styled part.
     #[arg(long)]
     find_part: Option<String>,
     /// Measure the terrain drop real seeded settlements span (#1009) over
-    /// this many seeds and exit — the empirical basis for the plinth rule.
+    /// this many seeds and exit - the empirical basis for the plinth rule.
     #[arg(long)]
     settlement_drop: Option<u64>,
     /// Print the foundation-depth audit (#1009) and exit: every
@@ -128,7 +160,7 @@ struct Args {
     #[arg(long)]
     gateway_fit: Option<String>,
     /// Wear subject (#1088): a wearable catalogue slug (e.g. `satchel`),
-    /// rendered WORN on rigged seeded bodies — one grid row per body seed ×
+    /// rendered WORN on rigged seeded bodies - one grid row per body seed ×
     /// pose (rest, walk at two opposite cycle extremes), four orbit angles
     /// per row. The item is engine-seated at the entry's `wear_socket` with
     /// the outward yaw, exactly as a fresh in-game Wear lands. Judging the
@@ -140,14 +172,14 @@ struct Args {
     wear_bodies: usize,
     /// With `--wear`: override the socket (an engine socket name like
     /// `left-hip`, `crown`, `back`) instead of the entry's own
-    /// `wear_socket` — the tool for "what would this look like elsewhere".
+    /// `wear_socket` - the tool for "what would this look like elsewhere".
     #[arg(long)]
     wear_socket: Option<String>,
     /// Catalogue subject: an entry slug (e.g. `villa`, `bench`, `wizard_tower`).
     #[arg(long)]
     catalogue: Option<String>,
     /// With `--catalogue <plant-slug>`: apply that plant's named material
-    /// re-skin (#910) before rendering — e.g.
+    /// re-skin (#910) before rendering - e.g.
     /// `--catalogue lsys_monopodial_tree --variant larch_gold`. Variants
     /// change bark/foliage materials only, never geometry, so this composes
     /// with `--ages`. An unknown name renders the entry's default materials
@@ -159,8 +191,9 @@ struct Args {
     /// iterate on an L-system grammar (or any generator) without recompiling
     /// the crate: `--dump` a catalogue entry to seed the JSON, edit the
     /// grammar / scalars, re-render. Highest precedence among the render
-    /// subjects (`--generator` > `--terrain` > `--room` > `--prim` > `--wear`
-    /// > `--catalogue` > `--avatar`); the no-render modes still run first.
+    /// subjects (`--generator` > `--world` > `--terrain` > `--room` > `--prim`
+    /// then `--wear` > `--catalogue` > `--avatar`); the no-render modes still
+    /// run first.
     #[arg(long)]
     generator: Option<String>,
     /// With `--catalogue <slug>`, `--prim <tag>` (overrides applied), or
@@ -171,29 +204,63 @@ struct Args {
     dump: bool,
     /// Age-progression sweep for an L-system subject (#908): comma-separated
     /// iteration counts (e.g. `--ages 2,3,4,5`). Renders a grid sheet instead
-    /// of the single row — one row per age (top→bottom in argument order),
-    /// columns = the four angles — with every row framed at one shared camera
+    /// of the single row - one row per age (top→bottom in argument order),
+    /// columns = the four angles - with every row framed at one shared camera
     /// distance so relative plant size across ages stays honest. Each count
     /// overrides `iterations` on every L-system node in the subject's
     /// generator tree; combines with any single-generator subject
-    /// (`--generator` > `--prim` > `--catalogue` > `--avatar` — the four that
+    /// (`--generator` > `--prim` > `--catalogue` > `--avatar` - the four that
     /// resolve to a `Subject::Single`), panics on `--room` and `--wear`,
     /// which do not, or on a subject without an L-system node. Values above the
     /// record sanitiser cap (12) are accepted here but blow up derivation
-    /// size fast — the `MAX_LSYSTEM_STATE_LEN` guard still applies.
+    /// size fast - the `MAX_LSYSTEM_STATE_LEN` guard still applies.
     #[arg(long)]
     ages: Option<String>,
     /// Primitive subject: a kind tag (`cuboid`, `sphere`, `tube`, `bevel`, …).
     #[arg(long)]
     prim: Option<String>,
-    /// Terrain subject (#994): a u64 seed or DID — builds the room's real
+    /// World subject: a u64 seed or DID - the seeded room compiled by the
+    /// game's own pipeline, as the login backdrop and a fresh sign-in show
+    /// it: real terrain under its splat, streets and the district grown
+    /// along them, every placement snapped and filtered against the ground,
+    /// water volumes, the room's sun, sky, fog and cloud deck. One camera on
+    /// the rig (`--focus` / `--dist` / `--elev` / `--yaw` / `--sweep`), a
+    /// still PNG or a `--frames N` clip. Outranks every subject but
+    /// `--generator`.
+    #[arg(long)]
+    world: Option<String>,
+    /// With `--world`: a rigged seeded body (a u64 seed) walking across the
+    /// world - from the gateway forecourt toward the spawn by default - on
+    /// the engine's own gait. Pair with `--focus walker` to follow it.
+    #[arg(long)]
+    walker: Option<u64>,
+    /// With `--walker`: walking pace, metres per second (default 1.4).
+    #[arg(long, default_value_t = 1.4)]
+    walker_pace: f32,
+    /// With `--walker`: where the walk starts, `x,z` (default: the record's
+    /// landing).
+    #[arg(long)]
+    walk_from: Option<String>,
+    /// With `--walker`: what the walk heads toward, `x,z` (default: the room
+    /// origin). The body keeps walking along the line through both points.
+    #[arg(long)]
+    walk_to: Option<String>,
+    /// With `--walker`: catalogue wearables to dress the body in, a
+    /// comma-separated list of slugs (each must have a `wear_socket`).
+    #[arg(long)]
+    walker_wear: Option<String>,
+    /// With `--walker`: seconds of walking before the first captured frame
+    /// (default 1.5), so a clip opens mid-stride.
+    #[arg(long, default_value_t = 1.5)]
+    walker_lead: f32,
+    /// Terrain subject (#994): a u64 seed or DID - builds the room's real
     /// heightmap and its four-layer splat, then shoots four grazing landscape
     /// views across `--view` metres of it.
     ///
     /// The one render mode whose subject is the *ground*. `--room` spawns
     /// settlement structures on a flat plane and skips terrain entirely, so
     /// until this existed nothing could see a splat outside the running game
-    /// — which is why the tile-repetition defect went four rounds unjudged.
+    /// - which is why the tile-repetition defect went four rounds unjudged.
     /// It runs the game's own terrain systems (see
     /// `terrain::register_headless_terrain`), waits for the splat pass to
     /// resolve rather than a frame count, and frames a fixed camera so two
@@ -206,10 +273,10 @@ struct Args {
     /// shows about 26 repeats at the shipped defaults.
     #[arg(long, default_value_t = 300.0)]
     view: f32,
-    /// Room subject: a u64 seed or DID — renders the seeded settlement cluster.
+    /// Room subject: a u64 seed or DID - renders the seeded settlement cluster.
     #[arg(long)]
     room: Option<String>,
-    /// Road-graph diagnostics: a u64 seed or DID — reproduces the room's
+    /// Road-graph diagnostics: a u64 seed or DID - reproduces the room's
     /// heightmap, builds the *meshed* road graph, and prints topology +
     /// geometry-risk stats (degree histogram, dead-end spurs, spurious-junction
     /// and spike-risk counts), then exits. A no-render dump to size road-network
@@ -226,7 +293,7 @@ struct Args {
     room_census: Option<u64>,
     /// Placement census over seeded rooms (#912): for seeds `0..N`, replay the
     /// real scatter sampling loop against a heightmap rebuilt from each record
-    /// and print what it actually places — yield vs. requested count, what the
+    /// and print what it actually places - yield vs. requested count, what the
     /// slope cutoff costs, the per-instance scale spread, and a Clark–Evans
     /// nearest-neighbour index measuring how clustered the survivors are
     /// against the same scatter with its naturalness zeroed. Where
@@ -236,15 +303,21 @@ struct Args {
     #[arg(long)]
     scatter_census: Option<u64>,
     /// Plan-view plot of one seeded room's scatters (#912): a u64 seed or DID.
-    /// Writes a PNG grid to `--out` — one row per scatter, tuned arrangement
+    /// Writes a PNG grid to `--out` - one row per scatter, tuned arrangement
     /// on the left, the same scatter with its naturalness zeroed on the right.
     /// The four-angle contact sheet cannot show this: a stand is hundreds of
     /// metres across, so framed to fit every instance is a speck and the
     /// clustering is invisible. A no-render mode.
     #[arg(long)]
     scatter_plot: Option<String>,
+    /// Concatenate PNG frame directories (comma-separated, each as
+    /// `--keep-frames` writes them, or any equal-sized PNGs) into one GIF at
+    /// `--out`, at `--fps`, and exit. How several clips - a world, a walker,
+    /// a turntable - become one picture. A no-render mode.
+    #[arg(long)]
+    stitch: Option<String>,
     /// Offline session-log post-mortem: read a captured session log
-    /// (`diagnostics/session-latest.jsonl`, or the wasm "Download log" dump —
+    /// (`diagnostics/session-latest.jsonl`, or the wasm "Download log" dump -
     /// same NDJSON format) and print an agent-facing report (header, `[Verdict]`,
     /// `[Event Tallies]`, `[Timeline]`, `[Loading Gate]`, `[Metric Trends]`,
     /// `[Invariant Violations]`), then exit. Narrow the analysis with the
@@ -265,7 +338,7 @@ struct Args {
     #[arg(long)]
     subsystem: Option<String>,
     /// `--analyze-session` filter: restrict to one event category
-    /// (`lifecycle`|`fetch`|`generation`|`audio`|`peer`|… — see docs/diagnostics.md).
+    /// (`lifecycle`|`fetch`|`generation`|`audio`|`peer`|… - see docs/diagnostics.md).
     #[arg(long)]
     category: Option<String>,
     /// `--analyze-session` filter: restrict to events at or above this severity
@@ -300,17 +373,93 @@ struct Args {
     profilecut: Option<String>,
     #[arg(long)]
     hollow: Option<f32>,
-    /// Camera elevation in degrees above the subject's centre. The default
-    /// orbit sits low (roughly 13°), which is the right eye-line for judging
-    /// a facade or a silhouette but cannot see into anything open-topped —
-    /// a brazier, a well, a crate, a bowl. Pass e.g. `--elev 45` to look
-    /// down into it.
+    /// Camera elevation in degrees above the subject's centre. The sheet
+    /// cameras' default orbit sits low (roughly 13°), which is the right
+    /// eye-line for judging a facade or a silhouette but cannot see into
+    /// anything open-topped - a brazier, a well, a crate, a bowl. Pass e.g.
+    /// `--elev 45` to look down into it. For `--world` the default is 28°,
+    /// the login backdrop's aerial angle.
     #[arg(long)]
     elev: Option<f32>,
-    /// Per-tile pixel side. Forced to a multiple of 64 (no GPU row padding).
+    /// Clip only: the elevation the camera ends the clip at (a dolly; default
+    /// `--elev`).
+    #[arg(long)]
+    elev_end: Option<f32>,
+    /// Single-camera shots: what the rig orbits - `origin` (the spawn square;
+    /// the `--world` default), `landing` (the gateway forecourt), `walker`
+    /// (follow the `--walker` body), `subject` (the framed bounds; the
+    /// turntable default), or a point `x,z` on the ground / `x,y,z`.
+    #[arg(long)]
+    focus: Option<String>,
+    /// Single-camera shots: camera distance from the focus in metres
+    /// (default: 150 for `--world`, the framed distance otherwise).
+    #[arg(long)]
+    dist: Option<f32>,
+    /// Clip only: the distance the camera ends the clip at (a dolly; default
+    /// `--dist`).
+    #[arg(long)]
+    dist_end: Option<f32>,
+    /// Single-camera shots: metres above the focus point the camera looks at
+    /// (default: 8 for a world point, 1 for the walker, 0 for a subject).
+    #[arg(long)]
+    lift: Option<f32>,
+    /// Single-camera shots: camera yaw in degrees at the start (180 is the
+    /// sheet cameras' "front"). For `--focus walker` it is measured from
+    /// directly behind the body, so 0 follows it and 150 sees its face.
+    #[arg(long)]
+    yaw: Option<f32>,
+    /// Clip only: degrees the yaw turns over the clip (default: 360 for a
+    /// turntable, 30 for a world, 0 when following the walker).
+    #[arg(long)]
+    sweep: Option<f32>,
+    /// Turntables: divide the auto-framed distance - 1.5 sits a third closer
+    /// than the sheet cameras' fit, which is conservative (it fits the
+    /// bounding sphere) and leaves a wide building small in a 16:9 frame.
+    /// An explicit `--dist` is absolute and ignores this.
+    #[arg(long, default_value_t = 1.0)]
+    zoom: f32,
+    /// Frames in the clip (default 1 - a still). Above 1 the single camera
+    /// is moved along the rig one frame at a time and the result is a GIF;
+    /// the clock advances exactly `1 / --fps` seconds a frame, so wind,
+    /// clouds, water, particles and the walker's gait play at the rate the
+    /// GIF does.
+    #[arg(long, default_value_t = 1)]
+    frames: u32,
+    /// Clip frame rate (default 12.5). GIF holds delays in centiseconds, so
+    /// 10, 12.5, 20 and 25 land exactly; others round.
+    #[arg(long, default_value_t = DEFAULT_FPS)]
+    fps: f32,
+    /// Clip only: also write every frame as `<out>-frames/frame-NNN.png`.
+    #[arg(long, default_value_t = false)]
+    keep_frames: bool,
+    /// GIF encoding (clips and `--stitch`): the ordered-dither amplitude in
+    /// 8-bit steps (default 6). Higher smooths gradients and costs bytes -
+    /// a dither pattern is what LZW cannot fold; 0 is a plain nearest-colour
+    /// map and the smallest file.
+    #[arg(long, default_value_t = gif::DEFAULT_DITHER)]
+    dither: f32,
+    /// Describe seeded rooms without rendering and exit: a u64 seed, a DID,
+    /// or a range `a..b` - the scene roll (landform, biome, theme,
+    /// prosperity, escalation), the atmosphere numbers that decide whether a
+    /// shot can see anything (fog visibility, sun height, cloud cover), the
+    /// water line, the landing, and the placement counts. The survey to run
+    /// before `--world`, so a foggy seed is known to be foggy before a
+    /// minute of compile says so with a green rectangle. A no-render mode.
+    #[arg(long)]
+    describe: Option<String>,
+    /// Single-camera shots: frame width in pixels (default 896; forced to a
+    /// multiple of 64 so the GPU readback needs no row padding).
+    #[arg(long, default_value_t = DEFAULT_FRAME.0)]
+    width: u32,
+    /// Single-camera shots: frame height in pixels (default 504).
+    #[arg(long, default_value_t = DEFAULT_FRAME.1)]
+    height: u32,
+    /// Sheets: per-tile pixel side. Forced to a multiple of 64 (no GPU row
+    /// padding).
     #[arg(long, default_value_t = 512)]
     size: u32,
-    /// Output PNG path (defaults to `/tmp/avatar-render/<label>.png`).
+    /// Output path (defaults to `/tmp/avatar-render/<label>.png`, or
+    /// `.gif` for a clip).
     #[arg(long)]
     out: Option<String>,
 }
@@ -320,7 +469,7 @@ pub fn run() {
     let args = Args::parse();
 
     // `--family-seeds <fam>`: print the first N seeds mapping to a chassis
-    // family and exit — a survey aid, never renders.
+    // family and exit - a survey aid, never renders.
     if let Some(fam) = &args.family_seeds {
         print_family_seeds(fam, args.family_count);
         return;
@@ -357,21 +506,21 @@ pub fn run() {
     }
 
     // `--road-dump <seed|did>`: print the room's road-graph diagnostics and
-    // exit — a no-render topology/geometry-risk dump for the road-filtering work.
+    // exit - a no-render topology/geometry-risk dump for the road-filtering work.
     if let Some(room) = &args.road_dump {
         dump_road_graph(room);
         return;
     }
 
     // `--room-census <n>`: print seeded rooms' analytic entity estimates and
-    // exit — the #810 density survey, never renders.
+    // exit - the #810 density survey, never renders.
     if let Some(n) = args.room_census {
         room_census(n);
         return;
     }
 
     // `--scatter-census <n>`: replay the real sampling loop over seeded rooms
-    // and print placement yield + arrangement — the #912 naturalness survey.
+    // and print placement yield + arrangement - the #912 naturalness survey.
     if let Some(n) = args.scatter_census {
         scatter_census(n);
         return;
@@ -387,8 +536,29 @@ pub fn run() {
         return;
     }
 
+    // `--describe <seed|did|a..b>`: print what a seeded room is before any
+    // render app stands up.
+    if let Some(what) = &args.describe {
+        describe_rooms(what);
+        return;
+    }
+
+    // `--stitch <dir,dir,...>`: PNG frame directories → one GIF and exit.
+    if let Some(dirs) = &args.stitch {
+        let dirs: Vec<String> = dirs.split(',').map(|d| d.trim().to_string()).collect();
+        let out = args
+            .out
+            .clone()
+            .unwrap_or_else(|| format!("{OUT_DIR}/stitch.gif"));
+        if let Err(e) = gif::stitch(&dirs, &out, rig::delay_cs(args.fps), args.dither) {
+            eprintln!("--stitch failed: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     // `--analyze-session <path>`: read a captured NDJSON session log, replay the
-    // anomaly rules over it, and print an agent-facing post-mortem — a no-render
+    // anomaly rules over it, and print an agent-facing post-mortem - a no-render
     // analysis, the offline counterpart to the live diagnostic engine.
     if let Some(path) = &args.analyze_session {
         analyze_session(&args, path);
@@ -396,7 +566,7 @@ pub fn run() {
     }
 
     // `--diff-sessions <a> <b>`: read two captured logs and print a before/after
-    // delta report — the fix-validation counterpart to `--analyze-session`.
+    // delta report - the fix-validation counterpart to `--analyze-session`.
     if let Some(pair) = &args.diff_sessions {
         diff_sessions(&pair[0], &pair[1]);
         return;
@@ -428,7 +598,7 @@ pub fn run() {
         } else {
             panic!(
                 "--dump requires --catalogue <slug>, --prim <tag>, or --avatar <seed|did> \
-                 (--room/--generator subjects are file/derived records — dump not supported)"
+                 (--room/--world/--generator subjects are file/derived records - dump not supported)"
             );
         };
         println!(
@@ -443,11 +613,45 @@ pub fn run() {
         Some(ages) => age_sweep(subject, &label, ages),
         None => (subject, label),
     };
+    let frames = args.frames.max(1);
+    let is_world = matches!(subject, Subject::World(_));
+    if frames > 1 && !is_world && !matches!(subject, Subject::Single(_) | Subject::Room(_)) {
+        panic!(
+            "--frames needs a single-camera subject (--world, or a --generator/--prim/\
+             --catalogue/--avatar/--room turntable); --terrain, --wear and --ages sheets \
+             have no one camera to move"
+        );
+    }
+    let rig = build_rig(&args, is_world);
+    let walker = args.walker.map(|seed| WalkerSpec {
+        seed,
+        pace: args.walker_pace,
+        from: args.walk_from.as_deref().map(parse_xz),
+        to: args.walk_to.as_deref().map(parse_xz),
+        wear: args
+            .walker_wear
+            .as_deref()
+            .map(|w| w.split(',').map(|s| s.trim().to_string()).collect())
+            .unwrap_or_default(),
+        lead: args.walker_lead,
+    });
+    assert!(
+        walker.is_none() || is_world,
+        "--walker needs --world: the body walks the compiled terrain"
+    );
+    let single_camera = is_world || frames > 1;
+    let tile = if single_camera {
+        ((args.width / 64).max(1) * 64, args.height.max(1))
+    } else {
+        let side = (args.size / 64).max(1) * 64;
+        (side, side)
+    };
+    let ext = if frames > 1 { "gif" } else { "png" };
     let out = args
         .out
         .clone()
-        .unwrap_or_else(|| format!("{OUT_DIR}/{label}.png"));
-    let size = (args.size / 64).max(1) * 64;
+        .unwrap_or_else(|| format!("{OUT_DIR}/{label}.{ext}"));
+    assert!(args.fps > 0.0, "--fps must be positive");
 
     let mut app = App::new();
     app.add_plugins(
@@ -472,33 +676,64 @@ pub fn run() {
         // The capture signal is `terrain::SplatApplied`. Waiting a fixed
         // number of frames instead would race an async heightmap and four
         // texture bakes, and the frame it would catch is the flat placeholder
-        // colour the material wears until the splat pass resolves — a render
+        // colour the material wears until the splat pass resolves - a render
         // that looks like a finished one and shows no ground texture at all.
     }
-    // Rigged bodies for `--wear` (#1088): the engine's spawn/pose plugin
-    // (stateless, no game dependencies) and the one-shot dressing system
-    // that parents the worn prop once the joints exist.
+    // `--world`: the whole game pipeline, and the walker's spec.
+    if let Subject::World(spec) = &subject {
+        world::register(&mut app, spec, walker);
+    }
+    // Rigged bodies for `--wear` (#1088) and `--walker`: the engine's
+    // spawn/pose/drive plugin (stateless, no game dependencies) and the
+    // one-shot dressing system that parents worn props once the joints exist.
     app.add_plugins(bevy_symbios_avatar::AvatarPlugin);
     app.add_systems(Update, headless::dress_wear_bodies);
     app.insert_resource(ClearColor(Color::srgb(0.52, 0.55, 0.70)))
         .insert_resource(RenderJob {
             subject,
             out,
-            size,
+            tile,
             elev: args.elev,
+            rig,
+            frames,
+            fps: args.fps,
+            keep_frames: args.keep_frames,
+            dither: args.dither,
         })
-        .init_resource::<Frames>()
+        .insert_resource(Clock {
+            step: 1.0 / args.fps,
+            run: true,
+            once: false,
+            elapsed: 0.0,
+        })
         .init_resource::<Capture>()
-        .add_systems(Startup, setup)
-        .add_systems(Update, drive)
+        // The hand-driven clock (see `headless`): `Time<Virtual>` is
+        // paused, and `tick_clock` advances it right after Bevy's own time
+        // system has published the paused (zero-delta) frame.
+        .add_systems(Startup, (setup, headless::pause_virtual_time))
+        .add_systems(First, headless::tick_clock.after(TimeSystems))
+        // The walker moves, then the camera follows it, and both land before
+        // the avatar plugin poses the body for this frame.
+        .add_systems(
+            Update,
+            (world::step_walkers, drive)
+                .chain()
+                .before(AvatarSystems::Animate),
+        )
+        .add_systems(
+            Update,
+            world::spawn_walker.run_if(
+                resource_exists::<WalkerSpec>.and_then(resource_exists::<headless::ClipTiming>),
+            ),
+        )
         // Particle emitters spawn through the shared dispatch arm, but the
         // systems that make them *emit* are registered by `WorldBuilderPlugin`
-        // behind `in_state(AppState::InGame)` — a state the render app never
+        // behind `in_state(AppState::InGame)` - a state the render app never
         // enters. Without these an FX-bearing prop renders as its bare
         // geometry, which is exactly the detail an FX review needs to see.
         // The particle integrator reads avian's gravity vector and takes a
         // `SpatialQuery`, and the render app runs no physics plugin to
-        // supply either. An empty collider tree is the honest state here —
+        // supply either. An empty collider tree is the honest state here -
         // catalogue FX all run with `collide_colliders: false`, so nothing
         // queries it.
         .insert_resource(avian3d::prelude::Gravity::default())
@@ -506,26 +741,86 @@ pub fn run() {
         .add_systems(
             Update,
             (
-                fixed_step,
                 crate::world_builder::particles::update_emitter_motion,
                 crate::world_builder::particles::tick_emitter_spawn,
                 crate::world_builder::particles::tick_particles,
             )
                 .chain(),
         )
+        .add_observer(headless::on_capture)
         .run();
 }
 
-/// Replace the wall-clock delta with [`STEP`] so the particle systems that
-/// follow in the chain advance deterministically. See [`STEP`].
-fn fixed_step(mut time: ResMut<Time>) {
-    time.advance_by(Duration::from_secs_f32(STEP));
+/// The camera rig from the `--focus` / `--dist` / `--elev` / `--yaw` /
+/// `--sweep` / `--lift` flags, with the mode's defaults filled in: a world
+/// orbits its spawn from 150 m at 28° and drifts 30° over a clip; a
+/// turntable orbits its subject at the framed distance and turns once;
+/// following the walker holds the angle.
+fn build_rig(args: &Args, is_world: bool) -> CameraRig {
+    let focus = match &args.focus {
+        Some(f) => Focus::parse(f).unwrap_or_else(|e| panic!("{e}")),
+        None if is_world => Focus::Origin,
+        None => Focus::Subject,
+    };
+    // A vista focus (the spawn, the landing, the settlement) looks at the
+    // built-up band, 8 m up; a point on the ground and the walker are
+    // deliberate ground-level shots, and a subject is framed on its centre.
+    let lift = args.lift.unwrap_or(match focus {
+        Focus::Walker | Focus::Point { .. } => 1.0,
+        Focus::Subject => 0.0,
+        _ if is_world => 8.0,
+        _ => 0.0,
+    });
+    let dist = args
+        .dist
+        .map(|d| (d, args.dist_end.unwrap_or(d)))
+        .or(is_world.then_some((150.0, 150.0)));
+    let elev = args
+        .elev
+        .map(|e| (e, args.elev_end.unwrap_or(e)))
+        .or(is_world.then_some((28.0, 28.0)));
+    let yaw = args.yaw.unwrap_or(match focus {
+        Focus::Walker => 30.0,
+        _ if is_world => 0.0,
+        _ => 180.0,
+    });
+    // A vista drifts; a deliberate shot (the walker, a named point) holds.
+    let sweep = args.sweep.unwrap_or(match focus {
+        Focus::Walker | Focus::Point { .. } => 0.0,
+        _ if is_world => 30.0,
+        _ => 360.0,
+    });
+    CameraRig {
+        focus,
+        lift,
+        dist,
+        elev,
+        yaw,
+        sweep,
+        zoom: args.zoom.max(0.01),
+    }
+}
+
+/// Parse an `x,z` ground point.
+fn parse_xz(s: &str) -> [f32; 2] {
+    let v: Vec<f32> = s
+        .split(',')
+        .map(|p| {
+            p.trim()
+                .parse::<f32>()
+                .unwrap_or_else(|e| panic!("bad x,z component {p:?}: {e}"))
+        })
+        .collect();
+    match v.as_slice() {
+        [x, z] => [*x, *z],
+        _ => panic!("expected x,z - got {s:?}"),
+    }
 }
 
 /// Build the subject + a filename label from the CLI args.
 ///
-/// Precedence: `--generator` → `--terrain` → `--room` → `--prim` → `--wear`
-/// → `--catalogue` → `--avatar` → seed 7. Pinned by
+/// Precedence: `--generator` → `--world` → `--terrain` → `--room` → `--prim`
+/// → `--wear` → `--catalogue` → `--avatar` → seed 7. Pinned by
 /// `tests::the_subject_precedence_is_the_one_the_docs_claim`, because this
 /// order is stated in four places and three of them had drifted (#1162).
 fn resolve_subject(args: &Args) -> (Subject, String) {
@@ -540,6 +835,17 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
             .unwrap_or("generator")
             .to_string();
         return (Subject::Single(Box::new(generator)), format!("gen-{label}"));
+    }
+    if let Some(world) = &args.world {
+        let (record, did) = match world.parse::<u64>() {
+            Ok(seed) => {
+                let did = format!("did:render:{seed}");
+                (RoomRecord::default_for_seed(seed, &did), did)
+            }
+            Err(_) => (RoomRecord::default_for_did(world), world.clone()),
+        };
+        let label = format!("world-{}", world.replace([':', '/'], "_"));
+        return (Subject::World(Box::new(WorldSpec { record, did })), label);
     }
     if let Some(terrain) = &args.terrain {
         let record = match terrain.parse::<u64>() {
@@ -584,7 +890,7 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
                 .unwrap_or_else(|| panic!("--wear-socket {name:?}: not an engine socket name")),
             None => entry.wear_socket().unwrap_or_else(|| {
                 panic!(
-                    "--wear {slug:?}: entry is not wearable (no wear_socket()) — \
+                    "--wear {slug:?}: entry is not wearable (no wear_socket()) - \
                      pass --wear-socket to force one"
                 )
             }),
@@ -613,7 +919,7 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
                     println!("  {:<16} {}", v.name, v.label);
                 }
                 if entry.variants().is_empty() {
-                    println!("  (none — this entry has no material re-skins)");
+                    println!("  (none - this entry has no material re-skins)");
                 }
                 std::process::exit(0);
             }
@@ -642,7 +948,7 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
 /// The generator tree behind a seeded avatar, or a clear refusal.
 ///
 /// This tool draws `Generator` geometry through the real spawn path; a
-/// rigged body (#1060 — every humanoid seed) is a skinned
+/// rigged body (#1060 - every humanoid seed) is a skinned
 /// `symbios-avatar` build with no tree to walk, so it is turned away by
 /// name rather than rendered as an empty sheet. The sibling
 /// `bevy_symbios_avatar` viewer is that body's instrument, and it has its
@@ -651,7 +957,7 @@ fn generator_body(body: AvatarBody, subject: &str) -> Generator {
     match body {
         AvatarBody::Generator(body) => body.visuals,
         _ => panic!(
-            "avatar {subject:?} is a rigged body — this tool renders generator trees. \n\
+            "avatar {subject:?} is a rigged body - this tool renders generator trees. \n\
              Vehicle seeds (boat / airship / skiff) still render here; for a rigged \n\
              body use the bevy_symbios_avatar viewer's --shot capture."
         ),
@@ -661,14 +967,14 @@ fn generator_body(body: AvatarBody, subject: &str) -> Generator {
 /// Expand a single-generator subject into the `--ages` lineup: one clone per
 /// iteration count, ready for the grid contact sheet (rows top→bottom follow
 /// the argument order). Panics on `--room` subjects and on generator trees
-/// without an L-system node — an age sweep of those is meaningless.
+/// without an L-system node - an age sweep of those is meaningless.
 fn age_sweep(subject: Subject, label: &str, ages: &str) -> (Subject, String) {
     let Subject::Single(base) = subject else {
         panic!(
             "--ages needs a single-generator subject \
-             (--generator/--prim/--catalogue/--avatar); --room, --terrain and \
-             --wear resolve to multi-subject sheets and have no single tree \
-             to age"
+             (--generator/--prim/--catalogue/--avatar); --room, --world, \
+             --terrain and --wear resolve to whole scenes and have no single \
+             tree to age"
         );
     };
     let ages: Vec<u32> = ages
@@ -764,9 +1070,9 @@ fn primitive_for_tag(tag: &str) -> Option<GeneratorKind> {
 mod tests {
     use super::*;
 
-    /// #1162. The subject precedence is stated in four places — this module's
+    /// #1162. The subject precedence is stated in four places - this module's
     /// header, [`resolve_subject`]'s own doc, the `generator` arg doc and
-    /// docs/building.md — and three of them omitted `--wear` from the day it
+    /// docs/building.md - and three of them omitted `--wear` from the day it
     /// shipped (#1088), so `--wear satchel --catalogue villa` did the thing
     /// the documentation said could not happen.
     ///
@@ -774,7 +1080,7 @@ mod tests {
     /// behaviour was right and the prose was wrong. What it does is make the
     /// order a fact rather than a claim: reorder the chain and this fails by
     /// name, pointing at the four sentences that then need re-reading. A
-    /// 0-warning doc gate cannot do that — it checks that links resolve, not
+    /// 0-warning doc gate cannot do that - it checks that links resolve, not
     /// that sentences are true.
     #[test]
     fn the_subject_precedence_is_the_one_the_docs_claim() {
@@ -828,5 +1134,59 @@ mod tests {
             "a terrain label carries its view distance, so two views do not \
              overwrite one file"
         );
+        // `--world` above `--terrain`: same argument, same record, and the
+        // one that compiles the whole room has to win when both are given.
+        assert!(
+            label_for(&["--world", "3", "--terrain", "3", "--room", "3"]).starts_with("world-"),
+            "--world outranks --terrain"
+        );
+    }
+
+    /// The rig defaults per mode, so a bare `--world` and a bare turntable
+    /// each land on a sensible orbit without flags.
+    #[test]
+    fn the_rig_defaults_follow_the_mode() {
+        let parse =
+            |argv: &[&str]| Args::parse_from(std::iter::once("render").chain(argv.iter().copied()));
+        let world = build_rig(&parse(&["--world", "3"]), true);
+        assert_eq!(world.focus, Focus::Origin);
+        assert_eq!(world.dist, Some((150.0, 150.0)));
+        assert_eq!(world.elev, Some((28.0, 28.0)));
+        assert_eq!(world.sweep, 30.0);
+        assert_eq!(world.lift, 8.0);
+
+        let turntable = build_rig(&parse(&["--catalogue", "villa", "--frames", "12"]), false);
+        assert_eq!(turntable.focus, Focus::Subject);
+        assert_eq!(turntable.dist, None, "the framing supplies the distance");
+        assert_eq!(turntable.elev, None);
+        assert_eq!(turntable.yaw, 180.0, "starts on the front tile's angle");
+        assert_eq!(turntable.sweep, 360.0);
+        assert_eq!(turntable.zoom, 1.0);
+
+        let follow = build_rig(
+            &parse(&[
+                "--world",
+                "3",
+                "--walker",
+                "7",
+                "--focus",
+                "walker",
+                "--elev",
+                "12",
+                "--elev-end",
+                "20",
+            ]),
+            true,
+        );
+        assert_eq!(follow.focus, Focus::Walker);
+        assert_eq!(follow.sweep, 0.0);
+        assert_eq!(follow.lift, 1.0);
+        assert_eq!(follow.elev, Some((12.0, 20.0)), "a dolly runs start→end");
+        assert_eq!(parse_xz(" 3.5, -2 "), [3.5, -2.0]);
+
+        // A ground point is a deliberate shot: eye height, no drift.
+        let point = build_rig(&parse(&["--world", "3", "--focus", "9.7,13.6"]), true);
+        assert_eq!(point.lift, 1.0);
+        assert_eq!(point.sweep, 0.0);
     }
 }

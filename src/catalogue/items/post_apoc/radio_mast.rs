@@ -1,4 +1,4 @@
-//! Radio mast — a Post-apocalyptic secondary. A tall scrap-lattice mast braced
+//! Radio mast - a Post-apocalyptic secondary. A tall scrap-lattice mast braced
 //! with salvaged steel, an antenna rigged at the top and a blinking warning
 //! light. The lifeline of the holdout; its light is emissive trim the ruin
 //! pass can darken.
@@ -57,7 +57,7 @@ fn build_tree() -> Generator {
     let mast_top = base_h + mast_h;
 
     let mut prims = vec![
-        // Concrete base — the root.
+        // Concrete base - the root.
         prim(
             solid(cuboid_tapered(
                 [2.0, base_h, 2.0],
@@ -105,7 +105,7 @@ fn build_tree() -> Generator {
             ));
         }
     }
-    // Zig-zag diagonal braces filling each bay — the scrap-lattice density a
+    // Zig-zag diagonal braces filling each bay - the scrap-lattice density a
     // bare four-post frame lacks. Direction alternates per bay for the truss.
     let span = 2.0 * spread;
     for (b, w) in levels.windows(2).enumerate() {
@@ -134,7 +134,7 @@ fn build_tree() -> Generator {
 
     // Salvaged dish bolted to the lattice. with_cut([0.5,1.0]) keeps the upper
     // hemisphere (convex up / concave DOWN), so quat_x(+FRAC_PI_2 + 0.5) turns
-    // its concave aperture up-and-toward the −Z camera — a dish, not a ball.
+    // its concave aperture up-and-toward the −Z camera - a dish, not a ball.
     prims.push(prim(
         solid(with_cut(
             sphere(0.9, 6, sheet(STEEL_GREY)),
@@ -163,7 +163,7 @@ fn build_tree() -> Generator {
         [0.0, mast_top + 0.6, 0.0],
         id_quat(),
     ));
-    // Blinking warning light — emissive.
+    // Blinking warning light - emissive.
     prims.push(prim(
         sphere(0.18, 3, glow(SIGNAL_RED, 3.0)),
         [0.0, mast_top + 3.1, 0.0],

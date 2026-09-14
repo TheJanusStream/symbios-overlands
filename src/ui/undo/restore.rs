@@ -6,7 +6,7 @@
 //! single explicit `set_changed()` fires. Downstream, the world
 //! compiler / terrain / roads / splat reactors all fingerprint-diff, so
 //! one tick reconciles only what actually differs; the network side
-//! sees one throttled `RoomStateUpdate` (or one `AvatarStateUpdate` —
+//! sees one throttled `RoomStateUpdate` (or one `AvatarStateUpdate` -
 //! that path has no second-stage throttle, which is precisely why a
 //! restore must never tick per frame). [`UndoHistory::undo`] /
 //! [`redo`](UndoHistory::redo) armed a one-shot suppression, so the
@@ -15,7 +15,7 @@
 //! After the record write, each editor's `restore_from_undo` re-seeds
 //! its selection + `egui_ltreeview` state from the entry's snapshot
 //! (the `reparent.rs` fixup pattern), validating every index/path
-//! against the restored record first — anything that no longer resolves
+//! against the restored record first - anything that no longer resolves
 //! falls back to a clean deselect rather than pointing the gizmo at the
 //! wrong node. It also cancels parked confirm-dialog payloads and zeros
 //! the widget debounce so a pending burst can't double-fire a phantom
@@ -38,7 +38,7 @@ pub enum StepKind {
 }
 
 /// Walk `path` through a generator's child chain. `true` when every
-/// index resolves — the same walk `commit_transform_at_path` does at
+/// index resolves - the same walk `commit_transform_at_path` does at
 /// gizmo-commit time, used here to validate a restored selection.
 pub(crate) fn node_path_valid(root: &Generator, path: &[usize]) -> bool {
     let mut node = root;
@@ -75,7 +75,7 @@ pub fn step_room(
     editor: &mut RoomEditorState,
 ) -> Option<String> {
     let (snapshot, selection, label) = take_step(kind, history)?;
-    // The load-bearing write shape — see module docs.
+    // The load-bearing write shape - see module docs.
     record.bypass_change_detection().0 = snapshot;
     record.set_changed();
     editor.restore_from_undo(&record.bypass_change_detection().0, &selection);
@@ -264,7 +264,7 @@ mod tests {
                 &mut RoomEditorState::default(),
             )
             .is_none(),
-            "baseline reached — no further undo"
+            "baseline reached - no further undo"
         );
     }
 
@@ -295,7 +295,7 @@ mod tests {
         let base = tiny_record(2, 1);
         let edited = tiny_record(3, 1);
         let mut app = app_with(edited.clone());
-        // Selection stored with the BASELINE points at child 1 — valid in
+        // Selection stored with the BASELINE points at child 1 - valid in
         // the baseline we restore to.
         let mut history = RoomUndoHistory::default();
         history.reset(
@@ -325,7 +325,7 @@ mod tests {
     #[test]
     fn dangling_selection_falls_back_to_deselect() {
         // The edited state's selection points at child 4 / placement 3,
-        // which don't exist in the baseline — restoring must deselect,
+        // which don't exist in the baseline - restoring must deselect,
         // not point the gizmo at a wrong or missing node.
         let base = tiny_record(1, 1);
         let edited = tiny_record(5, 4);

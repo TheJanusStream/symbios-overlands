@@ -1,4 +1,4 @@
-//! Buoy — a Coastal-Resort prop. A red-and-white channel marker: a conical
+//! Buoy - a Coastal-Resort prop. A red-and-white channel marker: a conical
 //! enamel float with a painted band, a short topmast and a steel cage ball,
 //! beached on a patch of sand.
 
@@ -49,7 +49,7 @@ impl CatalogueEntry for Buoy {
 
 fn build_tree() -> Generator {
     let prims = vec![
-        // Sand patch — the root.
+        // Sand patch - the root.
         prim(
             solid(cylinder_tapered(0.8, 0.08, 16, 0.0, sand(SAND_TAN))),
             [0.0, 0.04, 0.0],

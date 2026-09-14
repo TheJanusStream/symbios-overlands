@@ -1,4 +1,4 @@
-//! Pipe run — an Industrial-Park prop. A short rack of process pipes on steel
+//! Pipe run - an Industrial-Park prop. A short rack of process pipes on steel
 //! trestles, with a hand-wheel valve and a riser elbow.
 
 use std::f32::consts::FRAC_PI_2;

@@ -1,4 +1,4 @@
-//! Comms dish — a Space-Outpost secondary. A big concave parabolic dish on a
+//! Comms dish - a Space-Outpost secondary. A big concave parabolic dish on a
 //! steel alt-az yoke, a feed horn at its focus and a warning light on the rim.
 //! The deep-space link of the base.
 //!
@@ -54,7 +54,7 @@ impl CatalogueEntry for CommsDish {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Concrete base — the root.
+        // Concrete base - the root.
         prim(
             solid(cuboid_tapered([2.6, 0.5, 2.6], 0.0, concrete(PAD_GREY))),
             [0.0, 0.25, 0.0],
@@ -85,7 +85,7 @@ fn build_tree() -> Generator {
         quat_z(FRAC_PI_2),
     ));
 
-    // Concave parabolic dish — a shallow lower-hemisphere bowl, axis tilted
+    // Concave parabolic dish - a shallow lower-hemisphere bowl, axis tilted
     // up-and-toward the camera (−Z) so the reflector face shows.
     let c = [0.0_f32, 4.4, 0.25];
     let axis = quat_x(-0.6);

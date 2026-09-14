@@ -1,4 +1,4 @@
-//! Longship — a Nordic prop, and the steading's proudest one. A beached
+//! Longship - a Nordic prop, and the steading's proudest one. A beached
 //! clinker-hulled raider: a rounded lapstrake hull on a projecting keel,
 //! high curved stems carved into dragon heads fore and aft, a row of painted
 //! shields slung along each gunwale, oars fanned out below them, and a
@@ -61,7 +61,7 @@ fn build_tree() -> Generator {
     let gunwale = 1.55; // top rail height
 
     let mut prims = vec![
-        // Projecting keel plank — the flat id-rotation root (the rounded
+        // Projecting keel plank - the flat id-rotation root (the rounded
         // hull shell that rides on it is a rotated child, so the root never
         // carries a rotation).
         prim(
@@ -75,7 +75,7 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Rounded lapstrake hull shell — a half-cylinder, round side down, laid
+    // Rounded lapstrake hull shell - a half-cylinder, round side down, laid
     // along X (axis Y -> X via quat_z). path_cut [0,0.5] keeps the lower
     // half so the curved bottom shows and the deck reads open on top.
     prims.push(prim(
@@ -89,7 +89,7 @@ fn build_tree() -> Generator {
         quat_z(FRAC_PI_2),
     ));
 
-    // Clinker strakes — overlapping horizontal battens up each flank,
+    // Clinker strakes - overlapping horizontal battens up each flank,
     // tapered toward the ends, alternating tone for the lapstrake shadow
     // line.
     for sz in [-1.0_f32, 1.0] {

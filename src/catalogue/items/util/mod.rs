@@ -2,7 +2,7 @@
 //! entries (lighthouse, stone circle, ziggurat, observatory).
 //!
 //! The shape-grammar entries (villa, castle, watchtower, temple)
-//! don't need these — their geometry comes from the grammar
+//! don't need these - their geometry comes from the grammar
 //! interpreter. The primitive entries assemble `Generator` trees by
 //! hand, and these helpers keep that assembly at the "place a tapered
 //! cylinder here" altitude instead of struct-literal plumbing.
@@ -91,7 +91,7 @@ mod tests {
         );
     }
 
-    /// It composes with [`nest`] roots too — the barn/farmhouse idiom.
+    /// It composes with [`nest`] roots too - the barn/farmhouse idiom.
     #[test]
     fn attach_works_on_a_nested_root() {
         let mat = SovereignMaterialSettings::default();
@@ -202,8 +202,8 @@ mod tests {
 
     /// A strut's built cylinder actually lands both endpoints it was given.
     ///
-    /// Verified through [`rotate_by`] — the guards' one quaternion
-    /// implementation — so the authoring helper and the checking helper agree
+    /// Verified through [`rotate_by`] - the guards' one quaternion
+    /// implementation - so the authoring helper and the checking helper agree
     /// on handedness by construction. Cases cover a genuinely 3D diagonal
     /// (all three components nonzero, the case every hand-rolled version got
     /// wrong), a horizontal run, and the two degenerate verticals.
@@ -242,7 +242,7 @@ mod tests {
     }
 
     /// A kind with no faces at all (here a particle system) passes through
-    /// untouched instead of panicking — helpers compose over whole trees.
+    /// untouched instead of panicking - helpers compose over whole trees.
     #[test]
     fn with_face_leaves_a_faceless_kind_alone() {
         let particles = GeneratorKind::default_particles();
@@ -251,7 +251,7 @@ mod tests {
     }
     /// The coplanar guard flags two same-facing faces on one plane that
     /// overlap, and leaves abutting (opposite-facing) and adjacent faces
-    /// alone — including a lid cylinder turned onto its side.
+    /// alone - including a lid cylinder turned onto its side.
     #[test]
     fn coplanar_guard_flags_a_flush_face_and_allows_an_abutting_one() {
         use std::f32::consts::FRAC_PI_2;

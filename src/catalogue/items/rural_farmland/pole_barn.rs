@@ -1,4 +1,4 @@
-//! Pole barn — a Rural/Farmland *poor* secondary. A cheap open lean-to: a row
+//! Pole barn - a Rural/Farmland *poor* secondary. A cheap open lean-to: a row
 //! of poles carrying a sloped corrugated roof over a part-walled back, with a
 //! few hay bales stored under it, pitched beside the
 //! [`homestead_shack`](super::homestead_shack).
@@ -52,7 +52,7 @@ fn build_tree() -> Generator {
     let front_h = 2.8_f32;
 
     let mut prims = vec![
-        // Gravel pad — the root.
+        // Gravel pad - the root.
         prim(
             solid(cuboid_tapered(
                 [w + 0.5, 0.3, d + 0.5],

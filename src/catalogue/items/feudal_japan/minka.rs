@@ -1,4 +1,4 @@
-//! Minka — the Feudal-Japan *poor* landmark. A timber-framed farmhouse with
+//! Minka - the Feudal-Japan *poor* landmark. A timber-framed farmhouse with
 //! plaster-daub walls under a great steep thatched roof, hearth smoke
 //! seeping through the ridge. The farmstead counterpart to the lacquered
 //! [`pagoda`](super::pagoda): same theme, opposite end of the prosperity
@@ -53,13 +53,13 @@ impl CatalogueEntry for Minka {
 ///
 /// They were authored at `l * 0.5 - 0.2` with a half-width of `0.175`,
 /// putting their outer faces 25 mm *inside* the wall planes at `l * 0.5` /
-/// `w * 0.5` — so the "exposed" timber framing was entirely swallowed by
+/// `w * 0.5` - so the "exposed" timber framing was entirely swallowed by
 /// the plaster and only visible from indoors. This is the same authoring
 /// slip as the pagoda's z-fighting columns (its `COLUMN_PROUD`) with the
 /// sign flipped: there the post landed exactly on the wall plane and fought
 /// it, here it landed behind the plane and vanished. Standing it out is what
 /// *shinkabe*
-/// framing does anyway — posts read, plaster infills between them.
+/// framing does anyway - posts read, plaster infills between them.
 const POST_PROUD: f32 = 0.07;
 
 /// Half-width of a corner post (posts are `0.35` square).
@@ -74,7 +74,7 @@ fn build_tree() -> Generator {
     let roof_h = 3.6;
 
     let mut prims = vec![
-        // Stone footing — the root.
+        // Stone footing - the root.
         prim(
             solid(cuboid_tapered(
                 [l + 0.6, foot_h, w + 0.6],
@@ -110,7 +110,7 @@ fn build_tree() -> Generator {
         ));
     }
     // Exposed timber corner posts, standing out of the daub on both faces
-    // they meet — see [`POST_PROUD`].
+    // they meet - see [`POST_PROUD`].
     for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
         prims.push(prim(
             solid(cuboid_tapered(

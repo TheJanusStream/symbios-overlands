@@ -1,4 +1,4 @@
-//! Flagpole — a Civic/Campus prop. A tall steel pole on a concrete base
+//! Flagpole - a Civic/Campus prop. A tall steel pole on a concrete base
 //! flying a flag, with a gilt truck ball at the top. Scatter clutter for the
 //! quad and the forecourts.
 
@@ -46,7 +46,7 @@ impl CatalogueEntry for Flagpole {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Concrete base — the root.
+        // Concrete base - the root.
         prim(
             solid(cuboid_tapered(
                 [0.6, 0.3, 0.6],
@@ -92,7 +92,7 @@ fn build_tree() -> Generator {
         [0.13, 1.1, 0.0],
         id_quat(),
     ));
-    // A flag flying from the upper pole — five panels rippling on the breeze,
+    // A flag flying from the upper pole - five panels rippling on the breeze,
     // each cranked a touch in yaw and stepped in Z so the cloth waves.
     for i in 0..5 {
         let zo = if i % 2 == 0 { 0.07 } else { -0.07 };

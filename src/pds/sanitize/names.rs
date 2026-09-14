@@ -5,8 +5,8 @@
 //! use to find their generator, and the label every tree row, combo and
 //! toast paints. Two things break that quietly: an over-long key (which
 //! `InventoryRecord::sanitize` used to answer by *deleting the item* after
-//! the owner had watched it save), and an invisible character — a
-//! zero-width space, a bidi override, a control byte — that makes two
+//! the owner had watched it save), and an invisible character - a
+//! zero-width space, a bidi override, a control byte - that makes two
 //! distinct keys paint identically or a row paint as nothing at all.
 //!
 //! [`sanitize_keys`] is the one place both records clean their maps, and
@@ -19,7 +19,7 @@ use std::collections::HashMap;
 
 /// True for a character that paints as nothing and so must not appear in
 /// a name: every ASCII / Latin-1 control (`char::is_control`, category Cc)
-/// plus the format characters (category Cf) epaint renders zero-width —
+/// plus the format characters (category Cf) epaint renders zero-width -
 /// U+200B–U+200F (zero-width space / non-joiner / joiner, LRM, RLM),
 /// U+202A–U+202E (bidi embeddings and overrides), U+2060–U+2064 (word
 /// joiner and invisible operators), U+2066–U+2069 (bidi isolates), U+FEFF
@@ -69,7 +69,7 @@ pub fn has_invisible(name: &str) -> bool {
 }
 
 /// Strip invisible characters, trim, and cut to `max_chars` characters.
-/// `None` when nothing visible is left — such a key names no row and is
+/// `None` when nothing visible is left - such a key names no row and is
 /// dropped by [`sanitize_keys`].
 ///
 /// The cut is in `chars`, not bytes, so it can never split a scalar; it
@@ -100,7 +100,7 @@ pub fn clean_name(raw: &str, max_chars: usize) -> Option<String> {
 /// order, returning the `(old, new)` pairs that changed so the caller can
 /// move whatever else is keyed by the old name.
 ///
-/// Deterministic on purpose — this runs on every peer that loads the
+/// Deterministic on purpose - this runs on every peer that loads the
 /// record, and two peers keeping different survivors would fracture the
 /// shared world. A key that cleans to nothing is removed. A key whose
 /// clean form collides with a key that already exists (or with an earlier

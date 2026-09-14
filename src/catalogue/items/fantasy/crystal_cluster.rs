@@ -1,4 +1,4 @@
-//! Crystal cluster — a High-Fantasy prop. A knot of glowing crystal shards
+//! Crystal cluster - a High-Fantasy prop. A knot of glowing crystal shards
 //! jutting from a rocky base at wild angles. Scatter clutter of the arcane
 //! quarter; the shards are emissive trim the ruin pass can darken.
 //!
@@ -48,7 +48,7 @@ impl CatalogueEntry for CrystalCluster {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Rocky base — the root, a low dark mound.
+        // Rocky base - the root, a low dark mound.
         prim(
             solid(cylinder_tapered(0.62, 0.4, 7, 0.25, stone(STONE_GREY))),
             [0.0, 0.2, 0.0],

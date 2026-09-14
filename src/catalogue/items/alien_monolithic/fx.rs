@@ -1,5 +1,5 @@
 //! Alien-Monolithic "bring-it-to-life" helpers: slow rising energy motes and
-//! two spatial-audio patches — a deep resonant hum for the monolith and a high
+//! two spatial-audio patches - a deep resonant hum for the monolith and a high
 //! power shimmer for the light pylon.
 //!
 //! Particle emitters are returned as [`Generator`] nodes (a
@@ -22,7 +22,7 @@ use crate::pds::{
 // Particle emitters
 // ---------------------------------------------------------------------------
 
-/// Slow, orderly motes of blue energy rising straight up — the field around an
+/// Slow, orderly motes of blue energy rising straight up - the field around an
 /// active monolith.
 pub(super) fn energy_motes(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -55,7 +55,7 @@ pub(super) fn energy_motes(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A deep resonant monolith hum — a low fundamental and a pure fifth above,
+/// A deep resonant monolith hum - a low fundamental and a pure fifth above,
 /// steady under a faint tremolo. The voice of the active array.
 pub(super) fn monolith_hum() -> SovereignAudioConfig {
     let low = node(
@@ -107,7 +107,7 @@ pub(super) fn monolith_hum() -> SovereignAudioConfig {
     patch(vec![low, fifth, mix, lfo, vca], NodeId(4))
 }
 
-/// A high power shimmer — a pure tone ringing under a quick tremolo, the charge
+/// A high power shimmer - a pure tone ringing under a quick tremolo, the charge
 /// crackling at a light pylon's tip.
 pub(super) fn power_shimmer() -> SovereignAudioConfig {
     let tone = node(

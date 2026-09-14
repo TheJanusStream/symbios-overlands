@@ -9,7 +9,7 @@ use symbios_overlands::pds::{
 };
 
 // ---------------------------------------------------------------------------
-// format_elapsed_ts — the Diagnostics event log and the anomaly hovers.
+// format_elapsed_ts - the Diagnostics event log and the anomaly hovers.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -37,15 +37,15 @@ fn format_elapsed_promotes_to_hours_after_an_hour() {
 
 #[test]
 fn format_elapsed_handles_very_long_sessions() {
-    // 10-hour session — still renders sensibly.
+    // 10-hour session - still renders sensibly.
     assert_eq!(format_elapsed_ts(36_000.0), "+10:00:00");
 }
 
 /// An elapsed stamp cannot be mistaken for a wall clock (#1264 f231).
 ///
-/// The two formats sat side by side in one app — "14:32" meaning fourteen
+/// The two formats sat side by side in one app - "14:32" meaning fourteen
 /// minutes into the session in the Diagnostics log, and twenty past two in
-/// chat — and nothing on either said which it was. The `+` is the whole
+/// chat - and nothing on either said which it was. The `+` is the whole
 /// distinction, so it is asserted as such rather than left implicit in the
 /// four format tests above.
 #[test]
@@ -62,7 +62,7 @@ fn an_elapsed_stamp_is_marked_as_elapsed() {
 }
 
 // ---------------------------------------------------------------------------
-// Generator primitive tag — round-trip between `kind_tag` and the
+// Generator primitive tag - round-trip between `kind_tag` and the
 // default-builder. The UI's shape-type dropdown uses the tag as the
 // round-trip key, so drift in either direction would break in-editor kind
 // switches.
@@ -194,7 +194,7 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
     for case in cases {
         let mut prim = case;
         sanitize_generator(&mut prim);
-        // Re-encode/decode to verify the sanitized generator is valid — an
+        // Re-encode/decode to verify the sanitized generator is valid - an
         // intermediate panic here would surface immediately, and a decode
         // failure would mean sanitize left the record malformed.
         let json = serde_json::to_string(&prim).expect("sanitised generator must serialise");

@@ -1,4 +1,4 @@
-//! Canonical sovereign asset reference — a URL or DID-pinned blob pointer
+//! Canonical sovereign asset reference - a URL or DID-pinned blob pointer
 //! shared by every dropdown that lets the owner slot an external asset
 //! alongside the procedural-generator variants.
 //!
@@ -14,17 +14,17 @@
 //!
 //! # Variants
 //!
-//! * [`Url`](SovereignAssetReference::Url) — direct HTTPS GET via the
+//! * [`Url`](SovereignAssetReference::Url) - direct HTTPS GET via the
 //!   shared `reqwest` client. CORS is the host's responsibility on web.
-//! * [`AtprotoBlob`](SovereignAssetReference::AtprotoBlob) — resolves the
+//! * [`AtprotoBlob`](SovereignAssetReference::AtprotoBlob) - resolves the
 //!   DID's PDS then calls `com.atproto.sync.getBlob?did=…&cid=…`. Pinned,
 //!   content-addressed, reproducible.
-//! * [`DidPfp`](SovereignAssetReference::DidPfp) — fetches
+//! * [`DidPfp`](SovereignAssetReference::DidPfp) - fetches
 //!   `app.bsky.actor.getProfile` and follows the avatar URL.
 //!   Self-updating: a refresh between sessions picks up a new pfp without
-//!   changing the record. Image-only — the audio bridge UI should hide
+//!   changing the record. Image-only - the audio bridge UI should hide
 //!   this variant from its sub-picker since a JPEG isn't an audio source.
-//! * [`Unknown`](SovereignAssetReference::Unknown) — forward-compat seam.
+//! * [`Unknown`](SovereignAssetReference::Unknown) - forward-compat seam.
 //!   A record authored by a newer engine version round-trips intact
 //!   through older clients.
 //!
@@ -60,11 +60,11 @@ pub enum SovereignAssetReference {
     Url { url: String },
     /// ATProto blob ref pinned to a specific DID. Resolves the DID's PDS
     /// then calls `com.atproto.sync.getBlob?did=…&cid=…`. Use this when
-    /// the asset is hosted on a known PDS as a content-addressed blob —
+    /// the asset is hosted on a known PDS as a content-addressed blob -
     /// the CID makes the reference reproducible.
     #[serde(rename = "network.symbios.sign.atproto_blob")]
     AtprotoBlob { did: String, cid: String },
-    /// "This DID's current profile picture" — fetches `app.bsky.actor.
+    /// "This DID's current profile picture" - fetches `app.bsky.actor.
     /// getProfile` and resolves the avatar URL through the same path
     /// Portal uses today. Self-updating: a refresh between sessions picks
     /// up a new pfp without changing the record.

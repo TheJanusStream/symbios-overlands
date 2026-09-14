@@ -11,14 +11,14 @@
 //! These caches are keyed by **content hash** rather than by generator ref:
 //! every instance of a scattered prop hashes identically, so the whole scatter
 //! collapses onto one mesh handle and one material handle. That also dedups
-//! *across* generators — two catalogue props that happen to use the same card
+//! *across* generators - two catalogue props that happen to use the same card
 //! geometry share a mesh.
 //!
 //! # Keying
 //!
-//! * Mesh — [`prim_geometry_fingerprint`], the primitive's serialised form
+//! * Mesh - [`prim_geometry_fingerprint`], the primitive's serialised form
 //!   with the `material` field removed, so a colour change reuses the mesh.
-//! * Material — the shared
+//! * Material - the shared
 //!   [`settings_fingerprint`](super::generator_cache::settings_fingerprint),
 //!   the same hash the L-system and Shape material caches use.
 //!
@@ -35,13 +35,13 @@
 //!
 //! The sweep is what #919 was missing. Shipped without it, these caches
 //! survived every rebuild, so each region re-roll permanently added that
-//! region's prim meshes and materials — and, through the materials, their
+//! region's prim meshes and materials - and, through the materials, their
 //! procedural images. Measured at ~90 image and ~100 mesh handles per
 //! re-roll and roughly 70 MB of RSS, none of it ever released; the 4096-entry
 //! ceiling would not have been reached for some 45 re-rolls.
 //!
 //! Eviction is safe because a cache entry is only ever a *second* owner of a
-//! handle — every live instance holds its own — so dropping one frees the
+//! handle - every live instance holds its own - so dropping one frees the
 //! asset if and only if nothing is using it, and costs a re-bake on the next
 //! miss otherwise.
 
@@ -67,7 +67,7 @@ pub const PRIM_CACHE_CAPACITY: usize = 4_096;
 /// click-picking), and which [`FacePlan`] group it draws with.
 ///
 /// A prim with no per-face overrides has exactly one of these, and its mesh
-/// is the whole prim — the pre-#959 shape of the cache.
+/// is the whole prim - the pre-#959 shape of the cache.
 #[derive(Clone)]
 pub struct CachedGroup {
     pub mesh: Handle<Mesh>,
@@ -78,21 +78,21 @@ pub struct CachedGroup {
     pub group: usize,
 }
 
-/// Content-addressed primitive mesh dedup — see the [module docs](self).
+/// Content-addressed primitive mesh dedup - see the [module docs](self).
 ///
 /// The value is the prim's material groups in spawn order. `Arc<[_]>` so a
 /// cache hit costs a refcount rather than a `Vec` allocation per instance.
 pub type PrimMeshCache = GeneratorCache<u64, Arc<[CachedGroup]>>;
 
-/// Content-addressed primitive material dedup — see the [module docs](self).
+/// Content-addressed primitive material dedup - see the [module docs](self).
 pub type PrimMaterialCache = GeneratorCache<u64, Handle<StandardMaterial>>;
 
 /// Mesh-cache key for a primitive: its geometry fingerprint, extended by the
 /// *structure* of its face split when it has one.
 ///
 /// A prim whose faces all share the base material keys on the plain
-/// geometry fingerprint alone, so every entry cached before #959 — and every
-/// prim in every existing room — stays valid and shared. Only a genuinely
+/// geometry fingerprint alone, so every entry cached before #959 - and every
+/// prim in every existing room - stays valid and shared. Only a genuinely
 /// split prim takes a distinct key, and because
 /// [`FacePlan::signature`](super::prim::FacePlan::signature) hashes the
 /// partition rather than the materials, recolouring one face reuses its
@@ -112,13 +112,13 @@ pub fn prim_mesh_key(kind: &GeneratorKind, plan: &FacePlan) -> u64 {
 /// everything about its materials.
 ///
 /// `build_primitive_mesh` ignores the material entirely, so folding it into
-/// the key would split the cache on colour alone — every re-tinted copy of one
+/// the key would split the cache on colour alone - every re-tinted copy of one
 /// shape would rebuild an identical mesh. The `material` field is dropped from
 /// the serialised form generically rather than by matching all sixteen
 /// primitive variants, which would be a second place to update whenever a
 /// primitive is added.
 ///
-/// `faces` goes the same way, and for the same reason — its entries are
+/// `faces` goes the same way, and for the same reason - its entries are
 /// mostly *override materials*. What the per-face split does contribute to
 /// geometry (which faces group together, and each group's projection) is
 /// hashed separately by [`FacePlan::signature`], which
@@ -153,7 +153,7 @@ pub fn prim_geometry_fingerprint(kind: &GeneratorKind) -> u64 {
 
 /// Drop every entry once the cache exceeds [`PRIM_CACHE_CAPACITY`].
 ///
-/// Call before inserting. A backstop only — the executor's per-rebuild sweep
+/// Call before inserting. A backstop only - the executor's per-rebuild sweep
 /// is the real eviction policy. Wholesale rather than LRU because, with the
 /// sweep in place, reaching this ceiling means one record alone defined 4096
 /// distinct primitives, and there is no useful subset to keep.
@@ -167,7 +167,7 @@ pub(super) fn bound_capacity<V: Clone>(cache: &mut GeneratorCache<u64, V>) {
 ///
 /// The two are paired in one call deliberately. The GC retains exactly the
 /// keys a full rebuild touched, so a key served from cache must be marked
-/// just as surely as one that was built — mark only the miss path and the
+/// just as surely as one that was built - mark only the miss path and the
 /// sweep evicts precisely the entries that were doing their job, on the very
 /// next rebuild. Pairing them here means a caller cannot take the value
 /// without leaving the mark (#919).
@@ -214,8 +214,8 @@ mod tests {
         );
     }
 
-    /// #959 cache continuity: a prim with no per-face overrides — which is
-    /// every prim in every room authored before the feature existed — must
+    /// #959 cache continuity: a prim with no per-face overrides - which is
+    /// every prim in every room authored before the feature existed - must
     /// key on the plain geometry fingerprint, so its already-cached mesh is
     /// still found and still shared.
     #[test]
@@ -231,7 +231,7 @@ mod tests {
     }
 
     /// A split prim takes its own key (its meshes differ), but recolouring
-    /// one of its faces must not — the split's *structure* is unchanged, so
+    /// one of its faces must not - the split's *structure* is unchanged, so
     /// the cut meshes are still valid.
     #[test]
     fn a_split_prim_keys_on_structure_not_colour() {
@@ -354,7 +354,7 @@ mod tests {
         for k in [1u64, 2, 3, 4] {
             cache.insert(k, k, k as u32);
         }
-        // A rebuild that only reaches keys 3 and 4 — the new region.
+        // A rebuild that only reaches keys 3 and 4 - the new region.
         let touched: HashSet<u64> = [3u64, 4].into_iter().collect();
         retain_touched(&mut cache, &touched);
 
@@ -366,7 +366,7 @@ mod tests {
     /// The subtle half of the sweep, and the way it would most plausibly be
     /// broken by a later edit: a key served *from cache* must be marked
     /// reachable too. Mark only on the build path and the very next rebuild
-    /// evicts every entry that was working — the cache would then thrash
+    /// evicts every entry that was working - the cache would then thrash
     /// instead of leak, which is harder to notice and worse for frame time.
     #[test]
     fn a_cache_hit_marks_its_key_so_the_sweep_keeps_it() {

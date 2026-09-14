@@ -1,4 +1,4 @@
-//! Humanoid preset — vertical capsule with locked-axes uprighting,
+//! Humanoid preset - vertical capsule with locked-axes uprighting,
 //! velocity-driven walk controller, jump impulse, swim/wading modes.
 
 use super::{LocomotionConfig, LocomotionPreset, clamp_pos, clamp_unit};
@@ -16,7 +16,7 @@ pub struct HumanoidParams {
     pub capsule_length: Fp,
     pub mass: Fp,
     pub linear_damping: Fp,
-    /// The travel speed Shift runs at (m/s) — the RUN since #1193, under
+    /// The travel speed Shift runs at (m/s) - the RUN since #1193, under
     /// its old wire name; the unshifted walk is derived from the body
     /// (`player::humanoid::WALK_FROUDE`). Required on the wire and never
     /// skipped, so every published record carries its own value: the
@@ -29,19 +29,19 @@ pub struct HumanoidParams {
     pub swim_vertical_speed: Fp,
     pub wading_speed_factor: Fp,
     /// Horizontal-velocity decay rate (1/s) once every movement key is
-    /// released — higher stops harder ("stops on a dime" at the
+    /// released - higher stops harder ("stops on a dime" at the
     /// default). Promoted from a hard-coded constant by #876; field-level
     /// serde default so records published before it deserialize to the
     /// historical feel.
     #[serde(default = "default_stop_damping")]
     pub stop_damping: Fp,
-    /// Facing slerp rate (1/s) toward the movement direction — how
+    /// Facing slerp rate (1/s) toward the movement direction - how
     /// quickly the whole avatar turns to face where it walks or swims.
     #[serde(default = "default_turn_rate")]
     pub turn_rate: Fp,
 }
 
-/// Serde fallback for records published before #876 — the constant the
+/// Serde fallback for records published before #876 - the constant the
 /// walk controller hard-coded. Shared with `Default` so an old record and
 /// a fresh preset agree.
 fn default_stop_damping() -> Fp {
@@ -76,7 +76,7 @@ impl Default for HumanoidParams {
 
 impl HumanoidParams {
     /// Total standing height (m). Convenience for systems that need to
-    /// know whether the player's head/feet cross a water surface — the
+    /// know whether the player's head/feet cross a water surface - the
     /// avatar's vertical extent comes purely from the capsule collider.
     pub fn total_height(&self) -> f32 {
         self.capsule_length.0 + 2.0 * self.capsule_radius.0

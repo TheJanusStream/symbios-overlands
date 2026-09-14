@@ -1,4 +1,4 @@
-//! Weeping willow — a trunk that rises and splits into arching limbs which
+//! Weeping willow - a trunk that rises and splits into arching limbs which
 //! send long thin whips cascading straight down in a leafy curtain. Built on a
 //! gravity tropism: the whips (E) extend one segment and drop a small leaf node
 //! (K) per iteration, and strong downward tropism bends them into the weeping
@@ -35,7 +35,7 @@ impl CatalogueEntry for TernaryGravityTree {
 
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
-    // 0 — medium-brown willow bark.
+    // 0 - medium-brown willow bark.
     materials.insert(
         0,
         SovereignMaterialSettings {
@@ -50,7 +50,7 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 2 — light yellow-green willow leaf (slot 2 matches the grammar's `,(2)`).
+    // 2 - light yellow-green willow leaf (slot 2 matches the grammar's `,(2)`).
     materials.insert(
         2,
         SovereignMaterialSettings {

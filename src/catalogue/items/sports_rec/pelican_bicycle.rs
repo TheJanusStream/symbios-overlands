@@ -1,31 +1,31 @@
-//! Pelican on a bicycle — a Sports/Recreation prop, and #972's deliberate
+//! Pelican on a bicycle - a Sports/Recreation prop, and #972's deliberate
 //! out-of-distribution test: a real bicycle, and a real pelican riding it.
 //!
 //! **The bicycle** is a lugged steel frame whose every tube is a
-//! [`strut`] between two NAMED joints — bottom bracket, seat cluster, head
-//! top, fork crown, hub ends — so no tube carries a hand-rolled rotation
+//! [`strut`] between two NAMED joints - bottom bracket, seat cluster, head
+//! top, fork crown, hub ends - so no tube carries a hand-rolled rotation
 //! and the guard can ask, of every built tube, which two joints its ends
 //! land on. Three lugs (bottom bracket, seat cluster, fork crown) are the
 //! axis-aligned sub-roots the tubes meet at, which is what a lugged frame
 //! looks like and what #972 lesson 22 needs: a turned member is a leaf.
-//! The wheels are the handcart's recipe — a hub turned onto the axle line
-//! carrying rim, tyre and spokes AT ITS OWN ORIGIN — with both tyres'
+//! The wheels are the handcart's recipe - a hub turned onto the axle line
+//! carrying rim, tyre and spokes AT ITS OWN ORIGIN - with both tyres'
 //! bottoms on the ground. Cranks are struts 180° apart on the crank axis,
 //! with pedals, a chainring, a cog and a chain; the saddle sits on a seat
 //! post sunk into the seat tube, which runs down into the bottom bracket:
 //! an unbroken chain of solids (lesson 33), guarded as a chain.
 //!
-//! **The pelican** is one [`blob_group`] — body, breast, shoulder hump,
+//! **The pelican** is one [`blob_group`] - body, breast, shoulder hump,
 //! tail, an S-curved neck of three capsules, the head, the pouch, and both
-//! wings reaching forward as two capsules apiece to the handlebar grips —
+//! wings reaching forward as two capsules apiece to the handlebar grips -
 //! meshed as a single skin (guarded with `blob_components == 1`, and with
 //! the cell-size arithmetic that keeps it that way). The bill is two
 //! tapered superellipsoids and a hooked nail, all aimed with [`aim_y`] on
 //! one bill vector, so the head faces where the bill points (lesson 39);
 //! the legs are struts from the hips to the pedals and the feet are
-//! flat tapered slabs — a webbed foot is a triangle in plan, so the slab is
+//! flat tapered slabs - a webbed foot is a triangle in plan, so the slab is
 //! quarter-turned to put its taper along the foot's length, wide at the toes
-//! — standing on the pedals with three toe ridges on top.
+//! - standing on the pedals with three toe ridges on top.
 //!
 //! Forward is `+X`. The hero face is the broadside toward `-Z`, so the
 //! render front and the settlement placer both see the bird in profile,
@@ -46,7 +46,7 @@
 //! then on the broken variant, and checks WHICH assertion fired (lesson 34's
 //! selector note): a guard that bites on a count is not a guard.
 //!
-//! #972 lesson 40 — see the issue: an organic rider on a mechanical mount
+//! #972 lesson 40 - see the issue: an organic rider on a mechanical mount
 //! is two vocabularies meeting at four contacts (saddle, two grips, two
 //! pedals), and every one of those contacts is a guardable relation between
 //! a BUILT blob element or strut end and a BUILT machine part.
@@ -68,7 +68,7 @@ use super::{STEEL_GREY, enamel, painted, steel};
 // ---- palette (sRGB). Distinct constants for distinct parts: a shared
 // colour constant is a shared selector (#972 lesson 32).
 
-/// Frame enamel — the ten frame tubes and the three lugs.
+/// Frame enamel - the ten frame tubes and the three lugs.
 const FRAME_RED: [f32; 3] = [0.70, 0.14, 0.12];
 /// Tyre rubber.
 const TYRE_BLACK: [f32; 3] = [0.09, 0.09, 0.10];
@@ -82,7 +82,7 @@ const PEDAL_DARK: [f32; 3] = [0.22, 0.22, 0.24];
 const PLATE_WHITE: [f32; 3] = [0.94, 0.94, 0.92];
 /// The band across the plate.
 const PLATE_RED: [f32; 3] = [0.80, 0.16, 0.14];
-/// Plumage — white-grey, one skin, one colour.
+/// Plumage - white-grey, one skin, one colour.
 const PLUMAGE: [f32; 3] = [0.91, 0.90, 0.86];
 /// The bill.
 const BILL_YELLOW: [f32; 3] = [0.96, 0.66, 0.20];
@@ -95,7 +95,7 @@ const EYE_DARK: [f32; 3] = [0.08, 0.07, 0.07];
 
 // ---- the bicycle. Forward is +X; the wheels turn about Z.
 
-/// Tyre outer radius — the hubs sit at this height so the tyres touch the
+/// Tyre outer radius - the hubs sit at this height so the tyres touch the
 /// ground.
 const WHEEL_R: f32 = 0.30;
 const TYRE_T: f32 = 0.032;
@@ -106,7 +106,7 @@ const HUB_R: f32 = 0.030;
 const HUB_L: f32 = 0.080;
 /// Spokes are diameter bars in the wheel plane; nine of them at an odd
 /// pitch, so no two are a quarter turn apart (crossed spokes of one stock
-/// tie for depth — the tractor's lesson).
+/// tie for depth - the tractor's lesson).
 const SPOKE_PAIRS: u32 = 9;
 const SPOKE_T: f32 = 0.010;
 const SPOKE_LEN: f32 = 2.0 * (RIM_R - RIM_T);
@@ -117,7 +117,7 @@ const FRONT_HUB: [f32; 3] = [0.50, HUB_Y, 0.0];
 /// Where the stays and blades meet the hub ends.
 const HUB_END_Z: f32 = 0.050;
 
-/// Bottom bracket — the root, and the joint the seat tube, down tube and
+/// Bottom bracket - the root, and the joint the seat tube, down tube and
 /// chain stays all run to.
 const BB: [f32; 3] = [-0.10, 0.27, 0.0];
 /// Half-extents of the three lugs (rolled boxes).
@@ -145,7 +145,7 @@ const STEM_RISE: [f32; 3] = [0.08, 0.06, 0.0];
 const STEM_R: f32 = 0.014;
 const BAR_R: f32 = 0.011;
 /// The bar ends INSIDE the grips (a bar exactly as long as the grips would
-/// put its end discs on the grips' end discs — lesson 37's tie).
+/// put its end discs on the grips' end discs - lesson 37's tie).
 const BAR_HALF: f32 = 0.275;
 const GRIP_R: f32 = 0.016;
 const GRIP_L: f32 = 0.11;
@@ -201,7 +201,7 @@ const HUMP_HALF: [f32; 3] = [0.16, 0.10, 0.13];
 const TAIL_C: [f32; 3] = [-0.36, 0.05, 0.0];
 const TAIL_HALF: [f32; 3] = [0.16, 0.035, 0.09];
 /// The neck: base inside the shoulders, back and up, up, then forward to
-/// the head — the S.
+/// the head - the S.
 const NECK: [[f32; 3]; 3] = [[0.20, 0.10, 0.0], [0.14, 0.28, 0.0], [0.19, 0.42, 0.0]];
 const HEAD_C: [f32; 3] = [0.36, 0.52, 0.0];
 const HEAD_HALF: [f32; 3] = [0.095, 0.078, 0.072];
@@ -227,7 +227,7 @@ const LOWER_DROP_TIP: f32 = 0.018;
 const BILL_TAPER: [f32; 2] = [0.35, 0.55];
 const NAIL_R: f32 = 0.016;
 const NAIL_L: f32 = 0.045;
-/// Pouch: a flat ellipsoid hung along the bill line from the throat —
+/// Pouch: a flat ellipsoid hung along the bill line from the throat -
 /// `POUCH_HALF` is [depth below the bill, half-length along it, half-width]
 /// and it is centred `POUCH_ALONG` down the bill and `POUCH_DROP` below it.
 /// Narrower than the lower mandible, so the mandible shows along its top
@@ -243,7 +243,7 @@ const ELBOW: [f32; 3] = [0.36, 0.06, 0.20];
 const FOREWING_R: f32 = 0.042;
 /// Each wing is a flattened panel from the shoulder to the elbow and a
 /// second from the elbow to the grip, with a capsule inside the forewing
-/// ending in the hand on the grip — `[depth, half-length, half-width]`
+/// ending in the hand on the grip - `[depth, half-length, half-width]`
 /// aimed along the segment.
 const WING_PANEL_HALF: [f32; 3] = [0.085, 0.15, 0.032];
 const FOREWING_PANEL_HALF: [f32; 3] = [0.055, 0.14, 0.030];
@@ -271,7 +271,7 @@ const TOE_SINK: f32 = 0.006;
 const TOE_SPREAD: f32 = 0.05;
 
 /// Deliberate defects, one per guard, so every test can prove its guard
-/// bites on the fault it exists for — and on nothing else. The shipped
+/// bites on the fault it exists for - and on nothing else. The shipped
 /// prop is `Faults::default()`.
 #[derive(Clone, Copy, Default)]
 struct Faults {
@@ -279,7 +279,7 @@ struct Faults {
     saddle_lift: f32,
     /// Sink both hubs so the tyres run through the ground.
     tyre_drop: f32,
-    /// Offset the front rim from its hub — a child offset under a turn.
+    /// Offset the front rim from its hub - a child offset under a turn.
     rim_offset: f32,
     /// Turn the second crank by this much off the half-turn.
     pedal_skew: f32,
@@ -336,7 +336,7 @@ impl CatalogueEntry for PelicanBicycle {
     }
 }
 
-// ---- small vector helpers (arrays, no glam — the record is arrays).
+// ---- small vector helpers (arrays, no glam - the record is arrays).
 
 fn add(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
@@ -369,7 +369,7 @@ fn seat_cluster() -> [f32; 3] {
 fn head_dir() -> [f32; 3] {
     [HEAD_ANGLE.cos(), -HEAD_ANGLE.sin(), 0.0]
 }
-/// The fork crown — the head tube's bottom end.
+/// The fork crown - the head tube's bottom end.
 fn head_bot() -> [f32; 3] {
     add(HEAD_TOP, scale(head_dir(), HEAD_TUBE_LEN))
 }
@@ -379,7 +379,7 @@ fn bar_centre() -> [f32; 3] {
 fn grip(sz: f32) -> [f32; 3] {
     with_z(bar_centre(), sz * GRIP_Z)
 }
-/// The seat post's top — what the saddle is set on.
+/// The seat post's top - what the saddle is set on.
 fn saddle_mount() -> [f32; 3] {
     add(seat_cluster(), scale(seat_dir(), POST_RISE))
 }
@@ -949,7 +949,7 @@ mod tests {
     }
 
     /// Run `guard` on the broken variant `faults` and require that it
-    /// panics WITH `needle` in its message — proof it bit on the fault, not
+    /// panics WITH `needle` in its message - proof it bit on the fault, not
     /// on a selector count.
     fn bites(faults: Faults, guard: &dyn Fn(&Generator), needle: &str) {
         let built = build_with(&faults);
@@ -1055,7 +1055,7 @@ mod tests {
     }
 
     /// **Every frame tube's two BUILT ends land on a named joint.** The
-    /// tubes are selected by what they are — enamelled cylinders — and the
+    /// tubes are selected by what they are - enamelled cylinders - and the
     /// count is exact: head, top, down, seat, two chain stays, two seat
     /// stays, two fork blades.
     fn guard_frame_joints(root: &Generator) {
@@ -1224,7 +1224,7 @@ mod tests {
         assert!(
             (mid[0] - BB[0]).abs() < 1e-3 && (mid[1] - BB[1]).abs() < 1e-3,
             "{SLUG}: the pedals at {a:?} and {b:?} are not opposite about the crank axle at \
-             {BB:?} — their midpoint is {mid:?}"
+             {BB:?} - their midpoint is {mid:?}"
         );
         assert!(
             (a[2] + b[2]).abs() < 1e-4 && a[2].abs() > 0.05,
@@ -1274,7 +1274,7 @@ mod tests {
             });
             assert!(
                 (lo[1] - phi[1]).abs() < 5e-3,
-                "{SLUG}: a foot's sole is at {:.3} over a pedal whose top is at {:.3} — it \
+                "{SLUG}: a foot's sole is at {:.3} over a pedal whose top is at {:.3} - it \
                  does not touch its pedal",
                 lo[1],
                 phi[1]
@@ -1314,7 +1314,7 @@ mod tests {
     }
     /// **Each wing's tip lands on a grip.** The two most forward capsule
     /// ends in the BUILT skin must each be within a centimetre of a grip's
-    /// centre — a hand wrapped round the bar.
+    /// centre - a hand wrapped round the bar.
     fn guard_wings(root: &Generator) {
         let (elements, at, _) = skin(root);
         let mut grips = Vec::new();
@@ -1397,7 +1397,7 @@ mod tests {
             let along = d[0] * travel[0] + d[2] * travel[2];
             assert!(
                 along > 0.6 && d[1] < -0.3,
-                "{SLUG}: the bill points {d:?}; travel is {travel:?} — the pelican is not \
+                "{SLUG}: the bill points {d:?}; travel is {travel:?} - the pelican is not \
                  looking forward and down"
             );
         }
@@ -1420,7 +1420,7 @@ mod tests {
     /// **The saddle is carried by an unbroken chain of solids** down to the
     /// bottom bracket: the post's top is inside the saddle, the post's
     /// bottom is inside the seat tube, and the seat tube's bottom is inside
-    /// the bottom bracket lug — each read from the BUILT strut ends.
+    /// the bottom bracket lug - each read from the BUILT strut ends.
     fn guard_seat_chain(root: &Generator) {
         let mut saddle = None;
         let mut lug = None;
@@ -1462,7 +1462,7 @@ mod tests {
         assert!(
             (0..3).all(|i| (post_top[i] - sc[i]).abs() < sh[i]),
             "{SLUG}: the seat post tops out at {post_top:?}, outside the saddle at {sc:?} \
-             (half {sh:?}) — the saddle floats"
+             (half {sh:?}) - the saddle floats"
         );
         // The post's bottom lies on the tube's segment, inside its radius.
         let seg = add(tube_top, scale(tube_bot, -1.0));
@@ -1502,7 +1502,7 @@ mod tests {
         assert_eq!(
             blob_components(&kind),
             1,
-            "{SLUG}: the bird polygonised into more than one piece — an element has \
+            "{SLUG}: the bird polygonised into more than one piece - an element has \
              drifted out of blend range, or is thinner than the sample grid"
         );
         let (lo, hi) = aabb(&prim(kind, [0.0; 3], id_quat()), [0.0; 3]).unwrap();
@@ -1565,7 +1565,7 @@ mod tests {
         );
     }
 
-    // ---- 14. subtree sizes — the editability contract
+    // ---- 14. subtree sizes - the editability contract
 
     fn count(g: &Generator) -> usize {
         1 + g.children.iter().map(count).sum::<usize>()
@@ -1602,7 +1602,7 @@ mod tests {
         assert_eq!(lugs, vec![1 + 4 + 17, 1 + 9 + wheel_n, 72]);
     }
 
-    /// The material fixture the tests select on is what the kit hands out —
+    /// The material fixture the tests select on is what the kit hands out -
     /// a kit palette change would silently re-target every selector above.
     #[test]
     fn selectors_read_the_kit_colours_they_expect() {

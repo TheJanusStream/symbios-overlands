@@ -1,4 +1,4 @@
-//! Clubhouse — a Sports/Recreation secondary. A low cream pavilion with a
+//! Clubhouse - a Sports/Recreation secondary. A low cream pavilion with a
 //! covered veranda, lit windows, a gable clock and a pitched corrugated roof.
 //! The changing rooms and social club of the ground.
 //!
@@ -64,7 +64,7 @@ fn build_tree() -> Generator {
     // body is set back toward +Z behind the veranda.
 
     let mut prims = vec![
-        // Concrete plinth — the root.
+        // Concrete plinth - the root.
         prim(
             solid(cuboid_tapered(
                 [12.0, plinth_h, 7.0],
@@ -130,7 +130,7 @@ fn build_tree() -> Generator {
         corrugated(CORRUGATED_GREY),
     ));
 
-    // Gable clocks — a real dial on each ±X gable end, in the triangle above
+    // Gable clocks - a real dial on each ±X gable end, in the triangle above
     // the eaves (the veranda roof covers the front wall, so a front-wall clock
     // is occluded; the gable end reads clearly in the side / three-quarter
     // tiles). Dark rim, pale face, hub and crossed hands, proud of the gable.

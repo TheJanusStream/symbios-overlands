@@ -1,4 +1,4 @@
-//! Torii gate — a Feudal-Japan secondary. The iconic vermilion gateway:
+//! Torii gate - a Feudal-Japan secondary. The iconic vermilion gateway:
 //! two lacquered pillars on stone footings carrying a curved double lintel
 //! (kasagi over shimaki) and a tie beam (nuki) pierced through, with a
 //! central plaque. Marks the threshold of the sacred ground.
@@ -51,7 +51,7 @@ fn build_tree() -> Generator {
     let nuki_y = pillar_h * 0.72;
 
     let mut prims = vec![
-        // Stone footing strip — the root.
+        // Stone footing strip - the root.
         prim(
             solid(cuboid_tapered(
                 [2.0 * span + 1.4, 0.4, 1.2],
@@ -94,7 +94,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Shimaki beam, then the broad kasagi crown — its ends swept up in the
+    // Shimaki beam, then the broad kasagi crown - its ends swept up in the
     // Myōjin curve.
     let top = 0.4 + pillar_h;
     let kasagi_mat = || {

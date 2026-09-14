@@ -1,4 +1,4 @@
-//! Neon megatower — the Cyberpunk landmark. Four stacked, slightly tapered
+//! Neon megatower - the Cyberpunk landmark. Four stacked, slightly tapered
 //! dark-metal tiers with setback ledges, each ringed with an emissive neon
 //! band and lit window rows, crowned by a round lit observation drum inside
 //! hollow neon halo rings and topped by an antenna cluster and beacon.
@@ -55,7 +55,7 @@ fn build_tree() -> Generator {
     let body = DARK_METAL;
     let slab_h = 0.6;
 
-    // Podium slab — the root. Its base sits at the generator origin.
+    // Podium slab - the root. Its base sits at the generator origin.
     let mut root = prim(
         solid(cuboid_tapered([14.0, slab_h, 14.0], 0.0, metal(body))),
         [0.0, slab_h * 0.5, 0.0],
@@ -76,7 +76,7 @@ fn build_tree() -> Generator {
     let mut y = slab_h;
     for (i, (w, h)) in tiers.iter().enumerate() {
         let (w, h) = (*w, *h);
-        // Setback ledge — a wide thin overhang slab at the tier base.
+        // Setback ledge - a wide thin overhang slab at the tier base.
         root.children.push(prim(
             solid(cuboid_tapered([w + 0.8, 0.3, w + 0.8], 0.0, metal(body))),
             [0.0, rel(y + 0.15), 0.0],

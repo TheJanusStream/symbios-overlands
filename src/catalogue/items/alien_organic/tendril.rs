@@ -1,9 +1,9 @@
-//! Tendril — an Alien-Organic prop. A thick flesh tendril coiling up out of a
+//! Tendril - an Alien-Organic prop. A thick flesh tendril coiling up out of a
 //! creep pad, lesser feelers branching off it, a lone light-node glowing where
 //! they meet. Scatter clutter writhing across the colony floor.
 //!
 //! Rooted on a flat creep pad (`id_quat`); each tendril is a [`tendril`](fn@super::tendril)
-//! subtree (its base segment carries a yaw, so it rides as a child — a rotated
+//! subtree (its base segment carries a yaw, so it rides as a child - a rotated
 //! `assemble` root would spin every sibling into its frame).
 
 use crate::catalogue::items::util::{
@@ -50,7 +50,7 @@ impl CatalogueEntry for Tendril {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Flat creep pad — the root (id_quat).
+        // Flat creep pad - the root (id_quat).
         prim(
             solid(cylinder_tapered(0.7, 0.18, 14, 0.3, flesh(FLESH_RED))),
             [0.0, 0.09, 0.0],
@@ -60,7 +60,7 @@ fn build_tree() -> Generator {
 
     // The main thick tendril: a chain of segments leaning ever further over
     // (`quat_z`, so it hooks sideways toward +X and the −Z camera reads the
-    // coil in profile — a head-on coil foreshortens flat). Each segment is
+    // coil in profile - a head-on coil foreshortens flat). Each segment is
     // hand-seated at the tip of the last so the curl is a clean hook, not the
     // gentle lean the generic helper gives over a short prop.
     let main = [
@@ -81,7 +81,7 @@ fn build_tree() -> Generator {
     }
 
     // Two lesser feelers branching off, hooking the other ways (the generic
-    // tendril helper — small writhing nubs, the curl is fine at this size).
+    // tendril helper - small writhing nubs, the curl is fine at this size).
     prims.push(tendril(
         [-0.45, 0.1, 0.2],
         0.5,

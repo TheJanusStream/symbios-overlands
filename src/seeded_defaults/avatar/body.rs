@@ -1,4 +1,4 @@
-//! Avatar body proportions — overall scale, shoulder width, head
+//! Avatar body proportions - overall scale, shoulder width, head
 //! size, limb thickness, body archetype.
 //!
 //! These seeded knobs are the shared anchor every vehicle chassis family's
@@ -21,11 +21,11 @@ use crate::seeded_defaults::scene::{pick, range_f32};
 
 const AVATAR_BODY_SALT: u64 = 0xB0DD_B0DD_B0DD_B0DD;
 
-/// Stylization register the whole figure is drawn in — the "heads-tall"
+/// Stylization register the whole figure is drawn in - the "heads-tall"
 /// dial of classical figure canons. Sampled *first* (weighted, not
 /// uniform: most of the population sits in the friendly mid-band) and
 /// every other proportion knob then samples inside this tier's band, so
-/// the parameters covary — a big Toy head always arrives with short
+/// the parameters covary - a big Toy head always arrives with short
 /// chubby limbs, never on realistic-length legs (the "bobblehead on
 /// stilts" mixed-stylization failure).
 ///
@@ -38,14 +38,14 @@ const AVATAR_BODY_SALT: u64 = 0xB0DD_B0DD_B0DD_B0DD;
 /// canon-realistic head reads as a pinhead at game camera distance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StylizationTier {
-    /// ~6.5–7 heads, 1.70–1.80 m — everyman proportions.
+    /// ~6.5–7 heads, 1.70–1.80 m - everyman proportions.
     Realistic,
-    /// ~7.0–7.5 heads, 1.80–1.95 m — long-legged, broad, imposing.
+    /// ~7.0–7.5 heads, 1.80–1.95 m - long-legged, broad, imposing.
     Heroic,
-    /// ~5–6 heads, 1.50–1.70 m — friendly cartoon adult (the bulk of
+    /// ~5–6 heads, 1.50–1.70 m - friendly cartoon adult (the bulk of
     /// the population).
     Stylized,
-    /// ~3–4 heads, 1.00–1.25 m — toy / chibi register.
+    /// ~3–4 heads, 1.00–1.25 m - toy / chibi register.
     Toy,
 }
 
@@ -87,7 +87,7 @@ impl BodyArchetype {
 #[derive(Clone, Copy, Debug)]
 pub struct AvatarBody {
     pub archetype: BodyArchetype,
-    /// Stylization register — the master proportion dial every canon
+    /// Stylization register - the master proportion dial every canon
     /// field below is banded by. Humanoid-only expression; the vehicle
     /// chassis keep reading the legacy multiplier knobs.
     pub tier: StylizationTier,
@@ -102,13 +102,13 @@ pub struct AvatarBody {
     pub head_scale: f32,
     /// Lateral (X-axis) scale. Hull width / shoulder width.
     pub shoulder_width_scale: f32,
-    /// Limb thickness — pontoon radius, mast radius, arm/leg girth.
+    /// Limb thickness - pontoon radius, mast radius, arm/leg girth.
     pub limb_thickness_scale: f32,
 
     // --- Canon proportion knobs (humanoid blueprint inputs), all
     // sampled inside the tier's band so they covary. Fractions are of
     // the head-unit H (total height / heads_tall) unless noted. ---
-    /// Physical height in metres — drives the locomotion capsule too.
+    /// Physical height in metres - drives the locomotion capsule too.
     pub total_height_m: f32,
     /// Figure height in head-units (the classical canon dial).
     pub heads_tall: f32,
@@ -130,7 +130,7 @@ pub struct AvatarBody {
     pub foot_frac: f32,
     /// Visible neck height / H (0 = head sits on the shoulders).
     pub neck_frac: f32,
-    /// Torso depth (Z) as a fraction of its width (X) — bodies are
+    /// Torso depth (Z) as a fraction of its width (X) - bodies are
     /// wider than deep; a full-depth trunk reads as a barrel.
     pub depth_flatten: f32,
 }
@@ -140,7 +140,7 @@ impl AvatarBody {
         Self::for_seed(fnv1a_64(did))
     }
 
-    /// Derive from a pre-computed seed — the manual re-roll path.
+    /// Derive from a pre-computed seed - the manual re-roll path.
     /// `for_did(did)` is exactly `for_seed(fnv1a_64(did))`.
     pub fn for_seed(seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed ^ AVATAR_BODY_SALT);
@@ -159,7 +159,7 @@ impl AvatarBody {
         // Canon bands per tier: (height m, heads tall, crotch frac,
         // shoulder span H, waist taper, limb taper, hand frac, foot
         // frac, neck frac, depth flatten). Each row is one coherent
-        // stylization register — see [`StylizationTier`].
+        // stylization register - see [`StylizationTier`].
         #[rustfmt::skip]
         let (h, heads, crotch, span, waist, ltaper, hand, foot, neck, depth) = match tier {
             StylizationTier::Realistic =>
@@ -176,7 +176,7 @@ impl AvatarBody {
                  (0.88, 1.00), (0.62, 0.78), (0.55, 0.75), (0.06, 0.10), 0.92),
         };
         // Stocky bodies keep more waist (boxier trunk), slim ones a
-        // touch less — applied as a shift so it stays inside sane range.
+        // touch less - applied as a shift so it stays inside sane range.
         let waist_shift = match archetype {
             BodyArchetype::Slim => -0.04,
             BodyArchetype::Average => 0.0,
@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     fn tiers_covary() {
-        // The canon fields must stay inside their tier's band — a Toy
+        // The canon fields must stay inside their tier's band - a Toy
         // body never rolls realistic-length legs or a tall head count.
         for s in 0u64..256 {
             let b = AvatarBody::for_seed(s);
@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn tier_mix_is_weighted() {
         // Over a large population the weighted pick should land near
-        // 45/25/15/15 — assert loose brackets, not exact frequencies.
+        // 45/25/15/15 - assert loose brackets, not exact frequencies.
         let mut counts = [0u32; 4];
         const N: u64 = 2000;
         for s in 0..N {

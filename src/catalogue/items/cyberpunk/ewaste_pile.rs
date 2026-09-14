@@ -1,4 +1,4 @@
-//! E-waste pile — a Cyberpunk *poor* prop. A heap of dead CRT monitors, a
+//! E-waste pile - a Cyberpunk *poor* prop. A heap of dead CRT monitors, a
 //! gutted PC tower, snapped circuit boards, a tossed keyboard and tangled
 //! cabling, with one cracked panel still faintly glowing; undercity street
 //! clutter.
@@ -49,7 +49,7 @@ const BEIGE: [f32; 3] = [0.58, 0.55, 0.46];
 const PCB_GREEN: [f32; 3] = [0.10, 0.32, 0.16];
 const CABLE: [f32; 3] = [0.05, 0.05, 0.06];
 
-/// A dead CRT monitor — a casing with a dark (or faintly lit) glass face.
+/// A dead CRT monitor - a casing with a dark (or faintly lit) glass face.
 fn monitor(pos: [f32; 3], tilt_x: f32, tilt_y: f32, case: [f32; 3], lit: bool) -> Generator {
     let mut body = prim(
         solid(cuboid_tapered([0.5, 0.44, 0.46], 0.0, metal(case))),
@@ -115,7 +115,7 @@ fn build_tree() -> Generator {
         [0.4, 0.55, -0.05],
         quat_y(0.5),
     ));
-    // Tangled cabling — a coil and a loose loop draped over the heap.
+    // Tangled cabling - a coil and a loose loop draped over the heap.
     prims.push(prim(
         helix(0.16, 0.04, 0.06, 3.0, 12, metal(CABLE)),
         [-0.1, 0.6, 0.4],
@@ -127,7 +127,7 @@ fn build_tree() -> Generator {
         quat_x(1.2),
     ));
 
-    // The cracked panel still faintly lit — it fizzes and throws sparks.
+    // The cracked panel still faintly lit - it fizzes and throws sparks.
     let mut panel = prim(
         cuboid_tapered([0.5, 0.04, 0.34], 0.0, glow(NEON_CYAN, 2.5)),
         [0.05, 0.95, 0.1],

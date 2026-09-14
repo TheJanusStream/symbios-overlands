@@ -1,4 +1,4 @@
-//! Locomotion presets — the open-union physics-body half of the avatar
+//! Locomotion presets - the open-union physics-body half of the avatar
 //! record.
 //!
 //! Each preset (HoverBoat / Humanoid / Airplane / Helicopter / Car) lives
@@ -29,7 +29,7 @@ pub use humanoid::HumanoidParams;
 use super::super::types::{Fp, Fp3};
 use serde::{Deserialize, Serialize};
 
-/// One row in the locomotion-picker table — `(kind_tag, display_label,
+/// One row in the locomotion-picker table - `(kind_tag, display_label,
 /// default_constructor)`. The avatar editor uses this to render the
 /// preset selector and to materialise a fresh default-tuned variant
 /// when the user picks a new preset.
@@ -65,7 +65,7 @@ pub trait LocomotionPreset: Default + Clone + Send + Sync + 'static {
 }
 
 /// Open-union locomotion preset. Each variant carries its own collider
-/// dimensions + physics tuning so the chassis is fully self-describing —
+/// dimensions + physics tuning so the chassis is fully self-describing -
 /// the visuals tree is independent of the physics body.
 ///
 /// Future presets add new `#[serde(rename)]` arms; older clients fall
@@ -168,7 +168,7 @@ impl LocomotionConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Sanitiser primitives — shared by every preset's `LocomotionPreset` impl.
+// Sanitiser primitives - shared by every preset's `LocomotionPreset` impl.
 // ---------------------------------------------------------------------------
 
 /// Clamp a finite scalar into `[lo, hi]`; non-finite inputs collapse to

@@ -1,4 +1,4 @@
-//! Helicopter preset — auto-stabilising arcade hover with cyclic +
+//! Helicopter preset - auto-stabilising arcade hover with cyclic +
 //! strafe + yaw input.
 
 use super::{LocomotionConfig, LocomotionPreset, clamp_half_extents, clamp_pos};
@@ -37,7 +37,7 @@ pub struct HelicopterParams {
     pub stabilize_torque: Fp,
 }
 
-/// Serde fallback for records published before #876 — the constant the
+/// Serde fallback for records published before #876 - the constant the
 /// stabiliser hard-coded. Shared with `Default`.
 fn default_stabilize_torque() -> Fp {
     Fp(800.0)

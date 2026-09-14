@@ -1,7 +1,7 @@
 //! Byte-level wire guard for the Sovereign audio mirror (#1160).
 //!
 //! The audio mirrors write every field, in declaration order, with no
-//! default elision — unlike the texture mirrors (#695). Generators carrying
+//! default elision - unlike the texture mirrors (#695). Generators carrying
 //! an audio patch are content-addressed over those bytes (room child
 //! rkeys), so a mirror that starts eliding, reorders a field, or renames one
 //! rewrites every such child record on the next publish.
@@ -26,13 +26,13 @@ fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio_wire.jsonl")
 }
 
-/// Every node kind at its upstream default — the roster the mirror must
+/// Every node kind at its upstream default - the roster the mirror must
 /// carry one arm for.
 fn every_kind() -> Vec<NodeKind> {
     // Upstream's own roster (symbios-audio 0.2, generated there from
     // `for_each_node_kind!`), not a copy of it. `NodeKind` is
     // `#[non_exhaustive]`, so a hand-written list here could only ever pin
-    // the bytes of the kinds somebody remembered to add — and a kind missing
+    // the bytes of the kinds somebody remembered to add - and a kind missing
     // from the fixture is exactly a kind whose wire format nothing checks.
     let roster = NodeKind::defaults();
     assert!(
@@ -171,7 +171,7 @@ fn audio_wire_bytes_are_pinned() {
         return;
     }
     let want = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("{}: {e} — bless with PRIM_WIRE_BLESS=1", path.display()));
+        .unwrap_or_else(|e| panic!("{}: {e} - bless with PRIM_WIRE_BLESS=1", path.display()));
     let want: Vec<&str> = want.lines().collect();
     let mut diffs = Vec::new();
     for (i, g) in got.iter().enumerate() {

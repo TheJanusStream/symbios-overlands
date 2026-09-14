@@ -9,12 +9,12 @@
 //! footman", "ornate cyberpunk skiff") because each downstream deriver
 //! biases its samples around the same anchor.
 //!
-//! Two discrete axes anchor the design space — the [`ChassisFamily`] (the
+//! Two discrete axes anchor the design space - the [`ChassisFamily`] (the
 //! body plan: humanoid / boat / airship / skiff) and the
 //! [`ThemeArchetype`] *style* (deliberately the **same** enum the room
 //! uses, so a cyberpunk avatar and a cyberpunk room speak one style
-//! vocabulary). Two continuous socio-style axes follow — `ornateness`
-//! (plain ↔ ornate) and `wear` (pristine ↔ battered) — read via
+//! vocabulary). Two continuous socio-style axes follow - `ornateness`
+//! (plain ↔ ornate) and `wear` (pristine ↔ battered) - read via
 //! [`OrnatenessTier`] / [`WearTier`] and the catalogue-eligibility bands
 //! [`OrnatenessBand`] / [`WearBand`], exactly as the room reads prosperity
 //! and escalation.
@@ -28,25 +28,25 @@ use crate::seeded_defaults::scene::{
     ThemeArchetype, find_matching_seed, pick, signed_unit_f32, unit_f32,
 };
 
-/// Sub-stream salt for the character anchor — distinct from every
+/// Sub-stream salt for the character anchor - distinct from every
 /// per-domain avatar deriver salt so the anchor's draws never alias a
 /// downstream stream.
 const AVATAR_CHARACTER_SALT: u64 = 0xA7A7_C4A7_C4A7_A7A7;
 
-/// Ornamentation tier — the discrete reading of the continuous
+/// Ornamentation tier - the discrete reading of the continuous
 /// [`AvatarCharacter::ornateness`] axis (plain → ornate). Thresholded into
 /// thirds. Drives ornament-slot density (hats, finials, pauldrons, trim)
 /// and which cross-style ornament pool a part draws from.
 ///
 /// Variants are declared plainest-first so the derived [`Ord`] matches the
-/// axis direction — [`OrnatenessBand`] relies on that ordering.
+/// axis direction - [`OrnatenessBand`] relies on that ordering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OrnatenessTier {
-    /// Bottom third — bare, functional, no extra trim.
+    /// Bottom third - bare, functional, no extra trim.
     Plain,
-    /// Middle third — a little ornament; one or two accents.
+    /// Middle third - a little ornament; one or two accents.
     Adorned,
-    /// Top third — heavily decorated; finials, filigree, full kit.
+    /// Top third - heavily decorated; finials, filigree, full kit.
     Ornate,
 }
 
@@ -72,20 +72,20 @@ impl OrnatenessTier {
     }
 }
 
-/// Wear tier — the discrete reading of the continuous
+/// Wear tier - the discrete reading of the continuous
 /// [`AvatarCharacter::wear`] axis (pristine → battered). Thresholded into
 /// thirds. Drives material finish (gloss ↔ grime), surface darkening /
 /// oxidation, and battle-damage / patina part variants.
 ///
 /// Variants are declared cleanest-first so the derived [`Ord`] matches the
-/// axis direction — [`WearBand`] relies on that ordering.
+/// axis direction - [`WearBand`] relies on that ordering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WearTier {
-    /// Bottom third — clean, polished, factory-fresh.
+    /// Bottom third - clean, polished, factory-fresh.
     Pristine,
-    /// Middle third — used, lightly scuffed and dulled.
+    /// Middle third - used, lightly scuffed and dulled.
     Worn,
-    /// Top third — beaten up: grime, oxidation, visible damage.
+    /// Top third - beaten up: grime, oxidation, visible damage.
     Battered,
 }
 
@@ -111,7 +111,7 @@ impl WearTier {
     }
 }
 
-/// Surface-finish register — a per-avatar coin-flip between a saturated,
+/// Surface-finish register - a per-avatar coin-flip between a saturated,
 /// glossy, glow-forward look and a deeper, restrained naturalistic one. Read
 /// by [`super::palette`] (accent chroma / lightness) and [`super::materials`]
 /// (gloss + emissive strength) so the population splits between punchy
@@ -143,7 +143,7 @@ impl crate::seeded_defaults::band::BandTier for OrnatenessTier {
     }
 }
 
-/// Inclusive wear-tier affinity band — the [`WearTier`] analogue of
+/// Inclusive wear-tier affinity band - the [`WearTier`] analogue of
 /// [`OrnatenessBand`]. `ANY` is the default.
 pub type WearBand = crate::seeded_defaults::band::Band<WearTier>;
 
@@ -166,18 +166,18 @@ impl crate::seeded_defaults::band::BandTier for WearTier {
 pub struct AvatarCharacter {
     /// The seed this anchor was derived from. Carried so every downstream
     /// deriver can open its own salted sub-stream (`seed ^ DERIVER_SALT`)
-    /// without re-hashing the DID — the anchor is the single seed source.
+    /// without re-hashing the DID - the anchor is the single seed source.
     pub seed: u64,
     /// Anchor hue (degrees `[0, 360)`) for the OkLCH palette deriver.
     pub base_hue_deg: f32,
     /// `[-1, 1]` cool → warm bias. Shifts accent colours and material
     /// tones toward blue/cyan (`-1`) or amber/orange (`+1`).
     pub temperature: f32,
-    /// Body plan — humanoid / boat / airship / skiff. Picked via the
+    /// Body plan - humanoid / boat / airship / skiff. Picked via the
     /// existing [`ChassisFamily::for_seed`] so this anchor stays
     /// bit-compatible with the standalone chassis pick.
     pub chassis: ChassisFamily,
-    /// Aesthetic / cultural style — the **same** enum the room uses for its
+    /// Aesthetic / cultural style - the **same** enum the room uses for its
     /// artificial-structure theme, so an avatar and a room can share one
     /// style vocabulary. Drives palette mood, material kit, ornament pool,
     /// and FX flavour.
@@ -190,7 +190,7 @@ pub struct AvatarCharacter {
     /// [`Self::wear_tier`]; drives material finish, surface darkening, and
     /// damage / patina part variants.
     pub wear: f32,
-    /// Surface-finish register (bold/stylised vs naturalistic) — a coin-flip
+    /// Surface-finish register (bold/stylised vs naturalistic) - a coin-flip
     /// that splits the population between vivid and grounded looks.
     pub finish: FinishRegister,
 }
@@ -203,7 +203,7 @@ impl AvatarCharacter {
         Self::for_seed(fnv1a_64(did))
     }
 
-    /// Derive from a pre-computed seed — the manual re-roll path.
+    /// Derive from a pre-computed seed - the manual re-roll path.
     /// `for_did(did)` is exactly `for_seed(fnv1a_64(did))`.
     pub fn for_seed(seed: u64) -> Self {
         // The chassis is drawn by the existing standalone pick (its own
@@ -255,7 +255,7 @@ impl AvatarCharacter {
 }
 
 /// Transient per-axis locks for the Avatar editor's pinned re-roll
-/// (#1005) — the avatar analogue of
+/// (#1005) - the avatar analogue of
 /// [`crate::seeded_defaults::scene::ScenePins`], and the reason the whole
 /// feature is a seed *hunt*: unlike the room pipeline (which threads one
 /// `SceneCharacter` through every deriver), the avatar derivers each
@@ -326,7 +326,7 @@ mod tests {
     #[test]
     fn chassis_matches_standalone_pick() {
         // The anchor must agree with the standalone chassis pick for every
-        // seed — they share a salt-chain and downstream wiring relies on it.
+        // seed - they share a salt-chain and downstream wiring relies on it.
         for s in 0u64..128 {
             assert_eq!(
                 AvatarCharacter::for_seed(s).chassis,
@@ -499,7 +499,7 @@ mod tests {
     #[test]
     fn every_variant_of_every_axis_is_huntable() {
         // Each axis variant pinned alone must be reachable from a fixed
-        // start — a variant the hunt can never satisfy would make its
+        // start - a variant the hunt can never satisfy would make its
         // combo option a dead button.
         for f in ChassisFamily::ALL {
             let pins = AvatarPins {

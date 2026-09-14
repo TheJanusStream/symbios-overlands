@@ -3,7 +3,7 @@
 //! tagged-union enum and [`SovereignMaterialSettings`] PBR wrapper.
 //!
 //! Most config structs are generated via the `define_sovereign_mirror!`
-//! macro so adding a new generator is a single declarative block — each field
+//! macro so adding a new generator is a single declarative block - each field
 //! just names its wire kind (`fp`, `fp3`, `fp64`, `u32`, `usize`, `bool`,
 //! `enum(Ty)`, `nested(SovTy)`) and default. [`SovereignGroundConfig`] and
 //! [`SovereignRockConfig`] are the two hand-rolled predecessors of the macro.
@@ -29,7 +29,7 @@ pub trait HasSovereignMirror {
 ///
 /// The registry names each enum *variant* by path and a macro cannot take
 /// the type off the end of one; two configs also both call their field
-/// `layout` and mean different enums. Six fields, listed once — and a
+/// `layout` and mean different enums. Six fields, listed once - and a
 /// wrong entry is a compile error, because `to_native` builds the upstream
 /// config as a struct literal.
 macro_rules! sovereign_enum_ty {
@@ -55,8 +55,8 @@ macro_rules! sovereign_enum_ty {
 
 /// Declare every texture mirror from `symbios_texture`'s per-field registry.
 ///
-/// The registry carries one row per field of every upstream config — its
-/// kind, its envelope, its mutation step and its UI label — and this maps
+/// The registry carries one row per field of every upstream config - its
+/// kind, its envelope, its mutation step and its UI label - and this maps
 /// the *kind* to a wire representation. Nothing about any individual field
 /// is written here, so an upstream field addition is no longer a hard
 /// compile break needing a hand edit per config (#1304).
@@ -119,7 +119,7 @@ macro_rules! define_texture_mirrors {
             /// The round trip through the native type is the point: the
             /// envelope is upstream's, so a bound tuned there reaches a
             /// record arriving here without being copied. Quantisation is
-            /// lossless in both directions for an in-envelope config —
+            /// lossless in both directions for an in-envelope config -
             /// `Fp`'s grid already carries the value this mirror holds.
             pub fn clamp_to_envelope(&mut self) {
                 let mut native = self.to_native();
@@ -183,7 +183,7 @@ macro_rules! define_texture_mirrors {
 /// This is the only per-variant list the mirrors need; everything else
 /// about a field comes from upstream. Four entries carry an explicit wire
 /// order because their historical field order differs from the registry's
-/// — see `define_texture_mirrors!` above.
+/// - see `define_texture_mirrors!` above.
 macro_rules! texture_mirrors_with_roster {
     ( $($registry:tt)* ) => {
         define_texture_mirrors!(
@@ -283,7 +283,7 @@ symbios_texture::for_each_texture_field!(texture_mirrors_with_roster);
 pub enum SovereignTextureConfig {
     #[default]
     None,
-    /// External asset pointer — an HTTPS URL or an ATProto-blob CID hosted
+    /// External asset pointer - an HTTPS URL or an ATProto-blob CID hosted
     /// on a peer's PDS. Resolved at room-compile time through the shared
     /// [`BlobImageCache`] and slotted into the layer / construct material
     /// the same way a procedurally-baked variant would be. Lets a room
@@ -441,7 +441,7 @@ impl SovereignTextureConfig {
         }
     }
 
-    /// `true` when this texture is an **alpha card** — a clamp-to-edge,
+    /// `true` when this texture is an **alpha card** - a clamp-to-edge,
     /// alpha-masked image that must span its quad exactly once (a window,
     /// stained glass, an iron grille, a leaf sprite) rather than tiling like
     /// a surface.
@@ -468,7 +468,7 @@ impl SovereignTextureConfig {
         use bevy_symbios_texture::TextureConfig as T;
         match self {
             // `Referenced` collapses to `None` here because the upstream
-            // procedural-texture builder has no equivalent variant — the
+            // procedural-texture builder has no equivalent variant - the
             // referenced asset is materialised on a separate resolver path
             // (BlobImageCache) and painted into the material once fetched.
             Self::None | Self::Unknown | Self::Referenced { .. } => T::None,
@@ -536,8 +536,8 @@ impl SovereignTextureConfig {
     /// or `None` for non-sprite configs (surfaces, foliage cards, None).
     ///
     /// When a sprite drives a procedural particle texture, these are the
-    /// `variant_rows × variant_cols` of the baked atlas — one cell per
-    /// seeded variant — which the emitter copies onto its `texture_atlas`
+    /// `variant_rows × variant_cols` of the baked atlas - one cell per
+    /// seeded variant - which the emitter copies onto its `texture_atlas`
     /// so a `RandomFrame` draw shows a different variant per particle.
     pub fn sprite_atlas_dims(&self) -> Option<(u32, u32)> {
         match self {
@@ -556,7 +556,7 @@ impl SovereignTextureConfig {
     }
 }
 
-/// Per-slot material settings for an L-system generator — mirrors
+/// Per-slot material settings for an L-system generator - mirrors
 /// `bevy_symbios::materials::MaterialSettings` with DAG-CBOR-safe numeric
 /// fields. The embedded [`SovereignTextureConfig`] carries the full config
 /// for whichever `bevy_symbios_texture` generator drives this slot (if any).
@@ -577,8 +577,8 @@ pub struct SovereignMaterialSettings {
     /// Every mesher emits UVs in metres of prim-local surface, so this is a
     /// physical density rather than a repeat count: `5.0` lays a 20 cm
     /// brick course, `0.5` a two-metre concrete panel, and the same value
-    /// reads identically on a 0.8 m pier and an 8 m wall. The reciprocal —
-    /// the tile's edge length in metres — is usually the number worth
+    /// reads identically on a 0.8 m pier and an 8 m wall. The reciprocal -
+    /// the tile's edge length in metres - is usually the number worth
     /// thinking in.
     ///
     /// Before #933 UVs were normalised to `0..1` over each prim, which made
@@ -591,7 +591,7 @@ pub struct SovereignMaterialSettings {
     /// exactly once, so they keep `1.0`.
     #[serde(default = "default_uv_scale")]
     pub uv_scale: Fp,
-    /// Pattern slide in **metres of surface** (#957) — plain UV units under
+    /// Pattern slide in **metres of surface** (#957) - plain UV units under
     /// a `Fit` mapping, where UVs aren't metres. Rides the material's
     /// `uv_transform` beside [`uv_scale`](Self::uv_scale), so editing it
     /// re-keys only the `StandardMaterial`, never a mesh.
@@ -636,7 +636,7 @@ impl Default for SovereignMaterialSettings {
 }
 
 impl SovereignMaterialSettings {
-    /// `true` when the whole struct equals its default — the wire-format
+    /// `true` when the whole struct equals its default - the wire-format
     /// skip predicate for prim `material` fields (#695).
     pub fn is_default(&self) -> bool {
         *self == Self::default()
@@ -650,7 +650,7 @@ impl SovereignMaterialSettings {
     /// [`SovereignTextureConfig::to_texture_config`].
     ///
     /// [`uv_offset`](Self::uv_offset) / [`uv_rotation`](Self::uv_rotation)
-    /// deliberately do **not** cross this boundary — the upstream struct has
+    /// deliberately do **not** cross this boundary - the upstream struct has
     /// no such fields (adding them there is a hard compile break per the
     /// texture-mirror discipline), so the world-builder applies them over
     /// the built `StandardMaterial` instead
@@ -791,15 +791,15 @@ mod tests {
 
     // `mirror_defaults_match_upstream` lived here: twenty-six hand-written
     // assertions that a mirror's declared default matched upstream's. Since
-    // #1304 there is no declared default to drift — `Default` is
-    // `Self::from_native(&Native::default())` — and the check that matters is
+    // #1304 there is no declared default to drift - `Default` is
+    // `Self::from_native(&Native::default())` - and the check that matters is
     // exhaustive and lives with the bytes it protects, in
     // `tests/texture_wire.rs`: `every_mirror_default_matches_upstream` covers
     // all fifty-seven, and the blessed fixture fails loudly if a default move
     // ever changes which fields elide.
 
     /// Every sprite variant must carry a non-"Unknown" label and convert to a
-    /// non-`None` upstream `TextureConfig` — i.e. it is wired through all the
+    /// non-`None` upstream `TextureConfig` - i.e. it is wired through all the
     /// dispatch arms, not silently collapsing to the no-texture path.
     #[test]
     fn sprite_variants_are_fully_wired() {
@@ -826,7 +826,7 @@ mod tests {
     }
 
     /// `sprite_atlas_dims` reports a sprite's variant grid and `None` for
-    /// non-sprite configs — the switch the particle baker uses to size the
+    /// non-sprite configs - the switch the particle baker uses to size the
     /// atlas and decide whether `RandomFrame` has anything to vary.
     #[test]
     fn sprite_atlas_dims_only_for_sprites() {
@@ -847,7 +847,7 @@ mod tests {
             None
         );
         // The grass tuft is a foliage billboard card baked at SURFACE
-        // resolution, not a particle atlas — no sprite dims.
+        // resolution, not a particle atlas - no sprite dims.
         assert_eq!(
             SovereignTextureConfig::GrassTuft(Default::default()).sprite_atlas_dims(),
             None

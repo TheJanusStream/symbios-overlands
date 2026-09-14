@@ -1,5 +1,5 @@
 //! The Settings window (#857): client-side, this-machine-only
-//! preferences — the theme picker and the remote-peer smoothing toggle
+//! preferences - the theme picker and the remote-peer smoothing toggle
 //! (absorbed from its odd first home in the Avatar editor's footer).
 //!
 //! Everything here edits [`LocalSettings`], which `crate::prefs`
@@ -33,7 +33,7 @@ pub fn settings_ui(
     time: Res<Time>,
     // Whether "Reset window layout" has been pressed while this window
     // has been open (#1261 f45). A `Local` and not a frame-local, because
-    // the confirmation has to outlive the click that produced it — the
+    // the confirmation has to outlive the click that produced it - the
     // windows it affects re-tidy on their NEXT open, which may be minutes
     // away, and a one-frame flash is indistinguishable from nothing
     // having happened.
@@ -50,7 +50,7 @@ pub fn settings_ui(
 
     // Guarded-dirty (#879): `.open(&mut panels.settings)` through the
     // `ResMut` would mark UiPanels changed every frame, starving the
-    // prefs save debounce — local copy in, write back only on close.
+    // prefs save debounce - local copy in, write back only on close.
     let mut open = panels.settings;
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Settings, ctx);
     let response = egui::Window::new("Settings")
@@ -83,8 +83,8 @@ pub fn settings_ui(
             // The palette picker used to be all of it: there was no
             // text-size control anywhere, and egui's own Ctrl+plus was
             // undocumented and forgotten at every launch. The slider and
-            // the shortcut are one setting — `theme::sync_ui_scale` reads
-            // the keyboard zoom back out — so this number is always what
+            // the shortcut are one setting - `theme::sync_ui_scale` reads
+            // the keyboard zoom back out - so this number is always what
             // is on screen, however the user got there.
             ui.strong("Interface size");
             ui.horizontal(|ui| {
@@ -126,7 +126,7 @@ pub fn settings_ui(
                         .selectable_value(&mut s.camera_ground_avoidance, mode, mode.label())
                         .on_hover_text(match mode {
                             CameraGroundAvoidance::Off => {
-                                "Never pull the camera in — it may dip under \
+                                "Never pull the camera in - it may dip under \
                                  terrain when orbiting low."
                             }
                             CameraGroundAvoidance::CameraOnly => {
@@ -136,7 +136,7 @@ pub fn settings_ui(
                             }
                             CameraGroundAvoidance::FullRay => {
                                 "Also zoom in whenever terrain would block the \
-                                 view of your avatar (the old behavior — \
+                                 view of your avatar (the old behavior - \
                                  aggressive at low angles)."
                             }
                         })
@@ -160,8 +160,8 @@ pub fn settings_ui(
             ui.separator();
             ui.strong("Network");
             // Outcome-first, like the Camera options above it (#1224
-            // f334). Three of the four content words in the old text —
-            // spline, packet, jitter — were transport implementation, and
+            // f334). Three of the four content words in the old text -
+            // spline, packet, jitter - were transport implementation, and
             // it described the mechanism rather than what happens to the
             // people you are looking at. Both states have a real
             // user-visible shape and neither was named.
@@ -171,12 +171,12 @@ pub fn settings_ui(
                     "On: other people move smoothly, shown a fraction of a second \
                      behind where they really are."
                 } else {
-                    "Off: other people jump straight to their last known position — \
+                    "Off: other people jump straight to their last known position - \
                      choppier, but with no delay."
                 })
                 .changed();
             // The only in-world identity the product has (#1226 f325). Off
-            // is a real preference — a busy room is a wall of text — so it
+            // is a real preference - a busy room is a wall of text - so it
             // is a setting and not a constant, but it defaults on, because
             // with it off nothing on screen connects a People row to a body
             // and Mute has to be aimed by trial and error.
@@ -227,16 +227,16 @@ pub fn settings_ui(
             ui.separator();
             // #1276 f38. Settings had Theme, Interface size, Camera,
             // Network, Privacy, Effects, Login screen and Windows, and
-            // said nothing at all about sound — the only affordance in the
+            // said nothing at all about sound - the only affordance in the
             // app was an emoji toggle in the toolbar and its duplicate
             // inside Diagnostics, neither of which is where a person looks
             // for "why is this silent".
             //
             // There is no volume control, deliberately: this app has no
             // master gain to put behind one. `audio_mute`'s module doc
-            // records why Bevy's `GlobalVolume` cannot serve as one here —
+            // records why Bevy's `GlobalVolume` cannot serve as one here -
             // it is read only when a sink is CREATED, so a sink born quiet
-            // stores a zero a later change cannot recover — and mute works
+            // stores a zero a later change cannot recover - and mute works
             // instead by stashing and restoring each sink's own volume.
             // A slider would have to be a real per-sink gain reconciler,
             // which is a feature, not a settings row.
@@ -252,7 +252,7 @@ pub fn settings_ui(
                     "On: the world is silent. The ambient bed, the props that \
                      make noise, and footstep and contact sounds are all off."
                 } else {
-                    "Off: you hear the world — its ambient bed, the props that \
+                    "Off: you hear the world - its ambient bed, the props that \
                      make noise, and footstep and contact sounds."
                 })
                 .changed()
@@ -307,13 +307,13 @@ pub fn settings_ui(
                      applies the next time you see the login screen.",
                 )
                 .changed();
-            ui.small("(this device only — not saved to your account)");
+            ui.small("(this device only - not saved to your account)");
 
             ui.add_space(8.0);
             ui.separator();
             ui.strong("Windows");
             // #1261 f45: the #833 non-overlap guarantee held only until
-            // each window had been shown once — `remember` persists a
+            // each window had been shown once - `remember` persists a
             // rect on the very first frame and `place` returns it
             // thereafter, so the staggering machinery was dead from then
             // on and a machine inherited whatever geometry its first
@@ -344,7 +344,7 @@ pub fn settings_ui(
                 // so the durable list and the session log cannot disagree
                 // about what happened. No live peer to pass: the person whose
                 // row this is may be nowhere near, which is exactly why this
-                // surface exists — but `sync_mute_visibility` picks them up
+                // surface exists - but `sync_mute_visibility` picks them up
                 // within a frame if they are.
                 crate::network::presence::set_peer_mute(
                     None,
@@ -368,7 +368,7 @@ pub fn settings_ui(
         );
     }
     // The early return above already established `panels.settings`, so the
-    // first half of this is a no-op here — spelled the sibling windows' way
+    // first half of this is a no-op here - spelled the sibling windows' way
     // anyway, because one idiom with one spelling is what
     // `every_panel_flag_write_is_guarded` can enforce (#1270 f121).
     if panels.settings && !open {
@@ -381,13 +381,13 @@ pub fn settings_ui(
 /// `MutedDids` is durable and was reachable from exactly two places, both of
 /// which required the muted person to be standing in the room with you: the
 /// roster checkbox and the offer dialog. An accidental tick was therefore
-/// effectively permanent — the only way back was to hope they wandered into
+/// effectively permanent - the only way back was to hope they wandered into
 /// a room you happened to be in.
 ///
 /// Split out of [`settings_ui`] so the section can be read on its own. It
 /// takes the mute list read-only and RETURNS the DID whose Unmute was
 /// clicked rather than writing it here. A mute write SHOULD dirty the
-/// resource — that is what persists it — but a draw that merely lists the
+/// resource - that is what persists it - but a draw that merely lists the
 /// names must not, and a `&mut` taken through the `ResMut` cannot tell the
 /// two apart: it stamps on access, so every frame Settings was open looked
 /// like an edit (#1340). The caller does the write, on the frame there is
@@ -398,7 +398,7 @@ fn muted_people_section(
     // same reason `lend_mute` exists (#1340). `MutedDids` is prefs-watched
     // (prefs.rs, `muted_dids`), and a `&mut` taken through the `ResMut`
     // stamped its change tick through `DerefMut` on every frame this
-    // section was drawn — so the prefs file re-saved on its 5 s maximum
+    // section was drawn - so the prefs file re-saved on its 5 s maximum
     // latency for as long as Settings was open, though the list only ever
     // changes on an Unmute click. `Deref` does not stamp; the caller takes
     // the `&mut` only when there is something to write.

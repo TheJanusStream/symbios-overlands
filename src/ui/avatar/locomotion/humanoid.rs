@@ -41,7 +41,7 @@ impl LocomotionPanel for HumanoidParams {
                 // The dead band at the bottom of that slider (#1241 f168).
                 // `apply_humanoid_walk` takes `walking.min(travel)`, so a
                 // run tuned at or below the body's own walk collapses both
-                // branches to one number and Shift stops doing anything —
+                // branches to one number and Shift stops doing anything -
                 // with no message, no disabled control, just a key that
                 // stopped working. The derived walk is ~1.85 m/s on the
                 // default body against a slider that starts at 1.0, so
@@ -55,7 +55,7 @@ impl LocomotionPanel for HumanoidParams {
                     if crate::player::humanoid::run_key_is_dead(self.walk_speed.0, walk) {
                         ui.colored_label(
                             crate::ui::theme::current(ui.ctx()).status.warn,
-                            "Run speed is at or below this body's walk — Shift will \
+                            "Run speed is at or below this body's walk - Shift will \
                              have no effect.",
                         );
                     }

@@ -1,4 +1,4 @@
-//! Mesoamerican-theme catalogue structures — a painted-limestone temple
+//! Mesoamerican-theme catalogue structures - a painted-limestone temple
 //! city in the jungle.
 //!
 //! Two prosperity registers share one identity: the established
@@ -26,7 +26,7 @@ pub mod shrine;
 pub mod skull_rack;
 pub mod stela;
 pub mod step_pyramid;
-// Poor (commoner) variants — the prosperity-Poor end of the theme.
+// Poor (commoner) variants - the prosperity-Poor end of the theme.
 pub mod adobe_hut;
 pub mod clay_pots;
 pub mod maize_granary;
@@ -44,17 +44,17 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the established monumental kit — painted
+/// Shared prosperity band for the established monumental kit - painted
 /// pyramids and stone gardens read as a Modest-to-Rich city. The poor end
 /// is the separate commoner kit ([`adobe_hut`], …), tagged `Poor`.
 pub(super) const MESO_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the commoner kit — the destitute end of the theme,
+/// Prosperity band for the commoner kit - the destitute end of the theme,
 /// never picked for a modest or affluent room.
 pub(super) const MESO_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Dressed limestone ashlar — the pale cut-block body of pyramids, courts,
+/// Dressed limestone ashlar - the pale cut-block body of pyramids, courts,
 /// and platforms.
 pub(super) fn limestone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -76,7 +76,7 @@ pub(super) fn limestone(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Painted lime stucco — the vivid red and cream rendering over a temple's
+/// Painted lime stucco - the vivid red and cream rendering over a temple's
 /// stonework.
 pub(super) fn painted(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -97,8 +97,8 @@ pub(super) fn painted(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Rough cobble — fieldstone fill, rubble cores, humble footings.
-/// Glazed geometric floor tile — the ceremonial surfaces: ball-court alleys,
+/// Rough cobble - fieldstone fill, rubble cores, humble footings.
+/// Glazed geometric floor tile - the ceremonial surfaces: ball-court alleys,
 /// shrine platforms, plaza inlays. The step-fret and diamond motifs of the
 /// culture are exactly what an encaustic tile lays down.
 pub(super) fn patterned_floor(color: [f32; 3]) -> SovereignMaterialSettings {
@@ -143,7 +143,7 @@ pub(super) fn cobble(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Polished jade — green marble for idol inlays, masks, and ornaments.
+/// Polished jade - green marble for idol inlays, masks, and ornaments.
 pub(super) fn jade(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -161,7 +161,7 @@ pub(super) fn jade(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Black obsidian — glassy volcanic stone for sacrificial blades and altar
+/// Black obsidian - glassy volcanic stone for sacrificial blades and altar
 /// tops.
 pub(super) fn obsidian(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -192,7 +192,7 @@ pub(super) fn obsidian(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Beaten gold — sun discs, finials, and ornaments. Polished metal, no rust.
+/// Beaten gold - sun discs, finials, and ornaments. Polished metal, no rust.
 pub(super) fn gold(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -212,7 +212,7 @@ pub(super) fn gold(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Oiled timber — lintels, poles, the skull-rack frame.
+/// Oiled timber - lintels, poles, the skull-rack frame.
 pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -233,7 +233,7 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Golden palm thatch — the roof of a temple cella, shrine, or adobe hut.
+/// Golden palm thatch - the roof of a temple cella, shrine, or adobe hut.
 pub(super) fn thatch(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -269,7 +269,7 @@ pub(super) const ADOBE_TAN: [f32; 3] = [0.66, 0.48, 0.32];
 pub(super) const THATCH_STRAW: [f32; 3] = [0.58, 0.48, 0.26];
 pub(super) const CLAY_TERRACOTTA: [f32; 3] = [0.62, 0.34, 0.20];
 
-/// Warm sacrificial firelight — the temple fire and the fire bowls.
+/// Warm sacrificial firelight - the temple fire and the fire bowls.
 pub(super) const FIRE_ORANGE: [f32; 3] = [1.0, 0.55, 0.16];
 
 #[cfg(test)]
@@ -292,7 +292,7 @@ mod tests {
         }
     }
 
-    /// The fire bowl is the kit's lit hero — it must keep its emissive flame
+    /// The fire bowl is the kit's lit hero - it must keep its emissive flame
     /// so escalation's broken-emissive ruin pass has something to snuff.
     #[test]
     fn fire_bowl_keeps_its_flame() {

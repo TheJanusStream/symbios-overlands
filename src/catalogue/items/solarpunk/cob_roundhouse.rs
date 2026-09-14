@@ -1,4 +1,4 @@
-//! Cob roundhouse — the Solarpunk *poor* landmark. A hand-built round cob
+//! Cob roundhouse - the Solarpunk *poor* landmark. A hand-built round cob
 //! house under a conical living roof, with a timber door and a little window.
 //! The grassroots counterpart to the [`biodome`](super::biodome): same green
 //! ethic, opposite end of the prosperity axis (`Poor`), so a destitute
@@ -56,7 +56,7 @@ fn build_tree() -> Generator {
     let wall_h = 2.6_f32;
 
     let mut prims = vec![
-        // Round cob wall — the root.
+        // Round cob wall - the root.
         prim(
             solid(cylinder_tapered(2.6, wall_h, 16, 0.06, foliage(COB_EARTH))),
             [0.0, wall_h * 0.5, 0.0],
@@ -92,7 +92,7 @@ fn build_tree() -> Generator {
         [0.0, wall_h + 1.1, 0.0],
         id_quat(),
     ));
-    // Smoke vent / finial at the apex — a little timber stack and cap.
+    // Smoke vent / finial at the apex - a little timber stack and cap.
     prims.push(prim(
         solid(cylinder_tapered(0.18, 0.55, 8, 0.0, timber(TIMBER_WARM))),
         [0.0, wall_h + 2.35, 0.0],

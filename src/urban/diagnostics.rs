@@ -27,7 +27,7 @@ use crate::urban::{
 // tracer/rationalize output that the mesher consumes with no clean-up pass).
 // Surfaced through the render harness's `--road-dump <seed|did>`.
 //
-// The classification thresholds below are *reporting* heuristics — the dump
+// The classification thresholds below are *reporting* heuristics - the dump
 // also prints the raw distributions so they can be retuned against real seeds
 // before any filter is baked into generation.
 
@@ -47,7 +47,7 @@ const DIAG_SPIKE_SCALE: f32 = 2.5;
 const NEAR_MISS_SWEEP_M: [f32; 3] = [4.0, 6.0, 8.0];
 
 /// Topology + geometry-risk statistics for one room's *meshed* road graph,
-/// gathered by [`road_graph_diagnostics`]. Purely diagnostic — nothing here
+/// gathered by [`road_graph_diagnostics`]. Purely diagnostic - nothing here
 /// feeds generation; it exists to size the filtering work.
 pub struct RoadGraphStats {
     nodes: usize,
@@ -77,10 +77,10 @@ pub struct RoadGraphStats {
     /// hub); dead_end = degree 1 (capped, #579); clip = boundary clip running off
     /// the perimeter (capped, #582); open = the residue (degree-2 loop closure /
     /// used-edge break) deliberately left open. `open` is the count of still-open
-    /// cross-sections — only genuine interior seams should remain here.
+    /// cross-sections - only genuine interior seams should remain here.
     chain_end_class: [usize; 4],
     /// Near-miss dead-ends (degree-1 nodes that would weld onto a non-incident
-    /// edge) at each [`NEAR_MISS_SWEEP_M`] tolerance — the #583 weld-candidate
+    /// edge) at each [`NEAR_MISS_SWEEP_M`] tolerance - the #583 weld-candidate
     /// population, used to size the weld tolerance.
     near_miss_dangles: [usize; 3],
     densified_vertices: usize,
@@ -88,7 +88,7 @@ pub struct RoadGraphStats {
     spike_max_scale: f32,
 }
 
-/// `min / p50 / p90 / max / mean` of a sample, or `—` when empty. Delegates to
+/// `min / p50 / p90 / max / mean` of a sample, or `-` when empty. Delegates to
 /// the shared reducer in [`crate::diagnostics::registry`] so the road report and
 /// the metrics histograms summarise distributions identically (single source).
 fn distro(v: &[f32]) -> String {
@@ -97,7 +97,7 @@ fn distro(v: &[f32]) -> String {
 }
 
 /// Count unordered node pairs within `eps` that are **not** directly joined by
-/// an active edge — genuine near-duplicate vertices the topology should merge,
+/// an active edge - genuine near-duplicate vertices the topology should merge,
 /// excluding legitimately close chain-adjacent nodes (consecutive fillet
 /// points). `pts` holds `(node_index, position)`; grid-bucketed, O(n).
 fn count_near_duplicate_nodes(
@@ -145,7 +145,7 @@ pub fn road_graph_diagnostics(hm: &HeightMap, config: &RoadConfig) -> Option<Roa
     Some(RoadDiagnostics { raw, sanitized })
 }
 
-/// Gather topology + geometry-risk stats for one graph — the exact one
+/// Gather topology + geometry-risk stats for one graph - the exact one
 /// [`crate::urban::build_road_geometry`] would mesh from `sub`.
 fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadGraphStats {
     let pos = |i: usize| {
@@ -175,7 +175,7 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
         *degree_hist.entry(d).or_default() += 1;
     }
 
-    // Interior clip — matches `extrude_hubs`' emission gate, so the hub
+    // Interior clip - matches `extrude_hubs`' emission gate, so the hub
     // counts reflect what is actually rendered.
     let center = sub.width() as f32 * sub.scale() * 0.5;
     let interior_r2 = (center * ROAD_INTERIOR_FRACTION).powi(2);
@@ -227,7 +227,7 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
             }
         }
 
-        // Smallest angle between any two branches — a tiny value means two
+        // Smallest angle between any two branches - a tiny value means two
         // roads graze almost tangentially (a false crossing).
         let mut min_ang = 180.0_f32;
         for a in 0..dirs.len() {
@@ -275,7 +275,7 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
 
     // Chains + spike risk, via the *exact* mesher paths.
     let chains = extract_chains(graph, sub, dims);
-    // Per-arm junction pull-back (#575) — the same truncation the mesher applies,
+    // Per-arm junction pull-back (#575) - the same truncation the mesher applies,
     // so the dump reports how far each ribbon retreats into its hub.
     let trims = compute_truncations(&chains, |nd| degree[nd] >= 3, dims);
     let truncation_dists: Vec<f32> = trims
@@ -286,7 +286,7 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
         .collect();
     // #584 junction levelling: per-junction incident-mouth height SPREAD, natural
     // (each road levelled independently) vs network-levelled (mouths pinned to one
-    // height) — the spread collapses toward 0 as junctions go flat.
+    // height) - the spread collapses toward 0 as junctions go flat.
     let degree_u32: Vec<u32> = degree.iter().map(|&d| d as u32).collect();
     let samples: Vec<Option<ChainSample>> = chains
         .iter()
@@ -475,7 +475,7 @@ impl RoadGraphStats {
     }
 }
 
-/// Raw-vs-sanitised road-graph diagnostics — the before/after the
+/// Raw-vs-sanitised road-graph diagnostics - the before/after the
 /// [`sanitize_graph`] pass achieves, surfaced by [`road_graph_diagnostics`].
 pub struct RoadDiagnostics {
     raw: RoadGraphStats,
@@ -489,7 +489,7 @@ impl RoadDiagnostics {
         use std::fmt::Write;
         let (r, c) = (&self.raw, &self.sanitized);
         let mut s = String::new();
-        let _ = writeln!(s, "=== road-graph diagnostics — room {label} ===");
+        let _ = writeln!(s, "=== road-graph diagnostics - room {label} ===");
         let _ = write!(
             s,
             "{}",

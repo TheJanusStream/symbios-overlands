@@ -1,9 +1,9 @@
-//! Arcane Gateway — the High-Fantasy bespoke social gate (#756). Replaces the
+//! Arcane Gateway - the High-Fantasy bespoke social gate (#756). Replaces the
 //! neutral placeholder arch for a fantasy room: a pair of rune-carved ashlar
 //! columns spanned by a keystone lintel, crowned by a glowing arcane orb, with
 //! a mana-lit threshold ring underfoot and drifting motes in the opening.
 //!
-//! The only functional element is the [`GeneratorKind::Gateway`] zone child —
+//! The only functional element is the [`GeneratorKind::Gateway`] zone child -
 //! walking into it opens the destination picker listing the room owner's
 //! mutual follows. Everything else frames that zone so it reads as a portal
 //! you step through: two columns flanking a ~2.6 m gap, a lintel across the
@@ -66,9 +66,9 @@ fn build_tree() -> Generator {
     let cap_h = 0.28_f32;
     let cap_top = shaft_top + cap_h; // lintel underside
     let lintel_h = 0.55_f32;
-    let px = 1.85_f32; // column centre X — a ~2.9 m clear gap between shafts
+    let px = 1.85_f32; // column centre X - a ~2.9 m clear gap between shafts
 
-    // Threshold slab — the flat-base root (never tilt a root: every child
+    // Threshold slab - the flat-base root (never tilt a root: every child
     // inherits its transform and would spin with it).
     let mut prims = vec![prim(
         solid(cuboid_tapered([5.4, slab_h, 3.0], 0.0, stone(STONE_GREY))),
@@ -78,7 +78,7 @@ fn build_tree() -> Generator {
     // Buried plinth so a slope-snapped gate shows stone, not daylight.
     prims.push(footing(5.4, 3.0, [0.0, 0.0], 3.5));
 
-    // Two flanking columns — base plinth, tapering ashlar shaft ringed by gold
+    // Two flanking columns - base plinth, tapering ashlar shaft ringed by gold
     // string-courses, capital, and a glowing crystal finial.
     for sx in [-1.0_f32, 1.0] {
         let cx = sx * px;
@@ -141,7 +141,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Arcane orb crowning the keystone — the hero emblem. A deep-saturated
+    // Arcane orb crowning the keystone - the hero emblem. A deep-saturated
     // emissive sphere at LOW strength so it reads as a lit orb, not a white
     // ball, cradled in a small gold socket.
     let orb_y = keystone_cy + keystone_h * 0.5 + 0.24;
@@ -156,7 +156,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Threshold veil strip under the lintel — a thin deep-purple bar washing
+    // Threshold veil strip under the lintel - a thin deep-purple bar washing
     // the opening from above (thin trim, so it can run a touch hot without
     // blooming white).
     prims.push(prim(
@@ -164,7 +164,7 @@ fn build_tree() -> Generator {
         [0.0, cap_top - 0.14, 0.0],
         id_quat(),
     ));
-    // Mana-lit runic ring inset in the slab — the step-through threshold read.
+    // Mana-lit runic ring inset in the slab - the step-through threshold read.
     prims.push(prim(
         torus(0.07, 1.25, glow(MANA_TEAL, 1.6)),
         [0.0, slab_top + 0.02, 0.0],
@@ -219,7 +219,7 @@ mod tests {
         assert_sanitize_stable(&FantasyGateway.build(""), "fantasy_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is furniture, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

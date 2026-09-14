@@ -2,8 +2,8 @@
 //! back to.
 //!
 //! It lived in `crate::avatar` beside the cache it reads and moved here
-//! under #1297: it is an `egui` widget — it allocates, paints and reads
-//! [`super::super::theme::current`] — and every one of its five callers
+//! under #1297: it is an `egui` widget - it allocates, paints and reads
+//! [`super::super::theme::current`] - and every one of its five callers
 //! is a `ui` surface (People, chat, the gateway picker, the account chip).
 //! A drawing function in the domain layer had to import the theme to
 //! draw, which is the dependency this issue exists to turn around; the
@@ -18,7 +18,7 @@ use crate::avatar::BskyProfileCache;
 /// The first character of `name`, upper-cased, for a picture-less icon
 /// (#1225 f351).
 ///
-/// `None` when there is nothing worth drawing — an empty name, or one whose
+/// `None` when there is nothing worth drawing - an empty name, or one whose
 /// first character is not alphanumeric, where a lone `@` or an emoji
 /// fragment says less than the plain tile does. Written as a pure function
 /// because it is the only decision in the placeholder worth testing.
@@ -40,7 +40,7 @@ pub fn icon_initial(name: Option<&str>) -> Option<char> {
 ///
 /// The miss arm used to allocate a transparent square, and this function's
 /// own doc conceded that in-flight, no-picture and failed-fetch were
-/// indistinguishable — three different facts rendered as the same nothing.
+/// indistinguishable - three different facts rendered as the same nothing.
 /// On wasm the failure rate is structurally higher, because `cdn.bsky.app`
 /// serves no CORS headers and the original PDS blob has to be fetched
 /// instead.
@@ -68,7 +68,7 @@ pub fn draw_avatar_icon(
         }
         None => {
             // Same square either way, so a row's layout does not shift
-            // between a cache miss and a cache hit — the reason the miss
+            // between a cache miss and a cache hit - the reason the miss
             // arm allocated space in the first place.
             let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
             if !ui.is_rect_visible(rect) {
@@ -96,7 +96,7 @@ mod icon_placeholder_tests {
 
     /// #1225 f351. The sequence: you open People in a room of people who
     /// have just arrived, and every row has a gap where a picture should be
-    /// — and the gap means "still loading", "has no picture" and "the fetch
+    /// - and the gap means "still loading", "has no picture" and "the fetch
     /// failed" indistinguishably, because all three ended at the same
     /// transparent square. On wasm the third is structurally more common,
     /// because `cdn.bsky.app` serves no CORS headers and the original PDS

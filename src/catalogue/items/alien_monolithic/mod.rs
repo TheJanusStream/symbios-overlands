@@ -1,4 +1,4 @@
-//! Alien-Monolithic-theme catalogue structures — a precise, geometric site of
+//! Alien-Monolithic-theme catalogue structures - a precise, geometric site of
 //! black obsidian monoliths and levitating, glyph-lit machinery.
 //!
 //! Two prosperity registers share one inscrutable identity: the established
@@ -24,7 +24,7 @@ pub mod light_disc;
 pub mod light_pylon;
 pub mod monolith_shard;
 pub mod monument;
-// Poor (dormant) variants — the prosperity-Poor end of the theme.
+// Poor (dormant) variants - the prosperity-Poor end of the theme.
 pub mod broken_monolith;
 pub mod dead_pylon;
 pub mod glyph_rubble;
@@ -39,18 +39,18 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the active site — humming, glyph-lit monoliths
+/// Shared prosperity band for the active site - humming, glyph-lit monoliths
 /// read as a Modest-to-Rich working array. The poor end of the theme is the
 /// separate dormant kit ([`broken_monolith`], …), tagged `Poor`, so a
 /// destitute alien room grows the dead, lightless site instead.
 pub(super) const MONOLITH_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the dormant kit — the destitute end of the theme, never
+/// Prosperity band for the dormant kit - the destitute end of the theme, never
 /// picked for a modest or affluent alien room.
 pub(super) const MONOLITH_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Polished black obsidian — the monoliths, pylons, platforms and arches. A
+/// Polished black obsidian - the monoliths, pylons, platforms and arches. A
 /// near-mirror dark sheen.
 pub(super) fn obsidian(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -75,7 +75,7 @@ pub(super) fn obsidian(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Dead matte stone — cracked, dormant monoliths and rubble, the light gone.
+/// Dead matte stone - cracked, dormant monoliths and rubble, the light gone.
 pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -94,7 +94,7 @@ pub(super) const DEAD_STONE: [f32; 3] = [0.24, 0.24, 0.28];
 // Emissive glyph / energy colours. Deeply saturated on purpose: `glow` sets
 // both base_color and emission_color to these, and a too-pale colour
 // over-brightens and washes to a near-white blank under bloom (the fantasy /
-// steampunk over-bright-clips lesson — the original pale cyan/blue/violet all
+// steampunk over-bright-clips lesson - the original pale cyan/blue/violet all
 // washed). Deep base hues with one channel near zero hold their colour driven
 // emissive: cyan keeps red low, electric-blue keeps green low, violet keeps
 // green near zero.
@@ -108,7 +108,7 @@ pub(super) const GLYPH_VIOLET: [f32; 3] = [0.46, 0.12, 1.0];
 /// old uniform light-bars gave), stacking one glyph per entry in `sizes`
 /// evenly between `base_y` and `top_y`. Varied stroke heights plus an
 /// alternating x-nudge keep the column from reading as one stamp repeated.
-/// Strokes stand proud of the face — pass `zf` just past a slab's −Z front so
+/// Strokes stand proud of the face - pass `zf` just past a slab's −Z front so
 /// the inscription reads on the hero side.
 pub(super) fn glyph_column(
     cx: f32,
@@ -153,7 +153,7 @@ mod tests {
         }
     }
 
-    /// The black monolith is the kit's lit hero — it must keep its emissive
+    /// The black monolith is the kit's lit hero - it must keep its emissive
     /// glyphs so escalation's broken-emissive ruin pass has light to snuff.
     #[test]
     fn monolith_keeps_its_glyphs() {

@@ -1,4 +1,4 @@
-//! Terrain tab (sub-tab of Generators) — `SovereignTerrainConfig` widgets for
+//! Terrain tab (sub-tab of Generators) - `SovereignTerrainConfig` widgets for
 //! algorithm choice, noise octaves, erosion, and texture-size.
 
 use bevy_egui::egui;
@@ -17,8 +17,8 @@ pub(super) fn draw_terrain_forge(
     // README's second sentence tells a new user to edit the terrain
     // (#1233 f264). The path from that promise to a visible change ran
     // through a tab called Region Assets to a tree node to Octaves,
-    // Persistence and Lacunarity — fractal-noise vocabulary, with no
-    // hover text on any of it — while the friendlier control that already
+    // Persistence and Lacunarity - fractal-noise vocabulary, with no
+    // hover text on any of it - while the friendlier control that already
     // exists sits above and was never pointed at.
     ui.label(
         egui::RichText::new(
@@ -36,7 +36,7 @@ pub(super) fn draw_terrain_forge(
                 "How many points the landscape is sampled at. Higher is more detailed and slower to build.",
             );
             fp_slider(ui, "Cell scale", &mut cfg.cell_scale, 0.1, 16.0, dirty).on_hover_text(
-                "Metres between those points — how far the land stretches. Bigger means a wider world with the same amount of detail.",
+                "Metres between those points - how far the land stretches. Bigger means a wider world with the same amount of detail.",
             );
             fp_slider(ui, "Height scale", &mut cfg.height_scale, 1.0, 500.0, dirty)
                 .on_hover_text("How tall the hills are. Everything gets steeper together.");
@@ -81,7 +81,7 @@ pub(super) fn draw_terrain_forge(
                         );
                 }
                 // No knobs for an algorithm this build has never compiled
-                // (#1119) — it has no parameters here to show. The combo
+                // (#1119) - it has no parameters here to show. The combo
                 // above names it; the Kind picker is the way out.
                 SovereignGeneratorKind::Unknown => {
                     // #1119's line, now the shared one (#1251): four
@@ -114,7 +114,7 @@ pub(super) fn draw_terrain_forge(
                         dirty,
                     )
                     .on_hover_text(
-                        "How many height steps those plateaus climb through — the number of visible ledges.",
+                        "How many height steps those plateaus climb through - the number of visible ledges.",
                     );
                 }
             }
@@ -129,7 +129,7 @@ pub(super) fn draw_terrain_forge(
             // Gated on the checkbox (#1249 f65). The knobs stayed live with
             // erosion off, and each one arms the flush, changes the
             // serialised terrain fingerprint and therefore makes
-            // `maybe_regenerate_terrain` take its Regenerate branch — a
+            // `maybe_regenerate_terrain` take its Regenerate branch - a
             // multi-second heightmap + splat rebuild whose output is
             // identical, because erosion is off. A control that responds
             // and produces nothing teaches the owner the section is broken.
@@ -218,7 +218,7 @@ mod tests {
     /// to edit the terrain. They open the World Editor, find no terrain
     /// tab, eventually find terrain nested inside "Region Assets", and are
     /// shown Persistence, Lacunarity and Base frequency with no idea which
-    /// one makes hills — and nothing on the surface pointed at the seed
+    /// one makes hills - and nothing on the surface pointed at the seed
     /// re-roll, which is the friendlier control for wanting a different
     /// landform rather than a tuned one.
     ///
@@ -243,12 +243,12 @@ mod tests {
         let explained = body.matches(".on_hover_text(").count();
         assert_eq!(
             knobs, explained,
-            "{knobs} terrain knobs, {explained} explanations — a slider with \
+            "{knobs} terrain knobs, {explained} explanations - a slider with \
              no hover text is fractal-noise vocabulary and nothing else"
         );
         assert!(
             knobs >= 9,
-            "only {knobs} knobs found — the scan missed some"
+            "only {knobs} knobs found - the scan missed some"
         );
 
         // And the way out for somebody who wants a different landscape

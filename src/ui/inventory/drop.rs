@@ -31,15 +31,15 @@ use super::{DropSource, PendingGeneratorDrop};
 /// * Release over a peer row in the People window → routes into an
 ///   [`OverlandsMessage::ItemOffer`]. The target is resolved from
 ///   `pending.peer_target`, refreshed every frame by the People UI.
-/// * [`DropSource::Inventory`] release over the 3D viewport — copy the
+/// * [`DropSource::Inventory`] release over the 3D viewport - copy the
 ///   blueprint into `RoomRecord.generators` under a collision-safe key
 ///   (reusing an identical existing entry when present) and append a
 ///   `Placement::Absolute`.
-/// * [`DropSource::Catalogue`] release over the 3D viewport — resolve
+/// * [`DropSource::Catalogue`] release over the 3D viewport - resolve
 ///   the slug and stamp a fresh deep-copied blueprint the same way.
 ///
 /// The peer branch fires even when the local user does not own the current
-/// room — gifting is a personal transaction between two players and
+/// room - gifting is a personal transaction between two players and
 /// doesn't touch the `RoomRecord`. The ground-placement branches still
 /// enforce `session.did == room_did` so a malicious state transition
 /// mid-drag (e.g. a portal that swaps the room DID) cannot mutate a room
@@ -51,8 +51,8 @@ use super::{DropSource, PendingGeneratorDrop};
 /// Escape disarms the drag mid-flight (#831), but the key is NOT read
 /// here: it is [`EscStep::DragToPlace`](crate::ui::shortcuts::EscStep), a
 /// rung of the shared back-out ladder (#1236 f37). Reading it here meant
-/// two systems answered the same press in the same frame — nothing
-/// consumes `ButtonInput` — so one Escape disarmed the drag *and* cleared
+/// two systems answered the same press in the same frame - nothing
+/// consumes `ButtonInput` - so one Escape disarmed the drag *and* cleared
 /// the selection underneath it, against the ladder's own "one step per
 /// press" contract.
 #[allow(clippy::too_many_arguments)]
@@ -86,9 +86,9 @@ pub fn handle_generator_drop(
     let peer_target = pending.peer_target.clone();
 
     // The drag only commits on the frame the button is released. Every other
-    // frame the mouse is either still held (drag in progress — we want to
+    // frame the mouse is either still held (drag in progress - we want to
     // keep the pending slot armed) or already up without a just-released
-    // edge (stale state — clear it so a future drag starts clean).
+    // edge (stale state - clear it so a future drag starts clean).
     if mouse.just_released(MouseButton::Left) {
         // Fall through to the placement path below; release clears `pending`.
     } else if !mouse.pressed(MouseButton::Left) {
@@ -109,11 +109,11 @@ pub fn handle_generator_drop(
     // cursor last frame, route the drag into an ItemOffer instead of a
     // ground placement. This takes precedence over the egui-cancel check
     // below because releasing over the People window IS the valid target
-    // here — the usual "released over egui = cancel" rule doesn't apply.
+    // here - the usual "released over egui = cancel" rule doesn't apply.
     // -----------------------------------------------------------------
     if let Some(target) = peer_target {
         // An ineligible row now SAYS so (#1220 f330). This used to be
-        // unreachable — an ineligible row was never recorded as a target, so
+        // unreachable - an ineligible row was never recorded as a target, so
         // the release fell past the gift branch into the silent egui-cancel
         // below, which exists for drops over the Inventory window. The
         // sentence is the same one the row's hover carries, from
@@ -121,7 +121,7 @@ pub fn handle_generator_drop(
         // different stories.
         if let Some(reason) = target.blocked {
             toasts.info(
-                format!("Couldn't give \"{name}\" to {} — {reason}", target.label),
+                format!("Couldn't give \"{name}\" to {} - {reason}", target.label),
                 time.elapsed_secs_f64(),
             );
             return;
@@ -134,7 +134,7 @@ pub fn handle_generator_drop(
         };
         // The wear metadata rides along (#1108): from the stash's side
         // table for an owned item, or minted from the catalogue entry's
-        // declaration for a vanilla one — the same two sources the local
+        // declaration for a vanilla one - the same two sources the local
         // Copy-to-inventory / Wear flows read.
         let generator_opt = match source {
             DropSource::Inventory => inventory.as_ref().and_then(|inv| {
@@ -190,7 +190,7 @@ pub fn handle_generator_drop(
             &mut toasts,
             now,
         );
-        // `sess` served its purpose as a session presence guard — silence
+        // `sess` served its purpose as a session presence guard - silence
         // the unused warning without sprinkling `#[allow]` across the fn.
         let _ = sess;
         return;
@@ -202,7 +202,7 @@ pub fn handle_generator_drop(
     // -----------------------------------------------------------------
 
     // Releasing over any egui area (notably the Inventory window itself) is
-    // the standard "cancel" gesture — treat it as a silent no-op instead of
+    // the standard "cancel" gesture - treat it as a silent no-op instead of
     // placing a generator under the user's UI. Checked BEFORE the ownership
     // gate (#831) so a visitor's deliberate window-cancel never draws the
     // "you can't place here" toast below.
@@ -221,10 +221,10 @@ pub fn handle_generator_drop(
         return;
     };
     if session.did != room_did.0 {
-        // A true viewport release in a room the user doesn't own — the
+        // A true viewport release in a room the user doesn't own - the
         // drag used to just vanish (#831).
         toasts.warn(
-            "Only this world's owner can place items here — drop on a \
+            "Only this world's owner can place items here - drop on a \
              peer in the People list to gift instead.",
             time.elapsed_secs_f64(),
         );
@@ -268,7 +268,7 @@ pub fn handle_generator_drop(
         // Sky / out-of-world release: indistinguishable from a successful
         // off-screen placement without this (#831).
         toasts.info(
-            "Released over open sky — nothing placed.",
+            "Released over open sky - nothing placed.",
             time.elapsed_secs_f64(),
         );
         return;
@@ -279,7 +279,7 @@ pub fn handle_generator_drop(
         return;
     };
     // `room.as_mut()` already tripped the `LiveRoomRecord` change tick
-    // (the late borrow above is deliberate — see the gate-order comment);
+    // (the late borrow above is deliberate - see the gate-order comment);
     // unwrap to the inner record for the field writes below.
     let record = &mut record.0;
 
@@ -317,7 +317,7 @@ pub fn handle_generator_drop(
         DropSource::Catalogue => {
             // `name` carries the catalogue entry's slug. Resolve to
             // its trait object and build a fresh generator tree on
-            // every drop — the catalogue is a stamp library, not a
+            // every drop - the catalogue is a stamp library, not a
             // reference type, so each placement is fully
             // independent. Drops referencing an unknown slug (e.g.
             // pending state from a build that removed the entry)
@@ -351,7 +351,7 @@ pub fn handle_generator_drop(
         "Placed generator '{}' (as '{}') from {:?} at ({:.2}, {:.2}, {:.2})",
         name, gen_key, source, hit_point.x, hit_point.y, hit_point.z
     );
-    // No dirty flag to set — the World Editor derives "dirty" from
+    // No dirty flag to set - the World Editor derives "dirty" from
     // `records_differ(stored, live)`, and the push above mutated the
     // live record (the `room.as_mut()` borrow already set its change
     // tick, driving the recompile + peer broadcast).
@@ -365,7 +365,7 @@ pub fn handle_generator_drop(
 /// happens to share the inventory name.
 ///
 /// Equality is checked through `serde_json::to_value` because `Generator`
-/// doesn't derive `PartialEq` — same pattern the inventory's dirty diff uses.
+/// doesn't derive `PartialEq` - same pattern the inventory's dirty diff uses.
 fn choose_room_generator_key(
     existing: &HashMap<String, Generator>,
     inventory_name: &str,
@@ -389,11 +389,11 @@ fn choose_room_generator_key(
 
 /// Live ground preview for an armed drag (#831): a footprint ring + post
 /// at the exact spot a release would place the item, re-raycast every
-/// frame — before this the drop point was invisible until commit (the
+/// frame - before this the drop point was invisible until commit (the
 /// raycast ran only in the release path), so "released over sky", "landed
 /// behind that building" and "placed 40 m downhill" all looked identical
 /// mid-drag. Green = a release here places; red = the ground can't take
-/// it (visiting someone else's overland — gift on a People row instead).
+/// it (visiting someone else's overland - gift on a People row instead).
 /// Over egui areas nothing draws: the follow-cursor tooltip is the
 /// feedback there, and a release there is the cancel gesture.
 #[allow(clippy::too_many_arguments)]
@@ -431,14 +431,14 @@ pub fn preview_generator_drop(
     let Ok(ray) = camera.viewport_to_world(cam_tf, cursor) else {
         return;
     };
-    // Terrain-only, exactly like the release path — the preview must
+    // Terrain-only, exactly like the release path - the preview must
     // show where the commit raycast will actually land.
     let filter = SpatialQueryFilter::default();
     let hit = spatial.cast_ray_predicate(ray.origin, ray.direction, 4096.0, true, &filter, &|e| {
         terrain_q.get(e).is_ok()
     });
     let Some(hit) = hit else {
-        return; // Sky under the cursor — nothing to mark.
+        return; // Sky under the cursor - nothing to mark.
     };
     let hit_point = ray.origin + *ray.direction * hit.distance;
 
@@ -484,12 +484,12 @@ pub fn preview_generator_drop(
 /// at all (#1123).
 ///
 /// Split out of [`handle_generator_drop`] because that system's dozen
-/// `SystemParam`s — an egui context, a window, a camera, a spatial query —
+/// `SystemParam`s - an egui context, a window, a camera, a spatial query -
 /// put the branch that matters out of reach of a test, and this branch is
 /// precisely the one that was wrong: the offer used to be registered and
 /// logged as `ItemOfferSent` BEFORE the send, so a message the chunker
 /// refused still armed the expiry timer. The sender saw "Offer sent to
-/// @them", then minutes later "expired without an answer" — an accusation
+/// @them", then minutes later "expired without an answer" - an accusation
 /// against a peer who was never asked for anything.
 ///
 /// Bookkeeping now follows the send. The `offer_id` was only *peeked*, so
@@ -509,7 +509,7 @@ fn record_gift_outcome(
     if !outcome.is_sent() {
         toasts.error(
             format!(
-                "Couldn't send \"{item_name}\" to {target_label} — the item is \
+                "Couldn't send \"{item_name}\" to {target_label} - the item is \
                  too large for a peer-to-peer transfer."
             ),
             now,
@@ -535,10 +535,10 @@ fn record_gift_outcome(
         },
     );
     // Sender-side feedback (#843): releasing on a peer row used to
-    // confirm NOTHING — the offer's whole lifecycle lived in the
+    // confirm NOTHING - the offer's whole lifecycle lived in the
     // diagnostics log.
     toasts.success(
-        format!("Offer sent to {target_label} — \"{item_name}\"."),
+        format!("Offer sent to {target_label} - \"{item_name}\"."),
         now,
     );
     info!("Sent ItemOffer #{offer_id} \"{item_name}\" to {target_label} ({target_did})");
@@ -569,10 +569,10 @@ mod gift_outcome_tests {
         (offers, log, toasts)
     }
 
-    /// #1123 — the sequence that produced the lie: drag an item onto a peer
+    /// #1123 - the sequence that produced the lie: drag an item onto a peer
     /// row, the chunker refuses the `ItemOffer` for exceeding the wire
     /// ceiling, and the sender is congratulated for a gift that never left
-    /// the machine — then blamed on the recipient when it "expires".
+    /// the machine - then blamed on the recipient when it "expires".
     #[test]
     fn a_refused_offer_is_not_registered_logged_or_congratulated() {
         let (offers, log, toasts) = book(SendOutcome::Refused { bytes: 1_000_000 });
@@ -584,7 +584,7 @@ mod gift_outcome_tests {
         assert_eq!(
             offers.peek_next_id(),
             0,
-            "and the id is not burned — the next gift reuses it"
+            "and the id is not burned - the next gift reuses it"
         );
         assert!(
             !log.iter()
@@ -604,7 +604,7 @@ mod gift_outcome_tests {
     /// #1218 f299. The recipient's name arrives already addressed off the
     /// shared ladder, so the toasts must not glue an `@` on top of it: for a
     /// peer whose profile has not resolved the label is a DID head, and
-    /// `@did:plc:z72i7hdy…` is the exact defect the gift modal had — a sigil
+    /// `@did:plc:z72i7hdy…` is the exact defect the gift modal had - a sigil
     /// promising a name over an identifier.
     #[test]
     fn a_recipient_with_no_resolved_handle_is_not_toasted_at_as_an_at_sign_did() {
@@ -634,7 +634,7 @@ mod gift_outcome_tests {
         assert!(shown[0].1.contains("did:plc:z72i7hdy…"), "{}", shown[0].1);
     }
 
-    /// The success path is unchanged — the fix must not have cost the
+    /// The success path is unchanged - the fix must not have cost the
     /// sender-side confirmation #843 added.
     #[test]
     fn a_sent_offer_still_registers_logs_and_confirms() {

@@ -1,4 +1,4 @@
-//! Topiary standard — a box "lollipop": one trained clean stem carrying a
+//! Topiary standard - a box "lollipop": one trained clean stem carrying a
 //! head sheared to a ball (#972, the civic planter's centrepiece). The
 //! formal counterpart to [`lsys_bush`](super::lsys_bush): where the bush is
 //! left to its own basitonic dome, this plant's silhouette is imposed by a
@@ -23,7 +23,7 @@
 //! shears have taken the tip and it becomes `C`, a clipped tuft. Clipping
 //! is what makes box dense: every cut breaks the buds behind it, so the
 //! foliage of a sheared ball is a shell of short twiglets. Once every tip is
-//! `C` the head stops growing — a maintained standard, not an age sweep
+//! `C` the head stops growing - a maintained standard, not an age sweep
 //! that plateaus by accident.
 //!
 //! **Self-shading.** Box sheds the leaves it cannot light, so the inside of
@@ -58,7 +58,7 @@ impl CatalogueEntry for TopiaryStandard {
         "Topiary Standard"
     }
     fn description(&self) -> &'static str {
-        "Clipped box ball on a trained clean stem — formal planting."
+        "Clipped box ball on a trained clean stem - formal planting."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Plant
@@ -68,7 +68,7 @@ impl CatalogueEntry for TopiaryStandard {
     }
 }
 
-/// Height of the trained stem from the soil to the pinch point, in metres —
+/// Height of the trained stem from the soil to the pinch point, in metres -
 /// three internodes of [`STEM_INTERNODE`]. The planter derives the ball's
 /// position from this.
 pub(crate) const STEM_INTERNODE: f32 = 0.17;
@@ -83,12 +83,12 @@ pub(crate) const SHEAR_C: f32 = 0.14;
 const SCAFFOLDS: u32 = 20;
 /// Pitch of the highest scaffold from the vertical, in degrees.
 const SCAFFOLD_TOP: f32 = 15.0;
-/// Pitch of the lowest — below it is the stem's own cap.
+/// Pitch of the lowest - below it is the stem's own cap.
 const SCAFFOLD_BOTTOM: f32 = 140.0;
 
 pub(crate) fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
-    // 0 — smooth grey-brown box stem.
+    // 0 - smooth grey-brown box stem.
     materials.insert(
         0,
         SovereignMaterialSettings {
@@ -103,7 +103,7 @@ pub(crate) fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 1 — the head's scaffold wood, still green-brown.
+    // 1 - the head's scaffold wood, still green-brown.
     materials.insert(
         1,
         SovereignMaterialSettings {
@@ -112,7 +112,7 @@ pub(crate) fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 2 — clipped box foliage: short twiglets of small, entire (unlobed,
+    // 2 - clipped box foliage: short twiglets of small, entire (unlobed,
     // unserrated) leaves in opposite pairs. Matte on purpose: box is glossy,
     // but at card scale a glossy card flashes near-white at the sun.
     materials.insert(

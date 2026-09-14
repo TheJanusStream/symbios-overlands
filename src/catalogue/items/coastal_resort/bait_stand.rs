@@ -1,4 +1,4 @@
-//! Bait stand — a Coastal-Resort *poor* secondary. A driftwood counter
+//! Bait stand - a Coastal-Resort *poor* secondary. A driftwood counter
 //! under a lean-to plank roof on two posts, a hand-lettered board out front
 //! and a pair of chum buckets: the bait shop of the fishing hamlet.
 
@@ -48,7 +48,7 @@ impl CatalogueEntry for BaitStand {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Driftwood counter — the root.
+        // Driftwood counter - the root.
         prim(
             solid(cuboid_tapered([3.0, 1.0, 1.2], 0.0, plank(DRIFT_GREY))),
             [0.0, 0.5, 0.0],

@@ -1,4 +1,4 @@
-//! Spore vent — an Alien-Organic prop. A chitin crater with a dark recessed
+//! Spore vent - an Alien-Organic prop. A chitin crater with a dark recessed
 //! basin and a glowing throat mounded at its centre, ringed by spine-nubs and
 //! exhaling a haze of glowing spores. Scatter clutter venting across the
 //! colony; the throat is emissive trim the ruin pass can darken.
@@ -50,7 +50,7 @@ impl CatalogueEntry for SporeVent {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Chitin crater body — the root (id_quat).
+        // Chitin crater body - the root (id_quat).
         prim(
             solid(cylinder_tapered(0.85, 0.55, 14, 0.12, chitin(CHITIN_GREEN))),
             [0.0, 0.27, 0.0],
@@ -65,7 +65,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Dark recessed basin — a flattened lower-hemisphere bowl set in the rim
+    // Dark recessed basin - a flattened lower-hemisphere bowl set in the rim
     // (the meso fire_bowl recipe: reads as a solid concave socket).
     prims.push(prim_scaled(
         solid(with_cut(

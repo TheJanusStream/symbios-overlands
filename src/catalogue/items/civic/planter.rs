@@ -1,4 +1,4 @@
-//! Planter — a marble box planted with a clipped box standard and a
+//! Planter - a marble box planted with a clipped box standard and a
 //! trailing variegated ivy. A prosperity-Rich scatter prop: formal,
 //! gardened planting signals upkeep and disposable means in any setting.
 //!
@@ -16,7 +16,7 @@
 //! a few centimetres below the rim the way a real planter is filled; both
 //! plants stand at the soil's top, the same value the slab is cut from, and
 //! are children of it in the tree. The slab laps under the coping stones so no
-//! edge of it is ever seen, and its top is its own plane — neither the
+//! edge of it is ever seen, and its top is its own plane - neither the
 //! coping's nor the body's (lesson 7).
 //!
 //! Tree: foot → body → [pilasters, relief, four coping stones, soil →
@@ -67,7 +67,7 @@ impl CatalogueEntry for Planter {
     }
 }
 
-/// Top of the marble body — the coping stones are centred on it.
+/// Top of the marble body - the coping stones are centred on it.
 const BOX_H: f32 = 0.5;
 /// Plan width of the body.
 const BODY: f32 = 1.0;
@@ -243,7 +243,7 @@ mod tests {
     }
 
     /// Build `layout` and run `guard` on it, asserting it panics with a
-    /// message naming `needle` — the guard bites on the fault it is for,
+    /// message naming `needle` - the guard bites on the fault it is for,
     /// not on some other assertion that happens to fire (#972 lesson 34).
     fn bites(layout: Layout, guard: fn(&Generator), needle: &str) {
         let broken = build_tree(&layout);
@@ -381,7 +381,7 @@ mod tests {
                 for axis in [0, 2] {
                     assert!(
                         lo[axis] > -half && hi[axis] < half,
-                        "the standard spans {:.3}..{:.3} on axis {axis} — outside the \
+                        "the standard spans {:.3}..{:.3} on axis {axis} - outside the \
                          planter's plan ({half})",
                         lo[axis],
                         hi[axis]
@@ -390,14 +390,14 @@ mod tests {
             } else {
                 assert!(
                     hi[0] < half && hi[2] < half,
-                    "the ivy reaches x {:.3}, z {:.3} — it spills over the back or the right \
+                    "the ivy reaches x {:.3}, z {:.3} - it spills over the back or the right \
                      (the plan edge is {half}); it is planted to trail forward-left",
                     hi[0],
                     hi[2]
                 );
                 assert!(
                     lo[0] < -half && lo[2] < -half,
-                    "the ivy reaches only x {:.3}, z {:.3} — it does not trail over both the \
+                    "the ivy reaches only x {:.3}, z {:.3} - it does not trail over both the \
                      front and the left rim",
                     lo[0],
                     lo[2]

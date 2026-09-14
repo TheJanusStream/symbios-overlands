@@ -1,4 +1,4 @@
-//! Survivor lean-to — the Post-apocalyptic *poor* landmark. A desperate tarp-
+//! Survivor lean-to - the Post-apocalyptic *poor* landmark. A desperate tarp-
 //! and-scrap lean-to propped against a heap of rubble, a bedroll and a cold
 //! fire ring beneath it. The drifter counterpart to the
 //! [`fortified_ruin`](super::fortified_ruin): same wasteland, opposite end of
@@ -54,7 +54,7 @@ impl CatalogueEntry for SurvivorLeanTo {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Rubble heap it leans against — the root.
+        // Rubble heap it leans against - the root.
         prim(
             solid(cuboid_tapered(
                 [2.6, 1.8, 2.2],
@@ -97,7 +97,7 @@ fn build_tree() -> Generator {
         quat_x(0.5),
     ));
     // A salvaged corrugated-sheet panel patched over one end of the tarp,
-    // lashed at a slightly steeper pitch — the desperate make-do roof.
+    // lashed at a slightly steeper pitch - the desperate make-do roof.
     prims.push(prim(
         solid(cuboid_tapered(
             [1.1, 0.06, 2.0],

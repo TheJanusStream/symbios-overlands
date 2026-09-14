@@ -1,4 +1,4 @@
-//! Lifeguard tower — a Coastal-Resort secondary. A plank lookout cabin
+//! Lifeguard tower - a Coastal-Resort secondary. A plank lookout cabin
 //! hoisted on four braced posts above the sand, its wide observation window
 //! open on a manned station, with a red rescue cross on the flank, a warm eave
 //! lamp, a ring buoy on the rail and a pennant on the roof. A boarding ramp
@@ -8,7 +8,7 @@
 //! kind:
 //!
 //! 1. **The window was a slab on a solid box.** A `Window`-textured cuboid
-//!    pinned to a plank cabin — the generator masks its panes away, so it was
+//!    pinned to a plank cabin - the generator masks its panes away, so it was
 //!    a frame with holes onto the planking behind it, with nothing to see
 //!    through it. It is now a card in a real opening over a lit station.
 //! 2. **The ramp did not reach the deck.** It was placed by eye at a round
@@ -47,7 +47,7 @@ const DECK_W: f32 = 3.2;
 const DECK_D: f32 = 3.2;
 const DECK_Y: f32 = 2.9;
 const DECK_T: f32 = 0.3;
-/// Top of the deck boards — the floor level, and the datum for everything
+/// Top of the deck boards - the floor level, and the datum for everything
 /// above.
 const FLOOR: f32 = DECK_Y + DECK_T * 0.5;
 
@@ -57,11 +57,11 @@ const CAB_W: f32 = 2.8;
 const CAB_D: f32 = 2.2;
 const CAB_H: f32 = 1.9;
 const WALL_T: f32 = 0.14;
-/// Cabin centre in Z — set back, leaving the standing platform in front.
+/// Cabin centre in Z - set back, leaving the standing platform in front.
 const CAB_Z: f32 = 0.42;
 const CAB_TOP: f32 = FLOOR + CAB_H;
 
-/// Outer face of the seaward wall — the `-Z` hero direction the render tool
+/// Outer face of the seaward wall - the `-Z` hero direction the render tool
 /// and the settlement placer both look down.
 const FRONT: f32 = CAB_Z - CAB_D * 0.5;
 const FRONT_MID: f32 = FRONT + WALL_T * 0.5;
@@ -103,7 +103,7 @@ fn wall(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
 
 /// Board thickness of the boarding ramp, and its **pitch**.
 ///
-/// The pitch is the authored quantity and the length is derived from it —
+/// The pitch is the authored quantity and the length is derived from it -
 /// deliberately that way round. A ramp's length is whatever it has to be to
 /// climb the rise at a walkable angle, and picking the length instead (which
 /// is what the shipped version did) leaves the angle to fall out at whatever
@@ -146,7 +146,7 @@ impl CatalogueEntry for LifeguardTower {
 
 /// The tower as a tree that stands the way it does: a post at the bottom
 /// carrying the other three, the deck on them, the cabin on the deck, the
-/// roof on the cabin — with the ramp its own sub-assembly off the deck.
+/// roof on the cabin - with the ramp its own sub-assembly off the deck.
 ///
 /// Written outermost-last, because [`nest`] rebases a subtree that already
 /// carries its own world translation.
@@ -231,7 +231,7 @@ fn cabin() -> Generator {
     let mid_y = FLOOR + CAB_H * 0.5;
     let inner_d = CAB_D - WALL_T * 2.0;
 
-    // Back and side walls — solid; only the seaward face is cut.
+    // Back and side walls - solid; only the seaward face is cut.
     parts.push(wall(
         [CAB_W, CAB_H, WALL_T],
         [0.0, mid_y, CAB_Z + CAB_D * 0.5 - WALL_T * 0.5],
@@ -290,7 +290,7 @@ fn cabin() -> Generator {
             id_quat(),
         ));
     }
-    // Warm lamp under the front eave — the tower's emissive trim. A small
+    // Warm lamp under the front eave - the tower's emissive trim. A small
     // lens in a housing, because a broad panel at strength blooms white.
     parts.push(prim(
         solid(cuboid_tapered(
@@ -429,7 +429,7 @@ fn roof() -> Generator {
 /// it touches anything at either end, which is why this is a guard's job
 /// (`the_ramp_meets_the_deck_and_the_sand`) and not an eye's.
 ///
-/// The sub-root is the head — the end that meets the deck — so dragging the
+/// The sub-root is the head - the end that meets the deck - so dragging the
 /// deck takes the ramp with it and the joint cannot open.
 fn ramp() -> Generator {
     // Head at the deck's own front edge, foot wherever the pitch puts it.
@@ -442,7 +442,7 @@ fn ramp() -> Generator {
     let center = [0.0, rise * 0.5, (head_z + foot_z) * 0.5];
 
     // `quat_x(-pitch)`, not `quat_x(pitch)`. A positive X rotation turns `+Y`
-    // toward `+Z`, so it sends the board's local `+Z` end *downhill* — and the
+    // toward `+Z`, so it sends the board's local `+Z` end *downhill* - and the
     // head of this ramp is at `+Z`. Getting it backwards points the ramp down
     // into its own deck, which reads as a perfectly ordinary ramp from every
     // angle a contact sheet takes.
@@ -482,8 +482,8 @@ fn ramp() -> Generator {
     ));
 
     // The sub-root is the foot kerb, not the board. A tilted sub-root spins
-    // everything nested under it — the cleats came out turned twice and swung
-    // clean off the surface — so the assembly hangs off the one flat thing in
+    // everything nested under it - the cleats came out turned twice and swung
+    // clean off the surface - so the assembly hangs off the one flat thing in
     // it, which is also the thing it actually rests on.
     let kerb = prim(
         solid(cuboid_tapered(
@@ -553,8 +553,8 @@ mod tests {
 
     /// The ramp lands on the deck at one end and on the sand at the other.
     ///
-    /// Read out of the **built tree** — the node's own rotation applied to its
-    /// own half-extent — rather than re-derived from the constants that placed
+    /// Read out of the **built tree** - the node's own rotation applied to its
+    /// own half-extent - rather than re-derived from the constants that placed
     /// it (#972 lesson 21). The shipped version had a hand-picked length, a
     /// hand-picked tilt and a hand-picked centre that did not agree: head
     /// 0.38 m under the deck, foot 0.22 m over the sand, and it looked
@@ -574,7 +574,7 @@ mod tests {
         });
         let (at, q, size) = ramp.expect("the tower has a boarding ramp");
         // The board's long axis, turned by its OWN quaternion through the one
-        // shared implementation — see `util::rotate_by` for why this is not
+        // shared implementation - see `util::rotate_by` for why this is not
         // hand-rolled. Doing it by hand here is how the shipped ramp and the
         // first version of this guard managed to agree with each other while
         // both pointing downhill.
@@ -609,7 +609,7 @@ mod tests {
             .to_degrees();
         assert!(
             (25.0..42.0).contains(&deg),
-            "a {deg}° ramp is a ladder, not something a lifeguard walks up — a \
+            "a {deg}° ramp is a ladder, not something a lifeguard walks up - a \
              boarding ramp is steep, and the cleats are why, but it is still walked"
         );
     }
@@ -635,10 +635,10 @@ mod tests {
                 balusters += 1;
             }
         });
-        assert!(posts >= 8, "only {posts} rail posts — the rail floats");
+        assert!(posts >= 8, "only {posts} rail posts - the rail floats");
         assert!(
             balusters >= 12,
-            "only {balusters} balusters — the rail is a bar"
+            "only {balusters} balusters - the rail is a bar"
         );
     }
 
@@ -647,7 +647,7 @@ mod tests {
     ///
     /// Read out of the built tree rather than compared between constants: the
     /// shipped cabin was exactly as wide as its deck and flush with its back
-    /// edge — a coplanar seam down two whole corners — and what has to be true
+    /// edge - a coplanar seam down two whole corners - and what has to be true
     /// is a fact about where the slabs *are*, not about which pair of numbers
     /// were typed.
     #[test]
@@ -679,7 +679,7 @@ mod tests {
                 assert!(
                     c[axis] - h[axis] > dc[axis] - dh[axis] + 0.05
                         && c[axis] + h[axis] < dc[axis] + dh[axis] - 0.05,
-                    "a cabin wall at {c:?} (half {h:?}) is flush with — or past — \
+                    "a cabin wall at {c:?} (half {h:?}) is flush with - or past - \
                      the deck edge at {dc:?} (half {dh:?}) on axis {axis}"
                 );
             }
@@ -689,7 +689,7 @@ mod tests {
         assert!(stand > 0.5, "only {stand} m of deck in front of the window");
     }
 
-    /// The tower keeps its eave lamp — escalation's broken-emissive ruin pass
+    /// The tower keeps its eave lamp - escalation's broken-emissive ruin pass
     /// needs something to snuff.
     #[test]
     fn has_an_eave_lamp() {

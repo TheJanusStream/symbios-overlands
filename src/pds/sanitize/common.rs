@@ -15,7 +15,7 @@ pub(super) fn clamp_finite(v: f32, lo: f32, hi: f32, default: f32) -> f32 {
 }
 
 /// The blob-element quaternion sanitiser: clamp components finite, then
-/// renormalise — but ONLY when the length is meaningfully off unit. The
+/// renormalise - but ONLY when the length is meaningfully off unit. The
 /// tolerance gate makes the function idempotent: an exact-arithmetic
 /// renormalisation of an ulp-off unit quaternion oscillates between a
 /// slightly-short and slightly-long neighbour (a 2-cycle with NO

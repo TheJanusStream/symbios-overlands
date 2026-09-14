@@ -1,4 +1,4 @@
-//! Banner pole — a Medieval prop. A tall oak standard on a stepped stone
+//! Banner pole - a Medieval prop. A tall oak standard on a stepped stone
 //! foot, iron-collared, flying a heraldic gonfalon with an applied cross
 //! device and dagged tails from a crossbar, a long streaming pennon above,
 //! and an iron spear finial: the lord's colours over the market square. A
@@ -54,7 +54,7 @@ fn build_tree() -> Generator {
     let base_h = 0.45;
 
     let mut prims = vec![
-        // Lower step of the stone foot — the root.
+        // Lower step of the stone foot - the root.
         prim(
             solid(cuboid_tapered(
                 [1.2, base_h, 1.2],
@@ -120,7 +120,7 @@ fn build_tree() -> Generator {
     ));
     // Applied gold cross device, straddling the thin banner (centred in X,
     // thicker than the cloth) so it reads proud on both broad ±X faces the
-    // hero cameras see — not just one shadowed edge.
+    // hero cameras see - not just one shadowed edge.
     prims.push(prim(
         cuboid_tapered([0.18, 1.2, 0.22], 0.0, cloth(HERALD_GOLD, HERALD_GOLD)),
         [0.0, bar_y - 1.05, 0.0],

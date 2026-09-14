@@ -1,10 +1,10 @@
-//! Stave church — tarred vertical staves under a stack of steep shake
+//! Stave church - tarred vertical staves under a stack of steep shake
 //! roofs, ringed by a low ambulatory and guarded by dragon-head finials.
 //!
 //! The silhouette is the whole point: a stave church is a telescope of
 //! square tiers, each rising through the roof skirt of the one below and
 //! inset from it, so the mass steps inward as it climbs. The grammar
-//! builds that with a **recursive parameterised rule** — `Tier(n)` lays a
+//! builds that with a **recursive parameterised rule** - `Tier(n)` lays a
 //! band of stave walls, sheds a hip skirt over them, then hands the
 //! remaining height to `Tier(n - 1)` shrunk and re-centred on the axis.
 //! `when(n <= 0)` caps the stack with a gabled crown. Two, three or four
@@ -16,7 +16,7 @@
 //! parameters, guards, and `Size` + `Center` for the inset); before it,
 //! each tier had to be written out by hand at a fixed count.
 //!
-//! Footprint 16 × 16 — square, the way a stave church plan is. The
+//! Footprint 16 × 16 - square, the way a stave church plan is. The
 //! ambulatory (*svalgang*) is carved as a ring of four strips around the
 //! nave core by nested splits, the same idiom the castle uses for its
 //! wards.
@@ -62,7 +62,7 @@ const SKIRT_WALL_TOP: f32 = SKIRT_H - SKIRT_ROOF_H - SKIRT_TUCK;
 /// buried a little, they read as carved posts rising out of the roof.
 const HEAD_EMBED: f32 = 0.22;
 
-/// Tuck bands — the gap between a wall band's top and the springing of the
+/// Tuck bands - the gap between a wall band's top and the springing of the
 /// roof above it.
 ///
 /// A roof descends as it runs OUTWARD from its springing plane:
@@ -84,7 +84,7 @@ const CROWN_TUCK: f32 = 0.53;
 /// Height of the ambulatory hip roof's ridge above grade.
 ///
 /// The dragon heads stand on the four corners at `±(LOT/2 − SKIRT_D/2)`,
-/// which is the *centreline* of each skirt strip — and on a hip roof the
+/// which is the *centreline* of each skirt strip - and on a hip roof the
 /// ridge runs along that centreline, terminating in the hip-end apex
 /// exactly over the corner. So the corner is at RIDGE height, not eave
 /// height: springing level + `(strip depth / 2) · tan(pitch)`.
@@ -96,7 +96,7 @@ fn skirt_ridge_y() -> f32 {
     SKIRT_WALL_TOP + SKIRT_TUCK + (SKIRT_D / 2.0) * SKIRT_PITCH_DEG.to_radians().tan()
 }
 
-/// Tarred shake roofing — the one surface the nordic kit has no helper for
+/// Tarred shake roofing - the one surface the nordic kit has no helper for
 /// (it roofs in thatch and turf). A stave church is shingled in pitch-black
 /// split pine, so the item carries its own.
 fn shake(color: [f32; 3]) -> SovereignMaterialSettings {
@@ -133,7 +133,7 @@ impl CatalogueEntry for StaveChurch {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
-    /// The settlement's church — the established carved-timber register.
+    /// The settlement's church - the established carved-timber register.
     /// The destitute end of the theme is the separate [`super::turf_house`].
     fn prosperity_band(&self) -> ProsperityBand {
         NORDIC_BAND
@@ -159,7 +159,7 @@ impl CatalogueEntry for StaveChurch {
         attach(&mut root, church);
 
         // Dragon heads on the four ambulatory corners. Deliberately mounted
-        // on the *skirt*, whose height is fixed — the tiers above it are
+        // on the *skirt*, whose height is fixed - the tiers above it are
         // drawn per placement, so a finial pinned up there would float or
         // sink with the lottery. The corner sits on each strip's
         // centreline, which is where the hip ridge runs, so they seat at
@@ -186,7 +186,7 @@ impl CatalogueEntry for StaveChurch {
 /// The palette, keyed by the `Mat("...")` names the grammar emits.
 fn materials() -> HashMap<String, SovereignMaterialSettings> {
     let mut m = HashMap::new();
-    // Staves run vertically — that is what the building is named for — so
+    // Staves run vertically - that is what the building is named for - so
     // the plank pattern is quarter-turned; the generator only lays courses
     // up V otherwise.
     m.insert("Stave".to_string(), upright_boards(timber(WOOD_DARK)));
@@ -216,7 +216,7 @@ fn build_kind() -> GeneratorKind {
         format!("const PostProud = {POST_PROUD}"),
         format!("const SkirtRoofH = {SKIRT_ROOF_H}"),
         // The NIL tuck bands lift each roof clear of the proud walls and
-        // posts below it — see the tuck-band docs above.
+        // posts below it - see the tuck-band docs above.
         format!("const SkirtTuck = {SKIRT_TUCK}"),
         format!("const TierTuck = {TIER_TUCK}"),
         format!("const CrownTuck = {CROWN_TUCK}"),
@@ -238,7 +238,7 @@ fn build_kind() -> GeneratorKind {
         "SkirtRow --> Extrude(SkirtH) Split(Y) { ~1: SkirtWalls | SkirtTuck: NIL | SkirtRoofH: SkirtCap }",
         "SkirtWalls --> Comp(Faces) { Side: SkirtFace | Top: NIL | Bottom: NIL }",
         "SkirtFace --> when(scope.x < 2.4): StaveWall | else: ArcadeRun",
-        // Open arcading is what a svalgang actually is — a covered walk.
+        // Open arcading is what a svalgang actually is - a covered walk.
         "ArcadeRun --> Repeat(X, 1.5) { ArcadeBay }",
         "ArcadeBay --> Split(X) { 0.32: Post | ~1: ArcadeOpening | 0.32: Post }",
         "Post --> Extrude(PostProud) Mat(\"Board\") I(\"Post\")",
@@ -258,13 +258,13 @@ fn build_kind() -> GeneratorKind {
         "Tier(n) --> when(n <= 0): Crown | else: TierStack(n)",
         "TierStack(n) --> Split(Y) { TierH: TierWalls | TierTuck: NIL | TierRoofH: TierSkirt | ~1: NextTier(n) }",
         "TierWalls --> Comp(Faces) { Side: NaveFace | Top: NIL | Bottom: NIL }",
-        // The upper tier rises *through* the skirt below it — the roof and
+        // The upper tier rises *through* the skirt below it - the roof and
         // the tier above deliberately overlap in Y.
         "TierSkirt --> Roof(Hip, TierPitch, 0.45) { Slope: ShakeFace | _: ShakeFace }",
         "NextTier(n) --> Size(scope.x * 0.76, scope.y, scope.z * 0.76) Center(XZ) Tier(n - 1)",
         // ── 4. The crown: a steep gabled belfry closing the stack ──
         //    The crown inherits whatever height the recursion left, which
-        //    shrinks with every tier — so it is sized in FLOATING and
+        //    shrinks with every tier - so it is sized in FLOATING and
         //    RELATIVE shares only. An absolute split here overflows the
         //    moment a four-tier church leaves it a short remainder.
         "Crown --> when(scope.y < 2.2): CrownCapOnly | else: CrownBelfry",
@@ -389,7 +389,7 @@ mod tests {
 
     /// Each roofed band's tuck must be at least `proud · tan(pitch)`, or
     /// the wall below it breaches its own roof and its top edge pokes
-    /// through the shakes — which is exactly what shipped before this
+    /// through the shakes - which is exactly what shipped before this
     /// guard. Also bounded above, so an over-generous tuck does not open a
     /// visible gap under the eaves.
     #[test]
@@ -402,13 +402,13 @@ mod tests {
             let needed = proud * pitch.to_radians().tan();
             assert!(
                 tuck >= needed,
-                "{what}: tuck {tuck:.3} < required {needed:.3} — the wall will \
+                "{what}: tuck {tuck:.3} < required {needed:.3} - the wall will \
                  pierce its roof by {:.3} m",
                 needed - tuck
             );
             assert!(
                 tuck < needed + 0.05,
-                "{what}: tuck {tuck:.3} overshoots {needed:.3} — that opens a \
+                "{what}: tuck {tuck:.3} overshoots {needed:.3} - that opens a \
                  gap under the eaves"
             );
         }
@@ -416,7 +416,7 @@ mod tests {
 
     /// The telescope is the item: the recursion must actually step inward,
     /// producing several distinct wall widths stacked up the building. A
-    /// broken `Size`/`Center` inset would still derive cleanly — it would
+    /// broken `Size`/`Center` inset would still derive cleanly - it would
     /// just come out as one blunt tower.
     #[test]
     fn the_tiers_telescope_inward_as_they_climb() {
@@ -480,7 +480,7 @@ mod tests {
         );
     }
 
-    /// Every derivation must close the stack with a crown — an unterminated
+    /// Every derivation must close the stack with a crown - an unterminated
     /// recursion would leave the top tier open to the sky.
     #[test]
     fn every_church_is_crowned() {
@@ -493,7 +493,7 @@ mod tests {
                 .count();
             assert!(
                 shakes >= 8,
-                "seed {seed}: only {shakes} shake panels — the stack lost its roofs"
+                "seed {seed}: only {shakes} shake panels - the stack lost its roofs"
             );
         }
     }

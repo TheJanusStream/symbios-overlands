@@ -4,7 +4,7 @@
 //! (`assets/shaders/water.wgsl`) that computes Gerstner-wave displacement,
 //! Fresnel-driven alpha / reflection, scrolling detail normals, foam, and
 //! sun-glitter. Every knob that drives the shader flows through the
-//! `WaterUniforms` block on this extension — a mix of per-volume parameters
+//! `WaterUniforms` block on this extension - a mix of per-volume parameters
 //! (authored on [`crate::pds::WaterSurface`]) and room-wide parameters
 //! (authored on [`crate::pds::Environment`]).
 
@@ -26,12 +26,12 @@ const WATER_SHADER_PATH: &str = "shaders/water.wgsl";
 /// Sized at 32 so a busy multiplayer lake still shows a rich trail;
 /// beyond that the consumer keeps the newest 32 per plane (see
 /// `crate::interaction::perturbation::pack_plane`). Total cost: 2 × 512
-/// bytes per water material — negligible against a 64 KB uniform block.
+/// bytes per water material - negligible against a 64 KB uniform block.
 pub const WAKE_SAMPLES_MAX: usize = 32;
 
 /// GPU uniform block shared with `water.wgsl`. Field ordering is chosen so
 /// `Vec4`s lead (16-byte aligned), `Vec2` sits where 8-byte alignment is
-/// cheapest, and scalars bring up the rear — the `ShaderType` derive still
+/// cheapest, and scalars bring up the rear - the `ShaderType` derive still
 /// inserts any padding needed to round the struct up to 16 bytes.
 ///
 /// `scatter_color` is stored as a `Vec4` rather than `Vec3` to avoid the
@@ -49,7 +49,7 @@ pub struct WaterUniforms {
     /// specular sun-glitter lobe. Initialised from the room's
     /// `Environment::sun_position` at spawn and CPU-patched by
     /// `world_builder::compile::apply_environment_state` on every
-    /// environment change — the same pattern as
+    /// environment change - the same pattern as
     /// [`crate::clouds::CloudUniforms::sun_dir`]. A zero vector makes the
     /// shader fall back to its legacy up-biased approximation.
     pub sun_dir: Vec4,
@@ -85,7 +85,7 @@ pub struct WaterUniforms {
     pub flow_amount: f32,
 
     // ---------------------------------------------------------------------
-    // Avatar-wake perturbation channel (Phase 1, revised — see
+    // Avatar-wake perturbation channel (Phase 1, revised - see
     // `crate::interaction::perturbation`).
     //
     // Per-frame data fed by `crate::interaction::water_channel` from the
@@ -94,10 +94,10 @@ pub struct WaterUniforms {
     // 16-aligned, so two arrays of `vec4` is cheaper than one array of
     // a struct):
     //
-    // - `wake_samples_a[i]` = `(pos.x, pos.z, dir.x, dir.z)` — world-XZ
+    // - `wake_samples_a[i]` = `(pos.x, pos.z, dir.x, dir.z)` - world-XZ
     //   spawn position and the frozen heading (used by
     //   DirectionalWake).
-    // - `wake_samples_b[i]` = `(age_norm, amplitude, kind, speed)` —
+    // - `wake_samples_b[i]` = `(age_norm, amplitude, kind, speed)` -
     //   `age_norm` in `[0,1]` drives the lifetime envelope; `kind` is
     //   `0` RadialRipple / `1` DirectionalWake / `2` SplashRing.
     //
@@ -127,7 +127,7 @@ pub struct WaterUniforms {
 /// Bind-group slots (group `MATERIAL_BIND_GROUP`, 100 +):
 /// - 100 [`WaterUniforms`] uniform
 ///
-/// Prepass is disabled — water is transparent so it must not write depth in
+/// Prepass is disabled - water is transparent so it must not write depth in
 /// the prepass pass, otherwise a shoreline would occlude every fragment the
 /// main pass would try to blend underneath it.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Default, Debug)]
@@ -177,7 +177,7 @@ pub struct WaterSurfaces {
 }
 
 /// One water plane spawned by the world builder. The `world_from_local`
-/// transform is the final spawn transform — the water-level offset is
+/// transform is the final spawn transform - the water-level offset is
 /// already folded into `translation.y`, the rotation is the cumulative
 /// transform-chain rotation, and the scale is the cumulative scale.
 ///
@@ -186,7 +186,7 @@ pub struct WaterSurfaces {
 /// transform's scale is applied. The world-space rectangle is therefore
 /// `local_half_extents * world_from_local.scale.{x, z}`.
 ///
-/// `flow_strength` mirrors [`crate::pds::WaterSurface::flow_strength`] —
+/// `flow_strength` mirrors [`crate::pds::WaterSurface::flow_strength`] -
 /// the force-per-metre-submerged applied to floating bodies along the
 /// surface's downhill tangent. Always zero on flat water (the tangent of
 /// gravity on a horizontal plane is the zero vector).
@@ -216,7 +216,7 @@ impl WaterPlane {
 /// forces in `apply_buoyancy_forces` read every field.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WaterQuery {
-    /// Index into [`WaterSurfaces::planes`] — the surface the query hit.
+    /// Index into [`WaterSurfaces::planes`] - the surface the query hit.
     pub surface_idx: usize,
     /// World-space surface normal (`world_from_local.rotation * Y`),
     /// snapped to `Vec3::Y` when the rotation is within [`YAW_ONLY_EPS`]
@@ -227,7 +227,7 @@ pub struct WaterQuery {
     /// at the surface returns depth = 0; deeper means more positive.
     pub depth: f32,
     /// Unit downhill tangent on the surface (gravity projected onto the
-    /// plane, normalised). [`Vec3::ZERO`] when the surface is flat —
+    /// plane, normalised). [`Vec3::ZERO`] when the surface is flat -
     /// gravity has no tangent component on a horizontal plane.
     pub flow_dir: Vec3,
     /// Per-volume `flow_strength` copied from the source `WaterPlane`.
@@ -235,7 +235,7 @@ pub struct WaterQuery {
 }
 
 /// Threshold for the yaw-only guard. A surface whose world normal has a
-/// Y component above `1 - YAW_ONLY_EPS` is treated as flat — its normal
+/// Y component above `1 - YAW_ONLY_EPS` is treated as flat - its normal
 /// is snapped to `Vec3::Y` and `flow_dir` collapses to zero. cos(5°) ≈
 /// 0.9962 so this catches authoring jitter while still letting a 5°+
 /// deliberate tilt drive flow physics.
@@ -264,7 +264,7 @@ impl WaterSurfaces {
             // yaw-only surfaces normal.y ≈ 1 and the formula collapses to
             // `t.y`; for tilted surfaces it produces the correct Y at the
             // queried XZ. The `normal.y` denominator is guarded by the
-            // YAW_ONLY_EPS check below — past 90° tilt the plane is
+            // YAW_ONLY_EPS check below - past 90° tilt the plane is
             // ill-defined as a Y-graph and we fall back to translation.y.
             let surface_y = if normal.y.abs() < YAW_ONLY_EPS {
                 t.y
@@ -290,7 +290,7 @@ impl WaterSurfaces {
     }
 
     /// Full 3D water-volume query for buoyancy and flow physics. Returns
-    /// the *closest above* surface — the one with the smallest positive
+    /// the *closest above* surface - the one with the smallest positive
     /// `depth`. That's the surface a submerged object would emerge through
     /// if pushed straight up along the normal: if an avatar is below both
     /// a sea (y=0) and an elevated pond (y=5) at a given XZ, they should
@@ -299,7 +299,7 @@ impl WaterSurfaces {
     /// `world_p` must be a world-space point. The function:
     /// 1. Inverse-transforms `p` into each plane's local frame and rejects
     ///    the plane if the point's local XZ falls outside the half-extents.
-    /// 2. Computes signed distance along the plane normal — points above
+    /// 2. Computes signed distance along the plane normal - points above
     ///    the surface (`depth <= 0`) are skipped.
     /// 3. Among submerged surfaces, picks the one with the smallest depth.
     pub fn query(&self, world_p: Vec3) -> Option<WaterQuery> {
@@ -319,7 +319,7 @@ impl WaterSurfaces {
     }
 
     /// Like [`Self::query`], but does not cull points above the visible
-    /// surface — `depth` may be negative (point above surface) or
+    /// surface - `depth` may be negative (point above surface) or
     /// positive (submerged). Picks the surface with the smallest absolute
     /// depth (closest plane along the normal). Used by the HoverBoat
     /// buoyancy computation, which intentionally rests `water_rest_length`
@@ -363,7 +363,7 @@ impl WaterSurfaces {
         let raw_normal = (plane.world_from_local.rotation * Vec3::Y).normalize_or(Vec3::Y);
         // Yaw-only guard: an effectively-flat surface (whether
         // intentionally or via authoring jitter) gets flat-water
-        // physics — vertical lift, no tangent flow — instead of
+        // physics - vertical lift, no tangent flow - instead of
         // microscopically tilted forces that compound over time.
         let (normal, flow_dir) = if raw_normal.y > 1.0 - YAW_ONLY_EPS {
             (Vec3::Y, Vec3::ZERO)
@@ -423,11 +423,11 @@ mod tests {
                 flat_plane(7.5, Vec2::splat(5.0)),
             ],
         };
-        // Inside both — should pick the elevated pond.
+        // Inside both - should pick the elevated pond.
         let q = surfaces.surface_at(Vec2::new(2.0, 2.0)).unwrap();
         assert_eq!(q.0, 1);
         assert!((q.1 - 7.5).abs() < 1e-5);
-        // Inside the sea but outside the pond — should pick the sea.
+        // Inside the sea but outside the pond - should pick the sea.
         let q = surfaces.surface_at(Vec2::new(50.0, 50.0)).unwrap();
         assert_eq!(q.0, 0);
         assert!((q.1 - 0.0).abs() < 1e-5);
@@ -476,12 +476,12 @@ mod tests {
         let surfaces = WaterSurfaces {
             planes: vec![plane],
         };
-        // World point (0, 0, 7) — rotates back into local as roughly
+        // World point (0, 0, 7) - rotates back into local as roughly
         // (-7/√2, 0, 7/√2) ≈ (-4.95, 0, 4.95): x in [-5, 5] ✓, z in [-10, 10] ✓.
         assert!(surfaces.surface_at(Vec2::new(0.0, 7.0)).is_some());
-        // World point (7, 0, 0) — rotates back to (4.95, 0, -4.95): inside.
+        // World point (7, 0, 0) - rotates back to (4.95, 0, -4.95): inside.
         assert!(surfaces.surface_at(Vec2::new(7.0, 0.0)).is_some());
-        // World point (8, 0, 0) — rotates back to (~5.66, 0, -5.66): x exceeds 5.
+        // World point (8, 0, 0) - rotates back to (~5.66, 0, -5.66): x exceeds 5.
         assert!(surfaces.surface_at(Vec2::new(8.0, 0.0)).is_none());
     }
 
@@ -499,7 +499,7 @@ mod tests {
     fn surface_at_returns_plane_y_on_tilted_surface() {
         // 30° pitch around X axis. The plane equation is `y - 0 = -tan(30°)·z`
         // so at z = +1 the surface should sit ~ -tan(30°) ≈ -0.577 above
-        // origin — i.e. lower on the +Z side.
+        // origin - i.e. lower on the +Z side.
         let plane = tilted_plane(0.0, 30f32.to_radians(), Vec2::splat(20.0), 0.0);
         let surfaces = WaterSurfaces {
             planes: vec![plane],
@@ -517,7 +517,7 @@ mod tests {
         let surfaces = WaterSurfaces {
             planes: vec![flat_plane(0.0, Vec2::splat(50.0))],
         };
-        // Submerged at depth 1.5 — feet of an avatar swimming below origin.
+        // Submerged at depth 1.5 - feet of an avatar swimming below origin.
         let q = surfaces.query(Vec3::new(0.0, -1.5, 0.0)).unwrap();
         assert_eq!(q.surface_idx, 0);
         assert!((q.normal - Vec3::Y).length() < 1e-5);
@@ -624,7 +624,7 @@ mod tests {
     fn query_signed_picks_closest_by_absolute_depth() {
         // Stacked sea (y=0) + elevated pond (y=10). A hoverboat corner at
         // y = 0.5 (resting above the sea) is 0.5m above sea, 9.5m below
-        // pond — closest by absolute distance is the sea.
+        // pond - closest by absolute distance is the sea.
         let surfaces = WaterSurfaces {
             planes: vec![
                 flat_plane(0.0, Vec2::splat(100.0)),

@@ -1,4 +1,4 @@
-//! Solarpunk-theme catalogue structures — a verdant optimistic eco-quarter of
+//! Solarpunk-theme catalogue structures - a verdant optimistic eco-quarter of
 //! glass domes, green roofs and clean energy.
 //!
 //! Two prosperity registers share one solar-green identity: the established
@@ -26,7 +26,7 @@ pub mod veggie_planter;
 pub mod vertical_farm;
 pub mod water_channel;
 pub mod wind_turbine;
-// Poor (grassroots) variants — the prosperity-Poor end of the theme.
+// Poor (grassroots) variants - the prosperity-Poor end of the theme.
 pub mod cob_roundhouse;
 pub mod compost_heap;
 pub mod poly_tunnel;
@@ -44,18 +44,18 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the established eco-quarter — glass domes and
+/// Shared prosperity band for the established eco-quarter - glass domes and
 /// clean energy read as a Modest-to-Rich community. The poor end of the theme
 /// is the separate grassroots kit ([`cob_roundhouse`], …), tagged `Poor`, so
 /// a destitute solarpunk room grows the makeshift commune instead.
 pub(super) const SOLAR_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the grassroots kit — the destitute end of the theme,
+/// Prosperity band for the grassroots kit - the destitute end of the theme,
 /// never picked for a modest or affluent solarpunk room.
 pub(super) const SOLAR_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Clean lit glass — the biodome, the greenhouse glazing, the vertical farm.
+/// Clean lit glass - the biodome, the greenhouse glazing, the vertical farm.
 /// A faint inner glow (`glow`) so the panes read as lit and alive.
 pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -77,7 +77,7 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     }
 }
 
-/// White brushed steel — turbine tower and blades, pavilion posts, frames.
+/// White brushed steel - turbine tower and blades, pavilion posts, frames.
 pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -97,7 +97,7 @@ pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Warm timber — pavilion frames, planter boxes, trellises, channels.
+/// Warm timber - pavilion frames, planter boxes, trellises, channels.
 ///
 /// `stagger` is held at zero (#972 lesson 4): any value above 0.01 switches on
 /// the generator's hard-coded three-butt-joints-per-tile grid, which the config
@@ -143,7 +143,7 @@ pub(super) fn pane_grid(tint: [f32; 3], glow: f32, panes: (u32, u32)) -> Soverei
     m
 }
 
-/// Pale eco-concrete — biodome ring, vertical-farm core, footings.
+/// Pale eco-concrete - biodome ring, vertical-farm core, footings.
 pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -159,14 +159,14 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Matte greenery — living roofs, planted soil, crops, hedges. A soft
+/// Matte greenery - living roofs, planted soil, crops, hedges. A soft
 /// non-glossy green with no procedural texture.
 pub(super) fn foliage(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.95),
         metallic: Fp(0.0),
-        // No texture, so `uv_scale` is inert — pinned at 1.0 so it does not
+        // No texture, so `uv_scale` is inert - pinned at 1.0 so it does not
         // read as a stale pre-#936 repeat count.
         uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::None,
@@ -174,14 +174,14 @@ pub(super) fn foliage(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// A planted bed of leafy crop tufts — rounded foliage clumps in a grid, the
+/// A planted bed of leafy crop tufts - rounded foliage clumps in a grid, the
 /// green that turns a flat painted slab into rows of growing greens. Each
 /// clump is a flattened low-poly dome; sizes and offsets vary by index for an
-/// organic, hand-planted look (a deterministic jitter, no RNG — so the
+/// organic, hand-planted look (a deterministic jitter, no RNG - so the
 /// sanitiser round-trip stays stable). `center` is the soil-top centre,
 /// `span` the bed `[x, z]` extent the clumps fill, `h` the nominal clump
 /// height. Returns the clumps for an [`assemble`](crate::catalogue::items::util::assemble)
-/// list — the solarpunk green signature, reused on every planter and terrace.
+/// list - the solarpunk green signature, reused on every planter and terrace.
 pub(super) fn crop_tufts(
     center: [f32; 3],
     span: [f32; 2],
@@ -222,7 +222,7 @@ pub(super) fn crop_tufts(
     v
 }
 
-/// Glossy dark photovoltaic panel — solar arrays and panel roofs.
+/// Glossy dark photovoltaic panel - solar arrays and panel roofs.
 pub(super) fn pv(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -240,14 +240,14 @@ pub(super) fn pv(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Translucent water — the rill channels and pond surfaces. A smooth
+/// Translucent water - the rill channels and pond surfaces. A smooth
 /// blue-green with no procedural texture.
 pub(super) fn water(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.1),
         metallic: Fp(0.0),
-        // No texture, so `uv_scale` is inert — pinned at 1.0 so it does not
+        // No texture, so `uv_scale` is inert - pinned at 1.0 so it does not
         // read as a stale pre-#936 repeat count.
         uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::None,
@@ -272,7 +272,7 @@ pub(super) const COB_EARTH: [f32; 3] = [0.66, 0.52, 0.36];
 /// Dark turned-earth of planting beds and tunnel floors.
 pub(super) const SOIL_DARK: [f32; 3] = [0.34, 0.26, 0.18];
 
-// Emissive trim colours — deep-saturated so the brightest facets hold their
+// Emissive trim colours - deep-saturated so the brightest facets hold their
 // hue under bloom instead of washing to a pale near-white blank. A pale colour
 // driven bright clips toward white; a saturated base keeps its off-channels
 // low so it stays green / magenta / amber when lit (see the fantasy +
@@ -301,7 +301,7 @@ mod tests {
         }
     }
 
-    /// The biodome is the kit's lit hero — it must keep its emissive dome and
+    /// The biodome is the kit's lit hero - it must keep its emissive dome and
     /// interior glow so escalation's broken-emissive ruin pass has light to
     /// snuff.
     #[test]

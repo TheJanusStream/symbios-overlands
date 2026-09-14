@@ -3,7 +3,7 @@
 //! [`get_relay_service_auth`] mints a short-lived (~60 s on bsky) JWT that the WebRTC
 //! signaller presents to the relay on every (re)connect. It is fetched once at
 //! login (see [`crate::ui::login::poll_complete_auth_task`]) and, without this
-//! module, never renewed — so any reconnect (portal hop, dead-socket respawn,
+//! module, never renewed - so any reconnect (portal hop, dead-socket respawn,
 //! network flap) more than a token-lifetime after login re-handshakes with an
 //! **expired** token, and the relay rejects it with HTTP 401 (its `validate_exp`
 //! hardening). On native the signaller fast-fails 4xx and backs off, reusing
@@ -45,7 +45,7 @@ struct GetServiceAuthResponse {
 ///
 /// Replaces `bevy_symbios_multiuser::auth::get_service_auth` for all relay
 /// token mints (#736): that helper sends no `lxm`, which the PDS treats as
-/// a wildcard-method request — only grantable under the retired
+/// a wildcard-method request - only grantable under the retired
 /// `transition:generic` scope or an audience-pinned `rpc:*?aud=…` grant.
 /// Passing the concrete `lxm` here is what lets the client's scope use a
 /// wildcard *audience* instead, so one static client metadata document
@@ -87,7 +87,7 @@ fn next_refresh_at(now: i64) -> i64 {
 ///
 /// A socket reopen jumps the queue: a reconnect is the moment the credential
 /// is about to be presented, and it is the only event that says so. An
-/// in-flight mint suppresses both — a second task would race the first onto
+/// in-flight mint suppresses both - a second task would race the first onto
 /// the same `TokenSource`.
 fn refresh_is_due(now: i64, next_at: i64, socket_reopened: bool, in_flight: bool) -> bool {
     !in_flight && (now >= next_at || socket_reopened)
@@ -109,7 +109,7 @@ fn refresh_is_due(now: i64, next_at: i64, socket_reopened: bool, in_flight: bool
 /// than by the real gap, so `next_at` survived the sleep and the next mint
 /// could be a further 45 seconds of *running* time away. The token it renews
 /// lives about 60 s, so through that whole window every socket respawn
-/// presented a credential minted before the sleep — the relay 401s it, the
+/// presented a credential minted before the sleep - the relay 401s it, the
 /// plugin's backoff doubles toward its 60 s ceiling, and the user's first
 /// minute back is a silently degraded world. Suspend/resume is how most
 /// sessions end and restart, so this fired on essentially every resume.
@@ -167,7 +167,7 @@ pub fn schedule_service_token_refresh(
     let task = pool.spawn(async move {
         let fut = async {
             // Keep the underlying OAuth access token fresh so the DPoP-signed
-            // getServiceAuth call itself does not 401 on a long-idle session —
+            // getServiceAuth call itself does not 401 on a long-idle session -
             // mirrors the write path's proactive refresh in `super::refresh`.
             if session.session.is_expired_jittered() {
                 super::refresh::refresh_session(&session.session, &refresh_ctx).await?;
@@ -185,20 +185,20 @@ pub fn schedule_service_token_refresh(
 
 /// Drain a finished [`ServiceTokenRefreshTask`] and install the fresh token
 /// into [`TokenSourceRes`] so the next signaller (re)connect reads it. A failed
-/// refresh is left for the next cadence tick to retry — the current token may
+/// refresh is left for the next cadence tick to retry - the current token may
 /// still be valid, and a transient PDS error must not tear anything down.
 ///
 /// What it is no longer is *silent* (#1215). This is the upstream cause of the
-/// most user-visible failure on this surface — a socket that will not come
-/// back — and it was the one link in the chain with no instrumentation at all:
+/// most user-visible failure on this surface - a socket that will not come
+/// back - and it was the one link in the chain with no instrumentation at all:
 /// a lone `warn!` to a console nobody is reading. Because
 /// [`names::NET_SIGNAL_AUTH_REJECTIONS`] only counts what the relay *refuses*,
 /// a client that never mints a token to present looked, from every gauge and
-/// every rule, exactly like a healthy one — and the offline analyzer had
+/// every rule, exactly like a healthy one - and the offline analyzer had
 /// nothing to correlate against the `RelayAuthRejected`s it would see
 /// downstream. Now each failure carries a session-log event, a consecutive
-/// count on a gauge (which `RelayTokenRefreshFailing` watches), and — once the
-/// count means reconnection is genuinely impossible — one toast naming the
+/// count on a gauge (which `RelayTokenRefreshFailing` watches), and - once the
+/// count means reconnection is genuinely impossible - one toast naming the
 /// user's only remedy.
 ///
 /// [`names::NET_SIGNAL_AUTH_REJECTIONS`]: crate::diagnostics::names::NET_SIGNAL_AUTH_REJECTIONS
@@ -253,7 +253,7 @@ pub fn poll_service_token_refresh(
                 {
                     *alarmed = true;
                     toasts.error(
-                        "Can't renew your connection credential — you may not be able to \
+                        "Can't renew your connection credential - you may not be able to \
                          rejoin worlds until you sign in again.",
                         now,
                     );
@@ -271,7 +271,7 @@ mod tests {
     use crate::notify::Toasts;
 
     /// An app with the sinks the poll system writes to. Tasks are spawned
-    /// only after this returns — `IoTaskPool` is initialised by the plugin
+    /// only after this returns - `IoTaskPool` is initialised by the plugin
     /// build, and a task spawned before it panics.
     fn harness() -> App {
         let mut app = App::new();
@@ -314,7 +314,7 @@ mod tests {
     /// THE SEQUENCE (#1216 f405): shut the lid mid-session, open it the
     /// next morning. On the virtual clock the whole night advanced
     /// `elapsed` by a quarter second, so `next_at` survived the sleep and
-    /// the token — which lives about 60 s — stayed stale for up to another
+    /// the token - which lives about 60 s - stayed stale for up to another
     /// 45 s of running time while every socket respawn presented it. On
     /// wall clock the gap is the gap, and the mint fires on the first frame
     /// back.
@@ -327,7 +327,7 @@ mod tests {
 
         // A frame later: not due. This is the healthy steady state.
         assert!(!refresh_is_due(armed_at + 1, next_at, false, false));
-        // Eight hours of real time later — the whole point.
+        // Eight hours of real time later - the whole point.
         assert!(refresh_is_due(armed_at + 8 * 3600, next_at, false, false));
         // And exactly at the cadence.
         assert!(refresh_is_due(next_at, next_at, false, false));
@@ -354,7 +354,7 @@ mod tests {
     /// the wall clock and must not hold Bevy's virtual one at all.
     ///
     /// Source-scanning is the idiom `diagnostics::event`'s variant roster
-    /// already uses here, and for the same reason — the property is about
+    /// already uses here, and for the same reason - the property is about
     /// the code, not about a value it produces.
     #[test]
     fn the_cadence_reads_the_wall_clock_and_not_bevy_time() {
@@ -382,8 +382,8 @@ mod tests {
     }
 
     /// THE SEQUENCE: the PDS starts refusing `getServiceAuth`, tick after
-    /// tick. The failure arm used to be a lone `warn!` — no metric, no
-    /// session-log event, no rule — so a client that could never rejoin the
+    /// tick. The failure arm used to be a lone `warn!` - no metric, no
+    /// session-log event, no rule - so a client that could never rejoin the
     /// relay looked, from every gauge, exactly like a healthy one, and the
     /// analyzer had nothing to correlate against the rejections that follow
     /// downstream (#1215 f403).
@@ -409,7 +409,7 @@ mod tests {
         assert_eq!(
             app.world().resource::<Toasts>().shown().len(),
             1,
-            "exactly one toast for the outage — the cadence re-arms forever, \
+            "exactly one toast for the outage - the cadence re-arms forever, \
              so one per tick would be a permanent stream"
         );
 
@@ -423,7 +423,7 @@ mod tests {
 
     /// THE SEQUENCE: a transient PDS error, then a success. One failure must
     /// not alarm, and a recovery must clear the streak so the gauge stops
-    /// holding the rule violated — and so a LATER outage can raise its own
+    /// holding the rule violated - and so a LATER outage can raise its own
     /// toast rather than being swallowed by the first one's latch.
     #[test]
     fn a_recovery_clears_the_streak_and_re_arms_the_alarm() {

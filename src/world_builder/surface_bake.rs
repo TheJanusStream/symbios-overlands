@@ -1,18 +1,18 @@
 //! Offload-routed surface-texture bakes (#807).
 //!
 //! On **native**, [`super::material::build_procedural_material`] dispatches
-//! texture generation through the upstream `TextureConfig::spawn` path — a
+//! texture generation through the upstream `TextureConfig::spawn` path - a
 //! private rayon pool plus the upstream `patch_procedural_material_textures`
 //! system. On **wasm** that "pool" degrades to Bevy's single-threaded task
 //! executor: every avatar / construct / primitive texture bakes **on the main
-//! thread**, which is the dominant half of the avatar re-roll freeze (#807 —
+//! thread**, which is the dominant half of the avatar re-roll freeze (#807 -
 //! a reseed rebuilds ~130 image handles synchronously).
 //!
 //! This module is the wasm replacement: the bake runs as a
 //! [`GenJob::TextureBake`] on the pooled gen-worker (see [`crate::offload`]),
 //! and [`poll_surface_bakes`] drives the upstream patch system's own core
 //! ([`store_generated_texture_map`] + [`apply_generated_handles`], both public
-//! since 0.10.3 for exactly this — #1170 finding 39) rather than re-deriving
+//! since 0.10.3 for exactly this - #1170 finding 39) rather than re-deriving
 //! it: the worker's finished pixels go in, handles come out, and every waiting
 //! material takes them. In-flight bakes are **coalesced** by
 //! [`TextureCacheKey`]: mirrored parts (wheels, lamps) that request the same
@@ -35,7 +35,7 @@ use bevy_symbios_texture::{
 use crate::offload::{GenJob, GenResult};
 
 /// In-flight offloaded surface bakes, keyed by the same content fingerprint
-/// the [`TextureCache`] uses — the coalescing map described in the module doc.
+/// the [`TextureCache`] uses - the coalescing map described in the module doc.
 #[derive(Resource, Default)]
 pub struct PendingSurfaceBakes {
     jobs: HashMap<TextureCacheKey, PendingBake>,
@@ -61,12 +61,12 @@ struct PendingBake {
 /// [`TextureConfig`] → [`gen_jobs::TextureBakeJob`] mapper. Both enums are
 /// generated from the same registry rows (and the wrapper re-exports the core
 /// config types), so this match is in lock-step with the full generator
-/// catalogue automatically — a new upstream generator flows through with no
+/// catalogue automatically - a new upstream generator flows through with no
 /// app edit.
 macro_rules! define_surface_bake_job {
     ($(($variant:ident, $module:ident, $config_ty:ty, $generator_ty:ty, $kind:ident)),* $(,)?) => {
         /// Map a material's texture config to its offloadable bake job.
-        /// `None` for [`TextureConfig::None`] — nothing to bake.
+        /// `None` for [`TextureConfig::None`] - nothing to bake.
         // Only the wasm dispatch fork calls this at runtime; native builds
         // exercise it from unit tests alone.
         #[cfg_attr(all(not(target_arch = "wasm32"), not(test)), allow(dead_code))]
@@ -99,7 +99,7 @@ pub(super) fn dispatch_surface_bake(
 ) {
     let mut pending = world.resource_mut::<PendingSurfaceBakes>();
 
-    // Coalesce: an identical config is already baking — join its target list.
+    // Coalesce: an identical config is already baking - join its target list.
     if let Some(bake) = pending.jobs.get_mut(&key) {
         bake.targets.push(target);
         return;
@@ -139,8 +139,8 @@ pub(super) fn dispatch_surface_bake(
 }
 
 /// Drain finished offloaded surface bakes: hand the worker's pixels to
-/// [`store_generated_texture_map`] (persist for a disk store, upload — a pure
-/// buffer move, since the worker mip-chained them — then cache), and give the
+/// [`store_generated_texture_map`] (persist for a disk store, upload - a pure
+/// buffer move, since the worker mip-chained them - then cache), and give the
 /// resulting handles to every waiting material via
 /// [`apply_generated_handles`]. Same two calls the upstream
 /// `patch_procedural_material_textures` system makes; a no-op wherever nothing
@@ -192,7 +192,7 @@ pub(super) fn poll_surface_bakes(
                 );
             }
             warn!(
-                "surface-texture offload job yielded an unexpected result — {} materials keep \
+                "surface-texture offload job yielded an unexpected result - {} materials keep \
                  their flat colour",
                 bake.targets.len()
             );
@@ -261,7 +261,7 @@ mod tests {
         // Spot-check across the registry: a tiling surface, a card, and the
         // emissive generator. The macro generates the full table from the same
         // registry rows as `TextureBakeJob` itself, so variant-name drift is a
-        // compile error rather than a runtime mismatch — these assertions
+        // compile error rather than a runtime mismatch - these assertions
         // guard the *payload* wiring (config cloned into the job).
         let bark = TextureConfig::Bark(bevy_symbios_texture::bark::BarkConfig::default());
         assert!(matches!(
@@ -285,7 +285,7 @@ mod tests {
     // The emissive-sentinel test that used to live here went with the mirror
     // it guarded (#1133). It was a copy of an upstream test asserting the
     // behaviour of a copy of an upstream function, so it could only ever
-    // confirm that the two copies had not drifted YET — and it passed for as
+    // confirm that the two copies had not drifted YET - and it passed for as
     // long as a maintainer remembered to sync both. The function is now
     // `bevy_symbios_texture::apply_emissive_map`, called directly, and its
     // behaviour is that crate's to test.
@@ -297,8 +297,8 @@ mod tests {
     /// the upstream `PendingTexture` onto that crate's rayon pool, wasm maps
     /// the same config into a `gen_jobs::TextureBakeJob` and runs it in the
     /// worker. Nothing checked they agreed. The parity test that existed
-    /// compared the two `StandardMaterial`s — base colour, roughness, alpha
-    /// mode, the cache-hit slot writes — and never a single texel, so an
+    /// compared the two `StandardMaterial`s - base colour, roughness, alpha
+    /// mode, the cache-hit slot writes - and never a single texel, so an
     /// upstream change to generator post-processing or to the mip chain would
     /// have applied to native peers only, and the two targets would render the
     /// same record differently with no compile error and no failing test.
@@ -313,14 +313,14 @@ mod tests {
     /// instead of the day somebody remembers this file.
     #[test]
     fn both_bake_paths_produce_identical_pixels_for_every_generator() {
-        // 32² is four mip levels — enough that a chain difference shows,
+        // 32² is four mip levels - enough that a chain difference shows,
         // small enough that the whole registry bakes in well under a second.
         const SIZE: u32 = 32;
 
         let configs = TextureConfig::all_defaults();
         assert!(
             configs.len() > 5,
-            "the generator registry returned only {} entries — this test has \
+            "the generator registry returned only {} entries - this test has \
              stopped covering what it claims to",
             configs.len()
         );
@@ -350,7 +350,7 @@ mod tests {
             );
             assert_eq!(
                 worker.mip_level_count, upstream.mip_level_count,
-                "{label}: mip chain length differs — one target would sample a \
+                "{label}: mip chain length differs - one target would sample a \
                  different level of detail than the other"
             );
             // Byte-equal, not approximately: the two paths run the same
@@ -370,7 +370,7 @@ mod tests {
             );
             assert_eq!(
                 worker.emissive, upstream.emissive,
-                "{label}: emissive differs — including whether there IS one, \
+                "{label}: emissive differs - including whether there IS one, \
                  which decides the auto-white factor"
             );
         }

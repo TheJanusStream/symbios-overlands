@@ -1,4 +1,4 @@
-//! Build-side avatar FX — turns an [`AvatarFx`] spec into the actual
+//! Build-side avatar FX - turns an [`AvatarFx`] spec into the actual
 //! `ParticleSystem` aura node and the spatial-audio voice, then hangs them
 //! on a built avatar.
 //!
@@ -31,7 +31,7 @@ use crate::seeded_defaults::{AvatarFx, AvatarVoice, ChassisFamily, ParticleAura}
 /// child at `mount` (in the root's local frame) and set the body voice on
 /// the root's `audio`. A no-op for `ParticleAura::None` / `AvatarVoice::None`.
 ///
-/// `accent` is the avatar's primary accent — decorative auras (neon /
+/// `accent` is the avatar's primary accent - decorative auras (neon /
 /// arcane motes) glow in it so the FX belongs to the avatar's palette.
 pub(super) fn attach(
     root: &mut Generator,
@@ -53,7 +53,7 @@ pub(super) fn attach(
 /// at spawn, so the plume streams aft under way and just puffs at rest. `0`
 /// for a static aura (a humanoid's motes hang around the figure) or a
 /// non-vehicle. Runtime rate-coupling then thickens any `> 0` emitter with
-/// speed — see `world_builder::particles`. Kept inside the particle
+/// speed - see `world_builder::particles`. Kept inside the particle
 /// sanitiser's `[0, 2]` `inherit_velocity` band so the record round-trips
 /// unchanged.
 fn motion_inherit(aura: ParticleAura, is_vehicle: bool) -> f32 {
@@ -152,7 +152,7 @@ fn aura_emitter(
                 ..Default::default()
             }),
         },
-        // Slow drifting arcane / biolume motes — bigger, softer than neon.
+        // Slow drifting arcane / biolume motes - bigger, softer than neon.
         ParticleAura::ArcaneMotes => Emitter {
             shape: EmitterShape::Box {
                 half_extents: Fp3([0.5, 0.6, 0.5]),
@@ -198,7 +198,7 @@ fn aura_emitter(
                 ..Default::default()
             }),
         },
-        // Warm upward embers arcing back down — scorched / frontier gear.
+        // Warm upward embers arcing back down - scorched / frontier gear.
         ParticleAura::Embers => Emitter {
             shape: EmitterShape::Sphere { radius: Fp(0.1) },
             rate: rate(5.0),
@@ -318,8 +318,8 @@ fn aura_emitter(
 // The three vehicle families no longer share one fixed 55 Hz drone, and a
 // luminous style no longer *replaces* the engine (a cyberpunk skiff used to
 // buzz like a sign with no machine underneath). Each family gets its own
-// seeded engine voice — a boat's low water-washed rumble, an airship's rotor
-// thump, a skiff's detuned putter — and on a luminous *vehicle* that engine is
+// seeded engine voice - a boat's low water-washed rumble, an airship's rotor
+// thump, a skiff's detuned putter - and on a luminous *vehicle* that engine is
 // mixed in UNDER the neon / arcane voice at low gain instead of being dropped.
 // The fundamental + LFO rate are detuned a few percent per avatar (quantised
 // into a handful of buckets, so two skiffs rarely idle in unison without
@@ -360,7 +360,7 @@ fn voice_patch(voice: AvatarVoice, family: ChassisFamily, seed: u64) -> Option<A
     Some(g.into_patch(out, bucket))
 }
 
-/// Number of detune buckets — small so a family's engine bakes into at most
+/// Number of detune buckets - small so a family's engine bakes into at most
 /// this many distinct patches (bounded audio-cache footprint) while still
 /// spreading avatars across audibly different pitches.
 const DETUNE_BUCKETS: u32 = 7;
@@ -400,13 +400,13 @@ fn mix_engine_under(
         return luminous;
     }
     let engine = family_engine(g, family, detune);
-    // The machine sits quietly under the luminous voice — present, not
+    // The machine sits quietly under the luminous voice - present, not
     // dominant. A `Gain` with several `"in"` connections sums them.
     let quiet = g.sink(NodeKind::Gain(Gain { gain: 0.14 }), &[engine]);
     g.sink(NodeKind::Gain(Gain { gain: 1.0 }), &[luminous, quiet])
 }
 
-/// Boat engine — a low water-washed rumble: a deep fundamental under a slow,
+/// Boat engine - a low water-washed rumble: a deep fundamental under a slow,
 /// band-passed noise wash (the hull working through the water).
 fn boat_hum(g: &mut GraphBuilder, detune: f32) -> NodeId {
     let rumble = g.src(NodeKind::Sine(sine(40.0 * detune, 0.34)));
@@ -435,7 +435,7 @@ fn boat_hum(g: &mut GraphBuilder, detune: f32) -> NodeId {
     )
 }
 
-/// Airship engine — a hum amplitude-modulated by a 4–6 Hz rotor thump (the
+/// Airship engine - a hum amplitude-modulated by a 4–6 Hz rotor thump (the
 /// beat of the props), matching the helicopter feel.
 fn airship_rotor(g: &mut GraphBuilder, detune: f32) -> NodeId {
     let fund = g.src(NodeKind::Sine(sine(52.0 * detune, 0.34)));
@@ -457,7 +457,7 @@ fn airship_rotor(g: &mut GraphBuilder, detune: f32) -> NodeId {
     )
 }
 
-/// Skiff engine — a detuned saw/sine putter around 78 Hz, chugged by a faster
+/// Skiff engine - a detuned saw/sine putter around 78 Hz, chugged by a faster
 /// LFO; the two slightly-detuned oscillators beat for an idling-motor waver.
 fn skiff_putter(g: &mut GraphBuilder, detune: f32) -> NodeId {
     let saw = g.src(NodeKind::Sawtooth(SawtoothOsc {
@@ -484,7 +484,7 @@ fn skiff_putter(g: &mut GraphBuilder, detune: f32) -> NodeId {
     )
 }
 
-/// A buzzing, faintly flickering neon hum — a sawtooth through a bandpass,
+/// A buzzing, faintly flickering neon hum - a sawtooth through a bandpass,
 /// tremolo'd by a slow LFO.
 fn neon_buzz(g: &mut GraphBuilder, detune: f32) -> NodeId {
     let saw = g.src(NodeKind::Sawtooth(SawtoothOsc {
@@ -509,7 +509,7 @@ fn neon_buzz(g: &mut GraphBuilder, detune: f32) -> NodeId {
     g.vca(&[band], lfo)
 }
 
-/// A soft tonal shimmer — a high sine fifth slowly swelling under an LFO.
+/// A soft tonal shimmer - a high sine fifth slowly swelling under an LFO.
 fn arcane_shimmer(g: &mut GraphBuilder, detune: f32) -> NodeId {
     let s1 = g.src(NodeKind::Sine(sine(660.0 * detune, 0.22)));
     let s2 = g.src(NodeKind::Sine(sine(990.0 * detune, 0.14)));
@@ -533,7 +533,7 @@ fn sine(freq_hz: f32, amplitude: f32) -> SineOsc {
 
 /// Assembles an audio node graph with monotonic ids, so a luminous voice and
 /// an engine sub-voice can be built into the *same* graph (disjoint ids) and
-/// summed — the "engine under the luminous voice" path — with no hand
+/// summed - the "engine under the luminous voice" path - with no hand
 /// renumbering.
 struct GraphBuilder {
     nodes: Vec<GraphNode>,
@@ -560,7 +560,7 @@ impl GraphBuilder {
         self.push(kind, BTreeMap::new())
     }
 
-    /// A node fed `ins` on its `"in"` port — a filter, or (with several inputs)
+    /// A node fed `ins` on its `"in"` port - a filter, or (with several inputs)
     /// a summing bus.
     fn sink(&mut self, kind: NodeKind, ins: &[NodeId]) -> NodeId {
         let mut m = BTreeMap::new();
@@ -585,7 +585,7 @@ impl GraphBuilder {
     }
 
     /// Close the graph into an [`AudioPatch`]. `seed` only drives the noise /
-    /// random-LFO draws, so it is the detune bucket — the noise varies per
+    /// random-LFO draws, so it is the detune bucket - the noise varies per
     /// bucket, not unboundedly per avatar.
     fn into_patch(self, output: NodeId, seed: u32) -> AudioPatch {
         AudioPatch {
@@ -604,7 +604,7 @@ mod audio_tests {
     use bevy_symbios_audio::bake;
 
     /// Bake a voice patch to a short buffer and assert it makes real,
-    /// finite sound — a structural guard that the node graph is valid (no
+    /// finite sound - a structural guard that the node graph is valid (no
     /// dangling refs / silence / NaN) before it ever reaches an ear.
     fn assert_audible(patch: &AudioPatch, label: &str) {
         let samples = bake(patch, 44_100, 0.4);
@@ -649,7 +649,7 @@ mod audio_tests {
         }
         assert!(
             checked > 0,
-            "no voice built a patch — the walk proved nothing"
+            "no voice built a patch - the walk proved nothing"
         );
     }
 
@@ -687,7 +687,7 @@ mod audio_tests {
         let boat = voice_patch(AvatarVoice::EngineHum, ChassisFamily::Boat, 7).unwrap();
         let airship = voice_patch(AvatarVoice::EngineHum, ChassisFamily::Airship, 7).unwrap();
         let skiff = voice_patch(AvatarVoice::EngineHum, ChassisFamily::Skiff, 7).unwrap();
-        // Bake each and require the waveforms differ — they are genuinely
+        // Bake each and require the waveforms differ - they are genuinely
         // different voices, not one shared hum.
         let b = bake(&boat, 22_050, 0.3);
         let a = bake(&airship, 22_050, 0.3);

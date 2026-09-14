@@ -1,19 +1,19 @@
-//! Pirate-theme "bring-it-to-life" helpers: three particle emitters — the
+//! Pirate-theme "bring-it-to-life" helpers: three particle emitters - the
 //! spent-powder smoke that hangs over the battery's embrasures, the wood smoke
 //! off the tavern's hearth, and the cold green witchfire of the cursed
-//! register — and three spatial-audio patches: the swell working against the
+//! register - and three spatial-audio patches: the swell working against the
 //! harbour wall, the creak of a block and tackle, and the witchfire's hiss.
 //!
 //! The three audio patches are built to be heard *against each other*. The
 //! swell is nearly all mass, the creak is a narrow resonance with an object
-//! behind it, and the hiss is the swell with its mass taken away — so the
+//! behind it, and the hiss is the swell with its mass taken away - so the
 //! cursed register sounds like what is left of the working one rather than like
 //! a different place.
 //!
 //! Particle emitters are returned as [`Generator`] nodes (a
 //! `GeneratorKind::ParticleSystem`) positioned in the prop's world frame, so
 //! they drop straight into an [`assemble`](super::super::util::assemble) list
-//! — or through [`attach`](super::super::util::attach) if they are added after
+//! - or through [`attach`](super::super::util::attach) if they are added after
 //! the root is built, which is the trap #1010 closed. Counts stay small
 //! (signature, not spectacle) and well within the particle sanitiser's bounds.
 //! Audio patches return a [`SovereignAudioConfig`] to assign to a node's
@@ -35,7 +35,7 @@ use crate::pds::{
 // Particle emitters
 // ---------------------------------------------------------------------------
 
-/// Spent powder smoke drifting out of an embrasure and away on the wind — the
+/// Spent powder smoke drifting out of an embrasure and away on the wind - the
 /// battery's signature.
 ///
 /// Deliberately slow, thin and *lateral*: this is smoke that has already been
@@ -71,7 +71,7 @@ pub(super) fn powder_smoke(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// Wood smoke leaving a chimney — the tavern's hearth, seen from the lane.
+/// Wood smoke leaving a chimney - the tavern's hearth, seen from the lane.
 ///
 /// Slower, thinner and warmer than [`powder_smoke`]: a hearth draws steadily
 /// where a gun discharges, so this rises rather than drifting off sideways,
@@ -109,7 +109,7 @@ pub(super) fn hearth_smoke(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// The swell working against a harbour wall — band-passed noise swelled by a
+/// The swell working against a harbour wall - band-passed noise swelled by a
 /// very slow LFO over a deep rumble.
 ///
 /// The same *shape* as `coastal_resort::surf_wash` and tuned to the opposite
@@ -146,7 +146,7 @@ pub(super) fn harbour_swell() -> SovereignAudioConfig {
         kind: NodeKind::Gain(Gain { gain: 0.0 }),
         inputs: vca_in,
     };
-    // Deep hull-rumble under the wash — the mass of water the wall is holding.
+    // Deep hull-rumble under the wash - the mass of water the wall is holding.
     let rumble = node(
         4,
         NodeKind::Sine(SineOsc {
@@ -171,7 +171,7 @@ pub(super) fn harbour_swell() -> SovereignAudioConfig {
     patch(vec![noise, lfo, bp, wash, rumble, mix], NodeId(5))
 }
 
-/// Rope through a block, and timber taking a load — a narrow resonant band of
+/// Rope through a block, and timber taking a load - a narrow resonant band of
 /// noise, gated by a slow ramp so it groans and releases rather than hissing.
 ///
 /// The voice of the careening slip, the signal mast and the capstan: anything
@@ -179,7 +179,7 @@ pub(super) fn harbour_swell() -> SovereignAudioConfig {
 /// *creak*; widen it and the patch becomes wind.
 pub(super) fn rigging_creak() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.34 }));
-    // A sharp resonant peak — the sound is the sheave, not the air.
+    // A sharp resonant peak - the sound is the sheave, not the air.
     let mut bp_in = std::collections::BTreeMap::new();
     bp_in.insert("in".to_string(), vec![Connection::from_node(NodeId(0))]);
     let bp = GraphNode {
@@ -238,7 +238,7 @@ pub(super) fn rigging_creak() -> SovereignAudioConfig {
 ///
 /// Deliberately this file's [`harbour_swell`] with the **rumble removed** and
 /// the band moved up two and a half octaves, because that is the whole idea.
-/// The working harbour's voice is mostly mass — a 44 Hz sine carrying a low
+/// The working harbour's voice is mostly mass - a 44 Hz sine carrying a low
 /// wash, which is what a body of water heaving against masonry sounds like. Take
 /// the mass away and leave only the top of the spectrum and the same patch
 /// becomes something with no body at all. A listener does not need to be told
@@ -246,7 +246,7 @@ pub(super) fn rigging_creak() -> SovereignAudioConfig {
 /// is left of them.
 ///
 /// The tremble is faster than the swell (0.7 Hz against 0.18) and shallower, so
-/// it flickers where the harbour breathes — a flame's rhythm rather than the
+/// it flickers where the harbour breathes - a flame's rhythm rather than the
 /// sea's. Gain is low: this is a sound you notice having heard, and a hiss loud
 /// enough to announce itself would read as a leak.
 pub(super) fn witchfire_hiss() -> SovereignAudioConfig {
@@ -293,7 +293,7 @@ pub(super) fn witchfire_hiss() -> SovereignAudioConfig {
     patch(vec![noise, flicker, bp, hiss, mix], NodeId(4))
 }
 
-/// Cold green flame licking off a wreck, a cage or a coin spill — the visual
+/// Cold green flame licking off a wreck, a cage or a coin spill - the visual
 /// half of [`witchfire_hiss`].
 ///
 /// Small, slow and *upward*, and much sparser than either smoke: witchfire is
@@ -304,7 +304,7 @@ pub(super) fn witchfire(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
         shape: EmitterShape::Sphere { radius: Fp(0.2) },
         // A fifth of the battery's rate. Witchfire is a few tongues of light,
-        // and the moment it becomes a plume it reads as a bonfire — which is
+        // and the moment it becomes a plume it reads as a bonfire - which is
         // warm, and warm is the one thing this register cannot be.
         rate: 4.0,
         burst: 0,

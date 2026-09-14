@@ -4,23 +4,23 @@
 //! actions whose blast radius deserves a beat of attention even though
 //! undo can restore them (cascade root delete, kind change), actions in
 //! an editor with NO undo stack (Inventory's Revert/Reset), and actions
-//! undo cannot recall at all — network writes (publish, the recovery
+//! undo cannot recall at all - network writes (publish, the recovery
 //! banner's delete-then-put PDS reset, publish-over-recovery). One-click
 //! in-record replacements that used to confirm here (seed re-roll,
 //! locomotion preset switch, Room/Avatar Revert/Reset) now fire
-//! directly — they are one Ctrl+Z away, and a modal would only
+//! directly - they are one Ctrl+Z away, and a modal would only
 //! double-charge a recoverable click. This module is the one
 //! implementation every editor reuses, so the danger styling and the
 //! Esc/backdrop-cancels semantics stay identical everywhere:
 //!
-//! * [`ConfirmState<T>`] — a small owner-embedded state machine: a
+//! * [`ConfirmState<T>`] - a small owner-embedded state machine: a
 //!   click on something destructive [`request`](ConfirmState::request)s
 //!   confirmation with a typed payload; the owner renders
 //!   [`show`](ConfirmState::show) every frame and receives the payload
 //!   back exactly once when (and only when) the danger button is
-//!   clicked. Esc / backdrop click cancels — there is deliberately no
+//!   clicked. Esc / backdrop click cancels - there is deliberately no
 //!   Enter-to-confirm on a destructive dialog.
-//! * [`rename_dialog`] — the shared rename modal (World Editor
+//! * [`rename_dialog`] - the shared rename modal (World Editor
 //!   generators, Inventory items): keeps itself open on invalid input
 //!   with the reason inline (the old copies silently closed and did
 //!   nothing), Enter applies, Esc cancels, and the field is focused
@@ -39,8 +39,8 @@ const MODAL_OPEN_ID: &str = "overlands-modal-open";
 /// the rename dialog, the unsaved-edits guard and the incoming-gift offer.
 ///
 /// egui knows which layer is the top modal but keeps
-/// `Memory::top_modal_layer` `pub(crate)`, and the obvious substitute —
-/// `egui_wants_keyboard_input()` — is literally "some widget has focus",
+/// `Memory::top_modal_layer` `pub(crate)`, and the obvious substitute -
+/// `egui_wants_keyboard_input()` - is literally "some widget has focus",
 /// which a dialog made only of buttons never has: egui 0.35 does not give a
 /// clicked button focus. So `global_shortcuts` believed nothing was in the
 /// way and ran the Esc back-out ladder in the same frame the modal consumed
@@ -55,7 +55,7 @@ pub fn note_modal_open(ctx: &egui::Context) {
 /// True when a modal owned attention on the most recent egui pass.
 ///
 /// Read from `Update`, which runs BEFORE the egui pass that will draw this
-/// frame's modals — so the freshest stamp available is the previous pass's,
+/// frame's modals - so the freshest stamp available is the previous pass's,
 /// and one pass of slack is the whole tolerance. That lag is wanted rather
 /// than merely accepted: the press that dismisses a modal must not also
 /// step the ladder, and it is the frame *after* the dialog drew that the
@@ -92,7 +92,7 @@ pub fn note_popup_open(ctx: &egui::Context) {
 ///
 /// Two sources because egui has two: memory-tracked popups (`menu_button`,
 /// `ComboBox`, `Popup::menu`) answer [`egui::Popup::is_any_open`], and
-/// `open_bool` popups — the in-scene right-click menu is the only one —
+/// `open_bool` popups - the in-scene right-click menu is the only one -
 /// stamp [`note_popup_open`] instead. Same one-pass tolerance as
 /// [`modal_is_open`], and for the same reason: the press that closes the
 /// menu must not also step the back-out ladder.
@@ -109,7 +109,7 @@ pub fn popup_is_open(ctx: &egui::Context) -> bool {
 /// (#1236's mirror, folded together and inverted by #1297 group 3).
 ///
 /// [`note_modal_open`] lives in egui's per-context store, which only a
-/// system holding an egui context can read — and the systems that most
+/// system holding an egui context can read - and the systems that most
 /// need the answer are the FixedUpdate drive systems, which hold no egui
 /// context at all. [`UnsavedGuard`](crate::ui::unsaved_guard::UnsavedGuard)
 /// is the other kind: a modal that is an ECS resource and leaves no
@@ -118,7 +118,7 @@ pub fn popup_is_open(ctx: &egui::Context) -> bool {
 /// the player reads one resource it owns.
 ///
 /// Written in `PreUpdate`, so the FixedUpdate steps later in the same
-/// frame read a value at most one frame old — the same slack
+/// frame read a value at most one frame old - the same slack
 /// [`modal_is_open`] already runs on.
 ///
 /// A missing egui context reports the egui half as `false` rather than
@@ -177,7 +177,7 @@ impl<T> Default for ConfirmState<T> {
 
 impl<T> ConfirmState<T> {
     /// Park `payload` behind a confirmation dialog. A second request
-    /// while one is pending replaces it — the newer click is the one
+    /// while one is pending replaces it - the newer click is the one
     /// the user is looking at.
     pub fn request(
         &mut self,
@@ -263,20 +263,20 @@ impl<T> ConfirmState<T> {
 pub enum RenameOutcome {
     /// Dialog still up (or kept open by invalid input).
     Open,
-    /// Cancelled — Esc, backdrop, or the Cancel button.
+    /// Cancelled - Esc, backdrop, or the Cancel button.
     Cancelled,
     /// Applied with this validated name.
     Renamed(String),
 }
 
-/// Validate a draft key against a taken-set — the shared rule for both
+/// Validate a draft key against a taken-set - the shared rule for both
 /// rename dialogs. Renaming to the unchanged old name is a valid no-op
 /// (treated as apply so Enter always dismisses); an empty, invisible,
 /// over-long or taken name explains itself. Pure, unit-tested below.
 ///
 /// The length and invisible-character rules (#1205) are the typing-time
 /// half of `pds::sanitize::names`: whatever this refuses, the record
-/// sanitiser would otherwise have to repair on the next load — and a
+/// sanitiser would otherwise have to repair on the next load - and a
 /// repaired name is a name the owner did not choose.
 pub fn validate_new_key(
     draft: &str,
@@ -288,12 +288,12 @@ pub fn validate_new_key(
         return Err("Name cannot be empty.".to_owned());
     }
     if crate::pds::sanitize::names::has_invisible(trimmed) {
-        return Err("Name contains invisible characters — please retype it.".to_owned());
+        return Err("Name contains invisible characters - please retype it.".to_owned());
     }
     let max = crate::pds::limits::MAX_GENERATOR_NAME_CHARS;
     if trimmed.chars().count() > max {
         return Err(format!(
-            "Name is too long — keep it under {max} characters."
+            "Name is too long - keep it under {max} characters."
         ));
     }
     if trimmed != old && is_taken(trimmed) {
@@ -306,7 +306,7 @@ pub fn validate_new_key(
     if crate::terrain::is_derived_generator_key(trimmed) {
         return Err(
             "Names starting with \"lot_building_\" or \"street_prop_\" belong to \
-             the road layer — it deletes and regrows whatever wears them."
+             the road layer - it deletes and regrows whatever wears them."
                 .to_owned(),
         );
     }
@@ -316,7 +316,7 @@ pub fn validate_new_key(
 /// The shared rename modal (#838): edits `draft` in place and reports
 /// the frame's outcome. Stays open on invalid input with the reason
 /// inline; Enter applies (when valid), Esc / backdrop / Cancel dismiss.
-/// The text field grabs focus only on the dialog's first frame — the
+/// The text field grabs focus only on the dialog's first frame - the
 /// old copies called `request_focus()` every frame, which made Tab
 /// useless.
 pub fn rename_dialog(
@@ -346,7 +346,7 @@ pub fn rename_dialog(
         }
         ui.add_space(8.0);
 
-        // The same IME guard chat's Send uses (#1263 f372) — a
+        // The same IME guard chat's Send uses (#1263 f372) - a
         // half-composed Apply writes a garbage key into the record.
         let enter_applied = crate::ui::shortcuts::enter_submitted(ui, &field);
         ui.horizontal(|ui| {
@@ -465,7 +465,7 @@ mod tests {
 
     /// #1139: the signal `global_shortcuts` reads instead of egui's
     /// `pub(crate)` top-modal layer. A confirm modal is buttons only, so
-    /// `egui_wants_keyboard_input()` — the gate the ladder used to share —
+    /// `egui_wants_keyboard_input()` - the gate the ladder used to share -
     /// stays false while it is up; the stamp is what tells the next
     /// `Update` that a dialog owns attention.
     #[test]
@@ -473,7 +473,7 @@ mod tests {
         let ctx = egui::Context::default();
         assert!(
             !modal_is_open(&ctx),
-            "nothing has drawn yet — the ladder is free"
+            "nothing has drawn yet - the ladder is free"
         );
 
         let mut state: ConfirmState<&'static str> = ConfirmState::default();
@@ -493,7 +493,7 @@ mod tests {
     }
 
     /// Modal renderers that deliberately refuse Esc, and the reason. A
-    /// file listed here must SAY so on the dialog instead — a silent
+    /// file listed here must SAY so on the dialog instead - a silent
     /// refusal is what #1236 f53 is about; a stated one is defensible.
     const MODALS_THAT_REFUSE_DISMISSAL: &[(&str, &str)] = &[(
         "other_session.rs",
@@ -501,7 +501,7 @@ mod tests {
     )];
 
     /// #1236 f53. Sequence: hit "Log out" by accident, the unsaved-changes
-    /// dialog appears, press Esc as on every other dialog in this app —
+    /// dialog appears, press Esc as on every other dialog in this app -
     /// nothing at all happens. The contract is stated at the top of this
     /// module ("Esc / backdrop click cancels") and enforced by
     /// `egui::Modal::should_close()`, which three of the six renderers
@@ -546,7 +546,7 @@ mod tests {
             {
                 assert!(
                     !source.contains("should_close()"),
-                    "{name} is listed as refusing dismissal ({why}) but now honours it — drop it from MODALS_THAT_REFUSE_DISMISSAL"
+                    "{name} is listed as refusing dismissal ({why}) but now honours it - drop it from MODALS_THAT_REFUSE_DISMISSAL"
                 );
                 assert!(
                     source.contains("no dismiss"),
@@ -556,7 +556,7 @@ mod tests {
             }
             assert!(
                 source.contains("should_close()"),
-                "{name} stamps note_modal_open, so the Esc ladder stands down for it — it must answer the key itself (or join MODALS_THAT_REFUSE_DISMISSAL and say so on the dialog)"
+                "{name} stamps note_modal_open, so the Esc ladder stands down for it - it must answer the key itself (or join MODALS_THAT_REFUSE_DISMISSAL and say so on the dialog)"
             );
         }
         assert!(
@@ -567,7 +567,7 @@ mod tests {
 
     /// #1236 f37. Sequence: right-click the ground, open the scene menu,
     /// press Esc. egui closes the popup itself and stamps nothing, and
-    /// this one is an `open_bool` popup — so `Popup::is_any_open`, which
+    /// this one is an `open_bool` popup - so `Popup::is_any_open`, which
     /// reads egui's own memory, cannot see it either. Without the stamp
     /// the ladder ran on the same press and cleared the selection under
     /// the menu.
@@ -598,12 +598,12 @@ mod tests {
         );
         assert!(
             !modal_is_open(&ctx),
-            "a menu is not a modal — conflating them would freeze the avatar under it"
+            "a menu is not a modal - conflating them would freeze the avatar under it"
         );
         assert!(popup_is_open(&ctx), "the Esc ladder must stand down");
     }
 
-    /// And the popup stamp expires the same way the modal one does — one
+    /// And the popup stamp expires the same way the modal one does - one
     /// pass of slack, no more, or a menu closed long ago would keep
     /// eating Escape.
     #[test]
@@ -658,13 +658,13 @@ mod tests {
 
     /// #1241 f164, inverted by #1297 group 3. Sequence: a stranger's gift
     /// offer pops up. You cannot click anything in the world, but W still
-    /// walks you — straight into a portal — and now a second modal stacks
+    /// walks you - straight into a portal - and now a second modal stacks
     /// on top of the first.
     ///
     /// The movement gate asked `Option<Res<UnsavedGuard>>` and therefore
     /// knew about ONE of the six modals. The drive systems' OTHER gate,
     /// `not(egui_wants_any_keyboard_input)`, covers a dialog that focuses
-    /// a text field — but a buttons-only dialog focuses nothing, which is
+    /// a text field - but a buttons-only dialog focuses nothing, which is
     /// the whole reason `note_modal_open` exists.
     ///
     /// The app has two kinds of modal and the gate needs both: an egui
@@ -678,7 +678,7 @@ mod tests {
     /// release. **The egui half runs for real**: a `EguiContext` entity is
     /// spawned and the dialog drawn on a clone of its context (an
     /// `egui::Context` is a handle to one shared store), so this drives
-    /// the registered system rather than a copy of its body — which is
+    /// the registered system rather than a copy of its body - which is
     /// what the #1236 test it replaces had to settle for.
     #[test]
     fn the_attention_hold_mirrors_the_modal_and_the_guard_including_absence() {
@@ -714,7 +714,7 @@ mod tests {
         // A mirror that defaulted the other way would freeze anyone whose
         // registration went missing, which is the failure
         // `ui::tests::the_mirrored_consumers_do_not_import_the_ui_layer`
-        // exists to catch — but only after it had frozen them.
+        // exists to catch - but only after it had frozen them.
         assert!(!attention_is_held(false, false));
         assert!(!mirrored(&mut world), "nothing is holding attention");
 
@@ -745,7 +745,7 @@ mod tests {
         );
 
         // Source two: the unsaved-edits guard. An ECS modal, no egui
-        // stamp — the half the egui mirror alone cannot see, and the half
+        // stamp - the half the egui mirror alone cannot see, and the half
         // the player used to reach into `ui` for.
         world.insert_resource(UnsavedGuard::new(GuardedAction::Logout));
         assert!(
@@ -769,7 +769,7 @@ mod tests {
     /// nothing may go back to asking about ONE modal, and nothing may ask
     /// `ui` directly. The gate is one run condition wired to six drive
     /// systems plus the portal handler, so the question has to be right in
-    /// one place — and that place is now a resource `player` owns.
+    /// one place - and that place is now a resource `player` owns.
     #[test]
     fn the_movement_gate_asks_about_every_modal() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -777,7 +777,7 @@ mod tests {
             let src = std::fs::read_to_string(root.join(rel)).expect("source is readable");
             assert!(
                 src.contains("AttentionHeld"),
-                "{rel} gates movement on one modal again — a gift offer blocks \
+                "{rel} gates movement on one modal again - a gift offer blocks \
                  the pointer but not the keys"
             );
             let code: String = src

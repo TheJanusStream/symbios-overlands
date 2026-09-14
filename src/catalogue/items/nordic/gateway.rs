@@ -1,4 +1,4 @@
-//! Rune Gateway — the Nordic bespoke social gateway (#763). Two carved
+//! Rune Gateway - the Nordic bespoke social gateway (#763). Two carved
 //! standing stones flank the walk-through opening, spanned by a heavy
 //! carved-timber lintel whose ends rear up into dragon-head finials; a
 //! glowing runic serpent ring (the Jelling loop) marks the threshold and
@@ -6,7 +6,7 @@
 //! the neutral placeholder gate for a Nordic room.
 //!
 //! The functional element is the single [`GeneratorKind::Gateway`] zone
-//! child between the stones — walking into it opens the destination
+//! child between the stones - walking into it opens the destination
 //! picker. Everything else is Norse set-dressing framing that opening.
 
 use std::f32::consts::{FRAC_PI_2, PI};
@@ -23,7 +23,7 @@ use super::{
     timber,
 };
 
-/// Cold rune-light worked into the carved faces and threshold — the same
+/// Cold rune-light worked into the carved faces and threshold - the same
 /// glacial blue as the rune stones, so the gate reads as one steading.
 const RUNE_GLOW: [f32; 3] = [0.42, 0.62, 0.92];
 
@@ -70,7 +70,7 @@ fn build_tree() -> Generator {
     let beam_y = stone_top + beam_h * 0.5; // 4.35
     let beam_top = beam_y + beam_h * 0.5; // 4.6
 
-    // Flagstone threshold slab — the flat-base root (never tilt a root:
+    // Flagstone threshold slab - the flat-base root (never tilt a root:
     // every child would spin with it).
     let mut prims = vec![prim(
         solid(cuboid_tapered(
@@ -138,7 +138,7 @@ fn build_tree() -> Generator {
         [0.0, beam_y, panel_z],
         id_quat(),
     ));
-    // Glowing runic serpent ring — the Jelling loop, the hero emblem on the
+    // Glowing runic serpent ring - the Jelling loop, the hero emblem on the
     // -Z front. Thin trim, so it runs a touch hot without blooming white.
     prims.push(prim(
         torus(0.05, 0.5, glow(RUNE_GLOW, 1.9)),
@@ -146,7 +146,7 @@ fn build_tree() -> Generator {
         quat_x(FRAC_PI_2),
     ));
 
-    // Dragon-head finials rearing up-and-outward off each lintel end — the
+    // Dragon-head finials rearing up-and-outward off each lintel end - the
     // Norse signature that turns the span into a guarded gate. Each is a
     // positioned subtree, so its yaw is safe (never the assemble root).
     prims.push(dragon_head(
@@ -206,7 +206,7 @@ mod tests {
         assert_sanitize_stable(&NordicGateway.build(""), "nordic_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is furniture, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

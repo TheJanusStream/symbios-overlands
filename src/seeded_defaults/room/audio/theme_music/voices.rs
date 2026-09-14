@@ -45,7 +45,7 @@ pub(super) struct ThemeVoice {
     pub(super) reverb_mix: f32,
 }
 
-/// Biome register multiplier — volcanic tolls an octave down, tundra
+/// Biome register multiplier - volcanic tolls an octave down, tundra
 /// rings an octave up, alpine a fifth. Keeps the music seated in the
 /// biome even when the theme owns the melody.
 pub(super) fn biome_register(biome: BiomeArchetype) -> f32 {
@@ -64,11 +64,11 @@ pub(super) fn biome_register(biome: BiomeArchetype) -> f32 {
 const VOICE_VARIETY_SALT: u64 = 0x5EED_1CE5_C0DE_0001;
 
 /// The in-character *alternate* modes a theme may drift into, beyond its
-/// signature scale (which lives on the voice literal in [`base_voice`] — the
+/// signature scale (which lives on the voice literal in [`base_voice`] - the
 /// single source of truth for the signature). [`apply_voice_variety`] picks
 /// across the signature plus these by seed, so two settlements of the same
 /// theme can sit in different modes while staying inside the theme's harmonic
-/// family. Empty for a single-mode theme — one whose mode *is* its identity
+/// family. Empty for a single-mode theme - one whose mode *is* its identity
 /// (Feudal-Japan's Hirajōshi) or whose brightness only one scale carries (the
 /// sunny-major themes); those draw their variety from key / register / voicing
 /// / pattern instead.
@@ -109,10 +109,10 @@ pub(super) fn theme_alt_scales(theme: ThemeArchetype) -> &'static [&'static [f32
 /// articulation) a little, so the same theme reads fresh across rooms
 /// without losing its identity. Deterministic in `seed`; its own rng stream
 /// keeps it independent of the pattern generator. Octave / wave / attack are
-/// left untouched — those carry the recognisable signature.
+/// left untouched - those carry the recognisable signature.
 pub(super) fn apply_voice_variety(voice: &mut ThemeVoice, theme: ThemeArchetype, seed: u64) {
     let mut rng = ChaCha8Rng::seed_from_u64(seed ^ VOICE_VARIETY_SALT);
-    // The harmonic family is the signature scale (already on the voice — the
+    // The harmonic family is the signature scale (already on the voice - the
     // single source) plus the theme's alternates. Index 0 keeps the signature,
     // so the draw maps exactly as it did when the signature headed a combined
     // list; only a higher index swaps in an alternate.
@@ -130,21 +130,21 @@ pub(super) fn apply_voice_variety(voice: &mut ThemeVoice, theme: ThemeArchetype,
     voice.reverb_mix = (voice.reverb_mix + (unit_f32(&mut rng) * 2.0 - 1.0) * 0.05).clamp(0.1, 0.6);
     let g = jitter(&mut rng, 0.12);
     voice.gate = (voice.gate.0 * g, voice.gate.1 * g);
-    // Only widen voices that are already stacked — keep the pure-sine themes
+    // Only widen voices that are already stacked - keep the pure-sine themes
     // (their detune is 0 by identity) pure.
     if voice.detune_cents > 0.0 {
         voice.detune_cents = (voice.detune_cents * jitter(&mut rng, 0.25)).max(2.0);
     }
 }
 
-/// The theme's signature voice — its authored timbre + signature scale, before
+/// The theme's signature voice - its authored timbre + signature scale, before
 /// any per-room variety. Exhaustive over [`ThemeArchetype`], so a new theme
 /// must add a voice here. The `scale` field is the single source of truth for
 /// the theme's signature mode; [`theme_alt_scales`] lists only the *other*
 /// modes the family allows.
 pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
     match theme {
-        // Driving detuned-saw synth arpeggio in phrygian — the template.
+        // Driving detuned-saw synth arpeggio in phrygian - the template.
         ThemeArchetype::Cyberpunk => ThemeVoice {
             id: "theme_synth",
             wave: Wave::Sawtooth,
@@ -161,7 +161,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: true,
             reverb_mix: 0.28,
         },
-        // Plucked koto — bright quick attack, long ring, the half-step
+        // Plucked koto - bright quick attack, long ring, the half-step
         // Japanese pentatonic. Sparse and contemplative.
         ThemeArchetype::FeudalJapan => ThemeVoice {
             id: "theme_koto",
@@ -179,7 +179,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.46,
         },
-        // Grinding low drone — a heavily-detuned saw in phrygian an octave
+        // Grinding low drone - a heavily-detuned saw in phrygian an octave
         // down, sparse and sustained, under the machine hum.
         ThemeArchetype::IndustrialPark => ThemeVoice {
             id: "theme_drone",
@@ -197,7 +197,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.45,
         },
-        // Warm reedy fiddle/accordion — a folksy detuned major, mid-register
+        // Warm reedy fiddle/accordion - a folksy detuned major, mid-register
         // and lilting over the crickets.
         ThemeArchetype::RuralFarmland => ThemeVoice {
             id: "theme_fiddle",
@@ -215,7 +215,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.38,
         },
-        // Gentle warm chimes — a softly-ringing major a touch above the
+        // Gentle warm chimes - a softly-ringing major a touch above the
         // melody register, a little sustain and a long tail so it reads as a
         // calm domestic pad rather than a bright ice-cream-van jingle.
         ThemeArchetype::Suburban => ThemeVoice {
@@ -234,7 +234,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.42,
         },
-        // Slow detuned-saw synth pad — a calm urban drone under the traffic
+        // Slow detuned-saw synth pad - a calm urban drone under the traffic
         // hum (which rides the traffic light's spatial fx).
         ThemeArchetype::ModernCity => ThemeVoice {
             id: "theme_citypad",
@@ -252,7 +252,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.4,
         },
-        // Breathy clay ocarina — sparse, plaintive minor over the implied
+        // Breathy clay ocarina - sparse, plaintive minor over the implied
         // ritual drums (the drum itself rides the step pyramid's spatial fx).
         ThemeArchetype::Mesoamerican => ThemeVoice {
             id: "theme_ocarina",
@@ -270,7 +270,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.4,
         },
-        // Low droning lur / horn — slow, sparse, heroic minor, an octave
+        // Low droning lur / horn - slow, sparse, heroic minor, an octave
         // down so it tolls over the steading.
         ThemeArchetype::Nordic => ThemeVoice {
             id: "theme_lur",
@@ -288,7 +288,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.5,
         },
-        // Plucked dorian lute — modest, sparse.
+        // Plucked dorian lute - modest, sparse.
         ThemeArchetype::Medieval => ThemeVoice {
             id: "theme_lute",
             wave: Wave::Triangle,
@@ -305,7 +305,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.4,
         },
-        // Lonesome harmonica — a reedy, slightly-detuned triangle keening
+        // Lonesome harmonica - a reedy, slightly-detuned triangle keening
         // sparse and plaintive up a wide major, a long ring trailing off
         // into the dry wind.
         ThemeArchetype::WildWest => ThemeVoice {
@@ -324,7 +324,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.4,
         },
-        // Squeezebox shanty — a reedy detuned saw swaying through dorian,
+        // Squeezebox shanty - a reedy detuned saw swaying through dorian,
         // the mode nearly every sung capstan shanty sits in. Slow attack and
         // long gates give it the pull-and-rest of men walking a capstan
         // round rather than a played melody; the wide reverb is the harbour
@@ -347,7 +347,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.42,
         },
-        // Bleak wasteland drone — a heavily-detuned saw groaning low in a
+        // Bleak wasteland drone - a heavily-detuned saw groaning low in a
         // minor pentatonic, sparse and forlorn over the desolate wind.
         ThemeArchetype::PostApoc => ThemeVoice {
             id: "theme_wasteland",
@@ -365,7 +365,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.5,
         },
-        // Deep monolith tone — a pure sine tolling far below in a dark
+        // Deep monolith tone - a pure sine tolling far below in a dark
         // phrygian, sparse and vast under the array's hum.
         ThemeArchetype::AlienMonolithic => ThemeVoice {
             id: "theme_monolith",
@@ -383,7 +383,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.6,
         },
-        // Eerie biolume theremin — a heavily-detuned sine wavering in a dark
+        // Eerie biolume theremin - a heavily-detuned sine wavering in a dark
         // phrygian, alien and unsettling over the hive's pulse.
         ThemeArchetype::AlienOrganic => ThemeVoice {
             id: "theme_biolume",
@@ -401,7 +401,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.55,
         },
-        // Funereal pipe organ — a heavily-detuned saw swelling low in a dark
+        // Funereal pipe organ - a heavily-detuned saw swelling low in a dark
         // phrygian, slow and dread-laden through the nave (a tolling pad over
         // the bass-pad floor).
         ThemeArchetype::GothicHorror => ThemeVoice {
@@ -420,7 +420,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.6,
         },
-        // Twinkling celesta — a high triangle arpeggio sparkling up a sunny
+        // Twinkling celesta - a high triangle arpeggio sparkling up a sunny
         // major, the shimmer of bound magic.
         ThemeArchetype::Fantasy => ThemeVoice {
             id: "theme_celesta",
@@ -438,7 +438,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: true,
             reverb_mix: 0.5,
         },
-        // Cold distant beacon — a high pure sine pinging a sparse minor, the
+        // Cold distant beacon - a high pure sine pinging a sparse minor, the
         // lonely signal of the outpost.
         ThemeArchetype::SpaceOutpost => ThemeVoice {
             id: "theme_beacon",
@@ -456,7 +456,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.55,
         },
-        // Bright airy bells — a clean detune-free sine struck high in a sunny
+        // Bright airy bells - a clean detune-free sine struck high in a sunny
         // major, a long lush ring over the birdsong: hopeful and luminous.
         ThemeArchetype::Solarpunk => ThemeVoice {
             id: "theme_marimba",
@@ -474,7 +474,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.52,
         },
-        // Clockwork music box — a bright triangle arpeggio ticking up a minor
+        // Clockwork music box - a bright triangle arpeggio ticking up a minor
         // pentatonic, the mechanism of the cog tower.
         ThemeArchetype::Steampunk => ThemeVoice {
             id: "theme_musicbox",
@@ -492,7 +492,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: true,
             reverb_mix: 0.35,
         },
-        // Bright stadium fanfare — a punchy detuned-saw arpeggio in a major
+        // Bright stadium fanfare - a punchy detuned-saw arpeggio in a major
         // pentatonic, the organ-and-crowd energy of a full ground.
         ThemeArchetype::SportsRec => ThemeVoice {
             id: "theme_fanfare",
@@ -510,7 +510,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: true,
             reverb_mix: 0.3,
         },
-        // Stately pipe-organ pad — a detuned saw swelling in a modal dorian,
+        // Stately pipe-organ pad - a detuned saw swelling in a modal dorian,
         // sparse and reverberant under the clock-tower resonance.
         ThemeArchetype::CivicCampus => ThemeVoice {
             id: "theme_organ",
@@ -528,7 +528,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.5,
         },
-        // Lonesome slide guitar — a gently-detuned triangle keening in a
+        // Lonesome slide guitar - a gently-detuned triangle keening in a
         // bluesy minor, sparse and reverberant over the highway drone.
         ThemeArchetype::Roadside => ThemeVoice {
             id: "theme_slidegtr",
@@ -546,7 +546,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.44,
         },
-        // Bright shimmering steel pan — a detuned sine struck high in a
+        // Bright shimmering steel pan - a detuned sine struck high in a
         // sunny major, lilting and carefree over the surf.
         ThemeArchetype::CoastalResort => ThemeVoice {
             id: "theme_steelpan",
@@ -564,7 +564,7 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.4,
         },
-        // Stately modal lyre/bells — a sparse Dorian struck with a long
+        // Stately modal lyre/bells - a sparse Dorian struck with a long
         // ceremonial ring; the dignified voice that also backstops every
         // un-built theme as the settlement fallback (#461).
         ThemeArchetype::AncientClassical => ThemeVoice {
@@ -596,7 +596,7 @@ pub(super) fn voice_for(scene: &SceneCharacter, seed: u64) -> ThemeVoice {
 
 /// Layer the socio-political axes onto the chosen voice. Escalation makes
 /// the music busier (more notes), more clipped (shorter gates) and more
-/// dissonant (added detune beating); prosperity nudges brightness — richer
+/// dissonant (added detune beating); prosperity nudges brightness - richer
 /// rooms ring more present and reverberant, poorer ones duller and quieter.
 ///
 /// Both are gated and bounded: a mid-prosperity, peaceful room is left at
@@ -604,7 +604,7 @@ pub(super) fn voice_for(scene: &SceneCharacter, seed: u64) -> ThemeVoice {
 /// volumes inside the orchestrator's loop / mixdown limits (≤20 notes,
 /// per-note volume ≤0.3).
 pub(super) fn apply_socio(voice: &mut ThemeVoice, scene: &SceneCharacter) {
-    // Escalation ramps in above ~0.45 — calm/tense rooms keep the authored
+    // Escalation ramps in above ~0.45 - calm/tense rooms keep the authored
     // pattern; only real conflict agitates it.
     let conflict = ((scene.escalation - 0.45) / 0.55).clamp(0.0, 1.0);
     if conflict > 0.0 {

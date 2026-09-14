@@ -13,23 +13,23 @@ use crate::pds::GeneratorKind;
 /// Each is applied to the mesh's vertex positions along the shape's Y extent
 /// (`t = normalised height ∈ [0, 1]`):
 ///
-/// * `twist` — radians of rotation around Y, linear in `t`.
-/// * `taper` — per-axis scale `1 - taper[axis] * t` (`.x` → X, `.y` → Z).
+/// * `twist` - radians of rotation around Y, linear in `t`.
+/// * `taper` - per-axis scale `1 - taper[axis] * t` (`.x` → X, `.y` → Z).
 ///   Equal components taper uniformly (cone / frustum); unequal ones give a
 ///   wedge / fin.
-/// * `taper_bottom` — the mirrored per-axis scale `1 - taper_bottom[axis] *
+/// * `taper_bottom` - the mirrored per-axis scale `1 - taper_bottom[axis] *
 ///   (1 - t)` toward the base, composing with `taper` so a prim can narrow at
 ///   both ends without being authored upside-down and flipped.
-/// * `bulge` — per-axis mid-profile swell `+ bulge[axis] * sin(π t)`: zero at
+/// * `bulge` - per-axis mid-profile swell `+ bulge[axis] * sin(π t)`: zero at
 ///   both ends, peaking at mid-height (muscle / belly with `+`, waist with
 ///   `−`). The combined scale is floored just above zero so a hard pinch
 ///   collapses to the axis instead of inverting the surface.
-/// * `bend` — quadratic top displacement `bend * t²` on all three axes (the
+/// * `bend` - quadratic top displacement `bend * t²` on all three axes (the
 ///   `.y` component now lengthens / shortens the shape's top).
-/// * `s_bend` — a `sin(2π t)` lateral wave of amplitude `(x, z)` layered on
+/// * `s_bend` - a `sin(2π t)` lateral wave of amplitude `(x, z)` layered on
 ///   top of `bend`, so a column can snake into an S rather than only arc.
-/// * `shear` — a linear lateral slide of the top relative to the base
-///   (`shear * t` on X / Z), so edges stay straight but lean — a
+/// * `shear` - a linear lateral slide of the top relative to the base
+///   (`shear * t` on X / Z), so edges stay straight but lean - a
 ///   parallelepiped rather than a curve.
 #[derive(Clone, Copy)]
 pub(super) struct Torture {
@@ -84,7 +84,7 @@ pub(super) fn torture_of(kind: &GeneratorKind) -> Torture {
 /// future multi-axis torture only has to extend one function.
 ///
 /// `t` is clamped to `[0, 1]`, pinning `t = 0` at the lowest vertex and
-/// `t = 1` at the highest — well-defined for any primitive whether its origin
+/// `t = 1` at the highest - well-defined for any primitive whether its origin
 /// sits at the base or the centre.
 pub(super) fn deform_vertex(p: Vec3, y_min: f32, y_range: f32, torture: Torture) -> Vec3 {
     let t = ((p.y - y_min) / y_range).clamp(0.0, 1.0);
@@ -94,7 +94,7 @@ pub(super) fn deform_vertex(p: Vec3, y_min: f32, y_range: f32, torture: Torture)
     // 0.99) so an end face never collapses to a point on its own; the bulge
     // term (`sin(π t)`, zero at both ends) can drive the *mid* profile
     // negative on a hard pinch, so the combined scale is floored just above
-    // zero — the waist collapses to the axis instead of inverting.
+    // zero - the waist collapses to the axis instead of inverting.
     let wave_pi = (std::f32::consts::PI * t).sin();
     let scale = |taper_top: f32, taper_bot: f32, bulge: f32| -> f32 {
         ((1.0 - taper_top * t) * (1.0 - taper_bot * (1.0 - t)) + bulge * wave_pi).max(1e-3)
@@ -111,7 +111,7 @@ pub(super) fn deform_vertex(p: Vec3, y_min: f32, y_range: f32, torture: Torture)
     }
 
     // Bend: quadratic displacement, tangent to vertical at the base and
-    // peaking at the top — now on all three axes (`.y` lengthens the top).
+    // peaking at the top - now on all three axes (`.y` lengthens the top).
     // S-bend: a sin(2π t) lateral wave layered on top for a serpentine column.
     // Shear: a linear lateral slide of the top relative to the base, so edges
     // stay straight but lean (a parallelepiped) rather than curving like bend.
@@ -129,7 +129,7 @@ pub(super) fn deform_vertex(p: Vec3, y_min: f32, y_range: f32, torture: Torture)
 /// deformation so the original shading character survives the warp.
 ///
 /// This replaces the old flat-normal recompute, which faceted every tortured
-/// shape (a twisted sphere went low-poly) — and a naive smooth recompute would
+/// shape (a twisted sphere went low-poly) - and a naive smooth recompute would
 /// instead round a cuboid's hard edges. Transforming the *existing* per-vertex
 /// normals by the local Jacobian preserves both: a cuboid's per-face normals
 /// stay per-face (sharp), a sphere's stay smooth, and both tilt correctly with

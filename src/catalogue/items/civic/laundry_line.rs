@@ -1,4 +1,4 @@
-//! Laundry line — two leaning posts strung with a sagging rope and a few
+//! Laundry line - two leaning posts strung with a sagging rope and a few
 //! mismatched garments. A prosperity-Poor scatter prop signalling crowded,
 //! make-do living in any setting.
 
@@ -50,19 +50,19 @@ fn build_tree() -> Generator {
     let dark = [0.15, 0.12, 0.08];
 
     let mut prims = vec![
-        // Post[0] — vertical, the flat root.
+        // Post[0] - vertical, the flat root.
         prim(
             solid(cylinder_tapered(0.06, post_h, 8, 0.0, wood(WOOD_GREY))),
             [-span * 0.5, post_h * 0.5, 0.0],
             id_quat(),
         ),
-        // Post[1] — leaning a touch, make-do.
+        // Post[1] - leaning a touch, make-do.
         prim(
             solid(cylinder_tapered(0.06, post_h, 8, 0.0, wood(WOOD_GREY))),
             [span * 0.5, post_h * 0.5, 0.0],
             quat_z(-0.07),
         ),
-        // Sagging cord — three segments dipping to a low centre (catenary).
+        // Sagging cord - three segments dipping to a low centre (catenary).
         prim(cord(dark), [-0.78, line_y - 0.06, 0.0], quat_z(-0.2)),
         prim(
             solid(cuboid_tapered([0.8, 0.03, 0.03], 0.0, wood(dark))),
@@ -72,7 +72,7 @@ fn build_tree() -> Generator {
         prim(cord(dark), [0.78, line_y - 0.06, 0.0], quat_z(0.2)),
     ];
 
-    // A shaped garment — body, shoulder yoke and two angled sleeves.
+    // A shaped garment - body, shoulder yoke and two angled sleeves.
     let mut shirt = |cx: f32, cy: f32, color: [f32; 3]| {
         prims.push(prim(
             cuboid_tapered([0.46, 0.5, 0.04], 0.0, cloth(color)),
@@ -114,7 +114,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Trousers — waistband and two legs.
+    // Trousers - waistband and two legs.
     let trews = [0.28_f32, 0.38, 0.58];
     prims.push(prim(
         cuboid_tapered([0.4, 0.12, 0.04], 0.0, cloth(trews)),

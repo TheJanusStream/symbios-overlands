@@ -1,8 +1,8 @@
-//! Startup snapshot — the first record of every session (Pillar A-4).
+//! Startup snapshot - the first record of every session (Pillar A-4).
 //!
 //! Enough build/environment context to key a log to a DID and correlate it
 //! across runs: crate version, git sha (from `build.rs`), target arch, build
-//! profile, the boot params, and — once authenticated — the session DID/relay.
+//! profile, the boot params, and - once authenticated - the session DID/relay.
 //!
 //! It is emitted in two phases (see [`SnapshotPhase`]): a `Boot` snapshot at
 //! app build, before login (DID unknown), and a `Session` snapshot on

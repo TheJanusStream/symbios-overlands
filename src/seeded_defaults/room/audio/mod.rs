@@ -1,16 +1,16 @@
-//! Seeded ambient-audio recipe deriver — the orchestrator.
+//! Seeded ambient-audio recipe deriver - the orchestrator.
 //!
 //! Assembles one [`bevy_symbios_audio::SequenceRecipe`] per room from
 //! layers that mirror the biome/theme axis split used everywhere else:
 //!
-//! - **Biome texture** ([`bed`]) — an atonal noise bed plus a wind-gust
+//! - **Biome texture** ([`bed`]) - an atonal noise bed plus a wind-gust
 //!   voice. This is the environment's *sound*.
-//! - **Biome punctuation** ([`punctuation`]) — the biome's natural
+//! - **Biome punctuation** ([`punctuation`]) - the biome's natural
 //!   signature voice (bird chirps, distant howls, …).
-//! - **Theme music** ([`theme_music`]) — a tonal melodic voice plus a
+//! - **Theme music** ([`theme_music`]) - a tonal melodic voice plus a
 //!   low bass-pad voice, both authored per-theme. This is the
 //!   settlement's *music*.
-//! - **Tension** ([`tension`]) — a conflict-gated siren layer, present
+//! - **Tension** ([`tension`]) - a conflict-gated siren layer, present
 //!   only when escalation reaches Conflict.
 //!
 //! All contribute instruments + tracks into one recipe; the sequencer
@@ -41,7 +41,7 @@ use crate::seeded_defaults::scene::SceneCharacter;
 /// Sub-stream salt distinct from palette / terrain / textures / atmosphere.
 const AUDIO_STREAM_SALT: u64 = 0xAD17_BEEF_C0DE_AC1D;
 
-/// One-shot run-up before the loop region — long enough for filter /
+/// One-shot run-up before the loop region - long enough for filter /
 /// reverb states to reach steady level so the loop never replays the
 /// cold-start fade-in.
 pub(super) const WARMUP_BEATS: f32 = 2.0;
@@ -54,7 +54,7 @@ pub(super) const LOOP_BEATS: f32 = 32.0;
 /// Uniform pick of `lo..=hi` whole LFO cycles per loop region, returned
 /// as a rate in Hz. Whole-cycle rates make the modulation phase identical
 /// at the loop start and loop end, so the seam never jumps mid-sweep.
-/// Shared by the bed and tension layers (#655 — was a literal duplicate).
+/// Shared by the bed and tension layers (#655 - was a literal duplicate).
 pub(super) fn loop_synced_rate(rng: &mut rand_chacha::ChaCha8Rng, lo: u32, hi: u32) -> f32 {
     let cycles = lo
         + (crate::seeded_defaults::scene::range_f32(rng, 0.0, (hi - lo + 1) as f32) as u32)
@@ -66,7 +66,7 @@ pub(super) fn loop_synced_rate(rng: &mut rand_chacha::ChaCha8Rng, lo: u32, hi: u
 /// Tail-crossfade window blending the timeline end into the loop start.
 pub(super) const CROSSFADE_BEATS: f32 = 2.0;
 
-/// Top-level seeded recipe — the value the wiring layer hands to the PDS
+/// Top-level seeded recipe - the value the wiring layer hands to the PDS
 /// record (and the loading-gate baker consumes).
 pub struct AmbientRecipe {
     pub recipe: SequenceRecipe,
@@ -77,10 +77,10 @@ impl AmbientRecipe {
     /// and the room seed. Same inputs -> same recipe.
     pub fn from_scene(scene: &SceneCharacter, room_seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(room_seed ^ AUDIO_STREAM_SALT);
-        // Biome texture first — it derives the shared acoustic space.
+        // Biome texture first - it derives the shared acoustic space.
         let (params, mut instruments, mut tracks) = bed::build_texture(scene, &mut rng, room_seed);
         // Biome punctuation (the natural signature voice) then theme music
-        // (the melody) then the theme bass pad — all reuse the bed's reverb
+        // (the melody) then the theme bass pad - all reuse the bed's reverb
         // space. Order fixes the layer indices at
         // [bed, gust, punct, melody, bass].
         let (punct_instrument, punct_track) =
@@ -91,7 +91,7 @@ impl AmbientRecipe {
             theme_music::build(scene, &params, &mut rng, room_seed);
         instruments.push(theme_instrument);
         tracks.push(theme_track);
-        // Low pad / drone second theme voice (#459) — always present so the
+        // Low pad / drone second theme voice (#459) - always present so the
         // longer loop reads layered, with seeded voicing. Index 4.
         let (bass_instrument, bass_track) =
             theme_music::build_bass(scene, &params, &mut rng, room_seed);
@@ -180,7 +180,7 @@ mod tests {
     /// `bake` (#1305), which bounds what a hostile record can cost the
     /// worker. That is only safe if it is a no-op on our own content, and
     /// "our own content" is a third producer neither the envelope's author
-    /// nor the sanitiser's had in front of them — which is exactly how
+    /// nor the sanitiser's had in front of them - which is exactly how
     /// #1304 shipped an envelope narrower than the shipped catalogue and
     /// failed sixteen round-trip tests. So run the content through it.
     ///
@@ -201,7 +201,7 @@ mod tests {
                 assert_eq!(
                     clamped, recipe,
                     "the bake envelope rewrites the seed-{seed} ambient bed \
-                     at escalation {escalation} — widen the envelope \
+                     at escalation {escalation} - widen the envelope \
                      upstream, never clamp shipped content"
                 );
             }
@@ -241,7 +241,7 @@ mod tests {
         assert_eq!(war_recipe.instruments.len(), 6, "conflict adds the siren");
         assert_eq!(war_recipe.instruments[5].id, TENSION_INSTRUMENT_ID);
         assert_eq!(war_recipe.tracks.len(), 6);
-        // The theme melody is still index 3 and the bass index 4 — the siren
+        // The theme melody is still index 3 and the bass index 4 - the siren
         // appends after them.
         assert!(war_recipe.instruments[3].id.starts_with("theme_"));
         assert_eq!(war_recipe.instruments[4].id, "theme_bass");
@@ -263,7 +263,7 @@ mod tests {
             assert_eq!(recipe.duration_beats, WARMUP_BEATS + LOOP_BEATS);
             assert_eq!(recipe.loop_start_beats, Some(WARMUP_BEATS));
             // The sustained voices must cover the whole timeline and
-            // leave a release tail for the crossfade — a zero tail is
+            // leave a release tail for the crossfade - a zero tail is
             // exactly the fade-in-at-loop-start bug.
             for track in &recipe.tracks[0..2] {
                 let e = &track.events[0];
@@ -359,7 +359,7 @@ mod tests {
 
     #[test]
     fn punctuation_onsets_span_the_full_loop() {
-        // #663: the onset window derives from LOOP_BEATS — a hardcoded
+        // #663: the onset window derives from LOOP_BEATS - a hardcoded
         // 12-beat window used to cluster punctuation in the loop's first
         // ~40% and leave the tail silent. Across seeds, some onsets must
         // land past the old ceiling, and none past the loop region.
@@ -389,8 +389,8 @@ mod tests {
     fn punctuation_differs_in_kind_per_biome() {
         use BiomeArchetype::*;
         // The punctuation patch must be structurally different across
-        // biomes — tonal moods carry a Sine source, noise moods a
-        // WhiteNoise → Bandpass chain — and every event must fit the
+        // biomes - tonal moods carry a Sine source, noise moods a
+        // WhiteNoise → Bandpass chain - and every event must fit the
         // loop-plus-crossfade window.
         let has_sine = |patch: &AudioPatch| {
             patch

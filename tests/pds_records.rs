@@ -1,7 +1,7 @@
 //! Integration tests for the `RoomRecord` wire format and default recipe.
 //!
 //! These tests guard the DAG-CBOR and JSON invariants that the ATProto PDS
-//! relies on — every `f32` is encoded as fixed-point `i32`, every `u64` as
+//! relies on - every `f32` is encoded as fixed-point `i32`, every `u64` as
 //! a string, and the default recipe deserialises back into itself.
 
 use symbios_overlands::pds::{
@@ -55,7 +55,7 @@ fn default_record_serialises_without_floats() {
         && let GeneratorKind::Water { surface } = &mut g.kind
     {
         // Introduce a non-trivial Fp value on the surface to keep the
-        // regression covering Water's serialised float-shape — the
+        // regression covering Water's serialised float-shape - the
         // standalone `level_offset` field was retired (the placement
         // transform's Y now anchors vertical position), so we pin a
         // distinctive value on a remaining Fp field instead.
@@ -88,7 +88,7 @@ fn default_record_serialises_without_floats() {
 // ---------------------------------------------------------------------------
 
 /// A newly synthesised homeworld must round-trip through JSON with the
-/// same structural shape — otherwise the "Load from PDS" button would
+/// same structural shape - otherwise the "Load from PDS" button would
 /// silently mutate the record on every fetch. Compared as `Value` because
 /// the record carries `HashMap` fields whose iteration order is SipHash-
 /// randomised per map.
@@ -108,8 +108,8 @@ fn default_record_round_trips_through_json() {
 /// The #745 default-landing pose: `None` is elided from the wire (so
 /// pre-#745 records and readers are byte-identical), a configured pose
 /// round-trips through the fixed-point encoding in both the drop-pin
-/// (`y: None`) and explicit-height forms, and — because it rides the same
-/// no-floats contract as every other field — the serialized form must not
+/// (`y: None`) and explicit-height forms, and - because it rides the same
+/// no-floats contract as every other field - the serialized form must not
 /// introduce a JSON float.
 #[test]
 fn default_landing_elides_none_and_round_trips() {
@@ -153,9 +153,9 @@ fn default_landing_elides_none_and_round_trips() {
     assert!(back.default_landing.is_none());
 }
 
-/// Every seeded room carries a social gateway (#747) — a placed
+/// Every seeded room carries a social gateway (#747) - a placed
 /// `social_gateway` generator whose tree contains exactly one Gateway
-/// zone — and a drop-pin default landing on the gate's forecourt (#774):
+/// zone - and a drop-pin default landing on the gate's forecourt (#774):
 /// clear of the spawn scatter, in front of the gate (closer to origin),
 /// on the same bearing.
 #[test]
@@ -200,7 +200,7 @@ fn default_record_carries_social_gateway_and_landing() {
         landing_dist > 5.0,
         "landing inside spawn scatter: {landing_dist}m"
     );
-    // In front of the gate (closer to the origin) — visitors step out and
+    // In front of the gate (closer to the origin) - visitors step out and
     // walk toward the gate and the settlement beyond it.
     assert!(
         gate_dist > landing_dist,
@@ -217,7 +217,7 @@ fn default_record_carries_social_gateway_and_landing() {
     // Settlement themes anchor the gate to the landmark's approach: the
     // gate is a gatehouse on the origin→landmark ray, closer to origin
     // than the landmark (#774). (Road-growing themes have no `landmark`
-    // placement and use the central fallback — this arm is then skipped.)
+    // placement and use the central fallback - this arm is then skipped.)
     if let Some(landmark_xz) = r.placements.iter().find_map(|p| match p {
         Placement::Absolute {
             generator_ref,
@@ -242,7 +242,7 @@ fn default_record_carries_social_gateway_and_landing() {
     }
 }
 
-/// Two different DIDs produce different default recipes — the DID-keyed
+/// Two different DIDs produce different default recipes - the DID-keyed
 /// FNV hash drives the terrain seed and avatar palette, so every player's
 /// fresh homeworld is recognisably their own.
 #[test]
@@ -352,7 +352,7 @@ fn shape_generator_round_trips() {
     );
 
     let json = serde_json::to_string(&record).expect("serialise");
-    // Wire form must encode the seed as a string — see `u64_as_string`.
+    // Wire form must encode the seed as a string - see `u64_as_string`.
     assert!(
         json.contains("\"seed\":\"18446744073709551557\""),
         "shape seed must round-trip as a JSON string, got: {json}"
@@ -398,7 +398,7 @@ fn shape_generator_round_trips() {
 }
 
 /// A default recipe carries at least a terrain generator. Regression
-/// guard against an accidental empty default slipping through — without
+/// guard against an accidental empty default slipping through - without
 /// terrain the loading gate in `main`/`lib.rs` would stall forever
 /// because no heightmap task would ever be spawned.
 #[test]
@@ -420,7 +420,7 @@ fn default_record_stays_well_under_pds_body_cap() {
     const ONE_MIB: usize = 1024 * 1024;
     assert!(
         json.len() < ONE_MIB,
-        "default record serialised to {} bytes — uncomfortably close to the PDS cap",
+        "default record serialised to {} bytes - uncomfortably close to the PDS cap",
         json.len()
     );
 }
@@ -451,7 +451,7 @@ fn legacy_environment_with_only_sun_color_decodes() {
 }
 
 /// A record published before `WaterSurface::flow_strength` and
-/// `WaterSurface::flow_amount` existed must still decode — `WaterSurface`
+/// `WaterSurface::flow_amount` existed must still decode - `WaterSurface`
 /// carries `#[serde(default)]` at the struct level, so missing fields fall
 /// through to [`WaterSurface::default`] (both flow fields = 0.0). Without
 /// this, the upgrade would brick every existing room with a Water generator.
@@ -465,7 +465,7 @@ fn legacy_water_record_without_flow_fields_decodes() {
         .and_then(serde_json::Value::as_object_mut)
     {
         for (_, node) in generators.iter_mut() {
-            // Water lives under terrain children — recurse into the tree.
+            // Water lives under terrain children - recurse into the tree.
             strip_flow_from_water_in_tree(node, &mut found_water);
         }
     }
@@ -476,7 +476,7 @@ fn legacy_water_record_without_flow_fields_decodes() {
     let back: RoomRecord = serde_json::from_value(value)
         .expect("legacy record without flow_strength / flow_amount must decode");
     // Sanity: at least one water generator round-tripped with both flow
-    // defaults — physics push and visual blend both zero on legacy records.
+    // defaults - physics push and visual blend both zero on legacy records.
     let mut saw_default = false;
     fn walk(node: &symbios_overlands::pds::Generator, saw: &mut bool) {
         if let GeneratorKind::Water { surface, .. } = &node.kind
@@ -539,7 +539,7 @@ fn strip_flow_from_water_in_tree(value: &mut serde_json::Value, found: &mut bool
 /// Earlier versions scanned the raw byte stream for `<digit>.<digit>`,
 /// but that false-positives on numeric-looking content embedded in
 /// strings (e.g. the literal `0.035` in an L-system grammar's
-/// `#define th 0.035` line — see commit c60e870 'Improve did-seeding'
+/// `#define th 0.035` line - see commit c60e870 'Improve did-seeding'
 /// for the default record that introduced this). DAG-CBOR only rejects
 /// real JSON numbers; bytes inside strings are out of scope. Walking
 /// the deserialised `serde_json::Value` tree and inspecting only
@@ -557,7 +557,7 @@ fn assert_no_float_numbers(value: &serde_json::Value, path: &mut Vec<String>) {
     match value {
         serde_json::Value::Number(n) => {
             // `serde_json::Number::is_f64` is `true` for any number that
-            // doesn't fit `i64` / `u64` — exactly the DAG-CBOR hazard.
+            // doesn't fit `i64` / `u64` - exactly the DAG-CBOR hazard.
             if !(n.is_i64() || n.is_u64()) {
                 panic!(
                     "expected fixed-point integers, got float `{}` at `/{}`",

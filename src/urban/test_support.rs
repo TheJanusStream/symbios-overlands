@@ -1,7 +1,7 @@
 //! Shared fixtures for the urban road tests, compiled only under `cfg(test)`.
-//! The heightmaps are real generated terrain rather than flat planes — tensor
+//! The heightmaps are real generated terrain rather than flat planes - tensor
 //! needs crossing slopes before its major/minor directions enclose any blocks at
-//! all — and the pilot seed is frozen from the era when seeded urban rooms
+//! all - and the pilot seed is frozen from the era when seeded urban rooms
 //! derived one, so the geometry the fixtures assert against stays byte-identical.
 //! `extrude_chain` keeps the pre-#584 single-chain levelling path alive so cap /
 //! mouth / truncation tests can read one chain's geometry without the network
@@ -19,7 +19,7 @@ use crate::urban::{
 };
 
 /// Drape and extrude ONE chain with its natural (un-pinned) single-chain
-/// levelling — the pre-#584 path, so cap / mouth / truncation tests read the
+/// levelling - the pre-#584 path, so cap / mouth / truncation tests read the
 /// same per-chain geometry independent of the network levelling pass. Mirrors
 /// the old `extrude_chain` signature so those tests need no changes.
 #[allow(clippy::too_many_arguments)]
@@ -50,7 +50,7 @@ pub(crate) fn extrude_chain(
     }
 }
 
-/// A small heightmap with real slopes — tensor needs non-flat terrain for
+/// A small heightmap with real slopes - tensor needs non-flat terrain for
 /// the major/minor directions to cross and enclose blocks.
 pub(crate) fn sloped_heightmap() -> HeightMap {
     let mut hm = HeightMap::new(64, 64, 4.0);
@@ -83,7 +83,7 @@ pub(crate) fn surfaces(p: &RoadParts) -> [&RoadGeometry; 3] {
 }
 
 /// The pilot room's heightmap at real ~1 km scale (256², cyberpunk terrain
-/// seed) — big enough that the road network encloses real city blocks.
+/// seed) - big enough that the road network encloses real city blocks.
 pub(crate) fn pilot_heightmap() -> HeightMap {
     let mut hm = HeightMap::new(256, 256, 2.0);
     FbmNoise {
@@ -101,7 +101,7 @@ pub(crate) fn pilot_heightmap() -> HeightMap {
     hm
 }
 
-/// The pilot room's road seed — frozen from the era when seeded urban rooms
+/// The pilot room's road seed - frozen from the era when seeded urban rooms
 /// derived one (terrain seed ^ the then road-seed salt), so the fixture
 /// geometry these tests assert against stays byte-identical.
 pub(crate) const PILOT_ROAD_SEED: u64 = 4167901772298833237_u64 ^ 0xA0D5_EED5_A170_0001;

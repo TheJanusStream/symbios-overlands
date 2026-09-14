@@ -3,8 +3,8 @@
 //! While the app sits in [`AppState::Login`], this plugin seeds a demo
 //! [`LiveRoomRecord`] from a per-visit random DID string and lets the
 //! *real* terrain + world-builder pipeline compile it, so the login
-//! screen orbits a genuine seeded overland — terrain, splat textures,
-//! water, settlements, roads — instead of a flat backdrop. The login
+//! screen orbits a genuine seeded overland - terrain, splat textures,
+//! water, settlements, roads - instead of a flat backdrop. The login
 //! UI keeps painting its sky-gradient fallback until the terrain mesh
 //! lands (and forever, when the [`LocalSettings::login_world_backdrop`]
 //! toggle is off).
@@ -12,7 +12,7 @@
 //! ## How it plugs into the pipeline
 //!
 //! The terrain and world-builder system groups are gated on
-//! [`world_pipeline_active`] — historically `not(in_state(Login))` —
+//! [`world_pipeline_active`] - historically `not(in_state(Login))` -
 //! which the [`AttractScene`] marker resource widens into `Login`. The
 //! compile arm additionally ORs on [`AttractScene`] (there is no
 //! loading screen to protect in `Login`, so `WorldCompileArmed`'s
@@ -22,14 +22,14 @@
 //!
 //! ## Teardown
 //!
-//! `OnExit(Login)` — whether into `Loading` after a successful auth or
-//! never (process exit) — [`end_attract_scene`] runs the shared
+//! `OnExit(Login)` - whether into `Loading` after a successful auth or
+//! never (process exit) - [`end_attract_scene`] runs the shared
 //! [`tear_down_demo_world`] sweep and hands the camera back at gameplay
 //! framing. [`crate::terrain`] registers its own `cleanup_terrain` on
 //! the same transition (gated on [`AttractScene`]), so heightmap, splat
 //! and road state reset exactly like the #849 abort path. The session
 //! resources the login flow inserted (`RelayHost`, the OAuth session)
-//! are deliberately untouched — this is *not* a logout.
+//! are deliberately untouched - this is *not* a logout.
 //!
 //! ## Re-rolling
 //!
@@ -46,7 +46,7 @@
 //! [`drive_attract_camera`] steers the existing `PanOrbitCamera`
 //! through its `target_*` fields, so the crate's own smoothing does
 //! the easing. Input stays enabled: a user who right-drags merely
-//! deflects the orbit for a moment — pitch and radius spring back and
+//! deflects the orbit for a moment - pitch and radius spring back and
 //! the yaw keeps drifting.
 
 use bevy::prelude::*;
@@ -75,8 +75,8 @@ pub struct AttractReroll;
 /// to know (#1297 step 1). [`start_attract_scene`] used to query the
 /// login flow's three task markers and its auto-submit latch itself,
 /// which pointed the dependency arrow from this plugin into the egui
-/// layer; every one of those reads asked the same question — "is this
-/// Login state about to redirect?" — so that answer is what crosses now,
+/// layer; every one of those reads asked the same question - "is this
+/// Login state about to redirect?" - so that answer is what crosses now,
 /// the [`crate::player::RigHold`] shape of #1158.
 ///
 /// Mirrored once per frame in `PreUpdate` by
@@ -84,7 +84,7 @@ pub struct AttractReroll;
 /// The tasks are spawned and drained inside `ui::login`, so they stay
 /// UI state; a task spawned through `Commands` becomes visible to the
 /// mirror in the frame after its queue flushes, which is the same frame
-/// the entity query it replaced first saw it — and the same flush that
+/// the entity query it replaced first saw it - and the same flush that
 /// retires the wasm boot handoff marker (#978), so no frame sees the
 /// marker gone with the flight not yet reported. Absent latch: every
 /// field `false`.
@@ -94,7 +94,7 @@ pub struct LoginActivity {
     /// initiation, the code → token exchange, or (wasm) the
     /// persisted-session resume.
     pub auth_in_flight: bool,
-    /// The boot params' auto-submit has already fired this Login entry —
+    /// The boot params' auto-submit has already fired this Login entry -
     /// what `boot_params::entry_plan` needs to tell an armed plan from a
     /// spent one.
     pub autosubmitted: bool,
@@ -142,7 +142,7 @@ pub fn start_attract_scene(
     // fired (and possibly failed back to the form) is the screen genuinely
     // idle. Asked through `entry_plan` (#1227): a link's destination no
     // longer submits itself, so `autosubmit && !autosubmitted` is now a
-    // state the form sits in indefinitely — reading it as "about to fire"
+    // state the form sits in indefinitely - reading it as "about to fire"
     // would suppress the backdrop for the whole login.
     if let Some(boot) = boot.as_deref()
         && matches!(
@@ -162,7 +162,7 @@ pub fn start_attract_scene(
     // queued their task spawn but no other system can see it yet;
     // afterwards `activity.auth_in_flight` above takes over. Without it
     // the OAuth return seeded a whole demo world that the `Login → Loading`
-    // handover discarded a second later — visible as a flash, and
+    // handover discarded a second later - visible as a flash, and
     // expensive: on wasm a dropped `Task` does *not* cancel its future,
     // so the discarded world's heightmap and splat bakes ran on to
     // completion, holding the four-worker gen pool against the real
@@ -190,7 +190,7 @@ fn seed_demo_world(commands: &mut Commands) {
 }
 
 /// Slow cinematic orbit around the demo world's centre. Writes only the
-/// `PanOrbitCamera` `target_*` fields — the crate's smoothing turns the
+/// `PanOrbitCamera` `target_*` fields - the crate's smoothing turns the
 /// per-frame nudges into an even glide, and any user input deflection
 /// eases back on its own.
 pub fn drive_attract_camera(
@@ -212,21 +212,21 @@ pub fn drive_attract_camera(
 }
 
 /// Despawn the demo world and drop every resource that describes it, so
-/// the next build — the real room after `Loading`, or the replacement
-/// demo after a re-roll — starts from nothing. Shared by
+/// the next build - the real room after `Loading`, or the replacement
+/// demo after a re-roll - starts from nothing. Shared by
 /// [`end_attract_scene`] and [`reroll_attract_scene`]; the caller pairs
 /// it with `terrain::cleanup_terrain` for the heightmap/splat/road half.
 ///
 /// Deliberately leaves [`AttractScene`] alone: the exit path removes it,
-/// while a re-roll holds it across the swap so the pipeline gates — and
-/// the login screen's own "New world" button — never blink out for the
+/// while a re-roll holds it across the swap so the pipeline gates - and
+/// the login screen's own "New world" button - never blink out for the
 /// frame between one demo world and the next.
 fn tear_down_demo_world(
     commands: &mut Commands,
     room_entities: &Query<Entity, With<crate::world_builder::RoomEntity>>,
 ) {
     // `try_despawn`, not `despawn` (#923): every node of a spawned tree
-    // carries `RoomEntity`, and `despawn` is recursive — so a root's
+    // carries `RoomEntity`, and `despawn` is recursive - so a root's
     // despawn already takes its children, and the children's own queued
     // commands then hit dead entities. With the demo world now thousands
     // of entities (vegetation tiers), plain `despawn` turned this sweep
@@ -244,7 +244,7 @@ fn tear_down_demo_world(
     // next pass's one-frame compile delay.
     commands.remove_resource::<crate::world_builder::WorldCompiled>();
     commands.remove_resource::<crate::world_builder::WorldCompileArmed>();
-    // Removing `WorldCompiled` alone is not enough — the diff planner
+    // Removing `WorldCompiled` alone is not enough - the diff planner
     // skips any unit whose index *and* fingerprint still match what
     // `CompiledWorld` remembers, and every anchor it remembers has just
     // been despawned above. Two unrelated seeds rarely collide, but a
@@ -284,8 +284,8 @@ pub fn end_attract_scene(
 }
 
 /// Swap the current demo overland for a freshly seeded one (#978). Same
-/// sweep as the exit path, minus the camera handback — the orbit keeps
-/// running while the world under it changes — and followed immediately
+/// sweep as the exit path, minus the camera handback - the orbit keeps
+/// running while the world under it changes - and followed immediately
 /// by [`seed_demo_world`], so [`AttractScene`] and the pipeline gates it
 /// opens stay continuously armed across the swap.
 ///

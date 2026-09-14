@@ -5,10 +5,10 @@
 //! This was a three-thousand-line file holding three jobs until #1159. The
 //! other two now live beside the code they belong with:
 //!
-//! * [`wire`] — the XRPC fetch / publish / delete / reset wrappers and the
+//! * [`wire`] - the XRPC fetch / publish / delete / reset wrappers and the
 //!   #697 split-wire plan that decides what a publish writes. Re-exported
 //!   here, so every existing `pds::room::…` path is unchanged.
-//! * [`crate::seeded_defaults::room::build`] — the DID-seeded assembler
+//! * [`crate::seeded_defaults::room::build`] - the DID-seeded assembler
 //!   behind [`RoomRecord::default_for_seed`], which is a determinism
 //!   contract between peers rather than part of this record's shape.
 
@@ -21,7 +21,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Non-spatial environment state — directional sun, ambient light, sky
+/// Non-spatial environment state - directional sun, ambient light, sky
 /// cuboid tint, and atmospheric distance fog. Every field is wrapped in a
 /// fixed-point type so the record stays DAG-CBOR compliant.
 ///
@@ -53,7 +53,7 @@ pub struct Environment {
     pub fog_sun_exponent: Fp,
 
     /// Tiling frequency for the close-distance scrolling detail normal map
-    /// (world-unit reciprocal — higher = tighter tiling). Pairs with
+    /// (world-unit reciprocal - higher = tighter tiling). Pairs with
     /// [`Self::water_normal_scale_far`] to kill the repeating-grid look on
     /// long camera sightlines.
     pub water_normal_scale_near: Fp,
@@ -83,7 +83,7 @@ pub struct Environment {
     pub cloud_scale: Fp,
     /// Altitude (m) of the cloud-deck plane.
     pub cloud_height: Fp,
-    /// 2D wind direction in world XZ. Need not be unit length — the shader
+    /// 2D wind direction in world XZ. Need not be unit length - the shader
     /// normalises a small epsilon-padded copy.
     pub cloud_wind_dir: Fp2,
     /// sRGB tint for the sunlit top of the cloud layer.
@@ -92,7 +92,7 @@ pub struct Environment {
     /// [`Self::cloud_color`] by the dot of the sun direction with world Y.
     pub cloud_shadow_color: Fp3,
 
-    /// Ambient audio for the room — a procedurally-baked
+    /// Ambient audio for the room - a procedurally-baked
     /// [`AudioPatch`] / [`SequenceRecipe`] or a URL/DID-referenced
     /// clip. `None` (the default) plays no ambient track. Forward-
     /// compat across older records: `#[serde(default)]` on the parent
@@ -206,7 +206,7 @@ impl Environment {
         // Sun-position guard: each component must be finite and the
         // vector cannot collapse to the origin (it's used as a
         // direction by `looking_at`). On any failure, fall back to the
-        // canonical constant — that always gives a valid direction.
+        // canonical constant - that always gives a valid direction.
         let sp = self.sun_position.0;
         let bad = !sp[0].is_finite()
             || !sp[1].is_finite()
@@ -228,7 +228,7 @@ impl Environment {
         self.fog_sun_exponent = Fp(self.fog_sun_exponent.0.clamp(0.0, 200.0));
 
         // Water-environment fields. Keep every channel in a finite,
-        // physically-sane range — a NaN or negative normal-tiling scale
+        // physically-sane range - a NaN or negative normal-tiling scale
         // would poison the water shader's UV math every frame.
         let clamp_finite_pos = |v: f32, lo: f32, hi: f32, default: f32| -> f32 {
             if v.is_finite() {
@@ -258,7 +258,7 @@ impl Environment {
             0.0,
         ));
 
-        // Cloud-deck fields. Same NaN / range guarding as water — the cloud
+        // Cloud-deck fields. Same NaN / range guarding as water - the cloud
         // shader divides by `cloud_scale` and reads `cloud_height` straight
         // into a `Transform.translation.y`, so a poisoned record must not
         // be allowed to feed Inf or negative values into either.
@@ -279,7 +279,7 @@ impl Environment {
         } else {
             0.3
         };
-        // Reject the zero vector — the shader normalises wind_dir and a
+        // Reject the zero vector - the shader normalises wind_dir and a
         // bit-for-bit zero would NaN-out the noise sampling. A vanishingly
         // small magnitude falls back to the canonical default.
         let mag2 = wd0 * wd0 + wd1 * wd1;
@@ -291,7 +291,7 @@ impl Environment {
         self.cloud_color = clamp3(self.cloud_color);
         self.cloud_shadow_color = clamp3(self.cloud_shadow_color);
 
-        // Forward to the asset-class sanitiser — caps the embedded
+        // Forward to the asset-class sanitiser - caps the embedded
         // patch / sequence JSON length and Referenced URL / DID / CID
         // strings so a hostile peer can't smuggle a megabyte through
         // the audio slot.
@@ -301,8 +301,8 @@ impl Environment {
 
 /// Owner-configurable visitor arrival pose (#745). Applied to anyone who
 /// enters the room *without* an explicit target pose: a plain login/home
-/// spawn, gateway travel, and the fall-through respawn. An explicit pose —
-/// a landmark link's `pos=`/`rot=` or a portal's baked `target_pos` —
+/// spawn, gateway travel, and the fall-through respawn. An explicit pose -
+/// a landmark link's `pos=`/`rot=` or a portal's baked `target_pos` -
 /// always wins over this default.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
 pub struct DefaultLanding {
@@ -310,12 +310,12 @@ pub struct DefaultLanding {
     /// placement translation.
     pub pos: Fp2,
     /// Explicit landing height. `None` (the wire default) resolves the
-    /// height from the terrain heightmap at `(x, z)` — the drop-pin form
-    /// landmark links use — so the common case survives terrain edits
+    /// height from the terrain heightmap at `(x, z)` - the drop-pin form
+    /// landmark links use - so the common case survives terrain edits
     /// without the owner re-aiming the pose.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub y: Option<Fp>,
-    /// Facing, in degrees (0 faces −Z, 90 faces +X — the landmark-link
+    /// Facing, in degrees (0 faces −Z, 90 faces +X - the landmark-link
     /// `rot=` convention). Seeded rooms aim this at the gateway landmark.
     #[serde(default)]
     pub yaw_deg: Fp,
@@ -346,8 +346,8 @@ pub struct RoomRecord {
     pub contact_effects: ContactEffects,
     /// Where visitors without an explicit target pose come to rest (#745).
     /// Same field-vs-container split as `contact_effects`: `None` (elided
-    /// on the wire) keeps the legacy behaviour — a random scatter around
-    /// the world origin — so pre-#745 records round-trip unchanged.
+    /// on the wire) keeps the legacy behaviour - a random scatter around
+    /// the world origin - so pre-#745 records round-trip unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_landing: Option<DefaultLanding>,
     /// Manifest refs (name → child rkey) whose child record was **listed on
@@ -355,7 +355,7 @@ pub struct RoomRecord {
     ///
     /// These are somebody else's content, not ours: a newer client wrote a
     /// child generator in a shape this build's `Generator` cannot parse. We
-    /// cannot render it, so it is absent from `generators` — but it exists,
+    /// cannot render it, so it is absent from `generators` - but it exists,
     /// the owner authored it, and the next publish from this client would
     /// otherwise rewrite the manifest without its ref and then GC the child
     /// as an orphan. Carrying the ref through fetch → edit → publish keeps
@@ -363,7 +363,7 @@ pub struct RoomRecord {
     /// brings the generator back rather than finding it gone.
     ///
     /// A ref whose child is missing from the listing *entirely* does NOT
-    /// land here — that is a torn write pointing at nothing, and preserving
+    /// land here - that is a torn write pointing at nothing, and preserving
     /// it would resurrect a dangling ref forever. Only present-but-opaque.
     ///
     /// `BTreeMap` because it feeds `generator_refs`, whose ordering the
@@ -375,7 +375,7 @@ pub struct RoomRecord {
 impl RoomRecord {
     /// Zero-configuration homeworld. When a client visits a DID whose owner
     /// has never saved a custom record, this builds the canonical default
-    /// recipe on the fly — a base terrain plus a base water plane — so the
+    /// recipe on the fly - a base terrain plus a base water plane - so the
     /// world builder always has something valid to compile.
     ///
     /// The recipe itself lives with the other DID-seeded derivers, in
@@ -386,7 +386,7 @@ impl RoomRecord {
         crate::seeded_defaults::room::build::build_room_for_did(did)
     }
 
-    /// Build the seeded default room from a pre-computed seed — the
+    /// Build the seeded default room from a pre-computed seed - the
     /// manual re-roll path. `default_for_did` is exactly
     /// `default_for_seed(fnv1a_64(did), did)`. See
     /// [`crate::seeded_defaults::room::build::build_room`].
@@ -400,7 +400,7 @@ impl RoomRecord {
     /// compiler, so an attacker cannot weaponise an unbounded field to crash
     /// or OOM the victim.
     pub fn sanitize(&mut self) {
-        // Clamp atmospheric fields first — cheap and independent of everything
+        // Clamp atmospheric fields first - cheap and independent of everything
         // else, and guarantees the world compiler never hands NaN or a zero
         // visibility to `FogFalloff::from_visibility_colors`.
         self.environment.sanitize();
@@ -409,7 +409,7 @@ impl RoomRecord {
         self.contact_effects.sanitize();
         // Default-landing pose (#745): same positional bounds as a portal
         // `target_pos`. The finite guard matters even though the fixed-point
-        // wire form can only decode to finite values — in-process mutation
+        // wire form can only decode to finite values - in-process mutation
         // (a future editor widget) feeds this too, and `f32::clamp`
         // propagates NaN.
         if let Some(landing) = &mut self.default_landing {
@@ -429,7 +429,7 @@ impl RoomRecord {
         // cut to the shared length cap and stripped of invisible
         // characters (#1205), with placements and traits following each
         // rename so the world compiler can still resolve them. Unknown
-        // placements stay untouched — their generator_ref is invisible
+        // placements stay untouched - their generator_ref is invisible
         // to this build.
         let renames = crate::pds::sanitize::names::sanitize_keys(
             &mut self.generators,
@@ -454,7 +454,7 @@ impl RoomRecord {
         }
         // Bound the total number of generators before touching any of them.
         // Drop entries in lexicographic key order so the survivor set is
-        // deterministic across peers — otherwise a record with 1000
+        // deterministic across peers - otherwise a record with 1000
         // generators and `MAX_GENERATORS = 256` would resolve to a
         // different 256 on every client (HashMap iteration is SipHash
         // randomised) and fracture the shared world.
@@ -471,7 +471,7 @@ impl RoomRecord {
         // invalid: a Scatter of a Terrain root would spawn duplicate
         // heightfield colliders (Avian forbids that), and Water can never
         // legally be a root. We capture the snapshot first because the
-        // generator pass overwrites root Water with a default cuboid — if
+        // generator pass overwrites root Water with a default cuboid - if
         // we filtered after, a Scatter pointing at the now-cuboid would
         // silently spawn N copies of an unrelated shape instead of being
         // dropped outright.
@@ -491,7 +491,7 @@ impl RoomRecord {
         }
         // Drop offending Scatter/Grid placements before applying the
         // count cap, so 1024 ineligible entries can't push valid ones
-        // past `MAX_PLACEMENTS`. Absolute is left alone — pointing it
+        // past `MAX_PLACEMENTS`. Absolute is left alone - pointing it
         // at a Terrain root is the canonical home-world placement, and
         // a hostile Water-rooted Absolute is already neutralised by
         // the generator-level overwrite above.
@@ -550,7 +550,7 @@ impl Default for RoomRecord {
 /// `HashMap::values()` iteration order is randomised per execution (SipHash),
 /// so a record with more than one `Generator::Terrain` entry would otherwise
 /// have every client picking a different one and landing on a different
-/// heightmap — instantly fracturing the shared world. Every site that needs
+/// heightmap - instantly fracturing the shared world. Every site that needs
 /// "the terrain" for a record must go through this function (or its sibling)
 /// so the choice is deterministic across peers.
 pub fn find_terrain_config(record: &RoomRecord) -> Option<&SovereignTerrainConfig> {
@@ -586,8 +586,8 @@ pub const MAX_ROAD_NETWORKS: usize = 4;
 /// Total entities one generator tree spawns: itself plus every descendant.
 ///
 /// The vegetation budget needs a per-instance cost for the ground-cover props
-/// (#911). Unlike an L-system — whose expansion has to be *estimated* by
-/// deriving the grammar — these are plain primitive trees, so the node count
+/// (#911). Unlike an L-system - whose expansion has to be *estimated* by
+/// deriving the grammar - these are plain primitive trees, so the node count
 /// is the exact spawn cost.
 pub(crate) fn generator_entity_count(generator: &Generator) -> u64 {
     1 + generator

@@ -1,4 +1,4 @@
-//! Sierpinski gasket — recursive triangle fractal (ABOP Fig 1.10b).
+//! Sierpinski gasket - recursive triangle fractal (ABOP Fig 1.10b).
 //! Uses decomposition rules to collapse left/right marker symbols to
 //! a single F-segment at the final iteration; the production rules
 //! and decomposition rules are split between `source_code` and
@@ -21,7 +21,7 @@ impl CatalogueEntry for SierpinskiGasket {
         "Sierpinski Gasket"
     }
     fn description(&self) -> &'static str {
-        "Recursive triangle fractal — ABOP Fig 1.10(b)."
+        "Recursive triangle fractal - ABOP Fig 1.10(b)."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Pattern

@@ -1,4 +1,4 @@
-//! Metric name registry (Spine E-2) — the single vocabulary the samplers, the
+//! Metric name registry (Spine E-2) - the single vocabulary the samplers, the
 //! GUI, the session log and the offline analyzer all reference, so a metric
 //! written under one name is read under the same name everywhere (no drift).
 //!
@@ -24,7 +24,7 @@ pub const RUNTIME_FRAME_TIME_MS: &str = "runtime.frame_time.ms";
 ///
 /// The smoothed gauge above cannot see a hitch. Bevy 0.19's "smoothed" frame
 /// time is an EMA with a ~16.5 ms time constant, so it tracks roughly the last
-/// frame — and sampling it once a second catches a 500 ms stall only if the
+/// frame - and sampling it once a second catches a 500 ms stall only if the
 /// scrape happens to land in the very frame after it. A per-frame running max,
 /// published and reset on each scrape, catches the stall wherever in the
 /// second it fell.
@@ -38,19 +38,19 @@ pub const RUNTIME_FRAME_HITCH_MS: &str = "runtime.frame_time.hitch_ms";
 pub const RUNTIME_FPS: &str = "runtime.fps";
 /// Live entity count (`EntityCountDiagnosticsPlugin`).
 pub const RUNTIME_ENTITY_COUNT: &str = "runtime.entity.count";
-/// `Assets<Mesh>` handle count — the asset-leak watch.
+/// `Assets<Mesh>` handle count - the asset-leak watch.
 pub const RUNTIME_MESH_HANDLE_COUNT: &str = "runtime.mesh_handle.count";
 /// `Assets<StandardMaterial>` handle count.
 pub const RUNTIME_MATERIAL_HANDLE_COUNT: &str = "runtime.material_handle.count";
-/// `Assets<Image>` handle count — the texture-asset registry. The dominant
+/// `Assets<Image>` handle count - the texture-asset registry. The dominant
 /// memory consumer across a region re-seed (512² splat/procedural textures), and
 /// the one the mesh/material counts miss: caches that survive a rebuild hold
 /// `Handle<Image>`, so this gauge reveals whether image assets actually shrink
 /// after a rebuild/logout (#625).
 pub const RUNTIME_IMAGE_HANDLE_COUNT: &str = "runtime.image_handle.count";
-/// Physics collider count — a double-count signals a duplicate terrain body.
+/// Physics collider count - a double-count signals a duplicate terrain body.
 pub const RUNTIME_COLLIDER_COUNT: &str = "runtime.collider.count";
-/// Upstream `ShapeMeshCache` length — the documented unbounded-growth leak.
+/// Upstream `ShapeMeshCache` length - the documented unbounded-growth leak.
 pub const RUNTIME_SHAPE_MESH_CACHE_LEN: &str = "runtime.shape_mesh_cache.len";
 /// Content-addressed primitive mesh cache length (#918).
 ///
@@ -61,26 +61,26 @@ pub const RUNTIME_SHAPE_MESH_CACHE_LEN: &str = "runtime.shape_mesh_cache.len";
 /// survives a full rebuild needs a gauge, or its growth is invisible until it
 /// shows up as RSS.
 pub const RUNTIME_PRIM_MESH_CACHE_LEN: &str = "runtime.prim_mesh_cache.len";
-/// Content-addressed primitive material cache length (#918) — see
+/// Content-addressed primitive material cache length (#918) - see
 /// [`RUNTIME_PRIM_MESH_CACHE_LEN`].
 pub const RUNTIME_PRIM_MATERIAL_CACHE_LEN: &str = "runtime.prim_material_cache.len";
 /// Procedural-texture cache length. Unlike the two prim caches this one is
 /// shared with upstream consumers and is *not* swept per rebuild, so its
-/// growth across a session is expected — the gauge is here to size it, and to
+/// growth across a session is expected - the gauge is here to size it, and to
 /// separate its contribution to the image-handle count from the prim caches'.
 pub const RUNTIME_TEXTURE_CACHE_LEN: &str = "runtime.texture_cache.len";
 /// Process resident memory (bytes), native only (`SystemInformationDiagnosticsPlugin`).
 pub const RUNTIME_MEMORY_PROCESS_RSS_BYTES: &str = "runtime.memory.process_rss_bytes";
-/// WebAssembly linear-memory size (bytes), wasm only — the heap-never-shrinks watch.
+/// WebAssembly linear-memory size (bytes), wasm only - the heap-never-shrinks watch.
 pub const RUNTIME_MEMORY_WASM_BYTES: &str = "runtime.memory.wasm_bytes";
 /// Process CPU usage percent, native only.
 pub const RUNTIME_CPU_USAGE_PCT: &str = "runtime.cpu.usage_pct";
 /// Times the player fell through terrain and was respawned.
 pub const RUNTIME_RESPAWN_COUNT: &str = "runtime.respawn.count";
-/// Terrain splat material's texture bind-slot footprint — the WebGL2 16-slot
+/// Terrain splat material's texture bind-slot footprint - the WebGL2 16-slot
 /// ceiling watch (one higher on native, which keeps the stains overlay).
 pub const RUNTIME_TEXTURE_BIND_SLOTS: &str = "runtime.texture_bind_slots";
-/// Synchronous main-thread wall time (ms) of one avatar visuals rebuild —
+/// Synchronous main-thread wall time (ms) of one avatar visuals rebuild -
 /// the re-roll / hot-swap / remote-update spawn path (#807). With texture
 /// bakes offloaded on wasm, what remains here is dominated by part meshing;
 /// a high histogram tail attributes the residual re-roll hitch.
@@ -88,7 +88,7 @@ pub const RUNTIME_AVATAR_REBUILD_MS: &str = "runtime.avatar_rebuild.ms";
 /// Kick-to-land wall time (ms) of one rigged avatar build (#1078): the
 /// offloaded engine build plus its queue wait, which is exactly how long a
 /// peer stands as a naked capsule. On wasm, until #1061 routes this through
-/// gen-worker, the build itself runs on the main thread — so a high tail
+/// gen-worker, the build itself runs on the main thread - so a high tail
 /// here is also the re-edit frame stall.
 pub const RUNTIME_RIGGED_BUILD_MS: &str = "runtime.rigged_build.ms";
 /// Rigged builds whose engine build returned no body (limbs overlapping at a
@@ -96,7 +96,7 @@ pub const RUNTIME_RIGGED_BUILD_MS: &str = "runtime.rigged_build.ms";
 pub const RUNTIME_RIGGED_BUILD_FAIL_COUNT: &str = "runtime.rigged_build.fail_count";
 /// Frames on which any rigged body had a contact its solver could not reach
 /// (#1078). Transients at speed extremes are normal; sustained growth during
-/// ordinary play means some body's goals have left its reach — the
+/// ordinary play means some body's goals have left its reach - the
 /// motion-health invariant the D pillar can watch.
 pub const RUNTIME_MOTION_STRAIN_FRAME_COUNT: &str = "runtime.motion_strain.frame_count";
 /// Worn props swept after being orphaned from every hierarchy (#1077): a
@@ -104,7 +104,7 @@ pub const RUNTIME_MOTION_STRAIN_FRAME_COUNT: &str = "runtime.motion_strain.frame
 /// in small numbers during outfit editing; growth OUTSIDE an editing session
 /// means a new path is orphaning props.
 pub const RUNTIME_ATTACHMENT_ORPHANS_SWEPT_COUNT: &str = "runtime.attachment_orphans.swept_count";
-/// Procedural-material texture-cache hits at material build time — a
+/// Procedural-material texture-cache hits at material build time - a
 /// fingerprint already baked, no bake dispatched. Together with
 /// [`RUNTIME_TEXTURE_CACHE_MISS_COUNT`], the health check for the
 /// fingerprint/eviction scheme (#811 hypothesis): misses climbing during
@@ -114,7 +114,7 @@ pub const RUNTIME_TEXTURE_CACHE_HIT_COUNT: &str = "runtime.texture_cache.hit_cou
 /// Procedural-material texture-cache misses that dispatched a bake (config
 /// selected a generator and no cached fingerprint matched).
 pub const RUNTIME_TEXTURE_CACHE_MISS_COUNT: &str = "runtime.texture_cache.miss_count";
-/// Completed FULL world compiles (region re-roll / record swap — jobs whose
+/// Completed FULL world compiles (region re-roll / record swap - jobs whose
 /// touch-sets covered every placement and so ran the cache GC). The anchor
 /// for the per-rebuild mark gauges below: asset growth is only meaningful
 /// *across* full rebuilds, since that is the boundary where everything
@@ -124,23 +124,23 @@ pub const RUNTIME_FULL_REBUILD_COUNT: &str = "runtime.full_rebuild.count";
 ///
 /// The #919 lesson, made a signal: a leak is distinguished from legitimate
 /// load not by any threshold on the value but by the count **never falling
-/// across consecutive full rebuilds** — the leaking session stepped
+/// across consecutive full rebuilds** - the leaking session stepped
 /// 41→757 with every per-rebuild delta positive, while the healthy one
 /// oscillated around a ~230 plateau. The 1 Hz gauge can't express that
 /// (its 2-minute ring holds an arbitrary slice of the rebuild history), so
 /// these marks form the rebuild-anchored series the growth rule reads.
 pub const RUNTIME_REBUILD_IMAGE_HANDLES: &str = "runtime.rebuild.image_handles";
-/// `Assets<Mesh>` handle count sampled once per completed full rebuild —
+/// `Assets<Mesh>` handle count sampled once per completed full rebuild -
 /// see [`RUNTIME_REBUILD_IMAGE_HANDLES`].
 pub const RUNTIME_REBUILD_MESH_HANDLES: &str = "runtime.rebuild.mesh_handles";
 /// Process memory sampled once per completed full rebuild (RSS on native,
-/// wasm linear-memory size on wasm) — see [`RUNTIME_REBUILD_IMAGE_HANDLES`].
+/// wasm linear-memory size on wasm) - see [`RUNTIME_REBUILD_IMAGE_HANDLES`].
 /// Paired with the handle marks it separates the two growth classes: memory
 /// climbing *with* handles is a handle leak; memory climbing while handles
 /// stay flat is allocator retention (#625's ~52 MB/re-roll), which reads as
 /// informational rather than as a bug.
 pub const RUNTIME_REBUILD_MEMORY_BYTES: &str = "runtime.rebuild.memory_bytes";
-/// Texture-cache entry count sampled once per completed full rebuild — see
+/// Texture-cache entry count sampled once per completed full rebuild - see
 /// [`RUNTIME_REBUILD_IMAGE_HANDLES`]. The image-growth rule subtracts the
 /// cache's expected contribution (entries × maps-per-entry) from the image
 /// deltas so the bounded cache *filling toward its cap* doesn't wear the
@@ -148,16 +148,16 @@ pub const RUNTIME_REBUILD_MEMORY_BYTES: &str = "runtime.rebuild.memory_bytes";
 /// times on nothing but warm-up (images 47→496 while the cache went
 /// 11→128), then re-fired the same stale window every debounce interval
 /// until the next rebuild refreshed it (#981). Absent for disk-backed
-/// stores, whose entries aren't resident — the rule then falls back to the
+/// stores, whose entries aren't resident - the rule then falls back to the
 /// unadjusted deltas.
 pub const RUNTIME_REBUILD_TEXTURE_CACHE_LEN: &str = "runtime.rebuild.texture_cache_len";
 /// Entities in the camera's post-culling visible set (all mesh classes,
-/// summed across views) — the #811 discriminator. On WebGL2 the per-frame
+/// summed across views) - the #811 discriminator. On WebGL2 the per-frame
 /// CPU staging (instance uniforms) scales with this number, so wasm heap
 /// steps tracking visible-count peaks confirms the GPU-stall staging-pileup
 /// diagnosis; steps WITHOUT a visible-count peak refute it.
 pub const RUNTIME_VISIBLE_ENTITY_COUNT: &str = "runtime.visible_entity.count";
-/// Live wasm-heap bytes in small allocations (< 64 KiB) — see
+/// Live wasm-heap bytes in small allocations (< 64 KiB) - see
 /// [`crate::alloc_track`] (#811). The four `runtime.alloc.*` gauges shape a
 /// heap runaway: growth in `giant_bytes` is one huge buffer; growth in
 /// `small_bytes` is a million-object leak.
@@ -168,7 +168,7 @@ pub const RUNTIME_ALLOC_MEDIUM_BYTES: &str = "runtime.alloc.medium_bytes";
 pub const RUNTIME_ALLOC_LARGE_BYTES: &str = "runtime.alloc.large_bytes";
 /// Live wasm-heap bytes in giant allocations (≥ 16 MiB). Each giant
 /// allocation additionally logs a `GiantAllocation` event with its exact
-/// size — the fingerprint that identifies the owning collection.
+/// size - the fingerprint that identifies the owning collection.
 pub const RUNTIME_ALLOC_GIANT_BYTES: &str = "runtime.alloc.giant_bytes";
 
 // ---- network / multiuser --------------------------------------------------
@@ -190,17 +190,17 @@ pub const NET_AVATAR_FETCH_SUCCESS_COUNT: &str = "net.avatar_fetch.success_count
 pub const NET_AVATAR_FETCH_FAIL_COUNT: &str = "net.avatar_fetch.fail_count";
 /// Worn props that could not be fetched while resolving a peer's rigged body
 /// (#1144). Distinct from the avatar-fetch failure above: that one counts the
-/// record, this one counts the N attachment records hanging off it — the
+/// record, this one counts the N attachment records hanging off it - the
 /// chain gifting (#1108) made cross-owner and therefore the one most likely
 /// to fail partially.
 pub const NET_ATTACHMENT_FETCH_FAIL_COUNT: &str = "net.attachment_fetch.fail_count";
 /// Room ASSET fetches that failed, by class (#1246 f353). Distinct from the
 /// two record-fetch counters above: those count a peer's PDS records, these
-/// count the images, sounds and terrain layers a room names — which live on
+/// count the images, sounds and terrain layers a room names - which live on
 /// third-party hosts, are fetched by every visitor at once, and until #1246
 /// produced no signal of any kind.
 pub const ASSET_IMAGE_FETCH_FAIL_COUNT: &str = "asset.image_fetch.fail_count";
-/// Audio asset fetches that failed — ambient beds, construct audio, contact
+/// Audio asset fetches that failed - ambient beds, construct audio, contact
 /// cues.
 pub const ASSET_AUDIO_FETCH_FAIL_COUNT: &str = "asset.audio_fetch.fail_count";
 /// `Referenced` terrain splat layers that failed to fetch. Counted apart
@@ -217,7 +217,7 @@ pub const NET_OFFER_ACCEPTED_COUNT: &str = "net.offer.accepted_count";
 pub const NET_OFFER_DECLINED_COUNT: &str = "net.offer.declined_count";
 /// Incoming offers auto-declined because a dialog was already open (busy-gate).
 pub const NET_OFFER_AUTO_DECLINED_BUSY_COUNT: &str = "net.offer.auto_declined_busy_count";
-/// Size of the most recent relay `peer_list` — how many peers were already in
+/// Size of the most recent relay `peer_list` - how many peers were already in
 /// the room when we joined. Mirrored from the multiuser signaller's
 /// `SignalDiagnostics` (which matchbox otherwise hides). The load-bearing glare
 /// signal: a value ≥ 1 while zero peers ever reach `Connected` means the WebRTC
@@ -237,7 +237,7 @@ pub const NET_SIGNAL_ANSWERS_RECEIVED: &str = "net.signal.answers_received";
 /// WebRTC handshake yet (and we have not connected since that peer_list). The
 /// `GlareSuspected` invariant fires when this stays `1` over a sustained window.
 pub const NET_SIGNAL_AWAITING_PEERS: &str = "net.signal.awaiting_peers";
-/// Cumulative relay handshake rejections the signaller gave up on — an HTTP 4xx
+/// Cumulative relay handshake rejections the signaller gave up on - an HTTP 4xx
 /// on the WebSocket upgrade (chiefly an expired-token `401`) or a wasm
 /// blind-retry exhaustion. The socket never opens, so unlike a stalled
 /// handshake this leaves no peer_list/offer/answer trail; the
@@ -249,7 +249,7 @@ pub const NET_SIGNAL_AUTH_REJECTIONS: &str = "net.signal.auth_rejections";
 /// the same problem (#1271 f400). A real `401`/`4xx` is a credential the relay
 /// refused; **`0` is the browser**, whose WebSocket API hides the handshake
 /// status entirely, so the signaller counts consecutive failures and gives up
-/// — which is what an ordinary Wi-Fi drop looks like from inside a tab. Until
+/// - which is what an ordinary Wi-Fi drop looks like from inside a tab. Until
 /// this gauge existed the live rule could not tell them apart and said
 /// "stale/expired service-auth token" to everyone, on the target where most
 /// users are. Carried on `EventPayload::RelayAuthRejected` since #712; this is
@@ -258,20 +258,20 @@ pub const NET_SIGNAL_LAST_REJECT_STATUS: &str = "net.signal.last_reject_status";
 /// Consecutive failures of the relay **service-auth** token refresh (#1215).
 ///
 /// The credential every reconnect presents. Its failure arm used to be a lone
-/// `warn!`, so a client that could never mint a token — and therefore could
-/// never rejoin after any hiccup — looked identical from every gauge to a
+/// `warn!`, so a client that could never mint a token - and therefore could
+/// never rejoin after any hiccup - looked identical from every gauge to a
 /// healthy one, and `NET_SIGNAL_AUTH_REJECTIONS` (which only counts what the
 /// relay *refuses*) had nothing upstream to correlate with. Reset to 0 by the
 /// first success, so a sustained value is a client that is stuck.
 pub const NET_RELAY_TOKEN_REFRESH_FAILURES: &str = "net.relay.token_refresh_failures";
 /// Serialized size (bytes) of the most recent reliable broadcast that went
 /// through the chunking path (room/avatar state). The outbound analogue of the
-/// `record.size.*` publish gauges — reveals how close a live edit is to the
+/// `record.size.*` publish gauges - reveals how close a live edit is to the
 /// 64 KiB WebRTC message ceiling / the 900 KiB refuse-to-send ceiling (#716).
 pub const NET_BROADCAST_PAYLOAD_BYTES: &str = "net.broadcast.payload_bytes";
 /// Reliable broadcasts refused because their serialized size exceeded
 /// [`crate::config::network::MAX_RELIABLE_PAYLOAD_BYTES`]. A non-zero value
-/// means a live edit was dropped before send (the guest never saw it) — the
+/// means a live edit was dropped before send (the guest never saw it) - the
 /// visible signal for what used to be an invisible fire-and-forget SCTP error.
 pub const NET_BROADCAST_OVERSIZE_DROPPED_COUNT: &str = "net.broadcast.oversize_dropped_count";
 
@@ -284,7 +284,7 @@ pub const LOADING_RECORD_FETCH_RETRY_COUNT: &str = "loading.record_fetch.retry_c
 pub const LOADING_GATE_TOTAL_SECS: &str = "loading.gate.total_secs";
 
 // ---- PDS record sizes -------------------------------------------------------
-// Serialized `putRecord` payload size at the most recent publish attempt —
+// Serialized `putRecord` payload size at the most recent publish attempt -
 // the single-record-boundary watch (#694): budgets live in
 // `crate::pds::record_size` (100 KiB soft / 900 KiB hard pre-flight ceiling).
 
@@ -292,7 +292,7 @@ pub const LOADING_GATE_TOTAL_SECS: &str = "loading.gate.total_secs";
 pub const RECORD_SIZE_ROOM_BYTES: &str = "record.size.room_bytes";
 /// Avatar record bytes at the last publish attempt.
 pub const RECORD_SIZE_AVATAR_BYTES: &str = "record.size.avatar_bytes";
-/// Largest single inventory-item record at the last publish attempt — the
+/// Largest single inventory-item record at the last publish attempt - the
 /// stash is one record per item (#696), so the per-record budget applies
 /// to the biggest item rather than the whole stash.
 pub const RECORD_SIZE_INVENTORY_BYTES: &str = "record.size.inventory_bytes";
@@ -308,21 +308,21 @@ pub const OFFLOAD_TEXTURE_BAKE_LATENCY_MS: &str = "offload.texture_bake.latency_
 pub const OFFLOAD_JOB_ERROR_COUNT: &str = "offload.job.error_count";
 
 // ---- spatial audio (#802) -------------------------------------------------
-/// Live looping spatial-audio voices — construct hums + avatar engine voices.
+/// Live looping spatial-audio voices - construct hums + avatar engine voices.
 /// Each is a per-frame rodio spatialise-and-mix, so this is the prime suspect
 /// for sustained vehicle-scene lag (as opposed to a one-off spawn hitch).
 pub const AUDIO_SPATIAL_ACTIVE_SINKS: &str = "audio.spatial.active_sinks";
 /// Retained baked-audio cache entries (distinct voice / construct patches).
 /// One-shot contact-cue voices currently mixing (#1252 f316). Counted apart
 /// from the looping gauge because they are the subsystem a careless or
-/// hostile room saturates, and they spawn `PlaybackMode::Despawn` — so the
+/// hostile room saturates, and they spawn `PlaybackMode::Despawn` - so the
 /// looping gauge read 0 while 24 of them mixed, which is worse than no
 /// gauge: it actively rules out the correct diagnosis.
 pub const AUDIO_CONTACT_ACTIVE_VOICES: &str = "audio.contact.active_voices";
 pub const AUDIO_BAKE_CACHE_ENTRIES: &str = "audio.bake.cache_entries";
-/// Total bytes of retained baked-audio buffers — the cache's memory footprint.
+/// Total bytes of retained baked-audio buffers - the cache's memory footprint.
 pub const AUDIO_BAKE_CACHE_BYTES: &str = "audio.bake.cache_bytes";
-/// Per-bake latency for one construct / avatar-voice audio patch (ms) — the
+/// Per-bake latency for one construct / avatar-voice audio patch (ms) - the
 /// spawn-time hitch candidate.
 pub const AUDIO_VOICE_BAKE_LATENCY_MS: &str = "audio.voice_bake.latency_ms";
 /// Baked buffer size per construct / avatar-voice bake (bytes).
@@ -330,7 +330,7 @@ pub const AUDIO_VOICE_BAKE_BYTES: &str = "audio.voice_bake.bytes";
 
 /// Every known metric with its value shape, so the registry can pre-seed empty
 /// entries (the GUI shows a named-but-empty metric rather than nothing) and the
-/// GUI can enumerate the full catalogue. Keep in sync with the consts above —
+/// GUI can enumerate the full catalogue. Keep in sync with the consts above -
 /// the `all_names_are_unique_and_listed` test guards against omissions.
 pub const ALL: &[(&str, MetricKind)] = &[
     // runtime

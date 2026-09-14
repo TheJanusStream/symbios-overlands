@@ -1,5 +1,5 @@
 //! Civic / Campus "bring-it-to-life" helpers: a thin drift of seed-fluff
-//! across the quad, and two spatial-audio patches — a soft resonant hum for
+//! across the quad, and two spatial-audio patches - a soft resonant hum for
 //! the clock tower and a calm airy bed for the town-hall lawn.
 //!
 //! Particle emitters are returned as [`Generator`] nodes (a
@@ -25,7 +25,7 @@ use crate::pds::{
 // Particle emitters
 // ---------------------------------------------------------------------------
 
-/// A lazy drift of pale seed-fluff carried across the quad on the breeze —
+/// A lazy drift of pale seed-fluff carried across the quad on the breeze -
 /// the soft motion of a still campus afternoon.
 pub(super) fn seed_drift(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -58,7 +58,7 @@ pub(super) fn seed_drift(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A soft resonant tower hum — two metallic sine partials under a slow
+/// A soft resonant tower hum - two metallic sine partials under a slow
 /// tremolo, the lingering ring of the clock-tower bell mechanism.
 pub(super) fn tower_resonance() -> SovereignAudioConfig {
     let low = node(
@@ -111,7 +111,7 @@ pub(super) fn tower_resonance() -> SovereignAudioConfig {
     patch(vec![low, high, mix, lfo, vca], NodeId(4))
 }
 
-/// A calm airy quad bed — band-limited noise breathing slowly through a
+/// A calm airy quad bed - band-limited noise breathing slowly through a
 /// lowpass, the quiet of an open campus lawn.
 pub(super) fn campus_calm() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.34 }));

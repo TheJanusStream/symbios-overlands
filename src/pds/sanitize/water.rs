@@ -67,7 +67,7 @@ impl Sanitize for WaterSurface {
             0.0,
         ));
         // Lower bound of 0.05 m matches the per-pixel footprint fade
-        // threshold in detail_normal — anything finer reads as noise.
+        // threshold in detail_normal - anything finer reads as noise.
         self.wake_ripple_wavelength = Fp(clamp_finite(
             self.wake_ripple_wavelength.0,
             0.05,

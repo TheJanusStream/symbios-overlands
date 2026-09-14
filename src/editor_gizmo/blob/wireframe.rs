@@ -28,7 +28,7 @@ pub(crate) struct BlobWireframeSwap {
 }
 
 /// Build a `LineList` mesh of `src`'s unique triangle edges. Shares the
-/// source vertex buffer (positions + normals/uvs when present — the
+/// source vertex buffer (positions + normals/uvs when present - the
 /// normals are meaningless to the unlit line material but keep the vertex
 /// layout conventional); only the index buffer is new. Returns `None` for
 /// meshes without positions or indices (never the case for blob meshes).
@@ -71,7 +71,7 @@ pub(crate) fn edge_line_mesh(src: &Mesh) -> Option<Mesh> {
 
 /// Apply the wireframe swap to the blob under edit, restore any entity
 /// that stopped being the edit target, and honour the context's
-/// `wireframe_dirty` one-shot (drag ended without a commit — the in-drag
+/// `wireframe_dirty` one-shot (drag ended without a commit - the in-drag
 /// preview may have left speculative geometry in the line mesh, so
 /// re-extract from the record-accurate original).
 #[allow(clippy::type_complexity)]
@@ -112,10 +112,10 @@ pub(in crate::editor_gizmo) fn swap_blob_wireframe(
     };
 
     if let Ok((_, _, _, swap)) = swapped.get(blob_entity) {
-        // Already wireframed — re-extract only when flagged.
+        // Already wireframed - re-extract only when flagged.
         if ctx.wireframe_dirty {
             if let Some(line) = meshes.get(&swap.original_mesh).and_then(edge_line_mesh) {
-                // Strong handle held by the swap — id is always live.
+                // Strong handle held by the swap - id is always live.
                 let _ = meshes.insert(&swap.line_mesh, line);
             }
             ctx.wireframe_dirty = false;

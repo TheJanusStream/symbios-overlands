@@ -1,4 +1,4 @@
-//! Spell circle — a High-Fantasy prop. A glowing double-ring sigil inscribed
+//! Spell circle - a High-Fantasy prop. A glowing double-ring sigil inscribed
 //! on the ground with floating glyph marks. Scatter clutter of the arcane
 //! quarter; it is emissive trim the ruin pass can darken.
 
@@ -46,7 +46,7 @@ impl CatalogueEntry for SpellCircle {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Outer glowing ring — the root.
+        // Outer glowing ring - the root.
         prim(
             torus(0.06, 1.4, glow(ARCANE_PURPLE, 1.9)),
             [0.0, 0.05, 0.0],
@@ -60,7 +60,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Radial spokes bridging the two rings — the wheel of the circle.
+    // Radial spokes bridging the two rings - the wheel of the circle.
     for i in 0..6 {
         let a = i as f32 / 6.0 * TAU;
         prims.push(prim(
@@ -70,7 +70,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Central rune-star sigil — three crossed gold bars (a six-ray asterisk).
+    // Central rune-star sigil - three crossed gold bars (a six-ray asterisk).
     for k in 0..3 {
         let a = k as f32 * PI / 3.0;
         prims.push(prim(

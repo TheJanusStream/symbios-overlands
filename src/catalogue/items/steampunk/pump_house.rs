@@ -1,4 +1,4 @@
-//! Pump house — a Steampunk secondary. A tall brick engine house with arched
+//! Pump house - a Steampunk secondary. A tall brick engine house with arched
 //! lit windows, a beam engine's rocking beam projecting from the gable, a
 //! banded chimney and copper pipework. The waterworks of the quarter.
 //!
@@ -59,7 +59,7 @@ fn build_tree() -> Generator {
     let front = -2.5_f32;
 
     let mut prims = vec![
-        // Brick engine house — the root.
+        // Brick engine house - the root.
         prim(
             solid(cuboid_tapered([7.0, body_h, 5.0], 0.0, brick(BRICK_SOOT))),
             [0.0, body_h * 0.5, 0.0],
@@ -85,7 +85,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Tall arched lit windows flanking the −Z hero front — pushed bright so
+    // Tall arched lit windows flanking the −Z hero front - pushed bright so
     // they read as lit even on the shadowed front face.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(

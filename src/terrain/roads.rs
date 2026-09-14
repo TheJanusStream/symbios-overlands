@@ -1,10 +1,10 @@
 //! Dedicated road-mesh rebuild system.
 //!
 //! Roads are a `RoadNetwork` child of the terrain generator in the record
-//! (authored / edited as config — see
+//! (authored / edited as config - see
 //! [`crate::pds::generator::RoadConfig`] and [`crate::urban`]). This system
 //! owns the road *mesh*: it watches the finished heightmap and the live
-//! record's road config and, on any change, re-meshes the draped road ribbon —
+//! record's road config and, on any change, re-meshes the draped road ribbon -
 //! **reusing the existing heightmap, never regenerating the terrain**. So a
 //! road edit (slider, re-roll, enable toggle) costs one road re-mesh, not a
 //! full heightmap rebuild.
@@ -27,7 +27,7 @@ use super::FinishedHeightMap;
 #[derive(Component)]
 pub(super) struct RoadMeshEntity;
 
-/// Which road surface an entity renders — lets the appearance re-tint
+/// Which road surface an entity renders - lets the appearance re-tint
 /// (#891) find each surface's material without re-spawning anything.
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RoadSurfaceKind {
@@ -37,14 +37,14 @@ pub(super) enum RoadSurfaceKind {
 }
 
 /// Which network (child order under the Terrain generator, #895) a road
-/// surface belongs to — pairs with [`RoadSurfaceKind`] so per-network
+/// surface belongs to - pairs with [`RoadSurfaceKind`] so per-network
 /// appearance overrides re-tint the right district.
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RoadNetworkIndex(pub(super) usize);
 
 /// Per-theme look for the three road surfaces. The road is a client-derived
 /// visual layer (not stored), so its palette is keyed off the room's theme here
-/// rather than serialized — cyberpunk gets hot neon, a modern city warm
+/// rather than serialized - cyberpunk gets hot neon, a modern city warm
 /// streetlight LEDs, an industrial park hazard amber, residential streets a
 /// faint painted curb line.
 struct RoadPalette {
@@ -62,7 +62,7 @@ struct RoadPalette {
     edge_unlit: bool,
 }
 
-/// Emissive colour `rgb` scaled by `strength` — a thin tube runs hot (~6: a
+/// Emissive colour `rgb` scaled by `strength` - a thin tube runs hot (~6: a
 /// white-hot core plus a coloured bloom halo), a painted line stays low (~1).
 fn glow(rgb: [f32; 3], strength: f32) -> LinearRgba {
     LinearRgba::rgb(rgb[0] * strength, rgb[1] * strength, rgb[2] * strength)
@@ -141,12 +141,12 @@ pub(super) const ROAD_EDIT_DEBOUNCE_SECS: f64 = 0.3;
 
 /// Road-rebuild pipeline state (#884). Replaces the old synchronous
 /// fingerprint: edits arm a trailing debounce, the deadline kicks the CPU
-/// extrusion onto a background task, and completion swaps the meshes — the
+/// extrusion onto a background task, and completion swaps the meshes - the
 /// previous road stays visible in the meantime, so a drag never shows a
 /// road-less gap.
 #[derive(Resource, Default)]
 pub(super) struct RoadRebuild {
-    /// serde-JSON of the config whose mesh is currently live — `None` when no
+    /// serde-JSON of the config whose mesh is currently live - `None` when no
     /// road mesh exists (no config, disabled, or no terrain).
     live: Option<String>,
     /// Deadline for the pending re-mesh; every further edit pushes it out.
@@ -158,7 +158,7 @@ pub(super) struct RoadRebuild {
 }
 
 /// Every active road config (#895, child order, capped) + the combined
-/// GEOMETRY fingerprint — `None` when no enabled network exists (the mesh
+/// GEOMETRY fingerprint - `None` when no enabled network exists (the mesh
 /// sweep path). Appearance is deliberately excluded (#891): a re-tint
 /// updates the live materials in place ([`sync_road_appearance`]) and must
 /// never trigger a re-extrusion.
@@ -188,7 +188,7 @@ fn current_configs(
     (configs, Some(want))
 }
 
-/// Data-copy of the heightmap for the background task — `HeightMap` is not
+/// Data-copy of the heightmap for the background task - `HeightMap` is not
 /// `Clone`, but the road builder only samples heights (the normal cache and
 /// lake table rebuild lazily / are unused by the road window copy).
 fn copy_heightmap(hm: &HeightMap) -> HeightMap {
@@ -235,7 +235,7 @@ pub(super) fn maybe_rebuild_roads(
     };
     let now = time.elapsed_secs_f64();
 
-    // 1 — change detection arms (or cancels) the trailing debounce. A fresh
+    // 1 - change detection arms (or cancels) the trailing debounce. A fresh
     // heightmap (initial load / terrain regen) always re-meshes, since the
     // draped geometry depends on the new surface.
     if heightmap.is_changed() || record.is_changed() {
@@ -249,8 +249,8 @@ pub(super) fn maybe_rebuild_roads(
         }
     }
 
-    // 2 — deadline reached: kick the extrusion for the CURRENT config (not a
-    // snapshot from arm time — later edits inside the debounce window are
+    // 2 - deadline reached: kick the extrusion for the CURRENT config (not a
+    // snapshot from arm time - later edits inside the debounce window are
     // folded in), or sweep synchronously when the network went away.
     if state.due.is_some_and(|d| now >= d) {
         state.due = None;
@@ -270,7 +270,7 @@ pub(super) fn maybe_rebuild_roads(
                     ..default()
                 };
             } else {
-                // One task builds every network (#895) — the heightmap copy
+                // One task builds every network (#895) - the heightmap copy
                 // is shared and the swap stays atomic across districts.
                 let hm = copy_heightmap(&heightmap.0);
                 let task = bevy::tasks::AsyncComputeTaskPool::get().spawn(async move {
@@ -284,7 +284,7 @@ pub(super) fn maybe_rebuild_roads(
         }
     }
 
-    // 3 — a finished build swaps the meshes. The result may already be a step
+    // 3 - a finished build swaps the meshes. The result may already be a step
     // behind a still-armed debounce; applying it keeps the display fresh and
     // the pending deadline rebuilds to the latest config right after.
     let finished = if let Some((_, task)) = &mut state.building {
@@ -320,7 +320,7 @@ pub(super) fn maybe_rebuild_roads(
             junctions += parts.junctions;
             vertices += parts.vertex_count();
         }
-        // Editor readout (#888) — buildings belong to the lot layer, which
+        // Editor readout (#888) - buildings belong to the lot layer, which
         // updates its own field on its own cadence.
         stats.built = true;
         stats.streets = streets;
@@ -339,7 +339,7 @@ fn resolved_road_materials(
 ) -> [StandardMaterial; 3] {
     let palette = road_palette(theme);
     let color3 = |c: crate::pds::Fp3| Color::srgb(c.0[0], c.0[1], c.0[2]);
-    // Dark wet-asphalt drivable deck — low roughness + reflectance gives the
+    // Dark wet-asphalt drivable deck - low roughness + reflectance gives the
     // sheen that catches the city light.
     let deck = StandardMaterial {
         base_color: ap.deck_color.map(color3).unwrap_or(palette.deck),
@@ -350,7 +350,7 @@ fn resolved_road_materials(
         cull_mode: None,
         ..default()
     };
-    // Concrete/metal foundation (curb + skirt + bottom) — matte and lighter
+    // Concrete/metal foundation (curb + skirt + bottom) - matte and lighter
     // so the deck reads as a distinct surface sitting on top of it.
     let structure = StandardMaterial {
         base_color: ap.structure_color.map(color3).unwrap_or(palette.structure),
@@ -377,7 +377,7 @@ fn resolved_road_materials(
 }
 
 /// Re-tint the live road materials when the record's appearance overrides
-/// change (#891) — in place, without touching geometry, so colour edits are
+/// change (#891) - in place, without touching geometry, so colour edits are
 /// instant (no debounce, no re-extrusion). Also covers reverting to the
 /// theme look when an override clears.
 pub(super) fn sync_road_appearance(
@@ -430,7 +430,7 @@ pub(super) fn sync_road_appearance(
     }
 }
 
-/// Spawn the three road surface entities for `parts` — split from the
+/// Spawn the three road surface entities for `parts` - split from the
 /// rebuild system so the async completion path stays readable.
 #[allow(clippy::too_many_arguments)] // one spawn site; each arg is a distinct sink.
 fn spawn_road_meshes(
@@ -463,7 +463,7 @@ fn spawn_road_meshes(
         // One mesh + material per non-empty surface; the despawn marker on each
         // sweeps them all on the next rebuild. The drivable deck and the
         // curb/skirt structure each carry a static trimesh collider built from
-        // their own geometry, so the WHOLE road body is solid — a high road over
+        // their own geometry, so the WHOLE road body is solid - a high road over
         // a dip is a real bridge the player and vehicles stand on. The neon
         // edge-line is a decorative emissive overlay riding proud of the curb, so
         // it stays non-collidable (it would only add thin lips above the curb the

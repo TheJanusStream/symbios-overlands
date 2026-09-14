@@ -1,10 +1,10 @@
-//! Biolume stalk — an Alien-Organic prop. A slender flesh stalk curving up
+//! Biolume stalk - an Alien-Organic prop. A slender flesh stalk curving up
 //! from a creep pad, tipped with a glowing bulb and beaded with light-nodes.
 //! Scatter clutter lighting the colony; the glow is emissive trim the ruin
 //! pass can darken.
 //!
 //! Rooted on a flat creep pad (`id_quat`) so the curving stalk and its bulb
-//! ride as children — a rotated `assemble` root would spin every sibling into
+//! ride as children - a rotated `assemble` root would spin every sibling into
 //! its frame (the rotated-root gotcha).
 
 use crate::catalogue::items::util::{
@@ -51,7 +51,7 @@ impl CatalogueEntry for BiolumeStalk {
 
 fn build_tree() -> Generator {
     let prims = vec![
-        // Flat creep pad — the root (id_quat), so the curving stalk is a child.
+        // Flat creep pad - the root (id_quat), so the curving stalk is a child.
         prim(
             solid(cylinder_tapered(0.5, 0.16, 12, 0.3, flesh(FLESH_RED))),
             [0.0, 0.08, 0.0],
@@ -69,7 +69,7 @@ fn build_tree() -> Generator {
             [0.0, 1.75, -0.5],
             quat_x(-0.5),
         ),
-        // Glowing bulb at the tip — emissive, deep green.
+        // Glowing bulb at the tip - emissive, deep green.
         {
             let mut bulb = prim(
                 solid(sphere(0.34, 5, glow(BIOLUME_GREEN, 2.1))),

@@ -1,4 +1,4 @@
-//! Owner Site Board — the Industrial-Park identity monument (#975).
+//! Owner Site Board - the Industrial-Park identity monument (#975).
 //!
 //! The site-entrance board every works has at its gate: a steel gantry on a
 //! concrete pad, hazard-striped legs, the room owner's portrait behind a
@@ -116,7 +116,7 @@ fn board(did: &str) -> Vec<Generator> {
     let z = -0.2;
     let bez = 0.14;
     let mut out = vec![
-        // Clad backing sheet — the panel is single-sided, and a site board is
+        // Clad backing sheet - the panel is single-sided, and a site board is
         // opaque from the yard behind it.
         prim(
             solid(cuboid_tapered(
@@ -178,7 +178,7 @@ fn board(did: &str) -> Vec<Generator> {
     out
 }
 
-/// A rust-streaked bollard on the pad — the kit's signature wear.
+/// A rust-streaked bollard on the pad - the kit's signature wear.
 fn bollard(x: f32) -> Generator {
     prim(
         solid(cylinder_tapered(0.13, 0.85, 12, 0.06, rust(RUST_BROWN))),

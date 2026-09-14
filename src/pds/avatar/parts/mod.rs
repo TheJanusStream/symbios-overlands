@@ -1,4 +1,4 @@
-//! Avatar part-composition catalogue — the avatar analogue of the
+//! Avatar part-composition catalogue - the avatar analogue of the
 //! structure catalogue ([`crate::catalogue`]) and its
 //! [`Settlement`](crate::seeded_defaults::Settlement) slot-filler.
 //!
@@ -9,7 +9,7 @@
 //! for. The seeded [`AvatarOutfit`](crate::seeded_defaults) deriver fills
 //! each of an avatar's slots by querying [`parts_for_avatar`], exactly the
 //! way the room settlement queries
-//! [`entries_for_room`](crate::catalogue::entries_for_room) — so authoring a
+//! [`entries_for_room`](crate::catalogue::entries_for_room) - so authoring a
 //! new part grows avatar variety automatically.
 //!
 //! ## Slot frame convention
@@ -24,7 +24,7 @@
 //!
 //! ## Style coverage
 //!
-//! A part with an empty [`BodyPart::styles`] list is **universal** — eligible
+//! A part with an empty [`BodyPart::styles`] list is **universal** - eligible
 //! for every style. Shipping a universal part per required slot guarantees
 //! every (chassis, slot, style) query is non-empty during content build-out,
 //! so the outfit deriver never has an unfillable required slot (the avatar
@@ -65,7 +65,7 @@ pub enum PartSlot {
     /// A stabiliser fin.
     Fin,
     /// An engine nacelle / propulsion pod (the assembler mirrors it into an
-    /// amidships pair) — the airship's visible propulsion.
+    /// amidships pair) - the airship's visible propulsion.
     Pod,
     // --- Skiff ---
     /// The chassis slab.
@@ -114,14 +114,14 @@ pub struct PartCtx {
     pub materials: MaterialKit,
     pub body: AvatarBody,
     /// Concrete vehicle proportions + mount landmarks for the seed's chassis
-    /// — the shared contract between the vehicle parts and the assembler
+    /// - the shared contract between the vehicle parts and the assembler
     /// (`None` for the rigged family, or a vehicle family not yet wired). Read
     /// through the family accessors ([`Self::boat`]).
     pub vehicle: Option<VehicleBlueprint>,
-    /// The avatar seed — parts open their own sub-stream for stochastic
+    /// The avatar seed - parts open their own sub-stream for stochastic
     /// detail without re-deriving the anchor.
     pub seed: u64,
-    /// Seeded ornateness tier — lets a part scale its *visible* detail density
+    /// Seeded ornateness tier - lets a part scale its *visible* detail density
     /// (gondola dressing, engine-pod richness) so the tier finally reads on the
     /// geometry, not just the optional-slot roll.
     pub ornateness: OrnatenessTier,
@@ -146,19 +146,19 @@ impl PartCtx {
         }
     }
 
-    /// The boat proportion blueprint, if this avatar is a boat — the boat
+    /// The boat proportion blueprint, if this avatar is a boat - the boat
     /// parts and the boat assembler both size from it.
     pub fn boat(&self) -> Option<&BoatBlueprint> {
         self.vehicle.as_ref().and_then(VehicleBlueprint::boat)
     }
 
-    /// The airship proportion blueprint, if this avatar is an airship — the
+    /// The airship proportion blueprint, if this avatar is an airship - the
     /// envelope / gondola parts and the airship assembler both size from it.
     pub fn airship(&self) -> Option<&AirshipBlueprint> {
         self.vehicle.as_ref().and_then(VehicleBlueprint::airship)
     }
 
-    /// The skiff proportion blueprint, if this avatar is a skiff — the chassis
+    /// The skiff proportion blueprint, if this avatar is a skiff - the chassis
     /// / wheel parts and the skiff assembler share its wheel/fender landmarks.
     pub fn skiff(&self) -> Option<&SkiffBlueprint> {
         self.vehicle.as_ref().and_then(VehicleBlueprint::skiff)
@@ -169,7 +169,7 @@ impl PartCtx {
 /// the [`entries`] registry; the outfit deriver selects among them by
 /// querying [`parts_for_avatar`].
 pub trait BodyPart: Sync {
-    /// Stable identifier — written into the outfit so a re-derivation
+    /// Stable identifier - written into the outfit so a re-derivation
     /// resolves the same part. Must stay stable across builds.
     fn slug(&self) -> &'static str;
 
@@ -180,7 +180,7 @@ pub trait BodyPart: Sync {
     /// (a cross-family ornament).
     fn chassis(&self) -> &'static [ChassisFamily];
 
-    /// Which styles this part suits. **Empty means universal** — eligible
+    /// Which styles this part suits. **Empty means universal** - eligible
     /// for every style (see the module docstring).
     fn styles(&self) -> &'static [ThemeArchetype] {
         &[]
@@ -202,7 +202,7 @@ pub trait BodyPart: Sync {
     fn build(&self, ctx: &PartCtx) -> Generator;
 }
 
-/// A data-driven [`BodyPart`] for styled kits — metadata (slot, chassis,
+/// A data-driven [`BodyPart`] for styled kits - metadata (slot, chassis,
 /// styles, ornateness / wear bands) plus a build function pointer. The
 /// styled humanoid / vehicle kits express their parts as a table of these
 /// rather than a struct apiece.
@@ -256,7 +256,7 @@ pub fn parts_for(
 }
 
 /// [`parts_for`] further gated by the avatar's ornateness / escalation
-/// tiers — the avatar analogue of [`crate::catalogue::entries_for_room`].
+/// tiers - the avatar analogue of [`crate::catalogue::entries_for_room`].
 /// Since both bands default to `ANY`, this matches [`parts_for`] until a
 /// part opts into a band.
 pub fn parts_for_avatar(
@@ -305,7 +305,7 @@ mod tests {
     #[test]
     fn every_required_slot_is_fillable_for_every_style() {
         // The universal defaults guarantee a non-empty pool for every
-        // (chassis, required slot, style) — the contract the outfit deriver
+        // (chassis, required slot, style) - the contract the outfit deriver
         // relies on so no required slot is ever unfillable.
         for chassis in ChassisFamily::ALL {
             for &slot in required_slots(chassis) {
@@ -323,7 +323,7 @@ mod tests {
     fn required_slots_fillable_across_every_style_and_tier() {
         // The band-gated query must stay non-empty for required slots at every
         // style AND every ornateness/wear tier (the universal defaults carry ANY
-        // bands and so floor it). Iterating all styles — not just one — matters
+        // bands and so floor it). Iterating all styles - not just one - matters
         // now that band-gated parts sit on required slots (deck_barrels = Worn+
         // Deck, canopy_aero = Pristine-only Canopy, #793): a regression that
         // band-gated or dropped a default would else slip through at the styles
@@ -399,7 +399,7 @@ mod tests {
             }
         }
         // Span several seeds so every part builds against a range of contexts
-        // — crucially, the vehicle parts must survive sanitize at the extremes
+        // - crucially, the vehicle parts must survive sanitize at the extremes
         // of their seeded blueprint dimensions, not just at the nominal
         // fallback. Seeds chosen to cover boat / airship / skiff chassis so a
         // family part meets a real blueprint of its own family.

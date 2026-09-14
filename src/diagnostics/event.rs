@@ -1,4 +1,4 @@
-//! Session-event data model — the taxonomy every subsystem records into the
+//! Session-event data model - the taxonomy every subsystem records into the
 //! single append-only diagnostic stream (Pillar A of the diagnostic suite).
 //!
 //! One [`SessionEvent`] is emitted per notable thing that happens between app
@@ -8,14 +8,14 @@
 //! `--analyze-session` analyzer. One model means the GUI and the file can
 //! never disagree.
 //!
-//! This module is deliberately free of gameplay types — peer ids, DIDs and
+//! This module is deliberately free of gameplay types - peer ids, DIDs and
 //! positions are stored as plain strings / arrays so it depends only on
 //! `serde` and round-trips losslessly through JSON on both native and wasm.
 //! Call sites format their domain values into these fields when they record.
 
 use serde::{Deserialize, Serialize};
 
-/// Which subsystem an event originated in — one of the three filter axes
+/// Which subsystem an event originated in - one of the three filter axes
 /// (`subsystem` × [`Category`] × [`Severity`]) the analyzer slices on.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Subsystem {
@@ -25,13 +25,13 @@ pub enum Subsystem {
     Network,
     /// Async work offloaded to task pools / web workers.
     Offload,
-    /// Frame time, assets, physics, memory — live-session health.
+    /// Frame time, assets, physics, memory - live-session health.
     Runtime,
     /// Session-level bookkeeping (snapshots, segment resets, exit, anomalies).
     Session,
 }
 
-/// Severity of an event — drives log level, GUI badge colour, and the
+/// Severity of an event - drives log level, GUI badge colour, and the
 /// analyzer's verdict tally. `Ord` so the GUI can pick the worst active.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Severity {
@@ -97,7 +97,7 @@ pub enum FetchStatus {
     DecodeError,
     /// A transient error (DNS / timeout / 5xx) that will be retried.
     TransientError,
-    /// The DID does not resolve to an ATProto account at all (#1230 f22) —
+    /// The DID does not resolve to an ATProto account at all (#1230 f22) -
     /// a mistyped landmark link, or an identity that never existed. Not
     /// retried: no amount of waiting produces an account.
     NoSuchIdentity,
@@ -110,7 +110,7 @@ pub enum FetchStatus {
 /// Which phase a [`StartupInfo`] snapshot was taken in.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SnapshotPhase {
-    /// Emitted at app build, before login — the DID is not yet known.
+    /// Emitted at app build, before login - the DID is not yet known.
     Boot,
     /// Emitted on Login → Loading, with the authenticated DID/relay filled in.
     Session,
@@ -140,22 +140,22 @@ pub struct StartupInfo {
     pub boot_yaw_deg: Option<f32>,
     pub pds: Option<String>,
     pub relay: Option<String>,
-    /// The authenticated session DID — `None` in the `Boot` phase snapshot.
+    /// The authenticated session DID - `None` in the `Boot` phase snapshot.
     pub session_did: Option<String>,
 }
 
 /// The payload of a [`SessionEvent`]. Internally tagged (`"kind": "…"`) so each
 /// JSONL line self-describes; every variant is a unit variant, a struct
-/// variant, or a newtype wrapping a struct — the shapes serde internal tagging
+/// variant, or a newtype wrapping a struct - the shapes serde internal tagging
 /// supports (bare tuple variants are forbidden). The union is drawn from the four
 /// priority subsystems surveyed for the suite plus session-level records.
 ///
-/// Fields carry only serde-friendly scalars/strings — domain values (peer ids,
+/// Fields carry only serde-friendly scalars/strings - domain values (peer ids,
 /// DIDs, positions) are pre-formatted to strings/arrays at the call site.
 ///
 /// f32 fields whose values can go non-finite (physics state) must route
 /// through [`finite_or_sentinel`] at the emit site: `serde_json` writes
-/// NaN/±Inf as `null`, silently breaking the NDJSON schema — that is how
+/// NaN/±Inf as `null`, silently breaking the NDJSON schema - that is how
 /// the offline analyzer dropped 1,461 lines of the #867 meltdown as
 /// "unparseable" (#868).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -198,7 +198,7 @@ pub enum EventPayload {
         status: FetchStatus,
         duration_secs: f64,
     },
-    /// A PDS record *write* succeeded — e.g. saving the edited room to the
+    /// A PDS record *write* succeeded - e.g. saving the edited room to the
     /// owner's PDS (`putRecord`, or an `applyWrites` batch for the
     /// split-format room / per-item inventory). The write counterpart of
     /// [`RecordFetchCompleted`](EventPayload::RecordFetchCompleted); makes an
@@ -216,7 +216,7 @@ pub enum EventPayload {
         reason: String,
     },
     /// Serialized record payload size measured at a publish attempt (for
-    /// split-format rooms, the largest single record the publish writes) —
+    /// split-format rooms, the largest single record the publish writes) -
     /// the single-record-boundary watch (#694). Severity encodes the budget
     /// classification: info under the soft budget, warn past it, error past
     /// the hard ceiling (where the publish was refused pre-flight).
@@ -234,7 +234,7 @@ pub enum EventPayload {
         duration_secs: f64,
         width: u32,
         height: u32,
-        /// Content digest of the sample grid (#1146) — see
+        /// Content digest of the sample grid (#1146) - see
         /// [`crate::world_digest`]. Recorded so two captured logs from two
         /// peers of the same room can be compared offline even when neither
         /// peer was running when the other was.
@@ -253,7 +253,7 @@ pub enum EventPayload {
     WorldCompileCompleted {
         entity_count: u32,
         duration_secs: f64,
-        /// Content digest of the compile (#1146) — placement fingerprints in
+        /// Content digest of the compile (#1146) - placement fingerprints in
         /// index order plus `entity_count`. See [`crate::world_digest`].
         digest: u64,
         /// Placements the entity budget stopped the compile from building
@@ -292,7 +292,7 @@ pub enum EventPayload {
 
     // ---- Network / multiuser ----------------------------------------------
     /// The client's relay link dropped (#1213): we were welcomed, and then
-    /// the socket resource went away — the only trace a dead message loop
+    /// the socket resource went away - the only trace a dead message loop
     /// leaves, since upstream's `poll_peers` emits nothing on that path. The
     /// ghost peers were swept and the user was told once; before this event
     /// existed a local outage left no entry in the session log at all.
@@ -307,7 +307,7 @@ pub enum EventPayload {
     },
     /// The relay's `peer_list` welcome named `count` peers already present in
     /// the room when we joined. Emitted once per (re)connect that finds a
-    /// non-empty room, BEFORE any WebRTC data channel opens — so a session log
+    /// non-empty room, BEFORE any WebRTC data channel opens - so a session log
     /// can tell "joined a populated room" apart from "genuinely alone". A
     /// `SocketPeerListReceived { count >= 1 }` with no following `PeerJoined` is
     /// the fingerprint of a stalled / glared handshake (the app only logs
@@ -318,7 +318,7 @@ pub enum EventPayload {
     /// The periodic re-mint of the relay **service-auth** token failed
     /// (#1215). `consecutive` counts failures since the last success, so a
     /// reader can tell one transient PDS hiccup from a client that can no
-    /// longer mint the credential every reconnect presents — the upstream
+    /// longer mint the credential every reconnect presents - the upstream
     /// cause of the [`EventPayload::RelayAuthRejected`]s that follow.
     ServiceTokenRefreshFailed {
         reason: String,
@@ -327,7 +327,7 @@ pub enum EventPayload {
     /// The relay refused our WebSocket handshake and the signaller gave up: an
     /// HTTP 4xx (`status`, chiefly `401` from an expired/invalid service-auth
     /// token) or a wasm blind-retry exhaustion (`status == 0`, unknown). The
-    /// socket never opens, so this is the *only* trace of an auth-reject —
+    /// socket never opens, so this is the *only* trace of an auth-reject -
     /// there is no `peer_list`/`PeerJoined` to follow. `total` is the
     /// session-cumulative rejection count.
     RelayAuthRejected {
@@ -348,11 +348,11 @@ pub enum EventPayload {
     },
     /// A peer announced a wire protocol that is not ours, or announced none
     /// at all within the grace period (#1121). `theirs` is `None` for the
-    /// silent case — a build from before the handshake existed, which is what
+    /// silent case - a build from before the handshake existed, which is what
     /// every peer running a bundle cached before this change looks like.
     ///
     /// Advisory: nothing is refused on the strength of it. It exists so that
-    /// "my gift never arrived" stops being an anecdote — the two builds that
+    /// "my gift never arrived" stops being an anecdote - the two builds that
     /// disagreed are named in the log of both ends.
     PeerProtocolMismatch {
         peer: String,
@@ -387,7 +387,7 @@ pub enum EventPayload {
         rkey: String,
         reason: String,
     },
-    /// A room asset — an image, a sound, a terrain layer — could not be
+    /// A room asset - an image, a sound, a terrain layer - could not be
     /// fetched (#1246 f353). `asset` is the class, `source` the identity
     /// that failed (elided), `reason` the short tag from
     /// `AssetFetchError::tag`. Emitted once per attempt, so a captured log
@@ -408,7 +408,7 @@ pub enum EventPayload {
     /// An owner's room broadcast was accepted and replaced the live record
     /// (#1146). Declared since the diagnostics suite was built and never
     /// emitted until now, which is why the two historical desyncs (#51, #882)
-    /// had no record of WHICH record each peer was deriving from — the apply
+    /// had no record of WHICH record each peer was deriving from - the apply
     /// path was the one inbound outcome that left no trace at all.
     ///
     /// `bytes` is the received JSON payload size; `digest_of_record` is the
@@ -505,7 +505,7 @@ pub enum EventPayload {
     /// size exceeded [`crate::config::network::MAX_RELIABLE_PAYLOAD_BYTES`]
     /// (#716). `kind` names the message variant (e.g. `"RoomStateUpdate"`).
     /// This is the visible replacement for the fire-and-forget SCTP
-    /// `ErrOutboundPacketTooLarge` the app cannot otherwise observe — the
+    /// `ErrOutboundPacketTooLarge` the app cannot otherwise observe - the
     /// guest did NOT receive this update.
     OutboundMessageOversize {
         message_kind: String,
@@ -530,7 +530,7 @@ pub enum EventPayload {
         elapsed_secs: f64,
     },
     /// One allocation ≥ 16 MiB landed on the wasm heap (#811). The exact
-    /// size is the fingerprint that identifies the owning collection — a ×2
+    /// size is the fingerprint that identifies the owning collection - a ×2
     /// sequence across events is a `Vec` doubling caught red-handed.
     GiantAllocation {
         bytes: u64,
@@ -549,7 +549,7 @@ pub enum EventPayload {
     },
     /// The respawn safety net escalated (#867): repeated respawns inside
     /// the thrash window, or a non-finite body state, mean plain
-    /// teleports are not recovering — the whole physics body (collider,
+    /// teleports are not recovering - the whole physics body (collider,
     /// mass, preset) is stripped and rebuilt to shed corrupted solver
     /// state.
     PhysicsBodyRebuilt {
@@ -563,7 +563,7 @@ pub enum EventPayload {
         target_did: String,
     },
     /// A portal hop aborted because the destination room record could not be
-    /// fetched (transient PDS failure) — the player stays in the current room.
+    /// fetched (transient PDS failure) - the player stays in the current room.
     PortalTravelFailed {
         target_did: String,
         reason: String,
@@ -573,7 +573,7 @@ pub enum EventPayload {
 impl EventPayload {
     /// The subsystem this payload belongs to, stamped by [`SessionEvent::new`]
     /// at every recording site. The field is public, so a cross-cutting caller
-    /// *could* rewrite it after construction, but none does today — note in
+    /// *could* rewrite it after construction, but none does today - note in
     /// particular that an anomaly fire is logged as an `InvariantViolation`
     /// and therefore lands under [`Subsystem::Session`], not under the firing
     /// rule's own `RuleHeader` subsystem.
@@ -751,7 +751,7 @@ impl EventPayload {
                 s.target_arch,
                 s.session_did
                     .as_deref()
-                    .map(|d| format!(" — {d}"))
+                    .map(|d| format!(" - {d}"))
                     .unwrap_or_default()
             ),
             SessionSegmentReset { reason } => format!("session segment reset ({reason})"),
@@ -837,7 +837,7 @@ impl EventPayload {
                 ..
             } => {
                 let skipped = if *skipped_placements > 0 {
-                    format!(" — {skipped_placements} placements SKIPPED at the entity budget")
+                    format!(" - {skipped_placements} placements SKIPPED at the entity budget")
                 } else {
                     String::new()
                 };
@@ -873,7 +873,7 @@ impl EventPayload {
                 };
                 format!("relay rejected connection ({code}); {total} this session")
             }
-            LinkLost => "relay link lost — rejoining".to_owned(),
+            LinkLost => "relay link lost - rejoining".to_owned(),
             ServiceTokenRefreshFailed {
                 reason,
                 consecutive,
@@ -1080,7 +1080,7 @@ pub struct SessionEvent {
 
 /// `seq` of the synthetic marker the PANIC hook appends (#1142). The real
 /// sequence counter lives on `SessionLog`, which is a Bevy `Resource` and
-/// therefore unreachable from a hook — so a marker claims a value no real
+/// therefore unreachable from a hook - so a marker claims a value no real
 /// event can ever hold, and readers key on that rather than on its position
 /// in the file.
 pub const CRASH_MARKER_SEQ: u64 = u64::MAX;
@@ -1091,7 +1091,7 @@ pub const CRASH_MARKER_SEQ: u64 = u64::MAX;
 /// A separate sentinel rather than a reason string the reader has to parse,
 /// because the three wasm exits have to be told apart structurally: this
 /// marker means the tab closed, [`CRASH_MARKER_SEQ`] means a Rust panic ran a
-/// hook, and NO marker at all means the tab died without either — an OOM trap
+/// hook, and NO marker at all means the tab died without either - an OOM trap
 /// or a browser kill, which is the case worth escalating and was previously
 /// indistinguishable from simply closing the tab.
 pub const CLOSE_MARKER_SEQ: u64 = u64::MAX - 1;
@@ -1101,7 +1101,7 @@ pub const CLOSE_MARKER_SEQ: u64 = u64::MAX - 1;
 /// The MAXIMUM, not the final element (#1142). The crash marker is appended
 /// last but was stamped `t_mono_secs = 0.0` for want of a clock inside the
 /// panic hook, so reading "the last event's timestamp" off a panic file
-/// returned zero — which made the session look like it ended before it
+/// returned zero - which made the session look like it ended before it
 /// began, and silently switched off every "started but never finished"
 /// check on the one artefact where a hung job is the likeliest story. The
 /// hook stamps the marker properly now; taking the max also repairs the
@@ -1116,7 +1116,7 @@ pub fn last_ts(events: &[SessionEvent]) -> f64 {
 
 /// The session-relative span the log covers: its widest timestamp minus its
 /// narrowest. Min/max rather than last-minus-first for the reason in
-/// [`last_ts`] — a zero-stamped marker at the end of a panic file otherwise
+/// [`last_ts`] - a zero-stamped marker at the end of a panic file otherwise
 /// yields a NEGATIVE duration in the report header.
 pub fn span_secs(events: &[SessionEvent]) -> f64 {
     if events.is_empty() {
@@ -1138,7 +1138,7 @@ impl SessionEvent {
         self.seq == CRASH_MARKER_SEQ
     }
 
-    /// Whether a shutdown hook wrote this rather than the running app — a
+    /// Whether a shutdown hook wrote this rather than the running app - a
     /// panic ([`CRASH_MARKER_SEQ`]) or a clean tab close
     /// ([`CLOSE_MARKER_SEQ`]).
     pub fn is_hook_marker(&self) -> bool {
@@ -1196,7 +1196,7 @@ mod tests {
                 .chars()
                 .take_while(|c| c.is_ascii_alphanumeric())
                 .collect();
-            // `Foo {`, `Foo(` or a bare `Foo,` — the space before a brace is
+            // `Foo {`, `Foo(` or a bare `Foo,` - the space before a brace is
             // why this trims first.
             if name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
                 && rest[name.len()..].trim_start().starts_with(['{', '(', ','])
@@ -1211,7 +1211,7 @@ mod tests {
     /// constructed only by a test fixture does not read as emitted.
     ///
     /// #1146: this guard passed `RoomStateApplied` for as long as that variant
-    /// existed — declared, promised by the schema, emitted by nothing — because
+    /// existed - declared, promised by the schema, emitted by nothing - because
     /// three test fixtures name it. That is the exact failure the guard was
     /// written to prevent, so the guard was checking the wrong thing: a
     /// variant earns its place by being emitted in PRODUCTION, and a fixture
@@ -1221,7 +1221,7 @@ mod tests {
     /// brace. Crude, and adequate: it is reading Rust this crate wrote, where
     /// a `#[cfg(test)] mod` is always a real module with balanced braces, and
     /// the failure mode of over-stripping is a false alarm on a variant that
-    /// then has to prove itself — never a silent pass.
+    /// then has to prove itself - never a silent pass.
     fn strip_test_modules(text: &str) -> String {
         let mut out = String::with_capacity(text.len());
         let mut rest = text;
@@ -1230,7 +1230,7 @@ mod tests {
             let after = &rest[at..];
             let Some(open) = after.find('{') else {
                 // A `#[cfg(test)]` with no following block (an item attribute
-                // on a `use`, say) — nothing to strip.
+                // on a `use`, say) - nothing to strip.
                 break;
             };
             let mut depth = 0usize;
@@ -1263,7 +1263,7 @@ mod tests {
         out
     }
 
-    /// Whether `name` is CONSTRUCTED in production code outside this file — a
+    /// Whether `name` is CONSTRUCTED in production code outside this file - a
     /// match pattern reads a variant, it does not produce one, and neither
     /// does a test fixture.
     fn is_emitted(name: &str, sources: &[(String, String)]) -> bool {
@@ -1306,7 +1306,7 @@ mod tests {
 
     /// #1144. A third of this schema was fiction: 25 variants had no emit site
     /// anywhere in the crate, several of which the analyzer and the docs
-    /// actively promise — `[Timeline]` rendered "portal → did" for an event
+    /// actively promise - `[Timeline]` rendered "portal → did" for an event
     /// nothing ever wrote, so a session with several hops read as a session
     /// with none. An agent reading this file (documented as the authoritative
     /// schema) builds filters and expectations around records that never
@@ -1316,7 +1316,7 @@ mod tests {
     /// `EMITTED_KINDS` list, because a list only proves somebody remembered to
     /// extend it. The rule (#672) is: a typed variant earns its place by being
     /// emitted; otherwise delete it and let a generic channel carry the
-    /// signal. A variant added ahead of its emit site fails here — add the
+    /// signal. A variant added ahead of its emit site fails here - add the
     /// emit, or do not add the variant yet.
     #[test]
     fn every_declared_event_variant_has_an_emit_site() {
@@ -1327,7 +1327,7 @@ mod tests {
         let declared = declared_variants(&source);
         assert!(
             declared.len() > 40,
-            "the variant scan found only {} — it has stopped matching the file's shape",
+            "the variant scan found only {} - it has stopped matching the file's shape",
             declared.len()
         );
 
@@ -1341,7 +1341,7 @@ mod tests {
             sources
                 .iter()
                 .any(|(_, text)| strip_test_modules(text).len() < text.len()),
-            "no #[cfg(test)] module was stripped — the guard has stopped \
+            "no #[cfg(test)] module was stripped - the guard has stopped \
              distinguishing a production emit from a test fixture"
         );
         let dead: Vec<&String> = declared
@@ -1351,7 +1351,7 @@ mod tests {
         assert!(
             dead.is_empty(),
             "declared but never emitted: {dead:?}\n\
-             Either emit it, or delete the variant — a schema that promises \
+             Either emit it, or delete the variant - a schema that promises \
              records nothing writes sends its readers looking for them."
         );
     }

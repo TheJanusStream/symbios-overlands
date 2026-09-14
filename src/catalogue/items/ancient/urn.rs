@@ -1,4 +1,4 @@
-//! Urn — an AncientClassical prop. A large terracotta amphora on a marble
+//! Urn - an AncientClassical prop. A large terracotta amphora on a marble
 //! foot beside a smaller one, handled and bellied: the storage vessels of a
 //! classical household set out by a wall.
 
@@ -48,7 +48,7 @@ impl CatalogueEntry for Urn {
 
 /// A bellied amphora of total height `h` at `center`: a marble foot, a round
 /// terracotta belly (sphere), a tapered neck, a flared rim, and two vertical
-/// handle loops at the shoulder — the characteristic ovoid amphora silhouette
+/// handle loops at the shoulder - the characteristic ovoid amphora silhouette
 /// instead of a stack of tapered cylinders.
 fn amphora(center: [f32; 3], h: f32) -> Generator {
     let r = h * 0.3; // belly radius
@@ -63,7 +63,7 @@ fn amphora(center: [f32; 3], h: f32) -> Generator {
         center,
         id_quat(),
     );
-    // Bellied body — a terracotta sphere (children rebased into the foot's
+    // Bellied body - a terracotta sphere (children rebased into the foot's
     // local frame: y up), seated just above the foot.
     a.children.push(prim(
         solid(sphere(r, 5, terracotta(TERRACOTTA))),

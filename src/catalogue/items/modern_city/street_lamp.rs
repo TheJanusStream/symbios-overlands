@@ -1,4 +1,4 @@
-//! Street lamp — a Modern-City prop. A tall steel pole with a curved mast
+//! Street lamp - a Modern-City prop. A tall steel pole with a curved mast
 //! arm and a warm glowing luminaire leaning over the roadway.
 
 use crate::catalogue::items::util::{
@@ -47,7 +47,7 @@ fn build_tree() -> Generator {
     let pole_h = 5.5;
 
     let mut prims = vec![
-        // Concrete footing — the root.
+        // Concrete footing - the root.
         prim(
             solid(cuboid_tapered(
                 [0.6, 0.3, 0.6],

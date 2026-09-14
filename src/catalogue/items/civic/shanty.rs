@@ -1,4 +1,4 @@
-//! Shanty — a makeshift lean-to of mismatched boards under a slanted tin
+//! Shanty - a makeshift lean-to of mismatched boards under a slanted tin
 //! roof. A prosperity-Poor scatter prop: it reads as improvised housing in
 //! any setting, from a medieval slum to a cyberpunk undercity.
 
@@ -51,7 +51,7 @@ fn build_tree() -> Generator {
     let front = -d * 0.5; // the detailed open face points to the -Z render front
 
     let mut prims = vec![
-        // Plank floor pad — the flat root.
+        // Plank floor pad - the flat root.
         prim(
             solid(cuboid_tapered(
                 [w + 0.1, 0.08, d + 0.1],

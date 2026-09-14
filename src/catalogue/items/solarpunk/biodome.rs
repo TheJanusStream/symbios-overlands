@@ -1,4 +1,4 @@
-//! Biodome — the Solarpunk landmark and the kit's lit hero. A faceted glass
+//! Biodome - the Solarpunk landmark and the kit's lit hero. A faceted glass
 //! geodesic dome over a ring of planted soil, banded by white steel frame
 //! rings and lit from within by a soft green glow. ~13 m across, so it
 //! anchors the eco-quarter and reads as the conservatory from across the home
@@ -66,7 +66,7 @@ fn build_tree() -> Generator {
     let glass_r = 5.7_f32; // glass shell just inside the ribs so they stand proud
 
     let mut prims = vec![
-        // Round concrete planter drum — the root (a real ring base, not a flat
+        // Round concrete planter drum - the root (a real ring base, not a flat
         // square slab).
         prim(
             solid(cylinder_tapered(
@@ -104,7 +104,7 @@ fn build_tree() -> Generator {
         foliage(CROP_GREEN),
     ));
 
-    // Faceted glass dome — an upper hemisphere seated on the drum, lit from
+    // Faceted glass dome - an upper hemisphere seated on the drum, lit from
     // within so it glows green. An emissive glaze, not a `Window` texture
     // (which would tile in postage-stamp panes over the sphere and can't be
     // translucent anyway); the geodesic ribs below give it its faceting.
@@ -124,7 +124,7 @@ fn build_tree() -> Generator {
         [0.0, ring_top, 0.0],
         id_quat(),
     ));
-    // Geodesic steel rib cage standing proud of the glass — the paneled
+    // Geodesic steel rib cage standing proud of the glass - the paneled
     // habitat-dome read (reused from the space-outpost habitat dome).
     prims.extend(dome_ribs(
         [0.0, ring_top, 0.0],
@@ -189,8 +189,8 @@ mod tests {
     }
 
     /// #953: every `Window` card sits on a `Plane` at `uv_scale` 1.0 (the flat
-    /// entrance; the curved dome carries no card), and — a landmark embedded in
-    /// room records — the tree survives a serde round-trip.
+    /// entrance; the curved dome carries no card), and - a landmark embedded in
+    /// room records - the tree survives a serde round-trip.
     #[test]
     fn glazing_is_planes_and_round_trips() {
         use crate::pds::material_finish::node_materials_mut;

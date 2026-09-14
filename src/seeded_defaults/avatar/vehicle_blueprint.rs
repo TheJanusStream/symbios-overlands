@@ -6,7 +6,7 @@
 //! world-space proportions and mount landmarks for one vehicle chassis. The
 //! part builders ([`crate::pds::avatar::parts`]) size their geometry from it
 //! and the family assembler ([`crate::pds::avatar::default_visuals`]) reads
-//! the *same* landmarks for its mount anchors — so the two can never drift
+//! the *same* landmarks for its mount anchors - so the two can never drift
 //! (the fixed-anchor / part-internal-constant coupling that floated stacks
 //! and bows off mis-sized hulls, #782/#783).
 //!
@@ -29,18 +29,18 @@ use crate::seeded_defaults::scene::range_f32;
 /// from every sibling avatar deriver (body, palette, outfit, …).
 const VEHICLE_BLUEPRINT_SALT: u64 = 0x0EE1_C0DE_0EE1_C0DE;
 
-/// The overall build register a vehicle is drawn in — the vehicle counterpart
+/// The overall build register a vehicle is drawn in - the vehicle counterpart
 /// of the humanoid [`StylizationTier`](super::body::StylizationTier). Sampled
 /// first, then the continuous proportion knobs are banded by it so they
 /// covary: a `Heavy` hull always arrives wide and tall-sided, never on a
 /// racer's low narrow freeboard.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VehicleStance {
-    /// Short and tall-for-its-length — a stubby tug / runabout.
+    /// Short and tall-for-its-length - a stubby tug / runabout.
     Compact,
-    /// Long, low and narrow — a racer / cutter.
+    /// Long, low and narrow - a racer / cutter.
     Sleek,
-    /// Wide and tall-sided — a hauler / barge.
+    /// Wide and tall-sided - a hauler / barge.
     Heavy,
 }
 
@@ -68,7 +68,7 @@ impl VehicleStance {
         }
     }
 
-    /// Gondola-size multiplier for this stance — a Heavy airship carries a
+    /// Gondola-size multiplier for this stance - a Heavy airship carries a
     /// roomier car, a Sleek one a trimmer pod.
     fn airship_gondola_factor(self) -> f32 {
         match self {
@@ -90,7 +90,7 @@ impl VehicleStance {
         }
     }
 
-    /// `(length, width)` body multipliers — a Sleek skiff is a long low racer,
+    /// `(length, width)` body multipliers - a Sleek skiff is a long low racer,
     /// a Heavy one a wide hauler, a Compact one a short runabout.
     fn skiff_factors(self) -> (f32, f32) {
         match self {
@@ -154,7 +154,7 @@ impl BoatBlueprint {
             // bow station sits *on* the stem (the hull's swept blob tips out at
             // ≈0.5·len once the iso-surface pulls in from the analytic cone),
             // not the old 0.59 that floated a figurehead clear ahead of the
-            // prow — the survey's "seed-28 unanchored bow sphere" (#785). A
+            // prow - the survey's "seed-28 unanchored bow sphere" (#785). A
             // forward-projecting ram still overhangs via its own +Z offset.
             bow_z: hull_len * 0.50,
             stack_z: -hull_len * 0.42,
@@ -167,19 +167,19 @@ impl BoatBlueprint {
 /// revolution whose length + girth the `len_mult` / `radius_mult` here perturb
 /// (#791); its mount *landmarks* (belly line, tail station, fin ring radius,
 /// pod line) are read straight off that same profile by the assembler (see the
-/// vehicle assembler's `airship_mounts` + `airship_profile`) — so a fat blimp
+/// vehicle assembler's `airship_mounts` + `airship_profile`) - so a fat blimp
 /// and a slim zeppelin each seat their slung gondola / cruciform fins / engine
 /// pods on *their own* body, and they stay seated as the profile stretches (the
 /// envelope-invariant-anchor bug that floated the twin's rigging clear of its
 /// belly is gone by construction).
 #[derive(Clone, Copy, Debug)]
 pub struct AirshipBlueprint {
-    /// Overall build register — read by the locomotion tuning (#794); today it
+    /// Overall build register - read by the locomotion tuning (#794); today it
     /// biases the gondola size.
     pub stance: VehicleStance,
     /// Gondola size multiplier.
     pub gondola_scale: f32,
-    /// Lathe-envelope length multiplier (#791) — scales each form's profile
+    /// Lathe-envelope length multiplier (#791) - scales each form's profile
     /// length so the population spans a continuum of silhouettes, not a few
     /// fixed sizes. The assembler scales the belly / tail / fin / pod mounts by
     /// the same factors so the slung parts stay seated.
@@ -194,7 +194,7 @@ impl AirshipBlueprint {
         let gondola_scale = (body.height_scale * body.head_scale * stance.airship_gondola_factor())
             .clamp(0.85, 1.2);
         // Envelope size rides the body height (length) + shoulder-width (girth)
-        // knobs and the stance, with a small per-seed jitter — the #791
+        // knobs and the stance, with a small per-seed jitter - the #791
         // continuum. Clamped so a Lathe profile never degenerates.
         let (len_f, rad_f) = stance.airship_env_factors();
         let len_mult = (body.height_scale * len_f * range_f32(rng, 0.95, 1.06)).clamp(0.85, 1.28);
@@ -215,7 +215,7 @@ impl AirshipBlueprint {
 /// anchors). Deriving them once here is what lets the body vary per seed and
 /// unblocks wheel variants (#788): the chassis sizes its tub + fenders from
 /// this, the assembler places the four wheels from `track` / `wheelbase`, and
-/// the wheel part sizes from `wheel_r` — all guaranteed to agree.
+/// the wheel part sizes from `wheel_r` - all guaranteed to agree.
 #[derive(Clone, Copy, Debug)]
 pub struct SkiffBlueprint {
     pub stance: VehicleStance,
@@ -243,7 +243,7 @@ impl SkiffBlueprint {
         // fits the cabin until the body redesign scales it too (#787).
         let body_w =
             (0.76 * size * body.shoulder_width_scale.clamp(0.85, 1.15) * width_f).clamp(0.64, 1.12);
-        // Wheels "look good" as-is (user), so keep the radius near nominal — a
+        // Wheels "look good" as-is (user), so keep the radius near nominal - a
         // gentle limb-thickness nudge only. The fender radius derives from it.
         let wheel_r = (0.21 * body.limb_thickness_scale.clamp(0.9, 1.12)).clamp(0.17, 0.25);
         Self {

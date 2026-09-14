@@ -39,7 +39,7 @@ impl LandformArchetype {
         Self::Valleys,
     ];
 
-    /// Human-readable display name — used by the pinned re-roll readout.
+    /// Human-readable display name - used by the pinned re-roll readout.
     pub fn label(self) -> &'static str {
         match self {
             Self::Rolling => "Rolling",
@@ -62,7 +62,7 @@ pub enum BiomeArchetype {
     Arid,
     /// High snow line, cool greys, sharp contrast.
     Alpine,
-    /// Dark, reddish, dramatic — volcanic blacks and lava reds.
+    /// Dark, reddish, dramatic - volcanic blacks and lava reds.
     Volcanic,
     /// Sandy/warm, water-dominant, mid-altitude.
     Coastal,
@@ -75,11 +75,11 @@ pub enum BiomeArchetype {
     /// Mixed broadleaf woodland: dappled light, leaf litter, high
     /// vegetation over a woodland floor.
     TemperateForest,
-    /// Dark conifer taiga: cold-green, high coniferous vegetation —
+    /// Dark conifer taiga: cold-green, high coniferous vegetation -
     /// green-but-cold, below the tree line ([`Self::Tundra`]/
     /// [`Self::Alpine`] sit above it).
     Boreal,
-    /// Dark still water, fog and peat; reeds, mangroves, lily pads —
+    /// Dark still water, fog and peat; reeds, mangroves, lily pads -
     /// high water-bound vegetation.
     Wetland,
     /// Rolling grass with wildflowers; medium flowering vegetation.
@@ -113,7 +113,7 @@ impl BiomeArchetype {
         Self::Glacial,
     ];
 
-    /// Human-readable display name — used by the pinned re-roll readout.
+    /// Human-readable display name - used by the pinned re-roll readout.
     pub fn label(self) -> &'static str {
         match self {
             Self::Lush => "Lush",
@@ -134,7 +134,7 @@ impl BiomeArchetype {
     }
 }
 
-/// Discrete theme family — the *artificial* axis, parallel and fully
+/// Discrete theme family - the *artificial* axis, parallel and fully
 /// orthogonal to [`BiomeArchetype`] (the natural axis). Drives which
 /// themed mini-settlement of catalogue structures a room grows (a
 /// landmark plus secondary buildings and scatter props) and, optionally,
@@ -142,7 +142,7 @@ impl BiomeArchetype {
 /// tint, ambient audio, particle mood).
 ///
 /// Picked uniformly per room and independently of biome, so surreal
-/// collisions — a cyberpunk volcano, a medieval glacier — are intentional.
+/// collisions - a cyberpunk volcano, a medieval glacier - are intentional.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThemeArchetype {
     // --- Historical ---
@@ -196,7 +196,7 @@ pub enum ThemeArchetype {
     PostApoc,
     /// Saloons, water towers, general stores.
     WildWest,
-    /// Harbour batteries, careening slips, prize warehouses, rum tuns —
+    /// Harbour batteries, careening slips, prize warehouses, rum tuns -
     /// a Golden-Age buccaneer port. Its destitute register turns eerie
     /// rather than merely poor (gibbets, rotting hulks, tide-line bones),
     /// which is the theme's second read rather than a second identity.
@@ -231,7 +231,7 @@ impl ThemeArchetype {
         Self::Pirate,
     ];
 
-    /// Human-readable display name — used by the catalogue browser and any
+    /// Human-readable display name - used by the catalogue browser and any
     /// UI that lists themes.
     pub fn label(self) -> &'static str {
         match self {
@@ -263,21 +263,21 @@ impl ThemeArchetype {
     }
 }
 
-/// Socio-economic tier — the discrete reading of the continuous
+/// Socio-economic tier - the discrete reading of the continuous
 /// [`SceneCharacter::prosperity`] axis (poor → rich). Thresholded into
 /// thirds. Drives material finish (grime ↔ polish), settlement density,
 /// and which cross-theme prop pool a room draws from (shanties/scrap at
 /// [`Self::Poor`], fountains/statuary at [`Self::Rich`]).
 ///
 /// Variants are declared poorest-first so the derived [`Ord`] matches the
-/// axis direction — [`ProsperityBand`] relies on that ordering.
+/// axis direction - [`ProsperityBand`] relies on that ordering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ProsperityTier {
-    /// Bottom third — bare, makeshift, weathered.
+    /// Bottom third - bare, makeshift, weathered.
     Poor,
-    /// Middle third — ordinary, unremarkable upkeep.
+    /// Middle third - ordinary, unremarkable upkeep.
     Modest,
-    /// Top third — polished, ornamented, prosperous.
+    /// Top third - polished, ornamented, prosperous.
     Rich,
 }
 
@@ -303,20 +303,20 @@ impl ProsperityTier {
     }
 }
 
-/// Conflict tier — the discrete reading of the continuous
+/// Conflict tier - the discrete reading of the continuous
 /// [`SceneCharacter::escalation`] axis (peaceful → conflict). Thresholded
 /// into thirds. Drives mood (smoke/tension audio), defensive props
 /// (barricades, wreckage), and escalation-driven geometric damage.
 ///
 /// Variants are declared calmest-first so the derived [`Ord`] matches the
-/// axis direction — [`EscalationBand`] relies on that ordering.
+/// axis direction - [`EscalationBand`] relies on that ordering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EscalationTier {
-    /// Bottom third — peaceful: open stalls, benches, no defenses.
+    /// Bottom third - peaceful: open stalls, benches, no defenses.
     Calm,
-    /// Middle third — uneasy: shuttered, lightly fortified.
+    /// Middle third - uneasy: shuttered, lightly fortified.
     Tense,
-    /// Top third — open conflict: barricades, wreckage, scorch.
+    /// Top third - open conflict: barricades, wreckage, scorch.
     Conflict,
 }
 
@@ -358,7 +358,7 @@ impl crate::seeded_defaults::band::BandTier for ProsperityTier {
     }
 }
 
-/// Inclusive escalation-tier affinity band — the [`EscalationTier`]
+/// Inclusive escalation-tier affinity band - the [`EscalationTier`]
 /// analogue of [`ProsperityBand`]. `ANY` is the default.
 pub type EscalationBand = crate::seeded_defaults::band::Band<EscalationTier>;
 
@@ -451,7 +451,7 @@ impl SceneCharacter {
 
 /// Ceiling on the pinned-re-roll seed hunt (#1005). The hardest legal
 /// room pin-set (all five axes locked) matches ~1 seed in 14,490, so two
-/// million trials miss with probability ~e⁻¹³⁸ — the cap exists to bound
+/// million trials miss with probability ~e⁻¹³⁸ - the cap exists to bound
 /// the loop if a future draw stops being uniform, not because a miss is
 /// ever expected.
 const PIN_HUNT_CAP: u64 = 2_000_000;
@@ -459,7 +459,7 @@ const PIN_HUNT_CAP: u64 = 2_000_000;
 /// Deterministic pinned-re-roll seed hunt (#1005): the first seed at or
 /// after `start` (wrapping) whose derivation satisfies `accepts`, or
 /// `None` after [`PIN_HUNT_CAP`] trials. Deterministic in `start`, so
-/// clicking "Re-roll" twice on the same seed lands on the same world —
+/// clicking "Re-roll" twice on the same seed lands on the same world -
 /// exactly the contract the un-pinned re-roll has.
 pub fn find_matching_seed(start: u64, accepts: impl Fn(u64) -> bool) -> Option<u64> {
     (0..PIN_HUNT_CAP)
@@ -474,7 +474,7 @@ pub fn find_matching_seed(start: u64, accepts: impl Fn(u64) -> bool) -> Option<u
 /// the first one whose [`SceneCharacter`] naturally rolls every pinned
 /// value, and the room is then built by the unchanged
 /// `RoomRecord::default_for_seed` path. By construction the result is
-/// indistinguishable from any other seeded room — no out-of-distribution
+/// indistinguishable from any other seeded room - no out-of-distribution
 /// combination can exist, and peers re-derive it bit-identically from the
 /// seed alone. Pins are editor UI state only; nothing is stored in the
 /// record.
@@ -641,7 +641,7 @@ mod tests {
     #[test]
     fn theme_varies_across_seeds() {
         // Sanity that the theme draw is wired and not stuck on one
-        // variant — at least a handful of distinct themes over 64 seeds.
+        // variant - at least a handful of distinct themes over 64 seeds.
         let mut seen: Vec<ThemeArchetype> = Vec::new();
         for s in 0u64..64 {
             let t = SceneCharacter::for_seed(s).theme;
@@ -699,7 +699,7 @@ mod tests {
         assert_eq!(c.biome, BiomeArchetype::Glacial);
         assert_eq!(c.theme, ThemeArchetype::WildWest);
         assert_eq!(c.prosperity_tier(), ProsperityTier::Rich);
-        // Unpinned axes stay whatever the found seed rolls — but the hunt
+        // Unpinned axes stay whatever the found seed rolls - but the hunt
         // itself is deterministic: same start, same pins, same seed.
         assert_eq!(pins.find_seed(0), Some(found));
     }
@@ -720,7 +720,7 @@ mod tests {
     #[test]
     fn every_variant_of_every_axis_is_huntable() {
         // Each axis variant pinned alone must be reachable from a fixed
-        // start — a variant the hunt can never satisfy would make its
+        // start - a variant the hunt can never satisfy would make its
         // combo option a dead button.
         for lf in LandformArchetype::ALL {
             let pins = ScenePins {

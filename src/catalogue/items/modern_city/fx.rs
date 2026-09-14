@@ -1,5 +1,5 @@
 //! Modern-City "bring-it-to-life" helpers: a rooftop/street steam vent and
-//! the low hums of the city — distant traffic and rooftop air handling — that
+//! the low hums of the city - distant traffic and rooftop air handling - that
 //! the kit's structures hang on signature elements.
 //!
 //! Particle emitters are returned as positioned [`Generator`] nodes that
@@ -22,7 +22,7 @@ use crate::pds::{
 // Particle emitters
 // ---------------------------------------------------------------------------
 
-/// A pale column of steam rising and spreading — a rooftop AC unit, a street
+/// A pale column of steam rising and spreading - a rooftop AC unit, a street
 /// grate, a vent stack.
 pub(super) fn vent_steam(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -56,7 +56,7 @@ pub(super) fn vent_steam(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A low, broadband traffic hum — band-limited road rumble over a deep
+/// A low, broadband traffic hum - band-limited road rumble over a deep
 /// fundamental, swelling slowly as traffic ebbs and flows.
 pub(super) fn traffic_hum() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));
@@ -115,7 +115,7 @@ pub(super) fn traffic_hum() -> SovereignAudioConfig {
     patch(vec![noise, lp, lfo, vca, sub, mix], NodeId(5))
 }
 
-/// A steady mechanical air-handler hum — a mid sine with a touch of
+/// A steady mechanical air-handler hum - a mid sine with a touch of
 /// band-passed fan noise, the drone of a rooftop AC unit.
 pub(super) fn ac_hum() -> SovereignAudioConfig {
     let tone = node(

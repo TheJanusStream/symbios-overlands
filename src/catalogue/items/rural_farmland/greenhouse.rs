@@ -1,10 +1,10 @@
-//! Greenhouse — a Rural/Farmland secondary. A timber-framed span glasshouse on
+//! Greenhouse - a Rural/Farmland secondary. A timber-framed span glasshouse on
 //! a fieldstone dwarf wall: four sides and both roof slopes glazed between real
 //! glazing bars, boarded gables with louvred vents, staging benches of
 //! seedlings under a lamp, and a water butt on the standing apron.
 //!
 //! Rebuilt as a shell under #972, and it is the entry the alpha-card idiom was
-//! *made* for — on a glasshouse the glazing is not decoration applied to a
+//! *made* for - on a glasshouse the glazing is not decoration applied to a
 //! wall, it is the building. What shipped was the exact opposite:
 //!
 //! 1. **Every pane was a solid.** The back wall, both flanks, the door, the
@@ -58,7 +58,7 @@ const PAD_D: f32 = W + 0.5;
 const PAD_T: f32 = 0.3;
 const FLOOR: f32 = PAD_T;
 
-/// Fieldstone dwarf wall — the course a glasshouse is glazed off.
+/// Fieldstone dwarf wall - the course a glasshouse is glazed off.
 const KNEE_H: f32 = 0.65;
 const KNEE_T: f32 = 0.24;
 const KNEE_TOP: f32 = FLOOR + KNEE_H;
@@ -70,7 +70,7 @@ const EAVE: f32 = KNEE_TOP + GLAZE_H;
 const RIDGE_RISE: f32 = 1.35;
 const RIDGE: f32 = EAVE + RIDGE_RISE;
 
-/// Square stock of the frame — corner posts, mullions, glazing bars.
+/// Square stock of the frame - corner posts, mullions, glazing bars.
 const POST: f32 = 0.13;
 
 /// Wall planes, and the frame centre planes just inside them.
@@ -80,7 +80,7 @@ const FZ: f32 = FRONT + POST * 0.5;
 const BZ: f32 = BACK - POST * 0.5;
 const EX: f32 = L * 0.5 - POST * 0.5;
 
-/// How far a pane sits inside the frame's outer face — the putty rebate. It is
+/// How far a pane sits inside the frame's outer face - the putty rebate. It is
 /// also what makes a card's lap invisible: the bar's own front face is nearer
 /// the camera than the glass it holds (#972 lesson 7).
 const REBATE: f32 = 0.035;
@@ -88,7 +88,7 @@ const REBATE: f32 = 0.035;
 const GLAZE_LAP: f32 = 0.06;
 /// Target pane size, in metres. Pane counts are the one thing a shared card
 /// material cannot know, and they are what tell a viewer how big an opening is
-/// — so every opening derives its grid from this rather than inheriting a
+/// - so every opening derives its grid from this rather than inheriting a
 /// count sized for something else.
 const PANE_M: f32 = 0.62;
 // The roof is glazed with the **same masked card as the walls**, and that is a
@@ -97,7 +97,7 @@ const PANE_M: f32 = 0.62;
 // cutoff the pane is discarded and the card is a frame with real holes in it;
 // above it the pane survives and the card is a sheet. The first render of this
 // rebuild looked like an open pergola from above, so the roof was cut at 0.58
-// — and an opaque pane over a glasshouse reads as PAINTED PANELS, which is
+// - and an opaque pane over a glasshouse reads as PAINTED PANELS, which is
 // worse, because the one thing everybody knows about a glasshouse is that you
 // can see through it. The lattice was never the card's fault: it is what a
 // glazed roof with too little structure behind it looks like, and the answer is
@@ -113,7 +113,7 @@ const DOOR_SWING: f32 = 0.95;
 const EAVE_OVER: f32 = 0.45;
 const GABLE_OVER: f32 = 0.25;
 
-/// Standing apron in front of the door — what anything set down outside
+/// Standing apron in front of the door - what anything set down outside
 /// actually stands on (#972 lesson 19).
 const APRON_D: f32 = 1.4;
 const APRON_T: f32 = 0.24;
@@ -133,10 +133,10 @@ const PATH_W: f32 = 1.3;
 const SOIL_DARK: [f32; 3] = [0.24, 0.18, 0.13];
 /// Terracotta pots along the staging.
 const TERRACOTTA: [f32; 3] = [0.62, 0.34, 0.22];
-/// Limewashed oak of the water butt and its downpipe — pale enough to read
+/// Limewashed oak of the water butt and its downpipe - pale enough to read
 /// against the dwarf wall it stands beside rather than as a black drum.
 const BUTT_OAK: [f32; 3] = [0.66, 0.60, 0.50];
-/// Warm interior lining — the potting screen behind the staging.
+/// Warm interior lining - the potting screen behind the staging.
 const LINING_WARM: [f32; 3] = [0.52, 0.42, 0.30];
 
 // --- Derived roof geometry. ------------------------------------------------
@@ -154,7 +154,7 @@ fn pitch() -> f32 {
 fn roof_half() -> f32 {
     W * 0.5 + EAVE_OVER
 }
-/// Height of the roof's lower edge — **below** the eaves plate, because the
+/// Height of the roof's lower edge - **below** the eaves plate, because the
 /// slope keeps falling past the wall it oversails.
 fn eave_edge_y() -> f32 {
     RIDGE - roof_half() * RIDGE_RISE / (W * 0.5)
@@ -171,7 +171,7 @@ fn slope_center(sz: f32) -> [f32; 3] {
 /// runs up the pitch and its local `+Y` is the outward normal.
 ///
 /// `quat_x(θ)` turns `+Y` toward `+Z`, so a prim's local `+Z` end goes *down*
-/// for positive θ — see `util::rotate_by`, which is where this family last
+/// for positive θ - see `util::rotate_by`, which is where this family last
 /// got the handedness backwards in both the geometry and the guard at once.
 fn slope_quat(sz: f32) -> Fp4 {
     quat_x(sz * pitch())
@@ -181,7 +181,7 @@ fn slope_normal(sz: f32) -> [f32; 3] {
     let p = pitch();
     [0.0, p.cos(), sz * p.sin()]
 }
-/// Unit up-slope direction of the `sz` slope — the plane's own local `+Z`.
+/// Unit up-slope direction of the `sz` slope - the plane's own local `+Z`.
 fn slope_up(sz: f32) -> [f32; 3] {
     let p = pitch();
     [0.0, -sz * p.sin(), p.cos()]
@@ -223,7 +223,7 @@ fn knee(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
     )
 }
 
-/// A painted timber member of the frame — post, mullion, plate, purlin, cap.
+/// A painted timber member of the frame - post, mullion, plate, purlin, cap.
 fn timber(size: [f32; 3], center: [f32; 3]) -> Generator {
     prim(
         solid(cuboid_tapered(size, 0.0, clapboard(TRIM_WHITE))),
@@ -243,7 +243,7 @@ fn bonded_concrete(center: [f32; 3], face: FaceKey) -> SovereignMaterialSettings
 /// Which way a pane looks.
 ///
 /// A glasshouse is glazed on every elevation, so unlike the one-hero-face
-/// entries this family usually builds, all four uprights are needed — and the
+/// entries this family usually builds, all four uprights are needed - and the
 /// `±X` turns are a *composition* rather than a single-axis rotation.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Look {
@@ -290,7 +290,7 @@ fn glazing(size: [f32; 2], center: [f32; 3], look: Look) -> Generator {
 ///
 /// `posts` are the member centres along the run, so every bay is *derived*
 /// from where the frame actually is and cannot drift from it. `skip` names the
-/// one opening that is not glazed — the doorway.
+/// one opening that is not glazed - the doorway.
 fn glazed_run(
     posts: &[f32],
     y0: f32,
@@ -352,7 +352,7 @@ impl CatalogueEntry for Greenhouse {
 
 /// The house as a tree that stands the way it does: the poured base at the
 /// bottom, the dwarf wall on it, the floor and the frame on the dwarf wall,
-/// the roof on the frame — with the standing apron its own sub-assembly, so
+/// the roof on the frame - with the standing apron its own sub-assembly, so
 /// everything set down outside is checked against the paving it stands on
 /// rather than against the building beside it (#972 lesson 19).
 fn build_tree() -> Generator {
@@ -480,7 +480,7 @@ fn dwarf_wall() -> Generator {
 fn front_posts() -> [f32; 6] {
     [-EX, -2.35, -DOOR_W * 0.5, DOOR_W * 0.5, 2.35, EX]
 }
-/// Back frame member centres — no doorway, so an even four bays.
+/// Back frame member centres - no doorway, so an even four bays.
 fn back_posts() -> [f32; 5] {
     [-EX, -2.0, 0.0, 2.0, EX]
 }
@@ -492,7 +492,7 @@ fn end_posts() -> [f32; 3] {
 const DOOR_BAY: usize = 2;
 
 /// The glazed frame: posts, mullions, plates, every card, the door, and the
-/// roof that stands on it. The `−X` front corner post is the sub-root — it
+/// roof that stands on it. The `−X` front corner post is the sub-root - it
 /// stands on the dwarf wall and everything above hangs off it.
 fn frame() -> Generator {
     let root = timber(
@@ -524,7 +524,7 @@ fn frame() -> Generator {
             [x, (KNEE_TOP + EAVE) * 0.5, BZ],
         ));
     }
-    // Flank mullions only — the corners are already carried by the front and
+    // Flank mullions only - the corners are already carried by the front and
     // back runs.
     for sx in [-1.0_f32, 1.0] {
         parts.push(timber(
@@ -681,7 +681,7 @@ fn roof() -> Generator {
         }
     }
 
-    // Two ridge lights propped open on the `−Z` slope — the one moving part a
+    // Two ridge lights propped open on the `−Z` slope - the one moving part a
     // glasshouse has, and the reason its ridge is not a solid line.
     for x in [-2.1_f32, 2.1] {
         parts.extend(ridge_vent(x));
@@ -774,7 +774,7 @@ fn ridge_vent(x: f32) -> Vec<Generator> {
 /// trays and pots, the potting screen behind them, and the lamp under the
 /// ridge.
 ///
-/// Laid out **bay by bay** (#972 lesson 9) — the door bay gets the path and the
+/// Laid out **bay by bay** (#972 lesson 9) - the door bay gets the path and the
 /// pots rather than a black rectangle, and both flanking bays get a bench whose
 /// top stands just clear of the dwarf wall, which is the line a glasshouse
 /// actually reads along from outside.
@@ -791,7 +791,7 @@ fn interior() -> Generator {
     );
 
     let mut parts = vec![
-        // Central path, brighter than the beds either side of it — it is what
+        // Central path, brighter than the beds either side of it - it is what
         // the open door frames.
         prim(
             cuboid_tapered(
@@ -1005,7 +1005,7 @@ mod tests {
         );
     }
 
-    /// #972 lesson 1: every pane is a card on a flat quad at `uv_scale` 1.0 —
+    /// #972 lesson 1: every pane is a card on a flat quad at `uv_scale` 1.0 -
     /// four elevations, both roof slopes, the transom and two ridge lights.
     #[test]
     fn every_pane_is_a_card_on_a_quad() {
@@ -1030,7 +1030,7 @@ mod tests {
     }
 
     /// Every glazing card is strictly larger than the opening the frame leaves
-    /// it, so no edge lands on the reveal plane (#972 lesson 7) — checked
+    /// it, so no edge lands on the reveal plane (#972 lesson 7) - checked
     /// against the *frame member centres*, which is where the opening actually
     /// comes from.
     #[test]
@@ -1067,7 +1067,7 @@ mod tests {
 
     /// #972 lesson 18: a bonded surface's material centre and its placement are
     /// one expression, so every cladding slab's `uv_offset` must be some face's
-    /// projection of the position the **built tree** puts it at — read from the
+    /// projection of the position the **built tree** puts it at - read from the
     /// composed translation, not from the constants the placement used (#972
     /// lesson 21).
     #[test]
@@ -1089,7 +1089,7 @@ mod tests {
             // dimension that is a surface rather than a stick.
             //
             // A first draft asked for two dimensions over 0.9 and found six of
-            // eleven — it had quietly excluded the whole dwarf wall, which is
+            // eleven - it had quietly excluded the whole dwarf wall, which is
             // 0.65 m high and the most coursed surface on the building. Suspect
             // the selector before the content (#972 lesson 24).
             if g.transform.rotation.0 != [0.0, 0.0, 0.0, 1.0] {
@@ -1119,14 +1119,14 @@ mod tests {
             assert!(
                 agrees,
                 "greenhouse: a clad slab at {at:?} carries uv_offset {:?}, which is no \
-                 face's projection of where the built tree puts it — its material \
+                 face's projection of where the built tree puts it - its material \
                  centre and its placement are two different expressions",
                 material.uv_offset.0
             );
         });
         assert_eq!(
             checked, 11,
-            "the base, the apron, five dwarf-wall runs, two gables and two bench tops — \
+            "the base, the apron, five dwarf-wall runs, two gables and two bench tops - \
              {checked} found, so suspect the selector before the content"
         );
     }
@@ -1219,7 +1219,7 @@ mod tests {
             ends.iter()
                 .any(|e| (e[0] - hinge[0]).abs() < 0.02 && (e[1] - hinge[1]).abs() < 0.02),
             "greenhouse: the leaf's ends are at {ends:?}, neither on the hinge at \
-             {hinge:?} — the door is hung on nothing"
+             {hinge:?} - the door is hung on nothing"
         );
         let free = ends
             .iter()
@@ -1227,7 +1227,7 @@ mod tests {
             .unwrap();
         assert!(
             free[1] < FZ - 0.5,
-            "greenhouse: the leaf's free edge at z {} is still on the wall — a shut \
+            "greenhouse: the leaf's free edge at z {} is still on the wall - a shut \
              door is a darker rectangle, not a way in",
             free[1]
         );
@@ -1236,7 +1236,7 @@ mod tests {
     /// The roof's authored quantity is the RISE; the pitch, the slope length
     /// and the oversailing edge all follow. Read each slope out of the built
     /// tree, turn its own half-extent with its own quaternion, and assert the
-    /// two ends land on the ridge and on the eave the rise implies — which is
+    /// two ends land on the ridge and on the eave the rise implies - which is
     /// what catches a slope tilted the wrong way, the failure that agreed with
     /// its own guard on the lifeguard tower (#972 lesson 23).
     #[test]
@@ -1330,7 +1330,7 @@ mod tests {
             .iter()
             .max_by_key(|c| count(c))
             .expect("a dwarf wall");
-        // Select each sub-root by the property that *defines* it — the frame
+        // Select each sub-root by the property that *defines* it - the frame
         // hangs off a corner post, the roof off the ridge beam. Counting
         // children instead picked the interior the moment it gained a pot
         // shelf, which is #972 lesson 24 arriving on schedule.

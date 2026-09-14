@@ -1,4 +1,4 @@
-//! Owner Herm — the Ancient/Classical identity monument (#975).
+//! Owner Herm - the Ancient/Classical identity monument (#975).
 //!
 //! A marble aedicula on a stepped krepis: two fluted columns carry an
 //! architrave and a low pediment, and the room owner's portrait is set between
@@ -6,7 +6,7 @@
 //! niche. Two bronze braziers on the top step light the stone.
 //!
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
-//! rules this family shares — square panel, blank-legible frame, backing plate.
+//! rules this family shares - square panel, blank-legible frame, backing plate.
 
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, solid,
@@ -92,7 +92,7 @@ fn build_tree(did: &str) -> Generator {
     )
 }
 
-/// The wall the portrait is fixed to — and the backing that stops the shrine
+/// The wall the portrait is fixed to - and the backing that stops the shrine
 /// being see-through, since the panel is single-sided.
 fn back_wall() -> Generator {
     prim(
@@ -165,7 +165,7 @@ fn column(x: f32) -> Generator {
     )
 }
 
-/// A bronze brazier on the top step — the panel is unlit and reads on its own,
+/// A bronze brazier on the top step - the panel is unlit and reads on its own,
 /// so this is for the marble, which otherwise goes flat at dusk.
 fn brazier(x: f32) -> Generator {
     let post = prim(

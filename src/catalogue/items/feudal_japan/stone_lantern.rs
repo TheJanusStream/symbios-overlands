@@ -1,4 +1,4 @@
-//! Stone lantern — a Feudal-Japan prop, and the kit's lit hero. A stacked
+//! Stone lantern - a Feudal-Japan prop, and the kit's lit hero. A stacked
 //! granite ishidōrō: a footed base, a column, a platform, a glowing light
 //! box (hibukuro), a pyramidal cap, and an onion finial. Its emissive light
 //! box is the trim escalation's ruin pass snuffs to cold dead stone.
@@ -50,13 +50,13 @@ fn build_tree() -> Generator {
     let s = || stone(STONE_GREY);
 
     let mut prims = vec![
-        // Hexagonal footed base (kiso) — the root.
+        // Hexagonal footed base (kiso) - the root.
         prim(
             solid(cylinder_tapered(0.55, 0.4, 6, 0.25, s())),
             [0.0, 0.2, 0.0],
             id_quat(),
         ),
-        // Round shaft (sao) — the round contrast to the hexagonal courses.
+        // Round shaft (sao) - the round contrast to the hexagonal courses.
         prim(
             solid(cylinder_tapered(0.17, 1.6, 10, 0.06, s())),
             [0.0, 1.2, 0.0],
@@ -71,7 +71,7 @@ fn build_tree() -> Generator {
     ];
 
     // Light box (hibukuro): a glowing hexagonal core framed by six stone
-    // mullions between top and bottom frame rings — the kit's emissive hero.
+    // mullions between top and bottom frame rings - the kit's emissive hero.
     let box_y = 2.62;
     let box_h = 0.6;
     let box_r = 0.34;

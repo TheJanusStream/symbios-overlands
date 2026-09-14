@@ -1,4 +1,4 @@
-//! Lighthouse — a tapered banded tower with a glowing lamp room,
+//! Lighthouse - a tapered banded tower with a glowing lamp room,
 //! gallery ring, cone roof, and a keeper's hut at the base. The lamp
 //! is strongly emissive, so the structure doubles as a night beacon
 //! visible across a coastal or archipelago home region.
@@ -63,7 +63,7 @@ fn band_mat(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.7),
         metallic: Fp(0.05),
-        // No texture, so `uv_scale` is inert — pinned at 1.0 so it does not
+        // No texture, so `uv_scale` is inert - pinned at 1.0 so it does not
         // read as a stale pre-#936 repeat count.
         uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::None,
@@ -77,7 +77,7 @@ fn build_tree() -> Generator {
     let iron = [0.20, 0.21, 0.24];
     let lamp_glow = [1.0, 0.85, 0.45];
 
-    // Foundation slab — the root. Slab base sits at the generator
+    // Foundation slab - the root. Slab base sits at the generator
     // origin (= snapped terrain height); children measure their Y from
     // the slab centre.
     let slab_h = 0.4;
@@ -155,7 +155,7 @@ fn build_tree() -> Generator {
     ));
 
     // Keeper's hut: small block + pyramid roof. Taper tops out at the
-    // sanitiser's 0.99 cap — visually identical to a true apex.
+    // sanitiser's 0.99 cap - visually identical to a true apex.
     let mut hut = prim(
         solid(cuboid_tapered([3.2, 2.6, 4.2], 0.0, band_mat(white))),
         [3.8, rel(slab_h + 1.3), 0.0],

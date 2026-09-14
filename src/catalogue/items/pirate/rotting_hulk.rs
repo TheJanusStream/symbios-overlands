@@ -1,4 +1,4 @@
-//! Rotting Hulk — a broken-backed ship on the strand, re-roofed as a shelter.
+//! Rotting Hulk - a broken-backed ship on the strand, re-roofed as a shelter.
 //!
 //! A hull driven ashore and left: broken across the middle, her forward half
 //! open to the sky with the frames bare where the planking has gone, her after
@@ -12,15 +12,15 @@
 //! before it shipped. The settlement deriver's landmark pool falls back to the
 //! whole theme when a prosperity band has no landmark of its own
 //! (`tiered_pool`), so a Poor pirate room would have taken the
-//! [`super::harbour_battery`] — a garrisoned, colours-flying, gun-deck-lit
-//! fortress — as the biggest thing in it, and then scattered a gibbet and some
+//! [`super::harbour_battery`] - a garrisoned, colours-flying, gun-deck-lit
+//! fortress - as the biggest thing in it, and then scattered a gibbet and some
 //! bones around it. The register the user asked for ("the Poor register turns
 //! eerie rather than merely poor") cannot survive that: whatever is largest
 //! sets the reading of a room, and a working fort with bones near it reads as a
 //! working fort.
 //!
-//! A wrecked ship is a perfectly good hero object — it is sixteen metres of
-//! silhouette — and making it the landmark leaves the Secondary pool to fall
+//! A wrecked ship is a perfectly good hero object - it is sixteen metres of
+//! silhouette - and making it the landmark leaves the Secondary pool to fall
 //! back to the working kit, which is the right way round. A destitute harbour
 //! still has a tavern; what it does not have is a garrison.
 //!
@@ -31,7 +31,7 @@
 //! from a beached ship, and it is the reason the file is organised the way it
 //! is. Each half is one leaf [`blob_group`] carrying its own single rotation,
 //! and everything fixed to a half is placed in the world by that half's own
-//! frame function ([`fore`] / [`aft`]) — so nothing is ever nested under a
+//! frame function ([`fore`] / [`aft`]) - so nothing is ever nested under a
 //! rotated node (#972 lesson 22) and no fitting can drift out of agreement with
 //! the hull it is fitted to. That is the careening slip's arrangement, and the
 //! reason it is repeated here is that the slip's first build got the *sign* of
@@ -41,7 +41,7 @@
 //!
 //! Her frames are arcs cut out of tori and **scaled** into ellipses, and their
 //! heights and half-beams come from the same interpolated lines plan the
-//! [`super::longboat`] uses — so they describe one continuous sheer instead of
+//! [`super::longboat`] uses - so they describe one continuous sheer instead of
 //! being a row of hoops that happen to stand near each other. A wreck's ribs
 //! are the most recognisable thing about it, and they are only recognisable if
 //! they agree.
@@ -74,7 +74,7 @@ use super::{
     sailcloth, strake, strand, tar,
 };
 
-/// The strand she lies on — the sub-root every footprint guard measures
+/// The strand she lies on - the sub-root every footprint guard measures
 /// against (#972 lesson 19). Shingle, not paving: this is the tide line.
 ///
 /// Deep in `Z` because she is, which is the careening slip's convention for a
@@ -87,12 +87,12 @@ const GROUND: f32 = PAD[1];
 ///
 /// Three quantities rather than the longboat's two, because a wreck shows its
 /// frames and a frame's *height* is as visible as its spread. She lies along
-/// `Z` — bow toward the water at `-Z`, which is the hero side, so the approach
+/// `Z` - bow toward the water at `-Z`, which is the hero side, so the approach
 /// looks down her length past the broken frames into the lit shelter aft.
 const STATIONS: [(f32, f32, f32); 5] = [
     (-7.6, 0.9, 2.5), // stem
     (-4.2, 2.3, 2.9), // fore quarter
-    (-0.4, 2.7, 3.0), // amidships — where she is broken
+    (-0.4, 2.7, 3.0), // amidships - where she is broken
     (3.4, 2.5, 3.2),  // after quarter
     (7.0, 1.7, 3.4),  // transom (a ship's sheer rises aft)
 ];
@@ -115,7 +115,7 @@ const AFT_TRIM: f32 = -0.05;
 /// black slug. The first build carried the mass up to half her height and let
 /// the frames rise out of what was left: the mass swallowed them, and fifteen
 /// metres of rounded blob with a pallet on top read as neither ship nor
-/// building. A wreck is recognisable because it is mostly *open frames* — so
+/// building. A wreck is recognisable because it is mostly *open frames* - so
 /// the blob is only the part that is rotting into the shingle, and the hull
 /// above it is structure you can see through.
 const MASS_FRAC: f32 = 0.3;
@@ -129,7 +129,7 @@ const PLANK_T: f32 = 0.1;
 ///
 /// She is fifteen metres long, so at the sanitiser's practical ceiling the
 /// cells are still a third of a metre and nothing thinner than 700 mm survives
-/// — see the shared `blob_cell_size` note in `items::util`, and #1026 for what
+/// - see the shared `blob_cell_size` note in `items::util`, and #1026 for what
 /// happens when that is ignored.
 const BLEND: f32 = 0.3;
 const HULL_RES: u32 = 44;
@@ -146,12 +146,12 @@ const BREAK_LAP: f32 = 0.5;
 const FRAMES: usize = 11;
 const FRAME_R: f32 = 0.13;
 
-/// Hero side — the render tool and the settlement placer both look down `-Z`.
+/// Hero side - the render tool and the settlement placer both look down `-Z`.
 const FRONT: f32 = -1.0;
 
 const _: () = assert!(
     FORE_HEEL != AFT_HEEL,
-    "both halves have settled at the same angle — she reads as bent, not broken"
+    "both halves have settled at the same angle - she reads as bent, not broken"
 );
 const _: () = assert!(
     STATIONS[4].0 - STATIONS[0].0 < PAD[2] * 0.85,
@@ -219,7 +219,7 @@ fn lines_at(z: f32) -> (f32, f32) {
 /// The rotation one half carries: a heel about `Z` after a trim about `X`.
 ///
 /// `quat_mul(a, b)` composes as `a · b`, so this applies the trim first and the
-/// heel second — and [`tilted`] applies its two plane rotations in exactly that
+/// heel second - and [`tilted`] applies its two plane rotations in exactly that
 /// order. Getting the order wrong is a smaller version of getting the sign
 /// wrong, and the sign is what cost the careening slip a whole revision
 /// (#1030): a hull's section is symmetric athwartships, so a mirrored or
@@ -229,8 +229,8 @@ fn half_rotation(heel: f32, trim: f32) -> Fp4 {
     quat_mul(quat_z(heel), quat_x(trim))
 }
 
-/// Turn a point in one half's own frame — `y` up from the keel, `z` along her
-/// from that half's pivot — into the world.
+/// Turn a point in one half's own frame - `y` up from the keel, `z` along her
+/// from that half's pivot - into the world.
 ///
 /// The same trick as the careening slip's `heeled`: anything fixed to a tilted
 /// hull is naturally described where it sits on the *upright* vessel and then
@@ -239,7 +239,7 @@ fn half_rotation(heel: f32, trim: f32) -> Fp4 {
 /// a frame drifting out of agreement with the timber it is fixed to.
 ///
 /// Trim about `X` first, then heel about `Z`, matching [`half_rotation`]'s
-/// composition exactly — both are the standard plane rotation by PLUS the
+/// composition exactly - both are the standard plane rotation by PLUS the
 /// angle.
 fn tilted(pivot_z: f32, heel: f32, trim: f32, x: f32, y: f32, z: f32) -> [f32; 3] {
     let (ts, tc) = trim.sin_cos();
@@ -253,7 +253,7 @@ fn tilted(pivot_z: f32, heel: f32, trim: f32, x: f32, y: f32, z: f32) -> [f32; 3
 ///
 /// She has settled INTO the beach, not onto it: a wreck sitting on top of the
 /// strand with daylight under her keel is a model of a ship, so the lift is
-/// negative — the mass sinks and the shingle closes over it. Small, because
+/// negative - the mass sinks and the shingle closes over it. Small, because
 /// too much buries the frames that are the whole point.
 fn keel_lift() -> f32 {
     -0.35
@@ -295,7 +295,7 @@ fn hull_half(
         let half_len = (span.abs() / steps as f32) * 0.72;
         let local_z = z - BREAK_Z;
         if i == 0 || i == steps {
-            // The ends draw in — a stem forward, a transom aft.
+            // The ends draw in - a stem forward, a transom aft.
             elements.push(blob_ellipsoid(
                 [0.0, mass * 0.5, local_z],
                 [beam, mass * 0.5, half_len],
@@ -309,7 +309,7 @@ fn hull_half(
             ));
         }
     }
-    // The keel, running her length under the garboards — the member that tells
+    // The keel, running her length under the garboards - the member that tells
     // the eye these two masses were one ship.
     let (mid_z0, mid_z1) = (z0 - BREAK_Z, z1 - BREAK_Z);
     elements.push(blob_capsule(
@@ -334,7 +334,7 @@ fn frame_z(i: usize) -> f32 {
 
 /// One of her frames, drawn from her own lines at station `z`.
 ///
-/// The geometry — and the three renders it took to arrive at it — now lives in
+/// The geometry - and the three renders it took to arrive at it - now lives in
 /// the shared [`hull_frame`], because [`super::tideline_bones`] is built out of
 /// the same shape and the kit cannot afford two spellings of the most
 /// recognisable thing about a wreck (#972 lesson 5).
@@ -372,7 +372,7 @@ fn frame(z: f32) -> Generator {
 /// [`fore`] / [`aft`], so the board leans with the half it is fastened to. The
 /// first build took the two endpoints into the world first and then gave the
 /// board only a plan rotation, which left every plank standing bolt upright on
-/// a hull heeled twenty-three degrees — the same class of error as the
+/// a hull heeled twenty-three degrees - the same class of error as the
 /// careening slip's mirrored heel (#1030), just quieter.
 ///
 /// The direction-to-rotation conversion is the file's only one, and it is here
@@ -418,7 +418,7 @@ fn plank_run(z0: f32, z1: f32, sx: f32, y_frac: f32, aft_half: bool) -> Generato
 ///
 /// Forward the frames are bare, which is the read: you see through her. Aft they
 /// carry two runs of strake a side, so the shelter has walls and the salvaged
-/// roof has something to sit on. Two strakes have also sprung away forward — the
+/// roof has something to sit on. Two strakes have also sprung away forward - the
 /// detail that says the planking came *off* rather than never existing.
 fn hull_structure() -> Vec<Generator> {
     let mut out = Vec::new();
@@ -503,7 +503,7 @@ fn shelter() -> Vec<Generator> {
         ));
     }
 
-    // Stovepipe out through the roof, aft — the one unambiguous sign that
+    // Stovepipe out through the roof, aft - the one unambiguous sign that
     // somebody lives here. Smoke comes off its head, not off the hull.
     let pipe_z = z0 + (z1 - z0) * 0.78;
     let (_, pipe_h) = lines_at(pipe_z);
@@ -519,7 +519,7 @@ fn shelter() -> Vec<Generator> {
     // The way in: a gap under the roof's forward edge, with a canvas hung
     // across half of it and a lit floor running back into the hold. The lit
     // surface is what makes a dark hole read as a shelter rather than as damage
-    // — the same reason the magazine's store is lit through its one door.
+    // - the same reason the magazine's store is lit through its one door.
     let door_z = z0 + 0.2;
     let (door_beam, door_h) = lines_at(door_z);
     out.push(prim(
@@ -554,12 +554,12 @@ fn shelter() -> Vec<Generator> {
 /// The shores propping her up, and the ladder somebody climbs aboard by.
 ///
 /// Each shore's head is placed on the hull's own sheer at its own station, so a
-/// shore cannot bear on air where she narrows — which is exactly what the
+/// shore cannot bear on air where she narrows - which is exactly what the
 /// careening slip's did before its per-station half-beam went in (#1028).
 ///
 /// **Which side** each shore stands on is derived from its half's heel rather
 /// than chosen. [`tilted`] raises the `+X` side for a positive heel, so the
-/// raised side is `signum(heel)` — and that is the side a shore belongs on,
+/// raised side is `signum(heel)` - and that is the side a shore belongs on,
 /// because propping the side a hull has already rolled onto props nothing. The
 /// first build put the forward shore on the low side and the guard found its
 /// head at 1.3 m, down where the sheer had come to meet the beach.
@@ -642,7 +642,7 @@ fn build_tree(_local_did: &str) -> Generator {
     carried.extend(shelter());
     carried.extend(shores());
 
-    // Witchfire in the open hold, where the break is — the register's whole
+    // Witchfire in the open hold, where the break is - the register's whole
     // point, and it is placed at the WOUND rather than anywhere convenient,
     // because what is burning is what came apart.
     let (break_beam, break_h) = lines_at(BREAK_Z);
@@ -684,7 +684,7 @@ fn build_tree(_local_did: &str) -> Generator {
         ));
     }
     // Her fallen mast, lying along the tide line clear of the hull. Along her,
-    // not across her — the wrack line of a beach runs parallel to the water,
+    // not across her - the wrack line of a beach runs parallel to the water,
     // and so does anything the sea left on it.
     carried.push(strut(
         [tide_x + 0.5, GROUND + 0.28, -7.1],
@@ -693,7 +693,7 @@ fn build_tree(_local_did: &str) -> Generator {
         8,
         board(HULL_OAK),
     ));
-    // A long bone and a skull in the wrack — stated once and small, because the
+    // A long bone and a skull in the wrack - stated once and small, because the
     // register's horror is the hulk, and a beach strewn with skulls reads as a
     // joke rather than as a warning.
     carried.push(prim(
@@ -711,7 +711,7 @@ fn build_tree(_local_did: &str) -> Generator {
         prim(solid(cuboid_tapered(PAD, 0.0, shingle)), pad_c, id_quat()),
         carried,
     );
-    // The hulk's voice is the cursed hiss, not the harbour's swell — and the
+    // The hulk's voice is the cursed hiss, not the harbour's swell - and the
     // smoke comes off the stovepipe's head, which is a position the shelter
     // already knows.
     root.audio = fx::witchfire_hiss();
@@ -784,7 +784,7 @@ mod tests {
             assert_eq!(
                 blob_components(half),
                 1,
-                "half {i} polygonised into more than one piece — her sections \
+                "half {i} polygonised into more than one piece - her sections \
                  have drifted out of blend range, or she is finer than the \
                  sample grid can resolve"
             );
@@ -796,11 +796,11 @@ mod tests {
         assert!(
             thinnest > cell * 2.0,
             "the shallowest section is {thinnest} m across a {cell} m sample \
-             cell — under two cells it comes out full of holes"
+             cell - under two cells it comes out full of holes"
         );
     }
 
-    /// She is broken, not bent — the two halves lie at genuinely different
+    /// She is broken, not bent - the two halves lie at genuinely different
     /// angles, and the difference shows up as a step in the sheer at the break.
     ///
     /// Read by asking each half's own frame where the same point on the ship
@@ -815,7 +815,7 @@ mod tests {
         assert!(
             step > 0.7,
             "the sheer at the break steps by only {step} m between the two \
-             halves — she reads as a bent ship, not a broken one"
+             halves - she reads as a bent ship, not a broken one"
         );
         // ...and the forward half has gone over further, which is the story:
         // that is the end that struck.
@@ -829,7 +829,7 @@ mod tests {
     /// planked.
     ///
     /// Frames are arcs cut from tori and stood up by a negative quarter turn
-    /// about `X`, because `path_cut` keeps the primitive's local `+Z` half — a
+    /// about `X`, because `path_cut` keeps the primitive's local `+Z` half - a
     /// positive turn sends the kept arc to world `−Y` and hangs the frame below
     /// its own keel. That is the signal mast's vault fault (#1021), and this is
     /// the guard that would have caught it there.
@@ -863,14 +863,14 @@ mod tests {
             frames.len()
         );
 
-        // They rise clear of the mass rotting into the shingle — which is the
+        // They rise clear of the mass rotting into the shingle - which is the
         // whole reason the mass is only `MASS_FRAC` deep. Measured off the
         // built meshes, mass and frames both.
         let mass = blob_bounds(&built());
         let structure = structure_bounds(&built());
         assert!(
             structure.max.y > mass.max.y + 1.0,
-            "her frames top out at {} against a mass topping out at {} — they \
+            "her frames top out at {} against a mass topping out at {} - they \
              are swallowed by the very thing they are supposed to stand out of",
             structure.max.y,
             mass.max.y
@@ -897,7 +897,7 @@ mod tests {
         planks_of(&built(), [0.0; 3], &mut planks);
         assert!(
             planks.len() >= 8,
-            "only {} runs of planking left on her — the shelter has no walls",
+            "only {} runs of planking left on her - the shelter has no walls",
             planks.len()
         );
         for p in &planks {
@@ -920,13 +920,13 @@ mod tests {
             .fold(f32::MAX, f32::min);
         assert!(
             hi - lo > 0.6,
-            "the frames vary by only {} m in height — they do not describe one \
+            "the frames vary by only {} m in height - they do not describe one \
              hull's lines",
             hi - lo
         );
     }
 
-    /// World bounds of the hull's whole structure — the blended masses AND the
+    /// World bounds of the hull's whole structure - the blended masses AND the
     /// frames standing out of them.
     ///
     /// The distinction matters: since #1023's second pass the mass is only the
@@ -949,7 +949,7 @@ mod tests {
         out.expect("the hulk carries a hull")
     }
 
-    /// Bounds of the forward half's mesh — the lowest-lying `BlobGroup`.
+    /// Bounds of the forward half's mesh - the lowest-lying `BlobGroup`.
     fn blob_bounds(root: &Generator) -> measure::Bounds {
         let mut out: Option<measure::Bounds> = None;
         fn walk(g: &Generator, at: [f32; 3], out: &mut Option<measure::Bounds>) {
@@ -982,13 +982,13 @@ mod tests {
         let hull = blob_bounds(&built());
         assert!(
             hull.min.y < GROUND,
-            "the hull's underside is at {} and the strand is at {GROUND} — \
+            "the hull's underside is at {} and the strand is at {GROUND} - \
              there is daylight under her keel, which reads as a model of a ship",
             hull.min.y
         );
         assert!(
             hull.min.y > GROUND - 1.2,
-            "the hull's underside is at {} — she has sunk far enough to bury \
+            "the hull's underside is at {} - she has sunk far enough to bury \
              the frames that are the whole point",
             hull.min.y
         );
@@ -1032,7 +1032,7 @@ mod tests {
             let (hi, lo) = if a[1] > b[1] { (a, b) } else { (b, a) };
             assert!(
                 lo[1] < GROUND + 0.2,
-                "a shore's foot is at {} — it never reaches the shingle",
+                "a shore's foot is at {} - it never reaches the shingle",
                 lo[1]
             );
             // A shore props her SIDE, so its head belongs above the mass and
@@ -1043,7 +1043,7 @@ mod tests {
             assert!(
                 hi[1] > mass.max.y - 0.5 && hi[1] < structure.max.y + 0.3,
                 "a shore's head is at {} against a mass topping out at {} and a \
-                 sheer at {} — it bears on nothing",
+                 sheer at {} - it bears on nothing",
                 hi[1],
                 mass.max.y,
                 structure.max.y
@@ -1052,18 +1052,18 @@ mod tests {
             // that stands vertically is a post and props nothing.
             assert!(
                 (hi[0].abs() - lo[0].abs()) < -0.2,
-                "a shore runs from {hi:?} to {lo:?} — its foot is not out from \
+                "a shore runs from {hi:?} to {lo:?} - its foot is not out from \
                  the hull, so it has no batter and cannot be propping her"
             );
         }
     }
 
-    /// The shelter is lit and the wreck is not — two lights of opposite
+    /// The shelter is lit and the wreck is not - two lights of opposite
     /// temperature, which is what makes the cursed register read as cursed.
     #[test]
     fn the_shelter_burns_warm_and_the_wound_burns_cold() {
         // Read on `emission_strength > 0`, not through `has_emissive`, which
-        // only counts surfaces over strength 1.0 — everything in this kit is
+        // only counts surfaces over strength 1.0 - everything in this kit is
         // deliberately below that, because a lit face at strength blooms white
         // and loses the very hue this test is about.
         fn lights(g: &Generator, at: [f32; 3], out: &mut Vec<([f32; 3], [f32; 3])>) {
@@ -1083,7 +1083,7 @@ mod tests {
         lights(&g, [0.0; 3], &mut found);
         assert!(
             found.len() >= 3,
-            "only {} lit surfaces — the shelter should be lit, the wound \
+            "only {} lit surfaces - the shelter should be lit, the wound \
              should burn, and the lantern should be alight",
             found.len()
         );
@@ -1094,12 +1094,12 @@ mod tests {
         let warm = found.iter().filter(|(_, c)| c[0] >= c[1]).count();
         assert!(
             cold >= 1,
-            "nothing here burns cold — the cursed register's whole read is one \
+            "nothing here burns cold - the cursed register's whole read is one \
              green light among the amber"
         );
         assert!(
             warm >= 2,
-            "only {warm} warm lights — the shelter has to be lived in, or the \
+            "only {warm} warm lights - the shelter has to be lived in, or the \
              green has nothing to be cold against"
         );
         // The cold light is at the break, and the warm ones are aft in the
@@ -1112,7 +1112,7 @@ mod tests {
             .expect("checked above");
         assert!(
             cold_z < BREAK_Z + 2.0,
-            "the witchfire is at z = {cold_z}, aft of the break — it is \
+            "the witchfire is at z = {cold_z}, aft of the break - it is \
              burning inside the shelter instead of in the wreckage"
         );
     }

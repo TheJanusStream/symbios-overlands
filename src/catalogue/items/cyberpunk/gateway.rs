@@ -1,10 +1,10 @@
-//! Neon Transit Gate — the Cyberpunk bespoke social gateway (#755). Replaces
+//! Neon Transit Gate - the Cyberpunk bespoke social gateway (#755). Replaces
 //! the neutral placeholder arch for this theme: a pair of heavy dark-metal
 //! transit pylons framing a lit walk-through channel, spanned by a header
 //! girder carrying a neon destination marquee, with hot cyan jamb tubes,
 //! an amber hazard band, a floor threshold runway and a lime "this-way"
 //! chevron over the mouth. The one functional element is the single
-//! [`GeneratorKind::Gateway`] zone centred in the opening — walking into it
+//! [`GeneratorKind::Gateway`] zone centred in the opening - walking into it
 //! opens the destination picker.
 //!
 //! Emissive discipline (HDR + bloom): the broad marquee tiles stay moderate
@@ -24,7 +24,7 @@ use super::{DARK_METAL, NEON_CYAN, NEON_LIME, NEON_MAGENTA, fx, metal};
 
 pub struct CyberpunkGateway;
 
-/// Warning-amber hazard banding — the one warm note against the cold neon,
+/// Warning-amber hazard banding - the one warm note against the cold neon,
 /// marking the pylon feet like a live piece of transit infrastructure.
 const HAZARD: [f32; 3] = [1.0, 0.62, 0.08];
 
@@ -61,13 +61,13 @@ fn build_tree() -> Generator {
     let slab_h = 0.3_f32;
     let foot = 5.0_f32; // slab width (X)
     let depth = 1.6_f32; // slab depth (Z)
-    let px = 1.7_f32; // pylon centre X — inner faces leave a ~2.7 m mouth
+    let px = 1.7_f32; // pylon centre X - inner faces leave a ~2.7 m mouth
     let pw = 0.7_f32; // pylon width (X)
     let pd = 0.9_f32; // pylon depth (Z)
     let pyl_h = 4.0_f32;
     let top = slab_h + pyl_h; // header springing height
 
-    // Forecourt slab — the flat-base root; never tilt it or every child spins.
+    // Forecourt slab - the flat-base root; never tilt it or every child spins.
     let mut root = prim(
         solid(cuboid_tapered([foot, slab_h, depth], 0.0, metal(body))),
         [0.0, slab_h * 0.5, 0.0],
@@ -107,7 +107,7 @@ fn build_tree() -> Generator {
             [sx * px, rel(slab_h + 0.9), 0.0],
             id_quat(),
         ));
-        // Hot cyan jamb tube down the inner-front face — the illuminated
+        // Hot cyan jamb tube down the inner-front face - the illuminated
         // door-post that reads the gap as a threshold.
         root.children.push(prim(
             cuboid_tapered([0.09, pyl_h * 0.82, 0.14], 0.0, glow(NEON_CYAN, 6.0)),
@@ -132,7 +132,7 @@ fn build_tree() -> Generator {
         [0.0, rel(top + 0.25), 0.0],
         id_quat(),
     ));
-    // Threshold underglow — the lit top edge of the doorway, spanning the
+    // Threshold underglow - the lit top edge of the doorway, spanning the
     // mouth on the front (-Z) face.
     root.children.push(prim(
         cuboid_tapered([2.0 * px - pw, 0.1, 0.14], 0.0, glow(NEON_MAGENTA, 5.0)),
@@ -150,7 +150,7 @@ fn build_tree() -> Generator {
         [0.0, cy, -0.46],
         id_quat(),
     ));
-    // A departures-board row of lit tiles — moderate glow so the broad faces
+    // A departures-board row of lit tiles - moderate glow so the broad faces
     // hold their hue instead of blowing to white.
     let tiles = [NEON_CYAN, NEON_MAGENTA, NEON_CYAN, NEON_MAGENTA];
     for (i, c) in tiles.into_iter().enumerate() {
@@ -161,7 +161,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Hot cyan frame — a crisp lit border reads the marquee as a sign.
+    // Hot cyan frame - a crisp lit border reads the marquee as a sign.
     for sy in [-1.0_f32, 1.0] {
         root.children.push(prim(
             cuboid_tapered([3.5, 0.16, 0.4], 0.0, glow(NEON_CYAN, 5.0)),
@@ -181,7 +181,7 @@ fn build_tree() -> Generator {
         .push(fx::rising_motes([0.0, cy, -0.7], NEON_MAGENTA, 0x6A7E_0A7E));
 
     // ---- "This-way" chevron over the mouth (front, -Z) -------------------
-    // Two hot lime arms meeting at a downward apex — a go-signal pointing the
+    // Two hot lime arms meeting at a downward apex - a go-signal pointing the
     // player through the opening. Mirrored Z-rotation keeps it symmetric.
     let chevron_y = rel(slab_h + 3.35);
     for (sx, angle) in [(-1.0_f32, 0.5_f32), (1.0, -0.5)] {
@@ -204,8 +204,8 @@ fn build_tree() -> Generator {
     }
 
     // ---- The functional zone --------------------------------------------
-    // Fitted to the opening (#1006): the veil fills the mouth exactly —
-    // pylon inner faces left and right, slab top to header underside — and
+    // Fitted to the opening (#1006): the veil fills the mouth exactly -
+    // pylon inner faces left and right, slab top to header underside - and
     // buries each edge `EMBED` into that frame so no cuboid edge shows. It
     // runs the pylons' own depth, so it never juts out of the mouth.
     // Derived from the frame constants above rather than written as
@@ -221,7 +221,7 @@ fn build_tree() -> Generator {
     root
 }
 
-/// A darker shade of a body colour — the recessed marquee housing.
+/// A darker shade of a body colour - the recessed marquee housing.
 fn shade(c: [f32; 3]) -> [f32; 3] {
     [c[0] * 0.6, c[1] * 0.6, c[2] * 0.6]
 }
@@ -236,7 +236,7 @@ mod tests {
         assert_sanitize_stable(&CyberpunkGateway.build(""), "cyberpunk_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is furniture, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

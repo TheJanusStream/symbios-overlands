@@ -1,4 +1,4 @@
-//! Beehive — a Solarpunk prop. A white Langstroth hive of stacked boxes on a
+//! Beehive - a Solarpunk prop. A white Langstroth hive of stacked boxes on a
 //! timber stand with a landing board. Scatter clutter pollinating the
 //! gardens.
 
@@ -47,7 +47,7 @@ impl CatalogueEntry for Beehive {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Timber stand — the root.
+        // Timber stand - the root.
         prim(
             solid(cuboid_tapered([0.8, 0.4, 0.8], 0.0, timber(TIMBER_WARM))),
             [0.0, 0.2, 0.0],

@@ -1,4 +1,4 @@
-//! Lantern — a standing lamp post with a warm glowing head. An
+//! Lantern - a standing lamp post with a warm glowing head. An
 //! escalation-Calm scatter prop: maintained street lighting signals a safe,
 //! orderly settlement in any setting.
 
@@ -74,7 +74,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
         // Deep-amber glow core, set inside the cage so the bronze frame
-        // breaks it up — saturated colour at moderate strength reads
+        // breaks it up - saturated colour at moderate strength reads
         // incandescent instead of washing to a pale near-white box.
         prim(
             cuboid_tapered([0.21, 0.36, 0.21], 0.0, glow(LANTERN_WARM, 2.6)),

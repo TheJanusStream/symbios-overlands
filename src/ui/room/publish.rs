@@ -37,7 +37,7 @@ pub struct PublishRoomTask {
 }
 
 /// Async task for the hard-reset publish path (wipe-then-republish). Separate
-/// from `PublishRoomTask` only for logging clarity — the two share the same
+/// from `PublishRoomTask` only for logging clarity - the two share the same
 /// result type and poll system.
 #[derive(Component)]
 pub struct ResetRoomTask {
@@ -52,7 +52,7 @@ pub struct ResetRoomTask {
 
 /// Spawn the async room-record publish. `pub(crate)` because the
 /// unsaved-edits guard ([`crate::ui::unsaved_guard`]) drives the same
-/// pipeline for its "Publish & continue" path — the shared
+/// pipeline for its "Publish & continue" path - the shared
 /// [`poll_publish_tasks`] system lands the result either way.
 pub(crate) fn spawn_room_publish_task(
     commands: &mut Commands,
@@ -90,7 +90,7 @@ pub(crate) fn spawn_room_publish_task(
     });
 }
 
-/// Spawn the hard-reset publish task — wipe the stored manifest + child
+/// Spawn the hard-reset publish task - wipe the stored manifest + child
 /// records first, then republish fresh (all via `applyWrites`). Used by the
 /// recovery banner's "Reset PDS to default" button, which must work even
 /// when the stored record is schema-incompatible and cannot be decoded.
@@ -154,8 +154,8 @@ pub fn poll_publish_tasks(
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     mut toasts: ResMut<crate::notify::Toasts>,
     // The room this session is in now (#1204): a result for another room
-    // — a save let run in the background across a portal hop, or a task
-    // that outlived its session — must not pin `stored`.
+    // - a save let run in the background across a portal hop, or a task
+    // that outlived its session - must not pin `stored`.
     current_room: Option<Res<crate::state::CurrentRoomDid>>,
 ) {
     for (entity, mut task) in publish_tasks.iter_mut() {
@@ -194,7 +194,7 @@ pub fn poll_publish_tasks(
                     stored.0 = task.published.clone();
                 }
                 // The PDS now holds what `stored` says it holds, so the
-                // recovery marker — "the stored copy was never read" — is
+                // recovery marker - "the stored copy was never read" - is
                 // retired HERE, where success is known (#1199).
                 commands.remove_resource::<crate::state::RoomRecordRecovery>();
                 publish_feedback.status = PublishStatus::Success { at_secs: now };
@@ -301,7 +301,7 @@ pub fn poll_publish_tasks(
 }
 
 /// Whether a landed write belongs to a session or room this client is no
-/// longer in (#1204). `expected` is the DID the poll answers for now —
+/// longer in (#1204). `expected` is the DID the poll answers for now -
 /// the current room for a room write, the signed-in session for an avatar
 /// or inventory write; `None` (no such resource, i.e. not in a session)
 /// lets the result through so the harnesses that drive the polls without

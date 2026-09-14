@@ -1,4 +1,4 @@
-//! Bus shelter — a Civic/Campus *poor* secondary. A worn three-sided steel-
+//! Bus shelter - a Civic/Campus *poor* secondary. A worn three-sided steel-
 //! and-glass transit shelter with a bench and a faded route panel. The edge
 //! of the underfunded quarter.
 
@@ -51,7 +51,7 @@ fn build_tree() -> Generator {
     let post_h = 2.4_f32;
 
     let mut prims = vec![
-        // Concrete pad — the root.
+        // Concrete pad - the root.
         prim(
             solid(cuboid_tapered(
                 [3.6, pad_h, 1.6],
@@ -77,7 +77,7 @@ fn build_tree() -> Generator {
         }
     }
 
-    // Grimy glass back (on the +Z back) and side panels — the shelter opens
+    // Grimy glass back (on the +Z back) and side panels - the shelter opens
     // toward the -Z render front so the camera looks in at the bench.
     prims.push(prim(
         cuboid_tapered([3.4, 1.8, 0.1], 0.0, glass(GLASS_TINT, 0.0)),

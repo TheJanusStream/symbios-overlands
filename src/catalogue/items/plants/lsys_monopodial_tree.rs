@@ -1,4 +1,4 @@
-//! Monopodial tree — ABOP Fig 2.6. A central leader trunk with recursive
+//! Monopodial tree - ABOP Fig 2.6. A central leader trunk with recursive
 //! lateral branching gives the conical conifer silhouette; a finalization rule
 //! hangs a downward-angled needle spray (Needle cards) off every lateral tip so
 //! it reads as a living dark blue-green conifer rather than a bare skeleton.
@@ -15,7 +15,7 @@ use crate::pds::{
 };
 
 /// Conifer re-skins (#910): one monopodial skeleton covers the cold biomes.
-/// Slot 0 is bark, slot 1 the needle spray — see the material-slot
+/// Slot 0 is bark, slot 1 the needle spray - see the material-slot
 /// convention in `docs/lsystem-playbook.md`.
 static VARIANTS: &[PlantVariant] = &[
     PlantVariant {
@@ -66,7 +66,7 @@ static VARIANTS: &[PlantVariant] = &[
         name: "frosted",
         label: "Frosted spruce",
         apply: |m| {
-            // Pale, desaturated and blue-shifted — snow-laden needles for
+            // Pale, desaturated and blue-shifted - snow-laden needles for
             // the coldest rooms, where full-chroma green reads wrong.
             tint_needle(
                 m,
@@ -96,7 +96,7 @@ impl CatalogueEntry for MonopodialTree {
         "Monopodial Conifer"
     }
     fn description(&self) -> &'static str {
-        "Conical single-leader conifer with drooping needle sprays — ABOP Fig 2.6."
+        "Conical single-leader conifer with drooping needle sprays - ABOP Fig 2.6."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Plant
@@ -111,7 +111,7 @@ impl CatalogueEntry for MonopodialTree {
 
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
-    // 0 — brown bark trunk.
+    // 0 - brown bark trunk.
     materials.insert(
         0,
         SovereignMaterialSettings {
@@ -126,7 +126,7 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 1 — dark blue-green needle foliage. A real conifer needle cluster
+    // 1 - dark blue-green needle foliage. A real conifer needle cluster
     // (paired needles on a woody shoot) rather than the broadleaf Twig card
     // it used to borrow; the grammar selects it via `,(1)`.
     materials.insert(
@@ -156,10 +156,10 @@ fn build_kind() -> GeneratorKind {
         // leader A drops lateral B branches that sub-branch C/B, shrinking
         // each step for the conical outline. Lateral pitch/length and the
         // leader's phyllotaxis roll are seed-varied (rolls held near the
-        // 137.5° golden angle — wider spreads resonate into azimuth notches).
+        // 137.5° golden angle - wider spreads resonate into azimuth notches).
         // The finalization hangs a TWO-card needle spray off every lateral
         // tip, angled steeply down so the foliage droops into tiered conifer
-        // skirts — thinned from three larger cards after the WS0 grading
+        // skirts - thinned from three larger cards after the WS0 grading
         // called the old crown excessively dense.
         source_code: "#define r1 0.9\n\
                       #define r2 0.6\n\

@@ -2,11 +2,11 @@ use super::*;
 use crate::urban::test_support::*;
 
 /// #583: a degree-1 dead-end ending transversely a few metres off a through-road
-/// welds in — the touched edge splits at the foot-of-perpendicular, a real
+/// welds in - the touched edge splits at the foot-of-perpendicular, a real
 /// (degree-3) junction appears there, and the dead-end becomes a degree-2 node.
 #[test]
 fn weld_creates_junction_for_real_near_miss() {
-    // Through-road 0—1 along +x; shaft 2→3 drops toward it, tip 3 is 5 m above.
+    // Through-road 0-1 along +x; shaft 2→3 drops toward it, tip 3 is 5 m above.
     let mut g = weld_graph(
         &[(0.0, 0.0), (100.0, 0.0), (50.0, 20.0), (50.0, 5.0)],
         &[(0, 1), (2, 3)],
@@ -30,7 +30,7 @@ fn weld_creates_junction_for_real_near_miss() {
 }
 
 /// #583: a dead-end running NEAR-PARALLEL to a road (crossing angle below
-/// WELD_MIN_CROSS_ANGLE) is a graze, not a junction — it must NOT weld (the
+/// WELD_MIN_CROSS_ANGLE) is a graze, not a junction - it must NOT weld (the
 /// additive twin of the #571 graze cut must not re-introduce false junctions).
 #[test]
 fn graze_is_left_alone() {
@@ -46,7 +46,7 @@ fn graze_is_left_alone() {
 }
 
 /// #583: a genuine cul-de-sac ending in open space (no edge within tolerance) is
-/// left for the #579 cap — the weld only fires when another road is near.
+/// left for the #579 cap - the weld only fires when another road is near.
 #[test]
 fn true_cul_de_sac_is_left_alone() {
     let mut g = weld_graph(
@@ -61,7 +61,7 @@ fn true_cul_de_sac_is_left_alone() {
 }
 
 /// #583: a dead-end whose foot lands in the outer margin of a segment (near an
-/// endpoint) is a near-NODE case owned by merge_coincident_nodes — it must NOT
+/// endpoint) is a near-NODE case owned by merge_coincident_nodes - it must NOT
 /// split the edge mid-span.
 #[test]
 fn endpoint_near_node_is_not_welded() {
@@ -78,11 +78,11 @@ fn endpoint_near_node_is_not_welded() {
 }
 
 /// #583: a dead-end must never weld onto its OWN chain (a hairpin curling back
-/// near an earlier segment of the same road) — the self-chain guard excludes it.
+/// near an earlier segment of the same road) - the self-chain guard excludes it.
 #[test]
 fn self_chain_is_not_welded() {
-    // Chain 0—1—2—3—4: edge 0—1 lies at y=0; the tip 4=(5,3) comes back 3 m
-    // above it, but 0—1 is part of 4's own chain.
+    // Chain 0-1-2-3-4: edge 0-1 lies at y=0; the tip 4=(5,3) comes back 3 m
+    // above it, but 0-1 is part of 4's own chain.
     let mut g = weld_graph(
         &[
             (0.0, 0.0),
@@ -102,7 +102,7 @@ fn self_chain_is_not_welded() {
     assert_eq!(active_degrees(&g)[4], 1, "node 4 stays a dead-end");
 }
 
-/// #583: welding is idempotent — a second pass over an already-welded graph
+/// #583: welding is idempotent - a second pass over an already-welded graph
 /// welds nothing (the dead-end is now a degree-2 through node).
 #[test]
 fn weld_is_idempotent() {
@@ -118,8 +118,8 @@ fn weld_is_idempotent() {
     );
 }
 
-/// #890: the style presets genuinely change the traced topology — a Grid
-/// district on sloped terrain differs from the Hillside default — while the
+/// #890: the style presets genuinely change the traced topology - a Grid
+/// district on sloped terrain differs from the Hillside default - while the
 /// forward-compat `Unknown` arm traces exactly as Hillside.
 #[test]
 fn road_style_changes_the_traced_graph() {

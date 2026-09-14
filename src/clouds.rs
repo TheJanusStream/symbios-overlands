@@ -6,7 +6,7 @@
 //! by `softness`, drifting with `wind_dir * speed`, lit by the directional sun
 //! direction, and faded into the room's distance-fog colour at the horizon.
 //!
-//! Designed to run on WebGL2 — pure fragment work, no compute, no storage
+//! Designed to run on WebGL2 - pure fragment work, no compute, no storage
 //! textures, no prepass dependency. Mirrors the [`crate::water`] module's
 //! `MaterialExtension` pattern so the world compiler can mutate uniforms in
 //! place without rebuilding the material asset.
@@ -25,7 +25,7 @@ const CLOUD_SHADER_PATH: &str = "shaders/cloud.wgsl";
 /// satisfy the 16-byte alignment WGSL imposes; scalars pack at the end.
 /// `cloud_color`, `cloud_shadow_color`, `fog_color`, and `sun_dir` are
 /// stored as `Vec4` rather than `Vec3` to dodge the 12-vs-16-byte alignment
-/// pitfall — alpha channels are unused.
+/// pitfall - alpha channels are unused.
 #[derive(Debug, Clone, Default, ShaderType)]
 pub struct CloudUniforms {
     /// sRGB sunlit-top tint (rgb), alpha unused.
@@ -48,7 +48,7 @@ pub struct CloudUniforms {
     pub softness: f32,
     /// Drift speed (m/s) along `wind_dir`.
     pub speed: f32,
-    /// World-metres per UV unit — controls feature size of the noise.
+    /// World-metres per UV unit - controls feature size of the noise.
     pub scale: f32,
 }
 
@@ -57,7 +57,7 @@ pub struct CloudUniforms {
 /// Bind-group slots (group `MATERIAL_BIND_GROUP`, 100 +):
 /// - 100 [`CloudUniforms`] uniform
 ///
-/// Shadows and prepass are both disabled — the cloud deck must not occlude
+/// Shadows and prepass are both disabled - the cloud deck must not occlude
 /// anything in the depth prepass (it's transparent) and casting shadows from
 /// a procedurally noised plane would only project a flat slab onto the
 /// terrain, which is worse than nothing.
@@ -96,7 +96,7 @@ pub struct CloudLayer;
 /// Pin the cloud-deck plane's XZ to the active camera each frame so the
 /// finite mesh is always centred on the viewer.
 ///
-/// The shader's horizon fade is camera-relative — it dissolves the deck on a
+/// The shader's horizon fade is camera-relative - it dissolves the deck on a
 /// circle of radius `~5.671 × (cloud_height − cam_height)` around the camera.
 /// Without this follow, the mesh stays anchored at world origin, so as the
 /// player drifts off-centre the closest mesh edge can fall *inside* that
@@ -105,7 +105,7 @@ pub struct CloudLayer;
 /// fade radius) continue to dissolve cleanly.
 ///
 /// The FBM is sampled in world XZ with a time-driven scroll, so the clouds
-/// stay world-anchored regardless of where the mesh sits — moving the mesh
+/// stay world-anchored regardless of where the mesh sits - moving the mesh
 /// only relocates the sampling window, not the cloud silhouettes. `.y` is
 /// owned by `apply_environment_state` (it's driven by the PDS
 /// `Environment::cloud_height` field via the plane's Transform, not a

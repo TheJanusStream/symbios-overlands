@@ -1,4 +1,4 @@
-//! Shrine — a Mesoamerican secondary. A small temple on a stepped limestone
+//! Shrine - a Mesoamerican secondary. A small temple on a stepped limestone
 //! platform: a red-stuccoed cella with a dark doorway under a palm-thatch
 //! roof, copal incense smoking from the threshold. A neighbourhood place of
 //! offering beneath the great pyramid.
@@ -49,7 +49,7 @@ impl CatalogueEntry for Shrine {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Lower platform step — the root.
+        // Lower platform step - the root.
         prim(
             solid(cuboid_tapered(
                 [6.0, 0.6, 6.0],
@@ -111,7 +111,7 @@ fn build_tree() -> Generator {
         [0.0, base + 0.5 + 2.4 + 0.22, 0.0],
         id_quat(),
     ));
-    // Corbel-arch doorway — a tapered dark recess narrowing to the Maya
+    // Corbel-arch doorway - a tapered dark recess narrowing to the Maya
     // stepped-vault profile, on the front (−Z) face.
     prims.push(prim(
         solid(cuboid_tapered(

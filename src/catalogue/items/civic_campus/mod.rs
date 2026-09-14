@@ -1,4 +1,4 @@
-//! Civic / Campus-theme catalogue structures — a dignified quarter of
+//! Civic / Campus-theme catalogue structures - a dignified quarter of
 //! municipal and university buildings around a green quad.
 //!
 //! Two prosperity registers share one institutional identity: the
@@ -27,7 +27,7 @@ pub mod library;
 pub mod monument;
 pub mod notice_board;
 pub mod town_hall;
-// Poor (underfunded) variants — the prosperity-Poor end of the theme.
+// Poor (underfunded) variants - the prosperity-Poor end of the theme.
 pub mod bus_shelter;
 pub mod portable_classroom;
 pub mod recycling_bins;
@@ -49,7 +49,7 @@ use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
 /// A classical column standing at (`x`, `z`): a wider stepped plinth foot, a
 /// slightly entasis-tapered shaft, a torus necking ring and a square capital
-/// abacus that oversails the shaft. Returned for an [`assemble`] list — the
+/// abacus that oversails the shaft. Returned for an [`assemble`] list - the
 /// shared portico vocabulary for the [`town_hall`] and [`library`] fronts.
 ///
 /// [`assemble`]: crate::catalogue::items::util::assemble
@@ -100,18 +100,18 @@ pub(super) fn column(
     ]
 }
 
-/// Shared prosperity band for the established campus — stone halls and a
+/// Shared prosperity band for the established campus - stone halls and a
 /// brick tower read as a Modest-to-Rich institution. The poor end of the
 /// theme is the separate underfunded kit ([`portable_classroom`], …),
 /// tagged `Poor`, so a destitute civic room grows the demountable lot.
 pub(super) const CAMPUS_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the underfunded kit — the destitute end of the theme,
+/// Prosperity band for the underfunded kit - the destitute end of the theme,
 /// never picked for a modest or affluent civic room.
 pub(super) const CAMPUS_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Veined polished marble — porticoes, columns, steps, plinths. The dressed
+/// Veined polished marble - porticoes, columns, steps, plinths. The dressed
 /// stone of the civic front, not a flat painted slab.
 pub(super) fn marble(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -132,7 +132,7 @@ pub(super) fn marble(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Dressed ashlar stone — town-hall and library walls.
+/// Dressed ashlar stone - town-hall and library walls.
 pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -153,7 +153,7 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Red brick — dormitory, clock tower, lecture-hall base.
+/// Red brick - dormitory, clock tower, lecture-hall base.
 pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -170,8 +170,8 @@ pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Board-formed concrete — the modern lecture hall, steps, plinths.
-/// Precast paving slabs — plazas, walkways and monument steps. The campus
+/// Board-formed concrete - the modern lecture hall, steps, plinths.
+/// Precast paving slabs - plazas, walkways and monument steps. The campus
 /// ground plane is laid, not poured, so it reads as slabs with grout joints
 /// rather than the board-marked concrete of the buildings.
 pub(super) fn paving(color: [f32; 3]) -> SovereignMaterialSettings {
@@ -209,7 +209,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Lit institutional glass — tall hall windows, dorm rooms, the entrance. A
+/// Lit institutional glass - tall hall windows, dorm rooms, the entrance. A
 /// faint inner glow (`glow`) so the panes read as lit rather than black.
 pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -231,7 +231,7 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     }
 }
 
-/// Verdigris copper — the town-hall dome lantern and the clock-tower roof.
+/// Verdigris copper - the town-hall dome lantern and the clock-tower roof.
 pub(super) fn copper(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -251,7 +251,7 @@ pub(super) fn copper(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Brushed structural steel — railings, the bike rack, the flagpole, the
+/// Brushed structural steel - railings, the bike rack, the flagpole, the
 /// lamp column.
 pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -288,12 +288,12 @@ pub(super) fn pane_grid(tint: [f32; 3], glow: f32, panes: (u32, u32)) -> Soverei
     m
 }
 
-/// Sun-greyed plank — the notice board, the portable classroom, the bus
+/// Sun-greyed plank - the notice board, the portable classroom, the bus
 /// shelter bench.
 ///
 /// `stagger` is held at zero (#972 lesson 4): any value above 0.01 switches on
 /// the generator's hard-coded three-butt-joints-per-tile grid, which the config
-/// cannot size — on this kit's 0.84 m tile an end joint every 280 mm, so a
+/// cannot size - on this kit's 0.84 m tile an end joint every 280 mm, so a
 /// notice board reads as brickwork.
 pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -317,7 +317,7 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Flat matte paint — flags, sign faces, painted trim. A plain coloured
+/// Flat matte paint - flags, sign faces, painted trim. A plain coloured
 /// surface with no procedural texture.
 pub(super) fn painted(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -369,7 +369,7 @@ mod tests {
         }
     }
 
-    /// The town hall is the kit's lit hero — it must keep its emissive
+    /// The town hall is the kit's lit hero - it must keep its emissive
     /// windows and lamps so escalation's broken-emissive ruin pass has
     /// lights to snuff.
     #[test]

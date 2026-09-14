@@ -1,4 +1,4 @@
-//! Integration tests for `AvatarRecord` — the player's vessel / body.
+//! Integration tests for `AvatarRecord` - the player's vessel / body.
 //!
 //! Covers DID-derived defaults, locomotion-preset round-trip across all
 //! five variants, the locomotion `kind_tag` hot-swap surface, open-union
@@ -18,7 +18,7 @@ use symbios_overlands::seeded_defaults::ChassisFamily;
 fn default_avatar_locomotion_matches_seeded_chassis_family() {
     // The default is DID-seeded: each chassis family maps to the
     // locomotion preset that matches its visuals (boat → HoverBoat,
-    // airship → Helicopter, humanoid → Humanoid, skiff → Car) — see
+    // airship → Helicopter, humanoid → Humanoid, skiff → Car) - see
     // `pds::avatar::default_visuals::build_for_did`.
     for did in [
         "did:plc:alice",
@@ -43,7 +43,7 @@ fn default_avatar_locomotion_matches_seeded_chassis_family() {
 
 #[test]
 fn default_avatar_is_deterministic_across_dids() {
-    // Remote peers rebuild avatars locally — if default_for_did drifted
+    // Remote peers rebuild avatars locally - if default_for_did drifted
     // we'd see different vessels across clients.
     let a = AvatarRecord::default_for_did("did:plc:alice");
     let b = AvatarRecord::default_for_did("did:plc:alice");
@@ -54,7 +54,7 @@ fn default_avatar_is_deterministic_across_dids() {
 
 #[test]
 fn default_avatar_palette_differs_across_dids() {
-    // Colour differentiation for free — part of the product; without it
+    // Colour differentiation for free - part of the product; without it
     // every fresh player spawns in the same drab vessel.
     let a = AvatarRecord::default_for_did("did:plc:alice");
     let b = AvatarRecord::default_for_did("did:plc:bob");
@@ -64,7 +64,7 @@ fn default_avatar_palette_differs_across_dids() {
 }
 
 // ---------------------------------------------------------------------------
-// Round-trip — every locomotion preset must serialise + deserialise back
+// Round-trip - every locomotion preset must serialise + deserialise back
 // to an equal record so a published avatar reloads byte-identical.
 // ---------------------------------------------------------------------------
 
@@ -78,7 +78,7 @@ fn record_with_locomotion(locomotion: LocomotionConfig) -> AvatarRecord {
 /// wire. We compare JSON values rather than Rust structs because every
 /// continuous field travels through `Fp` (i32 ÷ 10_000), so an arbitrary
 /// `f32` (e.g. a DID-derived palette colour like `0.6315687`) quantises to
-/// the nearest `0.0001` step on the way out — `Rust struct == ` would
+/// the nearest `0.0001` step on the way out - `Rust struct == ` would
 /// fail on a precision-only diff that is invisible on the wire and is
 /// exactly the post-quantisation form every peer actually sees.
 fn assert_round_trips(record: &AvatarRecord) {
@@ -124,7 +124,7 @@ fn car_locomotion_round_trips() {
 
 #[test]
 fn avatar_serialises_without_float_literals() {
-    // DAG-CBOR forbids floats — every continuous field must hop through
+    // DAG-CBOR forbids floats - every continuous field must hop through
     // the fixed-point Fp wrappers and land on the wire as an integer.
     // A literal `0.5` anywhere in the JSON is a regression that the PDS
     // would reject with `400 InvalidRequest`.
@@ -139,7 +139,7 @@ fn avatar_serialises_without_float_literals() {
 }
 
 // ---------------------------------------------------------------------------
-// Hot-swap — `kind_tag` is the cheap discriminator the player module uses
+// Hot-swap - `kind_tag` is the cheap discriminator the player module uses
 // to decide whether a `Changed<LiveAvatarRecord>` event should trigger a
 // full preset rebuild or just a slider sync.
 // ---------------------------------------------------------------------------
@@ -159,7 +159,7 @@ fn kind_tag_is_stable_across_variants() {
     assert_eq!(car.kind_tag(), "car");
     assert_eq!(LocomotionConfig::Unknown.kind_tag(), "unknown");
 
-    // Every distinct preset must have a distinct tag — collisions would
+    // Every distinct preset must have a distinct tag - collisions would
     // make hot-swap detection silently miss a variant change.
     let tags = [
         hover.kind_tag(),
@@ -184,7 +184,7 @@ fn kind_tag_is_stable_across_variants() {
 fn unknown_locomotion_decodes_to_unknown() {
     // Forward-compat: a peer on a newer client might publish a locomotion
     // variant we can't model. It must deserialise to `Unknown`, never
-    // panic or fail the whole decode — otherwise an upgrade on one side
+    // panic or fail the whole decode - otherwise an upgrade on one side
     // of the network bricks every other peer's view of that user.
     let alice = AvatarRecord::default_for_did("did:plc:alice");
     let mut value: serde_json::Value = serde_json::to_value(&alice).unwrap();
@@ -203,11 +203,11 @@ fn unknown_locomotion_decodes_to_unknown() {
 
 #[test]
 fn avatar_sanitize_clamps_non_finite_chassis_dimensions() {
-    // HoverBoat chassis half-extents are `Fp3` — the sanitize pass must
+    // HoverBoat chassis half-extents are `Fp3` - the sanitize pass must
     // clamp NaN/infinity/negative back into a safe positive range before
     // the spawner uses them for `Collider::cuboid`, which panics on
     // non-finite or non-positive sides.
-    // Pin the HoverBoat preset explicitly — the DID-seeded default may
+    // Pin the HoverBoat preset explicitly - the DID-seeded default may
     // land on any chassis family.
     let mut avatar = AvatarRecord::default_for_did("did:plc:alice");
     let mut params = Box::<HoverBoatParams>::default();
@@ -238,7 +238,7 @@ fn avatar_sanitize_clamps_non_finite_chassis_dimensions() {
 // ---------------------------------------------------------------------------
 
 /// A record published before #874 (no `gait` section) and before #876 (no
-/// promoted feel fields on its locomotion preset) must still deserialize —
+/// promoted feel fields on its locomotion preset) must still deserialize -
 /// field-level serde defaults fill in the historical constants, and the
 /// missing gait section stays `None` (the DID-seeded fallback).
 #[test]

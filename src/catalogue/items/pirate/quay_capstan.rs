@@ -1,4 +1,4 @@
-//! Quay Capstan — the machine a harbour warps ships in with.
+//! Quay Capstan - the machine a harbour warps ships in with.
 //!
 //! A capstan stepped on a paved pad at the water's edge: barrel, whelps,
 //! pawl rim and drumhead, four bars shipped and two sockets empty, with the
@@ -6,7 +6,7 @@
 //!
 //! # What makes it read as working rather than as furniture
 //!
-//! Three things, and none of them is the capstan itself — the kit's shared
+//! Three things, and none of them is the capstan itself - the kit's shared
 //! [`capstan`] supplies that. It is the ROPE that says the
 //! machine is doing something: a hawser taken to the barrel, turned round a
 //! bollard, and running off the pad toward whatever is being warped in. A
@@ -31,12 +31,12 @@ use super::{
     hemp, iron,
 };
 
-/// The paved pad — the sub-root every footprint guard measures against
+/// The paved pad - the sub-root every footprint guard measures against
 /// (#972 lesson 19).
 const PAD: [f32; 3] = [5.4, 0.26, 5.4];
 const GROUND: f32 = PAD[1];
 
-/// The stone step the capstan is bedded into, and its top — where the
+/// The stone step the capstan is bedded into, and its top - where the
 /// barrel is stepped.
 const STEP_R: f32 = 1.0;
 const STEP_H: f32 = 0.34;
@@ -49,7 +49,7 @@ const BARS: usize = 4;
 const BOLLARD: [f32; 3] = [1.85, 0.0, -1.7];
 const BOLLARD_H: f32 = 0.72;
 
-/// Hero side — the render tool and the settlement placer both look down `-Z`.
+/// Hero side - the render tool and the settlement placer both look down `-Z`.
 const FRONT: f32 = -1.0;
 
 pub struct QuayCapstan;
@@ -88,7 +88,7 @@ impl CatalogueEntry for QuayCapstan {
 /// The hawser: barrel → bollard → off the pad.
 ///
 /// Every leg is a [`strut`] between two points that both exist, so the rope
-/// cannot end up pointing near its own bollard rather than at it — the fault
+/// cannot end up pointing near its own bollard rather than at it - the fault
 /// that cost this kit three separate fixes before the helper existed (#1028,
 /// #1030). The height at each end is the height of the thing it is made
 /// fast to, which is what makes the run read as a rope under load rather
@@ -129,7 +129,7 @@ fn build_tree() -> Generator {
             [0.0, DECK - (STEP_H + 0.06) * 0.5 + 0.03, 0.0],
             id_quat(),
         ),
-        // The machine itself — the kit's shared assembly.
+        // The machine itself - the kit's shared assembly.
         capstan([0.0, DECK, 0.0], BARS, 0xB2),
         // Bollard the hawser turns round.
         prim(
@@ -152,7 +152,7 @@ fn build_tree() -> Generator {
     carried.extend(hawser());
 
     // The two bars that are NOT shipped, stowed on the stones where the crew
-    // dropped them — the detail that makes four-of-six read as deliberate.
+    // dropped them - the detail that makes four-of-six read as deliberate.
     // Their CENTRES are derived from the pad's edge and the bar's own reach,
     // so a bar lying near the rim keeps both ends on the stones whatever
     // either dimension becomes (#972 lesson 8). Placed by eye at −1.9 the
@@ -240,7 +240,7 @@ mod tests {
         assert!(window_cards(&g).is_empty(), "a capstan has grown a window");
     }
 
-    /// Four bars shipped, two sockets empty — and the empty pair accounted
+    /// Four bars shipped, two sockets empty - and the empty pair accounted
     /// for on the stones.
     ///
     /// The count is the read: six filled is a ceremonial diagram, four filled
@@ -277,12 +277,12 @@ mod tests {
         );
         let shipped = found.iter().filter(|(a, _)| a[1] > DECK).count();
         assert_eq!(shipped, BARS, "{shipped} bars are in their sockets");
-        // Every bar is level — that is what a bar in a socket is, and it is
+        // Every bar is level - that is what a bar in a socket is, and it is
         // the property the hand-rolled rotation used to get wrong.
         for (a, b) in &found {
             assert!(
                 (a[1] - b[1]).abs() < 1e-3,
-                "a bar runs from {a:?} to {b:?} — it is not level"
+                "a bar runs from {a:?} to {b:?} - it is not level"
             );
         }
     }
@@ -291,7 +291,7 @@ mod tests {
     /// and off the pad.
     ///
     /// Read from the BUILT struts (#972 lesson 21), because the fault this
-    /// guards is a leg that points *near* its bollard rather than at it —
+    /// guards is a leg that points *near* its bollard rather than at it -
     /// which looks right from three of four angles and is what cost this kit
     /// three separate fixes. Continuity is checked as a join, not as a pair
     /// of positions.
@@ -330,12 +330,12 @@ mod tests {
             .expect("four candidate joins");
         assert!(
             join.0 < 0.08,
-            "the hawser's two legs do not meet — nearest ends are {} m apart",
+            "the hawser's two legs do not meet - nearest ends are {} m apart",
             join.0
         );
         assert!(
             (join.1[0] - BOLLARD[0]).abs() < 0.3 && (join.1[2] - BOLLARD[2]).abs() < 0.3,
-            "the legs meet at {:?}, not at the bollard at {BOLLARD:?} — the \\
+            "the legs meet at {:?}, not at the bollard at {BOLLARD:?} - the \\
              rope is not turned round anything",
             join.1
         );
@@ -357,7 +357,7 @@ mod tests {
         let half = [PAD[0] * 0.5, PAD[2] * 0.5];
         let mut checked = 0;
         for p in measure::solids(&g) {
-            // The hawser leaves the pad on purpose — that is the point of it.
+            // The hawser leaves the pad on purpose - that is the point of it.
             if p.kind_tag == "Cylinder" && p.bounds.size().y < 0.2 && p.bounds.min.z < -half[1] {
                 continue;
             }

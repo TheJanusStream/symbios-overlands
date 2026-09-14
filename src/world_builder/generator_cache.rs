@@ -1,6 +1,6 @@
 //! The shared per-generator cache family and content-fingerprint helpers
 //! (#646). The L-system and Shape pipelines each keep a material cache and
-//! a geometry cache with identical semantics — keyed per generator (or per
+//! a geometry cache with identical semantics - keyed per generator (or per
 //! `(generator, slot)`), invalidated by a content hash of the settings that
 //! built the entry, GC'd against the compile job's touch-sets, and cleared
 //! at logout. [`GeneratorCache`] is that family expressed once; the
@@ -23,7 +23,7 @@ pub(super) struct CachedBuild<V> {
 /// Persistent cross-compile cache for per-generator build outputs.
 ///
 /// Without one of these, every `RoomRecord` change rebuilds every
-/// generator's output — re-deriving grammars and re-baking textures for
+/// generator's output - re-deriving grammars and re-baking textures for
 /// configs that haven't moved, once per scatter sample. Lookups compare a
 /// content fingerprint so a record edit that touches *only* (say) the
 /// scatter count reuses last pass's build instead of redoing it.
@@ -50,7 +50,7 @@ impl<K, V> Default for GeneratorCache<K, V> {
 
 impl<K: Eq + Hash, V: Clone> GeneratorCache<K, V> {
     /// The cached value for `key`, provided it was built from settings with
-    /// this exact `fingerprint` — a hash mismatch is a miss, not an error.
+    /// this exact `fingerprint` - a hash mismatch is a miss, not an error.
     pub(super) fn get_if<Q>(&self, key: &Q, fingerprint: u64) -> Option<V>
     where
         K: std::borrow::Borrow<Q>,
@@ -68,7 +68,7 @@ impl<K: Eq + Hash, V: Clone> GeneratorCache<K, V> {
         self.entries.insert(key, CachedBuild { fingerprint, value });
     }
 
-    /// Evict `key` — used when a rebuild fails, so a later edit that fixes
+    /// Evict `key` - used when a rebuild fails, so a later edit that fixes
     /// the config triggers a fresh build instead of reusing stale output.
     pub(super) fn remove<Q>(&mut self, key: &Q)
     where
@@ -97,7 +97,7 @@ impl<K: Eq + Hash, V: Clone> GeneratorCache<K, V> {
     }
 }
 
-/// Stable content hash of a `SovereignMaterialSettings` — bytes of its
+/// Stable content hash of a `SovereignMaterialSettings` - bytes of its
 /// canonical JSON serialisation. Shared by the L-system and Shape material
 /// caches so the two co-exist with the same eviction strategy.
 pub(super) fn settings_fingerprint(settings: &SovereignMaterialSettings) -> u64 {

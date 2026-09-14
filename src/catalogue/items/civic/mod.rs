@@ -1,4 +1,4 @@
-//! Cross-theme socio-political prop kit — small scatter clutter that
+//! Cross-theme socio-political prop kit - small scatter clutter that
 //! belongs to a room's *socio-political tier* rather than its theme.
 //!
 //! Unlike the per-theme structure kits (`ancient`, `cyberpunk`, …), these
@@ -60,12 +60,12 @@ use crate::pds::{
 use crate::seeded_defaults::ThemeArchetype;
 use bevy_symbios_texture::metal::MetalStyle;
 
-/// Rebase-and-parent helper shared with the other primitive-built kits —
+/// Rebase-and-parent helper shared with the other primitive-built kits -
 /// see [`super::util::assemble`]. Re-exported so this module's props keep
 /// calling `super::assemble`.
 pub(super) use super::util::assemble;
 
-/// Every theme — the cross-theme props belong to a tier, not a theme, so
+/// Every theme - the cross-theme props belong to a tier, not a theme, so
 /// they advertise membership in all of them. Returned as the shared
 /// [`CatalogueEntry::themes`](crate::catalogue::CatalogueEntry::themes)
 /// value for every entry in this module.
@@ -73,7 +73,7 @@ pub(super) fn all_themes() -> &'static [ThemeArchetype] {
     &ThemeArchetype::ALL
 }
 
-/// Rotation around Z — leans planks and crossed barricade beams sideways.
+/// Rotation around Z - leans planks and crossed barricade beams sideways.
 /// (`super::util` only ships X and Y rotations.)
 pub(super) fn quat_z(angle_rad: f32) -> crate::pds::Fp4 {
     let half = angle_rad * 0.5;
@@ -88,7 +88,7 @@ pub(super) fn quat_z(angle_rad: f32) -> crate::pds::Fp4 {
 // room's tiers, so e.g. a barrel fire in a calmer room reads less scorched.
 // ---------------------------------------------------------------------------
 
-/// Weathered structural timber — beams, posts, planks. A sawn-plank grain
+/// Weathered structural timber - beams, posts, planks. A sawn-plank grain
 /// with a few knots so a post reads as wood, not a flat-painted dowel.
 pub(super) fn wood(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -114,7 +114,7 @@ pub(super) fn wood(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Cloth — awnings, banners, hanging laundry, sandbag burlap. A woven weave
+/// Cloth - awnings, banners, hanging laundry, sandbag burlap. A woven weave
 /// with a darker weft so a banner reads as fabric, not a coloured slab.
 pub(super) fn cloth(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -136,7 +136,7 @@ pub(super) fn cloth(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Rough cut / cast stone — kerbs, plinths, barricade fill. Mud-set
+/// Rough cut / cast stone - kerbs, plinths, barricade fill. Mud-set
 /// fieldstone cobble.
 pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -158,7 +158,7 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Fired brick — the collapsed wall fragments of the conflict set.
+/// Fired brick - the collapsed wall fragments of the conflict set.
 pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -176,7 +176,7 @@ pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Corrugated sheet — shanty roofs, leaning scrap panels. Ridged + rusted.
+/// Corrugated sheet - shanty roofs, leaning scrap panels. Ridged + rusted.
 pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -194,7 +194,7 @@ pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Polished marble — the prosperity-Rich basin / plinth finish, veined.
+/// Polished marble - the prosperity-Rich basin / plinth finish, veined.
 pub(super) fn marble(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -216,7 +216,7 @@ pub(super) fn marble(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Corroded / dull metal — scrap, oil drums, tin sheeting. Brushed + rust.
+/// Corroded / dull metal - scrap, oil drums, tin sheeting. Brushed + rust.
 pub(super) fn rust_metal(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -237,7 +237,7 @@ pub(super) fn rust_metal(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Burnished metal — bronze statuary, gilt finials, cast-iron frames.
+/// Burnished metal - bronze statuary, gilt finials, cast-iron frames.
 /// Brushed and barely tarnished so it reads as worked metal.
 pub(super) fn bronze(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -259,7 +259,7 @@ pub(super) fn bronze(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Matte foliage — hedges, flower-bed leaves, planter greenery. Left
+/// Matte foliage - hedges, flower-bed leaves, planter greenery. Left
 /// flat-colour: a tiling surface texture only muddies a small leaf clump.
 pub(super) fn foliage(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -284,12 +284,12 @@ pub(super) const STONE: [f32; 3] = [0.6, 0.58, 0.53];
 pub(super) const BRONZE: [f32; 3] = [0.46, 0.32, 0.16];
 pub(super) const GOLD: [f32; 3] = [0.83, 0.66, 0.22];
 pub(super) const WATER_BLUE: [f32; 3] = [0.30, 0.62, 0.82];
-/// Deep-saturated firelight — a broad cone at high strength blooms near-white,
+/// Deep-saturated firelight - a broad cone at high strength blooms near-white,
 /// so the colour carries the heat and the strength stays moderate.
 pub(super) const FIRE: [f32; 3] = [1.0, 0.42, 0.08];
 /// Hot ember core, deeper still than [`FIRE`].
 pub(super) const EMBER: [f32; 3] = [1.0, 0.24, 0.05];
-/// Warm lamplight — deep amber so a lit housing reads incandescent rather
+/// Warm lamplight - deep amber so a lit housing reads incandescent rather
 /// than washing to a pale near-white box.
 pub(super) const LANTERN_WARM: [f32; 3] = [1.0, 0.74, 0.36];
 
@@ -301,7 +301,7 @@ mod tests {
         EscalationBand, EscalationTier, ProsperityBand, ProsperityTier, ThemeArchetype,
     };
 
-    /// The civic props are the cross-theme entries — the only ones tagged
+    /// The civic props are the cross-theme entries - the only ones tagged
     /// with *every* theme (the per-theme kits list one to a few). Collected
     /// from [`ENTRIES`] so this stays in sync without a hand-maintained
     /// list, and without catching theme kits that also tag a socio band.

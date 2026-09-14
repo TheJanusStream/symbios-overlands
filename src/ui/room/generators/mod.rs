@@ -1,9 +1,9 @@
-//! Generators tab — unified tree-view sidebar on the left, per-node detail
+//! Generators tab - unified tree-view sidebar on the left, per-node detail
 //! editor on the right. The sidebar lists every named generator in
 //! [`RoomRecord::generators`] as a tree root; each root recursively shows
 //! its `children` so the entire generator hierarchy is browsable from one
 //! place. Selecting a row in the tree drives both the on-screen editor and
-//! the 3D gizmo target — [`TreePanelState::selection`] is derived from the
+//! the 3D gizmo target - [`TreePanelState::selection`] is derived from the
 //! tree widget's selection each frame so `editor_gizmo` can attach the
 //! gizmo to the matching live entity.
 //!
@@ -13,31 +13,31 @@
 //! once the tree-view widget finishes rendering, the action is drained and
 //! applied with `&mut record` access.
 //!
-//! A room root is named from two side-tables — `RoomRecord::placements`
-//! and `RoomRecord::traits` — so both structural operations on a root
+//! A room root is named from two side-tables - `RoomRecord::placements`
+//! and `RoomRecord::traits` - so both structural operations on a root
 //! carry those references with them, and both live behind
 //! [`GeneratorTreeSource`] rather than in whichever panel offers the
 //! affordance: a delete sweeps them ([`sweep_root_refs`]) and a rename
 //! retargets them ([`retarget_root_refs`]). Neither ever leaves an orphan
 //! reference that the world compiler would log as "unknown generator_ref"
-//! — or, in the rename's case, a `traits` entry stranded under a key no
+//! - or, in the rename's case, a `traits` entry stranded under a key no
 //! generator answers to any more.
 //!
 //! ## Sub-module map
 //!
-//! * [`tree`] — left-hand tree panel widget (rows, context menus, drag
+//! * [`tree`] - left-hand tree panel widget (rows, context menus, drag
 //!   handling).
-//! * [`reparent`] — pure-model engine: `reparent::PendingAction`
+//! * [`reparent`] - pure-model engine: `reparent::PendingAction`
 //!   application, the drag-and-drop reparent state machine, node-walk
 //!   helpers, and their unit tests.
-//! * [`detail`] — right-hand detail panel + per-kind dispatcher.
-//! * [`primitive`] — detail editors covering all sixteen parametric
+//! * [`detail`] - right-hand detail panel + per-kind dispatcher.
+//! * [`primitive`] - detail editors covering all sixteen parametric
 //!   primitives, Cuboid through Tube / Bevel / Helix / Superellipsoid /
 //!   Spine / Lathe / BlobGroup (Wedge reuses the cuboid editor), + shared
 //!   torture+material tail.
-//! * [`sign`] — Sign-generator panel (source picker, UV, alpha mode).
-//! * [`particles`] — ParticleSystem panel (emitter shape, dynamics, atlas).
-//! * [`water`] — Water volume editor.
+//! * [`sign`] - Sign-generator panel (source picker, UV, alpha mode).
+//! * [`particles`] - ParticleSystem panel (emitter shape, dynamics, atlas).
+//! * [`water`] - Water volume editor.
 
 mod detail;
 mod particles;
@@ -66,8 +66,8 @@ type TreeViewState = egui_ltreeview::TreeViewState<GenNodeId>;
 /// One generator tree's selection, in the `(root, path)` vocabulary the
 /// tree widget and the detail panel speak (#1161).
 ///
-/// The two are usually written together — `tree.rs`'s selection sync sets
-/// both or clears both — but they are deliberately not one
+/// The two are usually written together - `tree.rs`'s selection sync sets
+/// both or clears both - but they are deliberately not one
 /// `Option<GenNodeId>`: `(Some(root), None)` is a real state, the ROOT row
 /// selected as a *generator* rather than as a node, and the room's undo
 /// restore validates it as such.
@@ -100,8 +100,8 @@ impl TreeSelection {
 
 /// Everything one generator-tree panel keeps across frames (#1161).
 ///
-/// [`draw_generators_tab`] draws three different trees — the room's
-/// generators, the avatar's visuals, and one worn item's parts — and each
+/// [`draw_generators_tab`] draws three different trees - the room's
+/// generators, the avatar's visuals, and one worn item's parts - and each
 /// of the three needs the same six pieces of state. They used to be six
 /// loose fields per host, threaded as six parameters, which is how
 /// `AvatarEditorState` came to carry a `renaming_unused` field whose only
@@ -112,7 +112,7 @@ pub(crate) struct TreePanelState {
     /// Which row is selected. For the room this is the state; the avatar
     /// editor's aim ([`crate::ui::avatar::GizmoTarget`]) is the truth
     /// there, and this is seeded from it before each draw and folded back
-    /// after — see `avatar_ui`.
+    /// after - see `avatar_ui`.
     pub(crate) selection: TreeSelection,
     /// The [`egui_ltreeview`] widget's own expansion + selection across
     /// frames, so resizing or scrolling does not reset what is open.
@@ -122,7 +122,7 @@ pub(crate) struct TreePanelState {
     /// highlights like a direct click. Consumed by [`tree::draw_tree_panel`].
     pub(crate) pending_focus: bool,
     /// Active rename modal: `(original_key, draft_key)`. Only multi-root
-    /// sources offer a rename, so it stays `None` for both avatar trees —
+    /// sources offer a rename, so it stays `None` for both avatar trees -
     /// which is the honest version of the `renaming_unused` field this
     /// replaced.
     pub(crate) renaming: Option<(String, String)>,
@@ -169,7 +169,7 @@ pub(crate) trait GeneratorTreeSource {
     fn remove_root(&mut self, name: &str) -> Option<Generator>;
     /// Rename a top-level root from `from` to `to`, retargeting the same
     /// implementation-specific references [`Self::remove_root`] sweeps.
-    /// Returns `false` — and changes nothing — when the source has no
+    /// Returns `false` - and changes nothing - when the source has no
     /// root called `from`, when `to` is already taken, or when the source
     /// has no rename at all.
     ///
@@ -185,7 +185,7 @@ pub(crate) trait GeneratorTreeSource {
     /// Allowed kind tags at child positions inside the tree.
     fn allowed_kinds_for_child(&self) -> &'static [&'static str];
     /// How many implementation-side references (Placements) a root delete
-    /// would cascade through — the number the delete confirm shows
+    /// would cascade through - the number the delete confirm shows
     /// (#838). Sources without side-tables (avatar) report zero.
     fn placement_ref_count(&self, _root: &str) -> usize {
         0
@@ -198,7 +198,7 @@ pub(crate) trait GeneratorTreeSource {
     fn root_capacity_remaining(&self) -> usize {
         usize::MAX
     }
-    /// Nodes in `root`'s tree, root included — what
+    /// Nodes in `root`'s tree, root included - what
     /// [`Cap::NodesPerGenerator`] bounds (#1210). Zero for an unknown root.
     ///
     /// [`Cap::NodesPerGenerator`]: crate::ui::room::caps::Cap::NodesPerGenerator
@@ -210,7 +210,7 @@ pub(crate) trait GeneratorTreeSource {
     /// (#1239 f81)?
     ///
     /// The world compiler builds exclusively from `record.placements`, so
-    /// a room root with none spawns no entity, no gizmo and no highlight —
+    /// a room root with none spawns no entity, no gizmo and no highlight -
     /// "+ New" is the World Editor's primary create button and it appears
     /// to do nothing at all. An avatar's visuals tree has no placement
     /// layer; its roots ARE instanced.
@@ -225,7 +225,7 @@ pub(crate) trait GeneratorTreeSource {
     /// [`FacePick::take_for`](crate::editor_gizmo::FacePick::take_for)
     /// matches on the root those calls produce. A worn item's Parts editor
     /// renders the same shared detail panel, so it drew a "Pick from
-    /// scene" toggle that could never resolve — and whose stuck arm
+    /// scene" toggle that could never resolve - and whose stuck arm
     /// suppressed click-to-deselect everywhere in the app. A source that
     /// no branch of the pick can address must say so here.
     fn resolves_face_picks(&self) -> bool {
@@ -247,7 +247,7 @@ pub(crate) struct TreeConfirms {
 }
 
 impl TreeConfirms {
-    /// Drop every parked payload — an undo restore or a record swap makes
+    /// Drop every parked payload - an undo restore or a record swap makes
     /// the node ids they were resolved against stale.
     pub(crate) fn cancel_all(&mut self) {
         self.delete.cancel();
@@ -279,8 +279,8 @@ impl GeneratorTreeSource for RoomTreeSource<'_> {
     }
     fn root_names(&self) -> Vec<&str> {
         // Borrowed, not cloned (#1270 f419). The room's map holds up to
-        // 256 keys and this runs twice a frame — once for the tree, once
-        // for `detail`'s road scan — so cloning every key was ~512 heap
+        // 256 keys and this runs twice a frame - once for the tree, once
+        // for `detail`'s road scan - so cloning every key was ~512 heap
         // allocations per frame to produce a list that is only read.
         let mut names: Vec<&str> = self.record.generators.keys().map(String::as_str).collect();
         names.sort_unstable();
@@ -343,7 +343,7 @@ impl GeneratorTreeSource for RoomTreeSource<'_> {
     }
     fn placement_ref_count(&self, root: &str) -> usize {
         // Reads the same [`placement_root`] as [`sweep_root_refs`], so it
-        // cannot drift from it — this count is the "also removes N
+        // cannot drift from it - this count is the "also removes N
         // placements" the delete confirm promises.
         self.record
             .placements
@@ -357,7 +357,7 @@ impl GeneratorTreeSource for RoomTreeSource<'_> {
 /// single `Generator` root from `AvatarRecord::visuals` and exposes it
 /// under a fixed display name (`"visuals"`). Refuses every multi-root
 /// operation: the avatar always has exactly one visual root. Allowed
-/// kinds are primitives only — see [`AVATAR_KINDS`] for the rationale.
+/// kinds are primitives only - see [`AVATAR_KINDS`] for the rationale.
 pub(crate) struct AvatarVisualsTreeSource<'a> {
     pub(crate) visuals: &'a mut Generator,
 }
@@ -368,8 +368,8 @@ impl<'a> AvatarVisualsTreeSource<'a> {
     }
 
     /// Fixed root key the avatar tree exposes through the source. The
-    /// underlying `AvatarRecord` doesn't actually carry per-root names —
-    /// it has a single anonymous root — but the tree-view widget keys on
+    /// underlying `AvatarRecord` doesn't actually carry per-root names -
+    /// it has a single anonymous root - but the tree-view widget keys on
     /// `(root, path)` so we hand it a stable string here.
     ///
     /// The string itself lives with the record it addresses
@@ -408,7 +408,7 @@ impl GeneratorTreeSource for AvatarVisualsTreeSource<'_> {
     }
     fn remove_root(&mut self, _name: &str) -> Option<Generator> {
         // Removing the avatar's only root would leave the chassis with no
-        // visuals — refuse and let the caller treat the operation as a
+        // visuals - refuse and let the caller treat the operation as a
         // no-op. The root delete menu item still appears because hiding
         // it would require a separate trait method; clicking it just
         // does nothing.
@@ -426,7 +426,7 @@ impl GeneratorTreeSource for AvatarVisualsTreeSource<'_> {
 /// attachment record's `item` generator under its record key as the root
 /// name, so the tree-view keys `(rkey, path)` match the
 /// [`AttachmentPrim`](crate::world_builder::AttachmentPrim) markers the
-/// spawned prop carries. Single-root, primitives-only — the same
+/// spawned prop carries. Single-root, primitives-only - the same
 /// vocabulary as the avatar visuals tree, because a worn item is
 /// sanitised with the same avatar rules.
 pub(crate) struct AttachmentTreeSource<'a> {
@@ -447,7 +447,7 @@ impl GeneratorTreeSource for AttachmentTreeSource<'_> {
     /// No branch of `pick_on_scene_click` records a face for a worn part
     /// (#1237 f140), so the Faces panel's "Pick from scene" toggle is
     /// hidden here rather than offered and unable to work. The face
-    /// dropdown next to it is unaffected — overrides on worn parts are
+    /// dropdown next to it is unaffected - overrides on worn parts are
     /// fine, it is only the viewport route that has no return path.
     fn resolves_face_picks(&self) -> bool {
         false
@@ -487,8 +487,8 @@ pub(crate) fn draw_generators_tab(
     // Everything this tree keeps across frames: the selected row, the
     // widget's expansion state, the one-shot focus request, the rename
     // modal and the parked confirms (#1161). Six loose parameters until
-    // the three hosts — the room's generators, the avatar's visuals and
-    // one worn item's parts — were given the same struct to own.
+    // the three hosts - the room's generators, the avatar's visuals and
+    // one worn item's parts - were given the same struct to own.
     panel: &mut TreePanelState,
     inventory: Option<bevy::prelude::Mut<'_, LiveInventoryRecord>>,
     audio_editor: &mut super::audio::AudioEditorState,
@@ -510,7 +510,7 @@ pub(crate) fn draw_generators_tab(
     // `None` for tree sources that can't grow roads (the avatar editor).
     road_stats: Option<&crate::terrain::RoadPanelStats>,
     // Click-to-pick face selection (#961), shared with the scene click
-    // handler that arms it — the Faces panel's other way in.
+    // handler that arms it - the Faces panel's other way in.
     face_pick: &mut crate::editor_gizmo::FacePick,
     // The signed-in owner's DID (#1239 f78), for the tree's catalogue
     // menus. See `draw_tree_panel`.
@@ -531,7 +531,7 @@ pub(crate) fn draw_generators_tab(
     // Inventory now flows only into the tree panel (for the root-level
     // "+ From Inventory" toolbar, the per-row "+ From Inventory" submenu,
     // and the apply step's "Save to Inventory" write). The detail panel
-    // never touches inventory anymore — its inventory-child picker moved
+    // never touches inventory anymore - its inventory-child picker moved
     // into the row context menu in issue #159.
     egui::Panel::left("generators_tree_panel")
         .resizable(true)
@@ -546,7 +546,7 @@ pub(crate) fn draw_generators_tab(
 
     egui::CentralPanel::default().show(ui, |ui| {
         // "This exists but is not in the world" (#1239 f81). The concept
-        // split — generator = blueprint, placement = instance — is real
+        // split - generator = blueprint, placement = instance - is real
         // and worth keeping, but it was taught only by failure: "+ New"
         // put a row in the tree, selected it, and changed nothing in the
         // 3D view, while "+ From Catalogue" and drag-to-place both DO
@@ -595,7 +595,7 @@ pub(crate) fn draw_generators_tab(
     });
 
     // Answer the confirms parked by the panels above. Rendering them
-    // here — with the tree source still in scope — means the payloads
+    // here - with the tree source still in scope - means the payloads
     // can re-resolve their nodes at apply time, so a confirm is safe
     // even if the selection moved while the dialog was up.
     if let Some(id) = panel.confirms.delete.show(ui.ctx(), "tree-delete") {
@@ -661,7 +661,7 @@ fn placement_root_mut(placement: &mut Placement) -> Option<&mut String> {
 
 /// Remove every `Placement` that instances the deleted root and drop the
 /// matching `traits` entry. Forward-compat `Placement::Unknown` rows
-/// survive — see [`placement_root`].
+/// survive - see [`placement_root`].
 ///
 /// This is the DELETE half of the room's root reference-integrity rule;
 /// [`retarget_root_refs`] is the rename half. Both are reached through
@@ -727,7 +727,7 @@ mod attachment_source_tests {
     }
 
     /// #1237 f140. Sequence: open a worn hat's Parts editor, click "Pick
-    /// from scene", click the brim — nothing happens, ever, and the button
+    /// from scene", click the brim - nothing happens, ever, and the button
     /// stays lit. `pick_on_scene_click` records a face on the room-prim
     /// and avatar-visuals branches only, and `take_for` matches on a root
     /// the worn-part branch never produces. The control was visible,
@@ -799,7 +799,7 @@ mod attachment_source_tests {
 
     /// #1239 f81. Sequence: click "+ New → Cuboid" in the World Editor.
     /// The row appears and is selected, and absolutely nothing changes in
-    /// the 3D view — the compiler builds exclusively from
+    /// the 3D view - the compiler builds exclusively from
     /// `record.placements`, so a generator with no placement spawns no
     /// entity, and the gizmo has nothing to attach to either. Nothing in
     /// the tree, the detail panel or the empty state mentioned it.
@@ -817,7 +817,7 @@ mod attachment_source_tests {
             assert_eq!(
                 source.placement_ref_count(&name),
                 0,
-                "'+ New' adds a blueprint, not an instance — this is the banner's trigger"
+                "'+ New' adds a blueprint, not an instance - this is the banner's trigger"
             );
         }
         // An avatar's visuals tree has no placement layer at all, so the

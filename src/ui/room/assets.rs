@@ -8,7 +8,7 @@
 //! ground, so the owner could not tell whether their texture had loaded at
 //! all. The owner is the only person who can fix a broken source, and on the
 //! web build they were strictly worse informed than a visitor with a console
-//! open — every failure was a `warn!` and nothing else.
+//! open - every failure was a `warn!` and nothing else.
 //!
 //! One row closes all of it, because the four caches agree on one answer
 //! ([`AssetStatus`]) and one sentence
@@ -28,8 +28,8 @@ use crate::world_builder::image_cache::{
 
 /// The four asset caches plus the retry channel, as one `SystemParam`.
 ///
-/// Bundled because both editors that draw asset fields — the room editor
-/// and the avatar editor, which shares the whole generator tree — are at or
+/// Bundled because both editors that draw asset fields - the room editor
+/// and the avatar editor, which shares the whole generator tree - are at or
 /// near Bevy's 16-parameter ceiling, and because "which caches answer the
 /// asset question" is one fact that should not be spelled twice.
 #[derive(bevy::ecs::system::SystemParam)]
@@ -61,8 +61,8 @@ impl AssetCaches<'_> {
 /// through the editors.
 ///
 /// Threaded as a parameter rather than published as a resource snapshot
-/// because the editors already take this shape — `grammar_diag` crosses the
-/// same boundary the same way — and because a per-frame snapshot of four
+/// because the editors already take this shape - `grammar_diag` crosses the
+/// same boundary the same way - and because a per-frame snapshot of four
 /// caches would be work done for the frames nobody has the panel open.
 pub struct AssetPanel<'a> {
     pub images: &'a BlobImageCache,
@@ -203,8 +203,8 @@ impl AssetPanel<'_> {
 
 /// A `SovereignAssetReference` as the `SignSource` the image cache keys on.
 ///
-/// The two enums are the same three variants under two names — the image
-/// cache was written for Sign panels and the reference type came later — and
+/// The two enums are the same three variants under two names - the image
+/// cache was written for Sign panels and the reference type came later - and
 /// `request_blob_image` is reached from the material path through exactly
 /// this conversion. Asking the cache anything about a reference means
 /// speaking its key's language.
@@ -258,7 +258,7 @@ pub(crate) fn asset_status_row(ui: &mut egui::Ui, status: Option<AssetStatus>, n
             // remedy is a setting rather than a host (#1248 f298).
             ui.label(
                 egui::RichText::new(
-                    "Not loaded — \"Load images and sounds from outside Bluesky\" \
+                    "Not loaded - \"Load images and sounds from outside Bluesky\" \
                      is off in Settings.",
                 )
                 .small()
@@ -341,7 +341,7 @@ mod tests {
     }
 
     /// The two filters are two entries, so the retry a Nearest field raises
-    /// must not drop the Linear entry (and vice versa) — the sequence: a
+    /// must not drop the Linear entry (and vice versa) - the sequence: a
     /// pixel-art sign and a photo sign pointing at the same URL.
     #[test]
     fn the_sampler_filter_is_part_of_the_retry_identity() {
@@ -358,7 +358,7 @@ mod tests {
     }
 
     /// #1248 f298: with the preference off, every URL-shaped source in
-    /// every editor says so — and the ATProto ones, which stay inside the
+    /// every editor says so - and the ATProto ones, which stay inside the
     /// infrastructure the session already talks to, keep working.
     #[test]
     fn the_external_preference_blocks_url_sources_and_only_url_sources() {
@@ -393,7 +393,7 @@ mod tests {
         ));
         assert!(
             panel.sign_image(&blob, SamplerFilter::Linear).is_none(),
-            "an ATProto blob is not blocked — nothing has asked for it yet"
+            "an ATProto blob is not blocked - nothing has asked for it yet"
         );
         assert!(panel.sign_image(&pfp, SamplerFilter::Linear).is_none());
 

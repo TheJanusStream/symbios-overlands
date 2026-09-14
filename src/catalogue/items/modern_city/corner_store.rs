@@ -1,15 +1,15 @@
-//! Corner store — a Modern-City *poor* secondary. A single-storey brick
+//! Corner store - a Modern-City *poor* secondary. A single-storey brick
 //! bodega whose shopfront is a genuine hole in the wall: brick piers, a
 //! stall riser and a lintel framing it, glazing cards filling the gap.
 //! The bodega beside the [`tenement`](super::tenement).
 //!
-//! This entry is the reference for the `Window` texture idiom — see
+//! This entry is the reference for the `Window` texture idiom - see
 //! [`crate::catalogue::items::util::window_card`] for the rules
 //! it follows. The short version: the generator's panes are alpha-masked
 //! *away*, so the card is a frame with real holes in it. That only reads if
 //! there is an opening for it to fill and an interior behind it worth
-//! seeing, which is why this store is built as a shell — four walls, a roof,
-//! a lit fit-out with stocked shelves — instead of a solid block with glass
+//! seeing, which is why this store is built as a shell - four walls, a roof,
+//! a lit fit-out with stocked shelves - instead of a solid block with glass
 //! slabs pinned to the front.
 
 use crate::catalogue::items::util::{
@@ -23,13 +23,13 @@ use crate::seeded_defaults::ThemeArchetype;
 
 use super::{BRICK_RED, LAMP_WARM, brick, concrete, enamel, steel};
 
-/// Tired warm sign light — deep-saturated amber so the lit face reads as a
+/// Tired warm sign light - deep-saturated amber so the lit face reads as a
 /// colour under bloom rather than washing to a near-white blank.
 const SIGN_GLOW: [f32; 3] = [1.0, 0.46, 0.13];
 /// Awning stripe colours.
 const AWNING_RED: [f32; 3] = [0.52, 0.13, 0.12];
 const AWNING_CREAM: [f32; 3] = [0.82, 0.78, 0.68];
-/// Shopfront joinery — the anodised frame of the glazing cards, dark enough
+/// Shopfront joinery - the anodised frame of the glazing cards, dark enough
 /// to draw the opening against the brick.
 const SHOPFRONT: [f32; 3] = [0.20, 0.21, 0.23];
 
@@ -70,7 +70,7 @@ const SILL_Y: f32 = BASE_H + 0.65;
 
 // --- Brickwork (#966). ------------------------------------------------------
 
-/// Brick length in metres — a real 215 mm brick. The kit's shared sizing
+/// Brick length in metres - a real 215 mm brick. The kit's shared sizing
 /// lays a 172 mm one, small enough at street distance to mip toward flat
 /// colour.
 const BRICK_LEN: f32 = 0.215;
@@ -78,9 +78,9 @@ const BRICK_LEN: f32 = 0.215;
 /// The store's brickwork: the kit's [`brick`] with its courses laid **flat**,
 /// at a real brick's size, and its bond continued into the wall's own frame.
 ///
-/// The whole recipe — the inverted aspect, the ten-row tile, the integral
+/// The whole recipe - the inverted aspect, the ten-row tile, the integral
 /// half-bond, the tamed cell jitter and the per-face offset that carries one
-/// frame across the joints — now lives in [`util::bonded_brick`], which every
+/// frame across the joints - now lives in [`util::bonded_brick`], which every
 /// later brick entry shares. What is local here is only the brick's *size*.
 ///
 /// [`util::bonded_brick`]: crate::catalogue::items::util::bonded_brick
@@ -88,7 +88,7 @@ fn bonded_brick(color: [f32; 3], center: [f32; 3], face: FaceKey) -> SovereignMa
     util::bonded_brick(brick(color), BRICK_LEN, face, center)
 }
 
-/// One brick slab of the shell, bonded into the shared course frame — the
+/// One brick slab of the shell, bonded into the shared course frame - the
 /// position is given once and drives both the placement and the UV offsets,
 /// so the two cannot drift apart.
 ///
@@ -102,7 +102,7 @@ fn bonded_brick(color: [f32; 3], center: [f32; 3], face: FaceKey) -> SovereignMa
 /// Which is a shorter list than it first appears, because the four *side*
 /// faces all put the courses on `V = −y`: turning a vertical corner, the
 /// courses line up on the base offset alone, and only the column phase
-/// differs — which matters solely where two slabs are **coplanar** (a pier
+/// differs - which matters solely where two slabs are **coplanar** (a pier
 /// and the side wall behind it). Horizontal corners are the ones that always
 /// need a wrap: a `Top` or `Bottom` face reads depth where its neighbour
 /// reads height, so nothing about it follows from the base.
@@ -124,7 +124,7 @@ fn brick_slab(
     prim(kind, center, id_quat())
 }
 
-/// Dim warm interior surface — the shared [`lit_interior`] idiom, which this
+/// Dim warm interior surface - the shared [`lit_interior`] idiom, which this
 /// entry is the reference for: the shell is enclosed and nothing lights it,
 /// so the surfaces seen through the glazing carry a low self-lit term of
 /// their own. Without it the openings read as black rectangles and every
@@ -168,7 +168,7 @@ impl CatalogueEntry for CornerStore {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Concrete base — the root, and flat, so no child inherits a tilt.
+        // Concrete base - the root, and flat, so no child inherits a tilt.
         prim(
             solid(cuboid_tapered(
                 [W + 0.4, BASE_H, D + 0.4],
@@ -191,7 +191,7 @@ fn build_tree() -> Generator {
     assemble(prims)
 }
 
-/// Back and side walls, roof and parapet — the box the shopfront is cut out
+/// Back and side walls, roof and parapet - the box the shopfront is cut out
 /// of. Built as separate slabs rather than one solid mass precisely so the
 /// inside is hollow and the glazing has something to look into.
 fn shell(prims: &mut Vec<Generator>) {
@@ -209,7 +209,7 @@ fn shell(prims: &mut Vec<Generator>) {
     // Side walls, shortened in Z so their ends never share a plane with the
     // front and back slabs' outer faces. Each one's OUTER face is what the
     // street sees, and it is coplanar with the pier that closes the corner
-    // in front of it — so both must sit in that side's frame, not the
+    // in front of it - so both must sit in that side's frame, not the
     // shopfront's, or the two halves of one elevation disagree.
     for sx in [-1.0_f32, 1.0] {
         prims.push(brick_slab(
@@ -237,7 +237,7 @@ fn shell(prims: &mut Vec<Generator>) {
     // Parapet: a band proud of the walls on every side, so it joins nothing
     // in-plane and needs no wrap. Its four sides all read `V = −y`, which is
     // what carries the courses round a vertical corner, so they already line
-    // up across its mitres — see [`brick_slab`].
+    // up across its mitres - see [`brick_slab`].
     prims.push(brick_slab(
         [W + 0.3, 0.55, D + 0.3],
         [0.4, 0.22, 0.17],
@@ -247,8 +247,8 @@ fn shell(prims: &mut Vec<Generator>) {
     ));
 }
 
-/// The front wall, built as the four brick pieces that *frame* the opening —
-/// two piers, a lintel, a stall riser — plus the glazing cards filling it.
+/// The front wall, built as the four brick pieces that *frame* the opening -
+/// two piers, a lintel, a stall riser - plus the glazing cards filling it.
 fn shopfront(prims: &mut Vec<Generator>) {
     // The piers close the building's two front corners: each shows its
     // shopfront face and, around the corner, the outer return that carries on
@@ -273,7 +273,7 @@ fn shopfront(prims: &mut Vec<Generator>) {
     // Lintel over the opening, carrying the wall up to the parapet. Its bond
     // continues the piers' (see [`bonded_brick`]), so the three read as one
     // wall with a hole in it rather than as three slabs.
-    // Its soffit is the head of the opening — the wall turning the corner
+    // Its soffit is the head of the opening - the wall turning the corner
     // over the glazing, and read from the pavement below.
     let lintel_h = BASE_H + BODY_H - HEAD_Y;
     prims.push(brick_slab(
@@ -291,7 +291,7 @@ fn shopfront(prims: &mut Vec<Generator>) {
     // the lintel: it is part of the same wall plane, and a darker one read
     // as a different material bolted under the window rather than as the
     // wall carrying on below the sill (#968). The parapet keeps its darker
-    // brick — that one is a coping band on top of the building, not part of
+    // brick - that one is a coping band on top of the building, not part of
     // this face.
     // Its top is the sill the shopper leans over, and the face where the
     // corner wrap is most obvious: the bricks turning onto it must be the
@@ -307,7 +307,7 @@ fn shopfront(prims: &mut Vec<Generator>) {
 
     // --- The glazing: one card per bay, each filling its opening exactly.
 
-    // Display window, 4.95 × 2.0 — five panes across by two up come out
+    // Display window, 4.95 × 2.0 - five panes across by two up come out
     // near-square at that aspect. Opacity below the 0.5 mask cutoff, so the
     // panes are genuinely open and the fit-out shows through them.
     let disp_w = DOOR_X0 - OPEN_X0;
@@ -318,7 +318,7 @@ fn shopfront(prims: &mut Vec<Generator>) {
         quat_x(-std::f32::consts::FRAC_PI_2),
     ));
 
-    // Glazed door, 1.45 × 2.65 — upright, so one pane across by three up. A
+    // Glazed door, 1.45 × 2.65 - upright, so one pane across by three up. A
     // wider frame fraction than the display card: a door stile really is
     // chunkier than a shopfront mullion.
     let door_w = OPEN_X1 - DOOR_X0;
@@ -339,7 +339,7 @@ fn shopfront(prims: &mut Vec<Generator>) {
 /// What the shopper sees through the open panes: a stocked display run
 /// immediately behind the glass, a counter mid-shop, a lit ceiling strip.
 /// All of it lives inside the shell and is reachable only by eye, through
-/// the shopfront — which is the payoff the `Window` card is built for.
+/// the shopfront - which is the payoff the `Window` card is built for.
 ///
 /// Depth discipline matters more than quantity here. Goods parked against
 /// the back wall of a 7 m shop sit five metres behind the glass and shrink
@@ -348,7 +348,7 @@ fn shopfront(prims: &mut Vec<Generator>) {
 fn interior_fitout(prims: &mut Vec<Generator>) {
     let inner_w = W - WALL_T * 2.0;
 
-    // Floor and rear lining — the dim envelope everything else reads against.
+    // Floor and rear lining - the dim envelope everything else reads against.
     prims.push(prim(
         cuboid_tapered(
             [inner_w, 0.06, D - WALL_T * 2.0],
@@ -398,7 +398,7 @@ fn interior_fitout(prims: &mut Vec<Generator>) {
     ));
 
     // Goods. The only saturated colour inside, sized so one box roughly
-    // fills a pane — smaller reads as noise through the mullions.
+    // fills a pane - smaller reads as noise through the mullions.
     let goods = [
         (-2.55_f32, 0.92_f32, [0.74, 0.22, 0.16_f32]),
         (-1.65, 0.92, [0.88, 0.72, 0.22]),
@@ -430,7 +430,7 @@ fn interior_fitout(prims: &mut Vec<Generator>) {
     ));
 }
 
-/// Awning and sign — the street-facing dressing over the shopfront.
+/// Awning and sign - the street-facing dressing over the shopfront.
 fn street_furniture(prims: &mut Vec<Generator>) {
     // Striped sloped awning projecting over the pavement, clear of the
     // opening head so it shades the glazing instead of cutting into it.
@@ -452,7 +452,7 @@ fn street_furniture(prims: &mut Vec<Generator>) {
 
     // Box sign on the lintel: a steel housing with an inset lit face, not a
     // bare glowing slab. The housing reads at every hour, and only the
-    // smaller face glows — a broad flat panel at strength blooms to white.
+    // smaller face glows - a broad flat panel at strength blooms to white.
     let sign_y = BASE_H + BODY_H - 0.42;
     prims.push(prim(
         solid(cuboid_tapered(
@@ -487,8 +487,8 @@ mod tests {
     /// uploads clamp-to-edge, so anything but `1.0` smears its edge texels
     /// across the surface).
     ///
-    /// Only `Plane` nodes are inspected — `GeneratorKind` has no material
-    /// accessor to sweep every variant with — but the exact-count assertion
+    /// Only `Plane` nodes are inspected - `GeneratorKind` has no material
+    /// accessor to sweep every variant with - but the exact-count assertion
     /// still fails loudly if a card is ever moved off a quad onto a solid.
     #[test]
     fn glazing_cards_are_unscaled_quads() {
@@ -565,14 +565,14 @@ mod tests {
         }
     }
 
-    /// #966 / #969: every brick surface sits in the one world course frame —
+    /// #966 / #969: every brick surface sits in the one world course frame -
     /// for the face it serves.
     ///
     /// The Box projection reads different local axes per face, so "the shared
     /// frame" is not one offset but one *rule*: the offset must be the face's
     /// own projection of the slab's position ([`util::face_uv_offset`]). A slab
     /// authored with a bare `prim(...)`, or a face override copied from its
-    /// neighbour, breaks it — and the joint is subtle enough in a render that
+    /// neighbour, breaks it - and the joint is subtle enough in a render that
     /// only this catches it.
     #[test]
     fn every_brick_surface_sits_in_the_world_course_frame() {
@@ -617,7 +617,7 @@ mod tests {
         assert_eq!(
             overrides.len(),
             4,
-            "expected the sill, the soffit and both pier returns to wrap — \
+            "expected the sill, the soffit and both pier returns to wrap - \
              and nothing else, since a vertical corner carries its courses \
              on the base offset alone"
         );
@@ -634,7 +634,7 @@ mod tests {
 
     /// #966: the courses lie flat. The generator derives its column count as
     /// `scale × aspect_ratio` while `scale` *is* the row count, so under the
-    /// metre-square UV tile an aspect above 1 stands every brick on end —
+    /// metre-square UV tile an aspect above 1 stands every brick on end -
     /// the state this entry was in before the overhaul.
     #[test]
     fn brick_courses_lie_flat() {
@@ -662,8 +662,8 @@ mod tests {
 
     /// #968 / #1167: the bricks lie flat and the bond tiles.
     ///
-    /// This test used to pin two numbers instead — `cols >= 4` and
-    /// `cell_variance <= 0.15` — neither of which was about how the wall
+    /// This test used to pin two numbers instead - `cols >= 4` and
+    /// `cell_variance <= 0.15` - neither of which was about how the wall
     /// should look. The generator hashed each brick's raw cell index, so the
     /// one straddling the tile's U seam drew as two half-bricks of different
     /// colour, and the only defence available here was dilution: more bricks
@@ -674,7 +674,7 @@ mod tests {
     ///
     /// What is left is what the bond actually requires: a brick wider than it
     /// is tall, and a stagger that carries across the V seam. The V constraint
-    /// is the generator's and it is *not* fixed — `scale × row_offset` must be
+    /// is the generator's and it is *not* fixed - `scale × row_offset` must be
     /// a whole number or course 0 sits on course `scale - 1` at the wrong
     /// offset (symbios-texture #14).
     #[test]

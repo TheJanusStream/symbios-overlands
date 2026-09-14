@@ -1,4 +1,4 @@
-//! Hydroponics — a Space-Outpost secondary. An open glazed barrel-vault grow
+//! Hydroponics - a Space-Outpost secondary. An open glazed barrel-vault grow
 //! house over crop racks, lit pink by grow-lights. The food module of the
 //! base; its grow-lights are emissive trim the ruin pass can darken.
 //!
@@ -65,7 +65,7 @@ fn build_tree() -> Generator {
     let vault_len = 5.4_f32;
 
     let mut prims = vec![
-        // Hull base — the root.
+        // Hull base - the root.
         prim(
             solid(cuboid_tapered([6.0, base_h, 4.0], 0.0, hull(HULL_WHITE))),
             [0.0, base_h * 0.5, 0.0],

@@ -1,4 +1,4 @@
-//! Skull rack — a Mesoamerican prop. A tzompantli: a timber frame strung
+//! Skull rack - a Mesoamerican prop. A tzompantli: a timber frame strung
 //! with rows of skulls threaded on horizontal poles, displayed at the edge
 //! of the sacred precinct.
 
@@ -52,7 +52,7 @@ fn build_tree() -> Generator {
     let post_h = 2.5;
     let plat_h = 0.5_f32;
 
-    // Stone platform — the root, giving the rack its precinct weight.
+    // Stone platform - the root, giving the rack its precinct weight.
     let mut prims = vec![prim(
         solid(cuboid_tapered(
             [span + 1.4, plat_h, 1.6],

@@ -1,10 +1,10 @@
-//! Airlock Gateway — the Space-Outpost bespoke social gate (#768). Replaces the
+//! Airlock Gateway - the Space-Outpost bespoke social gate (#768). Replaces the
 //! neutral placeholder arch for this theme: two hull-plated door jambs on steel
 //! footings frame a pressure-lock threshold, bridged by a hull header with a
 //! conduit truss and a pair of relief-vent stacks. Status-green light strips
 //! line the opening, a cyan lit port reads the portal as cycling, and red
 //! caution lamps flank the lintel. The single functional element is the
-//! [`GeneratorKind::Gateway`] zone standing in the opening — walking into it
+//! [`GeneratorKind::Gateway`] zone standing in the opening - walking into it
 //! opens the destination picker; everything else is airlock set-dressing.
 
 use std::f32::consts::FRAC_PI_2;
@@ -58,7 +58,7 @@ fn build_tree() -> Generator {
     let jamb_top = pad_top + jamb_h; // 3.98
     let header_y = 4.15_f32;
 
-    // Ceramic landing-pad plinth — the flat-base root (never tilt a root:
+    // Ceramic landing-pad plinth - the flat-base root (never tilt a root:
     // every child would spin with it).
     let mut prims = vec![prim(
         solid(cuboid_tapered([4.8, pad_top, 2.6], 0.0, concrete(PAD_GREY))),
@@ -68,7 +68,7 @@ fn build_tree() -> Generator {
     // Buried plinth so a slope-snapped gate shows stone, not daylight.
     prims.push(footing(4.8, 2.6, [0.0, 0.0], 3.5));
 
-    // Hazard floor marking across the threshold — the airlock's caution band.
+    // Hazard floor marking across the threshold - the airlock's caution band.
     prims.push(prim(
         cuboid_tapered([2.6, 0.05, 1.0], 0.0, painted(HAZARD_YELLOW)),
         [0.0, pad_top + 0.02, 0.0],
@@ -100,7 +100,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Status-green light strips lining the inner face of each jamb — deep-
+    // Status-green light strips lining the inner face of each jamb - deep-
     // saturated so bloom holds the true green instead of washing to mint.
     for x in [-1.42_f32, 1.42] {
         prims.push(prim(
@@ -110,7 +110,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Hull header bridging the jambs — the lintel span.
+    // Hull header bridging the jambs - the lintel span.
     prims.push(prim(
         solid(cuboid_tapered([4.4, 0.5, 0.85], 0.0, hull(HULL_PANEL))),
         [0.0, header_y, 0.0],
@@ -131,7 +131,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Threshold glow bar under the lintel — a broad cyan strip at low strength
+    // Threshold glow bar under the lintel - a broad cyan strip at low strength
     // so it reads as a lit sill, not a white lightbox.
     prims.push(prim(
         cuboid_tapered([3.0, 0.12, 0.16], 0.0, glow(VIEWPORT_LIT, 2.2)),
@@ -151,7 +151,7 @@ fn build_tree() -> Generator {
         [0.0, header_y, -0.47],
         quat_x(FRAC_PI_2),
     ));
-    // Red caution lamps flanking the lintel — small hot orbs the ruin pass can
+    // Red caution lamps flanking the lintel - small hot orbs the ruin pass can
     // snuff.
     for x in [-1.75_f32, 1.75] {
         prims.push(prim(
@@ -187,7 +187,7 @@ mod tests {
         assert_sanitize_stable(&SpaceOutpostGateway.build(""), "space_outpost_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is furniture, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

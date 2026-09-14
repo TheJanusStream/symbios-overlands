@@ -1,4 +1,4 @@
-//! Signal fire — a Post-apocalyptic prop. A scrap brazier hoisted on a pole,
+//! Signal fire - a Post-apocalyptic prop. A scrap brazier hoisted on a pole,
 //! burning as a beacon. Scatter clutter marking the holdout; its fire is
 //! emissive trim the ruin pass can darken.
 
@@ -50,7 +50,7 @@ fn build_tree() -> Generator {
     let pole_h = 2.6_f32;
 
     let mut prims = vec![
-        // Scrap pole — the root.
+        // Scrap pole - the root.
         prim(
             solid(cylinder_tapered(0.12, pole_h, 6, 0.1, rusted(STEEL_GREY))),
             [0.0, pole_h * 0.5, 0.0],
@@ -58,7 +58,7 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Three splayed scrap legs bracing the pole — so the beacon reads as a
+    // Three splayed scrap legs bracing the pole - so the beacon reads as a
     // planted tripod, not a stick balanced on the ground.
     for k in 0..3 {
         let a = k as f32 / 3.0 * TAU + 0.4;
@@ -89,7 +89,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Glowing fire core — emissive, leaping proud of the cage rim. Held at a
+    // Glowing fire core - emissive, leaping proud of the cage rim. Held at a
     // moderate strength so bloom keeps it incandescent orange, not white-hot.
     let mut fire = prim(
         solid(cylinder_tapered(0.38, 0.62, 8, 0.0, glow(FIRE_ORANGE, 4.0))),

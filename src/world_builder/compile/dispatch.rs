@@ -47,7 +47,7 @@ use super::spawn_ctx::{SpawnCtx, budget_exceeded, transform_from_data};
 ///
 /// Traits are applied here rather than inside `spawn_generator` because
 /// only a top-level placement is keyed directly by `generator_ref` in the
-/// record's `traits` table — children inside a tree share the named
+/// record's `traits` table - children inside a tree share the named
 /// generator's traits via the anchor and should not double-apply.
 pub(crate) fn dispatch_top_level(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
@@ -57,14 +57,14 @@ pub(crate) fn dispatch_top_level(
     // Copy the shared record reference out of `ctx` so the borrowed generator
     // is tied to the record's lifetime (`'a`), not to `ctx`. That lets the
     // recursive `spawn_generator` take `&mut ctx` below WITHOUT first deep-
-    // cloning the whole subtree — which `dispatch_top_level` runs once per grid
+    // cloning the whole subtree - which `dispatch_top_level` runs once per grid
     // cell / scatter sample (up to the ~500k entity cap), so the clone was the
     // pipeline's dominant per-sample allocation (#636). Same proven trick as
     // `start_unit` (mod.rs).
     let record = ctx.record;
     let Some(generator) = record.generators.get(generator_ref) else {
         warn!(
-            "Placement references unknown generator `{}` — skipped",
+            "Placement references unknown generator `{}` - skipped",
             generator_ref
         );
         return None;
@@ -74,7 +74,7 @@ pub(crate) fn dispatch_top_level(
     // terrain plugin (its config drives `FinishedHeightMap` upstream of
     // this pass). Apply the record's traits to those existing entities so
     // the heightfield collider lands on the live terrain mesh, then fall
-    // through to the normal spawn path — `spawn_generator` will produce a
+    // through to the normal spawn path - `spawn_generator` will produce a
     // bare anchor entity for the Terrain root and walk its children. The
     // `traits` table thus targets the terrain mesh, while the children
     // (L-systems, props, water, …) ride along on the anchor.
@@ -89,15 +89,15 @@ pub(crate) fn dispatch_top_level(
     // Water children of scattered/gridded blueprints used to be stripped here
     // because each cell would spawn a redundant world-extent plane. With
     // finite, transform-bounded surfaces tracked in `WaterSurfaces`, scattered
-    // ponds are now legitimate — each cell's local transform produces a
-    // distinct entry in the registry — so the strip step has been removed.
+    // ponds are now legitimate - each cell's local transform produces a
+    // distinct entry in the registry - so the strip step has been removed.
     let root_tf = cell_tf * transform_from_data(&generator.transform);
     let entity = spawn_generator(ctx, generator, generator_ref, &[], root_tf);
     if let Some(entity) = entity
         && !is_terrain_root
     {
         // For non-terrain roots, traits attach to the spawned root entity.
-        // Terrain refs already routed traits to the heightmap mesh above —
+        // Terrain refs already routed traits to the heightmap mesh above -
         // applying them again on the anchor would attach `Sensor` /
         // `collider_heightfield` to a transform-only node, which is wrong.
         apply_traits(ctx.commands, entity, ctx.record, generator_ref);
@@ -116,7 +116,7 @@ pub(crate) fn dispatch_top_level(
 ///   itself, and grows by one index at each recursion into `children`.
 ///
 /// The returned entity is the node's visible/physical root. Trait
-/// application is the caller's responsibility — this function deliberately
+/// application is the caller's responsibility - this function deliberately
 /// does not apply traits so recursion into a generator's children doesn't
 /// double-attach `Sensor` or `collider_heightfield` components.
 pub fn spawn_generator(
@@ -134,7 +134,7 @@ pub fn spawn_generator(
 
     let entity = match &generator.kind {
         // Terrain is root-only (sanitizer enforces). Its heightmap mesh is
-        // owned by the terrain plugin — we don't spawn it here. We do
+        // owned by the terrain plugin - we don't spawn it here. We do
         // spawn a bare anchor entity so the Terrain root's children (the
         // region's water, L-systems, portals, props, …) have a per-instance
         // parent to attach to.
@@ -181,7 +181,7 @@ pub fn spawn_generator(
         }
         // The road network's mesh is built by the terrain plugin from its
         // config + the finished heightmap (same reason Terrain's own mesh isn't
-        // spawned here — the heightmap is owned upstream). Inert in the compile
+        // spawned here - the heightmap is owned upstream). Inert in the compile
         // dispatch; a misplaced root instance simply produces no roads.
         GeneratorKind::RoadNetwork(_) => None,
         GeneratorKind::Shape { .. } => {
@@ -196,7 +196,7 @@ pub fn spawn_generator(
             // `LSystemMeshCache` entries don't clobber each other.
             // Scattering 1000 generator trees each containing the same
             // L-system at path=[0] reuses the same "<base_ref>/0" cache
-            // entry — 1 derivation, 999 handle clones.
+            // entry - 1 derivation, 999 handle clones.
             spawn_lsystem_entity(ctx, &generator.kind, &cache_key, path, transform)
         }
         GeneratorKind::Portal {
@@ -250,7 +250,7 @@ pub fn spawn_generator(
     // the editor gizmo can map a UI-selected node back to its live Bevy
     // entity by `(generator_ref, path)`. Top-level placements *also* get
     // PlacementMarker from the caller, but that lives on the outer anchor
-    // — the generator entity itself always carries PrimMarker now so the
+    // - the generator entity itself always carries PrimMarker now so the
     // gizmo can target the root with `path=[]`.
     if let Some(e) = entity {
         // Charge the global budget here rather than at the spawn sites in
@@ -270,7 +270,7 @@ pub fn spawn_generator(
         } else if ctx.local_avatar_mode {
             // Local player's own avatar: tag with `AvatarVisualPrim` so
             // the gizmo can target a visuals node by `path`. Remote peers
-            // skip this marker — their avatars replicate from the
+            // skip this marker - their avatars replicate from the
             // network and aren't locally editable, so a query for
             // `&AvatarVisualPrim` is implicitly local-player-scoped.
             ctx.commands
@@ -295,7 +295,7 @@ pub fn spawn_generator(
         spawn_generator_children(ctx, generator, e, base_ref, path);
 
         // Per-construct spatial audio (#301, expanded by #308 to
-        // resolve Referenced sources). Mute-by-default — the
+        // resolve Referenced sources). Mute-by-default - the
         // dispatcher no-ops on `SovereignAudioConfig::None` /
         // `Unknown`. For Referenced variants the audio resolver
         // coalesces fetches; for procedural variants a background
@@ -334,7 +334,7 @@ fn spawn_generator_children(
     }
 }
 
-/// The key a node's caches — and its grammar diagnostics (#1250 f84) — are
+/// The key a node's caches - and its grammar diagnostics (#1250 f84) - are
 /// filed under: the root's record key for a root, `<root>/<i>/<j>` for a
 /// child. `pub(crate)` so the editor can ask for the SELECTED node's status
 /// rather than its root's.
@@ -362,7 +362,7 @@ fn spawn_primitive_entity(
     transform: Transform,
 ) -> Entity {
     // The one primitive destructure lives in `prim::shapes::prim_parts`
-    // (#644); non-primitive kinds can't reach here — the router's variant
+    // (#644); non-primitive kinds can't reach here - the router's variant
     // list gates the call.
     let parts = prim_parts(kind).expect("spawn_primitive_entity called on non-primitive kind");
     let solid = parts.solid;
@@ -378,7 +378,7 @@ fn spawn_primitive_entity(
     let mesh_key = prim_mesh_key(kind, &plan);
 
     // The collider is derived from the mesh data, which a cache hit does not
-    // hand back — so build the meshes only when actually needed, and reuse
+    // hand back - so build the meshes only when actually needed, and reuse
     // them for both the handles and the collider on a miss.
     //
     // `get_and_touch` also marks the key reachable for this pass, on hit and
@@ -386,7 +386,7 @@ fn spawn_primitive_entity(
     let cached = get_and_touch(ctx.prim_mesh_cache, ctx.prim_mesh_touched, mesh_key);
     let needs_collider = solid && !ctx.avatar_mode;
     let (groups, collider) = match cached {
-        // Avatar mode strips colliders unconditionally — the locomotion
+        // Avatar mode strips colliders unconditionally - the locomotion
         // preset's chassis collider is the only physics body on the avatar,
         // and per-prim colliders here would register as Static and conflict
         // with the chassis's dynamic body.
@@ -400,7 +400,7 @@ fn spawn_primitive_entity(
             let collider = if needs_collider {
                 // A whole prim's only mesh *is* the whole prim, so its hull
                 // comes straight from it. A split one needs the unsplit
-                // geometry — the hull must stand off the shape, not one
+                // geometry - the hull must stand off the shape, not one
                 // group of its faces.
                 match (plan.is_whole(), built.first()) {
                     (true, Some(g)) => collider_for_primitive(kind, &g.mesh),
@@ -456,7 +456,7 @@ fn spawn_primitive_entity(
 
     // One group: the prim is a single mesh on a single entity, unchanged.
     // Several: a transform-only root carrying the prim's identity (markers,
-    // collider, children, audio) with one render child per material — the
+    // collider, children, audio) with one render child per material - the
     // same shape the Shape grammar spawns its terminals in.
     let single = drawn.len() == 1;
     let mut cmd = ctx.commands.spawn(transform);
@@ -470,8 +470,8 @@ fn spawn_primitive_entity(
             },
         ));
         // Ground-cover cards (#916). A prim's origin is its own centre
-        // rather than its base — a standing card is a `Plane` rotated
-        // upright about its middle — which is what `WindSway::Card`'s
+        // rather than its base - a standing card is a `Plane` rotated
+        // upright about its middle - which is what `WindSway::Card`'s
         // height bias accounts for.
         if *sways {
             cmd.insert(crate::wind::WindSway::Card);
@@ -479,7 +479,7 @@ fn spawn_primitive_entity(
     } else {
         // `Mesh3d` is what normally brings `Visibility` in as a required
         // component. A split root has no mesh of its own, so it must carry
-        // one explicitly or visibility would not propagate — to its render
+        // one explicitly or visibility would not propagate - to its render
         // children *or* to the generator's own child nodes hanging off it.
         cmd.insert(Visibility::default());
     }
@@ -495,7 +495,7 @@ fn spawn_primitive_entity(
     let root = cmd.id();
 
     if !single {
-        // NB: no `RoomEntity` / `PlacementUnit` on the render children — the
+        // NB: no `RoomEntity` / `PlacementUnit` on the render children - the
         // same rule the Shape and L-system spawners follow. The root carries
         // them, recursive despawn from it covers the children, and
         // double-marking makes the flat unit sweep try to despawn entities
@@ -518,7 +518,7 @@ fn spawn_primitive_entity(
                         faces: group.faces.clone(),
                     },
                 ));
-                // A split prim's foliage face sways on its own (#916) — the
+                // A split prim's foliage face sways on its own (#916) - the
                 // render children are `Transform::IDENTITY` under the prim
                 // root, so they share its origin and its profile.
                 if *sways {

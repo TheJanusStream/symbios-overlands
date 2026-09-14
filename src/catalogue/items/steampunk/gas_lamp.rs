@@ -1,4 +1,4 @@
-//! Gas lamp — a Steampunk prop. A wrought-iron lamppost on a stepped base: a
+//! Gas lamp - a Steampunk prop. A wrought-iron lamppost on a stepped base: a
 //! fluted column with brass collars, a gas riser and stopcock, a lamplighter's
 //! rest bar, four scroll volutes under a glazed lantern, and a mantle burning
 //! behind real panes in a brass cage.
@@ -8,18 +8,18 @@
 //!
 //! 1. **The panes were solids.** Four `Window`-textured **cuboids** stood in
 //!    for the glazing (#972 lesson 20). The generator masks its panes away, so
-//!    each was a frame with holes onto whatever lay behind it — which on a
+//!    each was a frame with holes onto whatever lay behind it - which on a
 //!    lantern is the far pane, i.e. sky. A lantern is the one prop whose whole
 //!    point is a light seen *through* glass, so the card belongs on a flat quad
 //!    over the real opening between the corner posts, with the mantle behind.
 //! 2. **There was no cage.** The doc comment promised "a glowing gas mantle in
 //!    a brass cage" and the geometry had four corner posts and nothing else.
 //! 3. **Flat 20-prim list** (#972 lesson 3), so dragging the column left the
-//!    lantern, the scrolls and the roof behind — on a prop whose only likely
+//!    lantern, the scrolls and the roof behind - on a prop whose only likely
 //!    edit is "move it" or "make it taller".
 //!
-//! Now the tree stands the way the lamp does — base → plinth → column →
-//! bracket → lantern → roof → finial — and every part above the bracket is
+//! Now the tree stands the way the lamp does - base → plinth → column →
+//! bracket → lantern → roof → finial - and every part above the bracket is
 //! carried by the thing under it.
 
 use std::f32::consts::FRAC_PI_2;
@@ -36,7 +36,7 @@ use super::{BRASS, IRON_DARK, LAMP_GAS, brass, fx, iron, pane_grid};
 
 // --- Dimensions. Everything below derives from these. ----------------------
 
-/// Stepped iron base — the root, and the only thing that touches the ground.
+/// Stepped iron base - the root, and the only thing that touches the ground.
 const BASE_W: f32 = 0.74;
 const BASE_T: f32 = 0.26;
 /// Moulded plinth on it.
@@ -53,7 +53,7 @@ const SHAFT_TOP: f32 = PLINTH_TOP + SHAFT_H;
 const BRACKET_Y: f32 = SHAFT_TOP - 0.14;
 const ARM_LEN: f32 = 0.34;
 
-/// The **gallery** — the stepped moulding that carries the lantern off the
+/// The **gallery** - the stepped moulding that carries the lantern off the
 /// column, and the reason there is no daylight between them.
 ///
 /// The first build set `CAGE_BOT = SHAFT_TOP + 0.1` and left the 100 mm
@@ -77,7 +77,7 @@ const LANT_HALF: f32 = 0.3;
 const POST: f32 = 0.065;
 /// Brass collars top and bottom of the cage.
 const COLLAR: f32 = 0.065;
-/// How far the glazing sits inside the posts' outer face — the putty rebate,
+/// How far the glazing sits inside the posts' outer face - the putty rebate,
 /// and what makes the card's lap invisible: the post's own face is nearer the
 /// viewer than the glass it holds (#972 lesson 7).
 const REBATE: f32 = 0.025;
@@ -92,7 +92,7 @@ const FINIAL_H: f32 = 0.3;
 /// roof.
 ///
 /// A cone comes to a point, so anything set at its apex is balancing on that
-/// point — a spike resting on nothing, which is what the first build looked
+/// point - a spike resting on nothing, which is what the first build looked
 /// like. Seat the cowl where the cone is still wider than the cowl is: at
 /// `FINIAL_SINK` below the apex the cone's radius is
 /// `ROOF_R · FINIAL_SINK / ROOF_H` = 94 mm, comfortably outside the cowl's 75.
@@ -101,14 +101,14 @@ const COWL_R: f32 = 0.075;
 const COWL_H: f32 = 0.15;
 const FINIAL_SINK: f32 = 0.09;
 
-/// Height of the lamplighter's rest bar — the crossbar a ladder hooks over,
+/// Height of the lamplighter's rest bar - the crossbar a ladder hooks over,
 /// and the one detail that says this lamp is lit by hand.
 const REST_Y: f32 = 2.0;
 
 // --- Shared construction. --------------------------------------------------
 
 /// Which way a pane looks. A lantern is glazed on all four faces, so unlike
-/// the one-hero-face entries this needs every upright turn — and the `±X` ones
+/// the one-hero-face entries this needs every upright turn - and the `±X` ones
 /// are a composition rather than a single-axis rotation.
 #[derive(Clone, Copy)]
 enum Look {
@@ -216,7 +216,7 @@ fn plinth() -> Generator {
 }
 
 /// Fluted column with its collars, the gas riser that feeds the lantern, the
-/// lamplighter's rest bar — and the bracket at the top.
+/// lamplighter's rest bar - and the bracket at the top.
 fn column() -> Generator {
     let shaft = prim(
         solid(cylinder_tapered(
@@ -263,7 +263,7 @@ fn column() -> Generator {
         [riser_x, PLINTH_TOP + 0.5, 0.06],
         id_quat(),
     ));
-    // Lamplighter's rest bar — what a ladder hooks over.
+    // Lamplighter's rest bar - what a ladder hooks over.
     parts.push(prim(
         solid(cuboid_tapered([0.5, 0.04, 0.045], 0.0, brass(BRASS))),
         [0.0, REST_Y, 0.0],
@@ -285,7 +285,7 @@ fn column() -> Generator {
 /// radiating from it, carrying the lantern.
 ///
 /// Each arm is authored from **one direction vector**, so the bar, its curl and
-/// the tip stay on the same ray however the reach changes — the shipped version
+/// the tip stay on the same ray however the reach changes - the shipped version
 /// crossed two flat bars and hung four rings under them at a fixed offset, and
 /// the rings did not line up with the arms they were meant to curl off.
 fn bracket() -> Generator {
@@ -389,7 +389,7 @@ fn lantern() -> Generator {
             [ox * (LANT_HALF - REBATE), cy, oz * (LANT_HALF - REBATE)],
             look.quat(),
         ));
-        // Two cage bars across each face, **outside** the glass — the brass
+        // Two cage bars across each face, **outside** the glass - the brass
         // cage the doc comment always promised and the geometry never had.
         for f in [-0.22_f32, 0.22] {
             let along_x = ox.abs() > 0.5;
@@ -455,7 +455,7 @@ fn roof() -> Generator {
     let apex = CAGE_TOP + ROOF_H;
     // Both are seated `FINIAL_SINK` **below** the apex, so the cowl's base is
     // inside the cone and the spike's base is inside the cowl. Set at the apex
-    // instead — which is where they were — each balances on a point.
+    // instead - which is where they were - each balances on a point.
     let cowl_bot = apex - FINIAL_SINK;
     let parts = vec![
         prim(
@@ -597,7 +597,7 @@ mod tests {
     /// The roof covers the lantern it sits on.
     ///
     /// A four-sided pyramid's flat faces lie at `r · cos 45°` from its axis, so
-    /// the covering radius is smaller than the radius you author — which is the
+    /// the covering radius is smaller than the radius you author - which is the
     /// kind of standoff that gets picked by eye and left 30 mm short (#972
     /// lesson 11). Stated as the relationship, not as the number.
     #[test]
@@ -630,7 +630,7 @@ mod tests {
     /// bottom with no gap between one and the next.
     ///
     /// The shipped build had 100 mm of daylight between the top of the column
-    /// and the lantern, because the lantern's bottom collar is a *ring* — its
+    /// and the lantern, because the lantern's bottom collar is a *ring* - its
     /// underside is open, so nothing in the record says the head is unsupported
     /// and nothing in a four-angle sheet shows it either, unless a tile happens
     /// to catch that 10 cm against the sky. Stated as a chain rather than as a
@@ -656,7 +656,7 @@ mod tests {
         });
         assert!(
             spans.len() >= 6,
-            "only {} axial members found — suspect the selector before the content",
+            "only {} axial members found - suspect the selector before the content",
             spans.len()
         );
         spans.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
@@ -670,7 +670,7 @@ mod tests {
         assert!(
             reach >= CAGE_BOT - 1e-4,
             "gas_lamp: the solid column reaches {reach} and the lantern floor is at \
-             {CAGE_BOT} — the head floats on {} m of air",
+             {CAGE_BOT} - the head floats on {} m of air",
             CAGE_BOT - reach
         );
     }
@@ -681,7 +681,7 @@ mod tests {
     /// A cone narrows to nothing, so a part set at its apex touches it at a
     /// single vertex however solid the record looks. The check is the one
     /// relationship that matters: at the height the cowl's base sits, the cone
-    /// must still be wider than the cowl — and the spike's base must be inside
+    /// must still be wider than the cowl - and the spike's base must be inside
     /// the cowl, not on top of it.
     #[test]
     fn the_finial_is_seated_in_the_roof_not_balanced_on_it() {
@@ -710,7 +710,7 @@ mod tests {
         assert!(
             cone_r_there >= cowl_r,
             "gas_lamp: at the cowl's base the roof is {cone_r_there} m across and the \
-             cowl is {cowl_r} — it is balanced on the cone's point, not seated in it"
+             cowl is {cowl_r} - it is balanced on the cone's point, not seated in it"
         );
         assert!(
             spike[1] - spike_h * 0.5 < cowl[1] + cowl_h * 0.5,
@@ -761,7 +761,7 @@ mod tests {
     }
 
     /// #972 lesson 8: everything standing on the base has its footprint inside
-    /// the base's — the one containment a free-standing prop can get wrong.
+    /// the base's - the one containment a free-standing prop can get wrong.
     #[test]
     fn everything_standing_on_the_base_is_on_it() {
         let mut checked = 0;

@@ -1,4 +1,4 @@
-//! Koi pond — a Feudal-Japan prop. A boulder-rimmed pool of still dark
+//! Koi pond - a Feudal-Japan prop. A boulder-rimmed pool of still dark
 //! water with a few koi gliding under the surface, lily pads, and a low
 //! stone stepping-bridge across one edge.
 
@@ -54,7 +54,7 @@ fn build_tree() -> Generator {
     let r = 2.2_f32;
 
     let mut prims = vec![
-        // Still water surface — the root.
+        // Still water surface - the root.
         prim(
             solid(cylinder_tapered(r, 0.22, 28, 0.0, water(WATER_BLUE))),
             [0.0, 0.13, 0.0],
@@ -62,7 +62,7 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Low fieldstone rim — small stones ringing the water's edge rather than
+    // Low fieldstone rim - small stones ringing the water's edge rather than
     // a boulder pile that buries the pool.
     let rim = 14;
     for k in 0..rim {

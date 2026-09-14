@@ -1,4 +1,4 @@
-//! Iron fence — a Gothic-Horror prop. A section of black wrought-iron railing
+//! Iron fence - a Gothic-Horror prop. A section of black wrought-iron railing
 //! with spear-tip finials between two posts. Scatter clutter bounding the
 //! necropolis.
 
@@ -49,7 +49,7 @@ impl CatalogueEntry for IronFence {
 fn build_tree() -> Generator {
     let ir = || iron(IRON_BLACK);
     let mut prims = vec![
-        // Top rail — the root.
+        // Top rail - the root.
         prim(
             solid(cuboid_tapered([3.6, 0.08, 0.08], 0.0, ir())),
             [0.0, 1.25, 0.0],

@@ -1,4 +1,4 @@
-//! Classical Propylaea — the AncientClassical bespoke social gateway (#751),
+//! Classical Propylaea - the AncientClassical bespoke social gateway (#751),
 //! replacing the neutral placeholder arch for this theme. A monumental Doric
 //! porch: a stepped sandstone stylobate carrying two pairs of fluted marble
 //! columns, a full entablature, and a triangular pediment gable facing the
@@ -6,7 +6,7 @@
 //! fire framing the passage you walk through.
 //!
 //! The only functional element is the single [`GeneratorKind::Gateway`] zone
-//! centred in the intercolumniation — walking into it opens the destination
+//! centred in the intercolumniation - walking into it opens the destination
 //! picker. Everything else frames that opening so it reads as a gate: two
 //! flanking column pairs, an entablature span across the top, and threshold
 //! firelight. The gate front is `-Z` (hero convention): the pediment, the
@@ -53,7 +53,7 @@ impl CatalogueEntry for AncientGateway {
 }
 
 fn build_tree() -> Generator {
-    // Stepped stylobate — the flat-base root (never tilt a root: children
+    // Stepped stylobate - the flat-base root (never tilt a root: children
     // would spin with it). Bottom step first, then the top tread.
     let mut prims = vec![prim(
         solid(cuboid_tapered(
@@ -76,7 +76,7 @@ fn build_tree() -> Generator {
     let syl_top = 0.6;
     let shaft_h = 3.0;
 
-    // Two column pairs flanking a ~2.8 m intercolumniation — a front and a
+    // Two column pairs flanking a ~2.8 m intercolumniation - a front and a
     // back row so the porch reads as a walk-through propylaea, not a facade.
     // Each column: base drum, tapered fluted shaft, square Doric capital.
     let cap_top = syl_top + 0.3 + shaft_h + 0.35;
@@ -129,7 +129,7 @@ fn build_tree() -> Generator {
     ));
     let entab_top = cap_top + 0.9;
 
-    // Triangular pediment gable atop the cornice — taper pinches the Z sides
+    // Triangular pediment gable atop the cornice - taper pinches the Z sides
     // to a ridge line along X, so the tympanum triangles face front (-Z) and
     // back (+Z), the classic Doric gable silhouette.
     prims.push(prim(
@@ -142,7 +142,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Bronze victory wreath on the tympanum front face (-Z) — the gate's
+    // Bronze victory wreath on the tympanum front face (-Z) - the gate's
     // emblem, stood vertical to face the approach.
     prims.push(prim(
         torus(0.07, 0.52, bronze(BRONZE_GREEN)),
@@ -150,7 +150,7 @@ fn build_tree() -> Generator {
         quat_x(std::f32::consts::FRAC_PI_2),
     ));
 
-    // Gilded inscription band across the frieze front (-Z) — a broad flat
+    // Gilded inscription band across the frieze front (-Z) - a broad flat
     // strip, so LOW emissive strength to read as gilt lettering not white glow.
     prims.push(prim(
         cuboid_tapered([2.6, 0.12, 0.04], 0.0, glow([1.0, 0.74, 0.34], 2.0)),
@@ -158,7 +158,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Warm votive underglow along the top of the opening — a thin ember trim
+    // Warm votive underglow along the top of the opening - a thin ember trim
     // under the architrave, run hot because it is a slim edge, not a face.
     prims.push(prim(
         cuboid_tapered([2.8, 0.1, 0.14], 0.0, glow(EMBER_ORANGE, 5.0)),
@@ -181,8 +181,8 @@ fn build_tree() -> Generator {
     //
     // A propylaea frames its opening with two *rows* of columns and open
     // air between them, so a veil centred on the porch would have nothing
-    // to hide its edges in. It stands in the front row instead — the plane
-    // the approach reads as the doorway — running that row's depth, so the
+    // to hide its edges in. It stands in the front row instead - the plane
+    // the approach reads as the doorway - running that row's depth, so the
     // sides disappear into the shafts and the top under the architrave.
     prims.push(prim(
         GeneratorKind::Gateway {
@@ -209,7 +209,7 @@ mod tests {
         assert_sanitize_stable(&AncientGateway.build(""), "ancient_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is a porch, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

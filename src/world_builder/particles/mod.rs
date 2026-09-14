@@ -4,15 +4,15 @@
 //! particle is a Bevy entity with a billboarded / velocity-aligned quad
 //! mesh, ticked by three systems each frame:
 //!
-//! 1. [`update_emitter_motion`] — refreshes the per-emitter velocity
+//! 1. [`update_emitter_motion`] - refreshes the per-emitter velocity
 //!    used by velocity-inheritance. Tries avian3d `LinearVelocity` on
 //!    the emitter or its nearest `RigidBody` ancestor first; falls back
 //!    to a numerical derivative of the emitter's `GlobalTransform`.
-//! 2. [`tick_emitter_spawn`] — drains the per-second emit accumulator,
+//! 2. [`tick_emitter_spawn`] - drains the per-second emit accumulator,
 //!    samples spawn positions from the emitter shape, samples initial
 //!    velocity, applies inherit_velocity, and spawns particle entities
 //!    up to the per-emitter `max_particles` cap.
-//! 3. [`tick_particles`] — ages particles, integrates position with
+//! 3. [`tick_particles`] - ages particles, integrates position with
 //!    gravity / acceleration / linear drag, fades size and colour,
 //!    optionally collides against terrain / water / arbitrary
 //!    colliders, and despawns at end-of-life. Also re-orients the quad
@@ -25,8 +25,8 @@
 //! ## Material strategy
 //!
 //! Particles do **not** own materials. Each emitter lazily bakes one
-//! [`EmitterMaterialRamp`] — a small set of shared `StandardMaterial`
-//! handles quantising the start→end colour fade — and every particle
+//! [`EmitterMaterialRamp`] - a small set of shared `StandardMaterial`
+//! handles quantising the start→end colour fade - and every particle
 //! swaps between those shared handles as it ages (an asset-id copy,
 //! exactly like the atlas-frame mesh swap). The previous design gave
 //! every particle its own material and mutated it every frame, which
@@ -36,12 +36,12 @@
 //!
 //! ## Sub-module map
 //!
-//! * [`ramp`] — [`EmitterMaterialRamp`] + the quantised-fade builder.
-//! * [`atlas`] — shared quad mesh, the per-frame atlas-mesh cache, and
+//! * [`ramp`] - [`EmitterMaterialRamp`] + the quantised-fade builder.
+//! * [`atlas`] - shared quad mesh, the per-frame atlas-mesh cache, and
 //!   frame-index math.
-//! * [`spawn`] — emitter spawn helpers, the record→snapshot translator,
+//! * [`spawn`] - emitter spawn helpers, the record→snapshot translator,
 //!   the per-frame emission system and per-particle spawn.
-//! * [`tick`] — emitter motion tracking, particle integration /
+//! * [`tick`] - emitter motion tracking, particle integration /
 //!   fade / collision / orientation, and end-of-life despawn.
 
 mod atlas;
@@ -100,7 +100,7 @@ pub struct ParticleEmitter {
     /// (solid coloured quads); `Some(_)` triggers a fetch via
     /// [`super::image_cache::BlobImageCache`] when the emitter's
     /// material ramp is baked, patching each ramp material with the
-    /// resulting [`Handle<Image>`] — every particle shares those.
+    /// resulting [`Handle<Image>`] - every particle shares those.
     pub texture: Option<SignSource>,
     /// Atlas dimensions when the loaded texture is a sprite sheet.
     /// `None` uses the whole image as a single frame.
@@ -108,7 +108,7 @@ pub struct ParticleEmitter {
     /// Frame-cycling mode for atlas particles.
     pub frame_mode: AnimationFrameMode,
     /// Sampler filter applied when the image lands in
-    /// `Assets<Image>` — `Linear` for soft sprites, `Nearest` for
+    /// `Assets<Image>` - `Linear` for soft sprites, `Nearest` for
     /// pixel-art looks.
     pub texture_filter: TextureFilter,
     /// Locally-baked particle sprite. `Some(_)` only when the record's
@@ -168,10 +168,10 @@ pub struct Particle {
     /// Source emitter, used by the tick system to read the parametric
     /// curves (start/end size + colour) from the snapshot. Resolved
     /// each frame so a despawned emitter no longer feeds its surviving
-    /// particles' fade — they keep ticking off their existing state
+    /// particles' fade - they keep ticking off their existing state
     /// until they age out.
     pub emitter: Entity,
-    /// Atlas dimensions baked at spawn — `(rows, cols)`. `None` when
+    /// Atlas dimensions baked at spawn - `(rows, cols)`. `None` when
     /// the particle has no atlas (single-frame texture or no texture
     /// at all). Stored on the particle so the tick system can resolve
     /// atlas mesh handles even after the source emitter despawns.
@@ -187,7 +187,7 @@ pub struct Particle {
     pub frame_mode: AnimationFrameMode,
     /// Index of the [`EmitterMaterialRamp`] bucket this particle's
     /// `MeshMaterial3d` currently points at. The tick system swaps the
-    /// handle when the lifetime fraction crosses into the next bucket —
+    /// handle when the lifetime fraction crosses into the next bucket -
     /// an asset-id copy, never a material mutation.
     pub ramp_index: usize,
 }

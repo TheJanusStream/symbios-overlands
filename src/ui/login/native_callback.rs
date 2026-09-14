@@ -2,7 +2,7 @@
 //! [`NativeCallbackReceiver`](crate::oauth::NativeCallbackReceiver)
 //! channel, drain the matching
 //! [`NativePendingAuthRes`](crate::oauth::NativePendingAuthRes), and spawn
-//! the exchange task — or surface the authorization server's error
+//! the exchange task - or surface the authorization server's error
 //! redirect (user denied, expired request, …) into [`LoginError`].
 
 use bevy::prelude::*;
@@ -45,7 +45,7 @@ pub fn poll_native_callback(
     };
     // Every arm below is terminal for this login attempt: the listener
     // thread broke its accept loop right after sending the outcome, so
-    // drop all the listener resources — that joins the thread and closes
+    // drop all the listener resources - that joins the thread and closes
     // the socket, freeing the port for any future attempt.
     commands.remove_resource::<oauth::NativeCallbackReceiver>();
     commands.remove_resource::<oauth::NativePendingAuthRes>();

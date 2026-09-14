@@ -1,4 +1,4 @@
-//! Cemetery — a Gothic-Horror secondary. A mossy grave plot of leaning
+//! Cemetery - a Gothic-Horror secondary. A mossy grave plot of leaning
 //! headstones behind an iron railing, a stone cross at its heart, mist
 //! pooling between the rows. The burial ground of the necropolis.
 //!
@@ -53,7 +53,7 @@ fn build_tree() -> Generator {
     let ms = || mossy(STONE_MOSS);
     let ir = || iron(IRON_BLACK);
     let mut prims = vec![
-        // Mossy grave plot — the root.
+        // Mossy grave plot - the root.
         prim(
             solid(cuboid_tapered([8.0, 0.2, 6.0], 0.0, ms())),
             [0.0, 0.1, 0.0],
@@ -105,7 +105,7 @@ fn build_tree() -> Generator {
                     ));
                 }
                 2 => {
-                    // Pointed (gabled) cap — a four-sided cap reading as a peak.
+                    // Pointed (gabled) cap - a four-sided cap reading as a peak.
                     prims.push(prim(
                         solid(cone(0.33, 0.42, 4, ms())),
                         [gx, top + 0.18, gz],

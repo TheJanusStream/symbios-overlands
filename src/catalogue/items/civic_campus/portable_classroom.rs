@@ -1,4 +1,4 @@
-//! Portable classroom — the Civic/Campus *poor* landmark. A demountable
+//! Portable classroom - the Civic/Campus *poor* landmark. A demountable
 //! modular cabin up on cinder blocks, its painted skirting peeling, a metal
 //! door at the top of a short ramp and a row of dim windows. The
 //! hardscrabble counterpart to the [`town_hall`](super::town_hall): same
@@ -62,7 +62,7 @@ fn build_tree() -> Generator {
     let fz = -1.0_f32;
 
     let mut prims = vec![
-        // Painted cabin floor box — the root, raised on blocks.
+        // Painted cabin floor box - the root, raised on blocks.
         prim(
             solid(cuboid_tapered([7.0, 0.3, 3.5], 0.0, painted(CABIN_BEIGE))),
             [0.0, floor_y, 0.0],

@@ -1,4 +1,4 @@
-//! Dormitory — a Civic/Campus secondary. A three-storey brick residence hall:
+//! Dormitory - a Civic/Campus secondary. A three-storey brick residence hall:
 //! six piers standing proud of recessed spandrel bands, framing fifteen real
 //! openings over fifteen lit rooms; a recessed entrance under a bracketed
 //! canopy with steps down to its own apron; and a parapet ring over a roof of
@@ -7,14 +7,14 @@
 //! Rebuilt as a shell under #972. What shipped was a solid brick box with
 //! pictures of a building on it:
 //!
-//! 1. **Three bands of `modern_city::curtain_wall`** — a lit glass *cuboid*
+//! 1. **Three bands of `modern_city::curtain_wall`** - a lit glass *cuboid*
 //!    behind proud fins, which that helper's own note says is wrong below
 //!    first-floor level, and which handed a `Window` texture is the one thing
 //!    it cannot be (#972 lesson 20). The entrance "door" was another glazed
 //!    cuboid.
 //! 2. **No openings, no reveals, no rooms.** A hall of residence whose whole
 //!    subject is *people living behind those windows* had nothing behind any of
-//!    them — and the same three bands ran unbroken past the entrance, so the
+//!    them - and the same three bands ran unbroken past the entrance, so the
 //!    way in was a flat panel on a wall.
 //! 3. **The canopy floated.** A 2.6 × 1.2 concrete slab at 2.8 m with nothing
 //!    holding it up and nothing under it: no threshold, no step, no reveal.
@@ -67,7 +67,7 @@ const WALL_MID: f32 = FRONT + WALL_T * 0.5;
 /// Glazing plane in the reveal, and the lit room panel behind it.
 const GLAZE_Z: f32 = FRONT + WALL_T * 0.72;
 const ROOM_Z: f32 = FRONT + 1.5;
-/// Centre plane of proud trim — string courses, sills, the entrance surround.
+/// Centre plane of proud trim - string courses, sills, the entrance surround.
 const TRIM_Z: f32 = FRONT - 0.07;
 /// How far a card oversails its opening on every edge (#972 lesson 7).
 const GLAZE_LAP: f32 = 0.06;
@@ -89,18 +89,18 @@ const ENTRY_H: f32 = 2.55;
 const BAY_X: [f32; 5] = [-4.3, -2.15, 0.0, 2.15, 4.3];
 const ENTRY_BAY: usize = 2;
 
-/// Approach apron in front of the entrance — what the steps and everything set
+/// Approach apron in front of the entrance - what the steps and everything set
 /// down outside actually stand on (#972 lesson 19).
 const APRON_W: f32 = 4.6;
 const APRON_D: f32 = 2.6;
 const APRON_T: f32 = 0.18;
 /// The apron laps **under** the plinth's front edge rather than stopping at
 /// it: the top tread has to land on the plinth, so an apron that stops short
-/// leaves that tread standing on nothing — which is what the guard found on
+/// leaves that tread standing on nothing - which is what the guard found on
 /// the first build of this rebuild, 0.1 m off its own paving.
 const APRON_Z: f32 = FRONT + 0.1 - APRON_D * 0.5;
 
-/// Brick length in metres — a real brick, laid flat, in one course frame the
+/// Brick length in metres - a real brick, laid flat, in one course frame the
 /// whole building shares (#972 lesson 2).
 const BRICK_LEN: f32 = 0.215;
 
@@ -110,7 +110,7 @@ const BRICK_LEN: f32 = 0.215;
 /// `lit_interior` warms its emission by 1.1 there, and above that the sanitiser
 /// clamps it and the entry fails its own round-trip guard.
 const ROOM_LIT: [f32; 3] = [0.86, 0.74, 0.52];
-/// A room whose light is off — still a room, just a dark one, so the elevation
+/// A room whose light is off - still a room, just a dark one, so the elevation
 /// reads as a building somebody lives in rather than as a lightbox.
 const ROOM_DIM: [f32; 3] = [0.30, 0.30, 0.32];
 /// Lobby lining and the noticeboard's felt.
@@ -136,7 +136,7 @@ fn opening(s: usize, b: usize) -> (f32, [f32; 2]) {
 }
 /// Whether that room's light is on. Deterministic, and mixed on purpose: a
 /// hall where every window burns is a lightbox, and one where none do is a
-/// slab (#972 — the tenement's lesson).
+/// slab (#972 - the tenement's lesson).
 fn is_lit(s: usize, b: usize) -> bool {
     !(s * 5 + b * 3).is_multiple_of(4)
 }
@@ -149,7 +149,7 @@ fn wall_mat(center: [f32; 3], face: FaceKey) -> SovereignMaterialSettings {
 }
 
 /// One brick slab of the shell. The centre is bound once and handed to the
-/// material *and* the transform — passing a bonding helper a different reading
+/// material *and* the transform - passing a bonding helper a different reading
 /// of "the middle of the wall" is the one way to defeat the frame guard
 /// silently (#972 lesson 18).
 fn wall(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
@@ -160,7 +160,7 @@ fn wall(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
     )
 }
 
-/// Cast stone in the world frame — plinth, string courses, sills, copings.
+/// Cast stone in the world frame - plinth, string courses, sills, copings.
 fn cast(color: [f32; 3], center: [f32; 3], face: FaceKey) -> SovereignMaterialSettings {
     let mut m = if color == STONE_PALE {
         stone(color)
@@ -193,7 +193,7 @@ fn glazing(size: [f32; 2], center: [f32; 3], panes: (u32, u32)) -> Generator {
     )
 }
 
-/// A lit surface inside — what a card's masked-away panes actually show.
+/// A lit surface inside - what a card's masked-away panes actually show.
 fn lit(size: [f32; 3], center: [f32; 3], color: [f32; 3], strength: f32) -> Generator {
     prim(
         cuboid_tapered(size, 0.0, lit_interior(color, strength)),
@@ -237,7 +237,7 @@ impl CatalogueEntry for Dormitory {
 
 /// The hall as a tree that stands the way it does: the plinth at the bottom,
 /// the body on it, the cornice and parapet on the body, the roof inside the
-/// parapet — with the approach apron its own sub-assembly, so the steps are
+/// parapet - with the approach apron its own sub-assembly, so the steps are
 /// checked against the paving they land on rather than against the building
 /// (#972 lesson 19).
 fn build_tree() -> Generator {
@@ -263,8 +263,8 @@ fn build_tree() -> Generator {
 
 /// The approach apron and the flight up onto the plinth.
 ///
-/// Both ends of the flight are derived — the top tread meets the plinth's own
-/// top and the bottom one meets the apron — so no riser can float and none can
+/// Both ends of the flight are derived - the top tread meets the plinth's own
+/// top and the bottom one meets the apron - so no riser can float and none can
 /// be a climb.
 fn apron() -> Generator {
     let center = [0.0, APRON_T * 0.5, APRON_Z];
@@ -344,7 +344,7 @@ fn body() -> Generator {
     // String course at every upper sill line, ringing all four elevations so
     // the building has a horizontal as well as a vertical grid.
     //
-    // A ring is centred on the **building**, oversized in plan — not on the
+    // A ring is centred on the **building**, oversized in plan - not on the
     // trim plane. Centred at `TRIM_Z` it becomes a 7.7 m slab starting 3.8 m in
     // front of the wall: two cantilevered shelves the width of the site, which
     // is what the first render of this rebuild grew.
@@ -434,7 +434,7 @@ fn elevation(parts: &mut Vec<Generator>) {
 }
 
 /// One study bedroom behind its window: the glazing, a lit (or dark) rear
-/// lining, a bed against it and a desk lamp — enough that the eye lands on
+/// lining, a bed against it and a desk lamp - enough that the eye lands on
 /// something 1.5 m in rather than on a far wall (#972 lesson 6).
 fn room(s: usize, b: usize, bx: f32, cy: f32, size: [f32; 2], parts: &mut Vec<Generator>) {
     parts.push(glazing(size, [bx, cy, GLAZE_Z], (2, 2)));
@@ -541,7 +541,7 @@ fn entrance(bx: f32, parts: &mut Vec<Generator>) {
 
     // Canopy, and the brackets that hold it. Its underside is derived from the
     // door head it has to clear, and each bracket reaches from the wall to the
-    // canopy's own soffit — the shipped slab hung at a round 2.8 m on nothing.
+    // canopy's own soffit - the shipped slab hung at a round 2.8 m on nothing.
     let soffit = head + 0.35;
     let depth = 1.5;
     parts.push(band(
@@ -557,7 +557,7 @@ fn entrance(bx: f32, parts: &mut Vec<Generator>) {
             id_quat(),
         ));
     }
-    // Lamp under the canopy — below anything that spans the head, so it lights
+    // Lamp under the canopy - below anything that spans the head, so it lights
     // something the approach can see (#972 lesson 10).
     parts.push(prim(
         cuboid_tapered([0.3, 0.12, 0.3], 0.2, glow([1.0, 0.9, 0.68], 2.4)),
@@ -765,7 +765,7 @@ mod tests {
         );
     }
 
-    /// #972 lesson 1: every pane is a card on a flat quad at `uv_scale` 1.0 —
+    /// #972 lesson 1: every pane is a card on a flat quad at `uv_scale` 1.0 -
     /// fourteen room windows plus the entrance's doors and transom.
     #[test]
     fn every_opening_is_a_card_on_a_quad() {
@@ -784,7 +784,7 @@ mod tests {
     }
 
     /// #972 lesson 7: every room card oversails the opening the brick leaves
-    /// it, checked against [`opening`] — which is where the piers, spandrels
+    /// it, checked against [`opening`] - which is where the piers, spandrels
     /// and sills all come from too.
     #[test]
     fn every_card_laps_its_opening() {
@@ -854,7 +854,7 @@ mod tests {
     /// #972 lesson 18: every masonry and cast slab's `uv_offset` is some face's
     /// projection of the position the **built tree** puts it at, read from the
     /// composed translation rather than from the constants the placement used
-    /// (#972 lesson 21) — and the bond itself is flat-coursed.
+    /// (#972 lesson 21) - and the bond itself is flat-coursed.
     #[test]
     fn every_clad_surface_shares_one_world_frame() {
         use FaceKey::*;
@@ -873,7 +873,7 @@ mod tests {
             }
             // Select by what defines a clad surface: a run of real wall, with a
             // second dimension that is a surface rather than a stick (#972
-            // lesson 24 — a first draft of this on the greenhouse asked for two
+            // lesson 24 - a first draft of this on the greenhouse asked for two
             // dimensions over 0.9 m and quietly skipped the dwarf wall).
             let mut dims = size.0;
             dims.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -918,7 +918,7 @@ mod tests {
         });
         assert!(
             checked >= 20,
-            "only {checked} clad surfaces found — suspect the selector before the content"
+            "only {checked} clad surfaces found - suspect the selector before the content"
         );
     }
 
@@ -1020,7 +1020,7 @@ mod tests {
 
     /// The entrance canopy clears the door head it shelters, and each bracket
     /// reaches from the wall to the canopy's own soffit. The shipped slab hung
-    /// at a round 2.8 m on nothing at all — a relationship stated as a number,
+    /// at a round 2.8 m on nothing at all - a relationship stated as a number,
     /// which is exactly the shape that goes wrong when either end moves.
     #[test]
     fn the_canopy_clears_the_door_and_its_brackets_reach_it() {
@@ -1065,7 +1065,7 @@ mod tests {
     }
 
     /// The parapet is a ring of four walls with their own copings, enclosing
-    /// the roof deck — not a solid cap. A cap is what shipped, and it is why
+    /// the roof deck - not a solid cap. A cap is what shipped, and it is why
     /// the hall had no roof to put anything on.
     #[test]
     fn the_parapet_rings_the_roof_it_encloses() {

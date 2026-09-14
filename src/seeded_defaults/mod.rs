@@ -3,7 +3,7 @@
 //! Centralised home for the deterministic per-user variation pipeline.
 //! Every consumer (terrain config defaults, room environment palette,
 //! avatar body / palette / gait) reads from this module so the FNV-1a
-//! hash and ChaCha8 RNG seeding live in exactly one place — peers
+//! hash and ChaCha8 RNG seeding live in exactly one place - peers
 //! visiting the same DID derive bit-exact identical defaults.
 //!
 //! The data flow per room:
@@ -23,7 +23,7 @@
 //!         · room::atmosphere (water, clouds, sun, fog)
 //!         · room::scatters   (biome-biased tree-scatter specs)
 //!         · room::rocks      (landform-biased boulder scatters)
-//!         · room::groundcover (grass / flowers / ferns / moss — the tier
+//!         · room::groundcover (grass / flowers / ferns / moss - the tier
 //!                             below the trees)
 //!         · room::particles  (biome-mood ambient emitter)
 //!         · room::settlement (themed catalogue cluster near spawn)
@@ -60,7 +60,7 @@ pub mod scene;
 /// A set of per-axis re-roll locks that can hunt for a seed satisfying them
 /// (#1005).
 ///
-/// Both pin sets — [`AvatarPins`] and [`scene::ScenePins`] — are editor UI
+/// Both pin sets - [`AvatarPins`] and [`scene::ScenePins`] - are editor UI
 /// state that never reaches a record, and both answer exactly this one
 /// question. Naming it lets the editor-side cache and seed row be written
 /// once against the trait instead of twice against the two types; the

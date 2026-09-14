@@ -1,4 +1,4 @@
-//! Tarp shelter — a Cyberpunk *poor* secondary. Four lashed poles under a
+//! Tarp shelter - a Cyberpunk *poor* secondary. Four lashed poles under a
 //! sagging plastic tarp with drooping side flaps, a crate and barrel of
 //! salvage, and a dim hanging lamp warmed by a burn-barrel; a makeshift
 //! undercity stall.
@@ -60,7 +60,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Sagging tarp — the shallow bottom cap of a big sphere, so the membrane
+    // Sagging tarp - the shallow bottom cap of a big sphere, so the membrane
     // dips lowest in the middle and lifts to the pole tops, reading as draped
     // cloth instead of a flat slab. (`profile_cut` keeps a thin latitude band
     // off the south pole; the big radius makes that cap wide and shallow.)

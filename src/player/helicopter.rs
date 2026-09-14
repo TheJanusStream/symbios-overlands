@@ -1,17 +1,17 @@
-//! Helicopter preset — auto-stabilising arcade hover.
+//! Helicopter preset - auto-stabilising arcade hover.
 //!
 //! Controls (chassis-local):
-//!   * **W / S** — forward / backward cyclic horizontal force.
-//!   * **A / D** — yaw torque.
-//!   * **Q / E** — lateral strafe force.
-//!   * **Space** — climb at `vertical_speed`.
-//!   * **Shift** — descend at `vertical_speed`.
+//!   * **W / S** - forward / backward cyclic horizontal force.
+//!   * **A / D** - yaw torque.
+//!   * **Q / E** - lateral strafe force.
+//!   * **Space** - climb at `vertical_speed`.
+//!   * **Shift** - descend at `vertical_speed`.
 //!
 //! `hover_thrust` cancels gravity at idle so the helicopter floats
 //! without sinking. The chassis auto-stabilises to upright via a Y-axis-
 //! aligning torque so the player never has to fight rotor-induced spin.
 //!
-//! Hover and auto-stabilise are PASSIVE — they live in
+//! Hover and auto-stabilise are PASSIVE - they live in
 //! [`apply_helicopter_stabilization`], which runs unconditionally (no
 //! egui-keyboard gate, no [`TravelingTo`] early-return), so the airship
 //! keeps floating while the player types in a chat/search field and
@@ -30,7 +30,7 @@ use super::{HelicopterPreset, VisualsEditFreeze};
 /// Shortest-path corrective torque that pulls `chassis_up` toward
 /// world-up. Zero when already upright; strongest at 90° of tilt. Pure
 /// so the stabilisation contract is unit-testable. `strength` is the
-/// record's `stabilize_torque` (#876) — the default keeps the historical
+/// record's `stabilize_torque` (#876) - the default keeps the historical
 /// never-inverts feel while still letting cyclic tilt read as motion.
 fn stabilize_torque(chassis_up: Vec3, strength: f32) -> Vec3 {
     chassis_up.cross(Vec3::Y) * strength
@@ -40,7 +40,7 @@ fn stabilize_torque(chassis_up: Vec3, strength: f32) -> Vec3 {
 /// thrust that cancels gravity plus the upright-stabilising torque.
 ///
 /// Deliberately NOT gated on `egui_wants_any_keyboard_input`,
-/// `avatar_visuals_row_selected`, or [`TravelingTo`] — these forces are
+/// `avatar_visuals_row_selected`, or [`TravelingTo`] - these forces are
 /// stabilisation, not input response. Before the split the hover force
 /// lived in [`apply_helicopter_forces`], so focusing any egui text field
 /// (or touching a portal) cut the rotor and the airship fell out of the
@@ -68,7 +68,7 @@ pub(super) fn apply_helicopter_stabilization(
     };
 
     // Hover thrust along world-Y so the helicopter floats independent
-    // of cyclic pitch — players can tilt for forward speed without
+    // of cyclic pitch - players can tilt for forward speed without
     // bleeding altitude.
     forces.apply_force(Vec3::Y * p.hover_thrust.0);
 
@@ -114,11 +114,11 @@ pub(super) fn apply_helicopter_forces(
     };
     // Approach the target Y velocity at a fixed rate so input feels
     // immediate without overshooting. The 4.0 here matches the cyclic
-    // feel — tunable, but again a behavioural constant.
+    // feel - tunable, but again a behavioural constant.
     let dy = (target_vy - lin_vel.y).clamp(-15.0, 15.0);
     forces.apply_force(Vec3::Y * dy * p.mass.0 * 4.0);
 
-    // Cyclic forward/back — uses the chassis-flat forward so a tilted
+    // Cyclic forward/back - uses the chassis-flat forward so a tilted
     // helicopter still moves "where the player is looking".
     let forward = global_tf.forward().as_vec3();
     let flat_forward = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
@@ -129,7 +129,7 @@ pub(super) fn apply_helicopter_forces(
         forces.apply_force(-flat_forward * p.cyclic_force.0);
     }
 
-    // Strafe — chassis-flat right.
+    // Strafe - chassis-flat right.
     let right = global_tf.right().as_vec3();
     let flat_right = Vec3::new(right.x, 0.0, right.z).normalize_or_zero();
     if keyboard.pressed(KeyCode::KeyQ) {
@@ -153,7 +153,7 @@ pub(super) fn apply_helicopter_forces(
 mod tests {
     use super::*;
 
-    /// The default record strength — tests exercise the historical feel.
+    /// The default record strength - tests exercise the historical feel.
     fn strength() -> f32 {
         crate::pds::HelicopterParams::default().stabilize_torque.0
     }
@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn tilted_chassis_gets_shortest_path_correction() {
         // Chassis-up pointing along +X: X × Y = +Z, and a +Z torque
-        // rotates +X toward +Y (right-hand rule) — i.e. back upright.
+        // rotates +X toward +Y (right-hand rule) - i.e. back upright.
         let torque = stabilize_torque(Vec3::X, strength());
         assert!(torque.z > 0.0, "expected +Z corrective torque: {torque}");
         assert_eq!(torque.x, 0.0);
@@ -176,7 +176,7 @@ mod tests {
     #[test]
     fn inverted_chassis_still_gets_finite_torque_magnitude() {
         // Exactly inverted is the degenerate antipode: cross(−Y, Y) = 0,
-        // so the torque vanishes — any perturbation off the pole
+        // so the torque vanishes - any perturbation off the pole
         // re-engages it. Document the dead point rather than pretend
         // it recovers instantly.
         assert_eq!(stabilize_torque(-Vec3::Y, strength()), Vec3::ZERO);

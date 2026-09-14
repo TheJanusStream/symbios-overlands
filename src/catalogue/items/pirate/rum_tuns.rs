@@ -1,7 +1,7 @@
-//! Rum Tuns — the cargo a buccaneer harbour is actually about.
+//! Rum Tuns - the cargo a buccaneer harbour is actually about.
 //!
 //! Three tuns stowed on a stillage: two chocked side by side in the lower
-//! course, the third nested in the valley between them and broached — bung
+//! course, the third nested in the valley between them and broached - bung
 //! out, a tap driven in the head, a pail catching what comes. Lashings pass
 //! over the stow to ring bolts in the paving, and the wreck of a fourth cask
 //! lies in staves along one edge.
@@ -9,7 +9,7 @@
 //! # Why one of them is broached
 //!
 //! Three identical casks are a warehouse inventory. What makes this a *prop*
-//! is the ONE that is open: a bung out, a tap in, and a pail under it — a
+//! is the ONE that is open: a bung out, a tap in, and a pail under it - a
 //! single asymmetry that says somebody has been at it. The same reasoning as
 //! the [`super::quay_capstan`]'s two empty sockets and the battery's two
 //! covered guns; the kit keeps arriving at it because a count of identical
@@ -22,7 +22,7 @@
 //! nesting geometry rather than off a guessed offset. That is the careening
 //! slip's lesson (#1030) at prop scale: a shore placed at a plausible height
 //! rather than a derived one left an eleven-metre hull standing on air, and a
-//! cask is the same fault in miniature — with the aggravation that a floating
+//! cask is the same fault in miniature - with the aggravation that a floating
 //! barrel is at eye level.
 //!
 //! Both derivations are guarded from the built prims, measured from the
@@ -44,14 +44,14 @@ use super::{
     WHARF_GREY, board, bronze, cobbles, fx, hemp, iron, tar,
 };
 
-/// The paved stand — the sub-root every footprint guard measures against
+/// The paved stand - the sub-root every footprint guard measures against
 /// (#972 lesson 19).
 const PAD: [f32; 3] = [5.6, 0.24, 5.0];
 const GROUND: f32 = PAD[1];
 
 /// A tun's radius and length, laid on its side.
 ///
-/// A tun proper is about 950 litres — a cask no one man shifts, which is the
+/// A tun proper is about 950 litres - a cask no one man shifts, which is the
 /// whole reason a stillage and a set of chocks exist to put it on.
 const TUN_R: f32 = 0.6;
 const TUN_LEN: f32 = 1.44;
@@ -59,7 +59,7 @@ const TUN_LEN: f32 = 1.44;
 /// Where the two skids of the stillage cross under the casks, in `X`.
 ///
 /// Inboard of the cask heads, so a cask is carried near its quarters rather
-/// than at its ends — which is how it is actually chocked, and what keeps the
+/// than at its ends - which is how it is actually chocked, and what keeps the
 /// skids from projecting past the stow.
 const SKID_X: f32 = TUN_LEN * 0.31;
 const SKID_H: f32 = 0.2;
@@ -67,25 +67,25 @@ const SKID_W: f32 = 0.34;
 
 /// How far a skid runs athwart the stand: the lower pair's spread plus a bearing
 /// outboard of each of them, since a stillage that stops under its outermost
-/// cask is not carrying it. Also the line the loose gear has to keep clear of —
+/// cask is not carrying it. Also the line the loose gear has to keep clear of -
 /// which is why it is a constant and not written out twice.
 const SKID_LEN: f32 = (LOWER_Z[1] - LOWER_Z[0]) + TUN_R * 2.4;
 
-/// Chock height above the skid — how far the cradle rises to meet the cask.
+/// Chock height above the skid - how far the cradle rises to meet the cask.
 const CHOCK_H: f32 = 0.22;
 
 /// The lower course's axis height: skid top, chock, and the cask's radius.
 const LOWER_Y: f32 = GROUND + SKID_H + CHOCK_H + TUN_R;
 
 /// The lower pair's `Z` stations. Their separation also fixes how deep the
-/// third cask settles into the valley between them — see [`upper_y`].
+/// third cask settles into the valley between them - see [`upper_y`].
 const LOWER_Z: [f32; 2] = [-0.66, 0.66];
 
 /// Where the lashings are made fast, in `Z`. Outboard of the stow, on the
 /// stones, at a ring bolt.
 const RING_Z: f32 = 1.78;
 
-/// Hero side — the render tool and the settlement placer both look down `-Z`.
+/// Hero side - the render tool and the settlement placer both look down `-Z`.
 const FRONT: f32 = -1.0;
 
 /// The rope a lashing is laid up in, and the radius its guard selects on.
@@ -127,7 +127,7 @@ impl CatalogueEntry for RumTuns {
 /// Axis height of the cask nested in the valley between the lower pair.
 ///
 /// Two cylinders of radius `TUN_R` whose centres are `d` apart carry a third
-/// of the same radius at `sqrt((2r)² − (d/2)²)` above their own centre line —
+/// of the same radius at `sqrt((2r)² − (d/2)²)` above their own centre line -
 /// the apex of an isosceles triangle with two sides of `2r`. Deriving it is
 /// the point: a guessed offset either buries the top cask in the two below it
 /// or leaves it hovering, and both are visible from every angle.
@@ -137,7 +137,7 @@ fn upper_y() -> f32 {
     LOWER_Y + (span * span - half_gap * half_gap).max(0.0).sqrt()
 }
 
-/// One tun lying along `X`, with its hoops — a **flat** list.
+/// One tun lying along `X`, with its hoops - a **flat** list.
 ///
 /// Flat, not nested, and that is not a style choice: a cask on its side is a
 /// rotated prim, and a rotated parent spins its children's offsets out of the
@@ -156,7 +156,7 @@ fn tun(z: f32, y: f32, broached: bool, seed: u32) -> Vec<Generator> {
         [0.0, y, z],
         quat_z(FRAC_PI_2),
     )];
-    // Hoops at the chimes and the bilge — four is what makes a barrel read as
+    // Hoops at the chimes and the bilge - four is what makes a barrel read as
     // coopered rather than as a drum. Laid in the cask's own plane, which for
     // a cask lying along `X` is a quarter turn about `Z`: the kit's
     // convention, shared with the tavern's stillage and the magazine's
@@ -236,7 +236,7 @@ fn pail(at: [f32; 3], seed: u32) -> Vec<Generator> {
             [at[0], GROUND + 0.27, at[2]],
             id_quat(),
         ),
-        // A hand's depth of spirit — dark, so the pail is not an empty
+        // A hand's depth of spirit - dark, so the pail is not an empty
         // socket, and matte, because rum is not a mirror.
         prim(
             solid(cylinder_tapered(0.16, 0.05, 12, 0.0, tar(HULL_TAR))),
@@ -280,7 +280,7 @@ fn build_tree() -> Generator {
 
     // Lashings over the stow, made fast to ring bolts in the paving. Struts,
     // so each leg runs between two points that both exist rather than
-    // approximately toward one — the fault class this kit retired (#1028,
+    // approximately toward one - the fault class this kit retired (#1028,
     // #1030).
     for x in [-SKID_X, SKID_X] {
         let over = [x, up_y + TUN_R * 0.92, 0.0];
@@ -314,7 +314,7 @@ fn build_tree() -> Generator {
         ));
     }
     // A second course laid across the first, because three 50 mm boards flat on
-    // the paving have no silhouette at all — in the first render they were a
+    // the paving have no silhouette at all - in the first render they were a
     // faint change of colour on the stones and nothing else. Crossing them puts
     // 100 mm of height and an edge under the light.
     for dx in [-1.5_f32, -1.05] {
@@ -324,7 +324,7 @@ fn build_tree() -> Generator {
             quat_y(FRAC_PI_2),
         ));
     }
-    // The hoop off that cask, standing on its edge against the pile — a ring
+    // The hoop off that cask, standing on its edge against the pile - a ring
     // lying flat is the same invisibility as a flat stave, and a hoop on edge
     // is what a cooper's yard actually looks like. Its centre height is its own
     // radius, so it stands ON the stones rather than near them.
@@ -339,7 +339,7 @@ fn build_tree() -> Generator {
     // A hammer rather than the funnel this started as: the funnel, the measure
     // and the pail were three flared vessels of much the same size in a row,
     // which reads as a set of buckets and says nothing. One tool among them is
-    // what makes the vessels read as vessels (#972 lesson 26 — a prop needs
+    // what makes the vessels read as vessels (#972 lesson 26 - a prop needs
     // things of different KINDS, not more of the same thing).
     carried.push(strut(
         [tap_x - 0.15, GROUND + 0.05, FRONT * 1.95],
@@ -392,7 +392,7 @@ mod tests {
         RumTuns.build("")
     }
 
-    /// Every cask, as world-space bounds — selected by the diameter that
+    /// Every cask, as world-space bounds - selected by the diameter that
     /// *defines* a tun rather than by height or position (#972 lesson 24),
     /// since the stow deliberately has casks at two different levels.
     fn casks() -> Vec<measure::SolidPiece> {
@@ -471,7 +471,7 @@ mod tests {
                 assert!(
                     (c.bounds.max.y - under).abs() < 0.1,
                     "a chock tops out at {} where the cask it carries begins at \
-                     {under} — the cask is resting on air",
+                     {under} - the cask is resting on air",
                     c.bounds.max.y
                 );
             }
@@ -513,7 +513,7 @@ mod tests {
             assert!(
                 top.bounds.min.y < c.bounds.max.y,
                 "the top cask's underside at {} is above the crown of the cask \
-                 at z = {} ({}) — it is balanced on air, not nested",
+                 at z = {} ({}) - it is balanced on air, not nested",
                 top.bounds.min.y,
                 c.bounds.center().z,
                 c.bounds.max.y
@@ -523,7 +523,7 @@ mod tests {
             let axis_gap = (dy * dy + dz * dz).sqrt();
             assert!(
                 axis_gap <= TUN_R * 2.0 + 0.02,
-                "the top cask's axis is {axis_gap} from its neighbour's — more \
+                "the top cask's axis is {axis_gap} from its neighbour's - more \
                  than the two radii that would have them touching"
             );
         }
@@ -563,7 +563,7 @@ mod tests {
         assert_eq!(
             on_stow.len(),
             2,
-            "expected one broached cask — a bung and a tap — but found {} \
+            "expected one broached cask - a bung and a tap - but found {} \
              fittings up on the stow",
             on_stow.len()
         );
@@ -572,7 +572,7 @@ mod tests {
             .iter()
             .find(|c| c[0].abs() > TUN_LEN * 0.5)
             .expect("the tap projects past a cask head");
-        // The pail is selected by the hoop that *makes* it a pail — an iron
+        // The pail is selected by the hoop that *makes* it a pail - an iron
         // band round a wooden vessel down on the stones. Sizing it off the
         // bounding box instead found the bronze funnel, which is the same
         // diameter and stands beside it: #972 lesson 24, and the eighth time
@@ -615,7 +615,7 @@ mod tests {
     ///
     /// Read from the built struts via [`rotate_by`], because a rope of the
     /// right length pointing *near* its ring looks correct from three of four
-    /// angles — the fault this kit paid for twice before `strut` existed.
+    /// angles - the fault this kit paid for twice before `strut` existed.
     #[test]
     fn the_lashings_reach_their_ring_bolts() {
         fn ropes(g: &Generator, at: [f32; 3], out: &mut Vec<([f32; 3], [f32; 3])>) {
@@ -654,7 +654,7 @@ mod tests {
             );
             assert!(
                 hi[2].abs() < 0.05,
-                "a lashing passes over z = {} — not over the cask it holds down",
+                "a lashing passes over z = {} - not over the cask it holds down",
                 hi[2]
             );
             assert!(
@@ -699,7 +699,7 @@ mod tests {
 
     /// The loose gear on the stones stands clear of the stillage.
     ///
-    /// The intersection class this kit has now paid for four times — the
+    /// The intersection class this kit has now paid for four times - the
     /// tavern's coil through its own wall, the warehouse's bales through its
     /// foundation, the magazine's stowed bar and crate. Gear is checked against
     /// the *structure* it could bury itself in rather than pairwise against
@@ -727,7 +727,7 @@ mod tests {
             structure.len()
         );
         // Gear: whatever else is resting on the paving and stays there. The
-        // upper bound matters — a lashing comes down to a ring bolt, so its
+        // upper bound matters - a lashing comes down to a ring bolt, so its
         // *box* covers the whole stow even though the rope itself passes
         // nowhere near the skids, and an AABB test on a diagonal cylinder
         // cannot tell the difference.

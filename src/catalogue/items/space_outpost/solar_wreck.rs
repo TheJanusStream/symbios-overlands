@@ -1,4 +1,4 @@
-//! Solar wreck — a Space-Outpost *poor* secondary. A collapsed solar array,
+//! Solar wreck - a Space-Outpost *poor* secondary. A collapsed solar array,
 //! its steel frame buckled and panels cracked and toppled. The dead power
 //! farm of the wreck site.
 
@@ -47,7 +47,7 @@ impl CatalogueEntry for SolarWreck {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Cracked concrete footing — the flat upright root (a leaning root
+        // Cracked concrete footing - the flat upright root (a leaning root
         // would spin every child into its frame).
         prim(
             solid(cuboid_tapered([5.0, 0.3, 2.0], 0.0, concrete(PAD_GREY))),

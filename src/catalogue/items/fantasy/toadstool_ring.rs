@@ -1,4 +1,4 @@
-//! Toadstool ring — a High-Fantasy *poor* prop. A humble fairy ring of plain
+//! Toadstool ring - a High-Fantasy *poor* prop. A humble fairy ring of plain
 //! red-capped toadstools in the moss. The everyday magic of the hedge-witch's
 //! holding.
 
@@ -51,7 +51,7 @@ fn build_tree() -> Generator {
     let ring_r = 0.85_f32;
 
     let mut prims = vec![
-        // Mossy floor patch — the root.
+        // Mossy floor patch - the root.
         prim(
             solid(cylinder_tapered(1.0, 0.08, 16, 0.0, mossy(STONE_MOSS))),
             [0.0, 0.04, 0.0],

@@ -33,7 +33,7 @@ fn remove_row_button(ui: &mut egui::Ui, hover: &str, enabled: bool, min_reason: 
 /// A list's add control, present-but-disabled at the cap with the reason
 /// (#1210). It used to be short-circuited out of existence at the cap,
 /// which read as a UI glitch. `max` is the sanitiser's number for this
-/// list — the same one [`crate::ui::room::caps`] speaks for.
+/// list - the same one [`crate::ui::room::caps`] speaks for.
 fn add_row_button(ui: &mut egui::Ui, label: &str, len: usize, max: usize) -> bool {
     let reason = if max == MAX_BLOB_ELEMENTS {
         super::super::caps::Cap::BlobElements.full_reason()
@@ -214,7 +214,7 @@ pub(super) fn draw_primitive_plane(
         }
         drag_u32(ui, "Subdivs", subdivisions, 0, 32, dirty);
     });
-    // The Plane has no revolve axis — its mesher ignores the topology cuts,
+    // The Plane has no revolve axis - its mesher ignores the topology cuts,
     // so don't offer them.
     draw_common_primitive(ui, common, faces, salt, false, dirty, assets);
 }
@@ -459,7 +459,7 @@ pub(super) fn draw_primitive_lathe(
         dirty,
         assets,
     } = edit;
-    ui.label("Profile (radius, height — bottom to top):");
+    ui.label("Profile (radius, height - bottom to top):");
     let mut remove: Option<usize> = None;
     let can_remove = points.len() > 2;
     for (i, p) in points.iter_mut().enumerate() {
@@ -524,7 +524,7 @@ pub(super) fn draw_primitive_blob_group(
     resolution: &mut u32,
     edit: PrimEdit<'_, '_, '_>,
     // In-scene edit selection (#705): which element carries the 3D gizmo.
-    // Mirrors `editor_gizmo::BlobEditContext::selected_element` — a row
+    // Mirrors `editor_gizmo::BlobEditContext::selected_element` - a row
     // click here and a proxy click in the scene land in the same slot.
     selected_element: &mut Option<usize>,
 ) {
@@ -539,7 +539,7 @@ pub(super) fn draw_primitive_blob_group(
     ui.label(
         egui::RichText::new(
             "While this blob is selected, the nearest copy of it is shown \
-             as a wireframe with one ghost per element — the other copies \
+             as a wireframe with one ghost per element - the other copies \
              stay solid. Click an element's number (or its ghost in the \
              scene) to sculpt it with the gizmo; carves are crossed \
              through. Esc returns to the whole prim.",
@@ -685,7 +685,7 @@ pub(super) fn draw_primitive_blob_group(
                 }
             });
             // Orientation as yaw/pitch/roll DEGREE drags, stored as a
-            // quaternion — the shared #826 row, so every rotation editor
+            // quaternion - the shared #826 row, so every rotation editor
             // in the app speaks the same units.
             euler_rotation_row(ui, "  Rot", &mut e.rotation, dirty);
         });
@@ -732,15 +732,15 @@ const UV_MODES: [(UvMapping, &str, &str); 7] = [
         UvMapping::Box,
         "Box (tri-planar)",
         "Projects each face along its dominant axis at uniform \
-         density — the default. Strong patterns show faint seams \
+         density - the default. Strong patterns show faint seams \
          where the projection axis changes.",
     ),
     (
         UvMapping::Fit,
         "Fit (span once)",
         "Keeps the mesher's own layout, spanning the surface \
-         exactly once. Required for alpha cards — window glazing, \
-         foliage billboards — which upload clamp-to-edge and would \
+         exactly once. Required for alpha cards - window glazing, \
+         foliage billboards - which upload clamp-to-edge and would \
          otherwise tile. The default on Plane and on the revolved \
          family (sphere, cylinder, torus, lathe, …), whose meshers \
          wrap the shape analytically better than any projection.",
@@ -767,7 +767,7 @@ const UV_MODES: [(UvMapping, &str, &str); 7] = [
     (
         UvMapping::PlanarY,
         "Planar Y",
-        "Flat top-down projection — slabs and ground masses. \
+        "Flat top-down projection - slabs and ground masses. \
          Underside mirrors.",
     ),
     (
@@ -793,8 +793,8 @@ fn uv_mode_name(mapping: UvMapping) -> &'static str {
 ///
 /// The revolved family got the row late (#963): its field only started
 /// meshing differently when `projection_for` generalised in #959, and until
-/// then a picker would have been dead UI. Their default stays `Fit` — their
-/// meshers' analytic wrap — so nothing that already existed moved.
+/// then a picker would have been dead UI. Their default stays `Fit` - their
+/// meshers' analytic wrap - so nothing that already existed moved.
 pub(super) fn draw_uv_mapping(
     ui: &mut egui::Ui,
     common: &mut PrimCommon,
@@ -837,8 +837,8 @@ pub(super) fn draw_uv_mapping(
 /// per-kind editors are `(ui, own knobs…, edit)` and a field added to
 /// [`PrimCommon`] reaches every one of them without a signature moving.
 pub(super) struct PrimEdit<'a, 'u, 'p> {
-    /// The prim's shared block — solid, projection, material, faces,
-    /// torture — edited in place.
+    /// The prim's shared block - solid, projection, material, faces,
+    /// torture - edited in place.
     pub common: &'a mut PrimCommon,
     pub faces: FacePanel<'a, 'u>,
     /// This node's egui ID salt, threaded to every nested widget.
@@ -852,7 +852,7 @@ pub(super) struct PrimEdit<'a, 'u, 'p> {
 /// Everything the shared Faces panel (#960) needs besides the override
 /// list itself, which lives in the [`PrimCommon`] the editor already holds.
 pub(super) struct FacePanel<'a, 'u> {
-    /// The whole node as of this frame — what the panel enumerates faces
+    /// The whole node as of this frame - what the panel enumerates faces
     /// from, and where an inherited projection comes from. `None` for a
     /// kind with no faces at all.
     ///
@@ -870,7 +870,7 @@ pub(super) struct FacePanel<'a, 'u> {
     pub pick: FacePickUi<'a>,
 }
 
-/// The Faces panel's half of click-to-pick (#961) — the
+/// The Faces panel's half of click-to-pick (#961) - the
 /// [`FacePick`](crate::editor_gizmo::FacePick) resource narrowed to what
 /// the panel may touch, with the addressing already resolved by the caller.
 pub(super) struct FacePickUi<'a> {
@@ -882,21 +882,21 @@ pub(super) struct FacePickUi<'a> {
     /// Whether a pick on this tree can EVER come back (#1237 f140). False
     /// for a worn item's Parts editor: `pick_on_scene_click` records a
     /// face only on the room-prim and avatar-visuals branches, and
-    /// `take_for` matches on a root the worn-part branch never produces —
+    /// `take_for` matches on a root the worn-part branch never produces -
     /// so the toggle there is a visible, enabled control that cannot work,
     /// whose only effect is to jam click-to-deselect app-wide.
     pub resolvable: bool,
     /// A face the last scene click resolved on the node being drawn, to
-    /// focus exactly once — creating its override first if it is new.
+    /// focus exactly once - creating its override first if it is new.
     pub picked: Option<FaceKey>,
 }
 
 /// Shared tail for every primitive editor: the UV-mapping picker, solid
 /// checkbox, torture triple, collapsible material panel and per-face
-/// overrides — the whole [`PrimCommon`] block. Factored out so each
+/// overrides - the whole [`PrimCommon`] block. Factored out so each
 /// per-primitive editor only owns its shape-specific parameter widgets, and
-/// so all sixteen kinds — plus the avatar editor, which routes through the
-/// same dispatch — get the Faces panel from one place. `show_cuts` gates the
+/// so all sixteen kinds - plus the avatar editor, which routes through the
+/// same dispatch - get the Faces panel from one place. `show_cuts` gates the
 /// topology-cut widgets for kinds whose mesher ignores them (Plane).
 fn draw_common_primitive(
     ui: &mut egui::Ui,
@@ -938,7 +938,7 @@ fn draw_common_primitive(
 /// Two behaviours are load-bearing rather than cosmetic:
 ///
 /// * **Dormant overrides stay.** The list is the *record's* overrides, never
-///   filtered by `live` — a face the current path-cut removed keeps its row
+///   filtered by `live` - a face the current path-cut removed keeps its row
 ///   (greyed, still editable) because the record keeps the override and
 ///   restoring the cut brings it back. Filtering here would quietly teach
 ///   authors that cutting destroys their work.
@@ -948,7 +948,7 @@ fn draw_common_primitive(
 ///   author actually changes something.
 ///
 /// A scene pick (#961) arrives here as `pick.picked`: it adds the face if it
-/// is new, opens its row, and forces this whole section open — the picked
+/// is new, opens its row, and forces this whole section open - the picked
 /// node is usually one the user has never expanded, so a silently-added row
 /// inside a collapsed header would look like nothing happened.
 fn draw_face_overrides(
@@ -1002,12 +1002,12 @@ fn draw_face_overrides(
                 .map(|k| face_census(ui, salt, k))
                 .unwrap_or_default();
             // One frame stale after an edit to the whole-prim UV combo above
-            // — it only names what "Inherit" resolves to.
+            // - it only names what "Inherit" resolves to.
             let base_mapping = snapshot.and_then(|k| k.uv_mapping()).unwrap_or_default();
             let weak = crate::ui::theme::current(ui.ctx()).text_weak;
             ui.label(
                 egui::RichText::new(
-                    "A listed face carries its own complete material — the \
+                    "A listed face carries its own complete material - the \
                      Material above no longer paints it. Faces the current \
                      cuts don't produce stay listed but greyed; restoring \
                      the cut brings the override back.",
@@ -1051,7 +1051,7 @@ fn draw_face_overrides(
                             .on_hover_text(
                                 "The current cuts don't produce this face, so \
                                  nothing renders with it. The override is kept \
-                                 — undo the cut and it paints again.",
+                                 - undo the cut and it paints again.",
                             );
                         label
                             .on_hover_text("Dormant: not emitted by the prim's current cut state.");
@@ -1078,7 +1078,7 @@ fn draw_face_overrides(
                 overrides.remove(i);
                 edited = true;
             }
-            // Pick from the scene (#961) — the reason the face vocabulary
+            // Pick from the scene (#961) - the reason the face vocabulary
             // ("Side −X", "Slice start") never has to be decoded against the
             // camera. Sits with the dropdown because they are the two ways
             // to reach the same list.
@@ -1094,7 +1094,7 @@ fn draw_face_overrides(
                         .on_hover_text(
                             "Click a face in the 3D view to give it its own \
                              material. The click also selects whatever prim it \
-                             lands on, so this works across the whole room — not \
+                             lands on, so this works across the whole room - not \
                              only on the prim shown here.",
                         )
                         .clicked()
@@ -1104,7 +1104,7 @@ fn draw_face_overrides(
                     if pick.is_armed() {
                         ui.label(
                             egui::RichText::new(
-                                "click a face in the view — or here again to cancel",
+                                "click a face in the view - or here again to cancel",
                             )
                             .small()
                             .color(weak),
@@ -1113,7 +1113,7 @@ fn draw_face_overrides(
                 });
             }
             // The picker offers only faces this prim emits *now* and does not
-            // yet override — the sanitizer drops duplicate keys (first wins),
+            // yet override - the sanitizer drops duplicate keys (first wins),
             // so offering one twice would silently discard the second.
             let addable: Vec<FaceKey> = addable_faces(&live, overrides);
             if overrides.len() >= MAX_FACE_OVERRIDES {
@@ -1154,7 +1154,7 @@ fn draw_face_overrides(
 /// A newly picked face's override: the prim's own material, copied whole,
 /// with the projection inherited.
 ///
-/// Adding a face must not *change* anything — the author has only said
+/// Adding a face must not *change* anything - the author has only said
 /// "this face is mine now". Copying the base rather than defaulting is what
 /// makes that true: the override plans into the base material's group
 /// (`a_no_op_override_does_not_split` in
@@ -1168,7 +1168,7 @@ fn new_face_override(face: FaceKey, base: &SovereignMaterialSettings) -> FaceOve
     }
 }
 
-/// The faces a prim emits that have no override yet — what the add-picker
+/// The faces a prim emits that have no override yet - what the add-picker
 /// offers, in mesh-emission order.
 fn addable_faces(live: &[FaceKey], overrides: &[FaceOverride]) -> Vec<FaceKey> {
     live.iter()
@@ -1191,7 +1191,7 @@ fn draw_face_uv_mapping(
     ui.horizontal(|ui| {
         ui.label("UV mapping").on_hover_text(
             "How this face's texture is projected. Inherit uses the prim's \
-             own projection — the only part of an override that is a delta \
+             own projection - the only part of an override that is a delta \
              rather than a complete value.",
         );
         let current = match mapping {
@@ -1224,8 +1224,8 @@ fn draw_face_uv_mapping(
 /// frame memory.
 ///
 /// [`enumerate_faces`](crate::world_builder::enumerate_faces) answers by
-/// *building the mesh* — the only honest answer, since the census depends on
-/// the whole torture block — so calling it every frame would re-mesh a
+/// *building the mesh* - the only honest answer, since the census depends on
+/// the whole torture block - so calling it every frame would re-mesh a
 /// 128-segment helix at frame rate while the panel is merely open. The
 /// geometry fingerprint (already the primitive mesh cache's key) is a cheap
 /// enough per-frame check to gate that on, and it changes exactly when the
@@ -1261,7 +1261,7 @@ mod tests {
     }
 
     /// The picker offers the live faces that are still free, in emission
-    /// order — re-offering an overridden face would hand the author a
+    /// order - re-offering an overridden face would hand the author a
     /// duplicate the sanitizer then silently drops (first entry wins).
     #[test]
     fn add_picker_offers_only_unclaimed_live_faces() {
@@ -1273,7 +1273,7 @@ mod tests {
         );
     }
 
-    /// A dormant override — its face is no longer emitted — occupies no
+    /// A dormant override - its face is no longer emitted - occupies no
     /// picker slot, because the picker is fed by the *live* faces. The row
     /// itself survives: the panel's list is the record's own `overrides`,
     /// never filtered by the census (#955's dormancy contract).
@@ -1307,7 +1307,7 @@ mod tests {
         );
     }
 
-    /// Every face key the record can hold has a display name — the panel
+    /// Every face key the record can hold has a display name - the panel
     /// lists overrides straight from the record, including keys a future
     /// client invented, so an unnamed one would render as a blank row.
     #[test]

@@ -2,16 +2,16 @@
 //!
 //! Sits in the slot between the palette deriver (already coloured
 //! every channel) and the consumer record fields. Reads
-//! [`SceneCharacter`] for archetype biases — alpine pulls the sky
+//! [`SceneCharacter`] for archetype biases - alpine pulls the sky
 //! clear, volcanic hazes the fog, archipelago/coastal make water
-//! choppier — and writes its outputs into [`WaterDynamics`] (per-
+//! choppier - and writes its outputs into [`WaterDynamics`] (per-
 //! volume) and [`Atmosphere`] (room-global) for the wiring layer to
 //! drop onto the PDS record.
 //!
 //! Sun position is sampled in spherical coordinates: altitude is
 //! pulled toward the horizon by `time_of_day_bias`, azimuth is fully
 //! random. Cartesian conversion (radius × spherical → world XYZ) is
-//! straight trigonometry — see [`spherical_to_world`].
+//! straight trigonometry - see [`spherical_to_world`].
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
@@ -21,7 +21,7 @@ use crate::seeded_defaults::scene::{BiomeArchetype, LandformArchetype, SceneChar
 /// Sub-stream salt distinct from palette / terrain / textures.
 const ATMOSPHERE_STREAM_SALT: u64 = 0xA1A2_A3A4_A5A6_A7A8;
 
-/// Per-volume water dynamics — apply to a [`crate::pds::WaterSurface`].
+/// Per-volume water dynamics - apply to a [`crate::pds::WaterSurface`].
 #[derive(Clone, Copy, Debug)]
 pub struct WaterDynamics {
     pub wave_direction: [f32; 2],
@@ -31,7 +31,7 @@ pub struct WaterDynamics {
     pub foam_amount: f32,
     pub roughness: f32,
     /// Avatar-wake amplitude multiplier (`WaterSurface::wake_strength`).
-    /// Sampled positive on every fresh room — earlier defaults left this
+    /// Sampled positive on every fresh room - earlier defaults left this
     /// at 0 (channel disabled) so a freshly-seeded pond stayed glassy
     /// when an avatar walked into it. The seeded range sits below the
     /// sanitiser's `MAX_WATER_WAKE_STRENGTH = 5.0` cap so values still
@@ -50,7 +50,7 @@ impl WaterDynamics {
     }
 }
 
-/// Room-global atmosphere — applies to a [`crate::pds::Environment`].
+/// Room-global atmosphere - applies to a [`crate::pds::Environment`].
 /// Per-volume water dynamics live separately on [`WaterDynamics`]; the
 /// `water_normal_scale_*` and `water_sun_glitter` knobs here are
 /// scene-wide, not per-puddle.
@@ -95,7 +95,7 @@ fn derive_water(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> WaterDynamics {
     // Landform decides how lively the water reads: archipelago and
     // coastal rooms get more chop / faster speed, alpine and tundra
     // calm down. Wave-scale (amplitude) is held inside 0.01..0.10
-    // across every landform — anything taller reads as ocean swells
+    // across every landform - anything taller reads as ocean swells
     // breaking through the surface plane on these compact rooms.
     // Landform shifts each band within the 0.01..0.10 envelope so
     // archipelago still reads choppier than mesa.
@@ -126,7 +126,7 @@ fn derive_water(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> WaterDynamics {
 
     let wave_dir_x = range_f32(rng, -1.0, 1.0);
     let wave_dir_z = range_f32(rng, -1.0, 1.0);
-    // Avoid the zero vector — sanitise would clamp it, but skipping
+    // Avoid the zero vector - sanitise would clamp it, but skipping
     // the dead band here keeps the visible output well-distributed.
     let wave_direction = if wave_dir_x * wave_dir_x + wave_dir_z * wave_dir_z < 0.05 {
         [1.0, 0.3]
@@ -194,7 +194,7 @@ fn derive_atmosphere(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> Atmosphere
     };
 
     // -- Sun illuminance + ambient -----------------------------------------
-    // Time of day sets the base level; cloud cover then dims it — the
+    // Time of day sets the base level; cloud cover then dims it - the
     // direct sun loses far more than the diffuse ambient does (overcast
     // light is dim but flat, not dark).
     let sun_base = lerp(20_000.0, 9_000.0, tod) + range_f32(rng, -1_500.0, 1_500.0);
@@ -334,7 +334,7 @@ mod tests {
 
     /// Cloud cover feeds the illuminance: overcast biomes (tundra) read
     /// dimmer than clear ones (arid), and the direct sun loses
-    /// proportionally more than the diffuse ambient — overcast light is
+    /// proportionally more than the diffuse ambient - overcast light is
     /// dim but flat, not dark. Per-seed the RNG stream is identical for
     /// both biomes (cover bands change bounds, not draw count), so the
     /// difference is purely the coupling.

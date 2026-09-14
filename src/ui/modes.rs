@@ -1,21 +1,21 @@
 //! The invisible-mode banner (#1240 f170, #1241 f160 / f161).
 //!
 //! Four of this tranche's findings are one defect: the app puts the player
-//! into a mode that changes what the movement keys do — or stops them
-//! doing anything at all — and says nothing anywhere. The symptom is
+//! into a mode that changes what the movement keys do - or stops them
+//! doing anything at all - and says nothing anywhere. The symptom is
 //! identical in every case ("the keys don't work, the app has hung"), and
 //! so is the fix: name the mode, where the player is looking, in the
 //! sentence that also says how to leave it.
 //!
-//! * **Held still** (#1240 f170) — clicking a row in Avatar › Visuals, or
+//! * **Held still** (#1240 f170) - clicking a row in Avatar › Visuals, or
 //!   a worn prop, locks every axis and zeroes gravity
 //!   (`player::freeze_local_avatar_while_editing`). A grep of `src/ui` for
 //!   "frozen", "held still" and "movement paused" returned nothing.
-//! * **Unrecognised preset** (#1241 f161) — a record written by a newer
+//! * **Unrecognised preset** (#1241 f161) - a record written by a newer
 //!   build inserts NO preset marker (`player::preset::build_preset_components`),
 //!   so not one drive system runs; the Controls sheet meanwhile reported
 //!   "Piloting: On foot" and listed the walk keys.
-//! * **Swimming / Wading** (#1241 f160) — entering water silently remaps
+//! * **Swimming / Wading** (#1241 f160) - entering water silently remaps
 //!   Space and Shift to opposite meanings, and from below the surface the
 //!   water plane is back-face culled, so there is not even a waterline to
 //!   see.
@@ -53,11 +53,11 @@ pub enum MovementMode {
 impl MovementMode {
     /// The banner's sentence. Each names the mode AND the way out of it,
     /// because the whole failure is a user who cannot tell a mode from a
-    /// hang — and a mode with no stated exit is barely better.
+    /// hang - and a mode with no stated exit is barely better.
     pub fn line(self) -> &'static str {
         match self {
             Self::UnrecognisedPreset => {
-                "This build can't drive your locomotion preset — nothing will move. \
+                "This build can't drive your locomotion preset - nothing will move. \
                  Pick one in Avatar › Locomotion."
             }
             Self::HeldStill => "Held still while a gizmo is aimed · Esc releases",
@@ -79,7 +79,7 @@ impl MovementMode {
 ///
 /// An unrecognised preset outranks everything: nothing else the banner
 /// could say is true while no drive system exists. The freeze outranks the
-/// water modes for the same reason — a frozen body is not swimming, it is
+/// water modes for the same reason - a frozen body is not swimming, it is
 /// parked in water.
 pub fn movement_mode(
     unrecognised_preset: bool,
@@ -101,12 +101,12 @@ pub fn movement_mode(
 
 /// The full-viewport tint painted while the camera is under water
 /// (#1241 f160). Deep enough to read as "you are submerged" at a glance,
-/// light enough to leave the scene legible — the alternative on offer was
+/// light enough to leave the scene legible - the alternative on offer was
 /// a `DistanceFog` colour swap, which is a far bigger change to a system
 /// the whole world's look depends on.
 const UNDERWATER_TINT: egui::Color32 = egui::Color32::from_rgba_premultiplied(6, 26, 48, 70);
 
-/// Paint the banner. Non-interactive, top-centre of the panel-free rect —
+/// Paint the banner. Non-interactive, top-centre of the panel-free rect -
 /// under the toolbar rather than over it, and clear of the gateway
 /// re-open chip and the travel overlay at the bottom.
 pub fn movement_mode_ui(
@@ -118,7 +118,7 @@ pub fn movement_mode_ui(
     free: Res<crate::ui::layout::PanelFreeRect>,
 ) {
     // A player that has not spawned yet is not in an unrecognised preset,
-    // it simply has no body — the distinction the Controls sheet also
+    // it simply has no body - the distinction the Controls sheet also
     // makes (#1241 f161).
     let unrecognised = !players.is_empty() && chassis.is_empty();
     let mode = movement_mode(
@@ -135,7 +135,7 @@ pub fn movement_mode_ui(
     if movement.camera_submerged {
         // The underwater cue (#1241 f160). Painted on egui's BACKGROUND
         // layer, so it tints the 3D scene while every window still sits on
-        // top of it — and on a bare painter, which takes no pointer input
+        // top of it - and on a bare painter, which takes no pointer input
         // (an interactive area over the viewport sets
         // `wants_pointer_input` and would silently break orbiting the
         // camera through it, the lesson `ui::nametag` records).

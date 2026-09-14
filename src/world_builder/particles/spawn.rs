@@ -20,12 +20,12 @@ use super::{
 /// Added emission per (m/s) of emitter speed for a motion-coupled emitter.
 const SPEED_RATE_GAIN: f32 = 0.18;
 /// Cap on the *added* rate multiple from speed, so a fast rig can't blow the
-/// particle budget — the effective rate tops out at `1 + SPEED_RATE_CAP` times
+/// particle budget - the effective rate tops out at `1 + SPEED_RATE_CAP` times
 /// the authored rate.
 const SPEED_RATE_CAP: f32 = 2.0;
 
 /// Effective emission rate for one frame: an emitter that inherits its rig's
-/// velocity (`inherit_velocity > 0` — a wake / exhaust / vent) thickens with
+/// velocity (`inherit_velocity > 0` - a wake / exhaust / vent) thickens with
 /// speed up to [`SPEED_RATE_CAP`]; every other emitter keeps its authored
 /// rate exactly. Never dips below the authored rate, so the record-side
 /// population is a hard floor, not a target.
@@ -58,7 +58,7 @@ pub(in super::super) fn spawn_particle_emitter_entity(
     )
 }
 
-/// `Commands`-level emitter spawn — the `SpawnCtx`-free core, callable
+/// `Commands`-level emitter spawn - the `SpawnCtx`-free core, callable
 /// from any system (e.g. the interaction-framework particle dispatcher,
 /// which has `Commands` but no world-builder context). Spawns the
 /// parameter snapshot + deterministic RNG + motion tracker; child
@@ -67,13 +67,13 @@ pub(in super::super) fn spawn_particle_emitter_entity(
 /// (this function deliberately needs no `Assets` access).
 ///
 /// `tag_room_entity` inserts [`super::super::RoomEntity`] so the
-/// compile-pass cleanup sweeps the emitter on a room rebuild — pass
+/// compile-pass cleanup sweeps the emitter on a room rebuild - pass
 /// `false` for avatar-scoped / transient effect emitters that should
 /// instead ride their own retirement (or their parent avatar's despawn).
 ///
 /// `unit_owner` is the owning placement index for room-compiled
 /// emitters ([`PlacementUnit::NONE`](super::super::PlacementUnit::NONE)
-/// for runtime effect emitters) — it lets the incremental compiler's
+/// for runtime effect emitters) - it lets the incremental compiler's
 /// flat unit sweep retire the emitter on a placement rebuild.
 pub fn spawn_particle_emitter(
     commands: &mut Commands,
@@ -185,7 +185,7 @@ pub(in super::super) fn snapshot_from_record(p: &ParticleParams) -> ParticleEmit
 ///    `looping`, otherwise stop emitting once `age >= duration`.
 /// 2. add `dt * rate` to the spawn accumulator (where `rate` is the authored
 ///    `rate_per_second`, thickened with speed for a velocity-inheriting
-///    motion emitter — see [`speed_coupled_rate`]) and spawn
+///    motion emitter - see [`speed_coupled_rate`]) and spawn
 ///    `floor(accumulator)` particles, decrementing.
 /// 3. on each cycle boundary fire `burst_count` particles at once.
 /// 4. cap at `max_particles` (skip emit when full so we never exceed).
@@ -249,7 +249,7 @@ pub fn tick_emitter_spawn(
         }
 
         // Continuous emission accumulator. Motion-coupled emitters (those that
-        // inherit their rig's velocity — a vehicle wake / exhaust / vent)
+        // inherit their rig's velocity - a vehicle wake / exhaust / vent)
         // thicken with speed and thin toward their authored rate at rest, so a
         // craft under way throws a fuller plume. Pure record-side rate is
         // untouched (this is a local visual modulation, not a record change).
@@ -344,13 +344,13 @@ fn spawn_one_particle(
     let world_velocity = emitter_gxform.affine().transform_vector3(local_velocity)
         + emitter.inherit_velocity * tracker.world_velocity;
 
-    // Materials are shared bucket handles from the emitter's ramp —
+    // Materials are shared bucket handles from the emitter's ramp -
     // a fresh particle starts at bucket 0 (the start colour). Any
     // texture was registered against the ramp materials when the ramp
     // was baked, so there is nothing per-particle to fetch or patch.
     let material_handle = ramp.handle(0).clone();
 
-    // Atlas state — `(rows, cols)` baked once at spawn from the
+    // Atlas state - `(rows, cols)` baked once at spawn from the
     // emitter's snapshot. `RandomFrame` draws an initial frame index
     // here; `Still` and `OverLifetime` start at 0 (OverLifetime
     // recomputes per frame in the tick system).
@@ -397,12 +397,12 @@ fn spawn_one_particle(
 
     match emitter.simulation_space {
         SimulationSpace::Local => {
-            // Local space — re-parent under the emitter so the particle
+            // Local space - re-parent under the emitter so the particle
             // moves with subsequent emitter transforms.
             cmd.insert(ChildOf(emitter_entity));
         }
         SimulationSpace::World | SimulationSpace::Unknown => {
-            // World space — keep unparented. Tag with RoomEntity only
+            // World space - keep unparented. Tag with RoomEntity only
             // when the source emitter is itself room-owned, so the
             // compile-pass cleanup sweeps room exhaust/dust on rebuilds
             // without also wiping every guest avatar's vehicle trail
@@ -442,8 +442,8 @@ fn sample_emitter_shape(shape: &EmitterShape, rng: &mut ChaCha8Rng) -> (Vec3, Ve
         }
         EmitterShape::Cone { half_angle, height } => {
             // Uniform sampling inside the cone volume (apex at origin,
-            // axis +Y). Naïve linear sampling — `depth = U * height` and
-            // `theta = U * half_angle` — clusters particles at the apex
+            // axis +Y). Naïve linear sampling - `depth = U * height` and
+            // `theta = U * half_angle` - clusters particles at the apex
             // and along the axis: cone volume scales as `depth³` (each
             // cross-section disk's area grows quadratically with depth)
             // and per-direction-cap surface scales as `(1 − cos θ)`, so
@@ -470,7 +470,7 @@ fn sample_unit_sphere(rng: &mut ChaCha8Rng) -> Vec3 {
     // Rejection-sample inside the unit cube; cheap and avoids the bias
     // a sin/cos parametric sample produces for non-unit-radius shapes.
     // The accept rate is π/6 ≈ 52.3%, so 32 attempts drives the
-    // fall-through probability to (1 − π/6)³² ≈ 1.5e-10 — effectively
+    // fall-through probability to (1 − π/6)³² ≈ 1.5e-10 - effectively
     // unreachable. The previous 8-attempt cap let ~0.26% of all samples
     // hit the `Vec3::ZERO` fallback, which manifested as a permanent
     // dense dot at the centre of every spherical emitter. The fallback

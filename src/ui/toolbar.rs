@@ -1,7 +1,7 @@
 //! In-game UI shell: the top toolbar and the first-run controls hint.
 //!
 //! Before this existed every panel was a floating egui window that
-//! spawned collapsed somewhere over the viewport — discoverable only by
+//! spawned collapsed somewhere over the viewport - discoverable only by
 //! noticing its title bar. The toolbar enumerates every panel as a
 //! toggle button (so features like the Catalogue or drag-to-gift in
 //! People are visible at a glance), and [`UiPanels`] is the single
@@ -43,11 +43,11 @@ pub struct UiPanels {
     pub diagnostics: bool,
     /// The Settings window (#857): theme picker + client toggles.
     pub settings: bool,
-    /// The controls overlay. Defaults to open — this is the first-run
-    /// hint — and is re-openable from the toolbar.
+    /// The controls overlay. Defaults to open - this is the first-run
+    /// hint - and is re-openable from the toolbar.
     pub controls: bool,
     /// True once the Controls sheet has been dismissed at least once on
-    /// this machine (#834). While false — a true first run — the sheet
+    /// this machine (#834). While false - a true first run - the sheet
     /// is center-anchored so a brand-new visitor cannot miss it; ever
     /// after it is a normal draggable window near the right edge.
     pub controls_seen: bool,
@@ -78,7 +78,7 @@ impl Default for UiPanels {
 }
 
 /// Does the signed-in player own the overland they're standing in?
-/// Ownership is DID equality — the room record lives in the owner's PDS.
+/// Ownership is DID equality - the room record lives in the owner's PDS.
 pub(crate) fn owns_current_room(
     session: Option<&AtprotoSession>,
     current_room: Option<&CurrentRoomDid>,
@@ -122,12 +122,12 @@ impl RoomEditAccess<'_> {
     }
 }
 
-/// Reserved width of the toolbar wordmark (#860) — fixed so the brand
+/// Reserved width of the toolbar wordmark (#860) - fixed so the brand
 /// text can never shift the toggles after it (same contract as the
 /// badge widths below).
 const WORDMARK_WIDTH: f32 = 148.0;
 
-/// Reserved width of the Chat toggle — wide enough for "Chat (99+)" so
+/// Reserved width of the Chat toggle - wide enough for "Chat (99+)" so
 /// the unread badge appearing/growing never shifts the buttons after it.
 const CHAT_TOGGLE_WIDTH: f32 = 84.0;
 /// Reserved width of the People toggle, sized for "People (99+)".
@@ -137,11 +137,11 @@ const PEOPLE_TOGGLE_WIDTH: f32 = 100.0;
 /// Controls button. Sized for the widest count `badge_count` prints.
 const ANOMALY_DOT_WIDTH: f32 = 40.0;
 /// Reserved width of the connection chip (#1213), sized for its widest
-/// label ("Connecting…") plus the state dot — same contract as the badges
+/// label ("Connecting…") plus the state dot - same contract as the badges
 /// above, so a link that flaps never shifts the account chip beside it.
 const LINK_CHIP_WIDTH: f32 = 96.0;
 
-/// Counts above this render as "99+" — the badge is a "look here"
+/// Counts above this render as "99+" - the badge is a "look here"
 /// signal, not a metric, and capping it keeps the reserved width honest.
 const BADGE_COUNT_CAP: usize = 99;
 
@@ -179,7 +179,7 @@ fn badge_count(n: usize) -> String {
 }
 
 /// Longest `@handle` the account chip prints before it elides (#1261
-/// f235). ATProto handles are domains and a custom one is unbounded —
+/// f235). ATProto handles are domains and a custom one is unbounded -
 /// `@someone.a-very-long-custom-domain.example` is a legal handle, and
 /// the chip drew it in full at whatever width it came to.
 const HANDLE_CHIP_MAX_CHARS: usize = 22;
@@ -187,7 +187,7 @@ const HANDLE_CHIP_MAX_CHARS: usize = 22;
 /// The account chip's label: `@handle`, elided at its first label when
 /// the whole thing is too long for a toolbar to promise (#1261 f235).
 ///
-/// Pure so the width measurement and the render read the same string —
+/// Pure so the width measurement and the render read the same string -
 /// [`trailing_needed`] measures exactly what gets drawn. The full handle
 /// stays in the chip's hover text and in the menu it opens, so nothing
 /// is lost, only deferred.
@@ -203,7 +203,7 @@ fn account_chip_label(handle: &str) -> String {
     format!("@{head}…")
 }
 
-/// Width a text button will occupy, MEASURED — the galley plus the
+/// Width a text button will occupy, MEASURED - the galley plus the
 /// spacing egui adds around it (#1261 f235).
 ///
 /// Measured and not tabulated, because the answer moves with the font,
@@ -220,7 +220,7 @@ fn button_width(ui: &egui::Ui, text: &str) -> f32 {
 
 /// The four controls that fold into the `…` menu when the bar runs out
 /// of room, in the order they are drawn right-to-left. Named once so the
-/// measurement and the render cannot drift —
+/// measurement and the render cannot drift -
 /// `every_measured_label_is_a_label_this_file_draws` is what holds them
 /// together.
 const TRAILING_LABELS: [&str; 4] = ["🔊 Mute", "Diagnostics", "Settings", "Controls"];
@@ -228,7 +228,7 @@ const TRAILING_LABELS: [&str; 4] = ["🔊 Mute", "Diagnostics", "Settings", "Con
 /// The left group's variable-width toggles. Measurement only: the render
 /// spells them out because each carries its own hover text and the World
 /// Editor one has an ownership branch. The Chat, People and wordmark
-/// slots are not here — they have reserved-width constants of their own.
+/// slots are not here - they have reserved-width constants of their own.
 #[cfg(test)]
 const LEADING_LABELS: [&str; 4] = ["Avatar", "Inventory", "Catalogue", "World Editor"];
 
@@ -252,8 +252,8 @@ fn trailing_needed(ui: &egui::Ui, account_chip: &str) -> f32 {
 ///
 /// `Sense::click()` is `interactive()`, and `interactive()` is what makes
 /// an allocated rect Tab-reachable. The slot used to take one
-/// unconditionally, so on a healthy session — the common case, when
-/// nothing is painted there — keyboard focus landed on a blank gap
+/// unconditionally, so on a healthy session - the common case, when
+/// nothing is painted there - keyboard focus landed on a blank gap
 /// between Diagnostics and Settings that showed nothing, said nothing
 /// and did nothing on Enter. `Sense::hover()` keeps the reservation (the
 /// dot appearing must not shift the Controls button) and drops the tab
@@ -261,8 +261,8 @@ fn trailing_needed(ui: &egui::Ui, account_chip: &str) -> f32 {
 /// What the anomaly dot says on hover: the worst active rule's own
 /// sentence, then how many others there are (#1271 f409).
 ///
-/// It used to say only "{n} active anomalies — click to open Diagnostics",
-/// which names neither the subsystem nor the problem — so the one
+/// It used to say only "{n} active anomalies - click to open Diagnostics",
+/// which names neither the subsystem nor the problem - so the one
 /// always-visible signal the app has about a broken session could not tell
 /// you whether it was about your connection until you had opened a panel
 /// and guessed a tab. The rules carry a plain sentence each; this is where
@@ -270,18 +270,18 @@ fn trailing_needed(ui: &egui::Ui, account_chip: &str) -> f32 {
 fn anomaly_dot_hover(worst: Option<&str>, n: usize) -> String {
     let tail = "click to open Diagnostics";
     match (worst, n) {
-        (Some(what), 1) => format!("{what} — {tail}"),
+        (Some(what), 1) => format!("{what} - {tail}"),
         (Some(what), n) => {
             let rest = n.saturating_sub(1);
             format!(
-                "{what} (and {rest} more {}) — {tail}",
+                "{what} (and {rest} more {}) - {tail}",
                 crate::text::plural(rest, "anomaly", "anomalies")
             )
         }
         // Unreachable while the dot is painted (it is drawn from the same
         // ledger), but a hover that says nothing is worse than a generic one.
         (None, n) => format!(
-            "{n} active {} — {tail}",
+            "{n} active {} - {tail}",
             crate::text::plural(n, "anomaly", "anomalies")
         ),
     }
@@ -296,20 +296,20 @@ fn anomaly_slot_sense(has_anomaly: bool) -> egui::Sense {
 }
 
 /// Slim top bar enumerating every panel as a toggle button. The World
-/// Editor button is enabled only for the room's owner — the panel
+/// Editor button is enabled only for the room's owner - the panel
 /// itself is owner-gated too. Visitors see it disabled with an
 /// ownership explanation instead of not at all (#851).
 ///
 /// #835 additions: one-line tooltips on every toggle, an unread-count
 /// badge on Chat, a live headcount on People, a clickable anomaly dot
 /// that opens Diagnostics on the worst tab, and an account chip at the
-/// far right (identity, current room, Copy Landmark Link, Log out — the
+/// far right (identity, current room, Copy Landmark Link, Log out - the
 /// two-click home for actions that used to hide in Diagnostics→Identity).
 /// Everything the account chip reads, bundled.
 ///
-/// `toolbar_ui` was at Bevy's 16-parameter `IntoSystem` ceiling exactly —
+/// `toolbar_ui` was at Bevy's 16-parameter `IntoSystem` ceiling exactly -
 /// an over-ceiling system fails at app build with a trait error naming
-/// none of this — and #1232 f251's "Travel to my world" needs two more
+/// none of this - and #1232 f251's "Travel to my world" needs two more
 /// (`TravelingTo` and `UnsavedGuard`) to disable itself with a reason. So
 /// the chip's own six move into a struct first, the way `people_ui` got
 /// `RosterDeps` (#1223 f291).
@@ -330,7 +330,7 @@ pub struct AccountChip<'w, 's> {
     /// open, are the two states the home row must refuse to stack behind.
     traveling: Option<Res<'w, crate::state::TravelingTo>>,
     guard: Option<Res<'w, crate::ui::unsaved_guard::UnsavedGuard>>,
-    /// #1240 f159: the unstuck command. The menu is where it belongs —
+    /// #1240 f159: the unstuck command. The menu is where it belongs -
     /// somebody wedged between a settlement wall and a rock can still
     /// reach the toolbar, and there is no free key that does not collide
     /// with movement.
@@ -370,7 +370,7 @@ pub fn toolbar_ui(
     let owns_room = owns_current_room(chip.session.as_deref(), chip.current_room.as_deref());
 
     // Guarded-dirty (#879): `&mut panels.x` through the `ResMut` marks
-    // UiPanels changed EVERY frame the toolbar draws — which re-armed
+    // UiPanels changed EVERY frame the toolbar draws - which re-armed
     // the prefs save debounce forever, so preferences only ever hit disk
     // at logout (the first frame the toolbar stops drawing). Borrow
     // bypassed and tick `set_changed` only on a real toggle, the same
@@ -393,7 +393,7 @@ pub fn toolbar_ui(
     } else {
         "Chat".to_owned()
     };
-    // Everyone in the room, self included — matching the People window's
+    // Everyone in the room, self included - matching the People window's
     // own "In room (N)" header.
     let people_total = peers.iter().count() + chip.session.is_some() as usize;
 
@@ -411,7 +411,7 @@ pub fn toolbar_ui(
     egui::Panel::top("overlands-toolbar").show(&mut viewport_ui, |ui| {
         ui.horizontal(|ui| {
             // Wordmark (#860): the product's name at the bar's left edge.
-            // Non-interactive, accent-coloured, fixed width — the brand
+            // Non-interactive, accent-coloured, fixed width - the brand
             // anchor for every session, and the same product identity the
             // wasm splash and OAuth return pages carry.
             let accent = crate::ui::theme::current(ui.ctx()).accent;
@@ -430,35 +430,35 @@ pub fn toolbar_ui(
                 &mut p.chat,
                 chat_label,
                 CHAT_TOGGLE_WIDTH,
-                "Chat — talk with everyone in this world (Enter)",
+                "Chat - talk with everyone in this world (Enter)",
             );
             panels_dirty |= toggle_with_badge(
                 ui,
                 &mut p.people,
                 format!("People ({})", badge_count(people_total)),
                 PEOPLE_TOGGLE_WIDTH,
-                "People — who's here; drag an item onto a row to gift it",
+                "People - who's here; drag an item onto a row to gift it",
             );
             panels_dirty |= ui
                 .toggle_value(&mut p.avatar, "Avatar")
-                .on_hover_text("Avatar — edit your look and vehicle")
+                .on_hover_text("Avatar - edit your look and vehicle")
                 .changed();
             panels_dirty |= ui
                 .toggle_value(&mut p.inventory, "Inventory")
-                .on_hover_text("Inventory — the items you own")
+                .on_hover_text("Inventory - the items you own")
                 .changed();
             panels_dirty |= ui
                 .toggle_value(&mut p.catalogue, "Catalogue")
-                .on_hover_text("Catalogue — browse placeable items")
+                .on_hover_text("Catalogue - browse placeable items")
                 .changed();
             if owns_room {
                 panels_dirty |= ui
                     .toggle_value(&mut p.world_editor, "World Editor")
-                    .on_hover_text("World Editor — reshape this world (you own it)")
+                    .on_hover_text("World Editor - reshape this world (you own it)")
                     .changed();
             } else {
                 // Rendered disabled instead of hidden (#851): the silent
-                // pop-in taught nobody why the button exists — now a
+                // pop-in taught nobody why the button exists - now a
                 // visitor hovering it learns the ownership rule.
                 ui.add_enabled(false, egui::Button::selectable(false, "World Editor"))
                     .on_disabled_hover_text(
@@ -473,7 +473,7 @@ pub fn toolbar_ui(
             // leftward past its own rect and overpaints the toggles there.
             // The refuter corrected the direction the finding claimed: in
             // `right_to_left` items are placed from the right edge in ADD
-            // order, so the account chip — added first — is the most
+            // order, so the account chip - added first - is the most
             // protected item, and Controls and Settings, added last, are
             // the first to collide.
             //
@@ -491,11 +491,11 @@ pub fn toolbar_ui(
                 // Connection chip (#1213). Drawn FIRST in the right-to-left
                 // layout so it owns the far-right corner, ahead of the
                 // account chip: whether the client is connected outranks
-                // who it is connected as. Dot AND word — the state has to
-                // survive a greyscale viewer — in a reserved-width slot so
+                // who it is connected as. Dot AND word - the state has to
+                // survive a greyscale viewer - in a reserved-width slot so
                 // "Connecting…" cannot shove the row about.
                 link_chip(ui, link.phase());
-                // Account chip — next in the right-to-left layout. The only
+                // Account chip - next in the right-to-left layout. The only
                 // 2-click route to logout and location sharing (#835);
                 // Diagnostics keeps its duplicates.
                 if let Some(sess) = chip.session.as_deref() {
@@ -521,7 +521,7 @@ pub fn toolbar_ui(
                                 ui.label("Current world: yours");
                             } else {
                                 // #1276 f46. This said "Current world:" over
-                                // a bare `did:plc:x7q3k…` in monospace —
+                                // a bare `did:plc:x7q3k…` in monospace -
                                 // protocol jargon at a visitor, on the app's
                                 // identity home.
                                 //
@@ -532,7 +532,7 @@ pub fn toolbar_ui(
                                 // The finding proposed `display_name_for_did`
                                 // over `BskyProfileCache`; that function was
                                 // retired by #1231 f27, and its cache is
-                                // filled by peer-driven fetches only — so a
+                                // filled by peer-driven fetches only - so a
                                 // world whose owner is not standing in it
                                 // would have produced a truncated DID, which
                                 // is the finding's own refuter's objection.
@@ -545,7 +545,7 @@ pub fn toolbar_ui(
                                     &room.0,
                                     chip.world_names.get(&room.0),
                                 );
-                                // The full DID stays one hover away — it is
+                                // The full DID stays one hover away - it is
                                 // the string a bug report needs and the only
                                 // unambiguous identifier for the world.
                                 ui.label(format!("Current world: {name}"))
@@ -565,7 +565,7 @@ pub fn toolbar_ui(
                         // The unstuck command (#1240 f159). Before this the
                         // only recovery in the whole app was
                         // `respawn_if_fallen`, which fires 20 m BELOW local
-                        // ground — so geometry that traps you ABOVE the
+                        // ground - so geometry that traps you ABOVE the
                         // terrain (a construct collider, a crevasse, a
                         // settlement wall, a pit a skiff cannot climb out
                         // of) never satisfied it and the only exit was
@@ -580,7 +580,7 @@ pub fn toolbar_ui(
                                 egui::Button::new("Return to spawn"),
                             )
                             .on_hover_text(
-                                "Puts you back on solid ground in this world — \
+                                "Puts you back on solid ground in this world - \
                                  for when you are wedged and cannot move",
                             );
                         let unstuck = match stuck_blocked {
@@ -595,7 +595,7 @@ pub fn toolbar_ui(
                         // The route home (#1232 f251). Until this existed
                         // the only one was the gateway picker's home row,
                         // inside a window that opens solely while standing
-                        // in the host's gate — and a landmark link can put
+                        // in the host's gate - and a landmark link can put
                         // the arrival anywhere, with nothing pointing at
                         // the gate. The remaining exit was Log out, which
                         // is the action the app guards as destructive.
@@ -635,7 +635,7 @@ pub fn toolbar_ui(
                             && ui
                                 .button("Sign in again")
                                 .on_hover_text(
-                                    "Your session has expired — sign in again to \
+                                    "Your session has expired - sign in again to \
                                      save. Your unsaved edits stay as they are.",
                                 )
                                 .clicked()
@@ -645,7 +645,7 @@ pub fn toolbar_ui(
                         }
                         // Feedback (#1291), the owner's chosen in-game
                         // home. The account menu is where the app's
-                        // user-level actions already live — it is two
+                        // user-level actions already live - it is two
                         // clicks from anywhere, and the alternative
                         // (Diagnostics' Session tab, beside "Copy session
                         // details") is a panel most people never open.
@@ -677,7 +677,7 @@ pub fn toolbar_ui(
                     })
                     .response
                     .on_hover_text(format!(
-                        "@{} — identity, share your spot, send feedback, log out",
+                        "@{} - identity, share your spot, send feedback, log out",
                         sess.handle
                     ));
                 }
@@ -690,13 +690,13 @@ pub fn toolbar_ui(
                 // keyboard alternative.
                 //
                 // Drawn in a closure so the bar and the menu are the same
-                // code — a second copy is how the two would drift.
+                // code - a second copy is how the two would drift.
                 let mut trailing =
                     |ui: &mut egui::Ui, p: &mut UiPanels, panels_dirty: &mut bool| {
                         // Master mute, as a labelled toggle rather than a bare
                         // emoji (#1260 f240). The action word used to live only
                         // in the hover, which egui opens for a pointer and never
-                        // for keyboard focus — so tabbing onto it gave a
+                        // for keyboard focus - so tabbing onto it gave a
                         // keyboard-only user a glyph and nothing else. A
                         // `toggle_value` also matches the People roster's "Mute"
                         // checkbox, so the same word means the same thing in
@@ -712,7 +712,7 @@ pub fn toolbar_ui(
                             if muted {
                                 "All audio is muted. Click to hear the world again."
                             } else {
-                                "Silence all audio — the world, other people and effects."
+                                "Silence all audio - the world, other people and effects."
                             },
                         )
                         .changed()
@@ -721,7 +721,7 @@ pub fn toolbar_ui(
                         }
                         *panels_dirty |= ui
                             .toggle_value(&mut p.diagnostics, "Diagnostics")
-                            .on_hover_text("Diagnostics — session health, metrics, and logs")
+                            .on_hover_text("Diagnostics - session health, metrics, and logs")
                             .changed();
                     };
                 if !trailing_overflows {
@@ -737,7 +737,7 @@ pub fn toolbar_ui(
                 // The slot senses a CLICK only while there is something to
                 // click (#1260 f248). It used to sense one unconditionally,
                 // and `Sense::click()` is `interactive()`, which is what
-                // makes a rect Tab-reachable — so on a healthy session,
+                // makes a rect Tab-reachable - so on a healthy session,
                 // the common case, keyboard focus landed on a 14-point gap
                 // that painted nothing, said nothing and did nothing on
                 // Enter. `Sense::hover()` is not interactive, so the
@@ -750,7 +750,7 @@ pub fn toolbar_ui(
                 let (dot_rect, dot_resp) =
                     ui.allocate_exact_size(slot, anomaly_slot_sense(worst.is_some()));
                 if let Some(worst) = worst {
-                    // Painted circle, not a "●" glyph — U+25CF is
+                    // Painted circle, not a "●" glyph - U+25CF is
                     // tofu in the proportional family (#861).
                     let colour = crate::ui::diagnostics::severity_color(ui, worst);
                     let n =
@@ -792,7 +792,7 @@ pub fn toolbar_ui(
                 // Wireframe mode is a persistent GLOBAL render mode that
                 // can only be entered from one tab of one panel, and
                 // nothing outside that checkbox reflected it (#1274 f191)
-                // — a user who ticked it to see what it did was left with
+                // - a user who ticked it to see what it did was left with
                 // a world drawn in wire and no way back except remembering
                 // where the checkbox was. Shown only while it is on, and
                 // never folded into the `…` menu, for the same reason the
@@ -803,7 +803,7 @@ pub fn toolbar_ui(
                     let th = crate::ui::theme::current(ui.ctx());
                     let clear = crate::ui::affordances::hint(
                         ui.button(egui::RichText::new("Wireframe").color(th.status.warn)),
-                        "Wireframe mode is on — every surface is drawn as wire. \
+                        "Wireframe mode is on - every surface is drawn as wire. \
                          Click to turn it off.",
                     );
                     if clear.clicked() {
@@ -816,11 +816,11 @@ pub fn toolbar_ui(
                 let tail = |ui: &mut egui::Ui, p: &mut UiPanels, panels_dirty: &mut bool| {
                     *panels_dirty |= ui
                         .toggle_value(&mut p.settings, "Settings")
-                        .on_hover_text("Settings — theme & client preferences")
+                        .on_hover_text("Settings - theme & client preferences")
                         .changed();
                     *panels_dirty |= ui
                         .toggle_value(&mut p.controls, "Controls")
-                        .on_hover_text("Controls — movement & camera cheat-sheet")
+                        .on_hover_text("Controls - movement & camera cheat-sheet")
                         .changed();
                 };
                 if trailing_overflows {
@@ -834,7 +834,7 @@ pub fn toolbar_ui(
                         trailing(ui, p, &mut panels_dirty);
                     })
                     .response
-                    .on_hover_text("More — Controls, Settings, Diagnostics and Mute");
+                    .on_hover_text("More - Controls, Settings, Diagnostics and Mute");
                 } else {
                     tail(ui, p, &mut panels_dirty);
                 }
@@ -851,7 +851,7 @@ pub fn toolbar_ui(
 /// The connection chip: a state dot and the phase's own word, in a
 /// reserved-width slot (#1213).
 ///
-/// The app had no connection surface at all before this — a dead socket
+/// The app had no connection surface at all before this - a dead socket
 /// looked exactly like an empty world, which is the same thing a product
 /// with no users looks like. The dot is a painted circle rather than a "●"
 /// glyph for the reason the anomaly dot gives (U+25CF is tofu in the
@@ -901,7 +901,7 @@ enum PilotedChassis {
 }
 
 impl PilotedChassis {
-    /// Player-facing name for the sheet's "Piloting:" heading (#834) —
+    /// Player-facing name for the sheet's "Piloting:" heading (#834) -
     /// the rows already swap live with the chassis (#803), but without
     /// this the window never said WHICH chassis they describe.
     ///
@@ -909,7 +909,7 @@ impl PilotedChassis {
     /// here** (#1266 f167). This sheet's footer sends the reader one click
     /// away to the Locomotion picker; the two lists used to agree on
     /// Airplane and nothing else, so choosing "Car" and opening Controls
-    /// said you were piloting a "Skiff" — a vehicle the picker does not
+    /// said you were piloting a "Skiff" - a vehicle the picker does not
     /// offer. There is no way for a user to resolve a rename they can see
     /// both halves of, so the string exists once.
     ///
@@ -940,11 +940,11 @@ struct ControlRow {
 
 // Per-chassis movement rows. These mirror the live key handlers in
 // `player/{humanoid,hover_boat,car,helicopter,airplane}.rs`, so the sheet can
-// never drift from the actual controls again (#803) — change both together.
+// never drift from the actual controls again (#803) - change both together.
 //
 // It drifted anyway, because nothing tested it: the #803 guards pinned
 // GLOBAL_ROWS and EDITOR_ROWS only. `on_foot_rows_mirror_the_humanoid_
-// handler` closes that (#1235 f40/f41) — Shift became the run key with
+// handler` closes that (#1235 f40/f41) - Shift became the run key with
 // #1193 and the sheet went on calling it "swim down", while Space
 // advertised a "climb" the humanoid controller has never implemented.
 const ON_FOOT_ROWS: &[ControlRow] = &[
@@ -970,7 +970,7 @@ const ON_FOOT_ROWS: &[ControlRow] = &[
         } else {
             "Shift / Ctrl / C"
         },
-        action: "swim down (in water — Shift stops meaning run)",
+        action: "swim down (in water - Shift stops meaning run)",
     },
 ];
 const BOAT_ROWS: &[ControlRow] = &[
@@ -1021,11 +1021,11 @@ const AIRSHIP_ROWS: &[ControlRow] = &[
 ];
 // The one "row" for a preset this build cannot drive (#1241 f161). Not a
 // key binding: it is the sentence that replaces the key bindings, and it
-// points at the ONE surface that can fix it — which used to be reachable
+// points at the ONE surface that can fix it - which used to be reachable
 // only by a warn-coloured paragraph two clicks into Avatar › Locomotion,
 // which nobody has a reason to open.
 const UNRECOGNISED_ROWS: &[ControlRow] = &[ControlRow {
-    keys: "—",
+    keys: "-",
     action: "this build can't drive your preset · pick one in Avatar › Locomotion",
 }];
 const AIRPLANE_ROWS: &[ControlRow] = &[
@@ -1048,7 +1048,7 @@ const AIRPLANE_ROWS: &[ControlRow] = &[
 ];
 
 // World-editing gesture rows (#851), shown to the room's owner. These
-// mirror the live handlers — same #803 contract as the movement rows,
+// mirror the live handlers - same #803 contract as the movement rows,
 // change both together:
 // * right-click menu → `editor_gizmo::context_menu::detect_scene_right_click`
 //   (click-vs-drag discrimination: a right-DRAG still orbits the camera)
@@ -1057,8 +1057,8 @@ const AIRPLANE_ROWS: &[ControlRow] = &[
 // * Shift-copy-drag  → `editor_gizmo::drag` (Shift at drag-start clones)
 // * Esc              → drag abort + selection clear (`ui::shortcuts`)
 // Right-click rows every visitor can perform (#1235 f149). The scene
-// menu's avatar entries are explicitly NOT owner-gated — "those work for
-// visitors too" (`editor_gizmo::context_menu`) — yet the only place in the
+// menu's avatar entries are explicitly NOT owner-gated - "those work for
+// visitors too" (`editor_gizmo::context_menu`) - yet the only place in the
 // app documenting right-click at all was the owner-gated block below, so a
 // visitor never learned that Take off / Re-seat / Save to inventory /
 // Wear from inventory exist. Right-click doubling as camera orbit actively
@@ -1087,26 +1087,26 @@ const EDITOR_ROWS: &[ControlRow] = &[
     },
     // #1244 f148: a tree-row click attaches the gizmo to whichever live
     // instance is nearest the camera, which can be far away or behind
-    // you — half the time selecting from the tree showed nothing at all.
+    // you - half the time selecting from the tree showed nothing at all.
     ControlRow {
         keys: "F",
         action: "go to the selected object",
     },
 ];
 
-// Global shortcut rows (#836, #864) — the same on every chassis, and the
+// Global shortcut rows (#836, #864) - the same on every chassis, and the
 // only place any of them is written down. A `const` rather than inline
 // grid rows so the sheet's coverage is testable: Ctrl+Z / Ctrl+Shift+Z
 // shipped with #864 and stayed discoverable only through the hover text
 // of an editor's Undo button (#1141).
 //
-// Same contract as the movement and editor rows — these mirror live
+// Same contract as the movement and editor rows - these mirror live
 // handlers, change both together:
 // * Enter          → `ui::shortcuts` chat focus
 // * Esc            → drag abort · selection clear · window close
 // * Ctrl+S         → `ui::shortcuts` publish
 // * Ctrl+Z / Shift → `ui::undo::trigger`
-// Camera rows — the same on every chassis. A const rather than inline
+// Camera rows - the same on every chassis. A const rather than inline
 // grid rows since #1235 f166: the pan row advertised a middle button a
 // laptop does not have, with no alternative anywhere, and a cheat-sheet
 // row that cannot be performed is worse than no row.
@@ -1142,8 +1142,8 @@ const GLOBAL_ROWS: &[ControlRow] = &[
         keys: "Ctrl+Z / Ctrl+Shift+Z",
         action: "undo / redo in the open editor",
     },
-    // egui has always bound these (#1259 f239) — `zoom_with_keyboard`
-    // defaults on — and until now the app said so nowhere and forgot the
+    // egui has always bound these (#1259 f239) - `zoom_with_keyboard`
+    // defaults on - and until now the app said so nowhere and forgot the
     // result at every launch. `theme::sync_ui_scale` reads the zoom back
     // into the persisted setting, so a user who finds the shortcut keeps
     // what they chose, and Settings shows them the same number.
@@ -1157,11 +1157,11 @@ const GLOBAL_ROWS: &[ControlRow] = &[
     // the failure a cheat-sheet most needs to answer.
     ControlRow {
         keys: "Your @name menu",
-        action: "Return to spawn — if you are wedged and cannot move",
+        action: "Return to spawn - if you are wedged and cannot move",
     },
 ];
 
-/// Movement key rows for the piloted chassis — the pure preset→rows mapping
+/// Movement key rows for the piloted chassis - the pure preset→rows mapping
 /// (#803, unit-tested below). The camera rows and portal hint are shared and
 /// rendered separately by [`controls_hint_ui`].
 fn movement_rows(chassis: PilotedChassis) -> &'static [ControlRow] {
@@ -1176,14 +1176,14 @@ fn movement_rows(chassis: PilotedChassis) -> &'static [ControlRow] {
 }
 
 /// Resolve the piloted chassis from the `LocalPlayer`'s preset markers (only
-/// one is ever present — the hot-swap strips the old before inserting the new).
+/// one is ever present - the hot-swap strips the old before inserting the new).
 ///
 /// A body with NO marker at all is [`PilotedChassis::Unrecognised`]
 /// (#1241 f161), not `OnFoot`: `build_preset_components` gives an unknown
 /// preset a bare collider and no marker, and every drive system is
 /// marker-queried, so that body is an inert falling cube. It used to
 /// resolve to `OnFoot` and the sheet listed the walk keys under
-/// "Piloting: On foot" — total immobility presented as normal movement.
+/// "Piloting: On foot" - total immobility presented as normal movement.
 ///
 /// The caller distinguishes "no marker" from "no body yet": the query
 /// returns nothing at all before the local player spawns, and that case
@@ -1213,7 +1213,7 @@ fn piloted_chassis(
 /// First `InGame` arrival in a world the player OWNS re-opens the
 /// Controls sheet so the owner-gestures section is actually seen once
 /// (#851). Latched via the persisted [`UiPanels::owner_hint_seen`], so
-/// it fires once per machine — visiting other worlds doesn't count, and
+/// it fires once per machine - visiting other worlds doesn't count, and
 /// re-logins don't re-flash it. Registered on `OnEnter(InGame)`.
 pub fn flash_owner_controls_once(
     mut panels: ResMut<UiPanels>,
@@ -1266,7 +1266,7 @@ pub fn controls_hint_ui(
     };
 
     let chassis = local.iter().next().map_or(
-        // No local player entity yet — not the same as a body with no
+        // No local player entity yet - not the same as a body with no
         // preset marker, which is `Unrecognised` (#1241 f161).
         PilotedChassis::OnFoot,
         |(boat, skiff, airship, airplane, humanoid)| {
@@ -1281,7 +1281,7 @@ pub fn controls_hint_ui(
         .resizable(false);
     // Center-anchored ONLY on a true first run, where missing it would
     // strand a brand-new visitor (#834). `.anchor()` re-pins every
-    // frame — permanently immovable — so once the sheet has been seen
+    // frame - permanently immovable - so once the sheet has been seen
     // it becomes a normal draggable window near the right edge, and can
     // no longer superimpose with the (also centered) offer modal.
     let free = chrome.available_rect(ctx);
@@ -1290,9 +1290,9 @@ pub fn controls_hint_ui(
         window = window.default_pos(pos).constrain_to(free);
     } else {
         // Constrained on the first run TOO (#1235 f245). The anchored
-        // branch had no `constrain_to` at all, and the owner variant — the
+        // branch had no `constrain_to` at all, and the owner variant - the
         // tallest, and the one `flash_owner_controls_once` opens by itself
-        // — runs to roughly 570pt against a 470pt laptop viewport, pushing
+        // - runs to roughly 570pt against a 470pt laptop viewport, pushing
         // "Got it" below the fold and the title-bar [x] above it on a
         // window that is `.resizable(false)` and re-pinned every frame.
         window = window
@@ -1334,14 +1334,14 @@ pub fn controls_hint_ui(
                 ui.add_space(6.0);
                 ui.small("Change your vehicle in Avatar › Locomotion.");
                 ui.add_space(6.0);
-                // The chat-keyword emotes (#1068) had no UI surface at all — a
+                // The chat-keyword emotes (#1068) had no UI surface at all - a
                 // shipped feature nobody could find without typing one of its
                 // words by chance (#1141). Sourced from the keyword table so the
                 // example words cannot drift from the ones that gesture.
                 ui.label(crate::player::emote::Emote::hint_line());
                 ui.add_space(6.0);
                 ui.label(
-                    "Walk through a portal doorway — or a gateway — to travel into \
+                    "Walk through a portal doorway - or a gateway - to travel into \
                      another world.",
                 );
                 // Visitor-usable right-click, shown to everyone (#1235 f149).
@@ -1357,12 +1357,12 @@ pub fn controls_hint_ui(
                         }
                     });
                 // Owner-only: the world-editing gestures (#851). Every one of
-                // these was previously undiscoverable — and right-click doubling
+                // these was previously undiscoverable - and right-click doubling
                 // as camera orbit actively taught people to avoid the menu.
                 if owns_current_room(session.as_deref(), current_room.as_deref()) {
                     ui.add_space(8.0);
                     ui.separator();
-                    ui.strong("You own this world — World Editor");
+                    ui.strong("You own this world - World Editor");
                     ui.add_space(4.0);
                     egui::Grid::new("controls-editor-grid")
                         .num_columns(2)
@@ -1382,7 +1382,7 @@ pub fn controls_hint_ui(
                     // #1240 f170: aiming a gizmo freezes the avatar, and the key
                     // that releases it is the one the sheet already lists.
                     ui.small(
-                        "While a gizmo is aimed your avatar is held still — Esc \
+                        "While a gizmo is aimed your avatar is held still - Esc \
                  releases it.",
                     );
                 }
@@ -1394,7 +1394,7 @@ pub fn controls_hint_ui(
                 });
             });
     });
-    // Only track geometry once de-anchored — remembering the anchored
+    // Only track geometry once de-anchored - remembering the anchored
     // rect would persist "screen center" as the window's home.
     if panels.controls_seen
         && let Some(response) = response.as_ref()
@@ -1410,7 +1410,7 @@ pub fn controls_hint_ui(
     // The latch that de-anchors the sheet lives in `latch_controls_seen`
     // (#1235 f36), NOT here: it used to sit at the bottom of this
     // function, behind the early return above, so only the two dismissals
-    // that close from inside — the title-bar [x] and "Got it" — ever
+    // that close from inside - the title-bar [x] and "Got it" - ever
     // reached it.
 }
 
@@ -1421,7 +1421,7 @@ pub fn controls_hint_ui(
 /// `.anchor(CENTER_CENTER)`, which re-pins every frame and is therefore
 /// immovable, and no rect is remembered. The only write of the flag used
 /// to live at the BOTTOM of `controls_hint_ui`, behind its
-/// `if !panels.controls { return; }` — so a user who dismissed with Esc
+/// `if !panels.controls { return; }` - so a user who dismissed with Esc
 /// (the key the sheet itself advertises) or with the toolbar toggle set
 /// `panels.controls = false` from elsewhere, the next run early-returned,
 /// and every reopen thereafter came back centre-pinned and undraggable.
@@ -1450,7 +1450,7 @@ mod tests {
         assert!(one.starts_with(what), "{one}");
         assert!(one.ends_with("click to open Diagnostics"), "{one}");
         // The control: the sentence that shipped named nothing at all.
-        assert_ne!(one, "1 active anomaly — click to open Diagnostics");
+        assert_ne!(one, "1 active anomaly - click to open Diagnostics");
 
         let three = anomaly_dot_hover(Some(what), 3);
         assert!(three.contains("and 2 more anomalies"), "{three}");
@@ -1460,7 +1460,7 @@ mod tests {
         // still says something rather than nothing.
         assert_eq!(
             anomaly_dot_hover(None, 2),
-            "2 active anomalies — click to open Diagnostics"
+            "2 active anomalies - click to open Diagnostics"
         );
     }
 
@@ -1486,7 +1486,7 @@ mod tests {
 
     /// #1266 f167. THE SEQUENCE: pick "Car" in Avatar › Locomotion, open
     /// Controls to learn the keys, and the sheet says you are piloting a
-    /// "Skiff" — so you go looking for the skiff you did not choose. Only
+    /// "Skiff" - so you go looking for the skiff you did not choose. Only
     /// Airplane agreed, and this window's own footer sends the reader
     /// straight into the mismatch.
     ///
@@ -1532,7 +1532,7 @@ mod tests {
         named.dedup();
         assert_eq!(named.len(), 5, "two chassis share a name");
 
-        // And the one arm with no preset behind it keeps its own words —
+        // And the one arm with no preset behind it keeps its own words -
         // it must not borrow a name from a vehicle the record does not
         // describe (#1241 f161).
         assert!(!offered.contains(&PilotedChassis::Unrecognised.label()));
@@ -1550,7 +1550,7 @@ mod tests {
     /// names a locomotion preset this one does not model; land in the
     /// world and press W. `build_preset_components` inserts a bare
     /// collider and NO marker, every drive system is marker-queried, and
-    /// the body is an inert falling cube — while the sheet reported
+    /// the body is an inert falling cube - while the sheet reported
     /// "Piloting: On foot" and listed walk keys. Total immobility
     /// presented as normal movement is the worst combination of a dead
     /// end and a lie.
@@ -1643,13 +1643,13 @@ mod tests {
 
     /// **The on-foot rows mirror the humanoid handler** (#1235 f40/f41).
     ///
-    /// The #803 contract — "the sheet can never drift from the actual
-    /// controls again, change both together" — was a comment, and the
+    /// The #803 contract - "the sheet can never drift from the actual
+    /// controls again, change both together" - was a comment, and the
     /// guards next to it pinned `GLOBAL_ROWS` and `EDITOR_ROWS` only.
     /// Nothing tested the MOVEMENT rows, and both halves drifted: #1193
     /// made Shift the run key on land while the sheet went on listing
     /// Shift as "swim down" and nothing else, and the Space row advertised
-    /// a "climb" the humanoid controller has never implemented — a verb
+    /// a "climb" the humanoid controller has never implemented - a verb
     /// the user hunts for a surface to use, concluding the app is broken
     /// rather than the sheet wrong.
     ///
@@ -1682,7 +1682,7 @@ mod tests {
         }
         assert!(
             bound.len() >= 8,
-            "the handler scan found only {bound:?} — it has stopped working"
+            "the handler scan found only {bound:?} - it has stopped working"
         );
 
         for key in bound {
@@ -1692,7 +1692,7 @@ mod tests {
                 .unwrap_or_else(|| {
                     panic!(
                         "player::humanoid binds KeyCode::{key} and ON_FOOT_KEY_ROWS \
-                         does not know it — say what it does on the sheet (or list \
+                         does not know it - say what it does on the sheet (or list \
                          it here with an empty fragment if it is deliberately \
                          undocumented)"
                     )
@@ -1706,7 +1706,7 @@ mod tests {
             );
         }
 
-        // Shift is the run key on land (#1193) and the sheet must say so —
+        // Shift is the run key on land (#1193) and the sheet must say so -
         // it listed Shift ONLY as "swim down", so a careful reader came
         // away actively believing Shift does something else on land.
         assert!(
@@ -1720,7 +1720,7 @@ mod tests {
         // …and it must not name a verb the handler does not have.
         assert!(
             !handler.to_lowercase().contains("climb"),
-            "the humanoid handler grew a climb — the sheet may advertise one again"
+            "the humanoid handler grew a climb - the sheet may advertise one again"
         );
         assert!(
             !printed.to_lowercase().contains("climb"),
@@ -1729,8 +1729,8 @@ mod tests {
     }
 
     /// #1235 f36. Sequence: a brand-new user closes the auto-opened
-    /// Controls sheet with Esc — the key the sheet itself lists under
-    /// "back out" — and from then on every reopen lands dead centre and
+    /// Controls sheet with Esc - the key the sheet itself lists under
+    /// "back out" - and from then on every reopen lands dead centre and
     /// cannot be dragged, forever, persisted per machine. The latch used
     /// to live at the bottom of `controls_hint_ui`, behind its
     /// `if !panels.controls { return; }`, so only the [x] and "Got it"
@@ -1753,7 +1753,7 @@ mod tests {
             .expect("system runs");
         assert!(!world.resource::<UiPanels>().controls_seen);
 
-        // Dismissed from OUTSIDE the renderer — the Esc ladder and the
+        // Dismissed from OUTSIDE the renderer - the Esc ladder and the
         // toolbar toggle both look exactly like this.
         world.resource_mut::<UiPanels>().controls = false;
         world
@@ -1771,10 +1771,10 @@ mod tests {
     /// terrain that the gizmo can still drag and commit into their room's
     /// live record.
     ///
-    /// `panels.world_editor` stays TRUE for a visitor — the toolbar
+    /// `panels.world_editor` stays TRUE for a visitor - the toolbar
     /// renders a DISABLED button without clearing the flag, and
     /// `room_admin_ui` returns at its ownership gate before the reconcile
-    /// that would — so a window-flag-only gate is not a gate at all here.
+    /// that would - so a window-flag-only gate is not a gate at all here.
     /// Three surfaces answered the question three different ways and the
     /// overlay answered it not at all; this pins that they now share one.
     #[test]
@@ -1793,7 +1793,7 @@ mod tests {
             let src = std::fs::read_to_string(root.join(rel)).expect("source is readable");
             assert!(
                 !src.contains("panels.world_editor"),
-                "{rel} reads the window flag directly again — that flag is true \
+                "{rel} reads the window flag directly again - that flag is true \
                  for a visitor standing in a stranger's world"
             );
         }
@@ -1830,7 +1830,7 @@ mod tests {
 
     /// **The camera rows name gestures a laptop can perform** (#1242
     /// f166). Pan was middle-button-only with no modifier and no
-    /// alternative, while the sheet advertised it unconditionally — a
+    /// alternative, while the sheet advertised it unconditionally - a
     /// cheat-sheet row that cannot be performed is worse than no row.
     #[test]
     fn camera_rows_offer_a_reachable_pan_and_zoom() {
@@ -1856,7 +1856,7 @@ mod tests {
     fn the_avatar_right_click_row_is_not_owner_gated() {
         let src = include_str!("toolbar.rs");
         let owner_heading = src
-            .find("You own this world — World Editor")
+            .find("You own this world - World Editor")
             .expect("the owner heading");
         let rendered = src
             .find("for row in AVATAR_ROWS")
@@ -1875,7 +1875,7 @@ mod tests {
     }
 
     /// #1261 f235: the account chip's label is unbounded, and it is the
-    /// item the right-to-left layout protects hardest — so a long
+    /// item the right-to-left layout protects hardest - so a long
     /// custom-domain handle spends width that Controls and Settings, at
     /// the tail of the same group, are the first to lose.
     #[test]
@@ -1903,7 +1903,7 @@ mod tests {
     /// [`trailing_needed`] decides whether the bar folds, and it decides
     /// it by laying out [`TRAILING_LABELS`]. If a label is renamed in the
     /// render and not here, the bar keeps reserving room for a button
-    /// that no longer exists — or, worse, stops reserving room for one
+    /// that no longer exists - or, worse, stops reserving room for one
     /// that does, which is the #1280 shape again: an arithmetic
     /// prediction about widgets, drifting away from the widgets.
     #[test]
@@ -1927,7 +1927,7 @@ mod tests {
     /// #1261 f235, measured with the app's own fonts rather than argued
     /// from the review's ~1100 pt estimate.
     ///
-    /// THE SEQUENCE: a browser window narrowed to 1024 CSS px — or
+    /// THE SEQUENCE: a browser window narrowed to 1024 CSS px - or
     /// 1280x720 at 125% OS scaling, or two presses of the #1259 f239
     /// zoom. The bar is one non-wrapping `ui.horizontal`, so the tail of
     /// the right-to-left group runs leftward past its own rect and
@@ -1962,7 +1962,7 @@ mod tests {
                         .map(|label| button_width(ui, label))
                         .sum::<f32>();
                 // A handle already elided by `account_chip_label`, so this
-                // is the WIDEST the chip can be — not a pathological one.
+                // is the WIDEST the chip can be - not a pathological one.
                 let chip = account_chip_label(&"z".repeat(200));
                 measured = (leading, trailing_needed(ui, &chip));
             },
@@ -1981,8 +1981,8 @@ mod tests {
 
     /// #1260 f248: no dead tab stop where nothing is drawn.
     ///
-    /// The claim under test is egui's, not ours — `Sense::interactive()`
-    /// is `CLICK | DRAG`, and only an interactive rect can take focus —
+    /// The claim under test is egui's, not ours - `Sense::interactive()`
+    /// is `CLICK | DRAG`, and only an interactive rect can take focus -
     /// so asserting the sense is asserting the tab stop.
     #[test]
     fn the_healthy_anomaly_slot_is_not_a_tab_stop() {
@@ -1997,8 +1997,8 @@ mod tests {
     }
 
     /// **The sheet names the unstuck command** (#1240 f159). It has no key
-    /// binding — there is no free key that does not collide with movement
-    /// — so the sheet is the only surface that can tell anyone it exists,
+    /// binding - there is no free key that does not collide with movement
+    /// - so the sheet is the only surface that can tell anyone it exists,
     /// and being unable to move is the failure a cheat-sheet most needs to
     /// answer.
     #[test]
@@ -2012,7 +2012,7 @@ mod tests {
 
     /// **The sheet names every global shortcut the app binds** (#1141).
     ///
-    /// The Controls sheet is the app's one onboarding surface — it opens
+    /// The Controls sheet is the app's one onboarding surface - it opens
     /// itself on a first run. Undo/redo shipped with #864 and was never
     /// added here, so the only place it was written down was the hover
     /// text of a button inside an editor a first-session visitor has no

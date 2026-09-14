@@ -1,12 +1,12 @@
-//! Car preset — ground vehicle with 4-corner raycast suspension, no
+//! Car preset - ground vehicle with 4-corner raycast suspension, no
 //! buoyancy.
 //!
 //! Controls:
-//!   * **W / S** — forward / reverse drive force.
-//!   * **A / D** — yaw torque (steer). Applied unconditionally; on a
+//!   * **W / S** - forward / reverse drive force.
+//!   * **A / D** - yaw torque (steer). Applied unconditionally; on a
 //!     fully airborne chassis the yaw still works but feels light, which
 //!     is fine for arcade play.
-//!   * **Space** — handbrake: cuts forward force and multiplies lateral
+//!   * **Space** - handbrake: cuts forward force and multiplies lateral
 //!     grip by `handbrake_grip_factor` (typically <1 → letting the rear
 //!     slip out).
 //!
@@ -44,7 +44,7 @@ pub(super) fn apply_car_suspension(
     let ray_max = p.suspension_rest_length.0 + 1.5;
     let chassis_tf = global_tf.compute_transform();
     // Exclude self + every sensor so the suspension never rests on a gateway
-    // veil / portal (#813) — see [`super::ground_ray_filter`].
+    // veil / portal (#813) - see [`super::ground_ray_filter`].
     let filter = super::ground_ray_filter(chassis_entity, sensors.iter());
     let lin_vel = forces.linear_velocity();
     let ang_vel = forces.angular_velocity();
@@ -117,7 +117,7 @@ pub(super) fn apply_car_drive(
         forces.apply_torque(-steer);
     }
 
-    // Lateral grip — strong by default to keep the car planted; reduced
+    // Lateral grip - strong by default to keep the car planted; reduced
     // by `handbrake_grip_factor` when Space is held so the rear breaks
     // loose for arcade-style drifts.
     let grip = if handbrake {
@@ -137,8 +137,8 @@ pub(super) fn apply_car_drive(
 /// `up` / `right` are the chassis's world-space up and right axes, `ang_vel`
 /// its angular velocity, and `p` the record's car tuning (#876 promoted the
 /// engage tilt / accel / damping from constants). Returns `None` while the
-/// tilt is inside `upright_engage_tilt_degrees` — i.e. within normal
-/// cornering-lean / slope-driving range — so the assist never fights ordinary
+/// tilt is inside `upright_engage_tilt_degrees` - i.e. within normal
+/// cornering-lean / slope-driving range - so the assist never fights ordinary
 /// driving. Past that tilt it returns a torque that rotates `up` toward
 /// world-up (falling back to the roll axis when the chassis is dead-inverted,
 /// so it can't perch on its roof), minus a spin-damping term so it settles
@@ -163,8 +163,8 @@ fn upright_assist_torque(
 
 /// Right a car that has tipped onto its side or roof. Runs every fixed step
 /// (like the hover-boat's uprighting) but stays dormant until the chassis is
-/// tilted past the record's engage tilt, so it leaves normal driving —
-/// cornering lean, driving across slopes — untouched and only rescues a
+/// tilted past the record's engage tilt, so it leaves normal driving -
+/// cornering lean, driving across slopes - untouched and only rescues a
 /// genuine flip. Not input-gated: a flipped car keeps righting even while the
 /// owner types in a chat field.
 #[allow(clippy::type_complexity)]
@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn upright_car_gets_no_assist() {
-        // Dead level, and a modest cornering lean (30°) — both within the
+        // Dead level, and a modest cornering lean (30°) - both within the
         // assist's silent band, so it must return None (never fight driving).
         let p = params();
         assert!(upright_assist_torque(Vec3::Y, Vec3::X, Vec3::ZERO, &p).is_none());
@@ -208,8 +208,8 @@ mod tests {
     #[test]
     fn tipped_car_is_pushed_back_toward_upright() {
         // Rolled 100° about +Z (past the default 60° engage tilt). With no
-        // spin the torque must point along `up × Y` — the axis whose rotation
-        // lifts the up vector back toward world-up — and be mass-scaled.
+        // spin the torque must point along `up × Y` - the axis whose rotation
+        // lifts the up vector back toward world-up - and be mass-scaled.
         let p = params();
         let up = Quat::from_rotation_z(100f32.to_radians()) * Vec3::Y;
         let torque = upright_assist_torque(up, Vec3::X, Vec3::ZERO, &p)

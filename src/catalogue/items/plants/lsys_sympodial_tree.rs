@@ -1,8 +1,8 @@
-//! Sympodial tree — a round-crowned park broadleaf. Sympodial branching where
+//! Sympodial tree - a round-crowned park broadleaf. Sympodial branching where
 //! each apex is stochastically replaced by two or three rolled/pitched
 //! daughters (or extends un-forked), so the crown grows outward organically
 //! with iteration count as its age (#910) and the seed varies the whole
-//! silhouette — replacing the old planar `$`-flattened ABOP Fig 2.7 zigzag
+//! silhouette - replacing the old planar `$`-flattened ABOP Fig 2.7 zigzag
 //! that read as artificial. A short trunk in the axiom lifts the crown, and a
 //! finalization rule blooms every apex into a dome of green leaf cards.
 
@@ -34,7 +34,7 @@ static VARIANTS: &[PlantVariant] = &[
         name: "blossom_pale",
         label: "Pale spring flush",
         apply: |m| {
-            // Fresh yellow-green growth over pale bark — the same crown in
+            // Fresh yellow-green growth over pale bark - the same crown in
             // early spring, before the leaves darken.
             tint_leaf(
                 m,
@@ -79,7 +79,7 @@ impl CatalogueEntry for SympodialTree {
 
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
-    // 0 — brown bark trunk.
+    // 0 - brown bark trunk.
     materials.insert(
         0,
         SovereignMaterialSettings {
@@ -94,7 +94,7 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 2 — deep broadleaf green (slot 2 matches the finalization's `,(2)`).
+    // 2 - deep broadleaf green (slot 2 matches the finalization's `,(2)`).
     materials.insert(
         2,
         SovereignMaterialSettings {

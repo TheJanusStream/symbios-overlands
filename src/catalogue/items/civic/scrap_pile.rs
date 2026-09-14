@@ -1,4 +1,4 @@
-//! Scrap pile — a heap of corroded sheet metal, a bald tyre and a dented
+//! Scrap pile - a heap of corroded sheet metal, a bald tyre and a dented
 //! drum. A prosperity-Poor scatter prop reading as accumulated junk in any
 //! setting.
 

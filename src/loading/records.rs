@@ -13,7 +13,7 @@
 //!
 //! Every unrecoverable fallback installs the default as Live AND Stored,
 //! which makes "dirty" read clean while the real record still sits on
-//! the PDS — the recovery markers are what stop the next routine publish
+//! the PDS - the recovery markers are what stop the next routine publish
 //! from clobbering it (#840). A later clean fetch clears them.
 
 use bevy::prelude::*;
@@ -31,7 +31,7 @@ use super::fetch::{LoadedRecord, dispatch, spawn_record_fetch};
 
 /// Shared retry budget for the gameplay-critical fetches. The backoff
 /// saturates at 60 s after six attempts, so twelve attempts buys roughly
-/// ten minutes of real-time retrying against a flaky PDS — past that,
+/// ten minutes of real-time retrying against a flaky PDS - past that,
 /// persistent failure is overwhelmingly more likely than a transient
 /// hiccup. Without the cap, a misbehaving endpoint would spin the
 /// IoTaskPool indefinitely; on `wasm32` it would also pile up an
@@ -65,7 +65,7 @@ impl LoadedRecord for RoomRecord {
         commands.insert_resource(LiveRoomRecord(self));
     }
 
-    /// Surface a recovery banner — falling back to the default silently
+    /// Surface a recovery banner - falling back to the default silently
     /// would risk a publish click clobbering the real record.
     ///
     /// The cause rides along (#1265 f210): the deliberate overwrite the
@@ -101,7 +101,7 @@ impl LoadedRecord for AvatarRecord {
     }
 
     /// The default was installed as Live AND Stored, so "dirty" reads
-    /// clean while the real record still sits on the PDS — without this
+    /// clean while the real record still sits on the PDS - without this
     /// marker the next routine avatar publish clobbers it (#840). The
     /// Avatar editor shows a banner and gates the first publish behind
     /// a confirm while the marker is present.
@@ -123,7 +123,7 @@ impl LoadedRecord for InventoryRecord {
     const RECORD_KIND: RecordKind = RecordKind::Inventory;
     /// Two quick retries (2 s + 4 s of backoff), then fall through to
     /// the empty default. The old budget of ZERO meant one transient
-    /// blip installed an empty stash presented as a green success — and
+    /// blip installed an empty stash presented as a green success - and
     /// the next publish wiped the real one (#840). The stash still isn't
     /// gameplay-critical, so it doesn't get the room/avatar ten-minute
     /// budget; the recovery marker below covers the fall-through.
@@ -177,14 +177,14 @@ pub(crate) fn start_room_record_fetch(
 /// Kick off the async `getRecord` fetch for the local player's avatar.
 /// Silently no-ops if the user never logged in (session absent), in
 /// which case [`super::check_loading_complete`] will also refuse to
-/// advance — we never reach Loading without a session in normal flow.
+/// advance - we never reach Loading without a session in normal flow.
 pub(crate) fn start_avatar_record_fetch(
     mut commands: Commands,
     session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
     time: Res<Time>,
 ) {
     let Some(sess) = session else {
-        warn!("start_avatar_record_fetch: no session — local avatar will not load");
+        warn!("start_avatar_record_fetch: no session - local avatar will not load");
         return;
     };
     spawn_record_fetch::<AvatarRecord>(&mut commands, sess.did.clone(), 0, time.elapsed_secs_f64());

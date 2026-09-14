@@ -1,4 +1,4 @@
-//! AncientClassical-theme catalogue structures — Greco-Roman /
+//! AncientClassical-theme catalogue structures - Greco-Roman /
 //! bronze-age architecture, and the **settlement fallback theme**: an
 //! un-built theme borrows this kit, so it carries a deep roster and a high
 //! marble/sandstone material bar.
@@ -25,7 +25,7 @@ pub mod ruined_temple;
 pub mod stone_circle;
 pub mod villa;
 pub mod ziggurat;
-// Established (town) secondaries + props — primitive-built.
+// Established (town) secondaries + props - primitive-built.
 pub mod amphitheatre;
 pub mod bathhouse;
 pub mod brazier;
@@ -33,11 +33,11 @@ pub mod colonnade;
 pub mod column_drum;
 pub mod statue_plinth;
 pub mod urn;
-// Poor variants — the prosperity-Poor end of the theme.
+// Poor variants - the prosperity-Poor end of the theme.
 pub mod mudbrick_hut;
 pub mod ruined_wall;
 
-// Bespoke social gateway (#751) — the theme's walk-through travel gate.
+// Bespoke social gateway (#751) - the theme's walk-through travel gate.
 pub mod gateway;
 
 pub mod fx;
@@ -52,17 +52,17 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the established town kit — marble colonnades,
+/// Shared prosperity band for the established town kit - marble colonnades,
 /// baths and statuary read as a Modest-to-Rich classical settlement. The
 /// poor end is the separate mudbrick kit ([`mudbrick_hut`], …), tagged
 /// `Poor`.
 pub(super) const ANCIENT_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the mudbrick kit — the destitute end of the theme.
+/// Prosperity band for the mudbrick kit - the destitute end of the theme.
 pub(super) const ANCIENT_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Veined white marble — columns, statuary, dressed temple facing. The
+/// Veined white marble - columns, statuary, dressed temple facing. The
 /// high-status surface that holds the fallback theme's material bar up.
 pub(super) fn marble(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -85,7 +85,7 @@ pub(super) fn marble(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Coursed sandstone ashlar — colonnade stylobates, bathhouse walls,
+/// Coursed sandstone ashlar - colonnade stylobates, bathhouse walls,
 /// weathered ruins. Warm dressed blocks with a pale mortar line.
 pub(super) fn sandstone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -108,7 +108,7 @@ pub(super) fn sandstone(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Sun-baked adobe / mudbrick — the poor hut's walls, rendered rough and
+/// Sun-baked adobe / mudbrick - the poor hut's walls, rendered rough and
 /// warm.
 pub(super) fn adobe(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -127,7 +127,7 @@ pub(super) fn adobe(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Fired terracotta — amphorae and urns. A smooth warm ceramic.
+/// Fired terracotta - amphorae and urns. A smooth warm ceramic.
 pub(super) fn terracotta(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -138,7 +138,7 @@ pub(super) fn terracotta(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Patinated bronze — the brazier basket, statue cores, fittings. Polished
+/// Patinated bronze - the brazier basket, statue cores, fittings. Polished
 /// metal gone green with age.
 pub(super) fn bronze(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -189,7 +189,7 @@ mod tests {
         }
     }
 
-    /// The brazier is the kit's firelit element — it must keep its emissive
+    /// The brazier is the kit's firelit element - it must keep its emissive
     /// coals so escalation's broken-emissive ruin pass has something to snuff.
     #[test]
     fn brazier_keeps_its_embers() {

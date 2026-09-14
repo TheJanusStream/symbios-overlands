@@ -6,7 +6,7 @@ use crate::diagnostics::event::{EventPayload, SessionEvent, Severity, StartupInf
 
 /// A session log parsed from NDJSON, plus the count of lines that failed to
 /// deserialize (an unknown/renamed variant from a newer build, or a torn final
-/// line from a crash) — surfaced in the report so a truncated log is never
+/// line from a crash) - surfaced in the report so a truncated log is never
 /// silently analyzed as if it were complete.
 pub struct ParsedLog {
     pub events: Vec<SessionEvent>,
@@ -57,8 +57,8 @@ pub(super) fn startup(events: &[SessionEvent]) -> Option<&StartupInfo> {
 /// Three outcomes, and the difference between them is the whole reason the
 /// terminal record exists. A `SessionEnd` the app recorded means the process
 /// ran its own teardown. A marker means a shutdown hook wrote the last thing
-/// anyone will know about the run. And no record at all — [`session_end`]'s
-/// `None` — means neither got to run, which on wasm is the OOM trap the crash
+/// anyone will know about the run. And no record at all - [`session_end`]'s
+/// `None` - means neither got to run, which on wasm is the OOM trap the crash
 /// tail was built for and is the case worth escalating.
 pub(super) enum Exit<'a> {
     /// The running app recorded it.
@@ -81,7 +81,7 @@ pub(super) fn session_end(events: &[SessionEvent]) -> Option<Exit<'_>> {
     })
 }
 
-/// Count events at `Warn` / `Error` / `Critical` — the top-line health signal.
+/// Count events at `Warn` / `Error` / `Critical` - the top-line health signal.
 pub(super) fn severity_tally(events: &[SessionEvent]) -> [usize; 3] {
     let mut t = [0usize; 3];
     for e in events {

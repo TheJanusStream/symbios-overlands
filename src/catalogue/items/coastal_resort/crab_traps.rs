@@ -1,4 +1,4 @@
-//! Crab traps — a Coastal-Resort *poor* prop. A leaning stack of wire-frame
+//! Crab traps - a Coastal-Resort *poor* prop. A leaning stack of wire-frame
 //! crab pots with bright net floats and a coil of rope: the working clutter
 //! of the fishing hamlet's quay.
 
@@ -17,7 +17,7 @@ const WIRE_GALV: [f32; 3] = [0.62, 0.64, 0.66];
 const POT_DARK: [f32; 3] = [0.30, 0.31, 0.33];
 
 /// A round wire crab pot: a dark drum ringed by two galvanised hoops with a
-/// funnel mouth on top — reads as a cage rather than a solid block.
+/// funnel mouth on top - reads as a cage rather than a solid block.
 fn crab_pot(center: [f32; 3]) -> Vec<Generator> {
     let [cx, cy, cz] = center;
     let r = 0.36_f32;
@@ -33,7 +33,7 @@ fn crab_pot(center: [f32; 3]) -> Vec<Generator> {
             id_quat(),
         ));
     }
-    // Funnel mouth on top — a small inverted cone narrowing into the pot.
+    // Funnel mouth on top - a small inverted cone narrowing into the pot.
     out.push(prim(
         cone(0.16, 0.2, 10, steel(WIRE_GALV)),
         [cx, cy + 0.31, cz],
@@ -76,7 +76,7 @@ impl CatalogueEntry for CrabTraps {
 }
 
 fn build_tree() -> Generator {
-    // Three round wire pots in a leaning stack — the bottom pot's drum is the
+    // Three round wire pots in a leaning stack - the bottom pot's drum is the
     // flat root.
     let mut prims = crab_pot([0.0, 0.24, 0.0]);
     prims.extend(crab_pot([-0.58, 0.24, 0.34]));

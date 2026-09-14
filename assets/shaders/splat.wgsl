@@ -55,16 +55,16 @@
 // Extension bindings (slots 100+ are reserved for material extensions).
 // ---------------------------------------------------------------------------
 
-/// RGBA weight map — one texel per heightmap cell, full-terrain coverage.
+/// RGBA weight map - one texel per heightmap cell, full-terrain coverage.
 /// Channels: R = Grass, G = Dirt, B = Rock, A = Snow.
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var splat_weight_map: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var splat_weight_sampler: sampler;
 
-/// Albedo texture array — 4 layers (Grass=0, Dirt=1, Rock=2, Snow=3), sRGB.
+/// Albedo texture array - 4 layers (Grass=0, Dirt=1, Rock=2, Snow=3), sRGB.
 @group(#{MATERIAL_BIND_GROUP}) @binding(102) var albedo_array: texture_2d_array<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(103) var albedo_array_sampler: sampler;
 
-/// Normal map texture array — 4 layers (Grass=0, Dirt=1, Rock=2, Snow=3), linear.
+/// Normal map texture array - 4 layers (Grass=0, Dirt=1, Rock=2, Snow=3), linear.
 @group(#{MATERIAL_BIND_GROUP}) @binding(104) var normal_array: texture_2d_array<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(105) var normal_array_sampler: sampler;
 
@@ -78,7 +78,7 @@ struct SplatUniforms {
     triplanar_scale: f32,
     /// Blend sharpness for the triplanar axis transition (k >= 1; 4 is good).
     triplanar_sharpness: f32,
-    /// World Y of the room's water surface — the datum the damp-ground
+    /// World Y of the room's water surface - the datum the damp-ground
     /// darkening measures from (#913).
     water_y: f32,
     /// Height above `water_y` (m) over which the darkening eases out.
@@ -90,7 +90,7 @@ struct SplatUniforms {
     albedo_fade_near: f32,
     /// View distance (m) where the albedo is fully each layer's mean colour.
     albedo_fade_far: f32,
-    /// Pad to 48 bytes — WebGL2 requires uniform blocks be a multiple of
+    /// Pad to 48 bytes - WebGL2 requires uniform blocks be a multiple of
     /// 16. Mirrors `_pad0`/`_pad1`/`_pad2` on the Rust `SplatUniforms`.
     _pad0: u32,
     _pad1: u32,
@@ -102,10 +102,10 @@ struct SplatUniforms {
 // Avatar-interaction stains overlay (Phase 3, #245). RGBA:
 //   R = wetness, G = kicked-up dust, B = footprint indent, A = reserved.
 // Sampled toroidally at `fract(world.xz / world_period)` with a Repeat
-// sampler — no camera recenter, so no origin pop.
+// sampler - no camera recenter, so no origin pop.
 //
 // `STAINS_BINDING` is emitted by `SplatExtension::specialize` only on
-// non-wasm targets — on wasm32 (WebGL2) the GLES backend caps fragment
+// non-wasm targets - on wasm32 (WebGL2) the GLES backend caps fragment
 // shaders at 16 texture slots and the rest of the splat material plus
 // Bevy's view-group / StandardMaterial textures already occupy it.
 // Skipping bindings 107/108/109 and the consuming code path keeps the
@@ -119,7 +119,7 @@ struct StainsUniforms {
     world_period: f32,
     // Non-zero enables stains modulation; zero = terrain unchanged.
     enabled: u32,
-    // Pad to 16 bytes — WebGL2 (DownlevelFlags::BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED
+    // Pad to 16 bytes - WebGL2 (DownlevelFlags::BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED
     // unsupported) requires every uniform block be a multiple of 16 bytes.
     // Mirrors `_pad0`/`_pad1` on the Rust `StainsUniforms`.
     _pad0: u32,
@@ -141,7 +141,7 @@ fn triplanar_weights(world_normal: vec3<f32>, k: f32) -> vec3<f32> {
 }
 
 /// Sample a texture array layer using triplanar world-space projection and
-/// return vec4.  Three lookups — YZ, XZ, XY planes — are blended by `weights`.
+/// return vec4.  Three lookups - YZ, XZ, XY planes - are blended by `weights`.
 fn triplanar_albedo(
     tex: texture_2d_array<f32>,
     samp: sampler,
@@ -169,7 +169,7 @@ fn decode_normal(encoded: vec3<f32>) -> vec3<f32> {
 /// tangent frame before blending, instead of being misinterpreted through the
 /// top-down mesh TBN.
 ///
-/// Axis TBN frames — aligned with UV derivatives for correct perturbation:
+/// Axis TBN frames - aligned with UV derivatives for correct perturbation:
 ///   X-projection (uv = world.zy): T = sign_x·Z, B = +Y, N via cross
 ///   Y-projection (uv = world.xz): T = +X,       B = sign_y·Z, N via cross
 ///   Z-projection (uv = world.xy): T = sign_z·X,  B = +Y,      N = sign_z·Z
@@ -207,7 +207,7 @@ fn triplanar_normal_world(
     // horizontal perturbation direction. Without this, rock-texture bumps
     // render as if lit from the opposite direction (i.e. as dents instead of
     // ridges) on top-down terrain, while the standard layers (grass/dirt/snow)
-    // — which use Bevy's mesh TBN with FLIP_NORMAL_MAP_Y — render correctly.
+    // - which use Bevy's mesh TBN with FLIP_NORMAL_MAP_Y - render correctly.
     // The negation makes the rock layer's lit direction match the others.
     let wn_x = vec3<f32>(tn_x.z * sign_x, tn_x.y, tn_x.x * sign_x);
     let wn_y = vec3<f32>(-tn_y.x, tn_y.z * sign_y, -tn_y.y * sign_y);
@@ -248,7 +248,7 @@ fn fragment(
         // toward (0.5, 0.5, 0.5) the decoded result is (0, 0, 0), and
         // normalising a zero vector produces NaN that infects the whole pixel.
         //
-        // When no rule matches at all (raw_sum == 0 — common on very steep
+        // When no rule matches at all (raw_sum == 0 - common on very steep
         // cliffs that exceed every layer's slope_max), dividing vec4(0) by a
         // small epsilon still yields vec4(0), which would normalise to NaN.
         // Fall back to 100% rock (channel B) in that case: rock is the most
@@ -258,10 +258,10 @@ fn fragment(
         let safe_sum = select(raw_sum, 1.0, no_coverage);
         let weights = select(raw_weights / safe_sum, vec4<f32>(0.0, 0.0, 1.0, 0.0), no_coverage);
 
-        // Tiled UV — sampler Repeat mode handles wrapping, preserving GPU derivatives.
+        // Tiled UV - sampler Repeat mode handles wrapping, preserving GPU derivatives.
         let tiled_uv = in.uv * splat_uniforms.tile_scale;
 
-        // Triplanar data for the Rock layer — computed once, shared by albedo
+        // Triplanar data for the Rock layer - computed once, shared by albedo
         // and normal sampling below.
         let world_pos = in.world_position.xyz;
         let tp_weights = triplanar_weights(
@@ -354,7 +354,7 @@ fn fragment(
     // terrain renders exactly as before (backward-compat).
     //
     // Gated by `STAINS_BINDING` because bindings 107/108/109 are only
-    // declared on non-wasm targets — see the explanation at the binding
+    // declared on non-wasm targets - see the explanation at the binding
     // site above.
 #ifdef STAINS_BINDING
     if stains_uniforms.enabled != 0u {

@@ -1,4 +1,4 @@
-//! Tests for [`BiomeFilter`] — the multi-biome allow-list + water relation
+//! Tests for [`BiomeFilter`] - the multi-biome allow-list + water relation
 //! used by every `Placement::Scatter` entry.
 
 use symbios_overlands::pds::{BiomeFilter, WaterRelation};
@@ -46,7 +46,7 @@ fn water_above_rejects_points_below_surface() {
     };
     assert!(f.accepts(0, 5.0, Some(0.0)));
     assert!(!f.accepts(0, -1.0, Some(0.0)));
-    // `Above` demands a freeboard margin (0.5 m) over the water line —
+    // `Above` demands a freeboard margin (0.5 m) over the water line -
     // the water shader's wave displacement would flood a placement
     // sitting exactly on the surface, so on-surface samples are
     // rejected too. The margin itself is inclusive.
@@ -62,7 +62,7 @@ fn water_below_rejects_points_at_or_above_surface() {
     };
     assert!(!f.accepts(0, 5.0, Some(0.0)));
     assert!(f.accepts(0, -1.0, Some(0.0)));
-    // `Below` is strictly below — `y < water_level`. At exactly water
+    // `Below` is strictly below - `y < water_level`. At exactly water
     // level, the point is "on" the surface and rejected (it sits inside
     // `Above`'s freeboard band as well).
     assert!(!f.accepts(0, 0.0, Some(0.0)));
@@ -70,7 +70,7 @@ fn water_below_rejects_points_at_or_above_surface() {
 
 #[test]
 fn missing_water_level_asymmetry_above_passes_below_fails_closed() {
-    // Dry-land records (no water generator): `Above` collapses to accept —
+    // Dry-land records (no water generator): `Above` collapses to accept -
     // all ground on a waterless room *is* above water, so a land-targeted
     // scatter still drops onto it. `Below` is the opposite case (#914):
     // there is no submerged ground to stand on, and letting an aquatic
@@ -102,7 +102,7 @@ fn combined_biome_and_water_constraints_both_apply() {
 #[test]
 fn noop_filter_round_trips_as_defaults() {
     // `BiomeFilter::default()` is serde-default via `#[serde(default)]` on
-    // the parent field — an empty object must decode back to the no-op.
+    // the parent field - an empty object must decode back to the no-op.
     let json = "{}";
     let back: BiomeFilter = serde_json::from_str(json).expect("decode");
     assert!(back.is_noop());

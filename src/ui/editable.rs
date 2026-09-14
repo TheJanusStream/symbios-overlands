@@ -34,18 +34,18 @@ use crate::state::PublishStatus;
 pub enum RecordAction {
     /// Nothing clicked this frame.
     None,
-    /// "Save" — push `live` to the PDS; on success the poll
+    /// "Save" - push `live` to the PDS; on success the poll
     /// system pins `stored = live`.
     Publish,
-    /// "Revert to saved" — discard uncommitted edits (`live = stored`,
-    /// the session-cached copy; no network fetch happens — the old
+    /// "Revert to saved" - discard uncommitted edits (`live = stored`,
+    /// the session-cached copy; no network fetch happens - the old
     /// "Load from PDS" label promised one, #830).
     Load,
-    /// "Reset to default" — `live = default_for_did(did)`.
+    /// "Reset to default" - `live = default_for_did(did)`.
     Reset,
     /// Ctrl+S arrived and the row's own gate refused it (#1208): the
     /// reason, in the words the disabled Save button's hover uses. The
-    /// caller toasts it through [`ctrl_s_refused`] — the button can be
+    /// caller toasts it through [`ctrl_s_refused`] - the button can be
     /// hovered to learn why, a keypress cannot, so the shortcut has to be
     /// told out loud.
     Refused(String),
@@ -61,9 +61,9 @@ pub enum RecordAction {
 /// The expired-session arm (#1214) is what turns the retry loop into a
 /// dead stop. Every other refusal here describes something the owner can
 /// change; this one describes something they cannot, so it says what they
-/// have to do instead. Its input is the record's own last outcome —
+/// have to do instead. Its input is the record's own last outcome -
 /// `report_publish_failure` marks a failure terminal when the OAuth
-/// refresh token is gone (see [`crate::oauth::refresh_is_terminal`]) — so
+/// refresh token is gone (see [`crate::oauth::refresh_is_terminal`]) - so
 /// the row cannot claim the session expired on a save that never failed.
 fn save_refusal(
     dirty: bool,
@@ -76,21 +76,21 @@ fn save_refusal(
         Some(String::from("a save is already in flight"))
     } else if matches!(status, PublishStatus::Failed { terminal: true, .. }) {
         Some(String::from(
-            "your session has expired — sign in again before saving",
+            "your session has expired - sign in again before saving",
         ))
     } else if let Some(reason) = &size.unserializable {
         Some(reason.clone())
     } else if size.class() == Some(SizeClass::OverHardCeiling) {
         Some(match &size.largest {
             Some(largest) => format!(
-                "{largest} is {} — past the {} ceiling; remove or shrink it",
+                "{largest} is {} - past the {} ceiling; remove or shrink it",
                 human_bytes(size.bytes.unwrap_or_default()),
                 human_bytes(HARD_RECORD_CEILING_BYTES)
             ),
             None => String::from("the record is too large to save"),
         })
     } else if !dirty {
-        Some(String::from("nothing to save — no unsaved edits"))
+        Some(String::from("nothing to save - no unsaved edits"))
     } else if !can_publish {
         Some(String::from("saving is not possible right now"))
     } else {
@@ -107,13 +107,13 @@ fn revert_refusal(dirty: bool, publishing: bool) -> Option<&'static str> {
     if publishing {
         Some("Wait for the save to finish")
     } else if !dirty {
-        Some("Nothing to revert — no unsaved edits")
+        Some("Nothing to revert - no unsaved edits")
     } else {
         None
     }
 }
 
-/// Why "Reset to default" is disabled — the same in-flight rule as
+/// Why "Reset to default" is disabled - the same in-flight rule as
 /// Revert, and otherwise "already the default" (#1209).
 fn reset_refusal(can_reset: bool, publishing: bool) -> Option<&'static str> {
     if publishing {
@@ -138,11 +138,11 @@ pub fn ctrl_s_refused(reason: &str) -> String {
 fn size_measures(kind: RecordKind) -> &'static str {
     match kind {
         RecordKind::Room => {
-            "the largest single record a save writes — the world manifest (environment, \
+            "the largest single record a save writes - the world manifest (environment, \
              placements, traits, effects) or the biggest item"
         }
         RecordKind::Avatar => {
-            "the largest record in the avatar bundle — the avatar record, the worn body, \
+            "the largest record in the avatar bundle - the avatar record, the worn body, \
              a worn prop, or the profile"
         }
         RecordKind::Inventory => "the largest single item in the inventory",
@@ -152,7 +152,7 @@ fn size_measures(kind: RecordKind) -> &'static str {
 /// Inputs to [`save_load_reset_row`]. A struct rather than ten positional
 /// parameters, so the three call sites name what they pass.
 pub struct SaveRow<'a> {
-    /// Which record this row saves — words the size hover per record.
+    /// Which record this row saves - words the size hover per record.
     pub kind: RecordKind,
     /// The live record differs from its stored mirror.
     pub dirty: bool,
@@ -169,7 +169,7 @@ pub struct SaveRow<'a> {
     /// `Idle` by a Revert or Reset so an outcome from before the
     /// replacement is never quoted after it (#1206).
     pub status: &'a mut PublishStatus,
-    /// `Some` routes Revert/Reset through the confirm modal — required
+    /// `Some` routes Revert/Reset through the confirm modal - required
     /// for the Inventory editor, which has no undo stack (#866). Room
     /// and Avatar pass `None`: both replacements are one Ctrl+Z away,
     /// so the guard would only double-charge a now-recoverable click.
@@ -179,7 +179,7 @@ pub struct SaveRow<'a> {
 
 /// What "Reset to default" does to this editor's record, for the button's
 /// hover and the confirm copy (#1200). The room and avatar have a DID-seeded
-/// default the reset rebuilds; the inventory has none — its "default" is an
+/// default the reset rebuilds; the inventory has none - its "default" is an
 /// empty stash, and the shared wording ("replaces the whole record with its
 /// generated default") never said that every item goes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -193,7 +193,7 @@ pub enum ResetWording {
 impl ResetWording {
     /// The button's hover. `undoable` (no confirm: an undo stack is behind
     /// the editor) adds the recovery sentence the neighbouring Revert
-    /// carries — the most destructive control in the row used to be the
+    /// carries - the most destructive control in the row used to be the
     /// only one that did not say Ctrl+Z restores it (#1209).
     fn hover(self, undoable: bool) -> String {
         match self {
@@ -206,7 +206,7 @@ impl ResetWording {
                  untouched until you save.",
             ),
             Self::EmptyStash { items } => format!(
-                "Empty your inventory — deletes all {items} item{}. The inventory has \
+                "Empty your inventory - deletes all {items} item{}. The inventory has \
                  no undo; the stored copy is untouched until you save.",
                 if items == 1 { "" } else { "s" }
             ),
@@ -240,22 +240,22 @@ impl ResetWording {
 /// Render the uniform Publish / Load / Reset row.
 ///
 /// Enable rules, identical for all three records:
-/// * **Publish** — `dirty && can_publish` (a session + refresh context
+/// * **Publish** - `dirty && can_publish` (a session + refresh context
 ///   must exist to write to the PDS), and the live record must be under
 ///   the hard size ceiling (`record_bytes`, see below). Tinted green
 ///   while dirty, grey when clean, so "there is something to save" is
 ///   glanceable. Never cleared optimistically: the derived `dirty` only
 ///   drops once the poll system pins `stored = live` on a *successful*
 ///   round-trip, so a failed publish stays dirty and retryable.
-/// * **Revert to saved** — `dirty` (nothing to revert when clean).
-/// * **Reset to default** — `can_reset` (the live record already
+/// * **Revert to saved** - `dirty` (nothing to revert when clean).
+/// * **Reset to default** - `can_reset` (the live record already
 ///   differs from the canonical default).
 ///
 /// `size` is the throttled measurement of what a save would write (the
 /// cache in [`crate::state::PublishFeedback`]). The row appends a size
-/// readout — neutral under the [`SOFT_RECORD_BUDGET_BYTES`] soft budget,
+/// readout - neutral under the [`SOFT_RECORD_BUDGET_BYTES`] soft budget,
 /// amber past it, red past the [`HARD_RECORD_CEILING_BYTES`] hard ceiling,
-/// and red "can't be saved" for a record this build cannot serialize —
+/// and red "can't be saved" for a record this build cannot serialize -
 /// and in the last two states the Publish button is disabled outright
 /// with the reason on its hover, mirroring the pre-flight guard in
 /// `crate::pds::record_size::preflight` (#694, #1207).
@@ -278,7 +278,7 @@ pub fn save_load_reset_row(ui: &mut egui::Ui, row: SaveRow<'_>) -> RecordAction 
     let mut action = RecordAction::None;
     ui.horizontal(|ui| {
         // While a publish is in flight the button reads "Saving…" and is
-        // disabled — a second click used to race a second task against
+        // disabled - a second click used to race a second task against
         // the first (#838).
         let publish_label = if publishing { "Saving…" } else { "Save" };
         let publish = egui::Button::new(egui::RichText::new(publish_label).color(
@@ -300,7 +300,7 @@ pub fn save_load_reset_row(ui: &mut egui::Ui, row: SaveRow<'_>) -> RecordAction 
         {
             action = RecordAction::Publish;
         }
-        // Ctrl+S (#836) — behind the SAME gate as the button, so the
+        // Ctrl+S (#836) - behind the SAME gate as the button, so the
         // shortcut can never publish what a click could not. A refused
         // chord reports the gate's reason instead of vanishing (#1208).
         if publish_shortcut {
@@ -310,7 +310,7 @@ pub fn save_load_reset_row(ui: &mut egui::Ui, row: SaveRow<'_>) -> RecordAction 
             };
         }
         // Revert / Reset are whole-record replacements. With an undo
-        // stack behind the editor (`confirm: None`) they fire directly —
+        // stack behind the editor (`confirm: None`) they fire directly -
         // Ctrl+Z restores the pre-click state. Without one (Inventory)
         // they still route through the confirm modal (#838 → #866).
         // Both stand down while a save is in flight (#1206).
@@ -370,9 +370,9 @@ pub fn save_load_reset_row(ui: &mut egui::Ui, row: SaveRow<'_>) -> RecordAction 
         action = confirmed;
     }
     // A Revert or Reset replaces the record the last outcome was about;
-    // quoting that outcome afterwards — "✔ Saved" over a reverted record,
+    // quoting that outcome afterwards - "✔ Saved" over a reverted record,
     // or a "✖ Save failed" the unsaved guard later reads as THIS attempt's
-    // reason — is what #1206 found. Nothing is in flight here: both
+    // reason - is what #1206 found. Nothing is in flight here: both
     // buttons stand down while publishing.
     if matches!(action, RecordAction::Load | RecordAction::Reset) {
         *status = PublishStatus::Idle;
@@ -403,7 +403,7 @@ fn size_readout(ui: &mut egui::Ui, kind: RecordKind, size: &SizeReadout) {
         SizeClass::OverSoftBudget => (format!("⚠ {}", human_bytes(bytes)), theme.status.warn),
         SizeClass::OverHardCeiling => (
             format!(
-                "{} {} — too large to save",
+                "{} {} - too large to save",
                 crate::ui::affordances::CROSS,
                 human_bytes(bytes)
             ),
@@ -418,7 +418,7 @@ fn size_readout(ui: &mut egui::Ui, kind: RecordKind, size: &SizeReadout) {
     ui.label(egui::RichText::new(text).color(color).small())
         .on_hover_text(format!(
             "Serialized size of {}. {largest}Soft budget {} (warns), hard ceiling {} \
-             (blocks saving — an ATProto record is a single ~1 MiB-max repo block). \
+             (blocks saving - an ATProto record is a single ~1 MiB-max repo block). \
              Remove or shrink content to fit.",
             size_measures(kind),
             human_bytes(SOFT_RECORD_BUDGET_BYTES),
@@ -429,17 +429,17 @@ fn size_readout(ui: &mut egui::Ui, kind: RecordKind, size: &SizeReadout) {
 /// Throttled refresh of the live record's size cache in
 /// [`PublishFeedback`](crate::state::PublishFeedback), returning the current
 /// reading for [`save_load_reset_row`]. `measure` is the record's own
-/// `measure_publish` — what its save actually writes (#1207). Serializing
+/// `measure_publish` - what its save actually writes (#1207). Serializing
 /// the full record every frame would be wasted work, so the cache refreshes at
 /// [`SIZE_READOUT_REFRESH_SECS`](crate::config::ui::editor::SIZE_READOUT_REFRESH_SECS)
-/// cadence — at worst the readout (and its publish hard-block) lags an edit
+/// cadence - at worst the readout (and its publish hard-block) lags an edit
 /// by half a second, and the pre-flight guard in
 /// `crate::pds::record_size::preflight` backstops that window.
 ///
 /// `changed` is the second gate (#1270 f418): half a second is a throttle,
 /// not a reason, and a record nobody has touched measures the same as it
 /// did last time. An editor left open on a full room otherwise pays a
-/// whole-record encode twice a second forever — for the room that is the
+/// whole-record encode twice a second forever - for the room that is the
 /// manifest plus all 256 generators. Callers that cannot cheaply answer
 /// the question pass `true` and keep the old behaviour; the first
 /// measurement is taken regardless, because there is nothing to compare a
@@ -470,7 +470,7 @@ pub fn refresh_size_readout<R: Send + Sync + 'static, T>(
 /// session log (#694). Shared by the three publish-poll systems so the
 /// gauge and event emission stays identical per record kind. Severity
 /// encodes the budget classification (info / warn / error past the hard
-/// ceiling — where the pre-flight guard refused the write). `bytes` is
+/// ceiling - where the pre-flight guard refused the write). `bytes` is
 /// `None` only when the record failed to serialize, which the guard
 /// reports separately.
 pub fn log_record_size(
@@ -500,7 +500,7 @@ pub fn log_record_size(
     };
 }
 
-/// Which PDS write failed — the two verbs the poll systems dispatch. Only
+/// Which PDS write failed - the two verbs the poll systems dispatch. Only
 /// the room's "Reset to default" takes the delete-then-put path, but a
 /// failed reset reads as "couldn't reset", not "couldn't save", and the
 /// user-facing wording has to say which.
@@ -527,15 +527,15 @@ pub struct FailureSinks<'a, R: 'static + Send + Sync> {
 /// The same shape as [`crate::ui::login::friendly_login_error`]'s
 /// `STAGE_MAP`, and deliberately the same shape: a needle checked with
 /// `contains`, first match wins, more specific needles above shorter ones
-/// they would shadow. What differs is the producers — a save's error is a
+/// they would shadow. What differs is the producers - a save's error is a
 /// transport failure or one of two pre-flight refusals, not a pipeline
-/// stage — so the table lives here, beside its one consumer, rather than
+/// stage - so the table lives here, beside its one consumer, rather than
 /// on the login screen.
 ///
 /// The three needles are the three strings that can reach a toast:
 /// `xrpc::apply_writes`' HTTP failure, `xrpc::preflight_wire_ints`' wire
 /// -integer refusal, and `record_size::unserializable_reason`'s serde
-/// fallback. `preflight`'s ceiling message is deliberately absent — it
+/// fallback. `preflight`'s ceiling message is deliberately absent - it
 /// already names the size, the limit and the remedy, so it passes through
 /// as its own friendly half.
 const PUBLISH_ERROR_MAP: &[(&str, &str)] = &[
@@ -545,7 +545,7 @@ const PUBLISH_ERROR_MAP: &[(&str, &str)] = &[
     (
         "applyWrites failed: 5",
         "Your account's data server had a problem saving. Nothing else is \
-         wrong with what you built — try again in a moment.",
+         wrong with what you built - try again in a moment.",
     ),
     (
         "applyWrites failed:",
@@ -558,7 +558,7 @@ const PUBLISH_ERROR_MAP: &[(&str, &str)] = &[
     (
         "integer(s) past ±",
         "Something in here holds a number too big to store. That's a bug in \
-         Overlands, not something you did — the details below name the field.",
+         Overlands, not something you did - the details below name the field.",
     ),
     (
         "serialize (",
@@ -587,15 +587,15 @@ pub fn friendly_publish_error(raw: &str) -> (String, Option<String>) {
 /// A failed write is the one outcome a thin client must make loud: the
 /// record IS the world, so a save that did not land means the next session
 /// starts from older state. Three everyday flows leave the editor's own
-/// footer unread when the failure arrives — Ctrl+S then Esc-closing the
+/// footer unread when the failure arrives - Ctrl+S then Esc-closing the
 /// window (the request TTL lets the save proceed with the window shut), the
 /// unsaved guard's "Stay here (save continues)", and a publish fired just
 /// before a portal hop. So the report is: log it, record the typed session
 /// event, toast it, and re-open the window that carries the Retry.
 ///
 /// Inventory got exactly this treatment in #843(e) and Room and Avatar did
-/// not, which left the three editors — written against one shared row
-/// precisely so their behaviour could not diverge — surfacing the same
+/// not, which left the three editors - written against one shared row
+/// precisely so their behaviour could not diverge - surfacing the same
 /// failure three different ways. One function now, so the next one cannot
 /// drift either.
 pub fn report_publish_failure<R: 'static + Send + Sync>(
@@ -622,7 +622,7 @@ pub fn report_publish_failure<R: 'static + Send + Sync>(
         WriteOp::Reset => "reset",
     };
     bevy::log::warn!("Failed to {verb} {noun} record: {error}");
-    // The raw chain goes in the durable record regardless — the friendly
+    // The raw chain goes in the durable record regardless - the friendly
     // sentence below is for the human, and a post-mortem needs the shape
     // the PDS actually returned.
     session_log.error(
@@ -639,14 +639,14 @@ pub fn report_publish_failure<R: 'static + Send + Sync>(
     // forget it and no two doors can disagree.
     let terminal = crate::oauth::refresh_is_terminal(&error);
     if terminal {
-        // `friendly_login_error` already owns the sentence for this state —
+        // `friendly_login_error` already owns the sentence for this state -
         // it was simply unreachable from in-game, which is why the owner got
         // a raw `refresh: …` Rust error chain as their primary feedback.
         let (friendly, _raw) = crate::ui::login::friendly_login_error(&error);
         toasts.error(format!("Couldn't {verb} your {noun}. {friendly}"), now);
         // NOT re-opened. The window's only offered action is the Save that
         // cannot succeed, and forcing it back into view on every attempt is
-        // what turned a failure into a loop — the auto-open is good for a
+        // what turned a failure into a loop - the auto-open is good for a
         // 5xx or a timeout and actively worse here.
         feedback.status = PublishStatus::Failed {
             at_secs: now,
@@ -656,18 +656,18 @@ pub fn report_publish_failure<R: 'static + Send + Sync>(
         return;
     }
     // The toast is the surface the jargon actually damaged: 320 px wide,
-    // pruned after six seconds, and it wrapped `applyWrites failed: 500 —
+    // pruned after six seconds, and it wrapped `applyWrites failed: 500 -
     // {"error":"InternalServerError"} (batch: 3 creates, 1 update)` into a
     // dozen lines of small text with no next step in it (#1265 f212). So
     // the toast gets the friendly half only.
     //
     // The RAW half stays on the status line below, untouched. That line is
     // persistent, selectable, and the window carrying it is force-opened
-    // three lines down — it is the one place a bug report can be copied
+    // three lines down - it is the one place a bug report can be copied
     // from, and replacing it with the friendly sentence would delete the
     // only record of what the PDS actually said.
     let (friendly, _raw) = friendly_publish_error(&error);
-    toasts.error(format!("Couldn't {verb} your {noun} — {friendly}"), now);
+    toasts.error(format!("Couldn't {verb} your {noun} - {friendly}"), now);
     // The window is where the status line and the Save button that retries
     // live, so the toast has somewhere to point.
     match record {
@@ -690,7 +690,7 @@ pub fn report_publish_failure<R: 'static + Send + Sync>(
 /// `is_changed()`, and a guest joining mid-edit is handed the owner's
 /// current unsaved state; the avatar record is the same for a
 /// construction-kit body, whose record IS the payload. A rigged body is
-/// the reverse — its payload rides a `serde(skip)` field, so peers render
+/// the reverse - its payload rides a `serde(skip)` field, so peers render
 /// the owner's last SAVED body until publish. Two body kinds with opposite
 /// live-preview semantics in one window, and neither was stated anywhere
 /// but the module source.
@@ -713,10 +713,10 @@ pub enum EditVisibility {
 pub fn audience_line(visibility: EditVisibility, peers: usize, noun: &str) -> String {
     match (visibility, peers) {
         (EditVisibility::SavedOnly, _) => {
-            format!("Others see your last saved {noun} — Save to show these edits.")
+            format!("Others see your last saved {noun} - Save to show these edits.")
         }
         (EditVisibility::Live, 0) => String::from(
-            "Nobody else is here — but anyone who arrives sees these unsaved \
+            "Nobody else is here - but anyone who arrives sees these unsaved \
              edits, not your last save.",
         ),
         (EditVisibility::Live, n) => format!(
@@ -727,7 +727,7 @@ pub fn audience_line(visibility: EditVisibility, peers: usize, noun: &str) -> St
     }
 }
 
-/// Draw [`audience_line`] in the notice tone — a mode indicator, not a
+/// Draw [`audience_line`] in the notice tone - a mode indicator, not a
 /// footnote.
 pub fn audience_notice(ui: &mut egui::Ui, visibility: EditVisibility, peers: usize, noun: &str) {
     let theme = crate::ui::theme::current(ui.ctx());
@@ -748,7 +748,7 @@ pub fn audience_notice(ui: &mut egui::Ui, visibility: EditVisibility, peers: usi
 /// The mirror image of [`report_publish_failure`], and it exists because
 /// the two halves were not symmetric: a failure toasted AND force-opened
 /// the owning window, while a success set `PublishStatus` and did nothing
-/// else — and that status is only ever rendered inside the editor's own
+/// else - and that status is only ever rendered inside the editor's own
 /// footer. So "did my world save?", the single question a first save has
 /// to answer, was answered only if a window the user was invited to close
 /// happened to still be open. `report_publish_failure`'s own doc names
@@ -787,8 +787,8 @@ pub fn report_publish_success(
 /// gift auto-publish walked straight past them. Every door onto a publish
 /// now asks this one type, so the doors cannot drift apart again.
 ///
-/// A marker retires where success is known — in the poll systems, on the
-/// `Ok` arm — never at the click that asked for the overwrite. Retiring on
+/// A marker retires where success is known - in the poll systems, on the
+/// `Ok` arm - never at the click that asked for the overwrite. Retiring on
 /// the click left a failed recovery with no banner and no retry.
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct RecoveryMarkers<'w> {
@@ -843,7 +843,7 @@ pub fn overwrite_warning(record: RecordKind, reason: &str) -> String {
 }
 
 /// Ask before a recovery-gated publish, in the words every editor uses.
-/// The caller publishes when the confirm's `show` yields `Some` — and
+/// The caller publishes when the confirm's `show` yields `Some` - and
 /// leaves the marker alone: the poll system retires it on success.
 pub fn request_overwrite_confirm(
     confirm: &mut crate::ui::confirm::ConfirmState<()>,
@@ -861,8 +861,8 @@ pub fn request_overwrite_confirm(
 /// The "try loading it again" affordance every recovery banner owes the
 /// user (#1230 f33). Returns `true` when they asked for a re-read.
 ///
-/// The failure a recovery marker records is overwhelmingly transient — a
-/// network drop, a PDS restart — and self-heals within seconds of the user
+/// The failure a recovery marker records is overwhelmingly transient - a
+/// network drop, a PDS restart - and self-heals within seconds of the user
 /// noticing. The app had already committed to the default and offered only
 /// the destructive direction: publish over the stored copy, or log out and
 /// back in. `RecordAction::Load` is not a re-read either, because after a
@@ -870,7 +870,7 @@ pub fn request_overwrite_confirm(
 ///
 /// Disabled, with the reason, while the record is dirty. A re-read installs
 /// BOTH live and stored, so running it over unsaved edits would destroy
-/// them — which is the precise class of defect the banner exists to warn
+/// them - which is the precise class of defect the banner exists to warn
 /// about, and it must not be introduced by the button that fixes it.
 pub fn recovery_reload_button(
     ui: &mut egui::Ui,
@@ -884,13 +884,13 @@ pub fn recovery_reload_button(
              the moment the network is back."
         ))
         .on_disabled_hover_text(format!(
-            "Save or revert your changes first — loading the stored {noun} \
+            "Save or revert your changes first - loading the stored {noun} \
              again replaces what is here."
         ))
 }
 
 /// Hover text for a publish control that is disabled because it would
-/// write over unread stored copies — one line per blocked record, then
+/// write over unread stored copies - one line per blocked record, then
 /// where the confirmed overwrite lives.
 pub fn publish_blocked_hover(blocked: &[(RecordKind, &str)]) -> String {
     let mut lines: Vec<String> = blocked
@@ -904,12 +904,12 @@ pub fn publish_blocked_hover(blocked: &[(RecordKind, &str)]) -> String {
         })
         .collect();
     lines.push(String::from(
-        "Open its editor to save deliberately — that Save asks first.",
+        "Open its editor to save deliberately - that Save asks first.",
     ));
     lines.join("\n")
 }
 
-/// How the status line is coloured — a tone, so the wording can be decided
+/// How the status line is coloured - a tone, so the wording can be decided
 /// (and tested) without an egui context.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StatusTone {
@@ -938,7 +938,7 @@ pub const SUCCESS_QUIET_AFTER_SECS: f64 = 60.0;
 /// How long ago something happened, in words (#1268 f73).
 ///
 /// The line used to read `{:.0}s ago` with no upper bound and no unit
-/// switch, so an hour later the footer said "Saved (3612s ago)" — a number
+/// switch, so an hour later the footer said "Saved (3612s ago)" - a number
 /// to divide in your head about an event you stopped caring about.
 fn age_phrase(secs: f64) -> String {
     let secs = secs.max(0.0);
@@ -957,7 +957,7 @@ fn age_phrase(secs: f64) -> String {
 /// (`stored` is pinned to what was WRITTEN, #1116), and "✔ Saved" beside a
 /// green Save button said yes to "did my work land?" when the answer was
 /// "partly". A save in flight counts up, and past [`SAVE_SLOW_SECS`] names
-/// the deadline it will give up at — a bare "Saving…" that could sit for a
+/// the deadline it will give up at - a bare "Saving…" that could sit for a
 /// minute taught the owner that quiet means hung.
 pub fn status_line_text(
     status: &PublishStatus,
@@ -973,7 +973,7 @@ pub fn status_line_text(
                 Some((
                     StatusTone::Error,
                     format!(
-                        "⟳ Saving… ({elapsed:.0}s) — still trying; gives up at {}s",
+                        "⟳ Saving… ({elapsed:.0}s) - still trying; gives up at {}s",
                         crate::config::http::PUBLISH_TASK_DEADLINE.as_secs()
                     ),
                 ))
@@ -986,7 +986,7 @@ pub fn status_line_text(
         PublishStatus::Success { at_secs } if dirty => Some((
             StatusTone::Weak,
             format!(
-                "{} Saved {} — edited since",
+                "{} Saved {} - edited since",
                 crate::ui::affordances::CHECK,
                 age_phrase(ago(*at_secs))
             ),
@@ -1017,7 +1017,7 @@ pub fn status_line_text(
 /// Render the uniform publish status line. `Idle` draws nothing; every
 /// other state is a single coloured line, and **both** Success and
 /// Failed carry the same live `(Ns ago)` counter (Avatar used to drop
-/// it). Wording is identical across editors — the editor window's own
+/// it). Wording is identical across editors - the editor window's own
 /// title already says *which* record, so the line stays terse. `dirty` is
 /// the row's own derived flag, see [`status_line_text`].
 pub fn publish_status_line(ui: &mut egui::Ui, status: &PublishStatus, now_secs: f64, dirty: bool) {
@@ -1039,7 +1039,7 @@ pub fn publish_status_line(ui: &mut egui::Ui, status: &PublishStatus, now_secs: 
 pub enum SeedAction {
     /// Nothing actionable this frame.
     None,
-    /// "Re-roll" clicked with a parseable seed — the caller re-rolls the
+    /// "Re-roll" clicked with a parseable seed - the caller re-rolls the
     /// whole record from it (`live = T::default_for_seed(seed, did)`).
     Reroll(u64),
 }
@@ -1051,8 +1051,8 @@ pub struct SeedRowState {
     /// The text the owner is editing. Empty until first synced.
     buf: String,
     /// DID-derived seed the buffer was last synced to. Re-syncs the
-    /// buffer whenever the active DID (hence its seed) changes — e.g.
-    /// after logging in as a different user — so the field never shows a
+    /// buffer whenever the active DID (hence its seed) changes - e.g.
+    /// after logging in as a different user - so the field never shows a
     /// stale owner's seed.
     synced_for: Option<u64>,
 }
@@ -1060,7 +1060,7 @@ pub struct SeedRowState {
 impl SeedRowState {
     /// The seed the row currently shows, when it parses. `None` both for
     /// an un-parseable edit in progress and before the first
-    /// [`seed_row`] draw synced the buffer — callers fall back to the
+    /// [`seed_row`] draw synced the buffer - callers fall back to the
     /// DID seed, matching what that first sync will show.
     pub fn current_seed(&self) -> Option<u64> {
         self.buf.trim().parse().ok()
@@ -1075,9 +1075,9 @@ impl SeedRowState {
 }
 
 /// Memoized pinned-re-roll seed hunt (#1005). The axis readout must
-/// preview the seed "Re-roll" will *actually* build from — with locks
+/// preview the seed "Re-roll" will *actually* build from - with locks
 /// engaged the hunt may walk past the typed seed, and previewing the
-/// typed seed showed unlocked values a click would then not deliver —
+/// typed seed showed unlocked values a click would then not deliver -
 /// but a full hunt costs milliseconds, far too much to rerun every
 /// frame. The result is keyed on `(start, pins)` and recomputed only
 /// when either changes (a keystroke in the seed field, a 🎲 roll, a lock
@@ -1099,9 +1099,9 @@ impl<P> Default for PinHuntCache<P> {
 }
 
 impl<P: Copy + PartialEq> PinHuntCache<P> {
-    /// The seed a re-roll from `start` under `pins` will build from —
+    /// The seed a re-roll from `start` under `pins` will build from -
     /// `ScenePins::find_seed` / `AvatarPins::find_seed` passed as
-    /// `hunt` — or `None` if the hunt capped out (practically
+    /// `hunt` - or `None` if the hunt capped out (practically
     /// unreachable for a legal pin-set). Both the readout and the
     /// "Re-roll" handler read this, so the preview and the applied
     /// record can never disagree.
@@ -1124,18 +1124,18 @@ impl<P: Copy + PartialEq> PinHuntCache<P> {
 /// pair into the seed "Re-roll" will actually build from.
 ///
 /// The room editor and the avatar editor each carried these three as loose
-/// sibling fields, differing only in the pin type — a shape that reads as
+/// sibling fields, differing only in the pin type - a shape that reads as
 /// three unrelated caches until you notice the third is keyed on the other
 /// two. Naming it makes the coupling explicit and gives the derivation one
 /// home: `hunt` is only ever valid for `(seed_row`'s seed, `pins)`, and
 /// [`Self::effective_seed`] is the only thing that reads it.
 #[derive(Default)]
 pub struct ReRollState<P> {
-    /// Buffer for the "Random seed" row — defaults to the owner's DID
+    /// Buffer for the "Random seed" row - defaults to the owner's DID
     /// seed, editable to re-roll the whole record. See [`seed_row`].
     pub seed_row: SeedRowState,
     /// Per-axis locks held (or explicitly picked) across "Re-roll" clicks
-    /// via a deterministic seed hunt. Transient editor state — never
+    /// via a deterministic seed hunt. Transient editor state - never
     /// stored in the record.
     pub pins: P,
     /// Memoized hunt result for the axis readout.
@@ -1149,7 +1149,7 @@ impl<P: crate::seeded_defaults::SeedPins> ReRollState<P> {
         self.seed_row.current_seed().unwrap_or(did_seed)
     }
 
-    /// The seed a re-roll from `start` will *actually* build from — with
+    /// The seed a re-roll from `start` will *actually* build from - with
     /// locks engaged the hunt may walk past the typed seed. `None` only if
     /// the hunt capped out, which is practically unreachable for a legal
     /// pin-set. Both the readout and the "Re-roll" handler read this, so
@@ -1160,15 +1160,15 @@ impl<P: crate::seeded_defaults::SeedPins> ReRollState<P> {
     }
 }
 
-/// Wrap an editor's re-roll block — a [`seed_row`] plus its
-/// [`pin_axis_row`] readout — in a collapsible section (#1047).
+/// Wrap an editor's re-roll block - a [`seed_row`] plus its
+/// [`pin_axis_row`] readout - in a collapsible section (#1047).
 ///
 /// The block is the tallest thing in either editor's footer (a seed
 /// field over five or six pin rows), and an owner who has settled on a
 /// world or an avatar rarely re-rolls it again; collapsed it costs one
 /// header row and hands the rest back to the tab body above. Open by
-/// default — the pinned readout is only discoverable if it starts
-/// expanded — and the open/closed state lives in egui memory under
+/// default - the pinned readout is only discoverable if it starts
+/// expanded - and the open/closed state lives in egui memory under
 /// `id_salt`, so it survives closing and reopening the editor window.
 ///
 /// Returns the closure's value, or `None` while the section is
@@ -1177,7 +1177,7 @@ impl<P: crate::seeded_defaults::SeedPins> ReRollState<P> {
 /// button, so it can never report an action.
 /// `title` names the SCOPE this seed re-rolls (#1256 f107). The Avatar
 /// window hosts a second, unrelated `seed` control eight rows below this one
-/// — the engine's own sculpting seed, with its own lock vocabulary — and
+/// - the engine's own sculpting seed, with its own lock vocabulary - and
 /// with both headed "Seed & re-roll" there was no way to tell from the
 /// window which number made the face on screen. One of the two replaces the
 /// entire record; the other moves a jaw.
@@ -1197,10 +1197,10 @@ pub fn reroll_section<R>(
 /// Render the "Random seed" re-roll row shared by the World and Avatar
 /// editors.
 ///
-/// The field shows `did_seed` — the master seed the DID-derived defaults
-/// are built from — by default. The owner can type any `u64`, roll a
+/// The field shows `did_seed` - the master seed the DID-derived defaults
+/// are built from - by default. The owner can type any `u64`, roll a
 /// fresh one (🎲), or restore the DID seed (↺), then click "Re-roll". That
-/// it replaces the ENTIRE record — not just the axes shown — is carried
+/// it replaces the ENTIRE record - not just the axes shown - is carried
 /// by the hover text, which names `subject`. This is exactly the
 /// existing "Reset to default" with an owner-chosen seed instead of
 /// `fnv1a_64(did)`. `now_secs` seeds the dice without a system clock
@@ -1250,8 +1250,8 @@ pub fn seed_row(
         }
         let apply_clicked = ui
             // "Re-roll", not "Apply" (#1268 f223). Everything around this
-            // button already called the action a re-roll — the section
-            // header, this hover, the undo toast — while the button used
+            // button already called the action a re-roll - the section
+            // header, this hover, the undo toast - while the button used
             // the weakest verb available for the most destructive
             // one-click action in either editor, and the same verb the
             // rename dialog uses for a harmless commit.
@@ -1262,7 +1262,7 @@ pub fn seed_row(
             // The line above is shown only while ENABLED, so before #1289
             // the one state that needed explaining explained nothing. The
             // field is already tinted `status.error`; this says why.
-            .on_disabled_hover_text("That seed is not a whole number — fix it to re-roll")
+            .on_disabled_hover_text("That seed is not a whole number - fix it to re-roll")
             .clicked();
         if let (true, Ok(seed)) = (apply_clicked, parsed) {
             action = SeedAction::Reroll(seed);
@@ -1285,26 +1285,26 @@ pub fn seed_row(
 /// the typed seed to the first one satisfying the locks, and the handler
 /// then writes that hunted number back over the text buffer. Nothing said
 /// so: the field simply read a different number afterwards, which
-/// undermines the one property a seed field is for — writing it down and
+/// undermines the one property a seed field is for - writing it down and
 /// coming back to it.
 ///
 /// `None` when the typed seed is the one being used, which is every
 /// unpinned re-roll.
 ///
-/// The miss arm is real code describing a state a user will not reach —
+/// The miss arm is real code describing a state a user will not reach -
 /// with all axes locked, `PIN_HUNT_CAP` misses with probability ~e⁻¹³⁸ per
-/// its own doc — but a click that does literally nothing needs a sentence
+/// its own doc - but a click that does literally nothing needs a sentence
 /// more than a likely one does.
 pub fn hunt_disclosure(start: u64, effective: Option<u64>) -> Option<(StatusTone, String)> {
     match effective {
         Some(seed) if seed == start => None,
         Some(seed) => Some((
             StatusTone::Weak,
-            format!("Seed {start} doesn't match your locks — re-rolling from {seed} instead."),
+            format!("Seed {start} doesn't match your locks - re-rolling from {seed} instead."),
         )),
         None => Some((
             StatusTone::Error,
-            String::from("No seed matches these locks — unlock an axis and try again."),
+            String::from("No seed matches these locks - unlock an axis and try again."),
         )),
     }
 }
@@ -1326,14 +1326,14 @@ pub fn hunt_disclosure_line(ui: &mut egui::Ui, start: u64, effective: Option<u64
 /// shared by the World and Avatar editors: what the seed in the row rolls
 /// for one category axis, with a lock toggle. Locking captures the shown
 /// value into `pin`; a locked axis renders as a combo box so an explicit
-/// value can be picked. Pins apply on the next "Apply" click — the
+/// value can be picked. Pins apply on the next "Apply" click - the
 /// caller hunts a seed satisfying them (`ScenePins::find_seed` /
-/// `AvatarPins::find_seed`) — matching the seed field's own
+/// `AvatarPins::find_seed`) - matching the seed field's own
 /// edit-then-apply contract.
 ///
 /// Draws three cells (axis label, lock, value) and ends the row; call
 /// inside an `egui::Grid` so the columns align across axes. The lock
-/// glyphs are `🔒`/`🔓` (U+1F512/U+1F513) — both present in egui's
+/// glyphs are `🔒`/`🔓` (U+1F512/U+1F513) - both present in egui's
 /// embedded NotoEmoji fallback, verified against its cmap (#861 tofu
 /// discipline).
 pub fn pin_axis_row<T: Copy + PartialEq>(
@@ -1380,7 +1380,7 @@ pub fn pin_axis_row<T: Copy + PartialEq>(
 }
 
 /// Diffuse a frame-time float + the DID seed into a fresh pseudo-random
-/// `u64` for the 🎲 button. Not cryptographic — it only needs to look
+/// `u64` for the 🎲 button. Not cryptographic - it only needs to look
 /// random and differ frame-to-frame. `SystemTime` is unavailable on
 /// wasm, so the entropy is the caller's elapsed-seconds clock.
 fn dice_seed(now_secs: f64, salt: u64) -> u64 {
@@ -1404,7 +1404,7 @@ fn dice_seed(now_secs: f64, salt: u64) -> u64 {
 /// bound races a timer against the fetch, which covers a request that
 /// never settles. It does not cover a task that never gets polled to
 /// completion for some other reason, and the cost of being wrong is not a
-/// slow save — it is an editor pinned on `Publishing` forever, where Save
+/// slow save - it is an editor pinned on `Publishing` forever, where Save
 /// is disabled and the unsaved-edits guard offers no way out. Freeing the
 /// editor on a stale task turns that trap back into an ordinary failure
 /// the owner can retry.
@@ -1456,7 +1456,7 @@ mod recovery_reload_tests {
 
     /// #1230 f33. The sequence: your PDS was down for the ten minutes the
     /// loading screen spent retrying, so you are pushed into a default world
-    /// with a warning that saving would overwrite the real one — and the
+    /// with a warning that saving would overwrite the real one - and the
     /// only route back is a full logout. The failure is overwhelmingly
     /// transient and has usually healed by the time the banner is read.
     #[test]
@@ -1466,7 +1466,7 @@ mod recovery_reload_tests {
 
     /// ...and it must not become a NEW way to lose work. The re-read
     /// installs both live and stored, so running it over unsaved edits would
-    /// destroy them — the precise defect the banner exists to warn about.
+    /// destroy them - the precise defect the banner exists to warn about.
     #[test]
     fn the_reload_refuses_while_there_are_unsaved_edits() {
         assert!(!reload_button_is_enabled(true));
@@ -1497,7 +1497,7 @@ mod publish_deadline_tests {
     }
 
     /// The trap this closes (#1129): a stalled publish left the editor on
-    /// `PublishStatus::Publishing` forever — Save disabled, and the
+    /// `PublishStatus::Publishing` forever - Save disabled, and the
     /// unsaved-edits guard auto-entering a phase whose only button was
     /// "Continue in background". The sequence was one request that
     /// connected and never settled; on wasm nothing bounded it, and unlike
@@ -1509,7 +1509,7 @@ mod publish_deadline_tests {
 
         assert!(
             poll_or_expire(&mut task, 0.0, deadline, "test").is_none(),
-            "at the deadline it is still waiting — the bound is exclusive"
+            "at the deadline it is still waiting - the bound is exclusive"
         );
         let expired = poll_or_expire(&mut task, 0.0, deadline + 0.001, "test")
             .expect("past the deadline the editor must be freed");
@@ -1535,14 +1535,14 @@ mod publish_deadline_tests {
     #[test]
     fn a_landed_task_reports_its_own_result_however_old_it_is() {
         let mut task = lands_ok();
-        // Wait for the pool WITHOUT going through `poll_or_expire` — asking
+        // Wait for the pool WITHOUT going through `poll_or_expire` - asking
         // it would race the deadline against the scheduler and make this
         // test's own result depend on thread timing.
         //
         // `yield_now`, not a spin: the whole suite runs many processes at
         // once, and a busy-wait that never gives up its slice starved the
         // very worker it was waiting for. Bounded by the wall clock rather
-        // than an iteration count for the same reason — an iteration count
+        // than an iteration count for the same reason - an iteration count
         // means something different on a loaded machine.
         let give_up_at = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while !task.is_finished() && std::time::Instant::now() < give_up_at {
@@ -1570,7 +1570,7 @@ mod tests {
 
     /// #1200 (finding 128): "Reset to default" on the inventory empties the
     /// stash, and the shared copy talked about "the whole record" and "its
-    /// generated default" — words written for the room. The inventory's
+    /// generated default" - words written for the room. The inventory's
     /// wording must say what goes, and how many.
     #[test]
     fn the_inventory_reset_says_it_empties_the_stash() {
@@ -1596,7 +1596,7 @@ mod tests {
 
     /// #1208, finding 72 (the hard-ceiling half). Sequence: the record
     /// grows past the ceiling, the owner presses Ctrl+S. The row took the
-    /// request and its `enabled` gate discarded it — the same silence as a
+    /// request and its `enabled` gate discarded it - the same silence as a
     /// collapsed window. The gate now names its reason, and the reason is
     /// the one the disabled button's hover shows.
     #[test]
@@ -1641,7 +1641,7 @@ mod tests {
     /// #1207, findings 122 and 204. Sequence: a gift from a newer build
     /// lands in the stash (or a world holds a generator this build cannot
     /// decode); the row showed either no readout and an enabled Save that
-    /// failed on the click, or — with the item in both live and stored —
+    /// failed on the click, or - with the item in both live and stored -
     /// a Save that never lit up, with no reason anywhere. The readout now
     /// says "can't be saved", the Save button carries the sentence, and a
     /// Ctrl+S is refused with the same sentence, before any I/O.
@@ -1652,7 +1652,7 @@ mod tests {
         // `serde_json::to_vec` of a map with a non-string key is the one
         // failure serde_json produces on its own; the real case is the
         // `skip_serializing` Unknown arm, whose error text contains
-        // "cannot be serialized" — model that text directly.
+        // "cannot be serialized" - model that text directly.
         size.refuse(crate::pds::record_size::unserializable_reason(
             "inventory item \"gift\"",
             "unknown variant cannot be serialized",
@@ -1668,7 +1668,7 @@ mod tests {
     /// #1206, finding 201. Sequence: press Save, change your mind, click
     /// "Revert to saved" while the button reads "Saving…". Revert was
     /// gated on `dirty` alone, restored the PRE-save snapshot, and the
-    /// landing publish then pinned `stored` to what it wrote — the row lit
+    /// landing publish then pinned `stored` to what it wrote - the row lit
     /// up dirty again holding the edits just discarded, and the PDS held
     /// them. Both replacements stand down while a save is in flight.
     #[test]
@@ -1687,7 +1687,7 @@ mod tests {
 
     /// #1206, findings 205 and 277. Sequence: keep editing while "Saving…"
     /// is up; the save lands. The line said "✔ Saved (0s ago)" in green
-    /// beside a green, dirty Save button — an unqualified yes to "did my
+    /// beside a green, dirty Save button - an unqualified yes to "did my
     /// work land?" when the answer was "partly". And while in flight it
     /// showed no elapsed time against a 60 s deadline.
     #[test]
@@ -1697,7 +1697,7 @@ mod tests {
         assert_eq!(tone, StatusTone::Weak);
         // #1268 f73 turned the raw seconds into words; three seconds
         // in, that is "just now".
-        assert!(text.contains("Saved just now — edited since"), "{text}");
+        assert!(text.contains("Saved just now - edited since"), "{text}");
         let (tone, text) = status_line_text(&landed, 103.0, false).expect("drawn");
         assert_eq!(tone, StatusTone::Ok);
         assert!(!text.contains("edited since"));
@@ -1720,7 +1720,7 @@ mod tests {
     }
 
     /// #1207, finding 203. One sentence used to say "the whole record for
-    /// Room/Avatar" — false for both. Each record says what its number
+    /// Room/Avatar" - false for both. Each record says what its number
     /// measures.
     #[test]
     fn the_size_hover_says_what_each_record_measures() {
@@ -1747,12 +1747,12 @@ mod tests {
     }
 
     /// #1137. Sequence: press Ctrl+S in the Avatar editor, then Esc to
-    /// close the window — the request TTL lets the save proceed with the
+    /// close the window - the request TTL lets the save proceed with the
     /// window shut, and the 30 s request timeout means the answer can be
     /// half a minute away. (Same shape via the unsaved guard's "Continue in
     /// background", and via a publish fired just before a portal hop.) The
     /// failure used to land as `warn!` + a `PublishStatus::Failed` that only
-    /// `publish_status_line` renders — i.e. in the footer of a window
+    /// `publish_status_line` renders - i.e. in the footer of a window
     /// nobody has open. The user believes the save landed; the next guard
     /// prompt is the first hint, by which time the dirty diff is large.
     #[test]
@@ -1761,7 +1761,7 @@ mod tests {
         let mut feedback = PublishFeedback::<AvatarRecord>::default();
         let mut toasts = Toasts::default();
         // Default is every window shut, which is the state the sequence
-        // above leaves behind — the failure has to reach the user anyway.
+        // above leaves behind - the failure has to reach the user anyway.
         let mut panels = UiPanels::default();
 
         report_publish_failure(
@@ -1785,13 +1785,13 @@ mod tests {
         let shown = toasts.shown();
         assert_eq!(shown.len(), 1);
         assert_eq!(shown[0].0, ToastKind::Error);
-        assert_eq!(shown[0].1, "Couldn't save your avatar — 502 Bad Gateway");
+        assert_eq!(shown[0].1, "Couldn't save your avatar - 502 Bad Gateway");
         assert!(matches!(feedback.status, PublishStatus::Failed { .. },));
     }
 
     /// THE SEQUENCE (#1214 f407): the refresh token dies mid-session, the
     /// owner presses Ctrl+S, and the world editor pops back open with a red
-    /// "Save failed" line and a Save button — so they press it again, and
+    /// "Save failed" line and a Save button - so they press it again, and
     /// again. Every failure looked retryable, because the only shape the UI
     /// had to branch on was the raw string `refresh: …`. A terminal failure
     /// must not re-open the window onto the button that cannot work, and
@@ -1821,7 +1821,7 @@ mod tests {
 
         assert!(
             !panels.world_editor,
-            "the auto-open is good for a 5xx and worse than useless here — \
+            "the auto-open is good for a 5xx and worse than useless here - \
              its only offered action is the save that cannot succeed"
         );
         let shown = toasts.shown();
@@ -1837,7 +1837,7 @@ mod tests {
             "the owner read a raw Rust error chain as their primary feedback: {}",
             shown[0].1
         );
-        // The raw chain still reaches the durable record — the analyzer and
+        // The raw chain still reaches the durable record - the analyzer and
         // a bug report both need the shape the PDS actually returned.
         assert!(
             log.iter().any(|e| matches!(
@@ -1866,7 +1866,7 @@ mod tests {
     /// The other direction, and the one that matters more: a transient
     /// failure MUST stay retryable. Calling a timeout or a 5xx terminal
     /// would disable Save on an owner whose very next click would have
-    /// worked — a worse bug than the one being fixed.
+    /// worked - a worse bug than the one being fixed.
     #[test]
     fn a_transient_failure_stays_retryable() {
         for error in [
@@ -1935,10 +1935,10 @@ mod tests {
         );
 
         assert!(panels.world_editor);
-        assert_eq!(toasts.shown()[0].1, "Couldn't reset your world — timed out");
+        assert_eq!(toasts.shown()[0].1, "Couldn't reset your world - timed out");
     }
 
-    /// The three editors report identically — that is the whole point of
+    /// The three editors report identically - that is the whole point of
     /// the shared helper. Inventory had the toast + auto-open since
     /// #843(e); Room and Avatar reached #1137 without it, so the same
     /// failure surfaced three different ways from one shared row.
@@ -1946,17 +1946,17 @@ mod tests {
     fn every_record_kind_toasts_and_opens_its_own_window() {
         type PanelProbe = fn(&UiPanels) -> bool;
         let opens: [(RecordKind, &str, PanelProbe); 3] = [
-            (RecordKind::Room, "Couldn't save your world — nope", |p| {
+            (RecordKind::Room, "Couldn't save your world - nope", |p| {
                 p.world_editor
             }),
             (
                 RecordKind::Avatar,
-                "Couldn't save your avatar — nope",
+                "Couldn't save your avatar - nope",
                 |p| p.avatar,
             ),
             (
                 RecordKind::Inventory,
-                "Couldn't save your inventory — nope",
+                "Couldn't save your inventory - nope",
                 |p| p.inventory,
             ),
         ];
@@ -1990,8 +1990,8 @@ mod friendly_publish_error_tests {
     use super::*;
 
     /// #1265 f212. THE SEQUENCE: a save fails, and the primary feedback is
-    /// a red toast reading `Couldn't save your world — applyWrites failed:
-    /// 500 Internal Server Error — {"error":"InternalServerError"} (batch:
+    /// a red toast reading `Couldn't save your world - applyWrites failed:
+    /// 500 Internal Server Error - {"error":"InternalServerError"} (batch:
     /// 3 creates, 1 update)`, wrapped into a dozen lines of small text in a
     /// 320 px card that is gone in six seconds, with no next step in it.
     ///
@@ -2037,20 +2037,20 @@ mod friendly_publish_error_tests {
         )
         .expect("xrpc source is readable");
         assert!(
-            source.contains("\"applyWrites failed: {status} — {body} (batch: {shape})\""),
-            "the producer's format string moved — re-check PUBLISH_ERROR_MAP's needles"
+            source.contains("\"applyWrites failed: {status} - {body} (batch: {shape})\""),
+            "the producer's format string moved - re-check PUBLISH_ERROR_MAP's needles"
         );
 
         // And the 5xx arm is reached ahead of the general one, which is
         // what the ordering in the table is for.
         let five = friendly_publish_error(
-            "applyWrites failed: 500 Internal Server Error — \
+            "applyWrites failed: 500 Internal Server Error - \
              {\"error\":\"InternalServerError\"} (batch: 3 creates, 1 update)",
         )
         .0;
         assert!(five.contains("try again in a moment"), "{five}");
         let four =
-            friendly_publish_error("applyWrites failed: 400 Bad Request — {} (batch: 1 create)").0;
+            friendly_publish_error("applyWrites failed: 400 Bad Request - {} (batch: 1 create)").0;
         assert!(four.contains("refused"), "{four}");
         assert_ne!(five, four, "the two arms must not collapse");
     }
@@ -2077,7 +2077,7 @@ mod status_age_tests {
     use super::*;
 
     /// #1268 f73. THE SEQUENCE: save, then work for an hour. The footer
-    /// still read "Saved (3612s ago)" — a number to divide in your head,
+    /// still read "Saved (3612s ago)" - a number to divide in your head,
     /// about an event you stopped caring about, in the row that is
     /// supposed to tell you whether your world is safe.
     #[test]
@@ -2100,7 +2100,7 @@ mod status_age_tests {
         assert!(line(at + 3600.0).is_none());
     }
 
-    /// Failed NEVER ages out — it is the only durable record of what the
+    /// Failed NEVER ages out - it is the only durable record of what the
     /// server said, and the Save beside it is the retry.
     #[test]
     fn a_failure_stays_for_the_session_and_reads_in_minutes() {
@@ -2119,8 +2119,8 @@ mod status_age_tests {
         );
     }
 
-    /// "Edited since" is not news about the save — it describes the record
-    /// in front of you — so it outlives the quiet period.
+    /// "Edited since" is not news about the save - it describes the record
+    /// in front of you - so it outlives the quiet period.
     #[test]
     fn edited_since_outlives_the_quiet_period() {
         let status = PublishStatus::Success { at_secs: 100.0 };
@@ -2130,7 +2130,7 @@ mod status_age_tests {
     }
 
     /// #1268 f69. THE SEQUENCE: lock Biome and Theme, type seed 42, press
-    /// the button — and the field now reads 1583277. Nothing on screen
+    /// the button - and the field now reads 1583277. Nothing on screen
     /// said the number had been replaced, which undermines the one
     /// property a seed field is for.
     #[test]
@@ -2178,7 +2178,7 @@ mod audience_tests {
     }
 
     /// **The review's zero-peer sentence was wrong and this is the
-    /// correction.** It proposed "Nobody else is here — edits are private
+    /// correction.** It proposed "Nobody else is here - edits are private
     /// until you save", but `network::lifecycle` hands a guest the owner's
     /// CURRENT unsaved state on connect. An empty world is a matter of
     /// luck, not of privacy, and shipping "private" would be the same
@@ -2211,7 +2211,7 @@ mod audience_tests {
     }
 
     /// #1269 f256. THE SEQUENCE: press Ctrl+S, close the World Editor to
-    /// look at your world, and never find out whether the save landed —
+    /// look at your world, and never find out whether the save landed -
     /// because `PublishStatus::Success` is only ever rendered inside the
     /// footer of the window you were invited to close, while a FAILURE
     /// toasts and forces that window back open.
@@ -2233,7 +2233,7 @@ mod audience_tests {
         report_publish_success(RecordKind::Room, &panels, &mut toasts, 2.0);
         assert_eq!(toasts.shown().len(), 1, "no second signal");
 
-        // Each record reads its OWN panel flag — the bug this shape
+        // Each record reads its OWN panel flag - the bug this shape
         // guards against is one editor's open window silencing another's
         // save.
         panels.avatar = false;

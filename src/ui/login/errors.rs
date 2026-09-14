@@ -8,7 +8,7 @@
 
 /// Ordered `(needle, friendly sentence)` map from pipeline stage markers
 /// to human copy. Checked with `contains` (resume errors arrive wrapped,
-/// e.g. `Session resume failed: resume refresh: …`), first match wins —
+/// e.g. `Session resume failed: resume refresh: …`), first match wins -
 /// keep more specific needles above shorter ones they'd shadow.
 const STAGE_MAP: &[(&str, &str)] = &[
     // #1228 f3's bound, reported. Above the refresh needle because the
@@ -16,7 +16,7 @@ const STAGE_MAP: &[(&str, &str)] = &[
     // the one resume failure that proves nothing about the saved session.
     (
         "session resume timed out",
-        "Couldn't restore your saved session in time — your data server or \
+        "Couldn't restore your saved session in time - your data server or \
          the network didn't answer. Your session is still saved; use Retry.",
     ),
     (
@@ -25,16 +25,16 @@ const STAGE_MAP: &[(&str, &str)] = &[
     ),
     // The same fact reached from IN GAME (#1214): a write whose token
     // refresh came back `invalid_grant` mid-session. Only the terminal
-    // branch of `report_publish_failure` routes a string through here — a
+    // branch of `report_publish_failure` routes a string through here - a
     // transient `refresh: timeout` must stay retryable and keeps its own
-    // wording — so this needle is safe below the resume one it shadows.
+    // wording - so this needle is safe below the resume one it shadows.
     (
         "refresh: ",
         "Your session has expired. Please sign in again to save.",
     ),
     (
         "get_relay_service_auth",
-        "Signed in, but couldn't reach the world relay server — it may be down. \
+        "Signed in, but couldn't reach the world relay server - it may be down. \
          Please try again in a moment.",
     ),
     (
@@ -49,17 +49,17 @@ const STAGE_MAP: &[(&str, &str)] = &[
     ),
     (
         "discover_server:",
-        "Couldn't start the login — the authorization server didn't answer \
+        "Couldn't start the login - the authorization server didn't answer \
          correctly. Check the PDS address (under Advanced) and try again.",
     ),
     (
         "authorize:",
-        "Couldn't start the login — the authorization server rejected the \
+        "Couldn't start the login - the authorization server rejected the \
          request. Please try again.",
     ),
     (
         "callback:",
-        "The sign-in couldn't be completed — the authorization server rejected \
+        "The sign-in couldn't be completed - the authorization server rejected \
          the login attempt. Please try again.",
     ),
     (
@@ -69,16 +69,16 @@ const STAGE_MAP: &[(&str, &str)] = &[
     ),
     (
         "store pending auth:",
-        "Couldn't save the login state in this browser — storage may be \
+        "Couldn't save the login state in this browser - storage may be \
          blocked (private browsing mode?).",
     ),
     (
         "start callback server:",
-        "Couldn't open the local port that receives the login — another \
+        "Couldn't open the local port that receives the login - another \
          program may be using it. Close other Overlands instances and try again.",
     ),
     // `discover_auth_server`'s transport failure: "fetch {url}: {e}".
-    // Kept last among the prefixes — it's the least specific needle.
+    // Kept last among the prefixes - it's the least specific needle.
     (
         "fetch ",
         "Couldn't reach the PDS. Check the address (under Advanced) and your \
@@ -118,7 +118,7 @@ pub fn resume_keeps_session(raw: &str) -> bool {
 /// error (#1228 f6).
 ///
 /// The relay being down is the likeliest transient failure on this screen,
-/// and the only affordance the idle form has is *Enter the Overlands* —
+/// and the only affordance the idle form has is *Enter the Overlands* -
 /// which starts the whole OAuth dance again, bouncing the user through the
 /// consent page and reloading the wasm bundle, to reach a relay call that
 /// fails the same way. With a saved session in hand the client can re-run
@@ -137,7 +137,7 @@ pub fn resume_retry_offered(raw: &str, has_persisted: bool) -> bool {
 /// #1229 f1).
 ///
 /// The form is built around a type-then-Enter reflex, and Enter-to-submit
-/// fires on `lost_focus()` — so by the time validation runs the field has
+/// fires on `lost_focus()` - so by the time validation runs the field has
 /// already surrendered focus and the autofocus latch is spent. Every
 /// validation error therefore left the user with no caret at all, and for
 /// a PDS or relay error it also left them pointed at a fold that stays
@@ -165,12 +165,12 @@ impl ErrorField {
 ///
 /// The rule is the copy's own: a message that tells the reader to look
 /// "under Advanced" opens Advanced. That keeps the two in step with no
-/// second table to maintain — a reworded sentence that drops the phrase
+/// second table to maintain - a reworded sentence that drops the phrase
 /// stops forcing the fold, which is correct, and one that keeps it goes on
 /// working.
 ///
-/// Takes the sentence the user is SHOWN — [`friendly_login_error`]'s first
-/// half — not the raw chain. Validation messages pass through that
+/// Takes the sentence the user is SHOWN - [`friendly_login_error`]'s first
+/// half - not the raw chain. Validation messages pass through that
 /// untouched, so for them the two are the same string; the pipeline stages
 /// are where the phrase is acquired (`discover_server:` becomes "Check the
 /// PDS address (under Advanced) and try again", and the raw chain names no
@@ -193,7 +193,7 @@ pub fn error_field(shown: &str) -> ErrorField {
 }
 
 /// Map a raw login-pipeline error to `(friendly sentence, Some(raw))`,
-/// or pass an already-human message through as `(message, None)` — no
+/// or pass an already-human message through as `(message, None)` - no
 /// "Details" disclosure needed when there's nothing more technical to
 /// show.
 pub fn friendly_login_error(raw: &str) -> (String, Option<String>) {
@@ -229,7 +229,7 @@ mod tests {
     /// `invalid_grant`, reported from IN GAME. The sentence existed but was
     /// reachable only from the login screen, so the owner's primary feedback
     /// on a dead session was the raw `refresh: …` chain. The resume needle
-    /// above shadows this one and must keep winning — the two states differ
+    /// above shadows this one and must keep winning - the two states differ
     /// in what the user has already lost.
     #[test]
     fn an_in_game_refresh_failure_gets_the_sign_in_again_sentence() {
@@ -260,7 +260,7 @@ mod tests {
     /// THE SEQUENCE (#1228 f6): an owner returns on wasm, the relay is down,
     /// and the resume fails with copy promising a retry. The only button on
     /// the idle form was *Enter the Overlands*, which re-runs the entire
-    /// OAuth redirect — consent page, wasm bundle reload and all — to reach
+    /// OAuth redirect - consent page, wasm bundle reload and all - to reach
     /// the same relay call. The saved session survived that failure, so the
     /// client can re-run just the resume.
     #[test]
@@ -274,7 +274,7 @@ mod tests {
     }
 
     /// The refresh arm is the one that clears the blob, so it must offer
-    /// neither the button nor a stale "you have a saved session" — the
+    /// neither the button nor a stale "you have a saved session" - the
     /// entry decision reads that flag and would go Idle on a landmark link
     /// it should be naming.
     #[test]
@@ -339,8 +339,8 @@ mod tests {
     }
 
     /// #1229 f1's half of the same mechanism: the account server is a login
-    /// INPUT — `begin_authorization` discovers the authorization server
-    /// from it — so the one stage error that tells a non-Bluesky user to go
+    /// INPUT - `begin_authorization` discovers the authorization server
+    /// from it - so the one stage error that tells a non-Bluesky user to go
     /// and change it has to open the fold it names.
     #[test]
     fn the_discovery_failure_opens_the_fold_it_tells_you_to_look_in() {

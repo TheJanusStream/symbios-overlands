@@ -2,23 +2,23 @@
 //!
 //! Before this module, the app had ZERO theming: `EguiPlugin::default()`
 //! ran bare (stock egui dark), and ~120 scattered `Color32` literals
-//! carried the UI's entire visual identity — the #815 analysis counted
+//! carried the UI's entire visual identity - the #815 analysis counted
 //! four different ambers, five reds and seven greens standing in for the
 //! same semantics. This module is the single source those call sites
 //! migrate onto (the sweep is #856):
 //!
-//! * [`Theme`] — the semantic palette. Two colour groups are kept
+//! * [`Theme`] - the semantic palette. Two colour groups are kept
 //!   deliberately distinct: **status** ([`StatusPalette`]:
 //!   ok/warn/error/info plus the diagnostics severity ramp) and
-//!   **identity** (`accent*`: teal by decision 2026-07-17 — NOT the
+//!   **identity** (`accent*`: teal by decision 2026-07-17 - NOT the
 //!   ok-green, so brand and status can never collide), plus surface
 //!   tones (window/panel fills, chart fills, text roles, borders).
-//! * [`CurrentTheme`] — the Bevy resource consumers read each frame.
+//! * [`CurrentTheme`] - the Bevy resource consumers read each frame.
 //!   Swapping it re-applies everything ([`apply_theme_on_change`]),
 //!   which is what makes #857's picker a one-line resource write.
-//! * [`apply_theme`] — pushes the palette into egui `Visuals`/`Style`
+//! * [`apply_theme`] - pushes the palette into egui `Visuals`/`Style`
 //!   *and pins* `ThemePreference`: bevy_egui 0.39 never forwards the OS
-//!   theme, but a future upgrade might — an explicit pin means an
+//!   theme, but a future upgrade might - an explicit pin means an
 //!   upgrade can't silently flip users into an un-designed mode.
 //!
 //! The dark palette codifies today's de-facto look: egui's stock dark
@@ -34,8 +34,8 @@
 //! **Measure the `Visuals`, not the `Theme`.** [`visuals_for`] is what
 //! the renderer is handed; a [`Theme`] field is only a colour the
 //! palette *offers*. The high-contrast palette shipped a `text_strong`
-//! of `from_gray(255)` that an ordinary `ui.label()` could not reach —
-//! the label rendered egui's inherited `from_gray(140)` — and its guard
+//! of `from_gray(255)` that an ordinary `ui.label()` could not reach -
+//! the label rendered egui's inherited `from_gray(140)` - and its guard
 //! passed, because the guard compared the field. Every colour test in
 //! this module now goes through `visuals_for`.
 //!
@@ -51,7 +51,7 @@ use bevy_symbios_audio::ui::{EditorStyle, set_editor_style};
 
 use crate::diagnostics::event::Severity;
 
-/// Status colours — outcome semantics only. Never use these for brand
+/// Status colours - outcome semantics only. Never use these for brand
 /// or chrome accents (that's [`Theme::accent`]); the separation is what
 /// keeps "selected" and "healthy" readable as different things.
 #[derive(Clone, Debug, PartialEq)]
@@ -64,21 +64,21 @@ pub struct StatusPalette {
     pub error: egui::Color32,
     /// Neutral information (chat authors, counts, hints with no verdict).
     pub info: egui::Color32,
-    /// Diagnostics severity ramp — [`Severity::Trace`] → quietest.
+    /// Diagnostics severity ramp - [`Severity::Trace`] → quietest.
     pub trace: egui::Color32,
     /// [`Severity::Info`] tier of the ramp (brighter than `trace`,
     /// distinct from the general-purpose `info` blue).
     pub info_tier: egui::Color32,
-    /// [`Severity::Warn`] tier — same hue family as `warn`.
+    /// [`Severity::Warn`] tier - same hue family as `warn`.
     pub warn_tier: egui::Color32,
     /// [`Severity::Error`] tier.
     pub error_tier: egui::Color32,
-    /// [`Severity::Critical`] tier — the loudest colour in the app.
+    /// [`Severity::Critical`] tier - the loudest colour in the app.
     pub critical_tier: egui::Color32,
 }
 
 impl StatusPalette {
-    /// Colour for a diagnostics [`Severity`] — the ramp
+    /// Colour for a diagnostics [`Severity`] - the ramp
     /// `ui::diagnostics::severity_color` migrates onto in #856.
     pub fn severity(&self, sev: Severity) -> egui::Color32 {
         match sev {
@@ -116,7 +116,7 @@ fn relative_luminance(c: egui::Color32) -> f32 {
 /// identical colours, 21.0 for black on white.
 ///
 /// This is the quantity every legibility threshold in this module is
-/// written against — 4.5 for normal text (AA), 3.0 for large text and
+/// written against - 4.5 for normal text (AA), 3.0 for large text and
 /// for the boundary of a UI component (1.4.11), 7.0 for AAA. Both
 /// arguments must be **opaque**: `Color32` is premultiplied, so a
 /// translucent colour has to be composited over its background before
@@ -126,7 +126,7 @@ pub fn contrast_ratio(a: egui::Color32, b: egui::Color32) -> f32 {
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
 }
 
-/// Composite a translucent (premultiplied) colour over an opaque one —
+/// Composite a translucent (premultiplied) colour over an opaque one -
 /// what the screen shows, and therefore the only thing
 /// [`contrast_ratio`] may be handed.
 ///
@@ -149,12 +149,12 @@ pub fn composite_over(src: egui::Color32, bg: egui::Color32) -> egui::Color32 {
 /// a plain `ui.label()` paints [`Self::noninteractive`]
 /// (`Visuals::text_color`), a button at rest paints [`Self::inactive`],
 /// and `ui.strong()` paints [`Self::active`]
-/// (`Visuals::strong_text_color`) — there is no bold face in the
+/// (`Visuals::strong_text_color`) - there is no bold face in the
 /// bundled font, so colour is the whole of the emphasis.
 ///
 /// Before #1258 [`apply_theme`] rewrote these only when the base was
-/// `egui::Theme::Light`, so the high-contrast palette — a *dark*-based
-/// one — shipped egui's stock `from_gray(140)` body text on its
+/// `egui::Theme::Light`, so the high-contrast palette - a *dark*-based
+/// one - shipped egui's stock `from_gray(140)` body text on its
 /// near-black window: 5.89:1, against 5.12:1 for the same label in the
 /// dark palette. The palette that exists for low-vision use improved
 /// the text that makes up most of the UI by 0.77, and its guard passed
@@ -162,14 +162,14 @@ pub fn composite_over(src: egui::Color32, bg: egui::Color32) -> egui::Color32 {
 /// never consults. Every palette now states all five tiers outright.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WidgetText {
-    /// Ordinary body text — `ui.label()`, and the fill-free
+    /// Ordinary body text - `ui.label()`, and the fill-free
     /// "noninteractive" tier egui paints most static text with.
     pub noninteractive: egui::Color32,
     /// A button, checkbox or text field at rest.
     pub inactive: egui::Color32,
     /// The same widget under the pointer.
     pub hovered: egui::Color32,
-    /// The same widget while pressed — **and** `ui.strong()` everywhere,
+    /// The same widget while pressed - **and** `ui.strong()` everywhere,
     /// which is why this must stay distinct from
     /// [`Self::noninteractive`] or section headings lose their emphasis.
     pub active: egui::Color32,
@@ -177,7 +177,7 @@ pub struct WidgetText {
     pub open: egui::Color32,
 }
 
-/// The full semantic palette. Fields are `pub` — consumers read roles
+/// The full semantic palette. Fields are `pub` - consumers read roles
 /// directly (`theme.status.ok`, `theme.accent`) rather than through
 /// getters, keeping call sites as short as the literals they replace.
 #[derive(Clone, Debug, PartialEq)]
@@ -185,14 +185,14 @@ pub struct Theme {
     pub status: StatusPalette,
     /// Identity accent (teal): hyperlinks, selection, wordmark, focus.
     pub accent: egui::Color32,
-    /// Filled call-to-action background — the login "Enter the
+    /// Filled call-to-action background - the login "Enter the
     /// Overlands" button. Bright teal on the dark bases, deep teal on
     /// light; [`Self::accent_fill_text`] carries the matching inverted
     /// label colour.
     pub accent_fill: egui::Color32,
     /// Label colour on every accent-teal fill (#857 follow-up): the CTA
     /// button AND selected chips (toolbar toggles, tabs, gizmo
-    /// World/Local — egui paints selected-widget text with
+    /// World/Local - egui paints selected-widget text with
     /// `selection.stroke`). Dark bases run bright fills with near-black
     /// text, the light base deeper fills with white text.
     pub accent_fill_text: egui::Color32,
@@ -201,7 +201,7 @@ pub struct Theme {
     /// selected chip, dim enough that body text survives over a
     /// text-selection band (one egui knob covers both).
     pub selection_fill: egui::Color32,
-    /// Label colour on [`Self::selection_fill`] — egui paints a selected
+    /// Label colour on [`Self::selection_fill`] - egui paints a selected
     /// widget's text with `selection.stroke`, so this is what every
     /// selected toolbar toggle, tab and gizmo chip reads as.
     ///
@@ -211,11 +211,11 @@ pub struct Theme {
     /// text at 3.46:1. Dark bases still invert to near-black; light
     /// takes the palette's own strong text.
     pub selection_text: egui::Color32,
-    /// Destructive filled-button background (white text) — the shared
+    /// Destructive filled-button background (white text) - the shared
     /// danger idiom (`ui::confirm::danger_button`).
     pub danger_fill: egui::Color32,
     /// Danger *banner* background (critical-anomaly strip, record-recovery
-    /// banners) — darker than `danger_fill` so a persistent surface
+    /// banners) - darker than `danger_fill` so a persistent surface
     /// doesn't scream like a button.
     pub danger_surface: egui::Color32,
     /// Readable pale text on [`Self::danger_surface`].
@@ -226,7 +226,7 @@ pub struct Theme {
     pub panel_fill: egui::Color32,
     /// Text-field interior (egui's `extreme_bg_color`). #1258: nothing
     /// wrote this before, so a `TextEdit` inherited the base's stock
-    /// value — `from_gray(10)` on the high-contrast palette's
+    /// value - `from_gray(10)` on the high-contrast palette's
     /// `from_gray(10)` window, a field at 1.00:1 with `Stroke::NONE`
     /// around it. The edge comes from [`Self::border`], which
     /// [`apply_theme`] now installs as the resting widget stroke.
@@ -239,19 +239,19 @@ pub struct Theme {
     pub text_strong: egui::Color32,
     /// De-emphasised text (hints, timestamps, reasons).
     pub text_weak: egui::Color32,
-    /// Quietest text tier (fire-count markers, dividers-with-words) —
+    /// Quietest text tier (fire-count markers, dividers-with-words) -
     /// present but deliberately easy to skip over. Still a *readable*
     /// tier: #1258 holds it to WCAG's 3:1 non-text floor, because both
     /// its consumers (the muted-peer dot, the anomaly fire count) carry
     /// state rather than decoration.
     pub text_faint: egui::Color32,
-    /// Label colour per egui widget tier — see [`WidgetText`]. The
+    /// Label colour per egui widget tier - see [`WidgetText`]. The
     /// single most load-bearing role in the palette: it is what an
     /// ordinary `ui.label()` renders as.
     pub widget_text: WidgetText,
     /// Window and separator strokes.
     pub border: egui::Color32,
-    /// The edge a CONTROL draws around itself — a resting text field, a
+    /// The edge a CONTROL draws around itself - a resting text field, a
     /// button, a combo box (#1283).
     ///
     /// Separate from [`Self::border`], which is window chrome, because
@@ -262,8 +262,8 @@ pub struct Theme {
     /// gave every control was invisible on every button in the default
     /// palette while being perfectly visible on the text field beside it.
     ///
-    /// Held to **3:1 against the surface it encloses** —
-    /// `every_palette_gives_a_resting_control_a_visible_edge` — which is
+    /// Held to **3:1 against the surface it encloses** -
+    /// `every_palette_gives_a_resting_control_a_visible_edge` - which is
     /// WCAG 1.4.11's floor for a non-text boundary.
     pub control_border: egui::Color32,
     /// Login-screen backdrop gradient, top edge (zenith). Painted as a
@@ -272,12 +272,12 @@ pub struct Theme {
     pub backdrop_top: egui::Color32,
     /// Login-screen backdrop gradient, bottom edge (horizon).
     pub backdrop_bottom: egui::Color32,
-    /// Which egui base visuals this palette is built over — pinned into
+    /// Which egui base visuals this palette is built over - pinned into
     /// `ThemePreference` by [`apply_theme`] so an OS-theme-forwarding
     /// bevy_egui upgrade can never flip the mode out from under the
     /// palette.
     pub egui_base: egui::Theme,
-    /// Window/separator stroke width — the high-contrast palette widens
+    /// Window/separator stroke width - the high-contrast palette widens
     /// it so window edges register without hunting.
     pub border_stroke_width: f32,
 }
@@ -315,7 +315,7 @@ impl UserTheme {
 
 /// Keep [`CurrentTheme`] following the persisted preference. Guarded
 /// write, so the resource change (and the egui re-apply it triggers)
-/// fires only when the pick actually differs — including the startup
+/// fires only when the pick actually differs - including the startup
 /// frame where the prefs load swaps `LocalSettings` in.
 pub fn sync_theme_from_settings(
     settings: Res<crate::state::LocalSettings>,
@@ -328,7 +328,7 @@ pub fn sync_theme_from_settings(
 }
 
 impl Theme {
-    /// The shipped dark palette — codifies the app's de-facto look (see
+    /// The shipped dark palette - codifies the app's de-facto look (see
     /// module docs for the provenance of each value).
     pub fn dark() -> Self {
         use crate::config::ui::diagnostics as sev_cfg;
@@ -371,12 +371,12 @@ impl Theme {
             // Raised from 96 by #1258 f242: 96 measured 2.74:1 against
             // the window, under WCAG's 3:1 floor for a non-text cue,
             // and both consumers (the muted-peer dot, the anomaly fire
-            // count) report state. 112 is 3.48:1 — the one value in
+            // count) report state. 112 is 3.48:1 - the one value in
             // this palette #1258 moved.
             text_faint: egui::Color32::from_gray(112),
             // Exactly egui's stock dark tiers: the dark look #857
             // validated IS this tiering, and stating it here rather
-            // than inheriting it is the whole of the #1258 fix — the
+            // than inheriting it is the whole of the #1258 fix - the
             // palette, not the base, now decides.
             widget_text: WidgetText {
                 noninteractive: egui::Color32::from_gray(140),
@@ -388,16 +388,16 @@ impl Theme {
             border: egui::Color32::from_gray(60),
             // 105 and not `border`'s 60: 60 IS the stock dark button
             // fill, so it draws nothing at all on a button and 1.80:1 on
-            // a field. 105 clears 3:1 on both grounds a control has —
+            // a field. 105 clears 3:1 on both grounds a control has -
             // 3.61:1 on the field's `from_gray(10)` interior and 3.14:1
-            // on the `from_gray(27)` window — while staying quiet enough
+            // on the `from_gray(27)` window - while staying quiet enough
             // that the #857-validated dark look is not turned into an
             // outlined-control theme (#1283). The first attempt here was
             // 95, which cleared the field at 3.30:1 and missed the window
             // at 2.70:1: the interior is the darker of the two grounds,
             // so checking only the field is checking the easy one.
             control_border: egui::Color32::from_gray(105),
-            // Night-sky slate falling toward a teal-tinged horizon — the
+            // Night-sky slate falling toward a teal-tinged horizon - the
             // horizon hue is a desaturated cousin of the accent so the
             // backdrop and the CTA read as one family.
             backdrop_top: egui::Color32::from_rgb(14, 22, 33),
@@ -408,7 +408,7 @@ impl Theme {
     }
 
     /// The light palette (#857): every dark-assuming role re-derived for
-    /// pale surfaces — status hues deepened so they hold AA-ish contrast
+    /// pale surfaces - status hues deepened so they hold AA-ish contrast
     /// on near-white, accent deepened per the 2026-07-17 decision.
     pub fn light() -> Self {
         Self {
@@ -423,11 +423,11 @@ impl Theme {
                 // Ramp widened by #1259 f236, same rule as the dark one:
                 // the three alarm tiers clear the distinctness bar and
                 // fall monotonically in luminance (0.166 → 0.095 →
-                // 0.040 — on a pale ground the heaviest tier is the
+                // 0.040 - on a pale ground the heaviest tier is the
                 // darkest), so severity survives greyscale. `trace` also
                 // rises off gray-150 (2.4:1) to clear the 3:1 floor.
                 trace: egui::Color32::from_gray(118),
-                // #1271 f184: was gray-70 — 8.73:1 on this pale window,
+                // #1271 f184: was gray-70 - 8.73:1 on this pale window,
                 // louder than Warn (4.50) and Error (6.71). `text_weak`.
                 info_tier: egui::Color32::from_gray(90),
                 warn_tier: egui::Color32::from_rgb(150, 105, 0),
@@ -459,7 +459,7 @@ impl Theme {
             text_faint: egui::Color32::from_gray(118),
             // #1258 f238: #857's follow-up pulled ALL five tiers onto
             // `text_strong`, which made `ui.strong()` byte-identical to
-            // `ui.label()` — egui reads emphasis off `active` alone, so
+            // `ui.label()` - egui reads emphasis off `active` alone, so
             // every section heading in the light palette lost it. Body
             // text is a deliberate 50 rather than 18: still far darker
             // than egui's stock 80 (the paleness #857 was fixing) and
@@ -491,7 +491,7 @@ impl Theme {
     }
 
     /// The high-contrast palette (#857): a dark base pushed to the
-    /// extremes — near-black surfaces, near-white primary text, brighter
+    /// extremes - near-black surfaces, near-white primary text, brighter
     /// status hues and a wider window stroke, for low-vision use and
     /// harsh ambient light.
     pub fn high_contrast() -> Self {
@@ -502,12 +502,12 @@ impl Theme {
                 error: egui::Color32::from_rgb(255, 90, 80),
                 info: egui::Color32::from_rgb(130, 190, 255),
                 trace: egui::Color32::from_gray(170),
-                // #1271 f184: was pure white, 19.80:1 — the loudest
+                // #1271 f184: was pure white, 19.80:1 - the loudest
                 // colour in a palette whose loudest colour is Critical.
                 // `text_weak`.
                 info_tier: egui::Color32::from_gray(200),
                 // #1259 f236: (255,200,60) / (255,145,90) / (255,80,80)
-                // were 85 and 75 apart in channel-sum — three shades of
+                // were 85 and 75 apart in channel-sum - three shades of
                 // the same alarm on the palette that exists for people
                 // who cannot resolve small colour differences.
                 warn_tier: egui::Color32::from_rgb(255, 215, 70),
@@ -528,8 +528,8 @@ impl Theme {
             // and not a void. Only 1.16:1, and deliberately not more:
             // a fill light enough to clear 3:1 against a `from_gray(10)`
             // window is a mid grey, and egui draws hint text at
-            // `text_color().gamma_multiply(0.6)` — around gray-135 here
-            // — which would land at about 1.4:1 on it. The contrast a
+            // `text_color().gamma_multiply(0.6)` - around gray-135 here
+            // - which would land at about 1.4:1 on it. The contrast a
             // field needs has to come from its edge (#1283), not from
             // making its interior pale enough to swallow the hint.
             field_fill: egui::Color32::from_gray(28),
@@ -539,7 +539,7 @@ impl Theme {
             text_weak: egui::Color32::from_gray(200),
             text_faint: egui::Color32::from_gray(160),
             // The point of #1258 f232. Body text moves from egui's
-            // inherited gray-140 (5.89:1 — 0.77 better than dark, on
+            // inherited gray-140 (5.89:1 - 0.77 better than dark, on
             // the palette written for low-vision use) to 15.14:1, and
             // the strong tier keeps a real step above it at 19.80:1.
             // Not a flat 255 across all five: with no bold face,
@@ -553,7 +553,7 @@ impl Theme {
                 open: egui::Color32::from_gray(240),
             },
             border: egui::Color32::from_gray(170),
-            // 7.32:1 on the field and 8.52:1 against the window — this is
+            // 7.32:1 on the field and 8.52:1 against the window - this is
             // the palette where a control that cannot be found is the
             // whole problem (#1283).
             control_border: egui::Color32::from_gray(170),
@@ -567,7 +567,7 @@ impl Theme {
     }
 }
 
-/// The active theme. Consumers read it; the #857 picker writes it —
+/// The active theme. Consumers read it; the #857 picker writes it -
 /// [`apply_theme_on_change`] re-pushes egui state whenever it changes.
 #[derive(Resource, Clone, Debug, PartialEq)]
 pub struct CurrentTheme(pub Theme);
@@ -594,7 +594,7 @@ impl Default for CurrentTheme {
 /// The `Local` is the arbitration: it holds the last value **we** wrote,
 /// so a difference between it and `ctx.zoom_factor()` can only have come
 /// from the keyboard. The write back to `LocalSettings` is guarded-dirty
-/// (#879) — an unguarded `ResMut` deref here would re-arm the prefs save
+/// (#879) - an unguarded `ResMut` deref here would re-arm the prefs save
 /// debounce on every frame of the session.
 ///
 /// Not `run_if(resource_changed)`, for [`apply_theme_on_change`]'s
@@ -605,7 +605,7 @@ impl Default for CurrentTheme {
 /// Pure, because the arbitration is the whole of the logic and the rest
 /// is two writes: the value is owned by two controls at once (the
 /// Settings slider and egui's Ctrl+plus), and getting the precedence
-/// wrong makes them fight — a push every frame would swallow every
+/// wrong makes them fight - a push every frame would swallow every
 /// keystroke, an adopt every frame would swallow every drag.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ScaleAction {
@@ -658,7 +658,7 @@ pub fn scale_action(setting: f32, applied: Option<f32>, live: f32) -> ScaleActio
 /// persist through the same prefs file as the slider, instead of the two
 /// fighting each other.
 ///
-/// The `Local` is the arbitration — see [`scale_action`], which holds
+/// The `Local` is the arbitration - see [`scale_action`], which holds
 /// all of the logic and none of the writes. The write back to
 /// `LocalSettings` is guarded-dirty (#879): an unguarded `ResMut` deref
 /// would re-arm the prefs save debounce on every frame of the session.
@@ -698,20 +698,20 @@ pub fn sync_ui_scale(
 
 /// Push a [`Theme`] into an egui context: pin the theme preference (see
 /// [`Theme::egui_base`]), then overlay our palette onto the matching
-/// stock visuals. Deliberately a light touch on widget internals — the
+/// stock visuals. Deliberately a light touch on widget internals - the
 /// dark look users know IS mostly stock egui; the palette owns identity
 /// (accent) and surfaces, not every bevel.
-/// egui-context carrier for the active palette — see [`current`].
+/// egui-context carrier for the active palette - see [`current`].
 #[derive(Clone)]
 struct ThemeInCtx(std::sync::Arc<Theme>);
 
-/// Read the active theme from inside any egui render code — no system
+/// Read the active theme from inside any egui render code - no system
 /// param needed. [`apply_theme`] stashes an `Arc` of the palette in the
 /// context's data map, so deeply nested render helpers (and systems
 /// already at Bevy's 16-param `IntoSystem` ceiling, like `room_admin_ui`
 /// and `avatar_ui`) reach it through the `Ui`/`Context` they hold:
 /// `let th = theme::current(ui.ctx());`. Falls back to the dark palette
-/// if read before the first apply — in practice impossible, since the
+/// if read before the first apply - in practice impossible, since the
 /// installer runs in `Update` ahead of every egui pass.
 pub fn current(ctx: &egui::Context) -> std::sync::Arc<Theme> {
     ctx.data(|d| d.get_temp::<ThemeInCtx>(egui::Id::NULL))
@@ -719,7 +719,7 @@ pub fn current(ctx: &egui::Context) -> std::sync::Arc<Theme> {
         .unwrap_or_else(|| std::sync::Arc::new(Theme::dark()))
 }
 
-/// Build the `Visuals` a palette installs — **the** answer to "what
+/// Build the `Visuals` a palette installs - **the** answer to "what
 /// does this label actually render as".
 ///
 /// Split out of [`apply_theme`] by #1258 so the guards can measure the
@@ -750,7 +750,7 @@ pub fn visuals_for(theme: &Theme) -> egui::Visuals {
     // A text field's interior is a surface the palette owns (#1258
     // f233): egui never wrote `extreme_bg_color`, so a `TextEdit`
     // inherited the base's `from_gray(10)` under high contrast's
-    // `from_gray(10)` window — a field at 1.00:1, invisible on the
+    // `from_gray(10)` window - a field at 1.00:1, invisible on the
     // palette written for people who cannot see faint ones.
     //
     // **And it gets a BORDER, on the second attempt (#1283).** #1258 f233
@@ -761,7 +761,7 @@ pub fn visuals_for(theme: &Theme) -> egui::Visuals {
     //   outer_margin = -expansion
     //
     // so that a framed widget's total size is `2*button_padding +
-    // content` whatever the stroke — while `Button::show` throws the
+    // content` whatever the stroke - while `Button::show` throws the
     // frame away for an unselected `toggle_value`/`selectable_label`,
     // keeping the shrunken inner margin and losing both the stroke and
     // the negative outer margin that paid for it. The unframed size is
@@ -773,8 +773,8 @@ pub fn visuals_for(theme: &Theme) -> egui::Visuals {
     // width**, which is not a trick: it is the relationship egui's own
     // `hovered` tier already ships (expansion 1.0, stroke width 1.0), and
     // the resting tier was the odd one out at 0 and 0. Setting both to
-    // 1.0 restores stock geometry to the pixel — `2*button_padding +
-    // content`, framed or not — and
+    // 1.0 restores stock geometry to the pixel - `2*button_padding +
+    // content`, framed or not - and
     // `hovering_a_widget_does_not_move_the_one_after_it` is what proves
     // it rather than this paragraph.
     //
@@ -785,7 +785,7 @@ pub fn visuals_for(theme: &Theme) -> egui::Visuals {
     //
     // The colour is `control_border`, not `border`: window chrome and a
     // control's edge draw on different grounds, and in Dark they were the
-    // same value only by accident — see the field's doc.
+    // same value only by accident - see the field's doc.
     visuals.extreme_bg_color = theme.field_fill;
     visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, theme.border);
     visuals.widgets.inactive.bg_stroke = resting_edge(theme);
@@ -794,7 +794,7 @@ pub fn visuals_for(theme: &Theme) -> egui::Visuals {
     visuals.widgets.active.expansion = CONTROL_EDGE_WIDTH + 1.0;
     // Widget label colours, from the PALETTE and for every base (#1258
     // f232/f238). This used to run only under `egui::Theme::Light`,
-    // pulling all five tiers onto `text_strong` — which left the
+    // pulling all five tiers onto `text_strong` - which left the
     // dark-based high-contrast palette on egui's stock gray-140 body
     // text, and flattened `ui.strong()` into `ui.label()` in light,
     // since egui reads emphasis off the `active` tier alone.
@@ -833,7 +833,7 @@ pub fn visuals_for(theme: &Theme) -> egui::Visuals {
 ///   body text is already held to AA;
 /// * a node's title and the output node's edge are [`Theme::text_strong`];
 ///   a node's edge and the canvas's own border are [`Theme::control_border`],
-///   the edge the palette gives every control — both are a component's
+///   the edge the palette gives every control - both are a component's
 ///   boundary and are held to 3:1 by
 ///   `the_audio_editors_lines_and_edges_clear_the_non_text_floor_in_every_palette`;
 ///   the grid and the waveform's zero line are [`Theme::border`], fainter on
@@ -880,8 +880,8 @@ pub fn audio_editor_style(theme: &Theme) -> EditorStyle {
 /// Width of a resting control's own edge, in points (#1283).
 ///
 /// A whole number on purpose. `button_style` and `TextEdit`'s frame both
-/// fold this into an `i8` `Margin` — `(expansion - stroke.width).round()`
-/// in the field's case — so a fractional width rounds in one place and
+/// fold this into an `i8` `Margin` - `(expansion - stroke.width).round()`
+/// in the field's case - so a fractional width rounds in one place and
 /// not the other, and the geometry that
 /// `hovering_a_widget_does_not_move_the_one_after_it` holds stops being
 /// exact. The high-contrast palette widens its WINDOW chrome
@@ -894,9 +894,9 @@ pub(crate) const CONTROL_EDGE_WIDTH: f32 = 1.0;
 /// egui 0.35 picks a text field's frame stroke in two branches
 /// (`widgets/text_edit/builder.rs:699-716`): `visuals.selection.stroke`
 /// when the field has focus, the widget tier's `bg_stroke` when it does
-/// not. This app's `selection.stroke` is [`Theme::selection_text`] — the
+/// not. This app's `selection.stroke` is [`Theme::selection_text`] - the
 /// LABEL colour on the teal selection band, near-black by design and by
-/// measurement — so once #1283 gave a RESTING field its gray-105 edge,
+/// measurement - so once #1283 gave a RESTING field its gray-105 edge,
 /// focusing a field *removed* that edge: a gray-8 stroke on a gray-10
 /// interior. Measured in a live capture: 27 (card) → 11 → 10, no stroke
 /// anywhere, on the first field a new user meets.
@@ -906,21 +906,21 @@ pub(crate) const CONTROL_EDGE_WIDTH: f32 = 1.0;
 /// [`visuals_for`]. Upstream it carries a second role that wants the
 /// opposite colour: `Style::button_style` assigns it to `ws.text.color`
 /// under `SELECTED_CLASS`, so it is also the label colour of every
-/// selected toolbar toggle, tab and gizmo chip — text that must read
+/// selected toolbar toggle, tab and gizmo chip - text that must read
 /// against the teal selection FILL. That trade was made deliberately at
 /// #857 and the label won; what changed is that focus has gone from
 /// "adds a cursor" to "adds a cursor and takes the outline away".
 ///
 /// **Same width as the resting edge, on purpose.** egui compensates its
 /// margins by `expansion - stroke.width`, so a wider ring would move the
-/// text inside the field the moment it was focused — the #1281 class of
+/// text inside the field the moment it was focused - the #1281 class of
 /// defect, where a palette edit turns out to be a layout change. Only the
 /// colour differs: grey at rest, accent under focus.
 pub(crate) fn focus_ring(theme: &Theme) -> egui::Stroke {
     egui::Stroke::new(CONTROL_EDGE_WIDTH, theme.accent)
 }
 
-/// The edge a RESTING control paints — the other half of the pair, named
+/// The edge a RESTING control paints - the other half of the pair, named
 /// here so the two cannot drift apart in width.
 pub(crate) fn resting_edge(theme: &Theme) -> egui::Stroke {
     egui::Stroke::new(CONTROL_EDGE_WIDTH, theme.control_border)
@@ -951,7 +951,7 @@ pub fn apply_theme(ctx: &egui::Context, theme: &Theme) {
 /// Not `run_if(resource_changed)`: the change tick for the initial
 /// insertion can fire on a frame where the egui context doesn't exist
 /// yet (bevy_egui creates it with the window), and a `run_if` would
-/// consume that one-shot edge — the app would boot unthemed. The
+/// consume that one-shot edge - the app would boot unthemed. The
 /// `Local` latch retries every frame until the first successful apply,
 /// then only reacts to real changes.
 pub fn apply_theme_on_change(
@@ -973,7 +973,7 @@ pub fn apply_theme_on_change(
 mod tests {
     use super::*;
 
-    /// Channel-space distance — crude but enough to assert "these are
+    /// Channel-space distance - crude but enough to assert "these are
     /// visibly different colours".
     fn dist(a: egui::Color32, b: egui::Color32) -> u32 {
         let d = |x: u8, y: u8| (x as i32 - y as i32).unsigned_abs();
@@ -989,7 +989,7 @@ mod tests {
     }
 
     /// The 2026-07-17 decision every palette encodes: the identity accent
-    /// is teal, NOT the ok-green — status and brand must never collide.
+    /// is teal, NOT the ok-green - status and brand must never collide.
     #[test]
     fn accent_is_distinct_from_every_status_colour() {
         for (palette, t) in all_palettes() {
@@ -1016,7 +1016,7 @@ mod tests {
     }
 
     /// The four general-purpose status colours must be mutually distinct
-    /// — the whole point of collapsing 4 ambers / 5 reds / 7 greens.
+    /// - the whole point of collapsing 4 ambers / 5 reds / 7 greens.
     #[test]
     fn status_colours_are_mutually_distinct() {
         for (palette, t) in all_palettes() {
@@ -1039,7 +1039,7 @@ mod tests {
     }
 
     /// The diagnostics severity ramp's three ALARM tiers must be
-    /// distinguishable too (#1259 f236) — the guard above never covered
+    /// distinguishable too (#1259 f236) - the guard above never covered
     /// them, and they were three shades of orange: in Dark, Warn
     /// `(210,170,90)` and Error `(210,120,90)` matched in R and B, 50
     /// apart in G, 1.47:1 in luminance.
@@ -1048,8 +1048,8 @@ mod tests {
     /// the tiers must be distinct as colours, AND they must RANK in
     /// luminance, so the ramp still reads as a ramp in greyscale and
     /// under the dichromacies. `trace`/`info` are excluded from the
-    /// distinctness half — they are the deliberately-quiet end and are
-    /// neutral greys by design — but `trace` still owes the 3:1 floor,
+    /// distinctness half - they are the deliberately-quiet end and are
+    /// neutral greys by design - but `trace` still owes the 3:1 floor,
     /// since it tints whole event-log lines.
     #[test]
     fn the_severity_ramp_ranks_without_relying_on_hue() {
@@ -1070,7 +1070,7 @@ mod tests {
             }
             // Strictly falling luminance across the three: the ramp is an
             // ORDER, and an order a greyscale reader can still see. Both
-            // directions are the same rule — on a dark ground the loudest
+            // directions are the same rule - on a dark ground the loudest
             // tier is the darkest of the three, and on a pale one it is
             // darker still.
             for (a, b) in alarm.windows(2).map(|w| (w[0], w[1])) {
@@ -1094,7 +1094,7 @@ mod tests {
     /// secondary-text band: `trace` no louder than `info`, and `info` no
     /// louder than `text_weak` (#1271 f184). Loudness here is contrast
     /// against the window, which for a grey is the whole of its
-    /// prominence — a grey has no hue to carry it.
+    /// prominence - a grey has no hue to carry it.
     ///
     /// Info was gray-220 in Dark: **12.56:1 against the window while the
     /// Warn tier managed 9.95**, so the routine chatter was the brightest
@@ -1105,7 +1105,7 @@ mod tests {
     /// are not sayable:
     ///
     /// **It does not rank the alarm tiers.** Contrast ranks them opposite
-    /// ways in the two bases — on Dark it FALLS with severity (9.95 →
+    /// ways in the two bases - on Dark it FALLS with severity (9.95 →
     /// 5.85 → 3.81, Critical being a deep saturated red on a near-black
     /// ground) and on Light it RISES (4.50 → 6.71 → 10.74). #1259's
     /// luminance rule is what orders the alarms; this one only fences the
@@ -1113,8 +1113,8 @@ mod tests {
     ///
     /// **It does not say "Info is quieter than Warn".** That holds in Dark
     /// (5.12 vs 9.95) and High contrast (11.83 vs 14.20) and is
-    /// unachievable in Light, where the Warn tier is already at 4.50:1 —
-    /// the AA floor — so any tier quieter than it is a tier nobody can
+    /// unachievable in Light, where the Warn tier is already at 4.50:1 -
+    /// the AA floor - so any tier quieter than it is a tier nobody can
     /// read. Light's Info lands at 6.38:1, under Error and Critical but
     /// still over Warn, and that is the floor's price rather than an
     /// oversight.
@@ -1130,7 +1130,7 @@ mod tests {
             assert!(
                 info <= weak + 0.01,
                 "{palette}: the info tier is {info:.2}:1 on window_fill, louder than \
-                 secondary text at {weak:.2}:1 — an Info line is not an alarm"
+                 secondary text at {weak:.2}:1 - an Info line is not an alarm"
             );
             assert!(
                 trace <= info + 0.01,
@@ -1153,7 +1153,7 @@ mod tests {
     }
 
     /// The severity ramp stays sourced from `config::ui::diagnostics`
-    /// until #856 flips `severity_color()` onto the theme — the two must
+    /// until #856 flips `severity_color()` onto the theme - the two must
     /// agree in the meantime.
     #[test]
     fn severity_ramp_matches_the_config_source_of_truth() {
@@ -1181,12 +1181,12 @@ mod tests {
     /// a UI component (WCAG 1.4.11). Also the floor for a non-text cue
     /// that carries state.
     const AA_LARGE: f32 = 3.0;
-    /// AAA for normal text — what a palette named "high contrast" is
+    /// AAA for normal text - what a palette named "high contrast" is
     /// promising.
     const AAA_TEXT: f32 = 7.0;
 
     /// Surface sanity for every palette, measured on the [`egui::Visuals`]
-    /// the renderer is actually handed — not on [`Theme`] struct fields,
+    /// the renderer is actually handed - not on [`Theme`] struct fields,
     /// which is what let #1258 f232 ship.
     ///
     /// `dist` survives above for *distinctness* claims ("these two hues
@@ -1257,9 +1257,9 @@ mod tests {
 
     /// #1258 f238: `ui.strong()` must not render as `ui.label()`.
     ///
-    /// egui derives emphasis from colour alone — `RichText::strong()`
+    /// egui derives emphasis from colour alone - `RichText::strong()`
     /// resolves to `Visuals::strong_text_color()`, which IS
-    /// `widgets.active.fg_stroke.color` — and the bundled font ships no
+    /// `widgets.active.fg_stroke.color` - and the bundled font ships no
     /// bold face, so if those two colours agree, every section heading
     /// in the app is drawn exactly like the body text beneath it.
     #[test]
@@ -1285,7 +1285,7 @@ mod tests {
     ///
     /// Three attempts, and the arithmetic is why. egui never wrote
     /// `extreme_bg_color`, so a `TextEdit` inherited the base's
-    /// `from_gray(10)` under high contrast's `from_gray(10)` window —
+    /// `from_gray(10)` under high contrast's `from_gray(10)` window -
     /// 1.00:1. That half has stood since #1258.
     ///
     /// The border took two goes. #1258 gave the resting tier a stroke
@@ -1316,7 +1316,7 @@ mod tests {
                 "{palette}: a resting field and button have no edge at all (#1283)"
             );
             // THE invariant. Break it and every unselected toggle in the
-            // app changes width under the pointer (#1281) — from a
+            // app changes width under the pointer (#1281) - from a
             // palette edit, which is not a thing that looks like a layout
             // change to anyone reading the diff.
             assert_eq!(
@@ -1337,7 +1337,7 @@ mod tests {
     /// WCAG 1.4.11's floor for a non-text boundary is 3:1, and the edge
     /// has two neighbours that matter: the interior it encloses (a text
     /// field's fill) and the ground it sits on (the window behind a
-    /// button). Measured with `contrast_ratio`, not `dist` — this is a
+    /// button). Measured with `contrast_ratio`, not `dist` - this is a
     /// legibility question, and the module's rule is that `dist` answers
     /// "could these be confused" and nothing else.
     ///
@@ -1418,7 +1418,7 @@ mod tests {
                     ui.ctx().set_visuals(visuals_for(&theme));
                     // Both responses dropped on purpose: this test reads
                     // the PAINT, not the interaction. Leaving the field
-                    // unfocused is the point — a focused one takes its
+                    // unfocused is the point - a focused one takes its
                     // stroke from `selection.stroke` instead (#1284).
                     let _ = ui.text_edit_singleline(&mut text);
                     let _ = ui.button("Example");
@@ -1447,7 +1447,7 @@ mod tests {
     /// border. egui takes a focused text field's stroke from
     /// `visuals.selection.stroke`, this app sets that to `selection_text`
     /// (near-black, because it is the label colour of a selected chip),
-    /// and #1283 had just given the resting state a gray-105 edge — so
+    /// and #1283 had just given the resting state a gray-105 edge - so
     /// focus went from "adds a cursor" to "adds a cursor and takes the
     /// outline away".
     ///
@@ -1482,7 +1482,7 @@ mod tests {
                     // `apply_theme`, not `set_visuals` alone: the helper
                     // reads the palette back through `theme::current`, and
                     // installing only the `Visuals` left every palette
-                    // measuring DARK's accent — which is how the first one
+                    // measuring DARK's accent - which is how the first one
                     // in the list passes a test that proves nothing about
                     // the other two.
                     apply_theme(ui.ctx(), &theme);
@@ -1515,7 +1515,7 @@ mod tests {
     }
 
     /// The ring has to be visible against BOTH of a field's grounds, and
-    /// the field's interior is the darker one on the dark palettes — which
+    /// the field's interior is the darker one on the dark palettes - which
     /// is the trap #1283 hit when `control_border` was first tuned against
     /// the field alone.
     #[test]
@@ -1529,13 +1529,13 @@ mod tests {
                 let ratio = contrast_ratio(ring, ground);
                 assert!(
                     ratio >= 3.0,
-                    "{palette}: focus ring is {ratio:.2}:1 on {name} — a state cue \
+                    "{palette}: focus ring is {ratio:.2}:1 on {name} - a state cue \
                      needs WCAG's 3:1"
                 );
             }
             // Same width as the resting edge: egui compensates its margins
             // by `expansion - stroke.width`, so a wider ring would shift
-            // the text inside the field the moment it was focused — the
+            // the text inside the field the moment it was focused - the
             // #1281 class of defect, where a colour change is a layout
             // change.
             assert_eq!(
@@ -1549,7 +1549,7 @@ mod tests {
     /// #1281: hovering a widget must not move the widget after it.
     ///
     /// The regression this catches came from a PALETTE edit, and nothing
-    /// about a palette edit looks like a layout change — so the guard
+    /// about a palette edit looks like a layout change - so the guard
     /// measures what a user actually sees: where the next widget in a
     /// row lands, at rest and under the pointer, in a real egui context.
     ///
@@ -1561,7 +1561,7 @@ mod tests {
     #[test]
     fn hovering_a_widget_does_not_move_the_one_after_it() {
         /// Where the label after `kind` lands, and whether the hover
-        /// actually registered — a probe that never hovers would pass
+        /// actually registered - a probe that never hovers would pass
         /// this test while proving nothing.
         fn next_widget_x(theme: &Theme, kind: &str, hover: bool) -> (f32, bool) {
             let ctx = egui::Context::default();
@@ -1573,7 +1573,7 @@ mod tests {
             let mut toggled = false;
             // Five passes: `Button::show` reads LAST frame's response to
             // pick its state, so a size that depends on state needs two
-            // to settle — and an oscillation needs more to show itself.
+            // to settle - and an oscillation needs more to show itself.
             for pass in 0..5 {
                 let mut input = egui::RawInput {
                     screen_rect: Some(screen),
@@ -1632,8 +1632,8 @@ mod tests {
     }
 
     /// #857 follow-up, re-measured for #1258 f241: the CTA label must
-    /// read on its fill in every palette — dark bases run
-    /// bright-fill/dark-text, light the inverse — and so must the label
+    /// read on its fill in every palette - dark bases run
+    /// bright-fill/dark-text, light the inverse - and so must the label
     /// on a selected chip, which egui paints with `selection.stroke`
     /// over `selection.bg_fill` on every toolbar toggle, tab and gizmo
     /// World/Local pair.
@@ -1679,7 +1679,7 @@ mod tests {
         use crate::config::ui::{UI_SCALE_MAX, UI_SCALE_MIN};
 
         // First frame: nothing has been written, so nothing can be
-        // adopted — the persisted setting wins.
+        // adopted - the persisted setting wins.
         assert_eq!(scale_action(1.3, None, 1.0), ScaleAction::Push(1.3));
 
         // Steady state: both agree, and this system must write nothing
@@ -1687,7 +1687,7 @@ mod tests {
         assert_eq!(scale_action(1.3, Some(1.3), 1.3), ScaleAction::Nothing);
 
         // The slider moved. The setting wins even though the context
-        // still holds the old value — otherwise a drag reads as a
+        // still holds the old value - otherwise a drag reads as a
         // keystroke and gets undone.
         assert_eq!(scale_action(1.6, Some(1.3), 1.3), ScaleAction::Push(1.6));
 
@@ -1753,14 +1753,14 @@ mod tests {
             );
         }
 
-        // A button's label on the button — one of the two surfaces f232
+        // A button's label on the button - one of the two surfaces f232
         // found still wearing the stock dark chrome.
         let btn = contrast_ratio(
             hv.widgets.inactive.fg_stroke.color,
             hv.widgets.inactive.weak_bg_fill,
         );
         assert!(btn >= AAA_TEXT, "high contrast button text is {btn:.2}:1");
-        // The other surface — the button's own BOUNDARY — was left
+        // The other surface - the button's own BOUNDARY - was left
         // unasserted here through #1258 and #1281 and is now held
         // (#1283). The button's FILL against the window is still
         // `from_gray(60)` on `from_gray(10)`, 1.79:1, and that has not
@@ -1789,7 +1789,7 @@ mod tests {
 
     /// The style the audio editor will paint with once `theme` is applied:
     /// read back from the context through the crate's own getter, for the
-    /// #1258 reason — measure what the renderer reads, not what the palette
+    /// #1258 reason - measure what the renderer reads, not what the palette
     /// offers.
     fn installed_audio_editor_style(theme: &Theme) -> (EditorStyle, egui::Visuals) {
         let ctx = egui::Context::default();
@@ -1858,7 +1858,7 @@ mod tests {
                     // error colour, which is what 0.4.9 painted, this
                     // measures 3.61:1 unselected and 2.90:1 selected in
                     // Dark, 4.21 and 3.22 in Light, 5.07 and 3.80 in High
-                    // contrast — under AA in five of the six.
+                    // contrast - under AA in five of the six.
                     let ratio = contrast_ratio(s.node_title, tint);
                     assert!(
                         ratio >= AA_TEXT,

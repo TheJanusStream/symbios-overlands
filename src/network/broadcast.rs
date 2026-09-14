@@ -81,7 +81,7 @@ pub(super) fn broadcast_local_state(
 /// re-derived on entry, and an owner's edit re-derives it for everyone).
 ///
 /// Nothing is broadcast until all three parts of the digest have landed, so a
-/// peer never announces a digest of a world it is still building — see
+/// peer never announces a digest of a world it is still building - see
 /// [`crate::world_digest::WorldDigest::combined`].
 pub(super) fn broadcast_world_digest(
     digest: Res<crate::world_digest::WorldDigest>,
@@ -142,7 +142,7 @@ pub(super) fn broadcast_avatar_state(
         return;
     };
     // A refusal here means the owner's live avatar edits stop reaching
-    // guests while the size gauge in the Avatar editor stays green — the
+    // guests while the size gauge in the Avatar editor stays green - the
     // per-record budget and the wire ceiling are different limits (#1123).
     let now = time.elapsed_secs_f64();
     super::chunk::warn_once_on_refusal(
@@ -215,8 +215,8 @@ pub(super) fn broadcast_room_state(
     // The refusal that used to be console-only (#1123). The owner is the
     // one person who can act on it and the only one who cannot see it: the
     // World Editor's size gauge measures the largest single PDS record,
-    // which stays comfortably green while the whole-room broadcast — a
-    // different quantity against a different ceiling — is being dropped.
+    // which stays comfortably green while the whole-room broadcast - a
+    // different quantity against a different ceiling - is being dropped.
     super::chunk::warn_once_on_refusal(
         chunk.broadcast(&mut sender, &mut session_log, now, message),
         &mut notices,

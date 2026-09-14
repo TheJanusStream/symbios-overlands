@@ -1,10 +1,10 @@
-//! Owner Living Frame — the Solarpunk identity monument (#975).
+//! Owner Living Frame - the Solarpunk identity monument (#975).
 //!
 //! A warm-timber frame with a photovoltaic canopy: two posts on a pale
 //! concrete kerb carry the room owner's portrait in a planed timber surround,
 //! a PV wing tilts over it and a planted trough runs along the foot, with a
 //! low warm lamp under the canopy. The panel that shades it is also, in this
-//! theme, the panel that powers the lamp — which is the whole argument the
+//! theme, the panel that powers the lamp - which is the whole argument the
 //! theme makes.
 //!
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
@@ -85,7 +85,7 @@ fn build_tree(did: &str) -> Generator {
 }
 
 /// A planed timber post on a slim steel shoe, so the timber never sits in wet
-/// soil — the detail the theme's own buildings all use.
+/// soil - the detail the theme's own buildings all use.
 fn post(x: f32) -> Generator {
     let shoe = prim(
         solid(cuboid_tapered([0.2, 0.22, 0.2], 0.1, steel(STEEL_WHITE))),
@@ -116,7 +116,7 @@ fn frame(did: &str) -> Vec<Generator> {
     let z = -0.15;
     let fr = 0.15;
     let mut out = vec![
-        // Lime-plaster backing board — the panel is single-sided.
+        // Lime-plaster backing board - the panel is single-sided.
         prim(
             solid(cuboid_tapered(
                 [PANEL + 0.4, PANEL + 0.4, 0.09],
@@ -127,7 +127,7 @@ fn frame(did: &str) -> Vec<Generator> {
             id_quat(),
         ),
         pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
-        // PV wing, tilted to catch the sun rather than lying flat — the tilt
+        // PV wing, tilted to catch the sun rather than lying flat - the tilt
         // is on a leaf, so it spins nothing.
         prim(
             solid(cuboid_tapered([3.5, 0.09, 1.5], 0.0, pv(PV_BLUE))),

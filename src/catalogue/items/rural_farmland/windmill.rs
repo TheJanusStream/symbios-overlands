@@ -1,4 +1,4 @@
-//! Windmill — a Rural/Farmland secondary. An American farm wind pump: an open
+//! Windmill - a Rural/Farmland secondary. An American farm wind pump: an open
 //! steel lattice tower carrying a multi-blade fan wheel and a tail vane that
 //! turns lazily, creaking and groaning in the breeze, to draw water for the
 //! stock.
@@ -57,7 +57,7 @@ fn build_tree() -> Generator {
     let half = 1.0_f32;
 
     let mut prims = vec![
-        // Concrete pad — the root.
+        // Concrete pad - the root.
         prim(
             solid(cuboid_tapered([3.0, 0.3, 3.0], 0.0, stone(STONE_GREY))),
             [0.0, 0.15, 0.0],
@@ -103,7 +103,7 @@ fn build_tree() -> Generator {
 
     // Fan wheel at the top, facing the −Z front (the camera) so the multi-blade
     // wheel reads head-on; the tail vane trails to the +Z back. A rotated
-    // cylinder/torus is fine here — these are non-first children, not the root.
+    // cylinder/torus is fine here - these are non-first children, not the root.
     let hub_y = 0.3 + tower_h + 0.4;
     let hub_z = -(half + 0.6);
     let blade_z = hub_z - 0.08; // blades stand proud on the front face
@@ -155,7 +155,7 @@ fn build_tree() -> Generator {
     vane.audio = fx::windmill_creak();
     prims.push(vane);
 
-    // Galvanised stock tank the pump fills — an open-topped ring of water
+    // Galvanised stock tank the pump fills - an open-topped ring of water
     // (a real open vessel, not a sealed solid).
     let tank_x = 2.7_f32;
     prims.push(prim(

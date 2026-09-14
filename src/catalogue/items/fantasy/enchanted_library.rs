@@ -1,4 +1,4 @@
-//! Enchanted library — a High-Fantasy secondary. A domed stone hall with tall
+//! Enchanted library - a High-Fantasy secondary. A domed stone hall with tall
 //! arcane-lit windows, gold trim and a few grimoires drifting glowing above
 //! the door. The repository of spells; its windows and floating books are
 //! emissive trim the ruin pass can darken.
@@ -59,7 +59,7 @@ fn build_tree() -> Generator {
     let front = -3.45_f32; // body front (−Z) wall face
 
     let mut prims = vec![
-        // Stone base — the root.
+        // Stone base - the root.
         prim(
             solid(cuboid_tapered([12.0, base_h, 8.0], 0.0, stone(STONE_GREY))),
             [0.0, base_h * 0.5, 0.0],
@@ -179,7 +179,7 @@ fn build_tree() -> Generator {
         glow(CRYSTAL_CYAN, 1.8),
     ));
 
-    // Grimoires drifting glowing above the porch — emissive, on the −Z front.
+    // Grimoires drifting glowing above the porch - emissive, on the −Z front.
     for (dx, dy) in [(-1.3_f32, 4.5), (0.3, 4.9), (1.2, 4.4)] {
         prims.push(prim(
             cuboid_tapered([0.5, 0.16, 0.38], 0.0, glow(ARCANE_PURPLE, 1.8)),

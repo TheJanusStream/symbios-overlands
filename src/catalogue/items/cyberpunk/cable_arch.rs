@@ -1,4 +1,4 @@
-//! Cable gantry — a Cyberpunk street prop. Two heavy utility pylons carrying
+//! Cable gantry - a Cyberpunk street prop. Two heavy utility pylons carrying
 //! an overhead cable tray of bundled power conduits across a walkway, hung
 //! with junction boxes, a caged worklight, and routed cable drops. Grimy
 //! functional infrastructure rather than decorative trim; frames the gaps
@@ -17,7 +17,7 @@ use super::{DARK_METAL, NEON_CYAN, NEON_LIME, NEON_MAGENTA, fx, metal};
 
 pub struct CableArch;
 
-/// Warning-amber for hazard banding — the one warm note in the cold neon kit.
+/// Warning-amber for hazard banding - the one warm note in the cold neon kit.
 const HAZARD: [f32; 3] = [1.0, 0.62, 0.08];
 
 impl CatalogueEntry for CableArch {
@@ -72,7 +72,7 @@ fn build_tree() -> Generator {
     let pd = 0.7_f32; // pylon depth (Z)
     let top = slab_h + pyl_h; // gantry springing height
 
-    // Podium slab — the root; its base sits at the generator origin.
+    // Podium slab - the root; its base sits at the generator origin.
     let mut root = prim(
         solid(cuboid_tapered([foot, slab_h, depth], 0.0, metal(body))),
         [0.0, slab_h * 0.5, 0.0],
@@ -175,7 +175,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Bundled power conduits running the length of the tray — dark pipes, two
+    // Bundled power conduits running the length of the tray - dark pipes, two
     // of them carrying a thin glowing data line.
     let lo = body;
     let mut push_conduit = |y: f32, z: f32, r: f32, m| {

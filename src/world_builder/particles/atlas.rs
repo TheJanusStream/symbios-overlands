@@ -6,7 +6,7 @@ use bevy::prelude::*;
 
 use crate::pds::AnimationFrameMode;
 
-/// Cached unit quad mesh — every untextured / single-frame particle
+/// Cached unit quad mesh - every untextured / single-frame particle
 /// uses this handle. The quad is a 1×1 square in the local XY plane
 /// facing local +Z; the tick system rotates it to face the camera
 /// (billboard) or align with velocity each frame, and `Transform.scale`
@@ -65,7 +65,7 @@ fn atlas_frame_mesh(rows: u32, cols: u32, frame_idx: u32) -> Mesh {
     ];
     let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; 4];
 
-    // Atlas frame UVs — assumes row-major order, top-left origin.
+    // Atlas frame UVs - assumes row-major order, top-left origin.
     let cols = cols.max(1);
     let rows = rows.max(1);
     let total = rows * cols;

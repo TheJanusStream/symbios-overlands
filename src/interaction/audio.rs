@@ -1,10 +1,10 @@
-//! Concrete `bevy_audio` contact-cue consumer — channel D of the
+//! Concrete `bevy_audio` contact-cue consumer - channel D of the
 //! interaction framework (#262; replaces the no-op `ContactAudioHook`
 //! trait that #246's remainder shipped).
 //!
 //! Walks this frame's [`AvatarContacts`] against the
 //! [`ContactRecipeRegistry::audio`] cues and plays a one-shot sound for
-//! every matched `(sample, recipe)` — cooldown-throttled per
+//! every matched `(sample, recipe)` - cooldown-throttled per
 //! `(avatar, recipe)`, volume scaled by contact speed, optionally
 //! spatialised at the contact point. Inert (zero cost) until a room
 //! authors a [`ContactEffectKind::AudioCue`](crate::pds::ContactEffectKind)
@@ -14,11 +14,11 @@
 //! shared [`blob_fetch`] path (URL or
 //! ATProto `getBlob`, same as Sign textures). The first trigger for an
 //! uncached clip primes the cache asynchronously and is silent; every
-//! later trigger plays synchronously. Decoding is rodio's — Bevy's
+//! later trigger plays synchronously. Decoding is rodio's - Bevy's
 //! default audio feature is `vorbis`, so v1 clips are Ogg/Vorbis.
 //!
 //! [`PlaybackMode::Despawn`] makes a finished voice GC itself, so there
-//! is no manual reaper — only a global concurrent-voice cap
+//! is no manual reaper - only a global concurrent-voice cap
 //! ([`vcfg::MAX_CONCURRENT_VOICES`]) and a room-exit stop.
 
 use std::collections::{HashMap, VecDeque};
@@ -79,18 +79,18 @@ impl AudioClipKey {
 }
 
 enum AudioClipEntry {
-    /// Fetch in flight — later triggers for this key are silent until
+    /// Fetch in flight - later triggers for this key are silent until
     /// it lands (a missed lead-in cue is acceptable; the cache primes
     /// on first trigger).
     Pending,
-    /// Decoded and asset-resident — plays synchronously.
+    /// Decoded and asset-resident - plays synchronously.
     Ready(Handle<AudioSource>),
     /// The fetch gave up, and this is why and when it may be tried again.
     ///
     /// **This is the entry that used to be removed (#1247 f309).** A dwell
     /// recipe at cooldown 0 produces one contact sample per frame, and a
     /// removed entry meant the next frame took the miss arm and spawned
-    /// another `IoTaskPool` task and another HTTP request — an unbounded
+    /// another `IoTaskPool` task and another HTTP request - an unbounded
     /// outbound loop from every visitor's client, aimed at a host named in
     /// somebody else's record, invisible at both ends. In the browser this
     /// is the COMMON case, not the pathological one: a cross-origin clip
@@ -135,7 +135,7 @@ impl AudioClipCache {
         self.order.clear();
     }
 
-    /// How this clip stands — the answer the contact-effects editor's
+    /// How this clip stands - the answer the contact-effects editor's
     /// status line prints (#1252).
     pub fn status(&self, key: &AudioClipKey) -> Option<AssetStatus> {
         match self.map.get(key)? {
@@ -145,7 +145,7 @@ impl AudioClipCache {
         }
     }
 
-    /// Drop a failed entry so the next contact re-attempts — "Retry now".
+    /// Drop a failed entry so the next contact re-attempts - "Retry now".
     pub fn clear_failure(&mut self, key: &AudioClipKey) -> bool {
         if matches!(self.map.get(key), Some(AudioClipEntry::Failed(_))) {
             self.remove(key);
@@ -165,7 +165,7 @@ pub struct AudioClipTask {
     previous: Option<AssetFailure>,
 }
 
-/// Per-`(avatar, audio-recipe index)` cooldown state — a shared
+/// Per-`(avatar, audio-recipe index)` cooldown state - a shared
 /// [`CooldownTable`] behind this channel's own `Resource` type (mirrors
 /// the particle / decal channels).
 #[derive(Resource)]
@@ -173,12 +173,12 @@ pub struct AudioCueState {
     cooldowns: CooldownTable,
 }
 
-/// Drop cooldown entries older than this (s) — far longer than any sane
+/// Drop cooldown entries older than this (s) - far longer than any sane
 /// per-recipe cooldown, so pruning never resets a live throttle.
 const COOLDOWN_ENTRY_TTL: f32 = 30.0;
 
 impl AudioCueState {
-    /// Forget every live throttle — the registry whose indices they key on
+    /// Forget every live throttle - the registry whose indices they key on
     /// has been replaced (#1254 f322).
     pub fn clear_cooldowns(&mut self) {
         self.cooldowns.clear();
@@ -199,7 +199,7 @@ impl Default for AudioCueState {
 pub struct ContactAudioVoice;
 
 /// Cheap deterministic-enough pseudo-random in `[-1, 1]` from a few
-/// integers — same policy as the particle dispatcher (cosmetic audio
+/// integers - same policy as the particle dispatcher (cosmetic audio
 /// doesn't need a seeded RNG resource, just non-repetition).
 fn hash_unit(a: u64, b: u64, c: u64) -> f32 {
     let mut h = a.wrapping_mul(0x9E37_79B9_7F4A_7C15)
@@ -286,7 +286,7 @@ pub fn play_contact_audio(
                 continue;
             }
             let Some(clip_key) = AudioClipKey::from_source(&recipe.params.source) else {
-                continue; // Unknown / empty source — nothing to play.
+                continue; // Unknown / empty source - nothing to play.
             };
             // The viewer declined to talk to hosts other people chose
             // (#1248 f298).
@@ -318,7 +318,7 @@ pub fn play_contact_audio(
                 }
             };
 
-            // Global concurrent-voice cap — drop, never queue.
+            // Global concurrent-voice cap - drop, never queue.
             if voices >= vcfg::MAX_CONCURRENT_VOICES {
                 break;
             }
@@ -499,7 +499,7 @@ mod tests {
     }
 
     /// A settled clip goes quiet for the rest of the room rather than
-    /// knocking for the whole session — the attempt ceiling f309 asked for.
+    /// knocking for the whole session - the attempt ceiling f309 asked for.
     #[test]
     fn a_settled_clip_never_asks_again_on_its_own() {
         let mut failure = AssetFailure::after(None, AssetFetchError::Unreachable, 0.0);

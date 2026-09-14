@@ -1,9 +1,9 @@
-//! Ternary tree with foliage props — variant of ABOP Fig 2.8 with
+//! Ternary tree with foliage props - variant of ABOP Fig 2.8 with
 //! stochastic alternatives, decomposition rules emitting leaf props,
 //! and a three-slot material stack (bark / twig / leaf).
 //!
 //! This is the LSystem entry that previously lived as the hard-coded
-//! `default_lsystem_kind` under `crate::ui::room::widgets` — it's
+//! `default_lsystem_kind` under `crate::ui::room::widgets` - it's
 //! the richest of the lsystem-explorer presets and the most visually
 //! complete starter for "I want a tree".
 
@@ -39,7 +39,7 @@ impl CatalogueEntry for TernaryPropsTree {
     }
 }
 
-/// Broadleaf re-skins (#910). Slot 0 bark, 1 twig cluster, 2 leaf — both
+/// Broadleaf re-skins (#910). Slot 0 bark, 1 twig cluster, 2 leaf - both
 /// foliage slots must move together or the crown reads two-toned.
 static VARIANTS: &[PlantVariant] = &[
     PlantVariant {
@@ -66,7 +66,7 @@ static VARIANTS: &[PlantVariant] = &[
         name: "dry",
         label: "Dry-season olive",
         apply: |m| {
-            // Drought-stressed: desaturated olive foliage over pale bark —
+            // Drought-stressed: desaturated olive foliage over pale bark -
             // the same broadleaf surviving in a savanna or badlands room.
             tint_twig(
                 m,
@@ -127,7 +127,7 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 1 — twig cluster, tinted a saturated healthy green (the default texture
+    // 1 - twig cluster, tinted a saturated healthy green (the default texture
     // skews olive-gold and bleaches pale on lit sides).
     materials.insert(
         1,
@@ -145,7 +145,7 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 2 — leaf, deep summer green.
+    // 2 - leaf, deep summer green.
     materials.insert(
         2,
         SovereignMaterialSettings {

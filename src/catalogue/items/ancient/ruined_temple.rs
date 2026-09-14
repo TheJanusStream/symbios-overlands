@@ -1,11 +1,11 @@
-//! Ruined temple — a peripteral colonnade of weathered marble columns on
+//! Ruined temple - a peripteral colonnade of weathered marble columns on
 //! a stepped stylobate, ringing a breached sandstone cella. Every column
 //! is stochastically full, snapped or stumped, and the cella roof either
 //! keeps a terracotta pediment or has collapsed to open rubble, so two
-//! placements with different grammar seeds crumble differently — one a
+//! placements with different grammar seeds crumble differently - one a
 //! near-intact temple, the other a stump-field reclaimed by moss.
 //!
-//! Footprint 14 × 24 — deep and narrow on the Greek long axis, so the
+//! Footprint 14 × 24 - deep and narrow on the Greek long axis, so the
 //! `Roof(Gable)` pediment ridges along Z and the tympanum faces the
 //! front (−Z). The shafts are genuinely round: `round_meshes` marks the
 //! `Column` terminal so its square 0.78 × 0.78 plot bakes as an
@@ -43,7 +43,7 @@ impl CatalogueEntry for RuinedTemple {
     fn role(&self) -> StructureRole {
         StructureRole::Landmark
     }
-    /// Already decayed — fits the poorer end of the kit, never an affluent
+    /// Already decayed - fits the poorer end of the kit, never an affluent
     /// settlement's centrepiece.
     fn prosperity_band(&self) -> ProsperityBand {
         ProsperityBand::range(ProsperityTier::Poor, ProsperityTier::Modest)
@@ -69,7 +69,7 @@ impl CatalogueEntry for RuinedTemple {
         temple.transform.translation = crate::pds::Fp3([-7.0, 0.0, -12.0]);
         // `attach` (not a bare push): `footing` returns a root whose own
         // transform is sunk by half the buried plinth, and a plain child
-        // inherits it — which drops the whole building below grade (#1039).
+        // inherits it - which drops the whole building below grade (#1039).
         crate::catalogue::items::util::attach(&mut root, temple);
         root
     }
@@ -78,13 +78,13 @@ impl CatalogueEntry for RuinedTemple {
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
 
-    // Veined white marble — the colonnade shafts and pediment tympanum.
+    // Veined white marble - the colonnade shafts and pediment tympanum.
     materials.insert("Marble".to_string(), marble(MARBLE_WHITE));
-    // Coursed sandstone ashlar — the cella core walls.
+    // Coursed sandstone ashlar - the cella core walls.
     materials.insert("Sandstone".to_string(), sandstone(SANDSTONE_GOLD));
-    // Weathered sandstone — the stepped stylobate and deck paving.
+    // Weathered sandstone - the stepped stylobate and deck paving.
     materials.insert("Travertine".to_string(), sandstone(SANDSTONE_WEATHERED));
-    // Fired terracotta — the surviving roof tiles of the pediment.
+    // Fired terracotta - the surviving roof tiles of the pediment.
     materials.insert("Tile".to_string(), terracotta(TERRACOTTA));
 
     // Tumbled rubble where the roof and entablature have collapsed.
@@ -131,7 +131,7 @@ fn build_kind() -> GeneratorKind {
     // keeps a terracotta pediment or has collapsed to rubble.
     let grammar_source = [
         // ── 1. Plan: flank colonnades + front/rear porticoes around a cella.
-        //    Built from the Lot footprint (X/Z in-plane, Y up) — never from a
+        //    Built from the Lot footprint (X/Z in-plane, Y up) - never from a
         //    Comp(Faces){Top} face, whose local Z is the zero-size normal and
         //    whose "up" would fight the Roof op. ──
         "Lot --> Split(X) { 2.4: FlankRow | ~1: CoreStrip | 2.4: FlankRow }",
@@ -184,7 +184,7 @@ fn build_kind() -> GeneratorKind {
         // rest collapse to open rubble.
         seed: 7,
         materials,
-        // The peripteral shafts are turned. Pilasters stay square — an
+        // The peripteral shafts are turned. Pilasters stay square - an
         // engaged pilaster is a flat pier by definition.
         round_meshes: vec!["Column".to_string()],
     }

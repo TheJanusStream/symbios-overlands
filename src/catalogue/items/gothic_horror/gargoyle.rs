@@ -1,4 +1,4 @@
-//! Gargoyle — a Gothic-Horror prop. A crouched stone grotesque on a plinth,
+//! Gargoyle - a Gothic-Horror prop. A crouched stone grotesque on a plinth,
 //! wings half-spread, snout jutting. Scatter clutter watching from the
 //! necropolis.
 //!
@@ -51,7 +51,7 @@ fn build_tree() -> Generator {
     // eyes jutting toward the camera, bat wings half-spread behind.
     let st = || stone(STONE_DARK);
     let mut prims = vec![
-        // Corbel plinth — the root.
+        // Corbel plinth - the root.
         prim(
             solid(cuboid_tapered([0.95, 1.1, 0.9], 0.08, st())),
             [0.0, 0.55, 0.0],

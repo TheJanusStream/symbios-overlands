@@ -1,23 +1,23 @@
 //! Junction truncation (#575): how far each chain end retreats before its hub.
 //! Un-truncated ribbons run to the junction node and overlap, leaving diamond
 //! holes and no real polygon for the hub to fill. Each arm's pull-back is the
-//! adjacent-boundary intersection — arms sorted radially, each neighbouring
-//! pair's *outer* footprints solved 2×2 — ported from `symbios-tensor`. Two
+//! adjacent-boundary intersection - arms sorted radially, each neighbouring
+//! pair's *outer* footprints solved 2×2 - ported from `symbios-tensor`. Two
 //! guards matter: the distance is capped, since it diverges as a fork closes
 //! (#578 blends those instead), and a trimmed chain always keeps a stub of
-//! ribbon — the hub is mouth-driven, so a chain consumed whole loses its junction.
+//! ribbon - the hub is mouth-driven, so a chain consumed whole loses its junction.
 
 use crate::urban::{Chain, Dims};
 
 /// Shortest ribbon (m) worth meshing after junction truncation (#575). A chain
 /// trimmed below this at both ends sits entirely inside its hubs, so it grows no
-/// ribbon — the hubs cover the gap — rather than a curb-framed sliver.
+/// ribbon - the hubs cover the gap - rather than a curb-framed sliver.
 pub(crate) const MIN_RIBBON_LEN_M: f32 = 1.0;
 
 // --- Junction truncation (#575) ---------------------------------------------
 //
 // At a real intersection (active degree ≥ 3) the incident ribbons must be
-// *truncated* — pulled back along their centreline so they stop at the hub
+// *truncated* - pulled back along their centreline so they stop at the hub
 // boundary rather than running to the node and overlapping each other (the
 // un-truncated ribbons left holes / diamond gaps and the hub had no real
 // polygon to fill). The pull-back distance per arm is the field-standard
@@ -30,7 +30,7 @@ pub(crate) const MIN_RIBBON_LEN_M: f32 = 1.0;
 // (#576) still places its deck corners at the deck half-width.
 
 /// Baseline (m) over which an arm's outgoing heading is measured, past the
-/// junction fillet — short enough to track the road's true direction at the cut,
+/// junction fillet - short enough to track the road's true direction at the cut,
 /// long enough that a rounded-corner tangent segment doesn't read as acute.
 const ARM_DIR_BASELINE_M: f32 = 6.0;
 /// Cap on a single arm's pull-back as a multiple of its outer footprint width.
@@ -153,7 +153,7 @@ pub(crate) fn compute_truncations(
 
                 if det.abs() < 1.0e-6 {
                     // Near-parallel (collinear through-road or an acute pair):
-                    // no clean crossing — fall back to half the combined width.
+                    // no clean crossing - fall back to half the combined width.
                     let fallback = (w_a + w_b) * 0.5;
                     t[i] = t[i].max(fallback);
                     t[j] = t[j].max(fallback);
@@ -175,7 +175,7 @@ pub(crate) fn compute_truncations(
             // Cap the pull-back at a width-relative maximum. Acute forks need a
             // far-away boundary crossing (t → ∞ as the branch angle → 0); without
             // a cap a single acute join would truncate whole chains out of
-            // existence. Capping keeps a blunt over-truncation here — acute joins
+            // existence. Capping keeps a blunt over-truncation here - acute joins
             // are blended properly by the smooth-merge pass (#578).
             let cap = MAX_TRUNCATION_FACTOR * (a.half_w + extra);
             trims[a.chain][a.slot] = t[k].min(cap);
@@ -183,11 +183,11 @@ pub(crate) fn compute_truncations(
     }
 
     // Keep at least [`MIN_RIBBON_LEN_M`] of ribbon on every trimmed chain. The
-    // hub builder is mouth-driven — a chain only tells its junction where to put
+    // hub builder is mouth-driven - a chain only tells its junction where to put
     // the mouth by recording a `RoadEnd` during extrusion, which it can only do
     // if it meshes at least a stub. A short connector between two close junctions
     // (both ends pulled back ~wo) would otherwise be wholly consumed, dropping
-    // its mouths and deleting the whole intersection (a hole — the inverse of the
+    // its mouths and deleting the whole intersection (a hole - the inverse of the
     // gap #575 closes). Scale a chain's two pull-backs down together so the
     // surviving length is the floor; an untrimmed chain is left alone.
     for (ci, chain) in chains.iter().enumerate() {
@@ -215,7 +215,7 @@ pub(crate) fn compute_truncations(
 /// the hub boundary. If the two pull-backs would leave less than
 /// [`MIN_RIBBON_LEN_M`] of road, returns fewer than two points (no ribbon).
 /// Never inverts. In production [`compute_truncations`] already scales the
-/// pull-backs so a junction chain keeps at least the floor — so this guard only
+/// pull-backs so a junction chain keeps at least the floor - so this guard only
 /// fires for a chain trimmed in isolation; a real junction chain always survives
 /// to record its mouth.
 pub(crate) fn trim_polyline(pts: &[(f32, f32)], start_trim: f32, end_trim: f32) -> Vec<(f32, f32)> {
@@ -232,7 +232,7 @@ pub(crate) fn trim_polyline(pts: &[(f32, f32)], start_trim: f32, end_trim: f32) 
     }
     let total = arc[arc.len() - 1];
 
-    // Inversion guard only — the real keep-a-stub floor ([`MIN_RIBBON_LEN_M`]) is
+    // Inversion guard only - the real keep-a-stub floor ([`MIN_RIBBON_LEN_M`]) is
     // applied upstream in [`compute_truncations`], which scales a junction chain's
     // pull-backs so a meshable length always survives. This catches a chain
     // trimmed in isolation (or a degenerate near-zero one) so we never emit a

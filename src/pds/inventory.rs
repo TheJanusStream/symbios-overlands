@@ -4,14 +4,14 @@
 //!
 //! The in-world editor lets the owner tuck any generator they like into
 //! their inventory, rename it, and later spawn it into whichever room they
-//! happen to be editing — so a hand-authored L-system, region blueprint, or
+//! happen to be editing - so a hand-authored L-system, region blueprint, or
 //! deeply-nested generator hierarchy survives across rooms the same way an
 //! avatar does.
 //!
 //! # Wire layout
 //!
 //! Each stash entry is its own [`InventoryItemRecord`] at
-//! `rkey = hex(fnv1a_64(name))` — deterministic, clock-free (wasm-safe),
+//! `rkey = hex(fnv1a_64(name))` - deterministic, clock-free (wasm-safe),
 //! stable across content edits, and unique because item names are the
 //! stash's `HashMap` key. The collection **is** the stash: reads walk
 //! `com.atproto.repo.listRecords` (no manifest record), and writes commit
@@ -19,7 +19,7 @@
 //! batch, so a failed save leaves the published stash untouched.
 //!
 //! [`InventoryRecord`] remains the in-memory model (`Live` / `Stored`
-//! resources, editor UI, offer flow) — only the PDS boundary changed shape.
+//! resources, editor UI, offer flow) - only the PDS boundary changed shape.
 //!
 //! # Legacy migration
 //!
@@ -42,7 +42,7 @@ use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde::{Deserialize, Serialize};
 
-/// Per-owner stash of `Generator` blueprints — the **in-memory** model the
+/// Per-owner stash of `Generator` blueprints - the **in-memory** model the
 /// editor mutates. On the wire this is exploded into one
 /// [`InventoryItemRecord`] per entry (#696); the legacy single-record form
 /// under `INVENTORY_COLLECTION / self` is still read for migration.
@@ -55,15 +55,15 @@ pub struct InventoryRecord {
     /// name exactly like [`Self::generators`]. An item with an entry here
     /// offers Wear in the Inventory window; one without is plain decor.
     /// Kept as a side table rather than folded into a per-item struct so
-    /// every existing reader of `generators` — drops, gifts, the room
-    /// editor's From-Inventory menu — stays untouched. Sanitize drops
+    /// every existing reader of `generators` - drops, gifts, the room
+    /// editor's From-Inventory menu - stays untouched. Sanitize drops
     /// entries whose item is gone.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub wear: HashMap<String, WearMeta>,
 }
 
 /// How an inventory item is worn (#1096): the socket it lands on, the
-/// measurement-fit it declares, and the offset it was last saved with —
+/// measurement-fit it declares, and the offset it was last saved with -
 /// everything an [`AttachmentRecord`](super::avatar::AttachmentRecord)
 /// needs beyond the item itself, so wearing from the inventory reproduces
 /// the customised look exactly, and saving a worn item back writes the
@@ -109,7 +109,7 @@ impl WearMeta {
     }
 
     /// Clamp exactly as the attachment record clamps the same three fields
-    /// — the two share a wire vocabulary and must share bounds.
+    /// - the two share a wire vocabulary and must share bounds.
     pub fn sanitize(&mut self) {
         super::avatar::wardrobe::sanitize_wear_fields(
             &mut self.socket,
@@ -140,14 +140,14 @@ impl InventoryRecord {
     /// Names go through [`names::sanitize_keys`]: an over-long name is
     /// cut to [`MAX_INVENTORY_NAME_CHARS`] and invisible characters are
     /// stripped, with the wear entry following its item. Sanitize used
-    /// to *drop* an over-long item (#1205) — silent deletion at the next
+    /// to *drop* an over-long item (#1205) - silent deletion at the next
     /// login of something the owner had watched save.
     ///
     /// [`names::sanitize_keys`]: crate::pds::sanitize::names::sanitize_keys
     /// [`MAX_INVENTORY_NAME_CHARS`]: crate::config::state::MAX_INVENTORY_NAME_CHARS
     ///
-    /// The count bound is [`MAX_INVENTORY_SANITIZE_ITEMS`] — the DoS
-    /// backstop — NOT the 50-item gameplay cap (#841): sanitize used to
+    /// The count bound is [`MAX_INVENTORY_SANITIZE_ITEMS`] - the DoS
+    /// backstop - NOT the 50-item gameplay cap (#841): sanitize used to
     /// truncate an over-cap legacy stash straight to 50, silently
     /// deleting items with the alphabet deciding which. Over-cap stashes
     /// now survive the load; the Inventory window surfaces them red and
@@ -184,7 +184,7 @@ impl InventoryRecord {
         }
     }
 
-    /// Insert or replace an item together with its wear metadata (#1096) —
+    /// Insert or replace an item together with its wear metadata (#1096) -
     /// the one write path that keeps the side table in step. `None` makes
     /// (or leaves) the item plain decor.
     pub fn put_item(&mut self, name: String, generator: Generator, wear: Option<WearMeta>) {
@@ -231,7 +231,7 @@ impl InventoryRecord {
 pub struct InventoryItemRecord {
     #[serde(rename = "$type")]
     pub lex_type: String,
-    /// Display name — also the in-memory `HashMap` key, so unique per
+    /// Display name - also the in-memory `HashMap` key, so unique per
     /// stash. Kept inside the record; the rkey carries only its hash
     /// (arbitrary user strings are not valid record keys).
     pub name: String,
@@ -252,7 +252,7 @@ impl InventoryItemRecord {
     }
 }
 
-/// Record key for an item: lowercase hex of `fnv1a_64(name)` — 16 chars of
+/// Record key for an item: lowercase hex of `fnv1a_64(name)` - 16 chars of
 /// `[0-9a-f]`, always a valid ATProto rkey. Deterministic and clock-free
 /// (no TID clock needed on wasm), stable across content edits so editing an
 /// item is an update rather than a delete+create, and derivable from the
@@ -263,7 +263,7 @@ pub fn item_rkey(name: &str) -> String {
 }
 
 /// Serialized size of the largest single item record the live stash would
-/// publish — the per-record figure the size-budget readout and gauge track
+/// publish - the per-record figure the size-budget readout and gauge track
 /// now that the stash is one record *per item* (#694/#696). `None` for an
 /// empty stash.
 pub fn max_item_bytes(record: &InventoryRecord) -> Option<usize> {
@@ -272,7 +272,7 @@ pub fn max_item_bytes(record: &InventoryRecord) -> Option<usize> {
 
 /// Everything the size readout shows for the stash (#1207): the largest
 /// item record, named as `plan_item_writes` names it when refusing one,
-/// and the refusal sentence when an item cannot be serialized — a gift
+/// and the refusal sentence when an item cannot be serialized - a gift
 /// from a newer build decodes to `GeneratorKind::Unknown`, which is
 /// `skip_serializing`, and until this was measured the only symptom was a
 /// Save button that never lit up.
@@ -322,12 +322,12 @@ fn fold_listed_items(values: Vec<serde_json::Value>, into: &mut InventoryRecord)
 /// [`crate::config::state::MAX_INVENTORY_LIST_PAGES`] pages of 100); when
 /// that yields nothing, falls back to the pre-#696 monolith record.
 /// `Ok(None)` signals "no stash at all", which the caller must treat as a
-/// clean empty stash — the same convention as [`super::fetch_room_record`].
+/// clean empty stash - the same convention as [`super::fetch_room_record`].
 ///
 /// The walk is bounded twice (#1292): by the page count, and by ONE
 /// [`crate::config::state::MAX_INVENTORY_FETCH_BYTES`] budget spent across
 /// every page. The second bound is what lets the first one grow with the
-/// item cap — per-page caps multiply, and on wasm a login-time spike is
+/// item cap - per-page caps multiply, and on wasm a login-time spike is
 /// resident for the session.
 pub async fn fetch_inventory_record(
     client: &reqwest::Client,
@@ -438,13 +438,13 @@ async fn fetch_legacy_inventory_record(
 
 /// Build the `applyWrites` batch that turns the published stash (`stored`)
 /// into the edited one (`live`): creates for new names, updates for changed
-/// generators, deletes for removed names — all in sorted-name order so the
-/// batch is deterministic — plus the legacy-monolith delete when
+/// generators, deletes for removed names - all in sorted-name order so the
+/// batch is deterministic - plus the legacy-monolith delete when
 /// `legacy_present`. Every written item is size-checked against the
 /// [`super::record_size`] hard ceiling before any network I/O.
 ///
 /// Pure so the diff/migration policy is unit-testable; the create-vs-update
-/// choice trusts `stored` to mirror the PDS (single-writer assumption — on
+/// choice trusts `stored` to mirror the PDS (single-writer assumption - on
 /// drift the PDS rejects the batch atomically and the save stays retryable).
 fn plan_item_writes(
     live: &InventoryRecord,
@@ -486,7 +486,7 @@ fn plan_item_writes(
         //
         // `preflight` above bounds a record against the 900 KiB hard ceiling
         // and `xrpc::chunk_writes` bounds a write against the 120 KiB the PDS
-        // accepts in one request — so an item between the two passed the check
+        // accepts in one request - so an item between the two passed the check
         // that could name it and failed the one that could not. What the owner
         // saw was "a single record is 127.2 KiB", on a save that then failed
         // for every later rename, delete and accepted gift, with nothing to say
@@ -495,7 +495,7 @@ fn plan_item_writes(
         let bytes = write.wire_bytes();
         if bytes > super::xrpc::MAX_APPLY_WRITES_BYTES {
             return Err(format!(
-                "\"{name}\" is {} — larger than the {} the PDS accepts in one request, and a \
+                "\"{name}\" is {} - larger than the {} the PDS accepts in one request, and a \
                  record cannot be split across requests, so this item alone fails the whole \
                  save. Remove content from it, or remove it from your inventory, and save \
                  again.",
@@ -530,8 +530,8 @@ fn plan_item_writes(
 }
 
 /// Publish the live stash to the signed-in user's PDS as per-item records
-/// (#696): diff against `stored`, then commit creates / updates / deletes —
-/// plus the legacy-monolith delete on first save after migration — as ONE
+/// (#696): diff against `stored`, then commit creates / updates / deletes -
+/// plus the legacy-monolith delete on first save after migration - as ONE
 /// atomic `com.atproto.repo.applyWrites` batch. A failure leaves the
 /// published stash exactly as it was, so the caller keeps `stored`
 /// unchanged and the save stays dirty and retryable.
@@ -548,7 +548,7 @@ fn plan_item_writes(
 /// This paragraph used to reason "at most `MAX_INVENTORY_ITEMS` puts + as
 /// many deletes + one legacy delete = 101 writes, half the commit limit".
 /// That arithmetic was a coincidence of the cap being 50, and #1292 raised
-/// it to 500 — the chunking is what makes the count safe, and it already
+/// it to 500 - the chunking is what makes the count safe, and it already
 /// did before the cap moved.
 pub async fn publish_inventory_record(
     client: &reqwest::Client,
@@ -594,7 +594,7 @@ mod cap_tests {
     /// stash that comes back SHORT at the next login, with the missing
     /// items looking to the owner exactly like items they never saved.
     ///
-    /// Sized from the shipped catalogue rather than a guess — every entry
+    /// Sized from the shipped catalogue rather than a guess - every entry
     /// built and measured, so a future entry heavy enough to move the
     /// distribution fails here instead of in somebody's stash.
     #[test]
@@ -614,7 +614,7 @@ mod cap_tests {
 
         // The walk can carry a full cap of p90-heavy items. Not the MAX
         // item: the heaviest entry is several times the p90 and a stash of
-        // 500 of those is not a case the budget is meant to serve — the
+        // 500 of those is not a case the budget is meant to serve - the
         // per-item record budget is what speaks to that, and
         // `every_catalogue_entry_fits_one_apply_writes_batch` is what keeps
         // the heaviest one savable at all.
@@ -622,7 +622,7 @@ mod cap_tests {
         assert!(
             heavy <= MAX_INVENTORY_FETCH_BYTES,
             "a full stash of p90 items is {heavy} B, past the {MAX_INVENTORY_FETCH_BYTES} B \
-             the fetch walk may spend — it would load truncated"
+             the fetch walk may spend - it would load truncated"
         );
         // And the ordinary case has room to spare.
         assert!(MAX_INVENTORY_ITEMS * median * 4 <= MAX_INVENTORY_FETCH_BYTES);
@@ -631,9 +631,9 @@ mod cap_tests {
     /// Every catalogue entry, copied into a stash, still saves (#1293).
     ///
     /// The canary behind the Vertical Farm fix. One entry serialized to
-    /// 130,207 B as an `InventoryItemRecord` — 7,327 B past the
+    /// 130,207 B as an `InventoryItemRecord` - 7,327 B past the
     /// `MAX_APPLY_WRITES_BYTES` a record may occupy in one `applyWrites`
-    /// request — and because a record cannot be split across requests and
+    /// request - and because a record cannot be split across requests and
     /// `publish_inventory_record` hands the whole diff to `chunk_writes` in
     /// one go, copying that one item out of the Catalogue stopped the owner's
     /// **entire inventory** from saving: every later rename, delete and
@@ -674,7 +674,7 @@ mod cap_tests {
         }
         assert!(
             over.is_empty(),
-            "these catalogue entries cannot be saved to a stash at all — each is one \
+            "these catalogue entries cannot be saved to a stash at all - each is one \
              `applyWrites` write larger than the {cap} B the PDS accepts in one request, \
              so copying one out of the Catalogue breaks EVERY later inventory save: {over:?}"
         );
@@ -682,7 +682,7 @@ mod cap_tests {
         // guard that measures nothing passes forever (#1293).
         assert!(
             largest.1 > cap / 4,
-            "the heaviest entry measured is {largest:?} — suspect the walk before believing \
+            "the heaviest entry measured is {largest:?} - suspect the walk before believing \
              the catalogue got light"
         );
     }
@@ -697,7 +697,7 @@ mod cap_tests {
 /// Lives here rather than in `ui::inventory` (#1158). It reads as a
 /// drag-and-drop affordance and it is one, but it is also the rule
 /// `network::inbound` applies to a generator arriving in a STRANGER's
-/// gift — so the check protecting a room from a hostile peer was owned by
+/// gift - so the check protecting a room from a hostile peer was owned by
 /// a panel module, and the network layer imported the egui surface to ask
 /// it. The rule is about the record, so it belongs with the record.
 pub fn is_drop_placeable(generator: &Generator) -> bool {
@@ -796,12 +796,12 @@ mod tests {
     /// A full-churn save chunks into batches the PDS will accept, and the
     /// chunking preserves the ordering that makes a torn read safe.
     ///
-    /// This used to assert `writes.len() <= MAX_APPLY_WRITES` — that the
+    /// This used to assert `writes.len() <= MAX_APPLY_WRITES` - that the
     /// whole plan fits ONE batch. That was never a requirement, only an
     /// arithmetic coincidence of the item cap being 50 (50 puts + 50
     /// deletes + 1 legacy = 101, under 200); `chunk_writes` has split by
     /// both count and bytes since #1115. #1292 raised the cap to 500, the
-    /// coincidence ended, and the assertion failed — correctly identifying
+    /// coincidence ended, and the assertion failed - correctly identifying
     /// itself, not the code, as the thing encoding the old limit.
     ///
     /// What replaces it is the property the publish path actually
@@ -824,7 +824,7 @@ mod tests {
         let batches = super::super::xrpc::chunk_writes(writes.clone()).unwrap();
         assert!(
             batches.len() > 1,
-            "a full-churn plan at this cap is supposed to need splitting — \
+            "a full-churn plan at this cap is supposed to need splitting - \
              if it fits one batch the test has stopped exercising the split"
         );
         for batch in &batches {
@@ -989,7 +989,7 @@ mod tests {
     #[test]
     fn sanitize_preserves_over_cap_stashes_up_to_the_dos_bound() {
         // #841: an over-cap legacy stash must SURVIVE the load (the UI
-        // surfaces it and blocks publish) — sanitize only truncates at
+        // surfaces it and blocks publish) - sanitize only truncates at
         // the hostile-PDS DoS bound, deterministically past it.
         let cap = crate::config::state::MAX_INVENTORY_ITEMS;
         let bound = crate::config::state::MAX_INVENTORY_SANITIZE_ITEMS;
@@ -1032,7 +1032,7 @@ mod tests {
     /// in the stash and decodes to `GeneratorKind::Unknown`, which is
     /// `skip_serializing`. With the item in both live and stored, both
     /// sides of the dirty comparison serialized to `None`, dirty stayed
-    /// false whatever else the owner edited, and Save never lit up — with
+    /// false whatever else the owner edited, and Save never lit up - with
     /// no reason anywhere. The measurement now names the item and why.
     #[test]
     fn an_unreadable_item_is_reported_as_unserializable_by_name() {

@@ -1,18 +1,18 @@
-//! Palace range — a long low multi-doorway building wrapped on three sides
+//! Palace range - a long low multi-doorway building wrapped on three sides
 //! of a raised court, in the manner of the Puuc quadrangles.
 //!
 //! Where the [step pyramid](super::step_pyramid) is the theme's vertical
 //! statement, the range structure is its horizontal one: the same battered
 //! limestone, laid out as a *plan* instead of a climb. It carves that plan
-//! with `ShapeU` — the range takes the three `Shape` parts, the court takes
-//! the `Remainder` — which nothing else in the catalogue has used and which
+//! with `ShapeU` - the range takes the three `Shape` parts, the court takes
+//! the `Remainder` - which nothing else in the catalogue has used and which
 //! is the only way to get a real court rather than four buildings pretending
 //! to be one.
 //!
 //! The elevation is the Puuc order, bottom to top: a plain lower wall broken
 //! by a rhythm of doorways, a projecting **medial moulding**, a deep
-//! decorated **frieze**, a **cornice**, and — on the buildings that carried
-//! one — a **roof comb**, the pierced openwork crest that made a one-storey
+//! decorated **frieze**, a **cornice**, and - on the buildings that carried
+//! one - a **roof comb**, the pierced openwork crest that made a one-storey
 //! building read from across the plaza.
 //!
 //! **This item distributes its randomness the opposite way to the two rows.**
@@ -20,7 +20,7 @@
 //! almost everything is a per-house roll. A palace is *one* building, so
 //! almost everything is a `Pick`: the frieze scheme, the bay rhythm and the
 //! crown are single decisions binding all three wings. What varies shape to
-//! shape is only what genuinely varied bay to bay — whether a given bay is
+//! shape is only what genuinely varied bay to bay - whether a given bay is
 //! an open doorway, a blind niche, or left solid.
 //!
 //! Two details are worth knowing when reading the grammar:
@@ -33,7 +33,7 @@
 //!   a picket fence.
 //!
 //! Footprint 24 × 21, and the whole thing is turned to face the court at the
-//! viewer — see [`PalaceRange::build`].
+//! viewer - see [`PalaceRange::build`].
 
 use std::collections::HashMap;
 
@@ -72,7 +72,7 @@ const TALUD: f32 = 0.07;
 /// into the podium past it.
 ///
 /// Both are clearances on top of what the talud already takes, never the
-/// whole set-back — see [`plat_step`] and [`stair_embed`].
+/// whole set-back - see [`plat_step`] and [`stair_embed`].
 const TERRACE_W: f32 = 0.65;
 const STAIR_BITE: f32 = 0.28;
 
@@ -84,7 +84,7 @@ const WING_W: f32 = 5.6;
 
 /// Plain lower wall, up to the medial moulding.
 const LOWER_H: f32 = 2.5;
-/// The two projecting mouldings — medial (below the frieze) and cornice
+/// The two projecting mouldings - medial (below the frieze) and cornice
 /// (above it).
 const MEDIAL_H: f32 = 0.3;
 const CORNICE_H: f32 = 0.35;
@@ -100,7 +100,7 @@ const WALL_D: f32 = 0.35;
 /// How far the mouldings project past the wall face.
 const MOULD_OUT: f32 = 0.28;
 /// Depth of the lintel band carried over every doorway. The clear height of
-/// the opening is whatever the lower wall has left — see [`door_h`].
+/// the opening is whatever the lower wall has left - see [`door_h`].
 const LINTEL_H: f32 = 0.3;
 
 /// Thickness of the roof comb, and the height of its solid base band.
@@ -109,7 +109,7 @@ const COMB_BASE_H: f32 = 0.55;
 /// Pitch of the comb's perforations and the width of one slot.
 ///
 /// A crestería is a *wall* with holes punched through it, not a colonnade:
-/// authored the other way round — narrow piers with wide gaps — it reads
+/// authored the other way round - narrow piers with wide gaps - it reads
 /// unmistakably as a balcony railing, which is exactly what the first render
 /// of this item produced.
 const COMB_PITCH: f32 = 1.25;
@@ -146,7 +146,7 @@ fn stair_embed() -> f32 {
     talud_inset().1 + STAIR_BITE
 }
 
-/// Clear height of a doorway — whatever the lower wall has left once the
+/// Clear height of a doorway - whatever the lower wall has left once the
 /// lintel band is taken off the top. Derived, so a doorway can never
 /// outgrow the wall it pierces.
 fn door_h() -> f32 {
@@ -196,7 +196,7 @@ impl CatalogueEntry for PalaceRange {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
-    /// The dressed-stone city, not the farming settlement — the destitute end
+    /// The dressed-stone city, not the farming settlement - the destitute end
     /// of the theme stays the [`adobe_hut`](super::adobe_hut) kit.
     fn prosperity_band(&self) -> ProsperityBand {
         MESO_BAND
@@ -214,7 +214,7 @@ impl CatalogueEntry for PalaceRange {
     /// Builds the plinth root with the grammar turned to face the viewer.
     ///
     /// `ShapeU` always closes its U toward low Z and opens it toward high Z,
-    /// and `Comp`'s `Front` selector is the low-Z face — so left alone, this
+    /// and `Comp`'s `Front` selector is the low-Z face - so left alone, this
     /// item would present its blank back wall to whoever approaches and hide
     /// the court behind it. The child therefore carries a half-turn about Y,
     /// which puts the court mouth and its stair on the approach side. The
@@ -300,7 +300,7 @@ fn build_kind() -> GeneratorKind {
         "StairApron --> Split(X) { ~1: NIL | StairW: Stair | ~1: NIL }",
         "Stair --> Extrude(PlatH) StairFlight",
         "StairFlight --> Repeat(Y, StepH) { StepBand }",
-        // Each tread is shallower than the one below it — that is the whole
+        // Each tread is shallower than the one below it - that is the whole
         // staircase, and it needs `split.i` to know how far up it is. The
         // `Translate` buries the tread in the podium; without it every step
         // above the bottom leaves a wedge of daylight behind it, because the
@@ -320,8 +320,8 @@ fn build_kind() -> GeneratorKind {
         // ── 3. Lower wall: the doorway rhythm ─────────────────────────────
         "LowerZone --> Comp(Faces) { Top: NIL | Bottom: NIL | _: WallFace }",
         // Three regimes by width. The short ends of the wings cannot hold a
-        // rhythm at all — the widest one needs 7.4 m before its flanks and a
-        // single cycle fit — so they take one central bay instead, which is
+        // rhythm at all - the widest one needs 7.4 m before its flanks and a
+        // single cycle fit - so they take one central bay instead, which is
         // what a range end actually had.
         "WallFace --> when(scope.x < 3.6): PlainWall \
                       | when(scope.x < 7.6): EndWall \
@@ -330,7 +330,7 @@ fn build_kind() -> GeneratorKind {
         // One rhythm for the whole palace: a range is a single building, so
         // its bays are laid out once, not negotiated wall by wall.
         "DoorRun --> Pick(\"bays\") { 42% WideBays | 34% CloseBays | 24% GrandBays }",
-        // Absolute widths inside the rhythm group — a floating slot here
+        // Absolute widths inside the rhythm group - a floating slot here
         // tiles at its weight-as-length and packs the wall with slivers.
         "WideBays --> Split(X) { 1.0: PlainWall | { 1.9: PlainWall | 1.5: Bay }* | 1.0: PlainWall }",
         "CloseBays --> Split(X) { 0.8: PlainWall | { 1.3: PlainWall | 1.3: Bay }* | 0.8: PlainWall }",
@@ -356,7 +356,7 @@ fn build_kind() -> GeneratorKind {
         "FriezeFace --> when(scope.x < 2.2): BackWall | else: FriezeRun",
         "FriezeRun --> Pick(\"frieze\") { 36% LatticeFrieze | 34% ColonnetteFrieze | 30% FretFrieze }",
         // Celosía lattice: a true checkerboard needs the column's parity,
-        // which is what `split.i` is for — without it the columns are all
+        // which is what `split.i` is for - without it the columns are all
         // identical and the band reads as vertical stripes.
         "LatticeFrieze --> Repeat(X, 0.6) { LatticeCol }",
         "LatticeCol --> when(split.i % 2 < 0.5): LatticeOdd | else: LatticeEven",
@@ -364,7 +364,7 @@ fn build_kind() -> GeneratorKind {
         "LatticeEven --> Split(Y) { ~1: LatticeB | ~1: LatticeA | ~1: LatticeB }",
         "LatticeA --> Split(X) { ~1: Boss | ~1: BackWall }",
         "LatticeB --> Split(X) { ~1: BackWall | ~1: Boss }",
-        // Engaged half-columns between two rails — the Puuc signature. These
+        // Engaged half-columns between two rails - the Puuc signature. These
         // are the entries in `round_meshes`, so they mesh as cylinders.
         "ColonnetteFrieze --> Split(Y) { 0.2: FriezeRail | ~1: ColonnetteRun | 0.2: FriezeRail }",
         "ColonnetteRun --> Repeat(X, 0.44) { ColonnetteCell }",
@@ -387,7 +387,7 @@ fn build_kind() -> GeneratorKind {
         "CrownZone --> Pick(\"crown\") { 46% CombCrown | 54% PlainCrown }",
         "PlainCrown --> Split(Y) { ParapetH: ParapetBand | ~1: NIL }",
         // The comb always runs along the wing's long axis, which the wing's
-        // own proportions give away — no need to know which wing it is.
+        // own proportions give away - no need to know which wing it is.
         "CombCrown --> when(scope.x > scope.z): Split(Z) { ~1: PlainCrown | CombT: CombAlongX | ~1: PlainCrown } \
                        | else: Split(X) { ~1: PlainCrown | CombT: CombAlongZ | ~1: PlainCrown }",
         "ParapetBand --> Comp(Faces) { Top: NIL | Bottom: RoofDeck | _: PlainWall }",
@@ -395,7 +395,7 @@ fn build_kind() -> GeneratorKind {
         "CombAlongX --> Comp(Faces) { Back: CombScreen | _: NIL }",
         "CombAlongZ --> Comp(Faces) { Right: CombScreen | _: NIL }",
         "CombScreen --> when(scope.x < 2.5): NIL | else: CombPanel",
-        // Two pierced tiers between three solid rails — mostly wall, with
+        // Two pierced tiers between three solid rails - mostly wall, with
         // slots punched through it. The piercing is what stopped a crest
         // this tall from acting as a sail.
         "CombPanel --> Split(Y) { CombBaseH: CombRail | ~1: CombGrid | 0.32: CombRail | ~1: CombGrid | 0.28: CombRail }",
@@ -555,12 +555,12 @@ mod tests {
         assert!(
             step > inset_x && step > inset_z,
             "the range is set back {step:.3} but the podium top draws in \
-             ({inset_x:.3}, {inset_z:.3}) — the walls would overhang the batter"
+             ({inset_x:.3}, {inset_z:.3}) - the walls would overhang the batter"
         );
         assert!(
             stair_embed() > inset_z,
             "treads are buried {:.3} into a podium whose face recedes \
-             {inset_z:.3} — the upper steps would leave daylight behind them",
+             {inset_z:.3} - the upper steps would leave daylight behind them",
             stair_embed()
         );
         // A walkway that survives the batter, or the range appears to grow
@@ -580,11 +580,11 @@ mod tests {
         let court_z = LOT_Z - STAIR_D - 2.0 * plat_step() - BAR_D;
         assert!(
             court_x > 6.0 && court_z > 6.0,
-            "the court came out {court_x:.1} x {court_z:.1} — too small to read as one"
+            "the court came out {court_x:.1} x {court_z:.1} - too small to read as one"
         );
     }
 
-    /// The doorway height falls out of the wall, so it can never overflow —
+    /// The doorway height falls out of the wall, so it can never overflow -
     /// what still needs checking is that what falls out is a doorway a
     /// person could walk through rather than a slot or a barn door.
     #[test]
@@ -593,7 +593,7 @@ mod tests {
         assert!(
             (1.9..=2.6).contains(&h),
             "a {LOWER_H} lower wall less a {LINTEL_H} lintel leaves a {h} \
-             opening — that is not a doorway"
+             opening - that is not a doorway"
         );
     }
 
@@ -606,7 +606,7 @@ mod tests {
             let rooms = count(&model, "Room");
             assert!(
                 rooms >= 12,
-                "seed {seed}: the range degraded to blank wall — {rooms} openings"
+                "seed {seed}: the range degraded to blank wall - {rooms} openings"
             );
             assert!(
                 count(&model, "Beam") >= 8,
@@ -626,7 +626,7 @@ mod tests {
     }
 
     /// The frieze is the theme. Whichever scheme `Pick` lands on, the band
-    /// must carry real relief — and one scheme only, across the whole palace.
+    /// must carry real relief - and one scheme only, across the whole palace.
     #[test]
     fn one_frieze_scheme_dresses_the_whole_palace() {
         let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
@@ -643,7 +643,7 @@ mod tests {
             );
             assert!(
                 bosses + colonnettes >= 20,
-                "seed {seed}: the frieze band is bare — {bosses} bosses, \
+                "seed {seed}: the frieze band is bare - {bosses} bosses, \
                  {colonnettes} colonnettes"
             );
             if colonnettes > 0 {

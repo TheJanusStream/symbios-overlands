@@ -1,4 +1,4 @@
-//! Sod shelter — a Nordic *poor* secondary. A crude lean-to: a low turf back
+//! Sod shelter - a Nordic *poor* secondary. A crude lean-to: a low turf back
 //! wall and a sloping sod roof propped on two bowed poles, open toward the
 //! shore (-Z) with a little stacked firewood and a barrel kept dry beneath.
 //! The kind of windbreak a croft throws up beside the
@@ -52,7 +52,7 @@ fn build_tree() -> Generator {
     let front_top = foot_h + 1.1;
 
     let mut prims = vec![
-        // Fieldstone footing — the root.
+        // Fieldstone footing - the root.
         prim(
             solid(cuboid_tapered(
                 [4.2, foot_h, 3.2],

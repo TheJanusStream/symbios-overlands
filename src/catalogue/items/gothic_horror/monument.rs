@@ -1,4 +1,4 @@
-//! Owner Memorial — the Gothic-Horror identity monument (#975).
+//! Owner Memorial - the Gothic-Horror identity monument (#975).
 //!
 //! A graveyard memorial: a dark stone shrine on a mossy plinth, the room
 //! owner's portrait set behind a wrought-iron surround under a pointed arch,
@@ -19,7 +19,7 @@ use super::{BONE, IRON_BLACK, STONE_DARK, STONE_MOSS, iron, mossy, pointed_arch,
 
 const PANEL: f32 = 1.7;
 const PANEL_Y: f32 = 2.95;
-/// Candle flame — deep amber at low strength, so it reads as one small light
+/// Candle flame - deep amber at low strength, so it reads as one small light
 /// in the dark rather than a lantern that has bloomed to white.
 const CANDLE: [f32; 3] = [1.0, 0.60, 0.22];
 
@@ -85,7 +85,7 @@ fn shrine(did: &str) -> Vec<Generator> {
     let z = -0.46;
     let fr = 0.13;
     let mut out = vec![
-        // Recessed tablet — the backing the single-sided panel needs, and the
+        // Recessed tablet - the backing the single-sided panel needs, and the
         // stone the portrait reads as being cut into.
         prim(
             solid(cuboid_tapered(

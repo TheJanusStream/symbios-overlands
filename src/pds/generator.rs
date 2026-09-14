@@ -1,15 +1,15 @@
-//! Open-union [`GeneratorKind`] and [`Placement`] enums — the building blocks
+//! Open-union [`GeneratorKind`] and [`Placement`] enums - the building blocks
 //! of a `RoomRecord`'s recipe. Both use `#[serde(other)] Unknown` so a client
 //! visiting a room authored by a newer engine version skips unrecognised
 //! variants instead of crashing its deserializer.
 //!
 //! **Unified Construct Model.** Every generator is hierarchical: it carries a
 //! [`GeneratorKind`] (the variant-specific parameters), a local
-//! [`TransformData`], and a `Vec<Generator>` of children. Any kind — primitive,
-//! L-system, portal — can have children, so a portal can wear a doorframe, a
+//! [`TransformData`], and a `Vec<Generator>` of children. Any kind - primitive,
+//! L-system, portal - can have children, so a portal can wear a doorframe, a
 //! cuboid can carry a chimney, and Constructs are no longer a distinct kind.
 //! Two positional rules survive sanitisation: `Terrain` is **root-only**
-//! (it may carry children — the "region blueprint" shape — but a Terrain
+//! (it may carry children - the "region blueprint" shape - but a Terrain
 //! nested as a child is rewritten to a default cuboid because the terrain
 //! plugin owns the single world heightmap), and `Water` is **child-only
 //! and leaf-only** (it needs an ancestor's transform to anchor its volume,
@@ -28,8 +28,8 @@ use std::collections::HashMap;
 /// Per-volume appearance and wave parameters for [`GeneratorKind::Water`].
 ///
 /// Everything on this struct describes the water body itself (its colour,
-/// choppiness, prevailing wave direction). Room-wide water settings —
-/// detail-normal tiling, sun glitter strength, shoreline foam width — live on
+/// choppiness, prevailing wave direction). Room-wide water settings -
+/// detail-normal tiling, sun glitter strength, shoreline foam width - live on
 /// [`crate::pds::Environment`] instead so they match the room's overall mood
 /// rather than varying between adjacent water volumes.
 ///
@@ -47,7 +47,7 @@ pub struct WaterSurface {
     pub roughness: Fp,
     /// PBR metallic. Water is dielectric so this is ~0.
     pub metallic: Fp,
-    /// Schlick F0 reflectance — the base fraction of light reflected when
+    /// Schlick F0 reflectance - the base fraction of light reflected when
     /// viewed head-on. Real water is ~0.02; higher values bias toward a
     /// stylised, glossy look.
     pub reflectance: Fp,
@@ -56,7 +56,7 @@ pub struct WaterSurface {
     /// Global time multiplier on the Gerstner waves. `0.0` = frozen.
     pub wave_speed: Fp,
     /// Prevailing wave direction in the world XZ plane. Need not be
-    /// unit-length — the shader normalises.
+    /// unit-length - the shader normalises.
     pub wave_direction: Fp2,
     /// Gerstner steepness in `[0, 1]`. `0` = smooth sines, `1` = sharp crests.
     pub wave_choppiness: Fp,
@@ -66,20 +66,20 @@ pub struct WaterSurface {
     /// directed along the steepest-descent tangent of the surface (the
     /// projection of gravity onto the plane). `0.0` = still water; ~9.81 ≈
     /// "free-fall along the slope" for a 1-metre-deep avatar. Has no effect
-    /// on flat water — the tangent component of gravity is then zero —
+    /// on flat water - the tangent component of gravity is then zero -
     /// which keeps existing rooms unchanged. This is the *physics* knob;
     /// the visual flow-map blend lives separately on `flow_amount`.
     pub flow_strength: Fp,
     /// Visual flow-map blend in `[0, 1]`. `0.0` = classic standing-wave
-    /// Gerstner (still pond, even on a tilt — the existing look). `1.0` =
+    /// Gerstner (still pond, even on a tilt - the existing look). `1.0` =
     /// pure flow-map mode (scrolling detail normals along the surface's
-    /// downhill direction, suppressed Gerstner amplitude — the river /
+    /// downhill direction, suppressed Gerstner amplitude - the river /
     /// stream look). Mix in between for a choppy flowing river.
     /// Independent of `flow_strength` so a glassy "infinity-pool" effect
     /// (visible flow, no avatar push) is authorable.
     pub flow_amount: Fp,
     /// Strength of the avatar-wake ripple effect (Phase 1 of the
-    /// interaction framework — see [`crate::interaction`]). `0.0`
+    /// interaction framework - see [`crate::interaction`]). `0.0`
     /// disables the effect entirely so existing scenes render
     /// unchanged. Higher values amplify the ripple per contact sample.
     pub wake_strength: Fp,
@@ -112,7 +112,7 @@ impl Default for WaterSurface {
             foam_amount: Fp(0.25),
             flow_strength: Fp(0.0),
             flow_amount: Fp(0.0),
-            // Wake effect off by default — existing rooms read as
+            // Wake effect off by default - existing rooms read as
             // pre-wake, only opt-in volumes show the ripples.
             wake_strength: Fp(0.0),
             wake_ripple_wavelength: Fp(1.5),
@@ -141,12 +141,12 @@ crate::pds::serde_util::impl_default_eliding_serialize!(WaterSurface {
     wake_decay_radius,
 });
 
-/// Authored parameters for a [`GeneratorKind::RoadNetwork`] — a tensor-field
+/// Authored parameters for a [`GeneratorKind::RoadNetwork`] - a tensor-field
 /// street grid that drapes over the parent terrain (see [`crate::urban`]). The
 /// *config* is serialized / editable; the road *geometry* is recomputed
 /// at load from this plus the heightmap, never stored. Like Water, a road
 /// network is only valid as a child of a Terrain generator. Seeded rooms grow
-/// no network (too heavy for a good default room on wasm) — this is
+/// no network (too heavy for a good default room on wasm) - this is
 /// editor-opt-in, though records saved when roads were seeded still carry one.
 ///
 /// Default-eliding wire format (#695): fields matching
@@ -155,7 +155,7 @@ crate::pds::serde_util::impl_default_eliding_serialize!(WaterSurface {
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct RoadConfig {
-    /// Master toggle — a disabled network grows no roads (the editor "off").
+    /// Master toggle - a disabled network grows no roads (the editor "off").
     pub enabled: bool,
     /// Seed for the road layout *alone*, so an author can re-roll the streets
     /// without disturbing terrain or settlement.
@@ -205,13 +205,13 @@ pub struct RoadConfig {
     pub populate_lots: bool,
 }
 
-/// Serde default for [`RoadConfig::populate_lots`] — a road network in a record
+/// Serde default for [`RoadConfig::populate_lots`] - a road network in a record
 /// predating the field still grows lot buildings.
 fn default_populate_lots() -> bool {
     true
 }
 
-/// Street-plan character for a [`RoadConfig`] (#890) — maps onto the tensor
+/// Street-plan character for a [`RoadConfig`] (#890) - maps onto the tensor
 /// field's grid-vs-terrain blend at trace time (see
 /// `crate::urban::graph::build_road_graph_raw`). Open union so future styles
 /// degrade gracefully on older clients: `Unknown` traces as [`Self::Hillside`],
@@ -225,11 +225,11 @@ pub enum RoadStyle {
     #[default]
     #[serde(rename = "network.symbios.road_style.hillside")]
     Hillside,
-    /// Axis-aligned Manhattan grid everywhere — terrain is ignored for street
+    /// Axis-aligned Manhattan grid everywhere - terrain is ignored for street
     /// *direction* (decks still drape over its height).
     #[serde(rename = "network.symbios.road_style.grid")]
     Grid,
-    /// Contour-following everywhere with gentle directional jitter — streets
+    /// Contour-following everywhere with gentle directional jitter - streets
     /// wander with the land and never settle into a grid, even on flats.
     #[serde(rename = "network.symbios.road_style.organic")]
     Organic,
@@ -239,7 +239,7 @@ pub enum RoadStyle {
 
 /// Per-surface look overrides for a road network (#891). Field-level
 /// `Option`s: `None` = the room theme's [`road palette`] value for that
-/// surface, `Some` = the author's override — so one surface can be re-tinted
+/// surface, `Some` = the author's override - so one surface can be re-tinted
 /// while the rest keep the theme identity. All-`None` (the default) is
 /// elided from the wire entirely.
 ///
@@ -301,7 +301,7 @@ impl Default for LotSettings {
 }
 
 /// Street-furniture layer settings (#893). Opt-in (`enabled` defaults
-/// false so pre-#893 records — and fresh networks — stay uncluttered);
+/// false so pre-#893 records - and fresh networks - stay uncluttered);
 /// the whole struct is elided from the wire while untouched.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
@@ -340,7 +340,7 @@ pub enum LotTierBias {
     /// the rest.
     #[serde(rename = "network.symbios.lot_bias.residential")]
     Residential,
-    /// Props only — street clutter without buildings.
+    /// Props only - street clutter without buildings.
     #[serde(rename = "network.symbios.lot_bias.props_only")]
     PropsOnly,
     #[serde(other, skip_serializing)]
@@ -364,7 +364,7 @@ impl LotTierBias {
             (
                 Self::Residential,
                 "Residential",
-                "No landmarks — dwellings and props only",
+                "No landmarks - dwellings and props only",
             ),
             (
                 Self::PropsOnly,
@@ -382,7 +382,7 @@ impl RoadStyle {
             (
                 Self::Hillside,
                 "Hillside",
-                "Grid on flats, contour-following on slopes — the adaptive default",
+                "Grid on flats, contour-following on slopes - the adaptive default",
             ),
             (
                 Self::Grid,
@@ -444,8 +444,8 @@ impl Default for RoadConfig {
 
 /// Vertex-torture parameters shared by every parametric primitive. Bundled
 /// into one struct (rather than three flat fields on all eight variants) so a
-/// new torture knob is a single field add — `#[serde(default)]` fills it on
-/// records that predate it — instead of an edit to every variant and every
+/// new torture knob is a single field add - `#[serde(default)]` fills it on
+/// records that predate it - instead of an edit to every variant and every
 /// construction site. Applied CPU-side in `world_builder::prim`.
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(default)]
@@ -458,11 +458,11 @@ pub struct TortureParams {
     pub taper: Fp2,
     /// Per-axis **bottom** taper: X and Z each scale by
     /// `1 - taper_bottom[axis] * (1 - t)` toward the base, composing with
-    /// `taper` so one prim can narrow at both ends (a lens / spearhead) —
+    /// `taper` so one prim can narrow at both ends (a lens / spearhead) -
     /// without the old author-it-upside-down-and-flip-π workaround that
     /// top-only taper forced on every downward-narrowing form.
     pub taper_bottom: Fp2,
-    /// Quadratic top displacement `(x, y, z) * t²` — a single arc that pins
+    /// Quadratic top displacement `(x, y, z) * t²` - a single arc that pins
     /// the base and swings the top.
     pub bend: Fp3,
     /// Serpentine S-curve: a `sin(2π t)` lateral wave of amplitude `(x, z)`
@@ -474,7 +474,7 @@ pub struct TortureParams {
     /// the offset grows uniformly, so vertical edges stay straight but tilted.
     pub shear: Fp2,
     /// Per-axis mid-profile bulge (+) / pinch (−): X and Z scale gain
-    /// `bulge[axis] * sin(π t)` — zero at both ends, peaking at mid-height.
+    /// `bulge[axis] * sin(π t)` - zero at both ends, peaking at mid-height.
     /// One positive slider turns a straight capsule into a muscle / belly /
     /// tree-trunk swell; a negative one gives a waist / hourglass. The
     /// combined per-axis scale is floored just above zero in the deform pass
@@ -501,7 +501,7 @@ pub struct TortureParams {
     pub profile_cut: Fp2,
     /// Bore as a fraction of the outer radius, `0..0.95`. `0` = solid; `> 0`
     /// hollows the prim (pipe / funnel / ring / shell) with an inner wall and
-    /// annular rim caps — the general form of [`GeneratorKind::Tube`].
+    /// annular rim caps - the general form of [`GeneratorKind::Tube`].
     pub hollow: Fp,
 }
 
@@ -522,8 +522,8 @@ impl Default for TortureParams {
     }
 }
 
-// Default-eliding wire format (#695): an identity TortureParams — the
-// overwhelmingly common case across catalogue prims — serializes as `{}`,
+// Default-eliding wire format (#695): an identity TortureParams - the
+// overwhelmingly common case across catalogue prims - serializes as `{}`,
 // and any prim whose torture IS identity omits the field entirely via
 // `skip_serializing_if` at the variant field. The container
 // `#[serde(default)]` above is the matching read-side contract.
@@ -541,7 +541,7 @@ crate::pds::serde_util::impl_default_eliding_serialize!(TortureParams {
 });
 
 impl TortureParams {
-    /// `true` when the whole struct equals its default — the wire-format
+    /// `true` when the whole struct equals its default - the wire-format
     /// skip predicate for prim `torture` fields (#695).
     pub fn is_default(&self) -> bool {
         *self == Self::default()
@@ -550,7 +550,7 @@ impl TortureParams {
     /// `true` when no vertex deform is active (twist / taper / bulge / bend /
     /// S-bend / shear all zero). Meshers use this to skip the vertical
     /// subdivisions that only exist to give the deform pass mid-height
-    /// vertices to move — a 2-ring wall renders a `sin(π t)` bulge as
+    /// vertices to move - a 2-ring wall renders a `sin(π t)` bulge as
     /// nothing at all.
     pub fn deforms_are_identity(&self) -> bool {
         let flat2 = |v: &Fp2| v.0[0].abs() < 1e-6 && v.0[1].abs() < 1e-6;
@@ -575,7 +575,7 @@ impl TortureParams {
 }
 
 /// Primitive shape of one [`BlobElement`]. Open union so future shapes
-/// degrade gracefully on older clients — an `Unknown` element evaluates as
+/// degrade gracefully on older clients - an `Unknown` element evaluates as
 /// a sphere rather than failing the record.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
 #[serde(tag = "$type")]
@@ -588,7 +588,7 @@ pub enum BlobShape {
     Capsule,
     #[serde(rename = "network.symbios.blob.ellipsoid")]
     Ellipsoid,
-    /// Axis-aligned box (pre-rotation) — flat faces and hard masses inside
+    /// Axis-aligned box (pre-rotation) - flat faces and hard masses inside
     /// smooth blends: pedestals, slabs, jaws.
     #[serde(rename = "network.symbios.blob.box")]
     Box,
@@ -610,15 +610,15 @@ pub enum BlobShape {
 
 /// UV projection a [`GeneratorKind::BlobGroup`] bakes into its mesh (#739).
 /// Surface nets has no analytic parameterisation, so texture coordinates
-/// come from projecting each vertex — and which projection reads well is
+/// come from projecting each vertex - and which projection reads well is
 /// shape-dependent, so it's an authorable knob rather than a constant.
-/// Open union so future modes degrade gracefully on older clients — an
+/// Open union so future modes degrade gracefully on older clients - an
 /// `Unknown` mode meshes as the default.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
 #[serde(tag = "$type")]
 pub enum UvMapping {
     /// Equirectangular projection of each vertex's direction from the
-    /// surface centroid — the original #739 mapping, and the wire default
+    /// surface centroid - the original #739 mapping, and the wire default
     /// until #742. Reads well on roundish masses; elongated or multi-lobed
     /// groups stretch (direction ignores distance) and concave regions
     /// repeat the texture where two surface points share a direction.
@@ -627,7 +627,7 @@ pub enum UvMapping {
     /// Baked tri-planar box projection: each triangle projects along the
     /// axis its normal leans into most, at one uniform scale, so texel
     /// density is even everywhere. The all-round distortion fix and the
-    /// wire default since #742 (a field-less record renders Box — chosen
+    /// wire default since #742 (a field-less record renders Box - chosen
     /// over Spherical because it reads better on almost every real group,
     /// humanoid avatar masses especially); strongly patterned textures
     /// show seams where the projection axis changes.
@@ -644,14 +644,14 @@ pub enum UvMapping {
     /// Flat projection along local X (texture lies on the YZ plane).
     #[serde(rename = "network.symbios.uv.planar_x")]
     PlanarX,
-    /// Flat projection along local Y — top-down, for slab-like masses.
+    /// Flat projection along local Y - top-down, for slab-like masses.
     #[serde(rename = "network.symbios.uv.planar_y")]
     PlanarY,
     /// Flat projection along local Z (texture lies on the XY plane).
     #[serde(rename = "network.symbios.uv.planar_z")]
     PlanarZ,
     /// Keep the mesher's own parameterisation, normalised so the texture
-    /// spans the surface exactly once — the pre-#933 behaviour, now an
+    /// spans the surface exactly once - the pre-#933 behaviour, now an
     /// explicit choice rather than the only option.
     ///
     /// This is what an **alpha card** needs. The `Window`, foliage and
@@ -660,7 +660,7 @@ pub enum UvMapping {
     /// convention it would instead tile, and past `1.0` the sampler would
     /// smear its edge texels across the remainder. It is also the right
     /// pick for anything whose texture is a single picture rather than a
-    /// material — a sign face, a painted panel.
+    /// material - a sign face, a painted panel.
     #[serde(rename = "network.symbios.uv.fit")]
     Fit,
     #[serde(other, skip_serializing)]
@@ -670,8 +670,8 @@ pub enum UvMapping {
 impl UvMapping {
     /// Wire-format skip predicate: the default mode stays off the wire
     /// (#695 elision discipline). A field-less record therefore tracks
-    /// whatever the engine's current default is — that's how #742 flipped
-    /// every untouched blob to Box without a migration — while an explicit
+    /// whatever the engine's current default is - that's how #742 flipped
+    /// every untouched blob to Box without a migration - while an explicit
     /// non-default choice (now including Spherical) serialises its tag.
     pub fn is_default(&self) -> bool {
         *self == Self::default()
@@ -692,12 +692,12 @@ impl UvMapping {
     }
 }
 
-/// Semantic identity of one face of a parametric primitive (#955) — the
+/// Semantic identity of one face of a parametric primitive (#955) - the
 /// key a [`FaceOverride`] addresses. Keys are *semantic*, not positional:
 /// they name what a face **is** (the outer wall, the bore, the +X side…),
 /// so an override keeps meaning when torture parameters change the face
 /// census. An override whose face the current cut/hollow state does not
-/// produce is **dormant** — kept in the record, invisible in the mesh —
+/// produce is **dormant** - kept in the record, invisible in the mesh -
 /// and it reappears when the face does (the SL behaviour).
 ///
 /// Vocabulary per family (the mesher emits exactly these):
@@ -705,8 +705,8 @@ impl UvMapping {
 /// * **Cuboid**: [`SidePx`](Self::SidePx) / [`SideNx`](Self::SideNx) /
 ///   [`SidePz`](Self::SidePz) / [`SideNz`](Self::SideNz) +
 ///   [`Top`](Self::Top) / [`Bottom`](Self::Bottom).
-/// * **Bevel**: one wrapped [`Wall`](Self::Wall) — its rounded corners
-///   bridge the four sides geometrically — plus `Top` / `Bottom`.
+/// * **Bevel**: one wrapped [`Wall`](Self::Wall) - its rounded corners
+///   bridge the four sides geometrically - plus `Top` / `Bottom`.
 /// * **Wedge**: [`Slope`](Self::Slope) / [`Back`](Self::Back) / `Bottom`
 ///   + the [`Left`](Self::Left) / [`Right`](Self::Right) triangles.
 /// * **Tetrahedron**: [`Base`](Self::Base) + [`Front`](Self::Front) /
@@ -716,7 +716,7 @@ impl UvMapping {
 ///   `Wall` + `Top` / `Bottom` caps.
 /// * **Smooth closed** (Sphere / Capsule / Superellipsoid / BlobGroup):
 ///   a single `Surface`; a profile-cut opens `Top` / `Bottom` cap discs.
-///   BlobGroup stays `Surface`-only — its cuts are carved into the SDF,
+///   BlobGroup stays `Surface`-only - its cuts are carved into the SDF,
 ///   so cut faces are emergent geometry, not taggable blocks.
 /// * **Cuts** add [`Bore`](Self::Bore) (the hollow inner shell),
 ///   [`PathCutStart`](Self::PathCutStart) / [`PathCutEnd`](Self::PathCutEnd)
@@ -793,7 +793,7 @@ pub enum FaceKey {
 }
 
 impl FaceKey {
-    /// Short human-readable name — the `kind_tag` analogue for the face
+    /// Short human-readable name - the `kind_tag` analogue for the face
     /// picker UI and the render tool's dump output.
     pub fn label(&self) -> &'static str {
         match self {
@@ -823,7 +823,7 @@ impl FaceKey {
 
 /// One face's appearance override (#955). The override is **complete and
 /// independent**: `material` is the face's whole material (per-face
-/// `uv_scale` / offset / rotation ride on it), not a delta — editing the
+/// `uv_scale` / offset / rotation ride on it), not a delta - editing the
 /// prim's base material later does not bleed into overridden faces (the
 /// SL model). `uv_mapping` is the one exception: `None` inherits the
 /// prim's own projection so a plain recolour never changes the mesh.
@@ -849,14 +849,14 @@ pub struct FaceOverride {
 ///
 /// **The wire form is the flat one it always was.** The block is
 /// `#[serde(flatten)]`ed into each variant, so a primitive still serialises
-/// as a single object — its own fields, then `solid`, `uv_mapping`,
+/// as a single object - its own fields, then `solid`, `uv_mapping`,
 /// `material`, `faces`, `torture` in that order, the default-valued members
 /// elided exactly as before. Child room records are content-addressed over
 /// those bytes, and `tests/prim_wire.rs` pins them.
 ///
-/// `uv_mapping` is `None` for the family's own projection — `Box` on the
+/// `uv_mapping` is `None` for the family's own projection - `Box` on the
 /// flat family (Cuboid, Tetrahedron, Bevel, Wedge, Superellipsoid,
-/// BlobGroup), `Fit` on the revolved one and the Plane — which is what the
+/// BlobGroup), `Fit` on the revolved one and the Plane - which is what the
 /// wire omits and [`GeneratorKind::uv_mapping`] resolves. A `Some` equal to
 /// that default is never stored: [`GeneratorKind::set_uv_mapping`] folds
 /// it and the sanitiser folds one that arrives on the wire, so the bytes a
@@ -880,7 +880,7 @@ pub struct PrimCommon {
 }
 
 impl PrimCommon {
-    /// A non-solid block wearing `material` and nothing else — the
+    /// A non-solid block wearing `material` and nothing else - the
     /// catalogue constructors' starting point.
     pub fn with_material(material: SovereignMaterialSettings) -> Self {
         Self {
@@ -890,7 +890,7 @@ impl PrimCommon {
     }
 }
 
-/// One stamp in a [`GeneratorKind::BlobGroup`]'s ordered edit list — the
+/// One stamp in a [`GeneratorKind::BlobGroup`]'s ordered edit list - the
 /// Dreams model: elements evaluate in list order, each smoothly added to
 /// (or carved out of) everything before it.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -898,7 +898,7 @@ pub struct BlobElement {
     pub shape: BlobShape,
     /// Element centre in the prim's local space.
     pub position: Fp3,
-    /// Element orientation (unit quaternion) — orients a capsule's axis or
+    /// Element orientation (unit quaternion) - orients a capsule's axis or
     /// an ellipsoid's semi-axes; irrelevant for a sphere.
     pub rotation: Fp4,
     /// Per-shape size: Sphere uses `radii[0]`; Ellipsoid and Box read all
@@ -909,7 +909,7 @@ pub struct BlobElement {
     /// radius and `radii[1]` = tube (minor) radius.
     pub radii: Fp3,
     /// `true` carves this element out of the accumulated shape (smooth
-    /// subtraction — eye sockets, nostrils, creases) instead of adding it.
+    /// subtraction - eye sockets, nostrils, creases) instead of adding it.
     pub subtract: bool,
     /// Smooth-blend distance (metres): how far from contact this element
     /// starts merging with the accumulated surface. `0` = hard union.
@@ -953,7 +953,7 @@ pub struct LathePoint {
 /// Lives behind a `Box` on the variant so the enum's stack size doesn't
 /// carry all ~30 fields (the same shape as `LocomotionConfig`'s boxed
 /// `*Params`). Wire compat: an internally-tagged (`$type`) enum serialises
-/// a newtype variant's struct fields inline beside the tag — byte-identical
+/// a newtype variant's struct fields inline beside the tag - byte-identical
 /// to the old struct-variant form, so existing records round-trip
 /// unchanged (guarded by the `particle_params_wire_format_*` tests).
 ///
@@ -1085,7 +1085,7 @@ pub struct ParticleParams {
     /// legacy record → plain `None` quads" (this field-level default),
     /// which differs from the struct default (`SoftDisc`, #367). The field
     /// is therefore marked `(always)` in the eliding-serialize invocation
-    /// below — it is written unconditionally so elision can never rewrite
+    /// below - it is written unconditionally so elision can never rewrite
     /// the legacy meaning.
     #[serde(default)]
     pub procedural_texture: super::texture::SovereignTextureConfig,
@@ -1127,7 +1127,7 @@ crate::pds::serde_util::impl_default_eliding_serialize!(ParticleParams {
 });
 
 impl Default for ParticleParams {
-    /// Canonical default emitter — a small upward-spraying cone with
+    /// Canonical default emitter - a small upward-spraying cone with
     /// 32 particles/s, 2 s lifetime, white→fade-out alpha-blended
     /// particles on a soft-disc sprite (#367, so a freshly-added emitter
     /// reads as soft motes rather than hard squares), no inheritance, no
@@ -1175,7 +1175,7 @@ impl Default for ParticleParams {
     }
 }
 
-/// Serde default for [`GeneratorKind::Gateway`]'s interaction zone —
+/// Serde default for [`GeneratorKind::Gateway`]'s interaction zone -
 /// arch-sized: roomy enough to walk into without hugging a pillar.
 fn default_gateway_size() -> Fp3 {
     Fp3([2.5, 3.0, 2.5])
@@ -1183,13 +1183,13 @@ fn default_gateway_size() -> Fp3 {
 
 /// Serde default for the Sign's legacy `uv_repeat` (#964): the identity
 /// window. A record written after the unification omits the field, and
-/// folding `1.0` into the material's scale is a no-op — which is what makes
+/// folding `1.0` into the material's scale is a no-op - which is what makes
 /// the migration safe to run on every record, old or new.
 fn unit_uv_repeat() -> Fp2 {
     Fp2([1.0, 1.0])
 }
 
-/// The single declaration of the **parametric-primitive family** — the
+/// The single declaration of the **parametric-primitive family** - the
 /// sixteen [`GeneratorKind`] variants the shared mesher owns, each carrying
 /// the same `solid` / `material` / `torture` / `faces` / `uv_mapping` block
 /// alongside its own dimensional knobs.
@@ -1197,22 +1197,22 @@ fn unit_uv_repeat() -> Fp2 {
 /// Before #1156 that roster was re-typed as a sixteen-arm or-pattern in ten
 /// places that knew nothing about each other, and a seventeenth primitive
 /// had to be hand-added to all of them. Nine of those ladders ended in a
-/// `_ =>` catch-all, so a missed one was not a compile error — it was a new
+/// `_ =>` catch-all, so a missed one was not a compile error - it was a new
 /// shape that silently reported "no material", "not a primitive", or "no
 /// bounds". The roster now lives here and nowhere else.
 ///
 /// # Forms
 ///
-/// * `for_each_primitive!(kind_expr, { field, … } => body)` — expands to a
+/// * `for_each_primitive!(kind_expr, { field, … } => body)` - expands to a
 ///   `match` over the family binding `field, …` in every arm, evaluating
 ///   `body` to `Some(_)`; non-primitive variants fall through to `None`.
 ///   Binds through both `&` and `&mut`.
-/// * `for_each_primitive!(pattern { field, … })` — expands to the bare
+/// * `for_each_primitive!(pattern { field, … })` - expands to the bare
 ///   or-pattern, for use as one arm of a caller's own `match`. The field
 ///   list may be empty. Because the expansion is an ordinary pattern, the
 ///   caller's match keeps its exhaustiveness check: a variant added to the
 ///   enum but *not* to this roster fails to compile at every such site.
-/// * `for_each_primitive!(tags)` — the roster as
+/// * `for_each_primitive!(tags)` - the roster as
 ///   `&'static [&'static str]`, matching
 ///   [`GeneratorKind::kind_tag`]. This
 ///   is what lets a test *enumerate* the family (see
@@ -1229,8 +1229,8 @@ fn unit_uv_repeat() -> Fp2 {
 ///    `ui::room::generators::detail`.
 ///
 /// Only `kind_tag` and the editor panel are compile errors. Every other
-/// ladder there ends in a catch-all — that is what made a missed one
-/// silent — so each has an enumerating test that walks this roster and
+/// ladder there ends in a catch-all - that is what made a missed one
+/// silent - so each has an enumerating test that walks this roster and
 /// fails naming the variant: `every_primitive_reaches_a_mesher_arm`
 /// (`world_builder::prim`), `every_primitive_has_a_default_and_a_matching_tag`,
 /// `every_primitive_clamps_hostile_wire_values` and
@@ -1275,7 +1275,7 @@ macro_rules! for_each_primitive {
 
 pub use for_each_primitive;
 
-/// The primitive roster as short tags, in declaration order — the same
+/// The primitive roster as short tags, in declaration order - the same
 /// strings [`GeneratorKind::kind_tag`] returns and
 /// [`GeneratorKind::default_primitive_for_tag`] accepts.
 ///
@@ -1301,7 +1301,7 @@ pub enum GeneratorKind {
     Terrain(SovereignTerrainConfig),
 
     /// Water volume. Vertical position comes from the placement
-    /// transform's translation.y — no separate level_offset field
+    /// transform's translation.y - no separate level_offset field
     /// (removed as redundant; see [`crate::pds::room`]'s
     /// `default_for_did` for how the canonical homeworld places its
     /// water at the historical altitude via the placement transform).
@@ -1324,13 +1324,13 @@ pub enum GeneratorKind {
 
     /// Social gateway (#747): a walk-in zone that opens the destination
     /// picker listing the room owner's mutual follows. Unlike
-    /// [`GeneratorKind::Portal`] it carries no destination — the list is
+    /// [`GeneratorKind::Portal`] it carries no destination - the list is
     /// resolved at interaction time from the live social graph, never
     /// baked into the record. Clients predating this variant decode it as
     /// [`GeneratorKind::Unknown`] (open union) and simply render no gate.
     #[serde(rename = "network.symbios.gen.gateway")]
     Gateway {
-        /// Interaction-zone extents in metres — the sensor volume the
+        /// Interaction-zone extents in metres - the sensor volume the
         /// themed structure is built around.
         #[serde(default = "default_gateway_size")]
         size: Fp3,
@@ -1382,7 +1382,7 @@ pub enum GeneratorKind {
         /// material.
         #[serde(default, serialize_with = "sorted_string_map")]
         materials: HashMap<String, SovereignMaterialSettings>,
-        /// Terminal mesh ids — the strings emitted by `I("...")` — whose
+        /// Terminal mesh ids - the strings emitted by `I("...")` - whose
         /// terminals render with a **round** cross-section: an elliptical
         /// prism inscribed in the scope's footprint rather than a box.
         /// `Rectangle` profiles become cylinders, `Taper(t)` frusta, and
@@ -1477,7 +1477,7 @@ pub enum GeneratorKind {
 
     /// Hollow cylinder (pipe / ring / well-curb). `radius` is the outer wall,
     /// `inner_radius` the bore (`< radius`); annular caps close the ends. The
-    /// collider is a solid outer cylinder — the bore is not a walk-through
+    /// collider is a solid outer cylinder - the bore is not a walk-through
     /// volume.
     #[serde(rename = "network.symbios.gen.tube")]
     Tube {
@@ -1490,7 +1490,7 @@ pub enum GeneratorKind {
         common: PrimCommon,
     },
 
-    /// Box with chamfered / rounded **vertical** edges — an extruded
+    /// Box with chamfered / rounded **vertical** edges - an extruded
     /// rounded-rectangle prism (columns, furniture, rounded buildings).
     /// `bevel` is the corner cut/radius; `bevel_segments` is `1` for a flat
     /// chamfer (octagonal prism) or higher for a rounded corner.
@@ -1504,7 +1504,7 @@ pub enum GeneratorKind {
         common: PrimCommon,
     },
 
-    /// Right-triangular prism — a ramp / roof pitch / buttress / eave. `size` is
+    /// Right-triangular prism - a ramp / roof pitch / buttress / eave. `size` is
     /// the bounding box; the slope rises from the front-bottom (`+Z`, `-Y`) to
     /// the back-top (`-Z`, `+Y`) across the full width (X).
     #[serde(rename = "network.symbios.gen.wedge")]
@@ -1515,7 +1515,7 @@ pub enum GeneratorKind {
         common: PrimCommon,
     },
 
-    /// Helical tube — a spring / screw / spiral-stair rail / horn / vine.
+    /// Helical tube - a spring / screw / spiral-stair rail / horn / vine.
     /// `radius` is the helix radius, `tube_radius` the wire thickness, `pitch`
     /// the vertical rise per full turn, `turns` the revolution count, and
     /// `resolution` the segments per turn.
@@ -1531,12 +1531,12 @@ pub enum GeneratorKind {
         common: PrimCommon,
     },
 
-    /// Barr superellipsoid — one prim that morphs continuously from box
+    /// Barr superellipsoid - one prim that morphs continuously from box
     /// (small exponents) through pillow / sphere (`1.0`) toward a pinched
     /// octahedral form (large exponents). `exponent_ns` shapes the
     /// north–south (latitude) profile, `exponent_ew` the east–west
     /// cross-section; `half_extents` scale the three axes. The organic
-    /// workhorse for skulls, torsos, pebbles, cushions — the rounded masses
+    /// workhorse for skulls, torsos, pebbles, cushions - the rounded masses
     /// that previously took a scaled sphere or a bevel-box compromise.
     #[serde(rename = "network.symbios.gen.superellipsoid")]
     Superellipsoid {
@@ -1551,7 +1551,7 @@ pub enum GeneratorKind {
     },
 
     /// Circular-profile tube swept along a user-editable Catmull-Rom spine
-    /// with a per-point radius — the one-prim replacement for the tapered-
+    /// with a per-point radius - the one-prim replacement for the tapered-
     /// capsule chains that limbs / tails / horns / tentacles / vines used to
     /// take. The spline passes through every control point (2..16); radius
     /// interpolates along the same spline, and both ends are capped with
@@ -1571,7 +1571,7 @@ pub enum GeneratorKind {
         common: PrimCommon,
     },
 
-    /// Profile revolved around local Y — the SL-"rokuro" vase / bell / hoof /
+    /// Profile revolved around local Y - the SL-"rokuro" vase / bell / hoof /
     /// chess-piece prim. `points` is the silhouette from bottom to top
     /// (2..16 stations of radius-at-height); `smooth` interpolates it with a
     /// Catmull-Rom spline (organic curves from few points) or keeps straight
@@ -1592,7 +1592,7 @@ pub enum GeneratorKind {
         common: PrimCommon,
     },
 
-    /// Smooth-blend SDF group — an ordered list of add/subtract elements
+    /// Smooth-blend SDF group - an ordered list of add/subtract elements
     /// (spheres / capsules / ellipsoids / boxes / cylinders / tori / cones)
     /// evaluated as one signed distance field with per-element polynomial
     /// smooth-min, then meshed once on spawn with surface nets. The Spore /
@@ -1600,15 +1600,15 @@ pub enum GeneratorKind {
     /// one seamless muscle mass, a subtracted sphere carves an eye socket,
     /// and the result is watertight by construction (a broken mesh is
     /// unrepresentable). `resolution` is the sample-grid cell count along
-    /// the group's longest axis — the quality/cost dial, clamped hard in
+    /// the group's longest axis - the quality/cost dial, clamped hard in
     /// sanitize because grid cost is cubic. Topology cuts apply as hard CSG
     /// on the final field: `profile_cut` keeps a Y-band of the group's
-    /// bounds (flat slices — a blob that sits flush on the ground),
+    /// bounds (flat slices - a blob that sits flush on the ground),
     /// `path_cut` keeps a pie wedge around the prim-local Y axis, and
     /// `hollow` erodes an inner shell whose wall is `(1 - hollow)` of the
     /// group's thinnest half-extent (visible wherever a carve or cut opens
     /// the surface). `uv_mapping` picks the texture projection baked into
-    /// the meshed surface — see [`UvMapping`] for the trade-offs per mode.
+    /// the meshed surface - see [`UvMapping`] for the trade-offs per mode.
     #[serde(rename = "network.symbios.gen.blob_group")]
     BlobGroup {
         elements: Vec<BlobElement>,
@@ -1648,13 +1648,13 @@ pub enum GeneratorKind {
     #[serde(rename = "network.symbios.gen.particles")]
     ParticleSystem(Box<ParticleParams>),
 
-    /// Image-bearing panel — a flat plane textured with a fetched image
+    /// Image-bearing panel - a flat plane textured with a fetched image
     /// from one of three [`SignSource`] variants. Subsumes the standalone
     /// "profile picture panel" use case (Portal already does the same fetch
     /// internally). `size` is the panel extent in metres, and the
     /// StandardMaterial toggles surface every common knob a signpost /
-    /// billboard / pfp panel might need. How the image sits on the panel —
-    /// scale, offset, rotation — is the `material`'s job, the same as on
+    /// billboard / pfp panel might need. How the image sits on the panel -
+    /// scale, offset, rotation - is the `material`'s job, the same as on
     /// every other surface in the app (#964).
     #[serde(rename = "network.symbios.gen.sign")]
     Sign {
@@ -1672,12 +1672,12 @@ pub enum GeneratorKind {
         /// **Still written**, at the identity, rather than elided. A client
         /// built before #964 requires the key, so dropping it would fail its
         /// decode of the whole generator; writing the identity instead makes
-        /// an old client render the image spanning the panel once — the
+        /// an old client render the image spanning the panel once - the
         /// same graceful degradation the per-face work chose (#956). The
         /// serde default covers hand-written JSON that omits it.
         ///
         /// The migration is exact for the square case. A legacy *anisotropic*
-        /// window cannot survive a uniform scale, so the larger repeat wins —
+        /// window cannot survive a uniform scale, so the larger repeat wins -
         /// no axis gains image content it did not already show.
         #[serde(default = "unit_uv_repeat")]
         uv_repeat: Fp2,
@@ -1687,7 +1687,7 @@ pub enum GeneratorKind {
         /// Tint + emissive + PBR knobs, plus the UV transform (`uv_scale` =
         /// how many times the image spans the panel, `uv_offset` in spans,
         /// `uv_rotation` in degrees). The fetched image overrides the
-        /// procedural slot — set `texture` to `None` so the loaded image is
+        /// procedural slot - set `texture` to `None` so the loaded image is
         /// the only colour source.
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
@@ -1716,7 +1716,7 @@ pub enum GeneratorKind {
 }
 
 /// Image-source alias retained for backwards compatibility. The canonical
-/// type is [`SovereignAssetReference`] — the same enum was originally
+/// type is [`SovereignAssetReference`] - the same enum was originally
 /// introduced here as `SignSource` but generalised when texture and audio
 /// dropdowns gained their own Referenced variants. The `$type` wire tags
 /// (`network.symbios.sign.*`) are unchanged so already-published records
@@ -1736,7 +1736,7 @@ pub use crate::pds::asset_reference::SovereignAssetReference as SignSource;
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(tag = "$type")]
 pub enum AlphaModeKind {
-    /// Fully opaque — no alpha lookup, fastest.
+    /// Fully opaque - no alpha lookup, fastest.
     #[serde(rename = "network.symbios.alpha.opaque")]
     #[default]
     Opaque,
@@ -1824,7 +1824,7 @@ pub enum SimulationSpace {
 /// divided into a `rows × cols` grid; each cell is one animation frame
 /// (or one randomised sprite, depending on
 /// [`AnimationFrameMode`]). The sanitiser caps each axis at 16, so an
-/// atlas tops out at 256 frames — well past any plausible particle
+/// atlas tops out at 256 frames - well past any plausible particle
 /// effect and inside the per-frame mesh-cache budget.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct TextureAtlas {
@@ -1842,7 +1842,7 @@ impl Default for TextureAtlas {
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(tag = "$type")]
 pub enum AnimationFrameMode {
-    /// Single static frame (frame 0). Default — matches a solid
+    /// Single static frame (frame 0). Default - matches a solid
     /// non-animated sprite.
     #[serde(rename = "network.symbios.particle.frame.still")]
     #[default]
@@ -1883,7 +1883,7 @@ pub enum TextureFilter {
 }
 
 impl GeneratorKind {
-    /// Canonical default kind for a newly-added primitive — a 1×1×1 cuboid
+    /// Canonical default kind for a newly-added primitive - a 1×1×1 cuboid
     /// with zero torture and a blank material. Used by UI "+ Cuboid" flows
     /// and when the sanitizer overwrites a forbidden `Terrain`/`Water`
     /// generator nested inside another generator.
@@ -1926,7 +1926,7 @@ impl GeneratorKind {
     /// Shared read access to a parametric primitive's **base** material;
     /// `None` for non-primitive variants. The `Sign` panel and the
     /// slot-mapped `Shape` / `LSystem` material maps are deliberately
-    /// excluded — `node_materials_mut` in `material_finish` is the
+    /// excluded - `node_materials_mut` in `material_finish` is the
     /// every-material walk.
     pub fn material(&self) -> Option<&SovereignMaterialSettings> {
         self.common().map(|c| &c.material)
@@ -1952,8 +1952,8 @@ impl GeneratorKind {
 
     /// The projection a primitive family uses when its record names none:
     /// `Box` for the flat family (Cuboid, Tetrahedron, Bevel, Wedge,
-    /// Superellipsoid, BlobGroup) — metre-scale tri-planar, so texel
-    /// density is even across faces of any proportion — and `Fit` for the
+    /// Superellipsoid, BlobGroup) - metre-scale tri-planar, so texel
+    /// density is even across faces of any proportion - and `Fit` for the
     /// Plane and the revolved family, whose meshers have an analytic
     /// parameterisation of their own. `None` for non-primitive variants.
     ///
@@ -2006,7 +2006,7 @@ impl GeneratorKind {
         true
     }
 
-    /// `true` when the variant is a parametric primitive — one of the
+    /// `true` when the variant is a parametric primitive - one of the
     /// sixteen on the [`for_each_primitive!`] roster. Used by the UI
     /// primitive-kind picker and by the spawner to dispatch into the
     /// shared mesh/collider path.
@@ -2014,7 +2014,7 @@ impl GeneratorKind {
         self.common().is_some()
     }
 
-    /// Short **wire** tag for the variant — the serialized `$type`
+    /// Short **wire** tag for the variant - the serialized `$type`
     /// discriminant, and the key into
     /// `ui::room::construct::make_default_for_kind`.
     ///
@@ -2059,8 +2059,8 @@ impl GeneratorKind {
 
     /// What a person is told this kind is (#1267 f214).
     ///
-    /// Keyed on the wire tag rather than on `self`, so the creation menus —
-    /// which offer tags, not constructed values — can name what they are
+    /// Keyed on the wire tag rather than on `self`, so the creation menus -
+    /// which offer tags, not constructed values - can name what they are
     /// offering without building one of each first. An unrecognised tag
     /// comes back as itself: a menu that silently dropped an entry it
     /// could not name would be worse than one that shows the raw word.
@@ -2102,7 +2102,7 @@ impl GeneratorKind {
 
     /// One line saying what this kind is FOR, for the hover beside
     /// [`display_name`](Self::display_name). Empty for a tag with nothing
-    /// worth saying — the callers skip the hover rather than attach a
+    /// worth saying - the callers skip the hover rather than attach a
     /// blank one.
     ///
     /// The Catalogue proved this affordable: its leaves have hovered
@@ -2111,13 +2111,13 @@ impl GeneratorKind {
     /// around had none.
     pub fn blurb(tag: &str) -> &'static str {
         match tag {
-            "Terrain" => "The ground itself — height, erosion and the materials on it",
+            "Terrain" => "The ground itself - height, erosion and the materials on it",
             "Water" => "One water surface across the whole world",
             "RoadNetwork" => "Streets and junctions, with buildings along them",
             "Portal" => "A doorway to somebody else's world",
             "Gateway" => "A doorway to the people you and the owner both follow",
             "LSystem" => "A tree, vine or shrub grown from a grammar",
-            "Shape" => "A structure grown by rules — split, repeat, taper",
+            "Shape" => "A structure grown by rules - split, repeat, taper",
             "Cuboid" => "A box",
             "Sphere" => "A ball",
             "Cylinder" => "A rod or disc",
@@ -2126,22 +2126,22 @@ impl GeneratorKind {
             "Torus" => "A doughnut ring",
             "Plane" => "A flat rectangle with no thickness",
             "Tetrahedron" => "A four-faced pyramid",
-            "Tube" => "A pipe — a cylinder with the middle taken out",
+            "Tube" => "A pipe - a cylinder with the middle taken out",
             "Bevel" => "A box with its edges cut back",
             "Wedge" => "A ramp",
-            "Helix" => "A spiral — a ramp, a spring or a screw",
+            "Helix" => "A spiral - a ramp, a spring or a screw",
             "Superellipsoid" => "A box you can round off towards a ball",
             "Spine" => "A profile swept along a curve you draw",
             "Lathe" => "A profile spun around an axis, like a vase",
             "BlobGroup" => "Soft shapes that melt into one another",
             "Sign" => "A flat panel carrying an image or text",
-            "ParticleSystem" => "A continuous emitter — smoke, sparks, dust",
+            "ParticleSystem" => "A continuous emitter - smoke, sparks, dust",
             _ => "",
         }
     }
 
     /// Build a default primitive kind for `tag`. Returns `None` for non-
-    /// primitive tags — callers that want an L-system or Portal should
+    /// primitive tags - callers that want an L-system or Portal should
     /// construct those variants directly since they carry more state than
     /// sensible defaults capture.
     pub fn default_primitive_for_tag(tag: &str) -> Option<Self> {
@@ -2265,7 +2265,7 @@ impl GeneratorKind {
                 },
             },
             // Exponents at 0.5 default to the pillow / rounded-box middle of
-            // the family — visually distinct from both Cuboid and Sphere, so
+            // the family - visually distinct from both Cuboid and Sphere, so
             // a freshly-added prim reads as its own thing.
             "Superellipsoid" => GeneratorKind::Superellipsoid {
                 common: PrimCommon {
@@ -2304,7 +2304,7 @@ impl GeneratorKind {
                     ..Default::default()
                 },
             },
-            // A bellied vase silhouette — the canonical lathe demo shape.
+            // A bellied vase silhouette - the canonical lathe demo shape.
             "Lathe" => GeneratorKind::Lathe {
                 points: vec![
                     LathePoint {
@@ -2336,7 +2336,7 @@ impl GeneratorKind {
                     ..Default::default()
                 },
             },
-            // Two generously-blended spheres — the smallest recipe that
+            // Two generously-blended spheres - the smallest recipe that
             // shows what the prim is for (they merge into one peanut mass).
             "BlobGroup" => GeneratorKind::BlobGroup {
                 elements: vec![
@@ -2363,7 +2363,7 @@ impl GeneratorKind {
         })
     }
 
-    /// Canonical default `Sign` — a 1×1 m unlit, opaque, single-sided panel
+    /// Canonical default `Sign` - a 1×1 m unlit, opaque, single-sided panel
     /// with an empty URL source. Used by the UI "+ Sign" entry and by
     /// `ui::room::construct::make_default_for_kind`.
     pub fn default_sign() -> Self {
@@ -2380,13 +2380,13 @@ impl GeneratorKind {
         }
     }
 
-    /// Canonical default `ParticleSystem` — a small upward-spraying
+    /// Canonical default `ParticleSystem` - a small upward-spraying
     /// emitter with 32 particles/s, 2 s lifetime, white→fade-out
     /// alpha-blended particles on a soft-disc sprite (#367, so a
     /// freshly-added emitter reads as soft motes rather than hard
     /// squares), no inheritance, no collisions. Used by the UI
-    /// "+ ParticleSystem" entry; the editor surfaces every parameter —
-    /// including the sprite picker — for tuning afterwards.
+    /// "+ ParticleSystem" entry; the editor surfaces every parameter -
+    /// including the sprite picker - for tuning afterwards.
     pub fn default_particles() -> Self {
         GeneratorKind::ParticleSystem(Box::default())
     }
@@ -2411,7 +2411,7 @@ pub struct Generator {
     pub transform: TransformData,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Generator>,
-    /// Optional emissive audio source attached to this node — spatially
+    /// Optional emissive audio source attached to this node - spatially
     /// played at the node's world position by Bevy's spatial audio
     /// pipeline. Forward-compat across older records: missing field
     /// decodes via `#[serde(default)]` to
@@ -2505,7 +2505,7 @@ pub enum Placement {
         #[serde(with = "u64_as_string")]
         local_seed: u64,
         /// Combined biome allow-list + water-surface relation. A default
-        /// `BiomeFilter` accepts every sample (and is elided on the wire —
+        /// `BiomeFilter` accepts every sample (and is elided on the wire -
         /// `is_noop` is exactly the default state).
         #[serde(default, skip_serializing_if = "BiomeFilter::is_noop")]
         biome_filter: BiomeFilter,
@@ -2517,7 +2517,7 @@ pub enum Placement {
         #[serde(default = "default_true", skip_serializing_if = "is_true")]
         random_yaw: bool,
         /// Reject scatter points that fall inside the room's road-network
-        /// district — a circle of radius `RoadConfig::district_half_extent`
+        /// district - a circle of radius `RoadConfig::district_half_extent`
         /// around spawn. Keeps the seeded natural scatters (trees, boulders)
         /// clear of the built-up urban area (roads *and* lot buildings)
         /// without needing an annulus bounds shape. Resolved at compile
@@ -2526,19 +2526,19 @@ pub enum Placement {
         #[serde(default, skip_serializing_if = "is_false")]
         avoid_urban: bool,
         /// Spawn each instance at the room's **water surface** instead of on
-        /// the terrain under it, for floating cover — lily pads on a wetland
+        /// the terrain under it, for floating cover - lily pads on a wetland
         /// pool (#914). Only ever *raises* an instance: ground above the
         /// water line keeps its terrain height, so a pad sampled onto a
         /// shore bank sits on the bank rather than sinking to a phantom
         /// water level inside it. A room with no water surface leaves every
         /// instance terrain-snapped.
         ///
-        /// Opt-in per placement, never a default — trees standing in water
+        /// Opt-in per placement, never a default - trees standing in water
         /// was a real bug (#335), and water placement stays something a
         /// species asks for explicitly.
         #[serde(default, skip_serializing_if = "is_false")]
         float_on_water: bool,
-        /// Placement-naturalness dials — clustering, edge falloff,
+        /// Placement-naturalness dials - clustering, edge falloff,
         /// per-instance scale/tilt, slope cutoff (#912). All-default is the
         /// historical flat-uniform sprinkle and is elided on the wire.
         #[serde(default, skip_serializing_if = "ScatterNaturalness::is_noop")]
@@ -2555,7 +2555,7 @@ pub enum Placement {
         #[serde(default = "default_true", skip_serializing_if = "is_true")]
         snap_to_terrain: bool,
         /// Apply a per-cell deterministic random yaw. Defaults to `false`
-        /// — grids are typically axis-aligned.
+        /// - grids are typically axis-aligned.
         #[serde(default, skip_serializing_if = "is_false")]
         random_yaw: bool,
     },
@@ -2694,7 +2694,7 @@ mod scatter_naturalness_wire_tests {
         assert_eq!(block.len(), 1, "expected only max_slope_deg, got {block:?}");
     }
 
-    /// The sanitiser is the record boundary — a hostile or corrupt block
+    /// The sanitiser is the record boundary - a hostile or corrupt block
     /// must not reach a transform. NaN matters specifically: `f32::clamp`
     /// propagates it, so a naive clamp would let one straight through.
     #[test]
@@ -2742,7 +2742,7 @@ mod prim_wire_tests {
 
     #[test]
     fn torture_params_predating_new_knobs_default_to_identity() {
-        // A pre-#688 torture block carries no `taper_bottom` / `bulge` keys —
+        // A pre-#688 torture block carries no `taper_bottom` / `bulge` keys -
         // and since #695 the eliding wire format omits every identity knob
         // anyway, so serializing a twist+taper-only value produces exactly
         // the shape an already-published record carries.
@@ -2843,7 +2843,7 @@ mod prim_wire_tests {
     /// known mode round-trips through its own tag, and an unrecognised
     /// mode tag degrades to `Unknown` instead of failing the record.
     /// #937: the flat-faced kinds carry `uv_mapping` too, and `Plane`
-    /// defaults to `Fit` rather than the enum-wide `Box` — a card must span
+    /// defaults to `Fit` rather than the enum-wide `Box` - a card must span
     /// its quad once, so a field-less Plane record has to keep meaning
     /// "card", not silently start tiling.
     #[test]
@@ -2862,7 +2862,7 @@ mod prim_wire_tests {
         let plane = GeneratorKind::default_primitive_for_tag("Plane").unwrap();
         assert!(
             plane.uv_mapping() == Some(UvMapping::Fit),
-            "Plane must default to Fit — it is the alpha-card carrier"
+            "Plane must default to Fit - it is the alpha-card carrier"
         );
         assert!(
             json(&plane).get("uv_mapping").is_none(),
@@ -2890,7 +2890,7 @@ mod prim_wire_tests {
 
     #[test]
     fn blob_group_uv_mapping_wire_format() {
-        // The default mode (Box since #742) stays off the wire — a
+        // The default mode (Box since #742) stays off the wire - a
         // field-less record and a freshly-built default serialise
         // identically.
         assert_eq!(
@@ -2919,7 +2919,7 @@ mod prim_wire_tests {
             assert_eq!(rm, mode);
         }
 
-        // A non-default mode survives a full generator round trip — since
+        // A non-default mode survives a full generator round trip - since
         // #742 that includes Spherical, which must now serialise its tag
         // explicitly to keep rendering spherically.
         let GeneratorKind::BlobGroup {
@@ -3051,7 +3051,7 @@ mod face_override_tests {
         assert!(v.as_object().expect("object").get("faces").is_none());
 
         // A default revolved prim serialises with neither `faces` nor
-        // `uv_mapping` — which makes its wire shape *identical* to a
+        // `uv_mapping` - which makes its wire shape *identical* to a
         // pre-#955 record's, so parsing it back exercises the legacy path…
         let sphere = GeneratorKind::default_primitive_for_tag("Sphere").expect("sphere");
         let legacy_wire = serde_json::to_value(&sphere).expect("serialises");
@@ -3075,7 +3075,7 @@ mod face_override_tests {
         let v = serde_json::to_value(overridden_cuboid()).expect("serialises");
         let faces = v["faces"].as_array().expect("faces array");
         assert_eq!(faces.len(), 2);
-        // The Top override carries only its face key — its default material
+        // The Top override carries only its face key - its default material
         // and inherit-mapping stay off the wire.
         assert!(faces[1].get("material").is_none());
         assert!(faces[1].get("uv_mapping").is_none());
@@ -3095,7 +3095,7 @@ mod particle_params_tests {
 
     #[test]
     fn particle_params_wire_format_is_inline() {
-        // Author a few non-default fields so they must appear on the wire —
+        // Author a few non-default fields so they must appear on the wire -
         // since #695 default-valued params are elided, so the all-defaults
         // emitter serializes as just its `$type` tag.
         let kind = GeneratorKind::ParticleSystem(Box::new(ParticleParams {
@@ -3106,7 +3106,7 @@ mod particle_params_tests {
         }));
         let v = serde_json::to_value(&kind).expect("serialises");
         let obj = v.as_object().expect("one flat JSON object");
-        // Tag + fields side by side — no nested params wrapper key.
+        // Tag + fields side by side - no nested params wrapper key.
         assert_eq!(
             obj.get("$type").and_then(|t| t.as_str()),
             Some("network.symbios.gen.particles")

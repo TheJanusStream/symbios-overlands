@@ -1,4 +1,4 @@
-//! Light pylon — an Alien-Monolithic secondary. A tall tapering obsidian pylon
+//! Light pylon - an Alien-Monolithic secondary. A tall tapering obsidian pylon
 //! banded with glyphs and crowned by a glowing orb and a shaft of light. The
 //! beacon of the site; its orb and beam are emissive trim the ruin pass can
 //! darken.
@@ -54,7 +54,7 @@ fn build_tree() -> Generator {
     let pylon_top = base_h + pylon_h;
 
     let mut prims = vec![
-        // Obsidian base — the root.
+        // Obsidian base - the root.
         prim(
             solid(cuboid_tapered([1.8, base_h, 1.8], 0.0, obsidian(OBSIDIAN))),
             [0.0, base_h * 0.5, 0.0],
@@ -68,7 +68,7 @@ fn build_tree() -> Generator {
         [0.0, base_h + pylon_h * 0.5, 0.0],
         id_quat(),
     ));
-    // Glowing energy collars ringing the shaft — emissive bands that read on
+    // Glowing energy collars ringing the shaft - emissive bands that read on
     // the needle far better than the old tiny face-bars; majors shrink with
     // the shaft's taper.
     for (k, major) in [0.56_f32, 0.46, 0.37].into_iter().enumerate() {
@@ -91,20 +91,20 @@ fn build_tree() -> Generator {
         prims.push(g);
     }
 
-    // Glowing orb at the crown — emissive, rounder (res 6) than the old blocky
+    // Glowing orb at the crown - emissive, rounder (res 6) than the old blocky
     // res-3 facet ball.
     prims.push(prim(
         sphere(0.5, 6, glow(GLYPH_CYAN, 3.0)),
         [0.0, pylon_top + 0.4, 0.0],
         id_quat(),
     ));
-    // Horizontal halo ring around the orb — emissive.
+    // Horizontal halo ring around the orb - emissive.
     prims.push(prim(
         torus(0.05, 0.78, glow(GLYPH_CYAN, 2.3)),
         [0.0, pylon_top + 0.4, 0.0],
         id_quat(),
     ));
-    // Thin shaft of light rising above — emissive.
+    // Thin shaft of light rising above - emissive.
     prims.push(prim(
         cylinder_tapered(0.1, 2.5, 6, 0.6, glow(GLYPH_CYAN, 2.6)),
         [0.0, pylon_top + 1.8, 0.0],

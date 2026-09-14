@@ -1,4 +1,4 @@
-//! Wreckage — a collapsed wall, a fallen beam and scattered rubble. An
+//! Wreckage - a collapsed wall, a fallen beam and scattered rubble. An
 //! escalation-Conflict scatter prop: the aftermath of fighting reads the
 //! same in any setting (and the escalation finish scorches it further).
 
@@ -50,7 +50,7 @@ impl CatalogueEntry for Wreckage {
 fn build_tree() -> Generator {
     use std::f32::consts::FRAC_PI_2;
     let mut prims = vec![
-        // Flat debris pad — the level root, so the toppled pieces lean off
+        // Flat debris pad - the level root, so the toppled pieces lean off
         // it rather than the whole scene inheriting a tilted root.
         prim(
             solid(cuboid_tapered(

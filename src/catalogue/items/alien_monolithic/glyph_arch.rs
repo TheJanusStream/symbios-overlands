@@ -1,4 +1,4 @@
-//! Glyph arch — an Alien-Monolithic secondary. A black obsidian gateway, its
+//! Glyph arch - an Alien-Monolithic secondary. A black obsidian gateway, its
 //! jambs and lintel carved with glowing glyphs across a shimmering threshold.
 //! Its glow is emissive trim the ruin pass can darken.
 //!
@@ -54,7 +54,7 @@ fn build_tree() -> Generator {
     let zf = -(0.45 + 0.04); // proud of the −Z hero front
 
     let mut prims = vec![
-        // Left jamb — the root.
+        // Left jamb - the root.
         prim(
             solid(cuboid_tapered([0.9, leg_h, 0.9], 0.06, obsidian(OBSIDIAN))),
             [-jamb_x, leg_h * 0.5, 0.0],
@@ -67,7 +67,7 @@ fn build_tree() -> Generator {
         [jamb_x, leg_h * 0.5, 0.0],
         id_quat(),
     ));
-    // Semicircular obsidian arch springing from the jamb tops — a real arched
+    // Semicircular obsidian arch springing from the jamb tops - a real arched
     // gateway, not the old flat post-and-lintel rectangle.
     prims.push(prim(
         solid(with_cut(
@@ -80,7 +80,7 @@ fn build_tree() -> Generator {
         quat_x(-std::f32::consts::FRAC_PI_2),
     ));
 
-    // Inscribed glyph columns down the −Z face of each jamb — emissive.
+    // Inscribed glyph columns down the −Z face of each jamb - emissive.
     for sx in [-1.0_f32, 1.0] {
         for g in glyph_column(
             sx * jamb_x,
@@ -93,7 +93,7 @@ fn build_tree() -> Generator {
             prims.push(g);
         }
     }
-    // Glowing arch seam — a thin luminous semicircle just proud of the −Z
+    // Glowing arch seam - a thin luminous semicircle just proud of the −Z
     // front, tracing the gateway's threshold ring.
     prims.push(prim(
         with_cut(
@@ -105,7 +105,7 @@ fn build_tree() -> Generator {
         [0.0, leg_h, zf],
         quat_x(-std::f32::consts::FRAC_PI_2),
     ));
-    // Keystone glyph at the apex front — emissive.
+    // Keystone glyph at the apex front - emissive.
     for g in glyph_column(
         0.0,
         leg_h + half_span - 0.7,
@@ -116,7 +116,7 @@ fn build_tree() -> Generator {
     ) {
         prims.push(g);
     }
-    // Shimmering threshold field in the opening — emissive, deep violet at a
+    // Shimmering threshold field in the opening - emissive, deep violet at a
     // low strength so it reads as charged energy, not a washed-out lavender
     // panel (a broad flat emissive face blooms pale if driven hard).
     prims.push(prim(
@@ -125,7 +125,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Buried footings under each jamb — the arch has no base slab, so the
+    // Buried footings under each jamb - the arch has no base slab, so the
     // jambs are what meets the ground. Kept separate so nothing bridges the
     // threshold.
     for sx in [-1.0_f32, 1.0] {

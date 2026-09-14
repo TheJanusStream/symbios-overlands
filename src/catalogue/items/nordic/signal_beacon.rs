@@ -1,4 +1,4 @@
-//! Signal beacon — a Nordic secondary and the kit's firelit hero. A braced
+//! Signal beacon - a Nordic secondary and the kit's firelit hero. A braced
 //! timber lattice tower on a fieldstone base hoists an iron fire-basket of
 //! burning logs high enough to be seen across the fjord: the warning-fire
 //! chain that mustered the fleet. The cage of iron bars lets the blaze show
@@ -60,7 +60,7 @@ fn build_tree() -> Generator {
     let r = 0.95_f32; // corner-post half-spacing
 
     let mut prims = vec![
-        // Fieldstone base — the root.
+        // Fieldstone base - the root.
         prim(
             solid(cuboid_tapered(
                 [3.0, base_h, 3.0],
@@ -100,7 +100,7 @@ fn build_tree() -> Generator {
     let dlen = (span * span + (2.0 * r) * (2.0 * r)).sqrt();
     let mid_y = base_h + post_h * 0.5;
     for sx in [-1.0_f32, 1.0] {
-        // ±X faces — diagonals run in Z, rotated about X.
+        // ±X faces - diagonals run in Z, rotated about X.
         prims.push(prim(
             solid(cuboid_tapered([0.1, 0.1, dlen], 0.0, timber(WOOD_DARK))),
             [sx * r, mid_y, 0.0],
@@ -113,7 +113,7 @@ fn build_tree() -> Generator {
         ));
     }
     for sz in [-1.0_f32, 1.0] {
-        // ±Z faces — diagonals run in X, rotated about Z.
+        // ±Z faces - diagonals run in X, rotated about Z.
         prims.push(prim(
             solid(cuboid_tapered([dlen, 0.1, 0.1], 0.0, timber(WOOD_DARK))),
             [0.0, mid_y, sz * r],
@@ -157,7 +157,7 @@ fn build_tree() -> Generator {
     ));
 
     // Iron fire-basket: a shallow floor disc, a cage of upright bars, and two
-    // hoop rings — open so the blaze shows between the bars.
+    // hoop rings - open so the blaze shows between the bars.
     let basket_y = deck_y + 0.55;
     prims.push(prim(
         solid(cylinder_tapered(0.85, 0.12, 12, 0.0, iron(IRON_DARK))),
@@ -180,7 +180,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Glowing fire core inside the basket — the emissive heart, crackling.
+    // Glowing fire core inside the basket - the emissive heart, crackling.
     let mut fire = prim(
         sphere(0.62, 6, glow(FIRE_ORANGE, 6.5)),
         [0.0, basket_y + 0.05, 0.0],

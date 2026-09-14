@@ -1,4 +1,4 @@
-//! Item preview — a live 3D picture of the selected catalogue entry
+//! Item preview - a live 3D picture of the selected catalogue entry
 //! (#1288) or stash item (#1301).
 //!
 //! The Catalogue lists 392 entries by name and description alone, so the
@@ -14,7 +14,7 @@
 //! goes stale when [`crate::catalogue::ENTRIES`] gains a row or #972
 //! reworks one, and no image asset enters the repo or the wasm bundle.
 //! The accepted cost is that the picture exists only for the SELECTED
-//! item — the browse tree and the Inventory's rows stay text-only — and
+//! item - the browse tree and the Inventory's rows stay text-only - and
 //! that there is ONE stage: with both windows open and both holding a
 //! selection, the most recent pick is the one pictured ([`wanted_subject`]).
 //!
@@ -46,14 +46,14 @@
 //! the automatic pick off, so this camera must never carry
 //! `PrimaryEguiContext`.
 //!
-//! **`RenderLayers` does not propagate down the hierarchy in Bevy 0.19** —
-//! only `Visibility` does — and the spawn path builds a whole tree, whose
+//! **`RenderLayers` does not propagate down the hierarchy in Bevy 0.19** -
+//! only `Visibility` does - and the spawn path builds a whole tree, whose
 //! particle emitters go on adding children later. So the stage root
 //! carries `Propagate<RenderLayers>` and the app registers
 //! [`bevy::app::HierarchyPropagatePlugin`] for it in
 //! `PostUpdate`, ordered before `VisibilitySystems::CheckVisibility`, so
-//! the component lands on descendants — including ones spawned this frame
-//! — before anything decides what the world camera can see. Inserting the layer
+//! the component lands on descendants - including ones spawned this frame
+//! - before anything decides what the world camera can see. Inserting the layer
 //! by hand at spawn time would have meant threading it through
 //! `spawn_visual_tree` and every emitter path, and would still have missed
 //! the particles.
@@ -69,19 +69,19 @@
 //!
 //! ## What it costs, which is a wasm question first
 //!
-//! One 256 px `Rgba8UnormSrgb` target — a quarter of a megabyte of VRAM,
+//! One 256 px `Rgba8UnormSrgb` target - a quarter of a megabyte of VRAM,
 //! declared `RenderAssetUsages::RENDER_WORLD` so it keeps no main-world
 //! CPU copy (#565 measured that retention as the dominant wasm cost, and
 //! a wasm heap never shrinks). The camera is spawned ONCE and toggled by
 //! [`restage_preview`], never spawned per selection, and it is inactive
-//! whenever no open window holds a selection it can picture — so a session
+//! whenever no open window holds a selection it can picture - so a session
 //! that never selects anything pays the target's memory and no passes at
 //! all. `Msaa` is
 //! off for the same reason the main camera turns it off: Bevy's default
 //! `Sample4` panics on the WebGL2 entry point.
 //!
 //! It adds no sampler to any existing material, so the WebGL2 16-sampler
-//! ceiling the splat material sits against is untouched — this is a
+//! ceiling the splat material sits against is untouched - this is a
 //! second view, not a second texture on the first one.
 //!
 //! ## What the spawn path does NOT bring
@@ -91,7 +91,7 @@
 //! `PlacementUnit` cleanup tags and the `PrimMarker` gizmo key. A preview
 //! is therefore not a physics body, not something a room rebuild sweeps,
 //! and not something the gizmo can find. The one marker it does carry is
-//! `AvatarVisualRoot`, which only the gait layer reads — and that layer
+//! `AvatarVisualRoot`, which only the gait layer reads - and that layer
 //! looks roots up *from* an entity that has a `GaitAnimation`, so a stage
 //! with no such parent is never reached.
 
@@ -111,8 +111,8 @@ use crate::player::visuals::{AvatarSpawnDeps, spawn_visual_tree};
 use crate::state::{AppState, LiveInventoryRecord};
 
 /// The render layer the preview stage, its key light and its camera live
-/// on. Nothing else in the crate uses `RenderLayers` at all, so layer 0 —
-/// the layer every component-less entity belongs to — is the whole rest of
+/// on. Nothing else in the crate uses `RenderLayers` at all, so layer 0 -
+/// the layer every component-less entity belongs to - is the whole rest of
 /// the app.
 pub const PREVIEW_LAYER: usize = 1;
 
@@ -123,7 +123,7 @@ const STAGE_ORIGIN: Vec3 = Vec3::new(0.0, 2_000.0, 0.0);
 
 /// Edge of the square render target, in pixels. The detail panel draws it
 /// at a smaller logical size, so this is the resolution the picture is
-/// sampled *from* — 256 keeps it crisp on a 2x display without costing a
+/// sampled *from* - 256 keeps it crisp on a 2x display without costing a
 /// second full-size pass every frame the Catalogue is open.
 const TARGET_SIZE: u32 = 256;
 
@@ -142,7 +142,7 @@ const VIEW_ELEVATION_DEG: f32 = 18.0;
 /// leaves around the subject's bounding sphere.
 const VIEW_FOV: f32 = std::f32::consts::FRAC_PI_4;
 const FRAMING_MARGIN: f32 = 1.25;
-/// Floor on how close the camera will stand, in metres — five times its
+/// Floor on how close the camera will stand, in metres - five times its
 /// own near plane, so a subject with no size cannot put geometry inside
 /// it. Deliberately only just above the near plane: a larger floor is not
 /// a safety margin, it is a rule that renders every small item small, and
@@ -156,7 +156,7 @@ const MIN_VIEW_DISTANCE: f32 = 0.05;
 /// arrow from a render pipeline into the egui layer for one `bool` and
 /// one `Option<&str>`. Written once a frame by
 /// `ui::catalogue::mirror_preview_request` in `PreUpdate`, the
-/// `world_builder::PlacementFocus` shape a second time — for the Inventory's
+/// `world_builder::PlacementFocus` shape a second time - for the Inventory's
 /// selection as well as the Catalogue's since #1301.
 ///
 /// Still DERIVED rather than pushed: the mirror recomputes it from the
@@ -167,7 +167,7 @@ const MIN_VIEW_DISTANCE: f32 = 0.05;
 pub struct PreviewRequest(pub Option<PreviewSubject>);
 
 /// What the preview is showing, or is being asked to show. Compared by
-/// value: a restage happens when — and only when — this differs from what
+/// value: a restage happens when - and only when - this differs from what
 /// is already on the stage, so holding a selection costs one camera pass
 /// per frame and no respawns.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -175,7 +175,7 @@ pub enum PreviewSubject {
     /// A catalogue entry, by [`crate::catalogue::CatalogueEntry::slug`].
     Catalogue(String),
     /// A stash item (#1301), by its key in [`InventoryRecord::generators`]
-    /// — its NAME. The PDS rkey is derived from the name
+    /// - its NAME. The PDS rkey is derived from the name
     /// ([`crate::pds::inventory::item_rkey`]), so the name is the identity;
     /// a rename is a different subject.
     ///
@@ -186,7 +186,7 @@ pub enum PreviewSubject {
     /// cost a whole-tree `PartialEq` every frame, which is the per-frame
     /// work #1135/#1292 removed from the Inventory panel. The tick is the
     /// truth the panel's own dirty caches already key on, so any stash
-    /// write restages the selected item ONCE — one respawn per discrete
+    /// write restages the selected item ONCE - one respawn per discrete
     /// user action, and none while nothing is written (#1322).
     Inventory { name: String, edit: Tick },
 }
@@ -204,7 +204,7 @@ pub struct ItemPreview {
     /// What [`Self::stage`] holds. `None` means the camera is off.
     staged: Option<PreviewSubject>,
     /// Cleared on every restage and set once the framing has found real
-    /// bounds — a freshly spawned tree has no `Aabb` until Bevy has
+    /// bounds - a freshly spawned tree has no `Aabb` until Bevy has
     /// computed one, so framing is a follow-up, not part of the spawn.
     framed: bool,
 }
@@ -213,7 +213,7 @@ impl ItemPreview {
     /// What the render target actually holds a usable picture OF.
     ///
     /// Deliberately narrower than "what is staged". A subject spawned this
-    /// frame is staged immediately but not yet FRAMED — its meshes have no
+    /// frame is staged immediately but not yet FRAMED - its meshes have no
     /// bounds until Bevy computes them, so the camera is still pointing
     /// where the previous subject was, and the picture drawn from it would
     /// be the new item seen from the old item's distance. Callers ask this
@@ -233,7 +233,7 @@ impl ItemPreview {
 ///
 /// The stage is invisible to the world camera through [`PREVIEW_LAYER`],
 /// but the CAMERA is a plain `Camera3d` and was therefore a second answer
-/// to every `With<Camera3d>` query in the crate — see
+/// to every `With<Camera3d>` query in the crate - see
 /// [`crate::camera::WorldCamera`] for what that broke. This module
 /// identifies its own camera positively for the same reason everything
 /// else now identifies the player's.
@@ -244,16 +244,16 @@ pub struct ItemPreviewPlugin;
 
 impl Plugin for ItemPreviewPlugin {
     fn build(&self, app: &mut App) {
-        // See the module header: the stage's descendants — including
-        // particles spawned after the tree — get their layer from here,
+        // See the module header: the stage's descendants - including
+        // particles spawned after the tree - get their layer from here,
         // in PostUpdate, which is before visibility is computed and
         // before the render world extracts.
         app.add_plugins(HierarchyPropagatePlugin::<RenderLayers>::new(PostUpdate))
             // The plugin only says WHICH schedule; ordering it before
             // visibility is what makes the claim above true. Without this
             // the propagation could land after the frame's visibility
-            // check and a freshly spawned preview node — or a particle the
-            // emitter added this frame — would be drawn by the WORLD
+            // check and a freshly spawned preview node - or a particle the
+            // emitter added this frame - would be drawn by the WORLD
             // camera once, two kilometres over the player's head.
             .configure_sets(
                 PostUpdate,
@@ -269,7 +269,7 @@ impl Plugin for ItemPreviewPlugin {
             )
             // Leaving the game does not close the Catalogue window, so
             // without this the stage and its camera pass would survive a
-            // logout into the login screen — where the resources the
+            // logout into the login screen - where the resources the
             // restage needs are gone and it cannot clean up after itself.
             .add_systems(OnExit(AppState::InGame), clear_preview);
     }
@@ -310,7 +310,7 @@ pub(crate) fn setup_preview(
                 order: -1,
                 clear_color: ClearColorConfig::Custom(BACKDROP),
                 // Off until something is selected. A preview nobody is
-                // looking at must not cost a render pass — this is the
+                // looking at must not cost a render pass - this is the
                 // whole reason the camera is spawned once and toggled
                 // rather than spawned per selection.
                 is_active: false,
@@ -346,7 +346,7 @@ pub(crate) fn setup_preview(
 
     // A POINT light, not a directional one: a `DirectionalLight` is
     // position-independent, so even confined to this layer it would want
-    // shadow cascades sized for a world. Shadows are off outright — a
+    // shadow cascades sized for a world. Shadows are off outright - a
     // 256 px thumbnail cannot show them and they would double the pass.
     commands.spawn((
         PointLight {
@@ -398,7 +398,7 @@ pub(crate) struct Pick<'a> {
     pub(crate) at: f64,
 }
 
-/// The subject the UI is asking for. Derived rather than pushed — there is
+/// The subject the UI is asking for. Derived rather than pushed - there is
 /// no request resource for a panel to write every frame, so there is no
 /// change-tick to guard (#879).
 ///
@@ -407,8 +407,8 @@ pub(crate) struct Pick<'a> {
 /// (#1301). There is one stage, and "most recent" is the only order a user
 /// can see: the other window keeps its selection and its facts and shows
 /// the placeholder tile, where clearing its selection instead would take
-/// away a pick the user never touched. A pick that cannot be pictured — a
-/// room-scoped stash item, a name that no longer resolves — does not take
+/// away a pick the user never touched. A pick that cannot be pictured - a
+/// room-scoped stash item, a name that no longer resolves - does not take
 /// the stage from one that can. On an exact tie the Catalogue keeps it,
 /// which is only a determinism rule: one frame cannot hold two clicks.
 ///
@@ -449,7 +449,7 @@ fn catalogue_subject(pick: Pick<'_>) -> Option<PreviewSubject> {
 /// is not a nicety. The spawn path runs `avatar_mode`, but the Terrain arm
 /// of `spawn_generator` tags its anchor `RoomEntity` regardless, and a
 /// Water child spawns a volume the width of the whole region and registers
-/// it in `WaterSurfaces` — a room-scoped item on the stage would reach into
+/// it in `WaterSurfaces` - a room-scoped item on the stage would reach into
 /// the world. An unreadable item (`GeneratorKind::Unknown`) has nothing to
 /// draw. The pane says why in each case; the stage stays out of it.
 fn inventory_subject(
@@ -472,7 +472,7 @@ fn inventory_subject(
 }
 
 // How many times `restage_preview` swapped the stage, for the #1301 work
-// count in `ui::catalogue`'s tests — the instrument `NODES_BUILT` is for the
+// count in `ui::catalogue`'s tests - the instrument `NODES_BUILT` is for the
 // generator tree. Thread-local, not global: `cargo test --lib` runs the
 // suite on many threads of one process (#1147, #1189).
 #[cfg(test)]
@@ -581,7 +581,7 @@ pub(crate) fn restage_preview(
 }
 
 /// An [`ItemPreview`] over `camera` with nothing staged, for tests that run
-/// [`restage_preview`] without the `Startup` system — which needs a render
+/// [`restage_preview`] without the `Startup` system - which needs a render
 /// target and egui's texture registry.
 #[cfg(test)]
 pub(crate) fn preview_for_test(camera: Entity) -> ItemPreview {
@@ -596,8 +596,8 @@ pub(crate) fn preview_for_test(camera: Entity) -> ItemPreview {
 
 /// Point the camera at the staged subject once its bounds exist.
 ///
-/// A tree spawned this frame has no `Aabb` yet — Bevy computes one when
-/// the mesh asset resolves — so the framing cannot be part of the spawn.
+/// A tree spawned this frame has no `Aabb` yet - Bevy computes one when
+/// the mesh asset resolves - so the framing cannot be part of the spawn.
 /// It retries every frame until it finds geometry, then latches: the
 /// camera must not drift while a particle plume changes the bounds
 /// underneath it.
@@ -625,8 +625,8 @@ fn frame_preview(
 /// sphere fits the vertical field of view with [`FRAMING_MARGIN`] to
 /// spare.
 ///
-/// [`MIN_VIEW_DISTANCE`] is what keeps a degenerate subject — a flat sign, a
-/// single particle anchor with no geometry around it — from putting the
+/// [`MIN_VIEW_DISTANCE`] is what keeps a degenerate subject - a flat sign, a
+/// single particle anchor with no geometry around it - from putting the
 /// near plane inside itself.
 fn camera_placement(centre: Vec3, radius: f32) -> Transform {
     let elevation = VIEW_ELEVATION_DEG.to_radians();
@@ -711,7 +711,7 @@ mod tests {
         crate::catalogue::ENTRIES[0].slug()
     }
 
-    /// The Catalogue's bid alone, with the Inventory shut and no stash —
+    /// The Catalogue's bid alone, with the Inventory shut and no stash -
     /// the whole of `wanted_subject`'s input before #1301.
     fn catalogue_only(open: bool, selected: Option<&str>) -> Option<PreviewSubject> {
         wanted_subject(
@@ -852,8 +852,8 @@ mod tests {
 /// The propagation mechanism the whole isolation rests on, pinned on its
 /// own (#1288).
 ///
-/// `RenderLayers` does NOT inherit down the hierarchy in Bevy 0.19 —
-/// only `Visibility` does — so the stage tags its root with
+/// `RenderLayers` does NOT inherit down the hierarchy in Bevy 0.19 -
+/// only `Visibility` does - so the stage tags its root with
 /// `Propagate<RenderLayers>` and relies on [`HierarchyPropagatePlugin`] to
 /// reach every node the spawn path built, and every particle an emitter
 /// adds afterwards. If a Bevy upgrade changes that, the preview silently
@@ -883,7 +883,7 @@ mod propagation_tests {
             );
         }
 
-        // And a child added LATER — an emitter's particle — gets it too,
+        // And a child added LATER - an emitter's particle - gets it too,
         // which is the case a one-shot tag at spawn time would have missed.
         let particle = app.world_mut().spawn(ChildOf(node)).id();
         app.update();

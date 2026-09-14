@@ -4,7 +4,7 @@
 //! the record half is [`crate::pds::AttachmentRecord`] (an owned copy of the
 //! item, the socket's stable name, a quantised offset), resolved alongside
 //! the avatar record; this module is the runtime half. Attachment is nothing
-//! more than parenting — the sibling crate spawns a real entity per rig
+//! more than parenting - the sibling crate spawns a real entity per rig
 //! joint ([`AvatarJoints`]), so a prop rides its joint through every clip
 //! and procedural gait for free, and **never** touches
 //! `symbios_avatar::Rig::attach`, which after a build would desync the baked
@@ -28,8 +28,8 @@
 //!   - an authored offset → taken verbatim, in the joint's rest-pose frame:
 //!     a full transform, per-axis scale included (#1095).
 //!
-//! Props spawn through [`spawn_attachment_tree`] — the same avatar-mode
-//! pipeline as generator bodies, colliders and room tags suppressed — always
+//! Props spawn through [`spawn_attachment_tree`] - the same avatar-mode
+//! pipeline as generator bodies, colliders and room tags suppressed - always
 //! with `is_local = false`: `AvatarVisualPrim` paths index into a record's
 //! own `visuals` tree, which an attachment is not part of. The owner's own
 //! props instead carry [`LocalAttachment`] on their root, the identity the
@@ -50,8 +50,8 @@ const SEAT_MARGIN: f32 = 0.02;
 
 /// Height samples walked between the eye line and the dome cap when hunting
 /// the hat line ([`hat_line`]). The vault's perimeter varies
-/// slowly in height — [`symbios_avatar::face::Skull`] itself holds a
-/// handful of bands — so a dense scan buys nothing.
+/// slowly in height - [`symbios_avatar::face::Skull`] itself holds a
+/// handful of bands - so a dense scan buys nothing.
 const HAT_LINE_STEPS: usize = 16;
 
 /// Azimuth samples the perimeter polygon is summed over. At 64 the chord
@@ -65,15 +65,15 @@ pub(super) struct AttachmentRoot;
 
 /// Editor identity for one of the **local** player's worn props (#1062).
 ///
-/// Only the local body's props carry it — exactly as `AvatarVisualPrim` only
-/// rides local visuals — so a scene pick or a gizmo can never reach into a
+/// Only the local body's props carry it - exactly as `AvatarVisualPrim` only
+/// rides local visuals - so a scene pick or a gizmo can never reach into a
 /// peer's outfit. It carries everything the in-world offset editor needs
 /// that the entity itself cannot answer:
 ///
-///   - `rkey` — the record half of the `(rkey, socket)` pair an attachment
+///   - `rkey` - the record half of the `(rkey, socket)` pair an attachment
 ///     is addressed by. A worn prop is *not* a node in any visuals tree, so
 ///     an `AvatarVisualPrim` path cannot name one.
-///   - `joint` + `rigged_root` — the carrying joint's index into
+///   - `joint` + `rigged_root` - the carrying joint's index into
 ///     `Avatar::rig` and the body root it hangs off, which together give the
 ///     joint's **rest** frame in world space. The stored offset lives in
 ///     that frame, not in the animated one the joint entity is at.
@@ -83,7 +83,7 @@ pub(crate) struct LocalAttachment {
     pub(crate) rkey: String,
     /// Index of the carrying joint into the built body's `rig.joints`.
     pub(crate) joint: usize,
-    /// The [`RiggedRoot`] the joint hierarchy hangs off — the entity whose
+    /// The [`RiggedRoot`] the joint hierarchy hangs off - the entity whose
     /// `GlobalTransform` places the rig's rest frame in the world.
     pub(crate) rigged_root: Entity,
     /// The record's inventory provenance (#1097), so the scene menu can
@@ -94,8 +94,8 @@ pub(crate) struct LocalAttachment {
 impl LocalAttachment {
     /// Where the carrying joint sits **at rest**, in world space.
     ///
-    /// The engine spawns joints at the bind pose — every joint unrotated at
-    /// its rig position (see `bevy_symbios_avatar::spawn_joints`) — so the
+    /// The engine spawns joints at the bind pose - every joint unrotated at
+    /// its rig position (see `bevy_symbios_avatar::spawn_joints`) - so the
     /// rest frame is the body root's frame translated by the joint's rig
     /// position, with no rotation of its own. This is the frame an
     /// attachment offset is authored and stored in; the joint entity's live
@@ -112,7 +112,7 @@ impl LocalAttachment {
 }
 
 /// What is currently worn on this rigged body, kept on the [`RiggedRoot`]
-/// entity — deliberately, because a body rebuild replaces that entity and a
+/// entity - deliberately, because a body rebuild replaces that entity and a
 /// fresh root therefore re-dresses from the record without any bookkeeping.
 ///
 /// Per prop (#1104): each worn record beside the entity it was spawned as,
@@ -152,13 +152,13 @@ impl AttachmentsApplied {
 ///
 /// The three answers are distinct and the middle one is the point (#1112):
 ///
-///   - `Some(&[…])` — a rigged body with its references resolved: dress
+///   - `Some(&[…])` - a rigged body with its references resolved: dress
 ///     exactly this.
-///   - `None` — a rigged body whose references have not resolved (a
+///   - `None` - a rigged body whose references have not resolved (a
 ///     live-preview broadcast carries rkeys only; `resolved` never rides the
 ///     wire). Nothing is known, so nothing changes: keep what is standing
 ///     until the resolution lands.
-///   - `Some(&[])` — a generator body, which wears no rig attachments at
+///   - `Some(&[])` - a generator body, which wears no rig attachments at
 ///     all. Genuinely empty, so anything standing comes off.
 fn dressed_by(record: &crate::pds::AvatarRecord) -> Option<&[ResolvedAttachment]> {
     match record.body.rigged_ref() {
@@ -175,8 +175,8 @@ fn dressed_by(record: &crate::pds::AvatarRecord) -> Option<&[ResolvedAttachment]
 /// Runs after [`super::rigged::land_rigged_builds`] in the Build set, so a
 /// body landed this frame is dressed this frame. A per-prop diff (#1104):
 /// a worn record equal by value to one already standing keeps its entity;
-/// anything the record no longer says is despawned; anything new — or
-/// changed, since a changed record is a new one — is spawned. Whole-outfit
+/// anything the record no longer says is despawned; anything new - or
+/// changed, since a changed record is a new one - is spawned. Whole-outfit
 /// replacement was the old behaviour and made every offset nudge blink the
 /// entire loadout.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -187,8 +187,8 @@ pub(super) fn sync_rigged_attachments(
     peers: Query<Ref<RemotePeer>>,
     dressed: Query<(), With<AttachmentsSteady>>,
     // Props orphaned from every hierarchy (#1077). Arming the in-world gizmo
-    // on a worn prop deliberately detaches it from its joint — that is how
-    // the gizmo renders a world pose mid-drag — and a body REBUILD landing
+    // on a worn prop deliberately detaches it from its joint - that is how
+    // the gizmo renders a world pose mid-drag - and a body REBUILD landing
     // while it is armed despawns the root, the joints and every parented
     // prop, but not this one: with no `ChildOf` it survives the cascade,
     // the fresh root re-dresses a duplicate, and no ledger anywhere holds
@@ -197,7 +197,7 @@ pub(super) fn sync_rigged_attachments(
     //
     // The prop currently UNDER the gizmo is exempt (`Without<GizmoTarget>`):
     // parentless is its working state, and the release path drops its
-    // markers — including against a parent that no longer exists — which
+    // markers - including against a parent that no longer exists - which
     // hands it to this sweep one frame later. The generator-visual twin of
     // this sweep is `despawn_orphan_avatar_visuals`, which cannot cover
     // props because a prop never carries `AvatarVisualPrim`.
@@ -221,12 +221,12 @@ pub(super) fn sync_rigged_attachments(
     >,
     // Parts of worn props that hang off nothing (#1107). A part under the
     // gizmo is detached from its prop exactly as a prop is detached from its
-    // joint (#1077), so replacing that prop — any record edit to it, a
-    // material change from the parts editor included — despawns the prop
+    // joint (#1077), so replacing that prop - any record edit to it, a
+    // material change from the parts editor included - despawns the prop
     // and every PARENTED node while the floating part survives as a ghost
     // of the old geometry. Two answers: the replacement below despawns the
     // record's own parentless parts in the same frame, and this sweep
-    // catches any other path — a part whose detached-from parent no longer
+    // catches any other path - a part whose detached-from parent no longer
     // exists cannot be committed (`resolve_committed_local` needs that
     // parent's pose), so it is a ghost whether or not a gizmo still holds
     // it. A live drag keeps its part: detached, but from a parent that is
@@ -302,7 +302,7 @@ pub(super) fn sync_rigged_attachments(
         } else if dressed.contains(root) {
             continue;
         }
-        // `None` is a WAIT, not an empty outfit (#1112) — the same rule
+        // `None` is a WAIT, not an empty outfit (#1112) - the same rule
         // `kick_rigged_builds` applies to the body itself. A rigged record
         // whose references have not resolved yet cannot say what is worn,
         // and reading that as "wearing nothing" stripped every prop on
@@ -320,14 +320,14 @@ pub(super) fn sync_rigged_attachments(
         if already_worn.len() == desired.len()
             && already_worn.iter().zip(desired).all(|((a, _), b)| a == b)
         {
-            // Dressed as described — latch it so the comparison is skipped
+            // Dressed as described - latch it so the comparison is skipped
             // until the record changes or a sweep fires.
             commands.entity(root).insert(AttachmentsSteady);
             continue;
         }
         // Keep every standing prop the record still describes verbatim;
         // despawn the rest. A record edit changes the value, so an edited
-        // prop is "gone" here and "new" below — replaced, alone.
+        // prop is "gone" here and "new" below - replaced, alone.
         let mut kept: Vec<(ResolvedAttachment, Entity)> = Vec::new();
         if let Some(worn) = applied.as_mut() {
             for (record, prop) in worn.worn.drain(..) {
@@ -368,7 +368,7 @@ pub(super) fn sync_rigged_attachments(
                 ))
                 .id();
             // Only the owner's own props are editable, so only they carry
-            // the editor identity (#1062) — a peer's outfit can then never
+            // the editor identity (#1062) - a peer's outfit can then never
             // be picked or dragged, the same invariant `AvatarVisualPrim`
             // holds for visuals.
             if is_local {
@@ -410,7 +410,7 @@ pub(super) fn sync_rigged_attachments(
 }
 
 /// Which joint carries each wearable attachment, and at what local
-/// transform. Pure — the whole placement decision, kept apart from the ECS
+/// transform. Pure - the whole placement decision, kept apart from the ECS
 /// so it can be tested against a real build without a world.
 pub(crate) fn placements<'a>(
     avatar: &symbios_avatar::Avatar,
@@ -424,7 +424,7 @@ pub(crate) fn placements<'a>(
     for attachment in desired {
         let Some(socket) = attachment.record.socket() else {
             info!(
-                "attachment {} names socket '{}' this build does not know — not worn",
+                "attachment {} names socket '{}' this build does not know - not worn",
                 attachment.rkey, attachment.record.socket
             );
             continue;
@@ -444,7 +444,7 @@ pub(crate) fn placements<'a>(
                 .flatten();
             fitted.unwrap_or_else(|| seated_default(socket, avatar, joint))
         } else {
-            // An authored offset — the gizmo's or the numeric editor's — is
+            // An authored offset - the gizmo's or the numeric editor's - is
             // always taken verbatim, fit included: arming the gizmo on a
             // fitted prop commits the then-current scale into the offset,
             // so manual control keeps the size the wearer saw.
@@ -457,8 +457,8 @@ pub(crate) fn placements<'a>(
 
 /// The uniform worn-subtree scale a fit declaration asks for (#1089): the
 /// wearer's measured brow circumference as an equivalent-circle diameter,
-/// over the item's authored band inner diameter. `None` — no measurement,
-/// or no fit declared — is the authored-size fallback, deliberately quiet:
+/// over the item's authored band inner diameter. `None` - no measurement,
+/// or no fit declared - is the authored-size fallback, deliberately quiet:
 /// a creature head or an unmeasurable body wears the prop exactly as a
 /// pre-fit client would.
 pub(crate) fn fit_scale(circumference: Option<f32>, fit_band_mm: u32) -> Option<f32> {
@@ -488,12 +488,12 @@ pub(crate) struct HatLine {
 /// applied uniformly.
 ///
 /// Deliberately NOT [`symbios_avatar::Socket::seat`]: the generic seat
-/// pushes an anchor *out of* the body so a first-attach prop is visible —
+/// pushes an anchor *out of* the body so a first-attach prop is visible -
 /// measured on the crown it lands 8–9 cm **forward** of the head axis
 /// (the horizontal-push rule with a straight-up anchor), which is right
 /// for a pendant and wrong for a band that must encircle the head. A
 /// fitted band's authoring convention is therefore: the band circles the
-/// **origin**, in the X–Z plane, at `y = 0` — and this seat puts that
+/// **origin**, in the X–Z plane, at `y = 0` - and this seat puts that
 /// origin exactly where the measurement says the band belongs.
 fn fitted_seat(
     hat: &HatLine,
@@ -510,11 +510,11 @@ fn fitted_seat(
     }
 }
 
-/// The wearer's hat line — where it sits and how far round it is — measured
+/// The wearer's hat line - where it sits and how far round it is - measured
 /// from the built body through the engine's public measure surface.
 ///
 /// The hat line is found the way a hatter finds it: the largest horizontal
-/// perimeter of the cranial vault between the eye line and the dome's cap —
+/// perimeter of the cranial vault between the eye line and the dome's cap -
 /// the line that runs just above the brow ridge and around the occiput.
 /// Hunted rather than pinned to a landmark because the vault's widest line
 /// moves with the head-breadth and face-length axes, and a band seated
@@ -522,7 +522,7 @@ fn fitted_seat(
 ///
 /// Instruments, all public engine API: [`symbios_avatar::face::Skull`]
 /// measures the built head (the same measured-not-planned argument as
-/// `rig::Surface` — the mesh sits well inside the node radius);
+/// `rig::Surface` - the mesh sits well inside the node radius);
 /// [`symbios_avatar::Canon`] hands back the eye line so its constant is not
 /// copied here (its docs record how copies drift); `Skull::surface_at`
 /// answers "where is the surface at this height, in this direction", and
@@ -530,8 +530,8 @@ fn fitted_seat(
 /// the crown: the top band is closed to a pole and a perimeter there is
 /// noise, not a hat line.
 ///
-/// `None` for a body with no measurable head — hair never counts, the
-/// engine measures the bare skull — and the caller falls back to authored
+/// `None` for a body with no measurable head - hair never counts, the
+/// engine measures the bare skull - and the caller falls back to authored
 /// size. The eye-line ruler ignores its `EyeParams` argument for the
 /// landmark read here (only pupil spacing reads it), so the default params
 /// are not a guess smuggled in.
@@ -563,7 +563,7 @@ pub(crate) fn hat_line(avatar: &symbios_avatar::Avatar) -> Option<HatLine> {
 
 /// The head's horizontal perimeter at one height: the closed polygon of
 /// [`symbios_avatar::face::Skull::surface_at`] samples around the full
-/// turn. Engine-space (`glam`) arithmetic throughout — every sample shares
+/// turn. Engine-space (`glam`) arithmetic throughout - every sample shares
 /// the height, so each chord is horizontal by construction.
 fn perimeter_at(skull: &symbios_avatar::face::Skull, height: f32) -> f32 {
     let mut total = 0.0;
@@ -578,8 +578,8 @@ fn perimeter_at(skull: &symbios_avatar::face::Skull, height: f32) -> f32 {
 }
 
 /// Give every joint entity the visibility components a worn prop's
-/// inheritance chain needs. The engine spawns joints as bare transforms —
-/// a rig is not a renderable — so parenting a `Visibility`-bearing prop
+/// inheritance chain needs. The engine spawns joints as bare transforms -
+/// a rig is not a renderable - so parenting a `Visibility`-bearing prop
 /// under one is Bevy's B0004 (an `InheritedVisibility` child below a
 /// parent without it), warned at startup and undefined in behaviour.
 /// `insert_if_new` keeps whatever a joint already carries; a few dozen
@@ -591,8 +591,8 @@ pub(crate) fn ensure_joint_visibility(commands: &mut Commands, joints: &AvatarJo
 }
 
 /// The engine-seated default placement: the socket's anchor pushed outside
-/// the measured surface, expressed in the carrying joint's rest frame —
-/// which is the frame the joint entity's children live in — and yawed so
+/// the measured surface, expressed in the carrying joint's rest frame -
+/// which is the frame the joint entity's children live in - and yawed so
 /// the item's authored **+Z face points out of the body** ([`outward_yaw`]).
 fn seated_default(
     socket: symbios_avatar::Socket,
@@ -610,7 +610,7 @@ fn seated_default(
 }
 
 /// The default-seat yaw that turns an item's authored `+Z` face out of the
-/// body — **the attachment authoring convention** (#1087): author a
+/// body - **the attachment authoring convention** (#1087): author a
 /// wearable with `+Z` as the side meant to be seen, and a default seat
 /// shows that side, whatever socket it lands on.
 ///
@@ -618,8 +618,8 @@ fn seated_default(
 /// `direction` is the bone axis (down a thigh, along a forearm), not an
 /// outward normal. Engine body space has left `+X`, forward `+Z` (pinned
 /// by the engine's own side tests), so side sockets get a quarter turn and
-/// the rear sockets a half. Sockets with no unambiguous facing — the
-/// crown, the grips, the feet — stay unrotated; only yaw is ever applied,
+/// the rear sockets a half. Sockets with no unambiguous facing - the
+/// crown, the grips, the feet - stay unrotated; only yaw is ever applied,
 /// never pitch or roll, so nothing tips a hat. An *authored* offset (the
 /// gizmo's output) is always taken verbatim instead of this.
 fn outward_yaw(socket: symbios_avatar::Socket) -> Quat {
@@ -655,8 +655,8 @@ pub(super) mod tests {
     /// one is the fix: a rigged record whose references have not resolved
     /// says *nothing*, and must not be read as "wearing nothing".
     ///
-    /// It was read that way, and every live-preview broadcast — which
-    /// carries rkeys only, because `resolved` is `#[serde(skip)]` — stripped
+    /// It was read that way, and every live-preview broadcast - which
+    /// carries rkeys only, because `resolved` is `#[serde(skip)]` - stripped
     /// the wearer's whole outfit on arrival and re-dressed it a wardrobe
     /// round-trip later, re-running each fitted prop's measurement.
     #[test]
@@ -707,7 +707,7 @@ pub(super) mod tests {
     }
 
     /// A world with every resource the spawn path reaches, one local chassis
-    /// wearing one resolved crown, and the built body installed — the stage
+    /// wearing one resolved crown, and the built body installed - the stage
     /// both #1077 tests play on, and `hotswap`'s #1104 guard.
     pub(in crate::player) fn dressed_app() -> (bevy::app::App, Entity) {
         use bevy::ecs::system::RunSystemOnce;
@@ -784,8 +784,8 @@ pub(super) mod tests {
     }
 
     /// #1135: a body already dressed as its record says latches, so the
-    /// per-frame value comparison over the whole `ResolvedAttachment` list —
-    /// every worn prop's `Generator` tree — stops running.
+    /// per-frame value comparison over the whole `ResolvedAttachment` list -
+    /// every worn prop's `Generator` tree - stops running.
     ///
     /// Sequence: dress once, then stand still. Before the latch, every
     /// subsequent frame re-derived the same answer.
@@ -805,7 +805,7 @@ pub(super) mod tests {
         assert_eq!(
             latched.iter(app.world()).count(),
             1,
-            "the dressed root did not latch — the outfit compare will run every frame"
+            "the dressed root did not latch - the outfit compare will run every frame"
         );
     }
 
@@ -820,7 +820,7 @@ pub(super) mod tests {
             .run_system_once(sync_rigged_attachments)
             .expect("latching pass");
 
-        // Take the crown off — a real record edit, which trips the resource's
+        // Take the crown off - a real record edit, which trips the resource's
         // change tick exactly as an editor click would.
         {
             let mut live = app
@@ -838,7 +838,7 @@ pub(super) mod tests {
 
         assert!(
             app.world().get_entity(prop).is_err(),
-            "the crown is still worn — the latch swallowed a record edit"
+            "the crown is still worn - the latch swallowed a record edit"
         );
         let mut latched = app
             .world_mut()
@@ -852,7 +852,7 @@ pub(super) mod tests {
 
     /// The parts editor's addressing contract (#1098): every node of the
     /// LOCAL player's worn prop carries an `AttachmentPrim` keyed by its
-    /// record, with the item root at the empty path — so a tree row, a
+    /// record, with the item root at the empty path - so a tree row, a
     /// scene pick and a gizmo target all resolve to the same entity.
     #[test]
     fn a_local_props_parts_carry_attachment_prim_markers() {
@@ -933,14 +933,14 @@ pub(super) mod tests {
     #[test]
     fn a_prop_armed_with_the_gizmo_does_not_survive_a_body_rebuild_as_a_phantom() {
         // **The in-app repro of #1077, as found.** Arming the in-world gizmo
-        // (#1062) detaches a worn prop from its joint — parentless is the
-        // gizmo's working state — and every gizmo commit writes the record,
+        // (#1062) detaches a worn prop from its joint - parentless is the
+        // gizmo's working state - and every gizmo commit writes the record,
         // which is what schedules #1059's settle rebuild. When that rebuild
         // lands, the old root and its joints despawn and every PARENTED prop
         // dies through the cascade; the armed one has no ChildOf and
         // survives, tracked by no ledger, while the fresh root dresses a
         // duplicate. Detaching then removes the duplicate and the phantom
-        // keeps floating where the drag left it — "detaching items does not
+        // keeps floating where the drag left it - "detaching items does not
         // despawn them properly".
         //
         // The plain-detach test above passes with the sweep deleted, which is
@@ -1003,7 +1003,7 @@ pub(super) mod tests {
         // untested rather than unnecessary.
         assert!(
             app.world().get_entity(prop).is_ok(),
-            "the armed prop died with the root — the leak this test guards is gone and \
+            "the armed prop died with the root - the leak this test guards is gone and \
              so is its reason to exist"
         );
 
@@ -1018,7 +1018,7 @@ pub(super) mod tests {
         );
 
         // Release: the gizmo drops its markers (against a dead parent, the
-        // release path can only drop them — there is nothing to reattach to).
+        // release path can only drop them - there is nothing to reattach to).
         app.world_mut()
             .entity_mut(prop)
             .remove::<transform_gizmo_bevy::GizmoTarget>();
@@ -1028,7 +1028,7 @@ pub(super) mod tests {
 
         assert!(
             app.world().get_entity(prop).is_err(),
-            "the orphaned prop is still in the world after the gizmo released it — the \
+            "the orphaned prop is still in the world after the gizmo released it - the \
              phantom the owner saw"
         );
         // And the sweep counted what it did (#1078): a swept orphan outside
@@ -1088,7 +1088,7 @@ pub(super) mod tests {
         );
         let back = worn_before[1];
 
-        // Nudge the crown's offset — the gizmo commit's write.
+        // Nudge the crown's offset - the gizmo commit's write.
         {
             let mut live = app
                 .world_mut()
@@ -1125,7 +1125,7 @@ pub(super) mod tests {
     /// **#1107, reproduced.** A part under the gizmo is detached from its
     /// prop; editing that part (a material change from the parts editor)
     /// replaces the prop, whose despawn cascade cannot reach the floating
-    /// part — the old geometry stayed in the world beside the new. After
+    /// part - the old geometry stayed in the world beside the new. After
     /// the sync exactly the fresh prop's parts may exist, and the detached
     /// one must be gone.
     #[test]
@@ -1167,7 +1167,7 @@ pub(super) mod tests {
 
         assert!(
             app.world().get_entity(root_part).is_err(),
-            "the gizmo-held part survived its prop's replacement — the ghost"
+            "the gizmo-held part survived its prop's replacement - the ghost"
         );
         assert!(
             app.world().get_entity(prop).is_err(),
@@ -1176,7 +1176,7 @@ pub(super) mod tests {
         assert_eq!(
             parts.iter(app.world()).count(),
             before,
-            "exactly the fresh prop's parts exist — no ghost, no duplicate"
+            "exactly the fresh prop's parts exist - no ghost, no duplicate"
         );
         let mut parented = app
             .world_mut()
@@ -1240,7 +1240,7 @@ pub(super) mod tests {
     }
 
     /// The authoring convention: a default seat yaws the item's `+Z` face
-    /// out of the body — `+X` on the left side, `-Z` at the back — and
+    /// out of the body - `+X` on the left side, `-Z` at the back - and
     /// leaves facing-ambiguous sockets (crown, grips) unrotated. Caught
     /// in the wild by the first wearable (#1087): a hip satchel authored
     /// face-on-`+Z` wore with its flap toward the avatar's front.
@@ -1273,7 +1273,7 @@ pub(super) mod tests {
     /// claim: the frame an attachment offset is stored in is the *bind
     /// pose*, and the bind pose puts every joint entity unrotated at its rig
     /// position. This checks that against the sibling crate's real spawn and
-    /// pose systems rather than against a re-derivation of them — if the
+    /// pose systems rather than against a re-derivation of them - if the
     /// engine ever poses a rest body differently, every committed drag
     /// silently lands somewhere else, and this is the test that says so.
     #[test]
@@ -1389,9 +1389,9 @@ pub(super) mod tests {
     }
 
     /// A released world pose converts back to the stored offset through the
-    /// rest frame, and doing it through the *animated* joint instead — the
+    /// rest frame, and doing it through the *animated* joint instead - the
     /// obvious-looking shortcut, and what `resolve_committed_local` would do
-    /// — gets a materially different answer. That difference is the bug the
+    /// - gets a materially different answer. That difference is the bug the
     /// rest frame exists to prevent, so it is asserted rather than implied.
     #[test]
     fn an_offset_round_trips_through_the_rest_frame_but_not_an_animated_one() {
@@ -1434,7 +1434,7 @@ pub(super) mod tests {
     }
 
     /// The measurement-fit guard (#1089): across seeded bodies the computed
-    /// fit scale exists, stays in a wearable range, and actually *varies* —
+    /// fit scale exists, stays in a wearable range, and actually *varies* -
     /// a fit that answers the same number on every head is an authored
     /// constant wearing a measurement's name. And the scale is not just
     /// computed but applied: the worn transform out of [`placements`]
@@ -1473,15 +1473,15 @@ pub(super) mod tests {
             assert!(
                 (0.5..2.0).contains(&scale),
                 "seed {seed}: fit scale {scale} is outside the wearable range \
-                 — either the measurement or the authored diameter is off"
+                 - either the measurement or the authored diameter is off"
             );
             scales.push((seed, scale));
 
             // And placements() applies it: a fitted identity-offset record
             // dresses at exactly that uniform scale, seated on the head's
-            // own axis at the hat line — NOT at the generic crown seat,
+            // own axis at the hat line - NOT at the generic crown seat,
             // which stands 8–9 cm forward of the head (the render finding
-            // that produced `fitted_seat`) — while an unfitted one keeps
+            // that produced `fitted_seat`) - while an unfitted one keeps
             // the authored size at the generic seat.
             let mut fitted =
                 AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Crown);
@@ -1510,7 +1510,7 @@ pub(super) mod tests {
             );
             assert!(
                 (placed[1].1.translation - placed[0].1.translation).length() > 0.02,
-                "seed {seed}: the generic seat and the fitted seat should differ — \
+                "seed {seed}: the generic seat and the fitted seat should differ - \
                  if they agree, `fitted_seat` has stopped earning its existence"
             );
         }
@@ -1519,12 +1519,12 @@ pub(super) mod tests {
         });
         assert!(
             max / min > 1.05,
-            "the fit scale is flat across seeds ({scales:?}) — it is not measuring the head"
+            "the fit scale is flat across seeds ({scales:?}) - it is not measuring the head"
         );
     }
 
     /// The quiet fallbacks: no fit declared, and no measurement to fit to.
-    /// Both wear at authored size, neither is an error — a pre-#1089 record
+    /// Both wear at authored size, neither is an error - a pre-#1089 record
     /// and a creature head must dress exactly as they always did.
     #[test]
     fn the_fit_falls_back_to_authored_size() {

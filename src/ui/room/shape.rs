@@ -1,9 +1,9 @@
-//! CGA Shape Grammar generator tab — multi-rule source editor, footprint
+//! CGA Shape Grammar generator tab - multi-rule source editor, footprint
 //! and root-rule controls, seed for stochastic variants, and the
 //! string-keyed material slot table.
 //!
 //! The forge mirrors `lsystem` in shape and tone: a top-level source code
-//! editor, a `Turtle`-equivalent parameter group ("Lot" — root rule, seed,
+//! editor, a `Turtle`-equivalent parameter group ("Lot" - root rule, seed,
 //! footprint), and a collapsible "Material slots" panel keyed on the
 //! `Mat("...")` slot names emitted by the upstream interpreter.
 
@@ -55,7 +55,7 @@ pub(super) fn draw_shape_forge(
             }
         });
 
-    // Latest compile outcome (#829) — parser errors land right under the
+    // Latest compile outcome (#829) - parser errors land right under the
     // grammar instead of vanishing into the log.
     grammar_status_line(ui, grammar_status);
 
@@ -89,7 +89,7 @@ pub(super) fn draw_shape_forge(
                     )
                     .changed();
                 ui.label("y");
-                // Y is allowed to be 0 — most grammars `Extrude` the
+                // Y is allowed to be 0 - most grammars `Extrude` the
                 // initial flat plot themselves. The sanitiser clamps it to
                 // [0.0, 1000.0]; keep the widget range matching.
                 changed |= ui
@@ -123,7 +123,7 @@ pub(super) fn draw_shape_forge(
             // buffer from the record every frame and re-parse on every
             // change: a typed comma produced an empty entry, the empty was
             // filtered out, and the next frame re-rendered the field
-            // WITHOUT the comma — so the second name could never be
+            // WITHOUT the comma - so the second name could never be
             // started and the documented multi-id feature was reachable
             // only by pasting the whole string at once.
             let joined = round_meshes.join(", ");
@@ -168,12 +168,12 @@ pub(super) fn draw_shape_forge(
                 .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
 
-            // Sort by name so the editor order is stable across frames —
+            // Sort by name so the editor order is stable across frames -
             // a `HashMap` iterator's order would otherwise reshuffle after
             // every insert/remove and disorient the user.
             let mut slot_names: Vec<String> = materials.keys().cloned().collect();
             slot_names.sort();
-            // Every key currently in use, for the rename refusal — read
+            // Every key currently in use, for the rename refusal - read
             // once, because `materials` is borrowed mutably inside the
             // loop below.
             let taken: std::collections::HashSet<String> = slot_names.iter().cloned().collect();
@@ -195,7 +195,7 @@ pub(super) fn draw_shape_forge(
                         // colliding draft was reverted with no
                         // explanation, and the row jumped position
                         // mid-word because the list re-sorts by name every
-                        // frame — taking the focused field's egui id with
+                        // frame - taking the focused field's egui id with
                         // it. The refusal is the generator rename modal's
                         // own, so the two say the same thing.
                         let out = crate::ui::room::widgets::text_draft_row(
@@ -203,7 +203,7 @@ pub(super) fn draw_shape_forge(
                             ("shape_slot_name", name),
                             name,
                             150.0,
-                            "Slot name — press Enter (or click away) to rename",
+                            "Slot name - press Enter (or click away) to rename",
                             |draft| {
                                 crate::ui::confirm::validate_new_key(draft, name, |candidate| {
                                     taken.contains(candidate)

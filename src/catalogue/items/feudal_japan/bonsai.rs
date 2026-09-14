@@ -1,4 +1,4 @@
-//! Bonsai — a Feudal-Japan prop. A miniature tree trained in a shallow
+//! Bonsai - a Feudal-Japan prop. A miniature tree trained in a shallow
 //! glazed pot: a gnarled, leaning trunk holding two cloud-pruned foliage
 //! pads. A small touch of cultivated nature on a veranda or garden wall.
 
@@ -14,7 +14,7 @@ use super::{TIMBER_BROWN, TIMBER_DARK, rough_stone, timber};
 
 /// Cloud-pruned foliage green.
 const FOLIAGE_GREEN: [f32; 3] = [0.20, 0.38, 0.18];
-/// Warm glazed-ceramic pot — light enough to read apart from the dark soil.
+/// Warm glazed-ceramic pot - light enough to read apart from the dark soil.
 const POT_GLAZE: [f32; 3] = [0.34, 0.26, 0.22];
 
 pub struct Bonsai;
@@ -52,7 +52,7 @@ impl CatalogueEntry for Bonsai {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Shallow glazed tray pot — the root.
+        // Shallow glazed tray pot - the root.
         prim(
             solid(cuboid_tapered(
                 [0.9, 0.2, 0.58],
@@ -98,7 +98,7 @@ fn build_tree() -> Generator {
         quat_y(1.2),
     ));
 
-    // Cloud-pruned foliage pads — flattened ellipsoids, not round balls.
+    // Cloud-pruned foliage pads - flattened ellipsoids, not round balls.
     prims.push(prim_scaled(
         sphere(0.36, 3, timber(FOLIAGE_GREEN)),
         [0.2, 1.28, 0.05],

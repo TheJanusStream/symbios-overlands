@@ -46,7 +46,7 @@ pub(super) fn handle_peer_connections(
                     },
                 );
                 crate::diagnostics::samplers::peer_connected(&mut metrics);
-                // Spawn the peer with no avatar yet — the hot-swap system in
+                // Spawn the peer with no avatar yet - the hot-swap system in
                 // `player.rs` will build visuals once the PDS fetch populates
                 // `RemotePeer::avatar`. Not guessing at their appearance is
                 // still deliberate: a synthesised default is
@@ -58,7 +58,7 @@ pub(super) fn handle_peer_connections(
                 // translucent stand-in (`presence::dress_peer_placeholders`)
                 // that cannot be mistaken for anybody, and the whole chassis
                 // stays `Hidden` until a transform sample has actually
-                // played out — the spawn pose below is the map centre ten
+                // played out - the spawn pose below is the map centre ten
                 // metres up, and it used to be drawn.
                 commands.spawn((
                     Transform::from_xyz(0.0, 10.0, 0.0),
@@ -77,7 +77,7 @@ pub(super) fn handle_peer_connections(
                 ));
 
                 // Announce our wire layout to the newcomer immediately, for
-                // the reason the identity announce below gives — except that
+                // the reason the identity announce below gives - except that
                 // this one also matters in the failing direction: if we wait
                 // for the scheduled broadcast, a peer whose build predates
                 // #1121 and a peer whose Hello is merely in flight look
@@ -108,28 +108,28 @@ pub(super) fn handle_peer_connections(
                     // connected are visible immediately. Without this they only
                     // ever see the PDS-saved version loaded on entry, so a
                     // portal (or any generator) the owner added while the guest
-                    // was away — or during a dropped connection — stays hidden
+                    // was away - or during a dropped connection - stays hidden
                     // until the owner saves *and* the guest reloads (#713).
                     // Targeted (not broadcast): existing peers already mirror
                     // it. Ordered after the `Identity` above on the reliable
                     // channel (`transmit_messages` runs before
                     // `transmit_directed_messages`), so the newcomer records our
                     // DID before it authenticates this update against the room
-                    // owner — the exact reason the identity announce precedes it.
+                    // owner - the exact reason the identity announce precedes it.
                     if let (Some(record), Some(rd)) = (&room_record, &room_did)
                         && sess.did == rd.0
                     {
                         // Chunked (#718): a large room's `room_state_update`
                         // exceeds the 64 KiB WebRTC message ceiling, and this
                         // directed push previously failed silently
-                        // (`ErrOutboundPacketTooLarge`) — so a guest joining a
+                        // (`ErrOutboundPacketTooLarge`) - so a guest joining a
                         // large room never received it and saw only the stale
                         // PDS version (or nothing). Fragmenting it here is what
                         // makes the join actually deliver the live room.
                         if let Some(message) = OverlandsMessage::room_state_update(&record.0) {
                             // A refusal here is the same fact as the
                             // broadcaster's, learned on a different trigger
-                            // (#1123) — this newcomer will see only the
+                            // (#1123) - this newcomer will see only the
                             // PDS-saved room. Shares the "world" latch, so
                             // an owner already warned by the broadcaster is
                             // not told again per arriving guest.
@@ -168,7 +168,7 @@ pub(super) fn handle_peer_connections(
                             },
                         );
                         crate::diagnostics::samplers::peer_disconnected(&mut metrics);
-                        // Presence line (#844) — the join side prints when
+                        // Presence line (#844) - the join side prints when
                         // the handle resolves (avatar.rs), or when the
                         // profile fetch fails and there is no better name
                         // coming. Departures print here with the best name we
@@ -182,7 +182,7 @@ pub(super) fn handle_peer_connections(
                         // one narrative the user ever got about a
                         // connectivity event was "everybody left", which is
                         // a social conclusion about the wrong actor. The
-                        // single "Connection lost — rejoining…" line
+                        // single "Connection lost - rejoining…" line
                         // `link::narrate_link_state` pushes on the teardown
                         // edge replaces the whole run of them. The session
                         // log entry and the despawn happen either way.
@@ -215,7 +215,7 @@ pub(super) fn handle_peer_connections(
 /// offer the user does not notice would otherwise lock the recipient out
 /// of gifting for the rest of the session. Sending the responder
 /// `ItemOfferResponse{accepted=false}` keeps the sender's pending state
-/// in sync — without it, a benign sender's UI would sit waiting forever.
+/// in sync - without it, a benign sender's UI would sit waiting forever.
 pub(super) fn evict_stale_offer_dialog(
     mut commands: Commands,
     dialog: Option<Res<IncomingOfferDialog>>,
@@ -244,7 +244,7 @@ pub(super) fn evict_stale_offer_dialog(
     // the room to filter out.
     sender.to(
         dialog.sender_peer_id,
-        // Nobody said no — nobody said anything (#1220 f127). The sender's
+        // Nobody said no - nobody said anything (#1220 f127). The sender's
         // own expiry sweep says the same thing from the other side, so the
         // two ends now agree about what happened.
         OverlandsMessage::item_offer_response(
@@ -263,11 +263,11 @@ pub(super) fn evict_stale_offer_dialog(
     );
     // The dialog is closing (#843): report anything the busy-gate turned
     // away while it sat unanswered, then reset the counter for the next
-    // dialog. The eviction itself gets a line too — it used to vanish
+    // dialog. The eviction itself gets a line too - it used to vanish
     // invisibly mid-decision.
     toasts.info(
         format!(
-            "Offer of \"{}\" from {} expired unanswered — declined.",
+            "Offer of \"{}\" from {} expired unanswered - declined.",
             dialog.item_name,
             dialog.sender_label.addressed()
         ),
@@ -291,7 +291,7 @@ pub(super) fn evict_stale_offer_dialog(
 /// Sweep [`PendingOutgoingOffers`] entries older than
 /// [`config::network::PENDING_OFFER_TIMEOUT_SECS`]. A peer that drops the
 /// reply (offline, malicious client, network hiccup) would otherwise leak
-/// the entry forever — across a long session, an attacker could provoke
+/// the entry forever - across a long session, an attacker could provoke
 /// the local user into spraying offers and tie up unbounded memory.
 pub(super) fn sweep_stale_pending_offers(
     time: Res<Time>,
@@ -310,7 +310,7 @@ pub(super) fn sweep_stale_pending_offers(
     // `sent_at_secs` for the link check the wording now turns on (#1213).
     let mut expired: Vec<(u64, String, String, f64)> = Vec::new();
     pending.by_id.retain(|&id, entry| {
-        // Wall clock (#1216) — the recipient's dialog is counting down on
+        // Wall clock (#1216) - the recipient's dialog is counting down on
         // theirs, and two machines that slept for different lengths must
         // not settle on opposite outcomes for one offer_id.
         let alive = crate::state::real_secs_since(entry.sent_at_epoch) < ttl;
@@ -327,7 +327,7 @@ pub(super) fn sweep_stale_pending_offers(
     for (offer_id, handle, item, sent_at) in expired {
         // Info, not Warn: a peer not answering a gift offer within the TTL is a
         // benign, expected social outcome (AFK / implicit decline / brief hiccup)
-        // — it mirrors the incoming-side `ItemOfferDialogAutoDeclinedTimeout`
+        // - it mirrors the incoming-side `ItemOfferDialogAutoDeclinedTimeout`
         // above and must not inflate the offline analyzer's warning verdict.
         session_log.info(now, EventPayload::PendingOfferTimedOut { offer_id });
         // The old wording asserted a fact about the RECIPIENT on a sweep
@@ -340,7 +340,7 @@ pub(super) fn sweep_stale_pending_offers(
 }
 
 /// Dismiss an open offer dialog whose sender was just muted (#844): the
-/// People-window mute checkbox used to leave the dialog lingering — only
+/// People-window mute checkbox used to leave the dialog lingering - only
 /// the dialog's own "Mute & Decline" button closed it. Runs on
 /// `Changed<RemotePeer>` (the mute writes are already change-guarded, so
 /// this reacts only to real flips) and returns the same authenticated
@@ -390,7 +390,7 @@ pub(super) fn dismiss_offer_dialog_from_muted_sender(
 /// Report a peer that never announced a wire protocol (#1121).
 ///
 /// This is the arm that catches the incompatibility that already exists.
-/// Every build shipped before the `Hello` handshake announces nothing — and a
+/// Every build shipped before the `Hello` handshake announces nothing - and a
 /// GitHub-Pages wasm app serves cached bundles for as long as a browser keeps
 /// them, so "the other end is an older build" is not a migration window, it is
 /// the steady state. A version field alone would never fire for those peers,
@@ -413,7 +413,7 @@ pub(super) fn flag_unannounced_peers(
             continue;
         }
         warn!(
-            "Peer {} announced no protocol within {}s — it is running a build from before \
+            "Peer {} announced no protocol within {}s - it is running a build from before \
              the wire handshake, so messages between us may not decode",
             peer.peer_id,
             config::network::PROTOCOL_ANNOUNCE_GRACE_SECS
@@ -435,8 +435,8 @@ pub(super) fn sync_mute_visibility(mut peers: Query<(&RemotePeer, &PeerResolve, 
         // Two reasons a peer is not drawn, resolved in one place because
         // exactly one system may own `Visibility` (#1217 f329). The second
         // is the spawn pose: every peer is spawned at the map centre ten
-        // metres up, and `smooth_remote_transforms` — which runs immediately
-        // before this — overwrites it only once the jitter buffer can
+        // metres up, and `smooth_remote_transforms` - which runs immediately
+        // before this - overwrites it only once the jitter buffer can
         // produce a pose. Until then there is nothing true to draw.
         let desired = if peer.muted || !resolve.placed {
             Visibility::Hidden
@@ -453,7 +453,7 @@ pub(super) fn sync_mute_visibility(mut peers: Query<(&RemotePeer, &PeerResolve, 
 /// screen when a slot frees, or declined when the clock runs out.
 ///
 /// The hold exists because the dialog's own "Open Inventory" button raised a
-/// window its modal blocked — so the escape hatch on the failure path of a
+/// window its modal blocked - so the escape hatch on the failure path of a
 /// core journey led nowhere, under a timer. Holding lets the Inventory
 /// actually be used; this system is what makes the hold end.
 ///
@@ -465,7 +465,7 @@ pub(super) fn sync_mute_visibility(mut peers: Query<(&RemotePeer, &PeerResolve, 
 /// Three-way, and the order is the point: the TTL wins over a freed slot,
 /// because the SENDER is counting the same ninety seconds and a hold must
 /// not be a way to keep an offer alive past the point where the other end
-/// has given up on it. A dialog already on screen wins over both — the hold
+/// has given up on it. A dialog already on screen wins over both - the hold
 /// is owed the screen, not competing for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HeldOfferOutcome {
@@ -518,7 +518,7 @@ pub(super) fn resolve_held_offer(
         sender.to(
             held.0.sender_peer_id,
             // `Unavailable`, not `Unanswered` (#1220 f127): the recipient
-            // did answer — they went to make room and did not manage it in
+            // did answer - they went to make room and did not manage it in
             // time. That is a different sentence for the sender, and an
             // actionable one.
             OverlandsMessage::item_offer_response(
@@ -537,7 +537,7 @@ pub(super) fn resolve_held_offer(
         );
         toasts.info(
             format!(
-                "\"{}\" from {} expired while you were making room — declined.",
+                "\"{}\" from {} expired while you were making room - declined.",
                 held.0.item_name,
                 held.0.sender_label.addressed()
             ),
@@ -558,7 +558,7 @@ mod liveness_tests {
 
     /// #1224 f335. The sequence: a peer's browser tab is backgrounded and
     /// keeps its data channel open, so the transport never raises
-    /// `Disconnected` — the ONE path that despawned a peer — and their body
+    /// `Disconnected` - the ONE path that despawned a peer - and their body
     /// stands frozen indefinitely, counted in the roster, sorted into it,
     /// and offered as a gift and Visit target that will never answer. The
     /// client already knew: the jitter buffer stopped receiving. It just
@@ -593,8 +593,8 @@ mod liveness_tests {
     }
 
     /// A peer that has NEVER sent a transform ages from `connected_at`, so
-    /// the case the transport most often fails to report — a peer that
-    /// arrives and then wedges — is swept on the same clock as one that
+    /// the case the transport most often fails to report - a peer that
+    /// arrives and then wedges - is swept on the same clock as one that
     /// stops mid-conversation.
     #[test]
     fn a_peer_that_never_speaks_ages_from_its_arrival() {
@@ -615,7 +615,7 @@ mod held_offer_tests {
 
     /// #1220 f288. The sequence: your stash is full, a friend gifts you
     /// something, and the dialog's own "Open Inventory" button raises the
-    /// Inventory UNDER a modal that swallows every click on it — while the
+    /// Inventory UNDER a modal that swallows every click on it - while the
     /// countdown declines the gift out from under you. The only way to
     /// reach the Inventory was to Decline first, which is the outcome the
     /// button exists to avoid.
@@ -665,13 +665,13 @@ mod held_offer_tests {
 ///
 /// `last_sample_at` is `None` until a peer's first transform packet, so a
 /// peer that never speaks ages from `connected_at` and is swept on the same
-/// clock as one that stops — which is the case the transport most often
+/// clock as one that stops - which is the case the transport most often
 /// fails to report.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Liveness {
     /// Packets are arriving.
     Live,
-    /// Nothing for a while — say so on their row, but leave them standing.
+    /// Nothing for a while - say so on their row, but leave them standing.
     Quiet,
     /// Long past anything a hiccup explains: they are a ghost.
     Gone,
@@ -691,18 +691,18 @@ pub fn liveness(last_heard: f64, now: f64) -> Liveness {
 
 /// Notice peers the transport never told us about (#1224 f335).
 ///
-/// A peer entity was despawned by exactly one path — the transport's
-/// `Disconnected` arm above — and the client had no liveness check of its
+/// A peer entity was despawned by exactly one path - the transport's
+/// `Disconnected` arm above - and the client had no liveness check of its
 /// own, so a wedged data channel or a suspended browser tab left a body
 /// standing frozen indefinitely: counted in the roster, sorted into it, and
 /// offered as a gift and Visit target that would never answer. A ghost is
 /// worse than an absence, because it makes the room look occupied.
 ///
-/// Runs on `Res<Time>` — the VIRTUAL clock — deliberately, and this is the
+/// Runs on `Res<Time>` - the VIRTUAL clock - deliberately, and this is the
 /// one deadline in this module that should not use the wall clock. Nobody
 /// on the other end is counting it: it measures OUR silence. If this
 /// machine sleeps, the virtual clock barely advances and no peer is falsely
-/// aged, which is exactly right — we were not listening.
+/// aged, which is exactly right - we were not listening.
 pub(super) fn sweep_quiet_peers(
     mut commands: Commands,
     mut peers: Query<(Entity, &RemotePeer, &mut PeerResolve)>,
@@ -713,7 +713,7 @@ pub(super) fn sweep_quiet_peers(
 ) {
     // Our own outage is not their silence (#1213 f402), and sweeping the
     // room while the socket is down would narrate a connectivity event as
-    // everybody leaving — the exact conclusion about the wrong actor that
+    // everybody leaving - the exact conclusion about the wrong actor that
     // `link::narrate_link_state` exists to replace.
     if !link.is_up() {
         return;

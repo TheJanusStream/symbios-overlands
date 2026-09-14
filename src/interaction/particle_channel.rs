@@ -7,12 +7,12 @@
 //!
 //! - parented to the avatar via [`ChildOf`] so
 //!   `update_emitter_motion`'s parent-chain walk resolves the avatar's
-//!   `LinearVelocity` — that drives `inherit_velocity` so droplets fly
-//!   with the avatar's momentum — while its `SimulationSpace::World`
+//!   `LinearVelocity` - that drives `inherit_velocity` so droplets fly
+//!   with the avatar's momentum - while its `SimulationSpace::World`
 //!   particles are still shed unparented and left behind;
 //! - tagged [`TransientEmitter`] so [`retire_transient_emitters`]
 //!   despawns the (otherwise idle-forever) emitter entity once its
-//!   one-shot burst has fully aged out — without this, every water
+//!   one-shot burst has fully aged out - without this, every water
 //!   entry would leak a dead emitter for the rest of the session.
 //!
 //! Two guards bound emission: a global per-frame particle ceiling
@@ -40,11 +40,11 @@ const FLOW_DRIFT_ACCEL_MAX: f32 = 3.0;
 
 /// How far a terrain layer's albedo is lifted toward white before it
 /// becomes the dust tint. Kicked-up dust reads as a dry, powdered version
-/// of the surface — raw grass albedo (≈`[0.07, 0.12, 0.03]`) is near-black
+/// of the surface - raw grass albedo (≈`[0.07, 0.12, 0.03]`) is near-black
 /// and would render as soot; the lift lands it on a green-grey haze while
 /// near-white snow stays white.
 const DUST_ALBEDO_LIFT: f32 = 0.4;
-/// End-of-life RGB as a fraction of the start tint — mirrors the default
+/// End-of-life RGB as a fraction of the start tint - mirrors the default
 /// tan ramp's slight darkening as a particle fades out.
 const DUST_END_DARKEN: f32 = 0.9;
 
@@ -54,7 +54,7 @@ const DUST_END_DARKEN: f32 = 0.9;
 /// returns `None` and the burst keeps its template colours.
 fn layer_albedo(layer: &crate::pds::SovereignTextureConfig) -> Option<Vec3> {
     use crate::pds::SovereignTextureConfig;
-    // Midpoint of the variant's two authored colours — representative of
+    // Midpoint of the variant's two authored colours - representative of
     // the visible surface whichever of the pair dominates locally.
     match layer {
         SovereignTextureConfig::Ground(g) => {
@@ -86,7 +86,7 @@ fn dust_colors_for_albedo(albedo: Vec3) -> (LinearRgba, LinearRgba) {
 #[derive(Component, Debug)]
 pub struct TransientEmitter;
 
-/// Per-`(avatar, recipe index)` cooldown state — a shared
+/// Per-`(avatar, recipe index)` cooldown state - a shared
 /// [`CooldownTable`] behind this channel's own `Resource` type (mirrors
 /// the audio / decal channels).
 #[derive(Resource)]
@@ -94,12 +94,12 @@ pub struct ParticleDispatchState {
     cooldowns: CooldownTable,
 }
 
-/// Drop cooldown entries older than this (s) — far longer than any
+/// Drop cooldown entries older than this (s) - far longer than any
 /// recipe cooldown, so pruning never resets a live throttle.
 const COOLDOWN_ENTRY_TTL: f32 = 5.0;
 
 impl ParticleDispatchState {
-    /// Forget every live throttle — the registry whose indices they key on
+    /// Forget every live throttle - the registry whose indices they key on
     /// has been replaced (#1254 f322).
     pub fn clear_cooldowns(&mut self) {
         self.cooldowns.clear();
@@ -158,7 +158,7 @@ pub fn particle_dispatcher(
     let mut spawned_this_frame: u32 = 0;
 
     // Terrain splat layers, for tinting ground dust by the material the
-    // avatar is running on. Resolved once per frame — `None` outside a
+    // avatar is running on. Resolved once per frame - `None` outside a
     // loaded room, where no terrain contact can fire anyway.
     let terrain_layers = room_record
         .as_ref()
@@ -172,7 +172,7 @@ pub fn particle_dispatcher(
             }
 
             // Cooldown throttle (continuous Dwell recipes), with the
-            // viewer's floor under it (#1221 f308) — an authored zero means
+            // viewer's floor under it (#1221 f308) - an authored zero means
             // once per frame per avatar.
             let cooldown = recipe.spawn.cooldown.max(intensity.cooldown_floor());
             if cooldown > 0.0 && state.cooldowns.active((sample.avatar, idx), now, cooldown) {
@@ -184,7 +184,7 @@ pub fn particle_dispatcher(
                 continue;
             }
 
-            // Global per-frame ceiling — drop the overflow, never queue.
+            // Global per-frame ceiling - drop the overflow, never queue.
             let remaining = registry
                 .max_particles_per_frame
                 .saturating_sub(spawned_this_frame);
@@ -214,7 +214,7 @@ pub fn particle_dispatcher(
             }
             // Terrain bursts still carrying the default tan dust ramp get
             // their RGB re-derived from the dominant splat layer's albedo
-            // (#661) — green-grey on grass, brown on dirt, grey on rock,
+            // (#661) - green-grey on grass, brown on dirt, grey on rock,
             // white on snow. A record-authored custom colour differs from
             // the sentinel and is left untouched; alpha ramps are kept
             // either way. Pure CPU colour pick at spawn, so native and
@@ -240,7 +240,7 @@ pub fn particle_dispatcher(
             // velocity inheritance works from frame 1), the World-space
             // particles are still shed unparented and left behind, and
             // the emitter rides the avatar's despawn if it leaves.
-            // `tag_room_entity = false` — retirement / the avatar owns
+            // `tag_room_entity = false` - retirement / the avatar owns
             // its lifetime, not the room cleanup sweep.
             let e = spawn_particle_emitter(
                 &mut commands,
@@ -268,7 +268,7 @@ pub fn particle_dispatcher(
 /// Reclaim transient dispatcher emitters once their one-shot burst has
 /// finished AND every particle it shed has aged out (`alive_count`
 /// back to 0). Without this the burst-only emitter entity would idle
-/// forever after firing — one leaked entity per water entry.
+/// forever after firing - one leaked entity per water entry.
 pub fn retire_transient_emitters(
     mut commands: Commands,
     emitters: Query<(Entity, &ParticleEmitter, &EmitterState), With<TransientEmitter>>,

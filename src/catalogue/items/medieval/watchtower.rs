@@ -1,10 +1,10 @@
-//! Stone watchtower — a slender garrison tower with stochastic height,
+//! Stone watchtower - a slender garrison tower with stochastic height,
 //! arrow slits, ember lamp niches, and either battlements or a
 //! shingled spire, plus a small gabled annex hut at its foot.
 //!
 //! Footprint 12 × 12. The grammar reuses the castle's tower idiom
 //! (Repeat facades, weighted tops) at a scale that fits a seeded home
-//! region landmark — see `crate::seeded_defaults::room::landmark`.
+//! region landmark - see `crate::seeded_defaults::room::landmark`.
 
 use std::collections::HashMap;
 
@@ -53,7 +53,7 @@ impl CatalogueEntry for Watchtower {
         tower.transform.translation = crate::pds::Fp3([-6.0, 0.0, -6.0]);
         // `attach` (not a bare push): `footing` returns a root whose own
         // transform is sunk by half the buried plinth, and a plain child
-        // inherits it — which drops the whole building below grade (#1039).
+        // inherits it - which drops the whole building below grade (#1039).
         crate::catalogue::items::util::attach(&mut root, tower);
         root
     }
@@ -104,7 +104,7 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // Warm window-glow niches — the tower reads inhabited at night.
+    // Warm window-glow niches - the tower reads inhabited at night.
     materials.insert(
         "Ember".to_string(),
         SovereignMaterialSettings {

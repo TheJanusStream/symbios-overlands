@@ -41,7 +41,7 @@ pub(in crate::catalogue::items) fn assert_sanitize_stable(built: &Generator, nam
 
 /// Minimum clearance between an owner panel and anything solid behind it.
 ///
-/// Deliberately small — a backing plate is *supposed* to sit millimetres
+/// Deliberately small - a backing plate is *supposed* to sit millimetres
 /// behind the portrait, and only a body whose face comes out **in front of**
 /// the panel is a bug. Four millimetres is enough to rule out a coplanar
 /// depth tie without outlawing the plate. Ten of the twenty-four monuments
@@ -49,7 +49,7 @@ pub(in crate::catalogue::items) fn assert_sanitize_stable(built: &Generator, nam
 const PANEL_REVEAL: f32 = 0.004;
 
 /// Assert that an identity monument (#975) carries the owner's profile
-/// picture correctly — the shared guard all 24 themed monuments call.
+/// picture correctly - the shared guard all 24 themed monuments call.
 ///
 /// One helper rather than 24 copies, because these are invariants of the
 /// *idiom*, not of any one monument: get any of them wrong and the panel is
@@ -61,25 +61,25 @@ const PANEL_REVEAL: f32 = 0.004;
 ///
 /// * exactly one panel, pointed at **this room's** DID (a monument showing
 ///   somebody else's face is the worst failure available here);
-/// * square — the aspect a face cannot survive losing;
-/// * `uv_scale` 1.0 — Sign images are clamp-to-edge, so anything else crops
+/// * square - the aspect a face cannot survive losing;
+/// * `uv_scale` 1.0 - Sign images are clamp-to-edge, so anything else crops
 ///   and smears rather than tiles;
-/// * a pure white tint — `base_color` multiplies the fetched image, so any
+/// * a pure white tint - `base_color` multiplies the fetched image, so any
 ///   other colour stains the owner's face, and it stains it *only once a
 ///   picture loads*, which is the state no render here can show (#976);
-/// * the standing rotation `quat_x(FRAC_PI_2)` — the panel's wound front is
+/// * the standing rotation `quat_x(FRAC_PI_2)` - the panel's wound front is
 ///   `−Y`, so the `-FRAC_PI_2` that stands up an ordinary quad turns this one
 ///   away from the viewer *and* upside-down;
-/// * `unlit` and single-sided — legible at any hour, never mirrored;
+/// * `unlit` and single-sided - legible at any hour, never mirrored;
 /// * monument scale: a panel big enough and high enough to read from the
 ///   gateway's landing, on a prop tall enough to be a monument;
 /// * something solid **behind** it, and nothing solid **around** it. The
 ///   panel is single-sided, so without a backing plate the monument is
-///   see-through from behind — but the mirror failure is worse and was
+///   see-through from behind - but the mirror failure is worse and was
 ///   shipping on ten of the twenty-four (#977): a panel authored a centimetre
 ///   or two *inside* the body it is mounted on, so the portrait is buried in
 ///   the slab and z-fights with it. Both checks lean on the family's
-///   authoring convention — hero face toward `-Z`, so "behind" is `+Z` —
+///   authoring convention - hero face toward `-Z`, so "behind" is `+Z` -
 ///   which is the same convention the render tool and the settlement placer
 ///   already assume.
 pub(in crate::catalogue::items) fn assert_owner_panel(
@@ -93,7 +93,7 @@ pub(in crate::catalogue::items) fn assert_owner_panel(
     /// What one walk of the tree collects. A struct rather than eight
     /// out-parameters: `boxes` holds axis-aligned cuboids only, as
     /// `(centre, half-extents)`, because the burial check needs a box and a
-    /// tilted prim's AABB would over-report — and every monument's *body*, the
+    /// tilted prim's AABB would over-report - and every monument's *body*, the
     /// only mass that can bury a panel, is axis-aligned by the family's own
     /// rule that a tilted sub-root spins what it carries.
     #[derive(Default)]
@@ -130,7 +130,7 @@ pub(in crate::catalogue::items) fn assert_owner_panel(
                 }
                 assert_eq!(
                     size.0[0], size.0[1],
-                    "{slug}: panel {:?} is not square — a face cannot survive the stretch",
+                    "{slug}: panel {:?} is not square - a face cannot survive the stretch",
                     size.0
                 );
                 assert_eq!(
@@ -154,7 +154,7 @@ pub(in crate::catalogue::items) fn assert_owner_panel(
                         && q[1].abs() < 1e-4
                         && q[2].abs() < 1e-4
                         && (q[3] - want).abs() < 1e-4,
-                    "{slug}: panel rotation {q:?} is not quat_x(+FRAC_PI_2) — a \
+                    "{slug}: panel rotation {q:?} is not quat_x(+FRAC_PI_2) - a \
                      negative half-angle here faces it away and inverts it"
                 );
                 assert!(*unlit, "{slug}: a lit portrait goes black at dusk");
@@ -206,7 +206,7 @@ pub(in crate::catalogue::items) fn assert_owner_panel(
     );
     assert!(
         top >= 4.0,
-        "{slug}: the monument tops out at {top} m — not monument scale"
+        "{slug}: the monument tops out at {top} m - not monument scale"
     );
     assert!(
         solids.iter().any(|s| {
@@ -215,7 +215,7 @@ pub(in crate::catalogue::items) fn assert_owner_panel(
                 && s[2] > at[2]
                 && s[2] - at[2] < 1.0
         }),
-        "{slug}: nothing stands behind the panel — it is single-sided, so the \
+        "{slug}: nothing stands behind the panel - it is single-sided, so the \
          monument is see-through from the back"
     );
 
@@ -231,14 +231,14 @@ pub(in crate::catalogue::items) fn assert_owner_panel(
         assert!(
             front > at[2] + PANEL_REVEAL,
             "{slug}: a solid at {c:?} presents its face at z = {front}, in front of \
-             a panel at z = {} — the portrait is buried in the body it is mounted \
+             a panel at z = {} - the portrait is buried in the body it is mounted \
              on. The panel must stand at least {PANEL_REVEAL} m proud of it.",
             at[2]
         );
     }
 }
 
-/// Rotate `v` by the quaternion `q` (`[x, y, z, w]`) — the guards' one
+/// Rotate `v` by the quaternion `q` (`[x, y, z, w]`) - the guards' one
 /// implementation of the thing that is easiest to get backwards (#972).
 ///
 /// A guard that checks where a *tilted* part's ends actually land has to turn
@@ -251,7 +251,7 @@ pub(in crate::catalogue::items) fn assert_owner_panel(
 ///
 /// So there is one of these, it uses the standard right-handed formula, and
 /// no guard writes its own. `Quat::from_rotation_x(θ)` turns `+Y` toward
-/// `+Z`, which means a prim's local `+Z` end goes **down** for positive θ —
+/// `+Z`, which means a prim's local `+Z` end goes **down** for positive θ -
 /// the opposite of what "tilt it up by θ" suggests, and the reason this note
 /// is longer than the function.
 pub(in crate::catalogue::items) fn rotate_by(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
@@ -283,7 +283,7 @@ pub(in crate::catalogue::items) struct CardRect {
 /// world frame.
 ///
 /// "Upright" means a [`plane`](super::build::plane) stood up by `quat_x(±FRAC_PI_2)`, which maps
-/// the quad's local Z extent onto world Y — so a card's `size` reads as
+/// the quad's local Z extent onto world Y - so a card's `size` reads as
 /// `[width, height]` and it occupies a rectangle on a single Z plane. That is
 /// the whole family's glazing idiom, and it is what makes the geometric
 /// guards below expressible at all.
@@ -291,7 +291,7 @@ pub(in crate::catalogue::items) struct CardRect {
 /// Translations accumulate down the tree; rotations are not composed, because
 /// every prop in this family keeps its sub-roots axis-aligned by the rule
 /// that a tilted parent spins what it carries ([`nest`](super::build::nest)). A card under a
-/// tilted parent is therefore reported at the wrong place — which is a bug
+/// tilted parent is therefore reported at the wrong place - which is a bug
 /// worth having surface as a failing guard rather than a silent skip.
 pub(in crate::catalogue::items) fn window_cards(root: &Generator) -> Vec<CardRect> {
     fn walk(g: &Generator, at: [f32; 3], out: &mut Vec<CardRect>) {
@@ -325,7 +325,7 @@ pub(in crate::catalogue::items) fn window_cards(root: &Generator) -> Vec<CardRec
 /// Assert that no two glazing cards sharing a Z plane overlap (#972).
 ///
 /// Two `Window` cards on the same plane, overlapping, is a depth tie the
-/// rasteriser breaks arbitrarily — and because both are alpha-masked frames,
+/// rasteriser breaks arbitrarily - and because both are alpha-masked frames,
 /// the result is a band of interleaved mullion that reads as neither. It is
 /// the same failure the coplanar rule describes, arrived at between two cards
 /// rather than between a card and its reveal, and it is invisible in a
@@ -333,7 +333,7 @@ pub(in crate::catalogue::items) fn window_cards(root: &Generator) -> Vec<CardRec
 /// running 0.4 m up into the bottom of its own curtain wall, and the sheet
 /// simply showed a slightly muddled row.
 ///
-/// Cards on *different* planes are none of this guard's business — a door
+/// Cards on *different* planes are none of this guard's business - a door
 /// leaf proud of the glazing behind it is the idiom working.
 pub(in crate::catalogue::items) fn assert_cards_do_not_overlap(root: &Generator, slug: &str) {
     let cards = window_cards(root);
@@ -348,7 +348,7 @@ pub(in crate::catalogue::items) fn assert_cards_do_not_overlap(root: &Generator,
             assert!(
                 !(overlaps(0) && overlaps(1)),
                 "{slug}: glazing cards at {:?} ({:?}) and {:?} ({:?}) share a Z plane \
-                 and overlap — two alpha-masked frames tie for depth over the overlap",
+                 and overlap - two alpha-masked frames tie for depth over the overlap",
                 a.center,
                 a.size,
                 b.center,
@@ -366,13 +366,13 @@ pub(in crate::catalogue::items) fn assert_cards_do_not_overlap(root: &Generator,
 /// `Window` texture on a cuboid or a cylinder is *always* wrong, whatever the
 /// count says, because the generator masks its panes away and upstream renders
 /// every card at `AlphaMode::Mask(0.5)`. So the slab becomes a frame with real
-/// holes in it, showing whatever solid it was stuck to — and on a cuboid it
+/// holes in it, showing whatever solid it was stuck to - and on a cuboid it
 /// grows windows on its sides, top and bottom into the bargain.
 ///
 /// Worth naming separately because the failure has a *sociable* form: the
 /// grand hotel acquired it by reaching for another kit's
 /// [`curtain_wall`](crate::catalogue::items::modern_city::curtain_wall)
-/// helper, which is a lit glass box behind proud fins — correct on the tower
+/// helper, which is a lit glass box behind proud fins - correct on the tower
 /// it was written for, and unable to be a window anywhere else. A count-based
 /// guard passes that happily; this one does not.
 pub(in crate::catalogue::items) fn assert_no_glazing_on_solids(root: &Generator, slug: &str) {
@@ -413,7 +413,7 @@ pub(in crate::catalogue::items) fn assert_no_glazing_on_solids(root: &Generator,
         if let Some(m) = material {
             assert!(
                 !matches!(m.texture, SovereignTextureConfig::Window(_)),
-                "{slug}: a {} at {here:?} wears a Window texture — its panes are \
+                "{slug}: a {} at {here:?} wears a Window texture - its panes are \
                  masked away, so it is a frame with holes onto whatever stands \
                  behind it. Cards belong on a flat Plane over a real opening.",
                 g.kind.kind_tag()
@@ -433,14 +433,14 @@ pub(in crate::catalogue::items) fn assert_no_glazing_on_solids(root: &Generator,
 /// no test: rotation propagates down a tree, so a tilted parent spins
 /// everything it holds. A ramp board built as a sub-root with its cleats
 /// nested under it turns the cleats twice and swings their offsets out of the
-/// surface — and because [`nest`](super::build::nest) rebases only *translations*, the authored
+/// surface - and because [`nest`](super::build::nest) rebases only *translations*, the authored
 /// world position and the rendered one part company with nothing in the
 /// record looking wrong.
 ///
 /// It is also how a guard gets fooled twice over. A footprint check that
-/// accumulates translations down the tree — which is what every guard in this
+/// accumulates translations down the tree - which is what every guard in this
 /// family does, because composing rotations for a family that has almost none
-/// would be noise — reports a tilted parent's children where they were
+/// would be noise - reports a tilted parent's children where they were
 /// *authored*, not where they render. The tilt hides the fault from the render
 /// and from the guard at once. Forbidding the shape is what keeps every
 /// translation-only walk sound by construction.
@@ -448,7 +448,7 @@ pub(in crate::catalogue::items) fn assert_no_glazing_on_solids(root: &Generator,
 /// # Why "at its own origin" and not "never"
 ///
 /// A tilted parent is perfectly safe when its children sit at its own origin,
-/// because then the rotation moves nothing and only *orientation* propagates —
+/// because then the rotation moves nothing and only *orientation* propagates -
 /// which is the whole point of authoring a rig as one turned assembly. The
 /// kit's [`valve_wheel`](crate::catalogue::items::industrial_park::valve_wheel)
 /// is exactly that: a rim turned to face a pipe, with its hub and spokes at
@@ -457,7 +457,7 @@ pub(in crate::catalogue::items) fn assert_no_glazing_on_solids(root: &Generator,
 ///
 /// So the rule is about **offset children under a turn**, which is the only
 /// form that displaces anything. The fix when it fires is always the same:
-/// demote the tilted piece to a child and give the sub-assembly a flat root —
+/// demote the tilted piece to a child and give the sub-assembly a flat root -
 /// the thing it stands on (the ramp's foot kerb, the awning's poles).
 pub(in crate::catalogue::items) fn assert_no_tilted_parents(root: &Generator, slug: &str) {
     fn walk(g: &Generator, at: [f32; 3], slug: &str) {
@@ -471,12 +471,12 @@ pub(in crate::catalogue::items) fn assert_no_tilted_parents(root: &Generator, sl
                 assert!(
                     o[0].abs() < 1e-4 && o[1].abs() < 1e-4 && o[2].abs() < 1e-4,
                     "{slug}: a rotated {} at {here:?} carries a child offset by \
-                     {o:?} — the turn spins that offset, so the child renders \
+                     {o:?} - the turn spins that offset, so the child renders \
                      somewhere the record does not say, and every guard here \
                      walks translations only and will agree with the record. \
                      Demote the tilted piece to a child and give the \
                      sub-assembly a flat root. (A turned rig whose children sit \
-                     at its own origin is fine — that is what the turn is for.)",
+                     at its own origin is fine - that is what the turn is for.)",
                     g.kind.kind_tag()
                 );
             }
@@ -492,7 +492,7 @@ pub(in crate::catalogue::items) fn assert_no_tilted_parents(root: &Generator, sl
 ///
 /// One is almost always the intended answer: a group's whole reason to exist
 /// is that its elements blend into a single skin, and a second component
-/// means two of them drifted out of blend range — or, more often, that the
+/// means two of them drifted out of blend range - or, more often, that the
 /// mesh is thinner than the sample grid can resolve and has broken up (see
 /// [`blob_cell_size`](super::build::blob_cell_size)).
 ///
@@ -549,7 +549,7 @@ pub(in crate::catalogue::items) fn blob_components(kind: &GeneratorKind) -> usiz
 }
 
 /// Walk a built tree and report whether any primitive is strongly emissive
-/// (emission strength > 1.0) — the shared "did the kit's firelit hero keep
+/// (emission strength > 1.0) - the shared "did the kit's firelit hero keep
 /// its glow?" check the per-theme kits assert on (forge fire, saloon lamps,
 /// brazier coals, …), so escalation's broken-emissive ruin pass has something
 /// to snuff.
@@ -581,7 +581,7 @@ struct AaFace {
 }
 
 /// The world half-extents of a prim's local half-extents under a rotation
-/// that is a whole number of quarter turns — or `None` if the turn is
+/// that is a whole number of quarter turns - or `None` if the turn is
 /// oblique, in which case the prim has no axis-aligned faces to speak of.
 fn quarter_turned(q: [f32; 4], half: [f32; 3]) -> Option<[f32; 3]> {
     let mut ext = [0.0_f32; 3];
@@ -721,14 +721,14 @@ fn aa_faces(g: &Generator, at: [f32; 3]) -> Vec<AaFace> {
 ///
 /// This is the coplanar z-fight stated as a guard. Two faces on one plane
 /// with the same normal tie for depth wherever they overlap, and the
-/// rasteriser breaks the tie per pixel per frame — the speckle the standing
+/// rasteriser breaks the tie per pixel per frame - the speckle the standing
 /// gotcha describes. The classic shapes: a lid cylinder exactly as long as
 /// the box it caps, so its end discs sit on the box's end faces; a spoke bar
 /// whose outer face lands flush with the hub's; a trim slab sized to meet
 /// its host exactly.
 ///
-/// Abutting faces — coincident but facing *opposite* ways, a slat's bottom
-/// on a rail's top — are how solids sit on each other and are not flagged.
+/// Abutting faces - coincident but facing *opposite* ways, a slat's bottom
+/// on a rail's top - are how solids sit on each other and are not flagged.
 /// Only whole planar faces are read: rotated prims by a whole number of
 /// quarter turns, the caps of uncut revolved prims, a tapered box's top and
 /// bottom (its sides slant). Oblique, cut or organic prims are left alone,
@@ -770,7 +770,7 @@ pub(in crate::catalogue::items) fn assert_no_coplanar_faces(root: &Generator, sl
     }
     assert!(
         ties.is_empty(),
-        "{slug}: {} pair(s) of faces share a plane, face the same way and overlap — a depth \
+        "{slug}: {} pair(s) of faces share a plane, face the same way and overlap - a depth \
          tie the rasteriser breaks per pixel (z-fight). Sink one into the other or stand it \
          proud:\n  {}",
         ties.len(),
@@ -779,7 +779,7 @@ pub(in crate::catalogue::items) fn assert_no_coplanar_faces(root: &Generator, sl
 }
 
 /// A nested L-system's derived geometry, placed in the prop's own frame
-/// (#972 — the planter and the garden bed were the first props to nest a
+/// (#972 - the planter and the garden bed were the first props to nest a
 /// plant). What a plant guard reads instead of the grammar that made it.
 pub(in crate::catalogue::items) struct PlantGeometry {
     /// The plant node's position in the prop: where its crown stands, and
@@ -789,7 +789,7 @@ pub(in crate::catalogue::items) struct PlantGeometry {
     pub stems: Vec<[f32; 3]>,
     /// The four corners of every foliage or flower card, in the prop's frame.
     pub cards: Vec<[f32; 3]>,
-    /// Triangles the plant meshes to — branch tubes plus baked cards.
+    /// Triangles the plant meshes to - branch tubes plus baked cards.
     pub triangles: usize,
 }
 
@@ -805,9 +805,9 @@ impl PlantGeometry {
 ///
 /// The derivation is the spawn path's own ([`expand_lsystem_skeleton`] and
 /// [`build_lsystem_geometry`]), so a grammar edit moves what the guard sees
-/// exactly as it moves the render. Ancestors contribute translation only —
+/// exactly as it moves the render. Ancestors contribute translation only -
 /// sound because [`assert_no_tilted_parents`] forbids an offset child under
-/// a turn — but the plant node's own rotation and uniform scale are applied
+/// a turn - but the plant node's own rotation and uniform scale are applied
 /// in full, since a container legitimately turns a plant to aim it.
 ///
 /// [`expand_lsystem_skeleton`]: crate::world_builder::lsystem::expand_lsystem_skeleton
@@ -964,8 +964,8 @@ fn solid_boxes(root: &Generator) -> Vec<([f32; 3], [f32; 3])> {
 ///
 /// Two relations in one, read from the built tree: the plant is parented to
 /// the slab it grows from (so one gizmo drag moves the bed and its
-/// planting together), and its crown — the turtle's origin, where every
-/// stem base starts — lies on that slab's top face, not above it and not
+/// planting together), and its crown - the turtle's origin, where every
+/// stem base starts - lies on that slab's top face, not above it and not
 /// buried in it. `inset` is how far inside the slab's edge a crown must
 /// stand. Returns the number of plants checked, so a caller can pin it
 /// (lesson 29: a guard that checks nothing passes).
@@ -984,7 +984,7 @@ pub(in crate::catalogue::items) fn assert_plants_stand_on_their_parent(
             *n += 1;
             let GeneratorKind::Cuboid { size, .. } = &g.kind else {
                 panic!(
-                    "{slug}: a nested plant hangs off a {} at {here:?} — it must be the \
+                    "{slug}: a nested plant hangs off a {} at {here:?} - it must be the \
                      child of the slab it grows from",
                     g.kind.kind_tag()
                 );
@@ -995,7 +995,7 @@ pub(in crate::catalogue::items) fn assert_plants_stand_on_their_parent(
             assert!(
                 (crown[1] - top).abs() < 1e-3,
                 "{slug}: a plant's crown is at y {:.3} and the slab it grows from tops out \
-                 at {top:.3} — it stands {:.3} off the soil",
+                 at {top:.3} - it stands {:.3} off the soil",
                 crown[1],
                 crown[1] - top
             );
@@ -1019,7 +1019,7 @@ pub(in crate::catalogue::items) fn assert_plants_stand_on_their_parent(
 /// Assert that no nested plant's stems or cards pass through a solid part
 /// of the prop (#972). A plant grammar knows nothing of the container it
 /// is planted in, so a shoot that droops a step too soon runs straight
-/// through the rim it was meant to hang over — invisible in a contact
+/// through the rim it was meant to hang over - invisible in a contact
 /// sheet, where the stone hides the stem. The planter's first ivy did
 /// exactly this: every shoot passed through the front coping stone 11 mm
 /// above the soil.
@@ -1068,8 +1068,8 @@ pub(in crate::catalogue::items) fn assert_plants_clear_solids(
 /// Assert that the soil a prop is planted in sits **down inside** its
 /// container and runs in **under** it on every side (#972).
 ///
-/// The soil is selected by what defines it — the cuboid wearing the
-/// [`soil`](super::material::soil) mulch — and the container by what it does
+/// The soil is selected by what defines it - the cuboid wearing the
+/// [`soil`](super::material::soil) mulch - and the container by what it does
 /// to the soil, not by a size or a level (lesson 29): along each of the
 /// slab's four top edges, sampled at `samples` points, the edge must lie
 /// inside some solid (so no side face of the slab is ever seen), and every
@@ -1123,13 +1123,13 @@ pub(in crate::catalogue::items) fn assert_soil_sits_under_its_rim(
                     .fold(f32::MIN, f32::max);
                 assert!(
                     rim > f32::MIN,
-                    "{slug}: the soil's edge at {p:?} is under no solid — its side face \
+                    "{slug}: the soil's edge at {p:?} is under no solid - its side face \
                      shows; lap the slab in under the rim"
                 );
                 assert!(
                     rim - top >= drop,
                     "{slug}: the soil tops out at {top:.3} and the rim over its edge at \
-                     {rim:.3} — it stands above the rim, or less than {drop} under it"
+                     {rim:.3} - it stands above the rim, or less than {drop} under it"
                 );
             }
         }

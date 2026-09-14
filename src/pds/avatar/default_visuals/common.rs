@@ -19,21 +19,21 @@ use crate::pds::types::{Fp, Fp2, Fp3, Fp4, TransformData};
 // Quaternion helpers
 // ---------------------------------------------------------------------------
 
-/// Rotation around X as a normalised `[x, y, z, w]` quaternion — points a
+/// Rotation around X as a normalised `[x, y, z, w]` quaternion - points a
 /// cone apex (local +Y) along ±Z, e.g. a forward-pointing prow ram.
 pub(crate) fn quat_x(angle_rad: f32) -> [f32; 4] {
     let half = angle_rad * 0.5;
     [half.sin(), 0.0, 0.0, half.cos()]
 }
 
-/// Rotation around Y as a normalised `[x, y, z, w]` quaternion — yaws a part
+/// Rotation around Y as a normalised `[x, y, z, w]` quaternion - yaws a part
 /// in plan view, e.g. the root flip that turns a chassis to face −Z.
 pub(crate) fn quat_y(angle_rad: f32) -> [f32; 4] {
     let half = angle_rad * 0.5;
     [0.0, half.sin(), 0.0, half.cos()]
 }
 
-/// Rotation around Z — lays wheel cylinders onto their axle and rolls hair
+/// Rotation around Z - lays wheel cylinders onto their axle and rolls hair
 /// tufts / stabiliser fins off vertical.
 pub(crate) fn quat_z(angle_rad: f32) -> [f32; 4] {
     let half = angle_rad * 0.5;
@@ -122,7 +122,7 @@ pub(crate) fn cylinder(
 
 /// Smooth-blend SDF group (#690): `elements` built with [`blob_ellipsoid`] /
 /// [`blob_ellipsoid`] / [`blob_capsule`] / [`blob_carve`]. The organic-mass
-/// workhorse — overlapping elements merge into one seamless skin, so the
+/// workhorse - overlapping elements merge into one seamless skin, so the
 /// old bolted-ellipsoid idiom (and its intersection seams) is obsolete.
 pub(crate) fn blob_group(
     elements: Vec<BlobElement>,
@@ -138,7 +138,7 @@ pub(crate) fn blob_group(
 }
 
 /// [`blob_group`] with an explicit [`crate::pds::generator::UvMapping`]
-/// instead of the `Box` default — e.g. `Cylindrical` so a wrap-mapped texture
+/// instead of the `Box` default - e.g. `Cylindrical` so a wrap-mapped texture
 /// (planking / plating) flows *along* an elongated mass (a boat hull) rather
 /// than tri-planar-projecting with per-face seams.
 pub(crate) fn blob_group_uv(
@@ -159,7 +159,7 @@ pub(crate) fn blob_group_uv(
 /// Snap an authored blob-element rotation onto the sanitiser's
 /// renormalisation fixpoint: a `sin`/`cos`-built quaternion can sit an ulp
 /// off exact unit length, and the record sanitiser's renormalisation would
-/// then rewrite it — breaking the parts' survive-sanitise-unchanged
+/// then rewrite it - breaking the parts' survive-sanitise-unchanged
 /// round-trip contract.
 fn unit(rotation: Fp4) -> Fp4 {
     Fp4(crate::pds::sanitize::unit_quat_fixpoint(rotation.0))
@@ -197,7 +197,7 @@ pub(crate) fn blob_capsule(
         position: Fp3(position),
         rotation: unit(rotation),
         // The Z radius is unused by the capsule SDF but must sit at the
-        // sanitizer's `c_dim` floor (0.01), not 0.0 — otherwise every
+        // sanitizer's `c_dim` floor (0.01), not 0.0 - otherwise every
         // fetched avatar gets clamped and re-serializes differently from
         // what its owner published (caught by the #695 round-trip test).
         radii: Fp3([radius, half_len, 0.01]),
@@ -207,7 +207,7 @@ pub(crate) fn blob_capsule(
 }
 
 /// Additive blob box: `half_extents` are the X/Y/Z half-extents in the
-/// element's pre-rotation frame — the hard-surface mass inside a soft
+/// element's pre-rotation frame - the hard-surface mass inside a soft
 /// group (pelvis block, palm, heel) that a smooth blend then rounds off.
 pub(crate) fn blob_box(
     position: [f32; 3],
@@ -227,7 +227,7 @@ pub(crate) fn blob_box(
 
 /// Additive blob capped cone along its local +Y: `base_r` at −`half_len`,
 /// `tip_r` at +`half_len` (rotate to aim). The one-element tapered limb
-/// segment (forearm / shin / thigh) a constant-radius capsule can't make —
+/// segment (forearm / shin / thigh) a constant-radius capsule can't make -
 /// keep `tip_r` ≥ ~40 % of `base_r` on limbs so the segment arrives at its
 /// joint still carrying volume (a near-point tip reads as a teardrop and
 /// visually disconnects at the joint, the #726 round-2 blocker).
@@ -243,7 +243,7 @@ pub(crate) fn blob_cone(
         shape: BlobShape::Cone,
         position: Fp3(position),
         rotation: unit(rotation),
-        // The tip radius shares the sanitizer's `c_dim` floor (0.01) —
+        // The tip radius shares the sanitizer's `c_dim` floor (0.01) -
         // same round-trip contract as [`blob_capsule`]'s unused axis.
         radii: Fp3([base_r, half_len, tip_r.max(0.01)]),
         subtract: false,
@@ -251,7 +251,7 @@ pub(crate) fn blob_cone(
     }
 }
 
-/// Flip any blob element to carve (smooth subtraction) instead of add —
+/// Flip any blob element to carve (smooth subtraction) instead of add -
 /// sockets / creases / waist pinches.
 pub(crate) fn blob_carve(mut e: BlobElement) -> BlobElement {
     e.subtract = true;
@@ -260,7 +260,7 @@ pub(crate) fn blob_carve(mut e: BlobElement) -> BlobElement {
 
 /// Spline-swept tube (#689): the one-prim tail / horn / tentacle. `points`
 /// are `(position, radius)` stations the Catmull-Rom centreline passes
-/// through. (Catalogue-facing, like [`lathe`] — the humanoid limbs moved to
+/// through. (Catalogue-facing, like [`lathe`] - the humanoid limbs moved to
 /// blended BlobGroups in #726.)
 #[allow(dead_code)]
 pub(crate) fn spine(
@@ -322,7 +322,7 @@ pub(crate) fn cone(
 /// Barr superellipsoid (#687): a rounded box that morphs from a hard box
 /// (`exponent → 0.2`) through a soft pillow to a true ellipsoid (`1.0`) toward
 /// a pinched octahedron (`2.5`). `exponent_ns` shapes the vertical (latitude)
-/// profile, `exponent_ew` the horizontal (longitude) cross-section — so a car
+/// profile, `exponent_ew` the horizontal (longitude) cross-section - so a car
 /// body panel wants ~0.5 (rounded edges, near-flat faces). The soft-surface
 /// counterpart of [`cuboid`] where a sheared box reads too hard.
 pub(crate) fn superellipsoid(
@@ -355,7 +355,7 @@ pub(crate) fn torus(
     }
 }
 
-/// A helical tube — spring / screw / spiral (`Helix` prim, #527). `radius` is
+/// A helical tube - spring / screw / spiral (`Helix` prim, #527). `radius` is
 /// the helix radius, `tube` the wire thickness, `pitch` the vertical rise per
 /// full turn, `turns` the revolution count. Laid along +Y; rotate to lay it
 /// along the travel axis for a screw propeller.
@@ -399,14 +399,14 @@ pub(crate) fn with_torture(
     kind
 }
 
-/// Per-axis shaping for box bodies — [`with_torture`]'s sibling for when the
+/// Per-axis shaping for box bodies - [`with_torture`]'s sibling for when the
 /// X and Z taper differ (a cabin greenhouse that narrows more across than
 /// fore-aft) or a top-shear lean is wanted. `taper` scales `[x, z]` toward the
 /// top (`1 - taper·t`, so `0.0` = straight, positive draws the top in,
 /// negative flares it); `bend` is the quadratic top displacement; `shear`
 /// slides the top linearly in `[x, z]` (a parallelepiped, edges stay straight).
 /// On an 8-corner cuboid this turns the box into a frustum / wedge / leaning
-/// prism — the cheapest de-blocking deform. Non-primitive kinds pass through.
+/// prism - the cheapest de-blocking deform. Non-primitive kinds pass through.
 pub(crate) fn with_shape(
     mut kind: GeneratorKind,
     taper: [f32; 2],
@@ -423,7 +423,7 @@ pub(crate) fn with_shape(
 
 /// Stamp the SL-style topology cuts onto a swept primitive (Sphere / Cylinder /
 /// Cone / Torus / Tube): `path_cut` (`[begin, end]` kept angular fraction),
-/// `profile_cut` (`[begin, end]` kept latitude band — domes / bowls), and
+/// `profile_cut` (`[begin, end]` kept latitude band - domes / bowls), and
 /// `hollow` (bore fraction). Non-swept kinds pass through unchanged. Honoured
 /// by the unified sweep mesher in `crate::world_builder::prim`.
 pub(crate) fn with_cut(
@@ -446,7 +446,7 @@ pub(crate) fn with_cut(
 
 /// Offset a built part to a joint anchor by adding the anchor to the part
 /// root's intrinsic translation (which carries the part's own offset from its
-/// attachment pivot — e.g. an arm hanging below the shoulder). Rotation and
+/// attachment pivot - e.g. an arm hanging below the shoulder). Rotation and
 /// scale on the part root are preserved.
 pub(crate) fn offset(mut part: Generator, anchor: [f32; 3]) -> Generator {
     let t = part.transform.translation.0;
@@ -454,7 +454,7 @@ pub(crate) fn offset(mut part: Generator, anchor: [f32; 3]) -> Generator {
     part
 }
 
-/// [`offset`] plus a rotation set on the part root — for slots the assembler
+/// [`offset`] plus a rotation set on the part root - for slots the assembler
 /// orients (a wheel laid on its axle, an airship fin). Parts build at identity
 /// rotation in their local frame, so setting it here is safe.
 pub(crate) fn offset_rot(part: Generator, anchor: [f32; 3], rotation: Fp4) -> Generator {

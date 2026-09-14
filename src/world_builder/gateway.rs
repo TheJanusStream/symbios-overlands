@@ -2,7 +2,7 @@
 //! themed gate structure: a sensor volume carrying [`GatewayMarker`],
 //! rendered as a faint emissive veil so even an unthemed zone reads as
 //! interactive. The surrounding structure comes from the catalogue
-//! entry's sibling prims, not from this node — and the destination list
+//! entry's sibling prims, not from this node - and the destination list
 //! is resolved at interaction time (the room owner's mutual follows),
 //! so the entity carries no target of its own.
 

@@ -1,4 +1,4 @@
-//! Suburban-theme catalogue structures — a quiet residential street.
+//! Suburban-theme catalogue structures - a quiet residential street.
 //!
 //! Two prosperity registers share one identity: the established
 //! ([`SUB_BAND`]) neighbourhood kit (community center, family house,
@@ -26,7 +26,7 @@ pub mod monument;
 pub mod picket_fence;
 pub mod suburban_house;
 pub mod swing_set;
-// Poor (trailer-lot) variants — the prosperity-Poor end of the theme.
+// Poor (trailer-lot) variants - the prosperity-Poor end of the theme.
 pub mod carport;
 pub mod trailer_home;
 pub mod yard_junk;
@@ -47,20 +47,20 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the established neighbourhood kit — tidy
+/// Shared prosperity band for the established neighbourhood kit - tidy
 /// houses and lawns read as a Modest-to-Rich suburb. The poor end is the
 /// separate trailer-lot kit ([`trailer_home`], …), tagged `Poor`.
 pub(super) const SUB_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the trailer-lot kit — the destitute end of the theme,
+/// Prosperity band for the trailer-lot kit - the destitute end of the theme,
 /// never picked for a modest or affluent room.
 pub(super) const SUB_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Courses per siding tile — see [`siding`].
+/// Courses per siding tile - see [`siding`].
 pub(super) const SIDING_COURSES: f64 = 10.0;
 
-/// Vinyl lap siding — the body of a house, garage, or trailer. Fine
+/// Vinyl lap siding - the body of a house, garage, or trailer. Fine
 /// horizontal courses with little grain so it reads as siding, not raw plank.
 ///
 /// `stagger` is held at **zero**, which is not a cosmetic choice: any value
@@ -68,7 +68,7 @@ pub(super) const SIDING_COURSES: f64 = 10.0;
 /// the generator then cuts *three* short boards per tile across U. At this
 /// tile that is a 557 mm butt joint every third of a metre, and a wall of lap
 /// siding comes out as a coarse masonry grid that reads as brick rather than
-/// board — the state the whole kit was in before #972's siding pass. Real
+/// board - the state the whole kit was in before #972's siding pass. Real
 /// siding is milled in 3–5 m lengths, so an elevation has a couple of butt
 /// joints, not thirty. Per-course grain de-correlation is unaffected; it comes
 /// from the row's own hash. See
@@ -100,7 +100,7 @@ pub(super) fn siding(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Painted timber — fences, swing-set frames, porch posts, mailbox posts,
+/// Painted timber - fences, swing-set frames, porch posts, mailbox posts,
 /// trim boards.
 ///
 /// `stagger` is zero for the same reason as [`siding`]'s: the end-joint grid
@@ -130,7 +130,7 @@ pub(super) fn wood(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Poured concrete — house plinths, driveways, porch steps, chimney caps.
+/// Poured concrete - house plinths, driveways, porch steps, chimney caps.
 /// Faint saw-cut lines rather than deep formwork marks: a domestic slab is
 /// power-floated and jointed, not board-formed.
 pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
@@ -148,7 +148,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Asphalt-shingle roof — the pitched roofs of houses and the hall.
+/// Asphalt-shingle roof - the pitched roofs of houses and the hall.
 pub(super) fn shingle(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -166,7 +166,7 @@ pub(super) fn shingle(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Face brick — the community center, mini-mart, and house chimneys.
+/// Face brick - the community center, mini-mart, and house chimneys.
 pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -182,7 +182,7 @@ pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Painted render / stucco — civic and shop walls.
+/// Painted render / stucco - civic and shop walls.
 pub(super) fn render(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -202,7 +202,7 @@ pub(super) fn render(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Clean window glass — house and shop windows (`glow` lights them at dusk).
+/// Clean window glass - house and shop windows (`glow` lights them at dusk).
 pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(tint),
@@ -223,7 +223,7 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     }
 }
 
-/// Dark tinted glazing for a **solid** — a car's greenhouse, a light fitting's
+/// Dark tinted glazing for a **solid** - a car's greenhouse, a light fitting's
 /// lens. Smooth, dark and untextured on purpose.
 ///
 /// [`glass`] carries the `Window` generator, which is an alpha card: its panes
@@ -244,7 +244,7 @@ pub(super) fn tinted_glass(tint: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Smooth painted enamel — cars, bins, garage doors, mailboxes, carports.
+/// Smooth painted enamel - cars, bins, garage doors, mailboxes, carports.
 pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -281,7 +281,7 @@ pub(super) fn parked_car(center: [f32; 3], body: [f32; 3]) -> Vec<Generator> {
             [cx - 0.1, cy + 1.25, cz],
             id_quat(),
         ),
-        // Glazed greenhouse — a tinted solid, not a `Window` card wrapped
+        // Glazed greenhouse - a tinted solid, not a `Window` card wrapped
         // round a box (see [`tinted_glass`]).
         prim(
             cuboid_tapered([1.62, 0.5, 2.32], 0.18, tinted_glass(GLASS_TINT)),
@@ -346,7 +346,7 @@ mod tests {
         }
     }
 
-    /// The community center is the kit's lit hero — it must keep its emissive
+    /// The community center is the kit's lit hero - it must keep its emissive
     /// sign so escalation's broken-emissive ruin pass has something to dim.
     #[test]
     fn community_center_keeps_its_sign() {

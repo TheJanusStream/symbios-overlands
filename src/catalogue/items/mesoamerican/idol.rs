@@ -1,4 +1,4 @@
-//! Idol — a Mesoamerican prop. A squat carved stone deity on a plinth: a
+//! Idol - a Mesoamerican prop. A squat carved stone deity on a plinth: a
 //! blocky seated figure with a gold headdress, a jade collar, and faintly
 //! glowing jade eyes that watch the precinct.
 
@@ -46,12 +46,12 @@ impl CatalogueEntry for Idol {
 }
 
 fn build_tree() -> Generator {
-    // A squat, frontal seated deity — broad blocky shoulders (wide in X,
+    // A squat, frontal seated deity - broad blocky shoulders (wide in X,
     // shallow in Z) and knees thrust forward break the axial symmetry so the
     // stone reads as a figure, not a finial. Face features and headdress all
     // sit on the front (−Z).
     let mut prims = vec![
-        // Plinth — the root.
+        // Plinth - the root.
         prim(
             solid(cuboid_tapered([1.6, 0.4, 1.4], 0.0, cobble(STONE_GREY))),
             [0.0, 0.2, 0.0],
@@ -63,7 +63,7 @@ fn build_tree() -> Generator {
             [0.0, 0.725, 0.0],
             id_quat(),
         ),
-        // Broad shoulders torso — wide in X, shallow in Z.
+        // Broad shoulders torso - wide in X, shallow in Z.
         prim(
             solid(cuboid_tapered([1.3, 0.9, 0.55], 0.0, cobble(STONE_GREY))),
             [0.0, 1.5, 0.0],
@@ -77,7 +77,7 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Knees thrust forward, and forearms resting on them — the seated pose.
+    // Knees thrust forward, and forearms resting on them - the seated pose.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
             solid(cuboid_tapered([0.42, 0.5, 0.5], 0.0, cobble(STONE_GREY))),

@@ -1,4 +1,4 @@
-//! Lean-to — a Medieval *poor* secondary. A crude open shelter: a low daub
+//! Lean-to - a Medieval *poor* secondary. A crude open shelter: a low daub
 //! back wall on a fieldstone footing, a thatch roof on bowed poles and
 //! exposed rafters sloping down to the open −Z front, and a little store of
 //! firewood, a pail and a rough bench tucked under it. The kind of windbreak
@@ -55,7 +55,7 @@ fn build_tree() -> Generator {
     let back_z = 1.1; // back wall at +Z; shelter opens toward −Z (camera)
 
     let mut prims = vec![
-        // Fieldstone footing — the root.
+        // Fieldstone footing - the root.
         prim(
             solid(cuboid_tapered(
                 [4.2, foot_h, 3.2],

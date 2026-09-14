@@ -1,4 +1,4 @@
-//! Tests for [`SovereignAudioConfig`] — wire-format round-trip per
+//! Tests for [`SovereignAudioConfig`] - wire-format round-trip per
 //! variant, forward-compat for the `Unknown` seam, native ↔ JSON-stash
 //! conversion via [`SovereignAudioConfig::from_patch`] /
 //! [`parse_patch`], and the legacy-decode contract that records
@@ -77,7 +77,7 @@ fn patch_variant_round_trips_as_structured() {
         patch: symbios_overlands::pds::audio::SovereignAudioPatch::default(),
     };
     let json = serde_json::to_string(&original).expect("serialise");
-    // Structured form — no inner floats at this wire level. The Fp
+    // Structured form - no inner floats at this wire level. The Fp
     // wrapper encodes as a fixed-point integer when its underlying
     // value is non-zero; the empty default produces minimal output.
     let back: SovereignAudioConfig = serde_json::from_str(&json).expect("deserialise");
@@ -106,7 +106,7 @@ fn structured_patch_wire_has_no_inner_floats() {
         ..Default::default()
     };
     // Patch the default Silence node with a SineOsc carrying real
-    // floats — exercises the Fp-wrapping path.
+    // floats - exercises the Fp-wrapping path.
     native.graph.nodes[0].kind = bevy_symbios_audio::NodeKind::Sine(bevy_symbios_audio::SineOsc {
         freq_hz: 440.5,
         phase_offset: 0.25,
@@ -203,7 +203,7 @@ fn from_sequence_round_trips_through_native_recipe() {
 #[test]
 fn environment_without_ambient_audio_field_decodes() {
     use symbios_overlands::pds::Environment;
-    // An empty object is the worst-case "every field elided" record —
+    // An empty object is the worst-case "every field elided" record -
     // legacy decoders for older clients on newer-server records hit
     // this same path.
     let env: Environment = serde_json::from_str("{}").expect("legacy decode");
@@ -373,7 +373,7 @@ fn unknown_node_kind_decodes_to_unknown_variant() {
     // Forward-compat: a node kind from a future crate version that this
     // mirror doesn't know must decode to Unknown, not fail the whole
     // record. Since symbios-audio 0.2 that maps to `NodeKind::Unknown`
-    // upstream rather than collapsing to `Silence` — still silent at the
+    // upstream rather than collapsing to `Silence` - still silent at the
     // speakers, but `try_bake` warns once per bake that the graph holds
     // one, and the record cannot be written back (#1305).
     use symbios_overlands::pds::audio::SovereignNodeKind;

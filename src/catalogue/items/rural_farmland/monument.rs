@@ -1,4 +1,4 @@
-//! Owner Barn Quilt — the Rural-Farmland identity monument (#975).
+//! Owner Barn Quilt - the Rural-Farmland identity monument (#975).
 //!
 //! The painted quilt block a farm hangs on its gable end, raised on its own
 //! frame at the gate: two weathered posts on a stone footing carry a
@@ -112,7 +112,7 @@ fn quilt(did: &str) -> Vec<Generator> {
     let z = -0.16;
     let bat = 0.15;
     let mut out = vec![
-        // Barn-board backing — the panel is single-sided, and a quilt board is
+        // Barn-board backing - the panel is single-sided, and a quilt board is
         // a solid sheet of siding.
         prim(
             solid(cuboid_tapered(
@@ -162,7 +162,7 @@ fn quilt(did: &str) -> Vec<Generator> {
     out
 }
 
-/// A hay bale leaning at the foot — the one piece of clutter, and the thing
+/// A hay bale leaning at the foot - the one piece of clutter, and the thing
 /// that says farm rather than noticeboard.
 fn hay_bale(x: f32) -> Generator {
     prim(

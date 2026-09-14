@@ -1,4 +1,4 @@
-//! Oil drums — a Roadside *poor* prop. A clutch of rusted 55-gallon barrels,
+//! Oil drums - a Roadside *poor* prop. A clutch of rusted 55-gallon barrels,
 //! two standing and one toppled on its side. The leaking clutter of the
 //! busted shoulder.
 //!
@@ -82,7 +82,7 @@ fn standing_drum(pos: [f32; 3]) -> Generator {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // First standing drum — the root.
+        // First standing drum - the root.
         standing_drum([0.0, 0.45, 0.0]),
         standing_drum([0.72, 0.45, 0.18]),
     ];

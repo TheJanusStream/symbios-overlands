@@ -1,4 +1,4 @@
-//! Owner Holo-Pylon — the Cyberpunk identity monument (#975).
+//! Owner Holo-Pylon - the Cyberpunk identity monument (#975).
 //!
 //! The ident pylon bolted outside every block: a dark-metal monolith on a
 //! cracked concrete pad, the room owner's portrait as its screen behind a
@@ -88,7 +88,7 @@ fn screen(did: &str) -> Vec<Generator> {
     let z = -0.35;
     let bez = 0.1;
     let mut out = vec![
-        // Backing plate — the panel is single-sided and a pylon is opaque.
+        // Backing plate - the panel is single-sided and a pylon is opaque.
         prim(
             solid(cuboid_tapered(
                 [PANEL + 0.3, PANEL + 0.3, 0.08],
@@ -105,7 +105,7 @@ fn screen(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y - PANEL * 0.5 - 0.34, z - 0.05],
             id_quat(),
         ),
-        // Ventilation grille below the screen, and a rust streak under it —
+        // Ventilation grille below the screen, and a rust streak under it -
         // the pylon has been out here a while.
         prim(
             solid(cuboid_tapered(

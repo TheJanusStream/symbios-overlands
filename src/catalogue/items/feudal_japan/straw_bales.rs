@@ -1,4 +1,4 @@
-//! Straw bales — a Feudal-Japan *poor* prop. A stack of bound rice-straw
+//! Straw bales - a Feudal-Japan *poor* prop. A stack of bound rice-straw
 //! bales (tawara) drying after the harvest, with a couple of cylindrical
 //! rolls tossed alongside. The everyday clutter of the farmstead.
 
@@ -50,7 +50,7 @@ fn build_tree() -> Generator {
     let straw = || thatch(THATCH_STRAW);
     let cord = || thatch([0.40, 0.30, 0.16]);
 
-    // Stacked bound bales — three on the bottom, one set back on top.
+    // Stacked bound bales - three on the bottom, one set back on top.
     let bales = [
         [-0.5_f32, 0.25, 0.0],
         [0.5, 0.25, 0.05],

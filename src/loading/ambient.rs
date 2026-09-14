@@ -25,7 +25,7 @@ use crate::state::LiveRoomRecord;
 /// **`None` is not the same as "it failed" (#1246 f341).** It used to be:
 /// a dead Referenced URL installed `AmbientHandle(None)` and the loading
 /// row, which is computed purely from this resource existing, ticked
-/// "Ambient soundscape" green — the same as a successful bake and the same
+/// "Ambient soundscape" green - the same as a successful bake and the same
 /// as a room with no audio. The distinction now lives in the sibling
 /// [`AmbientResolveFailed`], which is inserted alongside.
 #[derive(Resource, Debug, Clone)]
@@ -49,12 +49,12 @@ pub struct AmbientResolveFailed {
 /// its crossfade tail into, and the run-up before it is never replayed.
 ///
 /// It names the handle it belongs to, and is inserted with that handle by the
-/// poll that baked it — carried on the bake task from where the config was in
-/// hand — rather than read off [`LiveAmbientConfig`] when the player spawns.
+/// poll that baked it - carried on the bake task from where the config was in
+/// hand - rather than read off [`LiveAmbientConfig`] when the player spawns.
 /// The live config moves the moment an edit lands, while the bake of the
 /// config before it can still be in flight, and a player spawned from that
-/// bake would loop from the newer bed's start. A handle this does not name —
-/// a referenced clip, a patch, a sequence with no loop point — loops from its
+/// bake would loop from the newer bed's start. A handle this does not name -
+/// a referenced clip, a patch, a sequence with no loop point - loops from its
 /// first sample.
 ///
 /// A sibling rather than a second field on [`AmbientHandle`], for the reason
@@ -87,7 +87,7 @@ pub(crate) struct AmbientBakeTask(
     Option<std::time::Duration>,
 );
 
-/// In-flight *in-game* ambient re-bake task — the editor counterpart of
+/// In-flight *in-game* ambient re-bake task - the editor counterpart of
 /// [`AmbientBakeTask`]. Kept as a distinct component so the loading-gate
 /// poll and the in-game poll never drain each other's tasks (the two run
 /// in different `AppState`s and own separate pipelines).
@@ -193,7 +193,7 @@ fn wrap_baked_handle(
 
 /// Latch flipped on by [`start_ambient_bake`] once it has either
 /// inserted [`AmbientHandle`] directly (no-audio fast path) or kicked
-/// off the dispatch — bake task for procedural variants, resolver
+/// off the dispatch - bake task for procedural variants, resolver
 /// fetch for [`SovereignAssetReference`](crate::pds::SovereignAssetReference)
 /// Referenced variants. Without
 /// this guard the Referenced path would re-queue itself every frame
@@ -206,8 +206,8 @@ pub(crate) struct AmbientBakeStarted;
 /// The loading gate bakes the ambient bed exactly once; this resource lets
 /// the *in-game* re-bake ([`rebake_ambient_on_record_change`]) tell apart a
 /// record edit that touched the ambient bed (a re-roll, a "Reset to
-/// default", a direct audio edit — restart the loop) from one that didn't
-/// (a terrain or colour tweak — leave the music alone). Initialised by
+/// default", a direct audio edit - restart the loop) from one that didn't
+/// (a terrain or colour tweak - leave the music alone). Initialised by
 /// [`start_ambient_bake`] and cleared by [`reset_ambient_bake_state`].
 #[derive(Resource, Default)]
 pub(crate) struct LiveAmbientConfig(Option<crate::pds::SovereignAudioConfig>);
@@ -215,7 +215,7 @@ pub(crate) struct LiveAmbientConfig(Option<crate::pds::SovereignAudioConfig>);
 /// The audio handle currently fed to the live [`AmbientPlayer`].
 ///
 /// [`swap_ambient_player_to_handle`] respawns the looping player only when
-/// [`AmbientHandle`] differs from this — so a re-bake landing a new handle
+/// [`AmbientHandle`] differs from this - so a re-bake landing a new handle
 /// swaps the loop, while an unchanged handle is a no-op (no per-frame
 /// churn, no reliance on a fragile change-tick across schedules).
 #[derive(Resource, Default)]
@@ -280,7 +280,7 @@ pub(crate) fn ambient_bake_job(
 }
 
 /// Test helper: run the full procedural bake path (parse → `gen-jobs` synth →
-/// WAV) synchronously — what the offloaded task produces, minus the dispatch.
+/// WAV) synchronously - what the offloaded task produces, minus the dispatch.
 #[cfg(test)]
 fn bake_ambient_wav_bytes(audio: &crate::pds::SovereignAudioConfig) -> Option<Vec<u8>> {
     let job = ambient_bake_job(audio)?;
@@ -294,7 +294,7 @@ fn bake_ambient_wav_bytes(audio: &crate::pds::SovereignAudioConfig) -> Option<Ve
 /// [`rebake_ambient_on_record_change`]: route an ambient config down the
 /// right pipeline and spawn a `T` task for the procedural variants.
 ///
-/// * `None` / `Unknown`: no-audio fast path — insert [`AmbientHandle`]
+/// * `None` / `Unknown`: no-audio fast path - insert [`AmbientHandle`]
 ///   directly so the loading gate unblocks (or the swap system despawns
 ///   the player) without spinning up a task that would just return None.
 /// * `Referenced`: hand the reference to the audio resolver, which fetches
@@ -328,7 +328,7 @@ fn dispatch_ambient_config<T: AmbientTask>(
         | crate::pds::SovereignAudioConfig::Sequence { .. } => match ambient_bake_job(audio) {
             Some(job) => {
                 // Start marker for the B-2 timeline + the AmbientBakeStall replay
-                // rule's start→end pairing — loading gate only. A superseded
+                // rule's start→end pairing - loading gate only. A superseded
                 // re-bake is despawned mid-flight by its dispatcher, so a paired
                 // Started with no Completed could read as a false stall (#631).
                 // (The `EventPayload` variant is distinct from the same-named
@@ -408,13 +408,13 @@ pub(crate) fn start_ambient_bake(
 }
 
 /// Marker for the entity that plays the room's ambient track. One
-/// per active room — despawned (along with its `AudioPlayer`) when the
+/// per active room - despawned (along with its `AudioPlayer`) when the
 /// room transitions or the player logs out.
 #[derive(Component)]
 pub struct AmbientPlayer;
 
 /// Looping playback settings for the ambient bed, born muted when the
-/// master mute is engaged, and starting every pass at `loop_start` — the
+/// master mute is engaged, and starting every pass at `loop_start` - the
 /// bed's [`AmbientLoopStart`], `None` to loop from the first sample.
 /// Spawning pre-muted (rather than relying solely on the per-frame reconcile
 /// in [`crate::audio_mute`]) means launching muted never leaks even a
@@ -472,7 +472,7 @@ const AMBIENT_SETTLE_SECS: f32 = 0.4;
 /// bed is re-baked (#1337 A4).
 ///
 /// Every committed edit in the audio editor lands in the live record, the
-/// record is broadcast, and **every client** — not just the owner —
+/// record is broadcast, and **every client** - not just the owner -
 /// re-bakes its bed from the new config. A seeded-size recipe is a
 /// five-instrument, 34-beat bake, on wasm on the main thread, and the
 /// crate's editors commit on every drag end, so a minute of tuning was a
@@ -481,7 +481,7 @@ const AMBIENT_SETTLE_SECS: f32 = 0.4;
 ///
 /// The owner asked for delivery to stay live rather than move behind an
 /// Apply button (#1202: the pending value is delivery, not a draft), so
-/// what is quieted is the **cost**, not the delivery — and the owner still
+/// what is quieted is the **cost**, not the delivery - and the owner still
 /// hears each edit at once through the editor's own audition.
 ///
 /// **Its own window, not a longer [`AMBIENT_SETTLE_SECS`].** The shared
@@ -499,7 +499,7 @@ const AMBIENT_AUDIO_REBAKE_SETTLE_SECS: f32 = 2.0;
 /// it drains to zero. See [`AMBIENT_SETTLE_SECS`] for the why.
 ///
 /// [`Self::audio_remaining`] is a second, longer countdown that only the
-/// re-bake waits on — see [`AMBIENT_AUDIO_REBAKE_SETTLE_SECS`]. Two
+/// re-bake waits on - see [`AMBIENT_AUDIO_REBAKE_SETTLE_SECS`]. Two
 /// windows in one resource rather than two resources, because they are one
 /// mechanism: everything that arms either of them is a record change, and
 /// [`tick_ambient_settle`] is the only thing that drains either.
@@ -545,7 +545,7 @@ pub(crate) fn arm_ambient_settle(mut settle: ResMut<AmbientSettle>) {
 }
 
 /// Drain the settle countdown each frame, re-arming it whenever
-/// `LiveRoomRecord` changes — every record edit kicks off a recompile
+/// `LiveRoomRecord` changes - every record edit kicks off a recompile
 /// (and possibly an ambient re-bake), so the timer only reaches zero once
 /// the owner has paused and the heavy work has drained.
 ///
@@ -565,7 +565,7 @@ pub(crate) fn tick_ambient_settle(
         let was = settle.remaining;
         settle.remaining = (settle.remaining - time.delta_secs()).max(0.0);
         // Edge-detect the drain-to-zero (#635c): the timer then sits at 0 for
-        // the rest of the session, so this fires exactly once — the moment the
+        // the rest of the session, so this fires exactly once - the moment the
         // ambient bed is cleared to (re)start after a recompile/bake burst.
         if was > 0.0 && settle.remaining == 0.0 {
             let now = time.elapsed_secs_f64();
@@ -580,14 +580,14 @@ pub(crate) fn tick_ambient_settle(
 }
 
 /// Re-bake the ambient bed when the live room record's `ambient_audio`
-/// changes in-game — the editor counterpart of the loading-gate bake.
+/// changes in-game - the editor counterpart of the loading-gate bake.
 ///
 /// Newest ambient-bed config awaiting a (debounced) re-bake dispatch.
 ///
 /// A slider drag mutates `ambient_audio` many times a second; baking on each
 /// change spawns a worker and a multi-MiB transient per frame (and orphans the
 /// previous worker). [`rebake_ambient_on_record_change`] stashes the latest
-/// config here and dispatches once — after the edit settles — so a drag bakes
+/// config here and dispatches once - after the edit settles - so a drag bakes
 /// a single time.
 #[derive(Resource, Default)]
 pub(crate) struct AmbientRebakePending(Option<crate::pds::SovereignAudioConfig>);
@@ -663,7 +663,7 @@ pub(crate) fn rebake_ambient_on_record_change(
 }
 
 /// Bring the looping [`AmbientPlayer`] into agreement with
-/// [`AmbientHandle`] — the single in-game authority over the player
+/// [`AmbientHandle`] - the single in-game authority over the player
 /// entity, covering **both** the first spawn on `InGame` entry and every
 /// later swap (re-roll, Reset, room edit, resolver fetch).
 ///
@@ -702,7 +702,7 @@ pub(crate) fn swap_ambient_player_to_handle(
     if settle.remaining > 0.0 {
         return;
     }
-    // Desired ambient differs from what's looping — swap atomically.
+    // Desired ambient differs from what's looping - swap atomically.
     for entity in &players {
         commands.entity(entity).despawn();
     }
@@ -715,17 +715,17 @@ pub(crate) fn swap_ambient_player_to_handle(
                 AmbientPlayer,
             ));
             playing.0 = Some(handle);
-            info!("Ambient track re-baked — loop swapped");
+            info!("Ambient track re-baked - loop swapped");
         }
         None => {
             playing.0 = None;
-            info!("Ambient bed cleared — loop stopped");
+            info!("Ambient bed cleared - loop stopped");
         }
     }
 }
 
 /// Drain a finished ambient bake task `T`: wrap the WAV bytes in
-/// `AudioSource` and insert [`AmbientHandle`]. Serves both sides —
+/// `AudioSource` and insert [`AmbientHandle`]. Serves both sides -
 /// registered once per task type ([`AmbientBakeTask`] under the loading
 /// gate, [`AmbientRebakeTask`] in-game, where
 /// [`swap_ambient_player_to_handle`] then swaps the looping player).
@@ -751,7 +751,7 @@ pub(crate) fn poll_ambient_task<T: AmbientTask>(
             // Success only: record the bake latency (E-4) + a typed completion
             // (B-2 timeline / ambient stage distro + the AmbientBakeStall replay
             // rule's end marker). On the re-bake side only the Completed half is
-            // emitted (dispatch skips Started — see `dispatch_ambient_config`).
+            // emitted (dispatch skips Started - see `dispatch_ambient_config`).
             crate::offload::GenResult::Audio(bytes) => {
                 crate::diagnostics::samplers::ambient_bake_latency_secs(
                     &mut metrics,
@@ -766,7 +766,7 @@ pub(crate) fn poll_ambient_task<T: AmbientTask>(
                 );
                 Some(bytes)
             }
-            // A non-audio result means the bake job failed to produce audio —
+            // A non-audio result means the bake job failed to produce audio -
             // count it as an offload error (E-4) and log the fallback; the None
             // falls back to silence.
             _ => {
@@ -798,8 +798,8 @@ pub(crate) fn poll_ambient_task<T: AmbientTask>(
 
 #[cfg(test)]
 mod tests {
-    //! Pure-function tests for [`bake_ambient_wav_bytes`], and — since
-    //! #1337 — `App`-level ones for the re-bake's quiet window, which is
+    //! Pure-function tests for [`bake_ambient_wav_bytes`], and - since
+    //! #1337 - `App`-level ones for the re-bake's quiet window, which is
     //! a thing about *time and change ticks* and cannot be asked of a
     //! function. The loading-gate transition itself is still a manual
     //! smoke-test: bringing up a full `App` to drive a one-shot state
@@ -808,7 +808,7 @@ mod tests {
     //! The `App` harness follows `player::humanoid`'s
     //! `chassis_velocities`: `MinimalPlugins`, the resources the systems
     //! actually read, and `Time` advanced by hand. It differs in one way
-    //! that matters — the systems are registered and driven with
+    //! that matters - the systems are registered and driven with
     //! `app.update()` rather than `run_system_once`, because every
     //! question here is about `Res::is_changed`, and a freshly built
     //! one-shot system has no last-run tick, so every resource would read
@@ -887,7 +887,7 @@ mod tests {
     /// window, not the 0.4 s one the player start uses.
     ///
     /// Every client re-bakes its bed when the record's bed changes, and
-    /// the crate's editors commit on every drag end — so what this buys
+    /// the crate's editors commit on every drag end - so what this buys
     /// is a minute of tuning costing everyone else one bake instead of
     /// thirty.
     #[test]
@@ -934,7 +934,7 @@ mod tests {
 
     /// And a re-bake that arrives while one is still running supersedes
     /// it rather than queueing behind it. This has been true since the
-    /// system was written — the assertion is here so it stays true, since
+    /// system was written - the assertion is here so it stays true, since
     /// it is half of what the quiet window is worth.
     #[test]
     fn a_settled_rebake_supersedes_the_one_in_flight() {
@@ -956,7 +956,7 @@ mod tests {
     }
 
     /// An edit that does not touch the bed neither bakes nor holds the
-    /// audio window open — terrain, colours and scatters are most of what
+    /// audio window open - terrain, colours and scatters are most of what
     /// the room editor does, and they must not pay for this.
     #[test]
     fn an_edit_that_leaves_the_bed_alone_does_not_arm_the_audio_window() {
@@ -995,7 +995,7 @@ mod tests {
             assert_eq!(
                 drops_handle, drops_marker,
                 "{path} drops the ambient handle {drops_handle} time(s) and its \
-                 failure marker {drops_marker} — a stale marker outlives the room \
+                 failure marker {drops_marker} - a stale marker outlives the room \
                  it belongs to"
             );
         }
@@ -1022,10 +1022,10 @@ mod tests {
     #[test]
     fn default_patch_variant_bakes_silently() {
         // With the structured mirror (#311), there's no "malformed
-        // JSON" path — the wire IS the structured Fp form, so any
+        // JSON" path - the wire IS the structured Fp form, so any
         // record that decodes into Patch carries a well-formed
         // SovereignAudioPatch. A default empty graph (a single
-        // Silence node) bakes silently — non-zero samples, just at
+        // Silence node) bakes silently - non-zero samples, just at
         // zero amplitude.
         let r = SovereignAudioConfig::Patch {
             patch: crate::pds::audio::SovereignAudioPatch::default(),
@@ -1045,13 +1045,13 @@ mod tests {
 
     #[test]
     fn sequence_variant_produces_wav_bytes() {
-        // Use the seeded deriver so the recipe is realistic — same
+        // Use the seeded deriver so the recipe is realistic - same
         // wiring the default homeworld produces at runtime.
         let scene = crate::seeded_defaults::SceneCharacter::for_did("did:plc:bake_test");
         let recipe = crate::seeded_defaults::AmbientRecipe::from_scene(&scene, 42).recipe;
         let stash = SovereignAudioConfig::from_sequence(&recipe);
         let bytes = bake_ambient_wav_bytes(&stash).expect("bake produces bytes");
-        // RIFF/WAVE header check — the offload path emits 16-bit PCM
+        // RIFF/WAVE header check - the offload path emits 16-bit PCM
         // mono WAV; "RIFF" at offset 0, "WAVEfmt " at offset 8.
         assert!(
             bytes.starts_with(b"RIFF"),
@@ -1061,7 +1061,7 @@ mod tests {
             bytes[8..16] == *b"WAVEfmt ",
             "bytes must carry WAVEfmt subchunk"
         );
-        // Sanity-check size — WARMUP_BEATS + LOOP_BEATS = 34 beats at 60 BPM =
+        // Sanity-check size - WARMUP_BEATS + LOOP_BEATS = 34 beats at 60 BPM =
         // 34 seconds, plus crossfade tail, at 22.05 kHz mono 16-bit PCM ≈ 34 s ×
         // 22_050 × 2 bytes ≈ 1.5 MiB. WAV header (~44 bytes) is dwarfed by the
         // data chunk.
@@ -1078,8 +1078,8 @@ mod tests {
         crate::seeded_defaults::AmbientRecipe::from_scene(&scene, 3).recipe
     }
 
-    /// #1341: the seeded bed's player starts every pass at its loop start —
-    /// beat 2 at 60 BPM, two seconds in — and a bed with no loop point loops
+    /// #1341: the seeded bed's player starts every pass at its loop start -
+    /// beat 2 at 60 BPM, two seconds in - and a bed with no loop point loops
     /// from its first sample. The control, run at HEAD before the fix:
     /// `ambient_playback_settings(false).start_position` was `None`.
     #[test]
@@ -1103,7 +1103,7 @@ mod tests {
     }
 
     /// #1341: a bed's player loops from the loop start of the bake that made
-    /// its handle — carried with that bake — and not from whatever the live
+    /// its handle - carried with that bake - and not from whatever the live
     /// config says by the time the player spawns: an edit moves the live
     /// config while the bake of the one before it is still in flight. A
     /// handle that loop start does not name, like a referenced clip landing

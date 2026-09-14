@@ -1,4 +1,4 @@
-//! Humanoid preset — capsule rigid body with `LockedAxes` keeping it
+//! Humanoid preset - capsule rigid body with `LockedAxes` keeping it
 //! upright, walk/wading/swim controller, jump impulse. Visual mesh comes
 //! from the avatar's `visuals` generator tree; cosmetic root-level gait
 //! animation (bounce / sway / head-turn) lives in [`super::gait`], while
@@ -17,7 +17,7 @@ use super::HumanoidPreset;
 ///
 /// The record's `walk_speed` was named before the engine grew a speed axis,
 /// and its default sits far past the engine's Froude-0.5 walk-run transition
-/// — a RUN, which milestone #11's diagnosis (symbios-avatar #325) measured
+/// - a RUN, which milestone #11's diagnosis (symbios-avatar #325) measured
 /// every player holding constantly. So the record's field is the **travel**
 /// speed the run key asks for, and the walk is derived from the body instead,
 /// read back through `Speed::from_froude(..).metres_per_second(rig)` so a
@@ -38,7 +38,7 @@ use super::HumanoidPreset;
 /// transition`, the playout itself is exact (Froude 0.4900 at 60 and 144 Hz,
 /// jitter up to its whole render delay), and one long receiver frame of
 /// 50–99 ms drew a run only because the fill divided by the wrong frame's
-/// delta — fixed in `rigged::RiggedTrail`, after which no arm crosses 0.4932.
+/// delta - fixed in `rigged::RiggedTrail`, after which no arm crosses 0.4932.
 /// A body on a slope is the owner's eye to judge: the pace is planar, so a
 /// slope moves it only through what the solver does to the planar velocity.
 const WALK_FROUDE: f32 = 0.49;
@@ -49,8 +49,8 @@ const WALK_FROUDE: f32 = 0.49;
 /// The derivation above needs the built rig, and a freshly spawned chassis
 /// walks before its body lands. The share is the default body's own
 /// derivation over the default record's run, measured by `the_derived_walk_
-/// is_a_walk_on_the_engines_own_axis` — 1.848 m/s of 5.0 since #1323 (it was
-/// 1.73 of 4.0) — which is that guard's job: the first value written here
+/// is_a_walk_on_the_engines_own_axis` - 1.848 m/s of 5.0 since #1323 (it was
+/// 1.73 of 4.0) - which is that guard's job: the first value written here
 /// was estimated off the viewer's pace scale instead (0.64) and the control
 /// refuted it. It only steers the capsule for the build's second or two,
 /// after which the rig answers.
@@ -60,7 +60,7 @@ const WALK_OF_TRAVEL_FALLBACK: f32 = 0.37;
 ///
 /// The record's controller lerps the velocity toward the keys at
 /// `acceleration` (12/s by default), which from standing is a step of
-/// 39 m/s² — a player crossed the whole walking band in two fixed steps, and
+/// 39 m/s² - a player crossed the whole walking band in two fixed steps, and
 /// a planted foot was held against a chassis that had left it behind. This
 /// caps what the lerp may add along the velocity, so a start is a short ramp
 /// the owner can see. A code constant, on top of the record, so it reaches
@@ -83,14 +83,14 @@ const SPEED_UP_LIMIT: f32 = 9.0;
 
 /// The most the planar velocity may slow down, in m/s² (#1323). Half as
 /// steep again as [`SPEED_UP_LIMIT`], so a stop still reads as a stop rather
-/// than a coast — 0.188 s from a walk to 5% of it, 0.375 s from a run; the
+/// than a coast - 0.188 s from a walk to 5% of it, 0.375 s from a run; the
 /// record's `stop_damping` still shapes the tail under it.
 const SLOW_DOWN_LIMIT: f32 = 13.5;
 
 /// One fixed step of the planar velocity held to the ramp (#1323): the step
 /// the controller proposed, `current → proposed`, with its part ALONG the
 /// current velocity capped at [`SPEED_UP_LIMIT`] and [`SLOW_DOWN_LIMIT`], and
-/// its part across it — the turn — left as the controller asked.
+/// its part across it - the turn - left as the controller asked.
 ///
 /// **Along the velocity, not on the speed.** A cap on the speed's magnitude
 /// alone flips a reversal: the lerp's direction swings through the zero
@@ -99,8 +99,8 @@ const SLOW_DOWN_LIMIT: f32 = 13.5;
 /// along component instead slows the body to rest down its own line and
 /// starts it back up the other way, continuously.
 ///
-/// Under 0.1 m/s — the speed under which the facing calls travel
-/// directionless — the along axis is the keys' own direction instead: from
+/// Under 0.1 m/s - the speed under which the facing calls travel
+/// directionless - the along axis is the keys' own direction instead: from
 /// standing there is no velocity to measure along, and an exponential stop
 /// leaves a crumb pointing wherever it pointed, which would otherwise let a
 /// start at right angles to it through uncapped.
@@ -123,7 +123,7 @@ fn ramped(current: Vec3, proposed: Vec3, toward: Vec3, dt: f32) -> Vec3 {
 /// `FixedUpdate` (64 Hz) but a key's `just_pressed` edge lives for one
 /// *render* frame: at 120/144 Hz many render frames execute zero fixed
 /// steps, so a Space tap frequently evaporated before any fixed step
-/// sampled it — and a hitchy frame running 2+ steps saw the same edge
+/// sampled it - and a hitchy frame running 2+ steps saw the same edge
 /// in each, double-firing the impulse. [`latch_jump_input`] converts
 /// the render-frame edge into this queued flag; the first fixed step
 /// reads it and [`clear_jump_queue`] (chained right after the walk
@@ -144,7 +144,7 @@ pub(super) fn latch_jump_input(
     }
 }
 
-/// Wipe the jump queue at the end of every fixed step — chained after
+/// Wipe the jump queue at the end of every fixed step - chained after
 /// [`apply_humanoid_walk`] and deliberately NOT input-gated: whether the
 /// walk system consumed the edge, ignored it (mid-air, swimming), or was
 /// gated off entirely, a queued tap must never outlive the first fixed
@@ -156,7 +156,7 @@ pub(super) fn clear_jump_queue(mut queued: ResMut<JumpQueued>) {
 }
 
 /// Classification of the humanoid's relationship to the water surface
-/// directly beneath them. Drives the three locomotion modes — walking on
+/// directly beneath them. Drives the three locomotion modes - walking on
 /// land, slowed wading with feet under water, and free 3D swimming once the
 /// water is deep enough to swim in (see [`SWIM_FROM`]).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -167,7 +167,7 @@ pub enum WaterState {
     /// `depth` is how much of the avatar's height (m) is submerged.
     Wading { depth: f32 },
     /// Deep enough to swim. `depth` is how far below the surface the
-    /// avatar's centre is (m) — negative once a floating swimmer's centre
+    /// avatar's centre is (m) - negative once a floating swimmer's centre
     /// rides above the waterline.
     Swimming { depth: f32 },
 }
@@ -176,7 +176,7 @@ pub enum WaterState {
 /// swimming (#1324): the water at its chin, on the capsule the controller
 /// classifies with.
 ///
-/// It used to be the whole height — the head had to go under — and that line
+/// It used to be the whole height - the head had to go under - and that line
 /// was also the only one: a swimmer rising to the surface crossed it the
 /// moment its head came out, dropped into the land controller, fell back
 /// under and swam again, 21 times a second (measured by
@@ -218,8 +218,8 @@ const DIVE_PITCH: f32 = 0.61;
 /// Swimming has two thresholds ([`SWIM_FROM`], [`SWIM_UNTIL`]), so which mode
 /// a depth between them means depends on the mode the body was already in:
 /// this is that memory. Required by [`super::HumanoidPreset`], so every
-/// humanoid chassis carries one. The two other classifiers — the UI's mode
-/// badge and the rigged body's animation fill — keep memories of their own,
+/// humanoid chassis carries one. The two other classifiers - the UI's mode
+/// badge and the rigged body's animation fill - keep memories of their own,
 /// because each runs when the controller does not (a focused text field
 /// stands the controller down; a remote peer has no controller here).
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
@@ -228,13 +228,13 @@ pub struct HumanoidWater(pub WaterState);
 /// Classify the avatar's relationship to the water column at its XZ
 /// position, given whether it was swimming a moment ago. The avatar is
 /// treated as a vertical line segment of length `height` centred on
-/// `chassis_y` — its feet at `chassis_y - height/2`. The classifier samples
+/// `chassis_y` - its feet at `chassis_y - height/2`. The classifier samples
 /// [`WaterSurfaces::surface_at`] at the avatar's XZ to locate the containing
 /// surface, then compares the submerged share of the height against
 /// [`SWIM_FROM`] (to start swimming) or [`SWIM_UNTIL`] (to stop).
 ///
 /// Returns [`WaterState::Dry`] when no water surface contains the
-/// avatar's column — the same fall-through used when the player walks
+/// avatar's column - the same fall-through used when the player walks
 /// outside every pond's footprint.
 pub fn humanoid_water_state(
     was_swimming: bool,
@@ -268,7 +268,7 @@ pub fn humanoid_water_state(
 /// Deliberately its own ungated `Update` system rather than a write inside
 /// [`apply_humanoid_walk`]: the drive systems stand down whenever an egui
 /// text field has focus (#821), so a banner fed from there would blink out
-/// the moment the swimmer clicked into chat — and "the mode indicator
+/// the moment the swimmer clicked into chat - and "the mode indicator
 /// disappears while you type" is a worse lie than no indicator.
 ///
 /// Guarded (#879): the resource is written only when the classification
@@ -314,7 +314,7 @@ pub(super) fn publish_movement_facts(
             &water_surfaces,
         );
         // The same derivation `apply_humanoid_walk` uses for the unshifted
-        // walk, off the same rig — read here so the locomotion editor and
+        // walk, off the same rig - read here so the locomotion editor and
         // the walk cannot disagree about what "walk" means (#1241 f168).
         facts.derived_walk = bodies
             .iter()
@@ -328,7 +328,7 @@ pub(super) fn publish_movement_facts(
     }
 }
 
-/// The unshifted walk this rig walks at (m/s) — the engine's own
+/// The unshifted walk this rig walks at (m/s) - the engine's own
 /// calibration point, [`WALK_FROUDE`], read back through the speed axis so
 /// a child walks slower and a giant faster on the same dimensionless
 /// number.
@@ -336,7 +336,7 @@ pub fn derived_walk_speed(rig: &symbios_avatar::Rig) -> f32 {
     symbios_avatar::Speed::from_froude(WALK_FROUDE).metres_per_second(rig)
 }
 
-/// True when the record's `walk_speed` — which IS the run since #1193 —
+/// True when the record's `walk_speed` - which IS the run since #1193 -
 /// has been tuned at or below the body's derived walk, so Shift does
 /// nothing at all (#1241 f168).
 ///
@@ -351,22 +351,22 @@ pub fn run_key_is_dead(record_walk_speed: f32, derived_walk: f32) -> bool {
 
 /// Locomotion controller. Three modes selected by [`humanoid_water_state`]:
 ///
-/// * **Dry** — original land-walking behavior: WASD on the camera-flat
+/// * **Dry** - original land-walking behavior: WASD on the camera-flat
 ///   horizontal plane, snappy friction on release, Space jumps when a
 ///   downward raycast hits ground. **Shift runs** (#1193): unshifted
 ///   movement is a true walk derived from the body itself, and holding
-///   either Shift travels at the record's `walk_speed` — see
+///   either Shift travels at the record's `walk_speed` - see
 ///   [`WALK_FROUDE`] for why the record's field is the run.
-/// * **Wading** — same as Dry but the chosen speed is multiplied by
+/// * **Wading** - same as Dry but the chosen speed is multiplied by
 ///   `wading_speed_factor`. Jump still works while grounded so the avatar
 ///   can clamber out of the shallows.
-/// * **Swimming** — gravity is overridden by lerping the full 3D linear
+/// * **Swimming** - gravity is overridden by lerping the full 3D linear
 ///   velocity toward `cam_forward * swim_speed`. Forward direction uses
 ///   the camera's full 3D look vector so swimming forward while pitched
 ///   downward dives. Right strafe is projected onto the horizontal plane
 ///   so strafing while looking up doesn't hop you up-and-sideways.
 ///   Space ascends, Shift / Ctrl descend, both add `swim_vertical_speed`
-///   to the desired Y. The terrain-raycast jump is bypassed — Space is
+///   to the desired Y. The terrain-raycast jump is bypassed - Space is
 ///   already swim-ascend.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(super) fn apply_humanoid_walk(
@@ -443,12 +443,12 @@ pub(super) fn apply_humanoid_walk(
                 1.0
             };
             // **Shift runs** (#1193). The record's `walk_speed` is the travel
-            // speed — a run on the speed axis — and unshifted movement walks
+            // speed - a run on the speed axis - and unshifted movement walks
             // at the body's own natural pace, never faster than the travel
             // (`min`, so a record tuned slower than its body's walk collapses
             // to one speed instead of inverting the key). Land only: while
             // swimming, Shift keeps meaning descend. The visible gait follows
-            // for free — the rigged driver reads the chassis' actual speed
+            // for free - the rigged driver reads the chassis' actual speed
             // through the speed axis, and the walk↔run posture change rides
             // the eased pace (#1192) rather than the key edge.
             let running =
@@ -496,8 +496,8 @@ pub(super) fn apply_humanoid_walk(
             };
             // The ramp (#1323), after the record's own approach so its
             // `acceleration` and `stop_damping` still shape the curve under
-            // the cap. Land and wading only — swimming keeps its unramped
-            // lerp — and planar only: the jump's vertical is untouched.
+            // the cap. Land and wading only - swimming keeps its unramped
+            // lerp - and planar only: the jump's vertical is untouched.
             let new_h = ramped(current_h, proposed, desired, dt);
             lin_vel.0.x = new_h.x;
             lin_vel.0.z = new_h.z;
@@ -515,7 +515,7 @@ pub(super) fn apply_humanoid_walk(
                 let origin = chassis_pos + Vec3::Y * 0.05;
                 let feet_distance = total_height * 0.5 + 0.1;
                 // Exclude self + every sensor so a gateway veil / portal never
-                // counts as ground for the jump check (#813) —
+                // counts as ground for the jump check (#813) -
                 // see [`super::ground_ray_filter`].
                 let filter = super::ground_ray_filter(entity, sensors.iter());
                 let grounded = spatial_query
@@ -539,7 +539,7 @@ pub(super) fn apply_humanoid_walk(
             // **Except afloat** (#1324): at the surface W swims level unless
             // the camera looks down past [`DIVE_PITCH`]. The orbit camera
             // rests 23° below the horizon, so camera-forward dived every
-            // swimmer who pressed W at the surface — swimming along it took
+            // swimmer who pressed W at the surface - swimming along it took
             // looking up. Shift/C still dive from anywhere.
             let mut forward = cam_forward.normalize_or_zero();
             if afloat && forward.y > -DIVE_PITCH.sin() {
@@ -570,7 +570,7 @@ pub(super) fn apply_humanoid_walk(
             // preventDefault cannot intercept it, and the session (plus
             // any unsaved edits) died with the tab. Shift and C cover
             // swim-down everywhere; native keeps Ctrl for muscle memory.
-            // The Controls sheet rows in `ui::toolbar` mirror this —
+            // The Controls sheet rows in `ui::toolbar` mirror this -
             // change both together (#803).
             #[allow(unused_mut)]
             let mut swim_down = keyboard.pressed(KeyCode::ShiftLeft)
@@ -589,7 +589,7 @@ pub(super) fn apply_humanoid_walk(
             // **Afloat at the surface (#1324)**: while the capsule's top is
             // out of the water, the body never rises past its float line
             // ([`SWIM_FLOAT`]) and is drawn back onto it from above, and the
-            // water holds it up — the step's gravity is cancelled — so a
+            // water holds it up - the step's gravity is cancelled - so a
             // swimmer who surfaces stays there, idle or swimming, until it
             // swims down. Fully under water nothing changes: the swim keeps
             // its own feel, including a slow sink with no keys held.
@@ -654,7 +654,7 @@ pub(super) fn apply_humanoid_walk(
     //
     // Skipped while the avatar-edit freeze holds the chassis (#852):
     // this is a raw `Transform` write, which `LockedAxes::ALL_LOCKED`
-    // cannot constrain — with the Avatar window open and no row
+    // cannot constrain - with the Avatar window open and no row
     // selected the drive gates (deliberately selection-scoped, see
     // `super::avatar_visuals_row_selected`) let this system run, and
     // WASD slewed the "frozen" avatar's facing mid-edit.
@@ -723,7 +723,7 @@ mod tests {
     }
 
     /// A body not yet swimming starts to at [`SWIM_FROM`] of its height under
-    /// water (#1324) — the chin, where it used to wait for the whole head.
+    /// water (#1324) - the chin, where it used to wait for the whole head.
     #[test]
     fn swimming_starts_with_the_water_at_the_chin() {
         let surfaces = pond(0.0, 50.0);
@@ -740,7 +740,7 @@ mod tests {
     }
 
     /// A body already swimming goes on swimming until less than
-    /// [`SWIM_UNTIL`] of it is under water (#1324) — so the float line, where
+    /// [`SWIM_UNTIL`] of it is under water (#1324) - so the float line, where
     /// a swimmer at the surface rides, sits inside the swim on both sides.
     /// Without this second threshold a swimmer rising to the surface crossed
     /// the only line there was every time its head came out.
@@ -791,13 +791,13 @@ mod tests {
                 },
             ],
         };
-        // Inside both — the elevated pond at y=5 wins. With chassis at y=4.5,
+        // Inside both - the elevated pond at y=5 wins. With chassis at y=4.5,
         // height 1.8 → feet 3.6 (below 5), head 5.4 (above 5) → wading the
         // upper pond. If the lower sea were chosen instead, head 5.4 above
         // the sea at y=0 would yield Dry.
         let s = humanoid_water_state(false, 4.5, Vec2::new(1.0, 0.0), 1.8, &surfaces);
         assert!(matches!(s, WaterState::Wading { .. }));
-        // Same chassis Y but outside the elevated pond's footprint — the
+        // Same chassis Y but outside the elevated pond's footprint - the
         // sea (y=0) is the only candidate, and the avatar's feet at 3.6 are
         // far above it, so the result is Dry.
         let s = humanoid_water_state(false, 4.5, Vec2::new(50.0, 0.0), 1.8, &surfaces);
@@ -823,7 +823,7 @@ mod speed_change {
     /// The speed the chassis reaches at each fixed step, in m/s, with `W`
     /// held or released as `held` says and the run key held or not for the
     /// whole trajectory (#1193). No rigged body is spawned here, so the
-    /// controller walks on [`WALK_OF_TRAVEL_FALLBACK`] — which is what makes
+    /// controller walks on [`WALK_OF_TRAVEL_FALLBACK`] - which is what makes
     /// the two converged speeds exactly predictable.
     fn chassis_speeds_shifted(held: &[bool], shift: bool) -> Vec<f32> {
         let keys: Vec<&[KeyCode]> = held
@@ -846,7 +846,7 @@ mod speed_change {
     /// of its arithmetic, which is the whole point of it (engine #277). The
     /// question that issue has to answer is how fast a *player* can change
     /// speed, and a probe that reimplements the controller's exponential in
-    /// order to measure the controller's exponential answers nothing — this
+    /// order to measure the controller's exponential answers nothing - this
     /// crate has caught three such probes measuring their own arithmetic in
     /// a month.
     ///
@@ -937,12 +937,12 @@ mod speed_change {
     ///   accelerating from rest, m/s   0.750 1.359 1.854 2.257 2.584 2.849 ...
     ///   decelerating on release, m/s  2.926 2.141 1.566 1.146 0.838 0.613 ...
     ///
-    ///   accelerate  steepest 39.0 m/s^2 — a 0.7 m/s change takes 0.018 s
-    ///   decelerate  steepest 50.3 m/s^2 — a 0.7 m/s change takes 0.014 s
+    ///   accelerate  steepest 39.0 m/s^2 - a 0.7 m/s change takes 0.018 s
+    ///   decelerate  steepest 50.3 m/s^2 - a 0.7 m/s change takes 0.014 s
     /// ```
     ///
-    /// Against the ramps #277's columns were taken on — 0.25 s over 0.7 m/s is
-    /// 2.8 m/s², 0.05 s is 14.0 — the real chassis produces 2.8x to 3.6x the
+    /// Against the ramps #277's columns were taken on - 0.25 s over 0.7 m/s is
+    /// 2.8 m/s², 0.05 s is 14.0 - the real chassis produces 2.8x to 3.6x the
     /// column filed as ABRUPT. A player crosses the whole walking band in two
     /// frames. So the wontfix that issue offered itself is not available.
     ///
@@ -959,7 +959,7 @@ mod speed_change {
     #[test]
     #[ignore = "probe for engine #277 and #1323: how fast can a player change speed"]
     fn probe_how_fast_a_player_can_change_speed() {
-        // Held from rest, then released — the two extremes the controller
+        // Held from rest, then released - the two extremes the controller
         // offers, since every other input (strafe, turn, wading) changes the
         // desired velocity by less than the whole of `walk_speed`. At the
         // walk and at the run: two seconds each way, parts-per-million
@@ -1005,7 +1005,7 @@ mod speed_change {
 
     /// The ramp, end to end through the controller (#1323): from standing to
     /// the walk and to the run, then released to rest, no step changes speed
-    /// faster than its cap — and the cap still lets the body reach its pace,
+    /// faster than its cap - and the cap still lets the body reach its pace,
     /// and stop, inside two seconds.
     ///
     /// Without the ramp the controller's steepest step was 22.2 m/s² from
@@ -1060,15 +1060,15 @@ mod speed_change {
     }
 
     /// A reversal slows the body to rest down its own line and starts it back
-    /// up the other way (#1323) — never a leap from forward to backward.
+    /// up the other way (#1323) - never a leap from forward to backward.
     ///
     /// The trap the ramp was written around: a cap on the speed's MAGNITUDE
     /// alone lets the lerp's direction swing through the zero crossing in one
     /// step while the capped speed is still large, which is a jump of twice
     /// that speed in a single step. So W for two seconds and then S, through
     /// the real controller at a walk and a run, and every step's change of
-    /// velocity — as a vector, so a flip cannot hide inside an unchanged
-    /// speed — must stay within one step of the steeper cap, and the
+    /// velocity - as a vector, so a flip cannot hide inside an unchanged
+    /// speed - must stay within one step of the steeper cap, and the
     /// velocity must pass through rest on the way. Without the ramp the
     /// controller's lerp steps 0.69 m/s at a walk and 1.88 at a run on the
     /// first step of the reversal.
@@ -1102,7 +1102,7 @@ mod speed_change {
                 .fold(f32::MAX, f32::min);
             assert!(
                 slowest <= cap,
-                "shift {shift}: the reversal never came to rest — slowest {slowest:.3} m/s"
+                "shift {shift}: the reversal never came to rest - slowest {slowest:.3} m/s"
             );
             let (before, after) = (velocities[127], velocities[255]);
             assert!(
@@ -1115,10 +1115,10 @@ mod speed_change {
     /// The run key, end to end through the controller (#1193): W alone
     /// converges on the walk, W with Shift held converges on the record's
     /// travel speed. Driven by [`apply_humanoid_walk`] itself, like
-    /// everything in this module — a probe re-deriving the arithmetic would
+    /// everything in this module - a probe re-deriving the arithmetic would
     /// measure its own arithmetic. The harness spawns no rigged body, so the
     /// walk is the fallback share of the record's own (seeded, per-DID)
-    /// travel speed — read off the record rather than assumed 4.0.
+    /// travel speed - read off the record rather than assumed 4.0.
     #[test]
     fn shift_is_the_run_key_and_unshifted_is_a_walk() {
         let LocomotionConfig::Humanoid(p) =
@@ -1144,13 +1144,13 @@ mod speed_change {
     }
 
     /// #1241 f168. Sequence: drag "Run speed" to 1.5 m/s to make the
-    /// avatar amble; afterwards Shift does nothing at all — no message, no
+    /// avatar amble; afterwards Shift does nothing at all - no message, no
     /// disabled control, just a key that stopped working.
     /// `apply_humanoid_walk` takes `walking.min(travel)`, so below the
     /// body's derived walk both branches collapse to one number rather
     /// than inverting the key. The slider starts at 1.0 m/s against a
     /// default body that walks at ~1.85, so the bottom of its travel is a
-    /// dead band — measured here off the real rig rather than asserted.
+    /// dead band - measured here off the real rig rather than asserted.
     #[test]
     fn the_run_key_dies_below_the_derived_walk_and_the_slider_can_reach_it() {
         let rig = symbios_avatar::Rig::from_skeleton(
@@ -1176,12 +1176,12 @@ mod speed_change {
 
     /// The derivation the fallback stands in for (#1193): on a built default
     /// body, the walk the run key releases to is a WALK on the engine's own
-    /// axis — below the walk-run transition — while the default record's
+    /// axis - below the walk-run transition - while the default record's
     /// travel speed is a run above it. Relations against the engine's own
     /// classifier, not millimetre thresholds.
     ///
     /// The travel speed is read off the default record, not written here:
-    /// this guard used to carry 4.0 twice, and its share tolerance was 0.1 —
+    /// this guard used to carry 4.0 twice, and its share tolerance was 0.1 -
     /// wide enough that #1323's move to walk 1.85 of run 5.0 (a share of
     /// 0.37) still passed against the old 0.43. The share is written to two
     /// places, so the tolerance is the rounding: 0.43 against 1.848 / 5.0
@@ -1236,7 +1236,7 @@ mod turning {
     use symbios_avatar::anim::driver::{Carriage, Driver, DriverConfig, Source};
     use symbios_avatar::{Limb, Zone};
 
-    /// The fixed step the controller runs at — and, in this harness, the
+    /// The fixed step the controller runs at - and, in this harness, the
     /// driver too.
     pub(super) const HZ: f64 = 64.0;
     /// How long a body stands before its script's first key, so every script
@@ -1276,9 +1276,9 @@ mod turning {
 
     /// The scripts, control first.
     ///
-    /// **W then W+D is 45°, not 90°.** A humanoid's camera orbits freely —
+    /// **W then W+D is 45°, not 90°.** A humanoid's camera orbits freely -
     /// only a vehicle inherits the chassis' yaw (`camera::follow_local_player`)
-    /// — so the keys are camera-fixed and W+D asks for the diagonal. The
+    /// - so the keys are camera-fixed and W+D asks for the diagonal. The
     /// quarter turn is W then D, carried alongside.
     ///
     /// The last two change pace rather than direction, with Shift held inside
@@ -1321,7 +1321,7 @@ mod turning {
     #[derive(Clone, Copy)]
     struct Treatment {
         name: &'static str,
-        /// The record's `turn_rate` where this arm overrides it — the owner's
+        /// The record's `turn_rate` where this arm overrides it - the owner's
         /// in-app Locomotion knob, replicated through the record the
         /// controller actually reads.
         turn_rate: Option<f32>,
@@ -1351,7 +1351,7 @@ mod turning {
         source: Source,
         /// Planar speed of the chassis, m/s.
         speed: f32,
-        /// The eased pace the gait was built from this frame, m/s — the
+        /// The eased pace the gait was built from this frame, m/s - the
         /// driver's own `speed()`, `None` whenever the gait is not carrying
         /// the body.
         paced: Option<f32>,
@@ -1359,13 +1359,13 @@ mod turning {
         /// degrees, positive toward the body's own left; `None` below
         /// 0.05 m/s, where travel has no direction.
         angle: Option<f32>,
-        /// The chassis' yaw, degrees — the fill's `facing`, in degrees.
+        /// The chassis' yaw, degrees - the fill's `facing`, in degrees.
         facing: f32,
         /// The left foot's lateral position less the right's, in the body
         /// frame (the pose's own), metres.
         separation: f32,
         /// Each foot's lateral displacement from its rest position, body
-        /// frame, metres, left then right — positive toward the body's left.
+        /// frame, metres, left then right - positive toward the body's left.
         drift: [f32; 2],
         /// The left foot's fore-aft position less the right's, body frame,
         /// metres: the legs apart along the walk rather than across it.
@@ -1389,7 +1389,7 @@ mod turning {
         frames: Vec<Frame>,
         /// Lateral separation of the two feet at rest, metres.
         rest_separation: f32,
-        /// The pelvis' standing height and the leg's whole reach, metres —
+        /// The pelvis' standing height and the leg's whole reach, metres -
         /// printed so a depth can be read against the body it happened to.
         standing: f32,
         reach: f32,
@@ -1483,7 +1483,7 @@ mod turning {
     /// are what a turn IS here, and a harness re-deriving them would measure
     /// its own arithmetic. Then the real body under the chassis, driven by the
     /// app's own fill and the upstream driver through
-    /// [`crate::player::rigged::drive_frame`], on [`INSTRUMENT_SEED`] — an
+    /// [`crate::player::rigged::drive_frame`], on [`INSTRUMENT_SEED`] - an
     /// unpinned seed is a moving number (#1194).
     ///
     /// **The one re-derived line is the integration**, `at += velocity · dt`:
@@ -1680,7 +1680,7 @@ mod turning {
     /// The furthest any sole point slid through the world while it was down,
     /// in metres, over a window of frames.
     ///
-    /// **Each point against itself, inside its own stance episode** — the
+    /// **Each point against itself, inside its own stance episode** - the
     /// ruler `rigged::tests::skate_through` uses (#277, #1082): a point counts
     /// as down while the gait has its foot in stance AND its own height is
     /// within 5 mm of the lowest it gets in the window, and each episode is
@@ -1715,7 +1715,7 @@ mod turning {
     ///
     /// **Windowed, because a run-wide extreme is the start's.** Every script
     /// begins with a start from standing, and a turn later in the run is only
-    /// readable against what the same run did before it — so the start
+    /// readable against what the same run did before it - so the start
     /// (the first two seconds of keys) and the change (the last two) are
     /// summarised apart. For "D from standing" the start IS the turn.
     fn print_run(treatment: Treatment, script: &Script, shift: bool, run: &Run) {
@@ -1796,19 +1796,19 @@ mod turning {
     /// every script at a walk and a run, under each bisection arm that needs
     /// no production edit.
     ///
-    /// The owner's report: turning — before forward movement or during it —
+    /// The owner's report: turning - before forward movement or during it -
     /// forces the legs apart and dips the body. The columns are the ones the
     /// question needs: the angle between where the body faces and where it
     /// travels (the controller's lag), the lateral separation of the feet in
     /// the body frame (the splay) and their fore-aft split, the pelvis against
-    /// its standing height (the dip), `Drove::strained` — and the sole slide,
+    /// its standing height (the dip), `Drove::strained` - and the sole slide,
     /// which is what any fix for the other two trades them for. Without it an
     /// arm that removes both by skating reads as a cure: the ledger-off arm
     /// did exactly that on #1323, at 470.9 mm of slide on a straight start.
     ///
     /// Asserts nothing: it is an instrument, and the owner's eye in the app is
     /// the verdict (geometry before instruments). The arms that DO need a
-    /// production edit — the fill feeding `Drive.turn` — are run by editing
+    /// production edit - the fill feeding `Drive.turn` - are run by editing
     /// the fill and re-running this, one change at a time.
     #[test]
     #[ignore = "probe for #1323: prints the turning tables, asserts nothing"]
@@ -1854,7 +1854,7 @@ mod turning {
 
     /// The turn the owner agreed by eye (#1323), held: a straight start from
     /// standing and a quarter turn at a walk keep the stance the app shipped
-    /// on — the pelvis within 100 mm of the gait's own steady bob, the feet
+    /// on - the pelvis within 100 mm of the gait's own steady bob, the feet
     /// splayed by no more than the engine's across bound plus a margin, no
     /// strained frame, and the planted soles sliding under a ceiling.
     ///
@@ -1966,7 +1966,7 @@ mod turning {
         /// Its render rate, Hz.
         render_hz: f64,
         /// Every packet's extra delay, drawn uniformly from `0..jitter`
-        /// seconds on a fixed seed, delivered in order — a packet never
+        /// seconds on a fixed seed, delivered in order - a packet never
         /// overtakes the one sent before it, so jitter arrives as the bursts
         /// and gaps the playout was built to absorb.
         jitter: f64,
@@ -2013,7 +2013,7 @@ mod turning {
     /// writes a peer's `Transform` in `Update`, a bare transform reaches
     /// `GlobalTransform` only at `PostUpdate`'s propagation, and the fill
     /// reads `GlobalTransform`. So this writes the peer's `GlobalTransform`
-    /// one frame behind its `Transform` —
+    /// one frame behind its `Transform` -
     /// `rigged::tests::a_peers_speed_is_its_travel_over_the_frame_the_travel_took`
     /// pins that premise through Bevy's real schedule.
     fn walked_as_a_peer(body: &EngineAvatarRecord, receiver: Receiver) -> PeerRun {
@@ -2188,7 +2188,7 @@ mod turning {
     /// conditions the playout itself defines: its render rates, the bursts and
     /// gaps it was built to absorb (in-order jitter up to its whole 0.1 s
     /// render delay), the sender's frame-grouped departures, and the frame
-    /// times a client actually has — one dropped vsync frame, and the two
+    /// times a client actually has - one dropped vsync frame, and the two
     /// main-thread stalls this app documents for a wasm avatar build
     /// (`rigged` module: 68 ms draft, 277 ms full atlas). Then a sweep of one
     /// long frame, to find where the flip begins.
@@ -2208,7 +2208,7 @@ mod turning {
     /// The carrier was that lag, not the playout: a diagnostic handing the
     /// fill this frame's playout never crossed 0.4940. Divided by the delta
     /// the displacement was travelled over (`rigged::RiggedTrail`, #1323),
-    /// at 0.49 every arm reads 0 flips — 33.3 ms 0.4920, 50 ms 0.4932, 68 ms
+    /// at 0.49 every arm reads 0 flips - 33.3 ms 0.4920, 50 ms 0.4932, 68 ms
     /// 0.4927, 100 ms 0.4908, 277 ms 0.4900.
     ///
     /// Asserts nothing: `rigged::tests::a_peers_speed_is_its_travel_over_the_
@@ -2384,7 +2384,7 @@ mod surface {
         /// What the fill told the driver.
         swimming: bool,
         source: Source,
-        /// The capsule's top — the classifier's "head" — against the surface.
+        /// The capsule's top - the classifier's "head" - against the surface.
         top: f32,
         /// The drawn crown and pelvis against the surface.
         crown: f32,
@@ -2396,8 +2396,8 @@ mod surface {
     /// Keys against [`apply_humanoid_walk`], a camera the controller reads its
     /// swim direction off, one flat pond with no floor, and then the fill and
     /// the upstream driver through [`drive_frame`]. **The re-derived lines are
-    /// avian's integration** — gravity, the record's linear damping, then the
-    /// position — because avian is not in this app: the controller assigns the
+    /// avian's integration** - gravity, the record's linear damping, then the
+    /// position - because avian is not in this app: the controller assigns the
     /// velocity and physics only integrates it, in that order, on open water.
     fn swum(script: &Script) -> Vec<Step> {
         let record = AvatarRecord::wearing("3jzfcijpj2z2a");

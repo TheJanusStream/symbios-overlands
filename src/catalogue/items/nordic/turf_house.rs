@@ -1,4 +1,4 @@
-//! Turf house — the Nordic *poor* landmark. A low longhouse dug into the
+//! Turf house - the Nordic *poor* landmark. A low longhouse dug into the
 //! cold ground, its thick walls and roof built up from stacked sod over a
 //! fieldstone footing, with a single timber-framed door on the shore-facing
 //! wall and a smoke hole breathing peat smoke. The croft counterpart to the
@@ -58,7 +58,7 @@ fn build_tree() -> Generator {
     let roof_h = 2.4; // low, but a real ridge
 
     let mut prims = vec![
-        // Fieldstone footing — the root.
+        // Fieldstone footing - the root.
         prim(
             solid(cuboid_tapered(
                 [l + 1.0, foot_h, w + 1.0],

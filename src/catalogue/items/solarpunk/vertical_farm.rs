@@ -1,4 +1,4 @@
-//! Vertical farm — a Solarpunk secondary. A four-storey grow tower: a
+//! Vertical farm - a Solarpunk secondary. A four-storey grow tower: a
 //! structural frame of columns and floor bands framing eight glazed grow halls,
 //! each with racked crops under a grow-light fixed to the deck above; a green
 //! curtain on real trellis wire down both flanks; an entrance and a produce
@@ -11,7 +11,7 @@
 //!    its panes away, so each was a frame with holes onto the terrace behind it
 //!    (#972 lesson 20).
 //! 2. **Nothing held anything up.** The terrace shelves were 4.6 m wide on a
-//!    2.6 m core — a metre of cantilever each side into thin air — and each
+//!    2.6 m core - a metre of cantilever each side into thin air - and each
 //!    grow-light strip floated half a metre under the shelf it was described as
 //!    being fixed to. The shelves also oversailed the base slab (#972 lesson 8).
 //! 3. **The green curtain was a flat plate.** An 0.18 × 8.3 × 1.9 cuboid of
@@ -20,9 +20,9 @@
 //! 4. **No way in and nothing at street level.** A food tower with no door, no
 //!    dock and no lit ground floor, over a flat 30-prim list.
 //!
-//! Now the load path is visible — three columns carry four floor bands, the
+//! Now the load path is visible - three columns carry four floor bands, the
 //! bands carry the glazing and the racks, and each grow-light hangs off the
-//! underside of the deck above it — and the tree is nested the same way, deck
+//! underside of the deck above it - and the tree is nested the same way, deck
 //! on deck, so one gizmo drag moves a storey and everything in it.
 
 use std::f32::consts::FRAC_PI_2;
@@ -57,7 +57,7 @@ const FRONT: f32 = -D * 0.5;
 const BACK: f32 = D * 0.5;
 const WALL_T: f32 = 0.3;
 
-/// Street storey — entrance and produce dock — then four grow decks on it.
+/// Street storey - entrance and produce dock - then four grow decks on it.
 const GROUND_H: f32 = 3.0;
 const GROUND_TOP: f32 = FLOOR + GROUND_H;
 const LEVELS: usize = 4;
@@ -77,7 +77,7 @@ const COL_Z: f32 = FRONT + COL * 0.5;
 const BAND_Z: f32 = FRONT + 0.32;
 const BAND_D: f32 = 0.36;
 const GLAZE_Z: f32 = FRONT + 0.44;
-/// Rear lining of a grow hall — held about a metre and a half in, so the eye
+/// Rear lining of a grow hall - held about a metre and a half in, so the eye
 /// lands on the racks rather than on a far wall (#972 lesson 6).
 const HALL_Z: f32 = FRONT + 1.5;
 
@@ -88,7 +88,7 @@ const HALL_Z: f32 = FRONT + 1.5;
 /// sightline decision rather than a styling one. A bar whose top is the deck
 /// above sits exactly in the shadow of the opening's own head: from the street
 /// the eye enters an opening at a downward angle, so at 0.7 m behind the head
-/// everything within ~0.16 m of the soffit is hidden by the reveal — which put
+/// everything within ~0.16 m of the soffit is hidden by the reveal - which put
 /// the one element that says "this is a grow tower" out of sight in the first
 /// render of this rebuild. Dropped on hangers it clears the head, and the
 /// hangers are what say it is fixed to anything (#972 lesson 10).
@@ -109,11 +109,11 @@ const DOCK_H: f32 = 2.6;
 /// The roof parapet: handrail height, and the baluster pitch of its four runs.
 ///
 /// `util::BALUSTER_PITCH` (0.42 m) is calibrated for a prop you stand next to
-/// — a boardwalk, a porch. This parapet rings a 5.4 × 4.2 roof twelve metres
+/// - a boardwalk, a porch. This parapet rings a 5.4 × 4.2 roof twelve metres
 /// up, and at 0.42 m it was forty-six balusters, sixty-two nodes and 17% of
 /// this entry's whole record for uprights that are under a pixel wide from the
 /// street (#1293). Widened until it still reads as *balusters*, which is the
-/// property #972 lesson 24 names — see-through — rather than as a count. The
+/// property #972 lesson 24 names - see-through - rather than as a count. The
 /// same call the harbour tavern's eleven-metre gallery makes, for the same
 /// reason.
 const ROOF_PITCH: f32 = util::BALUSTER_PITCH * 1.6;
@@ -125,7 +125,7 @@ const TANK_H: f32 = 1.0;
 
 // --- Palette local to this entry. ------------------------------------------
 
-/// Lit lining of a grow hall — pale, so the racks read against it.
+/// Lit lining of a grow hall - pale, so the racks read against it.
 const HALL_PALE: f32 = 0.34;
 const HALL_LINING: [f32; 3] = [0.72, 0.74, 0.68];
 /// Lobby and dock lighting, warmer than the halls above.
@@ -139,7 +139,7 @@ const STAIR_GLASS: [f32; 3] = [0.26, 0.32, 0.31];
 
 // --- Derived levels. -------------------------------------------------------
 
-/// Floor level of grow deck `k` — the height its band and its slab sit at, and
+/// Floor level of grow deck `k` - the height its band and its slab sit at, and
 /// the underside its grow-light hangs from is the *next* one up.
 fn level_y(k: usize) -> f32 {
     GROUND_TOP + k as f32 * LEVEL_H
@@ -169,7 +169,7 @@ fn cast(center: [f32; 3], face: FaceKey) -> SovereignMaterialSettings {
 }
 
 /// One cast slab of the frame. The centre is bound once and handed to the
-/// material *and* the transform — passing a bonding helper a different reading
+/// material *and* the transform - passing a bonding helper a different reading
 /// of "the middle of the slab" is the one way to defeat the frame guard
 /// silently (#972 lesson 18).
 fn slab(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
@@ -200,7 +200,7 @@ fn glazing(size: [f32; 2], center: [f32; 3], lit: f32) -> Generator {
     )
 }
 
-/// A lit surface inside the tower — what a card's masked-away panes show.
+/// A lit surface inside the tower - what a card's masked-away panes show.
 fn lit(size: [f32; 3], center: [f32; 3], color: [f32; 3], strength: f32) -> Generator {
     prim(
         cuboid_tapered(size, 0.0, lit_interior(color, strength)),
@@ -244,7 +244,7 @@ impl CatalogueEntry for VerticalFarm {
 
 /// The tower as a tree that stands the way it does: the pad at the bottom, the
 /// street storey on it, then **deck on deck** all the way up, with the roof on
-/// the top deck. One gizmo drag moves a storey and everything it holds — which
+/// the top deck. One gizmo drag moves a storey and everything it holds - which
 /// is the whole editability contract, and what a flat thirty-prim list cannot
 /// give (#972 lesson 3).
 fn build_tree() -> Generator {
@@ -266,7 +266,7 @@ fn build_tree() -> Generator {
 // --- The street storey. ----------------------------------------------------
 
 /// Ground floor slab, and on it the frame, the flanks, the core, the entrance,
-/// the dock, the green curtain — and the first grow deck.
+/// the dock, the green curtain - and the first grow deck.
 fn street() -> Generator {
     let center = [0.0, FLOOR + DECK_T * 0.5, 0.0];
     let deck = prim(
@@ -334,7 +334,7 @@ fn street() -> Generator {
 /// The service side of the core: a riser pilaster, the stair's own lit lights
 /// and a caged ladder.
 ///
-/// The first draft of this put five lit panels at `BACK − 0.04` — a standoff
+/// The first draft of this put five lit panels at `BACK − 0.04` - a standoff
 /// picked by eye, which put every one of them **inside** the 1.5 m core they
 /// were mounted on and left the back a blank slab. Each standoff here comes off
 /// the wall's own face and the part's own half depth (#972 lesson 11), and the
@@ -419,7 +419,7 @@ fn entrance(parts: &mut Vec<Generator>) {
         FaceKey::SideNz,
     ));
     // Lobby: a counter of trays on the entrance centreline, a lit lining behind
-    // it, and a ceiling wash — the bay needs its own thing to look at, not the
+    // it, and a ceiling wash - the bay needs its own thing to look at, not the
     // dock's fit-out shifted sideways (#972 lesson 9).
     parts.push(lit(
         [bw + 0.6, ENTRY_H, 0.08],
@@ -460,14 +460,14 @@ fn entrance(parts: &mut Vec<Generator>) {
 
 /// The produce dock: the shutter rolled **up** on a lit packing floor.
 ///
-/// The right answer to "a card on a solid" is sometimes no glazing at all — a
+/// The right answer to "a card on a solid" is sometimes no glazing at all - a
 /// dispatch bay is a genuine hole, the crates are the point, and the alpha-card
 /// idiom never enters into it (#972, the boardwalk's lesson).
 fn dock(parts: &mut Vec<Generator>) {
     let (bx, bw) = bays()[1];
     let head = FLOOR + DOCK_H;
 
-    // Rolled drum and its jamb tracks — the shutter is up, and it is the drum
+    // Rolled drum and its jamb tracks - the shutter is up, and it is the drum
     // that says so.
     parts.push(prim(
         solid(cylinder_tapered(0.26, bw - 0.1, 12, 0.0, steel(STEEL_GREY))),
@@ -528,7 +528,7 @@ fn dock(parts: &mut Vec<Generator>) {
 /// The green curtain: real trellis wire on real brackets with foliage threaded
 /// through it, in place of the flat green plate that shipped.
 ///
-/// Nothing here is bigger than a plant. That is the whole point — a 0.18 × 8.3
+/// Nothing here is bigger than a plant. That is the whole point - a 0.18 × 8.3
 /// slab of plain green reads as painted concrete from every angle, and the
 /// guard below states it as a prohibition rather than as a census.
 fn green_curtain(sx: f32) -> Generator {
@@ -590,7 +590,7 @@ fn green_curtain(sx: f32) -> Generator {
 
 /// Grow deck `k`: the slab, its floor band on the elevation, both glazed halls
 /// with their racks and lit lining, the grow-lights fixed to the underside of
-/// the deck above — and that deck itself, nested, so the storey carries what it
+/// the deck above - and that deck itself, nested, so the storey carries what it
 /// holds up.
 fn grow_deck(k: usize, above: Generator) -> Generator {
     let y = level_y(k);
@@ -700,7 +700,7 @@ fn roof() -> Generator {
     let top = TOWER_TOP + 0.32;
 
     // Railing round all four sides. A railing is not a plate: what makes it
-    // read as one is that you can see through it (#972 lesson 24) — so this is
+    // read as one is that you can see through it (#972 lesson 24) - so this is
     // thinned, never plated (#1293).
     let (hx, hz) = (W * 0.5 + 0.03, D * 0.5 + 0.03);
     let mut parts = Vec::new();
@@ -743,7 +743,7 @@ fn roof() -> Generator {
     parts.extend(ring);
 
     // Solar array on a canted frame over the back half. The tilt carries only
-    // the panel itself — a turned node with offset children spins them out of
+    // the panel itself - a turned node with offset children spins them out of
     // the record and out of every translation-only guard at once (#972
     // lesson 22), so the legs are siblings.
     let tilt = 0.42_f32;
@@ -774,7 +774,7 @@ fn roof() -> Generator {
     // It used to stand on four 0.7 m legs with a 0.9 m square of `water` laid
     // over its lid. Neither survived a close render (#1293): a closed drum's
     // top face is already there, so the blue square read as a painted lid
-    // inscribed on a 1.4 m white cylinder rather than as water — and it is the
+    // inscribed on a 1.4 m white cylinder rather than as water - and it is the
     // one prim in this block that a tank has no reason to show, since you
     // cannot see into a sealed tank from the street. The legs went with it:
     // four 0.1 m sticks holding a 1.4 m drum a knee's height off a deck are
@@ -878,7 +878,7 @@ mod tests {
         );
     }
 
-    /// #972 lesson 1: every pane is a card on a flat quad at `uv_scale` 1.0 —
+    /// #972 lesson 1: every pane is a card on a flat quad at `uv_scale` 1.0 -
     /// two per grow deck, plus the entrance screen. The produce dock has no
     /// glazing at all, because a dispatch bay is a genuine hole.
     #[test]
@@ -970,7 +970,7 @@ mod tests {
         });
         assert!(
             checked >= 10,
-            "only {checked} cast surfaces found — suspect the selector before the content"
+            "only {checked} cast surfaces found - suspect the selector before the content"
         );
     }
 
@@ -1072,7 +1072,7 @@ mod tests {
             let top = at[1] + half;
             // Match on X as well as height: both bays' hangers share a level,
             // so a height-only selector reports every light carried by four
-            // (#972 lesson 24 — the selector is as much a source of false
+            // (#972 lesson 24 - the selector is as much a source of false
             // results as the assertion).
             let carried = hangers
                 .iter()
@@ -1085,7 +1085,7 @@ mod tests {
             assert_eq!(
                 carried, 2,
                 "vertical_farm: a grow-light topping out at {top} is carried by {carried} \
-                 hangers reaching a deck soffit — the soffits are at {soffits:?}"
+                 hangers reaching a deck soffit - the soffits are at {soffits:?}"
             );
         }
         for k in 0..LEVELS {
@@ -1104,7 +1104,7 @@ mod tests {
     }
 
     /// #972: the green curtain is made of **plants**, not of one green slab.
-    /// Stated as a prohibition rather than a census — counting foliage prims
+    /// Stated as a prohibition rather than a census - counting foliage prims
     /// passes happily on a single 8 m plate, which is exactly what shipped.
     #[test]
     fn no_foliage_surface_is_a_plate() {
@@ -1122,7 +1122,7 @@ mod tests {
                     let big = size.0.iter().cloned().fold(0.0_f32, f32::max);
                     panic!(
                         "vertical_farm: a {big} m green cuboid at {at:?} is a painted plate, \
-                         not planting — build the curtain out of things the size of plants"
+                         not planting - build the curtain out of things the size of plants"
                     );
                 }
                 GeneratorKind::Sphere {
@@ -1134,7 +1134,7 @@ mod tests {
         });
         assert!(
             clumps >= 24,
-            "only {clumps} foliage clumps — the trellis is bare"
+            "only {clumps} foliage clumps - the trellis is bare"
         );
     }
 
@@ -1143,7 +1143,7 @@ mod tests {
     /// A panel mounted on a wall has two ways to fail and only one of them
     /// shows in a render: too far out and it floats, too far in and it is
     /// swallowed by whatever it is mounted on. This build hit the second twice
-    /// — first a lit panel authored at `BACK − 0.04`, i.e. inside the 1.5 m
+    /// - first a lit panel authored at `BACK − 0.04`, i.e. inside the 1.5 m
     /// core, and then, after that fix, one placed inside its own cast surround.
     /// Both looked like a blank wall, which is exactly what the shipped entry
     /// looked like anyway, so a render can never tell you which you have.
@@ -1176,14 +1176,14 @@ mod tests {
             assert!(
                 face > BACK,
                 "vertical_farm: a stair light's face is at {face}, behind the core's own \
-                 back at {BACK} — it is inside the wall it is mounted on"
+                 back at {BACK} - it is inside the wall it is mounted on"
             );
             for (c, e) in &boxes {
                 let covers = (c[0] - at[0]).abs() < e[0] && (c[1] - at[1]).abs() < e[1];
                 assert!(
                     !covers || c[2] + e[2] <= face + 1e-4,
                     "vertical_farm: a solid at {c:?} presents its face at {} in front of a \
-                     stair light at {face} — the light is buried in it",
+                     stair light at {face} - the light is buried in it",
                     c[2] + e[2]
                 );
             }
@@ -1197,7 +1197,7 @@ mod tests {
     /// lesson 24).
     ///
     /// The floor here is deliberately **not** a count. It was `>= 30`, which
-    /// was 46 balusters at `util::BALUSTER_PITCH` reported as a floor of 30 —
+    /// was 46 balusters at `util::BALUSTER_PITCH` reported as a floor of 30 -
     /// so it read as a judgement about density while actually pinning the pitch
     /// this parapet happened to ship with, and #1293 could not widen the pitch
     /// without tripping it. What lesson 24 states is that a railing is not a
@@ -1255,7 +1255,7 @@ mod tests {
                 for w in run.windows(2) {
                     assert!(
                         w[1] - w[0] > stock * 2.0,
-                        "vertical_farm: two balusters {} m apart on a {stock} m stock — that \
+                        "vertical_farm: two balusters {} m apart on a {stock} m stock - that \
                          is a picket fence, and a railing reads as a railing because you can \
                          see through it (#972 lesson 24)",
                         w[1] - w[0]
@@ -1283,7 +1283,7 @@ mod tests {
 
     /// The editability contract (#972 lesson 3): the pad carries the street
     /// storey, which carries the first grow deck, which carries the second, and
-    /// so on up to the roof — so one drag moves a storey and everything in it.
+    /// so on up to the roof - so one drag moves a storey and everything in it.
     #[test]
     fn each_deck_carries_the_one_above_it() {
         fn count(g: &Generator) -> usize {

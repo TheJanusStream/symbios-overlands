@@ -3,19 +3,19 @@
 //! One function so far, and it earns a module because the alternative was
 //! worse: [`plural`] is a pure English-noun rule with six callers in `ui`
 //! and one in [`crate::diagnostics::anomaly`], and it sat in
-//! `ui::toolbar` — so a rule about anomaly counts made the anomaly rules
+//! `ui::toolbar` - so a rule about anomaly counts made the anomaly rules
 //! import the toolbar (#1297).
 //!
 //! English-only, and that is fine: there is no i18n framework in the tree
 //! (no fluent, gettext or rust-i18n dependency), so this is not a
-//! translation layer — it is the seam to route through if one is ever
+//! translation layer - it is the seam to route through if one is ever
 //! added.
 
 /// Pick the singular or plural noun for a count (#1264 f374).
 ///
-/// The app already branches on the singular nearly everywhere — the
+/// The app already branches on the singular nearly everywhere - the
 /// People window's pending offers, the toolbar's anomaly badge, the
-/// Inventory header, the audio panel's per-noun suffixes — which is
+/// Inventory header, the audio panel's per-noun suffixes - which is
 /// exactly what made "1 entries" in the catalogue, "Downloaded 1 events"
 /// and "· 1 props" read as unfinished rather than as a house style.
 ///

@@ -1,4 +1,4 @@
-//! Ruined wall — the AncientClassical *poor* secondary. A crumbling
+//! Ruined wall - the AncientClassical *poor* secondary. A crumbling
 //! sandstone wall with a broken stepped top, a leaning stub column, and a
 //! couple of tumbled blocks at its foot: the remains a poor settlement
 //! shelters against.
@@ -49,7 +49,7 @@ impl CatalogueEntry for RuinedWall {
 }
 
 fn build_tree() -> Generator {
-    // Footing course — the root.
+    // Footing course - the root.
     let mut prims = vec![prim(
         solid(cuboid_tapered(
             [4.8, 0.3, 1.0],
@@ -94,7 +94,7 @@ fn build_tree() -> Generator {
     ));
 
     // Broken arch springing from the left pier's impost over the opening and
-    // snapping off before it reaches the right pier — `path_cut [0.15,0.5]`
+    // snapping off before it reaches the right pier - `path_cut [0.15,0.5]`
     // keeps the left springer and crown and drops the collapsed right half.
     let spring_y = 0.3 + 1.9;
     prims.push(prim(
@@ -108,7 +108,7 @@ fn build_tree() -> Generator {
         quat_x(-FRAC_PI_2),
     ));
 
-    // A leaning marble stub column at the left end — relic of a grander past.
+    // A leaning marble stub column at the left end - relic of a grander past.
     prims.push(prim(
         solid(cylinder_tapered(0.32, 1.6, 14, 0.06, marble(MARBLE_WHITE))),
         [-2.7, 1.1, 0.4],

@@ -1,4 +1,4 @@
-//! Master mute — a single app-wide toggle that silences *all* audio:
+//! Master mute - a single app-wide toggle that silences *all* audio:
 //! the room's ambient bed, every spatial-construct loop, and the
 //! transient contact / footstep one-shots.
 //!
@@ -12,7 +12,7 @@
 //!
 //! [`reconcile_sink_mute`] runs every frame and brings every live
 //! [`AudioSink`] / [`SpatialAudioSink`] into agreement with
-//! [`AudioMuted`] — so sinks that spawn *after* a toggle (a new ambient
+//! [`AudioMuted`] - so sinks that spawn *after* a toggle (a new ambient
 //! bake, a fresh footstep) are caught within a frame too. The most
 //! prominent loop, the ambient bed, additionally spawns pre-muted (see
 //! `loading::ambient`) so launching muted never leaks even a one-frame
@@ -33,7 +33,7 @@ use bevy::prelude::*;
 ///
 /// Defaults to **muted** so a first launch is silent (the owner opts in
 /// to sound via the toolbar or the Settings window's Audio section).
-/// Deliberately *not* reset on logout — it's an app-level preference, not
+/// Deliberately *not* reset on logout - it's an app-level preference, not
 /// session state, so a relog keeps the owner's choice.
 ///
 /// Since #1276 f38 it is also **persisted**, as `prefs::AudioPrefs`. The
@@ -51,7 +51,7 @@ use bevy::prelude::*;
 ///
 /// Every writer copies the bool out, hands the WIDGET the local and
 /// writes back only on a real click (#879, and the
-/// `no_widget_writes_straight_through_a_resmut` scan from #1274 f177) —
+/// `no_widget_writes_straight_through_a_resmut` scan from #1274 f177) -
 /// `save_prefs_when_changed` watches this resource's change tick, so a
 /// `&mut` taken straight through the `ResMut` would re-save the prefs
 /// file for as long as a panel showing the toggle stayed open.
@@ -68,7 +68,7 @@ impl Default for AudioMuted {
 /// toggle: they belong to a peer the user has muted (#1219 f324).
 ///
 /// Written by `network::presence::sync_mute_audio`, which walks the
-/// descendants of every muted peer — a peer's spatial emitters live on the
+/// descendants of every muted peer - a peer's spatial emitters live on the
 /// generator nodes under their chassis, and a hidden body's
 /// `PlaybackMode::Loop` emitter kept playing, so muting a harasser running a
 /// screaming avatar made them WORSE: audible, invisible, and impossible to
@@ -112,7 +112,7 @@ pub(crate) fn lend_mute<R>(
 ///
 /// Pure, so the two reasons can be tested apart: the app-wide toggle, and
 /// this sink belonging to a muted peer. Unmuting one must not un-silence the
-/// other — a user who turns the master mute off does not thereby un-mute the
+/// other - a user who turns the master mute off does not thereby un-mute the
 /// person they blocked.
 pub fn sink_is_silenced(master_muted: bool, silenced: &SilencedByMute, sink: Entity) -> bool {
     master_muted || silenced.0.contains(&sink)
@@ -151,8 +151,8 @@ mod tests {
     use super::*;
 
     /// #1219 f324. The sequence: a harasser puts a `PlaybackMode::Loop`
-    /// emitter on their avatar, the user ticks Mute — whose tooltip promises
-    /// it "Hides their avatar, chat, audio and gift offers" — and the hum
+    /// emitter on their avatar, the user ticks Mute - whose tooltip promises
+    /// it "Hides their avatar, chat, audio and gift offers" - and the hum
     /// keeps playing from a body they can no longer see or aim at. The two
     /// reasons a sink is silent are independent: turning the master mute off
     /// must not un-mute the person you blocked.
@@ -227,7 +227,7 @@ mod tests {
     /// `AudioPlayer<LoopedSamples>` now, not an `AudioSource`, and plays
     /// under `PlaybackMode::Once`. The reconciler finds sinks by the SINK's
     /// type, whatever source feeds them, so the audition and a world player
-    /// both go quiet and both come back — asked of the real system over real
+    /// both go quiet and both come back - asked of the real system over real
     /// rodio players rather than read off the query's shape.
     #[test]
     fn the_master_mute_reaches_a_voice_whatever_source_it_plays() {

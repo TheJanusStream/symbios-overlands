@@ -1,4 +1,4 @@
-//! Gothic-Horror-theme catalogue structures — a fog-shrouded necropolis of
+//! Gothic-Horror-theme catalogue structures - a fog-shrouded necropolis of
 //! cathedral, crypt and grave.
 //!
 //! Two prosperity registers share one funereal identity: the established
@@ -25,7 +25,7 @@ pub mod iron_fence;
 pub mod mausoleum;
 pub mod monument;
 pub mod stone_cross;
-// Poor (forsaken) variants — the prosperity-Poor end of the theme.
+// Poor (forsaken) variants - the prosperity-Poor end of the theme.
 pub mod bone_pile;
 pub mod pauper_graves;
 pub mod ruined_chapel;
@@ -42,18 +42,18 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the consecrated kit — a cathedral and its
+/// Shared prosperity band for the consecrated kit - a cathedral and its
 /// necropolis read as a Modest-to-Rich holy seat. The poor end of the theme is
 /// the separate forsaken kit ([`ruined_chapel`], …), tagged `Poor`, so a
 /// destitute gothic room grows the abandoned graveyard instead.
 pub(super) const GOTHIC_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the forsaken kit — the destitute end of the theme,
+/// Prosperity band for the forsaken kit - the destitute end of the theme,
 /// never picked for a modest or affluent gothic room.
 pub(super) const GOTHIC_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Dark dressed ashlar — cathedral, mausoleum and tower masonry.
+/// Dark dressed ashlar - cathedral, mausoleum and tower masonry.
 pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -71,7 +71,7 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Mossy weathered cobble — crypt footings, gravestones, old walls.
+/// Mossy weathered cobble - crypt footings, gravestones, old walls.
 pub(super) fn mossy(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -87,7 +87,7 @@ pub(super) fn mossy(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Lit leaded stained glass — the cathedral's windows and rose. A coloured
+/// Lit leaded stained glass - the cathedral's windows and rose. A coloured
 /// inner glow (`glow`) so the tracery reads as lit from within the nave.
 pub(super) fn stained(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -106,7 +106,7 @@ pub(super) fn stained(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     }
 }
 
-/// Black wrought iron — fences, gates, the bell, finials.
+/// Black wrought iron - fences, gates, the bell, finials.
 pub(super) fn iron(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -126,7 +126,7 @@ pub(super) fn iron(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Grey dead wood — bare trees, coffins, pauper markers, doors.
+/// Grey dead wood - bare trees, coffins, pauper markers, doors.
 pub(super) fn wood(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -145,7 +145,7 @@ pub(super) fn wood(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Flat matte colour — bone, plain trim. A plain surface with no procedural
+/// Flat matte colour - bone, plain trim. A plain surface with no procedural
 /// texture.
 pub(super) fn matte(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -170,7 +170,7 @@ pub(super) const STAINED_TINT: [f32; 3] = [0.58, 0.40, 0.52];
 pub(super) const STAINED_GLOW: [f32; 3] = [0.85, 0.48, 0.66];
 
 // ---------------------------------------------------------------------------
-// Gothic geometry vocabulary — the pointed-arch language shared across the kit.
+// Gothic geometry vocabulary - the pointed-arch language shared across the kit.
 //
 // The defining Gothic move is the two-centred *pointed* arch; the round
 // (Romanesque) half-torus reads as the wrong era. These helpers build the
@@ -193,7 +193,7 @@ use crate::pds::Generator;
 /// torus with `path_cut` and stood upright with `quat_x(-FRAC_PI_2)` (the
 /// semicircle recipe, but only the 60° apex-ward sixth of each ring). Returns
 /// the two arcs ready to drop into an [`assemble`](crate::catalogue::items::util::assemble)
-/// list — never as the root, since they carry a rotation. `spring` is the
+/// list - never as the root, since they carry a rotation. `spring` is the
 /// springline-midpoint world position (its Z the wall face), `thick` the rib's
 /// round cross-section.
 pub(super) fn pointed_arch(
@@ -289,7 +289,7 @@ pub(super) fn lancet(
 }
 
 /// A Gothic broach spire: an octagonal stone needle with a flared base band, two
-/// climbing ranks of corner crockets and an apex finial — the bristly soaring
+/// climbing ranks of corner crockets and an apex finial - the bristly soaring
 /// silhouette a plain cone never gives. `base` is the spire foot (it rises +Y);
 /// `r` the foot radius, `h` the height. Returns every piece.
 pub(super) fn spire(
@@ -355,7 +355,7 @@ mod tests {
         }
     }
 
-    /// The cathedral is the kit's lit hero — it must keep its emissive stained
+    /// The cathedral is the kit's lit hero - it must keep its emissive stained
     /// glass so escalation's broken-emissive ruin pass has light to snuff.
     #[test]
     fn cathedral_keeps_its_glow() {

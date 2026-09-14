@@ -1,15 +1,15 @@
 //! Room-scope DID-seeded derivers.
 //!
-//! Each submodule owns one parameter group of the room — palette, the theme
+//! Each submodule owns one parameter group of the room - palette, the theme
 //! identity accent, terrain shape and the flat-region siting probe derived
 //! from it, biome textures, atmosphere, tree / rock / ground-cover / particle
 //! scatters, the spawn-side settlement with its social gateway and owner
 //! monument, and the ambient-audio bed. They share the
 //! [`super::SceneCharacter`] anchor so the derived values stay
-//! internally coherent — see the module-level docstring on
+//! internally coherent - see the module-level docstring on
 //! [`super`] for the full data flow.
 //!
-//! [`build`] is the odd one out: it derives nothing itself, it *assembles* —
+//! [`build`] is the odd one out: it derives nothing itself, it *assembles* -
 //! it is where every other submodule's derived shape is wired into a
 //! `RoomRecord`, and it is the entry point (`build_room`) that
 //! `RoomRecord::default_for_seed` forwards to.

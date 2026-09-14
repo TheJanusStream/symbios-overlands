@@ -1,4 +1,4 @@
-//! Coastal-Resort-theme catalogue structures — a sun-bleached seaside
+//! Coastal-Resort-theme catalogue structures - a sun-bleached seaside
 //! holiday strip on the bright clear-sky coast.
 //!
 //! Two prosperity registers share one seaside identity: the established
@@ -28,7 +28,7 @@ pub mod grand_hotel;
 pub mod lifeguard_tower;
 pub mod monument;
 pub mod resort_pier;
-// Poor (fishing-hamlet) variants — the prosperity-Poor end of the theme.
+// Poor (fishing-hamlet) variants - the prosperity-Poor end of the theme.
 pub mod bait_stand;
 pub mod crab_traps;
 pub mod fishing_shack;
@@ -45,18 +45,18 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the established holiday kit — whitewashed
+/// Shared prosperity band for the established holiday kit - whitewashed
 /// hotels and varnished piers read as a Modest-to-Rich resort. The poor end
 /// of the theme is the separate fishing-hamlet kit ([`fishing_shack`], …),
 /// tagged `Poor`, so a destitute coastal room grows the driftwood hamlet.
 pub(super) const RESORT_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the fishing-hamlet kit — the destitute end of the
+/// Prosperity band for the fishing-hamlet kit - the destitute end of the
 /// theme, never picked for a modest or affluent resort room.
 pub(super) const RESORT_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Whitewashed stucco — the rendered walls of the hotel, the bungalows and
+/// Whitewashed stucco - the rendered walls of the hotel, the bungalows and
 /// the shop fronts. Bright Mediterranean plaster, not a flat painted slab.
 pub(super) fn stucco(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -78,19 +78,19 @@ pub(super) fn stucco(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Sun-greyed timber plank — pier decking, boardwalks, clapboard walls,
+/// Sun-greyed timber plank - pier decking, boardwalks, clapboard walls,
 /// boat hulls. Weathered grain with a little knotting so it reads as wood.
 ///
 /// `stagger` is held at zero (#972 lesson 4): any value above 0.01 switches
 /// on the generator's hard-coded three-butt-joints-per-tile grid, and on this
-/// kit's 1 m tile that is a butt joint every 333 mm — a driftwood wall
+/// kit's 1 m tile that is a butt joint every 333 mm - a driftwood wall
 /// rendering as coarse masonry, which is exactly what the fishing shack wore.
 /// Real boards are milled in 3–5 m lengths. The per-course grain
 /// de-correlation survives untouched: it comes from the row's own hash.
 ///
 /// Boards lay **up V**, so this gives horizontal courses. Vertical boarding
 /// stands them up with
-/// [`util::bonded_boards`](super::util::bonded_boards) — a quarter turn the
+/// [`util::bonded_boards`](super::util::bonded_boards) - a quarter turn the
 /// pattern survives precisely *because* the stagger is off.
 pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -114,7 +114,7 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Striped woven canvas — parasols, deck-chair seats, awnings, flags, fishing
+/// Striped woven canvas - parasols, deck-chair seats, awnings, flags, fishing
 /// nets. A two-tone weave that reads as beach fabric.
 pub(super) fn canvas(warp: [f32; 3], weft: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -133,7 +133,7 @@ pub(super) fn canvas(warp: [f32; 3], weft: [f32; 3]) -> SovereignMaterialSetting
     }
 }
 
-/// Balcony / shopfront glass — clean lit panes with a faint inner glow
+/// Balcony / shopfront glass - clean lit panes with a faint inner glow
 /// (`glow` sets the lit-window bloom) so a facade reads as glowing glass
 /// rather than a black hole.
 pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
@@ -158,8 +158,8 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
 
 /// The kit's [`glass`], re-cut to one opening's pane grid (#972).
 ///
-/// `glass` is already card-shaped — `uv_scale` 1.0, alpha-masked panes, the
-/// kit's own grime and white joinery — and it is worth keeping over a generic
+/// `glass` is already card-shaped - `uv_scale` 1.0, alpha-masked panes, the
+/// kit's own grime and white joinery - and it is worth keeping over a generic
 /// card for exactly that reason. What a shared material cannot know is the
 /// *aspect of the hole it is filling*, and pane counts are what tell a viewer
 /// how big an opening is, so they are picked per opening and everything else
@@ -176,7 +176,7 @@ pub(super) fn pane_grid(tint: [f32; 3], glow: f32, panes: (u32, u32)) -> Soverei
     m
 }
 
-/// Brushed structural steel — railings, pier pilings, tower frames, poles.
+/// Brushed structural steel - railings, pier pilings, tower frames, poles.
 pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -196,7 +196,7 @@ pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Glossy painted enamel — buoy bodies, lifebelt rings, hull trim. Smooth
+/// Glossy painted enamel - buoy bodies, lifebelt rings, hull trim. Smooth
 /// marine paint with no rust.
 pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -218,7 +218,7 @@ pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Board-formed concrete — pier pilings and the promenade plinth.
+/// Board-formed concrete - pier pilings and the promenade plinth.
 pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -234,7 +234,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Rippled beach sand — the apron disc under the parasols and deck chairs.
+/// Rippled beach sand - the apron disc under the parasols and deck chairs.
 pub(super) fn sand(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -254,7 +254,7 @@ pub(super) fn sand(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Wet pool water — a glassy turquoise surface with a faint inner glow so the
+/// Wet pool water - a glassy turquoise surface with a faint inner glow so the
 /// blue reads under the bright sky rather than going matte grey. The civic
 /// fountain idiom (low roughness + emission ~0.5); used for the grand hotel's
 /// resort pool.
@@ -265,7 +265,7 @@ pub(super) fn water(color: [f32; 3]) -> SovereignMaterialSettings {
         emission_strength: Fp(0.5),
         roughness: Fp(0.1),
         metallic: Fp(0.0),
-        // No texture, so `uv_scale` is inert — pinned at 1.0 so it does not
+        // No texture, so `uv_scale` is inert - pinned at 1.0 so it does not
         // read as a stale pre-#936 repeat count.
         uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::None,
@@ -293,12 +293,12 @@ pub(super) const AWNING_TEAL: [f32; 3] = [0.16, 0.52, 0.54];
 pub(super) const BUOY_RED: [f32; 3] = [0.80, 0.16, 0.13];
 pub(super) const HULL_BLUE: [f32; 3] = [0.20, 0.34, 0.52];
 
-/// Bright turquoise of the resort pool — a holiday-postcard aqua.
+/// Bright turquoise of the resort pool - a holiday-postcard aqua.
 pub(super) const POOL_AQUA: [f32; 3] = [0.18, 0.58, 0.68];
 
 /// Warm self-lit gold for the hotel's lobby glow and the boardwalk lamps.
 pub(super) const SIGN_GOLD: [f32; 3] = [1.0, 0.84, 0.46];
-/// Deep-saturated amber for the broad rooftop sign band — a pale gold at high
+/// Deep-saturated amber for the broad rooftop sign band - a pale gold at high
 /// strength blooms to a near-white blank, so the big lit bars hold this richer
 /// hue instead. [`SIGN_GOLD`] stays for the small lobby/lamp glows behind glass.
 pub(super) const SIGN_AMBER: [f32; 3] = [1.0, 0.58, 0.16];
@@ -325,7 +325,7 @@ mod tests {
         }
     }
 
-    /// The grand hotel is the kit's lit hero — it must keep its emissive
+    /// The grand hotel is the kit's lit hero - it must keep its emissive
     /// sign and lobby so escalation's broken-emissive ruin pass has lights
     /// to snuff.
     #[test]

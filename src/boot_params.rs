@@ -2,7 +2,7 @@
 //!
 //! Picks up an optional destination DID, target spawn position, target spawn
 //! yaw, and PDS/relay overrides at app startup. The login UI pre-fills its
-//! form from this resource and — when a `did` is supplied — auto-submits, so
+//! form from this resource and - when a `did` is supplied - auto-submits, so
 //! a shared landmark link drops the recipient straight into the linked
 //! overland at the linked pose. See [`build_landmark_link`] for the inverse
 //! used by the Diagnostics "Copy Landmark Link" button.
@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 /// Public origin where the WASM build is served. Used as the base URL for
 /// landmark links emitted on either target so the link is shareable to
 /// anyone with a browser. Mirrors `oauth::WASM_REDIRECT_URI` deliberately
-/// — the redirect URI is registered with the authorization server and
+/// - the redirect URI is registered with the authorization server and
 /// changes there require a coordinated client-metadata redeploy, so we
 /// duplicate the constant here rather than coupling boot params to the
 /// OAuth module.
@@ -44,7 +44,7 @@ pub struct TargetPos {
 /// was typed by the person sitting at the machine, and submitting it
 /// without asking is doing what they said. A `?did=` in a URL was written
 /// by somebody else and clicked by a stranger who has not yet been told
-/// what this app is or whose world the link points at — and on wasm the
+/// what this app is or whose world the link points at - and on wasm the
 /// submit is a full-page navigation to an OAuth consent screen, so the
 /// first thing that stranger sees is a third party asking for account
 /// access.
@@ -71,7 +71,7 @@ pub struct BootParams {
     /// about where this session is going. `pds=` / `relay=` alone are
     /// config without a destination and set nothing here.
     ///
-    /// This is no longer "submit the form for me" — see [`entry_plan`],
+    /// This is no longer "submit the form for me" - see [`entry_plan`],
     /// which decides between asking and submitting.
     pub autosubmit: bool,
     /// Which door the params came through ([`BootSource`]).
@@ -105,22 +105,22 @@ pub enum EntryPlan {
 /// load, which is exactly what made the loading screen's abort and Log out
 /// re-fire the same flow. Inserted by
 /// [`crate::ui::login::complete::install_completed_session`], never
-/// removed — a logout tears the session down, not the fact that this
+/// removed - a logout tears the session down, not the fact that this
 /// process has already spent the link it was started with.
 #[derive(Resource, Default, Debug)]
 pub struct BootEntrySpent;
 
 /// Decide [`EntryPlan`] (#1227 f250/f294, #1230 f19).
 ///
-/// * `spent` — this session has already carried somebody into a world on
+/// * `spent` - this session has already carried somebody into a world on
 ///   these params. Set when a login completes and never cleared, because
 ///   `AppState::Login` is re-entered by the loading screen's abort and by
 ///   Log out, and re-firing the flow there was the entire defect in
 ///   #1230 f19: for a link visitor both escape hatches led straight back
 ///   into the load they were escaping, so killing the app was the only
-///   exit — and Log out did not log out, because the browser bounced off
+///   exit - and Log out did not log out, because the browser bounced off
 ///   a live IdP session back into the same world.
-/// * `has_persisted` — wasm has a saved session; the resume path applies
+/// * `has_persisted` - wasm has a saved session; the resume path applies
 ///   the `did=` override itself and auto-submitting on top would spawn
 ///   two competing auth tasks.
 ///
@@ -142,7 +142,7 @@ pub fn entry_plan(params: &BootParams, spent: bool, has_persisted: bool) -> Entr
     if params.source == BootSource::Cli && !spent && !overrides_infrastructure {
         return EntryPlan::Auto;
     }
-    // Everything else still NAMES the destination and pre-fills the form —
+    // Everything else still NAMES the destination and pre-fills the form -
     // a spent link is one click from a retry, which is what #1230 f19 asked
     // to keep. Only the automatic submit is withdrawn.
     EntryPlan::Confirm
@@ -195,7 +195,7 @@ pub fn parse_yaw_deg(s: &str) -> Option<f32> {
 /// Build the landmark URL for `(did, pos, yaw_deg)`. The output is a
 /// fully-qualified HTTPS link to the WASM page; recipients on native can
 /// also paste it as `--did=… --pos=… --rot=…` after stripping the host
-/// prefix — same param names by design.
+/// prefix - same param names by design.
 pub fn build_landmark_link(did: &str, pos: Vec3, yaw_deg: f32) -> String {
     use url::form_urlencoded::byte_serialize;
     let did_enc: String = byte_serialize(did.as_bytes()).collect();
@@ -221,8 +221,8 @@ pub struct ParsedQuery {
 }
 
 /// Parse a URL query string into [`BootParams`]. Pure, and split out of
-/// [`detect`] so the whole of the landmark-link contract — which keys are
-/// ours, which set a destination, what an empty value means — is testable
+/// [`detect`] so the whole of the landmark-link contract - which keys are
+/// ours, which set a destination, what an empty value means - is testable
 /// without a browser (#1227 f250).
 pub fn parse_query(query: &str) -> ParsedQuery {
     let mut params = BootParams {
@@ -283,7 +283,7 @@ pub fn parse_query(query: &str) -> ParsedQuery {
 ///
 /// Used to stash the landmark before the URL bar is scrubbed (#1227 f250):
 /// `detect` strips `did=`/`pos=`/`rot=` with `history.replaceState`, and a
-/// denied or errored OAuth callback drops the pending blob too — so the
+/// denied or errored OAuth callback drops the pending blob too - so the
 /// user landed back on a form that no longer knew where they had been
 /// going, with failure copy that never mentioned the lost landmark.
 pub fn encode_our_params(params: &BootParams) -> String {
@@ -486,7 +486,7 @@ pub struct ClipboardOutcome {
 /// the old wasm path threw it away (`let _ = …`) and returned `Ok(())`.
 /// That promise rejects when the document is not focused, when the
 /// permission is denied, and when the click was not treated as a user
-/// activation — which egui's synthetic frame timing can lose on some
+/// activation - which egui's synthetic frame timing can lose on some
 /// browsers. Every caller mapped that `Ok` to a green "Copied: …" toast,
 /// so the user pasted nothing after being told it had worked, and the
 /// landmark link is the app's primary "come and visit" affordance.
@@ -581,7 +581,7 @@ fn wasm_clipboard_promise(text: &str) -> Result<js_sys::Promise, String> {
     // HTTP, sandboxed iframes without clipboard permission). web-sys
     // projects the property as always-present, and calling `write_text`
     // through an undefined reference throws a JS TypeError that unwinds
-    // straight through the Bevy frame loop — probe for it first.
+    // straight through the Bevy frame loop - probe for it first.
     let clipboard_prop = js_sys::Reflect::get(
         navigator.as_ref(),
         &wasm_bindgen::JsValue::from_str("clipboard"),
@@ -607,7 +607,7 @@ pub fn drain_clipboard_outcomes(
     for outcome in queue.take() {
         match outcome.result {
             Ok(()) => toasts.success(outcome.label, now),
-            Err(reason) => toasts.error(format!("Copy failed ({reason}) — {}", outcome.text), now),
+            Err(reason) => toasts.error(format!("Copy failed ({reason}) - {}", outcome.text), now),
         }
     }
 }
@@ -617,15 +617,15 @@ pub fn drain_clipboard_outcomes(
 // ────────────────────────────────────────────────────────────────────────
 
 /// Trigger a browser "save file" download of `contents` under `filename`
-/// (WASM only — native builds write the same data straight to disk). Wraps the
+/// (WASM only - native builds write the same data straight to disk). Wraps the
 /// string in an in-memory `Blob`, mints an object URL, wires it to a hidden
-/// `<a download>`, and synthesises a click — the standard "export to file" web
+/// `<a download>`, and synthesises a click - the standard "export to file" web
 /// idiom, and the download-log counterpart to [`write_to_clipboard`]. Must be
 /// called from a user-gesture handler (an egui button click qualifies). The
 /// object URL is revoked on a *deferred* timer, not synchronously: the browser
 /// reads the blob on a task scheduled after `click()` returns, so an immediate
 /// revoke can tear the `blob:` URL down before its bytes are read and produce an
-/// empty file (Firefox bug 1282407 — the same reason FileSaver.js defers it).
+/// empty file (Firefox bug 1282407 - the same reason FileSaver.js defers it).
 #[cfg(target_arch = "wasm32")]
 pub fn download_text_file(filename: &str, mime: &str, contents: &str) -> Result<(), String> {
     use wasm_bindgen::JsCast;
@@ -659,7 +659,7 @@ pub fn download_text_file(filename: &str, mime: &str, contents: &str) -> Result<
         anchor.click();
         let _ = body.remove_child(&anchor);
     } else {
-        // No <body> (shouldn't happen in a rendered app) — try the detached
+        // No <body> (shouldn't happen in a rendered app) - try the detached
         // click, which Chromium honours.
         anchor.click();
     }
@@ -712,7 +712,7 @@ mod landmark_link_tests {
         );
     }
 
-    /// An empty `did=` is not a destination — it must not arm anything —
+    /// An empty `did=` is not a destination - it must not arm anything -
     /// but it is still ours, so it is still scrubbed from the URL bar.
     #[test]
     fn an_empty_destination_arms_nothing_and_is_still_ours() {
@@ -735,7 +735,7 @@ mod landmark_link_tests {
 
     /// #1227 f250, the half the refuter confirmed exactly: `detect` scrubs
     /// `did=`/`pos=`/`rot=` from the URL bar, and a denied callback drops
-    /// the pending blob — so the user landed back on a form that no longer
+    /// the pending blob - so the user landed back on a form that no longer
     /// knew where they had been going. The stash is what survives that, and
     /// it only works if it round-trips.
     #[test]
@@ -757,7 +757,7 @@ mod landmark_link_tests {
         assert_eq!(restored.target_pos.and_then(|p| p.y), None);
     }
 
-    /// Nothing to stash stays nothing — an empty encode must not write a
+    /// Nothing to stash stays nothing - an empty encode must not write a
     /// stash that a later plain visit would read back as a destination.
     #[test]
     fn an_empty_boot_encodes_to_nothing() {
@@ -775,7 +775,7 @@ mod tests {
     ///
     /// The wasm path used to discard `writeText`'s Promise and return
     /// `Ok(())`, so every call site toasted a green "Copied: …" whether
-    /// or not the write landed — and `navigator.clipboard.writeText`
+    /// or not the write landed - and `navigator.clipboard.writeText`
     /// rejects on a document that is not focused, on a denied permission,
     /// and when the click was not treated as a user activation. Asserting
     /// on the toast the person reads, through the real system, because

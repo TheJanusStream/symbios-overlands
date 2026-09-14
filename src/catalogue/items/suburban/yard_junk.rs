@@ -1,4 +1,4 @@
-//! Yard junk — a Suburban *poor* prop. A heap of cast-offs: a stack of bald
+//! Yard junk - a Suburban *poor* prop. A heap of cast-offs: a stack of bald
 //! tires, a dead chest freezer on its side, and a tangle of scrap, left out
 //! on the lot.
 
@@ -54,7 +54,7 @@ impl CatalogueEntry for YardJunk {
 fn build_tree() -> Generator {
     let tire = || solid(cylinder_tapered(0.42, 0.25, 12, 0.0, enamel(TIRE)));
 
-    // Bottom tire of the stack — the root.
+    // Bottom tire of the stack - the root.
     let mut prims = vec![prim(tire(), [0.0, 0.13, 0.0], id_quat())];
     prims.push(prim(tire(), [0.08, 0.38, 0.05], id_quat()));
     prims.push(prim(tire(), [-0.05, 0.63, -0.04], id_quat()));

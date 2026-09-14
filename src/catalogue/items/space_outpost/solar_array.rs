@@ -1,4 +1,4 @@
-//! Solar array — a Space-Outpost secondary. A row of large tilted PV panels
+//! Solar array - a Space-Outpost secondary. A row of large tilted PV panels
 //! on a steel torque-tube frame. The power farm of the base.
 //!
 //! Primitive-built; authored in one flat ground-relative frame via
@@ -48,7 +48,7 @@ impl CatalogueEntry for SolarArray {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Steel base frame — the root.
+        // Steel base frame - the root.
         prim(
             solid(cuboid_tapered([9.0, 0.3, 3.5], 0.0, steel(STEEL_DARK))),
             [0.0, 0.15, 0.0],
@@ -80,7 +80,7 @@ fn build_tree() -> Generator {
         prims.push(panel);
     }
 
-    // Combiner box at the array foot with a green status LED — emissive.
+    // Combiner box at the array foot with a green status LED - emissive.
     prims.push(prim(
         solid(cuboid_tapered([0.7, 0.8, 0.45], 0.0, hull(HULL_PANEL))),
         [4.0, 0.4, 1.3],

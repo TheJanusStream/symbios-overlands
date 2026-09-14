@@ -1,4 +1,4 @@
-//! Water tower — a Wild-West secondary. A timber tank on a braced four-leg
+//! Water tower - a Wild-West secondary. A timber tank on a braced four-leg
 //! frame, banded with tin, capped by a conical roof and tapped by an iron
 //! spout. A creak of old timber turns on the wind.
 //!
@@ -55,7 +55,7 @@ fn build_tree() -> Generator {
     let r = 1.8_f32;
 
     let mut prims = vec![
-        // First leg — the root.
+        // First leg - the root.
         prim(
             solid(cuboid_tapered([0.3, leg_h, 0.3], 0.0, clapboard(WOOD_RAW))),
             [-r, leg_h * 0.5, -r],
@@ -72,7 +72,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Diagonal X cross-braces on all four faces — the braced-tower signature.
+    // Diagonal X cross-braces on all four faces - the braced-tower signature.
     let span_h = leg_h - 0.6;
     let theta = span_h.atan2(2.0 * r);
     let brace_len = (span_h * span_h + 4.0 * r * r).sqrt();

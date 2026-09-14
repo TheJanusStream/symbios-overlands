@@ -1,5 +1,5 @@
 //! Gothic-Horror "bring-it-to-life" helpers: a creeping ground mist and two
-//! spatial-audio patches — a cold hollow wind for the bell tower and an eerie
+//! spatial-audio patches - a cold hollow wind for the bell tower and an eerie
 //! ghostly drone for the cathedral.
 //!
 //! Particle emitters are returned as [`Generator`] nodes (a
@@ -25,7 +25,7 @@ use crate::pds::{
 // Particle emitters
 // ---------------------------------------------------------------------------
 
-/// A low, slow creep of grey graveyard mist hugging the ground — the cold
+/// A low, slow creep of grey graveyard mist hugging the ground - the cold
 /// breath of the necropolis.
 pub(super) fn ground_mist(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -58,7 +58,7 @@ pub(super) fn ground_mist(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A cold hollow wind — band-limited noise breathing slowly through a lowpass,
+/// A cold hollow wind - band-limited noise breathing slowly through a lowpass,
 /// keening through the bell-tower louvers.
 pub(super) fn cold_wind() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));
@@ -94,7 +94,7 @@ pub(super) fn cold_wind() -> SovereignAudioConfig {
     patch(vec![noise, lp, lfo, vca], NodeId(3))
 }
 
-/// An eerie ghostly drone — two close-detuned low sines beating slowly under a
+/// An eerie ghostly drone - two close-detuned low sines beating slowly under a
 /// gloomy tremolo, the dread that hangs in the nave.
 pub(super) fn ghostly_drone() -> SovereignAudioConfig {
     let a = node(

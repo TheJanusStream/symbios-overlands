@@ -10,7 +10,7 @@ use serde::Deserialize;
 /// Hosted `client-metadata.json` URL. Per the atproto OAuth profile this URL
 /// *is* the `client_id`: the authorization server fetches it to learn the
 /// registered redirect URIs, scopes, and token-endpoint auth method. Used
-/// only on WASM — native builds use the loopback `client_id` pattern and
+/// only on WASM - native builds use the loopback `client_id` pattern and
 /// require no hosted document.
 #[cfg(target_arch = "wasm32")]
 pub const CLIENT_METADATA_URL: &str =
@@ -37,37 +37,37 @@ pub fn native_redirect_uri() -> String {
 
 /// Lexicon method (`lxm`) the relay service-auth token is minted for.
 ///
-/// Not a published lexicon — the relay never dispatches on it (its JWT
+/// Not a published lexicon - the relay never dispatches on it (its JWT
 /// validation reads `iss`/`exp`/`nbf`/`aud` only). It exists so the
 /// `rpc:` scope below can name a *concrete* method with a wildcard
 /// audience: the permissions spec forbids `rpc:*?aud=*`, and pinning the
 /// audience instead would bake one relay's DID into the static hosted
 /// client metadata (the #170 per-session-client hack), breaking
 /// non-default relays on WASM. Every `getServiceAuth` call must pass
-/// this as `lxm` — the PDS treats an omitted `lxm` as `*`, which the
+/// this as `lxm` - the PDS treats an omitted `lxm` as `*`, which the
 /// wildcard-audience grant does not cover.
 pub const RELAY_SERVICE_LXM: &str = "network.symbios.overlands.signal";
 
 /// The granular OAuth scope requested at login (#736, supersedes
 /// `transition:generic`): write access to exactly the collections this app
-/// writes — the five Overlands ones plus the avatar wardrobe trio, two of
+/// writes - the five Overlands ones plus the avatar wardrobe trio, two of
 /// which sit under the cross-app `network.symbios.avatar.*` lexicons but
-/// still in the signed-in identity's own repo (#1054) — plus the ability to
+/// still in the signed-in identity's own repo (#1054) - plus the ability to
 /// mint relay service-auth tokens ([`RELAY_SERVICE_LXM`]) for any audience.
 /// Everything else the
 /// app touches is unauthenticated (public AppView reads, `sync.getBlob`)
 /// or covered by the base `atproto` scope (`getSession`). Repo *reads*
-/// need no scope — the permission model's `action` vocabulary is
+/// need no scope - the permission model's `action` vocabulary is
 /// create/update/delete only.
 ///
 /// Kept as a runtime builder (not a literal) so the collection NSIDs
 /// can't drift from the constants the write paths actually use. The
-/// hosted copy in `assets/client-metadata.json` must stay in sync — see
+/// hosted copy in `assets/client-metadata.json` must stay in sync - see
 /// the `client_metadata_scope_matches_hosted_document` integration test.
 pub fn granular_scope() -> String {
     // Derived from `WRITTEN_COLLECTIONS` rather than spelled out here, so a
     // new collection cannot be added to the app and silently left out of the
-    // grant — which is how the three wardrobe collections shipped unscoped
+    // grant - which is how the three wardrobe collections shipped unscoped
     // (#1065). Order follows that list so the string is stable.
     let repos: Vec<String> = crate::pds::WRITTEN_COLLECTIONS
         .iter()
@@ -80,10 +80,10 @@ pub fn granular_scope() -> String {
 ///
 /// Two different `client_id` strategies are used depending on target:
 ///
-/// - **WASM (hosted)** — `client_id` is the public `CLIENT_METADATA_URL`
+/// - **WASM (hosted)** - `client_id` is the public `CLIENT_METADATA_URL`
 ///   that the authorization server fetches to read the registered redirect
 ///   URIs, scopes, and token-endpoint auth method.
-/// - **Native (loopback)** — per the atproto OAuth spec's *loopback client*
+/// - **Native (loopback)** - per the atproto OAuth spec's *loopback client*
 ///   exception, development builds that redirect to `127.0.0.1` cannot use
 ///   a hosted metadata document. Instead the `client_id` is a virtual URL
 ///   `http://localhost?redirect_uri=…&scope=…` and the AS derives the
@@ -134,7 +134,7 @@ pub fn client_metadata() -> OAuthClientMetadata {
 
 /// Minimal RFC 3986 query-value percent-encoder. Preserves the unreserved
 /// set (`A-Z a-z 0-9 - _ . ~`) and percent-escapes everything else.
-/// Deliberately *not* a full URL-encoder — used only for building the
+/// Deliberately *not* a full URL-encoder - used only for building the
 /// loopback-client `client_id` query string on native.
 #[cfg(not(target_arch = "wasm32"))]
 fn urlencode_query_value(s: &str) -> String {
@@ -161,12 +161,12 @@ struct ProtectedResourceMetadata {
 /// the "PDS" field.
 ///
 /// Two-step lookup:
-/// 1. Try `{input}/.well-known/oauth-protected-resource` — the canonical
+/// 1. Try `{input}/.well-known/oauth-protected-resource` - the canonical
 ///    resource-server metadata published by a real PDS (atproto OAuth
 ///    spec §3.2). On success, return the first entry in
 ///    `authorization_servers`.
 /// 2. If step 1 404s (or decodes empty), fall back to treating the input
-///    URL as the authorization server directly — which matches the real
+///    URL as the authorization server directly - which matches the real
 ///    topology of the Bluesky entryway (`bsky.social` is an AS, not a
 ///    resource server; individual PDS shards like
 ///    `porcini.us-east.host.bsky.network` are the actual resource servers).
@@ -181,7 +181,7 @@ pub async fn discover_auth_server(http: &reqwest::Client, pds_url: &str) -> Resu
         .map_err(|e| format!("fetch {url}: {e}"))?;
     let status = resp.status();
     if status.as_u16() == 404 {
-        // Not a resource server — assume the input URL is itself the
+        // Not a resource server - assume the input URL is itself the
         // authorization server (e.g. Bluesky's `bsky.social` entryway).
         return Ok(base.to_string());
     }
@@ -195,7 +195,7 @@ pub async fn discover_auth_server(http: &reqwest::Client, pds_url: &str) -> Resu
     match meta.authorization_servers.into_iter().next() {
         Some(server) => Ok(server),
         // An empty list is indistinguishable from "I'm an AS, not an RS"
-        // for our purposes — fall back to the input URL for the same
+        // for our purposes - fall back to the input URL for the same
         // reason as the 404 branch.
         None => Ok(base.to_string()),
     }

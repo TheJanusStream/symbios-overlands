@@ -18,14 +18,14 @@ pub const FP_SCALE: f32 = 10_000.0;
 /// rejects. `Fp` sits inside every room, avatar and inventory record; a
 /// narrow read turns one out-of-range integer anywhere in the tree into a
 /// *parse* failure, and a parse failure discards the entire record before
-/// [`Sanitize`](crate::pds::sanitize::Sanitize) — whose job is precisely to
-/// bound values like this — ever runs. `fetch.rs` then substitutes the
+/// [`Sanitize`](crate::pds::sanitize::Sanitize) - whose job is precisely to
+/// bound values like this - ever runs. `fetch.rs` then substitutes the
 /// DID-seeded default and shows the recovery banner, so the owner's world
 /// is replaced by a stranger's on every login while their real record sits
 /// intact on the PDS. Out-of-range data is bad *data*; making it a bad
 /// parse is what loses the world.
 ///
-/// Reading `i64` — the widest integer the AT Protocol data model has — and
+/// Reading `i64` - the widest integer the AT Protocol data model has - and
 /// saturating on the `as f32` cast means such a value arrives as a finite
 /// number for `sanitize` to clamp. This matches the rule `symbios-avatar`
 /// documents for its `scaled` module in the same PDS repo; the two
@@ -53,7 +53,7 @@ where
 
 /// Serialize a `u64` as a JSON **string** rather than a number.
 ///
-/// JSON has no native integer type — most parsers (including the ones in
+/// JSON has no native integer type - most parsers (including the ones in
 /// front of ATProto PDSes) decode all numbers as IEEE-754 `f64`, which can
 /// only represent integers exactly up to `2^53` (≈ 9.0e15). Our 64-bit FNV
 /// seeds routinely run above that, and when the PDS rounds them through
@@ -74,7 +74,7 @@ pub mod u64_as_string {
     }
 }
 
-/// Fixed-point `f32` wrapper — (de)serialises as `i32` scaled by 10_000.
+/// Fixed-point `f32` wrapper - (de)serialises as `i32` scaled by 10_000.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Fp(pub f32);
 
@@ -82,7 +82,7 @@ impl Fp {
     pub const ZERO: Fp = Fp(0.0);
     pub const ONE: Fp = Fp(1.0);
 
-    /// Exactly zero — the `skip_serializing_if` predicate for optional
+    /// Exactly zero - the `skip_serializing_if` predicate for optional
     /// scalar knobs whose "off" state is `0.0`.
     pub fn is_zero(&self) -> bool {
         self.0 == 0.0
@@ -205,7 +205,7 @@ impl<'de> Deserialize<'de> for Fp4 {
     }
 }
 
-/// `f64` fixed-point wrapper — same scaling rules as [`Fp`]. Used for
+/// `f64` fixed-point wrapper - same scaling rules as [`Fp`]. Used for
 /// noise frequency/scale fields in `bevy_symbios_texture` which operate
 /// in double precision.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -225,7 +225,7 @@ impl Serialize for Fp64 {
 
 impl<'de> Deserialize<'de> for Fp64 {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        // Wide for the same reason as [`Fp`] — and `f64` holds every `i64`
+        // Wide for the same reason as [`Fp`] - and `f64` holds every `i64`
         // to within its own precision, so nothing saturates here at all.
         Ok(Fp64(i64::deserialize(d)? as f64 / FP_SCALE as f64))
     }
@@ -236,7 +236,7 @@ impl<'de> Deserialize<'de> for Fp64 {
 /// Default-eliding wire format (#695): identity components (zero
 /// translation, unit rotation, unit scale) are omitted on write and filled
 /// back in by the container `#[serde(default)]`, so the identity transform
-/// every child prim starts from serializes as `{}` — and callers holding a
+/// every child prim starts from serializes as `{}` - and callers holding a
 /// fully-identity transform skip the field via [`TransformData::is_identity`].
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
@@ -254,7 +254,7 @@ crate::pds::serde_util::impl_default_eliding_serialize!(TransformData {
 });
 
 impl TransformData {
-    /// `true` when the whole transform equals the identity default — the
+    /// `true` when the whole transform equals the identity default - the
     /// wire-format skip predicate for `transform` fields (#695).
     pub fn is_identity(&self) -> bool {
         *self == Self::default()
@@ -303,22 +303,22 @@ pub(crate) fn is_false(b: &bool) -> bool {
 /// Open union (#1119) even though it is a bare string on the wire rather
 /// than a `$type` tag: it rides inside `BiomeFilter` on every Scatter
 /// placement, so it is in the *manifest*. Without the fallback arm, one
-/// relation this build has never heard of — a future `Shoreline`, say —
+/// relation this build has never heard of - a future `Shoreline`, say -
 /// failed the whole `room/self` decode, and the recovery banner that
 /// followed offers to wipe the room. A filter is the wrong place to lose a
 /// world over.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum WaterRelation {
-    /// No water constraint — keep points on either side of the surface.
+    /// No water constraint - keep points on either side of the surface.
     #[default]
     Both,
     /// Keep only points with world Y ≥ water surface.
     Above,
     /// Keep only points with world Y < water surface.
     Below,
-    /// A relation from a newer engine. Filters like [`Both`](Self::Both) —
+    /// A relation from a newer engine. Filters like [`Both`](Self::Both) -
     /// showing every sample is the honest degradation, because this build
-    /// cannot know which half the newer client meant to hide — and refuses
+    /// cannot know which half the newer client meant to hide - and refuses
     /// to serialize, so opening such a room and saving it cannot rewrite
     /// the owner's constraint as `Both` for real.
     #[serde(other, skip_serializing)]
@@ -353,7 +353,7 @@ impl BiomeFilter {
     }
 
     /// Accept / reject a sample. `water_level` is `None` when the record has
-    /// no water generator — in that case `Above` collapses to accept (all
+    /// no water generator - in that case `Above` collapses to accept (all
     /// ground on a dry-land record *is* above water, so a land-targeted
     /// filter keeps behaving sensibly) while `Below` fails closed (#914):
     /// there is no below-water ground to stand on, and silently placing an
@@ -365,7 +365,7 @@ impl BiomeFilter {
     /// "above water" means "far enough above to read as land".
     pub fn accepts(&self, biome: u8, y: f32, water_level: Option<f32>) -> bool {
         /// Required terrain clearance (m) over the water line for
-        /// [`WaterRelation::Above`] — covers visual wave amplitude plus
+        /// [`WaterRelation::Above`] - covers visual wave amplitude plus
         /// a believable dry bank.
         const ABOVE_FREEBOARD: f32 = 0.5;
 
@@ -373,7 +373,7 @@ impl BiomeFilter {
             return false;
         }
         // The catch-all covers `Both`, a water-relative filter on a record
-        // with no water, and `Unknown` — a relation from a newer engine,
+        // with no water, and `Unknown` - a relation from a newer engine,
         // which accepts everything rather than guessing at a half to hide.
         match (self.water, water_level) {
             (WaterRelation::Above, Some(wl)) => y >= wl + ABOVE_FREEBOARD,
@@ -385,7 +385,7 @@ impl BiomeFilter {
 }
 
 /// Clamp a `[min, max]` band into `[lo, hi]` and swap the ends if they are
-/// inverted. A `None` band is left alone — that is "no constraint", which is
+/// inverted. A `None` band is left alone - that is "no constraint", which is
 /// different from an empty one.
 fn sanitize_band(band: &mut Option<Fp2>, lo: f32, hi: f32) {
     if let Some(Fp2([a, b])) = band {
@@ -425,7 +425,7 @@ impl Default for ScatterBounds {
     }
 }
 
-/// Placement-naturalness knobs for `Placement::Scatter` (#912) — the dials
+/// Placement-naturalness knobs for `Placement::Scatter` (#912) - the dials
 /// that turn a flat uniform sprinkle into something that reads as *grown*.
 /// All-zero / `None` is the historical behaviour and is elided on the wire,
 /// so records written before this struct existed decode unchanged.
@@ -447,7 +447,7 @@ impl Default for ScatterBounds {
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
 pub struct ScatterNaturalness {
     /// How hard each sample is pulled toward its nearest cluster seed,
-    /// `0` (flat uniform — the historical distribution) to `1` (every
+    /// `0` (flat uniform - the historical distribution) to `1` (every
     /// sample collapses onto a seed). Cluster seeds are themselves derived
     /// from `local_seed`, so a stand grows in patches rather than at an
     /// even density. `0.5` roughly halves each patch's radius, which reads
@@ -473,7 +473,7 @@ pub struct ScatterNaturalness {
     pub tilt_jitter: Fp,
     /// Reject samples on ground steeper than this, in **degrees** from
     /// horizontal. `None` (the default) imposes no slope limit, which is
-    /// what every scatter did before this field existed — slope reached
+    /// what every scatter did before this field existed - slope reached
     /// placement only indirectly, through whichever splat layer the
     /// terrain config's height+slope bands made dominant.
     ///
@@ -490,12 +490,12 @@ pub struct ScatterNaturalness {
     /// is not a cliff the two agree closely, a height band costs nothing
     /// (the sampler already knows the ground height and the water level),
     /// and the horizontal version would need a per-room distance field
-    /// that has to be built, stored and freed. Where they disagree — a
-    /// cliff edge — the answer a height band gives is the one you want
+    /// that has to be built, stored and freed. Where they disagree - a
+    /// cliff edge - the answer a height band gives is the one you want
     /// anyway, since nothing riparian grows on a cliff.
     ///
     /// `[0, 6]` is a riparian band: reed beds and damp-loving cover that
-    /// hug the shore. A high `min` gives the opposite — dry ridge species
+    /// hug the shore. A high `min` gives the opposite - dry ridge species
     /// that should stay well clear of standing water.
     ///
     /// Supersedes what `BiomeFilter::water` can express: that is a
@@ -515,7 +515,7 @@ pub struct ScatterNaturalness {
     /// Altitude zonation: the treeline that keeps conifers off the peaks,
     /// the alpine cushion plants that only appear above one, the valley
     /// species that stop partway up. Unlike [`Self::above_water_band`]
-    /// this needs no water line — only the heightmap.
+    /// this needs no water line - only the heightmap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub altitude_band: Option<Fp2>,
 }
@@ -561,7 +561,7 @@ pub(crate) fn truncate_on_char_boundary(s: &mut String, max_bytes: usize) {
     s.truncate(end);
 }
 
-/// Serde helper for `HashMap<u8, V>` — JSON object keys must be strings.
+/// Serde helper for `HashMap<u8, V>` - JSON object keys must be strings.
 ///
 /// Emits entries in ascending key order. See [`map_u16_as_string`] for why
 /// that ordering is load-bearing rather than cosmetic.
@@ -600,12 +600,12 @@ pub mod map_u8_as_string {
     }
 }
 
-/// Serde helper for `HashMap<u16, V>` — JSON object keys must be strings.
+/// Serde helper for `HashMap<u16, V>` - JSON object keys must be strings.
 ///
 /// Emits entries in ascending key order (#1118). A `HashMap` iterates in an
 /// order that `RandomState` re-seeds per map and per process, so an
 /// unsorted writer would give the same content different bytes on every
-/// decode — and the child-generator rkey is a hash *of those bytes*. Sorting
+/// decode - and the child-generator rkey is a hash *of those bytes*. Sorting
 /// here is what makes [`child_rkey`](crate::pds::room::child_rkey) an
 /// address of the content rather than of this process's hash seed.
 pub mod map_u16_as_string {
@@ -646,8 +646,8 @@ pub mod map_u16_as_string {
 /// Serialize a `HashMap<String, V>` with its keys in sorted order (#1118).
 ///
 /// Use as `#[serde(serialize_with = "sorted_string_map")]` on any map that
-/// reaches the wire. Deserialization needs no partner helper — serde reads a
-/// JSON object into a `HashMap` regardless of the order it arrives in — so
+/// reaches the wire. Deserialization needs no partner helper - serde reads a
+/// JSON object into a `HashMap` regardless of the order it arrives in - so
 /// this is deliberately a bare `serialize_with` rather than a `with` module:
 /// the asymmetry is the point. What must be canonical is the bytes we
 /// *write*, because those bytes are what gets hashed into a record key and
@@ -678,8 +678,8 @@ mod fp_wire_tests {
 
     /// The regression this closes. `Fp*` read through `i32`, so one integer
     /// past `2_147_483_647` anywhere in a room, avatar or inventory record
-    /// failed the whole `serde_json` decode *before* `Sanitize` — whose
-    /// entire job is bounding values like this — could run. The loader then
+    /// failed the whole `serde_json` decode *before* `Sanitize` - whose
+    /// entire job is bounding values like this - could run. The loader then
     /// substituted the DID-seeded default and raised the recovery banner, so
     /// the owner saw a stranger's world on every login while their real
     /// record sat intact on their PDS.
@@ -699,7 +699,7 @@ mod fp_wire_tests {
         assert!(widest.0.is_finite(), "saturates to a finite float");
     }
 
-    /// The array wrappers read wide too — a transform's translation is three
+    /// The array wrappers read wide too - a transform's translation is three
     /// of them, and one bad component must not cost the record either.
     #[test]
     fn the_array_wrappers_read_wide_as_well() {
@@ -715,7 +715,7 @@ mod fp_wire_tests {
 
     /// The half that must NOT move. Widening the read is only safe if every
     /// value an `i32` writer can emit still quantises to exactly what it
-    /// quantised to before — otherwise the fix silently re-grids every
+    /// quantised to before - otherwise the fix silently re-grids every
     /// stored record. Checked in all three directions (#211/#212): the
     /// integer a float writes, the float that integer reads back, and the
     /// fact that reading again is a fixed point.

@@ -1,4 +1,4 @@
-//! Trailer home — the Suburban *poor* landmark. A single-wide mobile home on
+//! Trailer home - the Suburban *poor* landmark. A single-wide mobile home on
 //! cinder-block supports with a shallow metal roof, a window AC unit, and a
 //! little entry step. The trailer-lot counterpart to the
 //! [`community_center`](super::community_center): same theme, opposite end of
@@ -17,7 +17,7 @@ use crate::seeded_defaults::ThemeArchetype;
 
 use super::{GLASS_TINT, SIDING_BLUE, TRAILER_WHITE, enamel, render, siding};
 
-/// Warm lamp light inside the trailer — the glow that shows through the cut
+/// Warm lamp light inside the trailer - the glow that shows through the cut
 /// window panes as a lived-in room rather than a dark box.
 const LAMP_WARM: [f32; 3] = [1.0, 0.84, 0.56];
 
@@ -63,7 +63,7 @@ fn build_tree() -> Generator {
     let front = -d * 0.5;
 
     let mut prims = vec![
-        // Concrete pad — the root.
+        // Concrete pad - the root.
         prim(
             solid(cuboid_tapered(
                 [l + 0.6, 0.3, d + 0.6],
@@ -93,7 +93,7 @@ fn build_tree() -> Generator {
         }
     }
     // Vinyl skirting hiding the under-trailer voids; the front run is a hair
-    // short (one panel sagging off) — weathered but intact.
+    // short (one panel sagging off) - weathered but intact.
     for (sz, frac) in [(-1.0_f32, 0.96_f32), (1.0, 1.0)] {
         prims.push(prim(
             solid(cuboid_tapered(
@@ -185,7 +185,7 @@ fn build_tree() -> Generator {
         [0.0, floor_y + body_h * 0.6, 0.0],
         id_quat(),
     ));
-    // Shallow metal roof — dulled, weathered but intact.
+    // Shallow metal roof - dulled, weathered but intact.
     prims.push(prim(
         solid(cuboid_tapered(
             [l + 0.5, 0.4, d + 0.5],
@@ -251,7 +251,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Sliding-window glazing — clear panes on planes, cut open over the room.
+    // Sliding-window glazing - clear panes on planes, cut open over the room.
     for &(x, half) in &win {
         prims.push(prim(
             plane(

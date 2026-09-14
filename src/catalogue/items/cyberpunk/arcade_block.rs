@@ -1,4 +1,4 @@
-//! Arcade block — a wide, low Cyberpunk secondary. A dark-metal entertainment
+//! Arcade block - a wide, low Cyberpunk secondary. A dark-metal entertainment
 //! shell on a lit forecourt: two display windows with rows of cabinets burning
 //! behind them, an open entrance under a wedge marquee, a clerestory over the
 //! mezzanine, neon on the roof *edge* and a content-tile sign above it.
@@ -7,16 +7,16 @@
 //! painted on:
 //!
 //! 1. **The "neon roofline" was the roof.** A 9.4 × 0.35 × 6.4 emissive slab at
-//!    strength 6.0 — the broad-flat-panel gotcha in its purest form. It blooms
+//!    strength 6.0 - the broad-flat-panel gotcha in its purest form. It blooms
 //!    to a flat white-pink lid that covers the entire plan, and in every tile of
 //!    the shipped sheet it is the biggest thing on the prop. Neon is an *edge*.
 //! 2. **The window bands were `Window`-textured cuboids** on the back and ends
-//!    (#972 lesson 20) — and the front, the face the street sees, had no
+//!    (#972 lesson 20) - and the front, the face the street sees, had no
 //!    glazing at all. An arcade's whole subject is the machines glowing through
 //!    the glass, and the hero elevation was a blank slab with a lit rectangle
 //!    recessed into it.
 //! 3. **Nothing to look at and no way in.** The "entrance" was a flat glow
-//!    panel in a neon frame — no opening, no floor, no threshold, no interior —
+//!    panel in a neon frame - no opening, no floor, no threshold, no interior -
 //!    and there was no paving, so the prop stood on nothing.
 //! 4. **Flat child list** with a hand-rolled `rel()` rebase (#972 lesson 3).
 //!
@@ -43,7 +43,7 @@ const LOT_W: f32 = 13.0;
 const LOT_D: f32 = 9.6;
 const LOT_T: f32 = 0.3;
 const LOT_TOP: f32 = LOT_T;
-/// The lot reaches further in front of the block than behind it — the front is
+/// The lot reaches further in front of the block than behind it - the front is
 /// where people queue.
 const LOT_CZ: f32 = -0.7;
 
@@ -95,14 +95,14 @@ const SIGN_Z: f32 = -1.2;
 /// Deep-saturated neon at low strength reads as neon; a *broad flat panel* at
 /// strength blooms to a pale near-white slab whatever colour it started. The
 /// shipped roofline was 9.4 × 6.4 m at 6.0 and read as a painted lid. Every
-/// hot run here is a bar — one dimension long, the other two small — and the
+/// hot run here is a bar - one dimension long, the other two small - and the
 /// guard below states that as a prohibition rather than trusting the numbers.
 const NEON_HOT: f32 = 4.0;
 const NEON_BAR: f32 = 0.2;
 
 // --- Palette local to this entry. ------------------------------------------
 
-/// Frame panels — a touch lighter than the kit's near-black body, so the piers
+/// Frame panels - a touch lighter than the kit's near-black body, so the piers
 /// read as structure against the glass rather than merging with it.
 const PANEL_GREY: [f32; 3] = [0.15, 0.16, 0.20];
 /// The arcade floor's lining and its carpet.
@@ -110,10 +110,10 @@ const HALL_LINING: [f32; 3] = [0.20, 0.16, 0.30];
 const CARPET_PLUM: [f32; 3] = [0.26, 0.10, 0.28];
 /// A cabinet's body. Distinct from [`SIGN_BACK`] on purpose: the two were one
 /// colour in the first draft and both of this entry's new guards picked the
-/// wrong prims because of it — the cladding check flagged a cabinet and the
+/// wrong prims because of it - the cladding check flagged a cabinet and the
 /// cabinet check flagged the sign (#972 lesson 24, twice in one file).
 const CABINET_DARK: [f32; 3] = [0.11, 0.11, 0.15];
-/// The rooftop sign's backing — darker still, so the lit tiles read against it.
+/// The rooftop sign's backing - darker still, so the lit tiles read against it.
 const SIGN_BACK: [f32; 3] = [0.07, 0.07, 0.09];
 
 // --- Shared construction. --------------------------------------------------
@@ -127,7 +127,7 @@ fn panel(color: [f32; 3], center: [f32; 3], face: FaceKey) -> SovereignMaterialS
 }
 
 /// One clad slab of the shell. The centre is bound once and handed to the
-/// material *and* the transform — passing a bonding helper a different reading
+/// material *and* the transform - passing a bonding helper a different reading
 /// of "the middle of the wall" is the one way to defeat the frame guard
 /// silently (#972 lesson 18).
 fn wall(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
@@ -138,7 +138,7 @@ fn wall(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
     )
 }
 
-/// Board-formed concrete in the world frame — the lot, the plinth, the kerbs.
+/// Board-formed concrete in the world frame - the lot, the plinth, the kerbs.
 fn paving(center: [f32; 3], face: FaceKey) -> SovereignMaterialSettings {
     let mut m = concrete([0.17, 0.18, 0.21]);
     m.uv_offset = util::face_uv_offset(face, center);
@@ -146,7 +146,7 @@ fn paving(center: [f32; 3], face: FaceKey) -> SovereignMaterialSettings {
 }
 
 /// A neon **bar**: long in one direction, small in the other two. There is no
-/// helper for a neon panel, deliberately — see [`NEON_HOT`].
+/// helper for a neon panel, deliberately - see [`NEON_HOT`].
 fn neon(size: [f32; 3], center: [f32; 3], color: [f32; 3], strength: f32) -> Generator {
     debug_assert!(
         strength < NEON_HOT || size.iter().filter(|d| **d > NEON_BAR).count() <= 1,
@@ -163,12 +163,12 @@ fn neon(size: [f32; 3], center: [f32; 3], color: [f32; 3], strength: f32) -> Gen
 /// pipeline renders at.
 ///
 /// The kit's [`window_wall`](super::window_wall) sits at exactly 0.5, which
-/// keeps the pane — right for a megatower, whose windows have nothing behind
+/// keeps the pane - right for a megatower, whose windows have nothing behind
 /// them but the shell. Here every card has an arcade floor behind it, and the
 /// cabinets burning through the glass are the entire subject: at 0.5 the first
 /// render of this rebuild put two flat teal sheets where eight machines were
 /// standing. Below the cutoff the panes are discarded and the machines are what
-/// you see (#972 lesson 25 — the opacity is a decision about what is behind the
+/// you see (#972 lesson 25 - the opacity is a decision about what is behind the
 /// opening, not a styling knob).
 const GLASS_OPACITY: f32 = 0.34;
 
@@ -194,7 +194,7 @@ fn glazing(size: [f32; 2], center: [f32; 3], panes: (u32, u32)) -> Generator {
     )
 }
 
-/// A lit surface inside — what a card's masked-away panes actually show.
+/// A lit surface inside - what a card's masked-away panes actually show.
 fn lit(size: [f32; 3], center: [f32; 3], color: [f32; 3], strength: f32) -> Generator {
     prim(
         cuboid_tapered(size, 0.0, lit_interior(color, strength)),
@@ -246,7 +246,7 @@ impl CatalogueEntry for ArcadeBlock {
 }
 
 /// The block as a tree that stands the way it does: the forecourt at the
-/// bottom, the plinth on it, the shell on the plinth, the roof on the shell —
+/// bottom, the plinth on it, the shell on the plinth, the roof on the shell -
 /// with the forecourt as a **sub-root that is the surface**, so everything set
 /// down outside is checked against the paving rather than against the building
 /// (#972 lesson 19).
@@ -262,7 +262,7 @@ fn build_tree() -> Generator {
         id_quat(),
     );
 
-    // Authored in the world frame like every other part here — `nest` rebases
+    // Authored in the world frame like every other part here - `nest` rebases
     // it into the lot's local frame below.
     let base = footing(LOT_W, LOT_D, [0.0, LOT_CZ], 7.5);
 
@@ -318,7 +318,7 @@ fn forecourt() -> Vec<Generator> {
 
 // --- The shell. ------------------------------------------------------------
 
-/// The plinth — the block's sub-root, standing 60 mm proud of the cladding
+/// The plinth - the block's sub-root, standing 60 mm proud of the cladding
 /// above it, which is what a plinth actually is. Flush is a coplanar seam
 /// running the whole perimeter and it is invisible in a still.
 fn block() -> Generator {
@@ -383,8 +383,8 @@ fn elevation(parts: &mut Vec<Generator>) {
     }
 
     // Spandrel between each opening and the clerestory over it, and a head band
-    // above the clerestory. Running the spandrel all the way to the top — which
-    // is what the first draft did — walls the clerestory in behind it, and the
+    // above the clerestory. Running the spandrel all the way to the top - which
+    // is what the first draft did - walls the clerestory in behind it, and the
     // sheet shows a black band where the lit lights should be.
     for (x, w, is_entry) in &ops {
         let head = FLOOR
@@ -413,7 +413,7 @@ fn elevation(parts: &mut Vec<Generator>) {
         }
     }
 
-    // The arcade floor, its lining and its ceiling wash — one room behind all
+    // The arcade floor, its lining and its ceiling wash - one room behind all
     // three openings, laid out bay by bay (#972 lesson 9).
     parts.push(lit(
         [W - 1.4, 0.1, D - 1.6],
@@ -464,7 +464,7 @@ fn elevation(parts: &mut Vec<Generator>) {
 /// One display window: the glazing, and the row of cabinets burning behind it.
 ///
 /// This is the whole point of the prop. An arcade seen from the street is a
-/// wall of screens, and the shipped block had a black slab where they belong —
+/// wall of screens, and the shipped block had a black slab where they belong -
 /// so the cabinets are real geometry with real lit screens, not a glow panel
 /// standing in for them (the flat-lightbox gotcha).
 fn display(bx: f32, bw: f32, parts: &mut Vec<Generator>) {
@@ -485,7 +485,7 @@ fn display(bx: f32, bw: f32, parts: &mut Vec<Generator>) {
             [x, FLOOR + h * 0.5, z],
             id_quat(),
         ));
-        // Screen, control deck and marquee strip — the three lit parts of a
+        // Screen, control deck and marquee strip - the three lit parts of a
         // cabinet, and none of them broad enough to bloom.
         parts.push(neon(
             [0.5, 0.44, 0.05],
@@ -510,7 +510,7 @@ fn display(bx: f32, bw: f32, parts: &mut Vec<Generator>) {
 /// The entrance: no glazing at all, a lit foyer, a token booth, and the wedge
 /// marquee over it.
 ///
-/// The right answer to "a card on a solid" is sometimes neither — an arcade
+/// The right answer to "a card on a solid" is sometimes neither - an arcade
 /// door stands open on a lit floor, so the opening is a genuine hole and the
 /// alpha-card idiom never enters into it (#972, the boardwalk's lesson).
 fn entrance(bx: f32, parts: &mut Vec<Generator>) {
@@ -527,7 +527,7 @@ fn entrance(bx: f32, parts: &mut Vec<Generator>) {
             FaceKey::SideNz,
         ));
     }
-    // Hot neon round the opening — four bars, not a frame slab.
+    // Hot neon round the opening - four bars, not a frame slab.
     for sy in [-1.0_f32, 1.0] {
         parts.push(neon(
             [ENTRY_W + 0.8, 0.18, 0.16],
@@ -610,7 +610,7 @@ fn entrance(bx: f32, parts: &mut Vec<Generator>) {
     }
 }
 
-/// Lit bands on the back and both flanks — real openings framed by the wall
+/// Lit bands on the back and both flanks - real openings framed by the wall
 /// they are cut out of, with something behind them.
 fn flanks(parts: &mut Vec<Generator>) {
     let cy = FLOOR + GROUND_H * 0.55;
@@ -834,7 +834,7 @@ mod tests {
     /// The one guard this entry exists to carry. A deep-saturated colour driven
     /// hot reads as neon only while it is a *bar*: give it two large dimensions
     /// and it blooms to a pale near-white slab whatever colour it started, which
-    /// is what the shipped 9.4 × 6.4 m "roofline trim" did at strength 6.0 — it
+    /// is what the shipped 9.4 × 6.4 m "roofline trim" did at strength 6.0 - it
     /// was the biggest surface on the prop in every tile of the sheet.
     ///
     /// Stated as a prohibition rather than as a census (#972 lesson 20): count
@@ -859,17 +859,17 @@ mod tests {
             let broad = size.0.iter().filter(|d| **d > NEON_BAR).count();
             assert!(
                 broad <= 1,
-                "arcade_block: a {:?} emissive surface at {at:?} runs at {} — {broad} of \
+                "arcade_block: a {:?} emissive surface at {at:?} runs at {} - {broad} of \
                  its dimensions are over {NEON_BAR} m, so it is a panel, not a bar, and \
                  it blooms to white",
                 size.0,
                 material.emission_strength.0
             );
         });
-        assert!(bars >= 12, "only {bars} hot neon runs — the block is dark");
+        assert!(bars >= 12, "only {bars} hot neon runs - the block is dark");
     }
 
-    /// #972 lesson 1: every pane is a card on a flat quad at `uv_scale` 1.0 —
+    /// #972 lesson 1: every pane is a card on a flat quad at `uv_scale` 1.0 -
     /// two display windows, three clerestory lights, two flank bands and two
     /// back bands. The entrance has none, because a way in is a hole.
     #[test]
@@ -889,7 +889,7 @@ mod tests {
     }
 
     /// #972 lesson 7: each street-level card oversails the opening its piers
-    /// leave it, checked against [`openings`] — which is where the piers and
+    /// leave it, checked against [`openings`] - which is where the piers and
     /// spandrels come from too.
     #[test]
     fn every_card_laps_its_opening() {
@@ -921,7 +921,7 @@ mod tests {
     }
 
     /// The display bays have **machines** behind the glass, not a glow panel
-    /// standing in for them — and every cabinet stands on the arcade floor
+    /// standing in for them - and every cabinet stands on the arcade floor
     /// inside the shell that encloses it.
     #[test]
     fn the_cabinets_are_real_and_stand_on_the_floor() {
@@ -951,7 +951,7 @@ mod tests {
             }
             // A screen is a small lit *panel*: bounded on all three axes. An
             // unbounded height caught every vertical neon accent on the prop
-            // and reported sixteen screens for eight cabinets — the selector,
+            // and reported sixteen screens for eight cabinets - the selector,
             // again (#972 lesson 24).
             if material.emission_strength.0 > 2.0
                 && size.0[0] < 0.6
@@ -966,7 +966,7 @@ mod tests {
     }
 
     /// #972 lesson 18: every clad and paved slab's `uv_offset` is some face's
-    /// projection of the position the **built tree** puts it at — read from the
+    /// projection of the position the **built tree** puts it at - read from the
     /// composed translation, not from the constants the placement used.
     #[test]
     fn every_clad_surface_shares_one_world_frame() {
@@ -1012,7 +1012,7 @@ mod tests {
         });
         assert!(
             checked >= 10,
-            "only {checked} clad surfaces found — suspect the selector before the content"
+            "only {checked} clad surfaces found - suspect the selector before the content"
         );
     }
 

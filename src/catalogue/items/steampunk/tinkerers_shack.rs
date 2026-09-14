@@ -1,4 +1,4 @@
-//! Tinkerer's shack — the Steampunk *poor* landmark. A patched corrugated-
+//! Tinkerer's shack - the Steampunk *poor* landmark. A patched corrugated-
 //! and-plank hut bristling with mismatched pipes, a crooked stovepipe
 //! belching smoke and a single grimy lit window. The hardscrabble
 //! counterpart to the [`cog_tower`](super::cog_tower): same works, opposite
@@ -62,7 +62,7 @@ fn build_tree() -> Generator {
     let front = -2.05_f32;
 
     let mut prims = vec![
-        // Corrugated walls — the root, sitting on the ground.
+        // Corrugated walls - the root, sitting on the ground.
         prim(
             solid(cuboid_tapered(
                 [5.0, wall_h, 4.0],
@@ -99,7 +99,7 @@ fn build_tree() -> Generator {
         [1.2, 1.5, front - 0.05],
         id_quat(),
     ));
-    // A salvaged cog bolted high on the wall, clear of the window — the
+    // A salvaged cog bolted high on the wall, clear of the window - the
     // tinkerer's mark.
     prims.push(cog(
         [2.0, 2.5, front - 0.06],
@@ -135,7 +135,7 @@ fn build_tree() -> Generator {
         quat_x(0.18),
     ));
 
-    // Mismatched hollow pipes bristling from the walls at jaunty angles —
+    // Mismatched hollow pipes bristling from the walls at jaunty angles -
     // several on the visible −Z and +X faces so they read.
     prims.push(prim(
         solid(tube(0.18, 0.11, 2.6, 8, copper(COPPER_ORANGE))),

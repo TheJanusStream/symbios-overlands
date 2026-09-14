@@ -7,7 +7,7 @@ edition = "2024"
 # Every integration-test file used to be its own `[[test]]` target, and each
 # one statically links the whole Bevy engine: 19 files meant 19 whole-program
 # links on every `cargo test` that touched the lib, which is most of a working
-# session's waiting. They are now modules of one `integration` harness — see
+# session's waiting. They are now modules of one `integration` harness - see
 # `tests/main.rs` for what that changes about running them.
 #
 # The two binaries opt out of a TEST harness (not out of being built): neither
@@ -15,8 +15,8 @@ edition = "2024"
 # run nothing.
 autotests = false
 autobins = false
-# `cargo run` with no `--bin` is otherwise ambiguous — the crate ships the app
-# and the headless render tool — and the error it produced was the first thing
+# `cargo run` with no `--bin` is otherwise ambiguous - the crate ships the app
+# and the headless render tool - and the error it produced was the first thing
 # a newcomer hit (#1162).
 default-run = "symbios-overlands"
 
@@ -28,7 +28,7 @@ members = ["crates/gen-jobs", "crates/gen-worker"]
 # Which packages a bare `cargo test` / `cargo clippy` / `cargo nextest run`
 # actually selects (#1147).
 #
-# Without this, a non-virtual workspace selects the root package alone — so
+# Without this, a non-virtual workspace selects the root package alone - so
 # gen-jobs' tests ran in NO gate, local or CI. That is the crate carrying
 # `GenJob::run`, whose whole contract is that native and the wasm worker
 # produce byte-identical output; its determinism and msgpack round-trip
@@ -45,7 +45,7 @@ default-members = [".", "crates/gen-jobs"]
 [features]
 # Native allocation tracer (#811): wraps the global allocator and prints a
 # backtrace for every allocation >= 16 MiB, so the per-frame giant-buffer
-# churn measured on wasm can be attributed by name. Diagnostic-only — run
+# churn measured on wasm can be attributed by name. Diagnostic-only - run
 # `cargo run --release --features alloc-trace`, play for a minute, read
 # stderr. Off by default: zero cost in normal builds.
 alloc-trace = []
@@ -83,11 +83,11 @@ ndshape = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 # Wall-clock chat timestamps (#846). Already in the tree transitively;
 # `wasmbind` backs the clock + local timezone with JS Date on wasm32
-# (std::time panics there — known gotcha).
+# (std::time panics there - known gotcha).
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
 # Only the decoders the app actually needs (#1153). Default features
-# compile all sixteen — including exr, tiff, gif and the rav1e AV1
-# encoder — and `decode_image_capped` sniffs format from magic bytes, so
+# compile all sixteen - including exr, tiff, gif and the rav1e AV1
+# encoder - and `decode_image_capped` sniffs format from magic bytes, so
 # every compiled decoder is reachable from an untrusted PDS blob or peer
 # avatar. The dimension cap bounds a pixel bomb, not decoder complexity.
 # Features are additive across the graph, so bevy_image's own png/hdr/
@@ -112,8 +112,8 @@ bincode = "1.3"
 rand_chacha = "0.9"
 # Pure-Rust libm (#1132). The seeded derivation path must produce the same
 # bits on a native peer and a browser peer, and `f32::cos`/`sin`/`powf` link
-# whatever libm the target ships — glibc on x86-64, compiler-builtins on
-# wasm32 — with results Rust documents as platform-dependent. Already in the
+# whatever libm the target ships - glibc on x86-64, compiler-builtins on
+# wasm32 - with results Rust documents as platform-dependent. Already in the
 # lockfile transitively, so this is a direct edge on a crate we were shipping
 # either way.
 libm = "0.2"
@@ -123,7 +123,7 @@ proto-blue-api = "0.2"
 # proto-blue-oauth, so this is a direct edge on a crate we were shipping
 # either way. Direct rather than dev-only since #1176: the OAuth transport
 # is now one of ours (`oauth::capped_fetch`) so that a response body is
-# bounded before it is buffered — proto-blue's own `ReqwestFetcher` reads
+# bounded before it is buffered - proto-blue's own `ReqwestFetcher` reads
 # with `response.bytes()`, which has no ceiling. The refresh-dance tests
 # (#1151) inject a scripted handler through the same seam.
 proto-blue-common = "0.2"
@@ -145,6 +145,12 @@ rodio = { version = "0.22", default-features = false }
 skrifa = "0.42.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The headless render tool's animated output (`--frames N`, `.gif`). `gif`
+# is the encoder + decoder; `color_quant` is the NeuQuant palette fit behind
+# the tool's own global-palette quantiser. Native-only like the tool itself:
+# nothing on wasm writes a GIF.
+gif = "0.14"
+color_quant = "1.1"
 tiny_http = "0.12"
 webbrowser = "1.0"
 arboard = "3"
@@ -218,8 +224,8 @@ panic = "abort"   # Reduce binary size by removing stack unwinding
 # actual test execution behind roughly 25 minutes of linking, with
 # `target/release/deps` at 5.8 GB.
 #
-# None of that optimization buys a test anything — the tests are gated on
-# behaviour, not on code size or throughput — so this profile keeps release
+# None of that optimization buys a test anything - the tests are gated on
+# behaviour, not on code size or throughput - so this profile keeps release
 # codegen (which is what makes the avatar/terrain builds in the suite
 # tolerable) and drops the whole-program link.
 #
@@ -230,11 +236,11 @@ panic = "abort"   # Reduce binary size by removing stack unwinding
 [profile.test-release]
 inherits = "release"
 lto = false        # the ~25 minutes: 24 whole-program Bevy links
-codegen-units = 16 # was 1 — single-threaded optimization per binary
+codegen-units = 16 # was 1 - single-threaded optimization per binary
 strip = false      # a failing gate should still print a legible backtrace
 # Inheriting `release` turned BOTH of these off, so the gate the owner
 # actually runs skipped every `debug_assert!` in the crate and let integer
-# overflow wrap silently — while CI's plain `cargo test` ran them in debug
+# overflow wrap silently - while CI's plain `cargo test` ran them in debug
 # (#1147). Two gates that disagree about what the code asserts is worse than
 # one weak gate: the local one is the one that gets run, and the CI one is
 # the one that gets doubted when they differ.

@@ -1,4 +1,4 @@
-//! Kindling pile — a Medieval *poor* prop. Tied faggot bundles of brushwood
+//! Kindling pile - a Medieval *poor* prop. Tied faggot bundles of brushwood
 //! leaning against a chopping block with a felling axe buried in it, split
 //! log rounds waiting their turn, and a few loose sticks at the foot: the
 //! gathered winter fuel of a cottar's yard.
@@ -66,7 +66,7 @@ fn faggot(center: [f32; 3], lean: f32, len: f32) -> Generator {
 }
 
 fn build_tree() -> Generator {
-    // Chopping block — the root.
+    // Chopping block - the root.
     let mut prims = vec![prim(
         solid(cylinder_tapered(0.4, 0.7, 12, 0.05, timber(WOOD_OAK))),
         [0.8, 0.35, 0.0],

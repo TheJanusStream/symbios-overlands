@@ -1,4 +1,4 @@
-//! `DiagnosticsPlugin` (Pillar A-5) — the Bevy wiring for the session log: it
+//! `DiagnosticsPlugin` (Pillar A-5) - the Bevy wiring for the session log: it
 //! constructs the [`SessionLog`] (attaching the native NDJSON sink and arming
 //! the panic hook), records the boot [`StartupSnapshot`] as the very first
 //! event, and registers the flush systems (periodic + on `AppExit`).
@@ -25,7 +25,7 @@ use crate::diagnostics::snapshot::build_startup_snapshot;
 #[derive(Resource, Default, Clone)]
 pub struct DiagDirOverride(pub Option<std::path::PathBuf>);
 
-/// Installs the session-log pipeline. Additive — no existing system changes.
+/// Installs the session-log pipeline. Additive - no existing system changes.
 pub struct DiagnosticsPlugin;
 
 impl Plugin for DiagnosticsPlugin {
@@ -62,7 +62,7 @@ impl Plugin for DiagnosticsPlugin {
         #[cfg(target_arch = "wasm32")]
         crate::diagnostics::panic::install_hook();
 
-        // The boot snapshot is always seq 0 — the self-describing header.
+        // The boot snapshot is always seq 0 - the self-describing header.
         if let Some(payload) = boot_payload {
             log.record(0.0, Severity::Info, payload);
         }

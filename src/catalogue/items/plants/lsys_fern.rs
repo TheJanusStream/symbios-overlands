@@ -1,4 +1,4 @@
-//! Fern — a ground-level rosette of arching fronds (#910 WS2 expansion),
+//! Fern - a ground-level rosette of arching fronds (#910 WS2 expansion),
 //! shade-layer flora for jungle and wetland floors. The crown adds one
 //! frond per iteration (iteration count = age: sprout → spreading rosette)
 //! while every existing frond extends with decaying segment length and a
@@ -23,7 +23,7 @@ impl CatalogueEntry for Fern {
         "Fern"
     }
     fn description(&self) -> &'static str {
-        "Ground rosette of arching leafy fronds — forest-floor shade flora."
+        "Ground rosette of arching leafy fronds - forest-floor shade flora."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Plant
@@ -35,7 +35,7 @@ impl CatalogueEntry for Fern {
 
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
-    // 0 — green rachis stem (leaf-toned so the thin stalk blends).
+    // 0 - green rachis stem (leaf-toned so the thin stalk blends).
     materials.insert(
         0,
         SovereignMaterialSettings {
@@ -44,7 +44,7 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 1 — deep forest-floor green leaflet. A fine pinnatifid pinna: narrow,
+    // 1 - deep forest-floor green leaflet. A fine pinnatifid pinna: narrow,
     // with a lobed (crenate) margin so each leaflet reads as a fern pinnule
     // rather than a smooth broadleaf.
     materials.insert(
@@ -78,7 +78,7 @@ fn build_kind() -> GeneratorKind {
         // CIRCINATE VERNATION (#917): `u` is the frond's residual coil
         // angle, applied as the per-segment pitch and decaying 0.62× per
         // step. A freshly emitted frond still carries ~55° of curl per
-        // segment — the tight crozier/fiddlehead of a young fern — while
+        // segment - the tight crozier/fiddlehead of a young fern - while
         // the oldest frond has relaxed to a few degrees and lies open.
         // Because the rosette emits one frond per iteration, every age of
         // frond coexists on one plant, which is exactly how a real fern

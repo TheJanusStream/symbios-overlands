@@ -1,4 +1,4 @@
-//! Coneflower — a clump-forming prairie perennial (#972, the civic garden
+//! Coneflower - a clump-forming prairie perennial (#972, the civic garden
 //! bed's flowers): a basal rosette of long leaves, and a clump of upright
 //! stems each carrying alternate leaves and one flower head. Pink by
 //! default (echinacea); [`VARIANTS`] re-skin it gold (rudbeckia) or white
@@ -14,7 +14,7 @@
 //! (`H`) and by [`STEM_NODES_MAX`] it must, so the heads stand at different
 //! heights, and about a third of the time a lateral peduncle `P` breaks
 //! below the head and carries a second, later one. So the stems bolted early are in flower
-//! and the late ones still in green bud when derivation stops — a clump in
+//! and the late ones still in green bud when derivation stops - a clump in
 //! mid-season, not a bunch cut to one length.
 //!
 //! **Uprightness.** A vertical axis is tropism's fixpoint (§4), so a stem
@@ -22,9 +22,9 @@
 //! what lets a little gravity bow the stems outward. Elasticity is low: a
 //! coneflower stem is stiff.
 //!
-//! **Heads.** A flower card is centred on its stem tip — pitched to face up
+//! **Heads.** A flower card is centred on its stem tip - pitched to face up
 //! and out, then stepped back half its height with `f(-h)` so the card's
-//! base is not what sits on the stem — and scaled per axis
+//! base is not what sits on the stem - and scaled per axis
 //! (`~(id, sx, sy, sz)`) so the round sprite is not stretched to the leaf
 //! card's 0.5 × 0.8.
 //!
@@ -120,7 +120,7 @@ fn tint_flower(
 
 pub(crate) fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
-    // 0 — green flowering stem.
+    // 0 - green flowering stem.
     materials.insert(
         0,
         SovereignMaterialSettings {
@@ -129,7 +129,7 @@ pub(crate) fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 2 — long, lanceolate, finely toothed dark leaf.
+    // 2 - long, lanceolate, finely toothed dark leaf.
     materials.insert(
         2,
         SovereignMaterialSettings {
@@ -146,7 +146,7 @@ pub(crate) fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 3 — the flower head: narrow petals round a big, raised-looking cone.
+    // 3 - the flower head: narrow petals round a big, raised-looking cone.
     // One flower per card (a 1 × 1 atlas), so a head is one bloom.
     materials.insert(
         3,

@@ -10,13 +10,13 @@
 //!   metallic and emissive punch, and brighten; poor surfaces gain
 //!   roughness, lose emissive, and drift toward a grimy rust-brown.
 //! - **escalation** (peaceful → conflict): conflict darkens and
-//!   desaturates the base colour and blends it toward soot — the scorch of
+//!   desaturates the base colour and blends it toward soot - the scorch of
 //!   a fought-over settlement.
 //!
 //! The pass is a pure function of the two dials (no RNG), so peers deriving
 //! the same room produce bit-identical finishes. It reaches every
-//! material-bearing variant — the twelve primitives' `material` and every
-//! value in the `Shape` / `LSystem` materials maps — and recurses through
+//! material-bearing variant - the twelve primitives' `material` and every
+//! value in the `Shape` / `LSystem` materials maps - and recurses through
 //! `children`, so a deeply-nested construct is finished uniformly. Variants
 //! with no [`SovereignMaterialSettings`] (terrain, water, particles,
 //! portals) are left untouched, and so is **`Sign`**, whose `base_color`
@@ -33,7 +33,7 @@ use super::types::{Fp, Fp3};
 
 /// Roughness swing at full wealth: rich subtracts, poor adds.
 const ROUGHNESS_SWING: f32 = 0.35;
-/// Metallic added at full wealth (rich only — poverty doesn't strip metal).
+/// Metallic added at full wealth (rich only - poverty doesn't strip metal).
 const METALLIC_SWING: f32 = 0.30;
 /// Fractional emissive scale at the wealth extremes (±). Multiplicative, so
 /// a non-emissive (black / zero-strength) material stays dark either way.
@@ -64,7 +64,7 @@ pub fn apply_socio_finish(node: &mut Generator, prosperity: f32, escalation: f32
     let wealth = (prosperity.clamp(0.0, 1.0) - 0.5) * 2.0;
     let scorch = escalation.clamp(0.0, 1.0);
     if wealth == 0.0 && scorch == 0.0 {
-        return; // neutral room — leave the authored finish untouched.
+        return; // neutral room - leave the authored finish untouched.
     }
     finish_tree(node, wealth, scorch);
 }
@@ -79,7 +79,7 @@ fn finish_tree(node: &mut Generator, wealth: f32, scorch: f32) {
 }
 
 /// Mutable borrows of every [`SovereignMaterialSettings`] carried directly
-/// by one node (not its children) — for the sixteen primitives that is the
+/// by one node (not its children) - for the sixteen primitives that is the
 /// base material **plus each per-face override's** (#955), so the finish
 /// and damage passes weather overridden faces exactly like the rest of the
 /// prim. Material-free variants yield an empty vec. Shared with
@@ -92,7 +92,7 @@ pub(crate) fn node_materials_mut(kind: &mut GeneratorKind) -> Vec<&mut Sovereign
         GeneratorKind::Shape { materials, .. } => materials.values_mut().collect(),
         GeneratorKind::LSystem { materials, .. } => materials.values_mut().collect(),
         // `Sign` is deliberately absent (#977). Its `base_color` is not a
-        // surface colour — it is a **tint multiplied over a fetched image**,
+        // surface colour - it is a **tint multiplied over a fetched image**,
         // so weathering it does not weather a sign, it stains the picture on
         // it. On the owner monuments (#975) that meant every room's
         // prosperity and escalation dials repainting the room owner's face,
@@ -147,7 +147,7 @@ fn scale3(a: [f32; 3], k: f32) -> [f32; 3] {
     [a[0] * k, a[1] * k, a[2] * k]
 }
 
-/// Rec. 601 relative luminance — the grey a colour desaturates toward.
+/// Rec. 601 relative luminance - the grey a colour desaturates toward.
 fn luminance(a: [f32; 3]) -> f32 {
     0.299 * a[0] + 0.587 * a[1] + 0.114 * a[2]
 }
@@ -176,7 +176,7 @@ mod tests {
     /// #977: a `Sign` keeps its tint whatever the dials say.
     ///
     /// Its `base_color` multiplies a fetched image, so weathering it does not
-    /// weather the sign — it stains the picture. On the owner monuments
+    /// weather the sign - it stains the picture. On the owner monuments
     /// (#975) that meant the room's prosperity and escalation repainting the
     /// room owner's face, by a different amount per room, and only once a
     /// real photo had loaded: invisible in every render, obvious in-world.
@@ -239,7 +239,7 @@ mod tests {
         })
     }
 
-    /// A face override must weather exactly like the base material (#955) —
+    /// A face override must weather exactly like the base material (#955) -
     /// a grimed slum keeps no pristine screen face.
     #[test]
     fn socio_finish_weathers_face_overrides_too() {
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn reaches_primitive_shape_lsystem_and_children() {
         // A Shape root (materials map) with an LSystem child (materials map)
-        // and a primitive grandchild — every material must be touched.
+        // and a primitive grandchild - every material must be touched.
         let mut shape_mats = HashMap::new();
         shape_mats.insert("wall".to_string(), default_with_roughness(0.5));
         let mut lsys_mats = HashMap::new();

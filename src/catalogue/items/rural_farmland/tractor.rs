@@ -1,4 +1,4 @@
-//! Tractor — a Rural/Farmland prop. A classic farm tractor: a green chassis
+//! Tractor - a Rural/Farmland prop. A classic farm tractor: a green chassis
 //! under a rounded hood with a grille, headlights, exhaust stack and
 //! pre-cleaner; an operator's platform with a sprung seat, a steering wheel
 //! on its column, a roll bar and a step; big dished rear wheels under curved
@@ -8,25 +8,25 @@
 //! Rebuilt from scratch under #972 after an in-world check ("clumsy and
 //! blocky, wrongly rotated steering wheel and seat"). The steering wheel
 //! was a torus turned `quat_x(0.5)`, which tilts its ring about the axle
-//! line — so it faced the side of the tractor. The seat back was a box
+//! line - so it faced the side of the tractor. The seat back was a box
 //! wide in `X` and thin in `Z`, a board across the driver's back rather
 //! than behind it. The fenders were flat slabs floating over the tyres, the
 //! rear tyres sat 30 mm above the ground, and the spokes' outer faces were
 //! flush with the hub dish's (a z-fight). Now the wheel is aimed at the
-//! driver with [`aim_y`] on the column's own direction — the column is a
-//! [`strut`], the wheel's normal is the same vector — the seat back is
+//! driver with [`aim_y`] on the column's own direction - the column is a
+//! [`strut`], the wheel's normal is the same vector - the seat back is
 //! thin in `X` and stands on the cushion's rear edge, the fenders are cut
 //! tube shells concentric with the wheels ([`with_cut`]), the hood is a
 //! half-cylinder on the engine box, and every tyre's bottom is at `y = 0`.
 //!
 //! #972 lesson 39: **a wheel faces along its column.** A steering wheel,
-//! a dish, a lamp, a clock — anything that has to face somebody is aimed by
+//! a dish, a lamp, a clock - anything that has to face somebody is aimed by
 //! ONE direction vector that also places its stalk: build the stalk with
 //! [`strut`] from the mount to the hub and aim the head with `aim_y` on the
 //! same vector, and the two cannot disagree. Guard by rotating the head's
 //! own `+Y` through the built quaternion and checking it is parallel to the
 //! built stalk and points at the seat. `quat_x(θ)` on a torus tilts it
-//! about `X` — sideways on a machine whose driver sits along `X`.
+//! about `X` - sideways on a machine whose driver sits along `X`.
 
 use std::f32::consts::FRAC_PI_2;
 
@@ -129,7 +129,7 @@ impl CatalogueEntry for Tractor {
     }
 }
 
-/// The unit direction from the column's foot to the wheel's hub — the one
+/// The unit direction from the column's foot to the wheel's hub - the one
 /// vector that places the column and aims the wheel.
 fn column_dir() -> [f32; 3] {
     let v = [
@@ -144,7 +144,7 @@ fn column_dir() -> [f32; 3] {
 fn build_tree() -> Generator {
     let green = || enamel(TRACTOR_GREEN);
     let mut prims = vec![
-        // Chassis — the root.
+        // Chassis - the root.
         prim(
             solid(cuboid_tapered(CHASSIS, 0.0, green())),
             [CHASSIS_X, CHASSIS_Y, 0.0],
@@ -166,7 +166,7 @@ fn build_tree() -> Generator {
             [HOOD_X, HOOD_FLAT - SINK * 0.1, 0.0],
             quat_z(-FRAC_PI_2),
         ),
-        // Grille proud of the engine box's face — and of the chassis nose,
+        // Grille proud of the engine box's face - and of the chassis nose,
         // which reaches the same plane 25 mm out.
         prim(
             cuboid_tapered([0.05, 0.42, 0.7], 0.0, enamel(DARK)),
@@ -411,7 +411,7 @@ mod tests {
     /// rim's normal is its local `+Y` rotated by the built quaternion; it
     /// must be parallel to the built column and point back and up toward
     /// the seat. Against the shipped `quat_x(0.5)` the normal is
-    /// `[0, 0.88, 0.48]` — sideways.
+    /// `[0, 0.88, 0.48]` - sideways.
     #[test]
     fn the_steering_wheel_faces_the_driver_along_its_column() {
         let root = Tractor.build("");
@@ -432,7 +432,7 @@ mod tests {
         let (hub, normal) = rim.expect("a steering wheel rim");
         assert!(
             normal[0] < -0.5 && normal[1] > 0.3 && normal[2].abs() < 0.05,
-            "tractor: the steering wheel's normal is {normal:?} — it does not face the seat"
+            "tractor: the steering wheel's normal is {normal:?} - it does not face the seat"
         );
         let (top, tip) = column.expect("a steering column");
         let len = (tip[0] * tip[0] + tip[1] * tip[1] + tip[2] * tip[2]).sqrt();
@@ -476,7 +476,7 @@ mod tests {
             .expect("a seat back behind and above the cushion");
         assert!(
             bs[0] < bs[2] * 0.5,
-            "tractor: the seat back is {:?} — thin in Z, a board across the driver's back \
+            "tractor: the seat back is {:?} - thin in Z, a board across the driver's back \
              instead of behind it",
             bs
         );
@@ -513,7 +513,7 @@ mod tests {
     }
 
     /// **Each rear fender is a shell concentric with its wheel**, wider than
-    /// the tyre, with its crown up — the kept arc's midpoint rotated by the
+    /// the tyre, with its crown up - the kept arc's midpoint rotated by the
     /// built quaternion lands on `+Y`.
     #[test]
     fn the_fenders_are_concentric_shells_over_the_rear_wheels() {

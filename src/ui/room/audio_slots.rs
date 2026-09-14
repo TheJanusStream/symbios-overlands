@@ -1,12 +1,12 @@
-//! From a bridge salt to the slot in a record it names — so a committed
+//! From a bridge salt to the slot in a record it names - so a committed
 //! audio edit can be landed without its bridge having been drawn (#1337 A5).
 //!
 //! The pop-out audio editor is deliberately slot-agnostic: it edits a
 //! native working copy and stages the converted sovereign value in
 //! [`AudioEditorState`]'s pending map under the bound slot's *salt*, and
 //! the matching [`draw_audio_bridge`](super::audio::draw_audio_bridge) call
-//! site — the only code that holds the live `&mut SovereignAudioConfig` for
-//! that slot — picks it up the next time it runs. That indirection is what
+//! site - the only code that holds the live `&mut SovereignAudioConfig` for
+//! that slot - picks it up the next time it runs. That indirection is what
 //! makes one window serve the world-ambient bed, every construct in a room,
 //! the avatar's visuals and a worn prop's parts, and #1202 made the staged
 //! value **delivery**: it survives the window closing, the Esc ladder and
@@ -15,7 +15,7 @@
 //! It survived everything except the end of the session. `RoomEditorState`
 //! and `AvatarEditorState` are both reset wholesale on logout
 //! (`ui::logout::clear_editor_state_on_logout`), and the unsaved-edits
-//! guard asks whether the live records differ from their stored mirrors —
+//! guard asks whether the live records differ from their stored mirrors -
 //! which a staged commit has not caused yet, because it has not reached a
 //! record. "Edits are kept but not applied yet" was true right up until
 //! they were gone, with no warning anywhere.
@@ -26,7 +26,7 @@
 //! # Asked, not parsed
 //!
 //! A node's salt is [`node_salt`]'s `gen_<root>_<i>_<j>…`, and a root name
-//! is the owner's own string — so `gen_tree_1` is either the root called
+//! is the owner's own string - so `gen_tree_1` is either the root called
 //! `tree_1` or child 1 of the root called `tree`, and nothing in the salt
 //! says which. Every walk here therefore **recomputes** each slot's salt
 //! from the node it is standing on and compares, rather than taking a salt
@@ -93,7 +93,7 @@ fn visit_tree_mut(
 }
 
 /// Whether any commit staged in `editor` names a slot reachable from here
-/// **and would change it** — the question the unsaved guard asks.
+/// **and would change it** - the question the unsaved guard asks.
 ///
 /// `roots` is the record's generator trees by the root name their bridge
 /// draws them under: the room's `generators` map, the avatar's single
@@ -104,7 +104,7 @@ fn visit_tree_mut(
 ///
 /// Equality matters, not mere presence. A commit that says what the record
 /// already says is not unsaved work, and counting it would block a logout
-/// behind a save that writes nothing — the dialog everyone learns to click
+/// behind a save that writes nothing - the dialog everyone learns to click
 /// through. A commit whose slot has since been deleted is not unsaved work
 /// either: there is nowhere for it to land, so nothing is being lost by
 /// leaving.
@@ -144,9 +144,9 @@ pub(crate) fn pending_would_change<'a>(
 ///
 /// The counterpart of the pickup in
 /// [`draw_audio_bridge`](super::audio::draw_audio_bridge), doing exactly
-/// what it does — assign, and tell the editor its own commit has landed so
+/// what it does - assign, and tell the editor its own commit has landed so
 /// the record coming back changed does not read as an outside edit
-/// (#1333 A9) — for the slots whose bridge is not on screen to do it.
+/// (#1333 A9) - for the slots whose bridge is not on screen to do it.
 ///
 /// A staged commit is taken whether or not it changed anything, because
 /// taking it is what makes it no longer pending; the count is of the ones
@@ -226,8 +226,8 @@ pub(crate) fn room_pending_would_change(editor: &AudioEditorState, record: &Room
 /// fixed name, and every worn prop's parts under its record key.
 ///
 /// A worn prop's generator rides the avatar record's `serde(skip)`
-/// `resolved` payload — the same field `avatar_is_dirty` exists to see
-/// (#1059) — so it is the avatar's record that a commit on a worn part is
+/// `resolved` payload - the same field `avatar_is_dirty` exists to see
+/// (#1059) - so it is the avatar's record that a commit on a worn part is
 /// unsaved work in, not the wardrobe's.
 fn avatar_roots(record: &AvatarRecord) -> Vec<(&str, &Generator)> {
     match &record.body {
@@ -330,7 +330,7 @@ mod tests {
         );
     }
 
-    /// A generator node, addressed by the salt its own bridge would use —
+    /// A generator node, addressed by the salt its own bridge would use -
     /// which is what makes this independent of the tree ever being drawn.
     #[test]
     fn a_commit_for_a_generator_node_lands_on_that_node() {
@@ -390,7 +390,7 @@ mod tests {
     }
 
     /// A commit that says what the record already says is not unsaved
-    /// work — a guard that blocked on it would offer a save that writes
+    /// work - a guard that blocked on it would offer a save that writes
     /// nothing.
     #[test]
     fn a_commit_that_changes_nothing_is_not_unsaved_work() {
@@ -402,7 +402,7 @@ mod tests {
         assert!(!room_pending_would_change(&editor, &record));
     }
 
-    /// And one that says something else is — for a node and for the bed.
+    /// And one that says something else is - for a node and for the bed.
     #[test]
     fn a_commit_that_moves_a_value_is_unsaved_work() {
         let mut record = room_with(&[("oak", node(Vec::new()))]);
@@ -450,11 +450,11 @@ mod tests {
     }
 
     /// A worn prop's parts are the avatar record's too, and they ride the
-    /// `serde(skip)` payload — the half `avatar_is_dirty` exists to see.
+    /// `serde(skip)` payload - the half `avatar_is_dirty` exists to see.
     #[test]
     fn a_commit_for_a_worn_props_part_lands_on_the_avatar() {
         // `rigged_seeded` resolves locally, so this needs no wardrobe and
-        // no network — the same door the seeded default comes through.
+        // no network - the same door the seeded default comes through.
         let mut record = AvatarRecord::wearing("3jzfcijpj2z2a");
         record.body = AvatarBody::rigged_seeded(1);
         let Some(rig) = record.body.rigged_mut() else {

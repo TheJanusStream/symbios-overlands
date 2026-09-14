@@ -1,4 +1,4 @@
-//! Projected-decal stamper — consumer channel C of the interaction
+//! Projected-decal stamper - consumer channel C of the interaction
 //! framework (#246 remainder; authored per-room since #261).
 //!
 //! Where Phase 3's stains texture covers the splat terrain, this
@@ -7,7 +7,7 @@
 //! the channel consumes the
 //! [`ContactEffectKind::DecalStamp`](crate::pds::ContactEffectKind::DecalStamp) recipes
 //! that [`ContactRecipeRegistry::from_effects`] routes into
-//! [`ContactRecipeRegistry::decals`] — same trigger + per-recipe
+//! [`ContactRecipeRegistry::decals`] - same trigger + per-recipe
 //! cooldown machinery as the particle dispatcher. No decal is seeded by
 //! default, so the channel is inert until a room authors one (zero cost
 //! when `registry.decals` is empty).
@@ -16,7 +16,7 @@
 //! contact (cooldown-throttled per `(avatar, recipe)`, ground-anchored
 //! via the contact sample's own `ground_y` + `normal` for terrain so it
 //! lies flat without re-sampling the heightmap);
-//! [`update_decals`] ages every decal — growing + fading it — GCs the
+//! [`update_decals`] ages every decal - growing + fading it - GCs the
 //! expired and enforces a global live cap; [`cleanup_decals`] drops the
 //! lot (and their one-off materials) on room exit so logout never
 //! leaks.
@@ -37,7 +37,7 @@ pub struct DecalAssets {
     quad: Handle<Mesh>,
 }
 
-/// Per-`(avatar, decal-recipe index)` cooldown state — a shared
+/// Per-`(avatar, decal-recipe index)` cooldown state - a shared
 /// [`CooldownTable`] behind this channel's own `Resource` type (mirrors
 /// [`super::particle_channel::ParticleDispatchState`]).
 #[derive(Resource)]
@@ -45,12 +45,12 @@ pub struct DecalStampState {
     cooldowns: CooldownTable,
 }
 
-/// Drop cooldown entries older than this (s) — far longer than any sane
+/// Drop cooldown entries older than this (s) - far longer than any sane
 /// per-recipe cooldown, so pruning never resets a live throttle.
 const COOLDOWN_ENTRY_TTL: f32 = 30.0;
 
 impl DecalStampState {
-    /// Forget every live throttle — the registry whose indices they key on
+    /// Forget every live throttle - the registry whose indices they key on
     /// has been replaced (#1254 f322).
     pub fn clear_cooldowns(&mut self) {
         self.cooldowns.clear();
@@ -153,7 +153,7 @@ pub fn stamp_decals(
             // Per-(avatar, recipe) cooldown, with the viewer's floor under
             // it (#1221 f308). The sanitiser permits a cooldown of 0 and
             // this test only consulted it when it was `> 0.0`, so a Dwell
-            // recipe with zero stamped once per frame per avatar — which is
+            // recipe with zero stamped once per frame per avatar - which is
             // what turns a permitted 64 m quad into a wall.
             let cooldown = recipe.cooldown.max(intensity.cooldown_floor());
             if cooldown > 0.0 && state.cooldowns.active((sample.avatar, idx), now, cooldown) {
@@ -161,15 +161,15 @@ pub fn stamp_decals(
             }
 
             // Anchor: terrain contacts get the exact ground point +
-            // surface normal (lies flat) straight off the contact sample —
+            // surface normal (lies flat) straight off the contact sample -
             // the classifier already paid for that heightmap read (#659).
             // Water gets the WATERLINE (#1254 f320): the fallback used
             // `sample.world_pos`, which is the chassis CENTRE, so an oil
             // slick authored for water lay flat about half an avatar above
-            // the water — a mark inside the body, reading as a rendering
+            // the water - a mark inside the body, reading as a rendering
             // fault rather than as one of the six surface × kind pairings
             // the runtime did not implement. Anything else still falls back
-            // to the contact position — which, with only two surfaces
+            // to the contact position - which, with only two surfaces
             // modelled, is currently no arm at all.
             let (anchor, normal) = match sample.surface {
                 SurfaceContact::Terrain {

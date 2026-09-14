@@ -5,8 +5,8 @@
 //! handoff, the native loopback wait), so it is not reachable from a
 //! native test harness. The teardown side is plain ECS and is where the
 //! subtle invariants live: the re-roll must hand `AttractScene` straight
-//! across the swap — the world pipeline gates and the login screen's
-//! "New world" chip both key off it — while the exit path must drop it
+//! across the swap - the world pipeline gates and the login screen's
+//! "New world" chip both key off it - while the exit path must drop it
 //! along with any re-roll that was queued in the same frame.
 
 use bevy::prelude::*;
@@ -19,7 +19,7 @@ use symbios_overlands::state::LiveRoomRecord;
 use symbios_overlands::world_builder::RoomEntity;
 
 /// A bare app holding a compiled demo world: the marker, a record, and a
-/// handful of spawned room entities. No plugins — the systems under test
+/// handful of spawned room entities. No plugins - the systems under test
 /// only touch resources, commands and one marker query.
 fn app_with_demo_world(demo_did: &str) -> App {
     let mut app = App::new();
@@ -97,7 +97,7 @@ fn reroll_without_a_demo_world_consumes_itself() {
     );
     assert!(
         app.world().get_resource::<LiveRoomRecord>().is_none(),
-        "no demo world means nothing to seed — this is not a way in"
+        "no demo world means nothing to seed - this is not a way in"
     );
 }
 

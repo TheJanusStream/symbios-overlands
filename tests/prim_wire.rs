@@ -1,7 +1,7 @@
 //! Byte-level wire guard for the sixteen parametric primitives (#1188).
 //!
 //! Every primitive on the [`primitive_kind_tags`] roster serialises to one
-//! flat JSON object — its own dimensional knobs followed by the shared
+//! flat JSON object - its own dimensional knobs followed by the shared
 //! block (`solid`, `uv_mapping`, `material`, `faces`, `torture`) in that
 //! order, the default-valued members of the block elided. Child room
 //! records are content-addressed over exactly those bytes
@@ -118,7 +118,7 @@ fn primitive_wire_bytes_are_pinned() {
         return;
     }
     let want = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("{}: {e} — bless with PRIM_WIRE_BLESS=1", path.display()));
+        .unwrap_or_else(|e| panic!("{}: {e} - bless with PRIM_WIRE_BLESS=1", path.display()));
     let want: Vec<&str> = want.lines().collect();
     let mut diffs = Vec::new();
     for (i, g) in got.iter().enumerate() {
@@ -145,7 +145,7 @@ fn primitive_wire_bytes_are_pinned() {
 }
 
 /// Every pinned line decodes back to the value that produced it, and
-/// re-encodes to the same bytes — the fixture is a fixed point, not just a
+/// re-encodes to the same bytes - the fixture is a fixed point, not just a
 /// snapshot.
 #[test]
 fn primitive_wire_fixture_is_a_fixed_point() {
@@ -165,7 +165,7 @@ fn primitive_wire_fixture_is_a_fixed_point() {
 /// catalogue entry is built through the `catalogue::items::util`
 /// constructors, so one room's generators pin every primitive those
 /// constructors emit. Pinned as each generator's content-addressed child
-/// rkey — the very identity a publish compares — folded per seed in name
+/// rkey - the very identity a publish compares - folded per seed in name
 /// order, because the record's generator map itself iterates in hash
 /// order and its bytes are not stable across processes.
 #[test]
@@ -201,7 +201,7 @@ fn seeded_room_bytes_are_pinned() {
         return;
     }
     let want = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("{}: {e} — bless with PRIM_WIRE_BLESS=1", path.display()));
+        .unwrap_or_else(|e| panic!("{}: {e} - bless with PRIM_WIRE_BLESS=1", path.display()));
     assert_eq!(
         want.trim_end().lines().collect::<Vec<_>>(),
         got.iter().map(String::as_str).collect::<Vec<_>>(),

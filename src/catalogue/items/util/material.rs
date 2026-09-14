@@ -8,8 +8,8 @@ use crate::pds::{Fp, Fp2, Fp3, Fp64, SovereignMaterialSettings, SovereignTexture
 
 /// Tint a linear-RGB colour by a per-channel factor, kept in gamut.
 ///
-/// The catalogue lightens and darkens palette colours all over — a plank's
-/// light grain from its base wood, a highlight from a wall — by multiplying
+/// The catalogue lightens and darkens palette colours all over - a plank's
+/// light grain from its base wood, a highlight from a wall - by multiplying
 /// each channel. A factor above one can push a channel that was already
 /// bright past 1.0, which is not a colour: the texture envelope clamps it
 /// on the way onto the wire, so a record built from it does not survive its
@@ -22,7 +22,7 @@ pub(in crate::catalogue::items) fn tint(color: [f32; 3], factors: [f32; 3]) -> [
     ]
 }
 
-/// Shared foundation material — neutral rough-cut stone that sits
+/// Shared foundation material - neutral rough-cut stone that sits
 /// under any of the structure palettes.
 pub(in crate::catalogue::items) fn foundation_mat() -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -36,7 +36,7 @@ pub(in crate::catalogue::items) fn foundation_mat() -> SovereignMaterialSettings
     }
 }
 
-/// The top of a planted bed — dark humus under a layer of bark mulch —
+/// The top of a planted bed - dark humus under a layer of bark mulch -
 /// for any container a plant is nested in (#972, the civic planter and
 /// garden bed). The `ForestFloor` generator stamps discrete overlapping
 /// chips rather than noise, which is what lets it read as mulch; tuned
@@ -60,7 +60,7 @@ pub(in crate::catalogue::items) fn soil() -> SovereignMaterialSettings {
 /// Glazing for a wall opening: the `Window` generator's alpha card, on the
 /// material settings it actually wants.
 ///
-/// **The `Window` texture is not a window you stick on a wall — it is the
+/// **The `Window` texture is not a window you stick on a wall - it is the
 /// pane that fills a hole you already cut.** Four properties drive that,
 /// and every one of them is silently wrong if the card is used as a face
 /// plate on a solid box:
@@ -68,14 +68,14 @@ pub(in crate::catalogue::items) fn soil() -> SovereignMaterialSettings {
 /// 1. **It is an alpha card, and the panes are cut away.** The generator
 ///    writes opaque alpha for the frame and mullions and `glass_opacity`
 ///    for the glass; upstream renders every card at `AlphaMode::Mask(0.5)`.
-///    So any `opacity` below `0.5` discards the pane pixels outright — the
+///    So any `opacity` below `0.5` discards the pane pixels outright - the
 ///    card becomes a frame with real holes in it. Stuck on a solid wall
 ///    those holes show the wall; spanning an opening they show what is
 ///    behind it, which is the entire point. Author an interior worth
 ///    seeing, or the holes show sky.
 /// 2. **`uv_scale` must stay `1.0`.** Cards upload clamp-to-edge, not
 ///    repeating. A `uv_scale` above one runs the UVs off the end of the
-///    card and smears its last texel across the remainder — one card is
+///    card and smears its last texel across the remainder - one card is
 ///    one opening, always.
 /// 3. **One card, one flat quad.** On a cuboid every face takes the same
 ///    texture, so a "window slab" grows windows on its sides, top and
@@ -99,7 +99,7 @@ pub(in crate::catalogue::items) fn window_card(
         base_color: Fp3(frame_color),
         roughness: Fp(0.35),
         metallic: Fp(0.2),
-        // See rule 2 — cards are clamp-to-edge; anything but 1.0 smears.
+        // See rule 2 - cards are clamp-to-edge; anything but 1.0 smears.
         uv_scale: Fp(1.0),
         texture: crate::pds::SovereignTextureConfig::Window(crate::pds::SovereignWindowConfig {
             panes_x,
@@ -119,7 +119,7 @@ pub(in crate::catalogue::items) fn window_card(
 ///
 /// `Fp64` holds a full-precision `f64` but serialises as `round(x · 10000)`,
 /// and its `PartialEq` compares the raw `f64`. So a value promoted from
-/// `f32` — e.g. `0.3_f32 as f64` = 0.30000001… — is *unequal* to the same
+/// `f32` - e.g. `0.3_f32 as f64` = 0.30000001… - is *unequal* to the same
 /// number written as an `f64` literal, yet both serialise to `3000`. The
 /// default-eliding wire format then makes opposite keep/omit decisions
 /// before and after a round-trip whenever the value equals a config default
@@ -135,14 +135,14 @@ fn fp64_on_grid(x: f32) -> crate::pds::Fp64 {
 /// metres on a side (#936).
 ///
 /// Since #933 `uv_scale` is *tiles per metre*, which is an awkward number to
-/// author in — you think "a brick course is about 7 cm", not "14.5 repeats
+/// author in - you think "a brick course is about 7 cm", not "14.5 repeats
 /// per metre". This converts, so material helpers read as physical sizes.
 ///
 /// **`tile_m` is the size of the generator's whole repeating patch, not of
-/// one feature in it.** The generators bake several features per tile —
+/// one feature in it.** The generators bake several features per tile -
 /// `SovereignBrickConfig::scale` is brick columns per tile,
 /// `SovereignPlankConfig::plank_count` planks per tile,
-/// `SovereignCorrugatedConfig::ridges` ridges per tile — so the tile size is
+/// `SovereignCorrugatedConfig::ridges` ridges per tile - so the tile size is
 /// the feature size times that count. Getting this backwards is the easy
 /// mistake: it makes brickwork a hundred times too fine, and at that density
 /// the mip chain washes it to flat colour rather than showing an obvious
@@ -156,8 +156,8 @@ pub(in crate::catalogue::items) fn tiles_per_metre(tile_m: f32) -> Fp {
 ///
 /// # The oversized-sub-assembly technique
 ///
-/// A detail-heavy piece — a device on a flag, a carving on a transom, a coat of
-/// arms — is far easier to get right drawn at ten times the size it is used at,
+/// A detail-heavy piece - a device on a flag, a carving on a transom, a coat of
+/// arms - is far easier to get right drawn at ten times the size it is used at,
 /// where its features are read in whole metres instead of centimetres. Author it
 /// once at a canonical size with the *carrier* as the root and the details as
 /// children, then instance it into any context by setting one uniform scale on
@@ -170,8 +170,8 @@ pub(in crate::catalogue::items) fn tiles_per_metre(tile_m: f32) -> Fp {
 /// * **`BlobGroup` fidelity is scale-invariant.** Surface nets samples
 ///   `resolution` cells across the prim's *local* extent and the scale is
 ///   applied to the finished mesh (see the frame note in
-///   `world_builder::prim::uv`), so relative detail — and the
-///   two-cells-minimum rule that `blob_cell_size` exists for — is identical at
+///   `world_builder::prim::uv`), so relative detail - and the
+///   two-cells-minimum rule that `blob_cell_size` exists for - is identical at
 ///   every instanced size. Solve it once at the canonical size.
 /// * **The sanitiser's floors are local too** (blob radii ≥ 0.01, torus minor
 ///   ≥ 0.011, cuboid min dimension 0.01). Authoring at 10× lets a genuine 1 mm
@@ -180,7 +180,7 @@ pub(in crate::catalogue::items) fn tiles_per_metre(tile_m: f32) -> Fp {
 ///
 /// And three things bite:
 ///
-/// 1. **UVs do not scale — hence this function.** Projections emit UVs in
+/// 1. **UVs do not scale - hence this function.** Projections emit UVs in
 ///    prim-*local* metres, so `uv_scale` is tiles per local metre and a cloth
 ///    drawn at 10× keeps ten times the tile repeats when it is scaled back down;
 ///    its weave comes out ten times too fine. Pass every *textured* material
@@ -188,14 +188,14 @@ pub(in crate::catalogue::items) fn tiles_per_metre(tile_m: f32) -> Fp {
 ///    are unaffected (their `uv_scale` is inert), so applying it uniformly is
 ///    safe and is the habit to keep.
 /// 2. **Uniform scale only.** The [`TransformData`](crate::pds::TransformData) sanitiser clamps each component
-///    independently, so a non-uniform scale survives — and a non-uniform parent
+///    independently, so a non-uniform scale survives - and a non-uniform parent
 ///    scale shears any *rotated* child, because a transform composes as `T·R·S`
 ///    per node. If a context wants a different aspect ratio, change the authored
 ///    geometry, not the scale. In practice this means the instancing function
 ///    should take ONE dimension and derive the rest.
 /// 3. **[`nest`](super::build::nest) and [`attach`](super::build::attach) do not divide by scale.** They rebase
 ///    translation only, as their own docs say, so a sub-assembly must be authored
-///    with its children already in the root's local frame — not built in the
+///    with its children already in the root's local frame - not built in the
 ///    prop's ground frame and handed to `nest`. In practice the children sit at
 ///    the root's origin with every offset inside their own geometry, which is the
 ///    simplest thing that can work and the easiest to check.
@@ -218,7 +218,7 @@ pub(in crate::catalogue::items) fn uv_for_scale(
 /// Shared ageing recipes.
 ///
 /// Weathering is one of the few material decisions that is genuinely
-/// theme-agnostic — rust is rust whether it is on a shanty or a factory — so
+/// theme-agnostic - rust is rust whether it is on a shanty or a factory - so
 /// these live here rather than being copied into each theme kit the way the
 /// colour-carrying helpers are. A theme picks a recipe and a strength; the
 /// seed keeps neighbouring surfaces from ageing in lockstep.
@@ -280,7 +280,7 @@ pub(in crate::catalogue::items) mod ageing {
     }
 
     /// The green patina copper and bronze grow outdoors. Structurally this is
-    /// corrosion like rust — it is the *colour* that separates a weathered
+    /// corrosion like rust - it is the *colour* that separates a weathered
     /// statue from a weathered girder.
     pub(in crate::catalogue::items) fn verdigris(
         seed: u32,
@@ -323,7 +323,7 @@ pub(in crate::catalogue::items) mod ageing {
 /// Most constants here are a whole tile, because the generator's feature
 /// count barely moves between uses. Where that count *does* swing widely,
 /// the constant is one **feature** instead and the call site multiplies by
-/// the config's own count — [`tile::BRICK_COURSE`], [`tile::ASHLAR_BLOCK`],
+/// the config's own count - [`tile::BRICK_COURSE`], [`tile::ASHLAR_BLOCK`],
 /// [`tile::PLANK_BOARD`], [`tile::CORRUGATED_PITCH`]. That keeps the brick (or board,
 /// or rib) the same physical size between two neighbouring buildings, which
 /// is the property that actually reads; pinning the tile instead would pin
@@ -335,13 +335,13 @@ pub(in crate::catalogue::items) mod ageing {
 /// shape mesher emits world-space UVs too (`bevy_symbios_shape`'s
 /// `build_profiled_mesh` scales UVs by the scope size), so grammar
 /// materials convert exactly like primitive ones. Cards are handled for
-/// you there — the shape pipeline derives `stretch_uvs` from the material's
+/// you there - the shape pipeline derives `stretch_uvs` from the material's
 /// own texture, which is that pipeline's `UvMapping::Fit` (#939).
 ///
 /// `LSystem` is the real exception. Its mesher parameterises U as `0..1`
 /// around the tube and V as arc-length over circumference, so a trunk's
 /// texel density is a function of its radius, not of metres. A `Bark` or
-/// foliage material on an L-system must keep its hand-tuned `uv_scale` —
+/// foliage material on an L-system must keep its hand-tuned `uv_scale` -
 /// converting it would rescale against a parameterisation that never
 /// changed.
 ///
@@ -363,7 +363,7 @@ pub(in crate::catalogue::items) mod ageing {
 /// | Rock | rock face | | 1.5 m |
 /// | Ground / Sand / Snow / Ice | granular | | 2.0 m |
 /// | Pavers | paving slabs | | 1.2 m |
-/// | Cracked Earth / Gravel / Forest Floor | terrain-only so far | | — |
+/// | Cracked Earth / Gravel / Forest Floor | terrain-only so far | | - |
 pub(in crate::catalogue::items) mod tile {
     /// One brick column, for configs whose `SovereignBrickConfig::scale`
     /// departs from the usual 5 (mudbrick coursing runs 14). Multiply by
@@ -371,29 +371,29 @@ pub(in crate::catalogue::items) mod tile {
     pub(in crate::catalogue::items) const BRICK_COURSE: f32 = 0.172;
     /// The common 5-column brick config.
     pub(in crate::catalogue::items) const BRICK: f32 = BRICK_COURSE * 5.0;
-    /// Board-formed concrete — the board marks are the feature.
+    /// Board-formed concrete - the board marks are the feature.
     pub(in crate::catalogue::items) const CONCRETE: f32 = 2.4;
     /// Precast paving slabs, at a 0.6 m slab across the default five-cell
     /// grid.
     pub(in crate::catalogue::items) const PAVERS: f32 = 3.0;
-    /// Glazed floor tile — the default five cells at a 0.2 m tile.
+    /// Glazed floor tile - the default five cells at a 0.2 m tile.
     pub(in crate::catalogue::items) const ENCAUSTIC: f32 = 1.0;
     /// One framed wall panel.
     pub(in crate::catalogue::items) const WAINSCOTING: f32 = 0.9;
-    /// Sheet metal — plate seams and brushing.
+    /// Sheet metal - plate seams and brushing.
     pub(in crate::catalogue::items) const METAL: f32 = 1.2;
-    /// Fired enamel / glazed ceramic. The clear coat is near-scaleless — the
-    /// only feature is a fine orange-peel — so this is sized to match the
+    /// Fired enamel / glazed ceramic. The clear coat is near-scaleless - the
+    /// only feature is a fine orange-peel - so this is sized to match the
     /// sheet metal it is usually sprayed onto, keeping panel UVs consistent
     /// where a kit mixes painted and bare metal.
     pub(in crate::catalogue::items) const ENAMEL: f32 = METAL;
     /// Carapace plating. The default six plates per tile at roughly a
     /// 0.2 m plate.
     pub(in crate::catalogue::items) const CHITIN: f32 = 1.2;
-    /// Obsidian flow banding — a figure rather than a countable feature,
+    /// Obsidian flow banding - a figure rather than a countable feature,
     /// sized like marble so the sheets read at architectural scale.
     pub(in crate::catalogue::items) const OBSIDIAN: f32 = 2.0;
-    /// Knapped obsidian — blades, mirrors and inlays, worked at a few
+    /// Knapped obsidian - blades, mirrors and inlays, worked at a few
     /// centimetres rather than quarried in sheets. [`OBSIDIAN`] sized to an
     /// architectural face puts less than a tenth of a tile across a 0.15 m
     /// inlay, which mips to flat black; the figure only survives on small
@@ -410,7 +410,7 @@ pub(in crate::catalogue::items) mod tile {
     pub(in crate::catalogue::items) const ASHLAR_BLOCK: f32 = 0.45;
     /// The common 4-column ashlar config.
     pub(in crate::catalogue::items) const ASHLAR: f32 = ASHLAR_BLOCK * 4.0;
-    /// Sawn-board **width**, not a whole tile — multiply by the config's
+    /// Sawn-board **width**, not a whole tile - multiply by the config's
     /// `plank_count`.
     ///
     /// Like [`CORRUGATED_PITCH`], `SovereignPlankConfig::plank_count` ranges
@@ -421,16 +421,16 @@ pub(in crate::catalogue::items) mod tile {
     /// size, which is the property that actually matters between neighbouring
     /// buildings.
     pub(in crate::catalogue::items) const PLANK_BOARD: f32 = 0.167;
-    /// `SovereignCobblestoneConfig::scale` stones per tile — 6 stones at a
+    /// `SovereignCobblestoneConfig::scale` stones per tile - 6 stones at a
     /// 150 mm fieldstone cobble.
     pub(in crate::catalogue::items) const COBBLE: f32 = 0.9;
-    /// `SovereignShingleConfig::scale` courses per tile — 5 courses at a
+    /// `SovereignShingleConfig::scale` courses per tile - 5 courses at a
     /// 300 mm slate or shingle.
     pub(in crate::catalogue::items) const SHINGLE: f32 = 1.5;
     /// Thatch reads as a straw *mass* rather than a countable feature; sized
     /// so a bundle layer lands near a 150 mm exposure.
     pub(in crate::catalogue::items) const THATCH: f32 = 1.2;
-    /// Stucco / lime-wash daub is near-scaleless — sized large so the render
+    /// Stucco / lime-wash daub is near-scaleless - sized large so the render
     /// stays a surface tone rather than becoming visible noise.
     pub(in crate::catalogue::items) const STUCCO: f32 = 2.0;
     /// One woven thread, for configs whose
@@ -442,33 +442,33 @@ pub(in crate::catalogue::items) mod tile {
     /// the tightest tile in the table.
     pub(in crate::catalogue::items) const FABRIC: f32 = FABRIC_THREAD * 20.0;
 
-    /// Rough rock face — undressed rubble masonry and natural stone.
+    /// Rough rock face - undressed rubble masonry and natural stone.
     pub(in crate::catalogue::items) const ROCK: f32 = 1.5;
     // No LOG_END constant, deliberately: `LogEnd` is registered `Card`
-    // upstream, so it belongs in the alpha-card group below — one slice per
-    // quad at `uv_scale` 1.0 — not in this table. It was briefly given a
+    // upstream, so it belongs in the alpha-card group below - one slice per
+    // quad at `uv_scale` 1.0 - not in this table. It was briefly given a
     // tile here during #936 and that was wrong (#940).
-    /// Marble veining — a figure rather than a countable feature, sized to
+    /// Marble veining - a figure rather than a countable feature, sized to
     /// the block it faces.
     pub(in crate::catalogue::items) const MARBLE: f32 = 2.0;
-    /// Ground / sand / snow / ice — granular, near-scaleless, and always on
+    /// Ground / sand / snow / ice - granular, near-scaleless, and always on
     /// the largest surfaces in a scene, so it is sized to stay a tone.
     pub(in crate::catalogue::items) const GROUND: f32 = 2.0;
-    /// Sand. Aliases [`GROUND`] — same granular reasoning — but named
+    /// Sand. Aliases [`GROUND`] - same granular reasoning - but named
     /// so a beach material does not read as though it borrowed soil's tile.
     pub(in crate::catalogue::items) const SAND: f32 = GROUND;
     /// Snow / ice. Aliases [`GROUND`], as [`SAND`] does.
     pub(in crate::catalogue::items) const ICE: f32 = GROUND;
-    /// Bark mulch on a planted bed — seven chips across, so a chip is a
+    /// Bark mulch on a planted bed - seven chips across, so a chip is a
     /// few centimetres. Unlike [`GROUND`] this is a countable feature,
     /// because the surfaces it lands on (a planter's soil, a garden bed)
     /// are a metre across and seen from a couple of metres away.
     pub(in crate::catalogue::items) const MULCH: f32 = 0.25;
-    /// Asphalt — coarse aggregate and crack noise, sized large because the
+    /// Asphalt - coarse aggregate and crack noise, sized large because the
     /// surfaces it lands on (forecourts, lots) are the biggest in the kit
     /// and a tight tile turns them into visible repetition.
     pub(in crate::catalogue::items) const ASPHALT: f32 = 3.0;
-    /// Corrugated steel **ridge pitch**, not a whole tile — multiply by the
+    /// Corrugated steel **ridge pitch**, not a whole tile - multiply by the
     /// config's `ridges` to get the tile.
     ///
     /// This one generator has to be authored the long way round because
@@ -476,16 +476,16 @@ pub(in crate::catalogue::items) mod tile {
     /// uses the way the other counts are: roofing sheet runs ~14 ridges and
     /// a silo's structural ribbing ~24, against the 4–9 spread that lets
     /// `PLANK` and `SHINGLE` get away with a single tile size. Pinning one
-    /// tile across that 3× spread would drive the pitch down to 25–43 mm —
+    /// tile across that 3× spread would drive the pitch down to 25–43 mm -
     /// far under the ~76 mm of real sheet, and fine enough that the mip
     /// chain flattens it to bare colour.
     pub(in crate::catalogue::items) const CORRUGATED_PITCH: f32 = 0.076;
-    /// Legibility multiplier for corrugated sheet on **broad** surfaces —
+    /// Legibility multiplier for corrugated sheet on **broad** surfaces -
     /// a silo body, factory cladding, a dock wall (#936).
     ///
     /// The true pitch reads correctly on a roof or a small prop, but on a
     /// surface tens of metres across it falls below what the renderer ever
-    /// resolves and mips to flat colour — the same washout the module doc
+    /// resolves and mips to flat colour - the same washout the module doc
     /// warns about, arrived at from the honest direction. Ribbing is the
     /// whole silhouette signature of these forms, so it is drawn oversize
     /// rather than not at all. Multiply alongside `CORRUGATED_PITCH`; leave
@@ -500,7 +500,7 @@ pub(in crate::catalogue::items) mod tile {
 /// restarting it at its own centre (#966 / #969).
 ///
 /// The Box projection is prim-local *and* per-face: each of the six regions
-/// reads its own pair of local axes, in its own sign convention — `(−x, −y)`
+/// reads its own pair of local axes, in its own sign convention - `(−x, −y)`
 /// on a `−Z` wall, `(x, z)` on a top face, `(−z, −y)` on a `+X` side. It is
 /// also **linear** in position, which is what makes this a one-liner: the
 /// offset that turns a prim-local UV into a world-frame one is that very
@@ -509,7 +509,7 @@ pub(in crate::catalogue::items) mod tile {
 /// So a slab's pattern lines up with its neighbours' on the face this names,
 /// and only that face. A sill wants `Top`, the outer return of a pier wants
 /// the side it turns onto, and a prim's *base* material serves whichever
-/// face people mostly look at — the rest are per-face overrides
+/// face people mostly look at - the rest are per-face overrides
 /// ([`with_face`](super::build::with_face)).
 ///
 /// Which is a shorter list than it first appears, because the four **side**
@@ -518,8 +518,8 @@ pub(in crate::catalogue::items) mod tile {
 /// matters solely where two slabs are *coplanar* (a pier and the side wall
 /// behind it). Horizontal corners always need a wrap: a `Top` or `Bottom`
 /// face reads depth where its neighbour reads height, so nothing about it
-/// follows from the base. And a pattern with **no U features at all** —
-/// unstaggered lap siding, see [`bonded_siding`] — needs no side wrap ever,
+/// follows from the base. And a pattern with **no U features at all** -
+/// unstaggered lap siding, see [`bonded_siding`] - needs no side wrap ever,
 /// because `V = −y` is all there is to agree on.
 pub(in crate::catalogue::items) fn face_uv_offset(face: FaceKey, center: [f32; 3]) -> Fp2 {
     let [x, y, z] = center;
@@ -529,12 +529,12 @@ pub(in crate::catalogue::items) fn face_uv_offset(face: FaceKey, center: [f32; 3
         FaceKey::Top => [x, z],
         FaceKey::Bottom => [x, -z],
         FaceKey::SidePz => [x, -y],
-        // `SideNz` — the usual hero-face convention — and anything else.
+        // `SideNz` - the usual hero-face convention - and anything else.
         _ => [-x, -y],
     })
 }
 
-/// Brick rows per texture tile — the `Brick` generator's `scale`. Ten rather
+/// Brick rows per texture tile - the `Brick` generator's `scale`. Ten rather
 /// than the default five, so `BOND_ROWS × BOND_STAGGER` is a whole number and
 /// the bond carries across the V seam; rows and columns scale together.
 const BOND_ROWS: f64 = 10.0;
@@ -542,7 +542,7 @@ const BOND_ROWS: f64 = 10.0;
 /// wall.
 ///
 /// Four kills the two-brick colour repeat that banded walls into vertical
-/// stripes, without changing the brick's size — [`bonded_brick`] derives
+/// stripes, without changing the brick's size - [`bonded_brick`] derives
 /// `uv_scale` from the column count.
 ///
 /// It was originally four for a second reason that no longer holds: the
@@ -556,14 +556,14 @@ const BOND_COLS: f32 = 4.0;
 /// derives columns as `scale × aspect_ratio` while `scale` *is* the row
 /// count, so under this app's uniform metre mapping (a UV tile is square in
 /// metres, #933) a value above 1 makes each cell taller than it is wide.
-/// `0.4` gives 4 columns to 10 rows — a brick 2.5× longer than it is tall,
+/// `0.4` gives 4 columns to 10 rows - a brick 2.5× longer than it is tall,
 /// laid flat.
 const BOND_ASPECT: f64 = BOND_COLS as f64 / BOND_ROWS;
-/// Bond stagger per course, as a fraction of brick length — the classic
+/// Bond stagger per course, as a fraction of brick length - the classic
 /// half-bond. The generator needs `scale × row_offset` to be a whole number
 /// to tile cleanly in V; `10 × 0.5` is, where the kits' `5 × 0.5` was not.
 const BOND_STAGGER: f64 = 0.5;
-/// Per-brick colour jitter — what makes a wall read as fired clay rather than
+/// Per-brick colour jitter - what makes a wall read as fired clay rather than
 /// paint. The value used to carry a ceiling as well as a floor: jitter was the
 /// only thing that made a seam-straddling brick *visible*, so it had to stay
 /// low enough that the survivors read as shading. symbios-texture 0.4.3
@@ -574,7 +574,7 @@ const BOND_VARIANCE: f64 = 0.15;
 /// Re-lay a `Brick` material's courses **flat**, at a real brick's size, and
 /// in the shared world course frame (#966 / #968 / #969).
 ///
-/// `brick_len` is the brick's length in metres — `0.215` for a standard
+/// `brick_len` is the brick's length in metres - `0.215` for a standard
 /// brick, larger for block or adobe. The kit helpers' own sizing lays
 /// whatever `1 / (tile × count)` happens to be, which came out at 172 mm and
 /// small enough at street distance to mip toward flat colour.
@@ -583,7 +583,7 @@ const BOND_VARIANCE: f64 = 0.15;
 ///
 /// The generator counts `scale` rows up V and `scale × aspect_ratio` columns
 /// across U. Since #933 a UV tile is *square in metres*, so ten columns to
-/// five rows makes every brick twice as tall as it is wide — upright, which
+/// five rows makes every brick twice as tall as it is wide - upright, which
 /// no bricklayer has ever produced. Flipping the aspect ([`BOND_ASPECT`])
 /// turns the cell without turning the *bond*.
 ///
@@ -591,7 +591,7 @@ const BOND_VARIANCE: f64 = 0.15;
 /// running bond with the bricks, so the stagger ends up between vertical
 /// strips instead of between courses and the wall reads as continuous
 /// vertical mortar lines running its full height. Rotation and a correct bond
-/// are mutually exclusive here — the stagger is applied along U by the
+/// are mutually exclusive here - the stagger is applied along U by the
 /// generator itself.
 ///
 /// # The seam, and where it went
@@ -599,7 +599,7 @@ const BOND_VARIANCE: f64 = 0.15;
 /// A running bond shifts each course by half a brick, so some course always
 /// crosses the tile's U seam mid-brick. The generator used to hash that
 /// brick's **raw** cell index, giving its two halves two different colours,
-/// and nothing at this level could repair it — [`BOND_COLS`] and
+/// and nothing at this level could repair it - [`BOND_COLS`] and
 /// [`BOND_VARIANCE`] were picked to make what remained read as shading.
 ///
 /// symbios-texture 0.4.3 wraps the index modulo the column count, which is
@@ -626,7 +626,7 @@ pub(in crate::catalogue::items) fn bonded_brick(
     mat
 }
 
-/// Lay a `Plank` material as **unbroken courses** in the shared world frame —
+/// Lay a `Plank` material as **unbroken courses** in the shared world frame -
 /// lap siding, clapboard, a painted trim board.
 ///
 /// # The end-joint grid
@@ -636,7 +636,7 @@ pub(in crate::catalogue::items) fn bonded_brick(
 /// cannot size: the generator cuts **three** short boards per tile across U,
 /// hard-coded, and staggers their ends per course. So a tile that holds ten
 /// 167 mm courses also holds three 557 mm butt joints, and a wall of lap
-/// siding comes out as a coarse 3.3:1 *masonry* grid — which is exactly what
+/// siding comes out as a coarse 3.3:1 *masonry* grid - which is exactly what
 /// the suburban house rendered as before #972's siding pass, and reads at a
 /// glance as brick, not board.
 ///
@@ -644,7 +644,7 @@ pub(in crate::catalogue::items) fn bonded_brick(
 /// couple of butt joints, not thirty. `stagger = 0` is therefore the honest
 /// setting, not a compromise: it takes the end-joint path out entirely
 /// (`c.stagger > 0.01` gates it) and leaves the courses running the full
-/// width. Per-course grain de-correlation survives — that comes from the
+/// width. Per-course grain de-correlation survives - that comes from the
 /// row's own hash, not from the stagger.
 ///
 /// # And what that buys at the corners
@@ -652,7 +652,7 @@ pub(in crate::catalogue::items) fn bonded_brick(
 /// With no U features left, the *only* thing an offset has to line up is `V`,
 /// and all four side faces read `V = −y`. So unstaggered siding wraps a
 /// vertical corner on its base offset alone and needs no per-face override
-/// anywhere — where the same wall in brick wanted one per visible corner (see
+/// anywhere - where the same wall in brick wanted one per visible corner (see
 /// [`bonded_brick`] and [`face_uv_offset`]).
 ///
 /// Non-`Plank` textures keep their config and gain only the offset.
@@ -671,7 +671,7 @@ pub(in crate::catalogue::items) fn bonded_siding(
 /// The quarter turn [`bonded_boards`] applies, in degrees counter-clockwise.
 const BOARD_TURN_DEG: f32 = 90.0;
 
-/// Stand a `Plank` material's boards **upright** — board-and-batten, the
+/// Stand a `Plank` material's boards **upright** - board-and-batten, the
 /// barn's cladding and the one thing the generator cannot lay by itself.
 ///
 /// # Why this is not the `uv_rotation` trap
@@ -682,7 +682,7 @@ const BOARD_TURN_DEG: f32 = 90.0;
 /// becomes continuous vertical mortar lines. That rule is about patterns with
 /// **U features**. Plank's only U feature is the hard-coded three-butt-joints
 /// grid that [`bonded_siding`] switches off, and with `stagger = 0` there is
-/// nothing structured left along U at all — the boards are pure bands up V,
+/// nothing structured left along U at all - the boards are pure bands up V,
 /// the grain is isotropic noise and the knots are a Worley field. So the
 /// quarter turn has no bond to break here, and it is the *only* way to get
 /// vertical boards out of a generator that lays courses up V.
@@ -711,7 +711,7 @@ pub(in crate::catalogue::items) fn bonded_boards(
     mat
 }
 
-/// Stand a `Plank` material's boards upright with **no** world frame — for
+/// Stand a `Plank` material's boards upright with **no** world frame - for
 /// the revolved prims a stave drum is made of (a rooftop water tank, a
 /// barrel, a post), whose `Fit` parameterisation wraps its own surface and
 /// has no shared face frame to line up with.
@@ -733,7 +733,7 @@ pub(in crate::catalogue::items) fn upright_boards(
 /// The bare rotation, for the patterns whose *axis* is wrong rather than
 /// whose cells are: corrugated sheet is the case that named it. The
 /// generator varies its ribs along U and streaks its rust along V, so a roof
-/// plane — whose Box `Top` face reads U down the slope — comes out ribbed
+/// plane - whose Box `Top` face reads U down the slope - comes out ribbed
 /// *across* the pitch with the rust running along the ridge, which is
 /// backwards on both counts. Turned, the ribs and the streaks both run down
 /// the slope, the way rolled sheet and rainwater do.
@@ -741,7 +741,7 @@ pub(in crate::catalogue::items) fn upright_boards(
 /// Safe here for the same reason it is safe in [`bonded_boards`], and unsafe
 /// on brick for the reason [`bonded_brick`] gives: what a quarter turn
 /// destroys is a pattern's *cross-axis* logic (brick's stagger runs along U
-/// but keys off the V course index), and corrugation has none — it is one
+/// but keys off the V course index), and corrugation has none - it is one
 /// sine wave in U.
 pub(in crate::catalogue::items) fn quarter_turn(
     mut mat: SovereignMaterialSettings,
@@ -750,14 +750,14 @@ pub(in crate::catalogue::items) fn quarter_turn(
     mat
 }
 
-/// Dim self-lit surface for the inside of a shell — the floor, lining and
+/// Dim self-lit surface for the inside of a shell - the floor, lining and
 /// contents seen through a [`window_card`]'s open panes.
 ///
 /// A card's panes are masked *away*, so what fills them is whatever geometry
 /// stands behind. Nothing lights the inside of an enclosed prop, so those
 /// surfaces have to carry a low emissive term of their own; without it every
 /// opening reads as a black rectangle and all the work behind the glass is
-/// invisible. Keep `lit` low (0.1–0.6) — this is meant to read as *interior*,
+/// invisible. Keep `lit` low (0.1–0.6) - this is meant to read as *interior*,
 /// not as a light box.
 pub(in crate::catalogue::items) fn lit_interior(
     color: [f32; 3],

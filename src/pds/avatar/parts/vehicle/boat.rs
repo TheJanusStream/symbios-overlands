@@ -1,4 +1,4 @@
-//! Styled boat parts — bows, funnels / stacks, masts, and decks. See the
+//! Styled boat parts - bows, funnels / stacks, masts, and decks. See the
 //! [`super`] module docstring for the mood-group / band tagging scheme and the
 //! authoring frame (parts author front-`+Z`; the assembler yaws the craft 180°).
 
@@ -20,9 +20,9 @@ use super::{
 
 fn bow_ram(ctx: &PartCtx) -> Generator {
     // A forward-pointing ram cone. quat_x(+90°) sends the cone apex (local +Y)
-    // to +Z — the authored bow direction (the assembler yaws the craft 180° so
+    // to +Z - the authored bow direction (the assembler yaws the craft 180° so
     // +Z reads as travel-forward), matching the sibling hull prow in
-    // `defaults::boat`. (A −90° here aimed the ram astern, base-first — #779.)
+    // `defaults::boat`. (A −90° here aimed the ram astern, base-first - #779.)
     prim(
         cone(
             0.12,
@@ -58,7 +58,7 @@ fn bow_bowsprit(ctx: &PartCtx) -> Generator {
     // The style-universal prow floor (empty styles): a forward-raked bowsprit
     // spar off the stem with a cap fitting and a bee-block collar, so every boat
     // carries *some* prow accent regardless of theme (the ram is martial, the
-    // figurehead ceremonial — this is the plain workaday fitting between them).
+    // figurehead ceremonial - this is the plain workaday fitting between them).
     let spar = ctx.materials.metal(ctx.palette.secondary_accent);
     let cap = ctx.materials.trim(ctx.palette.tertiary_accent);
     // Hidden hub at the stem attachment; the visible raked spar hangs off it so
@@ -93,7 +93,7 @@ fn bow_bowsprit(ctx: &PartCtx) -> Generator {
 fn smokestack(ctx: &PartCtx) -> Generator {
     // The real steamship funnel (STEAM / industrial): a tapered Lathe body of
     // revolution with a flared cap rim, a bright registry band, and a
-    // soot-darkened lip — an actual smokestack, where the old `boat_stack_funnel`
+    // soot-darkened lip - an actual smokestack, where the old `boat_stack_funnel`
     // was mislabelled glow-thruster pods (now split off as `stack_thrusters`,
     // #792). Keeps the `boat_stack_funnel` slug so a steam boat still fits a
     // funnel.
@@ -101,7 +101,7 @@ fn smokestack(ctx: &PartCtx) -> Generator {
     let soot = ctx.materials.metal(darken(ctx.palette.secondary_accent));
     let band = ctx.materials.trim(ctx.palette.tertiary_accent);
     // Profile `(radius, height)` bottom→top: a fuller base, a gently tapering
-    // barrel, a flared cap rim, then a small inward lip — the classic funnel
+    // barrel, a flared cap rim, then a small inward lip - the classic funnel
     // silhouette. Five stations, well under the sanitiser's 16-point ceiling.
     let profile = [
         (0.10, 0.0),
@@ -125,7 +125,7 @@ fn smokestack(ctx: &PartCtx) -> Generator {
 
 fn stack_thrusters(ctx: &PartCtx) -> Generator {
     // Twin glow-thruster pods at the stern (NEON): a housing with two aft-facing
-    // glowing exhaust bells — the hover-craft propulsion read that the old
+    // glowing exhaust bells - the hover-craft propulsion read that the old
     // `funnel` build actually drew, now honestly tagged NEON with its own slug
     // (`boat_stack_thrusters`) instead of masquerading as a steam funnel (#792).
     let housing = ctx.materials.metal(darken(ctx.palette.tertiary_accent));
@@ -155,12 +155,12 @@ fn stack_thrusters(ctx: &PartCtx) -> Generator {
 fn stack_vent(ctx: &PartCtx) -> Generator {
     // The style-universal stack floor (empty styles): a modest upright deck vent
     // with a conical rain cap and a collar band, so every boat can carry a stack
-    // regardless of theme — the funnel is steam, the thrusters neon, this is the
+    // regardless of theme - the funnel is steam, the thrusters neon, this is the
     // plain workaday vent between them.
     let pipe = ctx.materials.metal(darken(ctx.palette.secondary_accent));
     let cowl = ctx.materials.metal(ctx.palette.tertiary_accent);
     // Hidden hub at the deck mount so the pipe / cap / collar all sit in one
-    // un-translated frame — a translated pipe-as-root would carry its +0.14
+    // un-translated frame - a translated pipe-as-root would carry its +0.14
     // offset into every child (the transform-inheritance gotcha), floating the
     // rain cap above the mouth. The hub is buried inside the pipe base.
     let mut root = prim(
@@ -234,14 +234,14 @@ fn mast_square_rig(ctx: &PartCtx) -> Generator {
 
 fn mast_black_colours(ctx: &PartCtx) -> Generator {
     // A pirate's rig: the square sail of [`mast_square_rig`], plus the one
-    // thing that turns a square-rigger into a pirate — the black colours at
+    // thing that turns a square-rigger into a pirate - the black colours at
     // the masthead, with a skull and crossed bones on them.
     //
     // A bespoke mast rather than a bespoke Ornament because the flag belongs
     // at the head of the mast, and the Ornament slot mounts on the hull. It
     // sits alongside the HISTORIC square rig in the pirate pool, so a
     // buccaneer rolls either an ordinary square-rigger or one flying the
-    // black — which is the correct distribution: not every hull in a pirate
+    // black - which is the correct distribution: not every hull in a pirate
     // harbour has hoisted them.
     let spar = ctx.materials.metal(ctx.palette.secondary_accent);
     let canvas = ctx.materials.cloth(ctx.palette.primary_accent);
@@ -275,7 +275,7 @@ fn mast_black_colours(ctx: &PartCtx) -> Generator {
     //
     // Sized generously against the mast, because an avatar's flag is only a
     // few centimetres across and every blob radius has a 0.01 m floor in the
-    // sanitiser — under it the element is silently clamped and the part
+    // sanitiser - under it the element is silently clamped and the part
     // re-serialises differently from what its owner published. `stock` is
     // that floor applied at the point of authoring, so the device scales down
     // with a small mast until it stops scaling and simply stays legible.
@@ -360,7 +360,7 @@ fn mast_black_colours(ctx: &PartCtx) -> Generator {
 
 fn mast_antenna(ctx: &PartCtx) -> Generator {
     // A comms mast for tech moods: a pole bristling with whip antennas, a
-    // canted dish, and a beacon — no sail, so it reads as a sensor cluster
+    // canted dish, and a beacon - no sail, so it reads as a sensor cluster
     // rather than a crossbar.
     let pole = ctx.materials.metal(ctx.palette.tertiary_accent);
     let whip = ctx.materials.trim(ctx.palette.secondary_accent);
@@ -411,7 +411,7 @@ fn mast_antenna(ctx: &PartCtx) -> Generator {
 
 fn mast_derrick(ctx: &PartCtx) -> Generator {
     // A cargo derrick for industrial moods: a stout king-post with a raking jib
-    // boom and a hanging block-and-hook — working gear, not a crucifix.
+    // boom and a hanging block-and-hook - working gear, not a crucifix.
     let steel = ctx.materials.metal(ctx.palette.secondary_accent);
     let tackle = ctx.materials.metal(darken(ctx.palette.tertiary_accent));
     let hook = ctx.materials.trim(ctx.palette.tertiary_accent);
@@ -499,15 +499,15 @@ fn deck_cargo(ctx: &PartCtx) -> Generator {
 fn bow_skull_head(ctx: &PartCtx) -> Generator {
     // A carved skull-and-bones at the stem.
     //
-    // The first build here was a *billet-head* — the scrolled volute a vessel
-    // of the period actually carried — as four blended masses on a shrinking
+    // The first build here was a *billet-head* - the scrolled volute a vessel
+    // of the period actually carried - as four blended masses on a shrinking
     // spiral. It rendered as a black lump, and the reason is scale rather
     // than execution: the whole carving is about a hundred millimetres on an
     // avatar's boat, and a spiral needs several turns to read as a spiral. At
     // that size the turns merge into one mass and the mass has no subject.
     //
-    // A skull is the opposite kind of shape — one silhouette with two holes
-    // in it — and it survives being small, which is exactly why it is the
+    // A skull is the opposite kind of shape - one silhouette with two holes
+    // in it - and it survives being small, which is exactly why it is the
     // device flags have used for three centuries. So the carving keeps the
     // scroll only as a collar behind the head, where it has a job (it seats
     // the carving on the stem) rather than a story to tell.
@@ -573,7 +573,7 @@ fn bow_skull_head(ctx: &PartCtx) -> Generator {
             quat_xyzw(quat_z(sx * 0.85)),
         ));
     }
-    // Scroll collar seating the carving on the stem — the billet-head's one
+    // Scroll collar seating the carving on the stem - the billet-head's one
     // surviving job.
     root.children.push(prim(
         torus(0.016, r * 0.72, oak),
@@ -587,8 +587,8 @@ fn deck_gunports(ctx: &PartCtx) -> Generator {
     // A gun deck: bulwarks pierced by ports with the pieces run out through
     // them, a hatch grating amidships and a pair of shot garlands.
     //
-    // The ports are what carry it, and they are REAL — squares cut between
-    // sections of bulwark rather than painted on a continuous rail — because a
+    // The ports are what carry it, and they are REAL - squares cut between
+    // sections of bulwark rather than painted on a continuous rail - because a
     // gun port with no hole behind it is the flat-panel fault the catalogue
     // side of this theme spent a whole entry avoiding. Each muzzle projects
     // through its own gap, which is only possible if the gap exists.
@@ -718,7 +718,7 @@ pub(super) static BOW_RAM: PartDef = PartDef {
     chassis: BOAT,
     styles: MARTIAL,
     ornateness: OrnatenessBand::ANY,
-    // A battering ram is rough gear — it reads on a used or beaten craft, not a
+    // A battering ram is rough gear - it reads on a used or beaten craft, not a
     // pristine parade boat (the wear tier now gates the pick).
     wear: WORN_PLUS,
     build: bow_ram,
@@ -728,7 +728,7 @@ pub(super) static BOW_FIGUREHEAD: PartDef = PartDef {
     slot: PartSlot::Bow,
     chassis: BOAT,
     styles: REGAL,
-    // A carved figurehead is a fancy fitting — only an adorned/ornate craft.
+    // A carved figurehead is a fancy fitting - only an adorned/ornate craft.
     ornateness: FANCY,
     wear: WearBand::ANY,
     build: bow_figurehead,

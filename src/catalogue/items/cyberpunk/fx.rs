@@ -1,6 +1,6 @@
 //! Cyberpunk "bring-it-to-life" helpers: small nested particle emitters and
 //! spatial-audio patches that the kit's structures hang on signature
-//! elements — a steam vent at the megatower base, sparks off a failing neon
+//! elements - a steam vent at the megatower base, sparks off a failing neon
 //! sign, an electrical hum on the arcade board.
 //!
 //! Particle emitters are returned as [`Generator`] nodes (a
@@ -28,7 +28,7 @@ use crate::pds::{
 // Particle emitters
 // ---------------------------------------------------------------------------
 
-/// A bursty shower of hot sparks falling under gravity — failing neon,
+/// A bursty shower of hot sparks falling under gravity - failing neon,
 /// shorting terminals, severed cables.
 pub(super) fn spark_burst(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -56,7 +56,7 @@ pub(super) fn spark_burst(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// A slow column of pale steam / exhaust rising and spreading — vents,
+/// A slow column of pale steam / exhaust rising and spreading - vents,
 /// cooling stacks at the base of big structures.
 pub(super) fn steam_vent(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -86,7 +86,7 @@ pub(super) fn steam_vent(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// A small licking flame with embers — a brazier / burn barrel warming the
+/// A small licking flame with embers - a brazier / burn barrel warming the
 /// undercity.
 pub(super) fn brazier_flame(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -114,7 +114,7 @@ pub(super) fn brazier_flame(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
-/// Faint glowing motes drifting upward in `color` — data static around a
+/// Faint glowing motes drifting upward in `color` - data static around a
 /// spire, holographic shimmer off a billboard.
 pub(super) fn rising_motes(pos: [f32; 3], color: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -188,7 +188,7 @@ pub(super) fn neon_buzz() -> SovereignAudioConfig {
     patch(vec![saw, lfo, bp, vca], NodeId(3))
 }
 
-/// A low, ominous transformer / mains hum — a 60 Hz fundamental and its
+/// A low, ominous transformer / mains hum - a 60 Hz fundamental and its
 /// octave, darkened by a lowpass.
 pub(super) fn transformer_hum() -> SovereignAudioConfig {
     let s1 = node(
@@ -233,7 +233,7 @@ pub(super) fn transformer_hum() -> SovereignAudioConfig {
     patch(vec![s1, s2, mix, lp], NodeId(3))
 }
 
-/// Intermittent high electrical crackle / arcing — sparking cables and
+/// Intermittent high electrical crackle / arcing - sparking cables and
 /// shorting terminals.
 pub(super) fn electric_crackle() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.7 }));
@@ -268,7 +268,7 @@ pub(super) fn electric_crackle() -> SovereignAudioConfig {
     patch(vec![noise, lfo, bp, vca], NodeId(3))
 }
 
-/// A steady mid whir with a fast tremolo — a hovering drone's rotors.
+/// A steady mid whir with a fast tremolo - a hovering drone's rotors.
 pub(super) fn drone_whir() -> SovereignAudioConfig {
     let tri = node(
         0,

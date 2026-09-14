@@ -1,4 +1,4 @@
-//! Produce stand — the Roadside *poor* landmark. A rickety plank counter
+//! Produce stand - the Roadside *poor* landmark. A rickety plank counter
 //! piled with crates of fruit under a sagging tarp on crooked posts, a
 //! hand-painted board out front. The hardscrabble counterpart to the
 //! [`gas_station`](super::gas_station): same shoulder, opposite end of the
@@ -17,7 +17,7 @@ use crate::seeded_defaults::ThemeArchetype;
 
 use super::{DRIFT_GREY, PLANK_WOOD, TARP_BLUE, enamel, plank};
 
-/// Produce piled in the crates — sun-ripe reds, greens and oranges.
+/// Produce piled in the crates - sun-ripe reds, greens and oranges.
 const APPLE_RED: [f32; 3] = [0.70, 0.20, 0.16];
 const MELON_GREEN: [f32; 3] = [0.40, 0.55, 0.22];
 const ORANGE_FRUIT: [f32; 3] = [0.86, 0.46, 0.10];
@@ -58,7 +58,7 @@ impl CatalogueEntry for ProduceStand {
 fn build_tree() -> Generator {
     // The display side faces the −Z camera front.
     let mut prims = vec![
-        // Plank counter — the root.
+        // Plank counter - the root.
         prim(
             solid(cuboid_tapered([3.6, 1.0, 1.5], 0.0, plank(DRIFT_GREY))),
             [0.0, 0.5, 0.0],

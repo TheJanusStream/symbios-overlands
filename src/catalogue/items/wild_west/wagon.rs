@@ -1,4 +1,4 @@
-//! Wagon — a Wild-West prop. A prairie schooner: a plank bed with raised
+//! Wagon - a Wild-West prop. A prairie schooner: a plank bed with raised
 //! sideboards under an arched canvas bonnet on bow ribs, rolling on
 //! spoked iron-tyred wheels with a draft tongue out front. Scatter clutter
 //! parked about the town.
@@ -56,7 +56,7 @@ fn build_tree() -> Generator {
     let bed_top = 1.15_f32;
 
     let mut prims = vec![
-        // Plank bed — the root (running along X).
+        // Plank bed - the root (running along X).
         prim(
             solid(cuboid_tapered([3.2, 0.5, 1.4], 0.0, clapboard(WOOD_RAW))),
             [0.0, 0.9, 0.0],
@@ -79,7 +79,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Arched canvas bonnet — a half-cylinder laid along the bed's length.
+    // Arched canvas bonnet - a half-cylinder laid along the bed's length.
     prims.push(prim(
         solid(with_cut(
             cylinder_tapered(0.8, 3.0, 16, 0.0, canvas(CANVAS_TAN)),
@@ -127,7 +127,7 @@ fn build_tree() -> Generator {
                 c,
                 quat_x(FRAC_PI_2),
             ));
-            // Wooden spokes — three diameter bars = six spokes.
+            // Wooden spokes - three diameter bars = six spokes.
             for k in 0..3 {
                 let a = k as f32 / 3.0 * std::f32::consts::PI;
                 prims.push(prim(

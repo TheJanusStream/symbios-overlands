@@ -1,4 +1,4 @@
-//! Nordic / Viking-theme catalogue structures — a timber-and-thatch
+//! Nordic / Viking-theme catalogue structures - a timber-and-thatch
 //! mead-hall settlement on the cold-blue coast.
 //!
 //! Two prosperity registers share one Norse identity: the established
@@ -28,7 +28,7 @@ pub mod shield_rack;
 pub mod signal_beacon;
 pub mod stave_church;
 pub mod totem_pole;
-// Poor (croft) variants — the prosperity-Poor end of the theme.
+// Poor (croft) variants - the prosperity-Poor end of the theme.
 pub mod sod_shelter;
 pub mod turf_house;
 pub mod wood_pile;
@@ -49,18 +49,18 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the established timber kit — carved halls
+/// Shared prosperity band for the established timber kit - carved halls
 /// and longships read as a Modest-to-Rich steading. The poor end of the
 /// theme is the separate turf-croft kit ([`turf_house`], …), tagged
 /// `Poor`, so a destitute Nordic room grows the sod croft instead.
 pub(super) const NORDIC_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// Prosperity band for the turf-croft kit — the destitute end of the
+/// Prosperity band for the turf-croft kit - the destitute end of the
 /// theme, never picked for a modest or affluent Nordic room.
 pub(super) const NORDIC_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Sawn timber plank — the body of every Norse build: hall staves, posts,
+/// Sawn timber plank - the body of every Norse build: hall staves, posts,
 /// gunwales, drying frames. Warm grain with knots so a wall reads as wood,
 /// not a painted slab.
 pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
@@ -84,7 +84,7 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Golden straw thatch — the steep roof of a mead hall or boathouse.
+/// Golden straw thatch - the steep roof of a mead hall or boathouse.
 pub(super) fn thatch(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -106,7 +106,7 @@ pub(super) fn thatch(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Green sod / turf roof — overgrown straw read as living grass. The
+/// Green sod / turf roof - overgrown straw read as living grass. The
 /// roof and walls of the poor croft kit.
 pub(super) fn turf(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -127,7 +127,7 @@ pub(super) fn turf(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Dressed ashlar stone — hall footings, rune stones, hearth surrounds.
+/// Dressed ashlar stone - hall footings, rune stones, hearth surrounds.
 pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -145,7 +145,7 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Glacial-boulder cobble — rough fieldstone for the beacon base and croft
+/// Glacial-boulder cobble - rough fieldstone for the beacon base and croft
 /// footings, mud-packed.
 pub(super) fn rough_stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -165,7 +165,7 @@ pub(super) fn rough_stone(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Woven wool / linen cloth — painted round shields and the longship's
+/// Woven wool / linen cloth - painted round shields and the longship's
 /// striped sail.
 pub(super) fn cloth(warp: [f32; 3], weft: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -184,7 +184,7 @@ pub(super) fn cloth(warp: [f32; 3], weft: [f32; 3]) -> SovereignMaterialSettings
     }
 }
 
-/// Riveted dark iron — shield bosses, brazier basket, weather-vane,
+/// Riveted dark iron - shield bosses, brazier basket, weather-vane,
 /// boat nails. Brushed with a little rust.
 pub(super) fn iron(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -205,11 +205,11 @@ pub(super) fn iron(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Cut log end-grain — the sawn face of stacked firewood or a post top.
+/// Cut log end-grain - the sawn face of stacked firewood or a post top.
 ///
 /// **This is an alpha card, not a surface** (`LogEnd` is registered `Card`
 /// upstream, so the material renders alpha-masked and double-sided). The
-/// generator draws one round slice — pith, rings, bark rim — and masks away
+/// generator draws one round slice - pith, rings, bark rim - and masks away
 /// the corners outside it, so it belongs on a flat quad standing at the
 /// sawn end of a log, never wrapped around the log itself. Wrapped on a
 /// cylinder the mask eats the barrel and leaves floating slivers (#940).
@@ -225,7 +225,7 @@ pub(super) fn log_end(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.85),
         metallic: Fp(0.0),
-        // Card — clamp-to-edge, must span its quad exactly once.
+        // Card - clamp-to-edge, must span its quad exactly once.
         uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::LogEnd(SovereignLogEndConfig {
             color_early: Fp3(crate::catalogue::items::util::tint(color, [1.2, 1.2, 1.15])),
@@ -258,8 +258,8 @@ pub(super) const FIRE_ORANGE: [f32; 3] = [1.0, 0.55, 0.18];
 /// longship prow/stern).
 pub(super) const DRAGON_EYE: [f32; 3] = [0.5, 0.7, 0.95];
 
-/// A round Norse shield — a painted woven disc with a rim ring and a
-/// proud iron boss — placed at `center` with rotation `tilt` (a single
+/// A round Norse shield - a painted woven disc with a rim ring and a
+/// proud iron boss - placed at `center` with rotation `tilt` (a single
 /// [`quat_x`](crate::catalogue::items::util::quat_x) of ±π/2 stands it
 /// upright facing ±Z). The boss is authored in the disc's local frame, so
 /// it follows the disc's tilt and always sits proud of the painted face.
@@ -292,7 +292,7 @@ pub(super) fn round_shield(
     disc
 }
 
-/// A steep pitched gable roof — a triangular-prism ridge running the
+/// A steep pitched gable roof - a triangular-prism ridge running the
 /// building's length (X), the Z span pinched to a thin ridge cap. `size` is
 /// `[length, rise, span]` measured at the eaves; place `center` at
 /// `[0, wall_top + rise * 0.5, 0]`. The single tapered block the Nordic
@@ -313,7 +313,7 @@ pub(super) fn gable_roof(
     )
 }
 
-/// A rearing carved dragon / serpent head — the Norse signature finial.
+/// A rearing carved dragon / serpent head - the Norse signature finial.
 /// Built facing `+X` (snout forward) on a neck rising from `foot`, returned
 /// as one positioned subtree (the neck is its local root) so the whole head
 /// rides a single [`quat_y`]`(yaw)`:
@@ -329,7 +329,7 @@ pub(super) fn dragon_head(
     body: [f32; 3],
     eye: [f32; 3],
 ) -> Generator {
-    // Neck — the subtree root, upright, carrying the yaw so head/jaw/crest/
+    // Neck - the subtree root, upright, carrying the yaw so head/jaw/crest/
     // eyes all turn with it. Its centre sits half its height above the foot.
     let mut neck = prim(
         solid(cuboid_tapered(
@@ -352,7 +352,7 @@ pub(super) fn dragon_head(
         [0.2 * s, 0.7 * s, 0.0],
         id_quat(),
     ));
-    // Upper snout — a tapered muzzle jutting forward.
+    // Upper snout - a tapered muzzle jutting forward.
     neck.children.push(prim(
         solid(cuboid_tapered(
             [0.52 * s, 0.26 * s, 0.3 * s],
@@ -420,7 +420,7 @@ mod tests {
         }
     }
 
-    /// The signal beacon is the kit's firelit hero — it must keep its
+    /// The signal beacon is the kit's firelit hero - it must keep its
     /// emissive flame trim so escalation's broken-emissive ruin pass has
     /// something to snuff.
     #[test]

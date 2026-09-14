@@ -1,4 +1,4 @@
-//! Clock tower — a Civic/Campus secondary. A tall brick campanile on a
+//! Clock tower - a Civic/Campus secondary. A tall brick campanile on a
 //! stone base, a lit clock face on each of its four sides and a verdigris
 //! copper pyramid roof with a finial. A soft mechanism hum lingers in the
 //! belfry. Its clock faces are emissive trim the ruin pass can darken.
@@ -59,7 +59,7 @@ fn build_tree() -> Generator {
     let clock_y = shaft_top - 1.4;
 
     let mut prims = vec![
-        // Stone base — the root.
+        // Stone base - the root.
         prim(
             solid(cuboid_tapered([3.6, base_h, 3.6], 0.0, stone(STONE_PALE))),
             [0.0, base_h * 0.5, 0.0],
@@ -67,7 +67,7 @@ fn build_tree() -> Generator {
         ),
     ];
     // Buried footing under the stone base, sized to the drop this footprint
-    // spans (#1009) — a campanile on a slope shows footing, not daylight.
+    // spans (#1009) - a campanile on a slope shows footing, not daylight.
     prims.push(footing(3.6, 3.6, [0.0, 0.0], 5.0));
 
     // Brick shaft.
@@ -83,7 +83,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Lit clock faces on all four sides — emissive plate + a dark dial rim and
+    // Lit clock faces on all four sides - emissive plate + a dark dial rim and
     // hands so each reads as a clock, not a blank lit panel.
     prims.push(prim(
         cuboid_tapered([1.5, 1.5, 0.12], 0.0, glow(CLOCK_LIT, 2.8)),
@@ -139,8 +139,8 @@ fn build_tree() -> Generator {
     root
 }
 
-/// A clock dial's dark furniture — a rim ring, a centre hub and crossed hour /
-/// minute hands — mounted proud of a lit clock plate at `center`. `z_face`
+/// A clock dial's dark furniture - a rim ring, a centre hub and crossed hour /
+/// minute hands - mounted proud of a lit clock plate at `center`. `z_face`
 /// selects the face plane (true = a ±Z face in XY, false = a ±X face in YZ);
 /// `out_sign` pushes the furniture out along that face's outward normal.
 fn clock_dial(center: [f32; 3], z_face: bool, out_sign: f32) -> Vec<Generator> {

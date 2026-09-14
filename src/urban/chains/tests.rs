@@ -20,8 +20,8 @@ fn push_interior_runs_marks_a_boundary_clip_end() {
 }
 
 /// #582 (review risk: re-entrant bookkeeping): a street that dips out of the
-/// interior and back in (in→out→in) yields two runs whose INNER ends — both at
-/// the rim — are clipped, while the outer ends stay real termini. `prev_outside`
+/// interior and back in (in→out→in) yields two runs whose INNER ends - both at
+/// the rim - are clipped, while the outer ends stay real termini. `prev_outside`
 /// must be function-local so the second run picks up the clipped start.
 #[test]
 fn push_interior_runs_reentrant_street_marks_both_inner_ends() {

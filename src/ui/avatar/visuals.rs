@@ -3,7 +3,7 @@
 //! There is no drawing code of its own here. The tab embeds the same
 //! tree-view + detail-panel widget that drives the room editor's Generators
 //! tab, fed by an [`AvatarVisualsTreeSource`] adapter so a generator body's
-//! tree is editable through the unified vocabulary — one widget, three
+//! tree is editable through the unified vocabulary - one widget, three
 //! hosts (this, the room, and a worn item's parts editor).
 //!
 //! What lives here is the wiring that is *this* host's: seeding the tree
@@ -18,7 +18,7 @@ use crate::ui::room::generators::{AvatarVisualsTreeSource, TreeSelection, draw_g
 
 /// The Visuals tab, wired to the editor (#1161).
 pub(super) fn draw_tab(ui: &mut egui::Ui, ctx: &mut TabCtx, aim: &mut AimCtx, height: f32) {
-    // Read before the record is borrowed mutably below — see the note on
+    // Read before the record is borrowed mutably below - see the note on
     // `attachments::draw_tab`.
     let owner_did = ctx.owner_did();
     ui.allocate_ui(egui::vec2(ui.available_width(), height), |ui| {
@@ -26,14 +26,14 @@ pub(super) fn draw_tab(ui: &mut egui::Ui, ctx: &mut TabCtx, aim: &mut AimCtx, he
         // to draw. #1265 f101: this used to promise the rigged editor was
         // still coming (it shipped, as the Body tab) and to advise a bare
         // re-roll, which lands back on a rigged body whenever
-        // `ChassisFamily::for_seed` rolls `Humanoid` — one of four families,
+        // `ChassisFamily::for_seed` rolls `Humanoid` - one of four families,
         // so a coin flip. The Chassis pin row is the deterministic control,
         // so the advice routes through it and names the three families by
         // the labels that row actually shows (`ChassisFamily::label`).
         let Some(visuals) = ctx.record.body.visuals_mut() else {
             ui.label(
                 egui::RichText::new(
-                    "You're wearing a rigged body — sculpt it on the \
+                    "You're wearing a rigged body - sculpt it on the \
                      Body tab. For a construction-kit body instead, \
                      open Seed & re-roll below, lock Chassis to \
                      Hover-boat, Airship or Land-skiff, and re-roll.",
@@ -66,7 +66,7 @@ pub(super) fn draw_tab(ui: &mut egui::Ui, ctx: &mut TabCtx, aim: &mut AimCtx, he
             ctx.toasts,
             ctx.now,
             &mut ctx.labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
-            // Avatars can't grow roads — no stats readout.
+            // Avatars can't grow roads - no stats readout.
             None,
             ctx.face_pick,
             owner_did,

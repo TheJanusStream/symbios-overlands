@@ -1,4 +1,4 @@
-//! Fuel depot — a Post-apocalyptic secondary. A pair of salvaged fuel tanks on
+//! Fuel depot - a Post-apocalyptic secondary. A pair of salvaged fuel tanks on
 //! saddles behind a scrap fence, a hand pump and a worklight on a pole. The
 //! lifeblood store of the holdout; its light is emissive trim the ruin pass
 //! can darken.
@@ -19,7 +19,7 @@ use super::{
     CONCRETE_GREY, CORRUGATED_RUST, RUST_BROWN, STEEL_GREY, WORKLIGHT, concrete, fx, rusted, sheet,
 };
 
-/// A spoked valve hand-wheel facing `−Z`, mounted at `pos` — rim torus, hub
+/// A spoked valve hand-wheel facing `−Z`, mounted at `pos` - rim torus, hub
 /// and three radial spokes. The signature control of a salvaged pump.
 fn valve_wheel(pos: [f32; 3]) -> Vec<Generator> {
     use std::f32::consts::FRAC_PI_2;
@@ -81,7 +81,7 @@ impl CatalogueEntry for FuelDepot {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Concrete pad — the root.
+        // Concrete pad - the root.
         prim(
             solid(cuboid_tapered(
                 [7.0, 0.3, 5.0],
@@ -162,7 +162,7 @@ fn build_tree() -> Generator {
         quat_z(1.1),
     ));
 
-    // Worklight on a pole — emissive.
+    // Worklight on a pole - emissive.
     prims.push(prim(
         solid(cylinder_tapered(0.08, 3.2, 6, 0.0, rusted(STEEL_GREY))),
         [3.2, 1.7, -1.6],

@@ -26,7 +26,7 @@ pub const MAX_AUDIO_NODES: usize = 256;
 /// unbounded list amplifies the bake cost quadratically.
 pub const MAX_TRACK_EVENTS: usize = 4096;
 
-/// Cap on the number of instruments in a sequence recipe — the inner
+/// Cap on the number of instruments in a sequence recipe - the inner
 /// AudioPatch on each one is already bounded by [`MAX_AUDIO_NODES`].
 pub const MAX_SEQUENCE_INSTRUMENTS: usize = 64;
 
@@ -153,7 +153,7 @@ impl Sanitize for SovereignNodeKind {
                 c.depth = Fp(clamp_finite(c.depth.0, -10_000.0, 10_000.0, 1.0));
                 c.offset = Fp(clamp_finite(c.offset.0, -10_000.0, 10_000.0, 0.0));
             }
-            // Combiners — gain is a plain multiplier; bound it well past
+            // Combiners - gain is a plain multiplier; bound it well past
             // unity but away from the float rails so a hostile value
             // can't drive the summed bus to NaN/Inf.
             Self::Mix(c) => {
@@ -162,7 +162,7 @@ impl Sanitize for SovereignNodeKind {
             Self::Gain(c) => {
                 c.gain = Fp(clamp_finite(c.gain.0, -64.0, 64.0, 1.0));
             }
-            // Gate carries only a bool — nothing to clamp.
+            // Gate carries only a bool - nothing to clamp.
             Self::Gate(_) => {}
             Self::Chorus(c) => {
                 c.rate_hz = Fp(clamp_finite(c.rate_hz.0, 0.0, 100.0, 0.8));
@@ -184,26 +184,26 @@ impl Sanitize for SovereignNodeKind {
     }
 }
 
-/// Bound on a connection's DC value and on a node connection's `amount` —
+/// Bound on a connection's DC value and on a node connection's `amount` -
 /// the same number `symbios_audio::envelope`'s `MAX_CONNECTION_MAGNITUDE`
 /// carries, and the drift guard below asserts the two agree.
 ///
 /// It was `1_000_000.0` until #1316, which is 4.6x more than [`Fp`] can
 /// represent: the wire form is `(v * FP_SCALE).round() as i32`, a cast that
 /// **saturates**, so a value the sanitiser accepted at 500_000 came back from
-/// the wire as 214_748.3647 — silently, and leaving `sanitize` non-idempotent
+/// the wire as 214_748.3647 - silently, and leaving `sanitize` non-idempotent
 /// across a round trip for this one field. It was also the only bound in the
 /// table unrelated to its neighbours: the combiner gains are ±64 and the
 /// widest other bound is an LFO depth at ±10_000.
 pub const MAX_CONNECTION_MAGNITUDE: f32 = 100_000.0;
 
 // The proof, at compile time, that this sanitiser cannot accept a value the
-// writer cannot store. That is the property #1316 was actually about — the
+// writer cannot store. That is the property #1316 was actually about - the
 // number itself is only as good as the thing keeping it honest, and a
 // comment would not have caught the original.
 const _: () = assert!(
     (MAX_CONNECTION_MAGNITUDE as f64 * crate::pds::types::FP_SCALE as f64) <= i32::MAX as f64,
-    "MAX_CONNECTION_MAGNITUDE does not survive Fp's i32 wire form — see #1316"
+    "MAX_CONNECTION_MAGNITUDE does not survive Fp's i32 wire form - see #1316"
 );
 
 impl Sanitize for SovereignConnection {
@@ -225,7 +225,7 @@ impl Sanitize for SovereignConnection {
                     1.0,
                 );
             }
-            // No native counterpart — `Connection` is not `#[non_exhaustive]`
+            // No native counterpart - `Connection` is not `#[non_exhaustive]`
             // upstream, so this arm is a read-side seam only and there is
             // nothing to bound.
             SovereignConnection::Unknown => {}
@@ -281,7 +281,7 @@ impl Sanitize for SovereignEvent {
         self.time_beats = Fp(clamp_finite(self.time_beats.0, 0.0, 100_000.0, 0.0));
         truncate_on_char_boundary(&mut self.instrument_id, MAX_INSTRUMENT_ID_BYTES);
         // Pitch multiplier is continuous (see audio crate's sequence
-        // module docstring) — not clamped to semitones. Bound below
+        // module docstring) - not clamped to semitones. Bound below
         // away from zero so playback speed doesn't degenerate.
         self.pitch_multiplier = Fp(clamp_finite(self.pitch_multiplier.0, 0.001, 64.0, 1.0));
         self.volume = Fp(clamp_finite(self.volume.0, 0.0, 1.0, 1.0));
@@ -344,8 +344,8 @@ mod tests {
     /// decodes a number into `f32` by casting the parsed `f64`, and a
     /// float-to-float cast **saturates**, so `1e300` arrives as
     /// `f32::INFINITY`. That reaches the same non-finite branch of
-    /// `clamp_finite` that NaN does — the branch that resolves to the
-    /// *field's default* — so the default column of the table is covered
+    /// `clamp_finite` that NaN does - the branch that resolves to the
+    /// *field's default* - so the default column of the table is covered
     /// generically, which is where the `q = 0.707` vs `FRAC_1_SQRT_2` drift
     /// lived (#1160). The finite fills cover the `lo`/`hi` columns.
     const FILLS: [f64; 5] = [1e300, -1e300, 1e9, -1e9, 0.0];
@@ -393,7 +393,7 @@ mod tests {
     ///
     /// Compared as **wire values**, not as structs: `Fp` holds a raw `f32`
     /// and quantises only in `Serialize`, so `to_value` is what puts both
-    /// sides on the grid the record actually carries — and it side-steps
+    /// sides on the grid the record actually carries - and it side-steps
     /// `NaN != NaN`. Never derive one side's constants from the other by
     /// round-tripping through `f32`; that is how `q` ended up one tick out
     /// (7070 vs 7071, #1160).
@@ -423,7 +423,7 @@ mod tests {
         }
     }
 
-    /// The same equivalence for a whole recipe — the collection caps, the
+    /// The same equivalence for a whole recipe - the collection caps, the
     /// instrument-id byte cap, the loop bounds that clamp against an
     /// already-clamped duration, and every event field.
     #[test]
@@ -485,7 +485,7 @@ mod tests {
         }
     }
 
-    /// Connections agree too — the one place an arbitrary float reaches the
+    /// Connections agree too - the one place an arbitrary float reaches the
     /// summed bus directly.
     ///
     /// `SovereignConnection::Unknown` is deliberately not exercised: native
@@ -525,7 +525,7 @@ mod tests {
     #[test]
     fn chorus_clamps_hostile_values() {
         // Feedback past the contractive ceiling, NaN delays, out-of-range
-        // mix — all must land back in safe bounds.
+        // mix - all must land back in safe bounds.
         let mut k = SovereignNodeKind::Chorus(SovereignChorus {
             rate_hz: Fp(1e9),
             depth_ms: Fp(f32::NAN),

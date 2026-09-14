@@ -29,8 +29,8 @@
 //! ```
 //!
 //! The cache ([`BakedAudioCache`]) is keyed by the serialised audio
-//! config, so identical constructs — within one compile pass and
-//! across the recompiles every World Editor edit triggers — share a
+//! config, so identical constructs - within one compile pass and
+//! across the recompiles every World Editor edit triggers - share a
 //! single bake. On the wasm build the bake pool *is* the main thread,
 //! so every cache hit is a frame stall avoided.
 
@@ -48,12 +48,12 @@ use crate::pds::SovereignAudioConfig;
 /// near-inaudible unless the camera is almost on top of it (the "only audible
 /// when zoomed right in" report). The scale multiplies both emitter and
 /// listener positions, so shrinking it stretches the audible range
-/// proportionally — `0.25` ≈ carries ~4× farther — letting an avatar's engine
+/// proportionally - `0.25` ≈ carries ~4× farther - letting an avatar's engine
 /// hum or arcane shimmer read from a normal viewing distance. One-shot impact
 /// SFX keep the default scale (they fire right next to the listener).
 const CONSTRUCT_SPATIAL_SCALE: f32 = 0.25;
 
-/// The sample rate a construct's `Patch` audio is baked at — a worn part's
+/// The sample rate a construct's `Patch` audio is baked at - a worn part's
 /// too, since it is spawned as a construct. 22.05 kHz halves the baked and
 /// cached buffers, and per-construct hums sit under its 11 kHz Nyquist (#568,
 /// the ambient rate too). The audio pop-out auditions a construct's patch at
@@ -70,7 +70,7 @@ pub(crate) const CONSTRUCT_PATCH_SECS: f32 = 1.0;
 /// Playback settings for a looping, spatial construct / avatar-voice emitter:
 /// Bevy's `LOOP` shape, spatialised, with the gentler [`CONSTRUCT_SPATIAL_SCALE`]
 /// so the loop carries across a normal viewing distance, starting every pass
-/// at `loop_start` — from [`baked_loop_start`], `None` to loop from the first
+/// at `loop_start` - from [`baked_loop_start`], `None` to loop from the first
 /// sample.
 fn looping_construct_playback(loop_start: Option<std::time::Duration>) -> PlaybackSettings {
     PlaybackSettings {
@@ -92,8 +92,8 @@ fn looping_construct_playback(loop_start: Option<std::time::Duration>) -> Playba
 /// replayed. A `Patch` has no run-up and loops whole, and a `Referenced` clip
 /// is not baked here at all.
 ///
-/// Asked of the recipe exactly as `gen-jobs` bakes it — clamped to the default
-/// `Envelope` first — so the start is the sample the mixdown folded its tail
+/// Asked of the recipe exactly as `gen-jobs` bakes it - clamped to the default
+/// `Envelope` first - so the start is the sample the mixdown folded its tail
 /// into, never one a clamp moved. Shared by both looping world players: this
 /// file's construct emitters and the ambient bed's player.
 pub(crate) fn baked_loop_start(audio: &SovereignAudioConfig) -> Option<std::time::Duration> {
@@ -109,14 +109,14 @@ pub(crate) fn baked_loop_start(audio: &SovereignAudioConfig) -> Option<std::time
 /// How the spatial-audio bake should be attached once it completes.
 #[derive(Clone, Copy, Debug)]
 pub enum BakeAttachmentMode {
-    /// Construct emitter — looping, sticky on the target entity, every pass
+    /// Construct emitter - looping, sticky on the target entity, every pass
     /// from `loop_start` ([`baked_loop_start`]). Carried here rather than
     /// looked up when the bake lands, because a waiter holds only its entity
     /// and this mode: the config is in hand where the mode is made.
     LoopingConstruct {
         loop_start: Option<std::time::Duration>,
     },
-    /// One-shot impact / footstep — `PlaybackMode::Despawn` so the
+    /// One-shot impact / footstep - `PlaybackMode::Despawn` so the
     /// carrier entity GCs itself when the sound ends. `volume` is the
     /// linear gain in `[0, 1]`.
     OneShot { volume: f32 },
@@ -130,13 +130,13 @@ pub enum BakeAttachmentMode {
 pub struct SpatialAudioBakeTask {
     pub key: String,
     pub task: Task<crate::offload::GenResult>,
-    /// Short stable job name for the offload diagnostics pairing (#671) —
+    /// Short stable job name for the offload diagnostics pairing (#671) -
     /// a hash of `key`, because the key itself is a full serialized audio
     /// config and would bloat the NDJSON.
     job_name: String,
     /// Session-relative time the poll logged `OffloadJobStarted`; `None`
     /// until the first poll sees the task. Dispatch sites deliberately
-    /// don't log it themselves — they'd each need `Time` + `SessionLog`
+    /// don't log it themselves - they'd each need `Time` + `SessionLog`
     /// threaded through the (hot) contact-audio path, while the poll runs
     /// within a frame of dispatch anyway.
     started_logged_at: Option<f64>,
@@ -156,7 +156,7 @@ fn bake_job_name(key: &str) -> String {
 /// Hard cap on retained baked buffers. Keys are full serialised audio
 /// configs and values pin `AudioSource` byte buffers, so the cache must
 /// stay bounded across long editing sessions and portal hops; FIFO
-/// eviction (Ready entries only — evicting a Pending entry would orphan
+/// eviction (Ready entries only - evicting a Pending entry would orphan
 /// its waiters) keeps the most recently authored sounds resident.
 const MAX_BAKED_AUDIO_ENTRIES: usize = 64;
 
@@ -212,7 +212,7 @@ impl BakedAudioCache {
     }
 
     /// Evict oldest `Ready` entries until under the cap. `Pending`
-    /// entries are never evicted — their waiter lists must survive
+    /// entries are never evicted - their waiter lists must survive
     /// until the bake lands.
     fn evict_to_cap(&mut self) {
         while self.entries.len() > MAX_BAKED_AUDIO_ENTRIES {
@@ -221,7 +221,7 @@ impl BakedAudioCache {
                 .iter()
                 .position(|k| matches!(self.entries.get(k), Some(BakedAudioEntry::Ready(_))))
             else {
-                // Everything is Pending (pathological) — nothing safely
+                // Everything is Pending (pathological) - nothing safely
                 // evictable; allow temporary overshoot.
                 break;
             };
@@ -234,7 +234,7 @@ impl BakedAudioCache {
 
 /// Attach the baked buffer to `target` with the playback shape `mode`
 /// asks for. Uses `try_insert` so an insert on a despawned target is a
-/// silent no-op — the orphan case (room rebuild between dispatch and bake
+/// silent no-op - the orphan case (room rebuild between dispatch and bake
 /// completion) is common enough during editing that warn-logs would drown
 /// the channel, and in Bevy 0.18 a plain `insert` on a missing entity
 /// panics through the command error handler instead of dropping quietly.
@@ -274,7 +274,7 @@ fn request_baked_audio(
     let key = match serde_json::to_string(audio) {
         Ok(key) => key,
         Err(e) => {
-            // Plain-data types — this is unreachable in practice, and a
+            // Plain-data types - this is unreachable in practice, and a
             // construct without its hum is the right degraded mode.
             warn!("Construct audio config failed to serialise for bake cache: {e}");
             return;
@@ -291,7 +291,7 @@ fn request_baked_audio(
         }
         None => {
             // Build the offloadable job first; a malformed procedural config
-            // yields no job — the construct simply doesn't hum, and we leave no
+            // yields no job - the construct simply doesn't hum, and we leave no
             // cache entry so a corrected config can re-bake later.
             let Some(job) = construct_bake_job(audio) else {
                 return;
@@ -318,7 +318,7 @@ fn request_baked_audio(
 /// No-op when the variant carries no procedural data
 /// ([`None`](crate::pds::SovereignAudioConfig::None) /
 /// [`Unknown`](crate::pds::SovereignAudioConfig::Unknown) /
-/// [`Referenced`](crate::pds::SovereignAudioConfig::Referenced) —
+/// [`Referenced`](crate::pds::SovereignAudioConfig::Referenced) -
 /// Referenced will eventually flow through the audio resolver, #308).
 ///
 /// The bake runs off the main thread on `AsyncComputeTaskPool`; the
@@ -332,9 +332,9 @@ pub fn dispatch_construct_audio(
     audio: &SovereignAudioConfig,
 ) {
     match audio {
-        // Silent / forward-compat — nothing to dispatch.
+        // Silent / forward-compat - nothing to dispatch.
         SovereignAudioConfig::None | SovereignAudioConfig::Unknown => {}
-        // External asset — hand the reference to the audio resolver,
+        // External asset - hand the reference to the audio resolver,
         // which fetches and attaches the spatial-looping AudioPlayer
         // to `target` once bytes arrive. The settings shape matches
         // what poll_spatial_audio_tasks would apply for the
@@ -352,7 +352,7 @@ pub fn dispatch_construct_audio(
                 },
             );
         }
-        // Procedural — resolve through the content-keyed bake cache:
+        // Procedural - resolve through the content-keyed bake cache:
         // identical configs (the same construct re-spawned by a room
         // recompile, or N copies of one catalogue item) share a single
         // bake and a single buffer. The loop start is worked out here, where
@@ -425,13 +425,13 @@ pub fn dispatch_one_shot_audio(
 /// and attach the shared buffer to every entity that queued on it.
 ///
 /// Targets despawned between dispatch and completion (room transition,
-/// recompile) make the insert a queued-and-dropped no-op — rapid room
+/// recompile) make the insert a queued-and-dropped no-op - rapid room
 /// rebuilds during editing make orphan waiters common, so no warn-log.
 ///
 /// Also owns the offload diagnostics for this job family (#671):
 /// `OffloadJobStarted` on first sight of a task (≤ 1 frame after
 /// dispatch, always before its Completed), `OffloadJobCompleted` /
-/// `OffloadJobFailed` at drain — one pair per *bake*, never per cache
+/// `OffloadJobFailed` at drain - one pair per *bake*, never per cache
 /// hit, so the hot contact-audio path stays emission-free.
 pub fn poll_spatial_audio_tasks(
     mut commands: Commands,
@@ -442,7 +442,7 @@ pub fn poll_spatial_audio_tasks(
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
     // Diagnostics side-channel (#802): `Option` so a headless / test app that
     // schedules the audio systems without the metrics plugin can't panic on a
-    // missing registry — audio playback must never depend on diagnostics.
+    // missing registry - audio playback must never depend on diagnostics.
     mut metrics: Option<ResMut<crate::diagnostics::MetricsRegistry>>,
 ) {
     let now = time.elapsed_secs_f64();
@@ -470,7 +470,7 @@ pub fn poll_spatial_audio_tasks(
         commands.entity(task_entity).despawn();
 
         // Pull the waiter list out of the Pending slot. A missing entry
-        // means the cache was cleared (logout) mid-bake — nothing to
+        // means the cache was cleared (logout) mid-bake - nothing to
         // attach, nothing to retain.
         let waiters = match bake_cache.entries.remove(&bake.key) {
             Some(BakedAudioEntry::Pending(waiters)) => waiters,
@@ -484,7 +484,7 @@ pub fn poll_spatial_audio_tasks(
         };
 
         let crate::offload::GenResult::Audio(bytes) = result else {
-            // Unreachable: an AudioBake job yields Audio. Stay graceful — drop
+            // Unreachable: an AudioBake job yields Audio. Stay graceful - drop
             // the entry so a corrected config can re-bake.
             session_log.warn(
                 now,
@@ -558,7 +558,7 @@ fn bake_construct_wav_bytes(audio: &SovereignAudioConfig) -> Option<(Vec<u8>, u3
     }
 }
 
-/// Build a gentle teleporter hum — a quiet sine drone around 110 Hz
+/// Build a gentle teleporter hum - a quiet sine drone around 110 Hz
 /// (low A) with a slow LFO modulating amplitude via a filter sweep.
 /// Used by the [`crate::catalogue::items::tools::my_teleporter`] entry as the
 /// concrete proof-of-concept for #301's per-construct audio pipeline.
@@ -667,7 +667,7 @@ mod tests {
     #[test]
     fn bake_cache_never_evicts_pending_entries() {
         let mut cache = BakedAudioCache::default();
-        // Oldest entry is Pending — it must survive eviction because
+        // Oldest entry is Pending - it must survive eviction because
         // its waiter list points at live entities.
         cache.entries.insert(
             "pending-0".into(),
@@ -748,7 +748,7 @@ mod tests {
         // The structured mirror (#311) replaces the JSON-stash with
         // typed fields, so there's no longer a "malformed JSON" failure
         // path at this layer. A default Patch / Sequence carries an
-        // empty graph that bakes to a buffer of zeros — non-None.
+        // empty graph that bakes to a buffer of zeros - non-None.
         let p = SovereignAudioConfig::Patch {
             patch: crate::pds::audio::SovereignAudioPatch::default(),
         };
@@ -783,8 +783,8 @@ mod tests {
     }
 
     /// #1341: a construct's looping player of a baked sequence starts every
-    /// pass at the loop start its bake has — the seeded bed's beat 2, two
-    /// seconds in — and everything with no loop point loops from its first
+    /// pass at the loop start its bake has - the seeded bed's beat 2, two
+    /// seconds in - and everything with no loop point loops from its first
     /// sample. The control, run at HEAD before the fix:
     /// `looping_construct_playback().start_position` was `None` for all of
     /// them.
@@ -822,8 +822,8 @@ mod tests {
         }
     }
 
-    /// The start is asked of the recipe as gen-jobs BAKES it — clamped to the
-    /// default `Envelope` first — not as the record holds it. A tempo past the
+    /// The start is asked of the recipe as gen-jobs BAKES it - clamped to the
+    /// default `Envelope` first - not as the record holds it. A tempo past the
     /// envelope's ceiling is where the two part: 2 000 BPM is baked at 1 000,
     /// so a loop start three beats in is 180 ms, not 90. The bake's own length
     /// says gen-jobs clamped it the same way: two clamps that must agree.

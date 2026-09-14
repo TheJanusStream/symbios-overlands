@@ -1,4 +1,4 @@
-//! Dinghy — a Coastal-Resort prop. A small open planked rowboat hauled up on a
+//! Dinghy - a Coastal-Resort prop. A small open planked rowboat hauled up on a
 //! patch of sand: a flat sole, flared planked sides with a white boot-top
 //! strake, a stern transom and a raked bow, an open interior with two thwart
 //! benches, oarlocks and a pair of oars laid along the gunwales.
@@ -60,7 +60,7 @@ impl CatalogueEntry for Dinghy {
 fn build_tree() -> Generator {
     let len = 2.8_f32; // hull length along Z (bow at -Z, stern at +Z)
     let mut prims = vec![
-        // Beached sand patch — the flat root (keeps the reparented hull pieces
+        // Beached sand patch - the flat root (keeps the reparented hull pieces
         // and furniture horizontal and the trough open).
         prim(
             solid(cylinder_tapered(1.9, 0.12, 20, 0.0, sand(SAND_TAN))),
@@ -69,7 +69,7 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Flat painted sole — the boat's bottom plank.
+    // Flat painted sole - the boat's bottom plank.
     prims.push(prim(
         solid(cuboid_tapered([0.56, 0.16, len], 0.0, plank(HULL_BLUE))),
         [0.0, 0.3, 0.0],
@@ -120,7 +120,7 @@ fn build_tree() -> Generator {
         quat_x(0.34),
     ));
 
-    // Two thwart benches across the open hull (horizontal — the root is flat).
+    // Two thwart benches across the open hull (horizontal - the root is flat).
     for sz in [-0.7_f32, 0.6] {
         prims.push(prim(
             solid(cuboid_tapered([0.92, 0.08, 0.28], 0.0, plank(DECK_WOOD))),

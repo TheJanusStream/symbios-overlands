@@ -1,4 +1,4 @@
-//! Scrap shanty — the Cyberpunk *poor* landmark. A precarious tower of
+//! Scrap shanty - the Cyberpunk *poor* landmark. A precarious tower of
 //! mismatched shipping containers stacked askew, patched with tin lean-tos
 //! and lit by a single failing neon sign. The undercity counterpart to the
 //! glossy [`neon_megatower`](super::neon_megatower): same theme, opposite
@@ -106,7 +106,7 @@ fn build_tree() -> Generator {
             [2.15, 1.2, 0.4],
             id_quat(),
         ),
-        // Failing vertical neon sign down the front — dim, buzzing, throwing
+        // Failing vertical neon sign down the front - dim, buzzing, throwing
         // the occasional spark.
         {
             let mut sign = prim(
@@ -129,7 +129,7 @@ fn build_tree() -> Generator {
             [0.2, ch * 3.0 + 4.4, 0.1],
             id_quat(),
         ),
-        // Salvage cohesion — the lived-in junk that makes it a settlement, not
+        // Salvage cohesion - the lived-in junk that makes it a settlement, not
         // a stack of boxes:
         // A rusted water tank lashed to the second tier.
         prim(

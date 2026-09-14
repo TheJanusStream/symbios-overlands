@@ -1,4 +1,4 @@
-//! Barricade — crossed timber beams behind a lashed-on plank. An
+//! Barricade - crossed timber beams behind a lashed-on plank. An
 //! escalation-Conflict scatter prop: a hasty road-block reads the same in a
 //! medieval siege or a modern riot.
 
@@ -45,7 +45,7 @@ impl CatalogueEntry for Barricade {
 fn build_tree() -> Generator {
     use std::f32::consts::FRAC_PI_2;
     let beam = || solid(cuboid_tapered([0.12, 1.6, 0.12], 0.0, wood(WOOD)));
-    // Rope lashing wrapped round an X-crossing — a thin dark fibre ring in
+    // Rope lashing wrapped round an X-crossing - a thin dark fibre ring in
     // the beams' (X-Y) plane.
     let lash = |x: f32| {
         prim(
@@ -56,7 +56,7 @@ fn build_tree() -> Generator {
     };
 
     // The top rail is the flat root (id_quat); the leaning sawhorse beams,
-    // braces and rag hang off it as children — so the assemble root is never
+    // braces and rag hang off it as children - so the assemble root is never
     // a tilted piece (which would skew the whole block).
     super::assemble(vec![
         // Top rail lashed across the trestles.

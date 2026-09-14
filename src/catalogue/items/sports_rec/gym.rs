@@ -1,4 +1,4 @@
-//! Gym — a Sports/Recreation secondary. A big corrugated-clad sports hall
+//! Gym - a Sports/Recreation secondary. A big corrugated-clad sports hall
 //! with a clerestory glazing band, a lit glass entrance under a concrete
 //! canopy and a colour sign band. The indoor training shed of the complex.
 //!
@@ -58,7 +58,7 @@ fn build_tree() -> Generator {
     let fz = -1.0_f32; // hero faces the −Z render front
 
     let mut prims = vec![
-        // Concrete slab — the root.
+        // Concrete slab - the root.
         prim(
             solid(cuboid_tapered(
                 [14.0, slab_h, 10.0],
@@ -109,7 +109,7 @@ fn build_tree() -> Generator {
         glass(GLASS_TINT, 1.2),
         steel(STEEL_GREY),
     ));
-    // Glazed entrance — a steel-mullioned curtain wall facing the front.
+    // Glazed entrance - a steel-mullioned curtain wall facing the front.
     prims.extend(curtain_wall(
         [0.0, slab_h + 1.5, fz * 4.05],
         [3.6, 2.6],

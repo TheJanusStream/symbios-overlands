@@ -1,4 +1,4 @@
-//! Jail — a Wild-West secondary. A squat fieldstone lock-up with iron-barred
+//! Jail - a Wild-West secondary. A squat fieldstone lock-up with iron-barred
 //! windows, a heavy iron door and a flat tin roof. The marshal's lock-up of
 //! the boomtown.
 //!
@@ -50,7 +50,7 @@ impl CatalogueEntry for Jail {
     }
 }
 
-/// A fieldstone relieving arch humping over an opening — a half-torus seated
+/// A fieldstone relieving arch humping over an opening - a half-torus seated
 /// with its springers at the lintel ends. Decorative trim, so non-solid.
 fn relieving_arch(center: [f32; 3], minor: f32, major: f32) -> Generator {
     prim(
@@ -69,11 +69,11 @@ fn build_tree() -> Generator {
     let body_w = 6.0_f32;
     let body_h = 3.2_f32;
     let body_d = 5.0_f32;
-    // Render FRONT = −Z — barred windows, door and sign all face −Z.
+    // Render FRONT = −Z - barred windows, door and sign all face −Z.
     let front_z = -body_d * 0.5;
 
     let mut prims = vec![
-        // Fieldstone body — the root.
+        // Fieldstone body - the root.
         prim(
             solid(cuboid_tapered(
                 [body_w, body_h, body_d],
@@ -138,7 +138,7 @@ fn build_tree() -> Generator {
             [cx, 1.95, front_z + 0.06],
             id_quat(),
         ));
-        // Iron bars in weathered steel — lighter than the near-black reveal so
+        // Iron bars in weathered steel - lighter than the near-black reveal so
         // they silhouette against it instead of vanishing.
         for bx in [-0.28_f32, 0.0, 0.28] {
             prims.push(prim(

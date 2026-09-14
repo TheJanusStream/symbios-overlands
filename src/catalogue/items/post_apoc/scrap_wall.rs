@@ -1,4 +1,4 @@
-//! Scrap wall — a Post-apocalyptic prop. A barrier of mismatched corrugated
+//! Scrap wall - a Post-apocalyptic prop. A barrier of mismatched corrugated
 //! and plate metal welded to leaning posts. Scatter clutter fencing the
 //! holdout.
 
@@ -48,7 +48,7 @@ impl CatalogueEntry for ScrapWall {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Tallest corrugated panel — the root.
+        // Tallest corrugated panel - the root.
         prim(
             solid(cuboid_tapered(
                 [1.4, 2.4, 0.12],
@@ -60,7 +60,7 @@ fn build_tree() -> Generator {
         ),
     ];
     // Mismatched panels of varying height welded alongside, each leaning its
-    // own way — the lurching, never-plumb line of a scavenged barrier.
+    // own way - the lurching, never-plumb line of a scavenged barrier.
     prims.push(prim(
         solid(cuboid_tapered([1.4, 2.0, 0.14], 0.0, rusted(STEEL_GREY))),
         [0.2, 1.0, 0.05],

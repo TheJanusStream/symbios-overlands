@@ -1,4 +1,4 @@
-//! Mudbrick hut — the AncientClassical *poor* landmark. A small sun-baked
+//! Mudbrick hut - the AncientClassical *poor* landmark. A small sun-baked
 //! adobe dwelling with thick walls, a flat mud roof on protruding timber
 //! beams, and a dark doorway. The destitute counterpart to the marble
 //! kit: a poor classical room grows this instead of a temple or villa.
@@ -62,7 +62,7 @@ fn build_tree() -> Generator {
     let wall_top = foot_h + wall_h;
 
     let mut prims = vec![
-        // Low adobe footing — the root.
+        // Low adobe footing - the root.
         prim(
             solid(cuboid_tapered(
                 [l + 0.5, foot_h, w + 0.5],

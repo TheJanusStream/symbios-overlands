@@ -1,4 +1,4 @@
-//! Symbios Overlands — binary entry point.
+//! Symbios Overlands - binary entry point.
 //!
 //! All engine wiring lives in the library crate ([`symbios_overlands`]); this
 //! binary is a one-line shim that hands control to [`symbios_overlands::run`].

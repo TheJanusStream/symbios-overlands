@@ -1,4 +1,4 @@
-//! Environment tab — directional sun, ambient, sky, fog, and room-wide water
+//! Environment tab - directional sun, ambient, sky, fog, and room-wide water
 //! widgets. Per-volume water appearance (colour, choppiness) lives on the
 //! Water generator detail editor instead; the fields here are the ones that
 //! should match the room's mood rather than varying between water bodies.
@@ -32,7 +32,7 @@ pub(super) struct PlayerPose {
 impl PlayerPose {
     /// Extract the pose from a world-space transform. The yaw is recovered
     /// from the transform's forward vector projected onto XZ so it inverts
-    /// the spawn path's `Quat::from_rotation_y(yaw_deg)` exactly — and stays
+    /// the spawn path's `Quat::from_rotation_y(yaw_deg)` exactly - and stays
     /// correct even when the chassis is tilted to a slope (the projection
     /// discards the pitch/roll the surface-normal alignment adds).
     pub(super) fn from_transform(tf: &Transform) -> Self {
@@ -169,7 +169,7 @@ pub(super) fn draw_environment_tab(
         .show(ui, |ui| {
             // #1268 f66. These six were the app's most jargon-dense
             // labels and the only surface an owner has for learning what
-            // they control — and until `color_picker` returned a
+            // they control - and until `color_picker` returned a
             // `Response` (this issue) four of them COULD not carry a
             // hint at all. Extinction and inscattering are the two halves
             // of the same physical model and neither name says so.
@@ -191,11 +191,11 @@ pub(super) fn draw_environment_tab(
             );
             color_picker(ui, "Extinction", &mut env.fog_extinction, dirty).on_hover_text(
                 "Which colours the air SWALLOWS with distance, per channel. Lower a \
-                 channel and that colour survives further — a low blue gives warm, \
+                 channel and that colour survives further - a low blue gives warm, \
                  dusty air.",
             );
             color_picker(ui, "Inscattering", &mut env.fog_inscattering, dirty).on_hover_text(
-                "Which colours the air ADDS back with distance, per channel — the \
+                "Which colours the air ADDS back with distance, per channel - the \
                  light bouncing around in it. Raise blue for the usual hazy-blue \
                  horizon.",
             );
@@ -222,7 +222,7 @@ pub(super) fn draw_environment_tab(
         .show(ui, |ui| {
             fp_slider(
                 ui,
-                "Detail normal — near tile",
+                "Detail normal - near tile",
                 &mut env.water_normal_scale_near,
                 0.0,
                 4.0,
@@ -230,7 +230,7 @@ pub(super) fn draw_environment_tab(
             );
             fp_slider(
                 ui,
-                "Detail normal — far tile",
+                "Detail normal - far tile",
                 &mut env.water_normal_scale_far,
                 0.0,
                 1.0,
@@ -313,7 +313,7 @@ fn draw_arrival_point(
                 .checkbox(&mut enabled, "Set a custom arrival point")
                 .on_hover_text(
                     "Where visitors come to rest when they enter without a specific \
-                     destination link — including through another world's gateway. \
+                     destination link - including through another world's gateway. \
                      Off: they scatter near the world origin.",
                 )
                 .changed()
@@ -386,7 +386,7 @@ fn draw_arrival_point(
             if ui
                 .checkbox(&mut pin, "Pin exact height")
                 .on_hover_text(
-                    "Off: height follows the terrain at (X, Z) — best for ground-level \
+                    "Off: height follows the terrain at (X, Z) - best for ground-level \
                      spots. On: use a fixed Y, for a platform or rooftop.",
                 )
                 .changed()

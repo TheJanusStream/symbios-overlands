@@ -1,5 +1,5 @@
 //! Space-Outpost "bring-it-to-life" helpers: a thin drift of regolith dust,
-//! and two spatial-audio patches — a steady reactor hum for the habitat dome
+//! and two spatial-audio patches - a steady reactor hum for the habitat dome
 //! and a pulsing radio static for the comms dish.
 //!
 //! Particle emitters are returned as [`Generator`] nodes (a
@@ -26,7 +26,7 @@ use crate::pds::{
 // ---------------------------------------------------------------------------
 
 /// A thin veil of rust-grey regolith dust skating low across the ground on
-/// the thin wind — the restless surface of the outpost world.
+/// the thin wind - the restless surface of the outpost world.
 pub(super) fn regolith_dust(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
         shape: EmitterShape::Box {
@@ -58,7 +58,7 @@ pub(super) fn regolith_dust(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A steady reactor hum — two stacked sine partials under a faint tremolo,
+/// A steady reactor hum - two stacked sine partials under a faint tremolo,
 /// the life-support plant of the habitat.
 pub(super) fn reactor_hum() -> SovereignAudioConfig {
     let low = node(
@@ -110,7 +110,7 @@ pub(super) fn reactor_hum() -> SovereignAudioConfig {
     patch(vec![low, harm, mix, lfo, vca], NodeId(4))
 }
 
-/// A pulsing radio static — mid band-passed noise gated by a slow LFO,
+/// A pulsing radio static - mid band-passed noise gated by a slow LFO,
 /// the comms dish listening to the void.
 pub(super) fn comms_static() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.4 }));

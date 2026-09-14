@@ -3,8 +3,8 @@
 //! writes.
 //!
 //! A room that fits inside one record is written as one record. A room that
-//! does not is written as a **manifest** — the `self` record carrying the
-//! environment plus a map of generator name to child rkey — with one
+//! does not is written as a **manifest** - the `self` record carrying the
+//! environment plus a map of generator name to child rkey - with one
 //! content-addressed child record per generator ([`child_rkey`]). The read
 //! side ([`fetch_room_record`]) joins them back into the single
 //! [`RoomRecord`] the rest of the app knows, so nothing downstream can tell
@@ -16,7 +16,7 @@
 //! *derivation* of a seeded world is not, and it now lives in
 //! [`crate::seeded_defaults::room::build`].
 //!
-//! The manifest is the source of truth for what a room references — a
+//! The manifest is the source of truth for what a room references - a
 //! reference set recomputed from `generators` would miss the opaque refs a
 //! newer client wrote and this one cannot decode.
 
@@ -36,8 +36,8 @@ use crate::pds::xrpc::{
 
 #[derive(Deserialize)]
 struct GetRecordResponse {
-    /// Captured raw so both `room/self` shapes — the legacy monolith and
-    /// the #697 manifest — decode through [`RoomSelfWire`].
+    /// Captured raw so both `room/self` shapes - the legacy monolith and
+    /// the #697 manifest - decode through [`RoomSelfWire`].
     value: serde_json::Value,
 }
 
@@ -47,7 +47,7 @@ struct GetRecordResponse {
 
 /// One named generator on the wire: a record in
 /// [`crate::pds::ROOM_GENERATOR_COLLECTION`] at `rkey =` [`child_rkey`].
-/// Immutable by construction — the rkey is a hash of this exact content,
+/// Immutable by construction - the rkey is a hash of this exact content,
 /// so editing a generator publishes a *new* child and retires the old one.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RoomGeneratorRecord {
@@ -55,7 +55,7 @@ pub struct RoomGeneratorRecord {
     pub lex_type: String,
     /// The manifest name pointing here. It is part of the hashed body, so
     /// it participates in [`child_rkey`]: two names holding identical
-    /// generator content get two children, not one. That is deliberate —
+    /// generator content get two children, not one. That is deliberate -
     /// renaming a generator must re-key its child, or a peer that fetched
     /// the old manifest and the new child would render the room under
     /// stale names.
@@ -76,7 +76,7 @@ impl RoomGeneratorRecord {
 /// Content-addressed record key for a child generator: lowercase hex of
 /// `fnv1a_64` over the child's canonical serialized body.
 ///
-/// `Err` when the generator has no body to address — a union arm this build
+/// `Err` when the generator has no body to address - a union arm this build
 /// decoded as `Unknown` and cannot write back (#1111). The message is
 /// [`unserializable_reason`](crate::pds::record_size::unserializable_reason)'s,
 /// so a caller can show it to the owner unchanged.
@@ -86,8 +86,8 @@ impl RoomGeneratorRecord {
 /// `HashMap` entries in iteration order, which `RandomState` re-seeds per
 /// map. Until #1118 the map-bearing generators (LSystem's `materials` and
 /// `prop_mappings`, Shape's `materials`) therefore hashed differently on
-/// every decode. The fix belongs in the *serializers* — see
-/// [`sorted_string_map`](crate::pds::types::sorted_string_map) — because
+/// every decode. The fix belongs in the *serializers* - see
+/// [`sorted_string_map`](crate::pds::types::sorted_string_map) - because
 /// this function must hash the same bytes the batch actually writes; a hash
 /// canonicalised on its own would address content nobody stored.
 ///
@@ -95,11 +95,11 @@ impl RoomGeneratorRecord {
 /// a manifest can only ever point at children whose bytes cannot change,
 /// so a visitor racing a publish sees a fully consistent old or new room,
 /// never a half-updated child. It also makes unchanged generators free to
-/// republish — same content, same rkey, no write.
+/// republish - same content, same rkey, no write.
 pub fn child_rkey(name: &str, generator: &Generator) -> Result<String, String> {
     // Fallible because there is a real answer and it is not a key: a
-    // generator this build cannot write back — a union arm decoded to
-    // `Unknown` and marked `skip_serializing` (#1111) — has no content to
+    // generator this build cannot write back - a union arm decoded to
+    // `Unknown` and marked `skip_serializing` (#1111) - has no content to
     // address. Until #1315 this swallowed the error and hashed a sentinel,
     // which meant the one caller that reaches this arm on purpose
     // (`measure_publish`, building a manifest to show the owner the refusal)
@@ -121,7 +121,7 @@ pub fn child_rkey(name: &str, generator: &Generator) -> Result<String, String> {
 /// Both shapes `room/self` takes on the wire (#697 version-by-shape): the
 /// legacy monolith carries inline `generators`; the manifest instead
 /// carries `generator_refs` (name → child rkey). Every field defaults so
-/// either shape — or a forward-compat superset — decodes.
+/// either shape - or a forward-compat superset - decodes.
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct RoomSelfWire {
@@ -137,7 +137,7 @@ struct RoomSelfWire {
 /// The manifest written to `room/self` since #697: the full record minus
 /// generator bodies, which live in content-addressed child records.
 /// `generator_refs` and `traits` are `BTreeMap`s so the manifest bytes are
-/// canonical — the manifest is not content-addressed, but a peer diffing a
+/// canonical - the manifest is not content-addressed, but a peer diffing a
 /// re-broadcast room should see byte-equality when nothing changed.
 #[derive(Serialize)]
 struct RoomManifestOut {
@@ -191,13 +191,13 @@ impl RoomManifestOut {
 /// A ref resolves one of three ways, and the difference matters on the way
 /// back out (#1175):
 ///
-/// * **decoded** — merges into `generators` alongside the inline legacy ones.
-/// * **listed but undecodable** — recorded in
+/// * **decoded** - merges into `generators` alongside the inline legacy ones.
+/// * **listed but undecodable** - recorded in
 ///   [`RoomRecord::opaque_refs`] so the next publish keeps pointing at it.
 ///   The room loads without that generator, which is unavoidable; what is
 ///   avoidable is this client then deleting somebody else's content because
 ///   it could not read it.
-/// * **absent from the listing** — skipped with a warning, as before. A ref
+/// * **absent from the listing** - skipped with a warning, as before. A ref
 ///   pointing at nothing is a torn historical write (or a hostile PDS
 ///   dropping records); preserving it would carry a dangling ref forever.
 fn assemble_room(wire: RoomSelfWire, children: &HashMap<String, Option<Generator>>) -> RoomRecord {
@@ -219,13 +219,13 @@ fn assemble_room(wire: RoomSelfWire, children: &HashMap<String, Option<Generator
             Some(None) => {
                 warn!(
                     "room child generator {rkey} for '{name}' is not decodable by \
-                     this build — preserving the reference so a newer client can \
+                     this build - preserving the reference so a newer client can \
                      still read it"
                 );
                 opaque_refs.insert(name, rkey);
             }
             None => warn!(
-                "room manifest references missing child generator {rkey} for '{name}' — skipping"
+                "room manifest references missing child generator {rkey} for '{name}' - skipping"
             ),
         }
     }
@@ -265,7 +265,7 @@ struct ListedChild {
 /// content we must merely preserve, and that decision is the whole of
 /// #1175.
 ///
-/// The rkey is keyed from the listed `at://` URI, never from the value —
+/// The rkey is keyed from the listed `at://` URI, never from the value -
 /// that is the point. `list_attachment_rkeys` (avatar/wardrobe.rs) takes
 /// the same shape for the same reason: a record we cannot read still has
 /// to count as PRESENT, or the publish planner will try to create over it
@@ -293,12 +293,12 @@ fn fold_listed_children(records: Vec<ListedChild>, out: &mut HashMap<String, Opt
 /// evidence of ABSENCE for a delete: every delete in `plan_room_writes`
 /// comes out of this listing, so a short walk can only under-delete. It
 /// *is* evidence of absence for the create half, and a truncated walk
-/// there would emit `#create` over a record that exists — an opaque 500
+/// there would emit `#create` over a record that exists - an opaque 500
 /// that fails the whole save (#1186). That cannot happen for a legal room:
 /// four pages hold 400 records against `sanitize`'s
 /// `MAX_GENERATORS = 256` cap, and the surplus is orphan-swept on every
 /// publish. It would take a repo that had already accumulated >400
-/// children — i.e. a GC that had already failed — to get there.
+/// children - i.e. a GC that had already failed - to get there.
 async fn list_room_children(
     client: &reqwest::Client,
     pds: &str,
@@ -342,10 +342,10 @@ async fn list_room_children(
 
 /// Fetch the room customisation record from the given DID's PDS.
 ///
-/// * `Ok(Some(record))` — the owner has published a record.
-/// * `Ok(None)` — the PDS reported there is no record yet (the caller may
+/// * `Ok(Some(record))` - the owner has published a record.
+/// * `Ok(None)` - the PDS reported there is no record yet (the caller may
 ///   substitute the default homeworld).
-/// * `Err(FetchError)` — transient or permanent failure; the caller must
+/// * `Err(FetchError)` - transient or permanent failure; the caller must
 ///   **not** fall through to the default, because doing so risks the user
 ///   publishing the blank default over their real room on the next save.
 ///
@@ -354,7 +354,7 @@ async fn list_room_children(
 /// child-generator collection before assembly.
 ///
 /// Note: ATProto's `com.atproto.repo.getRecord` returns `400 RecordNotFound`
-/// — NOT `404` — when the record does not exist. We detect that payload
+/// - NOT `404` - when the record does not exist. We detect that payload
 /// explicitly and convert it to `Ok(None)` so the loading state can advance
 /// onto the default homeworld instead of hammering the PDS with retries.
 pub async fn fetch_room_record(
@@ -376,7 +376,7 @@ pub async fn fetch_room_record(
         return Ok(None);
     }
     if !status.is_success() {
-        // Inspect the error body before surfacing as PdsError — ATProto
+        // Inspect the error body before surfacing as PdsError - ATProto
         // signals "no such record" via 400 + `error: "RecordNotFound"` in
         // the body, and we must not treat that as a transient retry case.
         // Capped (#1124): a room is fetched from its owner's PDS, which
@@ -409,7 +409,7 @@ pub async fn fetch_room_record(
 // ---------------------------------------------------------------------------
 
 /// Serialized size of the largest single record a publish of `record`
-/// would write — the manifest or the biggest child generator. This is the
+/// would write - the manifest or the biggest child generator. This is the
 /// per-record figure the #694 size budget applies to now that the room is
 /// split across records (#697).
 pub fn max_publish_record_bytes(record: &RoomRecord) -> Option<usize> {
@@ -420,11 +420,11 @@ pub fn max_publish_record_bytes(record: &RoomRecord) -> Option<usize> {
 /// the manifest and the child generator records, named the way
 /// [`plan_room_writes`] names them when it refuses one, and the refusal
 /// sentence if any of them cannot be serialized (a generator, placement or
-/// material from a newer build — `wire_ready` refuses the same save).
+/// material from a newer build - `wire_ready` refuses the same save).
 pub fn measure_publish(record: &RoomRecord) -> crate::pds::record_size::SizeReadout {
     let mut readout = crate::pds::record_size::SizeReadout::default();
-    // The manifest can only fail to build for one reason — a generator whose
-    // body will not serialize — and that is a refusal to *show*, not to
+    // The manifest can only fail to build for one reason - a generator whose
+    // body will not serialize - and that is a refusal to *show*, not to
     // propagate: this function exists so the owner sees why Save is disabled.
     // `SizeReadout::refuse` is the seam for exactly that (a refusal decided
     // without serializing), and the per-child loop below names the offender.
@@ -445,7 +445,7 @@ pub fn measure_publish(record: &RoomRecord) -> crate::pds::record_size::SizeRead
 /// manifest + content-addressed children (#697), given the child rkeys
 /// currently on the PDS and whether `room/self` already exists.
 ///
-/// The plan is: child creates, then the manifest put, then orphan deletes —
+/// The plan is: child creates, then the manifest put, then orphan deletes -
 /// chunked by [`crate::pds::xrpc::chunk_writes`] to both the write-count
 /// commit cap and the request-body byte budget, in that order, so a
 /// visitor reading between commits always sees a manifest whose refs all
@@ -485,7 +485,7 @@ fn plan_room_writes(
     let creates: Vec<RepoWrite> = desired.into_values().collect();
 
     // Orphaned means "the manifest we are about to write does not point at
-    // it" — read off `manifest.generator_refs`, not recomputed from
+    // it" - read off `manifest.generator_refs`, not recomputed from
     // `record.generators`. The two differ by exactly the opaque refs
     // (#1175): children this build could not decode, which the manifest
     // still names and which must therefore survive the sweep. Deriving the
@@ -493,7 +493,7 @@ fn plan_room_writes(
     // place to keep in step.
     //
     // Deletes are still sourced purely from `existing_children`, so a short
-    // listing can only leave an orphan for a later sweep — never delete a
+    // listing can only leave an orphan for a later sweep - never delete a
     // record the repo does not have. That asymmetry is why this sweep needs
     // no completeness gate, unlike `attachment_retirements`, whose delete
     // set has a derived half the listing cannot vouch for.
@@ -533,7 +533,7 @@ fn plan_room_writes(
         .chain(std::iter::once(manifest_write))
         .chain(deletes)
         .collect();
-    // Sharing a batch across the create/manifest/delete phases is fine —
+    // Sharing a batch across the create/manifest/delete phases is fine -
     // each applyWrites batch commits atomically, so only the ordering at
     // CHUNK boundaries matters, and the linear order above provides it.
     crate::pds::xrpc::chunk_writes(ordered)
@@ -562,14 +562,14 @@ async fn room_self_exists(client: &reqwest::Client, pds: &str, did: &str) -> Res
     if body.contains("RecordNotFound") {
         return Ok(false);
     }
-    Err(format!("existence check failed: {} — {}", status, body))
+    Err(format!("existence check failed: {} - {}", status, body))
 }
 
 /// Publish the room to the authenticated user's own PDS as a slim manifest
 /// plus content-addressed child generator records (#697).
 ///
 /// The write plan diffs the desired child set against a `listRecords` walk
-/// of what is actually on the PDS (authoritative — orphans from older
+/// of what is actually on the PDS (authoritative - orphans from older
 /// writes or other devices are GC'd in the same plan) and commits via
 /// `com.atproto.repo.applyWrites` in read-safe order: children first, then
 /// the manifest, then orphan deletes. A plan that fits one batch (the
@@ -589,7 +589,7 @@ pub async fn publish_room_record(
     // Refused before any network I/O, and before `child_rkey` hashes a body
     // it could not write (#1111): a generator, placement or material this
     // build decoded as `Unknown` cannot be re-serialized, and saving anyway
-    // would replace the owner's newer content with a husk — the split-wire
+    // would replace the owner's newer content with a husk - the split-wire
     // publish would even GC the original child as an orphan.
     crate::pds::record_size::wire_ready(record, "world")?;
     let pds = resolve_pds(client, &session.did)
@@ -614,7 +614,7 @@ pub async fn publish_room_record(
     Ok(())
 }
 
-/// Delete the room from the authenticated user's PDS — the `room/self`
+/// Delete the room from the authenticated user's PDS - the `room/self`
 /// manifest (whichever shape it holds) **and** every record in the
 /// child-generator collection, so a reset cannot strand orphaned children
 /// (#697). Deletes only what a `listRecords` walk + existence check say is
@@ -693,8 +693,8 @@ mod split_wire_tests {
     }
 
     /// #1207, finding 208. Sequence: the readout turns red at "912.4 KiB
-    /// — too large to save" and the only guidance is "remove or shrink
-    /// content" — nothing says which of forty generators holds the budget,
+    /// - too large to save" and the only guidance is "remove or shrink
+    /// content" - nothing says which of forty generators holds the budget,
     /// and the preflight that names it is behind the very Save the ceiling
     /// disables. The measurement names the winner in preflight's words.
     #[test]
@@ -710,7 +710,7 @@ mod split_wire_tests {
         );
         assert_eq!(readout.bytes, max_publish_record_bytes(&record));
         assert_eq!(readout.unserializable, None);
-        // And when the manifest is the biggest record, it says so — which
+        // And when the manifest is the biggest record, it says so - which
         // is when deleting placements DOES move the number.
         record.generators.remove("oak_grove");
         let readout = measure_publish(&record);
@@ -718,8 +718,8 @@ mod split_wire_tests {
     }
 
     /// A generator carrying an audio node kind newer than this build's
-    /// mirror — the value `SovereignNodeKind::from_native`'s wildcard
-    /// produces (#1305 / #1170 finding 105) — is refused everywhere it
+    /// mirror - the value `SovereignNodeKind::from_native`'s wildcard
+    /// produces (#1305 / #1170 finding 105) - is refused everywhere it
     /// could be written, and the one place it is deliberately *not*
     /// refused still keeps its rkeys apart.
     ///
@@ -770,7 +770,7 @@ mod split_wire_tests {
         );
 
         // 2. The owner sees the same refusal in the size gauge rather than
-        //    only on a failed Save (#1207) — which is why `measure_publish`
+        //    only on a failed Save (#1207) - which is why `measure_publish`
         //    builds a manifest over an unwritable record on purpose, and so
         //    why `child_rkey` must return rather than panic.
         let readout = measure_publish(&record);
@@ -781,7 +781,7 @@ mod split_wire_tests {
         );
 
         // 3. There is no key for an unwritable child, and since #1315 that
-        //    is what the type says. It used to hash a sentinel — first the
+        //    is what the type says. It used to hash a sentinel - first the
         //    empty string, under which every unwritable generator collided
         //    on one rkey and the manifest pointed two names at whichever
         //    won, then a name-keyed one that could not collide but still
@@ -795,7 +795,7 @@ mod split_wire_tests {
             "rkey refusal should be the #1111 sentence, got: {reason}"
         );
         // The plan refuses for the same reason, at the manifest, before any
-        // child is written — so a caller that skipped `wire_ready` still
+        // child is written - so a caller that skipped `wire_ready` still
         // cannot half-publish the room.
         let planned = plan_room_writes(&record, &HashSet::new(), false)
             .expect_err("the plan cannot address the child");
@@ -837,7 +837,7 @@ mod split_wire_tests {
 
     /// Build an LSystem generator whose two maps are filled in the order
     /// `rotation` dictates. Same content every time; only the `HashMap`
-    /// insertion sequence — and therefore its iteration order — differs.
+    /// insertion sequence - and therefore its iteration order - differs.
     fn lsystem_with_maps(rotation: usize) -> Generator {
         let slots: Vec<u16> = vec![7, 1, 900, 42, 3, 250, 11, 65535];
         let props: Vec<u16> = vec![5, 2, 9, 1];
@@ -882,7 +882,7 @@ mod split_wire_tests {
     /// save and GC the identical child it had just replaced.
     ///
     /// The sequence that produced it: decode a room, edit anything, publish
-    /// — the decode rebuilt `materials` as a fresh map, so no LSystem child
+    /// - the decode rebuilt `materials` as a fresh map, so no LSystem child
     /// ever matched `existing_children`.
     #[test]
     fn child_rkey_ignores_hashmap_insertion_order() {
@@ -899,8 +899,8 @@ mod split_wire_tests {
     }
 
     /// The rkey is only an address if it addresses the bytes the batch
-    /// actually writes. Assert the serialized child — the exact value
-    /// `plan_room_writes` hands to `applyWrites` — is byte-identical across
+    /// actually writes. Assert the serialized child - the exact value
+    /// `plan_room_writes` hands to `applyWrites` - is byte-identical across
     /// independently built maps, not merely equal-hashing.
     #[test]
     fn child_bytes_are_byte_identical_across_rebuilds() {
@@ -1037,7 +1037,7 @@ mod split_wire_tests {
             !writes
                 .iter()
                 .any(|w| matches!(w, RepoWrite::Create { rkey, .. } if *rkey == unchanged_rkey)),
-            "unchanged content is free — no rewrite"
+            "unchanged content is free - no rewrite"
         );
 
         // Manifest is an update (room/self exists) and sits after every
@@ -1075,7 +1075,7 @@ mod split_wire_tests {
         let mut record = RoomRecord::default_for_did("did:plc:dedup");
         record.generators.clear();
         // The child body embeds the name, so true dedup needs identical
-        // (name, content) — which two map keys can't produce. What CAN
+        // (name, content) - which two map keys can't produce. What CAN
         // happen is the same rkey appearing twice via map iteration of
         // equal content+name pairs after a merge; assert the guard holds
         // for the reachable case: one name, one child, and the ref map
@@ -1166,7 +1166,7 @@ mod split_wire_tests {
     #[test]
     fn legacy_monolith_decodes_through_the_wire_shape() {
         let record = RoomRecord::default_for_did("did:plc:legacy");
-        // `RoomRecord::serialize` still emits the legacy inline shape — the
+        // `RoomRecord::serialize` still emits the legacy inline shape - the
         // in-memory model IS the old wire format.
         let wire: RoomSelfWire =
             serde_json::from_value(serde_json::to_value(&record).unwrap()).unwrap();
@@ -1200,7 +1200,7 @@ mod split_wire_tests {
         assert_eq!(assembled.placements.len(), record.placements.len());
     }
 
-    /// #1175 — the whole sequence, end to end: a newer client's child
+    /// #1175 - the whole sequence, end to end: a newer client's child
     /// record lands in the listing in a shape this build cannot decode, and
     /// the next publish from this build must leave it exactly where it is.
     ///
@@ -1208,7 +1208,7 @@ mod split_wire_tests {
     /// `existing_children` never held it, `assemble_room` never mentioned
     /// it, the manifest was rewritten without its ref, and the owner's
     /// generator was gone from the room with the bytes stranded on the PDS
-    /// — invisible to the very orphan sweep that would have tidied them.
+    /// - invisible to the very orphan sweep that would have tidied them.
     #[test]
     fn an_undecodable_child_is_preserved_across_a_publish() {
         let mut record = RoomRecord::default_for_did("did:plc:opaque");
@@ -1218,7 +1218,7 @@ mod split_wire_tests {
         // What the PDS hands back: our own child, plus one written by a
         // client whose child schema this build cannot parse (here: no
         // `name`, which `RoomGeneratorRecord` requires). This is a listing
-        // response, not a hand-built map — the decode is the defect.
+        // response, not a hand-built map - the decode is the defect.
         let ours =
             child_rkey("mine", &record.generators["mine"]).expect("test fixtures are addressable");
         let theirs = "0123456789abcdef".to_string();
@@ -1274,7 +1274,7 @@ mod split_wire_tests {
         );
 
         // Now publish it back. `existing_children` is every LISTED rkey,
-        // opaque ones included — that is what the fix keys on.
+        // opaque ones included - that is what the fix keys on.
         let existing: HashSet<String> = children.keys().cloned().collect();
         let batches = plan_room_writes(&assembled, &existing, true).unwrap();
         let writes: Vec<&RepoWrite> = batches.iter().flatten().collect();
@@ -1290,7 +1290,7 @@ mod split_wire_tests {
                 w,
                 RepoWrite::Create { rkey, .. } if *rkey == theirs
             )),
-            "and must not #create over it — the record is already there, and \
+            "and must not #create over it - the record is already there, and \
              applyWrites answers that with an opaque 500 that fails the save"
         );
         // Nothing else regressed: our own unchanged child is still free.

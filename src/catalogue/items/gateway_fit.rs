@@ -1,7 +1,7 @@
 //! Gateway veil fit measurement (#1006).
 //!
-//! Every themed gateway is a frame — jambs left and right, a lintel over
-//! the top, a threshold underfoot — with one translucent
+//! Every themed gateway is a frame - jambs left and right, a lintel over
+//! the top, a threshold underfoot - with one translucent
 //! [`Gateway`](crate::pds::GeneratorKind::Gateway) veil standing in the
 //! opening. The veil is
 //! both the walk-in sensor and a rendered [`bevy::prelude::Cuboid`]
@@ -16,9 +16,9 @@
 //!
 //! Two consumers:
 //!
-//! * [`probe`] — the per-face report the `--gateway-fit` dev command
+//! * [`probe`] - the per-face report the `--gateway-fit` dev command
 //!   prints, used to derive each frame's true opening.
-//! * [`fit_faults`] — the invariant the catalogue test asserts: each of
+//! * [`fit_faults`] - the invariant the catalogue test asserts: each of
 //!   the veil's four framed faces must sit *inside* solid geometry (no
 //!   gap, no overhang) and the veil must not protrude past the frame's
 //!   depth.
@@ -38,7 +38,7 @@ pub struct GatewayGeometry {
 
 /// Resolve a gateway tree into its veil box and solid pieces. Returns
 /// `None` when the tree carries no
-/// [`Gateway`](crate::pds::GeneratorKind::Gateway) node — a
+/// [`Gateway`](crate::pds::GeneratorKind::Gateway) node - a
 /// structure without its zone is not a gateway.
 pub fn measure(root: &Generator) -> Option<GatewayGeometry> {
     let veil = measure::gateway_veil(root)?;
@@ -62,7 +62,7 @@ pub enum Face {
 impl Face {
     /// The four faces a frame is expected to bury: the jambs, the lintel
     /// and the threshold. Front/back open onto the approach and are
-    /// bounded by the frame's *depth* instead — see [`fit_faults`].
+    /// bounded by the frame's *depth* instead - see [`fit_faults`].
     pub const FRAMED: [Self; 4] = [Self::Left, Self::Right, Self::Top, Self::Bottom];
 
     pub fn label(self) -> &'static str {
@@ -90,7 +90,7 @@ impl Face {
     }
 }
 
-/// What the geometry around one veil face looks like — the report the
+/// What the geometry around one veil face looks like - the report the
 /// `--gateway-fit` dev command prints per gateway.
 #[derive(Clone, Debug)]
 pub struct FaceProbe {
@@ -102,7 +102,7 @@ pub struct FaceProbe {
     /// overhang).
     pub covered_by: Option<SolidPiece>,
     /// The nearest solid *ahead* of the face along its outward axis that
-    /// spans the opening — the frame surface the veil should reach into.
+    /// spans the opening - the frame surface the veil should reach into.
     pub nearest_ahead: Option<(f32, SolidPiece)>,
 }
 
@@ -139,7 +139,7 @@ fn probe_face(geo: &GatewayGeometry, face: Face) -> FaceProbe {
         .cloned();
 
     // The nearest solid ahead of the face that still spans the opening on
-    // the other two axes — i.e. a piece the veil could grow into.
+    // the other two axes - i.e. a piece the veil could grow into.
     let others: [usize; 2] = match axis {
         0 => [1, 2],
         1 => [0, 2],
@@ -185,7 +185,7 @@ pub struct FitFault {
 
 /// Sample points across one veil face: a grid inset from the face's own
 /// edges, so the check covers the whole face instead of a single centre
-/// point — the difference between "the veil meets the frame" and "the
+/// point - the difference between "the veil meets the frame" and "the
 /// veil meets a trim strip glued to the frame, with daylight either side
 /// of it".
 ///
@@ -215,7 +215,7 @@ fn face_samples(b: &Bounds, face: Face) -> Vec<Vec3> {
 ///
 /// * Every sample across each of [`Face::FRAMED`] must be buried in a
 ///   solid piece. A sample floating in air means the veil is either short
-///   of the frame (a gap) or past it (an overhang) at that spot — both
+///   of the frame (a gap) or past it (an overhang) at that spot - both
 ///   show the cuboid edge the overhaul removes.
 /// * Front and back must not protrude past the depth of the pieces
 ///   burying the jambs, or the veil juts out of the gate mouth.
@@ -238,7 +238,7 @@ pub fn fit_faults(geo: &GatewayGeometry) -> Vec<FitFault> {
                 face,
                 detail: format!(
                     "{}/{total} samples across the veil's {} face are in open air (e.g. \
-                     [{:.3}, {:.3}, {:.3}]) — the veil neither reaches nor is buried in the \
+                     [{:.3}, {:.3}, {:.3}]) - the veil neither reaches nor is buried in the \
                      frame there",
                     open.len(),
                     face.label(),
@@ -270,7 +270,7 @@ pub fn fit_faults(geo: &GatewayGeometry) -> Vec<FitFault> {
                 face,
                 detail: format!(
                     "veil {} face is buried {buried:.3} m past the frame surface at \
-                     {surface:.3} — more than the {MAX_EMBED:.2} m an edge needs to hide, so \
+                     {surface:.3} - more than the {MAX_EMBED:.2} m an edge needs to hide, so \
                      the veil is swollen past its opening",
                     face.label()
                 ),
@@ -282,7 +282,7 @@ pub fn fit_faults(geo: &GatewayGeometry) -> Vec<FitFault> {
     //
     // Measured against the piece each jamb face actually sits in, not the
     // theme's nominal frame piece. Some gates frame their opening with two
-    // *rows* of jambs — a propylaea's column pairs, a lattice mast's legs —
+    // *rows* of jambs - a propylaea's column pairs, a lattice mast's legs -
     // and a veil standing correctly in one row is not "jutting past" the
     // other one it was never in.
     let jamb_depth = [Face::Left, Face::Right]
@@ -339,7 +339,7 @@ fn overlap(a: (f32, f32), b: (f32, f32)) -> f32 {
 /// light strip glued to that jamb covers a tenth of its depth.
 const FRAME_COVERAGE: f32 = 0.6;
 
-/// The depth the gate mouth runs to — the `z` range of its jambs.
+/// The depth the gate mouth runs to - the `z` range of its jambs.
 ///
 /// Established before any face is fitted, because it is the yardstick the
 /// rest of the fit is measured against: a piece only counts as frame if
@@ -363,8 +363,8 @@ pub fn mouth_depth_range(geo: &GatewayGeometry) -> Option<(f32, f32)> {
 
 /// The piece of frame that bounds the opening in one direction.
 ///
-/// Two traps this navigates. Themes line their jambs with trim — a 16 cm
-/// light strip on a 70 cm stanchion, a neon tube down a pylon — so the
+/// Two traps this navigates. Themes line their jambs with trim - a 16 cm
+/// light strip on a 70 cm stanchion, a neon tube down a pylon - so the
 /// *nearest* surface is often not the frame, and a veil fitted to it
 /// leaves daylight either side at other depths. But themes also carry
 /// signage and beams high above the opening, so the *largest* piece is
@@ -417,8 +417,8 @@ pub fn frame_piece(geo: &GatewayGeometry, face: Face) -> Option<&SolidPiece> {
 /// How far a fitted veil buries each edge inside the frame (metres).
 ///
 /// Big enough that the edge is unambiguously inside the jamb / lintel /
-/// threshold rather than kissing its surface — the coplanar-contact case
-/// that z-fights — and small enough to sit inside even the thin emissive
+/// threshold rather than kissing its surface - the coplanar-contact case
+/// that z-fights - and small enough to sit inside even the thin emissive
 /// trim tubes some themes use as their innermost frame piece.
 pub const EMBED: f32 = 0.04;
 
@@ -432,7 +432,7 @@ pub const MAX_EMBED: f32 = 0.30;
 /// grown until it is buried [`EMBED`] inside the surface ahead of it, and
 /// the depth clamped into the frame's own.
 ///
-/// Faces already buried are left alone — a veil edge hidden inside a
+/// Faces already buried are left alone - a veil edge hidden inside a
 /// thick pier is invisible, which is all the fit requires. Faces with no
 /// surface ahead are left alone too: there is nothing to reach, so the
 /// gateway needs a frame change rather than a veil change, and the report
@@ -540,7 +540,7 @@ mod tests {
         }
     }
 
-    /// A veil wider than its frame overhangs into open air — the jamb
+    /// A veil wider than its frame overhangs into open air - the jamb
     /// faces land past the masonry, not inside it.
     #[test]
     fn an_overhanging_veil_reports_its_jambs() {
@@ -558,7 +558,7 @@ mod tests {
     }
 
     /// A veil deeper than the jambs juts out of the mouth even though its
-    /// four framed faces are buried — the depth check is what catches it.
+    /// four framed faces are buried - the depth check is what catches it.
     #[test]
     fn a_too_deep_veil_reports_front_and_back() {
         let geo = measure(&test_gate([2.48, 2.88, 1.8], 1.6)).expect("no veil found");
@@ -568,7 +568,7 @@ mod tests {
         assert!(faces.contains(&Face::Back), "back jut missed: {faults:?}");
     }
 
-    /// The recommendation must turn a gapped veil into a fitted one —
+    /// The recommendation must turn a gapped veil into a fitted one -
     /// this is the loop the overhaul runs, so it has to close.
     #[test]
     fn recommending_a_gapped_veil_makes_it_fit() {
@@ -590,7 +590,7 @@ mod tests {
         );
     }
 
-    /// The recommendation reaches the frame and buries itself by EMBED —
+    /// The recommendation reaches the frame and buries itself by EMBED -
     /// not more, so a veil never eats visibly into its own frame.
     #[test]
     fn recommendation_buries_edges_by_the_embed_constant() {
@@ -656,7 +656,7 @@ mod tests {
     }
 
     /// A veil sized to swallow its own piers hides every edge and would
-    /// otherwise pass — the burial bound is what rejects it.
+    /// otherwise pass - the burial bound is what rejects it.
     #[test]
     fn a_swollen_veil_is_rejected_even_though_its_edges_are_hidden() {
         // Jambs span x 1.2..1.8; a veil out to ±1.75 buries its edges
@@ -703,7 +703,7 @@ mod tests {
         }
         assert!(
             checked >= 20,
-            "only {checked} gateways found — registry slipped?"
+            "only {checked} gateways found - registry slipped?"
         );
         assert!(
             bad.is_empty(),

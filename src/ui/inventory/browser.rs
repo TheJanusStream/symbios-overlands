@@ -11,7 +11,7 @@
 //! The row stays the drag source it always was. egui decides between the
 //! two gestures itself: `could_any_button_be_click` is false once the
 //! pointer has moved past `max_click_dist`, and on a click-and-drag sense
-//! `drag_started` needs that same movement — so a press that becomes a
+//! `drag_started` needs that same movement - so a press that becomes a
 //! drag never selects, and reading `clicked()` costs the drag nothing.
 //! [`stash_row`] is a widget function precisely so that claim can be
 //! driven with synthetic pointer events rather than taken on trust.
@@ -35,7 +35,7 @@ use super::{DropSource, PendingGeneratorDrop};
 /// scrub. [`crate::ui::catalogue::CatalogueBrowser`] is the shape; this one
 /// has a real [`Self::select`] because the row click is a real caller.
 ///
-/// Items are keyed by NAME — the PDS rkey is derived from it — so the
+/// Items are keyed by NAME - the PDS rkey is derived from it - so the
 /// selection has to FOLLOW a rename ([`Self::follow_rename`]) and DROP
 /// when the name stops resolving ([`Self::is_stale`]): a delete, a Load or
 /// Reset of the whole stash, a reload after a degraded fetch.
@@ -43,7 +43,7 @@ use super::{DropSource, PendingGeneratorDrop};
 pub struct InventoryBrowser {
     selected: Option<String>,
     /// When [`Self::selected`] was picked, in `Time::elapsed_secs_f64`
-    /// seconds — the item preview's tie-break against the Catalogue's pick
+    /// seconds - the item preview's tie-break against the Catalogue's pick
     /// ([`crate::item_preview::wanted_subject`]).
     picked_at: f64,
 }
@@ -66,7 +66,7 @@ impl InventoryBrowser {
 
     /// Select `name`, stamped `now`. Re-selecting the selected row
     /// re-stamps it, so it takes the stage back from a later Catalogue
-    /// pick — a click is a pick.
+    /// pick - a click is a pick.
     pub fn select(&mut self, name: &str, now: f64) {
         self.selected = Some(name.to_string());
         self.picked_at = now;
@@ -81,7 +81,7 @@ impl InventoryBrowser {
     }
 
     /// Whether the selection names something the stash can no longer be
-    /// selected for — gone, or unreadable by this build (a reload can put
+    /// selected for - gone, or unreadable by this build (a reload can put
     /// a newer client's item under the same name, and an unreadable row is
     /// not selectable). Asked through `Deref` every frame; [`Self::clear`]
     /// is called only when it answers yes, so the resource's tick moves on
@@ -106,8 +106,8 @@ impl InventoryBrowser {
 pub(crate) enum RowKind {
     /// Point-placeable: click to select, drag to place or to gift.
     Placeable,
-    /// Terrain or water: click to select — its Rename and delete live in
-    /// the expansion — and no drag sense, because a release would be
+    /// Terrain or water: click to select - its Rename and delete live in
+    /// the expansion - and no drag sense, because a release would be
     /// refused (#832).
     RoomScoped,
 }
@@ -141,7 +141,7 @@ impl RowGesture {
 /// with its tag at the right (#1301).
 ///
 /// The tag is the kind, or the wearable's socket, or the room-scoped note
-/// — the facets [`super::row_matches`] searches, which is why they stay on
+/// - the facets [`super::row_matches`] searches, which is why they stay on
 /// the row and the pane does not repeat them. Returns the response; see
 /// [`RowGesture::of`] and [`apply_row_gesture`] for what it means.
 pub(crate) fn stash_row(
@@ -210,7 +210,7 @@ pub(crate) fn no_picture_reason(generator: &Generator) -> Option<&'static str> {
 /// Only what the row does NOT already show: the row carries the kind and
 /// the wearable's socket because those are the search facets, and no fact
 /// is printed in two places. Everything here is answered by the record as
-/// it stands — nothing is serialised to find a size.
+/// it stands - nothing is serialised to find a size.
 pub(crate) fn pane_facts(
     generator: &Generator,
     wear: Option<&WearMeta>,
@@ -242,7 +242,7 @@ pub(crate) struct PaneItem<'a> {
     pub(crate) worn: bool,
 }
 
-/// The pane beside the list: the picture, the name, the facts — or the
+/// The pane beside the list: the picture, the name, the facts - or the
 /// sentence that says to select something. Never blank.
 pub(crate) fn draw_pane(
     ui: &mut egui::Ui,
@@ -291,8 +291,8 @@ mod tests {
 
     /// #1301. Items are keyed by NAME, so the selection is a claim about a
     /// key that a rename moves and a delete removes. The sequence: select
-    /// "lantern", rename it — the pane must still describe it, under the
-    /// new name — then delete it, and the pane must stop describing
+    /// "lantern", rename it - the pane must still describe it, under the
+    /// new name - then delete it, and the pane must stop describing
     /// anything rather than a key the stash no longer holds.
     #[test]
     fn a_rename_carries_the_selection_and_a_delete_drops_it() {
@@ -324,7 +324,7 @@ mod tests {
 
     /// #1301. A reload can replace an item with one this build cannot
     /// decode under the same name, and an unreadable row is not
-    /// selectable — so the selection must not survive onto it.
+    /// selectable - so the selection must not survive onto it.
     #[test]
     fn a_selection_that_becomes_unreadable_is_stale() {
         let mut stash = stash_of(&["lantern"]);
@@ -337,7 +337,7 @@ mod tests {
 
     /// #1301. The pane is never blank: a room-scoped or unreadable item
     /// says why it has no picture, and every item says how many parts it
-    /// has — a fact the record answers without being serialised.
+    /// has - a fact the record answers without being serialised.
     #[test]
     fn the_pane_says_why_there_is_no_picture() {
         let cuboid = Generator::default_cuboid();
@@ -434,7 +434,7 @@ mod tests {
     }
 
     /// #1301. A press and a release in place is a click: it selects, and
-    /// it must NOT arm the drop bus — an armed bus with the button up is a
+    /// it must NOT arm the drop bus - an armed bus with the button up is a
     /// release `handle_generator_drop` would act on.
     #[test]
     fn a_click_selects_the_row_and_arms_no_drag() {
@@ -455,7 +455,7 @@ mod tests {
     }
 
     /// #1301. A press that moves is a drag: it arms the drop bus as it
-    /// always did, and it must NOT select — the click the owner added is
+    /// always did, and it must NOT select - the click the owner added is
     /// not allowed to cost the drag anything, including a selection the
     /// user did not ask for on the way to placing an item.
     #[test]
@@ -484,7 +484,7 @@ mod tests {
     }
 
     /// #1301. A room-scoped row selects on a click, so its Rename and
-    /// delete are reachable, and a drag on it arms nothing — the release
+    /// delete are reachable, and a drag on it arms nothing - the release
     /// would be refused, which is why it never had a drag sense (#832).
     #[test]
     fn a_room_scoped_row_selects_but_never_arms_a_drag() {

@@ -1,4 +1,4 @@
-//! Hover-boat family assembler — composes the vessel from the seeded
+//! Hover-boat family assembler - composes the vessel from the seeded
 //! [`AvatarOutfit`](crate::seeded_defaults::AvatarOutfit) parts.
 //!
 //! The hull part is the structural root (a swept blob hull with a pointed prow
@@ -88,7 +88,7 @@ pub(super) fn build(seed: u64) -> Generator {
 }
 
 /// Rise (m) from the Stack mount up to the funnel mouth the FX steam issues
-/// from — the smokestack part's mouth sits ≈ this far above its base.
+/// from - the smokestack part's mouth sits ≈ this far above its base.
 pub(super) const FUNNEL_MOUTH_RISE: f32 = 0.5;
 
 /// Inboard-embed fractions for the Bow / Stack part bases (#806).
@@ -96,12 +96,12 @@ pub(super) const FUNNEL_MOUTH_RISE: f32 = 0.5;
 /// `bow_z` / `stack_z` (from [`BoatBlueprint`](crate::seeded_defaults)) are the
 /// *analytic* stem / stern stations, but the hull is a swept-blob iso-surface
 /// that pulls inboard of those analytic tips by a seed/torture-dependent margin
-/// — most at the fine prow, where a part seated on the tip floats ahead of the
+/// - most at the fine prow, where a part seated on the tip floats ahead of the
 /// mesh (the reported detached bowsprit). Seating each base at this fraction of
 /// its analytic station pulls it *into* the hull, so it always embeds rather
-/// than undershooting into open air. Embedding is invisible — the hull is
+/// than undershooting into open air. Embedding is invisible - the hull is
 /// opaque and a bowsprit / funnel still projects clear via its own forward /
-/// upward offset — and per the overshoot-beats-undershoot rule an embedded base
+/// upward offset - and per the overshoot-beats-undershoot rule an embedded base
 /// reads better than a floating one across every seed. The prow needs the
 /// stronger pull (its cone tapers to a fine point the iso-surface eats most).
 const BOW_HULL_EMBED: f32 = 0.80;

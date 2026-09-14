@@ -7,8 +7,8 @@
 //! Face keys are *semantic* (see [`FaceKey`]): they name what a surface
 //! **is**, so the same key survives a cut being toggled on and off, and a
 //! [`FaceOverride`](crate::pds::generator::FaceOverride) addressed to it
-//! keeps meaning. The two meshers a kind may use — Bevy's stock builder
-//! while untortured, our swept mesher once a cut is active — must therefore
+//! keeps meaning. The two meshers a kind may use - Bevy's stock builder
+//! while untortured, our swept mesher once a cut is active - must therefore
 //! agree on the vocabulary, which the `faces_survive_cut_toggle` test pins.
 //!
 //! # Why emission-time spans still name the right triangles at spawn
@@ -20,7 +20,7 @@
 //! swaps two corners *within* a triangle; and `subdivide_flat` expands each
 //! triangle into four consecutive ones, which [`FaceTable::subdivide`]
 //! mirrors. So a span recorded at emission is still correct after the whole
-//! pipeline — no re-derivation, and nothing to keep in sync by hand.
+//! pipeline - no re-derivation, and nothing to keep in sync by hand.
 
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
@@ -43,7 +43,7 @@ pub struct PrimMesh {
 /// spans in emission order.
 ///
 /// Spans tile `[0, triangle_count)` exactly. A face may own more than one
-/// span — the box sweep emits its four sides once per wall row — so this is
+/// span - the box sweep emits its four sides once per wall row - so this is
 /// deliberately *not* a map; adjacent spans sharing a key merge on push, so
 /// the overwhelmingly common single-face prim costs one entry.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -53,7 +53,7 @@ pub struct FaceTable {
 }
 
 impl FaceTable {
-    /// A table whose whole mesh is one face — the smooth closed prims
+    /// A table whose whole mesh is one face - the smooth closed prims
     /// (sphere, blob, plane) and every Bevy stock path with no cap split.
     pub fn single(face: FaceKey, triangles: u32) -> Self {
         let mut table = Self::default();
@@ -110,7 +110,7 @@ impl FaceTable {
     }
 
     /// Mirror `levels` rounds of [`subdivide_flat`](super::base::subdivide_flat),
-    /// which replaces every triangle with four consecutive ones — so each
+    /// which replaces every triangle with four consecutive ones - so each
     /// span simply scales by `4^levels`.
     pub fn subdivide(&mut self, levels: u32) {
         let factor = 4u32.saturating_pow(levels);
@@ -125,8 +125,8 @@ impl FaceTable {
 /// and the index buffer, and the span from the previous mark is recorded.
 ///
 /// Marking *after* each block (rather than declaring counts up front) is
-/// what keeps the table honest when a block is conditionally skipped — a
-/// zero-radius cap, an absent bore — because a skipped block marks nothing.
+/// what keeps the table honest when a block is conditionally skipped - a
+/// zero-radius cap, an absent bore - because a skipped block marks nothing.
 #[derive(Default)]
 pub(super) struct FaceSpans {
     table: FaceTable,
@@ -149,13 +149,13 @@ impl FaceSpans {
     /// Finish the table for a mesh of `total_tris` triangles.
     ///
     /// Exact coverage is a mesher invariant, so a shortfall is a bug in the
-    /// caller's marking — `debug_assert` catches it in every test run, and
+    /// caller's marking - `debug_assert` catches it in every test run, and
     /// release builds absorb the tail into the last face rather than leaving
     /// triangles unaddressable.
     pub(super) fn finish(mut self, total_tris: u32) -> FaceTable {
         debug_assert_eq!(
             self.marked, total_tris,
-            "face spans cover {} of {total_tris} triangles — a mesher block is unmarked",
+            "face spans cover {} of {total_tris} triangles - a mesher block is unmarked",
             self.marked
         );
         if self.marked < total_tris {
@@ -171,7 +171,7 @@ impl FaceSpans {
     }
 }
 
-/// Wrap a mesh whose whole surface is one face — Bevy's stock sphere,
+/// Wrap a mesh whose whole surface is one face - Bevy's stock sphere,
 /// capsule, torus and plane, which have no cap/wall split to recover.
 pub(super) fn whole(mesh: Mesh, face: FaceKey) -> PrimMesh {
     let triangles = match mesh.indices() {
@@ -196,7 +196,7 @@ pub(super) fn classified(
 }
 
 /// Build a [`FaceTable`] for a mesh whose triangles must be classified after
-/// the fact — Bevy's stock builders, which emit no block structure we can
+/// the fact - Bevy's stock builders, which emit no block structure we can
 /// mark. `classify` receives each triangle's summed vertex normal.
 ///
 /// Falls back to a single `fallback` span when the mesh lacks the normals or
@@ -278,7 +278,7 @@ pub(super) fn revolved_face(n: Vec3) -> FaceKey {
 
 /// Classifier for the Bevy `Tetrahedron`: a horizontal base plus three
 /// lateral faces named by the direction they lean (see
-/// [`TetrahedronShape`](super::shapes) for the corner layout — one base
+/// [`TetrahedronShape`](super::shapes) for the corner layout - one base
 /// corner sits at `-Z`, the other two at `+Z`, so the `+Z` face is the
 /// front and the remaining two split left / right by their `X` sign).
 pub(super) fn tetra_face(n: Vec3) -> FaceKey {

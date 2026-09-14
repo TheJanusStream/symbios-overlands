@@ -1,4 +1,4 @@
-//! Drone perch — a small Cyberpunk prop. A slim pole topped by a marked
+//! Drone perch - a small Cyberpunk prop. A slim pole topped by a marked
 //! landing pad, with a quad-rotor delivery drone hovering above it;
 //! scattered through the settlement as street clutter.
 
@@ -137,7 +137,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Port/starboard nav lights — red/green like a real aircraft.
+    // Port/starboard nav lights - red/green like a real aircraft.
     root.children.push(prim(
         sphere(0.04, 2, glow([1.0, 0.15, 0.1], 7.0)),
         [-0.55, h + 0.07, 0.0],

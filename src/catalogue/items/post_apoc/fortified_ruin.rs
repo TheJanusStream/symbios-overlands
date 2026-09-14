@@ -1,4 +1,4 @@
-//! Fortified ruin — the Post-apocalyptic landmark and the kit's lit hero. A
+//! Fortified ruin - the Post-apocalyptic landmark and the kit's lit hero. A
 //! gutted concrete building patched with welded scrap and sandbags, a lookout
 //! platform with a salvaged worklight and a burning barrel at the gate. ~10 m
 //! across, so it anchors the holdout and reads as the stronghold from across
@@ -59,7 +59,7 @@ fn build_tree() -> Generator {
     let base_h = 0.6_f32;
 
     let mut prims = vec![
-        // Concrete slab — the root.
+        // Concrete slab - the root.
         prim(
             solid(cuboid_tapered(
                 [10.0, base_h, 8.0],
@@ -122,7 +122,7 @@ fn build_tree() -> Generator {
         quat_y(0.06),
     ));
 
-    // Crumbled, jagged tops — irregular broken teeth along the surviving
+    // Crumbled, jagged tops - irregular broken teeth along the surviving
     // wall edges so the structure reads as collapsed, not clean-cut.
     let back_top = base_h + 5.0;
     for (dx, th) in [(-3.8_f32, 0.7_f32), (-1.0, 0.4), (1.4, 0.9), (3.9, 0.5)] {
@@ -172,7 +172,7 @@ fn build_tree() -> Generator {
     prims.extend(rubble_chunks([0.2, base_h, -2.5], 1.3, 0.8, 5));
     prims.extend(rubble_chunks([4.3, base_h, -2.6], 1.2, 0.8, 4));
 
-    // Lookout platform on the tall back corner, with a worklight — emissive.
+    // Lookout platform on the tall back corner, with a worklight - emissive.
     prims.push(prim(
         solid(cuboid_tapered([2.6, 0.3, 2.6], 0.0, rusted(STEEL_GREY))),
         [-3.4, base_h + 4.3, 2.4],
@@ -189,7 +189,7 @@ fn build_tree() -> Generator {
         quat_x(-0.4),
     ));
 
-    // Burning barrel in the open gate (−Z front), right of centre — emissive,
+    // Burning barrel in the open gate (−Z front), right of centre - emissive,
     // with flame + crackle, fully clear of the flanking stubs.
     let barrel = [1.5_f32, -3.1_f32];
     prims.push(prim(

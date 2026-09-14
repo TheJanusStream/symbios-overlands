@@ -1,4 +1,4 @@
-//! Hitching post — a Wild-West prop. A round-log hitching rail with iron
+//! Hitching post - a Wild-West prop. A round-log hitching rail with iron
 //! tie-rings beside a hewn-log water trough. Scatter clutter along the
 //! boardwalk.
 //!
@@ -55,7 +55,7 @@ fn build_tree() -> Generator {
     let post_h = rail_y + 0.1;
 
     let mut prims = vec![
-        // Left post — the root. Must be identity-rotation: the rotated rail
+        // Left post - the root. Must be identity-rotation: the rotated rail
         // can only be a child, never the assemble root.
         prim(
             solid(cylinder_tapered(0.1, post_h, 8, 0.0, clapboard(WOOD_RAW))),
@@ -69,7 +69,7 @@ fn build_tree() -> Generator {
         [1.1, post_h * 0.5, 0.0],
         id_quat(),
     ));
-    // Round top rail (a log) running along X — a child, not the root.
+    // Round top rail (a log) running along X - a child, not the root.
     prims.push(prim(
         solid(cylinder_tapered(0.08, 2.6, 8, 0.0, clapboard(WOOD_RAW))),
         [0.0, rail_y, 0.0],

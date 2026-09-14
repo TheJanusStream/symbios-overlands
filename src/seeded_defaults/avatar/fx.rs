@@ -1,4 +1,4 @@
-//! Seeded avatar FX spec — which signature particle aura and spatial-audio
+//! Seeded avatar FX spec - which signature particle aura and spatial-audio
 //! voice an avatar carries, derived from the shared [`AvatarCharacter`]
 //! anchor.
 //!
@@ -13,9 +13,9 @@
 //!
 //! Gating mirrors the room's theme accents: only signature styles emit an
 //! aura (a cyberpunk avatar trails neon motes, a steampunk one vents
-//! steam); the mundane styles stay clean. The voice respects the chassis —
+//! steam); the mundane styles stay clean. The voice respects the chassis -
 //! a vehicle hums, a luminous figure shimmers, an ordinary figure is
-//! silent — so a humanoid never sounds like an idling engine.
+//! silent - so a humanoid never sounds like an idling engine.
 
 use super::character::AvatarCharacter;
 use super::chassis::ChassisFamily;
@@ -26,22 +26,22 @@ use crate::seeded_defaults::scene::ThemeArchetype;
 ///
 /// The first six are the style-signature auras (picked by
 /// [`Self::for_style`]); the last three are the *chassis-signature* floors a
-/// vehicle falls back to when its style rolls [`Self::None`] — so no craft
+/// vehicle falls back to when its style rolls [`Self::None`] - so no craft
 /// idles in dead-clean air (a boat always leaves a wake, an airship always
 /// vents, a skiff always trails exhaust). See [`AvatarFx::for_character`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParticleAura {
-    /// No aura — the avatar reads clean.
+    /// No aura - the avatar reads clean.
     None,
-    /// Pale rising steam / exhaust — steampunk funnels, industrial vents.
+    /// Pale rising steam / exhaust - steampunk funnels, industrial vents.
     Steam,
-    /// Faint rising neon motes in the accent colour — cyberpunk, monolith.
+    /// Faint rising neon motes in the accent colour - cyberpunk, monolith.
     NeonHaze,
-    /// A downward jet plume — solar / space thrusters.
+    /// A downward jet plume - solar / space thrusters.
     Thruster,
-    /// Slow drifting arcane / biolume motes — fantasy, alien-organic.
+    /// Slow drifting arcane / biolume motes - fantasy, alien-organic.
     ArcaneMotes,
-    /// Warm upward embers — post-apoc, wild-west braziers / scorched gear.
+    /// Warm upward embers - post-apoc, wild-west braziers / scorched gear.
     Embers,
     /// Boat chassis floor: a low whitewater wake-mist off the stern.
     Wake,
@@ -68,7 +68,7 @@ impl ParticleAura {
             // buccaneer has is the one the chassis already supplies: rolling
             // `None` here lets `family_floor` give a Boat its `Wake`, which
             // is the correct answer and a better one than any style aura
-            // would be. A humanoid pirate then reads clean, which is right —
+            // would be. A humanoid pirate then reads clean, which is right -
             // a person does not smoke.
             Medieval | AncientClassical | Nordic | FeudalJapan | Mesoamerican | ModernCity
             | Suburban | RuralFarmland | CoastalResort | CivicCampus | SportsRec | GothicHorror
@@ -87,7 +87,7 @@ impl ParticleAura {
     }
 
     /// The chassis-signature aura a vehicle falls back to when its *style*
-    /// rolls [`Self::None`] — the diegetic wake / vent / exhaust every craft
+    /// rolls [`Self::None`] - the diegetic wake / vent / exhaust every craft
     /// carries. Humanoids have no floor (they read clean).
     fn family_floor(chassis: ChassisFamily) -> Self {
         match chassis {
@@ -100,7 +100,7 @@ impl ParticleAura {
 
     /// The effective aura for a style + chassis: the style signature, floored
     /// to the chassis signature when the style is clean, and with the
-    /// downward [`Self::Thruster`] jet reserved for airborne craft — a
+    /// downward [`Self::Thruster`] jet reserved for airborne craft - a
     /// surface boat / skiff rolling a thruster style would otherwise fire a
     /// jet straight into the water or road, so it trails its wake / exhaust
     /// instead.
@@ -122,11 +122,11 @@ impl ParticleAura {
 pub enum AvatarVoice {
     /// Silent.
     None,
-    /// A low mechanical drone — vehicle engines / industrial styles.
+    /// A low mechanical drone - vehicle engines / industrial styles.
     EngineHum,
-    /// A buzzing electric hum — neon styles.
+    /// A buzzing electric hum - neon styles.
     NeonBuzz,
-    /// A soft tonal shimmer — arcane / biolume / solar styles.
+    /// A soft tonal shimmer - arcane / biolume / solar styles.
     ArcaneShimmer,
 }
 
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn downward_thruster_is_reserved_for_airborne_craft() {
         // A Solarpunk / SpaceOutpost boat or skiff would fire a jet into the
-        // water / road — it trails its family wake / exhaust instead. An
+        // water / road - it trails its family wake / exhaust instead. An
         // airship keeps the thruster wash, and a humanoid is unchanged.
         assert_eq!(
             ParticleAura::effective(ParticleAura::Thruster, ChassisFamily::Boat),
@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn a_styled_vehicle_keeps_its_style_aura() {
-        // The floor only fills a clean style — a themed aura is preserved
+        // The floor only fills a clean style - a themed aura is preserved
         // (a steampunk boat still steams; it does not fall back to a wake).
         assert_eq!(
             ParticleAura::effective(ParticleAura::Steam, ChassisFamily::Boat),
@@ -285,7 +285,7 @@ mod tests {
             ParticleAura::effective(ParticleAura::NeonHaze, ChassisFamily::Skiff),
             ParticleAura::NeonHaze
         );
-        // A humanoid never floors — a clean style stays clean.
+        // A humanoid never floors - a clean style stays clean.
         assert_eq!(
             ParticleAura::effective(ParticleAura::None, ChassisFamily::Humanoid),
             ParticleAura::None

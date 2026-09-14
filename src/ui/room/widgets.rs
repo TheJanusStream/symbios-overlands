@@ -38,7 +38,7 @@ pub(crate) fn mute_banner(ui: &mut egui::Ui, muted: &mut bool) {
 }
 
 /// Quaternion → yaw/pitch/roll in degrees (`EulerRot::YXZ`: yaw about Y,
-/// then pitch about X, then roll about Z — the convention the BlobGroup
+/// then pitch about X, then roll about Z - the convention the BlobGroup
 /// element editor established). Pure for round-trip tests.
 pub(super) fn quat_to_ypr_degrees(q: [f32; 4]) -> [f32; 3] {
     let (yaw, pitch, roll) = bevy::math::Quat::from_array(q).to_euler(bevy::math::EulerRot::YXZ);
@@ -58,11 +58,11 @@ pub(super) fn ypr_degrees_to_quat(ypr: [f32; 3]) -> [f32; 4] {
 }
 
 /// Rotation editor row (#826): yaw/pitch/roll DEGREE drags backed by the
-/// record's quaternion — "rotate 45° around Y" is typed as `Yaw 45`
+/// record's quaternion - "rotate 45° around Y" is typed as `Yaw 45`
 /// instead of hand-computing quaternion components. Stateless
 /// quat→euler→quat per edit, the same pattern the BlobGroup element
 /// editor proved out; the RECORD keeps the quaternion (no schema
-/// change), and gizmo commits still write quats directly — this row
+/// change), and gizmo commits still write quats directly - this row
 /// re-derives its angles from whatever the quat currently is. Near the
 /// ±90° pitch fold the displayed yaw/roll pair can re-canonicalise
 /// (Euler ambiguity); the underlying rotation stays exact.
@@ -240,8 +240,8 @@ pub(super) fn fp_slider(
 /// For the ranges the record permits and a person almost never wants: a
 /// 0..600 s decal TTL or a 0..1000 m/s trigger speed on a linear track puts
 /// every useful value in the first two pixels. The wide bound has to be
-/// REACHABLE — a legal value the GUI cannot author sends the owner to the
-/// Raw JSON tab — and the low end has to stay tunable.
+/// REACHABLE - a legal value the GUI cannot author sends the owner to the
+/// Raw JSON tab - and the low end has to stay tunable.
 pub(super) fn fp_slider_log(
     ui: &mut egui::Ui,
     label: &str,
@@ -286,7 +286,7 @@ pub(super) fn fp_range_sliders(
 }
 
 /// The drag's own response, for the same reason [`fp_slider`] returns one
-/// — not the row's, so a tooltip lands on the control rather than the
+/// - not the row's, so a tooltip lands on the control rather than the
 /// whole line.
 pub(super) fn drag_u32(
     ui: &mut egui::Ui,
@@ -321,7 +321,7 @@ pub(super) fn drag_u64(ui: &mut egui::Ui, label: &str, value: &mut u64, dirty: &
 ///
 /// **The bug this closes.** `Ui::color_edit_button_rgb` is documented as
 /// taking *linear* RGB, and the record's numbers are read by the world as
-/// sRGB — `Color::srgb(sun[0], …)` for the sun, sky, cloud, fog, extinction,
+/// sRGB - `Color::srgb(sun[0], …)` for the sun, sky, cloud, fog, extinction,
 /// inscattering, sun glow and water crest. So the same triple meant two
 /// different colours at the two ends: a picked mid-grey showed as 0.5 in the
 /// swatch, stored as 0.21, and lit the world as sRGB 0.21. The Environment
@@ -333,7 +333,7 @@ pub(super) fn drag_u64(ui: &mut egui::Ui, label: &str, value: &mut u64, dirty: &
 /// meaning it already had, so no record is migrated and no world re-lights
 /// itself on upgrade.
 /// Returns the row's `Response` so the caller can hang an
-/// `on_hover_text` on it (#1268 f66) — the same change `fp_slider` took in
+/// `on_hover_text` on it (#1268 f66) - the same change `fp_slider` took in
 /// #1233, for the same reason: a helper that swallows the `Response` makes
 /// a tooltip *structurally impossible* on every knob built from it, and
 /// the Distance Fog section's four controls are all colour pickers.
@@ -359,7 +359,7 @@ pub(super) fn color_picker(
 
 /// The stored sRGB triple, edited through egui's linear-space picker.
 /// Returns whether it changed. Shared by [`color_picker`], the RGBA picker
-/// and the road-appearance override rows, which is the whole set — a
+/// and the road-appearance override rows, which is the whole set - a
 /// twenty-fifth picker that called egui directly would be a twenty-fifth
 /// swatch telling a different story.
 pub(super) fn edit_srgb_rgb(ui: &mut egui::Ui, value: &mut [f32; 3]) -> egui::Response {
@@ -371,7 +371,7 @@ pub(super) fn edit_srgb_rgb(ui: &mut egui::Ui, value: &mut [f32; 3]) -> egui::Re
     response
 }
 
-/// RGBA colour picker — mirrors [`color_picker`] but for [`Fp4`] fields
+/// RGBA colour picker - mirrors [`color_picker`] but for [`Fp4`] fields
 /// where the alpha channel carries renderer-relevant information (fog
 /// opacity, sun-glow strength). Uses the unmultiplied variant so the
 /// alpha edits independently of RGB rather than being pre-scaled.
@@ -412,7 +412,7 @@ pub(super) fn color_picker_rgba(
 /// `gen_jobs::for_each_heightmap_generator!` appears here with no edit.
 ///
 /// `Unknown` is an algorithm from a newer engine (#1119). It is named, not
-/// hidden — but it is absent from `SELECTABLE`, because picking a real
+/// hidden - but it is absent from `SELECTABLE`, because picking a real
 /// algorithm is how the owner *deliberately* replaces it, and until they do
 /// the save stays refused rather than silently downgrading their choice.
 pub(super) fn kind_combo(ui: &mut egui::Ui, kind: &mut SovereignGeneratorKind) -> bool {
@@ -440,7 +440,7 @@ pub(super) fn generator_combo(
     // option list reads as a rendering fault rather than as the thing to
     // fix.
     let selected = if value.is_empty() {
-        String::from("(none — pick one)")
+        String::from("(none - pick one)")
     } else {
         value.clone()
     };
@@ -471,7 +471,7 @@ pub(super) fn generator_combo(
 /// replaces content a newer client could still render.
 ///
 /// There were four hand-written spellings of this by the time #1251 was
-/// filed — the asset-reference editor's, the Sign source picker's, #1119's
+/// filed - the asset-reference editor's, the Sign source picker's, #1119's
 /// terrain-algorithm line and the one this collapses them into. Every new
 /// forward-compat arm was a fifth waiting to be written slightly
 /// differently.
@@ -483,7 +483,7 @@ pub(super) fn generator_combo(
 pub(super) fn unrecognised_value_line(ui: &mut egui::Ui, noun: &str, meanwhile: Option<&str>) {
     let mut text = format!("This {noun} was authored by a newer version of Overlands");
     match meanwhile {
-        Some(meanwhile) => text.push_str(&format!(" — {meanwhile}.")),
+        Some(meanwhile) => text.push_str(&format!(" - {meanwhile}.")),
         None => text.push('.'),
     }
     text.push_str(" Picking one above replaces it.");
@@ -527,8 +527,8 @@ pub(super) fn draw_asset_reference_editor(
     assets: &mut super::assets::AssetPanel<'_>,
 ) {
     // A profile picture is not a sound (#1251 f344). The reference type's own
-    // doc says so — "the audio bridge UI should hide this variant from its
-    // sub-picker" — and `AudioReferenceKey::from_reference` returns `None`
+    // doc says so - "the audio bridge UI should hide this variant from its
+    // sub-picker" - and `AudioReferenceKey::from_reference` returns `None`
     // for it, so `request_blob_audio` took its early-return no-op path: no
     // task, no warning, nothing ever played. A control guaranteed to do
     // nothing, with no disabled state and no tooltip.
@@ -625,7 +625,7 @@ pub(super) fn draw_asset_reference_editor(
             if !allow_did_pfp {
                 ui.label(
                     egui::RichText::new(
-                        "A profile picture is an image — this slot plays sound, \
+                        "A profile picture is an image - this slot plays sound, \
                          so nothing will be loaded. Pick another source above.",
                     )
                     .small()
@@ -662,7 +662,7 @@ pub(super) fn draw_asset_reference_editor(
 /// Which resolver fetches a [`SovereignAssetReference`] in this slot.
 ///
 /// The reference type is shared by the texture bridge and the audio bridge,
-/// and the two are fetched into two different caches — the image cache keys
+/// and the two are fetched into two different caches - the image cache keys
 /// by source AND sampler filter, the audio cache by source alone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ReferenceClass {
@@ -685,7 +685,7 @@ pub(crate) fn unique_key<T>(map: &std::collections::HashMap<String, T>, prefix: 
     }
 }
 
-/// Default LSystem starter — delegates to the foliage-rich
+/// Default LSystem starter - delegates to the foliage-rich
 /// "Ternary Tree (Foliage)" entry in the
 /// [`crate::catalogue`]. Used by the per-node kind picker that swaps
 /// an existing node's variant in place, and by the "+ New" menu in
@@ -703,7 +703,7 @@ pub(super) fn default_lsystem_kind() -> GeneratorKind {
 }
 
 /// Default starter preset for a freshly added Shape generator. A detailed
-/// modern villa adapted from `bevy_symbios_shape`'s `detailed_villa` example —
+/// modern villa adapted from `bevy_symbios_shape`'s `detailed_villa` example -
 /// a two-storey brick / stucco main house with a gable shingle roof, attached
 /// metal-roofed garage, paver driveway, and wood deck. The full material
 /// palette (brick / stucco / concrete / shingle / metal / glass / wood /
@@ -741,7 +741,7 @@ mod tests {
     fn euler_round_trip_is_stable_for_composite_rotations() {
         // A rotation touching all three axes (pitch well below the ±90°
         // fold): quat → degrees → quat must return the same rotation, and
-        // a second pass must return the same DISPLAYED angles — the
+        // a second pass must return the same DISPLAYED angles - the
         // stateless per-frame re-derivation the row relies on.
         let original = bevy::math::Quat::from_euler(
             bevy::math::EulerRot::YXZ,
@@ -787,7 +787,7 @@ mod tests {
 ///   paste;
 /// * the particle Seed could not be CLEARED and retyped, because an empty
 ///   field does not parse and the old number came straight back;
-/// * a Shape material rename committed per keystroke — flashing the
+/// * a Shape material rename committed per keystroke - flashing the
 ///   building grey through every intermediate name, silently reverting an
 ///   empty or colliding draft, and re-sorting the row out from under the
 ///   cursor mid-word.
@@ -820,7 +820,7 @@ pub(super) struct DraftOutcome {
 /// `refusal` is asked about the live draft each frame and, when it answers,
 /// tints the field, shows the reason inline, and blocks the commit.
 ///
-/// `id_salt` must be unique per edited value — a shared salt would let two
+/// `id_salt` must be unique per edited value - a shared salt would let two
 /// rows fight over one draft.
 pub(super) fn text_draft_row(
     ui: &mut egui::Ui,
@@ -843,7 +843,7 @@ pub(super) fn text_draft_row(
     }
 
     // A draft lives in egui's temp memory and never reaches a resource, so
-    // the font detector's ECS arms cannot see it — which is exactly the
+    // the font detector's ECS arms cannot see it - which is exactly the
     // case #1262 f359 is about: text you are typing rendering as boxes
     // until you commit it.
     crate::ui::fonts::note_drawn_text(ui.ctx(), &state.text);
@@ -885,7 +885,7 @@ mod colour_space_tests {
 
     /// #1249 f58, as arithmetic. The picker is a linear-space widget and
     /// the world reads the same numbers as sRGB, so the swatch showed a
-    /// mid-grey where the world would render 0.21 — noticeably darker and
+    /// mid-grey where the world would render 0.21 - noticeably darker and
     /// more saturated than what was picked, on every colour on the
     /// Environment tab.
     #[test]
@@ -894,7 +894,7 @@ mod colour_space_tests {
         let linear = egui::ecolor::linear_from_gamma(0.5);
         assert!(
             linear < 0.25,
-            "sRGB 0.5 is about 0.21 linear — if this is 0.5 the two spaces \
+            "sRGB 0.5 is about 0.21 linear - if this is 0.5 the two spaces \
              have stopped differing and the whole conversion is moot"
         );
         // And the round trip is what keeps every existing record meaning
@@ -910,7 +910,7 @@ mod colour_space_tests {
         }
     }
 
-    /// Every colour picker in the editor goes through the shared helper —
+    /// Every colour picker in the editor goes through the shared helper -
     /// a twenty-fifth that called egui directly would be a twenty-fifth
     /// swatch telling a different story, which is exactly what
     /// `detail.rs`'s road-appearance row was.
@@ -950,7 +950,7 @@ mod colour_space_tests {
                 let src = std::fs::read_to_string(&path).expect("readable");
                 // Test source is not an editor surface. This scan matches
                 // raw text, so any test or scan that merely NAMES the
-                // banned method is an offender by its own rule — which is
+                // banned method is an offender by its own rule - which is
                 // what happened the first time another scan quoted it as
                 // a control (#1264). Shared with the `ui::fonts` scans
                 // rather than copied, so the two cannot drift.
@@ -963,7 +963,7 @@ mod colour_space_tests {
         assert!(
             offenders.is_empty(),
             "these files edit a stored sRGB colour through egui's LINEAR widget: \
-             {offenders:?} — route them through `widgets::edit_srgb_rgb`"
+             {offenders:?} - route them through `widgets::edit_srgb_rgb`"
         );
     }
 }
@@ -971,7 +971,7 @@ mod colour_space_tests {
 #[cfg(test)]
 mod forward_compat_tests {
     /// #1251: four hand-written spellings of "this came from a newer build"
-    /// existed across the room editor — the asset-reference editor's, the
+    /// existed across the room editor - the asset-reference editor's, the
     /// Sign source picker's, #1119's terrain-algorithm line, and whatever
     /// the next forward-compat arm was going to invent. They are one helper
     /// now, and this is what keeps a fifth from being written beside it.
@@ -1029,7 +1029,7 @@ mod draft_tests {
         let mut seen = Vec::new();
         for (frame, text) in typed.iter().enumerate() {
             let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
-                // The record still says "Column" the whole way through —
+                // The record still says "Column" the whole way through -
                 // nothing is committed until focus is lost.
                 let out = text_draft_row(ui, "terminals", "Column", 100.0, "", |_| None);
                 seen.push(out.draft.clone());
@@ -1055,8 +1055,8 @@ mod draft_tests {
         );
     }
 
-    /// A record value that changes underneath the draft — undo, the dice
-    /// button, a peer edit — replaces it rather than being fought.
+    /// A record value that changes underneath the draft - undo, the dice
+    /// button, a peer edit - replaces it rather than being fought.
     #[test]
     fn a_record_change_underneath_replaces_the_draft() {
         let ctx = egui::Context::default();
@@ -1071,7 +1071,7 @@ mod draft_tests {
         assert_eq!(after, "9999");
     }
 
-    /// A refused draft is SHOWN as refused, not silently reverted — which
+    /// A refused draft is SHOWN as refused, not silently reverted - which
     /// was indistinguishable from a dead widget (#1238 f80).
     #[test]
     fn a_refused_draft_is_kept_and_explained() {
@@ -1105,8 +1105,8 @@ mod range_tests {
     /// paired sliders in the editor were independent, and what happened to
     /// an inverted pair afterwards was three different things: particles
     /// clamp the max UP to the min (losing the typed max), road lots SWAP
-    /// (preserving both), and splat rules — which have no `Sanitize` impl
-    /// at all — are never corrected and never flagged. Clamping at the
+    /// (preserving both), and splat rules - which have no `Sanitize` impl
+    /// at all - are never corrected and never flagged. Clamping at the
     /// widget means no sanitiser has to guess.
     ///
     /// The bounds are computed here exactly as `fp_range_sliders` computes
@@ -1126,7 +1126,7 @@ mod range_tests {
                 "max slider's bottom is in range"
             );
             // Dragging the min slider to its own top lands exactly on the
-            // max — the pair can meet but never cross.
+            // max - the pair can meet but never cross.
             assert!(min_hi <= max.max(lo));
             // …and the same from the other side.
             assert!(max_lo >= min.min(hi));

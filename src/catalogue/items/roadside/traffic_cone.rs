@@ -1,4 +1,4 @@
-//! Traffic cone — a Roadside prop. An orange enamel cone with a reflective
+//! Traffic cone - a Roadside prop. An orange enamel cone with a reflective
 //! white band on a square base. The smallest scatter clutter of the strip.
 
 use crate::catalogue::items::util::{
@@ -45,7 +45,7 @@ impl CatalogueEntry for TrafficCone {
 
 fn build_tree() -> Generator {
     let prims = vec![
-        // Square enamel base — the root.
+        // Square enamel base - the root.
         prim(
             solid(cuboid_tapered([0.44, 0.07, 0.44], 0.0, enamel(CONE_ORANGE))),
             [0.0, 0.035, 0.0],

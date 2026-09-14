@@ -1,8 +1,8 @@
-//! Tumbleweed — a Wild-West *poor* prop. A dried tangle of brush bowling
+//! Tumbleweed - a Wild-West *poor* prop. A dried tangle of brush bowling
 //! across the empty street. The lonesome clutter of the bust town.
 //!
 //! A small core knot with many thin twigs radiating at scattered angles
-//! ([`quat_mul`] of a [`quat_y`] azimuth and a [`quat_x`] tilt) — a spiky,
+//! ([`quat_mul`] of a [`quat_y`] azimuth and a [`quat_x`] tilt) - a spiky,
 //! see-through tangle rather than a smooth ball.
 
 use crate::catalogue::items::util::{
@@ -54,10 +54,10 @@ fn build_tree() -> Generator {
     let center = [0.0_f32, 0.6, 0.0];
 
     let mut prims = vec![
-        // Small core knot of brush — the root.
+        // Small core knot of brush - the root.
         prim(solid(sphere(0.18, 3, canvas(BRUSH))), center, id_quat()),
     ];
-    // Many thin twigs radiating in scattered directions — a diameter twig
+    // Many thin twigs radiating in scattered directions - a diameter twig
     // through the core sticks out both ways, building a spiky tangle.
     for i in 0..14 {
         let az = i as f32 * 1.7;

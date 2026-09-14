@@ -1,4 +1,4 @@
-//! Campus gateway — the Civic/Campus bespoke social gate (#753). A
+//! Campus gateway - the Civic/Campus bespoke social gate (#753). A
 //! collegiate propylaeum: two dressed-stone piers on marble plinths flank
 //! the walk-through, a marble architrave and pedimented gable span the top,
 //! a verdigris copper wreath crest faces the quad and a warm lit nameplate
@@ -7,7 +7,7 @@
 //! `social_gateway`) is retired for this theme in its favour.
 //!
 //! The only functional element is the single [`GeneratorKind::Gateway`] zone
-//! child between the piers — walking into it opens the destination picker.
+//! child between the piers - walking into it opens the destination picker.
 //! Everything else is themed set-dressing framing that opening, authored in
 //! one flat ground-relative frame via [`assemble`], which reparents every
 //! piece under the base slab.
@@ -46,7 +46,7 @@ impl CatalogueEntry for CivicCampusGateway {
         &[ThemeArchetype::CivicCampus]
     }
     // No prosperity_band(): the gateway is the theme's per-theme fallback
-    // matched by role, so it must place in a civic room of any prosperity —
+    // matched by role, so it must place in a civic room of any prosperity -
     // the underfunded quad gets the same ceremonial gate near spawn.
     fn footprint(&self) -> Footprint {
         Footprint {
@@ -62,7 +62,7 @@ impl CatalogueEntry for CivicCampusGateway {
 
 /// One gate pier at `x`, standing on `base_y` (the slab top): a marble plinth
 /// foot, a dressed stone ashlar shaft, a marble cornice cap and a warm copper
-/// lantern crown — the solid support, echoing the town-hall portico's
+/// lantern crown - the solid support, echoing the town-hall portico's
 /// stone-and-marble register. Its globe is emissive trim the ruin pass darkens.
 fn gate_pier(x: f32, base_y: f32) -> Vec<Generator> {
     let foot_h = 0.4_f32;
@@ -112,7 +112,7 @@ fn gate_pier(x: f32, base_y: f32) -> Vec<Generator> {
             [x, cap_top + 0.16, 0.0],
             id_quat(),
         ),
-        // Warm lit globe — emissive trim.
+        // Warm lit globe - emissive trim.
         prim(
             sphere(0.16, 3, glow(LAMP_WARM, 3.0)),
             [x, cap_top + 0.44, 0.0],
@@ -139,7 +139,7 @@ fn build_tree() -> Generator {
     let pier_x = 1.9_f32;
     let cap_top = base_y + 0.4 + 3.2 + 0.34; // matches gate_pier internals.
 
-    // Marble forecourt stylobate — the flat-base root. Never tilt a root:
+    // Marble forecourt stylobate - the flat-base root. Never tilt a root:
     // every child would spin with it.
     let mut prims = vec![prim(
         solid(cuboid_tapered(
@@ -167,7 +167,7 @@ fn build_tree() -> Generator {
         [0.0, arch_bot + 0.25, 0.0],
         id_quat(),
     ));
-    // Triangular pediment gable over the architrave — pinch the front X width
+    // Triangular pediment gable over the architrave - pinch the front X width
     // to an apex ridge, keep the full depth (a pediment, not a hipped pyramid).
     let arch_top = arch_bot + 0.5;
     prims.push(prim(
@@ -180,7 +180,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Copper wreath crest in the pediment tympanum, facing the -Z front — the
+    // Copper wreath crest in the pediment tympanum, facing the -Z front - the
     // campus emblem, so the gate MEANS a gate and not a plain arch.
     let ped_front = -0.95 * 0.5 - 0.03;
     prims.push(prim(
@@ -206,7 +206,7 @@ fn build_tree() -> Generator {
         [0.0, arch_bot - 0.22, name_z],
         id_quat(),
     ));
-    // Warm lit inscription channel proud of the brass plate — a thin lit strip
+    // Warm lit inscription channel proud of the brass plate - a thin lit strip
     // (low strength: it reads as warm lettering, not a white lightbox).
     prims.push(prim(
         cuboid_tapered([2.7, 0.18, 0.05], 0.0, glow(WINDOW_WARM, 2.0)),
@@ -214,7 +214,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Lit threshold sill lining the front of the opening — a warm line the
+    // Lit threshold sill lining the front of the opening - a warm line the
     // visitor crosses stepping into the zone. Thin trim, so it can run warm.
     prims.push(prim(
         cuboid_tapered([2.6, 0.1, 0.16], 0.0, glow(LAMP_WARM, 2.4)),
@@ -222,7 +222,7 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // A lazy drift of seed-fluff out front — signature life on the quad.
+    // A lazy drift of seed-fluff out front - signature life on the quad.
     prims.push(fx::seed_drift([0.0, 1.4, -3.2], 0x0C1F_6A73));
 
     // The walk-in zone between the piers: floor at the slab top, headroom to
@@ -254,7 +254,7 @@ mod tests {
         assert_sanitize_stable(&CivicCampusGateway.build(""), "civic_campus_gateway");
     }
 
-    /// The functional zone must survive assembly — a gateway without its
+    /// The functional zone must survive assembly - a gateway without its
     /// `GeneratorKind::Gateway` child is furniture, not a gate.
     #[test]
     fn build_carries_exactly_one_gateway_zone() {

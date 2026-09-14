@@ -1,4 +1,4 @@
-//! Drying rack — a Nordic prop. A tall timber *hjell* strung with split fish
+//! Drying rack - a Nordic prop. A tall timber *hjell* strung with split fish
 //! curing in the wind over three rails and a hung strip of homespun cloth:
 //! the everyday work of a coastal steading.
 
@@ -51,7 +51,7 @@ fn build_tree() -> Generator {
     let top_y = 3.0;
 
     let mut prims = vec![
-        // Ground sill — the root.
+        // Ground sill - the root.
         prim(
             solid(cuboid_tapered([4.6, 0.2, 0.4], 0.0, timber(WOOD_DARK))),
             [0.0, 0.1, 0.0],
@@ -85,7 +85,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Split fish hung in rows off each rail — tapered to the tail, alternating
+    // Split fish hung in rows off each rail - tapered to the tail, alternating
     // offset so the rows read as a dense catch.
     for (row, (ry, n, off)) in [
         (top_y - 0.45, 8, 0.0_f32),

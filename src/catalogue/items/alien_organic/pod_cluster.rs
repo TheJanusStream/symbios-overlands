@@ -1,4 +1,4 @@
-//! Pod cluster — an Alien-Organic secondary. A clutch of swollen fleshy
+//! Pod cluster - an Alien-Organic secondary. A clutch of swollen fleshy
 //! egg-pods budding from a lobed creep mound, the ripest aglow, veined nubs
 //! pushing up between them. The brood of the colony; the lit pods are emissive
 //! trim the ruin pass can darken.
@@ -51,9 +51,9 @@ impl CatalogueEntry for PodCluster {
 }
 
 fn build_tree() -> Generator {
-    // Creep mound — the root, a flat cylinder disc. CRITICAL: the root must
+    // Creep mound - the root, a flat cylinder disc. CRITICAL: the root must
     // carry an IDENTITY scale, because assemble() reparents every pod under it
-    // and Bevy propagates the root's scale to all children — a flattened
+    // and Bevy propagates the root's scale to all children - a flattened
     // (non-uniform-scale) sphere root would squash every pod flat (the
     // root-SCALE sibling of the rotated-root gotcha). The low rounded swells
     // are non-root children, where a flattening scale only affects themselves.
@@ -62,7 +62,7 @@ fn build_tree() -> Generator {
         [0.0, 0.17, 0.0],
         id_quat(),
     )];
-    // Rounded creep swells on the mound (round blobs — not z-fight).
+    // Rounded creep swells on the mound (round blobs - not z-fight).
     for (cx, cz, r) in [
         (0.65_f32, 0.2_f32, 0.5_f32),
         (-0.55, 0.4, 0.45),
@@ -76,7 +76,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Egg-pods budding from the mound — varied size, tall, the ripest aglow,
+    // Egg-pods budding from the mound - varied size, tall, the ripest aglow,
     // clustered tight so they read as an upright clutch.
     for (px, pz, r, tall, lit) in [
         (-0.5_f32, 0.18_f32, 0.66_f32, 1.95_f32, true),

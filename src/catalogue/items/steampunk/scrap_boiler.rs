@@ -1,4 +1,4 @@
-//! Scrap boiler — a Steampunk *poor* secondary. A rusted-through boiler tank
+//! Scrap boiler - a Steampunk *poor* secondary. A rusted-through boiler tank
 //! leaning on a makeshift cradle, rigged with patched copper pipes and a bent
 //! chimney. The improvised still of the soot-yard.
 //!
@@ -73,7 +73,7 @@ fn build_tree() -> Generator {
         quat_x(FRAC_PI_2),
     ));
 
-    // Dished boiler heads — profile-cut hemispheres flattened into shallow
+    // Dished boiler heads - profile-cut hemispheres flattened into shallow
     // dished caps (not full hemispheres, which read as a pill), bulging off
     // each end so the tank reads as a pressure vessel, not a flat tin can.
     for (z, rot) in [(1.3_f32, quat_x(FRAC_PI_2)), (-1.3, quat_x(-FRAC_PI_2))] {
@@ -105,7 +105,7 @@ fn build_tree() -> Generator {
         quat_x(-0.3),
     ));
 
-    // Firebox stoked in front of the −Z (hero) head — a grounded stove box
+    // Firebox stoked in front of the −Z (hero) head - a grounded stove box
     // with a flat glowing door, pulled clear of the head so the fire reads
     // (emission flush on the curved head z-fights and is lost).
     prims.push(prim(

@@ -1,4 +1,4 @@
-//! Powder Magazine — where the harbour keeps what it must not lose.
+//! Powder Magazine - where the harbour keeps what it must not lose.
 //!
 //! A low vaulted stone store behind a blast traverse: a barrel roof under a
 //! turfed cap, an iron-bound door standing open on a lit floor of powder
@@ -8,7 +8,7 @@
 //! # Why it has no windows, and why that is the interesting part
 //!
 //! A magazine is the building whose entire design brief is *keep light and
-//! spark out*. It has no glazing at all — vents, splayed so no direct line
+//! spark out*. It has no glazing at all - vents, splayed so no direct line
 //! reaches the powder, and one door. That makes it the third entry in this
 //! kit to arrive at #972 lesson 24's answer from a different direction: the
 //! battery's openings are gun ports, the boardwalk's is a serving hatch, and
@@ -18,9 +18,9 @@
 //!
 //! # The traverse is the silhouette
 //!
-//! Without the blast bank this is a shed. The traverse — an earth-and-stone
+//! Without the blast bank this is a shed. The traverse - an earth-and-stone
 //! wall standing across the door at a stand-off, so a viewer sees the store
-//! *through* a gap — is what makes the prop read as dangerous rather than as
+//! *through* a gap - is what makes the prop read as dangerous rather than as
 //! storage, and it does the compositional work too: a second mass at a
 //! different depth is what gives a low building a silhouette at settlement
 //! distance.
@@ -43,24 +43,24 @@ use super::{
     shingle,
 };
 
-/// Cobbled apron — the sub-root every footprint guard measures against.
+/// Cobbled apron - the sub-root every footprint guard measures against.
 const APRON: [f32; 3] = [16.0, 0.28, 14.0];
 const GROUND: f32 = APRON[1];
 
-/// The store's plinth, and its top — the magazine floor.
+/// The store's plinth, and its top - the magazine floor.
 const PLINTH: [f32; 3] = [7.8, 0.44, 6.4];
 const FLOOR: f32 = GROUND + PLINTH[1];
 
 /// The walled store: width, height to the springing of the vault, depth.
 const WALL: [f32; 3] = [7.0, 2.5, 5.6];
-/// Springing line — where the wall stops and the barrel vault begins.
+/// Springing line - where the wall stops and the barrel vault begins.
 const SPRING: f32 = FLOOR + WALL[1];
 /// Rise of the vault above the springing.
 const VAULT_RISE: f32 = 1.5;
 /// Crown of the vault.
 const CROWN: f32 = SPRING + VAULT_RISE;
 
-/// Hero plane — the approach elevation.
+/// Hero plane - the approach elevation.
 const FRONT_Z: f32 = -WALL[2] * 0.5;
 
 /// The door: clear width and height.
@@ -77,7 +77,7 @@ const FLOOR_INSET: f32 = 0.06;
 
 /// The blast traverse: its stand-off from the door, and its own extent.
 ///
-/// The stand-off is the whole point — close enough to block a direct line to
+/// The stand-off is the whole point - close enough to block a direct line to
 /// the door, far enough that a viewer sees the lit store past its end. Flush
 /// against the building it would just be a thicker wall.
 const TRAVERSE_OFF: f32 = 3.4;
@@ -118,7 +118,7 @@ impl CatalogueEntry for PowderMagazine {
 }
 
 /// Coursed ashlar in the shared world course frame, on the face that will be
-/// looked at (#972 lessons 2e and 18 — the centre is one expression, passed
+/// looked at (#972 lessons 2e and 18 - the centre is one expression, passed
 /// to both the material and the placement).
 fn coursed(center: [f32; 3], face: FaceKey, seed: u32) -> crate::pds::SovereignMaterialSettings {
     bonded_siding(ashlar(STONE_LIME, seed), face, center)
@@ -180,7 +180,7 @@ fn approach() -> Vec<Generator> {
         ));
     }
 
-    // The door, standing OPEN against its jamb — one direction vector for
+    // The door, standing OPEN against its jamb - one direction vector for
     // both the centre and the turn (#972 lesson 21's corollary; the tavern's
     // leaf shipped with an identity rotation on an arc-placed centre).
     let leaf_w = DOOR_W * 0.9;
@@ -254,7 +254,7 @@ fn approach() -> Vec<Generator> {
 /// The lit floor of casks, seen through the open door.
 ///
 /// A magazine's whole subject is what is inside it, and the door is the only
-/// aperture — so the fit-out is laid out down the SIGHTLINE from the doorway
+/// aperture - so the fit-out is laid out down the SIGHTLINE from the doorway
 /// rather than round the walls. Anything against a flank is invisible.
 fn store() -> Vec<Generator> {
     let mut out = vec![
@@ -310,7 +310,7 @@ fn store() -> Vec<Generator> {
     out
 }
 
-/// Splayed vents in the flanks — a magazine's only other opening, and
+/// Splayed vents in the flanks - a magazine's only other opening, and
 /// deliberately not glazed.
 ///
 /// Splayed means the outer mouth and the inner one are offset, so no straight
@@ -345,7 +345,7 @@ fn vents() -> Vec<Generator> {
                     id_quat(),
                 ));
             }
-            // A bronze grille bar across it — bronze, for the same
+            // A bronze grille bar across it - bronze, for the same
             // no-spark reason the cask hoops are.
             out.push(prim(
                 solid(cylinder_tapered(
@@ -371,7 +371,7 @@ fn traverse() -> Generator {
     nest(
         prim(
             // Battered: a blast bank is wider at the foot, and the taper is
-            // on Z alone — `cuboid_tapered` pinches BOTH axes and would round
+            // on Z alone - `cuboid_tapered` pinches BOTH axes and would round
             // the whole bank away on four sides (the barn's shipped fault).
             solid(cuboid_tapered_xz(
                 TRAVERSE,
@@ -416,7 +416,7 @@ fn build_tree() -> Generator {
     on_plinth.extend(store());
     on_plinth.extend(vents());
 
-    // Flanks and rear as single slabs — the vents are recesses in them, not
+    // Flanks and rear as single slabs - the vents are recesses in them, not
     // holes through them, so a punched grid would cost prims to say nothing.
     for sx in [-1.0_f32, 1.0] {
         let c = [sx * (WALL[0] * 0.5 - 0.25), FLOOR + WALL[1] * 0.5, 0.35];
@@ -450,14 +450,14 @@ fn build_tree() -> Generator {
     ));
 
     // The barrel vault: a half-cylinder laid along the building, which is the
-    // one prim that says "vault" — `path_cut` keeps the upper half of the
+    // one prim that says "vault" - `path_cut` keeps the upper half of the
     // sweep and `quat_x` lays its axis along Z.
     // A half-cylinder of the building's own half-span, SQUASHED to the rise.
     // A semicircular barrel over a 7 m span would stand 3.5 m above the
     // springing and the building would not be low any more; scaling the
     // section gives the segmental profile a magazine actually wears. The
     // squash goes on local Z because `quat_x(FRAC_PI_2)` sends the cylinder's
-    // axis (local Y) to world Z — so local Z is what points at the sky, and
+    // axis (local Y) to world Z - so local Z is what points at the sky, and
     // scaling local Y would stretch its LENGTH instead. Safe on a leaf: a
     // scale propagates to children, and this node has none.
     on_plinth.push(prim_scaled(
@@ -475,14 +475,14 @@ fn build_tree() -> Generator {
         )),
         [0.0, SPRING, 0.0],
         // NEGATIVE quarter turn. `path_cut` keeps the half of the sweep on
-        // local +Z, and `quat_x(+FRAC_PI_2)` sends local +Z to world −Y — so
+        // local +Z, and `quat_x(+FRAC_PI_2)` sends local +Z to world −Y - so
         // the positive turn hung the vault BELOW its own springing, inside the
         // store, which the stack guard caught to the millimetre. The negative
         // turn puts the kept half over the walls where a roof goes.
         quat_x(-FRAC_PI_2),
         [1.0, 1.0, VAULT_RISE / (WALL[0] * 0.5)],
     ));
-    // Turfed cap over the vault — earth on the crown is what a magazine wears
+    // Turfed cap over the vault - earth on the crown is what a magazine wears
     // so a burst goes up rather than out.
     on_plinth.push(prim(
         solid(cuboid_tapered_xz(
@@ -493,7 +493,7 @@ fn build_tree() -> Generator {
         [0.0, CROWN - 0.1, 0.0],
         id_quat(),
     ));
-    // String course ringing all four elevations at the springing — a RING, so
+    // String course ringing all four elevations at the springing - a RING, so
     // it takes the building's own centre and its projection goes into its
     // SIZE (#972 lesson 31).
     let ring_c = [0.0, SPRING - 0.12, 0.0];
@@ -572,7 +572,7 @@ fn build_tree() -> Generator {
     root.audio = fx::harbour_swell();
     // A crate by the traverse's inboard end. Placed BEHIND the bank (toward
     // the store) rather than in front of it: outboard it reached 0.15 m past
-    // the apron, which the footprint guard caught (#972 lesson 8 — derive
+    // the apron, which the footprint guard caught (#972 lesson 8 - derive
     // from the surface, and here the surface's near edge is what binds).
     attach(
         &mut root,
@@ -608,7 +608,7 @@ mod tests {
         assert_no_tilted_parents(&built(), "powder_magazine");
     }
 
-    /// A magazine has NO glazing — vents and one door, nothing else.
+    /// A magazine has NO glazing - vents and one door, nothing else.
     ///
     /// The third entry in this kit to reach #972 lesson 24's answer from its
     /// own direction (gun ports, serving hatch, vents). Stated as a
@@ -627,7 +627,7 @@ mod tests {
         assert!(has_emissive(&g), "the magazine lost its lantern");
     }
 
-    /// The traverse stands ACROSS the approach at a stand-off — blocking the
+    /// The traverse stands ACROSS the approach at a stand-off - blocking the
     /// line to the door without touching the building.
     ///
     /// Both halves matter. Flush against the wall it is a thicker wall; off
@@ -641,7 +641,7 @@ mod tests {
             .find(|p| {
                 // Selected by the property that DEFINES it: a tall mass
                 // standing well FORWARD of the store. Matching on width alone
-                // picked up part of the building itself — the fifth selector
+                // picked up part of the building itself - the fifth selector
                 // fault in this kit, and the fifth time the answer was to
                 // select on what makes the thing itself rather than on a
                 // dimension it happens to share (#972 lesson 24).
@@ -652,20 +652,20 @@ mod tests {
         // Clear of the store, on the approach side.
         assert!(
             bank.bounds.max.z < FRONT_Z - 0.5,
-            "the traverse reaches z = {} against a wall face at {FRONT_Z} — \\
+            "the traverse reaches z = {} against a wall face at {FRONT_Z} - \\
              flush against the building it is just a thicker wall",
             bank.bounds.max.z
         );
         assert!(
             bank.bounds.max.z > FRONT_Z - TRAVERSE_OFF - 1.0,
-            "the traverse has drifted {} m off the approach — it screens \\
+            "the traverse has drifted {} m off the approach - it screens \\
              nothing",
             FRONT_Z - bank.bounds.max.z
         );
         // Wide enough to cover the doorway, centred on it.
         assert!(
             bank.bounds.min.x < -DOOR_W && bank.bounds.max.x > DOOR_W,
-            "the traverse spans {} .. {} and the door is ±{} — it does not \\
+            "the traverse spans {} .. {} and the door is ±{} - it does not \\
              screen the opening",
             bank.bounds.min.x,
             bank.bounds.max.x,
@@ -677,7 +677,7 @@ mod tests {
     ///
     /// #972 lesson 21's corollary, and the tavern's exact shipped fault
     /// (#1028): a centre placed on the swung arc with the rotation left at
-    /// the identity. The straps are the extra claim here — they are placed
+    /// the identity. The straps are the extra claim here - they are placed
     /// from the same arm and turn, so if the leaf moves and they do not, the
     /// door comes apart.
     #[test]
@@ -719,7 +719,7 @@ mod tests {
                 ends.iter()
                     .any(|e| (e[0] - jamb[0]).abs() < 0.12 && (e[1] - jamb[1]).abs() < 0.12),
                 "a leaf/strap's ends {ends:?} do not reach the hinge jamb at \\
-                 {jamb:?} — it is hung on nothing"
+                 {jamb:?} - it is hung on nothing"
             );
             let free = ends
                 .iter()
@@ -732,7 +732,7 @@ mod tests {
                 .expect("two ends");
             assert!(
                 free[1] < FRONT_Z - 0.3,
-                "the free edge sits at z = {} — the leaf is not standing open",
+                "the free edge sits at z = {} - the leaf is not standing open",
                 free[1]
             );
         }
@@ -742,7 +742,7 @@ mod tests {
     /// the back wall.
     ///
     /// A magazine's only aperture is its door, so anything against a flank is
-    /// invisible — this is #972 lesson 9 (every bay its own thing to look at)
+    /// invisible - this is #972 lesson 9 (every bay its own thing to look at)
     /// with exactly one bay, which sharpens rather than relaxes it.
     #[test]
     fn the_casks_stand_in_the_doorways_own_sightline() {
@@ -750,7 +750,7 @@ mod tests {
         let casks: Vec<_> = measure::solids(&g)
             .into_iter()
             .filter(|p| {
-                // Selected by the cask's own girth — "a cylinder in the room"
+                // Selected by the cask's own girth - "a cylinder in the room"
                 // also matches the lantern body, which is a cylinder in the
                 // room on purpose (#972 lesson 24, for the fourth time in
                 // this kit).
@@ -766,7 +766,7 @@ mod tests {
             .collect();
         assert!(
             casks.len() >= 4,
-            "only {} casks inside — a door onto an empty floor is a darker \\
+            "only {} casks inside - a door onto an empty floor is a darker \\
              rectangle on the wall",
             casks.len()
         );
@@ -775,7 +775,7 @@ mod tests {
             assert!(
                 c.x.abs() < DOOR_W,
                 "a cask at x = {} is outside the doorway's own sightline \\
-                 (±{DOOR_W}) — through a single aperture it is invisible",
+                 (±{DOOR_W}) - through a single aperture it is invisible",
                 c.x
             );
             assert!(
@@ -802,13 +802,13 @@ mod tests {
             .expect("the barrel vault is in the tree");
         assert!(
             (vault.bounds.min.y - SPRING).abs() < 0.35,
-            "the vault's springing is at {} not {SPRING} — it floats over its \\
+            "the vault's springing is at {} not {SPRING} - it floats over its \\
              own walls, or sits inside them",
             vault.bounds.min.y
         );
         assert!(
             vault.bounds.max.y > SPRING + VAULT_RISE * 0.5,
-            "the vault rises only to {} — a barrel roof that flat reads as a \\
+            "the vault rises only to {} - a barrel roof that flat reads as a \\
              lid",
             vault.bounds.max.y
         );
@@ -840,7 +840,7 @@ mod tests {
                 p.kind_tag,
                 b.center()
             );
-            // Loose kit — revolved prims on the apron — clears the plinth.
+            // Loose kit - revolved prims on the apron - clears the plinth.
             if matches!(p.kind_tag, "Cylinder" | "Torus") && b.min.y < FLOOR - 0.05 {
                 let hits =
                     b.max.x > -ph[0] && b.min.x < ph[0] && b.max.z > -ph[1] && b.min.z < ph[1];

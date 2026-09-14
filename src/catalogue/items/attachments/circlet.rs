@@ -1,19 +1,19 @@
-//! Gilded circlet — the measurement-fit hero (#1089): the first wearable
+//! Gilded circlet - the measurement-fit hero (#1089): the first wearable
 //! whose worn size is a *measurement*, not an authored constant. The entry
-//! declares one fit dimension ([`WearFit::HeadBand`]) — the band's authored
-//! inner diameter — and at dress time every client scales the worn subtree
+//! declares one fit dimension ([`WearFit::HeadBand`]) - the band's authored
+//! inner diameter - and at dress time every client scales the worn subtree
 //! so that diameter matches the wearer's brow circumference / π, read off
 //! the built body through the engine's public measure surface
 //! (`src/player/attachments.rs`, `brow_circumference`). Placed as world
 //! decor, and on any body whose head cannot be measured, it stays exactly
 //! this authored size.
 //!
-//! Drawn as an **oversized draft** — the Jolly Roger technique
+//! Drawn as an **oversized draft** - the Jolly Roger technique
 //! ([`util::uv_for_scale`](crate::catalogue::items::util::uv_for_scale)
 //! carries the write-up): everything is authored at [`DRAFT`]× true size in
 //! the root's local frame and the root carries the one uniform downscale.
 //! The sanitiser's floors are prim-*local*, so the 7 mm rod and the 8 mm
-//! stones below exist only because they are drawn as 70 mm and 80 mm ones —
+//! stones below exist only because they are drawn as 70 mm and 80 mm ones -
 //! a direct draft floors every dimension at 10 mm, which is how the first
 //! build's band came out as sheet-metal `Tube` instead of a rod.
 
@@ -25,7 +25,7 @@ use crate::pds::Generator;
 
 use super::{gemstone, gold};
 
-/// The band's authored **inner** diameter, in TRUE worn metres — the
+/// The band's authored **inner** diameter, in TRUE worn metres - the
 /// declared fit dimension. 0.178 m is the equivalent-circle diameter of a
 /// 0.559 m brow circumference, the middle of the seeded-body spread
 /// (measured over seeds 0..8: 0.499–0.829 m), so the fit scale stays near 1
@@ -39,7 +39,7 @@ const BAND_INNER_DIAMETER: f32 = 0.178;
 /// uniform `1 / DRAFT` scale flies it at true size.
 const DRAFT: f32 = 10.0;
 
-/// Radius of the band's rod at draft size — a slender 7 mm rod of gold
+/// Radius of the band's rod at draft size - a slender 7 mm rod of gold
 /// worn, which is the figure the 10 mm floor refused as a direct draft.
 const ROD: f32 = 0.007 * DRAFT;
 
@@ -58,7 +58,7 @@ impl CatalogueEntry for Circlet {
         "Gilded Circlet"
     }
     fn description(&self) -> &'static str {
-        "A slender gold band, emerald-set — worn, it fits itself to the brow it lands on."
+        "A slender gold band, emerald-set - worn, it fits itself to the brow it lands on."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Attachment
@@ -86,22 +86,22 @@ impl CatalogueEntry for Circlet {
     }
 }
 
-/// **The band circles the origin** — the [`WearFit::HeadBand`] authoring
+/// **The band circles the origin** - the [`WearFit::HeadBand`] authoring
 /// convention: a fitted seat puts the attach origin on the head's axis at
 /// the measured hat line (`src/player/attachments.rs`, `fitted_seat`), so
 /// the ring lives in the X–Z plane at `y = 0` and the ornament rises above
-/// it. Face on `+Z` (the side meant to be seen — a crown seat applies no
+/// it. Face on `+Z` (the side meant to be seen - a crown seat applies no
 /// yaw, so authored front IS worn front). Every stone and the peak sink
-/// INTO the band's rod — intersecting solids, never coplanar, never
+/// INTO the band's rod - intersecting solids, never coplanar, never
 /// gapped.
 ///
 /// The whole tree is drawn at [`DRAFT`]× in the root's local frame and the
-/// root — the band itself, at the origin — carries the single uniform
+/// root - the band itself, at the origin - carries the single uniform
 /// downscale. Children sit at the origin-relative draft coordinates, which
 /// the root's frame scales down with everything else (the `nest` trap:
 /// rebasing never divides by scale, so the root being AT the origin is
 /// what keeps this trivially correct). Materials pass through
-/// [`uv_for_scale`] with the instanced scale — inert while every surface
+/// [`uv_for_scale`] with the instanced scale - inert while every surface
 /// is untextured, and already correct the day one gains a weave.
 fn build_tree() -> Generator {
     let scale = 1.0 / DRAFT;
@@ -117,7 +117,7 @@ fn build_tree() -> Generator {
         [scale; 3],
     );
     let mut ornament = vec![
-        // Front peak: a small gold point rising off the band's brow — the
+        // Front peak: a small gold point rising off the band's brow - the
         // one silhouette flourish. Its foot sinks into the rod.
         prim(
             solid(cuboid_tapered(
@@ -135,7 +135,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
-    // Temple studs, one over each ear line — 8 mm garnets worn, drawn as
+    // Temple studs, one over each ear line - 8 mm garnets worn, drawn as
     // 80 mm ones.
     for side in [-1.0f32, 1.0] {
         ornament.push(prim(

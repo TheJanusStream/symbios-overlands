@@ -1,4 +1,4 @@
-//! Monolith shard — an Alien-Monolithic prop. A splinter of black obsidian
+//! Monolith shard - an Alien-Monolithic prop. A splinter of black obsidian
 //! jutting from the ground at a sharp angle, a glyph still lit along its edge.
 //! Scatter clutter of the site; the glyph is emissive trim the ruin pass can
 //! darken.
@@ -53,20 +53,20 @@ fn build_tree() -> Generator {
     let lean = quat_x(0.35);
 
     let prims = vec![
-        // Flat obsidian ground chip — the root (identity rotation, so the
+        // Flat obsidian ground chip - the root (identity rotation, so the
         // leaning shard's tilt stays on the shard alone).
         prim(
             solid(cylinder_tapered(0.6, 0.12, 12, 0.0, obsidian(OBSIDIAN))),
             [0.0, 0.06, 0.0],
             id_quat(),
         ),
-        // Leaning obsidian shard — a child carrying the tilt.
+        // Leaning obsidian shard - a child carrying the tilt.
         prim(
             solid(cuboid_tapered([0.6, 2.6, 0.5], 0.4, obsidian(OBSIDIAN))),
             [0.0, 1.2, 0.0],
             lean,
         ),
-        // Glowing glyph stave up the shard's −Z edge — emissive.
+        // Glowing glyph stave up the shard's −Z edge - emissive.
         prim(
             cuboid_tapered([0.1, 1.6, 0.06], 0.0, glow(GLYPH_CYAN, 2.5)),
             [0.0, 1.25, -0.22],

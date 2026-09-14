@@ -1,13 +1,13 @@
-//! Pirate-theme catalogue structures — a Golden-Age buccaneer harbour of
+//! Pirate-theme catalogue structures - a Golden-Age buccaneer harbour of
 //! tarred planking, powder-stained rubble stone and salt-bleached canvas.
 //!
 //! Two prosperity registers share one harbour identity, and here the split
 //! carries more than upkeep. The established ([`PORT_BAND`]) kit is a
-//! *working* port — a harbour battery over the roads, a false-front tavern,
+//! *working* port - a harbour battery over the roads, a false-front tavern,
 //! a prize warehouse, a careening slip, a powder magazine, and the deck
 //! furniture of a crew ashore (signal mast, capstan, rum tuns, longboat).
-//! The destitute kit — a rotting hulk, a gibbet cage at the tide line, and
-//! the bones the tide leaves — turns eerie rather than merely poor. That is
+//! The destitute kit - a rotting hulk, a gibbet cage at the tide line, and
+//! the bones the tide leaves - turns eerie rather than merely poor. That is
 //! the theme's second *read*, not a second identity: the same harbour after
 //! its luck ran out. Which is why it shares this file's timber and iron rather
 //! than taking a palette of its own, adding only [`bone`] and one cold
@@ -24,7 +24,7 @@
 //! [`STRAND_SHINGLE`] rather than the resort's golden `SAND_TAN`. Coastal
 //! builds in stucco, canvas and brushed steel; this builds in tarred oak,
 //! rubble limestone, wrought iron and verdigris bronze. The air separates
-//! them too — see the salt-haze accent in
+//! them too - see the salt-haze accent in
 //! [`crate::seeded_defaults::room::accent`], which is grey and thick where
 //! the resort's is blue and clear.
 //!
@@ -71,14 +71,14 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
-/// Shared prosperity band for the working harbour — a port with a garrison,
+/// Shared prosperity band for the working harbour - a port with a garrison,
 /// a bonded warehouse and prizes to careen reads as Modest-to-Rich. The poor
 /// end of the theme is the separate cursed kit ([`PORT_POOR`]), so a
 /// destitute pirate room grows the wreck and the gibbet instead.
 pub(super) const PORT_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-/// The cursed register — a harbour after its luck ran out.
+/// The cursed register - a harbour after its luck ran out.
 ///
 /// `Poor` only, and the split is the point. This is not the working port with
 /// less money in it; it is the same timber and iron gone soft, with [`bone`]
@@ -91,7 +91,7 @@ pub(super) const PORT_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier
 // Timber
 // ---------------------------------------------------------------------------
 
-/// Width of one ship's **strake**, in metres — the plank a hull, a wharf deck
+/// Width of one ship's **strake**, in metres - the plank a hull, a wharf deck
 /// or a ship-built wall is laid in.
 ///
 /// Deliberately wider than the catalogue's ordinary
@@ -112,17 +112,17 @@ const STRAKE_W: f32 = 0.25;
 /// courses to de-correlate.
 const PLANK_COUNT: f64 = 6.0;
 
-/// Wide tarred ship's planking — hulls, wharf decking, ship-built walls, the
+/// Wide tarred ship's planking - hulls, wharf decking, ship-built walls, the
 /// tavern's false front, gun-deck platforms.
 ///
 /// `stagger` is held at zero (#972 lesson 4). Any value above 0.01 switches on
 /// the generator's hard-coded three-butt-joints-per-tile grid, which on this
-/// kit's 1.5 m tile would be a butt joint every half metre — a hull rendering
+/// kit's 1.5 m tile would be a butt joint every half metre - a hull rendering
 /// as coarse masonry. Real strakes run the length of the vessel and are
 /// scarphed, not butted every stride. The per-course grain de-correlation is
 /// untouched; that comes from the row's own hash.
 ///
-/// Boards lay **up V**, so this gives horizontal courses — which is what a
+/// Boards lay **up V**, so this gives horizontal courses - which is what a
 /// hull and a deck both want. Vertical boarding stands them up with
 /// [`util::bonded_boards`](super::util::bonded_boards); the quarter turn is
 /// safe here precisely *because* the stagger is off (#972 lesson 15).
@@ -143,7 +143,7 @@ pub(super) fn strake(color: [f32; 3]) -> SovereignMaterialSettings {
             )),
             plank_count: Fp64(PLANK_COUNT),
             stagger: Fp64(0.0),
-            // A caulked seam is a real, wide, black line of oakum and pitch —
+            // A caulked seam is a real, wide, black line of oakum and pitch -
             // much heavier than the 6 % hairline a dry-jointed board shows.
             joint_width: Fp64(0.1),
             knot_density: Fp64(0.18),
@@ -154,7 +154,7 @@ pub(super) fn strake(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Ordinary sawn boarding at the catalogue's shared board width — doors,
+/// Ordinary sawn boarding at the catalogue's shared board width - doors,
 /// shutters, crates, gangways, barrow beds, the shore carpenter's work.
 /// Same stagger rule as [`strake`]; see its note.
 pub(super) fn board(color: [f32; 3]) -> SovereignMaterialSettings {
@@ -187,11 +187,11 @@ pub(super) fn board(color: [f32; 3]) -> SovereignMaterialSettings {
 // ---------------------------------------------------------------------------
 
 /// Ashlar courses per tile. Four is the generator's own default and gives the
-/// battery's face a block about 450 mm on the side — the size a coursed
+/// battery's face a block about 450 mm on the side - the size a coursed
 /// rubble-and-dressing wall of the period actually runs.
 const ASHLAR_COLS: u32 = 4;
 
-/// Dressed limestone ashlar, powder-stained — the battery's battered face,
+/// Dressed limestone ashlar, powder-stained - the battery's battered face,
 /// embrasure jambs, quoins, copings, the magazine's blast wall.
 ///
 /// Weathered with [`ageing::stained`] rather than left clean: masonry does not
@@ -222,7 +222,7 @@ pub(super) fn ashlar(color: [f32; 3], seed: u32) -> SovereignMaterialSettings {
     }
 }
 
-/// Sea-worn cobbles — the quay, the slipway apron, the tavern's yard, rubble
+/// Sea-worn cobbles - the quay, the slipway apron, the tavern's yard, rubble
 /// footings. Rounded by the water rather than knapped.
 pub(super) fn cobbles(color: [f32; 3], seed: u32) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -245,7 +245,7 @@ pub(super) fn cobbles(color: [f32; 3], seed: u32) -> SovereignMaterialSettings {
     }
 }
 
-/// Split-oak shingle roofing — the tavern, the warehouse, the magazine's
+/// Split-oak shingle roofing - the tavern, the warehouse, the magazine's
 /// pentice. The generator's own `6 x 0.5` stagger is integral and it hashes a
 /// *wrapped* column id, so unlike plank and brick it needs nothing switched
 /// off (#972 lesson 4's closing note: read each generator, do not generalise).
@@ -273,12 +273,12 @@ pub(super) fn shingle(color: [f32; 3]) -> SovereignMaterialSettings {
 // Cloth and cordage
 // ---------------------------------------------------------------------------
 
-/// Threads per tile of sailcloth. Real canvas is a coarse, heavy weave —
+/// Threads per tile of sailcloth. Real canvas is a coarse, heavy weave -
 /// sixteen to the tile puts a thread near 25 mm, which reads as *duck* rather
 /// than as shirting.
 const SAIL_THREADS: f64 = 16.0;
 
-/// Salt-bleached sailcloth — furled canvas, awnings, tarpaulins, hammocks,
+/// Salt-bleached sailcloth - furled canvas, awnings, tarpaulins, hammocks,
 /// the ensign. Two tones so the weave reads at close range.
 pub(super) fn sailcloth(warp: [f32; 3], weft: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -305,7 +305,7 @@ pub(super) fn sailcloth(warp: [f32; 3], weft: [f32; 3]) -> SovereignMaterialSett
 /// thread very large.
 const ROPE_LAY: f64 = 8.0;
 
-/// Coarse hemp cordage — hawsers, shrouds, careening tackle, cargo nets, the
+/// Coarse hemp cordage - hawsers, shrouds, careening tackle, cargo nets, the
 /// gibbet's chain lashing. A twill wale is the closest the fabric generator
 /// comes to the spiral lay of a laid rope.
 pub(super) fn hemp(color: [f32; 3]) -> SovereignMaterialSettings {
@@ -335,7 +335,7 @@ pub(super) fn hemp(color: [f32; 3]) -> SovereignMaterialSettings {
 // Metal
 // ---------------------------------------------------------------------------
 
-/// Wrought iron, rusting — bands, hoops, chain, hinges, the gibbet cage, gun
+/// Wrought iron, rusting - bands, hoops, chain, hinges, the gibbet cage, gun
 /// trucks and their strapping. Salt air is merciless, so the rust runs high.
 ///
 /// # Why there is no weathering block here
@@ -343,13 +343,13 @@ pub(super) fn hemp(color: [f32; 3]) -> SovereignMaterialSettings {
 /// The obvious move is [`ageing::corroded`], and this helper had it. It was
 /// removed on measurement, and the reasoning generalises past this kit.
 ///
-/// A `SovereignWeatheringConfig` is *per-prim record payload* — four nested
+/// A `SovereignWeatheringConfig` is *per-prim record payload* - four nested
 /// blocks (corrosion, edge wear, streaks, crevice dirt) serialised onto every
 /// primitive that carries the material. On the harbour battery that came to
 /// 23 % of the whole entry, and the overwhelming majority of it was on iron:
 /// carriage brackets 90 mm thick, gun trucks, hoops, cage bars. Pitting,
 /// arris wear and run-off staining are surface *stories* at architectural
-/// scale and are sub-pixel on a fitting — so the kit was paying its largest
+/// scale and are sub-pixel on a fitting - so the kit was paying its largest
 /// single record cost for detail nobody can resolve.
 ///
 /// What survives is the part that reads: `rust_level` and `color_rust` are
@@ -380,7 +380,7 @@ pub(super) fn iron(color: [f32; 3], seed: u32) -> SovereignMaterialSettings {
     }
 }
 
-/// Gunmetal bronze under a green patina — the guns themselves, the ship's
+/// Gunmetal bronze under a green patina - the guns themselves, the ship's
 /// bell, lantern frames, the battery's traversing gear.
 ///
 /// The kit's one warm metal, and its job is to be the *only* one: against
@@ -389,7 +389,7 @@ pub(super) fn iron(color: [f32; 3], seed: u32) -> SovereignMaterialSettings {
 ///
 /// The patina is carried by the Metal generator's own rust channel with the
 /// colour turned green, rather than by [`ageing::verdigris`], for the
-/// record-cost reason set out on [`iron`] — the guns are the most numerous
+/// record-cost reason set out on [`iron`] - the guns are the most numerous
 /// prims in the kit and a nested weathering block on each is the single most
 /// expensive thing this file could do. What that costs is the patina's
 /// *relief*; what it keeps is the green, which is the entire read at any
@@ -422,13 +422,13 @@ pub(super) fn bronze(color: [f32; 3], seed: u32) -> SovereignMaterialSettings {
 // Glazing
 // ---------------------------------------------------------------------------
 
-/// A small leaded light — the tavern's windows and the warehouse office's.
+/// A small leaded light - the tavern's windows and the warehouse office's.
 ///
 /// **This is a CARD and it belongs on a flat `Plane` over a real opening**
 /// (#972 lesson 1). The generator masks its panes away and the pipeline draws
 /// every card at `AlphaMode::Mask(0.5)`, so at `glass_opacity` 0.34 the panes
 /// are genuine holes: spanning an opening they show the room behind, and stuck
-/// on a solid they show the wall. `uv_scale` stays 1.0 — cards upload
+/// on a solid they show the wall. `uv_scale` stays 1.0 - cards upload
 /// clamp-to-edge and must span their quad exactly once.
 ///
 /// It arrives now rather than with the rest of the kit because the landmark
@@ -438,11 +438,11 @@ pub(super) fn bronze(color: [f32; 3], seed: u32) -> SovereignMaterialSettings {
 ///
 /// The pane grid is small and the joinery is dark oak, because the period's
 /// glass came in pieces a hand could carry; a big clean light would read as
-/// three centuries too late. For glass on a **solid** — a lantern, a bottle,
-/// a stern light — use [`tinted_glass`], never this.
+/// three centuries too late. For glass on a **solid** - a lantern, a bottle,
+/// a stern light - use [`tinted_glass`], never this.
 ///
 /// `glow` is normally zero. What lights a window is the room behind it, not
-/// the pane — see [`util::lit_interior`](super::util::lit_interior).
+/// the pane - see [`util::lit_interior`](super::util::lit_interior).
 pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(tint),
@@ -468,7 +468,7 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
 ///
 /// The kit material already carries the grime, the joinery colour and the
 /// opacity, and those are worth inheriting. What a shared material cannot know
-/// is the *aspect of the hole it is filling* — and pane counts are exactly
+/// is the *aspect of the hole it is filling* - and pane counts are exactly
 /// what tell a viewer how big an opening is, so they are picked per opening
 /// and everything else comes along.
 pub(super) fn pane_grid(tint: [f32; 3], glow: f32, panes: (u32, u32)) -> SovereignMaterialSettings {
@@ -484,7 +484,7 @@ pub(super) fn pane_grid(tint: [f32; 3], glow: f32, panes: (u32, u32)) -> Soverei
 // Plain surfaces
 // ---------------------------------------------------------------------------
 
-/// A pane of glass on a **solid** — a lantern's light, a stern window, a
+/// A pane of glass on a **solid** - a lantern's light, a stern window, a
 /// bottle. Tinted, smooth and faintly lit, with no procedural texture at all.
 ///
 /// This exists so that the kit's forthcoming `Window` card never has to serve
@@ -493,7 +493,7 @@ pub(super) fn pane_grid(tint: [f32; 3], glow: f32, panes: (u32, u32)) -> Soverei
 /// round a solid, where the holes show whatever the solid was hiding (#972
 /// lesson 1, and lesson 20 stated as the prohibition
 /// `assert_no_glazing_on_solids` enforces). A lantern is the case that tempts the mistake hardest, because
-/// its whole subject *is* light seen through glass — the steampunk gas lamp
+/// its whole subject *is* light seen through glass - the steampunk gas lamp
 /// shipped with four `Window` cuboids for exactly this reason, and each one
 /// showed the sky through the far pane.
 ///
@@ -513,7 +513,7 @@ pub(super) fn tinted_glass(color: [f32; 3], lit: f32) -> SovereignMaterialSettin
     }
 }
 
-/// Matte pitch / tar — payed seams, tarred rigging and sheathing, the dark
+/// Matte pitch / tar - payed seams, tarred rigging and sheathing, the dark
 /// void inside a gun port, a hull's boot-topping. A plain surface with no
 /// procedural texture, which is honest: tar has no figure.
 pub(super) fn tar(color: [f32; 3]) -> SovereignMaterialSettings {
@@ -521,7 +521,7 @@ pub(super) fn tar(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.96),
         metallic: Fp(0.0),
-        // No texture, so `uv_scale` is inert — pinned at 1.0 so it does not
+        // No texture, so `uv_scale` is inert - pinned at 1.0 so it does not
         // read as a stale pre-#936 repeat count.
         uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::None,
@@ -529,7 +529,7 @@ pub(super) fn tar(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Grey storm-beach shingle — the strand under the slipway, the gibbet's tide
+/// Grey storm-beach shingle - the strand under the slipway, the gibbet's tide
 /// line, the foreshore apron.
 ///
 /// Sized and coloured *against* `coastal_resort::sand`: the resort's is a
@@ -556,7 +556,7 @@ pub(super) fn strand(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Bleached bone and old ivory — the cursed register's ribs, skulls and the
+/// Bleached bone and old ivory - the cursed register's ribs, skulls and the
 /// scrimshaw on the monument. Matte and untextured; bone at these scales is a
 /// silhouette, and a procedural grain on it would be noise.
 pub(super) fn bone(color: [f32; 3]) -> SovereignMaterialSettings {
@@ -577,9 +577,9 @@ pub(super) fn bone(color: [f32; 3]) -> SovereignMaterialSettings {
 /// A ship's lantern: a bronze-capped glazed drum with a flame inside it.
 ///
 /// Lives here rather than in whichever file needed it first (#972 lesson 5).
-/// Almost everything in this kit is lit by one of these — the gate's head and
+/// Almost everything in this kit is lit by one of these - the gate's head and
 /// piers, the tavern's sign bracket, the magazine's approach, the signal
-/// mast's masthead, the hulk's one surviving light — and the alternative is
+/// mast's masthead, the hulk's one surviving light - and the alternative is
 /// six files each re-deriving the same drum and each free to reach for the
 /// wrong glass.
 ///
@@ -591,8 +591,8 @@ pub(super) fn bone(color: [f32; 3]) -> SovereignMaterialSettings {
 /// 1. **The glazing is [`tinted_glass`], never a card.** A `Window` card
 ///    wrapped round a drum masks its panes away and shows whatever is beyond
 ///    the lantern through its far side (#972 lesson 1). This is the prop that
-///    tempts that mistake hardest — the steampunk gas lamp shipped with four
-///    `Window` cuboids for its panes — so the helper takes the decision away.
+///    tempts that mistake hardest - the steampunk gas lamp shipped with four
+///    `Window` cuboids for its panes - so the helper takes the decision away.
 /// 2. **The flame is small.** It sits at real strength because a lantern is
 ///    genuinely a bright point; what makes an emissive bloom to a white blank
 ///    is *area*, and this one is a sphere of a few centimetres inside the
@@ -638,7 +638,7 @@ pub(super) fn lantern(at: [f32; 3], h: f32, seed: u32) -> Generator {
                 [at[0], at[1] - h * 0.36, at[2]],
                 id_quat(),
             ),
-            // Suspension ring — a leaf prim, so its quarter turn carries
+            // Suspension ring - a leaf prim, so its quarter turn carries
             // nothing with it (#972 lesson 22).
             prim(
                 torus(0.015, r * 0.45, iron(IRON_BLACK, seed ^ 0x22)),
@@ -663,14 +663,14 @@ pub(super) fn lantern(at: [f32; 3], h: f32, seed: u32) -> Generator {
 // was an ABSOLUTE metre value while the callers asked for three different sizes
 // (1.9 x 1.25 over the battery, 1.55 x 1.05 on the gate, 1.5 x 1.0 at the signal
 // mast). So the signal mast's flag carried a relatively 27 % thicker skin, a
-// 27 % deeper bite and a finer sample grid than the battery's — three flags that
+// 27 % deeper bite and a finer sample grid than the battery's - three flags that
 // were supposed to be the same flag. As ratios of one canonical draft they are
 // the same flag by construction.
 
 /// The size the colours are DRAWN at, and the aspect they are drawn to.
 ///
 /// Ten times the size they are flown at, which buys two things and not a third.
-/// It buys legible numbers — a 320 mm eye socket rather than a 32 mm one — and it
+/// It buys legible numbers - a 320 mm eye socket rather than a 32 mm one - and it
 /// buys headroom over the sanitiser's local-space floors, so the teeth and the
 /// knuckle ends below can exist at all. It does **not** buy mesh detail: blob
 /// fidelity is a function of the local extent, so an oversized draft polygonises
@@ -678,7 +678,7 @@ pub(super) fn lantern(at: [f32; 3], h: f32, seed: u32) -> Generator {
 const CANON_H: f32 = 10.0;
 /// 3:2, which is what all three call sites were already asking for to within
 /// 3 % (1.520, 1.476, 1.500). One aspect means one uniform scale, which is the
-/// only kind that is safe — a non-uniform one shears rotated children.
+/// only kind that is safe - a non-uniform one shears rotated children.
 const CANON_ASPECT: f32 = 1.5;
 const CANON_W: f32 = CANON_H * CANON_ASPECT;
 
@@ -688,13 +688,13 @@ const CANON_W: f32 = CANON_H * CANON_ASPECT;
 /// than a length: a `BlobGroup` is polygonised on a sample grid, so anything
 /// thinner than about two cells is missed in places and the mesh comes out with
 /// holes rather than merely coarse. Cells are `CANON_W / FLAG_RES`, so what has
-/// to hold is `2·skin / CANON_W > 2 / FLAG_RES` — scale-invariant, and therefore
+/// to hold is `2·skin / CANON_W > 2 / FLAG_RES` - scale-invariant, and therefore
 /// true at every size the flag is flown at once it is true here. The first build
 /// used 30 mm at resolution 30 on a 1.9 m flag and polygonised as two
 /// disconnected slabs with a gap down the middle (#1026).
 const CANON_SKIN: f32 = 0.48;
 /// Sample resolution for the cloth. Near the sanitiser's 48 ceiling, because
-/// every cell of it buys thinner cloth — see [`CANON_SKIN`].
+/// every cell of it buys thinner cloth - see [`CANON_SKIN`].
 const FLAG_RES: u32 = 44;
 /// Half-thickness of the bone device, and its sample resolution. It spans far
 /// less than the cloth, so the same cell budget goes much further.
@@ -703,7 +703,7 @@ const DEVICE_RES: u32 = 30;
 /// How deep the device beds INTO the cloth, as a fraction of its own thickness.
 ///
 /// Half. A device that merely touches the sheet reads as floating in front of
-/// it — which is what an 8 mm bite gave — where a device *sunk into* it reads as
+/// it - which is what an 8 mm bite gave - where a device *sunk into* it reads as
 /// something painted or sewn on, which is what a flag's device is. Half is also
 /// what makes the carved holes work: with the bone bedded to its mid-plane, an
 /// eye socket cut clean through it has black cloth behind it rather than sky, so
@@ -713,15 +713,15 @@ const DEVICE_BED: f32 = 0.5;
 /// Clear air between the skull's jaw and the crossbones' upper knuckles.
 ///
 /// The device is two things, and a viewer only reads it as two if there is a gap.
-/// Drawn with the bones crossing at the chin — which is where a naive layout puts
-/// them — the skull, the jaw and the arms of the X merge into one pale mass.
+/// Drawn with the bones crossing at the chin - which is where a naive layout puts
+/// them - the skull, the jaw and the arms of the X merge into one pale mass.
 const DEVICE_GAP: f32 = CANON_H * 0.02;
 
 /// How far a carved hole reaches, as a multiple of the device's half-thickness.
 ///
 /// Over 1.0 on purpose: at 1.0 the cut would stop exactly on the bone's back
 /// face and leave a film behind, so the sockets read as recesses. Punching past
-/// it is what turns a recess into a hole — and a hole is the only thing the
+/// it is what turns a recess into a hole - and a hole is the only thing the
 /// cloth can show through.
 const HOLE_REACH: f32 = 1.6;
 /// Amplitude of the cloth's ripple, in canonical metres of Z excursion.
@@ -739,17 +739,17 @@ const CANON_LAP: f32 = 0.55;
 
 const _: () = assert!(
     CANON_SKIN * 2.0 * FLAG_RES as f32 > CANON_W * 2.0,
-    "the cloth is under two sample cells thick and will polygonise with holes — \
+    "the cloth is under two sample cells thick and will polygonise with holes - \
      and being a ratio, it will do so at every size the flag is flown at"
 );
 const _: () = assert!(
     HOLE_REACH > 1.0,
     "a carved hole stops on the bone's own back face and leaves a film across it \
-     — the sockets will read as recesses and nothing will show through them"
+     - the sockets will read as recesses and nothing will show through them"
 );
 const _: () = assert!(
     DEVICE_SKIN > CANON_RIPPLE * (1.0 - CLOTH_FRONT_FRAC),
-    "bedded this deep the device sinks behind the cloth's deepest lobe — it \
+    "bedded this deep the device sinks behind the cloth's deepest lobe - it \
      would disappear into the sheet wherever the ripple runs toward the viewer"
 );
 /// Which point on the rippling sheet counts as "the cloth's front" for the
@@ -769,7 +769,7 @@ const CLOTH_FRONT_FRAC: f32 = 0.45;
 /// anything at. Everything is in the cloth's own local frame: the cloth's root
 /// sits at the origin and both device groups sit at the origin too, with every
 /// offset living inside their own blob elements. That is what makes the instanced
-/// scale trivially correct — [`nest`](super::util::nest) rebases translation and
+/// scale trivially correct - [`nest`](super::util::nest) rebases translation and
 /// does *not* divide by scale, so children authored in a prop's ground frame
 /// would land wrong the moment the root carried one.
 ///
@@ -777,13 +777,13 @@ const CLOTH_FRONT_FRAC: f32 = 0.45;
 ///
 /// The cloth is one group, the skull is a second and the crossed bones are a
 /// third. A `BlobGroup` carries one material, so bone-on-black already forces
-/// two — but the skull and the bones are split from each other as well, because
+/// two - but the skull and the bones are split from each other as well, because
 /// blended into one group they melt together at the jaw and the whole device
 /// reads as a single lumpy figure with arms rather than as a skull above two
 /// bones. Blending is the right default *within* an object and the wrong one
 /// *between* objects that only touch.
 ///
-/// `scale` is passed in only so the cloth's weave can be corrected for it — see
+/// `scale` is passed in only so the cloth's weave can be corrected for it - see
 /// [`uv_for_scale`](super::util::uv_for_scale), trap 1. Nothing else here depends
 /// on it, which is the point.
 fn colours_canonical(scale: f32) -> Generator {
@@ -796,14 +796,14 @@ fn colours_canonical(scale: f32) -> Generator {
     //
     // One full-extent slab guarantees a single connected mass, and shallow lobes
     // offset in Z give it a ripple. Building the ripple out of abutting panels
-    // instead — as the first version did — makes connectivity a property of the
+    // instead - as the first version did - makes connectivity a property of the
     // blend radius, which is exactly the thing that fails quietly (#1026).
     //
     // The blends are held near the cloth's own THICKNESS rather than scaled off
     // its width, and that is a correction the oversized draft made visible. A
     // blend is a bloom: the iso-surface stands proud of the authored elements by
-    // roughly its radius, so a blend set to a tenth of the flag's width — which
-    // is what this used to be — meshes a flag 12 % bigger than the size it was
+    // roughly its radius, so a blend set to a tenth of the flag's width - which
+    // is what this used to be - meshes a flag 12 % bigger than the size it was
     // asked for. That was true before and simply went unnoticed, because a
     // 1.9 m flag asked for by width has no promise to break; a flag asked for by
     // height and instanced by scale does.
@@ -827,7 +827,7 @@ fn colours_canonical(scale: f32) -> Generator {
             ],
             // Held INSIDE the slab's own depth, so the slab alone governs the
             // top and bottom edges. Drawn to the full half-height the two
-            // iso-surfaces met along those edges and scalloped them — a row of
+            // iso-surfaces met along those edges and scalloped them - a row of
             // shallow bites the oversized draft showed at once and a flown one
             // never would.
             [CANON_W * 0.14, CANON_H * 0.46, CANON_SKIN],
@@ -842,8 +842,8 @@ fn colours_canonical(scale: f32) -> Generator {
     // into it, which kept it proud from every angle and read as a plaque hovering
     // a hand's breadth off the canvas.
     //
-    // The cloth is not flat, so "the cloth's front" is a choice —
-    // [`CLOTH_FRONT_FRAC`] of the way out to the deepest lobe — and the
+    // The cloth is not flat, so "the cloth's front" is a choice -
+    // [`CLOTH_FRONT_FRAC`] of the way out to the deepest lobe - and the
     // consequence is that the bone is buried more where the sheet swells toward
     // the viewer and less where it falls away. That is what an appliqué on moving
     // cloth does, and it is the whole reason to bed it rather than stand it off.
@@ -851,7 +851,7 @@ fn colours_canonical(scale: f32) -> Generator {
     let dz = cloth_front + DEVICE_SKIN * (2.0 * DEVICE_BED - 1.0);
     // The device fills the field. A Jolly Roger whose skull is a sixth of the
     // hoist reads as a badge on a flag rather than as the flag's own device, and
-    // the first oversized draft was exactly that — legible, correct, and too
+    // the first oversized draft was exactly that - legible, correct, and too
     // polite.
     let skull_r = CANON_H * 0.19;
     // Set high enough that the jaw clears the crossing of the bones. At 0.15 the
@@ -865,7 +865,7 @@ fn colours_canonical(scale: f32) -> Generator {
             [skull_r, skull_r * 1.02, DEVICE_SKIN],
             skull_r * 0.12,
         ),
-        // Brow ridge — the detail the direct draft could not have. At the size
+        // Brow ridge - the detail the direct draft could not have. At the size
         // this is flown at it is a 25 mm swell, which the sanitiser's blob floor
         // would have clamped; at canonical it is 250 mm and simply exists.
         blob_box(
@@ -942,7 +942,7 @@ fn colours_canonical(scale: f32) -> Generator {
     let bone_len = CANON_W * 0.24;
     let bone_r = skull_r * 0.2;
     // Flatter than 45°, which is what buys the separation. A steeper X reaches so
-    // far up that its arms flank the jaw however far the skull is raised — and
+    // far up that its arms flank the jaw however far the skull is raised - and
     // dropping the crossing far enough to fix that instead hangs the lower arms
     // off the bottom of the cloth. Laying the bones over reduces their vertical
     // reach without shortening them, so they stay wider than the cranium.
@@ -964,7 +964,7 @@ fn colours_canonical(scale: f32) -> Generator {
             bone_r * 0.4,
         ));
         // The knuckles sit ON the capsule's own axis, derived from its lean and
-        // half-length rather than placed by eye — so a retuned bone cannot leave
+        // half-length rather than placed by eye - so a retuned bone cannot leave
         // its own ends behind. `quat_z(lean)` carries local `+Y` to
         // `(-sin, cos, 0)`, which is the axis the capsule runs along.
         let (s_l, c_l) = lean.sin_cos();
@@ -1012,7 +1012,7 @@ fn colours_canonical(scale: f32) -> Generator {
     colours
 }
 
-/// The black colours — a hanging flag with a skull and crossed bones, flown at
+/// The black colours - a hanging flag with a skull and crossed bones, flown at
 /// `height`.
 ///
 /// Lives here rather than in whichever file needed it first (#972 lesson 5): the
@@ -1028,7 +1028,7 @@ fn colours_canonical(scale: f32) -> Generator {
 ///
 /// # One dimension, not two
 ///
-/// Only the height is taken, because only a **uniform** scale is safe — a
+/// Only the height is taken, because only a **uniform** scale is safe - a
 /// non-uniform one shears rotated children, and the bones are rotated. The width
 /// follows from [`CANON_ASPECT`]. That is a real restriction on callers and it is
 /// the right one: the previous signature took `w` and `h` independently and so
@@ -1054,7 +1054,7 @@ pub(super) fn jolly_roger(hoist: [f32; 3], height: f32) -> Generator {
 
 /// A capstan: the barrel, its whelps, the iron pawl rim and six bars.
 ///
-/// Promoted here the moment it had a second caller (#972 lesson 5) — the
+/// Promoted here the moment it had a second caller (#972 lesson 5) - the
 /// careening slip heaves a hull down with one and the standalone quayside
 /// prop is one. It is also the piece that taught this kit the most about
 /// rotations: the bars shipped "laid flat" by snapping each to the nearest
@@ -1062,7 +1062,7 @@ pub(super) fn jolly_roger(hoist: [f32; 3], height: f32) -> Generator {
 /// angles (#1028). They are [`strut`](super::util::strut)s from socket to
 /// tip now, horizontal because their endpoints are.
 ///
-/// `at` is the barrel's foot — the deck or pad it is stepped on. `bars` is
+/// `at` is the barrel's foot - the deck or pad it is stepped on. `bars` is
 /// how many are shipped: a working capstan has every socket filled, a resting
 /// one has two or three and the rest stowed, and that difference is most of
 /// what says whether anybody is heaving right now.
@@ -1072,7 +1072,7 @@ pub(super) fn capstan(at: [f32; 3], bars: usize, seed: u32) -> Generator {
     let barrel_h = 1.05;
     let mut carried = Vec::new();
 
-    // Whelps — the vertical ribs the messenger renders against. Without them
+    // Whelps - the vertical ribs the messenger renders against. Without them
     // a capstan is a bollard: the ribs are what make the taper read as
     // something a rope grips.
     for i in 0..6 {
@@ -1106,7 +1106,7 @@ pub(super) fn capstan(at: [f32; 3], bars: usize, seed: u32) -> Generator {
     ));
 
     // The bars, in their sockets. Struts, so a bar is horizontal because its
-    // two ends are at one height — not because a formula said so.
+    // two ends are at one height - not because a formula said so.
     let bar_y = at[1] + barrel_h * 0.94;
     for i in 0..bars.min(6) {
         let a = i as f32 * std::f32::consts::TAU / 6.0;
@@ -1135,21 +1135,21 @@ pub(super) fn capstan(at: [f32; 3], bars: usize, seed: u32) -> Generator {
 /// the centreline and rises to the sheer on both sides, open to the sky.
 ///
 /// Lives here rather than in whichever file needed it first (#972 lesson 5),
-/// because both cursed-register entries are built out of these — the
+/// because both cursed-register entries are built out of these - the
 /// [`rotting_hulk`]'s bare forward half and the ribs standing out of the shingle
-/// in [`tideline_bones`] — and because the shape cost three renders to arrive at.
+/// in [`tideline_bones`] - and because the shape cost three renders to arrive at.
 /// A frame is the single most recognisable thing about a wreck, so the kit
 /// cannot afford two spellings of it.
 ///
 /// `at` is where the frame's **ellipse centre** goes, which is one `height`
-/// above the keel *in the hull's own frame* — so a caller with a tilted hull
+/// above the keel *in the hull's own frame* - so a caller with a tilted hull
 /// passes `their_frame(0.0, height, station)` rather than the keel point itself.
 /// That is the whole subtlety of the contract: the raise has to happen before
 /// the tilt, or a heeled hull's frames lift straight up out of it instead of
 /// standing on it.
 ///
 /// `half_beam` and `height` are the frame's real half-width and rise, which are
-/// *different numbers* — so the primitive is a torus drawn to the beam and then
+/// *different numbers* - so the primitive is a torus drawn to the beam and then
 /// **scaled** to the sheer, rather than a circular arc that splits the difference
 /// and reaches neither. `tilt` is the hull's own rotation, applied on the left of
 /// the quarter turn.
@@ -1162,7 +1162,7 @@ pub(super) fn capstan(at: [f32; 3], bars: usize, seed: u32) -> Generator {
 /// and **no rotation converts one into the other usefully**: a semicircle is
 /// congruent to its own reflection, so flipping the hanging arc simply returns
 /// the hoop. The arc that hangs has exactly the right form and is merely in the
-/// wrong place, so the answer is a **translation** — raise it by its own
+/// wrong place, so the answer is a **translation** - raise it by its own
 /// semi-height and its trough lands on the keel while its ends reach the sheer.
 ///
 /// The negative quarter turn is required because `path_cut` keeps the arc on the
@@ -1204,26 +1204,26 @@ pub(super) fn hull_frame(
 // the thing they clothe, and two of them (`HULL_TAR` / `IRON_BLACK`) are kept
 // separate despite being near-identical values for exactly that reason.
 
-/// Tarred hull planking below the wale — the darkest timber in the kit.
+/// Tarred hull planking below the wale - the darkest timber in the kit.
 pub(super) const HULL_TAR: [f32; 3] = [0.14, 0.13, 0.12];
-/// Oiled oak — hull topsides, wharf piles, the tavern's frame, gun carriages.
+/// Oiled oak - hull topsides, wharf piles, the tavern's frame, gun carriages.
 pub(super) const HULL_OAK: [f32; 3] = [0.33, 0.23, 0.14];
 /// Holystoned deck planking, scrubbed pale by the watch.
 pub(super) const DECK_HOLY: [f32; 3] = [0.63, 0.56, 0.43];
 /// Weathered grey wharf and staging timber, silvered by salt.
 pub(super) const WHARF_GREY: [f32; 3] = [0.48, 0.46, 0.42];
-/// Joinery oak — window frames, door stiles, sign-board mouldings. Dark, as
+/// Joinery oak - window frames, door stiles, sign-board mouldings. Dark, as
 /// period joinery was, and the frame colour [`glass`] is glazed into.
 pub(super) const OAK_JOINERY: [f32; 3] = [0.28, 0.19, 0.11];
 
-/// Powder-stained limestone — the battery's dressed face and copings.
+/// Powder-stained limestone - the battery's dressed face and copings.
 pub(super) const STONE_LIME: [f32; 3] = [0.60, 0.58, 0.52];
 /// Wet quay cobbles and rubble footings, darker than the dressed stone.
 pub(super) const STONE_QUAY: [f32; 3] = [0.40, 0.39, 0.36];
 /// Split-oak shingle, weathered to grey-brown.
 pub(super) const SHINGLE_GREY: [f32; 3] = [0.40, 0.37, 0.32];
 
-/// Salt-bleached canvas — sails, awnings, tarpaulins.
+/// Salt-bleached canvas - sails, awnings, tarpaulins.
 pub(super) const CANVAS_BONE: [f32; 3] = [0.79, 0.75, 0.65];
 /// The shaded weft of the same canvas.
 pub(super) const CANVAS_SHADE: [f32; 3] = [0.64, 0.60, 0.51];
@@ -1232,26 +1232,26 @@ pub(super) const ROPE_HEMP: [f32; 3] = [0.60, 0.51, 0.34];
 
 /// Wrought iron, near-black under its rust.
 pub(super) const IRON_BLACK: [f32; 3] = [0.17, 0.17, 0.18];
-/// Cast gunmetal, before the patina takes it — **ordnance only**: barrels,
+/// Cast gunmetal, before the patina takes it - **ordnance only**: barrels,
 /// cascabels, reinforcing rings.
 ///
 /// Kept distinct from [`BRONZE_FITTING`] although the two values are within a
 /// hair of each other, because #972 lesson 32 is that a shared colour constant
 /// is a shared *selector*. The battery's "one gun per opening" guard picks its
 /// barrels by bronze-and-tapered, and while the lanterns' caps wore this same
-/// constant it counted fifteen guns on a ten-gun fort — the caps are bronze
+/// constant it counted fifteen guns on a ten-gun fort - the caps are bronze
 /// and tapered too. Two things that are the same colour by coincidence are the
 /// same thing to every guard that ever reads the tree.
 pub(super) const BRONZE_GUN: [f32; 3] = [0.45, 0.36, 0.19];
-/// Cast bronze **fittings** — lantern caps and bases, bell metal, sheaves,
+/// Cast bronze **fittings** - lantern caps and bases, bell metal, sheaves,
 /// traversing gear. Everything bronze that is not a gun. See [`BRONZE_GUN`]
 /// for why this is its own constant rather than the same one.
 pub(super) const BRONZE_FITTING: [f32; 3] = [0.44, 0.37, 0.21];
-/// Gold leaf — the tavern's lettering, the monument's frame, a captain's
+/// Gold leaf - the tavern's lettering, the monument's frame, a captain's
 /// vanity. Used in small areas only; a broad gold face reads as a lightbox.
 pub(super) const GOLD_LEAF: [f32; 3] = [0.76, 0.60, 0.23];
 
-/// The ensign's red — the colours flown over the battery, the tavern's
+/// The ensign's red - the colours flown over the battery, the tavern's
 /// paintwork, a sash. The kit's one loud hue, and it is loud on purpose.
 pub(super) const ENSIGN_RED: [f32; 3] = [0.50, 0.10, 0.09];
 
@@ -1266,18 +1266,18 @@ pub(super) const BONE_PALE: [f32; 3] = [0.78, 0.75, 0.66];
 //
 // Standing gotcha: deep-saturate an emissive and keep the strength LOW. A pale
 // hue at strength blooms to a white blank, and a broad lit face does it
-// fastest. Every constant here is meant for a *small* surface — a pane behind
+// fastest. Every constant here is meant for a *small* surface - a pane behind
 // glass, a lantern flame, a strip under a lintel.
 
 /// The amber of a tallow lantern seen through a leaded light.
 pub(super) const GLASS_AMBER: [f32; 3] = [0.58, 0.42, 0.20];
 /// A lantern or candle flame at close range.
 pub(super) const LAMP_TALLOW: [f32; 3] = [1.0, 0.82, 0.48];
-/// Deep-saturated amber for the larger lit faces — a name-board, a
+/// Deep-saturated amber for the larger lit faces - a name-board, a
 /// window-lit gable. Richer than [`LAMP_TALLOW`] precisely so it holds its
 /// hue where the pale gold would go white.
 pub(super) const SIGN_AMBER: [f32; 3] = [0.95, 0.50, 0.12];
-/// The cursed register's corpse-light — a cold green that reads as *wrong*
+/// The cursed register's corpse-light - a cold green that reads as *wrong*
 /// beside every other lit colour in this kit.
 ///
 /// The whole eerie register turns on this one hue, and it works because it is
@@ -1285,7 +1285,7 @@ pub(super) const SIGN_AMBER: [f32; 3] = [0.95, 0.50, 0.12];
 /// and [`SIGN_AMBER`] are all warm, so the working harbour glows amber from
 /// end to end; witchfire is its complement and reads as something burning that
 /// has no business burning. That is a relationship between colours, not a
-/// property of one — the green is only cold because everything else is warm.
+/// property of one - the green is only cold because everything else is warm.
 ///
 /// Deep-saturated and used at LOW strength on SMALL surfaces, per the standing
 /// gotcha above: a pale mint at strength would bloom to a white blank and lose
@@ -1369,7 +1369,7 @@ mod tests {
     ///   grid, so a sheet thinner than ~2 cells is missed in places and comes
     ///   out with holes. At 30 mm thick and resolution 30 the flag meshed as
     ///   two disconnected slabs with a gap down the middle. Checked by union-
-    ///   find over the triangle graph, which is the only way to see it — the
+    ///   find over the triangle graph, which is the only way to see it - the
     ///   bounding box of a flag with a hole in it is the same as a whole one.
     /// * **The device is proud of the front and short of the back.** A 0.34 m
     ///   skull on a 0.06 m cloth put most of itself out the reverse.
@@ -1379,7 +1379,7 @@ mod tests {
     ///   a 100 mm gap and the colours looked detached from their own pole.
     ///
     /// Run at the size the battery flies it at, since that is what a viewer sees
-    /// — but every claim here is a ratio, so it holds at all three sites.
+    /// - but every claim here is a ratio, so it holds at all three sites.
     #[test]
     fn the_colours_are_one_cloth_carrying_a_separate_skull_and_bones() {
         use crate::catalogue::items::measure;
@@ -1410,13 +1410,13 @@ mod tests {
             assert_eq!(
                 blob_components(k),
                 1,
-                "group {i} polygonised into more than one piece — its elements \
+                "group {i} polygonised into more than one piece - its elements \
                  are out of blend range, or it is thinner than the sample grid \
                  can resolve"
             );
         }
 
-        // The cloth is thick enough for its own grid to see it — checked in
+        // The cloth is thick enough for its own grid to see it - checked in
         // CANONICAL units, because that is the frame the sampling happens in.
         // Scale is applied to the finished mesh, so this is the one claim here
         // that would be meaningless measured in the world.
@@ -1444,7 +1444,7 @@ mod tests {
         // It is flown at the size it was asked for, not the size it was drawn at.
         assert!(
             (cloth.bounds.size().y - h).abs() < h * 0.06,
-            "asked for a {h} m flag and got one {} m deep — the instancing scale \
+            "asked for a {h} m flag and got one {} m deep - the instancing scale \
              is not doing what the signature promises",
             cloth.bounds.size().y
         );
@@ -1452,7 +1452,7 @@ mod tests {
         // The luff laps onto the staff at the hoist.
         assert!(
             cloth.bounds.min.x <= hoist[0] + 1e-3,
-            "the cloth's luff is at x = {} and the staff at {} — the colours \
+            "the cloth's luff is at x = {} and the staff at {} - the colours \
              are hanging beside their own pole",
             cloth.bounds.min.x,
             hoist[0]
@@ -1466,7 +1466,7 @@ mod tests {
             }
             assert!(
                 part.bounds.min.z < cloth.bounds.min.z,
-                "a device group's face is at z = {} and the cloth's at {} — \
+                "a device group's face is at z = {} and the cloth's at {} - \
                  the relief is not standing proud of the flag",
                 part.bounds.min.z,
                 cloth.bounds.min.z
@@ -1474,20 +1474,20 @@ mod tests {
             assert!(
                 part.bounds.max.z < cloth.bounds.max.z,
                 "a device group reaches z = {} and the cloth's back is at {} \
-                 — it is coming out of the back of the flag",
+                 - it is coming out of the back of the flag",
                 part.bounds.max.z,
                 cloth.bounds.max.z
             );
             // ...and it is BEDDED IN, not standing off. The device's back has to
             // be behind the cloth's front face, or it is a plaque hovering in
-            // front of the canvas — which is what it was, and which is also what
+            // front of the canvas - which is what it was, and which is also what
             // stops the carved sockets working: a hole cut through bone that has
             // sky behind it is a hole onto sky, and the whole point is that the
             // flag shows through its own skull.
             assert!(
                 part.bounds.max.z > cloth.bounds.min.z,
                 "a device group's back is at z = {} and the cloth's front at {} \
-                 — it is floating clear of the sheet instead of sunk into it",
+                 - it is floating clear of the sheet instead of sunk into it",
                 part.bounds.max.z,
                 cloth.bounds.min.z
             );
@@ -1502,7 +1502,7 @@ mod tests {
 
         // The device reads as TWO things: the skull's jaw clears the crossbones'
         // upper knuckles with cloth showing between them. Drawn with the bones
-        // crossing at the chin — where a naive layout puts them — the skull, the
+        // crossing at the chin - where a naive layout puts them - the skull, the
         // jaw and the arms of the X merge into one pale mass, which is what the
         // first oversized draft did. The bones are the wider group; the skull is
         // the taller-placed one.
@@ -1515,7 +1515,7 @@ mod tests {
         };
         assert!(
             bones.bounds.max.y < skull.bounds.min.y,
-            "the bones reach up to y = {} and the skull begins at {} — they \
+            "the bones reach up to y = {} and the skull begins at {} - they \
              overlap, so the device reads as one mass rather than as a skull \
              above two bones",
             bones.bounds.max.y,
@@ -1525,7 +1525,7 @@ mod tests {
         // reading as an afterthought tucked under the cranium.
         assert!(
             bones.bounds.size().x > skull.bounds.size().x * 1.2,
-            "the bones span {} against a skull {} wide — the crossbones are the \
+            "the bones span {} against a skull {} wide - the crossbones are the \
              other half of the device, not a detail beneath it",
             bones.bounds.size().x,
             skull.bounds.size().x
@@ -1537,7 +1537,7 @@ mod tests {
     /// This is the invariant the oversized-sub-assembly technique exists to buy,
     /// and it is the one the previous build did not have. `jolly_roger` used to
     /// take `w` and `h` while `FLAG_SKIN`, `DEVICE_SKIN`, `DEVICE_BITE`,
-    /// `FLAG_RIPPLE` and `HOIST_LAP` were all absolute metre values — so the
+    /// `FLAG_RIPPLE` and `HOIST_LAP` were all absolute metre values - so the
     /// signal mast's 1.0 m flag carried a relatively 27 % thicker cloth, a 27 %
     /// deeper bite and a finer sample grid than the battery's 1.25 m one. Three
     /// flags that were supposed to be one flag.
@@ -1579,7 +1579,7 @@ mod tests {
                 assert!(
                     (a[axis] - b[axis]).abs() < 0.03,
                     "a group measures {a:?} of its cloth at one size and {b:?} at \
-                     another — the draft still carries an absolute dimension \
+                     another - the draft still carries an absolute dimension \
                      somewhere, so these are not the same flag"
                 );
             }
@@ -1592,7 +1592,7 @@ mod tests {
     /// UVs are emitted in prim-*local* metres, so `uv_scale` is tiles per local
     /// metre and a draft drawn at ten times its flown size keeps ten times the
     /// tile repeats. Left uncorrected the canvas weave comes out ten times too
-    /// fine — invisible in a bounding box, obvious in-world, and exactly the
+    /// fine - invisible in a bounding box, obvious in-world, and exactly the
     /// class of fault the kit's brick convention was built to stop.
     ///
     /// [`uv_for_scale`](super::super::util::uv_for_scale) is the correction; this
@@ -1619,21 +1619,21 @@ mod tests {
             assert!(
                 (got - want).abs() < want * 0.02,
                 "a {h} m flag's weave tiles every {got} m in the world where the \
-                 sailcloth is authored at {want} m — the uv correction for the \
+                 sailcloth is authored at {want} m - the uv correction for the \
                  instancing scale is missing or has the wrong sign"
             );
         }
     }
 
     /// Only a uniform scale is instanced, because a non-uniform one shears any
-    /// rotated child — and the crossed bones are rotated.
+    /// rotated child - and the crossed bones are rotated.
     #[test]
     fn the_colours_are_instanced_with_one_uniform_scale() {
         let flag = jolly_roger([0.0, 4.0, 0.0], 1.25);
         let s = flag.transform.scale.0;
         assert!(
             (s[0] - s[1]).abs() < 1e-6 && (s[1] - s[2]).abs() < 1e-6,
-            "the colours are instanced at {s:?} — a non-uniform scale shears the \
+            "the colours are instanced at {s:?} - a non-uniform scale shears the \
              rotated bones, and the transform sanitiser clamps each component \
              independently so nothing downstream will catch it"
         );
@@ -1643,7 +1643,7 @@ mod tests {
             assert_eq!(
                 c.transform.scale.0,
                 [1.0, 1.0, 1.0],
-                "a device group carries its own scale — it should be inheriting \
+                "a device group carries its own scale - it should be inheriting \
                  the cloth's, or the two can drift apart"
             );
             assert_eq!(
@@ -1677,7 +1677,7 @@ mod tests {
             let tile_m = 1.0 / m.uv_scale.0;
             assert!(
                 (0.05..=6.0).contains(&tile_m),
-                "{name}'s tile is {tile_m} m — outside the range any of these \
+                "{name}'s tile is {tile_m} m - outside the range any of these \
                  surfaces is authored at, which is what a stale repeat count \
                  looks like"
             );

@@ -1,5 +1,5 @@
 //! Wild-West "bring-it-to-life" helpers: drifting prairie dust and two
-//! spatial-audio patches — a dry prairie wind for the saloon and a slow
+//! spatial-audio patches - a dry prairie wind for the saloon and a slow
 //! windmill creak for the water tower.
 //!
 //! Particle emitters are returned as [`Generator`] nodes (a
@@ -25,7 +25,7 @@ use crate::pds::{
 // Particle emitters
 // ---------------------------------------------------------------------------
 
-/// A low veil of tan dust skating along the street on the dry wind — the
+/// A low veil of tan dust skating along the street on the dry wind - the
 /// restless dirt of the frontier.
 pub(super) fn dust_drift(pos: [f32; 3], seed: u64) -> Generator {
     Emitter {
@@ -58,7 +58,7 @@ pub(super) fn dust_drift(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A dry prairie wind — band-limited noise breathing slowly through a lowpass,
+/// A dry prairie wind - band-limited noise breathing slowly through a lowpass,
 /// the empty air over the street.
 pub(super) fn prairie_wind() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.46 }));
@@ -94,7 +94,7 @@ pub(super) fn prairie_wind() -> SovereignAudioConfig {
     patch(vec![noise, lp, lfo, vca], NodeId(3))
 }
 
-/// A slow windmill creak — narrow band-passed noise pulsed by a slow LFO, the
+/// A slow windmill creak - narrow band-passed noise pulsed by a slow LFO, the
 /// rhythmic groan of the wind pump turning.
 pub(super) fn windmill_creak() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));

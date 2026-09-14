@@ -1,9 +1,9 @@
 //! What the avatar editor's 3-D gizmo is aimed at (#1161).
 //!
-//! The editor can aim at three different kinds of thing — a node of a
+//! The editor can aim at three different kinds of thing - a node of a
 //! construction-kit body's visuals tree (#823), a whole worn prop moved
 //! through its offset (#1062), and one part inside a worn prop's own tree
-//! (#1098) — and the rule that governs them is that **at most one of them
+//! (#1098) - and the rule that governs them is that **at most one of them
 //! is aimed at a time**. That rule used to be spelled out by hand: three
 //! parallel `Option` fields, and fourteen methods on
 //! [`AvatarEditorState`](super::AvatarEditorState) that each remembered to
@@ -19,7 +19,7 @@
 ///
 /// Constructed only through
 /// [`AvatarEditorState::aim`](super::AvatarEditorState::aim), which is the
-/// one place the outgoing target's tree-row highlight is dropped — widget
+/// one place the outgoing target's tree-row highlight is dropped - widget
 /// state that lives *beside* the aim rather than in it.
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
 pub enum GizmoTarget {
@@ -34,7 +34,7 @@ pub enum GizmoTarget {
     /// root. An empty path is the root node itself.
     VisualsNode { path: Vec<usize> },
     /// A whole worn prop (#1062), addressed by its attachment record's
-    /// rkey — a prop is not a node in any tree, so it is deliberately not
+    /// rkey - a prop is not a node in any tree, so it is deliberately not
     /// a path. Its gizmo moves the record's `offset`, which lives in the
     /// carrying joint's **rest** frame; see
     /// [`holds_rig_at_rest`](super::AvatarEditorState::holds_rig_at_rest).
@@ -121,8 +121,8 @@ mod tests {
     }
 
     /// A worn PART is not a worn PROP (#1106): they hold the rig
-    /// differently — the prop pins the bind pose, the part pins whatever
-    /// pose the body is in — so an accessor that conflated them would
+    /// differently - the prop pins the bind pose, the part pins whatever
+    /// pose the body is in - so an accessor that conflated them would
     /// re-pose the body under a part the user just picked.
     #[test]
     fn a_part_is_not_the_prop_that_carries_it() {

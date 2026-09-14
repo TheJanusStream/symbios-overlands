@@ -1,7 +1,7 @@
-//! Barrel stack — a Medieval prop. A cluster of iron-hooped oak barrels of
+//! Barrel stack - a Medieval prop. A cluster of iron-hooped oak barrels of
 //! ale and salt: three standing and one nestled on top, a tapped cask lying
 //! on a timber cradle with a spigot and a waiting tankard, and a packing
-//! crate — the stores of a tavern or market.
+//! crate - the stores of a tavern or market.
 
 use std::f32::consts::FRAC_PI_2;
 

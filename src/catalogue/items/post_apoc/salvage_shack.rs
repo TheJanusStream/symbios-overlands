@@ -1,4 +1,4 @@
-//! Salvage shack — a Post-apocalyptic secondary. A hovel of welded corrugated
+//! Salvage shack - a Post-apocalyptic secondary. A hovel of welded corrugated
 //! sheet and salvaged plank under a sagging tarp, a stovepipe leaking smoke
 //! and a dim-lit window. The shelter of the holdout; its window is emissive
 //! trim the ruin pass can darken.
@@ -57,7 +57,7 @@ fn build_tree() -> Generator {
     let wall_top = wall_h;
 
     let mut prims = vec![
-        // Concrete pad — the root.
+        // Concrete pad - the root.
         prim(
             solid(cuboid_tapered(
                 [4.6, 0.2, 4.0],
@@ -91,7 +91,7 @@ fn build_tree() -> Generator {
         [0.05, 0.2 + 0.7, -1.78],
         quat_y(0.04),
     ));
-    // Dim-lit window, framed in salvaged plank — emissive (−Z front).
+    // Dim-lit window, framed in salvaged plank - emissive (−Z front).
     prims.push(prim(
         solid(cuboid_tapered([0.95, 0.85, 0.08], 0.0, plank(PLANK_GREY))),
         [1.15, 0.2 + 1.5, -1.74],

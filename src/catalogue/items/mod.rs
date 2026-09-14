@@ -8,7 +8,7 @@
 //! The flat [`ENTRIES`] list with categorisation via
 //! [`super::CatalogueCategory`] (itself derived from
 //! [`super::StructureRole`]) lets us re-bucket entries in the UI without
-//! moving files — see the parent module's docstring for the rationale.
+//! moving files - see the parent module's docstring for the rationale.
 
 use super::CatalogueEntry;
 
@@ -55,7 +55,7 @@ mod shape_grammar_test;
 /// preserved by the UI for display, so think of this as the
 /// presentation order within each section.
 pub const ENTRIES: &[&dyn CatalogueEntry] = &[
-    // Buildings — Ancient/Classical theme (shape-grammar + primitive). Also
+    // Buildings - Ancient/Classical theme (shape-grammar + primitive). Also
     // the settlement fallback theme, so it carries the deepest roster.
     &ancient::villa::Villa,
     &ancient::ruined_temple::RuinedTemple,
@@ -70,10 +70,10 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &ancient::urn::Urn,
     &ancient::statue_plinth::StatuePlinth,
     &ancient::brazier::Brazier,
-    // Buildings — Ancient/Classical poor (mudbrick) variants, prosperity Poor.
+    // Buildings - Ancient/Classical poor (mudbrick) variants, prosperity Poor.
     &ancient::mudbrick_hut::MudbrickHut,
     &ancient::ruined_wall::RuinedWall,
-    // Buildings — Medieval theme (landmark + secondaries + props).
+    // Buildings - Medieval theme (landmark + secondaries + props).
     &medieval::medieval_castle::MedievalCastle,
     &medieval::watchtower::Watchtower,
     &medieval::chapel::Chapel,
@@ -84,11 +84,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &medieval::barrel_stack::BarrelStack,
     &medieval::trade_stall::TradeStall,
     &medieval::banner_pole::BannerPole,
-    // Buildings — Medieval poor (cottar) variants, prosperity Poor.
+    // Buildings - Medieval poor (cottar) variants, prosperity Poor.
     &medieval::wattle_hovel::WattleHovel,
     &medieval::lean_to::LeanTo,
     &medieval::kindling_pile::KindlingPile,
-    // Buildings — Cyberpunk theme (landmark + secondaries + props).
+    // Buildings - Cyberpunk theme (landmark + secondaries + props).
     &cyberpunk::neon_megatower::NeonMegatower,
     &cyberpunk::data_spire::DataSpire,
     &cyberpunk::arcade_block::ArcadeBlock,
@@ -97,13 +97,13 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &cyberpunk::neon_kiosk::NeonKiosk,
     &cyberpunk::drone_perch::DronePerch,
     &cyberpunk::cable_arch::CableArch,
-    // Buildings — Cyberpunk poor (undercity) variants, prosperity Poor.
+    // Buildings - Cyberpunk poor (undercity) variants, prosperity Poor.
     &cyberpunk::scrap_shanty::ScrapShanty,
     &cyberpunk::container_stack::ContainerStack,
     &cyberpunk::tarp_shelter::TarpShelter,
     &cyberpunk::ewaste_pile::EwastePile,
     &cyberpunk::busted_terminal::BustedTerminal,
-    // Buildings — Nordic theme (landmark + secondaries + props).
+    // Buildings - Nordic theme (landmark + secondaries + props).
     &nordic::mead_hall::MeadHall,
     &nordic::boathouse::Boathouse,
     &nordic::signal_beacon::SignalBeacon,
@@ -113,11 +113,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &nordic::shield_rack::ShieldRack,
     &nordic::drying_rack::DryingRack,
     &nordic::totem_pole::TotemPole,
-    // Buildings — Nordic poor (croft) variants, prosperity Poor.
+    // Buildings - Nordic poor (croft) variants, prosperity Poor.
     &nordic::turf_house::TurfHouse,
     &nordic::sod_shelter::SodShelter,
     &nordic::wood_pile::WoodPile,
-    // Buildings — Feudal Japan theme (landmark + secondaries + props).
+    // Buildings - Feudal Japan theme (landmark + secondaries + props).
     &feudal_japan::pagoda::Pagoda,
     &feudal_japan::torii_gate::ToriiGate,
     &feudal_japan::tea_house::TeaHouse,
@@ -127,11 +127,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &feudal_japan::koi_pond::KoiPond,
     &feudal_japan::bamboo_fence::BambooFence,
     &feudal_japan::bonsai::Bonsai,
-    // Buildings — Feudal Japan poor (farmstead) variants, prosperity Poor.
+    // Buildings - Feudal Japan poor (farmstead) variants, prosperity Poor.
     &feudal_japan::minka::Minka,
     &feudal_japan::rice_shed::RiceShed,
     &feudal_japan::straw_bales::StrawBales,
-    // Buildings — Mesoamerican theme (landmark + secondaries + props).
+    // Buildings - Mesoamerican theme (landmark + secondaries + props).
     &mesoamerican::step_pyramid::StepPyramid,
     &mesoamerican::ball_court::BallCourt,
     &mesoamerican::shrine::Shrine,
@@ -141,11 +141,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &mesoamerican::idol::Idol,
     &mesoamerican::fire_bowl::FireBowl,
     &mesoamerican::calendar_stone::CalendarStone,
-    // Buildings — Mesoamerican poor (commoner) variants, prosperity Poor.
+    // Buildings - Mesoamerican poor (commoner) variants, prosperity Poor.
     &mesoamerican::adobe_hut::AdobeHut,
     &mesoamerican::maize_granary::MaizeGranary,
     &mesoamerican::clay_pots::ClayPots,
-    // Buildings — Modern City theme (landmark + secondaries + props).
+    // Buildings - Modern City theme (landmark + secondaries + props).
     &modern_city::glass_skyscraper::GlassSkyscraper,
     &modern_city::office_block::OfficeBlock,
     &modern_city::parking_garage::ParkingGarage,
@@ -155,11 +155,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &modern_city::traffic_light::TrafficLight,
     &modern_city::parked_car::ParkedCar,
     &modern_city::dumpster::Dumpster,
-    // Buildings — Modern City poor (inner-city) variants, prosperity Poor.
+    // Buildings - Modern City poor (inner-city) variants, prosperity Poor.
     &modern_city::tenement::Tenement,
     &modern_city::corner_store::CornerStore,
     &modern_city::trash_bags::TrashBags,
-    // Buildings — Suburban theme (landmark + secondaries + props).
+    // Buildings - Suburban theme (landmark + secondaries + props).
     &suburban::community_center::CommunityCenter,
     &suburban::suburban_house::SuburbanHouse,
     &suburban::craftsman_bungalow::CraftsmanBungalow,
@@ -169,11 +169,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &suburban::mailbox::Mailbox,
     &suburban::minivan::Minivan,
     &suburban::swing_set::SwingSet,
-    // Buildings — Suburban poor (trailer-lot) variants, prosperity Poor.
+    // Buildings - Suburban poor (trailer-lot) variants, prosperity Poor.
     &suburban::trailer_home::TrailerHome,
     &suburban::carport::Carport,
     &suburban::yard_junk::YardJunk,
-    // Buildings — Rural/Farmland theme (landmark + secondaries + props).
+    // Buildings - Rural/Farmland theme (landmark + secondaries + props).
     &rural_farmland::barn::Barn,
     &rural_farmland::farmhouse::Farmhouse,
     &rural_farmland::grain_silo::GrainSilo,
@@ -183,11 +183,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &rural_farmland::hay_bales::HayBales,
     &rural_farmland::scarecrow::Scarecrow,
     &rural_farmland::rail_fence::RailFence,
-    // Buildings — Rural/Farmland poor (hardscrabble) variants, prosperity Poor.
+    // Buildings - Rural/Farmland poor (hardscrabble) variants, prosperity Poor.
     &rural_farmland::homestead_shack::HomesteadShack,
     &rural_farmland::pole_barn::PoleBarn,
     &rural_farmland::farm_junk::FarmJunk,
-    // Buildings — Industrial Park theme (landmark + secondaries + props).
+    // Buildings - Industrial Park theme (landmark + secondaries + props).
     &industrial_park::factory::Factory,
     &industrial_park::cooling_tower::CoolingTower,
     &industrial_park::loading_dock::LoadingDock,
@@ -197,11 +197,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &industrial_park::pipe_run::PipeRun,
     &industrial_park::pallet_stack::PalletStack,
     &industrial_park::floodlight::Floodlight,
-    // Buildings — Industrial Park poor (derelict) variants, prosperity Poor.
+    // Buildings - Industrial Park poor (derelict) variants, prosperity Poor.
     &industrial_park::derelict_shed::DerelictShed,
     &industrial_park::rusted_tank::RustedTank,
     &industrial_park::scrap_heap::ScrapHeap,
-    // Buildings — Coastal Resort theme (landmark + secondaries + props).
+    // Buildings - Coastal Resort theme (landmark + secondaries + props).
     &coastal_resort::grand_hotel::GrandHotel,
     &coastal_resort::resort_pier::ResortPier,
     &coastal_resort::beach_house::BeachHouse,
@@ -211,11 +211,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &coastal_resort::deck_chair::DeckChair,
     &coastal_resort::dinghy::Dinghy,
     &coastal_resort::buoy::Buoy,
-    // Buildings — Coastal Resort poor (fishing-hamlet) variants, prosperity Poor.
+    // Buildings - Coastal Resort poor (fishing-hamlet) variants, prosperity Poor.
     &coastal_resort::fishing_shack::FishingShack,
     &coastal_resort::bait_stand::BaitStand,
     &coastal_resort::crab_traps::CrabTraps,
-    // Buildings — Roadside / Highway theme (landmark + secondaries + props).
+    // Buildings - Roadside / Highway theme (landmark + secondaries + props).
     &roadside::gas_station::GasStation,
     &roadside::roadside_diner::RoadsideDiner,
     &roadside::motel::Motel,
@@ -225,11 +225,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &roadside::traffic_cone::TrafficCone,
     &roadside::vending_machine::VendingMachine,
     &roadside::guardrail::Guardrail,
-    // Buildings — Roadside poor (busted-shoulder) variants, prosperity Poor.
+    // Buildings - Roadside poor (busted-shoulder) variants, prosperity Poor.
     &roadside::produce_stand::ProduceStand,
     &roadside::boarded_shack::BoardedShack,
     &roadside::oil_drums::OilDrums,
-    // Buildings — Civic / Campus theme (landmark + secondaries + props).
+    // Buildings - Civic / Campus theme (landmark + secondaries + props).
     &civic_campus::town_hall::TownHall,
     &civic_campus::library::Library,
     &civic_campus::lecture_hall::LectureHall,
@@ -239,11 +239,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &civic_campus::bike_rack::BikeRack,
     &civic_campus::notice_board::NoticeBoard,
     &civic_campus::campus_lamp::CampusLamp,
-    // Buildings — Civic / Campus poor (underfunded) variants, prosperity Poor.
+    // Buildings - Civic / Campus poor (underfunded) variants, prosperity Poor.
     &civic_campus::portable_classroom::PortableClassroom,
     &civic_campus::bus_shelter::BusShelter,
     &civic_campus::recycling_bins::RecyclingBins,
-    // Buildings — Sports / Recreation theme (landmark + secondaries + props).
+    // Buildings - Sports / Recreation theme (landmark + secondaries + props).
     &sports_rec::stadium::Stadium,
     &sports_rec::gym::Gym,
     &sports_rec::bleachers::Bleachers,
@@ -254,11 +254,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &sports_rec::scoreboard::Scoreboard,
     &sports_rec::players_bench::PlayersBench,
     &sports_rec::pelican_bicycle::PelicanBicycle,
-    // Buildings — Sports / Recreation poor (rec-ground) variants, prosperity Poor.
+    // Buildings - Sports / Recreation poor (rec-ground) variants, prosperity Poor.
     &sports_rec::rec_court::RecCourt,
     &sports_rec::backstop::Backstop,
     &sports_rec::tire_stack::TireStack,
-    // Buildings — Steampunk theme (landmark + secondaries + props).
+    // Buildings - Steampunk theme (landmark + secondaries + props).
     &steampunk::cog_tower::CogTower,
     &steampunk::airship_dock::AirshipDock,
     &steampunk::foundry::Foundry,
@@ -268,11 +268,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &steampunk::gear_pile::GearPile,
     &steampunk::gas_lamp::GasLamp,
     &steampunk::coal_hopper::CoalHopper,
-    // Buildings — Steampunk poor (soot-yard) variants, prosperity Poor.
+    // Buildings - Steampunk poor (soot-yard) variants, prosperity Poor.
     &steampunk::tinkerers_shack::TinkerersShack,
     &steampunk::scrap_boiler::ScrapBoiler,
     &steampunk::cog_scrap::CogScrap,
-    // Buildings — Solarpunk theme (landmark + secondaries + props).
+    // Buildings - Solarpunk theme (landmark + secondaries + props).
     &solarpunk::biodome::Biodome,
     &solarpunk::green_pavilion::GreenPavilion,
     &solarpunk::wind_turbine::WindTurbine,
@@ -282,11 +282,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &solarpunk::water_channel::WaterChannel,
     &solarpunk::solar_lamp::SolarLamp,
     &solarpunk::beehive::Beehive,
-    // Buildings — Solarpunk poor (grassroots) variants, prosperity Poor.
+    // Buildings - Solarpunk poor (grassroots) variants, prosperity Poor.
     &solarpunk::cob_roundhouse::CobRoundhouse,
     &solarpunk::poly_tunnel::PolyTunnel,
     &solarpunk::compost_heap::CompostHeap,
-    // Buildings — Space Outpost theme (landmark + secondaries + props).
+    // Buildings - Space Outpost theme (landmark + secondaries + props).
     &space_outpost::habitat_dome::HabitatDome,
     &space_outpost::solar_array::SolarArray,
     &space_outpost::comms_dish::CommsDish,
@@ -296,11 +296,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &space_outpost::cargo_crate::CargoCrate,
     &space_outpost::beacon::Beacon,
     &space_outpost::airlock::Airlock,
-    // Buildings — Space Outpost poor (wreck) variants, prosperity Poor.
+    // Buildings - Space Outpost poor (wreck) variants, prosperity Poor.
     &space_outpost::crash_shelter::CrashShelter,
     &space_outpost::solar_wreck::SolarWreck,
     &space_outpost::scrap_canister::ScrapCanister,
-    // Buildings — High Fantasy theme (landmark + secondaries + props).
+    // Buildings - High Fantasy theme (landmark + secondaries + props).
     &fantasy::wizard_tower::WizardTower,
     &fantasy::enchanted_library::EnchantedLibrary,
     &fantasy::fae_ring::FaeRing,
@@ -310,11 +310,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &fantasy::spell_circle::SpellCircle,
     &fantasy::mana_font::ManaFont,
     &fantasy::crystal_cluster::CrystalCluster,
-    // Buildings — High Fantasy poor (hedge-magic) variants, prosperity Poor.
+    // Buildings - High Fantasy poor (hedge-magic) variants, prosperity Poor.
     &fantasy::hedge_hut::HedgeHut,
     &fantasy::standing_stone::StandingStone,
     &fantasy::toadstool_ring::ToadstoolRing,
-    // Buildings — Gothic Horror theme (landmark + secondaries + props).
+    // Buildings - Gothic Horror theme (landmark + secondaries + props).
     &gothic_horror::cathedral::Cathedral,
     &gothic_horror::mausoleum::Mausoleum,
     &gothic_horror::cemetery::Cemetery,
@@ -324,11 +324,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &gothic_horror::dead_tree::DeadTree,
     &gothic_horror::iron_fence::IronFence,
     &gothic_horror::stone_cross::StoneCross,
-    // Buildings — Gothic Horror poor (forsaken) variants, prosperity Poor.
+    // Buildings - Gothic Horror poor (forsaken) variants, prosperity Poor.
     &gothic_horror::ruined_chapel::RuinedChapel,
     &gothic_horror::pauper_graves::PauperGraves,
     &gothic_horror::bone_pile::BonePile,
-    // Buildings — Alien Organic theme (landmark + secondaries + props).
+    // Buildings - Alien Organic theme (landmark + secondaries + props).
     &alien_organic::chitinous_hive::ChitinousHive,
     &alien_organic::pod_cluster::PodCluster,
     &alien_organic::fleshy_spire::FleshySpire,
@@ -338,11 +338,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &alien_organic::tendril::Tendril,
     &alien_organic::spore_vent::SporeVent,
     &alien_organic::creep_patch::CreepPatch,
-    // Buildings — Alien Organic poor (necrotic) variants, prosperity Poor.
+    // Buildings - Alien Organic poor (necrotic) variants, prosperity Poor.
     &alien_organic::withered_hive::WitheredHive,
     &alien_organic::husk_pods::HuskPods,
     &alien_organic::rot_patch::RotPatch,
-    // Buildings — Alien Monolithic theme (landmark + secondaries + props).
+    // Buildings - Alien Monolithic theme (landmark + secondaries + props).
     &alien_monolithic::black_monolith::BlackMonolith,
     &alien_monolithic::levitating_platform::LevitatingPlatform,
     &alien_monolithic::light_pylon::LightPylon,
@@ -352,11 +352,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &alien_monolithic::energy_node::EnergyNode,
     &alien_monolithic::monolith_shard::MonolithShard,
     &alien_monolithic::light_disc::LightDisc,
-    // Buildings — Alien Monolithic poor (dormant) variants, prosperity Poor.
+    // Buildings - Alien Monolithic poor (dormant) variants, prosperity Poor.
     &alien_monolithic::broken_monolith::BrokenMonolith,
     &alien_monolithic::dead_pylon::DeadPylon,
     &alien_monolithic::glyph_rubble::GlyphRubble,
-    // Buildings — Post-apocalyptic theme (landmark + secondaries + props).
+    // Buildings - Post-apocalyptic theme (landmark + secondaries + props).
     &post_apoc::fortified_ruin::FortifiedRuin,
     &post_apoc::salvage_shack::SalvageShack,
     &post_apoc::radio_mast::RadioMast,
@@ -366,11 +366,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &post_apoc::fuel_barrels::FuelBarrels,
     &post_apoc::tire_wall::TireWall,
     &post_apoc::signal_fire::SignalFire,
-    // Buildings — Post-apocalyptic poor (drifter) variants, prosperity Poor.
+    // Buildings - Post-apocalyptic poor (drifter) variants, prosperity Poor.
     &post_apoc::survivor_lean_to::SurvivorLeanTo,
     &post_apoc::rubble_barricade::RubbleBarricade,
     &post_apoc::ash_pit::AshPit,
-    // Buildings — Wild West theme (landmark + secondaries + props).
+    // Buildings - Wild West theme (landmark + secondaries + props).
     &wild_west::saloon::Saloon,
     &wild_west::water_tower::WaterTower,
     &wild_west::church::Church,
@@ -380,11 +380,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &wild_west::wagon::Wagon,
     &wild_west::frontier_fence::FrontierFence,
     &wild_west::wind_pump::WindPump,
-    // Buildings — Wild West poor (bust) variants, prosperity Poor.
+    // Buildings - Wild West poor (bust) variants, prosperity Poor.
     &wild_west::prospector_shack::ProspectorShack,
     &wild_west::boot_hill::BootHill,
     &wild_west::tumbleweed::Tumbleweed,
-    // Buildings — Pirate theme (landmark + secondaries + props).
+    // Buildings - Pirate theme (landmark + secondaries + props).
     &pirate::harbour_battery::HarbourBattery,
     &pirate::harbour_tavern::HarbourTavern,
     &pirate::prize_warehouse::PrizeWarehouse,
@@ -397,7 +397,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &pirate::rotting_hulk::RottingHulk,
     &pirate::gibbet_cage::GibbetCage,
     &pirate::tideline_bones::TidelineBones,
-    // Buildings — cross-theme socio-political props (Prop role, tagged
+    // Buildings - cross-theme socio-political props (Prop role, tagged
     // with every theme but gated to a prosperity / escalation tier band;
     // see crate::catalogue::items::civic).
     &civic::shanty::Shanty,
@@ -416,12 +416,12 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &civic::garden_bed::GardenBed,
     &civic::lantern::Lantern,
     &civic::market_stall::MarketStall,
-    // Plants — L-system tree entries.
+    // Plants - L-system tree entries.
     &plants::lsys_monopodial_tree::MonopodialTree,
     &plants::lsys_sympodial_tree::SympodialTree,
     &plants::lsys_ternary_gravity::TernaryGravityTree,
     &plants::lsys_ternary_props::TernaryPropsTree,
-    // Plants — biome-specific species (epic #458 biome overhaul).
+    // Plants - biome-specific species (epic #458 biome overhaul).
     &plants::lsys_cactus::Cactus,
     &plants::lsys_dead_shrub::DeadShrub,
     &plants::lsys_palm::Palm,
@@ -432,11 +432,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &plants::lsys_bush::Bush,
     &plants::lsys_fern::Fern,
     &plants::lsys_flowering_tree::FloweringTree,
-    // Plants — civic planting species (#972), nested by the planter and bed.
+    // Plants - civic planting species (#972), nested by the planter and bed.
     &plants::lsys_topiary_standard::TopiaryStandard,
     &plants::lsys_trailing_ivy::TrailingIvy,
     &plants::lsys_coneflower::Coneflower,
-    // Ground-cover tier (#911) — crossed cards and flat decals, placed by
+    // Ground-cover tier (#911) - crossed cards and flat decals, placed by
     // the hundred, so each is a handful of entities rather than a grammar.
     &plants::groundcover::GrassTuft,
     &plants::groundcover::DryGrassTuft,
@@ -448,13 +448,13 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &plants::groundcover::DwarfShrub,
     &plants::groundcover::MossPatch,
     &plants::groundcover::LichenPatch,
-    // Patterns — abstract L-system / ABOP demos.
+    // Patterns - abstract L-system / ABOP demos.
     &patterns::lsys_branching::BranchingPattern,
     &patterns::lsys_koch_island::QuadraticKochIsland,
     &patterns::lsys_sierpinski::SierpinskiGasket,
-    // Tools — utility items personalised at build time.
+    // Tools - utility items personalised at build time.
     &tools::my_teleporter::MyTeleporter,
-    // Gateways — one bespoke per-theme social gateway (#749-772). Each is
+    // Gateways - one bespoke per-theme social gateway (#749-772). Each is
     // tagged with its `ThemeArchetype`, so the seeded wiring's
     // `entries_for(theme, Gateway)` picks the matching gate; `civic_gateway`
     // carries no theme and is the cross-theme fallback (`by_slug`),
@@ -509,7 +509,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &suburban::monument::SuburbanMonument,
     &wild_west::gateway::WildWestGateway,
     &wild_west::monument::WildWestMonument,
-    // Attachments — wearable items (#1086); also placeable like any entry.
+    // Attachments - wearable items (#1086); also placeable like any entry.
     &attachments::banner::Sashimono,
     &attachments::circlet::Circlet,
     &attachments::lantern::Lantern,
@@ -517,7 +517,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
 ];
 
 /// Resolve a slug to its entry. Returns `None` if the slug doesn't
-/// match any current entry — the drop handler treats that as a
+/// match any current entry - the drop handler treats that as a
 /// silently-dropped stale drag (renaming a slug between sessions, or
 /// a record referencing a removed entry, both land here).
 pub fn by_slug(slug: &str) -> Option<&'static dyn CatalogueEntry> {
@@ -564,8 +564,8 @@ mod tests {
     /// them out of the prop's ground frame; a child pushed onto the
     /// finished root afterwards is read in the root's *local* frame and
     /// never rebased, so it silently lands one root-height out. This
-    /// shipped 65 times across 54 entries before it was caught — an
-    /// emitter as much as 2.5 m off — because the offending line reads
+    /// shipped 65 times across 54 entries before it was caught - an
+    /// emitter as much as 2.5 m off - because the offending line reads
     /// perfectly and nothing about the result looks broken in isolation.
     ///
     /// Since intent lives in the author's head rather than the built
@@ -640,18 +640,18 @@ mod tests {
         assert_eq!(
             len_before,
             slugs.len(),
-            "duplicate slug in catalogue ENTRIES — slugs must be unique"
+            "duplicate slug in catalogue ENTRIES - slugs must be unique"
         );
     }
 
     /// #940: `LogEnd` is an alpha card whose mask keeps one round slice and
     /// discards everything outside it, so it only works on a quad it fills
-    /// edge to edge. Wrapped around a solid it deletes the solid — wood_pile
+    /// edge to edge. Wrapped around a solid it deletes the solid - wood_pile
     /// shipped 19 cylinders rendering as floating slivers because of this.
     ///
     /// Deliberately narrower than "no cards on solids": the other cards mask
     /// their *interior* (window panes, chain-link gaps) and leave a frame, so
-    /// they wrap curved and boxy geometry on purpose — the biodome's glazed
+    /// they wrap curved and boxy geometry on purpose - the biodome's glazed
     /// sphere and ~70 window slabs across the catalogue depend on it. Only
     /// the border-masking card has a hard geometric requirement.
     #[test]
@@ -660,7 +660,7 @@ mod tests {
         use crate::pds::{Generator, GeneratorKind, SovereignTextureConfig};
 
         // Walks mutably purely to reuse `node_materials_mut`, the single
-        // list of which kinds carry a material — a second immutable copy of
+        // list of which kinds carry a material - a second immutable copy of
         // that match would be one more place to forget a new prim kind.
         fn walk(g: &mut Generator, slug: &str, bad: &mut Vec<String>) {
             let tag = g.kind.kind_tag();
@@ -703,7 +703,7 @@ mod tests {
             if matches!(e.role(), Landmark | Secondary | Prop) {
                 assert!(
                     !e.themes().is_empty(),
-                    "entry {} has a settlement role but no themes() — the deriver \
+                    "entry {} has a settlement role but no themes() - the deriver \
                      would never place it",
                     e.slug()
                 );
@@ -713,7 +713,7 @@ mod tests {
 
     /// Wearability and the Attachment role travel together: `wear_socket()`
     /// is what the Wear button keys on, `role()` is what the section and
-    /// the by-role browser key on — an entry with one but not the other
+    /// the by-role browser key on - an entry with one but not the other
     /// would be a wearable nobody can find, or a section row nobody can
     /// wear.
     #[test]
@@ -749,7 +749,7 @@ mod tests {
             assert_eq!(
                 e.category(),
                 e.role().category(),
-                "entry {} reports a section that isn't its role's — category() \
+                "entry {} reports a section that isn't its role's - category() \
                  has drifted from role()",
                 e.slug()
             );

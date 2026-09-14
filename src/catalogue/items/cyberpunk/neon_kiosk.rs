@@ -1,4 +1,4 @@
-//! Neon kiosk — a small Cyberpunk prop. A waist-to-head-height dark-metal
+//! Neon kiosk - a small Cyberpunk prop. A waist-to-head-height dark-metal
 //! vending terminal: a framed menu screen under a neon-lipped awning, a lit
 //! header sign, a dispense slot, and side accent strips. Scattered through
 //! the settlement as street clutter.
@@ -60,7 +60,7 @@ fn build_tree() -> Generator {
     base.transform.translation.0[1] -= slab_h * 0.5;
     root.children.push(base);
 
-    // Vending body — hums with the signature low buzz of a live machine. Its
+    // Vending body - hums with the signature low buzz of a live machine. Its
     // front face sits at z = +0.5; everything below mounts onto it.
     let box_h = 2.0_f32;
     let mut vending = prim(
@@ -148,7 +148,7 @@ fn build_tree() -> Generator {
     root
 }
 
-/// A darker shade of a body colour — recessed housings / dispense slots.
+/// A darker shade of a body colour - recessed housings / dispense slots.
 fn shade(c: [f32; 3]) -> [f32; 3] {
     [c[0] * 0.6, c[1] * 0.6, c[2] * 0.6]
 }

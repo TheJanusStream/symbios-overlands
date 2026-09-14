@@ -1,4 +1,4 @@
-//! Withered hive — the Alien-Organic *poor* landmark. A collapsed, necrotic
+//! Withered hive - the Alien-Organic *poor* landmark. A collapsed, necrotic
 //! hive: cracked grey-green chitin bulbs slumped and caved over dead tissue,
 //! its biolume long gone, its maw a dark empty socket and its tendrils
 //! shrivelled and flopped on the ground. The necrotic counterpart to the
@@ -56,7 +56,7 @@ impl CatalogueEntry for WitheredHive {
 }
 
 fn build_tree() -> Generator {
-    // Slumped, squashed base bulb — the root (id_quat). The shell stays one
+    // Slumped, squashed base bulb - the root (id_quat). The shell stays one
     // dark grey-green chitin so the stack reads as the dead twin of the hive;
     // necrotic beige is used only for the tissue exposed where it has broken
     // open.
@@ -69,7 +69,7 @@ fn build_tree() -> Generator {
         base_scale,
     )];
 
-    // A caved-in mid bulb, slumped and leaning off-axis (child — safe).
+    // A caved-in mid bulb, slumped and leaning off-axis (child - safe).
     prims.push(prim_scaled(
         solid(sphere(2.0, 5, chitin(CHITIN_GREEN))),
         [0.35, 3.9, -0.2],
@@ -89,7 +89,7 @@ fn build_tree() -> Generator {
     ));
 
     // The cave-in: a big dark concave socket bitten out of the front, exposing
-    // dead tissue inside — the headline "collapsed" read, facing the −Z hero.
+    // dead tissue inside - the headline "collapsed" read, facing the −Z hero.
     prims.push(prim_scaled(
         solid(with_cut(
             sphere(1.7, 6, flesh(NECROTIC)),
@@ -102,7 +102,7 @@ fn build_tree() -> Generator {
         [1.0, 0.85, 1.0],
     ));
 
-    // Broken rib arcs girdling the slump — partial, not full rings.
+    // Broken rib arcs girdling the slump - partial, not full rings.
     for (y, major, arc) in [
         (2.0_f32, 2.95_f32, [0.0_f32, 0.34_f32]),
         (3.4, 2.2, [0.45, 0.85]),
@@ -158,7 +158,7 @@ fn build_tree() -> Generator {
     // the shell still covers the plinth on flat ground.
     //
     // This root is `prim_scaled`, and `assemble` rebases a child's
-    // *translation* but not its scale — so everything under it inherits the
+    // *translation* but not its scale - so everything under it inherits the
     // bulb's 0.86 squash. Left alone the plinth would reach only 86 % of the
     // depth the rule asked for. Undo the squash on this one child: cancel the
     // scale, and pre-divide the offset from the root so `assemble`'s rebase

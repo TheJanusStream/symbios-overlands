@@ -60,7 +60,7 @@ impl Sanitize for SovereignMaterialSettings {
 /// bounding those fields on twenty of them: the tuned ranges lived upstream
 /// in the genetic operators and the inspector sliders, while the one table a
 /// hostile record actually met carried round numbers picked to bound a loop.
-/// Twenty-eight integer fields — `warp_octaves` among them — had no clamp
+/// Twenty-eight integer fields - `warp_octaves` among them - had no clamp
 /// here at all, and nothing but `noise`'s own internal ceiling stood between
 /// a hostile record and the pixel loop.
 ///
@@ -71,7 +71,7 @@ impl Sanitize for SovereignTextureConfig {
         match self {
             // Nothing to bound: `None` carries no config, and `Unknown` is
             // the forward-compatibility arm whose payload this build cannot
-            // interpret — and cannot re-serialise either.
+            // interpret - and cannot re-serialise either.
             Self::None | Self::Unknown => {}
             // Not a generator config at all. Forwards to the asset-reference
             // sanitiser, which caps URL / DID / CID lengths so a hostile peer
@@ -144,7 +144,7 @@ mod tests {
     use crate::pds::types::Fp2;
     use crate::pds::{SovereignFlowerConfig, SovereignSnowflakeConfig};
 
-    /// #957: hostile uv_transform knobs must come back finite and bounded —
+    /// #957: hostile uv_transform knobs must come back finite and bounded -
     /// NaN would otherwise ride straight into the material's `Affine2`.
     #[test]
     fn hostile_uv_transform_knobs_are_clamped() {
@@ -169,8 +169,8 @@ mod tests {
     /// A hostile record can set count-shaped sprite fields to `u32::MAX`;
     /// the envelope must bring them back inside the per-feature loop budget
     /// so the texture task cannot be told to iterate billions of times per
-    /// pixel. The exhaustive version of this — every numeric field of every
-    /// variant — is `tests/texture_wire.rs`; these two are here because the
+    /// pixel. The exhaustive version of this - every numeric field of every
+    /// variant - is `tests/texture_wire.rs`; these two are here because the
     /// atlas dimensions were the original reason this sanitiser existed.
     #[test]
     fn hostile_sprite_counts_are_clamped() {

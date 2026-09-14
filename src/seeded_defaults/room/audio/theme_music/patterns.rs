@@ -1,6 +1,6 @@
 //! Note-pattern generation: onset scattering (arp phrases / sparse
 //! scatter), the melodic contour tables, and the bass voice derived from
-//! the melody — everything that turns a [`ThemeVoice`] into `Event`s.
+//! the melody - everything that turns a [`ThemeVoice`] into `Event`s.
 
 use bevy_symbios_audio::{Event, Instrument, PitchMode, Track};
 use rand_chacha::ChaCha8Rng;
@@ -12,7 +12,7 @@ use super::voices::{ThemeVoice, Wave, biome_register, voice_for};
 use crate::seeded_defaults::scene::{SceneCharacter, range_f32, unit_f32};
 
 const ONSET_TAIL_BEATS: f32 = 4.0;
-/// Hard ceiling on note events per voice — keeps bake time + the mixdown
+/// Hard ceiling on note events per voice - keeps bake time + the mixdown
 /// bounded however the phrase/scatter maths lands on a long loop.
 const MAX_NOTES: usize = 40;
 
@@ -122,7 +122,7 @@ pub(super) fn contour_deg(contour: u32, k: usize, len: usize, n: usize) -> usize
     }
 }
 
-/// Sparse voices place their onsets as a handful of *gestures* — short runs
+/// Sparse voices place their onsets as a handful of *gestures* - short runs
 /// of close notes tracing a small up/down contour from a seeded root degree,
 /// separated by rests and spread across the loop. This reads as a breathing,
 /// developing phrase (and lays out differently per seed) rather than a
@@ -184,7 +184,7 @@ pub(super) fn bass_octave_for(melody_octave: f32) -> f32 {
     (melody_octave * 0.5).min(0.5)
 }
 
-/// Low drone / pad second voice — a sustained sine one octave below the
+/// Low drone / pad second voice - a sustained sine one octave below the
 /// melody (see [`bass_octave_for`]) that fills the long loop's bottom end
 /// and shares the bed's reverb. Its voicing varies by seed (a static held
 /// drone, or a slow walk across 2–3 scale degrees), but it is always present

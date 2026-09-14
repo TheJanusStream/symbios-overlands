@@ -1,4 +1,4 @@
-//! Offline scatter-placement census (#912) — what the compiler will
+//! Offline scatter-placement census (#912) - what the compiler will
 //! *actually* place, measured without a browser or a GPU in the loop.
 //!
 //! The analytic `--room-census` (#810) multiplies each placement's `count`
@@ -9,8 +9,8 @@
 //! *arranged*. A stand of 200 trees and a stand of 200 trees in four
 //! thickets are the same number.
 //!
-//! So this replays the real sampling loop — [`super::scatter::try_sample`],
-//! the same function the executor calls — against a heightmap rebuilt from
+//! So this replays the real sampling loop - [`super::scatter::try_sample`],
+//! the same function the executor calls - against a heightmap rebuilt from
 //! the record, and reports both the yield and the arrangement.
 //!
 //! # Reading the clustering number
@@ -20,9 +20,9 @@
 //! the `0.5 / √density` that a uniform random (Poisson) arrangement of the
 //! same density over the same area would give.
 //!
-//! * `R ≈ 1` — indistinguishable from a random sprinkle.
-//! * `R < 1` — clustered. This is what a grown stand looks like.
-//! * `R > 1` — over-dispersed, more evenly spaced than random (an orchard).
+//! * `R ≈ 1` - indistinguishable from a random sprinkle.
+//! * `R < 1` - clustered. This is what a grown stand looks like.
+//! * `R > 1` - over-dispersed, more evenly spaced than random (an orchard).
 //!
 //! One caveat worth stating rather than hiding: the density denominator uses
 //! the authored bounds area, but the biome filter and slope cutoff carve
@@ -44,7 +44,7 @@ use super::scatter::{
 /// One scatter placement's measured outcome.
 pub(crate) struct ScatterCensusRow {
     pub generator_ref: String,
-    /// `Placement::Scatter::count` — instances asked for.
+    /// `Placement::Scatter::count` - instances asked for.
     pub requested: u32,
     /// Instances the sampler actually placed.
     pub placed: u32,
@@ -62,13 +62,13 @@ pub(crate) struct ScatterCensusRow {
     pub above_water_band: Option<[f32; 2]>,
     pub altitude_band: Option<[f32; 2]>,
     /// Height above the water line at the placed instances, as
-    /// `(median, p95, max)` metres — and the same with the bands removed.
+    /// `(median, p95, max)` metres - and the same with the bands removed.
     ///
     /// Compared as DISTRIBUTIONS, never as counts. The sampler retries past
     /// a rejection until it hits the requested count, so a band that
     /// rejects most of a disc still places the full quota and a
     /// count-difference reads as a flat zero. (This is the second time that
-    /// trap has been walked into on this census — the slope columns learned
+    /// trap has been walked into on this census - the slope columns learned
     /// it first.) What a working band changes is WHICH ground is planted,
     /// so the band shows up here or nowhere.
     pub above_water: (f32, f32, f32),
@@ -78,7 +78,7 @@ pub(crate) struct ScatterCensusRow {
     pub slope_deg: (f32, f32, f32),
     /// World XZ of every placed instance, and of the same scatter with its
     /// naturalness zeroed. Kept so `render --scatter-plot` can draw the two
-    /// plan views side by side — arrangement is a plan-view question that a
+    /// plan views side by side - arrangement is a plan-view question that a
     /// perspective contact sheet of a 400 m stand cannot answer.
     pub points: Vec<(f32, f32)>,
     pub points_uniform: Vec<(f32, f32)>,
@@ -87,7 +87,7 @@ pub(crate) struct ScatterCensusRow {
     pub bounds_radius: f32,
     /// Bounds centre in world XZ.
     pub bounds_center: (f32, f32),
-    /// The same measure with the cutoff removed — the terrain the scatter
+    /// The same measure with the cutoff removed - the terrain the scatter
     /// was *offered*.
     ///
     /// This pair, not the placed count, is what shows a slope cutoff
@@ -109,7 +109,7 @@ pub(crate) struct ScatterCensus {
 /// rebuilt from it, and measure the result.
 ///
 /// Rebuilding the heightmap is the expensive part (seconds per seed), so it
-/// is done once and shared across the room's scatters — the same map every
+/// is done once and shared across the room's scatters - the same map every
 /// peer's terrain pass produces for that record.
 pub(crate) fn scatter_census(record: &RoomRecord) -> ScatterCensus {
     let heightmap = FinishedHeightMap(crate::terrain::rebuild_heightmap_for_record(record));
@@ -190,8 +190,8 @@ pub(crate) fn scatter_census(record: &RoomRecord) -> ScatterCensus {
 }
 
 /// Run one scatter's sampling loop to completion, returning the world XZ of
-/// every placed instance. Mirrors the executor's loop bounds exactly —
-/// same `count * 10` rejection budget — so the yield reported here is the
+/// every placed instance. Mirrors the executor's loop bounds exactly -
+/// same `count * 10` rejection budget - so the yield reported here is the
 /// yield the compiler gets.
 fn place(
     bounds: &ScatterBounds,
@@ -293,7 +293,7 @@ fn scale_range(local_seed: u64, instances: usize, naturalness: &ScatterNaturalne
     if instances == 0 { (1.0, 1.0) } else { (lo, hi) }
 }
 
-/// Clark–Evans nearest-neighbour index — see the module docs. `NaN` when
+/// Clark–Evans nearest-neighbour index - see the module docs. `NaN` when
 /// fewer than two instances were placed, since a nearest neighbour needs a
 /// neighbour.
 fn clark_evans(points: &[(f32, f32)], bounds: &ScatterBounds) -> f32 {

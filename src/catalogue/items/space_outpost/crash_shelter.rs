@@ -1,12 +1,12 @@
-//! Crash shelter — the Space-Outpost *poor* landmark. A scorched lander
+//! Crash shelter - the Space-Outpost *poor* landmark. A scorched lander
 //! capsule down on its side, repurposed as a shelter with a patched hatch and
 //! a bent antenna. The hardscrabble counterpart to the
 //! [`habitat_dome`](super::habitat_dome): same frontier, opposite end of the
 //! prosperity axis (`Poor`), so a destitute space room grows the wreck site
 //! instead of the colony.
 //!
-//! Rooted on a flat scorched berm (`id_quat`) so the capsule — a tapered
-//! cylinder laid along X with a [`quat_z`] of π/2 — and all its trim are
+//! Rooted on a flat scorched berm (`id_quat`) so the capsule - a tapered
+//! cylinder laid along X with a [`quat_z`] of π/2 - and all its trim are
 //! children of an upright root (a rotated assemble root would spin every
 //! child into its frame).
 
@@ -58,7 +58,7 @@ impl CatalogueEntry for CrashShelter {
 fn build_tree() -> Generator {
     let cap_y = 1.5_f32;
     let mut prims = vec![
-        // Flat scorched berm where it ploughed in — the upright root.
+        // Flat scorched berm where it ploughed in - the upright root.
         prim(
             solid(cuboid_tapered([4.8, 0.4, 3.0], 0.0, painted(SCORCH))),
             [0.0, 0.2, 0.0],

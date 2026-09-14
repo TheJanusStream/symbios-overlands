@@ -2,7 +2,7 @@
 //! into the runtime `ContactRecipeRegistry` (#246).
 //!
 //! Runs as its own system (mirroring `apply_environment_state`) rather
-//! than inside `compile_room_record` — that system is already at Bevy's
+//! than inside `compile_room_record` - that system is already at Bevy's
 //! 16-param `IntoSystem` limit, and rebuilding the registry has nothing
 //! to do with despawning/spawning entities anyway. Reacts to
 //! `RoomRecord` changes so an editor save (or a peer broadcast) takes
@@ -34,7 +34,7 @@ pub(crate) fn apply_contact_recipes(
     *registry = ContactRecipeRegistry::from_effects(&record.contact_effects);
     // Every live throttle refers to positions in the list just replaced.
     // Deleting one recipe shifts every later index down and would hand its
-    // cooldown to whichever recipe inherited the slot — silently, and in
+    // cooldown to whichever recipe inherited the slot - silently, and in
     // the middle of exactly the workflow (delete, then test the survivors)
     // where the owner is least able to attribute it.
     particles.clear_cooldowns();

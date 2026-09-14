@@ -1,4 +1,4 @@
-//! Generic inclusive tier-affinity band (#654) — the one definition
+//! Generic inclusive tier-affinity band (#654) - the one definition
 //! behind `ProsperityBand` / `EscalationBand` (scene axes) and
 //! `OrnatenessBand` / `WearBand` (avatar axes), which were four
 //! byte-identical structs. Each tier axis implements [`BandTier`] to
@@ -8,9 +8,9 @@
 /// A tier axis usable inside a [`Band`]: an ordered `Copy` enum with
 /// fixed lowest/highest endpoints and a display label per tier.
 pub trait BandTier: Copy + Ord {
-    /// The lowest tier — the [`Band::ANY`] lower endpoint.
+    /// The lowest tier - the [`Band::ANY`] lower endpoint.
     const MIN: Self;
-    /// The highest tier — the [`Band::ANY`] upper endpoint.
+    /// The highest tier - the [`Band::ANY`] upper endpoint.
     const MAX: Self;
     /// Human-readable tier name.
     fn label(self) -> &'static str;
@@ -28,7 +28,7 @@ pub struct Band<T> {
 }
 
 impl<T: BandTier> Band<T> {
-    /// Every tier — an untagged, always-eligible entry.
+    /// Every tier - an untagged, always-eligible entry.
     pub const ANY: Self = Self {
         lo: T::MIN,
         hi: T::MAX,
@@ -50,7 +50,7 @@ impl<T: BandTier> Band<T> {
         self.lo <= tier && tier <= self.hi
     }
 
-    /// Human-readable span — `"Any"`, a single tier, or `"lo–hi"`.
+    /// Human-readable span - `"Any"`, a single tier, or `"lo–hi"`.
     pub fn label(self) -> String {
         if self == Self::ANY {
             "Any".to_string()

@@ -8,7 +8,7 @@
 //! backoff (deferred through the frame loop, not by parking
 //! `IoTaskPool` workers); inventory is best-effort and falls through to
 //! an empty stash on any failure. The per-record policy lives in one
-//! [`fetch::LoadedRecord`] impl each — see the sub-module map below.
+//! [`fetch::LoadedRecord`] impl each - see the sub-module map below.
 //!
 //! The frame the room record lands, [`start_ambient_bake`] dispatches
 //! the gate's fifth task: rendering the room's
@@ -22,18 +22,18 @@
 //! [`check_loading_complete`] only transitions to `InGame` once every
 //! resource the first `InGame` frame depends on is present, so a slow
 //! PDS round-trip cannot strand a half-loaded recipe behind the world
-//! builder — or start gameplay silent.
+//! builder - or start gameplay silent.
 //!
 //! ## Sub-module map
 //!
-//! * [`fetch`] — the generic machinery: [`fetch::LoadedRecord`] policy
+//! * [`fetch`] - the generic machinery: [`fetch::LoadedRecord`] policy
 //!   trait, `RecordFetchTask<R>` / `PendingRecordRetry<R>` components,
 //!   the shared poll + backoff-retry systems, and the IoTaskPool /
 //!   tokio dispatch wrapper.
-//! * [`records`] — the three `LoadedRecord` impls (room raises the
+//! * [`records`] - the three `LoadedRecord` impls (room raises the
 //!   recovery banner, avatar retries quietly, inventory is best-effort)
 //!   and the `OnEnter(Loading)` start systems.
-//! * [`ambient`] — the ambient-audio bake task, [`AmbientHandle`],
+//! * [`ambient`] - the ambient-audio bake task, [`AmbientHandle`],
 //!   the settle-gated in-game ambient-player spawn/swap, and the
 //!   [`AmbientSettle`] de-chop window.
 
@@ -69,7 +69,7 @@ pub(crate) fn reset_fetch_outcomes(mut commands: Commands) {
 }
 
 /// `OnEnter(InGame)`: one toast naming every record whose fetch fell
-/// back to a default for a FAILURE reason (#840) — the loading screen's
+/// back to a default for a FAILURE reason (#840) - the loading screen's
 /// amber rows scroll away with the state change, and without this the
 /// only trace of "your avatar is not your avatar" was the session log.
 pub(crate) fn toast_fetch_fallbacks(
@@ -84,7 +84,7 @@ pub(crate) fn toast_fetch_fallbacks(
     let plural = fallen.len() > 1;
     toasts.warn(
         format!(
-            "Using default{} for {} — the stored cop{} could not be loaded. \
+            "Using default{} for {} - the stored cop{} could not be loaded. \
              Saving would overwrite what's stored.",
             if plural { "s" } else { "" },
             fallen.join(", "),
@@ -112,7 +112,7 @@ pub(crate) fn toast_ambient_failure(
     };
     toasts.warn(
         format!(
-            "No soundtrack in this world — {}",
+            "No soundtrack in this world - {}",
             failed.failure.reason.sentence()
         ),
         time.elapsed_secs_f64(),
@@ -127,7 +127,7 @@ use crate::terrain;
 
 /// Marker resource inserted by the loading screen's "Back to login"
 /// button (#849). Consumed by [`abort_loading_to_login`] on the next
-/// `Update` — the click handler only raises the flag so the teardown
+/// `Update` - the click handler only raises the flag so the teardown
 /// runs as a proper system with command-flush ordering, not inside an
 /// egui closure.
 #[derive(Resource)]
@@ -136,16 +136,16 @@ pub struct AbortLoading;
 /// Escape hatch from a stuck loading screen (#849): tear down everything
 /// the `Loading` pass has built or dispatched so far and return to the
 /// login form. Before this, the only exit from a dead PDS was killing
-/// the app — the logout cleanup ran on `OnExit(InGame)` only, which a
+/// the app - the logout cleanup ran on `OnExit(InGame)` only, which a
 /// stuck load never reaches.
 ///
 /// Aborting is a real logout (the session, socket config and caches were
 /// already installed on Loading entry), and BOTH shared teardowns react
 /// to the still-visible [`AbortLoading`] flag from their own plugin
-/// registrations — the terrain one always did, and the session one joined
+/// registrations - the terrain one always did, and the session one joined
 /// it under #1297 group 3 rather than have this module reach into the ui
 /// layer the teardown moved to. Only the Loading-specific in-flight state
-/// — fetch tasks, backoff markers, the ambient bake — is drained here.
+/// - fetch tasks, backoff markers, the ambient bake - is drained here.
 #[allow(clippy::type_complexity)]
 pub(crate) fn abort_loading_to_login(
     mut commands: Commands,
@@ -172,7 +172,7 @@ pub(crate) fn abort_loading_to_login(
     // frame, and an auto-inserted sync point could otherwise apply the
     // removal before that system runs. [`clear_abort_flag`] drops it on
     // the `OnEnter(Login)` edge this abort sets in motion.
-    info!("Loading aborted by user — returning to login");
+    info!("Loading aborted by user - returning to login");
     // Dropping a task entity drops its Task, which cancels the async
     // work (and on wasm aborts the underlying browser fetch).
     for e in in_flight.iter() {
@@ -197,14 +197,14 @@ pub(crate) fn clear_abort_flag(mut commands: Commands) {
 /// Transition out of `Loading` only once *every* resource the first
 /// `InGame` frame relies on is present:
 ///
-/// - [`terrain::FinishedHeightMap`] — collider is solid
-/// - [`LiveRoomRecord`] — live room recipe (world builder consumes this)
-/// - [`StoredRoomRecord`] — committed snapshot used by the Load-from-PDS button
-/// - [`LiveAvatarRecord`] — live avatar driving `spawn_local_player`
-/// - [`StoredAvatarRecord`] — committed snapshot used by the Load-from-PDS button
-/// - [`LiveInventoryRecord`] / [`StoredInventoryRecord`] — owner's Generator stash
-/// - [`AmbientHandle`] — ambient audio either baked or explicitly absent
-/// - [`WorldCompiled`](crate::world_builder::WorldCompiled) — the room
+/// - [`terrain::FinishedHeightMap`] - collider is solid
+/// - [`LiveRoomRecord`] - live room recipe (world builder consumes this)
+/// - [`StoredRoomRecord`] - committed snapshot used by the Load-from-PDS button
+/// - [`LiveAvatarRecord`] - live avatar driving `spawn_local_player`
+/// - [`StoredAvatarRecord`] - committed snapshot used by the Load-from-PDS button
+/// - [`LiveInventoryRecord`] / [`StoredInventoryRecord`] - owner's Generator stash
+/// - [`AmbientHandle`] - ambient audio either baked or explicitly absent
+/// - [`WorldCompiled`](crate::world_builder::WorldCompiled) - the room
 ///   compile has produced the world's entities. The compile runs during
 ///   `Loading` (see the registration note in
 ///   [`crate::world_builder::WorldBuilderPlugin`]) precisely so its

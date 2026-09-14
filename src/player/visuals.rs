@@ -11,7 +11,7 @@
 //! Hot-swap discipline: callers despawn the previous chassis children
 //! before re-running this spawner. The sub-tree spawner does not tag
 //! children with `RoomEntity`, so the room compiler's cleanup query
-//! cannot reach them — only the chassis's `with_children` despawn
+//! cannot reach them - only the chassis's `with_children` despawn
 //! does.
 
 use bevy::prelude::*;
@@ -28,7 +28,7 @@ use crate::world_builder::image_cache::BlobImageCache;
 /// Bundle of every shared `world_builder` resource the avatar spawn
 /// path needs to reach. Bundled because Bevy 0.18 caps `IntoSystem`
 /// at 16 parameters and the host systems already carry a handful of
-/// `ResMut`s of their own — folding the world-builder fan-out into one
+/// `ResMut`s of their own - folding the world-builder fan-out into one
 /// `SystemParam` keeps callers under the budget.
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct AvatarSpawnDeps<'w, 's> {
@@ -48,8 +48,8 @@ pub struct AvatarSpawnDeps<'w, 's> {
 /// transform composes with each node's local transform, and the chassis (a
 /// parent rigid body) provides the world-space anchor.
 ///
-/// A **rigged** body ([`AvatarBody::Rigged`]) spawns nothing here yet — its
-/// skinned build is #1057's slice and slots in exactly at this seam — and
+/// A **rigged** body ([`AvatarBody::Rigged`]) spawns nothing here yet - its
+/// skinned build is #1057's slice and slots in exactly at this seam - and
 /// unknown/absent bodies are bare chassis by contract. Every variant still
 /// clears the previous children, because a hot-swap from a generator body
 /// to any other kind owes the despawn regardless of what replaces it.
@@ -106,8 +106,8 @@ pub fn spawn_visual_tree(
 /// attachment record the tree belongs to, and every spawned node then
 /// carries an [`AttachmentPrim`](crate::world_builder::AttachmentPrim)
 /// marker so the part can be tree-selected, scene-picked and gizmo-dragged
-/// like a region asset's. Pass `None` for a peer's outfit — their records
-/// are not editable here — which makes this exactly [`spawn_visual_tree`].
+/// like a region asset's. Pass `None` for a peer's outfit - their records
+/// are not editable here - which makes this exactly [`spawn_visual_tree`].
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_attachment_tree(
     commands: &mut Commands,
@@ -121,13 +121,13 @@ pub fn spawn_attachment_tree(
     attachment: Option<&str>,
 ) {
     // The avatar spawner's `record` parameter is unused on every reachable
-    // dispatch arm — the sanitiser strips Terrain / Water / Portal upstream, and
-    // that Water arm is the only `ctx.record` reader — so a single shared
+    // dispatch arm - the sanitiser strips Terrain / Water / Portal upstream, and
+    // that Water arm is the only `ctx.record` reader - so a single shared
     // default is a safe read-only sentinel. `RoomRecord::default` runs the whole
     // seeded-defaults pipeline (terrain shape, palette, scatters, a generator
-    // tree), and this path is NOT rare — `rebuild_local_visuals` fires every
+    // tree), and this path is NOT rare - `rebuild_local_visuals` fires every
     // frame while the avatar editor mutates the record, and `detect_remote_change`
-    // once per remote peer per avatar update — so build it ONCE and lend the same
+    // once per remote peer per avatar update - so build it ONCE and lend the same
     // instance to every spawn (#638).
     static SENTINEL: std::sync::OnceLock<crate::pds::RoomRecord> = std::sync::OnceLock::new();
     let empty_record = SENTINEL.get_or_init(crate::pds::RoomRecord::default);
@@ -155,7 +155,7 @@ pub fn spawn_attachment_tree(
 }
 
 /// An app holding every asset store and cache [`AvatarSpawnDeps`] fans out
-/// to, and nothing else — the stage a test needs to run the real spawn path.
+/// to, and nothing else - the stage a test needs to run the real spawn path.
 ///
 /// Shared by `player::attachments`' dressed-body tests and
 /// `ui::catalogue`'s #1301 preview-work count, so the list of what the spawn

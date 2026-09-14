@@ -1,8 +1,8 @@
 //! Coalescing cache for image bytes fetched from a [`SignSource`]. A
 //! room scattering many [`Sign`](crate::pds::GeneratorKind::Sign) panels
-//! that all point at the same source — a banner repeated across a market
+//! that all point at the same source - a banner repeated across a market
 //! stall row, ten doorplates carrying a guild logo, every tile of a
-//! gallery wall holding the same artist's pfp — would otherwise issue one
+//! gallery wall holding the same artist's pfp - would otherwise issue one
 //! HTTPS round trip and one image decode per panel. Here, the first
 //! panel records a `Pending` task and every later panel sharing that
 //! source key enqueues its material on the pending list. When the task
@@ -14,19 +14,19 @@
 //! Three resolver paths land here, all keyed by the same
 //! [`SignSourceKey`]:
 //!
-//! * **URL** — direct HTTPS GET via the project's shared `reqwest`
+//! * **URL** - direct HTTPS GET via the project's shared `reqwest`
 //!   client. CORS is the host's responsibility on web; a server that
 //!   doesn't serve `Access-Control-Allow-Origin: *` produces a fetch
 //!   error and the panel falls back to its tint colour. The failure is
 //!   RECORDED, on the entry, as [`BlobImageEntry::Failed`] (#1246): this
-//!   line used to say "logged once", and it was the whole defect — the
+//!   line used to say "logged once", and it was the whole defect - the
 //!   log is a console line the deployed web user never opens, and the
 //!   owner is the only person who can fix a broken source.
-//! * **AtprotoBlob** — resolves the DID's PDS, then calls
+//! * **AtprotoBlob** - resolves the DID's PDS, then calls
 //!   `com.atproto.sync.getBlob?did=…&cid=…`. Same path Portal's avatar
 //!   fetch already uses for WASM, lifted here so any blob CID works,
 //!   not just `app.bsky.actor.profile.avatar`.
-//! * **DidPfp** — fetches `app.bsky.actor.getProfile` for the DID, then
+//! * **DidPfp** - fetches `app.bsky.actor.getProfile` for the DID, then
 //!   resolves the avatar URL through the same fallback Portal already
 //!   has. Equivalent to what Portal does today, but pluggable into any
 //!   [`Sign`](crate::pds::GeneratorKind::Sign) generator rather than
@@ -60,8 +60,8 @@ pub const MAX_IMAGE_BYTES: usize = 16 * 1024 * 1024;
 /// stream `AvatarStateUpdate`s carrying a fresh randomised
 /// [`SignSource::Url`] every frame and force every guest's client to
 /// stash unbounded textures in RAM/VRAM. Evicting a cache entry does
-/// not unpaint live materials — the `Image` asset stays alive via the
-/// material's strong handle — so the only cost of eviction is that a
+/// not unpaint live materials - the `Image` asset stays alive via the
+/// material's strong handle - so the only cost of eviction is that a
 /// later request for the same URL has to re-fetch.
 pub const MAX_CACHE_ENTRIES: usize = 256;
 
@@ -71,7 +71,7 @@ pub const MAX_CACHE_ENTRIES: usize = 256;
 /// **Why a count was never a memory bound (#1128).** Entries are not a fixed
 /// size: [`MAX_CACHE_ENTRIES`] of them at the old decode ceiling was
 /// 256 × 64 MiB ≈ 16 GiB of permitted decoded pixels, and even a careless
-/// room of twenty 4K signs was ~1.3 GiB — in a project whose entire record
+/// room of twenty 4K signs was ~1.3 GiB - in a project whose entire record
 /// budget is 100 KiB. The two levers that make the policy mean something are
 /// this budget and [`SIGN_WORKING_DIMENSION`] below: the working size caps
 /// what one entry can be, and this caps what all of them together can be.
@@ -95,13 +95,13 @@ pub const SIGN_WORKING_DIMENSION: u32 = 2048;
 /// How many fetched images this build will decode in one frame.
 ///
 /// **Why a count and not a time budget (#1128).** The decode is the expensive
-/// half of the fetch — the transfer already runs off-thread, but
+/// half of the fetch - the transfer already runs off-thread, but
 /// `image::load_from_memory` runs wherever the poll system runs, and on wasm
 /// that is the one thread the frame loop is on (`IoTaskPool` there is
 /// `spawn_local`, so moving the decode into the task would move it nowhere).
 /// A room whose signs all resolve on the same frame therefore froze every
 /// visitor for the sum of its decodes, and a hostile room of 256 sources
-/// froze them for as long as it liked — long enough that a visitor could not
+/// froze them for as long as it liked - long enough that a visitor could not
 /// even walk out. You cannot know what a decode costs until you have done it,
 /// so a time budget can only ever stop *after* the frame is already spent;
 /// a count stops before. One per frame turns a single unbounded freeze into
@@ -144,7 +144,7 @@ impl SamplerFilter {
 }
 
 /// Cache key for a [`SignSource`]. Mirrors the open-union variants but
-/// drops `Unknown` (which never resolves to a fetchable resource — it
+/// drops `Unknown` (which never resolves to a fetchable resource - it
 /// represents a forward-compat record from a future engine version).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum SignSourceKey {
@@ -156,7 +156,7 @@ pub enum SignSourceKey {
 impl SignSourceKey {
     /// Try to derive a cache key from a [`SignSource`]. Returns `None`
     /// for `Unknown` and for inputs whose required fields are empty
-    /// (e.g. a placeholder `Url` with no URL set yet — fetching an
+    /// (e.g. a placeholder `Url` with no URL set yet - fetching an
     /// empty string would 404 every time and we'd spin the cache).
     pub fn from_source(source: &SignSource) -> Option<Self> {
         match source {
@@ -185,7 +185,7 @@ impl SignSourceKey {
         matches!(self, Self::Url(_))
     }
 
-    /// The identity a diagnostic line names. Not a UI label — the editor
+    /// The identity a diagnostic line names. Not a UI label - the editor
     /// prints the field the owner typed, which it already has.
     pub fn describe(&self) -> String {
         match self {
@@ -206,7 +206,7 @@ pub enum BlobImageEntry {
     Pending(Vec<Handle<StandardMaterial>>),
     /// Image is GPU-resident. Subsequent callers paint synchronously by
     /// cloning the handle into their own material. `decoded_bytes` is what
-    /// this entry contributes to [`MAX_CACHE_BYTES`] — carried on the entry
+    /// this entry contributes to [`MAX_CACHE_BYTES`] - carried on the entry
     /// rather than recomputed, because once the image is `RENDER_WORLD`-only
     /// its pixel buffer is gone and its size can no longer be asked for.
     Ready {
@@ -217,8 +217,8 @@ pub enum BlobImageEntry {
     ///
     /// **The entry survives the failure (#1246, #1247).** It used to be
     /// removed, which meant two things at once: nothing could say what went
-    /// wrong — a pending, a failed and a never-configured Sign were the same
-    /// brown plane — and the next requester took the `None` arm and spawned
+    /// wrong - a pending, a failed and a never-configured Sign were the same
+    /// brown plane - and the next requester took the `None` arm and spawned
     /// the whole fetch again, so a dead URL was re-requested for as long as
     /// anything kept asking. Keeping the entry is what gives the status line
     /// something to read and the backoff somewhere to live.
@@ -229,7 +229,7 @@ pub enum BlobImageEntry {
 /// requests for the same URL with different filters produce two
 /// distinct GPU images so a smooth-Linear panel and a Nearest pixel-
 /// art panel can coexist. The fetched bytes are still shared at the
-/// network layer — the second filter request hits the same in-flight
+/// network layer - the second filter request hits the same in-flight
 /// task and replays the bytes through a second decode pass.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BlobImageKey {
@@ -239,7 +239,7 @@ pub struct BlobImageKey {
 
 /// Source-keyed coalescing cache for image fetches. Cleared at logout and
 /// when portal travel lands in a new room (`player::portal`, #1204) so a
-/// new room can re-fetch sources that may have updated upstream — most
+/// new room can re-fetch sources that may have updated upstream - most
 /// relevant for `DidPfp`, which is intentionally self-updating. The
 /// room's own recompile does NOT clear it: a recompile within one world
 /// is meant to hit.
@@ -248,7 +248,7 @@ pub struct BlobImageKey {
 /// decoded pixels. Insert order is tracked in a secondary `VecDeque`; when a
 /// new entry would breach either bound, the oldest entries are dropped from
 /// both the map and the deque until it fits. Reads do not refresh order
-/// (FIFO, not LRU) — keeping the bookkeeping cheap on the read path.
+/// (FIFO, not LRU) - keeping the bookkeeping cheap on the read path.
 #[derive(Resource)]
 pub struct BlobImageCache {
     pub by_source: HashMap<BlobImageKey, BlobImageEntry>,
@@ -266,7 +266,7 @@ pub struct BlobImageCache {
     /// compiler's unit builders, which are handed a context struct and not a
     /// `SystemParam` list; threading a clock through six generator call
     /// sites to answer one question would have been the wrong shape. The
-    /// poll system stamps it through `bypass_change_detection` — a clock
+    /// poll system stamps it through `bypass_change_detection` - a clock
     /// that dirtied the resource every frame would defeat every
     /// `Changed<BlobImageCache>` reader (#879's guarded-dirty rule).
     now: f64,
@@ -281,7 +281,7 @@ pub struct BlobImageCache {
 ///
 /// `stamp_asset_policy` corrects it within a frame, but a `bool`'s own
 /// default is `false`, and a cache that started life refusing every web
-/// address would drop every request issued before that first stamp — which
+/// address would drop every request issued before that first stamp - which
 /// on a room load is the whole first compile.
 impl Default for BlobImageCache {
     fn default() -> Self {
@@ -324,7 +324,7 @@ impl BlobImageCache {
         self.allow_external
     }
 
-    /// How this source stands right now — the one question every asset
+    /// How this source stands right now - the one question every asset
     /// surface asks (#1246). `None` when nothing has ever requested it,
     /// which for a Sign means the source is empty or unrecognised.
     pub fn status(&self, key: &BlobImageKey) -> Option<AssetStatus> {
@@ -336,7 +336,7 @@ impl BlobImageCache {
     }
 
     /// Drop a [`BlobImageEntry::Failed`] entry so the next requester starts
-    /// a fresh attempt — the whole of "Retry now" (#1247 f346). A `Pending`
+    /// a fresh attempt - the whole of "Retry now" (#1247 f346). A `Pending`
     /// or `Ready` entry is left alone: there is nothing to retry, and
     /// dropping a `Ready` one would re-download a working image.
     pub fn clear_failure(&mut self, key: &BlobImageKey) -> bool {
@@ -381,7 +381,7 @@ impl BlobImageCache {
             .map(entry_bytes)
             .unwrap_or_default();
         while self.decoded_bytes + incoming > MAX_CACHE_BYTES + outgoing {
-            // Never evict the key being inserted out from under itself — it
+            // Never evict the key being inserted out from under itself - it
             // is about to be overwritten, and dropping its FIFO slot here
             // would re-queue it at the back on the way back in.
             if self.insert_order.front() == Some(&key) || !self.evict_oldest() {
@@ -446,7 +446,7 @@ pub struct BlobImageTask {
     pub key: BlobImageKey,
     pub task: Task<super::blob_fetch::FetchedBytes>,
     pub fetched: Option<Vec<u8>>,
-    /// The failure this attempt is a retry of, if any — the input to the
+    /// The failure this attempt is a retry of, if any - the input to the
     /// next [`AssetFailure::after`] so the wait keeps doubling instead of
     /// restarting at the base every time (#1247).
     pub previous: Option<AssetFailure>,
@@ -507,7 +507,7 @@ pub fn request_blob_image_filtered(
     // wait keeps doubling; one still inside its wait is a HIT, and the
     // material simply keeps its tint (#1247 f346).
     let previous = match cache.by_source.get_mut(&key) {
-        // Cache hit — paint synchronously.
+        // Cache hit - paint synchronously.
         Some(BlobImageEntry::Ready { image, .. }) => {
             let img = image.clone();
             if let Some(mut mat) = materials.get_mut(material) {
@@ -515,7 +515,7 @@ pub fn request_blob_image_filtered(
             }
             return;
         }
-        // Fetch already in flight — enqueue.
+        // Fetch already in flight - enqueue.
         Some(BlobImageEntry::Pending(list)) => {
             list.push(material.clone());
             return;
@@ -572,7 +572,7 @@ pub fn poll_blob_image_tasks(
     cache.bypass_change_detection().stamp_now(now);
     let mut reporter = report.at(now);
     // Decodes done this frame. Fetches that land past the budget park their
-    // bytes on their own component and are picked up on a later frame — see
+    // bytes on their own component and are picked up on a later frame - see
     // [`MAX_DECODES_PER_FRAME`] for why the budget counts decodes rather than
     // measuring their time.
     let mut decoded_this_frame = 0usize;
@@ -604,7 +604,7 @@ pub fn poll_blob_image_tasks(
         commands.entity(entity).despawn();
 
         // Take ownership of the pending list while leaving the entry's
-        // FIFO position in `insert_order` intact — calling
+        // FIFO position in `insert_order` intact - calling
         // `cache.remove` here would forfeit the slot, and the
         // subsequent `insert_bounded(Ready)` would then re-queue the
         // key at the back of the deque, artificially extending its
@@ -615,7 +615,7 @@ pub fn poll_blob_image_tasks(
         let pending = match cache.by_source.get_mut(&task.key) {
             Some(BlobImageEntry::Pending(list)) => std::mem::take(list),
             Some(BlobImageEntry::Ready { .. }) => {
-                // Promoted by a duplicate task — drop this result.
+                // Promoted by a duplicate task - drop this result.
                 continue;
             }
             // Settled by a duplicate task's failure. Dropping this result
@@ -657,10 +657,10 @@ pub fn poll_blob_image_tasks(
         // `RENDER_WORLD`-only: these decoded images are bound straight to Sign /
         // particle materials and never sampled back on the CPU, so releasing the
         // CPU pixel buffer after the GPU upload saves the full decoded RGBA
-        // (up to ~64 MiB for a 4K source) — significant on wasm, where freed
+        // (up to ~64 MiB for a 4K source) - significant on wasm, where freed
         // linear memory is never returned to the OS.
         let mut img = Image::from_dynamic(dyn_img, true, RenderAssetUsages::RENDER_WORLD);
-        // Honour the requested sampler filter — Linear (default) gives
+        // Honour the requested sampler filter - Linear (default) gives
         // the soft filtering Sign panels and smooth particles want;
         // Nearest preserves crisp texel edges for pixel-art atlases.
         let filter = task.key.filter.as_image_filter();
@@ -731,7 +731,7 @@ async fn fetch_bytes_for(key: SignSourceKey) -> super::blob_fetch::FetchedBytes 
         }
         SignSourceKey::DidPfp(did) => {
             // Reuse the existing pfp fetcher rather than reimplementing the
-            // bsky/atproto fork — `fetch_avatar_bytes` already handles the
+            // bsky/atproto fork - `fetch_avatar_bytes` already handles the
             // wasm-vs-native CDN/CORS split.
             let result = crate::avatar::fetch_avatar_bytes(did).await;
             match result.bytes {
@@ -836,7 +836,7 @@ mod tests {
     /// preserve the entry's FIFO position. The previous
     /// `poll_blob_image_tasks` implementation called `remove` to extract
     /// the pending list, which forfeited the slot and let
-    /// `insert_bounded` re-queue the key at the back — artificially
+    /// `insert_bounded` re-queue the key at the back - artificially
     /// extending the just-completed entry's lifespan past the FIFO bound.
     /// This test pins the documented contract.
     #[test]
@@ -850,7 +850,7 @@ mod tests {
         cache.insert_bounded(middle.clone(), BlobImageEntry::Pending(Vec::new()));
         cache.insert_bounded(late.clone(), BlobImageEntry::Pending(Vec::new()));
 
-        // Promote the middle entry to Ready — order must not change.
+        // Promote the middle entry to Ready - order must not change.
         cache.insert_bounded(
             middle.clone(),
             BlobImageEntry::Ready {
@@ -895,8 +895,8 @@ mod tests {
     /// The #1128 sequence the entry count could not see.
     ///
     /// A room's signs all point at large sources. Under the old policy the
-    /// cache counted keys, so twenty of them was twenty entries — nowhere
-    /// near the 256 cap — while being over a gigabyte of decoded pixels. Here
+    /// cache counted keys, so twenty of them was twenty entries - nowhere
+    /// near the 256 cap - while being over a gigabyte of decoded pixels. Here
     /// the same twenty land under a byte budget and the oldest are evicted
     /// once the total would breach it, which is the only unit that describes
     /// what the cache actually costs.
@@ -915,7 +915,7 @@ mod tests {
         );
         assert!(
             cache.by_source.len() < 6,
-            "the byte budget must have evicted something — an entry count of 6 \
+            "the byte budget must have evicted something - an entry count of 6 \
              is nowhere near MAX_CACHE_ENTRIES and would have kept them all"
         );
         // FIFO: the survivors are the newest.
@@ -945,7 +945,7 @@ mod tests {
         assert!(cache.decoded_bytes() < MAX_CACHE_BYTES);
     }
 
-    /// The promotion path is where bytes actually arrive — a fetch completes
+    /// The promotion path is where bytes actually arrive - a fetch completes
     /// and a `Pending` entry becomes `Ready`. That is not a fresh insert, so
     /// a guard that only ran on new keys would let a room of large signs walk
     /// the total past the budget without ever tripping.
@@ -1026,8 +1026,8 @@ mod budget_tests {
         app.world_mut()
             .resource_mut::<BlobImageCache>()
             .insert_bounded(key.clone(), BlobImageEntry::Pending(vec![material]));
-        // The task itself is never polled on this path — `fetched` short-
-        // circuits it — but the component owns one, so it gets a resolved
+        // The task itself is never polled on this path - `fetched` short-
+        // circuits it - but the component owns one, so it gets a resolved
         // stub rather than a fabricated variant.
         let task = bevy::tasks::IoTaskPool::get_or_init(bevy::tasks::TaskPool::default)
             .spawn(async { Err(AssetFetchError::Unreachable) });
@@ -1077,7 +1077,7 @@ mod budget_tests {
     /// completion.
     ///
     /// `IoTaskPool::spawn` hands the future to a real executor, so a single
-    /// `app.update()` races it — the task is usually but not always ready by
+    /// `app.update()` races it - the task is usually but not always ready by
     /// the first poll. One update was enough most of the time, which is the
     /// worst kind of test.
     fn drain_tasks(app: &mut App) {
@@ -1125,7 +1125,7 @@ mod budget_tests {
 
     /// The #1246 sequence: a Sign whose host answers 404.
     ///
-    /// The entry must SURVIVE, carrying the reason — the panel has nothing
+    /// The entry must SURVIVE, carrying the reason - the panel has nothing
     /// else to read, and before this the key was removed and a pending, a
     /// failed and a never-configured Sign were the same brown plane.
     #[test]
@@ -1145,7 +1145,7 @@ mod budget_tests {
     }
 
     /// The #1247 f346 sequence: something asks again while the failure is
-    /// still inside its wait. It must NOT issue a second request — that is
+    /// still inside its wait. It must NOT issue a second request - that is
     /// the retry storm, and for a contact cue it ran once per frame.
     #[test]
     fn a_request_inside_the_backoff_issues_no_second_fetch() {
@@ -1162,7 +1162,7 @@ mod budget_tests {
             "a request inside the wait must be answered from the cache, not the network"
         );
 
-        // Once the wait has elapsed, the same request DOES retry — a
+        // Once the wait has elapsed, the same request DOES retry - a
         // negative cache that never lets go would be its own bug.
         let elapsed = app
             .world()
@@ -1245,7 +1245,7 @@ mod budget_tests {
     ///
     /// Before the budget, every body that had landed was decoded inside one
     /// poll pass, so a room of 4096-square sources froze the frame loop for
-    /// the sum of its decodes — on wasm, where `IoTaskPool` is `spawn_local`
+    /// the sum of its decodes - on wasm, where `IoTaskPool` is `spawn_local`
     /// on the frame thread, with no thread to move the work to and no way for
     /// the visitor to even walk out while it drained. Three arrive here; one
     /// decodes.
@@ -1260,7 +1260,7 @@ mod budget_tests {
         assert_eq!(
             ready_count(&app),
             MAX_DECODES_PER_FRAME,
-            "the whole queue decoded in one frame — the budget is not holding"
+            "the whole queue decoded in one frame - the budget is not holding"
         );
     }
 
@@ -1290,7 +1290,7 @@ mod budget_tests {
                 .iter(app.world())
                 .count(),
             0,
-            "a task entity outlived its decode — its bytes are retained forever"
+            "a task entity outlived its decode - its bytes are retained forever"
         );
     }
 

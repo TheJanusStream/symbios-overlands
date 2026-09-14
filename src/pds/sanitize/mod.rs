@@ -12,9 +12,9 @@
 //! The shared [`Sanitize`] trait factors out the "this type knows how to
 //! clamp itself in place" capability so callers can write
 //! `material.sanitize()` rather than `sanitize_material_settings(material)`.
-//! Per-domain impls live in the sibling modules — [`transform`],
+//! Per-domain impls live in the sibling modules - [`transform`],
 //! [`material`], [`terrain`], [`water`], [`sign`], [`particles`],
-//! [`primitive`], and [`contact_effects`] — with [`common`] holding
+//! [`primitive`], and [`contact_effects`] - with [`common`] holding
 //! shared clamp helpers (NaN-finite checks, allow-list filters) and
 //! [`limits`] holding every numeric bound as a `pub const` so callers
 //! and tests can share the envelope. The [`GeneratorKind`] variants
@@ -49,7 +49,7 @@ use water::sanitize_water;
 
 /// In-place numeric clamp for a record-bearing type. Implementors live
 /// in the sibling modules of this folder, keyed to the type they
-/// sanitise — `TransformData`, `SovereignMaterialSettings`,
+/// sanitise - `TransformData`, `SovereignMaterialSettings`,
 /// `SovereignTextureConfig`, `SovereignTerrainConfig`, `WaterSurface`,
 /// `SignSource`. The `GeneratorKind` open union goes through
 /// [`sanitize_kind`] instead because its variants carry inline fields
@@ -70,12 +70,12 @@ pub(crate) trait Sanitize {
 ///   heightmap; allowing a Terrain in a child slot would either spawn a
 ///   second heightfield collider (Avian forbids that) or be silently
 ///   ignored. A non-root Terrain is overwritten with a default cuboid.
-///   *A Terrain root MAY have children* — that's the "region blueprint"
+///   *A Terrain root MAY have children* - that's the "region blueprint"
 ///   shape, where the terrain root anchors a tree of L-systems / portals /
 ///   props that travel together.
 /// * **Water is child-only.** Every Water volume must inherit a parent
 ///   (typically a Terrain ancestor) so its world-space surface is
-///   well-defined. A root Water is overwritten with a default cuboid —
+///   well-defined. A root Water is overwritten with a default cuboid -
 ///   `RoomRecord::default_for_did` puts water inside the terrain root, and
 ///   inventory-saved water should always be a child of the region it
 ///   belongs to. Water itself is a leaf (its `children` list is cleared).
@@ -88,7 +88,7 @@ fn sanitize_generator_node(
 ) {
     *count += 1;
     node.transform.sanitize();
-    // Forward to the asset-class sanitiser — caps embedded patch /
+    // Forward to the asset-class sanitiser - caps embedded patch /
     // sequence JSON length and any Referenced URL/DID/CID strings on
     // the node's spatial-audio source.
     node.audio.sanitize();
@@ -106,7 +106,7 @@ fn sanitize_generator_node(
 
     sanitize_kind_with(&mut node.kind, max_dim);
 
-    // Water is a leaf — `spawn_water_volume` does not consume children, so
+    // Water is a leaf - `spawn_water_volume` does not consume children, so
     // strip authored children to keep the editor and spawner in sync.
     if matches!(&node.kind, GeneratorKind::Water { .. }) {
         node.children.clear();
@@ -133,13 +133,13 @@ fn sanitize_generator_node(
 }
 
 /// Clamp the variant-specific payload of a [`GeneratorKind`] in place. Does
-/// not touch the wrapping [`Generator`]'s transform or children — those are
+/// not touch the wrapping [`Generator`]'s transform or children - those are
 /// handled by [`sanitize_generator_node`] which calls this on every node.
 pub fn sanitize_kind(kind: &mut GeneratorKind) {
     sanitize_kind_with(kind, limits::MAX_PRIM_DIM_M);
 }
 
-/// [`sanitize_kind`] with an explicit per-dimension ceiling (#1221 f327) —
+/// [`sanitize_kind`] with an explicit per-dimension ceiling (#1221 f327) -
 /// room content passes [`limits::MAX_PRIM_DIM_M`], an avatar the tighter
 /// [`limits::MAX_AVATAR_PRIM_DIM_M`].
 pub fn sanitize_kind_with(kind: &mut GeneratorKind, max_dim: f32) {
@@ -186,7 +186,7 @@ pub fn sanitize_kind_with(kind: &mut GeneratorKind, max_dim: f32) {
                 common::clamp_finite(footprint.0[2], 0.001, limits::MAX_SHAPE_FOOTPRINT, 10.0);
             // Cap the slot count first so the per-slot sanitiser doesn't
             // walk an attacker-supplied million-entry map. Slot keys above
-            // the upstream identifier cap are dropped — they could never
+            // the upstream identifier cap are dropped - they could never
             // match an emitted `Mat("...")` anyway.
             if materials.len() > limits::MAX_SHAPE_MATERIAL_SLOTS {
                 let mut keys: Vec<String> = materials.keys().cloned().collect();
@@ -243,7 +243,7 @@ pub fn sanitize_kind_with(kind: &mut GeneratorKind, max_dim: f32) {
 
 /// Clamp a [`crate::pds::generator::RoadConfig`] to finite, sane ranges so a hostile or malformed
 /// record can't feed the road builder a NaN extent or a million-metre skirt.
-/// The child-of-Terrain placement constraint is enforced structurally — only a
+/// The child-of-Terrain placement constraint is enforced structurally - only a
 /// Terrain child's road config is ever read (see [`crate::terrain`]).
 fn sanitize_road(c: &mut crate::pds::generator::RoadConfig) {
     use common::clamp_finite;
@@ -299,7 +299,7 @@ fn sanitize_road(c: &mut crate::pds::generator::RoadConfig) {
 /// Clamp a whole [`Generator`] tree (root + descendants) in place. Shared
 /// by [`crate::pds::room::RoomRecord::sanitize`] and
 /// [`crate::pds::inventory::InventoryRecord::sanitize`] so the per-variant
-/// bounds — and the depth / total-node budgets — stay identical between
+/// bounds - and the depth / total-node budgets - stay identical between
 /// the room recipe and the inventory stash.
 pub fn sanitize_generator(generator: &mut Generator) {
     let mut count: u32 = 0;
@@ -315,7 +315,7 @@ pub fn sanitize_generator(generator: &mut Generator) {
 /// world heightmap; allowing it inside an avatar would either spawn a
 /// second heightfield collider (Avian forbids) or be silently ignored.
 /// Water needs an ancestor whose transform anchors the volume in world
-/// space — meaningless on a vehicle. Portal would let an avatar carry
+/// space - meaningless on a vehicle. Portal would let an avatar carry
 /// a moving travel target into another peer's space, which is both
 /// abusive (drag a stranger through your portal) and confusing (the
 /// portal moves with the player).
@@ -327,7 +327,7 @@ pub fn sanitize_generator(generator: &mut Generator) {
 pub fn sanitize_avatar_visuals(generator: &mut Generator) {
     let mut count: u32 = 0;
     // A body is worn into other people's rooms, so its size is a thing it
-    // can do TO them (#1221 f327) — hence the tighter per-dimension cap and
+    // can do TO them (#1221 f327) - hence the tighter per-dimension cap and
     // the bound on accumulated scale that room content does not carry.
     sanitize_generator_node(
         generator,
@@ -347,7 +347,7 @@ pub fn sanitize_avatar_visuals(generator: &mut Generator) {
 /// this module: an oversized body degrades to a large-but-bounded one that
 /// still round-trips, rather than vanishing with no explanation to its
 /// wearer. Clamping an ANCESTOR bounds everything under it, because that is
-/// how the composition worked in the first place — which is why this walks
+/// how the composition worked in the first place - which is why this walks
 /// top-down and carries the product forward.
 fn clamp_accumulated_scale(node: &mut Generator, carried: f32) {
     let s = node.transform.scale.0;
@@ -355,7 +355,7 @@ fn clamp_accumulated_scale(node: &mut Generator, carried: f32) {
     let mut here = carried * local;
     if here > limits::MAX_AVATAR_SCALE_PRODUCT {
         // Scale this node down by exactly the overage, preserving its
-        // per-axis proportions — a body clamped to a cube would be a
+        // per-axis proportions - a body clamped to a cube would be a
         // stranger defect than the one being fixed.
         let shrink = limits::MAX_AVATAR_SCALE_PRODUCT / here;
         node.transform.scale =
@@ -371,7 +371,7 @@ fn clamp_accumulated_scale(node: &mut Generator, carried: f32) {
 ///
 /// Measurement, not policy: scales compose multiplicatively down the
 /// hierarchy and nothing bounded the product, so a body's world-space size
-/// was `per-node scale ^ depth` — up to `1000 ^ 16` at the sanitiser's own
+/// was `per-node scale ^ depth` - up to `1000 ^ 16` at the sanitiser's own
 /// depth limit (#1221 f327). This is what says how much headroom a cap on
 /// that product actually has over the bodies the app ships.
 pub fn accumulated_scale(node: &Generator) -> f32 {
@@ -436,7 +436,7 @@ mod avatar_extent_tests {
     ///
     /// A silent deformation of every existing avatar would be a stranger
     /// defect than the one being fixed, and nothing at build time can see
-    /// it. If this fails, content has grown past the cap — raise the cap
+    /// it. If this fails, content has grown past the cap - raise the cap
     /// deliberately, do not lower the content.
     #[test]
     fn shipped_avatars_are_unchanged_by_the_avatar_caps() {
@@ -462,7 +462,7 @@ mod avatar_extent_tests {
 
     /// The headline record (#1221 f327): a 100 m cuboid at scale 1000 is a
     /// 100 km cube centred on the wearer, and it filled every guest's view
-    /// with flat colour — while the only remedy, Mute, could not be aimed
+    /// with flat colour - while the only remedy, Mute, could not be aimed
     /// because no body carries a name.
     #[test]
     fn a_hostile_avatar_record_is_bounded_on_both_factors() {
@@ -483,7 +483,7 @@ mod avatar_extent_tests {
             accumulated_scale(&hostile),
         );
         let GeneratorKind::Cuboid { size, .. } = &hostile.kind else {
-            panic!("the kind should survive — the sanitiser clamps, it does not reject");
+            panic!("the kind should survive - the sanitiser clamps, it does not reject");
         };
         for axis in size.0 {
             assert!(axis <= limits::MAX_AVATAR_PRIM_DIM_M, "dimension {axis}");
@@ -492,7 +492,7 @@ mod avatar_extent_tests {
 
     /// The exponent is the mechanism: scales compose down the hierarchy and
     /// nothing bounded the product, so sixteen nested nodes at a permitted
-    /// per-node scale were `4^16` — over four billion — not 4.
+    /// per-node scale were `4^16` - over four billion - not 4.
     #[test]
     fn nested_scales_cannot_multiply_past_the_cap() {
         fn nest(depth: u32) -> Generator {

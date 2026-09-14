@@ -1,4 +1,4 @@
-//! Library — a Civic/Campus secondary. A stone reading hall behind a small
+//! Library - a Civic/Campus secondary. A stone reading hall behind a small
 //! marble colonnade, tall lit windows down its front and a balustraded flat
 //! roof. The scholarly heart of the quad.
 //!
@@ -57,7 +57,7 @@ fn build_tree() -> Generator {
     let fz = -1.0_f32;
 
     let mut prims = vec![
-        // Stone base — the root.
+        // Stone base - the root.
         prim(
             solid(cuboid_tapered(
                 [12.0, base_h, 8.0],
@@ -79,7 +79,7 @@ fn build_tree() -> Generator {
         [0.0, base_h + body_h * 0.5, 0.3],
         id_quat(),
     ));
-    // Tall lit windows across the front — a marble-mullioned glazed grid set
+    // Tall lit windows across the front - a marble-mullioned glazed grid set
     // into the -2.95 front wall.
     prims.extend(curtain_wall(
         [0.0, base_h + 2.5, fz * 2.95],

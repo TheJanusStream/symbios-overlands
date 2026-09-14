@@ -5,9 +5,9 @@
 //! [`blob_fetch`](super::blob_fetch) helpers logged a `warn!` and returned
 //! `None`, and each cache then *removed* the entry so the next requester
 //! would spawn the whole fetch again. That is two defects wearing one coat.
-//! The caller could not say what went wrong — a sign whose image is still
+//! The caller could not say what went wrong - a sign whose image is still
 //! downloading, whose host answered 404, and which was never configured are
-//! the same brown plane — and it could not say *not to ask again yet*, so a
+//! the same brown plane - and it could not say *not to ask again yet*, so a
 //! dead URL was re-requested for as long as anything kept asking. For a
 //! contact audio cue driven by dwell, "anything kept asking" is once per
 //! frame, aimed at a host named in somebody else's record.
@@ -37,13 +37,13 @@ use crate::network::presence::RetryBackoff;
 /// Why an asset fetch did not produce usable bytes.
 ///
 /// One variant per place the shared fetch/decode path can give up, because
-/// the whole point of the type is that the owner — the only person who can
-/// fix a broken source — is told which one happened. `String` payloads are
+/// the whole point of the type is that the owner - the only person who can
+/// fix a broken source - is told which one happened. `String` payloads are
 /// deliberately absent: every sentence is built from the variant and its
 /// numbers, so a reason cannot smuggle a host's error text onto a UI label.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AssetFetchError {
-    /// The request never got an answer: DNS, TLS, a refused connection — or,
+    /// The request never got an answer: DNS, TLS, a refused connection - or,
     /// on the web build, the host serving no `Access-Control-Allow-Origin`,
     /// which is by far the most common cause and is indistinguishable from
     /// the others at this layer.
@@ -61,7 +61,7 @@ pub enum AssetFetchError {
     NoPicture,
     /// Bytes arrived and are not a file this client can decode.
     Undecodable,
-    /// An image whose declared frame is past the decode caps — refused
+    /// An image whose declared frame is past the decode caps - refused
     /// before the full-frame allocation, so the numbers are the header's.
     ImageTooBig { width: u32, height: u32 },
     /// The per-request bound in [`config::http::run_or`] elapsed first.
@@ -73,7 +73,7 @@ pub enum AssetFetchError {
 impl AssetFetchError {
     /// Whether retrying can never help.
     ///
-    /// The direction to be wrong in is "retryable" — a bounded doubling
+    /// The direction to be wrong in is "retryable" - a bounded doubling
     /// against a host that is briefly down costs a request a minute, while
     /// giving up permanently on a blip means the owner's image never appears
     /// and nothing says why. So only answers that describe the *file* (it is
@@ -93,7 +93,7 @@ impl AssetFetchError {
         }
     }
 
-    /// The clause a status line prints after "Could not load — ".
+    /// The clause a status line prints after "Could not load - ".
     ///
     /// Plain language on purpose: this is drawn in the room editor beside
     /// the field the owner typed, not in a log. `Unreachable` names the web
@@ -122,7 +122,7 @@ impl AssetFetchError {
         }
     }
 
-    /// A short tag for logs and diagnostic events — the same information
+    /// A short tag for logs and diagnostic events - the same information
     /// without the sentence, so a captured session log stays greppable.
     pub fn tag(&self) -> String {
         match self {
@@ -152,7 +152,7 @@ pub const GIVE_UP_ATTEMPTS: u32 = 6;
 /// A failed asset fetch: why, and when it may be tried again.
 ///
 /// Held IN the cache entry rather than beside it, because the bug this
-/// replaces was the entry being removed — anything kept in a sibling map
+/// replaces was the entry being removed - anything kept in a sibling map
 /// would have had to be swept in step with a cache that FIFO-evicts.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AssetFailure {
@@ -202,7 +202,7 @@ impl AssetFailure {
     /// a terrain layer and a contact cue cannot describe the same failure
     /// three different ways.
     pub fn status_line(&self, now: f64) -> String {
-        let mut line = format!("Could not load — {}", self.reason.sentence());
+        let mut line = format!("Could not load - {}", self.reason.sentence());
         match self.retry_in(now) {
             Some(secs) if secs >= 1.0 => {
                 line.push_str(&format!(" Trying again in {}s.", secs.ceil() as u64));
@@ -245,7 +245,7 @@ pub fn audio_clip_caps() -> String {
     )
 }
 
-/// Which asset path a failure came from — the metric it counts against and
+/// Which asset path a failure came from - the metric it counts against and
 /// the word the session log prints.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AssetClass {
@@ -274,7 +274,7 @@ impl AssetClass {
 /// Before this, a grep for `metrics` or `diagnostics` across `image_cache`,
 /// `audio_resolver`, `blob_fetch`, `terrain::referenced` and
 /// `interaction::audio` returned nothing: the Diagnostics HUD and the
-/// anomaly engine — the app's designated "something is wrong" channel — were
+/// anomaly engine - the app's designated "something is wrong" channel - were
 /// blind to the entire surface that fails silently by construction and
 /// depends on third-party hosts.
 ///
@@ -290,7 +290,7 @@ pub struct FailureReporter<'a> {
 /// The two optional diagnostics resources, as one `SystemParam`.
 ///
 /// Every asset poll system takes them, and every one of them was already at
-/// or over clippy's seven-argument bound — bundling is what keeps "report
+/// or over clippy's seven-argument bound - bundling is what keeps "report
 /// the failure" from costing two parameters at four call sites.
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct AssetReport<'w> {
@@ -355,7 +355,7 @@ fn elide_source(source: &str) -> String {
 ///
 /// `Copy` and owning rather than borrowing: the editor asks a cache for a
 /// status and then, on the same row, may ask to CLEAR it, and a borrow held
-/// across those two would be a borrow-checker fight for no gain —
+/// across those two would be a borrow-checker fight for no gain -
 /// [`AssetFailure`] is three words.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AssetStatus {
@@ -367,7 +367,7 @@ pub enum AssetStatus {
     Failed(AssetFailure),
     /// Never attempted: the source names a web address and the viewer has
     /// "Load images and sounds from outside Bluesky" switched off (#1248
-    /// f298). Not a failure — a choice, and the only status with a
+    /// f298). Not a failure - a choice, and the only status with a
     /// remedy that is not "fix the host".
     Blocked,
 }
@@ -388,8 +388,8 @@ impl AssetStatus {
 
 /// One "Retry now" click, naming the entry to drop (#1247 f346).
 ///
-/// A settled failure never retries on its own — a 404 will still be a 404 in
-/// an hour — so the owner needs a way to say "I have fixed the host". The
+/// A settled failure never retries on its own - a 404 will still be a 404 in
+/// an hour - so the owner needs a way to say "I have fixed the host". The
 /// whole of the retry is dropping the cache entry: the next requester then
 /// takes the miss arm exactly as it did the first time.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -404,7 +404,7 @@ pub enum AssetRetry {
 /// [`apply_asset_retries`].
 ///
 /// A queue rather than a direct mutation because the room editor holds the
-/// caches by shared reference — it reads a dozen statuses per frame and must
+/// caches by shared reference - it reads a dozen statuses per frame and must
 /// not take `ResMut` on four caches to service a button that is usually not
 /// clicked.
 #[derive(bevy::prelude::Resource, Default)]
@@ -424,7 +424,7 @@ impl AssetRetryRequests {
 /// world compiler reaches through (#1248 f298).
 ///
 /// A system of its own rather than two more parameters on the poll systems,
-/// which are already at clippy's bound — and the answer has to be somewhere
+/// which are already at clippy's bound - and the answer has to be somewhere
 /// the request path can read it, because `request_blob_image_filtered` and
 /// `request_blob_audio` are called from inside the unit builders, which are
 /// handed a context struct and not a `SystemParam` list.
@@ -451,7 +451,7 @@ pub fn stamp_asset_policy(
 ///
 /// The terrain layer needs one extra step. Its fetch is dispatched by
 /// `start_texture_tasks`, which is a one-shot behind the
-/// `TextureTasksStarted` marker — so clearing the layer's failure alone
+/// `TextureTasksStarted` marker - so clearing the layer's failure alone
 /// would leave nothing to re-dispatch it. Removing the marker is what the
 /// terrain lifecycle already does for a config change, and it re-bakes the
 /// procedural layers alongside; that is more work than the click strictly
@@ -493,7 +493,7 @@ mod tests {
 
     /// The sequence: a host that is down comes back up. Each failure waits
     /// twice as long as the last, and the entry never stops being a hit in
-    /// between — which is what turns the retry storm into a slow poll.
+    /// between - which is what turns the retry storm into a slow poll.
     #[test]
     fn repeated_failures_double_the_wait_and_stay_hits_between_attempts() {
         let mut now = 100.0;
@@ -601,7 +601,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("{path} must be readable: {e}"));
             assert!(
                 src.contains("AssetReport"),
-                "{path} owns an asset fetch and takes no AssetReport — \
+                "{path} owns an asset fetch and takes no AssetReport - \
                  its failures reach nothing but the console"
             );
             assert!(
@@ -639,7 +639,7 @@ mod tests {
             let failure = AssetFailure::after(None, reason, 0.0);
             let line = failure.status_line(0.0);
             assert!(
-                line.starts_with("Could not load — "),
+                line.starts_with("Could not load - "),
                 "{reason:?} produced: {line}"
             );
             assert!(

@@ -4,7 +4,7 @@
 //! apply as hard CSG on the final field just before meshing: `profile_cut`
 //! keeps a Y-band of the element bounds, `path_cut` keeps a pie wedge
 //! around the prim-local Y axis, and `hollow` erodes an inner shell. The
-//! SDF layer is hand-rolled — the ecosystem crates for this (sdfu, saft)
+//! SDF layer is hand-rolled - the ecosystem crates for this (sdfu, saft)
 //! are unmaintained, and the whole layer is smaller than their integration
 //! glue. Formulas follow Inigo Quilez's distance-function reference.
 
@@ -100,7 +100,7 @@ fn element_sdf(e: &ResolvedElement, p: Vec3) -> f32 {
         BlobShape::Cone => {
             // IQ's exact capped cone: base radius `radii.x` at −radii.y,
             // tip radius `radii.z` at +radii.y. The sanitiser floors the
-            // tip at 0.01 — visually a point — so plain cones need no
+            // tip at 0.01 - visually a point - so plain cones need no
             // extra field, while a real tip radius turns the element into
             // the truncated-cone limb segment (#726: a point-tipped cone
             // reads as a teardrop and disconnects at joints).
@@ -166,12 +166,12 @@ fn group_sdf(elements: &[ResolvedElement], p: Vec3) -> f32 {
 /// 48) sets cells along the longest axis; padding can push a dimension a
 /// little past it, never past this.
 const MAX_GRID_DIM: u32 = 56;
-/// Empty cells kept between the surface and the grid boundary — surface
+/// Empty cells kept between the surface and the grid boundary - surface
 /// nets needs the isosurface strictly inside the sampled volume.
 const GRID_PAD: u32 = 2;
 
 /// Signed distance (in the XZ plane, infinite along Y) of the **kept**
-/// angular sector `[mid − half, mid + half]` around the prim-local Y axis —
+/// angular sector `[mid − half, mid + half]` around the prim-local Y axis -
 /// the blob analogue of the swept prims' path-cut. Negative inside the
 /// wedge; the two flat faces land exactly on the cut angles, and the axis
 /// itself is on the boundary (distance `r` when the nearest rim is behind
@@ -292,7 +292,7 @@ pub(super) fn build_blob_mesh(
 
     // Grid space → prim-local space; normals from the buffer's SDF
     // gradient (zero-gradient stragglers fall back to the direction from
-    // the surface centroid); UVs from the selected projection — grid→local
+    // the surface centroid); UVs from the selected projection - grid→local
     // is uniform scale + translation, so projecting the local positions
     // matches the pre-#739 grid-space spherical result.
     let centroid = buffer
@@ -340,8 +340,8 @@ fn marker_mesh() -> PrimMesh {
 
 /// Analytic point cloud for the convex-hull collider: support-ish samples
 /// of every *additive* element's surface (subtractive carves are interior
-/// detail a standoff hull rightly ignores). Fourteen directions per shape —
-/// the 6 axes + 8 diagonals — matches the hull fidelity of the other prims.
+/// detail a standoff hull rightly ignores). Fourteen directions per shape -
+/// the 6 axes + 8 diagonals - matches the hull fidelity of the other prims.
 pub(super) fn blob_hull_points(elements: &[BlobElement]) -> Vec<Vec3> {
     const DIRS: [[f32; 3]; 14] = [
         [1.0, 0.0, 0.0],

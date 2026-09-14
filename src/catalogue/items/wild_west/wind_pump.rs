@@ -1,4 +1,4 @@
-//! Wind pump — a Wild-West prop. A homestead windmill: a four-legged steel
+//! Wind pump - a Wild-West prop. A homestead windmill: a four-legged steel
 //! lattice tower topped by a multi-blade fan wheel and a directional tail vane,
 //! a pump rod running down to a wellhead. Scatter clutter of the frontier.
 //!
@@ -55,7 +55,7 @@ fn build_tree() -> Generator {
     let lw = 0.7_f32; // leg half-spread
 
     let mut prims = vec![
-        // First tower leg — the root.
+        // First tower leg - the root.
         prim(
             solid(cuboid_tapered([0.1, tower_h, 0.1], 0.0, iron(IRON_DARK))),
             [-lw, tower_h * 0.5, -lw],
@@ -86,7 +86,7 @@ fn build_tree() -> Generator {
             ));
         }
     }
-    // Full-height X cross-braces on all four faces — the lattice look.
+    // Full-height X cross-braces on all four faces - the lattice look.
     let span = tower_h - 0.4;
     let theta = span.atan2(2.0 * lw);
     let dlen = (span * span + 4.0 * lw * lw).sqrt();

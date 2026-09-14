@@ -1,5 +1,5 @@
-//! Container stack — a Cyberpunk *poor* secondary. Two weathered shipping
-//! containers stacked askew — end doors with locking rods, a side ladder, a
+//! Container stack - a Cyberpunk *poor* secondary. Two weathered shipping
+//! containers stacked askew - end doors with locking rods, a side ladder, a
 //! rooftop tank and a dim neon strip; makeshift undercity housing/storage
 //! ringing the scrap shanty.
 
@@ -75,7 +75,7 @@ fn build_tree() -> Generator {
             [1.9, ch * 0.9, 0.0],
             id_quat(),
         ),
-        // A small lit porthole on the lower container — a sign the undercity
+        // A small lit porthole on the lower container - a sign the undercity
         // housing is occupied. Proud of the face so it can't z-fight the body.
         prim(
             cuboid_tapered([0.5, 0.5, 0.06], 0.0, glow(NEON_CYAN, 2.0)),

@@ -23,7 +23,7 @@ pub struct CompletedAuth {
     /// `/token` refresh round-trip and stashed in `OauthRefreshCtx`.
     pub server_metadata: OAuthServerMetadata,
     /// JWK form of the DPoP private key. Carried so the WASM persistence
-    /// layer can rebuild the `OAuthSession` after a page reload — the
+    /// layer can rebuild the `OAuthSession` after a page reload - the
     /// `DpopKey` inside the session is not directly serialisable.
     pub dpop_jwk: serde_json::Value,
 }
@@ -37,7 +37,7 @@ pub async fn begin_authorization(
     relay_host: &str,
     target_did: &str,
 ) -> Result<(String, PendingAuth), String> {
-    // Timed client (#848) — reqwest's default has no timeouts, and an
+    // Timed client (#848) - reqwest's default has no timeouts, and an
     // unresponsive PDS would otherwise pin the login spinner forever.
     let http = crate::config::http::default_client();
     let auth_server = discover_auth_server(&http, pds_url).await?;
@@ -66,7 +66,7 @@ pub async fn begin_authorization(
             relay_host: relay_host.to_string(),
             target_did: target_did.to_string(),
             // Spawn-pose params are filled in by the login pipeline after
-            // this returns — they live in `BootParams`, not the OAuth
+            // this returns - they live in `BootParams`, not the OAuth
             // discovery flow.
             target_pos: None,
             target_yaw_deg: None,
@@ -78,7 +78,7 @@ pub async fn begin_authorization(
 /// user's actual PDS shard from their DID, and fetch the session identity
 /// against that PDS. Returns a [`CompletedAuth`] bundle whose
 /// `pds_url` is the resolved shard (e.g.
-/// `https://porcini.us-east.host.bsky.network`) — **not** the entryway the
+/// `https://porcini.us-east.host.bsky.network`) - **not** the entryway the
 /// user typed into the login form.
 ///
 /// The entryway (`bsky.social`) is an *authorization server* only: OAuth

@@ -31,7 +31,7 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind, max_dim: f32) {
             // Ico subdivision count is exponential in triangles (~20·4ⁿ), so
             // cap it low: ico 6 is ~82k tris (already far past any shipped
             // content, which tops out at ico 4 ≈ 5k), while the old cap of 10
-            // would be ~20M tris per sphere — a single-record perf cliff.
+            // would be ~20M tris per sphere - a single-record perf cliff.
             *resolution = (*resolution).clamp(0, 6);
         }
         GeneratorKind::Cylinder {
@@ -165,7 +165,7 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind, max_dim: f32) {
                     super::limits::MAX_BLOB_BLEND,
                     0.1,
                 ));
-                // Unit quaternion or identity — the mesher inverts it.
+                // Unit quaternion or identity - the mesher inverts it.
                 e.rotation =
                     crate::pds::types::Fp4(super::common::sanitize_unit_quat(e.rotation.0));
             }
@@ -227,7 +227,7 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind, max_dim: f32) {
             // Wire stays thinner than the helix radius so the tube can't self-
             // intersect through the axis. `radius` has already been floored at
             // 0.01 by `c_dim`, so that ceiling can sit *below* the 0.01 minimum
-            // gauge — 0.0095 at a hairline helix — and `f32::clamp` panics
+            // gauge - 0.0095 at a hairline helix - and `f32::clamp` panics
             // outright when min > max. Ordering the two is what keeps a record
             // naming `radius: 0` from taking down the pass whose entire job is
             // to survive hostile records.
@@ -245,7 +245,7 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind, max_dim: f32) {
 /// the `faces_mut` accessor: duplicate keys collapse to their first entry
 /// (the deterministic winner across peers), the list is capped, and every
 /// override's material is clamped exactly like the base one. `Unknown`
-/// keys — a face name minted by a newer client — are kept: they are
+/// keys - a face name minted by a newer client - are kept: they are
 /// dormant, not hostile, and dropping them would strip data on rewrite.
 fn sanitize_faces(kind: &mut GeneratorKind) {
     let Some(faces) = kind.faces_mut() else {
@@ -267,7 +267,7 @@ fn sanitize_faces(kind: &mut GeneratorKind) {
 /// added. The wire elides a `uv_mapping` equal to the family's own
 /// default, and this client stores that state as `None`; a record from a
 /// writer that spelled the default out decodes as `Some(default)` and
-/// would re-serialise with the key present — different bytes, a different
+/// would re-serialise with the key present - different bytes, a different
 /// content-addressed child rkey, for the same picture. Folding here keeps
 /// what this client publishes byte-identical to what it always published.
 fn sanitize_common(kind: &mut GeneratorKind) {
@@ -297,14 +297,14 @@ mod tests {
     /// still hold once sanitised, in [`crate::pds::types::Fp`] units
     /// (÷10 000 for metres). Every dimensional clamp in this file tops out
     /// at 100 m (`c_dim`) or 100 local units (the point lists), i.e. 1e6
-    /// raw, and every count clamp at a few hundred — so 1e8 leaves two
+    /// raw, and every count clamp at a few hundred - so 1e8 leaves two
     /// orders of magnitude of headroom while still being far below what an
     /// *unclamped* field carries: the hostile values injected below land at
     /// 4.3e9 (a saturated `u32`) or `i32::MAX` (a saturated `Fp`).
     ///
     /// The `material` and `faces` subtrees are excluded from this envelope
     /// and checked by delegation instead (see
-    /// [`every_primitive_delegates_the_shared_blocks`]) — a texture seed is
+    /// [`every_primitive_delegates_the_shared_blocks`]) - a texture seed is
     /// legitimately a full-range integer, so a magnitude bound says nothing
     /// there.
     const MAX_RAW: i64 = 100_000_000;
@@ -312,7 +312,7 @@ mod tests {
     /// Values a hostile record can actually carry into a numeric field.
     /// The wire form of every float is a scaled integer decoded through
     /// `i64` ([`crate::pds::types::Fp`]), so **NaN and infinity are not
-    /// wire-reachable at all** — `i64 as f32 / 10_000` is always finite.
+    /// wire-reachable at all** - `i64 as f32 / 10_000` is always finite.
     /// What *is* reachable is enormous, negative, and zero, which is what
     /// these are. (`clamp_finite`'s NaN handling is exercised in-memory by
     /// `tests/misc.rs`.)
@@ -389,7 +389,7 @@ mod tests {
         cur
     }
 
-    /// The roster, `kind_tag` and `default_primitive_for_tag` agree — the
+    /// The roster, `kind_tag` and `default_primitive_for_tag` agree - the
     /// three hand-written spellings of the same sixteen names.
     ///
     /// `default_primitive_for_tag` answers `None` for an unknown tag, so a
@@ -428,7 +428,7 @@ mod tests {
     }
 
     /// **The clamp-arm gate.** For every primitive on the roster, every
-    /// numeric field of its wire form is replaced — one at a time — with a
+    /// numeric field of its wire form is replaced - one at a time - with a
     /// value a hostile record can carry, and the result must come back
     /// inside the sanitiser's envelope.
     ///
@@ -436,7 +436,7 @@ mod tests {
     /// ladder ends in `_ => {}`, so a seventeenth primitive with no clamp
     /// arm compiles, routes (the router is generated from the roster now),
     /// ships, and is simply never clamped. No macro can write a per-variant
-    /// bound — every primitive's dimensions mean something different — so
+    /// bound - every primitive's dimensions mean something different - so
     /// enumeration is the only thing that can hold this line.
     #[test]
     fn every_primitive_clamps_hostile_wire_values() {
@@ -447,7 +447,7 @@ mod tests {
             collect_numbers(&pristine, &mut Vec::new(), &mut paths);
             assert!(
                 !paths.is_empty(),
-                "{tag} has no numeric wire fields at all — is its default really a shape?"
+                "{tag} has no numeric wire fields at all - is its default really a shape?"
             );
 
             let mut decoded_any = false;
@@ -512,8 +512,8 @@ mod tests {
     /// every kind on the roster.
     ///
     /// A skipped `material.sanitize()` is invisible to the envelope check
-    /// above — a texture seed is legitimately a full-range integer, so no
-    /// magnitude bound can be asserted over that subtree — but shows up
+    /// above - a texture seed is legitimately a full-range integer, so no
+    /// magnitude bound can be asserted over that subtree - but shows up
     /// here as a sanitised prim that is not a fixed point of the material
     /// sanitiser.
     ///
@@ -521,7 +521,7 @@ mod tests {
     /// derived from the wire form, because both blocks serialise
     /// default-eliding: a default material encodes as `{}`, so there is
     /// nothing generic to corrupt. Naming them is safe in the way this
-    /// issue cares about — if `roughness` is renamed this test stops
+    /// issue cares about - if `roughness` is renamed this test stops
     /// compiling, which is the loud failure, not the silent one.
     #[test]
     fn every_primitive_delegates_the_shared_blocks() {
@@ -559,7 +559,7 @@ mod tests {
             settled.sanitize();
             assert_eq!(
                 &settled, mat,
-                "{tag}: base material is not clamped — sanitize_common in \
+                "{tag}: base material is not clamped - sanitize_common in \
                  pds::sanitize::primitive did not reach it"
             );
 
@@ -577,7 +577,7 @@ mod tests {
             sanitize_torture(&mut settled);
             assert_eq!(
                 &settled, tort,
-                "{tag}: torture is not clamped — sanitize_common in \
+                "{tag}: torture is not clamped - sanitize_common in \
                  pds::sanitize::primitive did not reach it"
             );
         }
@@ -599,7 +599,7 @@ mod tests {
             assert_eq!(
                 spelled.common().expect("primitive").uv_mapping,
                 Some(family),
-                "{tag}: the decoder must not fold — the sanitiser does"
+                "{tag}: the decoder must not fold - the sanitiser does"
             );
             sanitize_kind(&mut spelled);
             assert_eq!(

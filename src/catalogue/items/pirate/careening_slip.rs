@@ -1,4 +1,4 @@
-//! Careening Slip — where a hull is hove down and its bottom cleaned.
+//! Careening Slip - where a hull is hove down and its bottom cleaned.
 //!
 //! A timber slipway running down the shingle, a taken sloop hove over on her
 //! beam ends with her masthead tackle to two shore posts, a capstan on the
@@ -10,7 +10,7 @@
 //! Careening is the one job a buccaneer does that a navy does not have to:
 //! with no dry dock, you run the ship ashore, strip her, and haul the masts
 //! down until her keel comes out of the water. It is the most specific
-//! silhouette the whole theme has — a ship lying on her side on dry land —
+//! silhouette the whole theme has - a ship lying on her side on dry land -
 //! and nothing else in the catalogue looks remotely like it.
 //!
 //! # The heel is IN the hull, not on a transform
@@ -20,7 +20,7 @@
 //! geometry and then hides the fault from every guard here, all of which walk
 //! translations only. Two ways out, and this uses both:
 //!
-//! * the hull is **one `BlobGroup`** — a single leaf prim, so its rotation
+//! * the hull is **one `BlobGroup`** - a single leaf prim, so its rotation
 //!   carries nothing and displaces nothing;
 //! * everything attached to her (masts, tackle) is placed in the *world*
 //!   frame from the heel angle, by [`heeled`], rather than nested under her.
@@ -62,7 +62,7 @@ const WAY_LEN: f32 = 12.0;
 const WAY_W: f32 = 0.55;
 const WAY_FAR: f32 = -7.0;
 const WAY_NEAR: f32 = WAY_FAR + WAY_LEN;
-/// Top of the ways — what the hull rests on.
+/// Top of the ways - what the hull rests on.
 const WAY_TOP: f32 = GROUND + 0.24;
 
 /// The hull, upright, before she is hove down: length, beam, depth.
@@ -75,7 +75,7 @@ const HULL_DEPTH: f32 = 2.6;
 /// Forty-nine degrees. Chosen against what the heel has to ACHIEVE rather
 /// than picked: the keel has to come clear of the ways, and how far it comes
 /// clear is `sqrt((beam/2·sin)² + (depth/2·cos)²) − depth/2·cos`, which at
-/// thirty-five degrees is only 380 mm on this hull — a boat leaning, not a
+/// thirty-five degrees is only 380 mm on this hull - a boat leaning, not a
 /// boat hove down. At forty-nine it is close to 700 mm and the garboards are
 /// unmistakably out of the water, which is the whole object of careening.
 const HEEL: f32 = 0.85;
@@ -91,15 +91,15 @@ const HULL_Z: f32 = -0.6;
 /// "hove down" sounds like and is not what it means: rolling about a keel
 /// that stays put drives the port bilge two metres into the beach. A careened
 /// ship rests on the **turn of her bilge** with the keel lifted clear of the
-/// ground — that lift is the whole point, because the keel and the garboards
+/// ground - that lift is the whole point, because the keel and the garboards
 /// are what you have hauled her over to get at.
 ///
-/// The lift is derived from the heel — and from the fact that her midship
+/// The lift is derived from the heel - and from the fact that her midship
 /// section is an **ellipse**, not a box.
 ///
 /// The obvious formula is the rotated corner, `beam/2 · sin + depth/2 · cos`,
 /// and it is right for a rectangular section and wrong for this one by
-/// 600 mm — which is exactly how far she floated over her own ways in the
+/// 600 mm - which is exactly how far she floated over her own ways in the
 /// first render. An ellipse's lowest point under a rotation is its *support
 /// function*, `sqrt((a·sin)² + (b·cos)²)`, which is always less than the
 /// corner because an ellipse is inscribed in its own box.
@@ -168,8 +168,8 @@ impl CatalogueEntry for CareeningSlip {
 /// Turn a point given in the **upright hull's** own frame into the world,
 /// applying the heel about the keel line.
 ///
-/// This is the whole trick. Anything fixed to a hove-down ship — a masthead,
-/// a chainplate, a shroud's upper end — is naturally described where it sits
+/// This is the whole trick. Anything fixed to a hove-down ship - a masthead,
+/// a chainplate, a shroud's upper end - is naturally described where it sits
 /// on the *upright* vessel, and then has to be placed where the heel actually
 /// puts it. Doing that here, once, means nothing in this file is ever nested
 /// under a rotated node (#972 lesson 22), and it means the mast and its
@@ -188,7 +188,7 @@ fn heeled(x: f32, y: f32, z: f32) -> [f32; 3] {
 /// A single `BlobGroup` rather than a stack of prims, for two reasons that
 /// both matter here. It is watertight and continuous, so a hull reads as a
 /// hull from every angle instead of showing the seams between a topsides box
-/// and a prow cone — the fault the avatar boat family fixed the same way. And
+/// and a prow cone - the fault the avatar boat family fixed the same way. And
 /// it is a **leaf**, so the heel is one rotation on one node carrying nothing.
 fn hull() -> Generator {
     let half = HULL_LEN * 0.5;
@@ -200,7 +200,7 @@ fn hull() -> Generator {
     //
     // Every station OVERLAPS its neighbour. The first build left a 0.55 m gap
     // between the midships mass and the transom, trusting the blend radius to
-    // bridge it — and it did not, so she polygonised into two pieces with the
+    // bridge it - and it did not, so she polygonised into two pieces with the
     // stern floating astern of the hull. Connectivity has to be structural,
     // not a property of the blend (the same correction the kit's flag needed).
     let elements = vec![
@@ -228,7 +228,7 @@ fn hull() -> Generator {
             [b * 0.64, d * 0.78, half * 0.18],
             0.42,
         ),
-        // Keel, running her length under the garboards — the member the whole
+        // Keel, running her length under the garboards - the member the whole
         // job exists to get at, so it wants to be visible.
         blob_capsule(
             [0.0, -d * 0.92, 0.0],
@@ -238,23 +238,23 @@ fn hull() -> Generator {
             0.12,
         ),
     ];
-    // Placed at the hull's OWN origin under the heel — `heeled(0, 0, 0)`.
+    // Placed at the hull's OWN origin under the heel - `heeled(0, 0, 0)`.
     //
     // The first build passed `heeled(0, HULL_DEPTH * 0.5, 0)`, which reads
     // like "put her deck at the right height" and in fact applies the lift a
     // second time: `HULL_LIFT` already carries the centre, and the elements
     // are centred on it. She floated a metre and a half over her own ways.
     //
-    // #972 lesson 18 exactly — the placement and the thing it is derived from
+    // #972 lesson 18 exactly - the placement and the thing it is derived from
     // have to be ONE expression. The bilge blocks were correct all along
     // because they call `heeled` directly; only the hull disagreed, which is
     // why a guard comparing blocks to the formula could not see it.
     // `quat_z(+HEEL)`, positive, and the sign is the whole story (#1030).
-    // `heeled()` maps (x, y) to (x·c − y·s, x·s + y·c) — the standard 2D
-    // rotation by PLUS θ — and the prim's quaternion must be the same turn.
+    // `heeled()` maps (x, y) to (x·c − y·s, x·s + y·c) - the standard 2D
+    // rotation by PLUS θ - and the prim's quaternion must be the same turn.
     // The first build used −HEEL: on the hull, whose section is symmetric
     // athwartships, a mirrored heel is invisible, which is exactly what let
-    // it ship — but every part placed BY `heeled()` (masthead, shores,
+    // it ship - but every part placed BY `heeled()` (masthead, shores,
     // tackle) then lived in the reflection of the frame the geometry was
     // drawn in, and the mast crossed its own rig touching nothing.
     prim(
@@ -299,25 +299,25 @@ fn slipway() -> Vec<Generator> {
     }
     // SHORES against her high side, not blocks under her low one.
     //
-    // She already bears on the ways by construction — that is what
-    // `hull_lift` guarantees — so packing underneath would be propping
+    // She already bears on the ways by construction - that is what
+    // `hull_lift` guarantees - so packing underneath would be propping
     // something that is already down. What a careened hull actually needs is
     // shores holding her *from going further over*, and they are the better
     // read besides: three raking timbers against the exposed bottom say
     // "somebody put her here on purpose".
     //
-    // Two corrections from in-world (#1028), both about the same thing —
+    // Two corrections from in-world (#1028), both about the same thing -
     // the shore has to meet the ship SHE IS, not the ship's bounding box:
     //
     // * the bearing point tracks her local half-beam. She narrows toward bow
     //   and stern, so a shore placed at the amidships beam near the bow
-    //   stood in the air beside her taper — "two bars floating" was exactly
+    //   stood in the air beside her taper - "two bars floating" was exactly
     //   what it was. The beam profile is the same ellipse-along-length the
     //   blob stations approximate.
     // * the timber itself is a [`strut`] between its bearing point and its
     //   foot, so the lean cannot be backwards. The hand-rolled
     //   `quat_z(-lean)` had its sign flipped and leaned every shore AWAY
-    //   from the hull it propped — the third hand-rolled rotation in this
+    //   from the hull it propped - the third hand-rolled rotation in this
     //   one file to get a handedness wrong, which is why the helper now
     //   exists (#972 lesson 23, applied to authoring).
     for dz in [-2.6_f32, 0.0, 2.6] {
@@ -340,18 +340,18 @@ fn slipway() -> Vec<Generator> {
 /// Her lower mast, and the purchase from its head to the shore posts.
 ///
 /// The mast is stepped on the keel and rakes with the hull, so both its ends
-/// come from [`heeled`] — and the tackle is drawn from the masthead it
+/// come from [`heeled`] - and the tackle is drawn from the masthead it
 /// actually has, not from a height picked to look right.
 fn masthead_tackle() -> Vec<Generator> {
     let step = heeled(0.0, HULL_DEPTH * 0.35, 1.2);
     let mast_len = 8.4_f32;
     let head = heeled(0.0, HULL_DEPTH * 0.35 + mast_len, 1.2);
-    // Both the mast and its cap are STRUTS along the step→head run — the
+    // Both the mast and its cap are STRUTS along the step→head run - the
     // same one conversion everything else on this beach now uses. The first
     // build gave each a hand-applied `quat_z(-HEEL)`, which is the mirror of
     // the turn `heeled()` actually performs: the chord ran port-up, the prim
     // axis starboard-up, and the built timber was the intended mast
-    // REFLECTED about the vertical through its own midpoint — crossing the
+    // REFLECTED about the vertical through its own midpoint - crossing the
     // rig diagonally with both ends in the air, while the falls converged on
     // a masthead with no mast under it. That floating junction is precisely
     // what was reported (#1030). A strut cannot disagree with its own
@@ -402,8 +402,8 @@ fn masthead_tackle() -> Vec<Generator> {
         ));
         // The fall: one [`strut`] from the masthead strop to the post head.
         // The first build hand-rolled the rotation from the run's X and Y
-        // components alone — ignoring that masthead and post differ in Z
-        // too — so both falls yawed off their posts (#1028). The strut takes
+        // components alone - ignoring that masthead and post differ in Z
+        // too - so both falls yawed off their posts (#1028). The strut takes
         // the genuinely 3D run and cannot.
         let top = [post[0], GROUND + POST_H, post[2]];
         out.push(strut(head, top, 0.05, 6, hemp(ROPE_HEMP)));
@@ -414,7 +414,7 @@ fn masthead_tackle() -> Vec<Generator> {
 /// The capstan on the hard, on its own paved pad.
 ///
 /// The barrel, whelps, pawl rim and bars are the kit's shared
-/// [`capstan`](super::capstan) — promoted the moment the standalone quayside
+/// [`capstan`](super::capstan) - promoted the moment the standalone quayside
 /// prop needed the same assembly (#972 lesson 5). Only three bars are
 /// shipped: the hands are careening, not heaving, and a capstan with every
 /// socket filled says the opposite.
@@ -463,7 +463,7 @@ fn build_tree() -> Generator {
     carried.extend(masthead_tackle());
     carried.push(capstan_on_the_hard());
 
-    // The pitch fire and its kettle, beside her exposed bottom — the part of
+    // The pitch fire and its kettle, beside her exposed bottom - the part of
     // the job that gives the prop its one warm light, and the reason a
     // careening beach smells the way it does.
     let fire = [-4.2, GROUND, HULL_Z - 2.6];
@@ -584,7 +584,7 @@ mod tests {
     /// This is the guard the whole file is arranged around. A hove-down ship
     /// wants to be a rotated parent with a mast and a rig hanging off it, and
     /// that is precisely the shape that spins its children's offsets out of
-    /// the geometry and then hides the fault from every other guard here —
+    /// the geometry and then hides the fault from every other guard here -
     /// all of which walk translations only. The hull is one leaf `BlobGroup`
     /// and everything fixed to her is placed in the world frame by `heeled`,
     /// so the prop stays translation-only by construction.
@@ -597,7 +597,7 @@ mod tests {
     ///
     /// A `BlobGroup` whose elements drift out of blend range polygonises into
     /// pieces, and on a hull that means a bow floating clear of the midships.
-    /// Union-find over the triangle graph is the only way to see it — the
+    /// Union-find over the triangle graph is the only way to see it - the
     /// bounding box of a hull in two halves is the same as a whole one.
     #[test]
     fn the_hull_polygonises_as_a_single_mass() {
@@ -616,13 +616,13 @@ mod tests {
         assert_eq!(
             blob_components(&found[0]),
             1,
-            "the hull polygonised into more than one piece — her stations have \
+            "the hull polygonised into more than one piece - her stations have \
              drifted out of blend range, or she is finer than the sample grid \
              can resolve"
         );
     }
 
-    /// She is hove down, not merely leaning — and not buried either.
+    /// She is hove down, not merely leaning - and not buried either.
     ///
     /// Three relationships, and getting them stated correctly is what caught
     /// the physical error in the first build. "Hove down" sounds like rolling
@@ -636,11 +636,11 @@ mod tests {
     fn she_rests_on_her_bilge_with_her_keel_lifted_clear() {
         let b = HULL_BEAM * 0.5;
         let d = HULL_DEPTH * 0.5;
-        // The down-side bilge is ON the ways — measured on the ELLIPSE, at
+        // The down-side bilge is ON the ways - measured on the ELLIPSE, at
         // the bearing where it actually touches, not at the box corner.
         // The bearing at which the ellipse actually touches. Minimising
         // `b·cosφ·sin + d·sinφ·cos` over φ gives `tanφ = (d·cos)/(b·sin)`,
-        // taking the negative branch — which is NOT the same as the box
+        // taking the negative branch - which is NOT the same as the box
         // corner, and is the whole reason `hull_lift` uses a support function.
         let (sn, cs) = HEEL.sin_cos();
         let touch = (-(d * cs)).atan2(-(b * sn));
@@ -648,21 +648,21 @@ mod tests {
         assert!(
             (down[1] - WAY_TOP).abs() < 0.06,
             "the bilge she should be resting on is at {} and the ways are at \
-             {WAY_TOP} — she is either floating or buried",
+             {WAY_TOP} - she is either floating or buried",
             down[1]
         );
         // The keel is OFF them, which is the entire object of the exercise.
         let keel = heeled(0.0, -d, 0.0);
         assert!(
             keel[1] > WAY_TOP + 0.55,
-            "the keel is only {} above the ways — she is leaning, not careened",
+            "the keel is only {} above the ways - she is leaning, not careened",
             keel[1] - WAY_TOP
         );
         // And the far bottom is well up, where it can be worked on.
         let up = heeled(b, -d, 0.0);
         assert!(
             up[1] > keel[1] + b * 0.35,
-            "the exposed bottom at {} is barely above the keel at {} — nothing \
+            "the exposed bottom at {} is barely above the keel at {} - nothing \
              about this reads as a hull hove over",
             up[1],
             keel[1]
@@ -671,12 +671,12 @@ mod tests {
         let head = heeled(0.0, HULL_DEPTH * 0.35 + 8.4, 1.2);
         assert!(
             head[1] > GROUND + 4.0,
-            "the masthead is at {} — she has gone over",
+            "the masthead is at {} - she has gone over",
             head[1]
         );
     }
 
-    /// Bounds of the tree's single `BlobGroup` — the hull, and nothing else.
+    /// Bounds of the tree's single `BlobGroup` - the hull, and nothing else.
     fn walk_blob_bounds(root: &Generator) -> Option<measure::Bounds> {
         fn walk(g: &Generator, at: [f32; 3], out: &mut Option<measure::Bounds>) {
             let t = g.transform.translation.0;
@@ -700,14 +700,14 @@ mod tests {
     /// Read out of the BUILT hull's mesh bounds rather than recomputed from
     /// `heeled` (#972 lesson 21): every other check in this file calls that
     /// function, so a guard that calls it too shares whatever the placement
-    /// got wrong — and the placement did get it wrong, applying the lift
+    /// got wrong - and the placement did get it wrong, applying the lift
     /// twice and floating her a metre and a half over the slipway while the
     /// bilge-block guard passed happily. Coming at it from the mesh is the
     /// only direction that could see it.
     #[test]
     fn the_hull_rests_on_the_ways_she_is_hauled_out_on() {
         let g = built();
-        // Selected as the only `BlobGroup` in the tree — what DEFINES the
+        // Selected as the only `BlobGroup` in the tree - what DEFINES the
         // hull. A first draft matched on "longer than 8.8 m in Z" and picked
         // up the site slab, which is sixteen metres long and sits on the
         // ground, so the guard reported the ship buried when she was floating
@@ -715,7 +715,7 @@ mod tests {
         let hull = walk_blob_bounds(&g).expect("the hull is in the tree");
         assert!(
             (hull.min.y - WAY_TOP).abs() < 0.35,
-            "the hull's lowest point is at {} and the ways are at {WAY_TOP} — \
+            "the hull's lowest point is at {} and the ways are at {WAY_TOP} - \
              she is floating over her own slipway, or sunk into it",
             hull.min.y
         );
@@ -729,12 +729,12 @@ mod tests {
     }
 
     /// Every shore's head bears on the hull's own MESHED surface at its own
-    /// station — not merely inside her bounding box.
+    /// station - not merely inside her bounding box.
     ///
     /// The bounding-box version of this guard passed while two shores stood
     /// in the air beside the bow (#1028): she narrows toward her ends, so a
     /// head at the amidships beam near the bow is well inside the AABB and
-    /// nowhere near the ship. The only thing that can see that is the mesh —
+    /// nowhere near the ship. The only thing that can see that is the mesh -
     /// so this slices the polygonised hull at each shore's own z, takes the
     /// slice's outboard extremity, and demands the head land on it.
     ///
@@ -819,14 +819,14 @@ mod tests {
                 .fold(f32::MIN, f32::max);
             assert!(
                 slice_max_x > f32::MIN,
-                "no hull surface at all at z = {} — the shore props a station \
+                "no hull surface at all at z = {} - the shore props a station \
                  the ship does not reach",
                 head[2]
             );
             assert!(
                 head[0] < slice_max_x + 0.12 && head[0] > slice_max_x - 0.55,
                 "a shore's head at x = {} does not bear on the hull, whose \
-                 surface at z = {} ends at x = {slice_max_x} — a timber in \
+                 surface at z = {} ends at x = {slice_max_x} - a timber in \
                  the air beside her taper",
                 head[0],
                 head[2]
@@ -839,19 +839,19 @@ mod tests {
         }
     }
 
-    /// The tackle hangs from the top of a mast that is stepped in the hull —
+    /// The tackle hangs from the top of a mast that is stepped in the hull -
     /// the three connections that make the rig make sense (#1030).
     ///
     /// What shipped was a rig whose every part was individually plausible:
     /// two falls converging on a point, a cap at the point, a mast-length
-    /// timber crossing nearby. The missing property was CONNECTION — the
+    /// timber crossing nearby. The missing property was CONNECTION - the
     /// falls' junction had no mast under it, because the mast prim carried
     /// the mirror of the turn `heeled()` performs and was reflected about
     /// its own midpoint. A symmetric hull hid the same mirror on itself.
     ///
     /// So the guard states the connections, all read from the BUILT tree via
     /// [`rotate_by`] (#972 lesson 21): both falls' high ends meet the mast's
-    /// high end, and the mast's low end is inside the meshed hull — not near
+    /// high end, and the mast's low end is inside the meshed hull - not near
     /// it, IN it, checked against the polygonised surface's own slice.
     #[test]
     fn the_tackle_hangs_from_a_mast_stepped_in_the_hull() {
@@ -882,7 +882,7 @@ mod tests {
         ends_of(&g, [0.0; 3], &mut cyls);
 
         // The mast: the one long oak stick (the shores are 0.16, the falls
-        // 0.05, the posts are cuboids). Selected by radius — what defines it.
+        // 0.05, the posts are cuboids). Selected by radius - what defines it.
         let (_, a, b) = cyls
             .iter()
             .find(|(r, _, _)| (r - 0.22).abs() < 0.01)
@@ -905,7 +905,7 @@ mod tests {
             assert!(
                 d < 0.4,
                 "a fall's high end at {hi:?} is {d} m from the masthead at \
-                 {mast_head:?} — the tackle is hooked to thin air"
+                 {mast_head:?} - the tackle is hooked to thin air"
             );
         }
 
@@ -945,14 +945,14 @@ mod tests {
         assert!(
             mast_foot[0] > min_x && mast_foot[0] < max_x && mast_foot[1] < max_y,
             "the mast's foot at {mast_foot:?} is outside the hull (x {min_x}..\
-             {max_x}, deck {max_y}) — the mast is not stepped in the ship, \
+             {max_x}, deck {max_y}) - the mast is not stepped in the ship, \
              and the rig hangs from nothing"
         );
-        // And the head is well above the foot on the DOWN side — the mast
+        // And the head is well above the foot on the DOWN side - the mast
         // rakes the way she is hove, which is what the mirror got wrong.
         assert!(
             mast_head[0] < mast_foot[0],
-            "the masthead at x {} is upslope of its own foot at x {} — the \
+            "the masthead at x {} is upslope of its own foot at x {} - the \
              mast rakes against the heel",
             mast_head[0],
             mast_foot[0]
@@ -961,8 +961,8 @@ mod tests {
 
     /// The purchase actually spans masthead to post.
     ///
-    /// Both falls are derived from one vector — the length and the angle come
-    /// out of the same subtraction — which is the shape #972 lesson 21 asks
+    /// Both falls are derived from one vector - the length and the angle come
+    /// out of the same subtraction - which is the shape #972 lesson 21 asks
     /// for: a rope of a hand-picked length pointing roughly the right way
     /// looks fine from three of four angles.
     #[test]

@@ -7,7 +7,7 @@
 //! (boat → HoverBoat, airship → Helicopter, humanoid → Humanoid, skiff →
 //! Car) so the default chassis *feels* like what it looks like.
 //!
-//! The pick is uniform — every family is equally likely on a fresh DID.
+//! The pick is uniform - every family is equally likely on a fresh DID.
 //! Diversity inside each family comes from the seeded
 //! [`AvatarOutfit`](super::AvatarOutfit) composing the tagged part catalogue
 //! ([`crate::pds::avatar::parts`]).
@@ -25,20 +25,20 @@ const AVATAR_CHASSIS_SALT: u64 = 0xC4A5_51F0_C4A5_51F0;
 /// from the tagged part catalogue.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChassisFamily {
-    /// Hover-boat — monohull / catamaran / trimaran / barge.
+    /// Hover-boat - monohull / catamaran / trimaran / barge.
     Boat,
-    /// Lighter-than-air — envelope + gondola.
+    /// Lighter-than-air - envelope + gondola.
     Airship,
     /// Primitive-built figure consuming skin / hair / eye / gait.
     Humanoid,
-    /// Land vehicle — rover / dune-skiff / trike.
+    /// Land vehicle - rover / dune-skiff / trike.
     Skiff,
 }
 
 impl ChassisFamily {
     pub const ALL: [Self; 4] = [Self::Boat, Self::Airship, Self::Humanoid, Self::Skiff];
 
-    /// Human-readable display name — used by the pinned re-roll readout.
+    /// Human-readable display name - used by the pinned re-roll readout.
     pub fn label(self) -> &'static str {
         match self {
             Self::Boat => "Hover-boat",
@@ -52,7 +52,7 @@ impl ChassisFamily {
         Self::for_seed(fnv1a_64(did))
     }
 
-    /// Derive from a pre-computed seed — the manual re-roll path.
+    /// Derive from a pre-computed seed - the manual re-roll path.
     /// `for_did(did)` is exactly `for_seed(fnv1a_64(did))`.
     pub fn for_seed(seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed ^ AVATAR_CHASSIS_SALT);
@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn all_families_reachable() {
         // 200 seeds at 4 uniform families: the odds of any family never
-        // appearing are (3/4)^200 ≈ 10^-25 — a miss means the sampler is
+        // appearing are (3/4)^200 ≈ 10^-25 - a miss means the sampler is
         // broken, not unlucky.
         let mut seen = [false; 4];
         for s in 0u64..200 {

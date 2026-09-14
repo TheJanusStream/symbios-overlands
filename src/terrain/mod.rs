@@ -2,10 +2,10 @@
 //!
 //! A room's seed is the FNV-1a 64-bit hash of its owner's DID, so every
 //! client visiting the same overland derives the identical landscape locally
-//! — there is no authoritative server to replicate from.  Heightmap
-//! generation (a landform-chosen base pass — FBM, diamond-square or Voronoi
-//! terracing — followed by hydraulic and thermal erosion) and
-//! the four splat layer textures (e.g. grass / dirt / rock / snow — the
+//! - there is no authoritative server to replicate from.  Heightmap
+//! generation (a landform-chosen base pass - FBM, diamond-square or Voronoi
+//! terracing - followed by hydraulic and thermal erosion) and
+//! the four splat layer textures (e.g. grass / dirt / rock / snow - the
 //! actual material per layer is biome-derived) are dispatched through
 //! [`crate::offload`] (native: `AsyncComputeTaskPool`; wasm: a Web Worker)
 //! and baked by the Bevy-free `gen_jobs` crate; `bevy_symbios_texture` then
@@ -15,30 +15,30 @@
 //! flipped from placeholder flat-colour mode to triplanar PBR splat blending.
 //!
 //! Water is spawned by the [`crate::world_builder`] module from the `Water`
-//! generator in the active `RoomRecord` — this plugin produces the terrain
+//! generator in the active `RoomRecord` - this plugin produces the terrain
 //! mesh and heightfield collider, plus the road layer draped over them.
 //!
 //! ## Sub-module map
 //!
-//! * [`heightmap`] — distils the terrain config into the offload job's
+//! * [`heightmap`] - distils the terrain config into the offload job's
 //!   params, dispatches / polls that job, and spawns the
 //!   mesh + heightfield-collider; the generator itself (FBM /
 //!   DiamondSquare / Voronoi + erosion passes) lives in the Bevy-free
 //!   `gen_jobs` crate.
-//! * [`splat`] — the four-layer procedural texture tasks, the
+//! * [`splat`] - the four-layer procedural texture tasks, the
 //!   texture-array atlas build, the splat weight map, and the material
 //!   flip from placeholder to triplanar splat blending (also publishes
 //!   the CPU [`TerrainSurfaceQuery`](crate::interaction::TerrainSurfaceQuery)
 //!   mirror for the contact classifier).
-//! * [`referenced`] — the `SovereignTextureConfig::Referenced` splat-layer
+//! * [`referenced`] - the `SovereignTextureConfig::Referenced` splat-layer
 //!   path: URL / ATProto-blob fetch, decode + resize, and the per-layer
 //!   override of the procedural placeholder.
-//! * [`roads`] — reactive road-network rebuild: re-meshes the
+//! * [`roads`] - reactive road-network rebuild: re-meshes the
 //!   [`crate::urban`] ribbon from the existing heightmap whenever the
 //!   record's `RoadNetwork` config changes, as a terrain child.
-//! * [`lots`] — populates themed catalogue buildings onto the road
+//! * [`lots`] - populates themed catalogue buildings onto the road
 //!   network's enclosed lots at load time.
-//! * [`lifecycle`] — logout cleanup and the in-place regenerate trigger
+//! * [`lifecycle`] - logout cleanup and the in-place regenerate trigger
 //!   that watches the live record's terrain config fingerprint.
 //!
 //! The shared task / state resources live here in `mod.rs` (private to
@@ -70,14 +70,14 @@ use crate::state::{AppState, LiveRoomRecord};
 #[derive(Resource)]
 pub(crate) struct TextureTasksStarted;
 
-/// Marker on the root terrain entity — the static rigid body carrying the
+/// Marker on the root terrain entity - the static rigid body carrying the
 /// heightfield collider, with the textured terrain mesh as its child.
 #[derive(Component)]
 pub struct TerrainMesh;
 
 /// Marker inserted on the previous terrain entity during an in-place
 /// regenerate. Kept alive (with its collider + textured mesh) until the new
-/// heightmap task completes and `spawn_terrain_mesh` swaps in the fresh one —
+/// heightmap task completes and `spawn_terrain_mesh` swaps in the fresh one -
 /// otherwise the player would fall through the world for the ~frame(s) the
 /// generator takes, and every peer would see a jarring flash to empty sky.
 #[derive(Component)]
@@ -88,7 +88,7 @@ pub struct OutgoingTerrain;
 pub struct WaterVolume;
 
 /// The completed heightmap of the active room. Its insertion (and any later
-/// change) is the readiness signal `world_builder` keys off — room
+/// change) is the readiness signal `world_builder` keys off - room
 /// compilation and avatar spawning both gate on this resource.
 #[derive(Resource)]
 pub struct FinishedHeightMap(pub HeightMap);
@@ -100,7 +100,7 @@ pub struct FinishedHeightMap(pub HeightMap);
 /// does at HEAD is worse and quieter: `poll_terrain_task` removes
 /// [`TerrainTask`] before it matches on the result, and
 /// `start_terrain_generation` re-fires whenever there is no task and no
-/// [`FinishedHeightMap`] — so the failing job restarted every frame, for
+/// [`FinishedHeightMap`] - so the failing job restarted every frame, for
 /// the whole session, behind a spinner labelled "working", logging one
 /// `OffloadJobFailed` per pass. This marker turns that into a stated
 /// failure with an explicit retry: the start condition now also requires
@@ -131,7 +131,7 @@ pub struct RoadPanelStats {
     /// window, which is long enough for an owner to read the old number,
     /// believe it and tune against it.
     pub pending: bool,
-    /// How many grown objects the last strip removed (#1245 f378) — what
+    /// How many grown objects the last strip removed (#1245 f378) - what
     /// "re-growing the district" actually costs, in the panel and in the
     /// toast that says it happened.
     pub last_replaced: usize,
@@ -175,10 +175,10 @@ pub(crate) use lots::{
 impl FinishedHeightMap {
     /// Terrain height at **world** coordinates: the heightmap's own frame
     /// starts at `(0, 0)` in its corner, while the world centres the
-    /// terrain on the origin — this does the half-extent shift + clamp
+    /// terrain on the origin - this does the half-extent shift + clamp
     /// every sampler needs. Single-sourced so the placement executor, the
     /// placement gizmo, and the editor's snap-toggle compensation all
-    /// agree on the sample (#700) — a disagreement shows up as objects
+    /// agree on the sample (#700) - a disagreement shows up as objects
     /// jumping between preview and compile.
     pub fn world_height_at(&self, x: f32, z: f32) -> f32 {
         let hm = &self.0;
@@ -232,7 +232,7 @@ struct SplatMaterialHandle(Handle<SplatTerrainMaterial>);
 /// full heightmap/texture/mesh rebuild in place. Without this, a room owner
 /// editing noise parameters would desync every guest: the live terrain would
 /// stay frozen for everyone already in the room, while a new guest joining
-/// afterwards would enter `Loading` and generate the *new* terrain — so
+/// afterwards would enter `Loading` and generate the *new* terrain - so
 /// older peers and newcomers end up driving on fundamentally different
 /// ground.
 #[derive(Resource, Default)]
@@ -241,7 +241,7 @@ struct LastTerrainConfigJson(Option<String>);
 /// Latest observed terrain target that has not yet been acted on.
 ///
 /// `Res::is_changed()` ticks are per-system and consumed the moment this
-/// system runs — so a change observed while a previous terrain task was
+/// system runs - so a change observed while a previous terrain task was
 /// still in flight used to vanish: we'd return early, the tick would
 /// clear, and subsequent frames would never re-fire because the record
 /// didn't mutate again. Stashing the target here lets us survive any
@@ -249,7 +249,7 @@ struct LastTerrainConfigJson(Option<String>);
 /// generator finishes.
 ///
 /// The nesting is load-bearing: the outer `Option` is "is there a pending
-/// change to apply", while the inner `Option<String>` is the *target* —
+/// change to apply", while the inner `Option<String>` is the *target* -
 /// `Some(fingerprint)` for a terrain config, or `None` when the owner has
 /// deleted the terrain generator and the live heightfield must be torn
 /// down. Collapsing these would lose the deletion signal and leave the
@@ -257,7 +257,7 @@ struct LastTerrainConfigJson(Option<String>);
 #[derive(Resource, Default)]
 struct PendingTerrainConfigJson(Option<Option<String>>);
 
-/// Synchronously reproduce a record's heightmap off the schedule — the same
+/// Synchronously reproduce a record's heightmap off the schedule - the same
 /// params and deterministic [`crate::offload`] core the async terrain task runs,
 /// just inline. For native tooling (the render harness's `--road-dump`) that
 /// needs the *real* surface a room would render on without standing up the Bevy
@@ -278,13 +278,13 @@ pub(crate) fn rebuild_heightmap_for_record(record: &crate::pds::RoomRecord) -> H
 
 pub struct TerrainPlugin;
 
-/// Register the terrain pipeline for a headless embedder — the render tool's
+/// Register the terrain pipeline for a headless embedder - the render tool's
 /// `--terrain` mode (#994).
 ///
 /// [`TerrainPlugin`]'s systems are gated on *resources*, not on `AppState`,
 /// which is what makes this possible at all: insert a [`LiveRoomRecord`] and
 /// the same six systems that build a room's ground in game build it here. The
-/// omissions are deliberate and each is a thing a still frame cannot show —
+/// omissions are deliberate and each is a thing a still frame cannot show -
 /// roads, lot population, terrain regeneration, water-level moisture sync,
 /// referenced-layer network fetches and the cleanup schedules.
 ///
@@ -327,12 +327,52 @@ pub(crate) fn register_headless_terrain(app: &mut App) {
         );
 }
 
+/// Register the street half of [`TerrainPlugin`] that
+/// [`register_headless_terrain`] leaves out: the road re-mesh, its appearance
+/// re-tint, and the lot layer that grows buildings along the streets by
+/// writing them into the live record. The headless render tool's `--world`
+/// mode adds this on top of the terrain chain so a seeded settlement is
+/// sheeted with its streets and its grown district, as the game shows it.
+///
+/// The three systems are ordered after the heightmap steps exactly as the
+/// plugin orders them, and gated on the record alone - no `AppState` in a
+/// headless app. Their resources are plain defaults: the road pipeline
+/// state, the editor's road readout, the undo signal the lot layer raises
+/// and the toast queue it reports clamps to; nothing reads the last two
+/// here, they exist so the systems can be scheduled at all.
+///
+/// **Keep in step with [`TerrainPlugin`]** - the same contract as
+/// [`register_headless_terrain`]. Native-only (#1321).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn register_headless_roads(app: &mut App) {
+    app.init_resource::<roads::RoadRebuild>()
+        .init_resource::<RoadPanelStats>()
+        .init_resource::<crate::state::RoomWriteSignals>()
+        .init_resource::<crate::notify::Toasts>()
+        .add_systems(
+            Update,
+            (
+                roads::maybe_rebuild_roads
+                    .run_if(resource_exists::<LiveRoomRecord>)
+                    .after(heightmap::poll_terrain_task)
+                    .after(heightmap::spawn_terrain_mesh),
+                roads::sync_road_appearance
+                    .run_if(resource_exists::<LiveRoomRecord>)
+                    .after(roads::maybe_rebuild_roads),
+                lots::maybe_populate_lots
+                    .run_if(resource_exists::<LiveRoomRecord>)
+                    .after(heightmap::poll_terrain_task)
+                    .after(heightmap::spawn_terrain_mesh),
+            ),
+        );
+}
+
 /// Present once the splat pass has resolved: the ground is showing its four
 /// baked layers rather than the flat placeholder colour, so a frame is worth
 /// capturing.
 ///
 /// A marker rather than a public accessor on [`TerrainSplatState`], which
-/// stays private — an embedder needs the *fact*, not the four handles behind
+/// stays private - an embedder needs the *fact*, not the four handles behind
 /// it. Inserted only by [`register_headless_terrain`]; the game has no use
 /// for it, because in game the ground appearing is the signal.
 #[cfg(not(target_arch = "wasm32"))]
@@ -385,7 +425,7 @@ impl Plugin for TerrainPlugin {
                             .and_then(not(resource_exists::<SplatMaterialHandle>)),
                     ),
                     // Re-mesh roads from the existing heightmap whenever the
-                    // road config or the heightmap changes — no terrain regen.
+                    // road config or the heightmap changes - no terrain regen.
                     // Runs after the terrain task so a fresh heightmap is
                     // visible the same frame it lands.
                     roads::maybe_rebuild_roads
@@ -393,7 +433,7 @@ impl Plugin for TerrainPlugin {
                         .after(heightmap::poll_terrain_task)
                         .after(heightmap::spawn_terrain_mesh),
                     // Appearance overrides re-tint the live materials in
-                    // place (#891) — after the rebuild so a fresh spawn's
+                    // place (#891) - after the rebuild so a fresh spawn's
                     // materials are what get re-tinted, never stale ones.
                     roads::sync_road_appearance
                         .run_if(resource_exists::<LiveRoomRecord>)
@@ -414,8 +454,8 @@ impl Plugin for TerrainPlugin {
             // `not(Login)` rather than `in_state(InGame)`: the splat
             // array assembly (~4 × full-mipchain layers concatenated
             // into one texture array) is a noticeable main-thread cost
-            // on wasm, so it runs during `Loading` — behind the loading
-            // screen — as soon as the four texture bakes land, instead
+            // on wasm, so it runs during `Loading` - behind the loading
+            // screen - as soon as the four texture bakes land, instead
             // of in the first visible `InGame` frames.
             // `maybe_regenerate_terrain`'s first observation merely
             // records the config fingerprint, so running it earlier
@@ -428,7 +468,7 @@ impl Plugin for TerrainPlugin {
                     referenced::poll_splat_layer_fetches,
                     splat::apply_splat_textures,
                     // Release a Referenced room's source images once its fetches
-                    // drain — apply_splat_textures keeps them for the late-fetch
+                    // drain - apply_splat_textures keeps them for the late-fetch
                     // rebuild, this frees them when no fetch remains (#642).
                     splat::free_referenced_splat_sources,
                     // Cheap scalar re-sync so an edited water level moves
@@ -442,7 +482,7 @@ impl Plugin for TerrainPlugin {
             )
             .add_systems(OnExit(AppState::InGame), lifecycle::cleanup_terrain)
             // The attract demo world (#897) never passes through `InGame`
-            // either — reset terrain state on the way out of `Login`, so
+            // either - reset terrain state on the way out of `Login`, so
             // the real `Loading` build starts from scratch exactly like
             // the #849 abort path.
             .add_systems(
@@ -451,7 +491,7 @@ impl Plugin for TerrainPlugin {
             )
             // The loading screen's "Back to login" abort (#849) never
             // passes through `InGame`, so the OnExit teardown above
-            // wouldn't fire — react to the abort flag directly. The flag
+            // wouldn't fire - react to the abort flag directly. The flag
             // is removed by deferred command, so it is still visible to
             // this frame's whole Update schedule; the run never repeats.
             .add_systems(
@@ -463,7 +503,7 @@ impl Plugin for TerrainPlugin {
             )
             // Re-rolling the login backdrop (#978) discards one demo world
             // for another without leaving `Login`, so neither `OnExit` hook
-            // fires — react to the request flag, exactly as the abort path
+            // fires - react to the request flag, exactly as the abort path
             // above does. Ordered `.before` the attract-side sweep that
             // clears the flag, which also puts an `ApplyDeferred` between
             // the two halves of the teardown.
@@ -487,7 +527,7 @@ mod terrain_failure_tests {
     /// forever". What HEAD actually did is quieter and worse:
     /// `poll_terrain_task` removes [`TerrainTask`] before it matches on the
     /// result, and `start_terrain_generation` re-fires whenever there is no
-    /// task and no [`FinishedHeightMap`] — so a job answering with the wrong
+    /// task and no [`FinishedHeightMap`] - so a job answering with the wrong
     /// variant restarted on the very next frame, every frame, for the whole
     /// session, behind a spinner labelled "working" and logging one
     /// `OffloadJobFailed` per pass.

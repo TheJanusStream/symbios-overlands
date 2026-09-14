@@ -1,4 +1,4 @@
-//! Factory — the Industrial-Park landmark. A long clad works on a brick
+//! Factory - the Industrial-Park landmark. A long clad works on a brick
 //! dado, presenting three raised loading docks and a clerestory band to the
 //! yard, one shutter rolled up on a lit shop floor, under a low-pitch roof
 //! with a glazed monitor along its ridge. A tall brick stack pours smoke over
@@ -8,7 +8,7 @@
 //!
 //! 1. **The glazing fills real holes.** The clerestory band and the roof
 //!    monitor are alpha cards on flat quads over a lit shop floor. They
-//!    used to be `Window`-textured *slabs* pinned to a solid box — and the
+//!    used to be `Window`-textured *slabs* pinned to a solid box - and the
 //!    generator masks its panes away, so each was a frame with holes onto the
 //!    cladding behind it. The old "lit window band" was worse still: a flat
 //!    amber lightbox 18 m long, which is exactly the thing the standing
@@ -16,7 +16,7 @@
 //! 2. **The docks are docks.** Three roller shutters used to be flat panels
 //!    laid on the wall of a solid mass, at ground level, with nothing behind
 //!    them and no way for a lorry to reach them. They are now real openings
-//!    in a raised dock face — bumpers, levellers, a canopy — with the middle
+//!    in a raised dock face - bumpers, levellers, a canopy - with the middle
 //!    shutter rolled up on the shop floor, which is where the whole prop's
 //!    depth comes from.
 //! 3. **The brick lies flat, and the works stands the way it does.** The
@@ -56,12 +56,12 @@ const YARD_D: f32 = D + 8.0;
 /// The yard slab is pushed forward of the shed so the apron is in front of
 /// the docks rather than centred on the building.
 const YARD_Z: f32 = -1.4;
-/// Front edge of the yard slab — where the kerb goes, and the line every
+/// Front edge of the yard slab - where the kerb goes, and the line every
 /// marking has to stay inside.
 const YARD_FRONT: f32 = YARD_Z - YARD_D * 0.5;
 /// Brick dado, and so the height of the raised dock floor above the yard.
 const DADO_H: f32 = 1.55;
-/// Cladding height above the dado — the eaves.
+/// Cladding height above the dado - the eaves.
 const CLAD_H: f32 = 6.45;
 /// Wall thickness, and so the depth of every reveal.
 const WALL_T: f32 = 0.34;
@@ -69,7 +69,7 @@ const WALL_T: f32 = 0.34;
 const FLOOR: f32 = DADO_H;
 const EAVES: f32 = DADO_H + CLAD_H;
 
-/// Outer face of the yard elevation — the `-Z` hero direction the render tool
+/// Outer face of the yard elevation - the `-Z` hero direction the render tool
 /// and the settlement placer both look down.
 const FRONT: f32 = -D * 0.5;
 const FRONT_MID: f32 = FRONT + WALL_T * 0.5;
@@ -101,12 +101,12 @@ const CLERE_HEAD: f32 = 6.15;
 const ROOF_RISE: f32 = 1.7;
 const EAVE_OVER: f32 = 0.7;
 const ROOF_T: f32 = 0.26;
-/// The roof monitor — a raised glazed lantern along the ridge.
+/// The roof monitor - a raised glazed lantern along the ridge.
 const MON_W: f32 = 14.0;
 const MON_D: f32 = 3.4;
 const MON_H: f32 = 1.9;
 
-/// Brick length in metres — a real 215 mm brick. The kit's shared sizing lays
+/// Brick length in metres - a real 215 mm brick. The kit's shared sizing lays
 /// a 172 mm one, standing every brick on end into the bargain.
 const BRICK_LEN: f32 = 0.215;
 
@@ -114,7 +114,7 @@ const BRICK_LEN: f32 = 0.215;
 
 /// Ochre process pipework on the external gantry.
 const PIPE_OCHRE: [f32; 3] = [0.62, 0.5, 0.2];
-/// Shutter slats — a paler grey than the wall, so a closed bay still reads as
+/// Shutter slats - a paler grey than the wall, so a closed bay still reads as
 /// a door rather than as more cladding.
 const SHUTTER_GREY: [f32; 3] = [0.52, 0.54, 0.56];
 /// Safety yellow: dock edge, bollards, the leveller lip.
@@ -138,7 +138,7 @@ fn brick_slab(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
 
 /// One clad slab of the shell. Profiled sheet is ribbed along U, and every
 /// side face reads U horizontally, so wall cladding comes out vertically
-/// ribbed without any help — which is how it is actually hung.
+/// ribbed without any help - which is how it is actually hung.
 fn clad(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
     prim(
         solid(cuboid_tapered(size, 0.0, {
@@ -154,7 +154,7 @@ fn clad(size: [f32; 3], center: [f32; 3], face: FaceKey) -> Generator {
 /// How far a glazing card oversails its opening on every edge (#972 lesson 7).
 const GLAZE_LAP: f32 = 0.06;
 
-/// Industrial glazing on a flat quad — the kit's own grimy [`glass`], with
+/// Industrial glazing on a flat quad - the kit's own grimy [`glass`], with
 /// its pane grid re-cut to the opening.
 ///
 /// The kit material is already card-shaped (`uv_scale` 1.0, alpha-masked
@@ -176,7 +176,7 @@ fn glazing(panes: (u32, u32), size: [f32; 2], center: [f32; 3], rot: crate::pds:
     )
 }
 
-/// A lit shop-floor surface — what a card's masked-away panes actually show.
+/// A lit shop-floor surface - what a card's masked-away panes actually show.
 /// Nothing lights the inside of an enclosed prop, so these carry a low
 /// self-lit term of their own; without it every opening is a black rectangle.
 fn shop(size: [f32; 3], center: [f32; 3], lit: f32) -> Generator {
@@ -260,8 +260,8 @@ fn build_tree() -> Generator {
 // --- The shell. ------------------------------------------------------------
 
 /// Shop floor, and on it everything the works is: the dado, the cladding that
-/// frames the openings, the glazing, the fit-out behind it, the docks, and —
-/// on the eaves — the roof.
+/// frames the openings, the glazing, the fit-out behind it, the docks, and -
+/// on the eaves - the roof.
 fn shell() -> Generator {
     let mut parts = Vec::new();
     let base = YARD_H;
@@ -294,7 +294,7 @@ fn shell() -> Generator {
         ));
     }
 
-    // Back and flank cladding — solid; only the yard elevation is cut.
+    // Back and flank cladding - solid; only the yard elevation is cut.
     parts.push(clad(
         [W, CLAD_H, WALL_T],
         [0.0, clad_mid, D * 0.5 - WALL_T * 0.5],
@@ -329,7 +329,7 @@ fn shell() -> Generator {
     nest(floor, parts)
 }
 
-/// The bay edges of the yard elevation, left to right — the frame every
+/// The bay edges of the yard elevation, left to right - the frame every
 /// opening is cut out of. One list, because the piers, the bands, the
 /// glazing, the shutters and the guards all have to agree about where the
 /// holes are.
@@ -406,7 +406,7 @@ fn yard_elevation(parts: &mut Vec<Generator>) {
             quat_x(-FRAC_PI_2),
         ));
     }
-    // The lining the clerestory looks onto — held near the glass, because the
+    // The lining the clerestory looks onto - held near the glass, because the
     // works is 13 m deep and a wall at the back of it is an unreadable speck
     // (#972 lesson 6).
     parts.push(shop(
@@ -420,7 +420,7 @@ fn yard_elevation(parts: &mut Vec<Generator>) {
     ));
 
     // The personnel door: a steel leaf in its reveal, and the flight up to it
-    // — the shop floor is a dock height off the yard, so a door with no steps
+    // - the shop floor is a dock height off the yard, so a door with no steps
     // opens onto a drop.
     parts.push(prim(
         solid(cuboid_tapered(
@@ -451,7 +451,7 @@ fn yard_elevation(parts: &mut Vec<Generator>) {
 }
 
 /// The three loading docks: a hazard-striped dock edge, rubber bumpers, a
-/// leveller lip, and the roller shutters — two down, one rolled up on the
+/// leveller lip, and the roller shutters - two down, one rolled up on the
 /// shop floor.
 ///
 /// Rolling one shutter open is the same call the detached garage made: closed,
@@ -593,7 +593,7 @@ fn fit_out(parts: &mut Vec<Generator>) {
     let sill = base + FLOOR;
     let x = DOCK_X[OPEN_DOCK];
     // Back lining of the visible bay, in a warmer tone than the floor and the
-    // ceiling — three interior surfaces at one tone are a flat grey box
+    // ceiling - three interior surfaces at one tone are a flat grey box
     // however well lit they are.
     parts.push(prim(
         cuboid_tapered(
@@ -615,7 +615,7 @@ fn fit_out(parts: &mut Vec<Generator>) {
         [x + 2.6, sill + 0.45, ROOM_Z - 0.3],
         0.22,
     ));
-    // Ceiling strip, and — because the drum crosses the head — a second
+    // Ceiling strip, and - because the drum crosses the head - a second
     // source down at bench height that the yard can actually see.
     parts.push(prim(
         cuboid_tapered([8.0, 0.16, 0.3], 0.0, glow(WINDOW_LIT, 2.0)),
@@ -647,7 +647,7 @@ fn fit_out(parts: &mut Vec<Generator>) {
 /// down the pitch without any help: a Box `Top` face reads U along the slab's
 /// own X, the corrugated generator varies its ribs along U, and rainwater and
 /// rolled sheet both run down a roof. Orient the slab the other way and the
-/// ribs come out horizontal — the mistake the barn had to correct with a
+/// ribs come out horizontal - the mistake the barn had to correct with a
 /// quarter turn.
 fn roof() -> Generator {
     let base = YARD_H + EAVES;
@@ -707,7 +707,7 @@ fn roof() -> Generator {
     nest(ridge, parts)
 }
 
-/// The roof monitor — a raised lantern along the ridge, glazed on both long
+/// The roof monitor - a raised lantern along the ridge, glazed on both long
 /// sides over the shop floor, with its own little pitched cap.
 ///
 /// This is the second reason the shed has an interior: from any angle above
@@ -775,7 +775,7 @@ fn stack_z() -> f32 {
 /// The brick smokestack: a tapered shaft on a square plinth, banded with
 /// steel hoops and finished with a corbelled cap.
 ///
-/// The hoops are `torus` rings rather than cuboids — a box of half-extent `r`
+/// The hoops are `torus` rings rather than cuboids - a box of half-extent `r`
 /// reaches `r·√2` at its corners, so a square band on a round shaft juts 40 %
 /// past the brickwork it is supposed to hug, which is the kit's own
 /// [`tank_hoops`](super::tank_hoops) note arrived at again.
@@ -791,7 +791,7 @@ fn stack() -> Generator {
     );
     // One expression for the shaft's centre, feeding both the placement and
     // the course frame. Writing it twice is how a bonded surface silently
-    // stops sharing the frame it is supposed to be in — which is exactly what
+    // stops sharing the frame it is supposed to be in - which is exactly what
     // the guard below caught here.
     let shaft_c = [x, base + plinth_h + (STACK_H - plinth_h) * 0.5, z];
     let mut parts = vec![prim(
@@ -830,7 +830,7 @@ fn stack() -> Generator {
     nest(plinth, parts)
 }
 
-/// External process pipework climbing the `+X` gable — three risers, two
+/// External process pipework climbing the `+X` gable - three risers, two
 /// horizontal runs on brackets, and the elbow that turns onto the roof.
 fn gantry() -> Generator {
     let gx = W * 0.5 + 0.55;
@@ -893,7 +893,7 @@ fn gantry() -> Generator {
 /// bollards, both derived from the dock openings so they cannot drift off
 /// them.
 fn yard_marks() -> Generator {
-    // A bay line runs from the dock face out to the kerb — both ends derived,
+    // A bay line runs from the dock face out to the kerb - both ends derived,
     // so it can neither stop short of the dock nor run off the concrete.
     let line_far = YARD_FRONT + 0.6;
     let line_len = FRONT - line_far;
@@ -919,8 +919,8 @@ fn yard_marks() -> Generator {
         ));
     }
     // The kerb the markings are painted on is the sub-root, and it sits on
-    // the yard slab's *own* front edge. Measured off the building instead —
-    // a tidy `FRONT - 6.6` — it landed 1.2 m past the end of the concrete it
+    // the yard slab's *own* front edge. Measured off the building instead -
+    // a tidy `FRONT - 6.6` - it landed 1.2 m past the end of the concrete it
     // was supposed to be cast into, which is the #972 lesson-8 failure and is
     // invisible unless a tile happens to look along that edge.
     let kerb = prim(
@@ -989,7 +989,7 @@ mod tests {
     }
 
     /// #972 lesson 1: every `Window` card sits on a `Plane` at `uv_scale` 1.0
-    /// — one per clerestory bay plus the monitor's two sides. The works used
+    /// - one per clerestory bay plus the monitor's two sides. The works used
     /// to carry four of them as slabs stuck to a solid mass, where the
     /// generator's masked-away panes cut holes onto the cladding behind.
     #[test]
@@ -1034,7 +1034,7 @@ mod tests {
     }
 
     /// #972 lesson 2: the brickwork is laid flat, at a real brick, in one
-    /// shared world course frame — so every brick surface's `uv_offset` must
+    /// shared world course frame - so every brick surface's `uv_offset` must
     /// equal its own face's projection of its own position.
     #[test]
     fn brickwork_sits_in_the_shared_course_frame() {
@@ -1139,7 +1139,7 @@ mod tests {
     }
 
     /// #972 lesson 8, both halves: the dock markings are derived from the
-    /// dock openings, so a bay line can never end up painted across a pier —
+    /// dock openings, so a bay line can never end up painted across a pier -
     /// and everything standing on the yard stays inside the yard's own
     /// footprint. The kerb failed the second half when it was measured off the
     /// building instead of off the concrete it is cast into.

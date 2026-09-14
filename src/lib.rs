@@ -1,4 +1,4 @@
-//! Symbios Overlands — library crate for a peer-to-peer virtual world whose
+//! Symbios Overlands - library crate for a peer-to-peer virtual world whose
 //! contents live on each player's own ATProto PDS.
 //!
 //! This is the home for every gameplay module. The companion binary in
@@ -8,37 +8,37 @@
 //! [`run`] wires every gameplay plugin, initialises the shared ECS resources,
 //! and coordinates the three-stage state machine (`Login` → `Loading` →
 //! `InGame`). The loading gate explicitly waits on **all six** loading
-//! tasks — heightmap generation, the ATProto PDS room-record fetch, the
+//! tasks - heightmap generation, the ATProto PDS room-record fetch, the
 //! avatar-record fetch, the inventory-record fetch, the seeded
-//! ambient-audio bake, *and* the room compile itself — before entering
+//! ambient-audio bake, *and* the room compile itself - before entering
 //! `InGame`, so slower PDS round-trips cannot be silently dropped, gameplay
 //! never runs with half-loaded recipes or a silent world, and the wasm
 //! build's long synchronous compile stall stays behind the loading screen.
 //!
 //! # Where to start reading
 //!
-//! * [`pds`] — the sovereign record lexicons (room / avatar / inventory), the
+//! * [`pds`] - the sovereign record lexicons (room / avatar / inventory), the
 //!   fixed-point wire types the DAG-CBOR float ban forces, and the sanitiser
 //!   every inbound record passes through. A world *is* these records;
 //!   everything below derives from them.
-//! * [`seeded_defaults`] — the DID-seeded deriver pipeline, so a player who has
+//! * [`seeded_defaults`] - the DID-seeded deriver pipeline, so a player who has
 //!   published nothing still lands in a complete, deterministic overland.
-//! * [`terrain`] and [`world_builder`] — heightmap + splat generation, and the
+//! * [`terrain`] and [`world_builder`] - heightmap + splat generation, and the
 //!   incremental, time-sliced compiler that turns a `RoomRecord` recipe into
 //!   ECS entities.
-//! * [`player`] and [`network`] — the local avatar's locomotion presets, and
+//! * [`player`] and [`network`] - the local avatar's locomotion presets, and
 //!   the peer-to-peer transform / chat / gift plumbing over WebRTC.
-//! * [`catalogue`] — the client-shipped blueprint library that the settlement
+//! * [`catalogue`] - the client-shipped blueprint library that the settlement
 //!   deriver and the drag-to-place UI both draw from.
-//! * [`ui`] — every egui surface, including the owner-only room and avatar
+//! * [`ui`] - every egui surface, including the owner-only room and avatar
 //!   editors that mutate the live records in place.
-//! * [`offload`] — the platform-routed CPU-generation backend (native task
+//! * [`offload`] - the platform-routed CPU-generation backend (native task
 //!   pool / wasm Web Worker pool) shared by terrain, textures and audio.
-//! * [`diagnostics`] — the session event stream, metrics registry and
+//! * [`diagnostics`] - the session event stream, metrics registry and
 //!   invariant engine. The native `render` bin ([`render_tool`]) reads back
 //!   what it writes, and renders headless contact sheets besides.
 
-// This crate is an application, not a published library — the lib target
+// This crate is an application, not a published library - the lib target
 // exists so integration tests can import the module tree. Module docstrings
 // freely reference sibling sub-modules (e.g. a "Sub-module map" listing
 // internal helpers) for contributor navigation under
@@ -50,7 +50,7 @@
 // speaks WebRTC to untrusted peers; none of that needs raw pointers, and
 // symbios-avatar is `forbid(unsafe_code)` for the same reason (#1152). The
 // single exception is the diagnostic allocator below, which cannot be
-// written safely — `GlobalAlloc` is an unsafe trait. `deny` rather than
+// written safely - `GlobalAlloc` is an unsafe trait. `deny` rather than
 // `forbid` precisely so that one module can opt back in and be seen doing
 // it; a new `unsafe` anywhere else is a compile error.
 #![deny(unsafe_code)]
@@ -103,7 +103,7 @@ pub mod wind;
 pub mod world_builder;
 pub mod world_digest;
 
-/// Headless render tool — drives the real spawn path to produce contact-sheet
+/// Headless render tool - drives the real spawn path to produce contact-sheet
 /// PNGs for self-validating geometry/materials. Native-only (the harness pulls
 /// the headless render stack); the web deploy never builds it.
 #[cfg(not(target_arch = "wasm32"))]
@@ -148,8 +148,8 @@ pub use clouds::CloudLayer;
 /// [`state::clock_hhmm`] is a local wall-clock time, and the two used to
 /// be formatted identically: "14:32" meant fourteen minutes thirty-two
 /// in the Diagnostics event log and twenty past two in the chat window,
-/// with nothing on either to say which. The surfaces this appears on —
-/// the event log and the anomaly hovers — are the ones a user is pointed
+/// with nothing on either to say which. The surfaces this appears on -
+/// the event log and the anomaly hovers - are the ones a user is pointed
 /// at when something has gone wrong, and a timestamp read as the wrong
 /// kind of quantity sends them looking at the wrong part of the session.
 /// One column buys the distinction.
@@ -177,7 +177,7 @@ pub fn run() {
 
     // Pulled before `App::new()` so the native `clap::Parser::parse()` can
     // emit `--help` / `--version` and exit cleanly without bringing up a
-    // Bevy window first. WASM reads from the URL bar — no I/O risk.
+    // Bevy window first. WASM reads from the URL bar - no I/O risk.
     let boot = boot_params::detect();
 
     let fc = config::camera::fog::COLOR;
@@ -200,7 +200,7 @@ pub fn run() {
                 // `webrtc_ice::agent::agent_internal` emits a `WARN` every
                 // ~200ms during ICE bring-up whenever the agent has zero
                 // candidate pairs ("pingAllCandidates called with no
-                // candidate pairs"). This is expected behaviour — candidate
+                // candidate pairs"). This is expected behaviour - candidate
                 // gathering + signalling of the remote side takes several
                 // seconds, and the agent keeps retrying the pairing loop in
                 // the meantime. Demote the whole agent_internal module to
@@ -233,7 +233,7 @@ pub fn run() {
     #[cfg(target_arch = "wasm32")]
     app.add_systems(Startup, ui::shortcuts::install_ctrl_s_blocker);
     // wasm-only: IME input cannot work in the browser at all (#1263 f357)
-    // — winit's web backend emits no Ime events and documents
+    // - winit's web backend emits no Ime events and documents
     // `set_ime_allowed` as unimplemented. The probe watches for a
     // keystroke going to an IME instead of to the page, and the reporter
     // says so once, with paste as the workaround. An honest dead end; a
@@ -241,7 +241,7 @@ pub fn run() {
     #[cfg(target_arch = "wasm32")]
     app.add_systems(Startup, ui::shortcuts::install_ime_probe)
         .add_systems(Update, ui::shortcuts::report_ime_dead_end);
-    // The persisted-session resume's one-shot (#1228 f6) — a Resource
+    // The persisted-session resume's one-shot (#1228 f6) - a Resource
     // rather than the `Local<bool>` it was, so the Retry button on a
     // recoverable resume failure can re-arm it without throwing the saved
     // session away. Page-load scoped on purpose: nothing resets it on
@@ -250,7 +250,7 @@ pub fn run() {
     #[cfg(target_arch = "wasm32")]
     app.init_resource::<ui::login::ResumeLatch>();
     // Exit guards (#839): closing the tab / native window used to bypass
-    // the unsaved-edits guard entirely. Both run in every AppState —
+    // the unsaved-edits guard entirely. Both run in every AppState -
     // without record resources the dirty set is empty and closing is
     // unprompted.
     #[cfg(target_arch = "wasm32")]
@@ -259,7 +259,7 @@ pub fn run() {
     #[cfg(not(target_arch = "wasm32"))]
     app.add_systems(Update, ui::unsaved_guard::intercept_window_close);
     // WASM (#978): settle *before the first frame* whether this page load
-    // is an auth handoff — an OAuth callback bouncing back from the
+    // is an auth handoff - an OAuth callback bouncing back from the
     // authorization server, or a persisted session about to resume. Both
     // are resolved by frame-1 one-shots whose `Commands` are invisible to
     // the rest of that frame, so the login screen's attract backdrop
@@ -308,14 +308,14 @@ pub fn run() {
         .add_plugins(interaction::InteractionPlugin)
         .add_plugins(audio_mute::AudioMutePlugin)
         .init_state::<AppState>()
-        // Live anomaly engine — added after init_state so its OnEnter/OnExit
+        // Live anomaly engine - added after init_state so its OnEnter/OnExit
         // (Loading) systems bind to the now-registered state schedules. Reads
         // the metrics registry + ECS state each second and routes rule fires
         // into the session log + GUI badges.
         .add_plugins(diagnostics::anomaly::AnomalyPlugin)
         .init_resource::<ChatHistory>()
         .init_resource::<LocalSettings>()
-        // One publish-status resource per editable record — never
+        // One publish-status resource per editable record - never
         // shared, so publishing one no longer stamps another editor's
         // status line.
         .init_resource::<PublishFeedback<RoomRecord>>()
@@ -346,15 +346,15 @@ pub fn run() {
         // `insert_resource` in `load_prefs_at_startup` (#1317).
         //
         // That system opens with `let Some(prefs) = load() else { return }`,
-        // so on an EMPTY store — a first visit, or a stored blob that no
-        // longer parses — it returns before inserting anything. Every other
+        // so on an EMPTY store - a first visit, or a stored blob that no
+        // longer parses - it returns before inserting anything. Every other
         // resource it can insert is defaulted here or by its own plugin and
         // is therefore unaffected; these two were added later (#1223) on the
         // unconditional-insert path and never got a default, so on that path
         // they simply did not exist. `adopt_owner_mute_list` and
         // `save_prefs_when_changed` both take `ResMut<MutedByOwner>`, and
         // under Bevy 0.19 a missing required parameter is a PANIC rather
-        // than a skipped system — which on wasm aborts the app and freezes
+        // than a skipped system - which on wasm aborts the app and freezes
         // the canvas on the last frame it drew, so the login screen showed
         // the attract backdrop and no UI at all.
         .init_resource::<state::MutedByOwner>()
@@ -365,7 +365,7 @@ pub fn run() {
         // Semantic theme (#855): applied on startup (self-retrying until
         // the egui context exists, so the Login screen is themed from
         // its first frame) and re-applied whenever the #857 picker swaps
-        // the resource. Runs in Update — the egui pass renders after it,
+        // the resource. Runs in Update - the egui pass renders after it,
         // so a change lands the same frame it's made.
         .init_resource::<ui::theme::CurrentTheme>()
         .init_resource::<ui::fonts::CjkFonts>()
@@ -413,7 +413,7 @@ pub fn run() {
         // observes every writer's change tick from this frame together
         // with the write signal that classifies it (edit / foreign /
         // derived). Ordered after the egui pass (which bevy_egui runs
-        // inside PostUpdate) — the editors' debounce flush ticks in that
+        // inside PostUpdate) - the editors' debounce flush ticks in that
         // pass, and observing it a frame late could merge an edit with
         // its lot-population fallout and misclassify both as derived.
         // History does not survive logout.
@@ -436,7 +436,7 @@ pub fn run() {
         // `EguiPostUpdateSet::EndPass` with NO declared order against
         // `TransformSystems::Propagate`, so projecting a peer's head to
         // screen space from inside the egui pass reads a `GlobalTransform`
-        // that may be a frame stale — and a name that trails the body it
+        // that may be a frame stale - and a name that trails the body it
         // names is visibly wrong on anybody who is walking. Measuring here,
         // after propagation and before the pass, pins both to this frame.
         // The wire box around a hovered peer runs beside it, on the same
@@ -467,7 +467,7 @@ pub fn run() {
                 // "Copy login URL" is the documented fallback when the
                 // browser will not open, and it reported neither success nor
                 // failure because these two systems ran only in the InGame
-                // chain — so routing the copy through `ClipboardQueue` alone
+                // chain - so routing the copy through `ClipboardQueue` alone
                 // would still have shown nothing here.
                 boot_params::drain_clipboard_outcomes,
                 ui::toast::toast_ui,
@@ -524,8 +524,8 @@ pub fn run() {
             ui::reauth::detect_expired_session.run_if(in_state(AppState::InGame)),
         )
         // Keep the relay service-auth token fresh for the whole logged-in
-        // session so every WebRTC (re)connect — portal hop, dead-socket
-        // respawn, network flap — presents a valid, unexpired token to the
+        // session so every WebRTC (re)connect - portal hop, dead-socket
+        // respawn, network flap - presents a valid, unexpired token to the
         // relay instead of a stale one it rejects HTTP 401 (#714). Runs across
         // all post-login states (a portal hop passes through `Loading`), gated
         // on the session resource so it is inert before login / after logout.
@@ -567,14 +567,14 @@ pub fn run() {
                 loading::fire_pending_record_retries::<RoomRecord>,
                 loading::fire_pending_record_retries::<AvatarRecord>,
                 // Inventory grew a real (2-attempt) retry budget in #840,
-                // so its markers need a firing instance too — without
+                // so its markers need a firing instance too - without
                 // this one, a single transient inventory blip parked a
                 // `PendingRecordRetry<InventoryRecord>` forever and the
                 // gate hung on `LiveInventoryRecord` (#849).
                 loading::fire_pending_record_retries::<InventoryRecord>,
                 // Ambient bake is chained AFTER the room-record poll so
                 // the dispatch sees `LiveRoomRecord` in the same frame
-                // it arrives — without `.chain()` the starter would
+                // it arrives - without `.chain()` the starter would
                 // miss the rising edge and stall the gate.
                 loading::start_ambient_bake,
                 loading::poll_ambient_task::<loading::AmbientBakeTask>,
@@ -584,8 +584,8 @@ pub fn run() {
                 .run_if(in_state(AppState::Loading)),
         )
         // The in-place record re-read (#1230 f33). An exhausted fetch used to
-        // leave the owner with only the destructive direction — publish the
-        // default over the stored copy, or log out and back in — because
+        // leave the owner with only the destructive direction - publish the
+        // default over the stored copy, or log out and back in - because
         // these polls ran in `Loading` alone, so a task spawned from a
         // recovery banner would never have been drained. Room is deliberately
         // absent: installing a room record in place regenerates terrain and
@@ -627,7 +627,7 @@ pub fn run() {
             EguiPrimaryContextPass,
             (
                 // The toolbar is chained first so its TopBottomPanel
-                // claims screen space before any window lays out — egui
+                // claims screen space before any window lays out - egui
                 // wants panels added before floating windows within a
                 // frame. (The egui systems already serialise on the
                 // shared context, so the chain costs no parallelism.)
@@ -654,7 +654,7 @@ pub fn run() {
                 ui::travel::travel_overlay_ui,
                 ui::travel::portal_prompt_ui,
                 // Clipboard writes report their outcome asynchronously on
-                // wasm (#1141), so the toast for a copy is raised here —
+                // wasm (#1141), so the toast for a copy is raised here -
                 // after every window that could have started one, and
                 // before the toast surface draws.
                 boot_params::drain_clipboard_outcomes,
@@ -727,7 +727,7 @@ pub fn run() {
                 .run_if(in_state(AppState::InGame)),
         )
         // Any dismissal of the Controls sheet ends its first-run pinning
-        // (#1235 f36) — including the two that never reach its renderer.
+        // (#1235 f36) - including the two that never reach its renderer.
         .add_systems(
             Update,
             ui::toolbar::latch_controls_seen.run_if(in_state(AppState::InGame)),
@@ -798,7 +798,7 @@ pub fn run() {
         )
         // Machine-local UI prefs (#820): restore panels/settings from the
         // store once at startup, then persist them (debounced) whenever
-        // they change. Runs in every AppState — panel toggles only happen
+        // they change. Runs in every AppState - panel toggles only happen
         // InGame, but the startup load must land before the first frame.
         .add_systems(Startup, prefs::load_prefs_at_startup)
         .add_systems(
@@ -811,6 +811,28 @@ pub fn run() {
             (clouds::track_cloud_layer_to_camera, track_skybox_to_camera),
         )
         .run();
+}
+
+/// Register the game's atmosphere - sun + cascaded shadows, global ambient,
+/// the [`SkyBox`] cuboid and the [`CloudLayer`] deck, and the two systems
+/// that keep sky and deck pinned to the world camera - outside the full app.
+///
+/// The headless render tool's `--world` mode calls this so a world sheet
+/// shows the room's sky the way the game does; `apply_environment_state`
+/// then re-tints all of it from the record exactly as it does in-game.
+/// **Keep this in step with the plugin list in [`run`]** - the same
+/// keep-in-sync contract `world_builder::register_headless_spawn` and
+/// `terrain::register_headless_terrain` carry. Native-only under the render
+/// tool's own cfg (#1321): the wasm build never has a caller for it, and CI's
+/// wasm check denies warnings.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn register_headless_atmosphere(app: &mut App) {
+    app.add_plugins(MaterialPlugin::<clouds::CloudMaterial>::default())
+        .add_systems(Startup, setup_lighting)
+        .add_systems(
+            Update,
+            (clouds::track_cloud_layer_to_camera, track_skybox_to_camera),
+        );
 }
 
 fn setup_lighting(
@@ -849,7 +871,7 @@ fn setup_lighting(
         ..default()
     });
 
-    // Sky — large unlit cuboid tinted by the distance fog.
+    // Sky - large unlit cuboid tinted by the distance fog.
     let sky_c = config::lighting::SKY_COLOR;
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(2.0, 1.0, 2.0))),
@@ -864,14 +886,14 @@ fn setup_lighting(
         SkyBox,
     ));
 
-    // Cloud-deck — single horizontal `Plane3d` rendered through a custom
+    // Cloud-deck - single horizontal `Plane3d` rendered through a custom
     // `MaterialExtension` over `StandardMaterial`. The mesh is large enough
     // (PLANE_HALF_EXTENT, default 4 km) that the plane edge sits well past
     // any reasonable `fog_visibility`, so the shader's horizon fade is the
     // only thing the camera ever sees at the plane boundary. Uniforms are
     // initialised from `Environment::default()` and re-patched by
     // `world_builder::compile::apply_environment_state` whenever the active
-    // `RoomRecord` changes — same retint pattern as the `SkyBox` cuboid.
+    // `RoomRecord` changes - same retint pattern as the `SkyBox` cuboid.
     let cc = config::lighting::clouds::COLOR;
     let csh = config::lighting::clouds::SHADOW_COLOR;
     let fc = config::camera::fog::COLOR;
@@ -887,7 +909,7 @@ fn setup_lighting(
             // never wired here because shadows + prepass are disabled).
             base_color: Color::srgba(cc[0], cc[1], cc[2], 1.0),
             unlit: true,
-            // Cull neither side — the underside is what the player sees
+            // Cull neither side - the underside is what the player sees
             // from below the deck, the topside is what they'd see if they
             // climbed above it on a tall airship.
             cull_mode: None,
@@ -927,13 +949,13 @@ mod gate_contract {
     //! is unusual enough to be worth saying why. `[profile.test-release]`
     //! inherits `release`, and inheriting it silently turned off the two
     //! things a test build most needs: the crate's `debug_assert!`s and
-    //! integer overflow checks. Nothing failed as a result — the gate simply
+    //! integer overflow checks. Nothing failed as a result - the gate simply
     //! stopped looking, and went on reporting green for two years of
     //! commits. A configuration that can be weakened without anything going
     //! red is exactly the kind that needs a test pointing at it.
 
-    /// The 16 `debug_assert!` sites in this crate are load-bearing —
-    /// geometry invariants that hold or the mesh is wrong — and they cost
+    /// The 16 `debug_assert!` sites in this crate are load-bearing -
+    /// geometry invariants that hold or the mesh is wrong - and they cost
     /// nothing to leave on at this opt-level. This fails if
     /// `debug-assertions` is dropped from `[profile.test-release]`, and it
     /// fails if the suite is run under plain `--release`, which the build
@@ -948,7 +970,7 @@ mod gate_contract {
             assert!(
                 cfg!(debug_assertions),
                 "tests are building with debug assertions OFF, so every \
-                 debug_assert! in the crate is inert — check \
+                 debug_assert! in the crate is inert - check \
                  [profile.test-release] in Cargo.toml, and do not run the \
                  suite under plain --release"
             );

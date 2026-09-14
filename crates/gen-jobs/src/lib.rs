@@ -2,7 +2,7 @@
 //!
 //! A [`GenJob`] is a self-contained, serialisable description of a CPU-heavy
 //! generation task; [`GenJob::run`] executes it **purely** (no Bevy, no I/O,
-//! no globals — deterministic from the job's seed alone) and returns
+//! no globals - deterministic from the job's seed alone) and returns
 //! serialisable [`GenResult`] data. The same `run()` is invoked by the app's
 //! native `AsyncComputeTaskPool` backend and inside the wasm Web Worker, so
 //! native and worker execution are byte-identical (the determinism invariant
@@ -30,14 +30,14 @@ use symbios_texture::generator::{TextureGenerator, TextureMap};
 /// direct `symbios-texture` dependency.
 pub use symbios_texture::for_each_generator;
 
-/// The heightmap generator roster — the single declaration of which base
+/// The heightmap generator roster - the single declaration of which base
 /// terrain algorithms exist, alongside the display label each wears.
 ///
 /// Invoke it with a callback macro that receives every row as
 /// `(Variant, "Label")`. This crate builds [`GeneratorKind`] from it; the
 /// app builds its own wire enum `SovereignGeneratorKind`, that enum's
 /// translation into this one, and the terrain panel's combo box from the
-/// same rows — so a fourth algorithm is one row here and nothing else.
+/// same rows - so a fourth algorithm is one row here and nothing else.
 ///
 /// The app cannot simply *use* [`GeneratorKind`]: its wire enum is an open
 /// union carrying an `Unknown` arm for an algorithm a newer engine names
@@ -63,7 +63,7 @@ macro_rules! define_generator_kind {
     ($( ($variant:ident, $label:literal) ),* $(,)?) => {
         /// Base terrain algorithm. Built from the
         /// [`for_each_heightmap_generator!`] roster, which the app's
-        /// `SovereignGeneratorKind` is built from too — the two are
+        /// `SovereignGeneratorKind` is built from too - the two are
         /// separate types (see the roster's docs) that can no longer drift
         /// apart in *membership*.
         #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,7 +88,7 @@ for_each_heightmap_generator!(define_generator_kind);
 
 /// The per-kind base dispatch inside [`GenJob::run`]'s heightmap path
 /// (#657). One arm per algorithm, and the match is exhaustive over the
-/// [`for_each_heightmap_generator!`] roster — so a row added to the roster
+/// [`for_each_heightmap_generator!`] roster - so a row added to the roster
 /// with no body here, or a body here for a row that is not on the roster,
 /// is a compile error in both directions.
 macro_rules! define_heightmap_generators {
@@ -132,7 +132,7 @@ define_heightmap_generators! {
     },
 }
 
-/// Plain, serialisable inputs for a heightmap generation job — the distilled
+/// Plain, serialisable inputs for a heightmap generation job - the distilled
 /// generation-relevant subset of the app's terrain config (no material/splat
 /// fields, which are a separate generation concern).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -161,10 +161,10 @@ pub struct HeightmapParams {
     pub thermal_talus_angle: f32,
 }
 
-/// Generated heightmap data — plain row-major `f32` heights plus the dimensions
+/// Generated heightmap data - plain row-major `f32` heights plus the dimensions
 /// needed to rebuild a `symbios_ground::HeightMap` on the consuming side. On
 /// wasm the `data` floats are serialized element-wise across the worker
-/// boundary (a per-element copy — unlike the RGBA / WAV buffers, they are
+/// boundary (a per-element copy - unlike the RGBA / WAV buffers, they are
 /// not sent as a compact `serde_bytes` bin blob).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct HeightmapData {
@@ -172,7 +172,7 @@ pub struct HeightmapData {
     pub height: u32,
     pub scale: f32,
     /// Sent as a compact little-endian byte blob (msgpack `bin`) rather than an
-    /// element-wise float array (#641) — matching how `TextureData`'s RGBA and
+    /// element-wise float array (#641) - matching how `TextureData`'s RGBA and
     /// `GenResult::Audio`'s WAV already cross the worker boundary. One bulk copy
     /// per side instead of ~262k tagged `serialize_f32`/`deserialize_f32` visitor
     /// calls at the default 512² grid, ~20% smaller wire. Both wasm and native
@@ -185,7 +185,7 @@ pub struct HeightmapData {
 /// serde `with`-module: serialize a `Vec<f32>` as a contiguous little-endian
 /// byte blob (via `serialize_bytes`, which msgpack encodes as a `bin` payload)
 /// and reconstruct it. Reuses the already-present `serde_bytes` for byte
-/// transport — no new dependency.
+/// transport - no new dependency.
 mod f32_blob {
     use serde::{Deserialize, Deserializer, Serializer};
 
@@ -217,8 +217,8 @@ mod f32_blob {
 // Audio bake job (symbios-audio core)
 // ---------------------------------------------------------------------------
 
-/// A procedural audio bake — a patch one-shot or a multi-track sequence —
-/// producing WAV bytes (mono 16-bit PCM — half the size of 32-bit float, which
+/// A procedural audio bake - a patch one-shot or a multi-track sequence -
+/// producing WAV bytes (mono 16-bit PCM - half the size of 32-bit float, which
 /// matters on wasm where the heap never shrinks). The inputs are serialisable
 /// so the job crosses the worker boundary; the heavy synthesis runs in
 /// [`GenJob::run`].
@@ -244,7 +244,7 @@ impl AudioBakeJob {
             } => {
                 // The second line, not a replacement for the first. The
                 // mirror sanitiser clamps on the load path, on the `Fp` grid,
-                // before `to_native` — but it only sees patches that arrived
+                // before `to_native` - but it only sees patches that arrived
                 // as a *record*. This one sees whatever reached the worker,
                 // and the worker is where an unbounded graph actually costs
                 // something: `bake` is `try_bake(..).expect(..)`, so a
@@ -278,7 +278,7 @@ impl AudioBakeJob {
 ///
 /// Buffers carry the **full mip chain** ([`TextureMap::with_mips`] runs inside
 /// the job, mirroring the upstream async path) so the app's upload is a pure
-/// buffer move rather than a main-thread box-filter pass —
+/// buffer move rather than a main-thread box-filter pass -
 /// [`mip_level_count`](Self::mip_level_count) says how many levels each buffer
 /// holds (base level first).
 #[derive(Serialize, Deserialize, Clone)]
@@ -295,7 +295,7 @@ pub struct TextureData {
     pub height: u32,
     /// Mip levels contained in each pixel buffer, including the base level.
     /// Defaults to `1` (base only) so payloads from an older peer/worker that
-    /// predates in-job mip-chaining still decode — the upload path mip-chains
+    /// predates in-job mip-chaining still decode - the upload path mip-chains
     /// base-only data itself.
     #[serde(default = "default_mip_level_count")]
     pub mip_level_count: u32,
@@ -320,7 +320,7 @@ impl From<TextureMap> for TextureData {
 }
 
 impl TextureData {
-    /// Flat fallback of the requested size — used only if a generator rejects
+    /// Flat fallback of the requested size - used only if a generator rejects
     /// the dimensions (zero / over-`MAX_DIMENSION`), which the app's size clamps
     /// prevent, so the worker never panics on a stray config.
     fn flat(width: u32, height: u32) -> Self {
@@ -341,11 +341,11 @@ impl TextureData {
 /// serialisable [`TextureBakeJob`] enum (one variant per texture kind, carrying
 /// that kind's config) plus a `generate()` that constructs the matching
 /// generator and renders a `TextureMap`. This keeps the full texture catalogue
-/// in lock-step with the core automatically — the same table the wrapper uses
-/// for its (Bevy-coupled) `TextureConfig` — without depending on the wrapper.
+/// in lock-step with the core automatically - the same table the wrapper uses
+/// for its (Bevy-coupled) `TextureConfig` - without depending on the wrapper.
 macro_rules! define_texture_bake {
     ($(($variant:ident, $module:ident, $config_ty:ty, $generator_ty:ty, $kind:ident)),* $(,)?) => {
-        /// A texture bake — every generator the `symbios-texture` core exposes.
+        /// A texture bake - every generator the `symbios-texture` core exposes.
         #[derive(Serialize, Deserialize, Clone)]
         pub enum TextureBakeJob {
             $( $variant($config_ty), )*
@@ -361,7 +361,7 @@ macro_rules! define_texture_bake {
                     )*
                 };
                 // Mip-chain inside the job (worker thread), mirroring the
-                // upstream async path's `f().map(TextureMap::with_mips)` —
+                // upstream async path's `f().map(TextureMap::with_mips)` -
                 // the app-side upload then moves buffers instead of running
                 // a box-filter pass on the main thread.
                 map.map(TextureMap::with_mips)
@@ -389,8 +389,8 @@ pub enum GenJob {
     ///
     /// The job is boxed because `TextureBakeJob` carries the largest generator
     /// config in the roster, and several of those now nest a whole weathering
-    /// block. Inlining it would push every `GenJob` — including the small
-    /// heightmap and audio variants — up to its size, and these are moved
+    /// block. Inlining it would push every `GenJob` - including the small
+    /// heightmap and audio variants - up to its size, and these are moved
     /// through queues and channels far more often than they are baked.
     TextureBake {
         job: Box<TextureBakeJob>,
@@ -409,7 +409,7 @@ pub enum GenJob {
     /// input in the roster.
     AvatarBuild {
         record: Box<symbios_avatar::AvatarRecord>,
-        /// Side of the square skin atlas, in texels — the draft/settle rung
+        /// Side of the square skin atlas, in texels - the draft/settle rung
         /// the caller is asking for.
         atlas: u32,
     },
@@ -428,7 +428,7 @@ pub enum GenResult {
     Audio(#[serde(with = "serde_bytes")] Vec<u8>),
     Texture(TextureData),
     /// A built body, or `None` for a record describing one that cannot be
-    /// meshed — the engine's single failure mode (limbs overlapping at a
+    /// meshed - the engine's single failure mode (limbs overlapping at a
     /// joint). Boxed because a built avatar owns its atlas.
     ///
     /// What crosses is **drawable, not rebuildable**: see the
@@ -438,7 +438,7 @@ pub enum GenResult {
 
 // Hydraulic-erosion tuning fixed by the app (mirror of
 // `config::terrain::hydraulic`). Kept here as constants so the job stays fully
-// self-contained — these are engine-fixed, not per-request inputs.
+// self-contained - these are engine-fixed, not per-request inputs.
 const HYDRAULIC_MAX_STEPS: u32 = 64;
 const HYDRAULIC_MIN_SLOPE: f32 = 0.01;
 const HYDRAULIC_WATER_LEVEL: f32 = 0.0;
@@ -520,7 +520,7 @@ const PROXY_MIN_THERMAL: u32 = 4;
 
 /// Low-resolution proxy of the full `run_heightmap` pass, for synchronous
 /// derive-time
-/// terrain queries (#905) — cheap enough to run inline while a room
+/// terrain queries (#905) - cheap enough to run inline while a room
 /// record is being derived, close enough in macro shape that flat-region
 /// decisions made against it hold on the full-resolution map.
 ///
@@ -528,7 +528,7 @@ const PROXY_MIN_THERMAL: u32 = 4;
 ///
 /// - `FbmNoise` samples noise in normalised grid space and
 ///   `VoronoiTerracing` lays its seeds in normalised space, so both
-///   produce the *same* macro features at any resolution — the proxy
+///   produce the *same* macro features at any resolution - the proxy
 ///   generates directly at `proxy_grid`.
 /// - `DiamondSquare`'s RNG stream depends on the recursion depth (and
 ///   thus the grid size), so a low-res run is a different terrain. For
@@ -538,8 +538,8 @@ const PROXY_MIN_THERMAL: u32 = 4;
 /// drops scale with the cell-count ratio, thermal sweeps with the linear
 /// ratio, and the talus step with the cell-size ratio (it is a
 /// per-adjacent-cell height threshold, so a constant *slope* limit
-/// scales linearly with cell spacing). The result approximates — not
-/// reproduces — the full map, which is why consumers pair it with a
+/// scales linearly with cell spacing). The result approximates - not
+/// reproduces - the full map, which is why consumers pair it with a
 /// conservative threshold and a compile-time safety net.
 ///
 /// Deterministic from `p` + `proxy_grid` alone, like every job here.
@@ -692,11 +692,11 @@ mod tests {
     /// The app's `SovereignTerrainConfig::sanitize` clamps every coefficient
     /// into a finite envelope so the generated heightmap can never feed a
     /// non-finite value into `build_heightfield_collider`'s `assert!(is_finite)`
-    /// (a remote crash — overlands #629). The value-noise output is always
+    /// (a remote crash - overlands #629). The value-noise output is always
     /// finite (its lattice table is bounded), so the place a non-finite value
     /// could actually originate is the *arithmetic*: the hydraulic/thermal
-    /// erosion terms and the height-scale multiply. Exercise that corner — every
-    /// erosion coefficient and `height_scale` at the top of its clamp range —
+    /// erosion terms and the height-scale multiply. Exercise that corner - every
+    /// erosion coefficient and `height_scale` at the top of its clamp range -
     /// for all three generators and assert the output stays finite.
     ///
     /// Octaves / lacunarity / base-frequency are held at moderate values rather
@@ -766,7 +766,7 @@ mod tests {
     }
 
     /// The proxy's whole purpose: macro shape must track the full map for
-    /// every generator kind — including DiamondSquare, whose RNG stream is
+    /// every generator kind - including DiamondSquare, whose RNG stream is
     /// grid-size-dependent and therefore goes through the full-res +
     /// box-downsample path. Erosion is disabled so the comparison isolates
     /// the base-shape agreement (eroded proxies only approximate).
@@ -841,7 +841,7 @@ mod tests {
     }
 
     /// The heightmap `data` blob (#641) must survive the exact msgpack codec the
-    /// wasm worker uses, byte-for-byte — the cross-peer determinism invariant is
+    /// wasm worker uses, byte-for-byte - the cross-peer determinism invariant is
     /// that the worker's returned heightmap equals native's direct `run()`.
     #[test]
     fn heightmap_data_round_trips_through_msgpack() {
@@ -870,7 +870,7 @@ mod tests {
     /// The engine's own suite proves the serde contract; what this pins is
     /// the *job* layer: that `AvatarBuild` runs, that its result decodes as
     /// an avatar rather than as some other variant, and that the geometry a
-    /// renderer uploads is bit-identical on the far side. A small atlas —
+    /// renderer uploads is bit-identical on the far side. A small atlas -
     /// the payload scales with its square and this is a unit test, not a
     /// benchmark.
     #[test]
