@@ -693,7 +693,7 @@ pub(super) fn drive(
                 // a mesh for a view when the mesh changes, not when the view
                 // first sees it. Frame 0 re-aims anyway; this is the warm-up.
                 if job.single_camera() {
-                    let walker = walkers.iter().next().map(|(t, w)| (t.translation, w.dir()));
+                    let walker = lead_walker(&walkers);
                     aim_rig(
                         &capture,
                         &job,
@@ -716,7 +716,7 @@ pub(super) fn drive(
                     // camera finally turns to it. Following it here is what
                     // puts its meshes in view as they are built.
                     if job.single_camera() {
-                        let walker = walkers.iter().next().map(|(t, w)| (t.translation, w.dir()));
+                        let walker = lead_walker(&walkers);
                         aim_rig(
                             &capture,
                             &job,
@@ -749,7 +749,7 @@ pub(super) fn drive(
                 }
                 Warmup::Ready => clock.run = true,
             }
-            let walker = walkers.iter().next().map(|(t, w)| (t.translation, w.dir()));
+            let walker = lead_walker(&walkers);
             if job.single_camera() {
                 aim_rig(
                     &capture,
@@ -794,7 +794,7 @@ pub(super) fn drive(
                 };
                 return;
             }
-            let walker = walkers.iter().next().map(|(t, w)| (t.translation, w.dir()));
+            let walker = lead_walker(&walkers);
             aim_rig(
                 &capture,
                 &job,
@@ -828,6 +828,15 @@ pub(super) fn drive(
             pending: Some(_), ..
         } => {}
     }
+}
+
+/// The body the rig follows: the first `--walker` seed, whichever order
+/// the query hands the group back in (#1352).
+fn lead_walker(walkers: &Query<(&Transform, &Walker), Without<TileCam>>) -> Option<(Vec3, Vec3)> {
+    walkers
+        .iter()
+        .find(|(_, w)| w.is_lead())
+        .map(|(t, w)| (t.translation, w.dir()))
 }
 
 /// `--world`: wait for the compile to settle, then fix the rig's focus.

@@ -231,11 +231,14 @@ struct Args {
     /// `--generator`.
     #[arg(long)]
     world: Option<String>,
-    /// With `--world`: a rigged seeded body (a u64 seed) walking across the
-    /// world - from the gateway forecourt toward the spawn by default - on
-    /// the engine's own gait. Pair with `--focus walker` to follow it.
-    #[arg(long)]
-    walker: Option<u64>,
+    /// With `--world`: rigged seeded bodies (u64 seeds, comma-separated or
+    /// the flag repeated) walking across the world - from the gateway
+    /// forecourt toward the spawn by default - on the engine's own gait.
+    /// The first is the body `--focus walker` follows; the rest walk beside
+    /// it, `--walker-spread` apart, so a clip can show a world with people
+    /// in it (#1352).
+    #[arg(long, value_delimiter = ',', action = clap::ArgAction::Append)]
+    walker: Vec<u64>,
     /// With `--walker`: walking pace, metres per second (default 1.4).
     #[arg(long, default_value_t = 1.4)]
     walker_pace: f32,
@@ -255,13 +258,19 @@ struct Args {
     /// (default 1.5), so a clip opens mid-stride.
     #[arg(long, default_value_t = 1.5)]
     walker_lead: f32,
-    /// With `--walker`: the body's outfit as the avatar editor's four axes,
+    /// With `--walker`: a body's outfit as the avatar editor's four axes,
     /// `top_hue,top_shade,leg_hue,leg_shade`, each 0..1 (#1351). Every
     /// seeded body ships in the engine's one default outfit - a reroll
     /// never touches it - so this is the only way to see a walker in
-    /// anything else.
-    #[arg(long)]
-    walker_outfit: Option<String>,
+    /// anything else. Repeat the flag once per body, in `--walker` order;
+    /// bodies past the last one keep the shipped default.
+    #[arg(long, action = clap::ArgAction::Append)]
+    walker_outfit: Vec<String>,
+    /// With `--walker`: metres between neighbouring bodies across the line
+    /// of walk (default 1.6). Companions take alternate sides of the lead
+    /// and each hangs half a metre further back.
+    #[arg(long, default_value_t = 1.6)]
+    walker_spread: f32,
     /// Single subjects (a catalogue entry, a primitive, a generator, a
     /// wearable): the studio backdrop as a hex colour, `#rrggbb` or
     /// `rrggbb` (default the blue-grey `#8592b3`). A world and a room paint
@@ -650,8 +659,8 @@ pub fn run() {
         );
     }
     let rig = build_rig(&args, is_world);
-    let walker = args.walker.map(|seed| WalkerSpec {
-        seed,
+    let walker = (!args.walker.is_empty()).then(|| WalkerSpec {
+        seeds: args.walker.clone(),
         pace: args.walker_pace,
         from: args.walk_from.as_deref().map(parse_xz),
         to: args.walk_to.as_deref().map(parse_xz),
@@ -661,10 +670,12 @@ pub fn run() {
             .map(|w| w.split(',').map(|s| s.trim().to_string()).collect())
             .unwrap_or_default(),
         lead: args.walker_lead,
-        outfit: args
+        outfits: args
             .walker_outfit
-            .as_deref()
-            .map(|o| parse_outfit(o).unwrap_or_else(|e| panic!("{e}"))),
+            .iter()
+            .map(|o| parse_outfit(o).unwrap_or_else(|e| panic!("{e}")))
+            .collect(),
+        spread: args.walker_spread,
     });
     assert!(
         walker.is_none() || is_world,

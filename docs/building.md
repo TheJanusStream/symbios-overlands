@@ -428,8 +428,8 @@ rather than a tile set:
 cargo run --profile test-release --bin render -- --world 3 --focus settlement --dist 130
 # A 60-frame orbit clip (12.5 fps, 30° of drift) → /tmp/avatar-render/world-3.gif:
 cargo run --profile test-release --bin render -- --world 3 --frames 60 --sweep 30
-# A seeded body walking the world, camera following from behind-left:
-cargo run --profile test-release --bin render -- --world 3 --walker 7 --focus walker \
+# Three seeded bodies walking the world together, camera following the first:
+cargo run --profile test-release --bin render -- --world 3 --walker 7,12,30 --focus walker \
     --frames 48 --dist 6 --elev 14 --yaw 150
 ```
 
@@ -487,17 +487,21 @@ walker's body spawned 100 m from the origin - is not drawn for the view when
 the camera finally turns to it. A frond-less palm or a body-less walker in a
 clip whose sheet or later frames look right is this, not a missing asset.
 
-`--walker <seed>` (with `--world`) rolls that seed's default body and walks
-it from the record's landing toward the origin (`--walk-from x,z` /
+`--walker <seed,...>` (with `--world`) rolls each seed's default body and
+walks them from the record's landing toward the origin (`--walk-from x,z` /
 `--walk-to x,z` override the line, `--walker-pace` the speed,
-`--walker-wear satchel,circlet` dresses it, and `--walker-outfit
+`--walker-wear satchel,circlet` dresses every body, and `--walker-outfit
 top_hue,top_shade,leg_hue,leg_shade` - the avatar editor's four axes, each
-0..1 - changes its clothes, which no seed does: a reroll never touches the
-outfit, so every seeded body ships in the engine's one default). It is
-driven by the same
-`Drive` / `AvatarDriver` pair the game hangs a local player on, on the real
-heightmap, and it starts walking `--walker-lead` seconds (default 1.5)
-before the first captured frame so a clip opens mid-stride.
+0..1, the flag repeated once per body in seed order - changes their
+clothes, which no seed does: a reroll never touches the outfit, so every
+seeded body ships in the engine's one default). The first seed is the body
+`--focus walker` follows; the others walk beside it, `--walker-spread`
+metres apart (default 1.6) on alternate sides and each half a metre further
+back, so three seeds read as friends walking together (#1352). They are
+driven by the same `Drive` / `AvatarDriver` pair the game hangs a local
+player on, on the real heightmap, and they start walking `--walker-lead`
+seconds (default 1.5) before the first captured frame so a clip opens
+mid-stride.
 
 `--terrain <seed|did>` is the *ground* instrument (#994), and the only render
 mode whose subject is not an object: it builds the room's real heightmap,

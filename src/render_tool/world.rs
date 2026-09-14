@@ -20,10 +20,11 @@
 //! drive loop additionally waits for the answer to hold for a run of
 //! frames, so a debounce that has not fired yet cannot pass as done.
 //!
-//! `--walker <seed>` adds one rigged seeded body walking across that
+//! `--walker <seed,...>` adds rigged seeded bodies walking across that
 //! world - from the gateway forecourt toward the spawn by default - driven
 //! by the same `Drive` / `AvatarDriver` pair the game hangs a local player
 //! on, so what the clip shows is the engine's own gait on the real ground.
+//! The first seed is the lead the rig follows; the rest walk beside it.
 
 use std::f32::consts::PI;
 
@@ -53,12 +54,13 @@ pub(super) struct WorldSpec {
     pub(super) did: String,
 }
 
-/// `--walker`: one rigged body crossing the world.
+/// `--walker`: rigged bodies crossing the world together.
 #[derive(Resource, Clone, Debug)]
 pub(super) struct WalkerSpec {
-    /// The seed the body is rolled from - the same derivation a fresh
-    /// account's default look takes.
-    pub(super) seed: u64,
+    /// The seeds the bodies are rolled from - the same derivation a fresh
+    /// account's default look takes. The first is the lead the rig
+    /// follows; the rest walk beside it (see [`companion_offset`]).
+    pub(super) seeds: Vec<u64>,
     /// Walking pace in metres per second.
     pub(super) pace: f32,
     /// Where the walk starts, `x,z`; the record's default landing when
@@ -72,17 +74,24 @@ pub(super) struct WalkerSpec {
     /// Seconds of walking before the first captured frame, so a clip opens
     /// mid-stride rather than on the first step.
     pub(super) lead: f32,
-    /// `--walker-outfit`: the editor's four outfit axes (top hue, top
-    /// shade, leg hue, leg shade), replacing the engine's one default
-    /// outfit every seeded body otherwise wears.
-    pub(super) outfit: Option<[f32; 4]>,
+    /// `--walker-outfit`, one per body in `seeds` order: the editor's four
+    /// outfit axes (top hue, top shade, leg hue, leg shade), replacing the
+    /// engine's one default outfit every seeded body otherwise wears. A
+    /// body past the end of this list wears that default.
+    pub(super) outfits: Vec<[f32; 4]>,
+    /// `--walker-spread`: metres between neighbouring bodies across the
+    /// line of walk.
+    pub(super) spread: f32,
 }
 
-/// The body a `--walker` spec rolls: the seed's default record - the same
-/// derivation a fresh account takes - in the outfit the spec asks for.
-pub(super) fn walker_record(spec: &WalkerSpec) -> crate::pds::avatar::EngineAvatarRecord {
-    let mut record = engine_default_for_seed(spec.seed);
-    if let Some([top_hue, top_shade, leg_hue, leg_shade]) = spec.outfit {
+/// The body one `--walker` seed rolls: the seed's default record - the
+/// same derivation a fresh account takes - in the outfit asked for.
+pub(super) fn walker_record(
+    seed: u64,
+    outfit: Option<[f32; 4]>,
+) -> crate::pds::avatar::EngineAvatarRecord {
+    let mut record = engine_default_for_seed(seed);
+    if let Some([top_hue, top_shade, leg_hue, leg_shade]) = outfit {
         record.outfit.top_hue = top_hue;
         record.outfit.top_shade = top_shade;
         record.outfit.leg_hue = leg_hue;
@@ -105,12 +114,19 @@ pub(super) struct Walker {
     start: f32,
     /// The rigged root carrying the [`Drive`].
     root: Entity,
+    /// The first `--walker` seed: the body the rig follows.
+    lead: bool,
 }
 
 impl Walker {
     /// The body's horizontal heading, world space.
     pub(super) fn dir(&self) -> Vec3 {
         self.dir
+    }
+
+    /// Whether this is the body `--focus walker` follows.
+    pub(super) fn is_lead(&self) -> bool {
+        self.lead
     }
 }
 
@@ -287,10 +303,39 @@ fn walker_path(spec: &WalkerSpec, record: &RoomRecord) -> (Vec2, Vec2) {
     (from, dir)
 }
 
-/// Spawn the walker once the world has settled (the clip timing is the
-/// signal - the drive loop inserts it on the way into warm-up), so its
-/// first steps are taken on finished ground and its lead-in ends exactly at
-/// the first captured frame.
+/// Where companion `index` stands relative to the lead, as (across, along)
+/// the line of walk in metres: the lead itself at the origin, then
+/// alternate sides `spread` apart - first right, then left, then a second
+/// rank further out - each half a metre further back than the one before,
+/// so a group reads as people walking together rather than a queue or a
+/// rank.
+pub(super) fn companion_offset(index: usize, spread: f32) -> (f32, f32) {
+    if index == 0 {
+        return (0.0, 0.0);
+    }
+    let rank = index.div_ceil(2) as f32;
+    let side = if index % 2 == 1 { 1.0 } else { -1.0 };
+    (side * rank * spread, -0.5 * index as f32)
+}
+
+/// Every body's start and heading: the lead on the line [`walker_path`]
+/// gives, its companions placed by [`companion_offset`] beside and behind
+/// it. All share the heading, so the group stays together as it walks.
+fn walker_starts(spec: &WalkerSpec, record: &RoomRecord) -> Vec<(Vec2, Vec2)> {
+    let (from, dir) = walker_path(spec, record);
+    let right = Vec2::new(-dir.y, dir.x);
+    (0..spec.seeds.len())
+        .map(|i| {
+            let (across, along) = companion_offset(i, spec.spread);
+            (from + right * across + dir * along, dir)
+        })
+        .collect()
+}
+
+/// Spawn the walkers once the world has settled (the clip timing is the
+/// signal - the drive loop inserts it on the way into warm-up), so their
+/// first steps are taken on finished ground and the lead-in ends exactly
+/// at the first captured frame.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_walker(
     mut commands: Commands,
@@ -307,7 +352,45 @@ pub(super) fn spawn_walker(
     if !existing.is_empty() {
         return;
     }
-    let (from2, dir2) = walker_path(&spec, &record.0);
+    for (i, ((from2, dir2), &seed)) in walker_starts(&spec, &record.0)
+        .into_iter()
+        .zip(&spec.seeds)
+        .enumerate()
+    {
+        spawn_one_walker(
+            &mut commands,
+            &spec,
+            &timing,
+            &heightmap,
+            i,
+            seed,
+            from2,
+            dir2,
+            &mut meshes,
+            &mut materials,
+            &mut images,
+            &mut bindposes,
+        );
+    }
+}
+
+/// One body of the group: rolled from `seed`, dressed by the spec, started
+/// at `from2` heading `dir2`, the lead if it is the first.
+#[allow(clippy::too_many_arguments)]
+fn spawn_one_walker(
+    commands: &mut Commands,
+    spec: &WalkerSpec,
+    timing: &ClipTiming,
+    heightmap: &FinishedHeightMap,
+    index: usize,
+    seed: u64,
+    from2: Vec2,
+    dir2: Vec2,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
+    bindposes: &mut Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
+) {
     let from = Vec3::new(
         from2.x,
         heightmap.world_height_at(from2.x, from2.y),
@@ -315,10 +398,10 @@ pub(super) fn spawn_walker(
     );
     let dir = Vec3::new(dir2.x, 0.0, dir2.y);
     let avatar = symbios_avatar::Avatar::build_with(
-        &walker_record(&spec),
+        &walker_record(seed, spec.outfits.get(index).copied()),
         &symbios_avatar::AvatarConfig::default(),
     )
-    .unwrap_or_else(|| panic!("--walker {}: the seeded body did not build", spec.seed));
+    .unwrap_or_else(|| panic!("--walker {seed}: the seeded body did not build"));
 
     let worn: Vec<ResolvedAttachment> = spec
         .wear
@@ -337,7 +420,7 @@ pub(super) fn spawn_walker(
             );
             record.sanitize();
             ResolvedAttachment {
-                rkey: format!("walker-{i}"),
+                rkey: format!("walker-{index}-{i}"),
                 record,
             }
         })
@@ -355,7 +438,7 @@ pub(super) fn spawn_walker(
     let mut root = commands.spawn((
         Transform::from_rotation(Quat::from_rotation_y(PI)),
         Visibility::default(),
-        AvatarDriver::seeded(spec.seed),
+        AvatarDriver::seeded(seed),
         Drive::default(),
         ChildOf(chassis),
     ));
@@ -364,14 +447,7 @@ pub(super) fn spawn_walker(
     }
     let root = root.id();
     spawn_avatar(
-        &mut commands,
-        root,
-        avatar,
-        0.0,
-        &mut meshes,
-        &mut materials,
-        &mut images,
-        &mut bindposes,
+        commands, root, avatar, 0.0, meshes, materials, images, bindposes,
     );
     commands.entity(chassis).insert(Walker {
         from,
@@ -379,10 +455,11 @@ pub(super) fn spawn_walker(
         pace: spec.pace,
         start: timing.capture_start - spec.lead,
         root,
+        lead: index == 0,
     });
     info!(
         "walker {}: from ({:.1}, {:.1}) heading ({:.2}, {:.2}) at {:.2} m/s, walking from t={:.2}s",
-        spec.seed,
+        seed,
         from.x,
         from.z,
         dir.x,
@@ -433,14 +510,42 @@ mod tests {
 
     fn spec() -> WalkerSpec {
         WalkerSpec {
-            seed: 3,
+            seeds: vec![3],
             pace: 1.4,
             from: None,
             to: None,
             wear: Vec::new(),
             lead: 1.5,
-            outfit: None,
+            outfits: Vec::new(),
+            spread: 1.6,
         }
+    }
+
+    /// Three seeds: the lead on the line, one companion to its right and a
+    /// half metre back, one to its left and a metre back, all heading the
+    /// same way (#1352). A fourth and fifth would take a second rank.
+    #[test]
+    fn companions_flank_the_lead_on_alternate_sides_and_hang_back() {
+        let record = RoomRecord::default_for_seed(3, "did:render:3");
+        let mut s = spec();
+        s.seeds = vec![3, 7, 12];
+        s.from = Some([0.0, 0.0]);
+        s.to = Some([0.0, -10.0]);
+        let starts = walker_starts(&s, &record);
+        assert_eq!(starts.len(), 3);
+        let dir = Vec2::new(0.0, -1.0);
+        for (_, d) in &starts {
+            assert!((*d - dir).length() < 1e-6, "{d}");
+        }
+        // Heading -Z: "right" is -X in this convention.
+        let right = Vec2::new(-dir.y, dir.x);
+        assert!((starts[0].0 - Vec2::ZERO).length() < 1e-6);
+        let expect1 = right * 1.6 + dir * -0.5;
+        let expect2 = right * -1.6 + dir * -1.0;
+        assert!((starts[1].0 - expect1).length() < 1e-5, "{:?}", starts[1].0);
+        assert!((starts[2].0 - expect2).length() < 1e-5, "{:?}", starts[2].0);
+        assert_eq!(companion_offset(3, 1.6), (3.2, -1.5));
+        assert_eq!(companion_offset(4, 1.6), (-3.2, -2.0));
     }
 
     /// A reroll never touches the outfit, so every seed wears the engine
@@ -448,19 +553,15 @@ mod tests {
     /// on the wire's grid exactly as the editor's sliders would.
     #[test]
     fn the_walker_outfit_replaces_the_one_default_every_seed_wears() {
-        let plain = walker_record(&spec());
+        let plain = walker_record(3, None);
         let default = symbios_avatar::dress::OutfitParams::default();
         assert_eq!(plain.outfit, default, "no flag: the shipped outfit");
-        let mut other = spec();
-        other.seed = 40;
         assert_eq!(
-            walker_record(&other).outfit,
+            walker_record(40, None).outfit,
             default,
             "another seed: the same shipped outfit"
         );
-        let mut dressed = spec();
-        dressed.outfit = Some([0.6, 0.45, 0.1, 0.25]);
-        let record = walker_record(&dressed);
+        let record = walker_record(3, Some([0.6, 0.45, 0.1, 0.25]));
         let o = &record.outfit;
         assert!((o.top_hue - 0.6).abs() < 1e-3, "{}", o.top_hue);
         assert!((o.top_shade - 0.45).abs() < 1e-3, "{}", o.top_shade);

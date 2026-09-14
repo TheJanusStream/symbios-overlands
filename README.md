@@ -36,12 +36,14 @@ control.*
 *Six sign-ins, six worlds. A different seed lands somewhere else every time:
 the theme, the ground, the weather and the sound all roll together.*
 
-![A walking avatar, followed from behind, crossing the sand up to a world's gateway](docs/media/walker.gif)
+![Three avatars walking together across the sand up to a world's gateway, the camera following the first](docs/media/walker.gif)
 
-*Your avatar, walking up to the gateway. Step through it and it lists the
-owner's friends' worlds; the body is yours in every symbios app.*
+*Friends in your world, walking up to the gateway together. Step through it
+and it lists the owner's friends' worlds; every body is its owner's in every
+symbios app, and each one moves as the engine computes it, not as a clip
+plays back.*
 
-![Eight catalogue entries turning on a studio backdrop: a harbour battery, a steampunk gateway, a cog tower, a greenhouse, a tenement, a cathedral, a palm and an acacia](docs/media/catalogue.gif)
+![Eight catalogue entries turning on a studio backdrop: a harbour battery, a steampunk gateway, a barn, a greenhouse, a tenement, a cathedral, a mangrove and a ternary tree](docs/media/catalogue.gif)
 
 *From the catalogue of hundreds you build with: buildings across the themes,
 and plants grown from grammars rather than modelled.*
