@@ -354,8 +354,8 @@ cargo nextest run -E 'test(publish_snapshot::)'
 
 `tests/main.rs` carries the rule for what may be added there: one target means
 one process under `cargo test`, so a test that needs a private copy of a
-process-global - the panic shadow, the allocation counters, the offload census
-- is not safe as a module and needs its own target with the reason written
+process-global - the panic shadow, the allocation counters, the offload census -
+is not safe as a module and needs its own target with the reason written
 down. nextest still runs each test in its own process either way.
 
 Note: [`.cargo/config.toml`](../.cargo/config.toml) pins `build.jobs = 6` -
@@ -502,6 +502,67 @@ driven by the same `Drive` / `AvatarDriver` pair the game hangs a local
 player on, on the real heightmap, and they start walking `--walker-lead`
 seconds (default 1.5) before the first captured frame so a clip opens
 mid-stride.
+
+`--editor` (#1353, with `--world`) draws the game's own editing surfaces
+into the same frame as the world: the toolbar, the World Editor, the
+Catalogue, the toasts and the in-world transform gizmo, registered as the
+game's own systems under the game's own run conditions, together with the
+undo history, the Catalogue's drop handler, the item-preview stage and the
+physics collider tree the drop's ground ray needs. One thing stands in: the
+editor is owner-only and no OAuth sign-in can happen in a headless tool, so
+an offline session for the world's own DID is signed in, built the way the
+crate's tests build theirs, with every URL on `example.invalid`. Nothing it
+registers performs network I/O. The editor is laid out for a 1280 x 720
+screen or larger - smaller, its windows fill the frame and overlap - so lay a
+shot out at 1280 x 720 and write it smaller with `--downscale`:
+
+```bash
+# The Placements tab with the landmark selected and its gizmo in the world:
+cargo run --profile test-release --bin render -- --world 253 --editor \
+    --editor-tab placements --editor-select landmark --width 1280 --height 720
+```
+
+`--editor-tab` opens a tab by its label (`environment`, `items`,
+`placements`, `effects`, `raw`); `--editor-select <item>` selects an item by
+its name in the record (`--describe` lists them), its tree row on Items and
+its first placement on Placements; `--editor-window <window>=x,y,w,h` places a
+window by its layout key the way a saved layout does (a window still takes
+the width its content needs); `--editor-ui-scale` is the Settings window's
+Interface scale. `--downscale N` writes any single-camera still or clip N
+times smaller than it renders, each pixel the mean of an N x N block.
+
+`--editor-script <file>` plays gestures on the tool's clock. The steps above
+a `start` line run during the warm-up and are never captured; every step
+below it advances one captured frame at a time:
+
+| Step | What it does |
+| --- | --- |
+| `hold N` | nothing, for N frames |
+| `move <target> [over N]` | glide the pointer onto a target (default one frame) |
+| `click <target> [over N]` | glide (default 6 frames), rest a frame, press, release |
+| `press` / `release` | the left button, one frame each |
+| `type "text"` | select everything in the focused field, then type |
+| `drag-gizmo <axis> <metres> over N` | with the button held, pull the gizmo handle that far along x, y or z |
+| `start` | where capture begins |
+
+A target is `widget "label"`, the one control whose AccessKit label or value
+is that text (a name that matches nothing, or more than one control, stops
+the run and lists what it found); `right-of "label"`, the nearest control to
+the right of a label on its row; `px x,y`, a frame pixel; `gizmo <axis>`, the
+middle of the selected gizmo's arrow for that axis; or `ground x,z`, the
+terrain there. The one pointer is written everywhere the game reads a real
+one - egui's input, bevy_picking's mouse pointer (which the gizmo hovers
+with), the window cursor and the mouse button - and an arrow is painted
+where it is, so a clip shows what is being pointed at. Each step logs where
+it put the pointer.
+
+A gesture's consequences land between captures: a gizmo release commits the
+record and the placement is rebuilt over the next frames, and a Catalogue
+drop spawns a building whose textures bake for seconds. So a clip holds its
+clock and its shutter while a compile pass runs or a texture bake is
+airborne, and shoots the next frame only once the scene has caught up - the
+warm-up's bake rule applied between every pair of frames, with frame `k`
+still the scene at exactly `k / fps` seconds.
 
 `--terrain <seed|did>` is the *ground* instrument (#994), and the only render
 mode whose subject is not an object: it builds the room's real heightmap,

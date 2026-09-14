@@ -16,9 +16,10 @@
 //! Nothing in this app runs on wall time. `Time<Virtual>` is paused at
 //! startup and [`tick_clock`] advances it by hand - every frame while the
 //! scene builds and warms up, and during a clip **once per captured frame**
-//! ([`Clock::once`], armed by the readback that completed the previous
-//! frame). Wind, clouds, water, particles and the walker's gait all read
-//! the shader globals or `Time`, so a clip's frame `k` is the scene at
+//! ([`Clock::once`], armed by the drive loop on the frame before each shot,
+//! and only once the scene has caught up with the frame before: see
+//! [`clip_step`]). Wind, clouds, water, particles and the walker's gait all
+//! read the shader globals or `Time`, so a clip's frame `k` is the scene at
 //! exactly `k / fps` seconds no matter how many app frames the readback of
 //! frame `k - 1` took, and no matter how fast the machine is.
 
@@ -49,7 +50,7 @@ use crate::world_builder::particles::{Particle, ParticleEmitterMarker};
 
 use super::rig::{CameraRig, Focus, delay_cs, progress};
 use super::world::{
-    BakesInFlight, Walker, WorldReadiness, WorldSpec, resolve_focus, spawn_world_camera,
+    ShutterGate, Walker, WorldReadiness, WorldSpec, resolve_focus, spawn_world_camera,
 };
 use super::{ANGLES, FOV, OUT_DIR, WARMUP, gif};
 
@@ -188,6 +189,9 @@ pub(super) struct RenderJob {
     pub(super) keep_frames: bool,
     /// `--dither`: the GIF encoder's ordered-dither amplitude.
     pub(super) dither: f32,
+    /// `--downscale`: how many times smaller a single-camera shot is written
+    /// than it renders (1 is full size).
+    pub(super) downscale: u32,
 }
 
 impl RenderJob {
@@ -210,8 +214,11 @@ pub(super) struct Clock {
     pub(super) step: f32,
     /// Step every frame (building, warming up).
     pub(super) run: bool,
-    /// Step on the next frame only (a clip frame was just captured).
+    /// Step on the next frame only (a clip frame is about to be shot).
     pub(super) once: bool,
+    /// Whether this frame's [`tick_clock`] stepped it: what a script counts
+    /// its frames by.
+    pub(super) stepped: bool,
     /// Seconds stepped so far.
     pub(super) elapsed: f32,
 }
@@ -222,6 +229,11 @@ pub(super) struct Clock {
 pub(super) struct ClipTiming {
     pub(super) capture_start: f32,
 }
+
+/// Inserted when a clip's first frame is shot: from here on, a script's
+/// steps after `start` play, one per captured frame.
+#[derive(Resource)]
+pub(super) struct ClipStarted;
 
 /// Stop the virtual clock so only [`tick_clock`] moves it.
 pub(super) fn pause_virtual_time(mut time: ResMut<Time<Virtual>>) {
@@ -236,7 +248,8 @@ pub(super) fn tick_clock(
     mut virt: ResMut<Time<Virtual>>,
     mut generic: ResMut<Time>,
 ) {
-    if !(clock.run || clock.once) {
+    clock.stepped = clock.run || clock.once;
+    if !clock.stepped {
         return;
     }
     clock.once = false;
@@ -254,8 +267,13 @@ pub(super) enum Phase {
     /// Every tile camera read back once.
     Sheet,
     /// One frame at a time: `next` is the frame to shoot, `pending` the
-    /// readback in flight for the one before it.
-    Clip { next: u32, pending: Option<Entity> },
+    /// readback in flight for the one before it, and `armed` whether the
+    /// clock has been set to step for `next`.
+    Clip {
+        next: u32,
+        pending: Option<Entity>,
+        armed: bool,
+    },
 }
 
 /// What the warm-up does this frame - see [`warmup_verdict`].
@@ -263,27 +281,76 @@ pub(super) enum Phase {
 pub(super) enum Warmup {
     /// Frames still to run.
     Counting,
-    /// The count is done but this many texture bakes are airborne: hold the
-    /// shutter (and the clock) until they land.
-    HeldForBakes(usize),
+    /// The count is done and a script still has setup steps to play: keep the
+    /// clock running for them and shoot nothing.
+    HeldForScript,
+    /// The count is done but the scene is still catching up: this many
+    /// texture bakes are airborne, or a compile pass is running. Hold the
+    /// shutter (and the clock) until both have landed.
+    HeldForScene { bakes: usize, compiling: bool },
     /// Shoot.
     Ready,
 }
 
-/// The warm-up's rule (#1351). The count runs down regardless of bakes - the
-/// plumes need their frames whether or not a texture is airborne - and only
-/// the shutter waits on them, because a material whose bake has not landed
-/// wears a flat fallback colour, and a picture of that looks finished. The
-/// count is a number of frames; a bake is a number of seconds on a thread
+/// The warm-up's rule (#1351, #1353). The count runs down regardless of
+/// bakes - the plumes need their frames whether or not a texture is airborne -
+/// and only the shutter waits on them, because a material whose bake has not
+/// landed wears a flat fallback colour, and a picture of that looks finished.
+/// The count is a number of frames; a bake is a number of seconds on a thread
 /// pool the frame loop merely polls, so no count is long enough on a fast
-/// enough GPU.
-pub(super) fn warmup_verdict(left: u32, bakes_in_flight: usize) -> Warmup {
+/// enough GPU. A script's setup steps play after the count, on the running
+/// clock, and the scene is waited for last, because a setup step can start
+/// work of its own: selecting a Catalogue entry stages its picture.
+pub(super) fn warmup_verdict(
+    left: u32,
+    bakes_in_flight: usize,
+    compiling: bool,
+    setup_pending: bool,
+) -> Warmup {
     if left > 0 {
         Warmup::Counting
-    } else if bakes_in_flight > 0 {
-        Warmup::HeldForBakes(bakes_in_flight)
+    } else if setup_pending {
+        Warmup::HeldForScript
+    } else if bakes_in_flight > 0 || compiling {
+        Warmup::HeldForScene {
+            bakes: bakes_in_flight,
+            compiling,
+        }
     } else {
         Warmup::Ready
+    }
+}
+
+/// What the drive loop does between two captures of a clip - see
+/// [`clip_step`].
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum ClipStep {
+    /// Every frame is shot: write the clip.
+    Finish,
+    /// The scene is still catching up with the last frame: wait.
+    Hold,
+    /// Set the clock to step at the top of the next frame.
+    Arm,
+    /// The clock stepped this frame: shoot.
+    Shoot,
+}
+
+/// The clip's rule between two captures (#1353). A frame is armed, the clock
+/// set to step once, only while the scene is quiet ([`ShutterGate::busy`]):
+/// a gizmo release commits the record and the placement is rebuilt over the
+/// next few frames, and a frame shot in the middle of that shows the building
+/// gone. The shot follows its arming unconditionally, so the step and the
+/// capture stay one frame apart and frame `k` is still the scene at exactly
+/// `k / fps` seconds, however long the scene took to settle in between.
+pub(super) fn clip_step(next: u32, frames: u32, armed: bool, busy: bool) -> ClipStep {
+    if armed {
+        ClipStep::Shoot
+    } else if next >= frames {
+        ClipStep::Finish
+    } else if busy {
+        ClipStep::Hold
+    } else {
+        ClipStep::Arm
     }
 }
 
@@ -335,6 +402,7 @@ pub(super) fn setup(
     mut deps: AvatarSpawnDeps,
     mut bindposes: ResMut<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
     job: Res<RenderJob>,
+    editor: Option<Res<super::editor::EditorHost>>,
 ) {
     // Lighting / clear colour: neutral studio for a single subject, the room's
     // own atmosphere for a room. A world gets the game's atmosphere from
@@ -366,7 +434,7 @@ pub(super) fn setup(
         let target = images.add(new_target(job.tile));
         targets.push(target.clone());
         if matches!(job.subject, Subject::World(_)) {
-            spawn_world_camera(&mut commands, target);
+            spawn_world_camera(&mut commands, target, editor.is_some());
             continue;
         }
         commands.spawn((
@@ -658,7 +726,7 @@ pub(super) fn drive(
     walkers: Query<(&Transform, &Walker), Without<TileCam>>,
     terrain_ready: Option<Res<crate::terrain::SplatApplied>>,
     world: WorldReadiness,
-    bakes: BakesInFlight,
+    gate: ShutterGate,
     heightmap: Option<Res<FinishedHeightMap>>,
     record: Option<Res<LiveRoomRecord>>,
     mut exit: MessageWriter<AppExit>,
@@ -707,7 +775,7 @@ pub(super) fn drive(
             }
         }
         Phase::Warmup { left } => {
-            match warmup_verdict(left, bakes.count()) {
+            match warmup_verdict(left, gate.bakes(), gate.compiling(), gate.setup_pending()) {
                 Warmup::Counting => {
                     // Keep the rig on its shot pose through the warm-up, not
                     // just at its start (#1351): the walker spawns a frame
@@ -730,20 +798,39 @@ pub(super) fn drive(
                     capture.phase = Phase::Warmup { left: left - 1 };
                     return;
                 }
-                Warmup::HeldForBakes(n) => {
-                    // A texture is still baking - one a single subject
-                    // dispatched at spawn, or one the world dispatched late.
-                    // Hold the clock with the shutter, so the walker's
-                    // lead-in and the plumes stay where the count left
-                    // them and the clip's timing is still exact.
-                    clock.run = false;
+                Warmup::HeldForScript => {
+                    // The script's setup steps count the clock's steps, so
+                    // the clock keeps running while they play.
+                    clock.run = true;
                     assert!(
                         capture.since.elapsed() < WORLD_BUDGET,
-                        "{n} procedural texture bake(s) never landed within {WORLD_BUDGET:?}"
+                        "the --editor-script setup steps never finished within {WORLD_BUDGET:?}"
                     );
                     if capture.last_log.elapsed() >= WORLD_LOG_EVERY {
                         capture.last_log = Instant::now();
-                        info!("warm-up done; holding the shutter for {n} texture bake(s)");
+                        info!("warm-up done; playing the script's setup steps");
+                    }
+                    return;
+                }
+                Warmup::HeldForScene { bakes, compiling } => {
+                    // A texture is still baking - one a single subject
+                    // dispatched at spawn, or one the world dispatched late -
+                    // or a compile pass is running. Hold the clock with the
+                    // shutter, so the walker's lead-in and the plumes stay
+                    // where the count left them and the clip's timing is
+                    // still exact.
+                    clock.run = false;
+                    assert!(
+                        capture.since.elapsed() < WORLD_BUDGET,
+                        "the scene never settled within {WORLD_BUDGET:?}: {bakes} procedural \
+                         texture bake(s) airborne, compiling {compiling}"
+                    );
+                    if capture.last_log.elapsed() >= WORLD_LOG_EVERY {
+                        capture.last_log = Instant::now();
+                        let pass = if compiling { " and a compile pass" } else { "" };
+                        info!(
+                            "warm-up done; holding the shutter for {bakes} texture bake(s){pass}"
+                        );
                     }
                     return;
                 }
@@ -764,10 +851,12 @@ pub(super) fn drive(
             if job.frames > 1 {
                 // Lockstep from here: the clock steps once per captured frame.
                 clock.run = false;
+                commands.insert_resource(ClipStarted);
                 let e = commands.spawn(Readback::texture(targets.0[0].clone())).id();
                 capture.phase = Phase::Clip {
                     next: 1,
                     pending: Some(e),
+                    armed: false,
                 };
             } else {
                 capture.results = vec![None; targets.0.len()];
@@ -782,8 +871,9 @@ pub(super) fn drive(
         Phase::Clip {
             next,
             pending: None,
-        } => {
-            if next >= job.frames {
+            armed,
+        } => match clip_step(next, job.frames, armed, gate.busy()) {
+            ClipStep::Finish => {
                 let result = finish_clip(&capture, &job);
                 match result {
                     Ok(()) => exit.write(AppExit::Success),
@@ -792,38 +882,68 @@ pub(super) fn drive(
                         exit.write(AppExit::error())
                     }
                 };
-                return;
             }
-            let walker = lead_walker(&walkers);
-            aim_rig(
-                &capture,
-                &job,
-                &mut cams,
-                walker,
-                record.as_deref(),
-                heightmap.as_deref(),
-                next,
-            );
-            if let Some((transform, _)) = cams.iter().next() {
-                info!(
-                    "frame {next}/{}: t={:.2}s camera ({:.1}, {:.1}, {:.1}) walker {}",
-                    job.frames,
-                    clock.elapsed,
-                    transform.translation.x,
-                    transform.translation.y,
-                    transform.translation.z,
-                    walker.map_or("none".to_string(), |(at, _)| format!(
-                        "({:.1}, {:.1}, {:.1})",
-                        at.x, at.y, at.z
-                    )),
+            ClipStep::Hold => {
+                assert!(
+                    capture.since.elapsed() < WORLD_BUDGET,
+                    "frame {next}: the scene never settled within {WORLD_BUDGET:?} ({} texture \
+                     bake(s) airborne, compiling {})",
+                    gate.bakes(),
+                    gate.compiling()
                 );
+                if capture.last_log.elapsed() >= WORLD_LOG_EVERY {
+                    capture.last_log = Instant::now();
+                    info!(
+                        "frame {next}: holding the shutter while the scene catches up ({} texture \
+                         bake(s), compiling {})",
+                        gate.bakes(),
+                        gate.compiling()
+                    );
+                }
             }
-            let e = commands.spawn(Readback::texture(targets.0[0].clone())).id();
-            capture.phase = Phase::Clip {
-                next: next + 1,
-                pending: Some(e),
-            };
-        }
+            ClipStep::Arm => {
+                // The clock steps at the top of the next frame, and that
+                // frame is the one shot.
+                clock.once = true;
+                capture.phase = Phase::Clip {
+                    next,
+                    pending: None,
+                    armed: true,
+                };
+            }
+            ClipStep::Shoot => {
+                let walker = lead_walker(&walkers);
+                aim_rig(
+                    &capture,
+                    &job,
+                    &mut cams,
+                    walker,
+                    record.as_deref(),
+                    heightmap.as_deref(),
+                    next,
+                );
+                if let Some((transform, _)) = cams.iter().next() {
+                    info!(
+                        "frame {next}/{}: t={:.2}s camera ({:.1}, {:.1}, {:.1}) walker {}",
+                        job.frames,
+                        clock.elapsed,
+                        transform.translation.x,
+                        transform.translation.y,
+                        transform.translation.z,
+                        walker.map_or("none".to_string(), |(at, _)| format!(
+                            "({:.1}, {:.1}, {:.1})",
+                            at.x, at.y, at.z
+                        )),
+                    );
+                }
+                let e = commands.spawn(Readback::texture(targets.0[0].clone())).id();
+                capture.phase = Phase::Clip {
+                    next: next + 1,
+                    pending: Some(e),
+                    armed: false,
+                };
+            }
+        },
         Phase::Clip {
             pending: Some(_), ..
         } => {}
@@ -1018,9 +1138,22 @@ fn aim_rig(
     }
 }
 
-/// Write the clip: the GIF, and the PNG frames beside it on request.
+/// Write the clip: the GIF, and the PNG frames beside it on request, both at
+/// `--downscale`.
 fn finish_clip(capture: &Capture, job: &RenderJob) -> Result<(), String> {
-    let (w, h) = job.tile;
+    let n = job.downscale.max(1);
+    let (w, h) = (job.tile.0 / n, job.tile.1 / n);
+    let shrunk: Vec<Vec<u8>>;
+    let frames: &[Vec<u8>] = if n > 1 {
+        shrunk = capture
+            .frames
+            .iter()
+            .map(|frame| gif::downscale_rgba(frame, job.tile.0, job.tile.1, n))
+            .collect::<Result<_, _>>()?;
+        &shrunk
+    } else {
+        &capture.frames
+    };
     let stem = job.out.trim_end_matches(".gif").trim_end_matches(".png");
     let gif_path = format!("{stem}.gif");
     if let Some(parent) = std::path::Path::new(&gif_path).parent() {
@@ -1028,21 +1161,14 @@ fn finish_clip(capture: &Capture, job: &RenderJob) -> Result<(), String> {
     }
     if job.keep_frames {
         let dir = format!("{stem}-frames");
-        gif::write_png_frames(&dir, w, h, &capture.frames)?;
-        info!("wrote {} PNG frames under {dir}", capture.frames.len());
+        gif::write_png_frames(&dir, w, h, frames)?;
+        info!("wrote {} PNG frames under {dir}", frames.len());
     }
-    gif::write_gif(
-        &gif_path,
-        w,
-        h,
-        &capture.frames,
-        delay_cs(job.fps),
-        job.dither,
-    )?;
+    gif::write_gif(&gif_path, w, h, frames, delay_cs(job.fps), job.dither)?;
     let bytes = std::fs::metadata(&gif_path).map(|m| m.len()).unwrap_or(0);
     info!(
         "wrote {gif_path} ({} frames, {w}×{h}, {} cs/frame, {:.1} MiB)",
-        capture.frames.len(),
+        frames.len(),
         delay_cs(job.fps),
         bytes as f64 / (1024.0 * 1024.0)
     );
@@ -1156,7 +1282,6 @@ pub(super) fn on_capture(
     mut commands: Commands,
     job: Res<RenderJob>,
     mut capture: ResMut<Capture>,
-    mut clock: ResMut<Clock>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let event = trigger.event();
@@ -1164,15 +1289,16 @@ pub(super) fn on_capture(
         Phase::Clip {
             next,
             pending: Some(e),
+            ..
         } if e == event.entity => {
             capture.frames.push(event.data.clone());
             commands.entity(e).despawn();
+            // The drive loop arms the next frame once the scene is quiet.
             capture.phase = Phase::Clip {
                 next,
                 pending: None,
+                armed: false,
             };
-            // The next frame is the scene one step later.
-            clock.once = true;
         }
         Phase::Sheet => {
             let Some(&tile) = capture.tile_of.get(&event.entity) else {
@@ -1185,7 +1311,9 @@ pub(super) fn on_capture(
             if capture.results.iter().any(|r| r.is_none()) {
                 return;
             }
-            match save_contact_sheet(&capture.results, job.tile, &job.out) {
+            let saved = shrink_still(&capture.results, &job)
+                .and_then(|(results, tile)| save_contact_sheet(&results, tile, &job.out));
+            match saved {
                 Ok(()) => {
                     info!("wrote {} ({} tiles)", job.out, capture.results.len());
                     exit.write(AppExit::Success);
@@ -1198,6 +1326,28 @@ pub(super) fn on_capture(
         }
         _ => {}
     }
+}
+
+/// Captured tiles and the size each one is.
+type Tiles = (Vec<Option<Vec<u8>>>, (u32, u32));
+
+/// A single-camera still at `--downscale`: its one tile shrunk. A sheet of
+/// tiles is written at full size.
+fn shrink_still(results: &[Option<Vec<u8>>], job: &RenderJob) -> Result<Tiles, String> {
+    let n = job.downscale;
+    if n <= 1 || !job.single_camera() {
+        return Ok((results.to_vec(), job.tile));
+    }
+    let (w, h) = job.tile;
+    let shrunk = results
+        .iter()
+        .map(|tile| {
+            tile.as_ref()
+                .map(|data| gif::downscale_rgba(data, w, h, n))
+                .transpose()
+        })
+        .collect::<Result<_, _>>()?;
+    Ok((shrunk, (w / n, h / n)))
 }
 
 /// Tile the RGBA captures into one PNG: `ANGLES.len()` columns per row, one
@@ -1290,6 +1440,7 @@ mod tests {
             step: 0.1,
             run: false,
             once: false,
+            stepped: false,
             elapsed: 0.0,
         });
         world.insert_resource(Targets(vec![Handle::default()]));
@@ -1314,6 +1465,7 @@ mod tests {
             fps: 10.0,
             keep_frames: false,
             dither: 0.0,
+            downscale: 1,
         });
         let cam = world
             .spawn((
@@ -1355,13 +1507,41 @@ mod tests {
 
     #[test]
     fn the_count_runs_down_whatever_is_baking_and_only_the_shutter_waits() {
-        // Frames left: the count proceeds even with bakes airborne, because
-        // the plumes need the frames either way.
-        assert_eq!(warmup_verdict(3, 4), Warmup::Counting);
-        assert_eq!(warmup_verdict(1, 0), Warmup::Counting);
-        // Count done, bakes airborne: held, and the log knows how many.
-        assert_eq!(warmup_verdict(0, 2), Warmup::HeldForBakes(2));
-        // Count done, nothing baking: shoot.
-        assert_eq!(warmup_verdict(0, 0), Warmup::Ready);
+        // Frames left: the count proceeds even with bakes airborne or setup
+        // steps unplayed, because the plumes need the frames either way.
+        assert_eq!(warmup_verdict(3, 4, true, true), Warmup::Counting);
+        assert_eq!(warmup_verdict(1, 0, false, false), Warmup::Counting);
+        // Count done and setup steps left: they play first, on the clock.
+        assert_eq!(warmup_verdict(0, 2, true, true), Warmup::HeldForScript);
+        // Count done, bakes airborne or a compile running: held, and the log
+        // knows which.
+        assert_eq!(
+            warmup_verdict(0, 2, false, false),
+            Warmup::HeldForScene {
+                bakes: 2,
+                compiling: false
+            }
+        );
+        assert_eq!(
+            warmup_verdict(0, 0, true, false),
+            Warmup::HeldForScene {
+                bakes: 0,
+                compiling: true
+            }
+        );
+        // Count done, nothing pending: shoot.
+        assert_eq!(warmup_verdict(0, 0, false, false), Warmup::Ready);
+    }
+
+    #[test]
+    fn a_clip_frame_is_armed_only_on_a_quiet_scene_and_shot_on_the_next() {
+        // Quiet: arm, then shoot on the next frame whatever the scene does in
+        // between, so the clock step and the capture stay one frame apart.
+        assert_eq!(clip_step(3, 10, false, false), ClipStep::Arm);
+        assert_eq!(clip_step(3, 10, true, true), ClipStep::Shoot);
+        // Busy and not armed: hold, however long it takes.
+        assert_eq!(clip_step(3, 10, false, true), ClipStep::Hold);
+        // Every frame shot: finish, busy or not.
+        assert_eq!(clip_step(10, 10, false, true), ClipStep::Finish);
     }
 }

@@ -153,6 +153,46 @@ impl BakesInFlight<'_, '_> {
     }
 }
 
+/// Whether the shutter may open (#1353): the scene has caught up with the
+/// last gesture, and a script's setup steps have all played.
+///
+/// A gesture's consequences land between captures. A gizmo release commits
+/// the record, and the placement is torn down and rebuilt over the next few
+/// frames; a Catalogue drop spawns a building whose textures bake for
+/// seconds. A frame shot in the middle of either shows the building gone, or
+/// wearing its flat fallback colour, and looks finished. So a clip holds its
+/// clock and its shutter while a compile pass runs or a bake is airborne, the
+/// warm-up rule applied between every pair of frames.
+#[derive(SystemParam)]
+pub(super) struct ShutterGate<'w, 's> {
+    bakes: BakesInFlight<'w, 's>,
+    job: Option<Res<'w, CompileJob>>,
+    script: Option<Res<'w, super::editor::script::ScriptProgress>>,
+}
+
+impl ShutterGate<'_, '_> {
+    /// Procedural texture bakes still airborne.
+    pub(super) fn bakes(&self) -> usize {
+        self.bakes.count()
+    }
+
+    /// Whether a compile pass is running.
+    pub(super) fn compiling(&self) -> bool {
+        self.job.as_ref().is_some_and(|j| j.progress().is_some())
+    }
+
+    /// Whether the scene is still catching up.
+    pub(super) fn busy(&self) -> bool {
+        self.compiling() || self.bakes() > 0
+    }
+
+    /// Whether a script still has setup steps to play before the first
+    /// captured frame.
+    pub(super) fn setup_pending(&self) -> bool {
+        self.script.as_ref().is_some_and(|s| !s.setup_done)
+    }
+}
+
 /// The five facts a settled world is made of.
 ///
 /// Every resource is optional because the drive loop takes this param in
@@ -213,10 +253,13 @@ pub(super) fn register(app: &mut App, spec: &WorldSpec, walker: Option<WalkerSpe
 
 /// The game camera, aimed at an off-screen target: the components
 /// `camera::spawn_orbit_camera` gives the player's view, minus the orbit
-/// controller, the egui context and the audio listener - none of which has
-/// a reader here. Tile 0, so the drive loop steers it like any other.
-pub(super) fn spawn_world_camera(commands: &mut Commands, target: Handle<Image>) {
-    commands.spawn((
+/// controller and the audio listener, neither of which has a reader here.
+/// The egui context and the transform gizmo's camera marker come along only
+/// when `editor` is set (`--editor`), so the interface and the gizmo draw
+/// into the same target the drive loop reads back. Tile 0, so the drive
+/// loop steers it like any other.
+pub(super) fn spawn_world_camera(commands: &mut Commands, target: Handle<Image>, editor: bool) {
+    let mut camera = commands.spawn((
         Camera3d::default(),
         WorldCamera,
         RenderTarget::Image(target.into()),
@@ -234,6 +277,12 @@ pub(super) fn spawn_world_camera(commands: &mut Commands, target: Handle<Image>)
         TileCam(0),
         Transform::from_xyz(0.0, 100.0, 150.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
+    if editor {
+        camera.insert((
+            bevy_egui::PrimaryEguiContext,
+            transform_gizmo_bevy::GizmoCamera,
+        ));
+    }
 }
 
 /// Resolve a [`Focus`] to the world point the rig orbits.

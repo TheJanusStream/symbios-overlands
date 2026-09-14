@@ -17,10 +17,12 @@ control.*
 
 - **Yours.** The moment you sign in, you have a world, and it is unlike anyone
   else's: its own landscape, weather, settlement and soundtrack, grown from
-  your identity. Reshape the ground, place buildings and trees from a
-  catalogue of hundreds, sculpt an avatar that is yours across apps. All of
-  it lives in your own account, on whichever server hosts that account, not
-  on a game server this project runs. It goes where your account goes.
+  your identity. Then you change it with ordinary tools: re-roll the land and
+  padlock what you like, drag buildings and trees in from a catalogue of
+  hundreds, slide anything into place with a gizmo, undo what you regret, and
+  sculpt an avatar that is yours across apps. All of it lives in your own
+  account, on whichever server hosts that account, not on a game server this
+  project runs. It goes where your account goes.
 - **A doorway from your friends'.** Every world grows a gateway. Step into it
   and it shows you the owner's friends' worlds; walk out into one of them.
   There is no server to join and no loading screen between worlds.
@@ -36,6 +38,28 @@ control.*
 *Six sign-ins, six worlds. A different seed lands somewhere else every time:
 the theme, the ground, the weather and the sound all roll together.*
 
+![The World Editor open beside the beach: seed 253 typed into the seed field, the rolled axes reading Archipelago, Coastal and Coastal Resort, and the pointer on the Theme padlock](docs/media/editor-dials.png)
+
+*The roll is yours to steer. The World Editor shows what each axis landed on:
+type a seed, or padlock the theme you like and re-roll until the rest suits
+you.*
+
+![The kiosk on the beach with its transform gizmo and the World Editor's Placements list: the pointer drags a gizmo arrow and the whole kiosk slides along the sand, then clicks Undo and the kiosk is back](docs/media/editor-move.gif)
+
+*Everything placed in your world can be picked up. Drag a gizmo arrow and the
+kiosk slides along the sand; press Undo and it is back where it was, with a
+note saying what was undone.*
+
+![The Catalogue searched for lifeguard: the pointer drags the Lifeguard Tower row out of the list and onto the sand, and the tower is built beside the kiosk](docs/media/editor-catalogue.gif)
+
+*New buildings come out of the catalogue by hand: find one, drag its row onto
+the ground, and it is built where you let go.*
+
+![Eight catalogue entries turning on a studio backdrop: a harbour battery, a steampunk gateway, a barn, a greenhouse, a tenement, a cathedral, a mangrove and a ternary tree](docs/media/catalogue.gif)
+
+*From the catalogue of hundreds you build with: buildings across the themes,
+and plants grown from grammars rather than modelled.*
+
 ![Three avatars walking together across the sand up to a world's gateway, the camera following the first](docs/media/walker.gif)
 
 *Friends in your world, walking up to the gateway together. Step through it
@@ -43,15 +67,11 @@ and it lists the owner's friends' worlds; every body is its owner's in every
 symbios app, and each one moves as the engine computes it, not as a clip
 plays back.*
 
-![Eight catalogue entries turning on a studio backdrop: a harbour battery, a steampunk gateway, a barn, a greenhouse, a tenement, a cathedral, a mangrove and a ternary tree](docs/media/catalogue.gif)
-
-*From the catalogue of hundreds you build with: buildings across the themes,
-and plants grown from grammars rather than modelled.*
-
 Every picture on this page was rendered by the project's own headless tool:
-the worlds from their seeds, the buildings and plants from the catalogue.
-Nothing is hand-modelled. The terrain, the buildings, the plants and the body
-are all grown from a recipe.
+the worlds from their seeds, the buildings and plants from the catalogue, and
+the editing shots in the game's own editor, signed in offline as the world's
+owner and driven by a scripted pointer. Nothing is hand-modelled. The terrain,
+the buildings, the plants and the body are all grown from a recipe.
 
 ## Try it
 
@@ -98,11 +118,12 @@ own PDS carrying a tree of generators - terrain, water, portals, road networks,
 parametric primitives, L-system plants, building grammars, image-bearing signs,
 particle emitters. Every widget in the owner-only World Editor mutates the live
 recipe in place: the world recompiles around you, remote peers mirror each edit
-before you press **Save to PDS**, and nothing is a one-way door - Ctrl+Z walks
-back through a labelled history of the last thirty-two edits, in the avatar
-editor as well as the world. A whole region - a house, a forest, a market
-square - becomes one named generator you can scatter, grid-array, or stash in
-your inventory.
+before you press **Save**, and nothing is a one-way door - Undo, or Ctrl+Z,
+walks back through a labelled history of the last thirty-two edits, in the
+avatar editor as well as the world. An item is a whole tree - a house, a
+forest, a market square - that you place once, scatter or lay out on a grid,
+slide into place with the in-world gizmo, drag in from the Catalogue, or stash
+in your inventory.
 
 **Avatars are recipes too.** Your body is one of two kinds, and either rides
 one of five physics presets - `HoverBoat`, `Humanoid`, `Airplane`, `Helicopter`
@@ -143,7 +164,7 @@ avatar waves - there is no slash-command vocabulary, just four gestures the
 keywords of ordinary conversation reach for.
 
 **Persistence and gifting.** Inventories live on your PDS. Stash a custom-tuned
-tree or a whole region blueprint, carry it across the network, and drag it onto
+palm or a whole house you built, carry it across the network, and drag it onto
 a peer's row in the People panel to gift it. A built-in Catalogue ships a
 starter library alongside whatever you've authored: hundreds of architectural
 blueprints spanning 24 themes - from ancient villas and medieval keeps to

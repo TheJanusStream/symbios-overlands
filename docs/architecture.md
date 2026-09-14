@@ -393,7 +393,7 @@ generation cores shared with the wasm Web Worker.
   [settings](../src/ui/settings.rs), the
   [gateway destination picker](../src/ui/gateway.rs) (the room owner's mutuals,
   listed on contact with the gate), and the owner-only
-  [world editor](../src/ui/room/) (Environment / Region Assets /
+  [world editor](../src/ui/room/) (Environment / Items /
   Placements / Effects / Raw JSON tabs, plus a pop-out
   [audio editor](../src/ui/room/audio.rs) hosting the crate's audition strip
   above its node-graph and sequence canvases). Around them sits the shell: the [toolbar](../src/ui/toolbar.rs) that
@@ -505,8 +505,11 @@ generation cores shared with the wasm Web Worker.
   through the game's own terrain / road / lot / placement / atmosphere
   pipelines, the registrars the login backdrop leans on, and waits for the
   compile to settle; `--frames` turns any single-camera shot into a GIF clip
-  from a camera rig on a hand-stepped virtual clock, and `--walker` walks a
-  seeded body across that world),
+  from a camera rig on a hand-stepped virtual clock, `--walker` walks a
+  seeded body across that world, and `--editor` draws the game's own toolbar,
+  World Editor, Catalogue and transform gizmo over it under an offline
+  stand-in session, with `--editor-script` playing clicks, typing and gizmo
+  drags on the same clock),
   plus the no-render text modes - offline diagnostics (`--analyze-session`,
   `--diff-sessions`, `--road-dump`), the survey/dump tools (`--family-seeds`,
   `--outfit`, `--find-part`, `--dump`, `--describe`) and the content

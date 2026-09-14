@@ -153,6 +153,16 @@ mod tests {
              flag out of ui for a writer whose only purpose is to write them \
              back.",
         ),
+        (
+            "src/render_tool/editor.rs",
+            "#1353: the render tool's `--editor` host is a composition root, \
+             like lib.rs. It schedules the game's own editor systems (the \
+             toolbar, the World Editor, the Catalogue, the toasts, undo \
+             capture) and seeds the ui resources they read, because a README \
+             picture of the editor has to come from the real editor code path. \
+             The ui layer is the subject being photographed, so there is no \
+             fact to mirror out of it.",
+        ),
     ];
 
     /// The `ui` dependency inversion, as one law (#1158 -> #1297, closed

@@ -23,6 +23,9 @@
 //! #                                             # a 60-frame orbit clip → .gif
 //! cargo run --bin render -- --world 3 --walker 7 --focus walker --frames 48
 //! #                                             # a seeded body walking it
+//! cargo run --bin render -- --world 3 --editor --width 1280 --height 720
+//! #                                             # the game's World Editor
+//! #                                             # over it (#1353)
 //! cargo run --bin render -- --catalogue villa --frames 36 --sweep 360
 //! #                                             # a turntable clip
 //! cargo run --bin render -- --generator g.json  # a dumped/edited Generator
@@ -49,6 +52,14 @@
 //! one camera on the rig; `--frames N` turns any single-camera shot into a
 //! clip, with the camera path set by `--focus` / `--dist` / `--elev` /
 //! `--yaw` / `--sweep` (and their `-end` dollies) - see `rig.rs`.
+//!
+//! `--editor` (see `editor.rs`) draws the game's own editing surfaces over
+//! a `--world` shot: the toolbar, the World Editor, the Catalogue and the
+//! transform gizmo, under an offline stand-in session for the world's owner.
+//! `--editor-script` plays gestures on the tool's clock (see
+//! `editor/script.rs`), and `--downscale N` writes a single-camera shot N
+//! times smaller than it renders, so an interface laid out at 1280x720 can be
+//! written at 640x360.
 //!
 //! Subject precedence, when more than one is given: `--generator` >
 //! `--world` > `--terrain` > `--room` > `--prim` > `--wear` > `--catalogue`
@@ -79,6 +90,7 @@ use crate::pds::avatar::default_visuals::{build_for_did, build_for_seed};
 use crate::pds::types::{Fp, Fp2};
 use crate::pds::{Generator, GeneratorKind, RoomRecord};
 
+mod editor;
 mod gif;
 mod headless;
 mod rig;
@@ -231,6 +243,48 @@ struct Args {
     /// `--generator`.
     #[arg(long)]
     world: Option<String>,
+    /// With `--world`: open the game's own editing surfaces over it - the
+    /// toolbar and the World Editor, drawn by the game's egui systems into
+    /// the same frame (#1353). The editor is owner-only, so an offline
+    /// stand-in session for the world's own DID is signed in; nothing talks
+    /// to the network.
+    #[arg(long, default_value_t = false)]
+    editor: bool,
+    /// With `--editor`: the World Editor tab the shot opens on -
+    /// `environment` (the default), `items`, `placements`, `effects` or
+    /// `raw`.
+    #[arg(long)]
+    editor_tab: Option<String>,
+    /// With `--editor`: an item to open selected, by its name in the record
+    /// (`--describe` lists them) - its tree row on `items`, its first
+    /// placement on `placements` - which is where the in-world gizmo goes.
+    #[arg(long)]
+    editor_select: Option<String>,
+    /// With `--editor`: the Settings window's Interface scale, 0.8 to 2.0
+    /// (default 1.0) - how large the interface is drawn. The lever for a
+    /// frame that is shrunk afterwards: 1280x720 at 1.5 lays the editor out
+    /// on an 853x480 screen with every glyph half again as tall.
+    #[arg(long)]
+    editor_ui_scale: Option<f32>,
+    /// With `--editor`: seed a window's rect the way a prefs file restores
+    /// one, `<window>=x,y,w,h` in frame pixels, the window by its layout key
+    /// (`world_editor`, `catalogue`, `inventory`, ...). Repeat the flag per
+    /// window.
+    #[arg(long, action = clap::ArgAction::Append)]
+    editor_window: Vec<String>,
+    /// With `--editor`: a script of gestures to play frame by frame on the
+    /// tool's clock (#1353) - glides onto widgets found by their label,
+    /// clicks, typing, a drag along a gizmo axis. The steps are documented
+    /// in `render_tool::editor::script` and docs/building.md.
+    #[arg(long)]
+    editor_script: Option<String>,
+    /// Single-camera shots: write the frame this many times smaller than it
+    /// renders, each output pixel the mean of a block (default 1, full
+    /// size). How an interface is laid out at the size it was designed for
+    /// and still written as a small picture: 1280x720 with `--downscale 2`
+    /// writes 640x360.
+    #[arg(long, default_value_t = 1)]
+    downscale: u32,
     /// With `--world`: rigged seeded bodies (u64 seeds, comma-separated or
     /// the flag repeated) walking across the world - from the gateway
     /// forecourt toward the spawn by default - on the engine's own gait.
@@ -722,8 +776,66 @@ pub fn run() {
         // that looks like a finished one and shows no ground texture at all.
     }
     // `--world`: the whole game pipeline, and the walker's spec.
+    assert!(
+        !args.editor || is_world,
+        "--editor needs --world: the editor edits a compiled world"
+    );
+    assert!(
+        args.editor
+            || (args.editor_tab.is_none()
+                && args.editor_select.is_none()
+                && args.editor_ui_scale.is_none()
+                && args.editor_window.is_empty()
+                && args.editor_script.is_none()),
+        "--editor-tab, --editor-select, --editor-ui-scale, --editor-window and --editor-script \
+         need --editor"
+    );
+    assert!(
+        args.downscale == 1
+            || (single_camera
+                && args.downscale > 1
+                && tile.0.is_multiple_of(args.downscale)
+                && tile.1.is_multiple_of(args.downscale)),
+        "--downscale {} needs a single-camera shot whose --width and --height divide by it \
+         (got {}×{})",
+        args.downscale,
+        tile.0,
+        tile.1
+    );
     if let Subject::World(spec) = &subject {
         world::register(&mut app, spec, walker);
+        // `--editor` (#1353): the game's own editing surfaces over it.
+        if args.editor {
+            let opening = editor::EditorOpening {
+                tab: args
+                    .editor_tab
+                    .as_deref()
+                    .map(editor::parse_tab)
+                    .transpose()
+                    .unwrap_or_else(|e| panic!("{e}"))
+                    .unwrap_or_default(),
+                select: args.editor_select.clone(),
+                ui_scale: args.editor_ui_scale,
+                windows: args
+                    .editor_window
+                    .iter()
+                    .map(|w| editor::parse_window(w).unwrap_or_else(|e| panic!("{e}")))
+                    .collect(),
+            };
+            let script = args.editor_script.as_deref().map(|path| {
+                let source = std::fs::read_to_string(path)
+                    .unwrap_or_else(|e| panic!("--editor-script {path:?}: {e}"));
+                let script = editor::script::EditorScript::parse(&source)
+                    .unwrap_or_else(|e| panic!("--editor-script {path:?}: {e}"));
+                assert!(
+                    frames > 1 || script.start == script.steps.len(),
+                    "--editor-script {path:?}: a still captures one frame, so every step \
+                     belongs before `start`"
+                );
+                script
+            });
+            editor::register(&mut app, &spec.record, &spec.did, opening, script);
+        }
     }
     // Rigged bodies for `--wear` (#1088) and `--walker`: the engine's
     // spawn/pose/drive plugin (stateless, no game dependencies) and the
@@ -746,11 +858,13 @@ pub fn run() {
             fps: args.fps,
             keep_frames: args.keep_frames,
             dither: args.dither,
+            downscale: args.downscale,
         })
         .insert_resource(Clock {
             step: 1.0 / args.fps,
             run: true,
             once: false,
+            stepped: false,
             elapsed: 0.0,
         })
         .init_resource::<Capture>()

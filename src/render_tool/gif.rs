@@ -289,6 +289,73 @@ fn dissolve_cuts(frames: &[Vec<u8>], cuts: &[usize], n: u32) -> Vec<Vec<u8>> {
     out
 }
 
+/// Shrink a row-major RGBA frame by a whole factor, each output pixel the
+/// rounded mean of an `n` by `n` block (`--downscale`). An interface is laid
+/// out at the size it was designed for and written smaller, which keeps its
+/// layout honest where rendering it small would not.
+pub(super) fn downscale_rgba(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    n: u32,
+) -> Result<Vec<u8>, String> {
+    if n == 0 || !width.is_multiple_of(n) || !height.is_multiple_of(n) {
+        return Err(format!("{width}×{height} does not divide by {n}"));
+    }
+    let expect = (width * height * 4) as usize;
+    if rgba.len() != expect {
+        return Err(format!(
+            "frame is {} bytes, expected {expect} for {width}×{height} RGBA",
+            rgba.len()
+        ));
+    }
+    if n == 1 {
+        return Ok(rgba.to_vec());
+    }
+    let (w, n) = (width as usize, n as usize);
+    let (out_w, out_h) = (w / n, height as usize / n);
+    let area = (n * n) as u32;
+    let mut out = Vec::with_capacity(out_w * out_h * 4);
+    for oy in 0..out_h {
+        for ox in 0..out_w {
+            let mut sum = [0u32; 4];
+            for y in oy * n..(oy + 1) * n {
+                for x in ox * n..(ox + 1) * n {
+                    let i = (y * w + x) * 4;
+                    for (total, &v) in sum.iter_mut().zip(&rgba[i..i + 4]) {
+                        *total += u32::from(v);
+                    }
+                }
+            }
+            out.extend(sum.map(|total| ((total + area / 2) / area) as u8));
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod downscale_tests {
+    use super::downscale_rgba;
+
+    #[test]
+    fn a_downscale_is_the_rounded_mean_of_each_block() {
+        let grey = |v: u8| [v, v, v, 255];
+        // Two rows of four: 0 10 100 200 / 1 2 50 50.
+        let frame: Vec<u8> = [0, 10, 100, 200, 1, 2, 50, 50]
+            .iter()
+            .flat_map(|&v| grey(v))
+            .collect();
+        let out = downscale_rgba(&frame, 4, 2, 2).unwrap();
+        // (0 + 10 + 1 + 2) / 4 = 3.25 and (100 + 200 + 50 + 50) / 4 = 100.
+        assert_eq!(out, [3, 3, 3, 255, 100, 100, 100, 255]);
+        assert_eq!(downscale_rgba(&frame, 4, 2, 1).unwrap(), frame);
+        let err = downscale_rgba(&frame, 4, 2, 3).unwrap_err();
+        assert!(err.contains("does not divide"), "{err}");
+        let err = downscale_rgba(&frame[..12], 4, 2, 2).unwrap_err();
+        assert!(err.contains("expected 32"), "{err}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
