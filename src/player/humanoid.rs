@@ -16,8 +16,8 @@ use super::HumanoidPreset;
 /// The Froude number unshifted travel walks at (#1193, #1323).
 ///
 /// The record's `walk_speed` was named before the engine grew a speed axis,
-/// and its default sits far past the engine's Froude-0.5 walk-run transition
-/// - a RUN, which milestone #11's diagnosis (symbios-avatar #325) measured
+/// and its default sits far past the engine's Froude-0.5 walk-run transition -
+/// a RUN, which milestone #11's diagnosis (symbios-avatar #325) measured
 /// every player holding constantly. So the record's field is the **travel**
 /// speed the run key asks for, and the walk is derived from the body instead,
 /// read back through `Speed::from_froude(..).metres_per_second(rig)` so a
@@ -1277,8 +1277,8 @@ mod turning {
     /// The scripts, control first.
     ///
     /// **W then W+D is 45°, not 90°.** A humanoid's camera orbits freely -
-    /// only a vehicle inherits the chassis' yaw (`camera::follow_local_player`)
-    /// - so the keys are camera-fixed and W+D asks for the diagonal. The
+    /// only a vehicle inherits the chassis' yaw (`camera::follow_local_player`) -
+    /// so the keys are camera-fixed and W+D asks for the diagonal. The
     /// quarter turn is W then D, carried alongside.
     ///
     /// The last two change pace rather than direction, with Shift held inside

@@ -12,8 +12,8 @@
 //!
 //! Particle emitters are returned as [`Generator`] nodes (a
 //! `GeneratorKind::ParticleSystem`) positioned in the prop's world frame, so
-//! they drop straight into an [`assemble`](super::super::util::assemble) list
-//! - or through [`attach`](super::super::util::attach) if they are added after
+//! they drop straight into an [`assemble`](super::super::util::assemble) list -
+//! or through [`attach`](super::super::util::attach) if they are added after
 //! the root is built, which is the trap #1010 closed. Counts stay small
 //! (signature, not spectacle) and well within the particle sanitiser's bounds.
 //! Audio patches return a [`SovereignAudioConfig`] to assign to a node's

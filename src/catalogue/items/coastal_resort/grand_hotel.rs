@@ -854,8 +854,8 @@ mod tests {
         assert_cards_do_not_overlap(&GrandHotel.build(""), "grand_hotel");
     }
 
-    /// #972 lesson 1: every `Window` card sits on a `Plane` at `uv_scale` 1.0
-    /// - one per opening, plus the entrance leaves. The exact count is what
+    /// #972 lesson 1: every `Window` card sits on a `Plane` at `uv_scale` 1.0 -
+    /// one per opening, plus the entrance leaves. The exact count is what
     /// bites: a card on a solid still renders, it just renders as a frame with
     /// holes onto the stucco behind it, which is what all four of this
     /// entry's glazed surfaces used to be.

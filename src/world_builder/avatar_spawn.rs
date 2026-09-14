@@ -45,8 +45,8 @@ use crate::water::{WaterMaterial, WaterSurfaces};
 /// portal, terrain, room-record) but the borrow shapes must match the
 /// existing struct. Pass an `&RoomRecord::default()` for `record` and
 /// any matching `Query` for `terrain_meshes`. The caches **must** be
-/// the same persistent-resource handles the room compiler reads from
-/// - sharing keeps a humanoid avatar with an LSystem cape from
+/// the same persistent-resource handles the room compiler reads from -
+/// sharing keeps a humanoid avatar with an LSystem cape from
 /// double-baking textures already cached for an identical room asset.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_avatar_visuals_subtree(

@@ -210,8 +210,8 @@ fn build_tree() -> Generator {
 /// A kiosk: the render that *frames* its serving hatch, the counter in it,
 /// its own stock behind it, the awning and the sign.
 ///
-/// `i` picks which stall it is, and that is the whole point of the parameter
-/// - three identical stalls are one stall rendered three times, which is what
+/// `i` picks which stall it is, and that is the whole point of the parameter -
+/// three identical stalls are one stall rendered three times, which is what
 /// the shipped row was apart from an awning colour (#972 lesson 9).
 fn kiosk(i: usize) -> Generator {
     let x = KIOSK_X[i];

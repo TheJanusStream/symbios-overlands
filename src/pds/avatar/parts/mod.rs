@@ -113,8 +113,8 @@ pub struct PartCtx {
     pub palette: AvatarPalette,
     pub materials: MaterialKit,
     pub body: AvatarBody,
-    /// Concrete vehicle proportions + mount landmarks for the seed's chassis
-    /// - the shared contract between the vehicle parts and the assembler
+    /// Concrete vehicle proportions + mount landmarks for the seed's chassis -
+    /// the shared contract between the vehicle parts and the assembler
     /// (`None` for the rigged family, or a vehicle family not yet wired). Read
     /// through the family accessors ([`Self::boat`]).
     pub vehicle: Option<VehicleBlueprint>,

@@ -436,8 +436,8 @@ impl GuardFeedbacks<'_> {
 }
 
 /// The first `Failed` status stamped at or after `since` (#1206). A
-/// status older than the guard's own wait is about some earlier attempt
-/// - an edit never resets it - and quoting it as this attempt's reason
+/// status older than the guard's own wait is about some earlier attempt -
+/// an edit never resets it - and quoting it as this attempt's reason
 /// told the owner a save had failed when nothing of theirs had.
 pub(crate) fn recent_failure(sources: &[(&str, &PublishStatus)], since: f64) -> Option<String> {
     sources.iter().find_map(|(label, status)| match status {

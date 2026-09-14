@@ -100,10 +100,12 @@ use world::{WalkerSpec, WorldSpec};
 const ANGLES: [f32; 4] = [180.0, 135.0, 90.0, 0.0];
 /// Default perspective FOV (matches Bevy's `PerspectiveProjection` default).
 const FOV: f32 = std::f32::consts::FRAC_PI_4;
-/// Frames to run (after framing) before capturing, so procedural textures
-/// finish baking + patching into their materials - and, since the clock
-/// advances by a fixed slice each frame, so particle emitters reach their
-/// steady-state plume before the shutter opens.
+/// Frames to run (after framing) before capturing, so that, since the clock
+/// advances by a fixed slice each frame, particle emitters reach their
+/// steady-state plume before the shutter opens. It is NOT what waits for
+/// procedural textures: a bake is seconds on a thread pool, not frames, and
+/// on a fast GPU these 200 frames pass in under a second, so the shutter
+/// holds on `world::BakesInFlight` after the count instead (#1351).
 const WARMUP: u32 = 200;
 const OUT_DIR: &str = "/tmp/avatar-render";
 /// The default clip frame rate. GIF counts delays in centiseconds, so 12.5
@@ -253,14 +255,27 @@ struct Args {
     /// (default 1.5), so a clip opens mid-stride.
     #[arg(long, default_value_t = 1.5)]
     walker_lead: f32,
+    /// With `--walker`: the body's outfit as the avatar editor's four axes,
+    /// `top_hue,top_shade,leg_hue,leg_shade`, each 0..1 (#1351). Every
+    /// seeded body ships in the engine's one default outfit - a reroll
+    /// never touches it - so this is the only way to see a walker in
+    /// anything else.
+    #[arg(long)]
+    walker_outfit: Option<String>,
+    /// Single subjects (a catalogue entry, a primitive, a generator, a
+    /// wearable): the studio backdrop as a hex colour, `#rrggbb` or
+    /// `rrggbb` (default the blue-grey `#8592b3`). A world and a room paint
+    /// their own sky and ignore it.
+    #[arg(long)]
+    backdrop: Option<String>,
     /// Terrain subject (#994): a u64 seed or DID - builds the room's real
     /// heightmap and its four-layer splat, then shoots four grazing landscape
     /// views across `--view` metres of it.
     ///
     /// The one render mode whose subject is the *ground*. `--room` spawns
     /// settlement structures on a flat plane and skips terrain entirely, so
-    /// until this existed nothing could see a splat outside the running game
-    /// - which is why the tile-repetition defect went four rounds unjudged.
+    /// until this existed nothing could see a splat outside the running game -
+    /// which is why the tile-repetition defect went four rounds unjudged.
     /// It runs the game's own terrain systems (see
     /// `terrain::register_headless_terrain`), waits for the splat pass to
     /// resolve rather than a frame count, and frames a fixed camera so two
@@ -316,6 +331,12 @@ struct Args {
     /// a turntable - become one picture. A no-render mode.
     #[arg(long)]
     stitch: Option<String>,
+    /// With `--stitch`: dissolve each cut between directories, and the
+    /// loop seam from the last back to the first, over this many blended
+    /// frames (default 0, a hard cut). Each blended frame is a whole-frame
+    /// change, so it costs what a moving-camera frame costs.
+    #[arg(long, default_value_t = 0)]
+    crossfade: u32,
     /// Offline session-log post-mortem: read a captured session log
     /// (`diagnostics/session-latest.jsonl`, or the wasm "Download log" dump -
     /// same NDJSON format) and print an agent-facing report (header, `[Verdict]`,
@@ -550,7 +571,13 @@ pub fn run() {
             .out
             .clone()
             .unwrap_or_else(|| format!("{OUT_DIR}/stitch.gif"));
-        if let Err(e) = gif::stitch(&dirs, &out, rig::delay_cs(args.fps), args.dither) {
+        if let Err(e) = gif::stitch(
+            &dirs,
+            &out,
+            rig::delay_cs(args.fps),
+            args.dither,
+            args.crossfade,
+        ) {
             eprintln!("--stitch failed: {e}");
             std::process::exit(1);
         }
@@ -634,6 +661,10 @@ pub fn run() {
             .map(|w| w.split(',').map(|s| s.trim().to_string()).collect())
             .unwrap_or_default(),
         lead: args.walker_lead,
+        outfit: args
+            .walker_outfit
+            .as_deref()
+            .map(|o| parse_outfit(o).unwrap_or_else(|e| panic!("{e}"))),
     });
     assert!(
         walker.is_none() || is_world,
@@ -688,7 +719,12 @@ pub fn run() {
     // one-shot dressing system that parents worn props once the joints exist.
     app.add_plugins(bevy_symbios_avatar::AvatarPlugin);
     app.add_systems(Update, headless::dress_wear_bodies);
-    app.insert_resource(ClearColor(Color::srgb(0.52, 0.55, 0.70)))
+    let [br, bg, bb] = args
+        .backdrop
+        .as_deref()
+        .map(|b| parse_hex_colour(b).unwrap_or_else(|e| panic!("{e}")))
+        .unwrap_or(DEFAULT_BACKDROP);
+    app.insert_resource(ClearColor(Color::srgb_u8(br, bg, bb)))
         .insert_resource(RenderJob {
             subject,
             out,
@@ -798,6 +834,37 @@ fn build_rig(args: &Args, is_world: bool) -> CameraRig {
         yaw,
         sweep,
         zoom: args.zoom.max(0.01),
+    }
+}
+
+/// The studio clear colour behind a single subject: the blue-grey the tool
+/// has always used, as `--backdrop` would spell it (`#8592b3`).
+const DEFAULT_BACKDROP: [u8; 3] = [0x85, 0x92, 0xb3];
+
+/// Parse `--backdrop`: `#rrggbb` or `rrggbb`.
+fn parse_hex_colour(s: &str) -> Result<[u8; 3], String> {
+    let hex = s.trim().trim_start_matches('#');
+    let bad = || format!("--backdrop {s:?}: expected a hex colour, #rrggbb or rrggbb");
+    if hex.len() != 6 {
+        return Err(bad());
+    }
+    let channel = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).map_err(|_| bad());
+    Ok([channel(0)?, channel(2)?, channel(4)?])
+}
+
+/// Parse `--walker-outfit`: four comma-separated axes in `0..=1`, in the
+/// avatar editor's order - top hue, top shade, leg hue, leg shade.
+fn parse_outfit(s: &str) -> Result<[f32; 4], String> {
+    let bad = || {
+        format!("--walker-outfit {s:?}: expected top_hue,top_shade,leg_hue,leg_shade, each 0..1")
+    };
+    let v: Vec<f32> = s
+        .split(',')
+        .map(|p| p.trim().parse::<f32>().map_err(|_| bad()))
+        .collect::<Result<_, _>>()?;
+    match v.as_slice() {
+        [a, b, c, d] if v.iter().all(|x| (0.0..=1.0).contains(x)) => Ok([*a, *b, *c, *d]),
+        _ => Err(bad()),
     }
 }
 
@@ -1069,6 +1136,28 @@ fn primitive_for_tag(tag: &str) -> Option<GeneratorKind> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_backdrop_is_a_hex_colour_with_or_without_the_hash() {
+        assert_eq!(parse_hex_colour("#8592b3").unwrap(), DEFAULT_BACKDROP);
+        assert_eq!(parse_hex_colour(" DCD6C8 ").unwrap(), [0xdc, 0xd6, 0xc8]);
+        for bad in ["#fff", "8592b3ff", "#85g2b3", "grey"] {
+            let err = parse_hex_colour(bad).unwrap_err();
+            assert!(err.contains("--backdrop"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn a_walker_outfit_is_four_unit_axes_in_the_editor_order() {
+        assert_eq!(
+            parse_outfit("0.6, 0.45,0.1,0.25").unwrap(),
+            [0.6, 0.45, 0.1, 0.25]
+        );
+        for bad in ["0.6,0.45,0.1", "0.6,0.45,0.1,1.5", "blue,0.4,0.1,0.2", ""] {
+            let err = parse_outfit(bad).unwrap_err();
+            assert!(err.contains("--walker-outfit"), "{bad:?}: {err}");
+        }
+    }
 
     /// #1162. The subject precedence is stated in four places - this module's
     /// header, [`resolve_subject`]'s own doc, the `generator` arg doc and

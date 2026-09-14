@@ -658,8 +658,8 @@ fn memory_readout(ui: &mut egui::Ui, metrics: &MetricsRegistry, invariants: &Inv
 /// The Overview tab's live-count grid, as data so the drift guard can walk it
 /// alongside the health cards (#1272 f188).
 ///
-/// The three cache lengths at the end pin the handle counts above them (#919)
-/// - a mesh or image count that will not fall is usually one of these holding
+/// The three cache lengths at the end pin the handle counts above them (#919) -
+/// a mesh or image count that will not fall is usually one of these holding
 /// it, so they are read together.
 const OVERVIEW_COUNT_ROWS: &[(&str, &str)] = &[
     ("Entities", names::RUNTIME_ENTITY_COUNT),

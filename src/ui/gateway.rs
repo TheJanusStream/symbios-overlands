@@ -31,8 +31,8 @@ use crate::world_builder::GatewayMarker;
 pub struct GatewayPicker {
     pub search: String,
     /// Free-text destination (#1232 f24). The picker's reachable set is a
-    /// function of a THIRD PARTY's follow graph - the room owner's mutuals
-    /// - while its only text box filtered that list in memory under a
+    /// function of a THIRD PARTY's follow graph - the room owner's mutuals -
+    /// while its only text box filtered that list in memory under a
     /// "Search handle or name…" hint that promised a network lookup it
     /// never performed. A new account standing on its own gateway, which
     /// is precisely the user with no mutuals, saw a search box, an empty
@@ -46,8 +46,8 @@ pub struct GatewayPicker {
 ///
 /// A DID typed in full needs no lookup and goes straight to the guard; a
 /// handle costs one `resolveHandle` round trip, which is what the login
-/// form already spends before starting an OAuth dance for the same reason
-/// - a typo fails in one request with a spelling hint instead of burning
+/// form already spends before starting an OAuth dance for the same reason -
+/// a typo fails in one request with a spelling hint instead of burning
 /// the post-arrival record-fetch retry budget.
 #[derive(Component)]
 pub struct GatewayDestinationTask {

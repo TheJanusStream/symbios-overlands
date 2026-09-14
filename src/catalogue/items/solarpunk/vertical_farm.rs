@@ -108,8 +108,8 @@ const DOCK_H: f32 = 2.6;
 
 /// The roof parapet: handrail height, and the baluster pitch of its four runs.
 ///
-/// `util::BALUSTER_PITCH` (0.42 m) is calibrated for a prop you stand next to
-/// - a boardwalk, a porch. This parapet rings a 5.4 × 4.2 roof twelve metres
+/// `util::BALUSTER_PITCH` (0.42 m) is calibrated for a prop you stand next to -
+/// a boardwalk, a porch. This parapet rings a 5.4 × 4.2 roof twelve metres
 /// up, and at 0.42 m it was forty-six balusters, sixty-two nodes and 17% of
 /// this entry's whole record for uprights that are under a pixel wide from the
 /// street (#1293). Widened until it still reads as *balusters*, which is the
@@ -1142,8 +1142,8 @@ mod tests {
     ///
     /// A panel mounted on a wall has two ways to fail and only one of them
     /// shows in a render: too far out and it floats, too far in and it is
-    /// swallowed by whatever it is mounted on. This build hit the second twice
-    /// - first a lit panel authored at `BACK − 0.04`, i.e. inside the 1.5 m
+    /// swallowed by whatever it is mounted on. This build hit the second twice -
+    /// first a lit panel authored at `BACK − 0.04`, i.e. inside the 1.5 m
     /// core, and then, after that fix, one placed inside its own cast surround.
     /// Both looked like a blank wall, which is exactly what the shipped entry
     /// looked like anyway, so a render can never tell you which you have.

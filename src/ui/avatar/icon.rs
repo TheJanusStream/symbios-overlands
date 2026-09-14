@@ -95,8 +95,8 @@ mod icon_placeholder_tests {
     use super::*;
 
     /// #1225 f351. The sequence: you open People in a room of people who
-    /// have just arrived, and every row has a gap where a picture should be
-    /// - and the gap means "still loading", "has no picture" and "the fetch
+    /// have just arrived, and every row has a gap where a picture should be -
+    /// and the gap means "still loading", "has no picture" and "the fetch
     /// failed" indistinguishably, because all three ended at the same
     /// transparent square. On wasm the third is structurally more common,
     /// because `cdn.bsky.app` serves no CORS headers and the original PDS

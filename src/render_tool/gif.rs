@@ -192,13 +192,42 @@ pub(super) fn write_png_frames(
     Ok(())
 }
 
+/// The frames a dissolve from `a` to `b` needs: `n` frames, each a linear
+/// blend at `k / (n + 1)` for `k` in `1..=n`, so neither endpoint is
+/// repeated - the cut still lands on `b`'s own first frame. Empty for
+/// `n = 0`, which is a hard cut.
+pub(super) fn crossfade_frames(a: &[u8], b: &[u8], n: u32) -> Vec<Vec<u8>> {
+    (1..=n)
+        .map(|k| {
+            let t = k as f32 / (n + 1) as f32;
+            a.iter()
+                .zip(b)
+                .map(|(&x, &y)| (x as f32 + (y as f32 - x as f32) * t).round() as u8)
+                .collect()
+        })
+        .collect()
+}
+
 /// `--stitch`: read every `*.png` in each directory (sorted by name), in
 /// the order the directories are given, and encode them as one GIF. All
 /// frames must share one size - clips rendered with the same `--width` /
-/// `--height` do by construction.
-pub(super) fn stitch(dirs: &[String], out: &str, delay_cs: u16, dither: f32) -> Result<(), String> {
+/// `--height` do by construction. `crossfade` (#1351) dissolves each cut
+/// over that many blended frames, including the loop seam from the last
+/// directory back to the first, so a loop of held shots reads as one
+/// picture rather than a slideshow; every blended frame is a whole-frame
+/// change, so it costs what a moving-camera frame costs.
+pub(super) fn stitch(
+    dirs: &[String],
+    out: &str,
+    delay_cs: u16,
+    dither: f32,
+    crossfade: u32,
+) -> Result<(), String> {
     let mut frames: Vec<Vec<u8>> = Vec::new();
     let mut size: Option<(u32, u32)> = None;
+    // The first frame of each directory, and the last of the one before it:
+    // where the dissolves go.
+    let mut cuts: Vec<usize> = Vec::new();
     for dir in dirs {
         let mut paths: Vec<_> = std::fs::read_dir(dir)
             .map_err(|e| format!("read {dir}: {e}"))?
@@ -209,6 +238,7 @@ pub(super) fn stitch(dirs: &[String], out: &str, delay_cs: u16, dither: f32) -> 
         if paths.is_empty() {
             return Err(format!("{dir}: no .png frames"));
         }
+        cuts.push(frames.len());
         for path in paths {
             let img = image::open(&path)
                 .map_err(|e| format!("{}: {e}", path.display()))?
@@ -232,9 +262,31 @@ pub(super) fn stitch(dirs: &[String], out: &str, delay_cs: u16, dither: f32) -> 
         }
     }
     let (w, h) = size.ok_or("no frames")?;
+    let frames = if crossfade > 0 && dirs.len() > 1 {
+        dissolve_cuts(&frames, &cuts, crossfade)
+    } else {
+        frames
+    };
     write_gif(out, w, h, &frames, delay_cs, dither)?;
     println!("wrote {out} ({} frames, {w}×{h})", frames.len());
     Ok(())
+}
+
+/// Splice `n` blended frames in front of every cut in `cuts` (frame indices
+/// where a directory starts, the first being 0) and after the last frame,
+/// closing the loop back to frame 0.
+fn dissolve_cuts(frames: &[Vec<u8>], cuts: &[usize], n: u32) -> Vec<Vec<u8>> {
+    let mut out: Vec<Vec<u8>> = Vec::with_capacity(frames.len() + cuts.len() * n as usize);
+    for (i, frame) in frames.iter().enumerate() {
+        if i > 0 && cuts.contains(&i) {
+            out.extend(crossfade_frames(&frames[i - 1], frame, n));
+        }
+        out.push(frame.clone());
+    }
+    if let (Some(last), Some(first)) = (frames.last(), frames.first()) {
+        out.extend(crossfade_frames(last, first, n));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -294,6 +346,87 @@ mod tests {
             &decoded[2].1[..4]
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Two one-frame directories, red then blue, stitched with a two-frame
+    /// dissolve: red, two blends, blue, then two blends back toward red at
+    /// the loop seam - six frames, the blends between the endpoints in
+    /// order, neither endpoint repeated.
+    #[test]
+    fn a_crossfade_dissolves_every_cut_and_the_loop_seam() {
+        let dir = std::env::temp_dir().join(format!("render-stitch-{}", std::process::id()));
+        let (a, b) = (dir.join("a"), dir.join("b"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        let (w, h) = (16u32, 8u32);
+        let red = flat(w, h, [200, 30, 30]);
+        let blue = flat(w, h, [30, 30, 200]);
+        image::save_buffer(
+            a.join("frame-000.png"),
+            &red,
+            w,
+            h,
+            image::ExtendedColorType::Rgba8,
+        )
+        .unwrap();
+        image::save_buffer(
+            b.join("frame-000.png"),
+            &blue,
+            w,
+            h,
+            image::ExtendedColorType::Rgba8,
+        )
+        .unwrap();
+        let out = dir.join("ab.gif");
+        stitch(
+            &[a.to_str().unwrap().into(), b.to_str().unwrap().into()],
+            out.to_str().unwrap(),
+            10,
+            0.0,
+            2,
+        )
+        .unwrap();
+
+        let mut opts = gif::DecodeOptions::new();
+        opts.set_color_output(gif::ColorOutput::RGBA);
+        let mut dec = opts.read_info(File::open(&out).unwrap()).unwrap();
+        // Rebuild each frame through the kept canvas so a diff frame reads
+        // as its full picture.
+        let mut canvas = vec![0u8; (w * h * 4) as usize];
+        let mut reds = Vec::new();
+        while let Some(f) = dec.read_next_frame().unwrap() {
+            for (px, src) in canvas.chunks_exact_mut(4).zip(f.buffer.chunks_exact(4)) {
+                if src[3] != 0 {
+                    px.copy_from_slice(src);
+                }
+            }
+            reds.push(canvas[0]);
+        }
+        assert_eq!(reds.len(), 6, "{reds:?}");
+        // Red channel: 200, then descending through the dissolve to 30, then
+        // climbing back toward 200 at the seam (a 255-colour palette lands
+        // each blend within a few steps).
+        let near = |x: u8, y: u8| (x as i32 - y as i32).abs() <= 24;
+        assert!(near(reds[0], 200) && near(reds[3], 30), "{reds:?}");
+        assert!(
+            reds[0] > reds[1] && reds[1] > reds[2] && reds[2] > reds[3],
+            "{reds:?}"
+        );
+        assert!(
+            reds[3] < reds[4] && reds[4] < reds[5] && reds[5] < reds[0],
+            "{reds:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_zero_crossfade_is_a_hard_cut() {
+        let a = flat(4, 4, [0, 0, 0]);
+        let b = flat(4, 4, [255, 255, 255]);
+        assert!(crossfade_frames(&a, &b, 0).is_empty());
+        let mid = crossfade_frames(&a, &b, 1);
+        assert_eq!(mid.len(), 1);
+        assert_eq!(mid[0][0], 128, "one blend frame sits halfway");
     }
 
     #[test]

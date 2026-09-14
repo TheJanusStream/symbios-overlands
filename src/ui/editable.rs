@@ -1176,8 +1176,8 @@ impl<P: crate::seeded_defaults::SeedPins> ReRollState<P> {
 /// "nothing happened" case: a collapsed section shows no "Re-roll"
 /// button, so it can never report an action.
 /// `title` names the SCOPE this seed re-rolls (#1256 f107). The Avatar
-/// window hosts a second, unrelated `seed` control eight rows below this one
-/// - the engine's own sculpting seed, with its own lock vocabulary - and
+/// window hosts a second, unrelated `seed` control eight rows below this one -
+/// the engine's own sculpting seed, with its own lock vocabulary - and
 /// with both headed "Seed & re-roll" there was no way to tell from the
 /// window which number made the face on screen. One of the two replaces the
 /// entire record; the other moves a jaw.

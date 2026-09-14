@@ -7,8 +7,8 @@
 //!
 //! **How fast an edit reaches the world (#1249 f59).** This header used to
 //! say "the same frame the slider moves", and that has not been true since
-//! the debounce: a widget edit re-arms a 0.25 s timer, and `set_changed()`
-//! - which is what `network::broadcast_room_state`, the world compile and
+//! the debounce: a widget edit re-arms a 0.25 s timer, and `set_changed()` -
+//! which is what `network::broadcast_room_state`, the world compile and
 //! the terrain rebuild all watch - fires only when it drains. So an edit
 //! burst is one broadcast and one recompile, and a slider being dragged
 //! showed nothing at all until the hand stopped. There are two lanes now:
@@ -246,8 +246,8 @@ pub struct RoomEditorState {
     /// (#674). Recomputed only when the stored resource changes (fresh fetch,
     /// publish success, room transition), so an open panel serializes just
     /// the LIVE record each frame instead of live×2 + stored + default.
-    /// Keyed by the resource's `last_changed` tick rather than `is_changed()`
-    /// - the change flag is consumed even on frames where this system
+    /// Keyed by the resource's `last_changed` tick rather than `is_changed()` -
+    /// the change flag is consumed even on frames where this system
     /// early-returns (visiting another room, mid-Loading), which would
     /// otherwise leave a stale baseline after a room transition.
     stored_baseline: Option<(bevy::ecs::change_detection::Tick, Option<serde_json::Value>)>,

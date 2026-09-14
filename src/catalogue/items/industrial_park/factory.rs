@@ -988,8 +988,8 @@ mod tests {
         assert_no_tilted_parents(&Factory.build(""), "factory");
     }
 
-    /// #972 lesson 1: every `Window` card sits on a `Plane` at `uv_scale` 1.0
-    /// - one per clerestory bay plus the monitor's two sides. The works used
+    /// #972 lesson 1: every `Window` card sits on a `Plane` at `uv_scale` 1.0 -
+    /// one per clerestory bay plus the monitor's two sides. The works used
     /// to carry four of them as slabs stuck to a solid mass, where the
     /// generator's masked-away panes cut holes onto the cladding behind.
     #[test]

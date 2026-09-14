@@ -4,8 +4,8 @@
 //! AC unit, and a pylon sign at the kerb.
 //!
 //! The shopfront is the whole point of this entry, and it is now a **shell**.
-//! Before the overhaul it was [`curtain_wall`](crate::catalogue::items::modern_city::curtain_wall)
-//! - a lit glass box with proud mullion fins - pinned to a solid mass, with no
+//! Before the overhaul it was [`curtain_wall`](crate::catalogue::items::modern_city::curtain_wall) -
+//! a lit glass box with proud mullion fins - pinned to a solid mass, with no
 //! interior and no entrance at all. That abstraction is fine on the tower it
 //! was written for, where nobody stands close enough to look in; on a shop at
 //! eye level it reads as an illuminated panel, and the `Window` texture it was

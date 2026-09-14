@@ -8,8 +8,8 @@
 //!
 //! Decoupled from `GeneratorKind::ParticleSystem` on purpose: the
 //! particle template here ([`RecipeParticle`]) is a *trimmed*,
-//! purpose-built struct (no rate / looping / duration / seed / collision
-//! - a transient contact burst fixes those), so this schema can evolve
+//! purpose-built struct (no rate / looping / duration / seed / collision -
+//! a transient contact burst fixes those), so this schema can evolve
 //! without touching the live ParticleSystem wire format. It does reuse
 //! the existing [`EmitterShape`] / [`ParticleBlendMode`] open unions
 //! (adding a *user* of them is wire-safe; only mutating them is not).

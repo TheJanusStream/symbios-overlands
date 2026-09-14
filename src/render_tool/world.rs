@@ -15,7 +15,8 @@
 //! Readiness is a *settled* world, not a first compile: the lot layer
 //! writes buildings into the record after the roads land, which triggers a
 //! second compile pass, and the road extrusion runs on a background task.
-//! [`WorldReadiness::settled`] asks all four questions at once, and the
+//! [`WorldReadiness::settled`] asks all five questions at once (the fifth
+//! being whether any procedural texture bake is still airborne), and the
 //! drive loop additionally waits for the answer to hold for a run of
 //! frames, so a debounce that has not fired yet cannot pass as done.
 //!
@@ -39,8 +40,8 @@ use crate::pds::avatar::wardrobe::engine_default_for_seed;
 use crate::pds::avatar::{AttachmentRecord, ResolvedAttachment};
 use crate::state::{CurrentRoomDid, LiveRoomRecord, LocalSettings};
 use crate::terrain::{FinishedHeightMap, RoadPanelStats, SplatApplied};
-use crate::world_builder::WorldCompiled;
 use crate::world_builder::compile::CompileJob;
+use crate::world_builder::{PendingSurfaceBakes, WorldCompiled};
 
 use super::headless::{ClipTiming, Clock, PendingWear, TileCam};
 use super::rig::Focus;
@@ -71,6 +72,25 @@ pub(super) struct WalkerSpec {
     /// Seconds of walking before the first captured frame, so a clip opens
     /// mid-stride rather than on the first step.
     pub(super) lead: f32,
+    /// `--walker-outfit`: the editor's four outfit axes (top hue, top
+    /// shade, leg hue, leg shade), replacing the engine's one default
+    /// outfit every seeded body otherwise wears.
+    pub(super) outfit: Option<[f32; 4]>,
+}
+
+/// The body a `--walker` spec rolls: the seed's default record - the same
+/// derivation a fresh account takes - in the outfit the spec asks for.
+pub(super) fn walker_record(spec: &WalkerSpec) -> crate::pds::avatar::EngineAvatarRecord {
+    let mut record = engine_default_for_seed(spec.seed);
+    if let Some([top_hue, top_shade, leg_hue, leg_shade]) = spec.outfit {
+        record.outfit.top_hue = top_hue;
+        record.outfit.top_shade = top_shade;
+        record.outfit.leg_hue = leg_hue;
+        record.outfit.leg_shade = leg_shade;
+        // Onto the wire's grid, as the editor's own sliders land.
+        record.sanitize();
+    }
+    record
 }
 
 /// The body's chassis: where the walk started, which way it goes, and
@@ -94,40 +114,69 @@ impl Walker {
     }
 }
 
-/// The four facts a settled world is made of.
+/// Procedural texture bakes still airborne, on either dispatch path (#1351).
 ///
-/// Every field is optional because the drive loop takes this param in
+/// A material is spawned wearing a flat fallback colour and gets its maps
+/// patched in whenever its bake lands: on native that is the upstream
+/// `PendingTexture` task entity, consumed by
+/// `patch_procedural_material_textures`; on wasm (and nowhere else) it is a
+/// job in [`PendingSurfaceBakes`]. Neither is a frame count - the native
+/// bake runs on the texture crate's own rayon pool and lands when it lands -
+/// so a shutter that waits a fixed number of frames catches the fallback
+/// whenever the bake outlasts them, and the picture looks finished. The
+/// resource is optional because a bare sheet mode never inserts it; absent
+/// reads as nothing in flight, which is the truthful answer there.
+#[derive(SystemParam)]
+pub(super) struct BakesInFlight<'w, 's> {
+    native: Query<'w, 's, (), With<bevy_symbios_texture::async_gen::PendingTexture>>,
+    offloaded: Option<Res<'w, PendingSurfaceBakes>>,
+}
+
+impl BakesInFlight<'_, '_> {
+    /// Bakes dispatched and not yet patched into their materials.
+    pub(super) fn count(&self) -> usize {
+        self.native.iter().count() + self.offloaded.as_ref().map_or(0, |p| p.in_flight())
+    }
+}
+
+/// The five facts a settled world is made of.
+///
+/// Every resource is optional because the drive loop takes this param in
 /// every mode, and only `--world` registers the road pipeline; a missing
 /// resource reads as "not settled", which is the truthful answer.
 #[derive(SystemParam)]
-pub(super) struct WorldReadiness<'w> {
+pub(super) struct WorldReadiness<'w, 's> {
     compiled: Option<Res<'w, WorldCompiled>>,
     job: Option<Res<'w, CompileJob>>,
     splat: Option<Res<'w, SplatApplied>>,
     roads: Option<Res<'w, RoadPanelStats>>,
+    bakes: BakesInFlight<'w, 's>,
 }
 
-impl WorldReadiness<'_> {
+impl WorldReadiness<'_, '_> {
     /// At least one compile pass has landed, no pass is running, the
-    /// ground shows its splat, and no road re-mesh or lot re-derive is
-    /// armed or in flight.
+    /// ground shows its splat, no road re-mesh or lot re-derive is armed
+    /// or in flight, and every procedural texture the compile dispatched
+    /// has been baked and patched into its material.
     pub(super) fn settled(&self) -> bool {
         self.compiled.is_some()
             && self.job.as_ref().is_some_and(|j| j.progress().is_none())
             && self.splat.is_some()
             && self.roads.as_ref().is_some_and(|r| !r.pending)
+            && self.bakes.count() == 0
     }
 
     /// One line for the progress log and the timeout panic.
     pub(super) fn status(&self) -> String {
         format!(
-            "compiled={} compile_progress={:?} splat={} roads_pending={:?} streets={:?} buildings={:?}",
+            "compiled={} compile_progress={:?} splat={} roads_pending={:?} streets={:?} buildings={:?} bakes_in_flight={}",
             self.compiled.is_some(),
             self.job.as_ref().and_then(|j| j.progress()),
             self.splat.is_some(),
             self.roads.as_ref().map(|r| r.pending),
             self.roads.as_ref().map(|r| r.streets),
             self.roads.as_ref().map(|r| r.buildings),
+            self.bakes.count(),
         )
     }
 }
@@ -266,7 +315,7 @@ pub(super) fn spawn_walker(
     );
     let dir = Vec3::new(dir2.x, 0.0, dir2.y);
     let avatar = symbios_avatar::Avatar::build_with(
-        &engine_default_for_seed(spec.seed),
+        &walker_record(&spec),
         &symbios_avatar::AvatarConfig::default(),
     )
     .unwrap_or_else(|| panic!("--walker {}: the seeded body did not build", spec.seed));
@@ -390,7 +439,65 @@ mod tests {
             to: None,
             wear: Vec::new(),
             lead: 1.5,
+            outfit: None,
         }
+    }
+
+    /// A reroll never touches the outfit, so every seed wears the engine
+    /// default; `--walker-outfit` is what changes it, and the values land
+    /// on the wire's grid exactly as the editor's sliders would.
+    #[test]
+    fn the_walker_outfit_replaces_the_one_default_every_seed_wears() {
+        let plain = walker_record(&spec());
+        let default = symbios_avatar::dress::OutfitParams::default();
+        assert_eq!(plain.outfit, default, "no flag: the shipped outfit");
+        let mut other = spec();
+        other.seed = 40;
+        assert_eq!(
+            walker_record(&other).outfit,
+            default,
+            "another seed: the same shipped outfit"
+        );
+        let mut dressed = spec();
+        dressed.outfit = Some([0.6, 0.45, 0.1, 0.25]);
+        let record = walker_record(&dressed);
+        let o = &record.outfit;
+        assert!((o.top_hue - 0.6).abs() < 1e-3, "{}", o.top_hue);
+        assert!((o.top_shade - 0.45).abs() < 1e-3, "{}", o.top_shade);
+        assert!((o.leg_hue - 0.1).abs() < 1e-3, "{}", o.leg_hue);
+        assert!((o.leg_shade - 0.25).abs() < 1e-3, "{}", o.leg_shade);
+        assert_eq!(
+            record.archetype, plain.archetype,
+            "the outfit is all that changed"
+        );
+    }
+
+    /// The shutter's bake gate (#1351) sees the native task entity for as
+    /// long as it exists - which is exactly as long as the upstream patch
+    /// system has not consumed it - and an absent or empty offload set adds
+    /// nothing.
+    #[test]
+    fn bakes_in_flight_counts_the_native_task_until_it_is_consumed() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        let count = |world: &mut World| {
+            world
+                .run_system_once(|b: BakesInFlight| b.count())
+                .expect("the param builds without the offload resource")
+        };
+        assert_eq!(count(&mut world), 0, "nothing spawned, nothing in flight");
+        let pending = bevy_symbios_texture::TextureConfig::Bark(
+            bevy_symbios_texture::bark::BarkConfig::default(),
+        )
+        .spawn(8, 8)
+        .expect("a bark config bakes");
+        let task = world.spawn(pending).id();
+        assert_eq!(count(&mut world), 1, "an airborne bake holds the shutter");
+        // What `patch_procedural_material_textures` does once the map lands.
+        world.despawn(task);
+        assert_eq!(count(&mut world), 0);
+        world.init_resource::<PendingSurfaceBakes>();
+        assert_eq!(count(&mut world), 0, "an empty offload set adds nothing");
     }
 
     #[test]

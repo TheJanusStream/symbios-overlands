@@ -255,8 +255,8 @@ fn build_tree(layout: &Layout) -> Generator {
 }
 
 /// What the whole bed may mesh to, stone and planting together. Measured
-/// at 3 212 (bush 2 168, coneflowers 268 + 328, ferns 170 each, stones 108)
-/// - under the 3 924 of the spheres and cones it replaced, because the
+/// at 3 212 (bush 2 168, coneflowers 268 + 328, ferns 170 each, stones 108) -
+/// under the 3 924 of the spheres and cones it replaced, because the
 /// shrub and ferns are nested YOUNGER (fewer iterations) rather than
 /// merely smaller.
 #[cfg(test)]

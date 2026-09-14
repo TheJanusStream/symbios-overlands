@@ -128,8 +128,8 @@ const PLANK_T: f32 = 0.1;
 /// Blend radius between hull elements, and the sample resolution.
 ///
 /// She is fifteen metres long, so at the sanitiser's practical ceiling the
-/// cells are still a third of a metre and nothing thinner than 700 mm survives
-/// - see the shared `blob_cell_size` note in `items::util`, and #1026 for what
+/// cells are still a third of a metre and nothing thinner than 700 mm survives -
+/// see the shared `blob_cell_size` note in `items::util`, and #1026 for what
 /// happens when that is ignored.
 const BLEND: f32 = 0.3;
 const HULL_RES: u32 = 44;

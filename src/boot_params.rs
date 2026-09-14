@@ -18,8 +18,8 @@ use serde::{Deserialize, Serialize};
 
 /// Public origin where the WASM build is served. Used as the base URL for
 /// landmark links emitted on either target so the link is shareable to
-/// anyone with a browser. Mirrors `oauth::WASM_REDIRECT_URI` deliberately
-/// - the redirect URI is registered with the authorization server and
+/// anyone with a browser. Mirrors `oauth::WASM_REDIRECT_URI` deliberately -
+/// the redirect URI is registered with the authorization server and
 /// changes there require a coordinated client-metadata redeploy, so we
 /// duplicate the constant here rather than coupling boot params to the
 /// OAuth module.

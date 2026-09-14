@@ -189,8 +189,8 @@ pub(crate) fn fallback_note(status: FetchStatus) -> &'static str {
 /// is retried (#1230 f22).
 ///
 /// The sequence this exists for: a landmark link's DID is mangled badly
-/// enough to survive `validate_destination`'s shape check but name nothing
-/// - the `Did` arm is used verbatim, unlike the `Handle` arm, which
+/// enough to survive `validate_destination`'s shape check but name nothing -
+/// the `Did` arm is used verbatim, unlike the `Handle` arm, which
 /// resolves up front. The catch-all `Err(err)` arm treated that exactly
 /// like a dead PDS and spent the full twelve attempts, roughly ten minutes,
 /// under a headline asserting "A record server is unreachable", before

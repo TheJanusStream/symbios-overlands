@@ -1,8 +1,8 @@
 //! Pure-model reparent/move engine for the unified generator tree: the
 //! buffered [`PendingAction`] application, the drag-and-drop
 //! [`apply_reparent`] state machine with its cycle / stale-path guards,
-//! and the `(root, path)` node-walk helpers. No egui rendering lives here
-//! - the tree-panel widget in [`super::tree`] stages actions and this
+//! and the `(root, path)` node-walk helpers. No egui rendering lives here -
+//! the tree-panel widget in [`super::tree`] stages actions and this
 //! module mutates the [`GeneratorTreeSource`] (#650).
 
 use bevy::math::Affine3A;

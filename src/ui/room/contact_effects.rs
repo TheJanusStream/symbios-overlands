@@ -894,8 +894,8 @@ fn shape_combo(ui: &mut egui::Ui, salt: usize, shape: &mut EmitterShape, dirty: 
 mod authoring_tests {
     use super::*;
 
-    /// #1253 f321. Sequence: add three, delete the middle one, add another
-    /// - and two rows are both `effect_2`. The suffix was the LIST LENGTH,
+    /// #1253 f321. Sequence: add three, delete the middle one, add another -
+    /// and two rows are both `effect_2`. The suffix was the LIST LENGTH,
     /// not a counter, and in a master-detail list the row label is the
     /// whole navigational affordance: cooldown state is keyed by position,
     /// and the sanitiser's over-64 truncation sorts BY NAME, so duplicates

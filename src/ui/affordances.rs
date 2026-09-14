@@ -228,8 +228,8 @@ pub fn status_dot(ui: &mut egui::Ui, color: egui::Color32) -> egui::Response {
 /// on it.
 ///
 /// Every text field goes through here, enforced by
-/// `fonts::glyph_coverage_tests::the_only_text_fields_are_the_focusable_ones`
-/// - the same shape `ui::num` uses for numeric widgets, and for the same
+/// `fonts::glyph_coverage_tests::the_only_text_fields_are_the_focusable_ones` -
+/// the same shape `ui::num` uses for numeric widgets, and for the same
 /// reason: a helper nobody is obliged to call fixes this once and loses
 /// it at the next call site.
 pub fn text_edit(ui: &mut egui::Ui, field: egui::TextEdit<'_>) -> egui::Response {

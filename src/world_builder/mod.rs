@@ -102,6 +102,8 @@ mod sign;
 pub mod spatial_audio;
 mod surface_bake;
 
+pub(crate) use surface_bake::PendingSurfaceBakes;
+
 use crate::pds::{Placement, PropMeshType, RoomRecord, ScatterBounds};
 use crate::state::{AppState, LiveRoomRecord};
 use crate::terrain::FinishedHeightMap;

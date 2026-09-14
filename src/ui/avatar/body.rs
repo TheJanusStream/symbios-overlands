@@ -535,8 +535,8 @@ mod tests {
     /// (#1141).
     ///
     /// The rows are still the last thing the PDS confirmed, so throwing
-    /// them away on a transient failure would lose more than it explains
-    /// - but leaving them unannotated would present stale rows as
+    /// them away on a transient failure would lose more than it explains -
+    /// but leaving them unannotated would present stale rows as
     /// current.
     #[test]
     fn a_failure_over_a_loaded_list_outranks_the_rows() {

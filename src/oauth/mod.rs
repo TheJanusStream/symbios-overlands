@@ -237,13 +237,13 @@ mod tests {
     /// [`remember_room`] is the fix, and the property that keeps it fixed
     /// is that it is called wherever the current room CHANGES. Source
     /// scanning, the idiom `oauth::service_token` uses, because the write
-    /// itself is `localStorage` - invisible on native, where the tests run
-    /// - while "did somebody add a third way to change rooms" is a
+    /// itself is `localStorage` - invisible on native, where the tests run -
+    /// while "did somebody add a third way to change rooms" is a
     /// question about the code.
     #[test]
     fn every_site_that_changes_the_current_room_remembers_it() {
-        /// The two files allowed to install or reassign `CurrentRoomDid`
-        /// - the portal-arrival poll and the login installer - sorted, as
+        /// The two files allowed to install or reassign `CurrentRoomDid` -
+        /// the portal-arrival poll and the login installer - sorted, as
         /// the walk collects them. Both must call `remember_room`; a third
         /// file appearing here is a new travel path that owes the saved
         /// session the same answer.

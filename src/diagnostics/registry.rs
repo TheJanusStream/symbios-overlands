@@ -463,8 +463,8 @@ impl MetricsRegistry {
     }
 
     /// How much a counter rose across its sampled history window, on the
-    /// same baseline rule as [`cumulative_window_rise`](Self::cumulative_window_rise)
-    /// - a counter is a total by construction. `None` until the 1 Hz
+    /// same baseline rule as [`cumulative_window_rise`](Self::cumulative_window_rise) -
+    /// a counter is a total by construction. `None` until the 1 Hz
     /// [`sample_counters`](Self::sample_counters) pass has laid down a
     /// sample.
     pub fn counter_window_rise(&self, name: &str) -> Option<u64> {

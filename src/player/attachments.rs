@@ -1390,8 +1390,8 @@ pub(super) mod tests {
 
     /// A released world pose converts back to the stored offset through the
     /// rest frame, and doing it through the *animated* joint instead - the
-    /// obvious-looking shortcut, and what `resolve_committed_local` would do
-    /// - gets a materially different answer. That difference is the bug the
+    /// obvious-looking shortcut, and what `resolve_committed_local` would do -
+    /// gets a materially different answer. That difference is the bug the
     /// rest frame exists to prevent, so it is asserted rather than implied.
     #[test]
     fn an_offset_round_trips_through_the_rest_frame_but_not_an_animated_one() {

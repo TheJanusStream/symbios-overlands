@@ -10,8 +10,8 @@
 //! clobbered copy.
 //!
 //! Three outcomes now, decided by
-//! [`classify_same_owner_update`](crate::state::classify_same_owner_update)
-//! - which lives in `state` with the record it parks, because the
+//! [`classify_same_owner_update`](crate::state::classify_same_owner_update) -
+//! which lives in `state` with the record it parks, because the
 //! decision is `network::inbound`'s to make and this module only draws
 //! the question it produces (#1297):
 //!

@@ -248,8 +248,8 @@ pub const NET_SIGNAL_AUTH_REJECTIONS: &str = "net.signal.auth_rejections";
 /// The two causes above are not the same problem and must not be reported as
 /// the same problem (#1271 f400). A real `401`/`4xx` is a credential the relay
 /// refused; **`0` is the browser**, whose WebSocket API hides the handshake
-/// status entirely, so the signaller counts consecutive failures and gives up
-/// - which is what an ordinary Wi-Fi drop looks like from inside a tab. Until
+/// status entirely, so the signaller counts consecutive failures and gives up -
+/// which is what an ordinary Wi-Fi drop looks like from inside a tab. Until
 /// this gauge existed the live rule could not tell them apart and said
 /// "stale/expired service-auth token" to everyone, on the target where most
 /// users are. Carried on `EventPayload::RelayAuthRejected` since #712; this is

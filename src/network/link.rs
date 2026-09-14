@@ -810,8 +810,8 @@ mod tests {
 
     /// THE SEQUENCE: a portal hop. `player::portal` re-points the socket at
     /// the destination's room URL and sweeps the peers itself; the teardown
-    /// that follows is one we asked for, so it is swept but never narrated
-    /// - the user who just walked through a portal must not be told their
+    /// that follows is one we asked for, so it is swept but never narrated -
+    /// the user who just walked through a portal must not be told their
     /// connection dropped.
     #[test]
     fn a_room_change_is_swept_but_not_narrated() {

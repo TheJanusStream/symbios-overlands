@@ -1169,8 +1169,8 @@ mod tests {
 /// which involves a socket.
 ///
 /// The policy tests own a [`PdsCache`] each (#1343). They used to drive the
-/// process-global through the free functions, which is safe under `nextest`
-/// - a process per test - and a race under the bare `cargo test` that CI
+/// process-global through the free functions, which is safe under `nextest` -
+/// a process per test - and a race under the bare `cargo test` that CI
 /// runs: the eviction test's 266 inserts evicted the re-remembering test's
 /// key between its last insert and its assertion, about one run in six.
 /// Exactly one test below still drives the free functions, on DIDs of its

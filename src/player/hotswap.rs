@@ -68,8 +68,8 @@ pub(crate) struct AppliedAvatar(pub(crate) AvatarRecord);
 /// the local twin of [`AppliedAvatar`] (#1104).
 ///
 /// [`rebuild_local_visuals`] used to respawn on *every* `LiveAvatarRecord`
-/// change, and [`visuals::spawn_avatar_visuals`] clears every chassis child
-/// - the rigged body's root included - so a worn prop's offset nudge tore
+/// change, and [`visuals::spawn_avatar_visuals`] clears every chassis child -
+/// the rigged body's root included - so a worn prop's offset nudge tore
 /// the whole body down; the rigged pipeline then saw no root, kicked an
 /// async build, and the avatar was gone until it landed. Worn props are
 /// dressed from the record by `attachments::sync_rigged_attachments`, so

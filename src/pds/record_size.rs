@@ -104,8 +104,8 @@ pub fn serialized_record_bytes<T: Serialize>(record: &T) -> Option<usize> {
 /// record that is, and whether some part of it cannot be written at all.
 ///
 /// One value for all three editors, filled by each record's own
-/// `measure_publish` walking exactly the records its publish plan writes
-/// - the room's manifest and children, the stash's per-item records, the
+/// `measure_publish` walking exactly the records its publish plan writes -
+/// the room's manifest and children, the stash's per-item records, the
 /// avatar's bundle. Before this the readout was a bare byte count: the
 /// Room's said "the whole record" while measuring the biggest child, the
 /// Avatar measured the reference-only record and missed the wardrobe body

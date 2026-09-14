@@ -1997,8 +1997,8 @@ mod tests {
     }
 
     /// **The sheet names the unstuck command** (#1240 f159). It has no key
-    /// binding - there is no free key that does not collide with movement
-    /// - so the sheet is the only surface that can tell anyone it exists,
+    /// binding - there is no free key that does not collide with movement -
+    /// so the sheet is the only surface that can tell anyone it exists,
     /// and being unable to move is the failure a cheat-sheet most needs to
     /// answer.
     #[test]

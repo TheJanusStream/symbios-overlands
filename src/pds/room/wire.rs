@@ -353,8 +353,8 @@ async fn list_room_children(
 /// manifest triggers one additional `listRecords` walk over the
 /// child-generator collection before assembly.
 ///
-/// Note: ATProto's `com.atproto.repo.getRecord` returns `400 RecordNotFound`
-/// - NOT `404` - when the record does not exist. We detect that payload
+/// Note: ATProto's `com.atproto.repo.getRecord` returns `400 RecordNotFound` -
+/// NOT `404` - when the record does not exist. We detect that payload
 /// explicitly and convert it to `Ok(None)` so the loading state can advance
 /// onto the default homeworld instead of hammering the PDS with retries.
 pub async fn fetch_room_record(
@@ -692,8 +692,8 @@ mod split_wire_tests {
         g
     }
 
-    /// #1207, finding 208. Sequence: the readout turns red at "912.4 KiB
-    /// - too large to save" and the only guidance is "remove or shrink
+    /// #1207, finding 208. Sequence: the readout turns red at "912.4 KiB -
+    /// too large to save" and the only guidance is "remove or shrink
     /// content" - nothing says which of forty generators holds the budget,
     /// and the preflight that names it is behind the very Save the ceiling
     /// disables. The measurement names the winner in preflight's words.
@@ -881,8 +881,8 @@ mod split_wire_tests {
     /// to different rkeys. The room would then re-create every tree on every
     /// save and GC the identical child it had just replaced.
     ///
-    /// The sequence that produced it: decode a room, edit anything, publish
-    /// - the decode rebuilt `materials` as a fresh map, so no LSystem child
+    /// The sequence that produced it: decode a room, edit anything, publish -
+    /// the decode rebuilt `materials` as a fresh map, so no LSystem child
     /// ever matched `existing_children`.
     #[test]
     fn child_rkey_ignores_hashmap_insertion_order() {

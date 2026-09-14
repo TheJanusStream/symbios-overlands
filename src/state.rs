@@ -440,8 +440,8 @@ impl<R: Send + Sync + 'static> Default for PublishFeedback<R> {
 /// What kept the loader from installing the owner's real record (#1265 f210).
 ///
 /// The two causes have **opposite remedies**, and the room banner used to
-/// assert the first one whatever had happened. A decode failure is permanent
-/// - the record on the PDS exists, this build cannot read it, no amount of
+/// assert the first one whatever had happened. A decode failure is permanent -
+/// the record on the PDS exists, this build cannot read it, no amount of
 /// retrying helps, and deliberately overwriting it is the way out. An
 /// unreachable server is the reverse: the stored record is very probably
 /// healthy and simply unread, and that same overwrite is a hard delete of it.
@@ -1052,8 +1052,8 @@ mod effects_intensity_tests {
     use super::*;
 
     /// #1221 f308. The sequence: you portal into a stranger's room and your
-    /// screen fills with solid colour the moment your feet touch the ground
-    /// - a Dwell decal recipe at 64 m, alpha 1.0, cooldown 0, stamping once
+    /// screen fills with solid colour the moment your feet touch the ground -
+    /// a Dwell decal recipe at 64 m, alpha 1.0, cooldown 0, stamping once
     /// per frame per avatar. The engine bounded resource use (64 live
     /// quads) and never bounded griefing, and the only exit was to leave.
     #[test]

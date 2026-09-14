@@ -1402,8 +1402,8 @@ pub(crate) mod http {
     /// Process-wide shared Tokio runtime, lazily constructed on first
     /// use and reused for every native HTTP `block_on` call. Replaces
     /// the per-request `Builder::new_current_thread().build()…block_on`
-    /// boilerplate that used to be duplicated across ~18 fetch sites
-    /// - each of which paid for a fresh `mio` reactor, an epoll fd,
+    /// boilerplate that used to be duplicated across ~18 fetch sites -
+    /// each of which paid for a fresh `mio` reactor, an epoll fd,
     /// and a timer wheel only to drop them at the end of the call.
     ///
     /// `multi_thread` (not `current_thread`) so concurrent `block_on`s
@@ -1802,8 +1802,8 @@ pub(crate) mod ui {
         /// begins, centred horizontally (#1286).
         ///
         /// **Why not a corner at all.** #1261 f43 moved the stack off the
-        /// top-RIGHT because every right-anchored window in `ui::layout`
-        /// - Chat, People, Inventory, Controls, Settings - opens in that
+        /// top-RIGHT because every right-anchored window in `ui::layout` -
+        /// Chat, People, Inventory, Controls, Settings - opens in that
         /// corner, and the toast area is a real pointer area at
         /// `Order::Foreground`, so a stack of up to [`MAX_VISIBLE`] rows
         /// covered their title bars and ate clicks for the toast's full

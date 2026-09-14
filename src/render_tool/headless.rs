@@ -48,7 +48,9 @@ use crate::terrain::FinishedHeightMap;
 use crate::world_builder::particles::{Particle, ParticleEmitterMarker};
 
 use super::rig::{CameraRig, Focus, delay_cs, progress};
-use super::world::{Walker, WorldReadiness, WorldSpec, resolve_focus, spawn_world_camera};
+use super::world::{
+    BakesInFlight, Walker, WorldReadiness, WorldSpec, resolve_focus, spawn_world_camera,
+};
 use super::{ANGLES, FOV, OUT_DIR, WARMUP, gif};
 
 /// What to render: a single generator tree, an `--ages` lineup of variants of
@@ -254,6 +256,35 @@ pub(super) enum Phase {
     /// One frame at a time: `next` is the frame to shoot, `pending` the
     /// readback in flight for the one before it.
     Clip { next: u32, pending: Option<Entity> },
+}
+
+/// What the warm-up does this frame - see [`warmup_verdict`].
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Warmup {
+    /// Frames still to run.
+    Counting,
+    /// The count is done but this many texture bakes are airborne: hold the
+    /// shutter (and the clock) until they land.
+    HeldForBakes(usize),
+    /// Shoot.
+    Ready,
+}
+
+/// The warm-up's rule (#1351). The count runs down regardless of bakes - the
+/// plumes need their frames whether or not a texture is airborne - and only
+/// the shutter waits on them, because a material whose bake has not landed
+/// wears a flat fallback colour, and a picture of that looks finished. The
+/// count is a number of frames; a bake is a number of seconds on a thread
+/// pool the frame loop merely polls, so no count is long enough on a fast
+/// enough GPU.
+pub(super) fn warmup_verdict(left: u32, bakes_in_flight: usize) -> Warmup {
+    if left > 0 {
+        Warmup::Counting
+    } else if bakes_in_flight > 0 {
+        Warmup::HeldForBakes(bakes_in_flight)
+    } else {
+        Warmup::Ready
+    }
 }
 
 /// What framing decided for the rig camera.
@@ -627,6 +658,7 @@ pub(super) fn drive(
     walkers: Query<(&Transform, &Walker), Without<TileCam>>,
     terrain_ready: Option<Res<crate::terrain::SplatApplied>>,
     world: WorldReadiness,
+    bakes: BakesInFlight,
     heightmap: Option<Res<FinishedHeightMap>>,
     record: Option<Res<LiveRoomRecord>>,
     mut exit: MessageWriter<AppExit>,
@@ -651,12 +683,71 @@ pub(super) fn drive(
                 commands.insert_resource(ClipTiming {
                     capture_start: clock.elapsed + WARMUP as f32 * clock.step,
                 });
+                // The rig camera goes to its shot pose NOW, as the sheet
+                // cameras do, not on the capture frame (#1351). Until it
+                // moves it sits on the spawn placeholder 3 m from the origin,
+                // and whatever that placeholder cannot see - a palm's crown
+                // 7 m up - is never drawn for this view even after the
+                // camera moves: the foliage's wind material is attached while
+                // the mesh is outside the view, and the renderer specializes
+                // a mesh for a view when the mesh changes, not when the view
+                // first sees it. Frame 0 re-aims anyway; this is the warm-up.
+                if job.single_camera() {
+                    let walker = walkers.iter().next().map(|(t, w)| (t.translation, w.dir()));
+                    aim_rig(
+                        &capture,
+                        &job,
+                        &mut cams,
+                        walker,
+                        record.as_deref(),
+                        heightmap.as_deref(),
+                        0,
+                    );
+                }
             }
         }
         Phase::Warmup { left } => {
-            if left > 0 {
-                capture.phase = Phase::Warmup { left: left - 1 };
-                return;
+            match warmup_verdict(left, bakes.count()) {
+                Warmup::Counting => {
+                    // Keep the rig on its shot pose through the warm-up, not
+                    // just at its start (#1351): the walker spawns a frame
+                    // after framing, and a body that is built while it is
+                    // outside the view is not drawn for that view when the
+                    // camera finally turns to it. Following it here is what
+                    // puts its meshes in view as they are built.
+                    if job.single_camera() {
+                        let walker = walkers.iter().next().map(|(t, w)| (t.translation, w.dir()));
+                        aim_rig(
+                            &capture,
+                            &job,
+                            &mut cams,
+                            walker,
+                            record.as_deref(),
+                            heightmap.as_deref(),
+                            0,
+                        );
+                    }
+                    capture.phase = Phase::Warmup { left: left - 1 };
+                    return;
+                }
+                Warmup::HeldForBakes(n) => {
+                    // A texture is still baking - one a single subject
+                    // dispatched at spawn, or one the world dispatched late.
+                    // Hold the clock with the shutter, so the walker's
+                    // lead-in and the plumes stay where the count left
+                    // them and the clip's timing is still exact.
+                    clock.run = false;
+                    assert!(
+                        capture.since.elapsed() < WORLD_BUDGET,
+                        "{n} procedural texture bake(s) never landed within {WORLD_BUDGET:?}"
+                    );
+                    if capture.last_log.elapsed() >= WORLD_LOG_EVERY {
+                        capture.last_log = Instant::now();
+                        info!("warm-up done; holding the shutter for {n} texture bake(s)");
+                    }
+                    return;
+                }
+                Warmup::Ready => clock.run = true,
             }
             let walker = walkers.iter().next().map(|(t, w)| (t.translation, w.dir()));
             if job.single_camera() {
@@ -1167,4 +1258,101 @@ fn new_target((width, height): (u32, u32)) -> Image {
     image.texture_descriptor.usage =
         TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC | TextureUsages::TEXTURE_BINDING;
     image
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    /// The spawn-time placeholder every tile camera starts on.
+    const PLACEHOLDER: Vec3 = Vec3::new(0.0, 1.0, 3.0);
+
+    /// A clip's one camera leaves the placeholder the frame the subject is
+    /// framed - the start of the warm-up - not the frame of the first
+    /// capture (#1351). No GPU: the drive loop only needs the subject's
+    /// bounds, which a bare `Aabb` entity supplies.
+    #[test]
+    fn a_clip_camera_is_aimed_when_the_subject_is_framed_not_when_shot() {
+        let mut world = World::new();
+        world.init_resource::<Capture>();
+        world.init_resource::<bevy::ecs::message::Messages<AppExit>>();
+        world.insert_resource(Clock {
+            step: 0.1,
+            run: false,
+            once: false,
+            elapsed: 0.0,
+        });
+        world.insert_resource(Targets(vec![Handle::default()]));
+        let generator = crate::catalogue::by_slug("pagoda")
+            .expect("the pagoda ships")
+            .build("did:render:test");
+        world.insert_resource(RenderJob {
+            subject: Subject::Single(Box::new(generator)),
+            out: String::new(),
+            tile: (256, 256),
+            elev: None,
+            rig: CameraRig {
+                focus: Focus::Subject,
+                lift: 0.0,
+                dist: None,
+                elev: None,
+                yaw: 180.0,
+                sweep: 360.0,
+                zoom: 1.0,
+            },
+            frames: 12,
+            fps: 10.0,
+            keep_frames: false,
+            dither: 0.0,
+        });
+        let cam = world
+            .spawn((
+                TileCam(0),
+                Transform::from_translation(PLACEHOLDER).looking_at(Vec3::ZERO, Vec3::Y),
+            ))
+            .id();
+        // A 10 m tall subject: its crown is well outside the placeholder's view.
+        world.spawn((
+            GlobalTransform::default(),
+            Aabb::from_min_max(Vec3::new(-2.0, 0.0, -2.0), Vec3::new(2.0, 10.0, 2.0)),
+        ));
+
+        world
+            .run_system_once(drive)
+            .expect("the drive loop runs headless");
+
+        let capture = world.resource::<Capture>();
+        assert!(
+            matches!(capture.phase, Phase::Warmup { left: WARMUP }),
+            "one frame with bounds present frames the subject and enters warm-up"
+        );
+        let at = world.get::<Transform>(cam).unwrap().translation;
+        assert!(
+            (at - PLACEHOLDER).length() > 1.0,
+            "the camera has left the placeholder at the start of warm-up: {at}"
+        );
+        // And it is on the rig: yaw 180 puts it on the -Z side of the
+        // subject's centre, at the framed distance.
+        let framing = capture.framing.as_ref().expect("framing recorded");
+        assert!(at.z < framing.focus.z, "{at} vs {}", framing.focus);
+        assert!(
+            ((at - framing.focus).length() - framing.auto_dist).abs() < 1e-2,
+            "{at} is not {} m from {}",
+            framing.auto_dist,
+            framing.focus
+        );
+    }
+
+    #[test]
+    fn the_count_runs_down_whatever_is_baking_and_only_the_shutter_waits() {
+        // Frames left: the count proceeds even with bakes airborne, because
+        // the plumes need the frames either way.
+        assert_eq!(warmup_verdict(3, 4), Warmup::Counting);
+        assert_eq!(warmup_verdict(1, 0), Warmup::Counting);
+        // Count done, bakes airborne: held, and the log knows how many.
+        assert_eq!(warmup_verdict(0, 2), Warmup::HeldForBakes(2));
+        // Count done, nothing baking: shoot.
+        assert_eq!(warmup_verdict(0, 0), Warmup::Ready);
+    }
 }

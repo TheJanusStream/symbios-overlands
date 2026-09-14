@@ -87,8 +87,8 @@ const REBATE: f32 = 0.035;
 /// How far a card oversails its opening on every edge.
 const GLAZE_LAP: f32 = 0.06;
 /// Target pane size, in metres. Pane counts are the one thing a shared card
-/// material cannot know, and they are what tell a viewer how big an opening is
-/// - so every opening derives its grid from this rather than inheriting a
+/// material cannot know, and they are what tell a viewer how big an opening is -
+/// so every opening derives its grid from this rather than inheriting a
 /// count sized for something else.
 const PANE_M: f32 = 0.62;
 // The roof is glazed with the **same masked card as the walls**, and that is a

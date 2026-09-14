@@ -417,8 +417,9 @@ the streets, the placement compile with its terrain-aware scatter sampler and
 water volumes, and the sun / sky / cloud deck the room's `Environment`
 re-tints - exactly as the login backdrop compiles its demo world, then waits
 for all of it to *settle* (a compile pass landed, none running, the splat
-applied, no road re-mesh or lot re-derive pending, and that answer held for
-forty frames) before shooting. The camera is the game's: fog, bloom, the
+applied, no road re-mesh or lot re-derive pending, no procedural texture
+bake still in flight, and that answer held for forty frames) before
+shooting. The camera is the game's: fog, bloom, the
 depth prepass shore foam reads, cascaded shadows, MSAA. Framing is a rig
 rather than a tile set:
 
@@ -458,16 +459,42 @@ pixels that changed since the previous frame, so a still camera over a moving
 body costs what the body costs. `--keep-frames` also dumps every frame as
 `<out>-frames/frame-NNN.png`, and `--stitch dirA,dirB --out both.gif`
 concatenates such directories into one GIF - how a world, a walker and a
-turntable become one picture. `--dither` (default 6, in 8-bit steps) is the
+turntable become one picture - and `--crossfade N` dissolves each of its
+cuts, and the loop seam from the last directory back to the first, over N
+blended frames (default 0, a hard cut; every blended frame is a whole-frame
+change and costs like one). `--dither` (default 6, in 8-bit steps) is the
 one encoder knob: higher smooths sky gradients and costs bytes, since a
 dither pattern is exactly the detail LZW cannot fold; a still camera with
 only the body, the smoke and the water moving is the other lever, because
 unchanged pixels cost nothing.
 
+Whatever the subject, the shutter does not open while a procedural texture
+bake is airborne (#1351). A material is spawned in a flat fallback colour and
+gets its maps when its bake lands, seconds later on the texture crate's own
+thread pool, and no fixed warm-up frame count covers that on a fast GPU - a
+tower's glass used to land at frame 14 of a held clip. The warm-up frames
+still run (the particle plumes need them), then the tool holds both the
+shutter and the clock until the last bake is patched in, so a still shows the
+finished material and a clip's timing is unchanged by the wait. The world
+mode's progress line reports `bakes_in_flight` alongside the compile state.
+
+For the same reason a clip's one camera is put on its shot pose the frame
+the subject is framed and kept there through the warm-up, exactly as the
+sheet cameras are, rather than moved there on the capture frame. Until it
+moves it sits on a spawn placeholder, and a mesh that gets its material
+while it is outside that placeholder's view - a palm's crown 7 m up, the
+walker's body spawned 100 m from the origin - is not drawn for the view when
+the camera finally turns to it. A frond-less palm or a body-less walker in a
+clip whose sheet or later frames look right is this, not a missing asset.
+
 `--walker <seed>` (with `--world`) rolls that seed's default body and walks
 it from the record's landing toward the origin (`--walk-from x,z` /
 `--walk-to x,z` override the line, `--walker-pace` the speed,
-`--walker-wear satchel,circlet` dresses it). It is driven by the same
+`--walker-wear satchel,circlet` dresses it, and `--walker-outfit
+top_hue,top_shade,leg_hue,leg_shade` - the avatar editor's four axes, each
+0..1 - changes its clothes, which no seed does: a reroll never touches the
+outfit, so every seeded body ships in the engine's one default). It is
+driven by the same
 `Drive` / `AvatarDriver` pair the game hangs a local player on, on the real
 heightmap, and it starts walking `--walker-lead` seconds (default 1.5)
 before the first captured frame so a clip opens mid-stride.
@@ -512,6 +539,11 @@ boat, airship and skiff. A humanoid seed rolls a rigged
 rather than rendering an empty sheet; the sibling `bevy_symbios_avatar`
 viewer's own `--shot` capture is that body's instrument. `--family-seeds` will
 find you a vehicle seed to render.
+
+A single subject - a catalogue entry, a primitive, a generator, a wearable -
+stands in a neutral studio whose backdrop `--backdrop #rrggbb` recolours
+(default the blue-grey `#8592b3`); a world and a room paint their own sky
+and ignore it.
 
 Sheets land in `/tmp/avatar-render/<label>.png`. `--out` replaces that whole
 path - it names a `.png` file rather than a directory, and its parent must

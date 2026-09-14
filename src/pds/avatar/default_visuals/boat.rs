@@ -95,8 +95,8 @@ pub(super) const FUNNEL_MOUTH_RISE: f32 = 0.5;
 ///
 /// `bow_z` / `stack_z` (from [`BoatBlueprint`](crate::seeded_defaults)) are the
 /// *analytic* stem / stern stations, but the hull is a swept-blob iso-surface
-/// that pulls inboard of those analytic tips by a seed/torture-dependent margin
-/// - most at the fine prow, where a part seated on the tip floats ahead of the
+/// that pulls inboard of those analytic tips by a seed/torture-dependent margin -
+/// most at the fine prow, where a part seated on the tip floats ahead of the
 /// mesh (the reported detached bowsprit). Seating each base at this fraction of
 /// its analytic station pulls it *into* the hull, so it always embeds rather
 /// than undershooting into open air. Embedding is invisible - the hull is

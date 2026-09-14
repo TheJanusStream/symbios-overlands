@@ -244,8 +244,8 @@ pub fn should_announce_departure(link_is_up: bool, announced: bool, muted: bool)
 ///
 /// * the durable, DID-keyed write is UNCONDITIONAL on the peer entity still
 ///   existing (#1219 f120). "Mute & Decline" used to write it from inside a
-///   loop over live peers, so a stranger who spammed a gift and disconnected
-///   - the hit-and-run case the durable list exists for - was never
+///   loop over live peers, so a stranger who spammed a gift and disconnected -
+///   the hit-and-run case the durable list exists for - was never
 ///   recorded, and their next visit reached the user exactly as before. The
 ///   dialog's sender DID is relay-authenticated, so it is always safe to key
 ///   on.

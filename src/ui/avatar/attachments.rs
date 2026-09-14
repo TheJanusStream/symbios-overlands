@@ -756,8 +756,8 @@ pub(crate) fn record_for_inventory_item(
 /// reasons, all three agreed on three of them, and all three were missing
 /// the same fourth (#1141).
 ///
-/// That fourth is a **rigged body whose wardrobe record did not resolve**
-/// - the state a failed wardrobe fetch or a deleted wardrobe record leaves
+/// That fourth is a **rigged body whose wardrobe record did not resolve** -
+/// the state a failed wardrobe fetch or a deleted wardrobe record leaves
 /// behind, and one the Body tab already describes and offers a way out of.
 /// It reports zero worn attachments, so the cap check passed and the
 /// button enabled; [`attach_record`] then returned `None` and the click

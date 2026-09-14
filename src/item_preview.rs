@@ -52,8 +52,8 @@
 //! carries `Propagate<RenderLayers>` and the app registers
 //! [`bevy::app::HierarchyPropagatePlugin`] for it in
 //! `PostUpdate`, ordered before `VisibilitySystems::CheckVisibility`, so
-//! the component lands on descendants - including ones spawned this frame
-//! - before anything decides what the world camera can see. Inserting the layer
+//! the component lands on descendants - including ones spawned this frame -
+//! before anything decides what the world camera can see. Inserting the layer
 //! by hand at spawn time would have meant threading it through
 //! `spawn_visual_tree` and every emitter path, and would still have missed
 //! the particles.
@@ -174,8 +174,8 @@ pub struct PreviewRequest(pub Option<PreviewSubject>);
 pub enum PreviewSubject {
     /// A catalogue entry, by [`crate::catalogue::CatalogueEntry::slug`].
     Catalogue(String),
-    /// A stash item (#1301), by its key in [`InventoryRecord::generators`]
-    /// - its NAME. The PDS rkey is derived from the name
+    /// A stash item (#1301), by its key in [`InventoryRecord::generators`] -
+    /// its NAME. The PDS rkey is derived from the name
     /// ([`crate::pds::inventory::item_rkey`]), so the name is the identity;
     /// a rename is a different subject.
     ///

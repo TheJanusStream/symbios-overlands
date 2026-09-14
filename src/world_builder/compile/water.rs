@@ -23,8 +23,8 @@ pub(crate) fn room_water_level(record: &RoomRecord) -> Option<f32> {
         })
 }
 
-/// Slide a water-avoiding anchor along its bearing through the origin
-/// - alternating outward / inward in `DRY_STEP`-metre increments - to
+/// Slide a water-avoiding anchor along its bearing through the origin -
+/// alternating outward / inward in `DRY_STEP`-metre increments - to
 /// the first probe where the terrain rises above the room's water
 /// line plus a freeboard margin. Bearing-aligned steps keep a
 /// spawn-facing yaw valid, and the walk is a pure function of the

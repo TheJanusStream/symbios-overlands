@@ -21,8 +21,8 @@ use crate::pds::{
 /// single scalar: the world-space radius the avatar effectively
 /// occupies on a contact surface.
 ///
-/// Numbers here are *visual-effect radii*, not strict collider extents
-/// - a 1.5× multiplier on a humanoid's capsule radius gives a splash
+/// Numbers here are *visual-effect radii*, not strict collider extents -
+/// a 1.5× multiplier on a humanoid's capsule radius gives a splash
 /// disc that surrounds the body instead of cutting into it. Tune per
 /// preset; consumers don't second-guess.
 pub trait LocomotionFootprint {

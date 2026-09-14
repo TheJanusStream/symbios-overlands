@@ -140,8 +140,8 @@ impl RowGesture {
 /// Draw one stash row: the item's name as a full-width selectable row,
 /// with its tag at the right (#1301).
 ///
-/// The tag is the kind, or the wearable's socket, or the room-scoped note
-/// - the facets [`super::row_matches`] searches, which is why they stay on
+/// The tag is the kind, or the wearable's socket, or the room-scoped note -
+/// the facets [`super::row_matches`] searches, which is why they stay on
 /// the row and the pane does not repeat them. Returns the response; see
 /// [`RowGesture::of`] and [`apply_row_gesture`] for what it means.
 pub(crate) fn stash_row(

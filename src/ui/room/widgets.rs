@@ -285,8 +285,8 @@ pub(super) fn fp_range_sliders(
     fp_slider(ui, label_max, max, current_min.clamp(lo, hi), hi, dirty);
 }
 
-/// The drag's own response, for the same reason [`fp_slider`] returns one
-/// - not the row's, so a tooltip lands on the control rather than the
+/// The drag's own response, for the same reason [`fp_slider`] returns one -
+/// not the row's, so a tooltip lands on the control rather than the
 /// whole line.
 pub(super) fn drag_u32(
     ui: &mut egui::Ui,

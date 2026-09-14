@@ -851,8 +851,8 @@ mod tests {
     ///
     /// Nothing may select a row inside a collapsed parent, because the
     /// tree no longer builds one. Both paths that reveal a row - the
-    /// `editor_gizmo` scene pick and `RoomEditorState::restore_selection`
-    /// - walk the path and open EVERY ancestor, not just the immediate
+    /// `editor_gizmo` scene pick and `RoomEditorState::restore_selection` -
+    /// walk the path and open EVERY ancestor, not just the immediate
     /// parent. This pins that opening only the immediate parent is not
     /// enough, which is the mistake the two-line version of either loop
     /// would be.

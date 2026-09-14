@@ -1208,8 +1208,8 @@ mod tests {
     }
 
     /// #1238 f64. Sequence: place a scatter around a clearing 400 m from
-    /// spawn, then switch its bounds from Circle to Rect to square it off
-    /// - the whole stand teleports to the world origin, and the
+    /// spawn, then switch its bounds from Circle to Rect to square it off -
+    /// the whole stand teleports to the world origin, and the
     /// coordinates it had are gone from the UI. Both arms built the new
     /// bounds with a hard-coded `center: [0, 0]`, three lines from
     /// `new_scatter_placement`, which uses the very same centre-binding

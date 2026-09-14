@@ -738,8 +738,8 @@ pub(in crate::catalogue::items) fn plane(
 ///
 /// The mesh's wound front face is `−Y` (see `world_builder::sign`), so the
 /// negative rotation turns the panel's visible side to `+Z`, *away* from
-/// whoever the prop faces, and maps the image's downward axis to world `+Y`
-/// - backwards and upside-down at once, which is exactly how all 24
+/// whoever the prop faces, and maps the image's downward axis to world `+Y` -
+/// backwards and upside-down at once, which is exactly how all 24
 /// monuments shipped before #976. The positive rotation puts the front on
 /// `−Z`, `V` on world `−Y` and `U` on world `−X`, which is the viewer's
 /// right.

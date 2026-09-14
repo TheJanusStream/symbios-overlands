@@ -399,8 +399,8 @@ pub(super) fn commit_attachment_drag(
 /// The spawn path composes each instance as `anchor ⊗ cell_tf ⊗ root_tf`,
 /// where `cell_tf` is identity for an Absolute placement but carries the
 /// sample position + random yaw of each Scatter/Grid cell. Reparenting a
-/// dragged root against its anchor therefore returns `cell_tf ⊗ new_pose`
-/// - one instance's cell baked into the shared blueprint. The delta form
+/// dragged root against its anchor therefore returns `cell_tf ⊗ new_pose` -
+/// one instance's cell baked into the shared blueprint. The delta form
 /// sidesteps the cell entirely:
 ///
 /// ```text

@@ -7,43 +7,49 @@ sign in with the Bluesky account you already have.
 
 > 🚧 Prototype in active development
 
-![A seeded overland: a lighthouse village among trees, under the world's own sky, from a slowly drifting camera](docs/media/world.gif)
+![A coastal world grown from one seed: palms on a sandy spit, sun glitter on the water, a kiosk and the gateway at the shore, from a held camera](docs/media/world.gif)
 
-## What you get
+*The world you sign into. Nobody made it for you and nobody else has it: it
+grew from your identity, water, weather, palms and all, before you touched a
+control.*
 
-The moment you sign in, you have a world. It is yours, it is unlike anyone
-else's, and it is already there: its own landscape, weather, settlement and
-soundtrack, grown from your identity before you touch a single control.
-Reshape the ground, place buildings and trees from a catalogue of hundreds,
-sculpt an avatar that is yours across apps, hang your creations on it or gift
-them to friends. Then step through a doorway into a friend's world - there is
-no server to join and no loading screen between worlds.
+## Yours, a doorway from your friends', free
 
-## Why it is different
-
-- **It is yours.** Your world and your avatar live in your own account, on
-  whichever server hosts that account - not on a game server this project
-  runs. They go where your account goes.
-- **Nothing to sign up for.** Sign in with your Bluesky account, or any
-  account on the same open network. The app never sees your password.
-- **Worlds are recipes, not files.** A world is a small set of instructions
-  your own computer grows into terrain, streets, buildings, plants and sound.
-  That is why there are no world servers to pay for or lose, why a world
-  loads in seconds, and why editing one feels like gardening rather than
-  uploading.
-- **Friends are a doorway away.** Every world grows a gateway. Step into it
+- **Yours.** The moment you sign in, you have a world, and it is unlike anyone
+  else's: its own landscape, weather, settlement and soundtrack, grown from
+  your identity. Reshape the ground, place buildings and trees from a
+  catalogue of hundreds, sculpt an avatar that is yours across apps. All of
+  it lives in your own account, on whichever server hosts that account, not
+  on a game server this project runs. It goes where your account goes.
+- **A doorway from your friends'.** Every world grows a gateway. Step into it
   and it shows you the owner's friends' worlds; walk out into one of them.
+  There is no server to join and no loading screen between worlds.
+- **Free.** Open source, and nothing to sign up for: sign in with your
+  Bluesky account, or any account on the same open network, and the app
+  never sees your password. A world is a small recipe your own computer
+  grows into terrain, buildings, plants and sound, which is why there are no
+  world servers to pay for or lose, why a world loads in seconds, and why
+  editing one feels like gardening rather than uploading.
 
-![Every sign-in lands in a different world: six seeded overlands, one after another](docs/media/worlds.gif)
+![Six seeded worlds, one after another, each held for a moment: a coastal city, a savanna with a colonnade, an alpine castle, a pagoda among mesas, a gothic church, a farmstead under trees](docs/media/worlds.gif)
 
-![Your avatar, walking up to a world's gateway and through it](docs/media/walker.gif)
+*Six sign-ins, six worlds. A different seed lands somewhere else every time:
+the theme, the ground, the weather and the sound all roll together.*
 
-![From the catalogue: six of its hundreds of buildings, one theme each, turning](docs/media/catalogue.gif)
+![A walking avatar, followed from behind, crossing the sand up to a world's gateway](docs/media/walker.gif)
+
+*Your avatar, walking up to the gateway. Step through it and it lists the
+owner's friends' worlds; the body is yours in every symbios app.*
+
+![Eight catalogue entries turning on a studio backdrop: a harbour battery, a steampunk gateway, a cog tower, a greenhouse, a tenement, a cathedral, a palm and an acacia](docs/media/catalogue.gif)
+
+*From the catalogue of hundreds you build with: buildings across the themes,
+and plants grown from grammars rather than modelled.*
 
 Every picture on this page was rendered by the project's own headless tool:
-the worlds from their seeds, the buildings from the catalogue. Nothing is
-hand-modelled - the terrain, the buildings, the plants and the body are all
-grown from a recipe.
+the worlds from their seeds, the buildings and plants from the catalogue.
+Nothing is hand-modelled. The terrain, the buildings, the plants and the body
+are all grown from a recipe.
 
 ## Try it
 

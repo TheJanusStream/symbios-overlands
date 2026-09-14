@@ -20,8 +20,8 @@ fn spow(v: f32, e: f32) -> f32 {
 }
 
 /// Surface point + analytic normal at latitude `eta`, longitude `omega`.
-/// The normal swaps each exponent for `2 − e` and divides by the axis scale
-/// - exact everywhere except the poles/creases, where the radial direction
+/// The normal swaps each exponent for `2 − e` and divides by the axis scale -
+/// exact everywhere except the poles/creases, where the radial direction
 /// is a stable stand-in.
 fn surface(half_extents: [f32; 3], e1: f32, e2: f32, eta: f32, omega: f32) -> (Vec3, Vec3) {
     let [ax, ay, az] = half_extents;

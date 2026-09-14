@@ -19,8 +19,8 @@
 //! [`GeneratorTreeSource`] rather than in whichever panel offers the
 //! affordance: a delete sweeps them ([`sweep_root_refs`]) and a rename
 //! retargets them ([`retarget_root_refs`]). Neither ever leaves an orphan
-//! reference that the world compiler would log as "unknown generator_ref"
-//! - or, in the rename's case, a `traits` entry stranded under a key no
+//! reference that the world compiler would log as "unknown generator_ref" -
+//! or, in the rename's case, a `traits` entry stranded under a key no
 //! generator answers to any more.
 //!
 //! ## Sub-module map

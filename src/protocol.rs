@@ -55,8 +55,8 @@ pub enum OverlandsMessage {
     /// The payload is a JSON-serialised [`RoomRecord`] rather than the
     /// record itself, because `RoomRecord` contains internally-tagged enums
     /// (`#[serde(tag = "$type")]` on `Generator`, `Placement`, and
-    /// `ScatterBounds`) that require `serde::Deserializer::deserialize_any`
-    /// - and bincode, which `bevy_symbios_multiuser` uses for its data
+    /// `ScatterBounds`) that require `serde::Deserializer::deserialize_any` -
+    /// and bincode, which `bevy_symbios_multiuser` uses for its data
     /// channels, explicitly does not support that method. Guests would
     /// otherwise see "Bincode does not support the
     /// serde::Deserializer::deserialize_any method" every time the owner

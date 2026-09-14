@@ -3,8 +3,8 @@
 //! Walks every grammar line through the same `parse_statement` /
 //! `add_statement` path the runtime uses, then derives against the entry's
 //! default footprint. Catches rule typos and ensures every `Mat("...")`
-//! slot referenced in the grammar has a matching entry in the materials map
-//! - otherwise a hand-edit that drops a slot or breaks a rule only surfaces
+//! slot referenced in the grammar has a matching entry in the materials map -
+//! otherwise a hand-edit that drops a slot or breaks a rule only surfaces
 //! as a runtime warning the first time someone drops the entry in a room.
 //!
 //! Every shape entry's grammar test should be a one-line call to

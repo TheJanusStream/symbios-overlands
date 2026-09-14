@@ -78,8 +78,8 @@ pub fn feed_panel_title() -> String {
     format!("Dev updates · {}", feed_hashtag())
 }
 
-/// Attribution line under the heading, e.g. `from @codewright.bsky.social`
-/// - stated once here instead of repeated on every card (#896), since
+/// Attribution line under the heading, e.g. `from @codewright.bsky.social` -
+/// stated once here instead of repeated on every card (#896), since
 /// `getAuthorFeed` only ever returns one author's posts.
 pub fn feed_panel_subtitle() -> String {
     format!("from @{}", feed_handle())
@@ -155,8 +155,8 @@ pub fn start_login_feed_fetch(
     spawn_post_fetch_task(&mut commands);
 }
 
-/// Free helper used by both the OnEnter system and the in-UI Retry click
-/// - keeps the spawn logic single-sourced. Caller is expected to have
+/// Free helper used by both the OnEnter system and the in-UI Retry click -
+/// keeps the spawn logic single-sourced. Caller is expected to have
 /// reset [`LoginPostFeed`]'s state to `Loading` first.
 fn spawn_post_fetch_task(commands: &mut Commands) {
     let pool = IoTaskPool::get();

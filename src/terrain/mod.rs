@@ -1,8 +1,8 @@
 //! Deterministic procedural terrain plugin.
 //!
 //! A room's seed is the FNV-1a 64-bit hash of its owner's DID, so every
-//! client visiting the same overland derives the identical landscape locally
-//! - there is no authoritative server to replicate from.  Heightmap
+//! client visiting the same overland derives the identical landscape locally -
+//! there is no authoritative server to replicate from.  Heightmap
 //! generation (a landform-chosen base pass - FBM, diamond-square or Voronoi
 //! terracing - followed by hydraulic and thermal erosion) and
 //! the four splat layer textures (e.g. grass / dirt / rock / snow - the

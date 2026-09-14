@@ -105,8 +105,8 @@ impl Sink {
     /// ABSOLUTE where the filesystem can answer (#1274 f185). The log
     /// directory defaults to the bare relative `diagnostics`, so the button
     /// whose own doc-comment says it exists "so a coding agent can be pointed
-    /// straight at the file" was handing over `diagnostics/session-latest.jsonl`
-    /// - a path that resolves against a working directory the panel never shows
+    /// straight at the file" was handing over `diagnostics/session-latest.jsonl` -
+    /// a path that resolves against a working directory the panel never shows
     /// and, for a desktop-launched or packaged build, the user never chose.
     /// Falls back to the relative form, so a file that does not exist yet still
     /// shows something rather than nothing.

@@ -1406,8 +1406,8 @@ mod placement {
     /// The control: the pre-#1285 idiom really did put the footer at the
     /// top, so the assertions above are not describing a coincidence.
     ///
-    /// Reproduces the old shape - a top-down child of a bottom-up parent
-    /// - and asserts the failure. `Ui::with_layout` hands that child the
+    /// Reproduces the old shape - a top-down child of a bottom-up parent -
+    /// and asserts the failure. `Ui::with_layout` hands that child the
     /// parent's whole available rect, so it draws from the rect's top
     /// while the parent accounts for its height at the bottom.
     #[test]
