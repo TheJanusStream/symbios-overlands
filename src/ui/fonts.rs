@@ -963,12 +963,14 @@ pub(crate) mod glyph_coverage_tests {
     /// a false failure; the list is a floor, not a claim of completeness.
     const HOSTED_EDITOR_GLYPHS: &[char] = &[
         '·', // U+00B7, axis readouts
-        '-', // U+2014, section dashes
-        '•', // U+2022, list bullets
-        '…', // U+2026, truncation
-        '▶', // U+25B6, seed-hunt step forward
-        '◀', // U+25C0, seed-hunt step back
-        '⚠', // U+26A0, the generator-mismatch warning
+        // An escape, not the glyph: the 2026-09-14 hyphen sweep rewrote the
+        // literal into an ASCII hyphen and this list stopped checking it (#1358).
+        '\u{2014}', // U+2014, section dashes
+        '•',        // U+2022, list bullets
+        '…',        // U+2026, truncation
+        '▶',        // U+25B6, seed-hunt step forward
+        '◀',        // U+25C0, seed-hunt step back
+        '⚠',        // U+26A0, the generator-mismatch warning
     ];
 
     /// Non-ASCII glyphs drawn by the Audio Editor pop-out the room editor
@@ -998,16 +1000,17 @@ pub(crate) mod glyph_coverage_tests {
         '±', // U+00B1, a wire's effective sweep, "about 150 ± 250 Hz" (0.4.9)
         '·', // U+00B7, the wire-drop tooltip's separator (0.4.2)
         '×', // U+00D7, the pitch multiplier
-        '-', // U+2014, the valid-graph readout, the strip's caption note
-        '“', // U+201C, the instrument name in the patch header
-        '”', // U+201D
-        '…', // U+2026, "Reassign all notes of '<id>' to…" (0.4.2)
-        '⏹', // U+23F9, the audition strip's Stop (0.4.3; the host drew it before)
-        '▶', // U+25B6, the audition strip's Audition (0.4.3)
-        '✏', // U+270F, an instrument's "✏ Edit" - the glyph this list was added for
-        '✔', // U+2714, the valid-graph readout
-        '✖', // U+2716, remove instrument / connection / lane, a broken graph's readout
-        '➡', // U+27A1, the wire-drop tooltip's arrow (0.4.2)
+        // An escape, not the glyph, for the reason the list above gives (#1358).
+        '\u{2014}', // U+2014, the valid-graph readout, the strip's caption note
+        '“',        // U+201C, the instrument name in the patch header
+        '”',        // U+201D
+        '…',        // U+2026, "Reassign all notes of '<id>' to…" (0.4.2)
+        '⏹',        // U+23F9, the audition strip's Stop (0.4.3; the host drew it before)
+        '▶',        // U+25B6, the audition strip's Audition (0.4.3)
+        '✏',        // U+270F, an instrument's "✏ Edit" - the glyph this list was added for
+        '✔',        // U+2714, the valid-graph readout
+        '✖',        // U+2716, remove instrument / connection / lane, a broken graph's readout
+        '➡',        // U+27A1, the wire-drop tooltip's arrow (0.4.2)
     ];
 
     /// The charmaps of every face the proportional family falls back

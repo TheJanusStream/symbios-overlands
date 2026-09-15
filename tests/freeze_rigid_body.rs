@@ -389,7 +389,9 @@ fn collider_replace_while_parked_and_touching_survives_release() {
 ///
 /// Last run against **avian 0.7.0** (2026-08-30, #1150) - the upgrade this
 /// canary was armed for - and it still fails, at
-/// `dynamics/solver/islands/mod.rs:518` via `update_narrow_phase`. So the
+/// `dynamics/solver/islands/mod.rs:518` via `update_narrow_phase`. Fired again
+/// on 2026-09-15 for the `symbios-avatar` 0.8.1 / `bevy_symbios_avatar` 0.9.1
+/// take (#1358), still on avian 0.7.0: the same panic at the same line. So the
 /// `LockedAxes::ALL_LOCKED` + `GravityScale(0)` + velocity-zeroing park in
 /// `player::freeze_local_avatar_on_visuals_select`, and the #867-869
 /// deferred-collider-rebuild machinery layered on it, both stay.
