@@ -147,7 +147,10 @@ cargo test --lib                                       # unit tests (fast path)
 cargo nextest run --cargo-profile test-release         # the full suite (see below)
 cargo test --profile test-release --doc                # doctests: nextest cannot run them
 cargo doc --no-deps --document-private-items           # docs (kept warning-free)
-cargo check --workspace --target wasm32-unknown-unknown # app + worker still build for web
+# app + worker still build for web. CI's toolchain action exports this
+# RUSTFLAGS, so a warning there is an error; the env replaces
+# .cargo/config.toml's per-target rustflags, exactly as it does on CI (#1321)
+RUSTFLAGS='-D warnings' cargo check --workspace --target wasm32-unknown-unknown
 ```
 
 **`cargo test --lib` is a separate gate, not a subset of the nextest run.**
@@ -362,11 +365,14 @@ Note: [`.cargo/config.toml`](../.cargo/config.toml) pins `build.jobs = 6` -
 each target links a full Bevy binary, and an uncapped parallel link can exhaust
 RAM on smaller machines. With one integration target the suite itself is cheap,
 but the app and the render bin still link full engines beside it. The same file
-carries the `getrandom_backend="wasm_js"` rustflag the wasm build needs:
-`symbios-avatar` pulls `getrandom` 0.3 transitively, 0.3 refuses to build for
-`wasm32-unknown-unknown` without a cfg naming its backend, and cargo configs do
-not propagate from a dependency to its dependents. A wasm build run from
-outside the repo root will not see either setting.
+carries the `getrandom_backend="wasm_js"` rustflag for local wasm builds:
+`symbios-avatar` pulls `getrandom` 0.3 transitively, early 0.3 refused to build
+for `wasm32-unknown-unknown` without a cfg naming its backend, and cargo
+configs do not propagate from a dependency to its dependents (#1055). Since
+0.3.4 the `wasm_js` feature alone selects that backend, which is why the gate's
+wasm line and both CI workflows build without the cfg: their `RUSTFLAGS`
+replaces the per-target rustflags, and the graph no longer needs them. A wasm
+build run from outside the repo root will not see either setting.
 
 ## Cargo features
 

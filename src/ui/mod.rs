@@ -120,10 +120,11 @@ pub mod unsaved_guard;
 
 #[cfg(test)]
 mod tests {
-    /// Paths outside `src/ui` that may name `crate::ui::` in code, each
-    /// with the reason it may. Everything else under `src/` is expected
-    /// to reach the layer through a resource IT owns, written once a
-    /// frame by a `ui` mirror in `PreUpdate` (#1158, #1297).
+    /// Paths outside `src/ui` that may import the ui layer in code - in
+    /// any of the spellings [`ui_layer_hits`] knows - each with the reason
+    /// it may. Everything else under `src/` is expected to reach the layer
+    /// through a resource IT owns, written once a frame by a `ui` mirror
+    /// in `PreUpdate` (#1158, #1297).
     ///
     /// Every entry is asserted LIVE by
     /// [`the_mirrored_consumers_do_not_import_the_ui_layer`]: an
@@ -166,8 +167,10 @@ mod tests {
     ];
 
     /// The `ui` dependency inversion, as one law (#1158 -> #1297, closed
-    /// 2026-09-10). Nothing outside `src/ui` may name `crate::ui::` in
-    /// code unless [`MAY_IMPORT_UI`] says why. What a domain module needs
+    /// 2026-09-10). Nothing outside `src/ui` may import the ui layer in
+    /// code unless [`MAY_IMPORT_UI`] says why - and "import" means every
+    /// spelling [`ui_layer_hits`] knows, not the literal `crate::ui::`
+    /// this sweep grepped for until #1355. What a domain module needs
     /// from a panel is a FACT, and a fact is a resource it owns, written
     /// once a frame by a `ui` mirror in `PreUpdate` - the
     /// `player::RigHold` shape, built six times now.
@@ -179,7 +182,11 @@ mod tests {
     ///    reaching into the layer, which is the only regression left.
     ///    Comment lines do not count, because a rustdoc link is not a
     ///    dependency and #1297 group 6 says so; nor does a file whose
-    ///    every hit sits inside `#[cfg(test)]`.
+    ///    every hit sits inside `#[cfg(test)]`. The spelling does not
+    ///    count either: a bare `use crate::ui;` followed by
+    ///    `ui::toolbar::…` is the same dependency as the long form, and
+    ///    a matcher that only knew the long form let one such file pass
+    ///    on the strength of the two long-form lines beside it (#1355).
     /// 2. **[`MAY_IMPORT_UI`] against the tree**, so a stale exemption is
     ///    a failure rather than a comment nobody reads.
     /// 3. **Each mirror's REGISTRATION in `lib.rs`.** A mirror nobody
@@ -221,7 +228,8 @@ mod tests {
         // group 6 insisted on, because counting them is how the number
         // gets argued about instead of acted on: a rustdoc link is not a
         // dependency, and neither is a `#[cfg(test)]` source-scan helper
-        // reaching for another module's scan list.
+        // reaching for another module's scan list - and plus the
+        // spellings that command cannot see (`ui_layer_hits`, #1355).
         let mut offenders: Vec<String> = Vec::new();
         for path in walk_rs(&root.join("src")) {
             let rel = path
@@ -233,12 +241,7 @@ mod tests {
                 continue;
             }
             let source = std::fs::read_to_string(&path).expect("source is readable");
-            let hits: Vec<usize> = source
-                .lines()
-                .enumerate()
-                .filter(|(_, line)| code(line).contains("crate::ui::"))
-                .map(|(n, _)| n + 1)
-                .collect();
+            let hits = ui_layer_hits(&source);
             if hits.is_empty() {
                 continue;
             }
@@ -279,11 +282,139 @@ mod tests {
             assert!(
                 !live.is_empty(),
                 "the exemption for {path} is stale - nothing under it imports \
-                 crate::ui:: in code any more, so DELETE the entry rather than \
-                 leave it describing a tree that has moved on. Its reason was: \
-                 {reason}"
+                 the ui layer in code any more, in any spelling, so DELETE the \
+                 entry rather than leave it describing a tree that has moved on. \
+                 Its reason was: {reason}"
             );
         }
+    }
+
+    /// The sweep's matcher sees every spelling of the import, not only the
+    /// `crate::ui::` it grepped for until #1355, and none of the
+    /// look-alikes. The first row is the line that motivated this: it was
+    /// in the tree, exempted, and invisible to both the sweep and the
+    /// exemption's liveness check, so the entry would have read as stale
+    /// the day the long-form lines beside it went.
+    #[test]
+    fn the_ui_sweep_sees_every_spelling_of_an_import() {
+        let imports: &[(&str, &[usize])] = &[
+            ("use crate::ui;", &[1]),
+            ("use crate::ui::layout::WindowLayout;", &[1]),
+            ("use crate::ui as u;", &[1]),
+            ("use crate::{state::AppState, ui};", &[1]),
+            ("use crate::{ui, state::AppState};", &[1]),
+            ("use crate::{state::AppState, ui::room::EditorTab};", &[1]),
+            ("use crate::{state::{AppState, LiveRoomRecord}, ui};", &[1]),
+            ("use crate::{ui as u, state::AppState};", &[1]),
+            ("use crate::{\n    state::AppState,\n    ui,\n};", &[3]),
+            (
+                "use crate::{\n    state::AppState,\n    ui::room::EditorTab,\n};",
+                &[3],
+            ),
+            ("fn draw() {\n    crate::ui::toolbar::draw();\n}", &[2]),
+            (
+                "use crate::state::AppState;\nuse crate::ui;\nuse crate::ui::layout::UiWindow;",
+                &[2, 3],
+            ),
+        ];
+        for (source, lines) in imports {
+            assert_eq!(&ui_layer_hits(source), lines, "{source:?}");
+        }
+        let look_alikes = [
+            "use crate::ui_helpers::x;",
+            "use crate::uix::y;",
+            "use crate::state::ui;",
+            "use crate::{state::{AppState, ui}};",
+            "use crate::{state::ui, prefs::Prefs};",
+            "use crate::{uid, state::AppState};",
+            "// use crate::ui;",
+            "/// [`crate::ui::layout::WindowLayout`] is where the window lives.",
+            "use crate::state::AppState; // was crate::ui::layout",
+        ];
+        for source in look_alikes {
+            assert!(ui_layer_hits(source).is_empty(), "{source:?}");
+        }
+    }
+
+    /// The lines (1-based) on which `source` imports the ui layer in code,
+    /// comments stripped. Every spelling counts, not only the literal
+    /// `crate::ui::` the sweep grepped for until #1355: `crate::ui::x`; a
+    /// bare `crate::ui` ended by `;`, `,`, `}`, ` as ` or the line; and
+    /// `ui` as a member of a `crate::{...}` group - bare, `ui::x` or
+    /// `ui as u` - however many lines rustfmt spread the group over.
+    #[cfg(test)]
+    fn ui_layer_hits(source: &str) -> Vec<usize> {
+        // One string, comments gone, newlines kept: a byte offset maps
+        // back to its line, and a `crate::{` group reads across lines.
+        let code = source
+            .lines()
+            .map(|line| line.split("//").next().unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let line_of = |offset: usize| code[..offset].matches('\n').count() + 1;
+        let mut hits = Vec::new();
+        for (pos, _) in code.match_indices("crate::ui") {
+            let after = &code[pos + "crate::ui".len()..];
+            // `crate::ui_helpers`, `crate::uix`: a different name.
+            if after.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+                continue;
+            }
+            let follows = after.trim_start();
+            if after.starts_with("::")
+                || follows.is_empty()
+                || follows.starts_with([';', ',', '}'])
+                || follows.starts_with("as ")
+            {
+                hits.push(line_of(pos));
+            }
+        }
+        for (pos, _) in code.match_indices("crate::{") {
+            let open = pos + "crate::{".len();
+            let members = &code[open..open + group_len(&code[open..])];
+            // Split at this group's own commas, not a nested group's.
+            let mut depth = 0usize;
+            let mut from = 0usize;
+            let mut bounds = Vec::new();
+            for (i, c) in members.char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => depth = depth.saturating_sub(1),
+                    ',' if depth == 0 => {
+                        bounds.push((from, i));
+                        from = i + 1;
+                    }
+                    _ => {}
+                }
+            }
+            bounds.push((from, members.len()));
+            for (from, to) in bounds {
+                let member = &members[from..to];
+                let name = member.trim();
+                if name == "ui" || name.starts_with("ui::") || name.starts_with("ui ") {
+                    let lead = member.len() - member.trim_start().len();
+                    hits.push(line_of(open + from + lead));
+                }
+            }
+        }
+        hits.sort_unstable();
+        hits.dedup();
+        hits
+    }
+
+    /// Bytes from the start of `rest` to the brace that closes the group
+    /// `rest` begins inside; all of `rest` when nothing closes it.
+    #[cfg(test)]
+    fn group_len(rest: &str) -> usize {
+        let mut depth = 0usize;
+        for (i, c) in rest.char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' if depth == 0 => return i,
+                '}' => depth -= 1,
+                _ => {}
+            }
+        }
+        rest.len()
     }
 
     /// Every `.rs` file at or under `dir`.
@@ -304,8 +435,10 @@ mod tests {
     }
 
     /// Files at or under `rel` (a file path or a directory prefix) that
-    /// name `crate::ui::` on a line with code on it. Shared by the pin
-    /// above and its exemption check.
+    /// import the ui layer on a line with code on it, by the same
+    /// [`ui_layer_hits`] the sweep uses - one matcher, so an exemption
+    /// cannot read as stale for a spelling the sweep would still catch
+    /// (#1355).
     #[cfg(test)]
     fn imports_ui_in_code(root: &std::path::Path, rel: &str) -> Vec<String> {
         let mut out = Vec::new();
@@ -320,12 +453,7 @@ mod tests {
                 continue;
             }
             let source = std::fs::read_to_string(&path).expect("source is readable");
-            if source.lines().any(|line| {
-                line.split("//")
-                    .next()
-                    .unwrap_or("")
-                    .contains("crate::ui::")
-            }) {
+            if !ui_layer_hits(&source).is_empty() {
                 out.push(path.display().to_string());
             }
         }
