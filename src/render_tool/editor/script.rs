@@ -123,12 +123,33 @@ pub(crate) enum Target {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Step {
     Hold(u32),
-    Move { to: Target, over: u32 },
+    Move {
+        to: Target,
+        over: u32,
+    },
     Press,
     Release,
-    Click { on: Target, over: u32 },
+    Click {
+        on: Target,
+        over: u32,
+    },
     Type(String),
-    DragGizmo { axis: Axis, metres: f32, over: u32 },
+    /// Wheel the surface under the pointer, in egui points: positive scrolls
+    /// DOWN a list, as a wheel pulled toward you does.
+    ///
+    /// Needed because a panel can be taller than its window, and a control
+    /// below the fold is clipped rather than culled: egui lays it out and
+    /// reports it to AccessKit anyway, so `widget "..."` finds it, resolves
+    /// it to a point outside the window, and the click lands on whatever is
+    /// behind. Scrolling is the only way to put it where a pointer can reach
+    /// it. The Body tab's hosted sculpting sections are all below the fold at
+    /// any window a 720-line frame can hold (#1358).
+    Scroll(f32),
+    DragGizmo {
+        axis: Axis,
+        metres: f32,
+        over: u32,
+    },
 }
 
 impl Step {
@@ -137,7 +158,7 @@ impl Step {
         match self {
             Self::Hold(n) => *n,
             Self::Move { over, .. } | Self::DragGizmo { over, .. } => *over,
-            Self::Press | Self::Release | Self::Type(_) => 1,
+            Self::Press | Self::Release | Self::Type(_) | Self::Scroll(_) => 1,
             Self::Click { over, .. } => over + CLICK_TAIL,
         }
     }
@@ -259,6 +280,17 @@ fn step(words: &[Word]) -> Result<Step, String> {
             [Word::Quoted(text)] => Ok(Step::Type(text.clone())),
             _ => Err("expected `type \"<text>\"`".into()),
         },
+        "scroll" => match rest {
+            [n] => {
+                let by = n
+                    .bare()
+                    .and_then(|w| w.parse::<f32>().ok())
+                    .filter(|v| v.is_finite() && *v != 0.0)
+                    .ok_or("expected `scroll <points>`, a non-zero number")?;
+                Ok(Step::Scroll(by))
+            }
+            _ => Err("expected `scroll <points>`".into()),
+        },
         "move" | "click" => {
             let (target, rest) = target(rest)?;
             if verb == "move" {
@@ -357,6 +389,8 @@ pub(crate) struct FrameInput {
     pub(crate) press: bool,
     pub(crate) release: bool,
     pub(crate) typed: Option<String>,
+    /// Points to wheel the surface under the pointer by, down-positive.
+    pub(crate) scrolled: Option<f32>,
 }
 
 /// What a lookup found, in frame pixels.
@@ -441,6 +475,7 @@ impl ScriptRunner {
             Step::Press => input.press = true,
             Step::Release => input.release = true,
             Step::Type(text) => input.typed = Some(text.clone()),
+            Step::Scroll(by) => input.scrolled = Some(*by),
             Step::Move { to, over } | Step::Click { on: to, over } => {
                 if frame == 0 {
                     match self.screen_path(to, scene)? {
@@ -916,6 +951,20 @@ pub(crate) fn run_script(
             });
         }
         egui_events.0.push(egui::Event::Text(text));
+    }
+    if let Some(by) = input.scrolled {
+        // egui's delta is the CONTENT's movement, so scrolling a list down
+        // moves its content up: the sign flips here rather than in the
+        // script, where "scroll 200" should mean "200 points further down
+        // the list".
+        egui_events.0.push(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::Vec2::new(0.0, -by),
+            // What egui asks an integration to send when the phase is not a
+            // trackpad's to know.
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
     }
 }
 

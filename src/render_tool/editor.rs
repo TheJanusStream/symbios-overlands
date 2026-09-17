@@ -74,6 +74,16 @@ pub(super) struct EditorOpening {
     pub(super) ui_scale: Option<f32>,
     /// Window rects seeded into the persisted layout, by layout key.
     pub(super) windows: Vec<(&'static str, [f32; 4])>,
+    /// `--editor-avatar`: open the Avatar editor on its Body tab instead of
+    /// the World Editor, so the sculpting sections this app HOSTS from
+    /// `bevy_symbios_avatar::editor` can be seen (#1358).
+    ///
+    /// The Body tab is the one editing surface overlands does not own: its
+    /// sliders, its pickers and their order come from the adapter, so a
+    /// release that adds a control adds it here with nothing in this repo
+    /// changing. That is exactly the kind of change a screenshot catches and
+    /// a test does not.
+    pub(super) avatar: bool,
 }
 
 /// Every managed window, so `--editor-window` can name any of them.
@@ -158,6 +168,8 @@ pub(super) fn register(
     for (key, rect) in &opening.windows {
         layout.rects.insert((*key).to_string(), *rect);
     }
+    // Read before `opening` is moved into the world below.
+    let avatar_editor = opening.avatar;
     app.add_plugins(EguiPlugin::default())
         .insert_resource(crate::camera::egui_global_settings())
         .insert_state(AppState::InGame)
@@ -174,9 +186,11 @@ pub(super) fn register(
         .insert_resource(stand_in_refresh_ctx())
         .insert_resource(StoredRoomRecord(record.clone()))
         // A returning owner: the Controls sheet was dismissed long ago and
-        // the World Editor is the panel being shown.
+        // one editor is up - the World Editor, or the Avatar editor under
+        // `--editor-avatar`.
         .insert_resource(ui::toolbar::UiPanels {
-            world_editor: true,
+            world_editor: !avatar_editor,
+            avatar: avatar_editor,
             controls: false,
             controls_seen: true,
             owner_hint_seen: true,
@@ -262,12 +276,14 @@ pub(super) fn register(
                 ui::toolbar::toolbar_ui,
                 ui::room::room_admin_ui,
                 ui::catalogue::catalogue_ui,
+                ui::avatar::avatar_ui,
                 ui::toast::toast_ui,
                 script::paint_cursor,
             )
                 .chain()
                 .run_if(in_state(AppState::InGame)),
         );
+    register_avatar_editor(app);
     if let Some(script) = script {
         app.insert_resource(script::ScriptProgress {
             setup_done: script.start == 0,
@@ -362,6 +378,55 @@ fn absolute_placement_of(record: &RoomRecord, name: &str) -> Option<usize> {
 /// fetcher. Nothing here fetches, but the rule is held over the source
 /// (`no_production_path_builds_an_uncapped_oauth_transport`), and this tool
 /// is source like any other.
+/// The rest of what [`ui::avatar::avatar_ui`] reads.
+///
+/// The Body tab is hosted from `bevy_symbios_avatar::editor`, so it is the
+/// one editing surface that can change under this app without a line of this
+/// repo moving - which is why `--editor-avatar` exists and why every one of
+/// these resources is registered rather than the tab being redrawn by hand.
+///
+/// The live record is a RIGGED one with its engine body already resolved,
+/// because that is the only shape the Body tab draws: a record whose
+/// `rigged_mut().resolved` is `None` returns from the tab immediately and the
+/// window opens on an empty scroll area. It is the wardrobe default for the
+/// stand-in's own DID, so the body on the panel is the body in the world.
+fn register_avatar_editor(app: &mut App) {
+    use crate::pds::avatar::ResolvedRig;
+    use crate::pds::avatar::wardrobe::engine_default_for_did;
+    use crate::state::LiveAvatarRecord;
+
+    let did = app.world().resource::<AtprotoSession>().did.clone();
+    let mut record = crate::pds::AvatarRecord::wearing(WARDROBE_RKEY);
+    if let Some(rig) = record.body.rigged_mut() {
+        rig.resolved = Some(ResolvedRig {
+            body: engine_default_for_did(&did),
+            attachments: Vec::new(),
+        });
+    }
+    assert!(
+        record
+            .body
+            .rigged_ref()
+            .is_some_and(|r| r.resolved.is_some()),
+        "the Body tab draws nothing for a record with no resolved engine body"
+    );
+    app.insert_resource(LiveAvatarRecord(record))
+        .init_resource::<PublishFeedback<crate::pds::AvatarRecord>>()
+        .init_resource::<crate::diagnostics::SessionLog>()
+        .init_resource::<crate::editor_gizmo::BlobEditContext>()
+        .init_resource::<crate::editor_gizmo::FacePick>()
+        .init_resource::<crate::player::LocalMovement>()
+        .init_resource::<crate::world_builder::image_cache::BlobImageCache>()
+        .init_resource::<crate::world_builder::audio_resolver::BlobAudioCache>()
+        .init_resource::<crate::terrain::referenced::ReferencedLayerStatus>()
+        .init_resource::<crate::world_builder::asset_failure::AssetRetryRequests>();
+}
+
+/// The wardrobe entry the stand-in's record names. Nothing fetches it - the
+/// resolved body beside it is what the tab draws - but the rkey has to be a
+/// real TID shape, because the record is sanitised like any other.
+const WARDROBE_RKEY: &str = "3jzfcijpj2z2a";
+
 fn stand_in_session(did: &str) -> AtprotoSession {
     use crate::oauth::capped_fetch::CappedFetcher;
     use proto_blue_oauth::types::TokenSet;

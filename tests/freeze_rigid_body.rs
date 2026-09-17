@@ -10,7 +10,8 @@
 //! solver's `pair.manifolds[manifold_index]` index-out-of-bounds panic - the
 //! crash the #739 UV-mapping dropdown edit exposed.
 //!
-//! **Still unfixed upstream as of avian 0.7.0** (re-run 2026-08-30, #1150).
+//! **Still unfixed upstream as of avian 0.7.0** (re-run 2026-08-30 #1150,
+//! 2026-09-15 and 2026-09-17 #1358).
 //! It was first diagnosed on 0.6.1, where the assert fired inside
 //! `Islands::add_contact`; on 0.7.0 the same assertion lives at
 //! `dynamics/solver/islands/mod.rs:518` and is reached through
@@ -391,7 +392,8 @@ fn collider_replace_while_parked_and_touching_survives_release() {
 /// canary was armed for - and it still fails, at
 /// `dynamics/solver/islands/mod.rs:518` via `update_narrow_phase`. Fired again
 /// on 2026-09-15 for the `symbios-avatar` 0.8.1 / `bevy_symbios_avatar` 0.9.1
-/// take (#1358), still on avian 0.7.0: the same panic at the same line. So the
+/// take and again on 2026-09-17 for the 0.9.0 / 0.10.0 one (#1358), still on
+/// avian 0.7.0 both times: the same panic at the same line. So the
 /// `LockedAxes::ALL_LOCKED` + `GravityScale(0)` + velocity-zeroing park in
 /// `player::freeze_local_avatar_on_visuals_select`, and the #867-869
 /// deferred-collider-rebuild machinery layered on it, both stay.

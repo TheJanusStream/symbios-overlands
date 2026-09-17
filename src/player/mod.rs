@@ -241,6 +241,17 @@ impl Plugin for PlayerPlugin {
         // layer, so nothing is fetched, embedded or indexed before a body can
         // move.
         app.add_plugins(bevy_symbios_avatar::AvatarPlugin)
+            // AFTER the plugin, which `init_resource`s its own 12 m default:
+            // `init_resource` keeps whatever is already there, so inserting
+            // this first would be silently thrown away. The two constants are
+            // this lens's, not the adapter's - see
+            // `crate::config::camera::HAIR_SWITCH` for the pixel arithmetic
+            // and `HAIR_MARGIN` for why a band is a WebGL2 crash rather than
+            // a taste (#1358). (`cfg` in this file is the rover block.)
+            .insert_resource(bevy_symbios_avatar::HairLod {
+                switch: crate::config::camera::HAIR_SWITCH,
+                margin: crate::config::camera::HAIR_MARGIN,
+            })
             .add_systems(
                 Update,
                 (
@@ -657,5 +668,115 @@ mod tests {
         assert_eq!(reverse_steer_sign(-deadband * 0.5), 1.0);
         // Just past the deadband - inverted.
         assert_eq!(reverse_steer_sign(-deadband - 0.1), -1.0);
+    }
+}
+
+#[cfg(test)]
+mod hair_lod_tests {
+    use super::*;
+
+    /// A crossfading hair LOD quits every WebGL2 client, so the band this
+    /// crate asks for is zero - and stays zero (#1358).
+    ///
+    /// Named for the consequence rather than for the value, because the value
+    /// looks like a tuning knob and is not one. In Bevy 0.19.1 a non-zero
+    /// `VisibilityRange` margin switches on the dither shader, which reads the
+    /// range table as a 64-entry uniform (1024 bytes) on WebGL2 while
+    /// `bevy_pbr`'s mesh view layout sizes that binding at one `Vec4`;
+    /// `pbr_opaque_mesh_pipeline` then fails validation and the app exits on
+    /// the first frame a body is inside the band. Measured in Chromium against
+    /// the published adapter with 40 bodies (bevy_symbios_avatar #48), where
+    /// margin 0 ran clean for 65 s and margin 4 quit.
+    ///
+    /// Asserted through the ranges rather than only on the constant, because
+    /// what keeps the shader out of the build is `start_margin` being empty -
+    /// the number is just how we get there.
+    #[test]
+    fn a_hair_crossfade_would_quit_every_webgl2_client() {
+        use bevy_symbios_avatar::{HairLod, HairTier};
+
+        assert_eq!(
+            crate::config::camera::HAIR_MARGIN,
+            0.0,
+            "a non-zero hair margin is a WebGL2 crash, not a look"
+        );
+        let lod = HairLod {
+            switch: crate::config::camera::HAIR_SWITCH,
+            margin: crate::config::camera::HAIR_MARGIN,
+        };
+        for tier in [HairTier::Near, HairTier::Far] {
+            let range = lod.range(tier);
+            assert!(
+                range.start_margin.start == range.start_margin.end
+                    && range.end_margin.start == range.end_margin.end,
+                "{tier:?} crossfades over start {:?} end {:?}; Bevy compiles \
+                 its dither shader for any range with width, and that shader \
+                 does not pass pipeline validation on WebGL2",
+                range.start_margin,
+                range.end_margin
+            );
+        }
+
+        // The control: the same assertion has to be able to FAIL. A band of a
+        // metre is what the adapter measured crashing.
+        let band = HairLod {
+            switch: crate::config::camera::HAIR_SWITCH,
+            margin: 1.0,
+        };
+        let range = band.range(HairTier::Far);
+        assert!(
+            range.start_margin.start < range.start_margin.end,
+            "a margin of a metre must read as a crossfade, or this guard is \
+             asserting nothing"
+        );
+    }
+
+    /// The app runs on THIS lens's hair switch, not the adapter's default -
+    /// and the insert has to come after the plugin to do it (#1358).
+    ///
+    /// `AvatarPlugin` `init_resource`s its own `HairLod`, and `init_resource`
+    /// keeps whatever is already there. So an insert moved above the plugin
+    /// line is not an error, a warning or a panic: it is thrown away, every
+    /// body silently goes back to switching at 12 m, and the only way to see
+    /// it is to render a body at 14 m and know what it should look like.
+    /// Registering the two in the same order `PlayerPlugin` does is what this
+    /// pins.
+    #[test]
+    fn the_app_switches_hair_at_this_lenss_distance_and_not_the_adapters() {
+        use bevy_symbios_avatar::{HAIR_SWITCH as ADAPTER_SWITCH, HairLod};
+
+        let mut app = App::new();
+        app.add_plugins(bevy_symbios_avatar::AvatarPlugin)
+            .insert_resource(HairLod {
+                switch: crate::config::camera::HAIR_SWITCH,
+                margin: crate::config::camera::HAIR_MARGIN,
+            });
+        assert_eq!(
+            app.world().resource::<HairLod>().switch,
+            crate::config::camera::HAIR_SWITCH,
+            "the plugin's default won; the insert must come after it"
+        );
+        assert_ne!(
+            crate::config::camera::HAIR_SWITCH,
+            ADAPTER_SWITCH,
+            "this guard only says anything while the two differ - if the \
+             adapter has adopted this lens's distance, delete it rather than \
+             leaving a test that passes for the wrong reason"
+        );
+
+        // The control: the same registration the other way round loses.
+        let mut backwards = App::new();
+        backwards
+            .insert_resource(HairLod {
+                switch: crate::config::camera::HAIR_SWITCH,
+                margin: crate::config::camera::HAIR_MARGIN,
+            })
+            .add_plugins(bevy_symbios_avatar::AvatarPlugin);
+        assert_eq!(
+            backwards.world().resource::<HairLod>().switch,
+            crate::config::camera::HAIR_SWITCH,
+            "init_resource must keep an inserted value - if this ever fails, \
+             the order above stopped mattering and the comment is stale"
+        );
     }
 }

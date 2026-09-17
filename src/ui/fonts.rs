@@ -961,6 +961,14 @@ pub(crate) mod glyph_coverage_tests {
     /// `bevy_symbios_avatar` bump** - it is named in the dependency-bump
     /// checklist for exactly that reason. Being stale costs coverage, never
     /// a false failure; the list is a floor, not a claim of completeness.
+    ///
+    /// Re-scanned against 0.10.0 (#1358, the helmet family): the drawn set is
+    /// these seven and no more. The helmet family's new pickers, their axis
+    /// sliders and the kept-unknown line are all ASCII, and the one change
+    /// either way is that the generator warning's em dash became a hyphen -
+    /// four of them in 0.9.1's literals, three in 0.10.0's. Scanned by
+    /// lexing the literals rather than grepping the lines, because the `⚠`
+    /// sits in a `\`-continued string that a line-oriented scan walks past.
     const HOSTED_EDITOR_GLYPHS: &[char] = &[
         '·', // U+00B7, axis readouts
         // An escape, not the glyph: the 2026-09-14 hyphen sweep rewrote the

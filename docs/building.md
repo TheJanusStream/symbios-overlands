@@ -533,7 +533,10 @@ cargo run --profile test-release --bin render -- --world 253 --editor \
 its name in the record (`--describe` lists them), its tree row on Items and
 its first placement on Placements; `--editor-window <window>=x,y,w,h` places a
 window by its layout key the way a saved layout does (a window still takes
-the width its content needs); `--editor-ui-scale` is the Settings window's
+the width its content needs); `--editor-avatar` opens the **Avatar** editor
+on its Body tab instead of the World Editor, which is how the sculpting
+sections this app hosts from `bevy_symbios_avatar::editor` are checked after
+an adapter bump; `--editor-ui-scale` is the Settings window's
 Interface scale. `--downscale N` writes any single-camera still or clip N
 times smaller than it renders, each pixel the mean of an N x N block.
 
@@ -548,6 +551,7 @@ below it advances one captured frame at a time:
 | `click <target> [over N]` | glide (default 6 frames), rest a frame, press, release |
 | `press` / `release` | the left button, one frame each |
 | `type "text"` | select everything in the focused field, then type |
+| `scroll N` | wheel the surface under the pointer N egui points further down its list (a negative N goes back up) |
 | `drag-gizmo <axis> <metres> over N` | with the button held, pull the gizmo handle that far along x, y or z |
 | `start` | where capture begins |
 
@@ -561,6 +565,18 @@ one - egui's input, bevy_picking's mouse pointer (which the gizmo hovers
 with), the window cursor and the mouse button - and an arrow is painted
 where it is, so a clip shows what is being pointed at. Each step logs where
 it put the pointer.
+
+**A widget below the fold is found, and clicking it misses.** A scrolled-out
+control is clipped, not culled: egui still lays it out and still reports it to
+AccessKit, so `widget "label"` resolves happily to a point outside the window
+and the click lands on whatever is behind. `move` the pointer over the panel
+first, then `scroll` until the control is on screen, and only then click it.
+The Avatar editor's Body tab needs this for every section it hosts from
+`bevy_symbios_avatar::editor`, which all sit below its identity block
+(`--editor-avatar`, #1358). The same property is why a duplicate name cannot
+be scrolled away: the Body tab has two controls called `hair`, the seed-lock
+toggle and the section header, and the lookup refuses the pair however far the
+panel is scrolled - reach one of them with `px` instead.
 
 A gesture's consequences land between captures: a gizmo release commits the
 record and the placement is rebuilt over the next frames, and a Catalogue

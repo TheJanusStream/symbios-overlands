@@ -444,9 +444,16 @@ fn spawn_one_walker(
         from2.y,
     );
     let dir = Vec3::new(dir2.x, 0.0, dir2.y);
+    // With the far tier, because a walker is the one subject this tool draws
+    // at a distance: `--dist` past `HairLod::switch` is exactly the shot the
+    // switch exists for, and a body built without one draws its near hair at
+    // every distance and shows nothing (#1358).
     let avatar = symbios_avatar::Avatar::build_with(
         &walker_record(seed, spec.outfits.get(index).copied()),
-        &symbios_avatar::AvatarConfig::default(),
+        &symbios_avatar::AvatarConfig {
+            far_hair: true,
+            ..symbios_avatar::AvatarConfig::default()
+        },
     )
     .unwrap_or_else(|| panic!("--walker {seed}: the seeded body did not build"));
 

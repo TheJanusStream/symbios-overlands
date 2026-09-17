@@ -242,6 +242,40 @@ pub(crate) mod camera {
     /// there whipped the camera π mid-loop.
     pub const YAW_FREEZE_FORWARD_Y: f32 = 0.95;
 
+    /// Camera distance (m, from a body's ROOT) at which a rigged body's hair
+    /// swaps to the engine's far tier - `bevy_symbios_avatar::HairLod::switch`
+    /// for this lens (#1358).
+    ///
+    /// **Not the adapter's 12 m default, and the difference is this lens.**
+    /// The engine judged its far tier (symbios-avatar #350) at about 78 pixels
+    /// a metre, which is what a 1080-line camera at 60° vertical shows at 12 m.
+    /// Overlands' camera is Bevy's default 45° ([`super::camera`] leaves `fov`
+    /// alone), so the same window resolves 1080 / (2·tan 22.5°·d) = 1304/d
+    /// pixels a metre and does not fall to 78 until **16.7 m**. Measured on
+    /// seed 42's head through the render tool's copy of this lens at 1920×1080:
+    /// 24 px crown-to-collar at 12 m, 18 px at 16 m, 15 px at 20 m, against the
+    /// 17 px the engine was judging.
+    ///
+    /// **The other half is where the chase camera rests.** [`ORBIT_RADIUS`] is
+    /// 12 m from the chassis CENTRE and the body root hangs half a capsule
+    /// (0.90 m) below it, so at rest the camera is 12.38 m from the root - past
+    /// a 12 m switch. The adapter's default would put the owner's own body in
+    /// its far tier at the zoom the game opens on, and flip it on any nudge.
+    pub const HAIR_SWITCH: f32 = 16.7;
+
+    /// Width of the band the hair tiers crossfade over (m). **Zero, and not a
+    /// matter of taste** (#1358).
+    ///
+    /// Any non-zero margin switches on Bevy's dither shader, which in 0.19.1
+    /// reads the visibility-range table as a 64-entry uniform on WebGL2 while
+    /// the bind-group layout declares room for one entry:
+    /// `pbr_opaque_mesh_pipeline` fails validation and the app quits on the
+    /// first frame a band is drawn. Measured in Chromium against the published
+    /// adapter with 40 bodies (bevy_symbios_avatar #48); margin 0 never
+    /// compiles that shader. `a_hair_crossfade_would_quit_every_webgl2_client`
+    /// in [`crate::player`] is the guard.
+    pub const HAIR_MARGIN: f32 = 0.0;
+
     pub mod fog {
         /// sRGBA colour of the atmospheric haze (matches a mid-sky tone).
         pub const COLOR: [f32; 4] = [0.35, 0.48, 0.66, 1.0];

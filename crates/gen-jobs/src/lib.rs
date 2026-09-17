@@ -400,10 +400,20 @@ pub enum GenJob {
     /// Build a parametric avatar body from its record (#1061).
     ///
     /// The one job here whose *reason* for existing is wasm rather than
-    /// throughput: `Avatar::build` costs 68 ms at a draft atlas and 277 ms at
-    /// a full one, and a wasm `AsyncComputeTaskPool` runs on the main thread,
-    /// so on the browser build every body would otherwise be a dropped frame
-    /// or several. Native still runs it straight on the compute pool.
+    /// throughput: a wasm `AsyncComputeTaskPool` runs on the main thread, so on
+    /// the browser build every body would otherwise be a dropped frame or
+    /// several. Native still runs it straight on the compute pool.
+    ///
+    /// **The cost has grown, and not where the old figures said.** This doc
+    /// carried 68 ms at a draft atlas against 277 ms at a full one from #1061;
+    /// re-measured for the 0.9 take (#1358) over the 13 seeded survey bodies,
+    /// native release: **811 ms at the 256 draft atlas and 1,059 ms at the
+    /// 1,024 full one** - and the published 0.8.1 engine measures 839 ms and
+    /// 1,115 ms on the same harness, so this is where the engine has been for
+    /// a while rather than something 0.9 did. What moved is the RATIO: the
+    /// draft rung now saves about a quarter rather than three quarters,
+    /// because the expensive half of a body is geometry the atlas size does
+    /// not touch.
     ///
     /// Boxed for the same reason `TextureBake` is: the record is the largest
     /// input in the roster.
@@ -412,6 +422,24 @@ pub enum GenJob {
         /// Side of the square skin atlas, in texels - the draft/settle rung
         /// the caller is asking for.
         atlas: u32,
+        /// Grow the far hair tier beside the near one (symbios-avatar #350,
+        /// taken at #1358), for a caller that draws bodies at a distance.
+        ///
+        /// Opt-in because the engine only builds one when asked and this crate
+        /// builds its own [`symbios_avatar::AvatarConfig`]: nothing here gets a
+        /// far tier unless the caller says so. Measured on the 13 seeds of the
+        /// wear survey, paired per seed against the same build without it: a
+        /// median 9.5 ms more per body (+1.2 % at the 256 draft atlas, +0.6 %
+        /// at the 1024 full one) and 37,862 bytes more on the wire back -
+        /// 1.7 % of a draft body, 0.27 % of a full one, the same absolute
+        /// figure either way because it is geometry, not texture.
+        ///
+        /// `serde(default)` so the field is optional on the wire: the worker
+        /// codec is self-describing msgpack, and a job encoded without it (an
+        /// older bundle's `gen-worker.js` left in a browser cache) still
+        /// decodes, as the body it was always asking for.
+        #[serde(default)]
+        far_hair: bool,
     },
 }
 
@@ -452,11 +480,16 @@ impl GenJob {
             GenJob::TextureBake { job, width, height } => {
                 GenResult::Texture(job.generate(width, height))
             }
-            GenJob::AvatarBuild { record, atlas } => GenResult::Avatar(
+            GenJob::AvatarBuild {
+                record,
+                atlas,
+                far_hair,
+            } => GenResult::Avatar(
                 symbios_avatar::Avatar::build_with(
                     &record,
                     &symbios_avatar::AvatarConfig {
                         atlas,
+                        far_hair,
                         ..symbios_avatar::AvatarConfig::default()
                     },
                 )
@@ -882,6 +915,7 @@ mod tests {
         let GenResult::Avatar(built) = GenJob::AvatarBuild {
             record: Box::new(record),
             atlas: 64,
+            far_hair: true,
         }
         .run() else {
             unreachable!("an avatar job must return an avatar result");
@@ -906,5 +940,74 @@ mod tests {
             back.parts.eyes.is_some(),
             "a humanoid arrived without the eyes its blink needs"
         );
+        // The far tier is the one part of a body that is NOT among `meshes`
+        // (the engine keeps it beside them so a consumer that knows nothing
+        // of tiers draws what it always drew), so it is the one part a
+        // `serde(skip)` or a field rename could drop in silence - the whole
+        // reason overlands asks for it here rather than on the main thread.
+        let far = back.far_hair.expect("the far tier crossed the boundary");
+        assert!(
+            far.mesh.face_count() > 0,
+            "the far tier arrived with no geometry"
+        );
+    }
+
+    /// A job asks for the far tier and gets one; a job that does not, does
+    /// not - and an `AvatarBuild` encoded with no `farHair` key at all still
+    /// decodes, as the near-only body it was always asking for (#1358).
+    ///
+    /// The last of those is what `serde(default)` buys: the worker codec is
+    /// self-describing msgpack and a browser can be holding an older
+    /// `gen-worker.js` from its cache, so the field has to be optional on the
+    /// wire rather than merely new.
+    #[test]
+    fn the_far_tier_is_asked_for_by_the_job_and_absent_from_an_older_wire() {
+        let mut record =
+            symbios_avatar::AvatarRecord::new("Worker", symbios_avatar::Archetype::default());
+        record.reroll(11);
+
+        let built = |far_hair| {
+            let GenResult::Avatar(built) = GenJob::AvatarBuild {
+                record: Box::new(record.clone()),
+                atlas: 64,
+                far_hair,
+            }
+            .run() else {
+                unreachable!("an avatar job must return an avatar result");
+            };
+            built.expect("the default body meshes")
+        };
+        assert!(
+            built(true).far_hair.is_some(),
+            "a job that asked for a far tier did not get one"
+        );
+        assert!(
+            built(false).far_hair.is_none(),
+            "a job that did not ask for a far tier grew one anyway"
+        );
+
+        // The job as an older bundle encoded it: the variant's fields without
+        // `far_hair` at all. Built as its own type rather than by editing the
+        // new encoding, because that is what actually sits in a stale
+        // `gen-worker.js` - and it needs no value-tree crate in a manifest
+        // whose whole point is having almost nothing in it.
+        #[derive(Serialize)]
+        enum OlderGenJob<'a> {
+            AvatarBuild {
+                record: &'a symbios_avatar::AvatarRecord,
+                atlas: u32,
+            },
+        }
+        let older = rmp_serde::to_vec_named(&OlderGenJob::AvatarBuild {
+            record: &record,
+            atlas: 64,
+        })
+        .expect("encode the older job");
+        let GenJob::AvatarBuild { far_hair, .. } =
+            rmp_serde::from_slice(&older).expect("a job with no far_hair key still decodes")
+        else {
+            unreachable!("the variant is unchanged by dropping one of its fields");
+        };
+        assert!(!far_hair, "a missing far_hair must default to near-only");
     }
 }

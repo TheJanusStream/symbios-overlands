@@ -498,6 +498,11 @@ pub(super) fn setup(
                 .flat_map(|&seed| WEAR_POSES.iter().map(move |&p| (seed, p)))
                 .enumerate()
             {
+                // No far tier, unlike `--walker` (#1358): a wear sheet is a
+                // studio framing a metre or two from the head, so a far tier
+                // here would be built and never drawn. Leaving it off is also
+                // what keeps this sheet a control - the same bodies the take
+                // was measured against, with nothing extra spawned.
                 let avatar = symbios_avatar::Avatar::build_with(
                     &engine_default_for_seed(seed),
                     &symbios_avatar::AvatarConfig {

@@ -57,8 +57,16 @@ use bevy::prelude::*;
 
 use crate::pds::avatar::EngineAvatarRecord;
 
-/// Atlas side used while the record is still moving under an editor. The
-/// sibling viewer's own draft rung: 68 ms a build against 277 at full size.
+/// Atlas side used while the record is still moving under an editor - the
+/// sibling viewer's own draft rung.
+///
+/// It buys less than it used to. Measured over the 13 seeded survey bodies on
+/// the published engine for the 0.9 take (#1358), native release: 811 ms here
+/// against 1,059 ms at the full 1,024, a saving of about a quarter. The figures
+/// this line used to carry (68 against 277) were #1061's and describe an engine
+/// several hair releases ago; the expensive half of a body is now geometry,
+/// which the atlas size does not touch. The rung stays because a quarter off
+/// every keystroke of a slider drag is still worth having.
 const DRAFT_ATLAS: u32 = 256;
 /// How long the record must be still before the full-atlas build is owed.
 const SETTLE_SECS: f32 = 0.8;
@@ -66,11 +74,15 @@ const SETTLE_SECS: f32 = 0.8;
 /// How long the owner's own body may be building before the wait is worth a
 /// word (#1255).
 ///
-/// Comfortably above a native full-atlas build (~277 ms) and above the
-/// gen-worker's own documented 130 ms–1.0 s instantiation, so the ordinary
+/// Above a native full-atlas build - 1,059 ms measured for the 0.9 take
+/// (#1358), not the ~277 ms this line used to claim - and above the
+/// gen-worker's own documented 130 ms to 1.0 s instantiation, so the ordinary
 /// case stays silent; comfortably below the offload watchdog's 60 s, so a
 /// worker that is never coming back is visible long before the diagnostics
-/// log is the only place that knows.
+/// log is the only place that knows. The margin over a native build is now
+/// about 2.4x rather than 9x: still silent in the ordinary case, but the next
+/// engine release that makes a body dearer should re-measure rather than
+/// assume.
 const SLOW_BUILD_ANNOUNCE_SECS: f64 = 2.5;
 
 /// When the resolved record under this chassis last differed from the body

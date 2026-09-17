@@ -26,8 +26,10 @@ use crate::offload::census::{Census, Transition};
 /// stuck.
 ///
 /// The same number the replay rule uses, and deliberately generous: a full
-/// atlas avatar build is ~277 ms and the heaviest texture bake is seconds, so
-/// a minute of silence is not slowness, it is a job that is never coming back.
+/// atlas avatar build is about 1.1 s (re-measured for the 0.9 engine take,
+/// #1358; this line used to say ~277 ms) and the heaviest texture bake is
+/// seconds, so a minute of silence is not slowness, it is a job that is never
+/// coming back.
 pub const TASK_TIMEOUT_SECS: f64 = 60.0;
 
 /// What the offload census looked like at the last sample.

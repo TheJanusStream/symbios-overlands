@@ -195,9 +195,17 @@ pub(in crate::player) fn kick_rigged_builds(
                 // pool directly: on wasm that pool runs on the main thread, so
                 // every body would be a dropped frame or several. Native still
                 // lands on `AsyncComputeTaskPool` inside `offload`.
+                // Every body this file installs is drawn by the chase camera,
+                // which orbits from 2 m to 200 m (`cfg::camera`), so every one
+                // of them crosses the hair switch - the owner's own included,
+                // whose resting 12 m orbit already sits 12.38 m from its root.
+                // Asking for the far tier here is therefore not a peer-only
+                // optimisation: it is what keeps a zoomed-out owner and the
+                // peers beside them drawing the same thing (#1358).
                 let task = crate::offload::offload(crate::offload::GenJob::AvatarBuild {
                     record: Box::new(target.clone()),
                     atlas,
+                    far_hair: true,
                 });
                 commands.entity(chassis).insert(RiggedBuild {
                     target,

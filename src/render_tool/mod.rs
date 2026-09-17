@@ -312,6 +312,20 @@ struct Args {
     /// (default 1.5), so a clip opens mid-stride.
     #[arg(long, default_value_t = 1.5)]
     walker_lead: f32,
+    /// With `--editor`: open the AVATAR editor on its Body tab rather than
+    /// the World Editor (#1358). That tab hosts its sculpting sections from
+    /// `bevy_symbios_avatar::editor`, so it is the surface that changes when
+    /// the adapter is bumped and nothing in this repo moves - which is what
+    /// makes it worth a headless shot after a take.
+    #[arg(long)]
+    editor_avatar: bool,
+    /// Camera distance (m, from a body's root) at which a walker's hair swaps
+    /// to the engine's far tier, overriding
+    /// [`crate::config::camera::HAIR_SWITCH`] - the game's own value, which is
+    /// what a `--walker` still shows without this (#1358). The band around it
+    /// is NOT settable: a non-zero one quits every WebGL2 client.
+    #[arg(long)]
+    hair_switch: Option<f32>,
     /// With `--walker`: a body's outfit as the avatar editor's four axes,
     /// `top_hue,top_shade,leg_hue,leg_shade`, each 0..1 (#1351). Every
     /// seeded body ships in the engine's one default outfit - a reroll
@@ -786,9 +800,14 @@ pub fn run() {
                 && args.editor_select.is_none()
                 && args.editor_ui_scale.is_none()
                 && args.editor_window.is_empty()
-                && args.editor_script.is_none()),
-        "--editor-tab, --editor-select, --editor-ui-scale, --editor-window and --editor-script \
-         need --editor"
+                && args.editor_script.is_none()
+                && !args.editor_avatar),
+        "--editor-tab, --editor-select, --editor-ui-scale, --editor-window, --editor-script and \
+         --editor-avatar need --editor"
+    );
+    assert!(
+        !args.editor_avatar || args.editor_tab.is_none(),
+        "--editor-avatar opens the AVATAR editor; --editor-tab names a World Editor tab"
     );
     assert!(
         args.downscale == 1
@@ -821,6 +840,7 @@ pub fn run() {
                     .iter()
                     .map(|w| editor::parse_window(w).unwrap_or_else(|e| panic!("{e}")))
                     .collect(),
+                avatar: args.editor_avatar,
             };
             let script = args.editor_script.as_deref().map(|path| {
                 let source = std::fs::read_to_string(path)
@@ -841,6 +861,16 @@ pub fn run() {
     // spawn/pose/drive plugin (stateless, no game dependencies) and the
     // one-shot dressing system that parents worn props once the joints exist.
     app.add_plugins(bevy_symbios_avatar::AvatarPlugin);
+    // The game's hair switch, so a `--walker` still is what the player sees at
+    // that distance rather than what the adapter's default would show (#1358).
+    // After the plugin, which `init_resource`s its own; `--hair-switch`
+    // overrides it, which is how the two candidate switches were compared.
+    app.insert_resource(bevy_symbios_avatar::HairLod {
+        switch: args
+            .hair_switch
+            .unwrap_or(crate::config::camera::HAIR_SWITCH),
+        margin: crate::config::camera::HAIR_MARGIN,
+    });
     app.add_systems(Update, headless::dress_wear_bodies);
     let [br, bg, bb] = args
         .backdrop

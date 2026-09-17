@@ -3174,3 +3174,234 @@ fn a_name_a_seed_or_a_lock_does_not_rebuild_the_body() {
         "a real shape change must still rebuild"
     );
 }
+
+/// The two hair tiers a peer (and the owner) is drawn with, at THIS lens's
+/// switch - and a body built the way the studio sheets build one carrying
+/// neither (#1358).
+///
+/// Three things have to line up for the far tier to reach the screen, and
+/// none of them is loud when it does not: the job has to ask the engine to
+/// grow one (`GenJob::AvatarBuild { far_hair }`), `spawn_avatar` has to draw
+/// it as its own entity with a `VisibilityRange`, and the app's `HairLod` has
+/// to be carried onto it by `AvatarPlugin` - which it does in `Apply`, one
+/// frame after the spawn, because the spawn itself only knows the adapter's
+/// 12 m default. A body that misses any of the three still renders, still
+/// walks and still wears its hat; it just never changes tier, or changes it
+/// four and a half metres early.
+mod hair_tiers {
+    use super::*;
+    use bevy_symbios_avatar::{HairLod, HairTier};
+
+    /// Everything the real path does, minus the worker: build at the config
+    /// `crates/gen-jobs` uses, install through `install_built_body`, and let
+    /// the plugin's retune run one frame.
+    fn app_with_body(far_hair: bool) -> App {
+        let mut app = test_app();
+        app.add_plugins(bevy_symbios_avatar::AvatarPlugin)
+            .insert_resource(HairLod {
+                switch: crate::config::camera::HAIR_SWITCH,
+                margin: crate::config::camera::HAIR_MARGIN,
+            });
+        let chassis = app
+            .world_mut()
+            .spawn((Transform::default(), GlobalTransform::default()))
+            .id();
+        let avatar = symbios_avatar::Avatar::build_with(
+            &engine_default_for_did("did:plc:hair-tier-test"),
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                far_hair,
+                ..Default::default()
+            },
+        )
+        .expect("the seeded default engine body builds");
+        assert_eq!(
+            avatar.far_hair.is_some(),
+            far_hair,
+            "the engine did not grow the tier the config asked for, so \
+             nothing below is measuring what it claims to"
+        );
+        let mut built = Some(avatar);
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>| {
+                    let Some(avatar) = built.take() else {
+                        return;
+                    };
+                    install_built_body(
+                        &mut commands,
+                        chassis,
+                        0.9,
+                        avatar,
+                        &[],
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut bindposes,
+                    );
+                },
+            )
+            .expect("runs");
+        // One frame, so `retune_hair_tiers` (in `Apply`) runs over the tiers
+        // the spawn just made.
+        app.update();
+        app
+    }
+
+    /// `VisibilityRange` is not `Debug` in Bevy 0.19, and a failure here is
+    /// unreadable without the numbers, so the two margins are spelled out.
+    fn show(range: &bevy::camera::visibility::VisibilityRange) -> String {
+        format!("start {:?} end {:?}", range.start_margin, range.end_margin)
+    }
+
+    fn tiers(app: &mut App) -> Vec<(HairTier, bevy::camera::visibility::VisibilityRange)> {
+        let mut query = app
+            .world_mut()
+            .query::<(&HairTier, &bevy::camera::visibility::VisibilityRange)>();
+        let mut found: Vec<_> = query
+            .iter(app.world())
+            .map(|(tier, range)| (*tier, range.clone()))
+            .collect();
+        found.sort_by_key(|(tier, _)| matches!(tier, HairTier::Far));
+        found
+    }
+
+    /// A body the game installs carries both tiers, and both are ranged at
+    /// the distance THIS camera wants rather than the adapter's default.
+    #[test]
+    fn an_installed_body_carries_both_hair_tiers_at_this_lenss_switch() {
+        let mut app = app_with_body(true);
+        let found = tiers(&mut app);
+        assert_eq!(
+            found.len(),
+            2,
+            "a body built with a far tier must draw two ranged hair entities, \
+             found {:?}",
+            found
+                .iter()
+                .map(|(tier, range)| format!("{tier:?} {}", show(range)))
+                .collect::<Vec<_>>()
+        );
+        let wanted = HairLod {
+            switch: crate::config::camera::HAIR_SWITCH,
+            margin: crate::config::camera::HAIR_MARGIN,
+        };
+        for (tier, range) in &found {
+            assert!(
+                *range == wanted.range(*tier),
+                "{tier:?} is ranged at {}, not this lens's {} - the plugin's \
+                 retune did not reach it, or the resource was inserted before \
+                 the plugin that defaults it",
+                show(range),
+                show(&wanted.range(*tier))
+            );
+        }
+        // The control: the ranges really did MOVE off the adapter's default,
+        // so the assertion above is not agreeing with a value nobody set.
+        let adapter = HairLod::default();
+        assert!(
+            found[0].1 != adapter.range(HairTier::Near),
+            "the near tier is still on the adapter's 12 m default ({})",
+            show(&adapter.range(HairTier::Near))
+        );
+    }
+
+    /// Exactly one tier draws at every distance a body can be seen from -
+    /// so a tiered body costs the same draws as an untiered one, either side
+    /// of the switch and standing on it (#1358).
+    ///
+    /// This is the property the whole feature rests on, and the one that is
+    /// invisible in a screenshot: two tiers drawn together is a body wearing
+    /// both heads of hair (with a checker of scalp wherever the near one
+    /// covers what the far one does not), and neither drawn is a bald head.
+    /// Both failures need a particular camera distance to appear, which is
+    /// exactly what a still does not sweep - so it is asserted over the
+    /// distance line instead, including the two floats either side of the
+    /// switch and the switch itself.
+    #[test]
+    fn exactly_one_hair_tier_draws_at_every_distance() {
+        let lod = HairLod {
+            switch: crate::config::camera::HAIR_SWITCH,
+            margin: crate::config::camera::HAIR_MARGIN,
+        };
+        let (near, far) = (lod.range(HairTier::Near), lod.range(HairTier::Far));
+        let switch = crate::config::camera::HAIR_SWITCH;
+        let mut distances = vec![
+            0.0,
+            // The camera's own envelope, `cfg::camera::ZOOM_LOWER_LIMIT` to
+            // `ZOOM_UPPER_LIMIT`, plus the rest pose and the fog wall.
+            crate::config::camera::ZOOM_LOWER_LIMIT,
+            crate::config::camera::ORBIT_RADIUS,
+            crate::config::camera::ZOOM_UPPER_LIMIT,
+            crate::config::camera::fog::VISIBILITY,
+            switch,
+            // Past anything this world holds - the sky cuboid is at 2 km and
+            // the camera's far plane at 12 km - but NOT `f32::MAX` itself:
+            // Bevy's test is `d < end_margin.end` and the far tier's end IS
+            // `f32::MAX`, so a body exactly that far away draws no tier at
+            // all. It is a half-open comparison against the largest float,
+            // not a hole in the ranges, and nothing can be 3.4e38 m from a
+            // camera in a world 12 km deep.
+            100_000.0,
+        ];
+        // Either side of the switch by one representable float, which is
+        // where an off-by-one in a comparison hides.
+        distances.push(f32::from_bits(switch.to_bits() - 1));
+        distances.push(f32::from_bits(switch.to_bits() + 1));
+        for step in 0..=400 {
+            distances.push(step as f32 * 0.5);
+        }
+        for d in distances {
+            let drawn =
+                usize::from(near.is_visible_at_all(d)) + usize::from(far.is_visible_at_all(d));
+            assert_eq!(
+                drawn,
+                1,
+                "at {d} m from the root, {drawn} hair tiers draw: near {} far {}",
+                near.is_visible_at_all(d),
+                far.is_visible_at_all(d)
+            );
+        }
+
+        // The control: a band really would draw both, so the sweep above is
+        // able to fail. (It is also why the margin is zero - see
+        // `crate::player::hair_lod_tests`.)
+        let band = HairLod {
+            switch,
+            margin: 2.0,
+        };
+        let (bn, bf) = (band.range(HairTier::Near), band.range(HairTier::Far));
+        assert_eq!(
+            usize::from(bn.is_visible_at_all(switch)) + usize::from(bf.is_visible_at_all(switch)),
+            2,
+            "a two-metre band must draw both tiers at its centre, or this \
+             test's sweep is asserting nothing"
+        );
+    }
+
+    /// The near-only path is untouched: a body built as the `--wear` studio
+    /// sheets and the item preview build one draws its hair at every distance,
+    /// with no tier marker and no range to be culled by.
+    #[test]
+    fn a_body_built_without_a_far_tier_carries_no_tier_and_no_range() {
+        let mut app = app_with_body(false);
+        assert!(
+            tiers(&mut app).is_empty(),
+            "a near-only body grew a tier; a studio sheet and the wardrobe \
+             would start switching hair at a distance they never render at"
+        );
+        let mut ranges = app
+            .world_mut()
+            .query::<&bevy::camera::visibility::VisibilityRange>();
+        assert_eq!(
+            ranges.iter(app.world()).count(),
+            0,
+            "a near-only body carries a VisibilityRange, so something can cull \
+             its hair by distance"
+        );
+    }
+}
