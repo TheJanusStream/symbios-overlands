@@ -4,15 +4,16 @@
 //! session-log analyzers.
 
 use crate::pds::{Generator, GeneratorKind, Placement, RoomRecord};
+use crate::seeded_defaults::{BoatType, ChassisFamily, CraftType, SkiffType};
 
 use super::Args;
 
 /// Print the first `count` u64 seeds whose
-/// [`ChassisFamily`](crate::seeded_defaults::ChassisFamily) matches `fam`
+/// [`ChassisFamily`] matches `fam`
 /// (case-insensitive `humanoid` | `boat` | `airship` | `skiff`). A survey aid
 /// for the avatar overhaul - seeds map 25 % to each family, so scanning a few
 /// thousand always finds enough.
-pub(super) fn print_family_seeds(fam: &str, count: usize) {
+pub(super) fn print_family_seeds(fam: &str, count: usize, craft: Option<&str>) {
     use crate::seeded_defaults::ChassisFamily;
     let want = match fam.to_lowercase().as_str() {
         "humanoid" => ChassisFamily::Humanoid,
@@ -21,11 +22,24 @@ pub(super) fn print_family_seeds(fam: &str, count: usize) {
         "skiff" => ChassisFamily::Skiff,
         other => panic!("unknown family {other:?} (humanoid|boat|airship|skiff)"),
     };
+    let craft = craft.map(|c| resolve_craft(c, want));
     let seeds: Vec<u64> = (0u64..1_000_000)
         .filter(|&s| ChassisFamily::for_seed(s) == want)
+        .filter(|&s| {
+            craft.is_none_or(|c| crate::seeded_defaults::CraftType::for_seed(s) == Some(c))
+        })
         .take(count)
         .collect();
-    println!("{want:?} seeds: {seeds:?}");
+    match craft {
+        Some(c) => println!("{want:?} / {} seeds: {seeds:?}", c.label()),
+        None => println!("{want:?} seeds: {seeds:?}"),
+    }
+    if craft.is_some() && seeds.len() < count {
+        println!(
+            "  (only {} below seed 1_000_000 - a type no theme is at home in is rare by design)",
+            seeds.len()
+        );
+    }
     // Humanoid seeds are rigged bodies since #1060 - there is no generator
     // tree to render and no stylization tier to exemplify, so say where the
     // instrument for them lives instead of printing a table about parts
@@ -35,6 +49,25 @@ pub(super) fn print_family_seeds(fam: &str, count: usize) {
             "  (humanoid seeds are rigged symbios-avatar bodies - render them \n\
               with the bevy_symbios_avatar viewer, not this tool)"
         );
+    }
+}
+
+/// Resolve a `--craft` filter name to the craft type it selects, checked
+/// against the family being surveyed so `--family-seeds boat --craft rover`
+/// fails loudly instead of quietly printing nothing.
+fn resolve_craft(name: &str, fam: ChassisFamily) -> CraftType {
+    let name = name.to_lowercase();
+    let boat = BoatType::ALL.iter().find(|t| t.slug() == name);
+    let skiff = SkiffType::ALL.iter().find(|t| t.slug() == name);
+    match (fam, boat, skiff) {
+        (ChassisFamily::Boat, Some(&t), _) => CraftType::Boat(t),
+        (ChassisFamily::Skiff, _, Some(&t)) => CraftType::Skiff(t),
+        (_, None, None) => panic!(
+            "unknown craft type {name:?} - boats are {:?}, skiffs are {:?}",
+            BoatType::ALL.map(BoatType::slug),
+            SkiffType::ALL.map(SkiffType::slug)
+        ),
+        _ => panic!("craft type {name:?} is not a {fam:?} - it belongs to the other family"),
     }
 }
 
@@ -60,6 +93,15 @@ fn outfit_for(
     }
 }
 
+/// The seeded craft type of an avatar `subject`, or `None` for a family
+/// without one (airship, humanoid).
+fn craft_for(subject: &str) -> Option<CraftType> {
+    match subject.parse::<u64>() {
+        Ok(seed) => CraftType::for_seed(seed),
+        Err(_) => CraftType::for_did(subject),
+    }
+}
+
 /// Print the resolved outfit for one avatar `subject` (a `u64` seed or a DID):
 /// chassis, style, socio tiers, and each filled slot → part slug. A no-render
 /// survey aid for the avatar overhaul - the built [`Generator`] carries only
@@ -76,6 +118,15 @@ pub(super) fn print_outfit(subject: &str) {
         character.ornateness_tier(),
         character.wear_tier(),
     );
+    // The seeded craft type (#1362). A property of the SEED, so it answers
+    // for every boat and skiff now, while the slugs below are still the
+    // legacy arrangement parts that the type slices will replace.
+    if let Some(craft) = craft_for(subject) {
+        println!(
+            "  craft type: {} (picked; parts below are still legacy)",
+            craft.label()
+        );
+    }
     for part in &outfit.parts {
         println!("  {:?} -> {}", part.slot, part.slug);
     }

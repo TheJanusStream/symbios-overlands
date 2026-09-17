@@ -535,6 +535,40 @@ pub fn pick<T: Copy>(items: &[T], rng: &mut impl RngCore) -> T {
     items[i.min(items.len() - 1)]
 }
 
+/// Weighted pick from `items`, or `None` if every weight is zero (which is a
+/// real answer, not an error: an affinity table may legitimately offer a
+/// caller nothing, and the caller decides what that means).
+///
+/// Zero-weight items are never returned. Weights are integers so a table reads
+/// as whole units at a glance and two tables can be compared without worrying
+/// about float summation order drifting between platforms.
+pub fn pick_weighted<T: Copy>(
+    items: &[T],
+    weight: impl Fn(T) -> u32,
+    rng: &mut impl RngCore,
+) -> Option<T> {
+    let total: u32 = items.iter().map(|&i| weight(i)).sum();
+    if total == 0 {
+        return None;
+    }
+    // Draw in the integer weight space: `unit_f32` is `[0, 1)`, so the product
+    // is `[0, total)` and the running sum always overtakes it before the last
+    // non-zero item is passed.
+    let mut roll = unit_f32(rng) * total as f32;
+    for &item in items {
+        let w = weight(item) as f32;
+        if w > 0.0 {
+            roll -= w;
+            if roll < 0.0 {
+                return Some(item);
+            }
+        }
+    }
+    // Unreachable in exact arithmetic; float rounding on the last step falls
+    // through to the last item that could have been drawn.
+    items.iter().copied().rev().find(|&i| weight(i) > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

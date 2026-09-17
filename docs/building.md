@@ -665,6 +665,10 @@ cargo run --bin render -- --diff-sessions old.jsonl new.jsonl
 cargo run --bin render -- --road-dump 1
 # List seeds that produce a given avatar chassis family:
 cargo run --bin render -- --family-seeds skiff --family-count 8
+# ...narrowed to one seeded craft type (#1362) - the survey each craft-type
+# slice opens with. A craft type is a property of the SEED, so this answers
+# for a type before anything builds it:
+cargo run --bin render -- --family-seeds boat --craft longship --family-count 6
 # Dump a catalogue entry's generator JSON (edit + re-render via --generator):
 cargo run --bin render -- --dump --catalogue neon_kiosk
 # Print one avatar's resolved outfit (chassis / style / socio tiers / slot→slug):

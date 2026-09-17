@@ -18,14 +18,15 @@
 //! permanently bare - the styled and band-tagged parts then layer flavour on
 //! top of that floor (#792).
 
-use crate::seeded_defaults::ChassisFamily;
-use crate::seeded_defaults::ThemeArchetype::{
-    self, AlienMonolithic, AlienOrganic, AncientClassical, CivicCampus, CoastalResort, Cyberpunk,
-    Fantasy, FeudalJapan, GothicHorror, IndustrialPark, Medieval, Mesoamerican, ModernCity, Nordic,
-    Pirate, PostApoc, Roadside, RuralFarmland, Solarpunk, SpaceOutpost, SportsRec, Steampunk,
-    Suburban, WildWest,
+use crate::seeded_defaults::ThemeArchetype;
+// The mood taxonomy these parts are tagged by lives beside `ThemeArchetype`
+// itself, because the craft-type affinities (#1362) read the same groups.
+// Imported privately so the submodules keep reaching them as `super::NEON`.
+use crate::seeded_defaults::mood::{
+    AGRARIAN, BUCCANEER, COASTAL, GRUBBY, HISTORIC, MARTIAL, NEON, NORSE_FEY, REGAL, SEPULCHRAL,
+    STEAM, WORKING,
 };
-use crate::seeded_defaults::{OrnatenessBand, OrnatenessTier, WearBand, WearTier};
+use crate::seeded_defaults::{ChassisFamily, OrnatenessBand, OrnatenessTier, WearBand, WearTier};
 
 use super::PartCtx;
 
@@ -53,55 +54,6 @@ const VEHICLES: &[ChassisFamily] = &[
     ChassisFamily::Skiff,
 ];
 
-// Mood groups - the vehicle-styling taxonomy. Each of the 24 `ThemeArchetype`s
-// belongs to at least one group so no population is a "desert" with zero styled
-// parts (#792). A theme may sit in several (a grimy neon craft is both NEON and
-// GRUBBY); a part draws the group whose read it wants. NEON/STEAM/MARTIAL/REGAL/
-// GRUBBY/HISTORIC are the originals, widened to fold the desert themes that fit
-// them: FeudalJapan / Mesoamerican / GothicHorror → HISTORIC (old-world / ritual);
-// AlienOrganic → NEON (bioluminescent); Roadside / RuralFarmland / Suburban →
-// GRUBBY (worn, workaday, off-road ground craft). COASTAL is a new home for the
-// seaside / sporting moods that fit none of the originals.
-const NEON: &[ThemeArchetype] = &[
-    Cyberpunk,
-    SpaceOutpost,
-    AlienMonolithic,
-    Solarpunk,
-    AlienOrganic,
-];
-const STEAM: &[ThemeArchetype] = &[Steampunk, IndustrialPark, ModernCity];
-const MARTIAL: &[ThemeArchetype] = &[Medieval, Nordic, WildWest, PostApoc, Pirate];
-const REGAL: &[ThemeArchetype] = &[Fantasy, AncientClassical, CivicCampus];
-// GRUBBY = grimy / worn / workaday ground craft: industrial soot, frontier
-// scrap, and the ordinary agrarian / roadside / suburban beaters (buggies,
-// knobby tyres, cargo decks). Widened past the original five so the farm /
-// roadside / suburban desert themes get bespoke parts without losing the
-// steampunk / industrial ones (a straight fold, no re-tag regression).
-const GRUBBY: &[ThemeArchetype] = &[
-    Steampunk,
-    IndustrialPark,
-    WildWest,
-    PostApoc,
-    Cyberpunk,
-    Roadside,
-    RuralFarmland,
-    Suburban,
-];
-const HISTORIC: &[ThemeArchetype] = &[
-    Medieval,
-    Nordic,
-    WildWest,
-    PostApoc,
-    Fantasy,
-    AncientClassical,
-    FeudalJapan,
-    Mesoamerican,
-    GothicHorror,
-    Pirate,
-];
-/// Seaside / leisure / sporting moods - resort cruisers, sport skiffs. Homes
-/// CoastalResort / SportsRec, which fit none of the ground-craft groups.
-const COASTAL: &[ThemeArchetype] = &[CoastalResort, SportsRec, Solarpunk];
 /// Empty style list - a **style-universal** part, eligible for every theme (see
 /// the module docstring). Used for the per-slot floor parts that guarantee no
 /// optional vehicle slot is ever bare.
@@ -122,37 +74,6 @@ const BATTERED: WearBand = WearBand::only(WearTier::Battered);
 /// fairing), so the *bottom* wear tier reads too, not just the worn / battered
 /// ends (#793).
 const CLEAN: WearBand = WearBand::only(WearTier::Pristine);
-
-// Narrow bespoke-part audiences (#793 mood-group depth) - finer than the broad
-// mood groups above, for parts whose read only fits a couple of themes.
-/// Longship / dragon-prow craft - a Spine serpent figurehead's home.
-const NORSE_FEY: &[ThemeArchetype] = &[Nordic, Fantasy];
-/// Working / labouring craft - rope coils, cleats, capstans read on these.
-const WORKING: &[ThemeArchetype] = &[
-    Nordic,
-    Medieval,
-    WildWest,
-    PostApoc,
-    Steampunk,
-    IndustrialPark,
-    // The narrowest audience that is also the most obviously right: rope
-    // coils, cleats and a capstan are not merely *allowed* on a buccaneer's
-    // craft, they are what its deck is for.
-    Pirate,
-];
-/// Funereal / temple / old-world craft - a hanging stern lantern's home.
-const SEPULCHRAL: &[ThemeArchetype] = &[GothicHorror, FeudalJapan, Medieval];
-/// Buccaneer craft - the black colours, a carved billet-head, a pierced gun
-/// deck. A group of one, and deliberately: these are period dress rather than
-/// a mood, and a jolly roger on a Nordic longship is a costume error. Pirate
-/// also sits in MARTIAL / HISTORIC / WORKING, where the parts genuinely are
-/// shared, so this narrows rather than replaces.
-const BUCCANEER: &[ThemeArchetype] = &[Pirate];
-
-/// Agrarian / roadside / ordinary-ground craft - the wooden buckboard read
-/// (the #793 issue's "RUSTIC", folded into GRUBBY in #792 but kept as a narrow
-/// audience here so the buckboard doesn't land on a cyberpunk skiff).
-const AGRARIAN: &[ThemeArchetype] = &[RuralFarmland, Roadside, Suburban, WildWest];
 
 /// Blueprint mast height (deck → masthead), or the pre-blueprint nominal (a
 /// boat ctx always carries a blueprint; the fallback is defensive, and lets a
@@ -229,6 +150,10 @@ pub(super) static ENTRIES: &[&dyn super::BodyPart] = &[
 mod tests {
     use super::*;
     use crate::pds::avatar::parts::{PartSlot, optional_slots, parts_for, parts_for_avatar};
+    // The bare archetype names the expectations below are written in. Scoped
+    // to the tests since the mood groups moved out to `seeded_defaults::mood`
+    // (#1362) and the registry itself now names only the groups.
+    use crate::seeded_defaults::ThemeArchetype::{Cyberpunk, Fantasy, FeudalJapan, Medieval};
     use crate::seeded_defaults::{OrnatenessTier, WearTier};
 
     /// The three vehicle families (the humanoid is a separate kit).

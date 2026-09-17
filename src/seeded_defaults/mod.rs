@@ -88,10 +88,15 @@ impl SeedPins for scene::ScenePins {
 
 pub use avatar::{
     AirshipBlueprint, AvatarBody, AvatarCharacter, AvatarFx, AvatarGait, AvatarOutfit,
-    AvatarPalette, AvatarPins, AvatarVoice, BoatBlueprint, BodyArchetype, ChassisFamily,
-    FinishRegister, MaterialKit, OrnatenessBand, OrnatenessTier, OutfitPart, ParticleAura,
-    SkiffBlueprint, StylizationTier, VehicleBlueprint, VehicleStance, WearBand, WearTier,
+    AvatarPalette, AvatarPins, AvatarVoice, BoatBlueprint, BoatType, BodyArchetype, ChassisFamily,
+    CraftType, FinishRegister, MaterialKit, OrnatenessBand, OrnatenessTier, OutfitPart,
+    ParticleAura, SkiffBlueprint, SkiffType, StylizationTier, VehicleBlueprint, VehicleStance,
+    WearBand, WearTier,
 };
+// Re-exported as a module, not item by item: the mood groups are read as a
+// named set (`mood::NEON`), and the vehicle part catalogue reaches them from
+// outside this module.
+pub use avatar::mood;
 pub use hash::fnv1a_64;
 pub use room::{
     AmbientParticles, AmbientRecipe, Atmosphere, BUILD_SLOPE_LIMIT, BiomeTextures, BuildableRegion,
@@ -102,6 +107,6 @@ pub use room::{
 };
 pub use scene::{
     BiomeArchetype, EscalationBand, EscalationTier, LandformArchetype, ProsperityBand,
-    ProsperityTier, SceneCharacter, ScenePins, ThemeArchetype, pick, range_f32, signed_unit_f32,
-    unit_f32,
+    ProsperityTier, SceneCharacter, ScenePins, ThemeArchetype, pick, pick_weighted, range_f32,
+    signed_unit_f32, unit_f32,
 };

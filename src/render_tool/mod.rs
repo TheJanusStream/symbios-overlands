@@ -147,6 +147,15 @@ struct Args {
     /// `--find-part`).
     #[arg(long, default_value_t = 8)]
     family_count: usize,
+    /// Narrow `--family-seeds` to one seeded craft type (#1362) - `sloop`,
+    /// `longship`, `steamtug`, `junk`, `runabout`, `scow` for boats;
+    /// `roadster`, `dunebuggy`, `armouredcar`, `cyclecar`, `wagon`, `rover`
+    /// for skiffs. The survey aid each craft-type slice opens with: find the
+    /// seeds its type was picked for, then render them. Craft types are a
+    /// property of the seed, so this answers for a type before anything
+    /// builds it.
+    #[arg(long)]
+    craft: Option<String>,
     /// Print one avatar's resolved outfit (chassis / style / socio tiers /
     /// slot→slug) and exit - a `u64` seed or a DID. A no-render survey aid for
     /// the avatar overhaul: the built geometry carries no slugs, so this is how
@@ -569,7 +578,7 @@ pub fn run() {
     // `--family-seeds <fam>`: print the first N seeds mapping to a chassis
     // family and exit - a survey aid, never renders.
     if let Some(fam) = &args.family_seeds {
-        print_family_seeds(fam, args.family_count);
+        print_family_seeds(fam, args.family_count, args.craft.as_deref());
         return;
     }
 
