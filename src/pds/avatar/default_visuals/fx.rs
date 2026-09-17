@@ -40,8 +40,10 @@ pub(super) fn attach(
     accent: [f32; 3],
     family: ChassisFamily,
     seed: u64,
+    visual_scale: f32,
 ) {
-    if let Some(emitter) = aura_emitter(fx.aura, mount, accent, family, fx.intensity, seed) {
+    if let Some(mut emitter) = aura_emitter(fx.aura, mount, accent, family, fx.intensity, seed) {
+        scale_particle_sizes(&mut emitter, visual_scale);
         root.children.push(emitter);
     }
     if let Some(audio) = voice_config(fx.voice, family, seed) {
@@ -76,6 +78,27 @@ fn motion_inherit(aura: ParticleAura, is_vehicle: bool) -> f32 {
 fn set_inherit_velocity(g: &mut Generator, inherit: f32) {
     if let GeneratorKind::ParticleSystem(p) = &mut g.kind {
         p.inherit_velocity = Fp(inherit);
+    }
+}
+
+/// Grow an emitter's particle sprites by the visual root's uniform scale
+/// (#1361), so a craft built at airship class puffs steam to match.
+///
+/// Everything else about the plume already rides that scale, because the
+/// emitter node hangs under the scaled root and `world_builder::particles`
+/// pushes both the emission volume and each particle's launch velocity through
+/// the emitter's affine. The sprite is the exception: a particle spawns into
+/// WORLD space ([`SimulationSpace::World`](crate::pds::generator::SimulationSpace),
+/// so it is never parented to the
+/// emitter) with its transform scale set straight from `start_size`. Left
+/// alone, a funnel twice the size would vent the same small puffs.
+///
+/// Well inside [`limits::MAX_PARTICLE_SIZE`](crate::pds::sanitize::limits)
+/// (100 m) at any bridge scale, so the record still round-trips unchanged.
+fn scale_particle_sizes(g: &mut Generator, factor: f32) {
+    if let GeneratorKind::ParticleSystem(p) = &mut g.kind {
+        p.start_size = Fp(p.start_size.0 * factor);
+        p.end_size = Fp(p.end_size.0 * factor);
     }
 }
 

@@ -46,13 +46,25 @@ pub(super) fn assemble_root(seed: u64, base: PartSlot) -> (AvatarOutfit, PartCtx
 
 /// Set the family's travel pose on the visual root: parts are authored
 /// front-`+Z`, so yaw 180° to travel nose-first, then drop by `drop_y` onto the
-/// craft's ground / hover line (`0.0` for the always-hovering airship). The
-/// assembler *owns* the root's placement - this overwrites whatever transform
-/// the structural root part set, which is exactly why that part builds at the
+/// craft's ground / hover line (`0.0` for the always-hovering airship), and
+/// finally size the whole craft by the family's uniform `scale`. The assembler
+/// *owns* the root's placement - this overwrites whatever transform the
+/// structural root part set, which is exactly why that part builds at the
 /// identity (see [`base_root`]).
-pub(super) fn apply_travel_pose(root: &mut Generator, drop_y: f32) {
+///
+/// The `scale` is the airship-class bridge (#1361): the legacy boat and skiff
+/// parts are authored a third of the size the redesign wants, and one uniform
+/// factor at the assembled root buys that size without touching a single
+/// mount. A node's own translation is *not* multiplied by its own scale, so
+/// `drop_y` stays in world metres while every mounted child grows; and because
+/// the factor is uniform (never a per-axis stretch) and applied last, the
+/// blueprint landmarks the parts and the assembler agree on stay exactly as
+/// authored. The airship, which is already the family the others are being
+/// scaled up to meet, passes `1.0`.
+pub(super) fn apply_travel_pose(root: &mut Generator, drop_y: f32, scale: f32) {
     root.transform.rotation = quat_xyzw(quat_y(PI));
     root.transform.translation = Fp3([0.0, -drop_y, 0.0]);
+    root.transform.scale = Fp3([scale; 3]);
 }
 
 /// Debug-assert every non-root slot the outfit rolled is one the assembler
@@ -78,14 +90,17 @@ pub(super) fn debug_assert_slots_handled(
 /// unfilled - the universal default parts make that unreachable in practice.
 ///
 /// The family assembler owns the visual root's *placement* - it applies the
-/// 180° travel yaw + the hover/ground drop to the root's translation/rotation
-/// *after* this. But the root's **scale** it does not touch, and a structural
-/// root must not set one: every other slot (deck, canopy, wheels, gondola,
-/// fins) mounts as a child of this root and would inherit a root scale,
-/// stretching + flinging the whole avatar (the root-scale discipline - see the
-/// defaults module docstring). This debug-asserts the discipline so a future
-/// author who reaches for a root scale is told to shape a child instead,
-/// rather than shipping a warped avatar silently (#798).
+/// 180° travel yaw, the hover/ground drop and the family's uniform size scale
+/// to the root transform in [`apply_travel_pose`], *after* this. What a
+/// structural root part must not do is set a scale of its own: every other slot
+/// (deck, canopy, wheels, gondola, fins) mounts as a child of this root, and a
+/// part-authored root scale - which is free to be per-axis - would stretch and
+/// fling the whole avatar (the root-scale discipline - see the defaults module
+/// docstring). The assembler's own scale is safe where a part's is not because
+/// it is uniform and applied after every mount. This debug-asserts the
+/// discipline so a future author who reaches for a root scale inside a part is
+/// told to shape a child instead, rather than shipping a warped avatar silently
+/// (#798).
 pub(super) fn base_root(outfit: &AvatarOutfit, ctx: &PartCtx, base: PartSlot) -> Generator {
     let root = outfit
         .parts

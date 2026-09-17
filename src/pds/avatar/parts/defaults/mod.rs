@@ -31,6 +31,14 @@
 //! mounts every other slot (deck, canopy, wheels, gondola, fins) as a child
 //! of that root and a root scale would stretch + displace them. Elongated
 //! shapes (the airship envelope) are built from composed primitives instead.
+//!
+//! The *assembler* does set one, in
+//! [`apply_travel_pose`](super::super::default_visuals): the airship-class
+//! size bridge (#1361). That is not the same licence - it is uniform, and it
+//! is applied after every slot is mounted, so nothing it touches has been
+//! placed relative to anything it does not also move. A part's own root scale
+//! is free to be per-axis and lands *before* the mounting, which is exactly
+//! why it warps the craft.
 
 // Crate-visible so the airship assembler (rigging-cable colour) + the styled
 // teardrop envelope (`super::vehicle`) can share its two-hue colour scheme,

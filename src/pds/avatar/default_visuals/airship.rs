@@ -130,7 +130,9 @@ pub(super) fn build(seed: u64) -> Generator {
     }
 
     // No vertical drop - a helicopter hovers.
-    apply_travel_pose(&mut root, 0.0);
+    // The airship is the size class the other two are being scaled up to
+    // meet (#1359), so it carries no bridge scale of its own.
+    apply_travel_pose(&mut root, 0.0, 1.0);
     debug_assert_slots_handled(
         &outfit,
         PartSlot::Envelope,

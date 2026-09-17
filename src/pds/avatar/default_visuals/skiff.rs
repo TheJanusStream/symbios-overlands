@@ -11,6 +11,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
+use crate::pds::avatar::locomotion::CarParams;
 use crate::pds::avatar::parts::defaults::skiff::{skiff_dims, skiff_wheel_anchors};
 use crate::pds::avatar::parts::{PartSlot, by_slug};
 use crate::pds::generator::Generator;
@@ -31,7 +32,7 @@ pub(super) fn build(seed: u64) -> Generator {
     // chassis collapses the two front anchors to a single centreline wheel - the
     // chassis draws the matching single front guard (#788).
     let dims = skiff_dims(&ctx);
-    let dl = dims.1 / 1.5;
+    let dl = dims.1 / AUTHORED_BODY_LEN;
     let is_trike = outfit
         .parts
         .iter()
@@ -78,11 +79,10 @@ pub(super) fn build(seed: u64) -> Generator {
         }
     }
 
-    // Drop the whole visual so the wheels rest at the car's suspension ground
-    // line - the chassis origin floats ≈0.87 m (half-extent 0.4 + rest 0.6 −
-    // static compression ≈0.13) and the wheel bottoms sit ≈0.32 below the
-    // visual origin.
-    apply_travel_pose(&mut root, 0.55);
+    // Size the whole craft to airship class and drop it so the tyres rest on
+    // the car's suspension ground line - for THIS seed's wheels, not a nominal
+    // pair (dims.5 is the seeded tyre radius, dims.4 the hub line).
+    apply_travel_pose(&mut root, travel_drop(dims.5, dims.4), VISUAL_SCALE);
     debug_assert_slots_handled(
         &outfit,
         PartSlot::Chassis,
@@ -96,11 +96,87 @@ pub(super) fn build(seed: u64) -> Generator {
     root
 }
 
-/// Aft exhaust-pipe station (root-local, before the assembler's yaw) from the
-/// seeded body length - the single source the assembler seats the Exhaust part
-/// at and the FX exhaust-wisp anchor issues from, so the wisp leaves the same
-/// pipe the part builds (#798). The tub ends at z ≈ −0.75·len, so the pipe sits
-/// just inboard of the stern.
+/// Aft exhaust-pipe station (root-local, before the assembler's yaw, drop and
+/// scale) from the seeded body length - the single source the assembler seats
+/// the Exhaust part at and the FX exhaust-wisp anchor issues from, so the wisp
+/// leaves the same pipe the part builds (#798). The tub ends at z ≈ −0.75·len,
+/// so the pipe sits just inboard of the stern.
 pub(super) fn exhaust_station(body_len: f32) -> [f32; 3] {
-    [0.0, 0.05, -0.70 * (body_len / 1.5)]
+    [0.0, 0.05, -0.70 * (body_len / AUTHORED_BODY_LEN)]
+}
+
+// ---------------------------------------------------------------------------
+// Airship-class scale bridge (#1361)
+// ---------------------------------------------------------------------------
+//
+// Same bridge as the boat's, for the same reason and with the same expiry: the
+// legacy skiff parts are authored around a 1.5 m body against a 3.15 m airship
+// and a 1.7 m person, and one uniform scale at the assembled root buys owner
+// decision 1 of #1359 without disturbing a single mount (see
+// [`apply_travel_pose`]). It is THROWAWAY - the whole legacy skiff pipeline
+// dies when the roadster lands in #1364. [`NOMINAL_BODY_LEN`] is not: the
+// locomotion in [`super`] is re-based on it.
+
+/// Body-tub length (m) the legacy skiff parts are authored around: the
+/// `SkiffBlueprint` nominal every part fraction and wheel landmark is taken
+/// from, before the seeded stance / body multipliers spread it.
+pub(super) const AUTHORED_BODY_LEN: f32 = 1.5;
+
+/// Authored nominal body width (m) - the blueprint's, likewise pre-multipliers.
+pub(super) const AUTHORED_BODY_W: f32 = 0.76;
+
+/// Body-tub length (m) a nominal seeded skiff is **drawn** at: airship class,
+/// per owner decision 1 of #1359 (skiffs about 2.65 m). Still a scale model of
+/// a bigger machine - lit ports, no driver - not a rideable car.
+pub(super) const NOMINAL_BODY_LEN: f32 = 2.65;
+
+/// The single uniform scale the assembler puts on the visual root, so that an
+/// authored-nominal body is drawn at [`NOMINAL_BODY_LEN`].
+pub(super) const VISUAL_SCALE: f32 = NOMINAL_BODY_LEN / AUTHORED_BODY_LEN;
+
+/// Half-height (m) of the legacy body tub in the authoring frame.
+///
+/// Read off the chassis part rather than guessed: it draws the body slab (half
+/// 0.115, centred on the origin) with the rocker skirt under it (half 0.06 at
+/// y −0.12, so −0.18) and the cabin bulge over it (half 0.10 at y +0.13, so
+/// +0.23) - 0.41 m of bodywork, half of it 0.205. Unlike the tub's *length*,
+/// these are fixed constants in the part, so the tub is the same height for
+/// every seed.
+const AUTHORED_BODY_HALF_HEIGHT: f32 = 0.205;
+
+/// Half-height (m) of the skiff's chassis collider box.
+///
+/// Derived from the bodywork the craft actually draws, which is what makes it
+/// safe at airship-class size. The old `0.4 · (body_len / 1.5)` tracked the
+/// tub's *length*, so a body scaled to 2.65 m would have stood in a 1.4 m tall
+/// collider - the tall-narrow shape behind the #804 rollovers, on a machine
+/// that is only 0.72 m tall. `center_of_mass_drop` is a fraction of this, so
+/// the anti-rollover centre-of-mass drop follows it down untouched.
+pub(super) fn chassis_half_height() -> f32 {
+    AUTHORED_BODY_HALF_HEIGHT * VISUAL_SCALE
+}
+
+/// Height (m) above flat ground the skiff's **chassis origin** rests at.
+///
+/// The four corner springs carry the weight from `half_height` below the
+/// origin, compressing by [`super::static_suspension_compression`] - so the
+/// origin floats that much less than a full suspension rest length above the
+/// ground.
+fn chassis_ride_height() -> f32 {
+    let p = CarParams::default();
+    chassis_half_height() + p.suspension_rest_length.0
+        - super::static_suspension_compression(super::SKIFF_REF_MASS, p.suspension_stiffness.0)
+}
+
+/// Travel-pose drop (m) for a skiff whose seeded wheels have authoring-frame
+/// radius `wheel_r` and hub line `ride_y` (negative - the hubs hang below the
+/// body origin).
+///
+/// **Derived, not tuned**: put the tyre bottoms exactly on the suspension
+/// ground line. The old hand-set 0.55 assumed one nominal wheel, so the seeded
+/// radius (0.17-0.25) and hub line already floated or sank the wheels by
+/// centimetres before anything was scaled; at airship-class size the same
+/// constant would have buried them.
+fn travel_drop(wheel_r: f32, ride_y: f32) -> f32 {
+    chassis_ride_height() - (wheel_r - ride_y) * VISUAL_SCALE
 }

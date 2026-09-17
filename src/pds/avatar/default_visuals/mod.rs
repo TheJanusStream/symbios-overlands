@@ -18,6 +18,15 @@
 //! [`crate::pds::tid::tid_for_seed`] so two devices that both save a
 //! never-edited seeded default agree on where it goes.
 //!
+//! **Boats and skiffs are drawn at airship class** (#1361, owner decision 1 of
+//! the #1359 redesign): their parts are still authored around the old 1.32 m /
+//! 1.5 m nominals, and each assembler puts one uniform scale on the visual root
+//! to bring them up to 2.8 m / 2.65 m. That bridge is throwaway - it dies with
+//! each legacy pipeline as the hero craft land - but the consequence is not:
+//! everything derived here from a vehicle's size (mass, collider, ride height,
+//! travel-pose drop, particle sprites) reads the **drawn** dimensions, never the
+//! authored ones, and compares them against a named true nominal.
+//!
 //! Shared primitive/material vocabulary lives in [`common`].
 
 mod airship;
@@ -62,10 +71,17 @@ pub fn build_for_seed(seed: u64) -> (RecordBody, LocomotionConfig) {
     if family == ChassisFamily::Humanoid {
         return (RecordBody::rigged_seeded(seed), humanoid_locomotion(seed));
     }
-    let (mut visuals, loco) = match family {
-        ChassisFamily::Boat => (boat::build(seed), boat_locomotion(seed)),
-        ChassisFamily::Airship => (airship::build(seed), airship_locomotion(seed)),
-        ChassisFamily::Skiff => (skiff::build(seed), skiff_locomotion(seed)),
+    // The third element is the family's uniform visual-root scale (#1361) -
+    // the airship-class bridge. The FX attached below need it because a
+    // particle sprite is sized in world metres, not in the emitter's frame.
+    let (mut visuals, loco, visual_scale) = match family {
+        ChassisFamily::Boat => (boat::build(seed), boat_locomotion(seed), boat::VISUAL_SCALE),
+        ChassisFamily::Airship => (airship::build(seed), airship_locomotion(seed), 1.0),
+        ChassisFamily::Skiff => (
+            skiff::build(seed),
+            skiff_locomotion(seed),
+            skiff::VISUAL_SCALE,
+        ),
         // Handled above; a family added later lands here loudly rather
         // than silently assembling nothing.
         ChassisFamily::Humanoid => unreachable!("the rigged family returns above"),
@@ -83,6 +99,7 @@ pub fn build_for_seed(seed: u64) -> (RecordBody, LocomotionConfig) {
         accent,
         family,
         seed,
+        visual_scale,
     );
     (RecordBody::generator(visuals), loco)
 }
@@ -104,7 +121,9 @@ fn engine_stature(seed: u64) -> f32 {
 }
 
 /// Diegetic FX mount for `aura` on `family` (root-local frame, *before* the
-/// assembler's yaw/drop). The station is snapped to the seeded blueprint
+/// assembler's yaw, drop and [scale](boat::VISUAL_SCALE) - so these are
+/// authoring-frame metres, and they grow with the craft). The station is
+/// snapped to the seeded blueprint
 /// landmarks the assembler already mounts parts on - so the emitter tracks the
 /// actual hull instead of a fixed constant, and a boat's steam leaves its
 /// funnel rather than empty air amidships. Falls back to the legacy per-family
@@ -232,6 +251,37 @@ fn humanoid_locomotion(seed: u64) -> LocomotionConfig {
 // plain `default_config`. A fixed-wing visual family is out of scope here.
 // ---------------------------------------------------------------------------
 
+/// Reference mass (kg) the hover-boat preset's default support fields
+/// (suspension stiffness 4200, buoyancy 2500) are cut for. The seeded masses
+/// scale every one of them by `mass / REF`, which is what keeps a 480 kg barge
+/// at the same ride height as an 80 kg skimmer.
+const BOAT_REF_MASS: f32 = 50.0;
+
+/// The same for the car preset, whose defaults are cut for a 900 kg machine.
+const SKIFF_REF_MASS: f32 = 900.0;
+
+/// Standard gravity (m/s²), the value the presets' own weight-support
+/// derivations use (see the airship's `hover_thrust`).
+const GRAVITY: f32 = 9.81;
+
+/// How far (m) a four-corner raycast suspension sits compressed under its own
+/// craft's weight, at rest on flat ground.
+///
+/// Each corner spring carries a quarter of the weight, so `4 · k · c = m · g`.
+/// The seeded mass cancels: both vehicle presets scale their stiffness with
+/// mass off the same reference (`k = k_ref · m / m_ref`, the invariant that
+/// holds a craft's ride height as its mass grows), so this is one number per
+/// family, not per seed - which is what lets an assembler derive its
+/// travel-pose drop without knowing which craft it is placing.
+///
+/// Pass the preset's *default* stiffness, not a seeded one. The relation holds
+/// while the mass-scaled stiffness stays under its sanitiser cap, which it does
+/// across both families' mass clamps by a wide margin (the boat would need
+/// 571 kg against a 480 kg ceiling); [`boat_locomotion`] debug-asserts it.
+fn static_suspension_compression(ref_mass: f32, ref_stiffness: f32) -> f32 {
+    ref_mass * GRAVITY / (4.0 * ref_stiffness)
+}
+
 /// Boat (hover-boat) locomotion from the seeded hull class + proportions.
 /// Barge = heavy + damped + sluggish; catamaran = light + agile; mono /
 /// trimaran sit between. The suspension spring, buoyancy and lateral grip
@@ -249,17 +299,24 @@ fn boat_locomotion(seed: u64) -> LocomotionConfig {
             "default_hull_trimaran" => (3.2, 10.5, 8.0, 1.3, 5.0),
             _ => (4.0, 9.0, 7.0, 1.5, 6.0), // monohull / fallback
         };
-    let hull_len = b.map_or(1.32, |b| b.hull_len);
-    let beam = b.map_or(0.5, |b| b.beam);
-    let freeboard = b.map_or(0.26, |b| b.freeboard);
+    // TRUE (drawn) dimensions, not authored ones (#1361): the blueprint is in
+    // the parts' authoring frame and the assembler scales the whole tree by
+    // `boat::VISUAL_SCALE` at its root, so everything derived here - mass,
+    // collider, ride height - has to be told the size the craft is actually
+    // drawn at. Dividing by the matching TRUE nominal below is what stops that
+    // re-basing from simply pinning every craft against its mass clamp.
+    let hull_len = b.map_or(boat::AUTHORED_HULL_LEN, |b| b.hull_len) * boat::VISUAL_SCALE;
+    let beam = b.map_or(boat::AUTHORED_BEAM, |b| b.beam) * boat::VISUAL_SCALE;
+    let freeboard = b.map_or(boat::AUTHORED_FREEBOARD, |b| b.freeboard) * boat::VISUAL_SCALE;
 
     // The 50 kg baseline is what the default suspension stiffness (4200) and
     // buoyancy (2500) hold at the stock ride height; scaling both by `mass/50`
     // keeps that height as mass grows. The clamp keeps the scaled stiffness
     // under its 50 000 sanitiser cap.
-    const REF_MASS: f32 = 50.0;
+    const REF_MASS: f32 = BOAT_REF_MASS;
     let mut p = HoverBoatParams::default();
-    let mass = (REF_MASS * mass_f * (hull_len / 1.32)).clamp(80.0, 480.0);
+    let stock_stiffness = p.suspension_stiffness.0;
+    let mass = (REF_MASS * mass_f * (hull_len / boat::NOMINAL_HULL_LEN)).clamp(80.0, 480.0);
     let scale = mass / REF_MASS;
     // Scale a support field by mass and keep it under its sanitiser cap.
     let scaled = |v: f32, cap: f32| Fp((v * scale).min(cap));
@@ -273,7 +330,23 @@ fn boat_locomotion(seed: u64) -> LocomotionConfig {
     p.buoyancy_strength = scaled(p.buoyancy_strength.0, 90_000.0);
     p.buoyancy_damping = scaled(p.buoyancy_damping.0, 10_000.0);
     p.lateral_grip = scaled(p.lateral_grip.0, 48_000.0);
+    debug_assert!(
+        p.suspension_stiffness.0 == stock_stiffness * scale,
+        "the mass-scaled suspension stiffness hit its cap, so the ride height \
+         below is no longer the one `static_suspension_compression` derives"
+    );
     p.chassis_half_extents = fit_extents([beam * 0.5, freeboard * 0.6, hull_len * 0.5]);
+    // Hold the hull where [`boat::land_ride_height`] wants it: the assembler
+    // hangs the design waterline `boat::TRAVEL_DROP` under the chassis origin,
+    // and under that go the hull's draft and its keel clearance. Derived from
+    // the *clamped* half-extent, which is what the suspension casts from. The
+    // un-seeded 0.8 m default this replaces was cut for a 1.32 m hull; left
+    // alone it would have left an airship-class boat's keel 0.05 m off the
+    // ground - beached, and ploughing every bump, since visuals carry no
+    // colliders (#1361).
+    let half_y = p.chassis_half_extents.0[1];
+    p.suspension_rest_length = Fp(boat::land_ride_height(freeboard) - half_y
+        + static_suspension_compression(REF_MASS, stock_stiffness));
     p.into_config()
 }
 
@@ -325,12 +398,13 @@ fn skiff_locomotion(seed: u64) -> LocomotionConfig {
         "skiff_chassis_trike" => (0.6, 11.5, 2.8),
         _ => (1.0, 8.9, 2.0), // default_chassis / fallback
     };
-    let body_len = s.map_or(1.5, |s| s.body_len);
-    let body_w = s.map_or(0.76, |s| s.body_w);
+    // TRUE (drawn) dimensions - see the note in [`boat_locomotion`] (#1361).
+    let body_len = s.map_or(skiff::AUTHORED_BODY_LEN, |s| s.body_len) * skiff::VISUAL_SCALE;
+    let body_w = s.map_or(skiff::AUTHORED_BODY_W, |s| s.body_w) * skiff::VISUAL_SCALE;
 
-    const REF_MASS: f32 = 900.0;
+    const REF_MASS: f32 = SKIFF_REF_MASS;
     let mut p = CarParams::default();
-    let mass = (REF_MASS * mass_f * (body_len / 1.5)).clamp(480.0, 1_500.0);
+    let mass = (REF_MASS * mass_f * (body_len / skiff::NOMINAL_BODY_LEN)).clamp(480.0, 1_500.0);
     let scale = mass / REF_MASS;
     // Scale a support field by mass and keep it under its sanitiser cap.
     let scaled = |v: f32, cap: f32| Fp((v * scale).min(cap));
@@ -340,7 +414,13 @@ fn skiff_locomotion(seed: u64) -> LocomotionConfig {
     p.suspension_stiffness = scaled(p.suspension_stiffness.0, 200_000.0);
     p.suspension_damping = scaled(p.suspension_damping.0, 20_000.0);
     p.lateral_grip = scaled(p.lateral_grip.0, 200_000.0);
-    p.chassis_half_extents = fit_extents([body_w * 0.5, 0.4 * (body_len / 1.5), body_len * 0.5]);
+    // The half-height comes from the bodywork, not from the body's LENGTH the
+    // way `0.4 · (body_len / 1.5)` did - see [`skiff::chassis_half_height`] for
+    // why that formula could not survive the rescale. The suspension rest
+    // length needs no re-basing to match: the assembler derives its travel-pose
+    // drop from this same box, so the tyres land on the ground whatever it is.
+    p.chassis_half_extents =
+        fit_extents([body_w * 0.5, skiff::chassis_half_height(), body_len * 0.5]);
     p.into_config()
 }
 
@@ -605,6 +685,124 @@ mod tests {
             sanitize_avatar_visuals(&mut sanitized);
             assert_tree_eq(&built, &sanitized, fam);
         }
+        // Sweep rather than trust the three hand-picked DIDs: since #1361 an
+        // airship-class bridge scale rides the root of every seeded boat and
+        // skiff, and the sanitiser CLAMPS an over-cap scale product rather
+        // than rejecting it - so a part that set its own scale too deep under
+        // the root would be silently shrunk back for some seeds only.
+        for s in 0u64..400 {
+            let Some(built) = visuals_for_seed(s) else {
+                continue;
+            };
+            let mut sanitized = built.clone();
+            sanitize_avatar_visuals(&mut sanitized);
+            assert_tree_eq(&built, &sanitized, ChassisFamily::for_seed(s));
+        }
+    }
+
+    /// The bridge scale (#1361) has to leave headroom under the sanitiser's
+    /// cap on the product of scales down any root-to-leaf path - this is the
+    /// measurement behind the round-trip assertion above, and says how much
+    /// room a part author still has for a child scale of their own.
+    #[test]
+    fn the_airship_class_bridge_leaves_headroom_under_the_scale_cap() {
+        use crate::pds::sanitize::{accumulated_scale, limits::MAX_AVATAR_SCALE_PRODUCT};
+        let mut worst: f32 = 0.0;
+        for s in 0u64..600 {
+            let Some(built) = visuals_for_seed(s) else {
+                continue;
+            };
+            worst = worst.max(accumulated_scale(&built));
+        }
+        assert!(
+            worst > 1.0,
+            "no seeded vehicle carried a bridge scale at all"
+        );
+        assert!(
+            worst < MAX_AVATAR_SCALE_PRODUCT,
+            "deepest scale product {worst} is at the sanitiser cap \
+             {MAX_AVATAR_SCALE_PRODUCT} - the craft would be clamped smaller \
+             than it was built"
+        );
+    }
+
+    /// A seeded skiff's tyres rest exactly on the ground its own suspension
+    /// settles at - for the seeded wheel it actually rolls on, not a nominal
+    /// one. The fixed 0.55 m drop this replaced floated or sank them by
+    /// centimetres across the seeded radius band even before #1361 doubled
+    /// everything (#1361).
+    #[test]
+    fn a_seeded_skiffs_tyres_rest_on_its_own_suspension_ground_line() {
+        let compression = static_suspension_compression(
+            SKIFF_REF_MASS,
+            CarParams::default().suspension_stiffness.0,
+        );
+        let mut checked = 0;
+        for s in (0u64..600).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
+            let (body, loco) = build_for_seed(s);
+            let LocomotionConfig::Car(p) = &loco else {
+                panic!("seed {s} is a skiff without car locomotion");
+            };
+            let visuals = body.visuals().expect("a skiff assembles a tree");
+            let bp = VehicleBlueprint::from_seed(s)
+                .and_then(|b| b.skiff().copied())
+                .expect("a skiff has a blueprint");
+            let scale = visuals.transform.scale.0[1];
+            let drop = -visuals.transform.translation.0[1];
+            let ride = p.chassis_half_extents.0[1] + p.suspension_rest_length.0 - compression;
+            let tyre_bottom = ride - drop - (bp.wheel_r - bp.ride_y) * scale;
+            assert!(
+                tyre_bottom.abs() < 1e-4,
+                "seed {s}: tyres sit {tyre_bottom} m off the ground line"
+            );
+            checked += 1;
+        }
+        assert!(checked > 0, "no skiff seed exercised the drop");
+    }
+
+    /// A seeded boat floats on its own painted waterline and hovers clear of
+    /// the ground on land - the two equilibria the derived drop + suspension
+    /// rest length exist to satisfy at once (#1361).
+    #[test]
+    fn a_seeded_boat_floats_on_its_waterline_and_hovers_over_land() {
+        let compression = static_suspension_compression(
+            BOAT_REF_MASS,
+            HoverBoatParams::default().suspension_stiffness.0,
+        );
+        let mut checked = 0;
+        for s in (0u64..600).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
+            let (body, loco) = build_for_seed(s);
+            let LocomotionConfig::HoverBoat(p) = &loco else {
+                panic!("seed {s} is a boat without hover-boat locomotion");
+            };
+            let visuals = body.visuals().expect("a boat assembles a tree");
+            let bp = VehicleBlueprint::from_seed(s)
+                .and_then(|b| b.boat().copied())
+                .expect("a boat has a blueprint");
+            let scale = visuals.transform.scale.0[1];
+            let drop = -visuals.transform.translation.0[1];
+            // On water buoyancy rests the chassis origin `water_rest_length`
+            // above the surface, so this is the waterline meeting the water.
+            assert!(
+                (drop - p.water_rest_length.0).abs() < 1e-6,
+                "seed {s}: waterline sits {} m off the surface",
+                p.water_rest_length.0 - drop
+            );
+            // On land the suspension has to hold the hull where the assembler
+            // wants it, keel clear of the ground.
+            let ride = p.chassis_half_extents.0[1] + p.suspension_rest_length.0 - compression;
+            let want = boat::land_ride_height(bp.freeboard * scale);
+            assert!(
+                (ride - want).abs() < 1e-4,
+                "seed {s}: hull rides at {ride} m, wanted {want} m"
+            );
+            assert!(
+                ride - drop - bp.freeboard * scale > 0.0,
+                "seed {s}: the keel is in the ground"
+            );
+            checked += 1;
+        }
+        assert!(checked > 0, "no boat seed exercised the drop");
     }
 
     #[test]
