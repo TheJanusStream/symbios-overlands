@@ -408,11 +408,14 @@ cargo run --bin render -- --world 3           # the seeded WORLD as the game bui
 cargo run --bin render -- --terrain 3        # the room's GROUND: heightmap + splat
 cargo run --bin render -- --wear satchel      # a wearable, actually worn
 cargo run --bin render -- --generator /tmp/x.json  # a dumped + edited Generator
+cargo run --bin render -- --play-view --lineup 12,40,7 --reference-figure
+#                                              # several subjects at the
+#                                              # chase camera's own range
 ```
 
 When more than one subject is given the highest-precedence one wins:
-`--generator` > `--world` > `--terrain` > `--room` > `--prim` > `--wear` >
-`--catalogue` > `--avatar`,
+`--lineup` > `--generator` > `--world` > `--terrain` > `--room` > `--prim` >
+`--wear` > `--catalogue` > `--avatar`,
 with the no-render modes below running ahead of all of them. That order is
 asserted by `render_tool`'s own tests, so it is checkable rather than a claim.
 
@@ -626,6 +629,54 @@ boat, airship and skiff. A humanoid seed rolls a rigged
 rather than rendering an empty sheet; the sibling `bevy_symbios_avatar`
 viewer's own `--shot` capture is that body's instrument. `--family-seeds` will
 find you a vehicle seed to render.
+
+`--play-view` is the *play-distance* instrument (#1360), and the frame a
+vehicle design is accepted on. Every earlier pass at the seeded craft was
+judged on zoomed contact sheets, where a 1.2 cm rail looks like a rail; the
+chase camera rests 12 m away on a 45 degree lens, which resolves about 109
+pixels a metre at 1080 lines, and that rail is 1.3 px. The preset reads its
+distance and pitch from `crate::config::camera` (`ORBIT_RADIUS`,
+`ORBIT_PITCH`) so it cannot drift from the game, shoots 1920x1080, and stands
+its subjects on a lit ground plane - a hovering hull and a beached one are the
+same picture without a contact shadow.
+
+```bash
+# The standing comparison: airship, boat, skiff and a 1.75 m figure, at the
+# range the player sees them.
+cargo run --profile test-release --bin render -- --play-view \
+  --lineup 12,40,7 --reference-figure --out /tmp/play.png
+# A hand-written prototype beside the seeded craft it is replacing, told
+# where to float (a generator file carries no locomotion record):
+cargo run --profile test-release --bin render -- --play-view \
+  --lineup target/dump/vehicles2026-09/sloopB.json,40 --reference-figure \
+  --ride-height 0.35,auto,auto
+```
+
+Each `--lineup` entry is a `u64` seed, a path to a `--generator` JSON file, or
+a DID, and the slots read left to right in the order typed;
+`--reference-figure` appends the mannequin. `--lineup` outranks every other
+subject, and works without `--play-view` too - then it sheets four angles per
+slot, one row each, the way `--ages` does.
+
+**Where a subject stands.** The view exists to show ride height, so it stands
+each subject where the game does rather than resting it on its bounds: a
+craft that settles on a suspension goes with its chassis origin at
+`half_y + suspension_rest_length - static compression`, read off the
+locomotion the same build produced. An airship has no ground ride height at
+all (it holds itself up with thrust) and a `--generator` file has no
+locomotion record, so those rest on their own drawn bounds unless
+`--ride-height` says otherwise - one value for every slot, or a list with
+`auto` for the slots that keep their derived height. The log names which rule
+each slot landed on, and every slot's origin is placed at exactly the game's
+orbit radius from the camera: the line-up stands on an arc, not on a line,
+because a 14 m line shot from 12 m puts its outermost subject 16 % further
+away than its innermost. A line-up wider than the frame is warned about
+rather than quietly shrunk.
+
+`--play-view` is a preset, not a straitjacket: `--yaw` (default 135, the
+sheet's three-quarter angle), `--dist`, `--elev`, `--zoom`, `--lift`,
+`--width`/`--height` and `--frames` all still apply, so the same flag also
+gives the tool its most convenient studio.
 
 A single subject - a catalogue entry, a primitive, a generator, a wearable -
 stands in a neutral studio whose backdrop `--backdrop #rrggbb` recolours

@@ -48,7 +48,7 @@ use crate::state::LiveRoomRecord;
 use crate::terrain::FinishedHeightMap;
 use crate::world_builder::particles::{Particle, ParticleEmitterMarker};
 
-use super::rig::{CameraRig, Focus, delay_cs, progress};
+use super::rig::{CameraRig, Focus, delay_cs, half_fov_x, play_elev_deg, progress, px_per_metre};
 use super::world::{
     ShutterGate, Walker, WorldReadiness, WorldSpec, resolve_focus, spawn_world_camera,
 };
@@ -141,8 +141,24 @@ const SLOT_SPACING: f32 = 1000.0;
 /// The framing query: every mesh entity that isn't a tile camera or a live
 /// particle quad. Aliased because it appears in three signatures and the
 /// inline form trips `clippy::type_complexity`.
-type SubjectQuery<'w, 's> =
-    Query<'w, 's, (&'static GlobalTransform, &'static Aabb), (Without<TileCam>, Without<Particle>)>;
+type SubjectQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static GlobalTransform, &'static Aabb),
+    (Without<TileCam>, Without<Particle>, Without<GroundPlane>),
+>;
+
+/// The slot-placement query: a line-up slot's chassis entity, which
+/// `--play-view` moves once its bounds have resolved. Filtered off the two
+/// other `Transform` queries in [`drive`] so the three stay disjoint.
+type PlaySlotQuery<'w, 's> =
+    Query<'w, 's, (&'static mut Transform, &'static PlaySlot), (Without<TileCam>, Without<Walker>)>;
+
+/// Fraction of a neighbour's own angular half-width left as clear air between
+/// two line-up slots. Small: the point of the shot is that the craft are side
+/// by side at one range, and air spent between them is angle spent off the
+/// lens axis.
+const PLAY_GAP: f32 = 1.18;
 
 /// Frames to wait for every lineup slot's AABB before framing falls back to a
 /// tiny placeholder bound for the missing slots (a degenerate variant - e.g.
@@ -170,9 +186,55 @@ const WORLD_QUIET: u32 = 40;
 /// How often the world wait logs where it is.
 const WORLD_LOG_EVERY: Duration = Duration::from_secs(3);
 
+/// Where a play-view slot's origin goes, and on whose authority.
+pub(super) enum Ride {
+    /// Read off the subject's own locomotion record - the game's answer, and
+    /// the only one the view can make a claim about.
+    Derived(f32),
+    /// Given by `--ride-height`, because there was nothing to read.
+    Told(f32),
+    /// Nothing to read and nothing given: stand the subject on its own drawn
+    /// bounds. The honest fallback for an airship (it holds itself up with
+    /// thrust and has no ground ride height at all), for the reference
+    /// figure (it has feet), and for a `--generator` prototype before anyone
+    /// has worked out where it should float.
+    Bounds,
+}
+
+impl Ride {
+    /// The height, when one is known.
+    pub(super) fn height(&self) -> Option<f32> {
+        match self {
+            Self::Derived(h) | Self::Told(h) => Some(*h),
+            Self::Bounds => None,
+        }
+    }
+
+    /// What the log says about where this slot ended up.
+    fn why(&self) -> &'static str {
+        match self {
+            Self::Derived(_) => "derived ride height",
+            Self::Told(_) => "told by --ride-height",
+            Self::Bounds => "resting on its own bounds",
+        }
+    }
+}
+
+/// `--play-view` (#1360): the game's chase camera, over a ground plane, with
+/// every line-up slot stood where the game stands it.
+pub(super) struct PlayView {
+    /// Where each slot's origin goes, in line-up order.
+    pub(super) ride: Vec<Ride>,
+    /// The frame actually rendered, for the pixels-per-metre the log quotes
+    /// and the horizontal angle the line-up's spread is checked against.
+    pub(super) frame: (u32, u32),
+}
+
 #[derive(Resource)]
 pub(super) struct RenderJob {
     pub(super) subject: Subject,
+    /// `--play-view`, when the shot is at the chase camera's range.
+    pub(super) play: Option<PlayView>,
     pub(super) out: String,
     /// Per-tile (or per-frame) pixel size, width × height.
     pub(super) tile: (u32, u32),
@@ -197,12 +259,24 @@ pub(super) struct RenderJob {
 impl RenderJob {
     /// Whether this job drives one rig camera rather than the tile set.
     pub(super) fn single_camera(&self) -> bool {
-        matches!(self.subject, Subject::World(_)) || self.frames > 1
+        matches!(self.subject, Subject::World(_)) || self.frames > 1 || self.play.is_some()
     }
 }
 
 #[derive(Component)]
 pub(super) struct TileCam(pub(super) usize);
+
+/// The studio floor. Marked rather than recognised by its size, so framing
+/// can exclude it without the "any mesh wider than 80 m is the ground"
+/// guess that a big subject would trip.
+#[derive(Component)]
+pub(super) struct GroundPlane;
+
+/// A line-up slot's chassis entity, by index. `--play-view` re-places these
+/// once every slot's bounds have resolved - a subject cannot be stood at the
+/// right distance until it is known how wide it is.
+#[derive(Component)]
+pub(super) struct PlaySlot(usize);
 
 #[derive(Resource)]
 pub(super) struct Targets(Vec<Handle<Image>>);
@@ -453,10 +527,16 @@ pub(super) fn setup(
     }
     commands.insert_resource(Targets(targets));
 
+    // `--play-view` stands its subjects on a floor, which is the only reason
+    // a hover gap or a tyre contact reads at all. Big enough that the
+    // near-horizontal top of the frame never runs off its far edge.
+    if job.play.is_some() {
+        spawn_ground(&mut commands, &mut meshes, &mut materials, PLAY_FLOOR);
+    }
     match &job.subject {
         Subject::Single(generator) => {
-            spawn_neutral_sun(&mut commands);
-            let chassis = commands.spawn(Transform::default()).id();
+            spawn_sun(&mut commands, job.play.is_some());
+            let chassis = commands.spawn((Transform::default(), PlaySlot(0))).id();
             spawn_visual_tree(
                 &mut commands,
                 chassis,
@@ -469,10 +549,13 @@ pub(super) fn setup(
             );
         }
         Subject::Lineup(variants) => {
-            spawn_neutral_sun(&mut commands);
+            spawn_sun(&mut commands, job.play.is_some());
             for (slot, generator) in variants.iter().enumerate() {
                 let chassis = commands
-                    .spawn(Transform::from_xyz(slot as f32 * SLOT_SPACING, 0.0, 0.0))
+                    .spawn((
+                        Transform::from_xyz(slot as f32 * SLOT_SPACING, 0.0, 0.0),
+                        PlaySlot(slot),
+                    ))
                     .id();
                 spawn_visual_tree(
                     &mut commands,
@@ -492,7 +575,7 @@ pub(super) fn setup(
             socket,
             fit,
         } => {
-            spawn_neutral_sun(&mut commands);
+            spawn_sun(&mut commands, false);
             for (row, (seed, pose_spec)) in seeds
                 .iter()
                 .flat_map(|&seed| WEAR_POSES.iter().map(move |&p| (seed, p)))
@@ -550,7 +633,7 @@ pub(super) fn setup(
         Subject::World(_) => {}
         Subject::Room(record) => {
             spawn_env_sun(&mut commands, &record.environment);
-            spawn_ground(&mut commands, &mut meshes, &mut materials);
+            spawn_ground(&mut commands, &mut meshes, &mut materials, ROOM_FLOOR);
             spawn_room(
                 &mut commands,
                 record,
@@ -671,15 +754,31 @@ fn spawn_room(
     }
 }
 
-fn spawn_neutral_sun(commands: &mut Commands) {
-    commands.spawn((
+/// The studio sun. `shadows` casts them, which only `--play-view` asks for:
+/// a craft that hovers and a craft that is beached are the same picture
+/// without a contact shadow on the floor, and telling those two apart is the
+/// whole reason that mode has a floor at all.
+fn spawn_sun(commands: &mut Commands, shadows: bool) {
+    let mut sun = commands.spawn((
         DirectionalLight {
             illuminance: 11_000.0,
-            shadow_maps_enabled: false,
+            shadow_maps_enabled: shadows,
             ..default()
         },
         Transform::from_xyz(3.0, 6.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
+    if shadows {
+        // Cascades cut for a studio, not a landscape: everything worth a
+        // shadow is inside a few metres of the floor.
+        sun.insert(
+            bevy::light::CascadeShadowConfigBuilder {
+                first_cascade_far_bound: 12.0,
+                maximum_distance: 60.0,
+                ..default()
+            }
+            .build(),
+        );
+    }
 }
 
 fn spawn_env_sun(commands: &mut Commands, env: &Environment) {
@@ -701,19 +800,28 @@ fn spawn_env_sun(commands: &mut Commands, env: &Environment) {
     ));
 }
 
+/// Half-extent (m) of the floor a `--room` sheet stands its structures on.
+const ROOM_FLOOR: f32 = 80.0;
+/// Half-extent (m) of the `--play-view` floor. The chase camera's pitch
+/// leaves the top of the frame a fraction of a degree below the horizon, so
+/// a short floor would show its own far edge as a line across the picture.
+const PLAY_FLOOR: f32 = 600.0;
+
 fn spawn_ground(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    half_extent: f32,
 ) {
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(80.0)))),
+        Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(half_extent)))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(0.30, 0.33, 0.27),
             perceptual_roughness: 0.95,
             ..default()
         })),
         Transform::default(),
+        GroundPlane,
     ));
 }
 
@@ -728,6 +836,7 @@ pub(super) fn drive(
     subject: SubjectQuery,
     emitters: Query<&GlobalTransform, With<ParticleEmitterMarker>>,
     mut cams: Query<(&mut Transform, &TileCam)>,
+    mut slots: PlaySlotQuery,
     walkers: Query<(&Transform, &Walker), Without<TileCam>>,
     terrain_ready: Option<Res<crate::terrain::SplatApplied>>,
     world: WorldReadiness,
@@ -747,7 +856,15 @@ pub(super) fn drive(
                     terrain_ready.is_some(),
                     &mut cams,
                 ),
-                _ => frame_subject(&mut capture, &job, &targets, &subject, &emitters, &mut cams),
+                _ => frame_subject(
+                    &mut capture,
+                    &job,
+                    &targets,
+                    &subject,
+                    &emitters,
+                    &mut cams,
+                    &mut slots,
+                ),
             };
             if framed {
                 info!("framed after {} frames; warming up", capture.waited);
@@ -1055,8 +1172,12 @@ fn frame_subject(
     subject: &SubjectQuery,
     emitters: &Query<&GlobalTransform, With<ParticleEmitterMarker>>,
     cams: &mut Query<(&mut Transform, &TileCam)>,
+    slots: &mut PlaySlotQuery,
 ) -> bool {
     capture.waited += 1;
+    if job.play.is_some() {
+        return frame_play_view(capture, job, subject, slots);
+    }
     let rows = if job.single_camera() {
         1
     } else {
@@ -1092,6 +1213,7 @@ fn frame_subject(
     let Some(slots) = lineup_bounds(subject, rows, capture.waited > FRAME_GRACE) else {
         return false;
     };
+    let slots: Vec<(Vec3, f32)> = slots.into_iter().map(centre_radius).collect();
     let max_radius = slots.iter().map(|s| s.1).fold(0.1f32, f32::max);
     let dist = max_radius / (FOV * 0.5).tan() * 1.2 + max_radius * 0.5;
     for (mut transform, cam) in cams.iter_mut() {
@@ -1100,6 +1222,153 @@ fn frame_subject(
         let pos = center + cam_offset(a, dist, max_radius, job.elev);
         *transform = Transform::from_translation(pos).looking_at(center, Vec3::Y);
     }
+    true
+}
+
+/// Where each line-up slot sits on the play view's arc: the angle, about the
+/// camera's vertical axis, that separates it from the slot on the lens axis.
+///
+/// Every subject the *same* distance from the camera, rather than strung
+/// along a line through the middle one. A 14 m line of craft shot from 12 m
+/// puts its outermost subject 16 % further away than its innermost, and a
+/// view whose one claim is "this is the range the player sees it at" cannot
+/// spend 16 % of that claim on the layout. On an arc the claim is exact and
+/// the cost is only that the outer slots are seen slightly more from the
+/// side - which, since each is also yawed by its own arc angle, is the
+/// three-quarter view a chase camera gives anyway.
+///
+/// `radii` are the slots' horizontal bounding radii and `horiz` the camera's
+/// horizontal leg; spacing is each pair's angular half-widths plus
+/// [`PLAY_GAP`], and the whole fan is then centred on the lens axis.
+fn play_arc(radii: &[f32], horiz: f32) -> Vec<f32> {
+    let ang: Vec<f32> = radii.iter().map(|r| (r / horiz.max(1e-3)).atan()).collect();
+    let mut theta = Vec::with_capacity(ang.len());
+    let mut at = 0.0;
+    for (i, a) in ang.iter().enumerate() {
+        if i > 0 {
+            at += (ang[i - 1] + a) * PLAY_GAP;
+        }
+        theta.push(at);
+    }
+    // Negated on the way out so slot 0 is the LEFTMOST subject, which is the
+    // order the line-up was typed in and the order the tool prints.
+    let mid = (theta.first().copied().unwrap_or(0.0) + theta.last().copied().unwrap_or(0.0)) * 0.5;
+    theta.iter().map(|t| mid - t).collect()
+}
+
+/// `--play-view` (#1360): stand every slot where the game stands it, on the
+/// arc of the chase camera's own distance, and hand the rig that distance and
+/// pitch.
+fn frame_play_view(
+    capture: &mut Capture,
+    job: &RenderJob,
+    subject: &SubjectQuery,
+    slots: &mut PlaySlotQuery,
+) -> bool {
+    let play = job
+        .play
+        .as_ref()
+        .expect("frame_play_view needs a play view");
+    let Some(bounds) = lineup_bounds(subject, play.ride.len(), capture.waited > FRAME_GRACE) else {
+        return false;
+    };
+    // `pose_at` divides a *framed* distance by `--zoom` and leaves an
+    // explicit `--dist` absolute, so the framing hands over the undivided
+    // number and the placement below uses the one the camera will really be
+    // at.
+    let framed = job.rig.dist.map_or(super::rig::PLAY_DIST, |(d, _)| d);
+    let dist = match job.rig.dist {
+        Some(_) => framed,
+        None => framed / job.rig.zoom.max(0.01),
+    };
+    let pitch = job
+        .rig
+        .elev
+        .map_or(play_elev_deg(), |(e, _)| e)
+        .to_radians();
+    let horiz = dist * pitch.cos();
+    let yaw = job.rig.yaw.to_radians();
+    // The camera's ground position, given that the rig looks at the origin:
+    // `pose_at` puts it `horiz` out along the yaw.
+    let cam_xz = Vec3::new(horiz * yaw.sin(), 0.0, horiz * yaw.cos());
+    let radii: Vec<f32> = bounds
+        .iter()
+        .map(|(min, max)| 0.5 * (max.x - min.x).hypot(max.z - min.z))
+        .collect();
+    let theta = play_arc(&radii, horiz);
+
+    // Heights first: they decide where the camera looks, and the camera's
+    // height in turn decides how far out each slot has to stand for its
+    // ORIGIN to be exactly `dist` away - which is the game's own relation
+    // (the chase camera orbits the chassis origin at `ORBIT_RADIUS`).
+    let (mut low, mut high) = (f32::INFINITY, f32::NEG_INFINITY);
+    let heights: Vec<f32> = bounds
+        .iter()
+        .zip(&play.ride)
+        .map(|((min, _), ride)| ride.height().unwrap_or(-min.y))
+        .collect();
+    for ((min, max), &y) in bounds.iter().zip(&heights) {
+        low = low.min(min.y + y);
+        high = high.max(max.y + y);
+    }
+    let look_y = (low + high) * 0.5;
+    let cam_y = dist * pitch.sin() + look_y;
+    let toward_look = -Vec3::new(yaw.sin(), 0.0, yaw.cos());
+    let mut placed = vec![Vec3::ZERO; bounds.len()];
+    for (i, (&y, &t)) in heights.iter().zip(&theta).enumerate() {
+        let leg = (dist * dist - (cam_y - y).powi(2))
+            .max((0.1 * dist).powi(2))
+            .sqrt();
+        let ground = cam_xz + Quat::from_rotation_y(t) * (toward_look * leg);
+        placed[i] = Vec3::new(ground.x, y, ground.z);
+    }
+    for (mut transform, slot) in slots.iter_mut() {
+        let Some(&at) = placed.get(slot.0) else {
+            continue;
+        };
+        *transform =
+            Transform::from_translation(at).with_rotation(Quat::from_rotation_y(theta[slot.0]));
+    }
+
+    let spread = ((theta.last().copied().unwrap_or(0.0) - theta.first().copied().unwrap_or(0.0))
+        .abs()
+        + radii.first().copied().unwrap_or(0.0).atan2(horiz)
+        + radii.last().copied().unwrap_or(0.0).atan2(horiz))
+    .to_degrees();
+    let frame_deg = half_fov_x(play.frame.0, play.frame.1).to_degrees() * 2.0;
+    info!(
+        "play view: {} m at {:.1} deg, {:.0} px/m on a {}x{} frame; {} subject(s) over \
+         {spread:.1} deg of a {frame_deg:.1} deg frame",
+        dist,
+        pitch.to_degrees(),
+        px_per_metre(play.frame.1, dist),
+        play.frame.0,
+        play.frame.1,
+        bounds.len(),
+    );
+    if spread > frame_deg {
+        warn!(
+            "play view: the line-up spans {spread:.1} deg and the frame is {frame_deg:.1} deg \
+             wide - the outer subjects are cropped. Render fewer of them, or accept a \
+             wider frame at the same distance."
+        );
+    }
+    let camera = Vec3::new(cam_xz.x, cam_y, cam_xz.z);
+    for (i, at) in placed.iter().enumerate() {
+        info!(
+            "  slot {i}: origin {:.3} m up ({}), footprint radius {:.2} m, origin {:.2} m \
+             from the camera",
+            at.y,
+            play.ride[i].why(),
+            radii[i],
+            (*at - camera).length(),
+        );
+    }
+    capture.framing = Some(Framing {
+        focus: Vec3::new(0.0, look_y, 0.0),
+        auto_dist: framed,
+        auto_elev: pitch.to_degrees(),
+    });
     true
 }
 
@@ -1180,12 +1449,17 @@ fn finish_clip(capture: &Capture, job: &RenderJob) -> Result<(), String> {
     Ok(())
 }
 
-/// Per-slot bounds of a lineup → one (centre, bounding radius) per row, slot
+/// Per-slot bounds of a lineup → one world-space (min, max) per row, slot
 /// resolved from each mesh's world X (`round(x / SLOT_SPACING)`). Returns
 /// `None` until every slot has at least one resolved AABB, unless `force` -
 /// then still-empty slots get a tiny placeholder bound at their slot origin
 /// so a degenerate variant can't hang the render.
-fn lineup_bounds(q: &SubjectQuery, rows: usize, force: bool) -> Option<Vec<(Vec3, f32)>> {
+///
+/// The box rather than a centre and a radius, because `--play-view` needs the
+/// *bottom* of a slot (to stand a subject that has no ride height on its own
+/// feet) and its *footprint* (to space the line-up), and neither survives the
+/// collapse to a bounding sphere.
+fn lineup_bounds(q: &SubjectQuery, rows: usize, force: bool) -> Option<Vec<(Vec3, Vec3)>> {
     let mut mins = vec![Vec3::splat(f32::INFINITY); rows];
     let mut maxs = vec![Vec3::splat(f32::NEG_INFINITY); rows];
     for (gt, aabb) in q.iter() {
@@ -1212,12 +1486,19 @@ fn lineup_bounds(q: &SubjectQuery, rows: usize, force: bool) -> Option<Vec<(Vec3
             if !force {
                 return None;
             }
-            slots.push((Vec3::new(slot as f32 * SLOT_SPACING, 0.5, 0.0), 0.5));
+            let at = Vec3::new(slot as f32 * SLOT_SPACING, 0.5, 0.0);
+            slots.push((at - Vec3::splat(0.25), at + Vec3::splat(0.25)));
         } else {
-            slots.push(((min + max) * 0.5, ((max - min) * 0.5).length().max(0.1)));
+            slots.push((min, max));
         }
     }
     Some(slots)
+}
+
+/// A slot's framing pair: centre, and the bounding-sphere radius the sheet
+/// cameras fit to.
+fn centre_radius((min, max): (Vec3, Vec3)) -> (Vec3, f32) {
+    ((min + max) * 0.5, ((max - min) * 0.5).length().max(0.1))
 }
 
 /// Where a tile camera sits relative to the framed centre. `elev` (degrees,
@@ -1237,9 +1518,10 @@ fn cam_offset(yaw: f32, dist: f32, radius: f32, elev: Option<f32>) -> Vec3 {
 }
 
 /// Union the world-space AABB of every mesh entity → (centre, bounding radius).
-/// The ground plane is excluded so a room frames on its buildings, not the
-/// 160 m floor, and live [`Particle`] quads are excluded so a drifting smoke
-/// plume can't jitter the framing from run to run.
+/// The ground plane is excluded by its [`GroundPlane`] marker (through
+/// [`SubjectQuery`]) so a room frames on its buildings rather than its floor,
+/// and live [`Particle`] quads are excluded so a drifting smoke plume can't
+/// jitter the framing from run to run.
 ///
 /// Emitter *anchors* are folded in as points instead. An FX-heavy prop -
 /// a fire whose smoke column is authored 2 m above a 0.9 m barrel - is
@@ -1253,10 +1535,6 @@ fn subject_bounds(
     let (mut min, mut max) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
     let mut any = false;
     for (gt, aabb) in q.iter() {
-        // Skip the wide ground plane (huge X/Z, ~zero Y extent).
-        if aabb.half_extents.x > 40.0 || aabb.half_extents.z > 40.0 {
-            continue;
-        }
         any = true;
         let c = Vec3::from(aabb.center);
         let h = Vec3::from(aabb.half_extents);
@@ -1429,6 +1707,51 @@ mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
 
+    /// #1360. The line-up's ground plan: the order it was typed in, centred
+    /// on the lens axis, and wide enough apart that no subject overlaps its
+    /// neighbour.
+    #[test]
+    fn a_play_view_lineup_reads_left_to_right_and_is_centred_on_the_lens() {
+        // Four subjects of very different sizes, at the chase camera's
+        // horizontal leg.
+        let horiz = super::super::rig::PLAY_DIST * play_elev_deg().to_radians().cos();
+        let radii = [1.73, 1.54, 1.95, 0.31];
+        let theta = play_arc(&radii, horiz);
+        assert_eq!(theta.len(), radii.len());
+        // Slot 0 leftmost: yaw decreases left to right in this convention
+        // (yaw 180 looks along +Z, so a smaller yaw swings to the right of
+        // the picture), so the arc angles run downward.
+        for pair in theta.windows(2) {
+            assert!(pair[0] > pair[1], "slots out of order: {theta:?}");
+        }
+        // Centred: the fan's two ends are equal and opposite.
+        let ends = theta[0] + theta[theta.len() - 1];
+        assert!(ends.abs() < 1e-5, "fan is off-axis by {ends} rad");
+        // Neighbours clear each other - the gap between two slots' centres
+        // exceeds the sum of their angular half-widths.
+        for i in 0..radii.len() - 1 {
+            let gap = (theta[i] - theta[i + 1]).abs();
+            let want = (radii[i] / horiz).atan() + (radii[i + 1] / horiz).atan();
+            assert!(gap > want, "slots {i}/{} overlap: {gap} < {want}", i + 1);
+        }
+        // One subject needs no fan at all.
+        assert_eq!(play_arc(&[1.5], horiz), vec![0.0]);
+        assert!(play_arc(&[], horiz).is_empty());
+    }
+
+    /// A slot with no ride height to read stands on its own feet; one with a
+    /// height stands at it, whoever supplied it. The rule that keeps a
+    /// hovering hull off the dirt and a mannequin's soles on it.
+    #[test]
+    fn a_rides_height_is_only_known_when_something_knew_it() {
+        assert_eq!(Ride::Derived(0.83).height(), Some(0.83));
+        assert_eq!(Ride::Told(0.35).height(), Some(0.35));
+        assert_eq!(Ride::Bounds.height(), None);
+        // The log says which, because "where the game puts it" and "where I
+        // was told to put it" are different claims.
+        assert_ne!(Ride::Derived(1.0).why(), Ride::Told(1.0).why());
+    }
+
     /// The spawn-time placeholder every tile camera starts on.
     const PLACEHOLDER: Vec3 = Vec3::new(0.0, 1.0, 3.0);
 
@@ -1454,6 +1777,7 @@ mod tests {
             .build("did:render:test");
         world.insert_resource(RenderJob {
             subject: Subject::Single(Box::new(generator)),
+            play: None,
             out: String::new(),
             tile: (256, 256),
             elev: None,

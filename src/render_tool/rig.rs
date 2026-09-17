@@ -127,6 +127,42 @@ impl CameraRig {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The play view (#1360)
+// ---------------------------------------------------------------------------
+
+/// Metres the play view stands the camera from its subject - the game's own
+/// chase-camera orbit radius, read from [`crate::config::camera`] so the
+/// preset cannot drift from the thing it is imitating.
+pub(super) const PLAY_DIST: f32 = crate::config::camera::ORBIT_RADIUS;
+
+/// The play view's elevation above the subject, in the degrees the rig
+/// speaks - the game's own orbit pitch, which is stored in radians.
+pub(super) fn play_elev_deg() -> f32 {
+    crate::config::camera::ORBIT_PITCH.to_degrees()
+}
+
+/// How many pixels a metre resolves to at `dist`, in a frame `lines` tall on
+/// this tool's lens ([`super::FOV`], Bevy's default, which is the lens the
+/// game leaves alone).
+///
+/// The number the whole play view exists to hold: a frame's vertical extent
+/// at distance `d` is `2 · d · tan(fov/2)`, so the scale is
+/// `lines / (2 · tan(fov/2)) / d` - about `1304 / d` at 1080 lines, and so
+/// about 109 px a metre at the chase camera's rest. It is reported in the
+/// log rather than measured off the picture: this is a camera, not an
+/// instrument.
+pub(super) fn px_per_metre(lines: u32, dist: f32) -> f32 {
+    lines as f32 / (2.0 * (super::FOV * 0.5).tan() * dist.max(1e-3))
+}
+
+/// The frame's *horizontal* half-angle (radians) at `width × height`. The
+/// lens is specified vertically, so a line-up's angular spread is checked
+/// against this rather than against half of [`super::FOV`].
+pub(super) fn half_fov_x(width: u32, height: u32) -> f32 {
+    ((super::FOV * 0.5).tan() * width as f32 / height.max(1) as f32).atan()
+}
+
 /// Clip progress for frame `i` of `frames`: 0 for a still, and both ends
 /// inclusive for a clip so a 360° sweep's last frame is *not* a repeat of
 /// its first - the loop point is the step between them.
@@ -251,6 +287,53 @@ mod tests {
         );
         assert!(Focus::parse("north").is_err());
         assert!(Focus::parse("1").is_err());
+    }
+
+    /// #1360. The play view's whole claim is that it is the game's camera,
+    /// so every number in it is read from [`crate::config::camera`] or from
+    /// Bevy's own projection default rather than written down here. This is
+    /// the test that keeps that true: change `ORBIT_RADIUS` in the game and
+    /// the preset follows; change the tool's `FOV` away from the lens the
+    /// game leaves alone and this fails by name.
+    #[test]
+    fn the_play_view_is_the_games_own_camera() {
+        use crate::config::camera;
+        assert_eq!(PLAY_DIST, camera::ORBIT_RADIUS, "distance");
+        assert_eq!(play_elev_deg(), camera::ORBIT_PITCH.to_degrees(), "pitch");
+        assert!(
+            (play_elev_deg() - 22.918).abs() < 1e-2,
+            "0.4 rad is about 22.9 degrees, got {}",
+            play_elev_deg()
+        );
+        // The game sets no `fov`, so its lens is Bevy's default. The tool
+        // states that as a constant, which is exactly how a lens drifts.
+        assert_eq!(
+            super::super::FOV,
+            bevy::camera::PerspectiveProjection::default().fov,
+            "the tool's lens is no longer Bevy's default, which is the game's"
+        );
+    }
+
+    /// The play view's scale arithmetic, which is what makes "sub-pixel in
+    /// play" a checkable statement rather than a feeling (#1359's diagnosis):
+    /// 1304/d pixels a metre at 1080 lines.
+    #[test]
+    fn a_metre_is_about_109_pixels_at_the_chase_cameras_rest() {
+        assert!(
+            (px_per_metre(1080, 1.0) - 1304.0).abs() < 1.0,
+            "{}",
+            px_per_metre(1080, 1.0)
+        );
+        let at_rest = px_per_metre(1080, PLAY_DIST);
+        assert!((at_rest - 108.7).abs() < 0.5, "{at_rest}");
+        // Half the lines, half the scale; twice the distance, half again.
+        assert!((px_per_metre(540, PLAY_DIST) - at_rest * 0.5).abs() < 1e-3);
+        assert!((px_per_metre(1080, PLAY_DIST * 2.0) - at_rest * 0.5).abs() < 1e-3);
+        // 16:9 is wider than it is tall, so the horizontal half-angle beats
+        // the vertical one the lens is specified in.
+        let hx = half_fov_x(1920, 1080).to_degrees();
+        assert!((hx - 36.36).abs() < 0.05, "{hx}");
+        assert!(hx > (super::super::FOV * 0.5).to_degrees());
     }
 
     #[test]

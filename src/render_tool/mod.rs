@@ -29,6 +29,9 @@
 //! cargo run --bin render -- --catalogue villa --frames 36 --sweep 360
 //! #                                             # a turntable clip
 //! cargo run --bin render -- --generator g.json  # a dumped/edited Generator
+//! cargo run --bin render -- --play-view --lineup 12,40,7 --reference-figure
+//! #                                             # subjects side by side at
+//! #                                             # the chase camera's range
 //! cargo run --bin render -- --catalogue lsys_palm --ages 2,3,4,5
 //! #                                             # age-progression grid (#908)
 //! cargo run --bin render -- --wear satchel      # a wearable, worn (#1088)
@@ -61,9 +64,19 @@
 //! times smaller than it renders, so an interface laid out at 1280x720 can be
 //! written at 640x360.
 //!
-//! Subject precedence, when more than one is given: `--generator` >
-//! `--world` > `--terrain` > `--room` > `--prim` > `--wear` > `--catalogue`
-//! > `--avatar`, with the no-render modes ahead of all of them.
+//! `--play-view` (#1360) is the play-distance instrument: one 1920x1080 frame
+//! from [`crate::config::camera::ORBIT_RADIUS`] metres at that module's
+//! `ORBIT_PITCH`, on the lens the game leaves at Bevy's default, over a lit
+//! ground plane, with every subject stood where the game stands it. The frame
+//! a vehicle design is accepted on - detail that reads on a zoomed sheet is
+//! sub-pixel here. `--lineup a,b,c` puts several subjects in it side by side
+//! (seeds, `--generator` files or DIDs) and `--reference-figure` adds a
+//! 1.75 m mannequin as the ruler.
+//!
+//! Subject precedence, when more than one is given: `--lineup` >
+//! `--generator` > `--world` > `--terrain` > `--room` > `--prim` > `--wear` >
+//! `--catalogue` > `--avatar`, with the no-render modes ahead of all of
+//! them.
 //!
 //! The same binary also hosts fifteen no-render modes that short-circuit
 //! before any render app stands up: the avatar surveys (`--family-seeds`,
@@ -91,13 +104,14 @@ use crate::pds::types::{Fp, Fp2};
 use crate::pds::{Generator, GeneratorKind, RoomRecord};
 
 mod editor;
+mod figure;
 mod gif;
 mod headless;
 mod rig;
 mod text_tools;
 mod world;
 
-use headless::{Capture, Clock, RenderJob, Subject, drive, setup};
+use headless::{Capture, Clock, PlayView, RenderJob, Ride, Subject, drive, setup};
 use rig::{CameraRig, Focus};
 use text_tools::{
     analyze_session, describe_rooms, diff_sessions, dump_road_graph, find_part, print_family_seeds,
@@ -127,6 +141,10 @@ const DEFAULT_FPS: f32 = 12.5;
 /// The default single-camera frame, width × height. 16:9, and a width that
 /// is a multiple of 64 so the GPU readback needs no row padding.
 const DEFAULT_FRAME: (u32, u32) = (896, 504);
+/// `--play-view`'s frame: the 1080 lines the pixels-per-metre arithmetic is
+/// quoted at (#1360), and 1920 is a multiple of 64 so the readback still
+/// needs no padding.
+const PLAY_FRAME: (u32, u32) = (1920, 1080);
 
 #[derive(Parser)]
 #[command(
@@ -136,6 +154,55 @@ struct Args {
     /// Avatar subject: a u64 seed or a DID string.
     #[arg(long)]
     avatar: Option<String>,
+    /// Judge a subject at the distance the game shows it (#1360): one
+    /// 1920x1080 frame from [`crate::config::camera::ORBIT_RADIUS`] metres
+    /// at [`ORBIT_PITCH`](crate::config::camera::ORBIT_PITCH), on the lens
+    /// the game leaves at Bevy's default, over a ground plane.
+    ///
+    /// Every earlier pass at the vehicles was judged on zoomed contact
+    /// sheets, where a 1.2 cm rail looks like a rail; at the chase camera's
+    /// rest it is 1.3 px. This is the frame a design is accepted on, and the
+    /// zoomed sheets are second.
+    ///
+    /// The ground plane is what makes hover and wheels legible, so the
+    /// subject is stood where the game stands it: a craft that settles on a
+    /// suspension goes at its derived ride height
+    /// ([`ground_ride_height`](crate::pds::avatar::default_visuals::ground_ride_height)),
+    /// and anything with no such record - an airship, a `--generator` file,
+    /// the reference figure - rests on its own drawn bounds unless
+    /// `--ride-height` says otherwise.
+    ///
+    /// Puts the tool on its single-camera path, so `--frames N` turns it
+    /// into a clip and `--yaw` / `--sweep` / `--zoom` still apply.
+    #[arg(long, default_value_t = false)]
+    play_view: bool,
+    /// Stand a 1.75 m mannequin, built from plain primitives, beside the
+    /// subject as the last line-up slot - the scale rule a vehicle is read
+    /// against. `--avatar` refuses a rigged humanoid seed, so without this
+    /// there is no tool shot of a craft beside a body at all.
+    #[arg(long, default_value_t = false)]
+    reference_figure: bool,
+    /// Several subjects side by side in one shot, comma-separated. Each
+    /// entry is a `u64` avatar seed, a path to a `--generator` JSON file, or
+    /// a DID - so a hand-written prototype can stand next to the seeded
+    /// fleet it is replacing, which is the whole point of having the view
+    /// during a redesign. Outranks every other subject.
+    ///
+    /// With `--play-view` the slots stand on one arc at the chase camera's
+    /// distance, each yawed to present the same aspect, so every one of them
+    /// is at the game's range in the same frame. Without it they are
+    /// sheeted the way `--ages` sheets its rows: four angles apiece, one row
+    /// per slot, at a shared camera distance.
+    #[arg(long)]
+    lineup: Option<String>,
+    /// With `--play-view`: where a slot's origin sits above the ground, in
+    /// metres - one value for every slot, or a comma-separated list with
+    /// `auto` for the slots that should keep their derived height. The
+    /// answer for a subject the tool cannot derive one for: a `--generator`
+    /// prototype has no locomotion record at all, so this is how a hovering
+    /// hull is stood at its hover height rather than beached on its keel.
+    #[arg(long)]
+    ride_height: Option<String>,
     /// List the first `--family-count` seeds whose
     /// [`ChassisFamily`](crate::seeded_defaults::ChassisFamily) matches
     /// (`humanoid` | `boat` | `airship` | `skiff`) and exit - a survey aid for
@@ -554,13 +621,15 @@ struct Args {
     /// minute of compile says so with a green rectangle. A no-render mode.
     #[arg(long)]
     describe: Option<String>,
-    /// Single-camera shots: frame width in pixels (default 896; forced to a
-    /// multiple of 64 so the GPU readback needs no row padding).
-    #[arg(long, default_value_t = DEFAULT_FRAME.0)]
-    width: u32,
-    /// Single-camera shots: frame height in pixels (default 504).
-    #[arg(long, default_value_t = DEFAULT_FRAME.1)]
-    height: u32,
+    /// Single-camera shots: frame width in pixels (default 896, or 1920 for
+    /// `--play-view`; forced to a multiple of 64 so the GPU readback needs
+    /// no row padding).
+    #[arg(long)]
+    width: Option<u32>,
+    /// Single-camera shots: frame height in pixels (default 504, or 1080 for
+    /// `--play-view`).
+    #[arg(long)]
+    height: Option<u32>,
     /// Sheets: per-tile pixel side. Forced to a multiple of 64 (no GPU row
     /// padding).
     #[arg(long, default_value_t = 512)]
@@ -721,20 +790,39 @@ pub fn run() {
         return;
     }
 
-    let (subject, label) = resolve_subject(&args);
+    let Resolved {
+        subject,
+        label,
+        ride,
+    } = resolve_subject(&args);
     let (subject, label) = match &args.ages {
         Some(ages) => age_sweep(subject, &label, ages),
         None => (subject, label),
     };
     let frames = args.frames.max(1);
     let is_world = matches!(subject, Subject::World(_));
-    if frames > 1 && !is_world && !matches!(subject, Subject::Single(_) | Subject::Room(_)) {
-        panic!(
-            "--frames needs a single-camera subject (--world, or a --generator/--prim/\
-             --catalogue/--avatar/--room turntable); --terrain, --wear and --ages sheets \
-             have no one camera to move"
-        );
-    }
+    let is_lineup = matches!(subject, Subject::Lineup(_));
+    // Which subjects there is one camera to move along a rig: everything a
+    // clip can be made of.
+    let one_camera_subject = is_world
+        || matches!(subject, Subject::Single(_) | Subject::Room(_))
+        || (is_lineup && args.play_view);
+    assert!(
+        frames == 1 || one_camera_subject,
+        "--frames needs a single-camera subject (--world, a --play-view line-up, or a \
+         --generator/--prim/--catalogue/--avatar/--room turntable); --terrain, --wear \
+         and --ages sheets have no one camera to move"
+    );
+    assert!(
+        !args.play_view || matches!(subject, Subject::Single(_) | Subject::Lineup(_)),
+        "--play-view frames a subject at the chase camera's range; --world, --terrain, \
+         --room and --wear are not subjects it can stand on a ground plane"
+    );
+    assert!(
+        args.ride_height.is_none() || args.play_view,
+        "--ride-height only means anything under --play-view, which is the mode that \
+         stands a subject on the ground"
+    );
     let rig = build_rig(&args, is_world);
     let walker = (!args.walker.is_empty()).then(|| WalkerSpec {
         seeds: args.walker.clone(),
@@ -758,13 +846,38 @@ pub fn run() {
         walker.is_none() || is_world,
         "--walker needs --world: the body walks the compiled terrain"
     );
-    let single_camera = is_world || frames > 1;
+    let single_camera = is_world || frames > 1 || args.play_view;
+    let frame = if args.play_view {
+        PLAY_FRAME
+    } else {
+        DEFAULT_FRAME
+    };
     let tile = if single_camera {
-        ((args.width / 64).max(1) * 64, args.height.max(1))
+        (
+            (args.width.unwrap_or(frame.0) / 64).max(1) * 64,
+            args.height.unwrap_or(frame.1).max(1),
+        )
     } else {
         let side = (args.size / 64).max(1) * 64;
         (side, side)
     };
+    // `--play-view`: one ride height per line-up slot - the derived one where
+    // the subject had a locomotion record to read, and `--ride-height` where
+    // it did not (or where it is being overridden). The frame is the one
+    // actually rendered, rounding included, because the pixels-per-metre the
+    // log reports is read off it.
+    let play = args.play_view.then(|| {
+        let slots = match &subject {
+            Subject::Lineup(v) => v.len(),
+            _ => 1,
+        };
+        let mut derived = ride;
+        derived.resize(slots, None);
+        PlayView {
+            ride: resolve_rides(&derived, args.ride_height.as_deref()),
+            frame: tile,
+        }
+    });
     let ext = if frames > 1 { "gif" } else { "png" };
     let out = args
         .out
@@ -889,6 +1002,7 @@ pub fn run() {
     app.insert_resource(ClearColor(Color::srgb_u8(br, bg, bb)))
         .insert_resource(RenderJob {
             subject,
+            play,
             out,
             tile,
             elev: args.elev,
@@ -962,6 +1076,25 @@ fn build_rig(args: &Args, is_world: bool) -> CameraRig {
         None if is_world => Focus::Origin,
         None => Focus::Subject,
     };
+    // `--play-view` leaves distance and elevation unset so the framing can
+    // hand the rig the game's own pair (`rig::PLAY_DIST` / `play_elev_deg`),
+    // and holds the angle: it is a shot of a craft standing still at the
+    // range the player sees it, not a turntable.
+    if args.play_view {
+        return CameraRig {
+            focus,
+            lift: args.lift.unwrap_or(0.0),
+            dist: args.dist.map(|d| (d, args.dist_end.unwrap_or(d))),
+            elev: args.elev.map(|e| (e, args.elev_end.unwrap_or(e))),
+            // The sheet's own three-quarter angle, not its head-on "front":
+            // a craft seen straight on shows neither its sheer nor its
+            // length, which between them are most of what is being judged,
+            // and the studio sun is on this side.
+            yaw: args.yaw.unwrap_or(ANGLES[1]),
+            sweep: args.sweep.unwrap_or(0.0),
+            zoom: args.zoom.max(0.01),
+        };
+    }
     // A vista focus (the spawn, the landing, the settlement) looks at the
     // built-up band, 8 m up; a point on the ground and the walker are
     // deliberate ground-level shots, and a subject is framed on its centre.
@@ -1032,6 +1165,56 @@ fn parse_outfit(s: &str) -> Result<[f32; 4], String> {
     }
 }
 
+/// Where each play-view slot's origin goes: the height derived from the
+/// subject's own locomotion record, overridden by `--ride-height`.
+///
+/// One bare value in the spec sets every slot (and a bare `auto` derives
+/// every slot, which is what passing nothing already does); a comma list
+/// sets them one for one, with `auto` (or an empty entry) leaving a slot's
+/// derived height alone. The list has to match the line-up exactly - a short list would
+/// silently leave the last subject standing somewhere nobody asked for, and
+/// the whole point of the view is that nothing in it is accidental.
+fn resolve_rides(derived: &[Option<f32>], spec: Option<&str>) -> Vec<Ride> {
+    let told = |entry: &str| {
+        entry
+            .parse::<f32>()
+            .unwrap_or_else(|e| panic!("--ride-height {entry:?}: {e}"))
+    };
+    let auto = |h: Option<f32>| h.map_or(Ride::Bounds, Ride::Derived);
+    let Some(spec) = spec else {
+        return derived.iter().copied().map(auto).collect();
+    };
+    let entries: Vec<&str> = spec.split(',').map(str::trim).collect();
+    if let [only] = entries.as_slice() {
+        // A single `auto` is "derive every slot", which is what passing no
+        // flag at all already means; a single number sets them all.
+        return match *only {
+            "auto" | "" => derived.iter().copied().map(auto).collect(),
+            v => {
+                let h = told(v);
+                derived.iter().map(|_| Ride::Told(h)).collect()
+            }
+        };
+    }
+    assert_eq!(
+        entries.len(),
+        derived.len(),
+        "--ride-height {spec:?}: {} values for {} line-up slot(s) - pass one value for \
+         every slot, `auto` for the ones that keep their derived height, or a single \
+         value for all of them",
+        entries.len(),
+        derived.len()
+    );
+    derived
+        .iter()
+        .zip(entries)
+        .map(|(&h, entry)| match entry {
+            "auto" | "" => auto(h),
+            v => Ride::Told(told(v)),
+        })
+        .collect()
+}
+
 /// Parse an `x,z` ground point.
 fn parse_xz(s: &str) -> [f32; 2] {
     let v: Vec<f32> = s
@@ -1048,13 +1231,129 @@ fn parse_xz(s: &str) -> [f32; 2] {
     }
 }
 
+/// What a subject resolved to: the thing to draw, the filename label, and -
+/// for `--play-view` - where the game rests each line-up slot's origin above
+/// flat ground.
+struct Resolved {
+    subject: Subject,
+    label: String,
+    /// One entry per line-up slot (one for a single subject). `None` means
+    /// there is no locomotion record to read a ride height off, so the play
+    /// view stands that slot on its own drawn bounds.
+    ride: Vec<Option<f32>>,
+}
+
+impl Resolved {
+    /// A subject with no ride height to derive - everything but an avatar.
+    fn plain(subject: Subject, label: String) -> Self {
+        Self {
+            subject,
+            label,
+            ride: vec![None],
+        }
+    }
+}
+
+/// One line-up slot's tree, its derived ride height and its label.
+struct Slot {
+    generator: Generator,
+    ride: Option<f32>,
+    label: String,
+}
+
+/// Resolve a `--lineup` entry: a `u64` seed or a DID resolves to that seeded
+/// avatar through [`seeded_slot`], and a path to a readable file is a
+/// `--generator` JSON, which carries no locomotion record at all and so has
+/// no ride height to derive (`--ride-height` is how a prototype is told).
+///
+/// A seed is tried first, then a file, then a DID. Something that *looks*
+/// like a path - it has a separator or a `.json` tail - but is not readable
+/// is an error rather than a DID, because the alternative is a confusing
+/// "no such DID" for a mistyped filename.
+fn lineup_slot(spec: &str) -> Slot {
+    if spec.parse::<u64>().is_err() {
+        let path = std::path::Path::new(spec);
+        if path.is_file() {
+            let json = std::fs::read_to_string(path)
+                .unwrap_or_else(|e| panic!("read generator {spec:?}: {e}"));
+            let generator: Generator = serde_json::from_str(&json)
+                .unwrap_or_else(|e| panic!("parse generator {spec:?}: {e}"));
+            let label = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("generator")
+                .to_string();
+            return Slot {
+                generator,
+                ride: None,
+                label: format!("gen-{label}"),
+            };
+        }
+        assert!(
+            !(spec.contains(['/', '\\']) || spec.ends_with(".json")),
+            "--lineup {spec:?}: looks like a file path, but nothing readable is there"
+        );
+    }
+    seeded_slot(spec)
+}
+
+/// A seeded avatar - `u64` seed or DID - as a line-up slot, with the ride
+/// height read off the locomotion the same build produced. Vehicle seeds
+/// only: a rigged humanoid is refused by [`generator_body`], which is why
+/// `--reference-figure` exists.
+fn seeded_slot(spec: &str) -> Slot {
+    let (body, loco, label) = match spec.parse::<u64>() {
+        Ok(seed) => {
+            let (body, loco) = build_for_seed(seed);
+            (body, loco, format!("seed-{seed}"))
+        }
+        Err(_) => {
+            let (body, loco) = build_for_did(spec);
+            (body, loco, spec.replace([':', '/'], "_"))
+        }
+    };
+    Slot {
+        generator: generator_body(body, spec),
+        ride: crate::pds::avatar::default_visuals::ground_ride_height(&loco),
+        label,
+    }
+}
+
 /// Build the subject + a filename label from the CLI args.
 ///
-/// Precedence: `--generator` → `--world` → `--terrain` → `--room` → `--prim`
-/// → `--wear` → `--catalogue` → `--avatar` → seed 7. Pinned by
-/// `tests::the_subject_precedence_is_the_one_the_docs_claim`, because this
-/// order is stated in four places and three of them had drifted (#1162).
-fn resolve_subject(args: &Args) -> (Subject, String) {
+/// Precedence: `--lineup` → `--generator` → `--world` → `--terrain` →
+/// `--room` → `--prim` → `--wear` → `--catalogue` → `--avatar` → seed 7.
+/// Pinned by `tests::the_subject_precedence_is_the_one_the_docs_claim`,
+/// because this order is stated in four places and three of them had drifted
+/// (#1162).
+fn resolve_subject(args: &Args) -> Resolved {
+    if let Some(entries) = &args.lineup {
+        let slots: Vec<Slot> = entries
+            .split(',')
+            .map(|e| lineup_slot(e.trim()))
+            .chain(args.reference_figure.then(|| Slot {
+                generator: figure::reference_figure(),
+                ride: None,
+                label: format!("figure-{:.2}m", figure::HEIGHT),
+            }))
+            .collect();
+        assert!(!slots.is_empty(), "--lineup needs at least one subject");
+        println!(
+            "line-up, left→right: {}",
+            slots
+                .iter()
+                .map(|s| s.label.as_str())
+                .collect::<Vec<_>>()
+                .join(" | ")
+        );
+        let label = format!("lineup-{}", slots.len());
+        let ride = slots.iter().map(|s| s.ride).collect();
+        return Resolved {
+            subject: Subject::Lineup(slots.into_iter().map(|s| s.generator).collect()),
+            label,
+            ride,
+        };
+    }
     if let Some(path) = &args.generator {
         let json = std::fs::read_to_string(path)
             .unwrap_or_else(|e| panic!("read generator {path:?}: {e}"));
@@ -1065,7 +1364,7 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
             .and_then(|s| s.to_str())
             .unwrap_or("generator")
             .to_string();
-        return (Subject::Single(Box::new(generator)), format!("gen-{label}"));
+        return Resolved::plain(Subject::Single(Box::new(generator)), format!("gen-{label}"));
     }
     if let Some(world) = &args.world {
         let (record, did) = match world.parse::<u64>() {
@@ -1076,7 +1375,7 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
             Err(_) => (RoomRecord::default_for_did(world), world.clone()),
         };
         let label = format!("world-{}", world.replace([':', '/'], "_"));
-        return (Subject::World(Box::new(WorldSpec { record, did })), label);
+        return Resolved::plain(Subject::World(Box::new(WorldSpec { record, did })), label);
     }
     if let Some(terrain) = &args.terrain {
         let record = match terrain.parse::<u64>() {
@@ -1088,7 +1387,7 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
             terrain.replace([':', '/'], "_"),
             args.view
         );
-        return (
+        return Resolved::plain(
             Subject::Terrain {
                 record: Box::new(record),
                 view_m: args.view.max(10.0),
@@ -1102,13 +1401,13 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
             Err(_) => RoomRecord::default_for_did(room),
         };
         let label = format!("room-{}", room.replace([':', '/'], "_"));
-        return (Subject::Room(Box::new(record)), label);
+        return Resolved::plain(Subject::Room(Box::new(record)), label);
     }
     if let Some(tag) = &args.prim {
         let mut kind =
             primitive_for_tag(tag).unwrap_or_else(|| panic!("unknown primitive tag {tag:?}"));
         apply_prim_overrides(&mut kind, args);
-        return (
+        return Resolved::plain(
             Subject::Single(Box::new(Generator::from_kind(kind))),
             format!("prim-{}", tag.to_lowercase()),
         );
@@ -1128,7 +1427,7 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
         };
         assert!(args.wear_bodies > 0, "--wear-bodies must be at least 1");
         let seeds = (0..args.wear_bodies as u64).collect();
-        return (
+        return Resolved::plain(
             Subject::Wear {
                 seeds,
                 item: Box::new(entry.build("did:render:wear")),
@@ -1163,17 +1462,30 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
             }
             label.push_str(&format!("-{variant}"));
         }
-        return (Subject::Single(Box::new(generator)), label);
+        return Resolved::plain(Subject::Single(Box::new(generator)), label);
     }
     let avatar = args.avatar.clone().unwrap_or_else(|| "7".to_string());
-    let (body, label) = match avatar.parse::<u64>() {
-        Ok(seed) => (build_for_seed(seed).0, format!("seed-{seed}")),
-        Err(_) => (build_for_did(&avatar).0, avatar.replace([':', '/'], "_")),
-    };
-    (
-        Subject::Single(Box::new(generator_body(body, &avatar))),
-        label,
-    )
+    let slot = seeded_slot(&avatar);
+    // `--reference-figure` without `--lineup`: the subject plus the ruler is
+    // a two-slot line-up, which is the same picture with fewer flags.
+    if args.reference_figure {
+        println!(
+            "line-up, left→right: {} | figure-{:.2}m",
+            slot.label,
+            figure::HEIGHT
+        );
+        let label = format!("{}-figure", slot.label);
+        return Resolved {
+            subject: Subject::Lineup(vec![slot.generator, figure::reference_figure()]),
+            label,
+            ride: vec![slot.ride, None],
+        };
+    }
+    Resolved {
+        subject: Subject::Single(Box::new(slot.generator)),
+        label: slot.label,
+        ride: vec![slot.ride],
+    }
 }
 
 /// The generator tree behind a seeded avatar, or a clear refusal.
@@ -1339,7 +1651,7 @@ mod tests {
     fn the_subject_precedence_is_the_one_the_docs_claim() {
         fn label_for(argv: &[&str]) -> String {
             let args = Args::parse_from(std::iter::once("render").chain(argv.iter().copied()));
-            resolve_subject(&args).1
+            resolve_subject(&args).label
         }
 
         // A wearable to argue over, taken from the catalogue rather than
@@ -1393,6 +1705,132 @@ mod tests {
             label_for(&["--world", "3", "--terrain", "3", "--room", "3"]).starts_with("world-"),
             "--world outranks --terrain"
         );
+        // `--lineup` above everything (#1360): it is the only flag that
+        // names several subjects, so a subject flag beside it is what the
+        // line-up is being compared *against*, not a competing request.
+        assert_eq!(
+            label_for(&[
+                "--lineup",
+                "12,40,7",
+                "--world",
+                "3",
+                "--catalogue",
+                "villa"
+            ]),
+            "lineup-3",
+            "--lineup outranks --world"
+        );
+        assert_eq!(
+            label_for(&["--lineup", "12", "--reference-figure"]),
+            "lineup-2",
+            "--reference-figure joins the line-up as its last slot"
+        );
+        assert_eq!(
+            label_for(&["--avatar", "40", "--reference-figure"]),
+            "seed-40-figure",
+            "--reference-figure alone makes a two-slot line-up of the subject and the ruler"
+        );
+    }
+
+    /// #1360. `--play-view` is a preset, so the only thing worth pinning
+    /// here is that it *is* one: the distance and elevation stay unset so
+    /// the framing can hand over the game's own pair, and the shot holds its
+    /// angle instead of turning like a turntable. The numbers themselves are
+    /// pinned against `config::camera` in `rig`.
+    #[test]
+    fn the_play_view_preset_leaves_the_game_numbers_to_the_framing() {
+        let parse =
+            |argv: &[&str]| Args::parse_from(std::iter::once("render").chain(argv.iter().copied()));
+        let play = build_rig(&parse(&["--avatar", "40", "--play-view"]), false);
+        assert_eq!(play.focus, Focus::Subject);
+        assert_eq!(play.dist, None, "the framing supplies the game's distance");
+        assert_eq!(play.elev, None, "and the game's pitch");
+        assert_eq!(play.sweep, 0.0, "a play view holds its angle");
+        assert_eq!(play.lift, 0.0, "the framing looks at the line-up's middle");
+        assert_eq!(play.yaw, ANGLES[1], "the sheet's three-quarter angle");
+        // ... and every one of them is still overridable, because the view
+        // is also the most convenient studio the tool has.
+        let nudged = build_rig(
+            &parse(&[
+                "--avatar",
+                "40",
+                "--play-view",
+                "--yaw",
+                "200",
+                "--dist",
+                "6",
+            ]),
+            false,
+        );
+        assert_eq!(nudged.yaw, 200.0);
+        assert_eq!(nudged.dist, Some((6.0, 6.0)));
+    }
+
+    /// #1360. `--ride-height` over the derived heights: one value for all,
+    /// a list one for one, `auto` to keep what was derived - and a list that
+    /// does not match the line-up is refused rather than padded, because a
+    /// padded one would stand the last subject somewhere nobody asked for.
+    #[test]
+    fn a_told_ride_height_overrides_a_derived_one_slot_for_slot() {
+        let derived = [Some(1.17), None, Some(0.83)];
+        let heights = |spec: Option<&str>| -> Vec<Option<f32>> {
+            resolve_rides(&derived, spec)
+                .iter()
+                .map(Ride::height)
+                .collect()
+        };
+        assert_eq!(heights(None), vec![Some(1.17), None, Some(0.83)]);
+        assert_eq!(heights(Some("0.4")), vec![Some(0.4); 3]);
+        assert_eq!(
+            heights(Some("auto, 0.35 ,auto")),
+            vec![Some(1.17), Some(0.35), Some(0.83)]
+        );
+        // `auto` alone is not a single-value override; it is "derive them
+        // all", which is what no flag already means.
+        assert_eq!(heights(Some("auto")), heights(None));
+        // Provenance survives the override, so the log can say whose answer
+        // a subject is standing on.
+        let rides = resolve_rides(&derived, Some("auto,0.35,auto"));
+        assert!(matches!(rides[0], Ride::Derived(_)));
+        assert!(matches!(rides[1], Ride::Told(_)));
+    }
+
+    #[test]
+    #[should_panic(expected = "2 values for 3 line-up slot(s)")]
+    fn a_short_ride_height_list_is_refused_rather_than_padded() {
+        resolve_rides(&[Some(1.0), None, None], Some("0.4,0.5"));
+    }
+
+    /// #1360. A line-up entry is a seed, a readable file, or a DID - and a
+    /// mistyped path is told it is a mistyped path rather than sent off to
+    /// resolve as a DID.
+    #[test]
+    fn a_lineup_entry_is_a_seed_a_file_or_a_did() {
+        assert_eq!(lineup_slot("40").label, "seed-40");
+        assert!(
+            lineup_slot("40").ride.is_some(),
+            "a seeded boat knows its own ride height"
+        );
+        let did = "did:render:lineup-test";
+        // Not every DID rolls a vehicle - walk until one does, since a
+        // rigged humanoid is refused by name.
+        let vehicle = (0..64)
+            .map(|i| format!("{did}-{i}"))
+            .find(|d| {
+                crate::seeded_defaults::ChassisFamily::for_did(d)
+                    != crate::seeded_defaults::ChassisFamily::Humanoid
+            })
+            .expect("one of 64 DIDs rolls a vehicle");
+        assert_eq!(
+            lineup_slot(&vehicle).label,
+            vehicle.replace([':', '/'], "_")
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "looks like a file path")]
+    fn a_mistyped_lineup_path_is_not_taken_for_a_did() {
+        lineup_slot("target/dump/no-such-prototype.json");
     }
 
     /// The rig defaults per mode, so a bare `--world` and a bare turntable

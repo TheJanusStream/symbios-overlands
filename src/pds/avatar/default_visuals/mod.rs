@@ -282,6 +282,53 @@ fn static_suspension_compression(ref_mass: f32, ref_stiffness: f32) -> f32 {
     ref_mass * GRAVITY / (4.0 * ref_stiffness)
 }
 
+/// Where the game rests this chassis's **origin** above flat ground (m), for
+/// a craft that settles on a suspension: `half_y + rest_length - compression`.
+///
+/// The render tool's `--play-view` question (#1360), and the one thing that
+/// view cannot get wrong. A ground plane is the first time the tool can show
+/// hover and wheels, so a subject stood on its own bounds - keel on the dirt,
+/// tyres half buried - would be a picture that lies about exactly what it
+/// exists to show. Physics answers this in the running game by simulating;
+/// here it is arithmetic, and it is the same arithmetic the two pose tests in
+/// this module assert against ([`boat::land_ride_height`] and the skiff's
+/// tyre line).
+///
+/// The compression term reads the **seeded** mass and stiffness rather than
+/// the family reference [`static_suspension_compression`] takes, and gets the
+/// same number: both presets scale stiffness with mass off one reference, so
+/// `m · g / (4 · k_ref · m / m_ref)` cancels the seed out. That keeps this
+/// free of any family constant, which is what lets it be one short function
+/// instead of a match over private tables.
+///
+/// `None` for a craft with no suspension - an airship holds itself up with
+/// thrust and has no ground ride height at all - and for a rigged humanoid,
+/// whose height above the ground is its own animator's business. The play
+/// view stands those on their drawn bounds instead.
+///
+/// Native-only: the render tool is `cfg(not(wasm32))`, and a `pub(crate)`
+/// helper with no caller on wasm is dead code under CI's `-D warnings`
+/// (#1351).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn ground_ride_height(loco: &LocomotionConfig) -> Option<f32> {
+    let (half_y, rest, mass, stiffness) = match loco {
+        LocomotionConfig::HoverBoat(p) => (
+            p.chassis_half_extents.0[1],
+            p.suspension_rest_length.0,
+            p.mass.0,
+            p.suspension_stiffness.0,
+        ),
+        LocomotionConfig::Car(p) => (
+            p.chassis_half_extents.0[1],
+            p.suspension_rest_length.0,
+            p.mass.0,
+            p.suspension_stiffness.0,
+        ),
+        _ => return None,
+    };
+    Some(half_y + rest - mass * GRAVITY / (4.0 * stiffness))
+}
+
 /// Boat (hover-boat) locomotion from the seeded hull class + proportions.
 /// Barge = heavy + damped + sluggish; catamaran = light + agile; mono /
 /// trimaran sit between. The suspension spring, buoyancy and lateral grip
@@ -750,6 +797,15 @@ mod tests {
             let scale = visuals.transform.scale.0[1];
             let drop = -visuals.transform.translation.0[1];
             let ride = p.chassis_half_extents.0[1] + p.suspension_rest_length.0 - compression;
+            // The play view (#1360) stands a craft at this height from the
+            // seeded params alone. The two agree because the preset scales
+            // stiffness with mass, so the seed cancels - assert it per seed
+            // rather than trusting the algebra.
+            assert!(
+                (ground_ride_height(&loco).expect("a skiff settles on a suspension") - ride).abs()
+                    < 1e-4,
+                "seed {s}: ground_ride_height disagrees with the family derivation"
+            );
             let tyre_bottom = ride - drop - (bp.wheel_r - bp.ride_y) * scale;
             assert!(
                 tyre_bottom.abs() < 1e-4,
@@ -791,6 +847,11 @@ mod tests {
             // On land the suspension has to hold the hull where the assembler
             // wants it, keel clear of the ground.
             let ride = p.chassis_half_extents.0[1] + p.suspension_rest_length.0 - compression;
+            assert!(
+                (ground_ride_height(&loco).expect("a boat settles on a suspension") - ride).abs()
+                    < 1e-4,
+                "seed {s}: ground_ride_height disagrees with the family derivation"
+            );
             let want = boat::land_ride_height(bp.freeboard * scale);
             assert!(
                 (ride - want).abs() < 1e-4,
