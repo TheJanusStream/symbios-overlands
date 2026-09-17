@@ -57,14 +57,23 @@ impl VehicleStance {
         }
     }
 
-    /// `(length, freeboard, beam)` multipliers this stance applies to the
-    /// nominal hull. Centred so the population average stays near the
-    /// pre-blueprint hand-tuned dimensions.
+    /// `(length multiplier, length:beam ratio, freeboard fraction)` for a boat
+    /// of this stance (#1363).
+    ///
+    /// The stance moves the hull **inside** the brief's reference bands
+    /// (length:beam 3.2-3.8, freeboard 0.10-0.12 L) rather than scaling it out
+    /// of them, so a Heavy hull is the beamiest, tallest-sided boat that is
+    /// still a boat and a Sleek one the narrowest, lowest. The old factors
+    /// multiplied a 2.6:1 nominal by up to 1.16 on the beam, which is how
+    /// every seed arrived as a turtle shell.
     fn boat_factors(self) -> (f32, f32, f32) {
         match self {
-            Self::Compact => (0.90, 1.10, 1.06),
-            Self::Sleek => (1.12, 0.90, 0.94),
-            Self::Heavy => (0.98, 1.08, 1.16),
+            // Short, beamy and tall-sided - a stubby working launch.
+            Self::Compact => (0.93, 3.30, 0.118),
+            // Long, narrow and low - a cutter.
+            Self::Sleek => (1.07, 3.75, 0.102),
+            // Wide and deep-sided, but not short - a hauler.
+            Self::Heavy => (0.98, 3.25, 0.118),
         }
     }
 
@@ -101,67 +110,91 @@ impl VehicleStance {
     }
 }
 
-/// Concrete boat proportions + mount landmarks (metres, hull centred at the
-/// waterline origin). Nominal dimensions match the pre-blueprint hulls; the
-/// stance and [`AvatarBody`] multipliers spread them per seed. The four hull
-/// *forms* (mono / catamaran / trimaran / barge) stay discrete part picks that
-/// scale their geometry from `beam` / `hull_len` / `freeboard`; the landmarks
-/// (`deck_y`, `bow_z`, …) are what the assembler mounts to.
+/// Concrete boat proportions in **true metres**, with the hull's design
+/// waterline at the origin and the bow at `+Z` (#1363).
+///
+/// Every field is a real dimension of a real small boat, inside the bands the
+/// redesign brief set from reference craft: length:beam 3.2-3.8, freeboard
+/// 0.10-0.12 of the length, sheer rising about 0.06 L at the stem and 0.025 L
+/// at the transom, draft about 0.10 L. [`VehicleStance`] moves a hull *inside*
+/// those bands rather than outside them, which is the difference between a
+/// seeded fleet of boats and a seeded fleet of shapes: the old blueprint's
+/// 2.6:1 length:beam and 20 %-of-length freeboard made every hull a turtle
+/// shell, whatever the stance said (#1359 diagnosis).
+///
+/// No mount landmarks any more. They belonged to a part catalogue that seated
+/// a deck, a mast and a funnel on guessed fractions of the hull; the
+/// redesigned families read every station off their own `HullProfile`, which
+/// is derived from exactly these numbers, so a trim line or a mast step cannot
+/// drift from the hull it sits on.
 #[derive(Clone, Copy, Debug)]
 pub struct BoatBlueprint {
     pub stance: VehicleStance,
-    /// Monohull reference length (bow→stern); the other forms scale from it.
+    /// Overall hull length, stem to transom (m) - the nominal every other
+    /// dimension here is a fraction of.
     pub hull_len: f32,
-    /// Monohull reference beam (full width).
+    /// Maximum beam, full width (m).
     pub beam: f32,
-    /// Above-waterline height (freeboard).
+    /// Deck-edge height above the design waterline at the sheer's lowest
+    /// point (m).
     pub freeboard: f32,
-    /// Deck / mast-foot height above the waterline origin.
-    pub deck_y: f32,
-    /// Mast column height (deck → masthead).
-    pub mast_h: f32,
-    /// Bow-slot mount station (+Z), derived from the hull length so a bow
-    /// ornament always lands at the actual prow, not a fixed constant.
-    pub bow_z: f32,
-    /// Stern stack mount station (−Z), likewise length-derived.
-    pub stack_z: f32,
-    /// Deck-ornament mount station (just forward of amidships).
-    pub ornament_z: f32,
+    /// How much higher the deck edge runs at the stem than at that lowest
+    /// point (m) - the sheer's forward rise.
+    pub sheer_bow: f32,
+    /// The same at the transom (m), always the smaller of the two: a boat's
+    /// sheer sweeps up hardest forward.
+    pub sheer_stern: f32,
+    /// Depth of the deepest point of the underbody - the keel - below the
+    /// waterline (m). What the craft's hover height is derived from, since a
+    /// hovering boat has to clear the ground by its own draft (#1361).
+    pub draft: f32,
 }
 
 impl BoatBlueprint {
     fn derive(body: &AvatarBody, rng: &mut ChaCha8Rng) -> Self {
         let stance = VehicleStance::sample(rng);
-        let (len_f, fb_f, beam_f) = stance.boat_factors();
-        // Overall size rides the body height knob; width rides shoulder
-        // width; both stay inside the hand-tuned band.
-        let size = body.height_scale;
-        let hull_len = 1.32 * size * len_f * range_f32(rng, 0.94, 1.06);
-        let beam = 0.5 * size * body.shoulder_width_scale * beam_f;
-        let freeboard = 0.26 * size * fb_f * range_f32(rng, 0.95, 1.05);
-        let deck_y = freeboard * 0.5;
-        let mast_h = 0.42 * size * range_f32(rng, 0.9, 1.15);
+        let (len_f, beam_ratio, fb_frac) = stance.boat_factors();
+        // Overall size rides the body height knob, DAMPED (#1363). Owner
+        // decision 1 of the redesign is boats of about 2.6-3.0 m, and the
+        // body knob swings +-30 %: taken raw it drew boats from 2.1 m to
+        // 3.7 m, and the big end of that is the half of the fleet whose rig
+        // the air-draft cap has to cut down, because the cap is an absolute
+        // height above the ground and a 3.7 m hull cannot carry a
+        // proportional mast through a 2.86 m gateway. Damping the knob keeps
+        // "a bigger person sails a bigger boat" true without making a quarter
+        // of the fleet under-rigged.
+        let size = 1.0 + (body.height_scale - 1.0) * BODY_SIZE_DAMPING;
+        // The beam ratio rides shoulder width - a broad-shouldered avatar
+        // sails a beamier boat - and everything is clamped back into the
+        // brief's bands afterwards, so a clamp corner is still a boat.
+        let hull_len = NOMINAL_HULL_LEN * size * len_f * range_f32(rng, 0.96, 1.04);
+        let ratio = (beam_ratio / body.shoulder_width_scale).clamp(3.2, 3.8);
+        let freeboard = hull_len * (fb_frac * range_f32(rng, 0.97, 1.03)).clamp(0.10, 0.12);
         Self {
             stance,
             hull_len,
-            beam,
+            beam: hull_len / ratio,
             freeboard,
-            deck_y,
-            mast_h,
-            // Stations as fractions of the hull length so the anchors track
-            // the seeded hull instead of silently re-encoding its default
-            // length as a literal (the coupling #783 removes everywhere). The
-            // bow station sits *on* the stem (the hull's swept blob tips out at
-            // ≈0.5·len once the iso-surface pulls in from the analytic cone),
-            // not the old 0.59 that floated a figurehead clear ahead of the
-            // prow - the survey's "seed-28 unanchored bow sphere" (#785). A
-            // forward-projecting ram still overhangs via its own +Z offset.
-            bow_z: hull_len * 0.50,
-            stack_z: -hull_len * 0.42,
-            ornament_z: hull_len * 0.076,
+            sheer_bow: hull_len * 0.060 * range_f32(rng, 0.92, 1.08),
+            sheer_stern: hull_len * 0.025 * range_f32(rng, 0.92, 1.08),
+            draft: hull_len * 0.100 * range_f32(rng, 0.95, 1.05),
         }
     }
 }
+
+/// Overall hull length (m) a nominal seeded boat is drawn at: airship class,
+/// per owner decision 1 of the redesign (boats about 2.8 m against the
+/// airship's 3.15 m and a 1.7 m person). Still a scale model of a bigger craft
+/// - lit ports, no pilot - like the airship's 0.9 m gondola.
+///
+/// Since #1363 this is the length the parts are **authored** at as well, so
+/// there is no scale bridge between the two any more: the boat assembler's
+/// uniform root scale died with the legacy pipeline it was carrying.
+pub const NOMINAL_HULL_LEN: f32 = 2.8;
+
+/// How much of the body's +-30 % height knob a boat's overall length takes
+/// (#1363). See [`BoatBlueprint::derive`].
+const BODY_SIZE_DAMPING: f32 = 0.45;
 
 /// Airship proportions. Each envelope **form** is a seeded Lathe body of
 /// revolution whose length + girth the `len_mult` / `radius_mult` here perturb
@@ -373,20 +406,42 @@ mod tests {
             let Some(b) = VehicleBlueprint::from_seed(s).and_then(|bp| bp.boat().copied()) else {
                 continue;
             };
+            // True metres since #1363, around a 2.8 m nominal. Owner decision
+            // 1 of the redesign is "boats about 2.6-3.0 m", and the damped
+            // body knob plus the stance land three quarters of the fleet in
+            // 2.6-3.0 with the tails inside this: no seed is a dinghy and none
+            // is a ship.
             assert!(
-                (0.9..=1.9).contains(&b.hull_len),
+                (2.2..=3.4).contains(&b.hull_len),
                 "seed {s} len {}",
                 b.hull_len
             );
-            assert!((0.3..=0.8).contains(&b.beam), "seed {s} beam {}", b.beam);
+            // The brief's reference bands (#1363 item 7), which the stance
+            // moves a hull INSIDE rather than out of. A clamp corner is still
+            // a boat.
+            // A hair of tolerance on the clamp boundaries: the ratio is
+            // clamped and then divided back out of the beam, so a seed sitting
+            // exactly on a bound comes back a float ulp outside it.
+            const EPS: f32 = 1e-4;
+            let ratio = b.hull_len / b.beam;
             assert!(
-                (0.15..=0.4).contains(&b.freeboard),
-                "seed {s} fb {}",
-                b.freeboard
+                (3.2 - EPS..=3.8 + EPS).contains(&ratio),
+                "seed {s}: length:beam {ratio} is outside the band"
             );
-            // The bow station sits ahead of amidships and behind the hull tip.
-            assert!(b.bow_z > 0.0 && b.bow_z < b.hull_len);
-            assert!(b.stack_z < 0.0);
+            let fb = b.freeboard / b.hull_len;
+            assert!(
+                (0.10 - EPS..=0.12 + EPS).contains(&fb),
+                "seed {s}: freeboard {fb} of the length is outside the band"
+            );
+            assert!(
+                b.sheer_bow > b.sheer_stern && b.sheer_stern > 0.0,
+                "seed {s}: a boat's sheer sweeps up hardest forward"
+            );
+            let draft = b.draft / b.hull_len;
+            assert!(
+                (0.09..=0.11).contains(&draft),
+                "seed {s}: draft {draft} of the length is outside the band"
+            );
             seen += 1;
         }
         assert!(seen > 20, "too few boats sampled: {seen}");

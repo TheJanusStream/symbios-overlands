@@ -230,6 +230,26 @@ impl BoatType {
         floor + if self.at_home(style) { AT_HOME } else { 0 }
     }
 
+    /// Whether anything actually BUILDS this type yet (#1363).
+    ///
+    /// The pick is a property of the seed and answers for every type from the
+    /// day the table landed; the geometry arrives one slice at a time. Until a
+    /// type's slice lands, a seed that picked it is DRAWN as the family's
+    /// [`UNIVERSAL`](Self::UNIVERSAL) floor - the sloop - while still
+    /// *reporting* the type it rolled, which is what lets each fan-out slice
+    /// find its own seeds before it builds them.
+    ///
+    /// Kept in step with the builder table by
+    /// `default_visuals::boats::tests::a_type_is_implemented_exactly_when_
+    /// something_builds_it`; the failure it prevents is a type that claims to
+    /// be built and silently draws a sloop.
+    pub fn implemented(self) -> bool {
+        match self {
+            Self::Sloop => true,
+            Self::Longship | Self::SteamTug | Self::Junk | Self::Runabout | Self::Scow => false,
+        }
+    }
+
     /// The type for a seed, weighted by the avatar's style.
     pub fn for_seed(seed: u64) -> Self {
         Self::for_style(AvatarCharacter::for_seed(seed).style, seed)

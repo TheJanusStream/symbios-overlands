@@ -9,9 +9,7 @@
 //! lives in exactly one place.
 
 use crate::pds::PrimCommon;
-use crate::pds::generator::{
-    BlobElement, BlobShape, Generator, GeneratorKind, LathePoint, SpinePoint,
-};
+use crate::pds::generator::{Generator, GeneratorKind, LathePoint, SpinePoint};
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::{Fp, Fp2, Fp3, Fp4, TransformData};
 
@@ -120,149 +118,15 @@ pub(crate) fn cylinder(
     }
 }
 
-/// Smooth-blend SDF group (#690): `elements` built with [`blob_ellipsoid`] /
-/// [`blob_ellipsoid`] / [`blob_capsule`] / [`blob_carve`]. The organic-mass
-/// workhorse - overlapping elements merge into one seamless skin, so the
-/// old bolted-ellipsoid idiom (and its intersection seams) is obsolete.
-pub(crate) fn blob_group(
-    elements: Vec<BlobElement>,
-    resolution: u32,
-    material: SovereignMaterialSettings,
-) -> GeneratorKind {
-    blob_group_uv(
-        elements,
-        resolution,
-        crate::pds::generator::UvMapping::default(),
-        material,
-    )
-}
+// The smooth-blend SDF vocabulary (`blob_group` and its elements) lived here
+// until #1363. It existed for the boat hull, which was a blob iso-surface
+// nobody could predict - which is exactly why rails floated off it and every
+// mount needed an embed fudge factor - and the redesign's owner decision 4 is
+// that machines are built from swept and turned shapes, never blobs, because a
+// blob reads as organic. Nothing left in this crate assembles one, so it is
+// gone rather than kept warm; git history has it if a genuinely organic avatar
+// part ever wants it back.
 
-/// [`blob_group`] with an explicit [`crate::pds::generator::UvMapping`]
-/// instead of the `Box` default - e.g. `Cylindrical` so a wrap-mapped texture
-/// (planking / plating) flows *along* an elongated mass (a boat hull) rather
-/// than tri-planar-projecting with per-face seams.
-pub(crate) fn blob_group_uv(
-    elements: Vec<BlobElement>,
-    resolution: u32,
-    uv_mapping: crate::pds::generator::UvMapping,
-    material: SovereignMaterialSettings,
-) -> GeneratorKind {
-    let mut kind = GeneratorKind::BlobGroup {
-        elements,
-        resolution,
-        common: PrimCommon::with_material(material),
-    };
-    kind.set_uv_mapping(uv_mapping);
-    kind
-}
-
-/// Snap an authored blob-element rotation onto the sanitiser's
-/// renormalisation fixpoint: a `sin`/`cos`-built quaternion can sit an ulp
-/// off exact unit length, and the record sanitiser's renormalisation would
-/// then rewrite it - breaking the parts' survive-sanitise-unchanged
-/// round-trip contract.
-fn unit(rotation: Fp4) -> Fp4 {
-    Fp4(crate::pds::sanitize::unit_quat_fixpoint(rotation.0))
-}
-
-/// Additive blob ellipsoid: `semi_axes` are the X/Y/Z half-extents in the
-/// group's local frame (pass a rotation for a tilted mass).
-pub(crate) fn blob_ellipsoid(
-    position: [f32; 3],
-    semi_axes: [f32; 3],
-    rotation: Fp4,
-    blend: f32,
-) -> BlobElement {
-    BlobElement {
-        shape: BlobShape::Ellipsoid,
-        position: Fp3(position),
-        rotation: unit(rotation),
-        radii: Fp3(semi_axes),
-        subtract: false,
-        blend: Fp(blend),
-    }
-}
-
-/// Additive blob capsule along its local +Y (rotate to aim): `radius` tube,
-/// `half_len` core-segment half-length.
-pub(crate) fn blob_capsule(
-    position: [f32; 3],
-    radius: f32,
-    half_len: f32,
-    rotation: Fp4,
-    blend: f32,
-) -> BlobElement {
-    BlobElement {
-        shape: BlobShape::Capsule,
-        position: Fp3(position),
-        rotation: unit(rotation),
-        // The Z radius is unused by the capsule SDF but must sit at the
-        // sanitizer's `c_dim` floor (0.01), not 0.0 - otherwise every
-        // fetched avatar gets clamped and re-serializes differently from
-        // what its owner published (caught by the #695 round-trip test).
-        radii: Fp3([radius, half_len, 0.01]),
-        subtract: false,
-        blend: Fp(blend),
-    }
-}
-
-/// Additive blob box: `half_extents` are the X/Y/Z half-extents in the
-/// element's pre-rotation frame - the hard-surface mass inside a soft
-/// group (pelvis block, palm, heel) that a smooth blend then rounds off.
-pub(crate) fn blob_box(
-    position: [f32; 3],
-    half_extents: [f32; 3],
-    rotation: Fp4,
-    blend: f32,
-) -> BlobElement {
-    BlobElement {
-        shape: BlobShape::Box,
-        position: Fp3(position),
-        rotation: unit(rotation),
-        radii: Fp3(half_extents),
-        subtract: false,
-        blend: Fp(blend),
-    }
-}
-
-/// Additive blob capped cone along its local +Y: `base_r` at −`half_len`,
-/// `tip_r` at +`half_len` (rotate to aim). The one-element tapered limb
-/// segment (forearm / shin / thigh) a constant-radius capsule can't make -
-/// keep `tip_r` ≥ ~40 % of `base_r` on limbs so the segment arrives at its
-/// joint still carrying volume (a near-point tip reads as a teardrop and
-/// visually disconnects at the joint, the #726 round-2 blocker).
-pub(crate) fn blob_cone(
-    position: [f32; 3],
-    base_r: f32,
-    half_len: f32,
-    tip_r: f32,
-    rotation: Fp4,
-    blend: f32,
-) -> BlobElement {
-    BlobElement {
-        shape: BlobShape::Cone,
-        position: Fp3(position),
-        rotation: unit(rotation),
-        // The tip radius shares the sanitizer's `c_dim` floor (0.01) -
-        // same round-trip contract as [`blob_capsule`]'s unused axis.
-        radii: Fp3([base_r, half_len, tip_r.max(0.01)]),
-        subtract: false,
-        blend: Fp(blend),
-    }
-}
-
-/// Flip any blob element to carve (smooth subtraction) instead of add -
-/// sockets / creases / waist pinches.
-pub(crate) fn blob_carve(mut e: BlobElement) -> BlobElement {
-    e.subtract = true;
-    e
-}
-
-/// Spline-swept tube (#689): the one-prim tail / horn / tentacle. `points`
-/// are `(position, radius)` stations the Catmull-Rom centreline passes
-/// through. (Catalogue-facing, like [`lathe`] - the humanoid limbs moved to
-/// blended BlobGroups in #726.)
-#[allow(dead_code)]
 pub(crate) fn spine(
     points: &[([f32; 3], f32)],
     resolution: u32,

@@ -16,7 +16,8 @@ use crate::pds::types::{Fp, Fp3};
 use crate::seeded_defaults::{OrnatenessTier, unit_f32};
 
 use super::super::PartCtx;
-use super::common::{ensure_delta, floor_value, luma, saturate, shade, to_value};
+use super::common::{ensure_delta, floor_value, luma, saturate, shade};
+use crate::pds::avatar::colour::{window_light, window_material};
 
 /// Salt for the gondola-dressing sub-stream (kept distinct from the palette /
 /// outfit streams so the ornamentation varies independently per ship).
@@ -60,23 +61,6 @@ pub(crate) struct AirshipColors {
     pub(crate) window: [f32; 3],
 }
 
-/// Normalize a raw accent into an interior-light window colour: saturate it to
-/// a jewel (a greyed accent still reads as *coloured* light), floor its value
-/// (a dark accent lights up instead of reading as a dead pane), and cap it
-/// below white (a near-white accent doesn't blow the pane out to a featureless
-/// slab). Standardizes the gondola glazing that used to inherit the raw
-/// tertiary at a fixed glow strength - dead on dark seeds, blown out on pale
-/// ones, only right when the tertiary happened to be cyan (#789, absorbing the
-/// #781 window item; seed 12 is the target look).
-pub(crate) fn window_light(accent: [f32; 3]) -> [f32; 3] {
-    // Floor the value so a dark accent lights up, saturate to a jewel so even a
-    // pale low-chroma tertiary reads as *coloured* light, then cap well below
-    // white (pulling a light pane back down *raises* its chroma) so a pale
-    // accent doesn't wash to a featureless slab (#789 review: seeds 45/48).
-    let c = saturate(floor_value(accent, 0.44));
-    if luma(c) > 0.7 { to_value(c, 0.7) } else { c }
-}
-
 pub(crate) fn airship_colors(ctx: &PartCtx) -> AirshipColors {
     let p = &ctx.palette;
     let envelope = floor_value(p.primary_accent, 0.30);
@@ -111,21 +95,6 @@ pub(crate) fn envelope_material(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         metallic: Fp(0.04),
         roughness: Fp(0.72),
-        ..Default::default()
-    }
-}
-
-/// A disciplined self-lit gondola-window material toned to a pre-[`window_light`]
-/// -normalized colour: emissive, but at a running-light strength (not the
-/// fixed `glow` 5.0 that blew pale panes out), so the cabin reads lit and warm
-/// at any seed.
-pub(crate) fn window_material(color: [f32; 3]) -> SovereignMaterialSettings {
-    SovereignMaterialSettings {
-        base_color: Fp3(color),
-        metallic: Fp(0.3),
-        roughness: Fp(0.35),
-        emission_color: Fp3(color),
-        emission_strength: Fp(3.6),
         ..Default::default()
     }
 }

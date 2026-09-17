@@ -1,8 +1,10 @@
-//! Styled vehicle part kits - crafted variants and ornaments for the boat /
-//! airship / skiff families.
+//! Styled vehicle part kits - crafted variants and ornaments for the airship /
+//! skiff families. The boat left in #1363: her craft types draw their own
+//! geometry off one hull profile, so she fills no slots and the bow / stack /
+//! deck / mast kits that dressed her are gone.
 //!
-//! Fills the previously-empty optional vehicle slots ([`PartSlot::Bow`](super::PartSlot::Bow) /
-//! [`PartSlot::Stack`](super::PartSlot::Stack) / [`PartSlot::Exhaust`](super::PartSlot::Exhaust) /
+//! Fills the previously-empty optional vehicle slots
+//! ([`PartSlot::Exhaust`](super::PartSlot::Exhaust) /
 //! [`PartSlot::Ornament`](super::PartSlot::Ornament)) and
 //! adds style-specific variants for the body slots, plus cross-family
 //! ornaments. Tagged by style and by ornateness / wear bands, so a steam funnel
@@ -13,8 +15,8 @@
 //!
 //! Every mood group (see the group consts) houses at least one of the 24
 //! [`ThemeArchetype`]s, and every optional slot ships a **style-universal**
-//! floor part (`boat_bow_bowsprit` / `boat_stack_vent` / `skiff_exhaust_tailpipe`
-//! / `veh_orn_finial`, all empty-styles) so no theme's optional slots are ever
+//! floor part (`skiff_exhaust_tailpipe` / `veh_orn_finial`, both
+//! empty-styles) so no theme's optional slots are ever
 //! permanently bare - the styled and band-tagged parts then layer flavour on
 //! top of that floor (#792).
 
@@ -23,15 +25,11 @@ use crate::seeded_defaults::ThemeArchetype;
 // itself, because the craft-type affinities (#1362) read the same groups.
 // Imported privately so the submodules keep reaching them as `super::NEON`.
 use crate::seeded_defaults::mood::{
-    AGRARIAN, BUCCANEER, COASTAL, GRUBBY, HISTORIC, MARTIAL, NEON, NORSE_FEY, REGAL, SEPULCHRAL,
-    STEAM, WORKING,
+    AGRARIAN, COASTAL, GRUBBY, HISTORIC, MARTIAL, NEON, REGAL, STEAM,
 };
 use crate::seeded_defaults::{ChassisFamily, OrnatenessBand, OrnatenessTier, WearBand, WearTier};
 
-use super::PartCtx;
-
 mod airship;
-mod boat;
 mod kits;
 mod ornaments;
 mod skiff;
@@ -40,19 +38,16 @@ mod skiff;
 // submodules; glob them in so the shared `ENTRIES` registry below can list them
 // and `parts::vehicle::ENTRIES` stays a single flat slice.
 use airship::*;
-use boat::*;
 use kits::*;
 use ornaments::*;
 use skiff::*;
 
-const BOAT: &[ChassisFamily] = &[ChassisFamily::Boat];
 const AIRSHIP: &[ChassisFamily] = &[ChassisFamily::Airship];
 const SKIFF: &[ChassisFamily] = &[ChassisFamily::Skiff];
-const VEHICLES: &[ChassisFamily] = &[
-    ChassisFamily::Boat,
-    ChassisFamily::Airship,
-    ChassisFamily::Skiff,
-];
+/// The vehicle families that still assemble from parts. The boat left in
+/// #1363: her craft types draw their own geometry off one hull profile, so she
+/// has no slots for a shared ornament to fill.
+const VEHICLES: &[ChassisFamily] = &[ChassisFamily::Airship, ChassisFamily::Skiff];
 
 /// Empty style list - a **style-universal** part, eligible for every theme (see
 /// the module docstring). Used for the per-slot floor parts that guarantee no
@@ -75,21 +70,6 @@ const BATTERED: WearBand = WearBand::only(WearTier::Battered);
 /// ends (#793).
 const CLEAN: WearBand = WearBand::only(WearTier::Pristine);
 
-/// Blueprint mast height (deck → masthead), or the pre-blueprint nominal (a
-/// boat ctx always carries a blueprint; the fallback is defensive, and lets a
-/// styled mast still build valid geometry when the round-trip test exercises it
-/// against a non-boat seed).
-fn mast_height(ctx: &PartCtx) -> f32 {
-    ctx.boat().map_or(0.42, |b| b.mast_h)
-}
-
-/// Boat deck footprint multipliers `(dw, dl)` - the seeded beam / length over
-/// the nominal, so a deck variant scales with its hull like the default deck.
-fn deck_dims(ctx: &PartCtx) -> (f32, f32) {
-    let (beam, length) = ctx.boat().map_or((0.5, 1.32), |b| (b.beam, b.hull_len));
-    (beam / 0.5, length / 1.32)
-}
-
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -99,20 +79,6 @@ fn deck_dims(ctx: &PartCtx) -> (f32, f32) {
 /// mood-tagged and band-tagged variants; the outfit deriver draws from the
 /// union, so every theme fills every optional slot from the floor up (#792).
 pub(super) static ENTRIES: &[&dyn super::BodyPart] = &[
-    &BOW_RAM,
-    &BOW_FIGUREHEAD,
-    &BOW_SKULL_HEAD,
-    &BOW_BOWSPRIT,
-    &SMOKESTACK,
-    &STACK_THRUSTERS,
-    &STACK_VENT,
-    &MAST_SQUARE_RIG,
-    &MAST_BLACK_COLOURS,
-    &MAST_ANTENNA,
-    &MAST_DERRICK,
-    &DECK_CARGO,
-    &DECK_GUNPORTS,
-    &DECK_BENCH,
     &TEARDROP_ENVELOPE,
     &POD_DUCTED,
     &POD_SCREW,
@@ -132,13 +98,6 @@ pub(super) static ENTRIES: &[&dyn super::BodyPart] = &[
     &ORNAMENT_FINIAL,
     &ORNAMENT_TATTERED,
     // #793 bespoke mood-group kits.
-    &BOW_SERPENT,
-    &BOW_ROPE_COIL,
-    &STACK_STERN_LANTERN,
-    &DECK_VERANDA,
-    &DECK_BARRELS,
-    &DECK_ENGINEWORKS,
-    &ORN_DECK_LANTERN,
     &CANOPY_BUCKBOARD,
     &CANOPY_AERO,
     &CANOPY_TARGA_RACK,
@@ -153,7 +112,7 @@ mod tests {
     // The bare archetype names the expectations below are written in. Scoped
     // to the tests since the mood groups moved out to `seeded_defaults::mood`
     // (#1362) and the registry itself now names only the groups.
-    use crate::seeded_defaults::ThemeArchetype::{Cyberpunk, Fantasy, FeudalJapan, Medieval};
+    use crate::seeded_defaults::ThemeArchetype::Cyberpunk;
     use crate::seeded_defaults::{OrnatenessTier, WearTier};
 
     /// The three vehicle families (the humanoid is a separate kit).
@@ -165,7 +124,7 @@ mod tests {
 
     #[test]
     fn universal_floors_only_fill_optional_slots() {
-        let ctx = PartCtx::for_seed(13);
+        let ctx = super::super::PartCtx::for_seed(13);
         for part in ENTRIES {
             assert!(!part.chassis().is_empty(), "{} no chassis", part.slug());
             let a = part.build(&ctx);
@@ -230,75 +189,16 @@ mod tests {
         }
     }
 
-    /// A buccaneer's craft draws its own rig, prow and deck, and nobody
-    /// else's craft draws them (#1019).
-    ///
-    /// The exclusivity is the substance. A jolly roger at the masthead of a
-    /// Nordic longship or a rural launch is a costume error, not a stylistic
-    /// choice, and the broad mood groups cannot express that - Pirate is in
-    /// MARTIAL, HISTORIC and WORKING precisely because a battering ram, a
-    /// square rig and a coil of rope genuinely are shared. These three are
-    /// not.
-    #[test]
-    fn the_buccaneer_boat_kit_is_pirate_only() {
-        use crate::seeded_defaults::ThemeArchetype as T;
-        let kit = [
-            ("boat_mast_black_colours", PartSlot::Mast),
-            ("boat_bow_skull_head", PartSlot::Bow),
-            ("boat_deck_gunports", PartSlot::Deck),
-        ];
-        for (slug, slot) in kit {
-            let part = ENTRIES
-                .iter()
-                .find(|p| p.slug() == slug)
-                .unwrap_or_else(|| panic!("{slug} is registered"));
-            assert_eq!(part.slot(), slot, "{slug} is on the wrong slot");
-            assert_eq!(
-                part.styles(),
-                BUCCANEER,
-                "{slug} has leaked out of the group"
-            );
-            // Reachable by a pirate on the slot it claims...
-            let pirate: Vec<&str> = parts_for(ChassisFamily::Boat, slot, T::Pirate)
-                .map(|p| p.slug())
-                .collect();
-            assert!(
-                pirate.contains(&slug),
-                "a pirate cannot draw {slug}; the {slot:?} pool is {pirate:?}"
-            );
-            // ...and reachable by nobody else.
-            for theme in T::ALL {
-                if theme == T::Pirate {
-                    continue;
-                }
-                let others: Vec<&str> = parts_for(ChassisFamily::Boat, slot, theme)
-                    .map(|p| p.slug())
-                    .collect();
-                assert!(!others.contains(&slug), "{theme:?} is drawing {slug}");
-            }
-        }
-    }
-
-    /// The pirate still has an ordinary square-rigger to roll as well.
-    ///
-    /// Worth pinning: the bespoke rig is a *variant*, not a replacement. Not
-    /// every hull in a buccaneer harbour has hoisted the black, and a pool of
-    /// one would make every pirate boat identical at the masthead.
-    #[test]
-    fn a_pirate_rolls_either_rig() {
-        let masts: Vec<&str> = parts_for(
-            ChassisFamily::Boat,
-            PartSlot::Mast,
-            crate::seeded_defaults::ThemeArchetype::Pirate,
-        )
-        .map(|p| p.slug())
-        .collect();
-        assert!(
-            masts.contains(&"boat_mast_square_rig") && masts.contains(&"boat_mast_black_colours"),
-            "a pirate should be able to roll a plain square rig or the black \
-             colours; got {masts:?}"
-        );
-    }
+    // The buccaneer-kit and pirate-rig tests lived here, pinning
+    // `boat_mast_black_colours` / `boat_bow_skull_head` / `boat_deck_gunports`
+    // / `boat_mast_square_rig` to the Pirate style. They went with the legacy
+    // boat catalogue in #1363: boats are no longer assembled from parts at
+    // all, so there are no boat slugs left to pin. The pirate's black colours
+    // are a livery and a rig variant now, and belong to #1365 (liveries) and
+    // #1366 (rig variants); the guard that they stay pirate-only belongs to
+    // #1382 with the rest of the refitted guards. Deliberately NOT rewritten
+    // against the sloop - pinning an unfinished design is the trap the
+    // geometry-before-instruments rule exists for.
 
     #[test]
     fn every_theme_belongs_to_a_mood_group() {
@@ -317,51 +217,18 @@ mod tests {
     }
 
     #[test]
-    fn ornateness_and_wear_bands_gate_optional_vehicle_parts() {
-        // The tier axes are no longer inert (#792): fancy prow / pennant show
-        // only on adorned+ craft, the ram / twin pipes only on worn+ craft, and
-        // the tattered banner only on battered craft.
+    fn ornateness_and_wear_bands_gate_optional_skiff_parts() {
+        // The tier axes are not inert (#792): the sooted twin pipes show only
+        // on worn+ craft. The boat halves of this test - the fancy figurehead,
+        // the battering ram, the tattered banner, the bowsprit floor - went
+        // with the legacy boat catalogue in #1363; boat dressing by ornateness
+        // and wear is #1379's, and its guard is #1382's.
         let has = |chassis, slot, style, o, w, slug: &str| {
             parts_for_avatar(chassis, slot, style, o, w).any(|p| p.slug() == slug)
         };
-        use ChassisFamily::{Boat, Skiff};
-        use OrnatenessTier::{Ornate, Plain};
-        use WearTier::{Battered, Pristine, Worn};
-        // Fancy figurehead - gated by ornateness (Adorned upward); Fantasy is REGAL.
-        assert!(!has(
-            Boat,
-            PartSlot::Bow,
-            Fantasy,
-            Plain,
-            Worn,
-            "boat_bow_figurehead"
-        ));
-        assert!(has(
-            Boat,
-            PartSlot::Bow,
-            Fantasy,
-            Ornate,
-            Worn,
-            "boat_bow_figurehead"
-        ));
-        // Battering ram - gated by wear (Worn upward).
-        assert!(!has(
-            Boat,
-            PartSlot::Bow,
-            Medieval,
-            Ornate,
-            Pristine,
-            "boat_bow_ram"
-        ));
-        assert!(has(
-            Boat,
-            PartSlot::Bow,
-            Medieval,
-            Ornate,
-            Worn,
-            "boat_bow_ram"
-        ));
-        // Sooted twin pipes - worn upward.
+        use ChassisFamily::Skiff;
+        use OrnatenessTier::Ornate;
+        use WearTier::{Battered, Pristine};
         assert!(!has(
             Skiff,
             PartSlot::Exhaust,
@@ -378,45 +245,5 @@ mod tests {
             Battered,
             "skiff_exhaust_twin_pipes"
         ));
-        // Tattered banner - battered only.
-        assert!(!has(
-            Boat,
-            PartSlot::Ornament,
-            Medieval,
-            Ornate,
-            Worn,
-            "veh_orn_tattered"
-        ));
-        assert!(has(
-            Boat,
-            PartSlot::Ornament,
-            Medieval,
-            Ornate,
-            Battered,
-            "veh_orn_tattered"
-        ));
-        // The universal floor is always there regardless of tier.
-        assert!(has(
-            Boat,
-            PartSlot::Bow,
-            FeudalJapan,
-            Plain,
-            Pristine,
-            "boat_bow_bowsprit"
-        ));
-    }
-
-    #[test]
-    fn steam_boat_can_fit_a_funnel_stack() {
-        let stacks: Vec<&str> = parts_for_avatar(
-            ChassisFamily::Boat,
-            PartSlot::Stack,
-            ThemeArchetype::Steampunk,
-            OrnatenessTier::Adorned,
-            WearTier::Worn,
-        )
-        .map(|p| p.slug())
-        .collect();
-        assert!(stacks.contains(&"boat_stack_funnel"), "got {stacks:?}");
     }
 }

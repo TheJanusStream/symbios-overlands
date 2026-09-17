@@ -19,19 +19,21 @@
 //! never-edited seeded default agree on where it goes.
 //!
 //! **Boats and skiffs are drawn at airship class** (#1361, owner decision 1 of
-//! the #1359 redesign): their parts are still authored around the old 1.32 m /
-//! 1.5 m nominals, and each assembler puts one uniform scale on the visual root
-//! to bring them up to 2.8 m / 2.65 m. That bridge is throwaway - it dies with
-//! each legacy pipeline as the hero craft land - but the consequence is not:
+//! the #1359 redesign). The BOAT is there for real since #1363: [`boats`]
+//! draws one builder per craft type off one hull profile, authored in the true
+//! metres she is drawn at, with no parts and no scale bridge behind her. The
+//! skiff still assembles from parts authored around the old 1.5 m nominal and
+//! still carries the uniform root scale that brings it up to 2.65 m, and that
+//! bridge dies with the roadster (#1364). The consequence outlives both:
 //! everything derived here from a vehicle's size (mass, collider, ride height,
-//! travel-pose drop, particle sprites) reads the **drawn** dimensions, never the
-//! authored ones, and compares them against a named true nominal.
+//! travel-pose drop, particle sprites) reads the **drawn** dimensions, never
+//! the authored ones, and compares them against a named true nominal.
 //!
 //! Shared primitive/material vocabulary lives in [`common`].
 
 mod airship;
 mod assemble;
-mod boat;
+mod boats;
 pub(crate) mod common;
 mod fx;
 mod skiff;
@@ -42,8 +44,8 @@ use crate::pds::avatar::parts::PartSlot;
 use crate::pds::avatar::body::AvatarBody as RecordBody;
 use crate::pds::types::{Fp, Fp3};
 use crate::seeded_defaults::{
-    AvatarFx, AvatarGait, AvatarOutfit, AvatarPalette, ChassisFamily, ParticleAura,
-    VehicleBlueprint, fnv1a_64,
+    AvatarFx, AvatarGait, AvatarOutfit, AvatarPalette, ChassisFamily, NOMINAL_HULL_LEN,
+    ParticleAura, VehicleBlueprint, fnv1a_64,
 };
 
 use super::locomotion::{
@@ -74,8 +76,10 @@ pub fn build_for_seed(seed: u64) -> (RecordBody, LocomotionConfig) {
     // The third element is the family's uniform visual-root scale (#1361) -
     // the airship-class bridge. The FX attached below need it because a
     // particle sprite is sized in world metres, not in the emitter's frame.
+    // The boat's is 1.0 since #1363: she is authored at the size she is drawn
+    // at, so there is nothing left to bridge.
     let (mut visuals, loco, visual_scale) = match family {
-        ChassisFamily::Boat => (boat::build(seed), boat_locomotion(seed), boat::VISUAL_SCALE),
+        ChassisFamily::Boat => (boats::build(seed), boat_locomotion(seed), 1.0),
         ChassisFamily::Airship => (airship::build(seed), airship_locomotion(seed), 1.0),
         ChassisFamily::Skiff => (
             skiff::build(seed),
@@ -121,13 +125,18 @@ fn engine_stature(seed: u64) -> f32 {
 }
 
 /// Diegetic FX mount for `aura` on `family` (root-local frame, *before* the
-/// assembler's yaw, drop and [scale](boat::VISUAL_SCALE) - so these are
-/// authoring-frame metres, and they grow with the craft). The station is
-/// snapped to the seeded blueprint
+/// assembler's yaw and drop). The station is snapped to the seeded blueprint
 /// landmarks the assembler already mounts parts on - so the emitter tracks the
-/// actual hull instead of a fixed constant, and a boat's steam leaves its
-/// funnel rather than empty air amidships. Falls back to the legacy per-family
-/// constant if the blueprint is unavailable (never for a real vehicle).
+/// actual craft instead of a fixed constant, and a skiff's exhaust leaves its
+/// tailpipe rather than empty air. A boat asks her own craft type, which reads
+/// the station off her [`HullProfile`](boats::HullProfile) (#1363). Falls back
+/// to a per-family constant if the blueprint is unavailable (never for a real
+/// vehicle).
+///
+/// The two families still assembled from parts author in a frame their
+/// assembler scales at the root, so their stations are authoring-frame metres
+/// and grow with the craft; a boat is drawn at the size she is authored at and
+/// has no such factor.
 ///
 /// Vehicles author their stern at local `-Z`, so an aft mount rides behind the
 /// craft once the 180° travel-facing yaw is applied.
@@ -136,25 +145,10 @@ fn fx_mount(aura: ParticleAura, family: ChassisFamily, seed: u64) -> [f32; 3] {
     match family {
         // A tight aura around the torso (chest height), not floating overhead.
         ChassisFamily::Humanoid => [0.0, 0.45, 0.0],
-        ChassisFamily::Boat => match bp.as_ref().and_then(VehicleBlueprint::boat) {
-            // Steam vents from the funnel (the shared Stack station, raised to
-            // the funnel mouth) - but only when a funnel was actually rolled:
-            // the Stack slot is optional (ornateness-gated), so a stackless
-            // steam boat would otherwise plume from empty air. Without a funnel
-            // it falls back to the low stern, reading as engine spray like the
-            // wake does.
-            Some(b) if aura == ParticleAura::Steam && boat_has_stack(seed) => {
-                let mut m = boat::stack_station(b.deck_y, b.stack_z);
-                m[1] += boat::FUNNEL_MOUTH_RISE;
-                m
-            }
-            Some(b) if matches!(aura, ParticleAura::Steam | ParticleAura::Wake) => {
-                [0.0, 0.08, -b.hull_len * 0.5]
-            }
-            // Drifting motes ride the amidships deck line.
-            Some(b) => [0.0, b.deck_y * 1.3, 0.0],
-            None => [0.0, 0.1, -0.8],
-        },
+        // A boat's aura is read off her own hull by the craft type that
+        // drew it (#1363) - a wake leaves the transom of the boat that is
+        // actually there, not a fraction of a nominal one.
+        ChassisFamily::Boat => boats::fx_mount(seed, aura).unwrap_or([0.0, 0.1, -0.8]),
         // Vents / thruster wash / motes all issue from beneath the slung
         // gondola - the assembler's belly line, tracking the chosen envelope.
         ChassisFamily::Airship => airship::fx_belly_anchor(seed),
@@ -170,19 +164,11 @@ fn fx_mount(aura: ParticleAura, family: ChassisFamily, seed: u64) -> [f32; 3] {
     }
 }
 
-/// Whether this seed's boat rolled a `Stack` (funnel / vent) part - the
-/// diegetic source a steam plume can sit atop. The `Stack` slot is optional,
-/// so a plain boat may have no funnel at all.
-fn boat_has_stack(seed: u64) -> bool {
-    AvatarOutfit::for_seed(seed)
-        .parts
-        .iter()
-        .any(|p| p.slot == PartSlot::Stack)
-}
-
 /// The slug of the part filling `slot` in this seed's outfit (the discrete
-/// hull / envelope / chassis *class* - barge vs catamaran, twin vs zeppelin,
-/// armored vs dune - which is a part slug, not an enum), or `""` if unfilled.
+/// envelope / chassis *class* - twin vs zeppelin, armored vs dune - which is a
+/// part slug, not an enum), or `""` if unfilled. Boats have no parts and no
+/// class since #1363: their discrete pick is a [`BoatType`](crate::seeded_defaults::BoatType), and the type
+/// carries the feel.
 fn structural_slug(outfit: &AvatarOutfit, slot: PartSlot) -> &'static str {
     outfit
         .parts
@@ -236,10 +222,12 @@ fn humanoid_locomotion(seed: u64) -> LocomotionConfig {
 // baselines inverted the visual story: `HoverBoatParams::default` was the
 // legacy 50 kg rover tuning (drive 1800 N → 36 m/s²), so the barge
 // out-accelerated the 900 kg skiff four-to-one. These derive mass + forces
-// from the picked hull / envelope / chassis *class* and the seeded blueprint
-// dimensions, keeping the drive **acceleration** inside a tuned feel band by
-// construction (`force = mass · target_accel`) - so a heavy barge is genuinely
-// ponderous and a catamaran genuinely nimble, but nothing is undriveable. The
+// from the craft's discrete pick - a boat's [`BoatType`] since #1363, an
+// envelope or chassis class for the two families still assembled from parts -
+// and the seeded blueprint dimensions, keeping the drive **acceleration**
+// inside a tuned feel band by construction (`force = mass · target_accel`), so
+// a heavy craft is genuinely ponderous and a light one genuinely nimble but
+// nothing is undriveable. The
 // support invariants are honoured: the hover-boat's suspension spring +
 // buoyancy and the helicopter's `hover_thrust` all scale with the seeded mass
 // so the craft sits at the same ride height it always did. Every value stays
@@ -291,7 +279,7 @@ fn static_suspension_compression(ref_mass: f32, ref_stiffness: f32) -> f32 {
 /// tyres half buried - would be a picture that lies about exactly what it
 /// exists to show. Physics answers this in the running game by simulating;
 /// here it is arithmetic, and it is the same arithmetic the two pose tests in
-/// this module assert against ([`boat::land_ride_height`] and the skiff's
+/// this module assert against ([`boats::land_ride_height`] and the skiff's
 /// tyre line).
 ///
 /// The compression term reads the **seeded** mass and stiffness rather than
@@ -329,32 +317,26 @@ pub(crate) fn ground_ride_height(loco: &LocomotionConfig) -> Option<f32> {
     Some(half_y + rest - mass * GRAVITY / (4.0 * stiffness))
 }
 
-/// Boat (hover-boat) locomotion from the seeded hull class + proportions.
-/// Barge = heavy + damped + sluggish; catamaran = light + agile; mono /
-/// trimaran sit between. The suspension spring, buoyancy and lateral grip
-/// scale with the derived mass so the hull keeps its hover ride height.
+/// Boat (hover-boat) locomotion from the seeded craft type + her true
+/// proportions.
+///
+/// The type carries the feel now (`BoatCraft::feel`), where the four hull
+/// *arrangements* used to: they went with the legacy pipeline in #1363, and a
+/// sloop is what the monohull was, so the numbers are the monohull's and the
+/// drive is the one validated with the scale bridge. The suspension spring,
+/// buoyancy and lateral grip scale with the derived mass so the hull keeps her
+/// hover ride height whatever she weighs.
 fn boat_locomotion(seed: u64) -> LocomotionConfig {
-    let outfit = AvatarOutfit::for_seed(seed);
     let bp = VehicleBlueprint::from_seed(seed);
     let b = bp.as_ref().and_then(VehicleBlueprint::boat);
-    // (mass factor over the 50 kg baseline, drive accel, turn accel, linear
-    // damping, angular damping) per hull class.
-    let (mass_f, drive_accel, turn_accel, lin_damp, ang_damp) =
-        match structural_slug(&outfit, PartSlot::Hull) {
-            "default_hull_barge" => (8.0, 6.5, 4.0, 2.2, 8.0),
-            "default_hull_catamaran" => (2.4, 13.0, 10.0, 1.0, 4.0),
-            "default_hull_trimaran" => (3.2, 10.5, 8.0, 1.3, 5.0),
-            _ => (4.0, 9.0, 7.0, 1.5, 6.0), // monohull / fallback
-        };
-    // TRUE (drawn) dimensions, not authored ones (#1361): the blueprint is in
-    // the parts' authoring frame and the assembler scales the whole tree by
-    // `boat::VISUAL_SCALE` at its root, so everything derived here - mass,
-    // collider, ride height - has to be told the size the craft is actually
-    // drawn at. Dividing by the matching TRUE nominal below is what stops that
-    // re-basing from simply pinning every craft against its mass clamp.
-    let hull_len = b.map_or(boat::AUTHORED_HULL_LEN, |b| b.hull_len) * boat::VISUAL_SCALE;
-    let beam = b.map_or(boat::AUTHORED_BEAM, |b| b.beam) * boat::VISUAL_SCALE;
-    let freeboard = b.map_or(boat::AUTHORED_FREEBOARD, |b| b.freeboard) * boat::VISUAL_SCALE;
+    let (feel, draft) = boats::feel_and_draft(seed);
+    // TRUE metres throughout since #1363: the blueprint IS the drawn boat, so
+    // mass, collider and ride height are all read straight off her. Dividing
+    // by the nominal below is what stops the re-basing simply pinning every
+    // craft against its mass clamp.
+    let hull_len = b.map_or(NOMINAL_HULL_LEN, |b| b.hull_len);
+    let beam = b.map_or(NOMINAL_HULL_LEN / 3.5, |b| b.beam);
+    let freeboard = b.map_or(NOMINAL_HULL_LEN * 0.107, |b| b.freeboard);
 
     // The 50 kg baseline is what the default suspension stiffness (4200) and
     // buoyancy (2500) hold at the stock ride height; scaling both by `mass/50`
@@ -363,15 +345,15 @@ fn boat_locomotion(seed: u64) -> LocomotionConfig {
     const REF_MASS: f32 = BOAT_REF_MASS;
     let mut p = HoverBoatParams::default();
     let stock_stiffness = p.suspension_stiffness.0;
-    let mass = (REF_MASS * mass_f * (hull_len / boat::NOMINAL_HULL_LEN)).clamp(80.0, 480.0);
+    let mass = (REF_MASS * feel.mass_factor * (hull_len / NOMINAL_HULL_LEN)).clamp(80.0, 480.0);
     let scale = mass / REF_MASS;
     // Scale a support field by mass and keep it under its sanitiser cap.
     let scaled = |v: f32, cap: f32| Fp((v * scale).min(cap));
     p.mass = Fp(mass);
-    p.drive_force = Fp((mass * drive_accel).min(50_000.0));
-    p.turn_torque = Fp((mass * turn_accel).min(50_000.0));
-    p.linear_damping = Fp(lin_damp);
-    p.angular_damping = Fp(ang_damp);
+    p.drive_force = Fp((mass * feel.drive_accel).min(50_000.0));
+    p.turn_torque = Fp((mass * feel.turn_accel).min(50_000.0));
+    p.linear_damping = Fp(feel.linear_damping);
+    p.angular_damping = Fp(feel.angular_damping);
     p.suspension_stiffness = scaled(p.suspension_stiffness.0, 48_000.0);
     p.suspension_damping = scaled(p.suspension_damping.0, 5_000.0);
     p.buoyancy_strength = scaled(p.buoyancy_strength.0, 90_000.0);
@@ -383,16 +365,16 @@ fn boat_locomotion(seed: u64) -> LocomotionConfig {
          below is no longer the one `static_suspension_compression` derives"
     );
     p.chassis_half_extents = fit_extents([beam * 0.5, freeboard * 0.6, hull_len * 0.5]);
-    // Hold the hull where [`boat::land_ride_height`] wants it: the assembler
-    // hangs the design waterline `boat::TRAVEL_DROP` under the chassis origin,
-    // and under that go the hull's draft and its keel clearance. Derived from
-    // the *clamped* half-extent, which is what the suspension casts from. The
+    // Hold the hull where [`boats::land_ride_height`] wants her: the assembler
+    // hangs the design waterline `boats::TRAVEL_DROP` under the chassis origin,
+    // and under that go her draft and her keel clearance. Derived from the
+    // *clamped* half-extent, which is what the suspension casts from. The
     // un-seeded 0.8 m default this replaces was cut for a 1.32 m hull; left
-    // alone it would have left an airship-class boat's keel 0.05 m off the
-    // ground - beached, and ploughing every bump, since visuals carry no
-    // colliders (#1361).
+    // alone it would leave an airship-class boat's keel 0.05 m off the ground -
+    // beached, and ploughing every bump, since visuals carry no colliders
+    // (#1361).
     let half_y = p.chassis_half_extents.0[1];
-    p.suspension_rest_length = Fp(boat::land_ride_height(freeboard) - half_y
+    p.suspension_rest_length = Fp(boats::land_ride_height(draft) - half_y
         + static_suspension_compression(REF_MASS, stock_stiffness));
     p.into_config()
 }
@@ -506,15 +488,11 @@ mod tests {
             .filter(|(fam, _)| *fam != ChassisFamily::Humanoid)
             .collect()
     }
-
-    /// The first seed of each chassis family whose outfit rolls the given
-    /// structural class slug, searching a wide seed range.
-    fn seed_for_class(fam: ChassisFamily, slot: PartSlot, slug: &str) -> Option<u64> {
-        (0u64..2000).find(|&s| {
-            ChassisFamily::for_seed(s) == fam
-                && structural_slug(&AvatarOutfit::for_seed(s), slot) == slug
-        })
-    }
+    // `seed_for_class` hunted a seed whose outfit rolled a named structural
+    // part - how the boat feel tests used to find a barge or a catamaran.
+    // Both callers retired with the hull arrangements in #1363; a craft type
+    // is found with `BoatType::for_seed` (or `render --family-seeds --craft`)
+    // rather than by the slug of a part that no longer exists.
 
     /// Drive acceleration (drive force / mass, m/s²) of a vehicle preset.
     fn drive_accel(loco: &LocomotionConfig) -> f32 {
@@ -526,36 +504,13 @@ mod tests {
         }
     }
 
-    /// The inverted mass story is fixed: the barge (which used to run the
-    /// 50 kg rover tuning at 36 m/s²) is now the most ponderous vehicle, the
-    /// catamaran the nimblest, and no boat out-accelerates the skiff the way
-    /// the survey found (barge 4× the 900 kg skiff).
-    #[test]
-    fn mass_story_is_no_longer_inverted() {
-        let barge = seed_for_class(ChassisFamily::Boat, PartSlot::Hull, "default_hull_barge")
-            .expect("no barge seed");
-        let cat = seed_for_class(
-            ChassisFamily::Boat,
-            PartSlot::Hull,
-            "default_hull_catamaran",
-        )
-        .expect("no catamaran seed");
-        let skiff = seed_for_class(ChassisFamily::Skiff, PartSlot::Chassis, "default_chassis")
-            .expect("no default-skiff seed");
-
-        let barge_a = drive_accel(&build_for_seed(barge).1);
-        let cat_a = drive_accel(&build_for_seed(cat).1);
-        let skiff_a = drive_accel(&build_for_seed(skiff).1);
-
-        assert!(
-            barge_a < cat_a,
-            "barge ({barge_a}) should be more sluggish than the catamaran ({cat_a})"
-        );
-        assert!(
-            barge_a <= skiff_a,
-            "the barge ({barge_a}) must not out-accelerate the skiff ({skiff_a})"
-        );
-    }
+    // `mass_story_is_no_longer_inverted` compared a barge against a catamaran
+    // and against a skiff, pinning the #782 fix that a 50 kg barge no longer
+    // ran the rover tuning at 36 m/s². Both boat arrangements it named went
+    // with the legacy pipeline in #1363, and the claim that survives them -
+    // that nothing is a rocket or a brick - is `every_vehicle_drive_accel_is_
+    // in_the_feel_band` below, which checks every seed rather than three. A
+    // per-type feel guard lands with the feel sweep, #1381.
 
     /// Every derived drive acceleration lands in a tuned, driveable band -
     /// nothing is a 36 m/s² rocket or an undriveable brick.
@@ -636,20 +591,13 @@ mod tests {
         }
     }
 
-    /// A re-roll changes the drive feel: two boats of different hull classes
-    /// no longer share one bit-identical config.
-    #[test]
-    fn distinct_hull_classes_drive_differently() {
-        let barge = seed_for_class(ChassisFamily::Boat, PartSlot::Hull, "default_hull_barge")
-            .expect("no barge seed");
-        let cat = seed_for_class(
-            ChassisFamily::Boat,
-            PartSlot::Hull,
-            "default_hull_catamaran",
-        )
-        .expect("no catamaran seed");
-        assert_ne!(build_for_seed(barge).1, build_for_seed(cat).1);
-    }
+    // `distinct_hull_classes_drive_differently` pinned that a barge and a
+    // catamaran did not share one bit-identical locomotion config. Both hull
+    // arrangements went with the legacy boat pipeline in #1363: a boat's feel
+    // is a property of her craft TYPE now, and until a second type is built
+    // there is nothing for it to compare. It comes back, as a per-type feel
+    // guard, with #1381.
+
     use crate::pds::sanitize_avatar_visuals;
 
     fn family_dids() -> Vec<(ChassisFamily, String)> {
@@ -835,7 +783,11 @@ mod tests {
             let bp = VehicleBlueprint::from_seed(s)
                 .and_then(|b| b.boat().copied())
                 .expect("a boat has a blueprint");
-            let scale = visuals.transform.scale.0[1];
+            assert_eq!(
+                visuals.transform.scale.0[1], 1.0,
+                "seed {s}: a boat is authored at the size she is drawn at since #1363, \
+                 so her root carries no scale bridge"
+            );
             let drop = -visuals.transform.translation.0[1];
             // On water buoyancy rests the chassis origin `water_rest_length`
             // above the surface, so this is the waterline meeting the water.
@@ -852,14 +804,16 @@ mod tests {
                     < 1e-4,
                 "seed {s}: ground_ride_height disagrees with the family derivation"
             );
-            let want = boat::land_ride_height(bp.freeboard * scale);
+            let want = boats::land_ride_height(bp.draft);
             assert!(
                 (ride - want).abs() < 1e-4,
                 "seed {s}: hull rides at {ride} m, wanted {want} m"
             );
+            // The keel clears the ground by a quarter of her draft.
+            let keel = ride - drop - bp.draft;
             assert!(
-                ride - drop - bp.freeboard * scale > 0.0,
-                "seed {s}: the keel is in the ground"
+                keel > 0.0 && (keel - 0.25 * bp.draft).abs() < 1e-4,
+                "seed {s}: the keel sits {keel} m off the ground"
             );
             checked += 1;
         }
@@ -881,48 +835,44 @@ mod tests {
         }
     }
 
-    /// A steam boat's plume only mounts at the funnel when a funnel was
-    /// actually rolled; a stackless steam boat falls back to the low stern so
-    /// the steam never issues from empty air above the deck (#795 review).
+    /// A boat's aura leaves the hull she actually has (#1363).
+    ///
+    /// The funnel-presence test this replaces asked whether the seed had
+    /// rolled a `Stack` part, and a boat has no parts any more: the mount is
+    /// read off her own [`HullProfile`], so it cannot be anywhere the hull is
+    /// not. A wake leaves at the after end of the wetted length rather than at
+    /// the transom, which on a hull with this much rocker is clear of the
+    /// water.
     #[test]
-    fn steam_boat_mount_tracks_the_funnel_presence() {
-        let (mut with_stack, mut without_stack) = (None, None);
-        for s in 0u64..800 {
-            if ChassisFamily::for_seed(s) != ChassisFamily::Boat {
-                continue;
-            }
-            if AvatarFx::for_seed(s).aura != ParticleAura::Steam {
-                continue;
-            }
-            if boat_has_stack(s) {
-                with_stack.get_or_insert(s);
-            } else {
-                without_stack.get_or_insert(s);
-            }
-            if with_stack.is_some() && without_stack.is_some() {
-                break;
-            }
+    fn a_boats_aura_leaves_her_own_hull() {
+        let mut checked = 0;
+        for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
+            let bp = VehicleBlueprint::from_seed(s)
+                .and_then(|b| b.boat().copied())
+                .expect("a boat has a blueprint");
+            let wake = fx_mount(ParticleAura::Wake, ChassisFamily::Boat, s);
+            assert!(
+                wake[2] < 0.0 && wake[2] >= -bp.hull_len * 0.5 - 1e-3,
+                "seed {s}: a wake at z {} is not abaft amidships and within the \
+                 transom",
+                wake[2]
+            );
+            assert!(
+                wake[1] < 0.0 && wake[1] > -bp.draft,
+                "seed {s}: a wake at y {} is not just under the waterline",
+                wake[1]
+            );
+            let motes = fx_mount(ParticleAura::ArcaneMotes, ChassisFamily::Boat, s);
+            assert!(
+                motes[1] > bp.freeboard,
+                "seed {s}: decorative motes at y {} are not over the deck",
+                motes[1]
+            );
+            checked += 1;
         }
-        let with_stack = with_stack.expect("no steam boat with a funnel found");
-        let without_stack = without_stack.expect("no stackless steam boat found");
-
-        let funnel = fx_mount(ParticleAura::Steam, ChassisFamily::Boat, with_stack);
-        let stern = fx_mount(ParticleAura::Steam, ChassisFamily::Boat, without_stack);
-        assert!(
-            funnel[1] > 0.4,
-            "steam should vent high off the funnel (seed {with_stack}, y={})",
-            funnel[1]
-        );
-        assert!(
-            stern[1] < 0.2 && stern[2] < 0.0,
-            "stackless steam should sit low and aft, not float above the deck \
-             (seed {without_stack}, mount={stern:?})"
-        );
+        assert!(checked > 0, "no boat seed exercised the aura mount");
     }
 
-    /// The DID path must be exactly the seed path fed the hashed DID -
-    /// this is the contract that lets `build_for_did` keep working
-    /// untouched while the manual re-roll uses `build_for_seed`.
     #[test]
     fn build_for_did_equals_build_for_seed_of_hashed_did() {
         for (_, did) in family_dids() {

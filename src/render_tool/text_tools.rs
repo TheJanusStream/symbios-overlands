@@ -118,14 +118,21 @@ pub(super) fn print_outfit(subject: &str) {
         character.ornateness_tier(),
         character.wear_tier(),
     );
-    // The seeded craft type (#1362). A property of the SEED, so it answers
-    // for every boat and skiff now, while the slugs below are still the
-    // legacy arrangement parts that the type slices will replace.
+    // The seeded craft type (#1362). A property of the SEED, so it answers for
+    // every boat and skiff whether or not anything builds that type yet: the
+    // slice that builds one opens by finding the seeds that picked it. A boat
+    // whose type has no builder is DRAWN as the family's universal floor
+    // (#1363), and a skiff is still drawn by the legacy chassis parts below.
     if let Some(craft) = craft_for(subject) {
-        println!(
-            "  craft type: {} (picked; parts below are still legacy)",
-            craft.label()
-        );
+        let note = match craft {
+            CraftType::Boat(t) if t.implemented() => "picked and built".to_string(),
+            CraftType::Boat(_) => format!(
+                "picked; not built yet, drawn as the {}",
+                BoatType::UNIVERSAL.label()
+            ),
+            CraftType::Skiff(_) => "picked; parts below are still legacy".to_string(),
+        };
+        println!("  craft type: {} ({note})", craft.label());
     }
     for part in &outfit.parts {
         println!("  {:?} -> {}", part.slot, part.slug);

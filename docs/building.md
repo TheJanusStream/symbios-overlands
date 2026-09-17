@@ -725,7 +725,7 @@ cargo run --bin render -- --dump --catalogue neon_kiosk
 # Print one avatar's resolved outfit (chassis / style / socio tiers / slot→slug):
 cargo run --bin render -- --outfit 7
 # Scan seeds for one that rolls a styled part (capped by --family-count):
-cargo run --bin render -- --find-part boat_bow_ram
+cargo run --bin render -- --find-part skiff_exhaust_twin_pipes
 # Gateway veil-vs-frame fit report - one slug, or `all`:
 cargo run --bin render -- --gateway-fit all
 # Plinth-depth audit of every settlement-placeable entry (`all` lists the

@@ -85,9 +85,10 @@ pub enum PartSlot {
 pub fn required_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
     use PartSlot::*;
     match chassis {
-        // A rigged family assembles no parts (#1060).
-        ChassisFamily::Humanoid => &[],
-        ChassisFamily::Boat => &[Hull, Deck, Mast],
+        // A rigged family assembles no parts (#1060), and since #1363 neither
+        // does a boat: the redesigned craft types draw their own geometry off
+        // one hull profile, so there is nothing for an outfit to fill.
+        ChassisFamily::Humanoid | ChassisFamily::Boat => &[],
         ChassisFamily::Airship => &[Envelope, Gondola, Fin, Pod],
         ChassisFamily::Skiff => &[Chassis, Canopy, Wheel],
     }
@@ -98,8 +99,7 @@ pub fn required_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
 pub fn optional_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
     use PartSlot::*;
     match chassis {
-        ChassisFamily::Humanoid => &[],
-        ChassisFamily::Boat => &[Bow, Stack, Ornament],
+        ChassisFamily::Humanoid | ChassisFamily::Boat => &[],
         ChassisFamily::Airship => &[Ornament],
         ChassisFamily::Skiff => &[Exhaust, Ornament],
     }
@@ -146,8 +146,10 @@ impl PartCtx {
         }
     }
 
-    /// The boat proportion blueprint, if this avatar is a boat - the boat
-    /// parts and the boat assembler both size from it.
+    /// The boat proportion blueprint, if this avatar is a boat. Nothing in
+    /// this catalogue reads it any more - a boat has no parts since #1363 -
+    /// but the accessor is the vehicle families' shared shape and the boat
+    /// builders reach it through their own `PartCtx`.
     pub fn boat(&self) -> Option<&BoatBlueprint> {
         self.vehicle.as_ref().and_then(VehicleBlueprint::boat)
     }

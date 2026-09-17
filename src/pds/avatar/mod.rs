@@ -35,6 +35,7 @@
 //! place. Old records require a manual republish.
 
 pub mod body;
+pub(crate) mod colour;
 pub mod default_visuals;
 pub mod gait;
 pub mod locomotion;

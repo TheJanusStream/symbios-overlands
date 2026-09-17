@@ -18,7 +18,7 @@ use bevy_symbios_texture::{fabric::WeaveKind, metal::MetalStyle};
 
 use crate::pds::texture::{
     SovereignChitinConfig, SovereignEnamelConfig, SovereignFabricConfig, SovereignMaterialSettings,
-    SovereignMetalConfig, SovereignTextureConfig,
+    SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig,
 };
 use crate::pds::types::{Fp, Fp3, Fp64};
 use crate::seeded_defaults::scene::ThemeArchetype;
@@ -308,6 +308,82 @@ impl MaterialKit {
             roughness: Fp(0.08 + 0.12 * self.wear),
             ..Default::default()
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Vehicle finishes (#1363)
+    // -----------------------------------------------------------------------
+    //
+    // The five surfaces a seeded craft is actually made of, as a named
+    // vocabulary rather than a per-type guess. Four of the five are
+    // deliberately UNTEXTURED, and that is the lesson rather than a shortcut:
+    // a normal-mapped finish on a curved skin renders as scales (#784, the
+    // airship's belly cloth), and at the chase camera's 109 pixels a metre a
+    // sail's weave arrives as rivet dots rather than canvas. Only [`timber`]
+    // carries a texture, because a deck is flat enough to take one and plank
+    // seams are the one boat surface whose pattern reads at play distance.
+
+    /// Painted topsides, coachwork and panels - the craft's largest surface.
+    /// Smooth, faintly waxed, and flat: see the note above.
+    pub fn paint(&self, color: [f32; 3]) -> SovereignMaterialSettings {
+        self.finish(color, 0.05, 0.42)
+    }
+
+    /// Sailcloth and awnings. Matte and untextured - [`Self::cloth`] weaves
+    /// its own thread, which is right on a garment seen across a room and
+    /// wrong on a sail seen across a bay.
+    pub fn canvas(&self, color: [f32; 3]) -> SovereignMaterialSettings {
+        let mut m = self.finish(color, 0.0, 0.90);
+        // Canvas is dressed, not painted: hold it matte even in the Bold
+        // register, which otherwise pulls every surface glossier.
+        m.roughness = Fp(m.roughness.0.max(0.86));
+        m
+    }
+
+    /// Laid timber - decks, gratings, hatch tops. The one textured vehicle
+    /// finish, and a [`SovereignTextureConfig::Plank`] with **stagger 0**: a
+    /// staggered plank is a butt-joint grid and reads as brickwork, which is
+    /// what the retired barge deck did.
+    ///
+    /// The grain runs along the tile's own V axis. A prim whose surface
+    /// parametrisation puts its length the other way wants
+    /// `uv_rotation = 90.0` on the returned material - the caller's call,
+    /// because only the caller knows which way its sweep runs.
+    pub fn timber(&self, color: [f32; 3]) -> SovereignMaterialSettings {
+        let mut m = self.finish(color, 0.0, 0.72);
+        let base = m.base_color.0;
+        // About seven boards to the metre - a 0.14 m plank, which is a real
+        // deck board at this scale and still resolves at 109 px/m.
+        m.uv_scale = Fp(1.0);
+        m.texture = SovereignTextureConfig::Plank(SovereignPlankConfig {
+            color_wood_light: Fp3(shade01(base, 1.14)),
+            color_wood_dark: Fp3(shade01(base, 0.68)),
+            plank_count: Fp64(7.0),
+            stagger: Fp64(0.0),
+            knot_density: Fp64(0.18),
+            grain_warp: Fp64(0.35),
+            ..Default::default()
+        });
+        m
+    }
+
+    /// Antifouling below the waterline: dead matte, no sheen, no texture.
+    /// A hovering hull shows all of it, so it is a real surface here rather
+    /// than the sliver a floating boat shows.
+    pub fn antifoul(&self, color: [f32; 3]) -> SovereignMaterialSettings {
+        let mut m = self.finish(color, 0.0, 0.88);
+        m.roughness = Fp(m.roughness.0.max(0.82));
+        m
+    }
+
+    /// Brightwork - varnished spars, rails, tillers, polished fittings. The
+    /// one glossy vehicle surface, and it resists grime the way
+    /// [`Self::trim`] does, because brightwork is the part of a boat somebody
+    /// keeps rubbing down.
+    pub fn brightwork(&self, color: [f32; 3]) -> SovereignMaterialSettings {
+        let mut m = self.finish(color, 0.18, 0.26);
+        m.roughness = Fp(m.roughness.0 * 0.85);
+        m
     }
 
     /// Organic skin - independent of style and wear (wear is equipment

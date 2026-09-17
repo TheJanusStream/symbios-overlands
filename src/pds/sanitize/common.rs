@@ -35,14 +35,11 @@ pub(crate) fn sanitize_unit_quat(q: [f32; 4]) -> [f32; 4] {
     q.map(|v| v * inv)
 }
 
-/// [`sanitize_unit_quat`] as the avatar part builders' authoring guard: a
-/// `sin`/`cos`-built quaternion passes through the same clamp + tolerance
-/// gate the record sanitiser applies, so the authored value is a sanitise
-/// fixpoint by construction (one renormalisation lands within the
-/// idempotency tolerance, after which the sanitiser keeps it bit-for-bit).
-pub(crate) fn unit_quat_fixpoint(q: [f32; 4]) -> [f32; 4] {
-    sanitize_unit_quat(q)
-}
+// `unit_quat_fixpoint` - [`sanitize_unit_quat`] re-exported as the avatar part
+// builders' authoring guard - lived here until #1363. Its only callers were
+// the boat parts, and the redesigned sloop authors no rotated node at all: an
+// identity quaternion is a sanitise fixpoint for free. It comes back the day a
+// craft type needs a `sin`/`cos`-built rotation to round-trip bit-for-bit.
 
 /// Clamp the [`TortureParams`] attached to every primitive. Values drive the
 /// CPU-side vertex mutation pass in

@@ -26,9 +26,9 @@
 //!
 //! ## Root-scale discipline
 //!
-//! A base part used as a family's structural root ([`hull`], [`chassis`],
+//! A base part used as a family's structural root ([`chassis`],
 //! [`envelope`]) must **not** set `transform.scale`, because the assembler
-//! mounts every other slot (deck, canopy, wheels, gondola, fins) as a child
+//! mounts every other slot (canopy, wheels, gondola, fins) as a child
 //! of that root and a root scale would stretch + displace them. Elongated
 //! shapes (the airship envelope) are built from composed primitives instead.
 //!
@@ -45,7 +45,6 @@
 // matte envelope material, normalized window colour, and gore-seam helper
 // (#789).
 pub(crate) mod airship;
-mod boat;
 // Crate-visible so the styled vehicle kits (`super::vehicle`) can share the
 // `shade` colour helper instead of keeping their own copy (#798).
 pub(crate) mod common;
@@ -59,67 +58,11 @@ use crate::seeded_defaults::{OrnatenessBand, WearBand};
 
 use super::{BodyPart, PartDef, PartSlot};
 use airship::*;
-use boat::*;
 use skiff::*;
 
-const BOAT: &[ChassisFamily] = &[ChassisFamily::Boat];
 const AIRSHIP: &[ChassisFamily] = &[ChassisFamily::Airship];
 const SKIFF: &[ChassisFamily] = &[ChassisFamily::Skiff];
 
-static HULL: PartDef = PartDef {
-    slug: "default_hull",
-    slot: PartSlot::Hull,
-    chassis: BOAT,
-    styles: &[],
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: hull,
-};
-static HULL_CATAMARAN: PartDef = PartDef {
-    slug: "default_hull_catamaran",
-    slot: PartSlot::Hull,
-    chassis: BOAT,
-    styles: &[],
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: hull_catamaran,
-};
-static HULL_TRIMARAN: PartDef = PartDef {
-    slug: "default_hull_trimaran",
-    slot: PartSlot::Hull,
-    chassis: BOAT,
-    styles: &[],
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: hull_trimaran,
-};
-static HULL_BARGE: PartDef = PartDef {
-    slug: "default_hull_barge",
-    slot: PartSlot::Hull,
-    chassis: BOAT,
-    styles: &[],
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: hull_barge,
-};
-static DECK: PartDef = PartDef {
-    slug: "default_deck",
-    slot: PartSlot::Deck,
-    chassis: BOAT,
-    styles: &[],
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: deck,
-};
-static MAST: PartDef = PartDef {
-    slug: "default_mast",
-    slot: PartSlot::Mast,
-    chassis: BOAT,
-    styles: &[],
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: mast,
-};
 static ENVELOPE: PartDef = PartDef {
     slug: "default_envelope",
     slot: PartSlot::Envelope,
@@ -231,12 +174,6 @@ static WHEEL: PartDef = PartDef {
 
 /// Every universal default part, in slot order per chassis.
 pub(super) static ENTRIES: &[&dyn BodyPart] = &[
-    &HULL,
-    &HULL_CATAMARAN,
-    &HULL_TRIMARAN,
-    &HULL_BARGE,
-    &DECK,
-    &MAST,
     &ENVELOPE,
     &ENVELOPE_BLIMP,
     &ENVELOPE_LOBED,
