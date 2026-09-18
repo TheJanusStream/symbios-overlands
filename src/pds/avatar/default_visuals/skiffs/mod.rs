@@ -84,8 +84,12 @@ pub(super) struct SkiffFeel {
 /// One buildable kind of land craft.
 pub(super) trait SkiffCraft {
     /// This type's body, from the seeded blueprint: its own plan form, section
-    /// depth and layout over dimensions everyone shares.
-    fn plan(&self, bp: &SkiffBlueprint) -> BodyPlan;
+    /// depth and layout over dimensions everyone shares. It takes the seed
+    /// because a type can build more than one body and roll on more than one
+    /// wheel, and both are properties of the seed that the plan must carry -
+    /// the roadster's boat-tail, bobtail and tourer, and the balloon tyre that
+    /// raises its axle line (#1367).
+    fn plan(&self, bp: &SkiffBlueprint, seed: u64) -> BodyPlan;
 
     /// Draw it, at the origin, nose `+Z`, in true metres. The caller owns the
     /// root pose.
@@ -99,8 +103,10 @@ pub(super) trait SkiffCraft {
     /// the plan's, because a guard is the type's choice.
     fn overall_width(&self, plan: &BodyPlan) -> f32;
 
-    /// Where a seeded particle aura issues from, read off the body.
-    fn fx_mount(&self, aura: ParticleAura, plan: &BodyPlan) -> [f32; 3];
+    /// Where a seeded particle aura issues from, read off the body - and off
+    /// the seed's own picks, because a flourish that hovers over an open
+    /// cockpit would hover inside a closed one (#1367).
+    fn fx_mount(&self, aura: ParticleAura, plan: &BodyPlan, seed: u64) -> [f32; 3];
 }
 
 /// The builder for a craft type, or `None` while nothing implements it.
@@ -135,7 +141,7 @@ fn body_for(seed: u64) -> Option<(&'static dyn SkiffCraft, BodyPlan)> {
     let bp = crate::seeded_defaults::VehicleBlueprint::from_seed(seed)
         .and_then(|b| b.skiff().copied())?;
     let craft = craft_for(seed);
-    Some((craft, craft.plan(&bp)))
+    Some((craft, craft.plan(&bp, seed)))
 }
 
 // ---------------------------------------------------------------------------
@@ -229,7 +235,7 @@ pub(super) fn datum_height_for_seed(seed: u64) -> Option<f32> {
 /// exhaust wisp leaves the pipe mouth of the machine that is actually there.
 pub(super) fn fx_mount(seed: u64, aura: ParticleAura) -> Option<[f32; 3]> {
     let (craft, plan) = body_for(seed)?;
-    Some(craft.fx_mount(aura, &plan))
+    Some(craft.fx_mount(aura, &plan, seed))
 }
 
 #[cfg(test)]
@@ -353,8 +359,48 @@ mod tests {
         );
     }
 
-    /// Every part of a built skiff meets another, and the whole machine is one
-    /// connected component (#1364, the owner's complaint on the prototype).
+    /// Every roadster the family can draw at the blueprint corners: every
+    /// body, top and wheel crossed with every ornateness-by-wear pair a seed
+    /// can roll - which is all of them, since the axes are drawn
+    /// independently. Returns the built tree and a label for the failure.
+    fn every_roadster() -> Vec<(Generator, String)> {
+        use crate::seeded_defaults::{
+            OrnatenessTier, RoadsterBody, RoadsterTop, RoadsterWheels, WearTier,
+        };
+        let mut ctx = PartCtx::for_seed(a_skiff_seed());
+        let mut out = Vec::new();
+        for bp in corners() {
+            for body in RoadsterBody::ALL {
+                for rolls in RoadsterWheels::ALL {
+                    let plan = roadster::plan_of(&bp, body, rolls);
+                    for top in RoadsterTop::ALL {
+                        for o in OrnatenessTier::ALL {
+                            for w in WearTier::ALL {
+                                (ctx.ornateness, ctx.wear) = (o, w);
+                                out.push((
+                                    roadster::build_dressed(&ctx, &plan, top, rolls),
+                                    format!(
+                                        "a {} m {} {} roadster on {} wheels, {} / {}",
+                                        bp.length,
+                                        top.label(),
+                                        body.label(),
+                                        rolls.label(),
+                                        o.label(),
+                                        w.label()
+                                    ),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Every part of a built roadster meets another, and the whole machine is
+    /// one connected component (#1364, the owner's complaint on the
+    /// prototype) - on every body, top, wheel and tier it can roll (#1367).
     ///
     /// Swept over the blueprint EXTREMES rather than one seed, because the
     /// failure mode is size-dependent: a bead or a track rod floored at
@@ -363,36 +409,42 @@ mod tests {
     /// the large one. See [`super::super::common::touch`] for why this cannot
     /// be judged by eye: the chase camera looks down, so nothing under a craft
     /// is ever in frame at play distance.
+    ///
+    /// Checked on the tree AS SAVED - through the record's own 0.1 mm wire -
+    /// rather than on the f32 tree in memory, because a part authored exactly
+    /// flush with what it stands on touches in f32 and not after the rounding:
+    /// the radiator's filler cap did exactly that on seed 134 (#1367 defect 1).
+    ///
+    /// What it cannot see, and the reason a binary test sits beside it: the
+    /// guard models a sweep as a chain of capsules, which bulge past a blunt
+    /// end, so a wheel standing clear of a bobtail's back still reads as
+    /// touching - see the roadster's tail-mount test.
     #[test]
     fn a_roadster_is_one_machine_at_every_blueprint_extreme() {
         use super::super::common::touch;
-        let ctx = PartCtx::for_seed(a_skiff_seed());
-        let craft = craft(SkiffType::UNIVERSAL).expect("the floor is built");
-        for bp in corners() {
-            let built = craft.build(&ctx, &craft.plan(&bp));
-            touch::assert_one_machine(&built, &format!("a {} m roadster", bp.length));
+        for (built, what) in every_roadster() {
+            let json = serde_json::to_string(&built).expect("a roadster serializes");
+            let saved: Generator = serde_json::from_str(&json).expect("and reads back");
+            touch::assert_one_machine(&saved, &what);
         }
     }
 
-    /// Every skiff survives the record sanitiser UNCHANGED at the extremes of
-    /// her own blueprint, not only at the seeds the population happens to
-    /// contain (#1359 rule 8).
+    /// Every roadster survives the record sanitiser UNCHANGED at the extremes
+    /// of its own blueprint, on every body, top, wheel and tier, not only at
+    /// the seeds the population happens to contain (#1359 rule 8).
     #[test]
     fn a_skiff_survives_sanitize_unchanged_at_her_blueprint_extremes() {
         use crate::pds::sanitize_avatar_visuals;
-        let ctx = PartCtx::for_seed(a_skiff_seed());
-        let craft = craft(SkiffType::UNIVERSAL).expect("the floor is built");
-        for bp in corners() {
-            let built = craft.build(&ctx, &craft.plan(&bp));
+        let mut n = 0;
+        for (built, what) in every_roadster() {
             let mut sanitized = built.clone();
             sanitize_avatar_visuals(&mut sanitized);
             if let Some(where_) = first_difference(&built, &sanitized, "0") {
-                panic!(
-                    "a {} m machine at body {} was rewritten by the sanitiser at {where_}",
-                    bp.length, bp.body_w
-                );
+                panic!("{what} was rewritten by the sanitiser at {where_}");
             }
+            n += 1;
         }
+        assert_eq!(n, 6 * 3 * 3 * 2 * 9, "the sweep lost a combination");
     }
 
     /// Building the same seed twice gives the same tree, bit for bit.
@@ -408,22 +460,58 @@ mod tests {
     }
 
     /// A seeded skiff's saved record stays well under the soft budget
-    /// (#1359 rule 9).
+    /// (#1359 rule 9), at a THIRD of it.
+    ///
+    /// Two sweeps, in the sloop's form (#1366). The live seeds, as saved - FX
+    /// emitter and engine voice included - and the heaviest thing the family
+    /// can draw: every body, top and wheel at every blueprint corner on the
+    /// fullest ladder, Ornate and Battered, carrying the heaviest FX overhead
+    /// any live seed carries. Measured rather than assumed, so a new aura that
+    /// grows the emitter moves this too. The phase-1 prototype put the worst
+    /// of it - an open tourer on wire wheels at 3.6 m - at nine per cent under
+    /// the guard (#1367), and it is the wire wheels that spend the margin.
     #[test]
     fn a_seeded_skiffs_record_stays_well_inside_the_budget() {
         use crate::pds::record_size::{SOFT_RECORD_BUDGET_BYTES, serialized_record_bytes};
-        let mut worst = 0usize;
+        use crate::seeded_defaults::{
+            OrnatenessTier, RoadsterBody, RoadsterTop, RoadsterWheels, WearTier,
+        };
+        let bytes = |t: &Generator| serialized_record_bytes(t).expect("a skiff serializes");
+        let (mut worst_seed, mut fx_overhead) = (0usize, 0usize);
         for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
-            worst = worst
-                .max(serialized_record_bytes(&build(s, None)).expect("a built skiff serializes"));
+            let (record, _) = super::super::build_for_seed(s);
+            let saved = serialized_record_bytes(&record).expect("a record serializes");
+            worst_seed = worst_seed.max(saved);
+            fx_overhead = fx_overhead.max(saved.saturating_sub(bytes(&build(s, None))));
         }
-        assert!(worst > 0, "no skiff seed was measured");
-        assert!(
-            worst * 3 < SOFT_RECORD_BUDGET_BYTES,
-            "the heaviest seeded skiff is {worst} bytes, past a third of the \
-             {SOFT_RECORD_BUDGET_BYTES}-byte soft budget - a craft type is \
-             spending nodes where it should be spending shape"
-        );
+        assert!(worst_seed > 0 && fx_overhead > 0, "nothing was measured");
+        let mut ctx = PartCtx::for_seed(a_skiff_seed());
+        ctx.ornateness = OrnatenessTier::Ornate;
+        ctx.wear = WearTier::Battered;
+        let mut worst_corner = 0usize;
+        for bp in corners() {
+            for body in RoadsterBody::ALL {
+                for rolls in RoadsterWheels::ALL {
+                    let plan = roadster::plan_of(&bp, body, rolls);
+                    for top in RoadsterTop::ALL {
+                        let mut built = roadster::build_dressed(&ctx, &plan, top, rolls);
+                        apply_travel_pose(&mut built, travel_drop(&roadster::Roadster, &plan));
+                        worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
+                    }
+                }
+            }
+        }
+        for (what, worst) in [
+            ("seeded skiff", worst_seed),
+            ("fully dressed corner", worst_corner),
+        ] {
+            assert!(
+                worst * 3 < SOFT_RECORD_BUDGET_BYTES,
+                "the heaviest {what} is {worst} bytes, past a third of the \
+                 {SOFT_RECORD_BUDGET_BYTES}-byte soft budget - a craft type is \
+                 spending nodes where it should be spending shape"
+            );
+        }
     }
 
     /// No seeded skiff is wider than the narrowest gateway mouth it has to
@@ -453,18 +541,27 @@ mod tests {
         assert!(checked > 100, "too few skiffs sampled: {checked}");
     }
 
-    /// The datum, the ground and the axle line are one derivation.
+    /// The datum, the ground and the axle line are one derivation - on every
+    /// body and every wheel, balloons included: a balloon tyre is the PLAN's
+    /// wheel radius, so the axle rises with it and the tyre still stands on
+    /// the ground (#1367).
     #[test]
     fn the_axle_line_is_one_wheel_radius_over_the_ground() {
+        use crate::seeded_defaults::{RoadsterBody, RoadsterWheels};
         for bp in corners() {
-            let plan = roadster::Roadster.plan(&bp);
-            assert!(
-                (plan.axle_y() + plan.datum_height() - plan.wheel_r).abs() < 1e-5,
-                "a {} m machine's axle line is not its wheel radius over the ground",
-                bp.length
-            );
-            // And the body really does stand where the beltline says.
-            assert!((plan.datum_height() + plan.depth() - plan.beltline).abs() < 1e-5);
+            for body in RoadsterBody::ALL {
+                for rolls in RoadsterWheels::ALL {
+                    let plan = roadster::plan_of(&bp, body, rolls);
+                    assert!(
+                        (plan.axle_y() + plan.datum_height() - plan.wheel_r).abs() < 1e-5,
+                        "a {} m {body:?} on {rolls:?}: the axle line is not its wheel \
+                         radius over the ground",
+                        bp.length
+                    );
+                    // And the body really does stand where the beltline says.
+                    assert!((plan.datum_height() + plan.depth() - plan.beltline).abs() < 1e-5);
+                }
+            }
         }
     }
 }

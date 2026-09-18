@@ -6,7 +6,10 @@
 use crate::pds::avatar::livery;
 use crate::pds::{Generator, GeneratorKind, Placement, RoomRecord};
 use crate::seeded_defaults::hash::fnv1a_64;
-use crate::seeded_defaults::{BoatType, ChassisFamily, CraftType, SkiffType, SloopHull, SloopRig};
+use crate::seeded_defaults::{
+    BoatType, ChassisFamily, CraftType, RoadsterBody, RoadsterTop, RoadsterWheels, SkiffType,
+    SloopHull, SloopRig,
+};
 
 use super::Args;
 
@@ -164,6 +167,18 @@ pub(super) fn print_outfit(subject: &str) {
                 "  rig: {}, hull: {}",
                 SloopRig::for_seed(seed).label(),
                 SloopHull::for_seed(seed).label()
+            );
+        }
+        // And the roadster's own three picks (#1367), for every skiff drawn
+        // as one - which, until the other types are built, is every skiff.
+        if let CraftType::Skiff(t) = craft
+            && (t == SkiffType::Roadster || !t.implemented())
+        {
+            println!(
+                "  body: {}, top: {}, wheels: {}",
+                RoadsterBody::for_seed(seed).label(),
+                RoadsterTop::for_seed(seed).label(),
+                RoadsterWheels::for_seed(seed).label()
             );
         }
     }

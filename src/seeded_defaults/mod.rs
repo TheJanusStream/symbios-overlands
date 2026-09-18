@@ -90,8 +90,9 @@ pub use avatar::{
     AirshipBlueprint, AvatarBody, AvatarCharacter, AvatarFx, AvatarGait, AvatarOutfit,
     AvatarPalette, AvatarPins, AvatarVoice, BoatBlueprint, BoatType, BodyArchetype, ChassisFamily,
     CraftType, FinishRegister, MaterialKit, NOMINAL_BODY_LEN, NOMINAL_HULL_LEN, OrnatenessBand,
-    OrnatenessTier, OutfitPart, ParticleAura, SkiffBlueprint, SkiffType, SloopHull, SloopRig,
-    StylizationTier, VehicleBlueprint, VehicleStance, WearBand, WearTier,
+    OrnatenessTier, OutfitPart, ParticleAura, RoadsterBody, RoadsterTop, RoadsterWheels,
+    SkiffBlueprint, SkiffType, SloopHull, SloopRig, StylizationTier, VehicleBlueprint,
+    VehicleStance, WearBand, WearTier,
 };
 // Re-exported as a module, not item by item: the mood groups are read as a
 // named set (`mood::NEON`), and the vehicle part catalogue reaches them from

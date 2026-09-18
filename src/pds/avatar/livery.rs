@@ -557,6 +557,21 @@ pub(crate) struct SkiffColours {
     pub(crate) machinery: SovereignMaterialSettings,
     pub(crate) lamp: SovereignMaterialSettings,
     pub(crate) tail_lamp: SovereignMaterialSettings,
+    /// The folded hood's cloth, and the rope a jerrycan is lashed with
+    /// (#1367): tan duck, held clear of the coachwork the hood lies on - on a
+    /// black car a black hood is simply not there.
+    pub(crate) hood: SovereignMaterialSettings,
+    /// The trunk an Ornate car carries on its tail mount: a dark hide, held
+    /// clear of the coachwork it rides over (#1367).
+    pub(crate) trunk: SovereignMaterialSettings,
+    /// The mismatched wing a worn car wears: a replacement guard in grey
+    /// primer, held clear of the guards it failed to match - that is the whole
+    /// point of it - and floored off the tyre like any guard, on the finished
+    /// surface ([`GUARD_FLOOR`]) (#1367).
+    pub(crate) primer: SovereignMaterialSettings,
+    /// A battered car's jerrycan: olive drab, held clear of the dark running
+    /// board it stands on (#1367).
+    pub(crate) can: SovereignMaterialSettings,
 }
 
 /// The colours those things are, fixed rather than seeded and fixed rather
@@ -567,6 +582,22 @@ const TYRE: [f32; 3] = [0.045, 0.045, 0.050];
 const HIDE: [f32; 3] = [0.42, 0.24, 0.13];
 const MACHINERY: [f32; 3] = [0.10, 0.10, 0.11];
 const TAIL_LAMP: [f32; 3] = [0.90, 0.10, 0.08];
+
+/// The roadster's dressing (#1367): each a colour a real car's part simply is,
+/// and each held clear of the one surface it has to read against. None is
+/// identity trim, so a luminous style lights none of them.
+const HOOD_CLOTH: [f32; 3] = [0.50, 0.40, 0.25];
+const HOOD_DELTA: f32 = 0.20;
+const TRUNK_HIDE: [f32; 3] = [0.30, 0.19, 0.10];
+const TRUNK_DELTA: f32 = 0.18;
+/// Grey primer, held clear of the GUARDS rather than the coachwork. The two
+/// agree on every dark scheme, but on a single-colour cream car the guards are
+/// the cream darkened to half its value, and a primer held off the body alone
+/// would sit a few hundredths from them - a wing that matches after all.
+const PRIMER: [f32; 3] = [0.46, 0.46, 0.44];
+const PRIMER_DELTA: f32 = 0.22;
+const CAN: [f32; 3] = [0.26, 0.30, 0.13];
+const CAN_DELTA: f32 = 0.16;
 
 pub(crate) fn skiff_colours(ctx: &PartCtx) -> SkiffColours {
     let p = &ctx.palette;
@@ -600,6 +631,14 @@ pub(crate) fn skiff_colours(ctx: &PartCtx) -> SkiffColours {
         machinery: m.paint(MACHINERY),
         lamp: window_material(window_light(p.tertiary_accent)),
         tail_lamp: m.glow(TAIL_LAMP),
+        hood: m.canvas(clear_of(HOOD_CLOTH, luma(body), HOOD_DELTA)),
+        trunk: m.leather(clear_of(TRUNK_HIDE, luma(body), TRUNK_DELTA)),
+        primer: m.paint(floor_finished(
+            m,
+            clear_of(PRIMER, luma(guard), PRIMER_DELTA),
+            GUARD_FLOOR,
+        )),
+        can: m.paint(clear_of(CAN, luma(MACHINERY), CAN_DELTA)),
     }
 }
 
@@ -733,6 +772,42 @@ mod tests {
                 assert!(
                     tarp > TARP_DELTA * 0.6,
                     "seed {s} in {}: the tarp is {tarp} from the coachroof",
+                    scheme.name
+                );
+            }
+        }
+    }
+
+    /// The roadster's dressing reads against what it lies on, on every scheme
+    /// at every wear (#1367): the hood and the trunk against the coachwork,
+    /// the primer wing against the guards it failed to match (and off the
+    /// tyre, like any guard), the can against the board under it.
+    #[test]
+    fn the_skiff_dressing_reads_against_what_it_lies_on() {
+        for s in (0u64..600).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
+            let mut ctx = PartCtx::for_seed(s);
+            for (i, scheme) in SKIFF_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = skiff_colours(&ctx);
+                let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                // Grime dims both sides of each pair by one factor, so each
+                // delta shrinks by at most that much - as for the boot top.
+                for (what, a, b, delta) in [
+                    ("hood", &c.hood, &c.paint, HOOD_DELTA),
+                    ("trunk", &c.trunk, &c.paint, TRUNK_DELTA),
+                    ("primer wing", &c.primer, &c.guard, PRIMER_DELTA),
+                    ("jerrycan", &c.can, &c.machinery, CAN_DELTA),
+                ] {
+                    let d = (l(a) - l(b)).abs();
+                    assert!(
+                        d > delta * 0.6,
+                        "seed {s} in {}: the {what} is {d} from what it lies on",
+                        scheme.name
+                    );
+                }
+                assert!(
+                    l(&c.primer) >= GUARD_FLOOR - 2e-3,
+                    "seed {s} in {}: the primer wing is back inside the tyre's value",
                     scheme.name
                 );
             }

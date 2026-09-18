@@ -192,6 +192,30 @@ pub(crate) fn lathe(
     }
 }
 
+/// A Barr superellipsoid - the one prim that is a pressed panel with rounded
+/// edges all round. `exponent_ns` shapes the vertical profile and
+/// `exponent_ew` the horizontal section: small exponents are boxy (a flat roof
+/// on upright sides), `1.0` is an ellipsoid. The roadster's hardtop cabin is
+/// one (#1367), because a swept dome has no upright side for a window band to
+/// face the chase camera from.
+pub(crate) fn superellipsoid(
+    half_extents: [f32; 3],
+    exponent_ns: f32,
+    exponent_ew: f32,
+    latitudes: u32,
+    longitudes: u32,
+    material: SovereignMaterialSettings,
+) -> GeneratorKind {
+    GeneratorKind::Superellipsoid {
+        half_extents: Fp3(half_extents),
+        exponent_ns: Fp(exponent_ns),
+        exponent_ew: Fp(exponent_ew),
+        latitudes,
+        longitudes,
+        common: PrimCommon::with_material(material),
+    }
+}
+
 pub(crate) fn cone(
     radius: f32,
     height: f32,

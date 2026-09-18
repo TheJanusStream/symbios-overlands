@@ -63,12 +63,45 @@ pub(crate) struct Axle {
     pub(crate) paired: bool,
 }
 
+/// What a body offers its tail's one mount: the spare wheel every roadster
+/// carries, or the trunk that takes its place on an Ornate one (#1367).
+///
+/// Published by the body because the car as built restated it - a spare at
+/// `-0.462` of the length on the crown there - and on a shorter tail that
+/// fraction is past the end: the wheel stood 34 mm clear of a bobtail's back,
+/// touching it with nothing but its lowest rim.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum TailMount {
+    /// On the tail deck near the tip, leaning back - a boat-tail, which has no
+    /// back to stand a wheel against.
+    Deck {
+        /// Station, as a z fraction of the overall length.
+        at: f32,
+        /// How far over the deck's crown a mounted wheel's centre rides, as a
+        /// fraction of the length.
+        lift: f32,
+        /// How far the wheel leans back from upright (rad).
+        lean: f32,
+    },
+    /// Against the blunt back panel of a bobtail or a tourer.
+    Back {
+        /// How far a mounted wheel is pressed into the panel, as a fraction of
+        /// its own half-width: contact by CONSTRUCTION, because the touch
+        /// guard cannot see a gap at a blunt end - its tube is a chain of
+        /// capsules, and where a sweep closes fast they bulge out past the
+        /// drawn end cap (#1367).
+        sink: f32,
+        /// How far the wheel leans back from upright (rad).
+        lean: f32,
+    },
+}
+
 /// Where a craft type puts the stations every land craft has.
 ///
 /// Separate from the plan-form table because the two answer different
 /// questions - the table is the body's *shape*, this is what is arranged along
-/// it - and because a type that shares a body with another (a coupe over the
-/// roadster's tub, #1367) wants to move the second without touching the first.
+/// it - and because one type builds several bodies over one layout idiom (the
+/// roadster's boat-tail, bobtail and tourer, #1367).
 #[derive(Debug)]
 pub(crate) struct Layout {
     /// Where the bonnet gives way to the scuttle, as a z fraction of the
@@ -86,6 +119,14 @@ pub(crate) struct Layout {
     pub(crate) bumper: f32,
     /// The axles, front first.
     pub(crate) axles: &'static [Axle],
+    /// The tail lamps' station, where this body's quarter still has the
+    /// width to carry them. Restated as `-0.448` of the length the lamps stood
+    /// 32 mm behind a bobtail's back (#1367).
+    pub(crate) tail_lamps: f32,
+    /// A second row's seat station, or `None` for a two-seater.
+    pub(crate) bench: Option<f32>,
+    /// The tail's one mount.
+    pub(crate) tail: TailMount,
 }
 
 /// A land craft's body, as the one function every part of her is read off.
@@ -254,9 +295,10 @@ impl BodyPlan {
     // --- named mount stations -----------------------------------------------
     //
     // A part mounts on one of these rather than on a fraction it wrote down.
-    // Dressing stations - a mascot here, a lamp there - belong with the slice
-    // that dresses a machine (#1379) and are deliberately absent until
-    // something reads them.
+    // A station arrives with the first part that reads it: the tail lamps, a
+    // second row and the tail mount came with the roadster's bodies and its
+    // ladder (#1367); a mascot or a roof rack waits for the slice that dresses
+    // a machine with one (#1379).
 
     /// The nose and the tail of the bodywork (m from the body's centre).
     pub(crate) fn nose_z(&self) -> f32 {
@@ -297,13 +339,38 @@ impl BodyPlan {
     ///
     /// **Published by the body** (#1364 item 1), which is the whole of that
     /// item. The legacy canopy chose its own height and hovered over three of
-    /// the four chassis it could land on; a canopy that asks cannot. Nothing
-    /// reads it until the roadster grows a hardtop in #1367, and that is
-    /// deliberate: the seat has to be the body's property *before* anything
-    /// sits on it, or the next type repeats the mistake.
+    /// the four chassis it could land on; a canopy that asks cannot. The
+    /// roadster's hardtop is its first reader (#1367): the cabin stands on
+    /// this plane, centred on this station, and the folded hood lies on its
+    /// plane at the cockpit's after rim.
     pub(crate) fn canopy_seat(&self) -> [f32; 3] {
         let (aft, fwd) = self.cockpit_z();
         [0.0, 0.0, (aft + fwd) * 0.5]
+    }
+
+    /// The tail lamps' station (m).
+    pub(crate) fn tail_lamps_z(&self) -> f32 {
+        self.layout.tail_lamps * self.length
+    }
+
+    /// The second row's seat station (m), if the body has one.
+    pub(crate) fn bench_z(&self) -> Option<f32> {
+        self.layout.bench.map(|b| b * self.length)
+    }
+
+    /// The tail's one mount.
+    pub(crate) fn tail_mount(&self) -> TailMount {
+        self.layout.tail
+    }
+
+    /// The same body on wheels of another outer radius (m).
+    ///
+    /// An axle is one wheel radius above the ground ([`Self::axle_y`]), so a
+    /// balloon tyre raises the axle and everything read off it - the guards,
+    /// the boards, the beams - while the body stays where the beltline puts
+    /// it and the tyres still stand on the ground (#1367).
+    pub(crate) fn on_wheels(self, wheel_r: f32) -> Self {
+        Self { wheel_r, ..self }
     }
 
     /// The four (or three, or six) wheel anchors, front axle first.
