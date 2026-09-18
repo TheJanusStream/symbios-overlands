@@ -19,15 +19,15 @@
 //! never-edited seeded default agree on where it goes.
 //!
 //! **Boats and skiffs are drawn at airship class** (#1361, owner decision 1 of
-//! the #1359 redesign). The BOAT is there for real since #1363: [`boats`]
-//! draws one builder per craft type off one hull profile, authored in the true
-//! metres she is drawn at, with no parts and no scale bridge behind her. The
-//! skiff still assembles from parts authored around the old 1.5 m nominal and
-//! still carries the uniform root scale that brings it up to 2.65 m, and that
-//! bridge dies with the roadster (#1364). The consequence outlives both:
-//! everything derived here from a vehicle's size (mass, collider, ride height,
-//! travel-pose drop, particle sprites) reads the **drawn** dimensions, never
-//! the authored ones, and compares them against a named true nominal.
+//! the #1359 redesign), and since #1364 both are there for real: [`boats`] and
+//! [`skiffs`] each draw one builder per craft type off one profile, authored
+//! in the true metres they are drawn at, with no parts and no scale bridge
+//! behind them. **No seeded vehicle carries a root scale any more** - the
+//! airship never did, the boat stopped in #1363 and the skiff was the last one
+//! holding a bridge. The consequence outlives all of it: everything derived
+//! here from a vehicle's size (mass, collider, ride height, travel-pose drop,
+//! particle sprites) reads the **drawn** dimensions, and compares them against
+//! a named true nominal.
 //!
 //! Shared primitive/material vocabulary lives in [`common`].
 
@@ -36,7 +36,7 @@ mod assemble;
 mod boats;
 pub(crate) mod common;
 mod fx;
-mod skiff;
+mod skiffs;
 
 use crate::pds::avatar::parts::PartSlot;
 // Aliased: `crate::seeded_defaults::AvatarBody` (imported below) is the
@@ -44,8 +44,8 @@ use crate::pds::avatar::parts::PartSlot;
 use crate::pds::avatar::body::AvatarBody as RecordBody;
 use crate::pds::types::{Fp, Fp3};
 use crate::seeded_defaults::{
-    AvatarFx, AvatarGait, AvatarOutfit, AvatarPalette, ChassisFamily, NOMINAL_HULL_LEN,
-    ParticleAura, VehicleBlueprint, fnv1a_64,
+    AvatarFx, AvatarGait, AvatarOutfit, AvatarPalette, ChassisFamily, NOMINAL_BODY_LEN,
+    NOMINAL_HULL_LEN, ParticleAura, VehicleBlueprint, fnv1a_64,
 };
 
 use super::locomotion::{
@@ -73,19 +73,17 @@ pub fn build_for_seed(seed: u64) -> (RecordBody, LocomotionConfig) {
     if family == ChassisFamily::Humanoid {
         return (RecordBody::rigged_seeded(seed), humanoid_locomotion(seed));
     }
-    // The third element is the family's uniform visual-root scale (#1361) -
-    // the airship-class bridge. The FX attached below need it because a
-    // particle sprite is sized in world metres, not in the emitter's frame.
-    // The boat's is 1.0 since #1363: she is authored at the size she is drawn
-    // at, so there is nothing left to bridge.
-    let (mut visuals, loco, visual_scale) = match family {
-        ChassisFamily::Boat => (boats::build(seed), boat_locomotion(seed), 1.0),
-        ChassisFamily::Airship => (airship::build(seed), airship_locomotion(seed), 1.0),
-        ChassisFamily::Skiff => (
-            skiff::build(seed),
-            skiff_locomotion(seed),
-            skiff::VISUAL_SCALE,
-        ),
+    // No visual-root scale: the airship-class bridge of #1361 carried a
+    // uniform factor here (and a matching one into the FX, because a particle
+    // sprite is sized in world metres rather than in its emitter's frame)
+    // while the boat and the skiff were still authored a third of the size
+    // they were drawn at. Both are authored at true size now (#1363, #1364),
+    // so the bridge is gone from the root, from the particles and from
+    // `apply_travel_pose`'s signature.
+    let (mut visuals, loco) = match family {
+        ChassisFamily::Boat => (boats::build(seed), boat_locomotion(seed)),
+        ChassisFamily::Airship => (airship::build(seed), airship_locomotion(seed)),
+        ChassisFamily::Skiff => (skiffs::build(seed), skiff_locomotion(seed)),
         // Handled above; a family added later lands here loudly rather
         // than silently assembling nothing.
         ChassisFamily::Humanoid => unreachable!("the rigged family returns above"),
@@ -103,7 +101,6 @@ pub fn build_for_seed(seed: u64) -> (RecordBody, LocomotionConfig) {
         accent,
         family,
         seed,
-        visual_scale,
     );
     (RecordBody::generator(visuals), loco)
 }
@@ -141,7 +138,6 @@ fn engine_stature(seed: u64) -> f32 {
 /// Vehicles author their stern at local `-Z`, so an aft mount rides behind the
 /// craft once the 180° travel-facing yaw is applied.
 fn fx_mount(aura: ParticleAura, family: ChassisFamily, seed: u64) -> [f32; 3] {
-    let bp = VehicleBlueprint::from_seed(seed);
     match family {
         // A tight aura around the torso (chest height), not floating overhead.
         ChassisFamily::Humanoid => [0.0, 0.45, 0.0],
@@ -152,15 +148,10 @@ fn fx_mount(aura: ParticleAura, family: ChassisFamily, seed: u64) -> [f32; 3] {
         // Vents / thruster wash / motes all issue from beneath the slung
         // gondola - the assembler's belly line, tracking the chosen envelope.
         ChassisFamily::Airship => airship::fx_belly_anchor(seed),
-        ChassisFamily::Skiff => match bp.as_ref().and_then(VehicleBlueprint::skiff) {
-            // Exhaust / steam leave the tailpipe (the shared Exhaust station,
-            // matching the assembler); decorative motes hover over the body.
-            Some(s) if matches!(aura, ParticleAura::Exhaust | ParticleAura::Steam) => {
-                skiff::exhaust_station(s.body_len)
-            }
-            Some(_) => [0.0, 0.3, 0.0],
-            None => [0.0, 0.1, -0.85],
-        },
+        // A skiff's aura is read off its own body by the craft type that drew
+        // it (#1364) - an exhaust wisp leaves the pipe mouth of the machine
+        // that is actually there, not a fraction of a nominal one.
+        ChassisFamily::Skiff => skiffs::fx_mount(seed, aura).unwrap_or([0.0, 0.3, 0.0]),
     }
 }
 
@@ -412,44 +403,40 @@ fn airship_locomotion(seed: u64) -> LocomotionConfig {
     p.into_config()
 }
 
-/// Skiff (car) locomotion from the seeded chassis class + body size. The
-/// armored hull is heavy + planted; the dune buggy / trike are light + nimble;
-/// the default chassis keeps roughly the stock 900 kg / 8 000 N feel. The
-/// suspension + grip scale with mass so the ride height holds.
+/// Skiff (car) locomotion from the seeded craft type + its true proportions.
+///
+/// The type carries the feel now (`SkiffCraft::feel`), where the four chassis
+/// *classes* used to: they went with the legacy pipeline in #1364, and a
+/// roadster is what the default chassis was, so the numbers are the default
+/// chassis's and the drive is the one validated with the scale bridge. The
+/// suspension and grip scale with the derived mass so the machine keeps its
+/// ride height whatever it weighs.
 fn skiff_locomotion(seed: u64) -> LocomotionConfig {
-    let outfit = AvatarOutfit::for_seed(seed);
     let s = VehicleBlueprint::from_seed(seed).and_then(|b| b.skiff().copied());
-    // (mass factor over the 900 kg baseline, drive accel, turn accel) per
-    // chassis class.
-    let (mass_f, drive_accel, turn_accel) = match structural_slug(&outfit, PartSlot::Chassis) {
-        "skiff_chassis_armored" => (1.55, 6.5, 1.6),
-        "skiff_chassis_dune" => (0.62, 11.0, 2.6),
-        "skiff_chassis_trike" => (0.6, 11.5, 2.8),
-        _ => (1.0, 8.9, 2.0), // default_chassis / fallback
-    };
-    // TRUE (drawn) dimensions - see the note in [`boat_locomotion`] (#1361).
-    let body_len = s.map_or(skiff::AUTHORED_BODY_LEN, |s| s.body_len) * skiff::VISUAL_SCALE;
-    let body_w = s.map_or(skiff::AUTHORED_BODY_W, |s| s.body_w) * skiff::VISUAL_SCALE;
+    let (feel, half_extents) = skiffs::feel_and_box(seed);
+    // TRUE metres throughout since #1364: the blueprint IS the drawn machine,
+    // so mass, collider and ride height are all read straight off it.
+    let length = s.map_or(NOMINAL_BODY_LEN, |s| s.length);
 
     const REF_MASS: f32 = SKIFF_REF_MASS;
     let mut p = CarParams::default();
-    let mass = (REF_MASS * mass_f * (body_len / skiff::NOMINAL_BODY_LEN)).clamp(480.0, 1_500.0);
+    let mass = (REF_MASS * feel.mass_factor * (length / NOMINAL_BODY_LEN)).clamp(480.0, 1_500.0);
     let scale = mass / REF_MASS;
     // Scale a support field by mass and keep it under its sanitiser cap.
     let scaled = |v: f32, cap: f32| Fp((v * scale).min(cap));
     p.mass = Fp(mass);
-    p.drive_force = Fp((mass * drive_accel).min(200_000.0));
-    p.turn_torque = Fp((mass * turn_accel).min(50_000.0));
+    p.drive_force = Fp((mass * feel.drive_accel).min(200_000.0));
+    p.turn_torque = Fp((mass * feel.turn_accel).min(50_000.0));
     p.suspension_stiffness = scaled(p.suspension_stiffness.0, 200_000.0);
     p.suspension_damping = scaled(p.suspension_damping.0, 20_000.0);
     p.lateral_grip = scaled(p.lateral_grip.0, 200_000.0);
-    // The half-height comes from the bodywork, not from the body's LENGTH the
-    // way `0.4 · (body_len / 1.5)` did - see [`skiff::chassis_half_height`] for
-    // why that formula could not survive the rescale. The suspension rest
-    // length needs no re-basing to match: the assembler derives its travel-pose
-    // drop from this same box, so the tyres land on the ground whatever it is.
-    p.chassis_half_extents =
-        fit_extents([body_w * 0.5, skiff::chassis_half_height(), body_len * 0.5]);
+    // The box comes from the bodywork the craft actually draws, not from the
+    // body's LENGTH the way `0.4 · (body_len / 1.5)` did - see
+    // [`skiffs::chassis_half_extents`] for why that formula could not survive
+    // the rescale. The suspension rest length needs no re-basing to match: the
+    // assembler derives its travel-pose drop from this same box, so the tyres
+    // land on the ground whatever it is.
+    p.chassis_half_extents = fit_extents(half_extents);
     p.into_config()
 }
 
@@ -695,23 +682,38 @@ mod tests {
         }
     }
 
-    /// The bridge scale (#1361) has to leave headroom under the sanitiser's
-    /// cap on the product of scales down any root-to-leaf path - this is the
-    /// measurement behind the round-trip assertion above, and says how much
-    /// room a part author still has for a child scale of their own.
+    /// No craft's deepest node scale reaches the sanitiser's cap on the
+    /// product of scales down any root-to-leaf path.
+    ///
+    /// This used to measure the airship-class BRIDGE (#1361), a uniform factor
+    /// on the visual root; that died with the last legacy pipeline in #1364
+    /// and every seeded root is scale-free now. What it measures instead is
+    /// the thing that actually risks the cap: a craft's own shaping scales,
+    /// which the redesigned families lean on hard - a roadster's guard is a
+    /// tube flattened 3.4x on one axis, and a hull's section is its node
+    /// scale. The sanitiser CLAMPS an over-cap product rather than rejecting
+    /// it, so a part that set one too deep under the root would be silently
+    /// shrunk back for some seeds only.
     #[test]
-    fn the_airship_class_bridge_leaves_headroom_under_the_scale_cap() {
+    fn no_craft_leans_on_a_node_scale_the_sanitiser_would_clamp() {
         use crate::pds::sanitize::{accumulated_scale, limits::MAX_AVATAR_SCALE_PRODUCT};
         let mut worst: f32 = 0.0;
         for s in 0u64..600 {
             let Some(built) = visuals_for_seed(s) else {
                 continue;
             };
+            assert_eq!(
+                built.transform.scale.0, [1.0; 3],
+                "seed {s}: a seeded craft's visual ROOT carries a scale - the \
+                 airship-class bridge died with #1364 and nothing should have \
+                 put one back"
+            );
             worst = worst.max(accumulated_scale(&built));
         }
         assert!(
             worst > 1.0,
-            "no seeded vehicle carried a bridge scale at all"
+            "no seeded craft shaped anything with a node scale at all, so this \
+             measures nothing"
         );
         assert!(
             worst < MAX_AVATAR_SCALE_PRODUCT,
@@ -726,6 +728,12 @@ mod tests {
     /// one. The fixed 0.55 m drop this replaced floated or sank them by
     /// centimetres across the seeded radius band even before #1361 doubled
     /// everything (#1361).
+    ///
+    /// In its #1364 form the tyre line is read off the machine's own
+    /// [`BodyPlan`](skiffs::BodyPlan) rather than off a blueprint `ride_y`
+    /// that a reader had to keep in step with the wheels: an axle is one wheel
+    /// radius above the ground by construction now, so the only thing left to
+    /// check is that the assembler dropped the body by the right amount.
     #[test]
     fn a_seeded_skiffs_tyres_rest_on_its_own_suspension_ground_line() {
         let compression = static_suspension_compression(
@@ -739,10 +747,11 @@ mod tests {
                 panic!("seed {s} is a skiff without car locomotion");
             };
             let visuals = body.visuals().expect("a skiff assembles a tree");
-            let bp = VehicleBlueprint::from_seed(s)
-                .and_then(|b| b.skiff().copied())
-                .expect("a skiff has a blueprint");
-            let scale = visuals.transform.scale.0[1];
+            assert_eq!(
+                visuals.transform.scale.0, [1.0; 3],
+                "seed {s}: a skiff is authored at the size she is drawn at since \
+                 #1364, so her root carries no scale bridge"
+            );
             let drop = -visuals.transform.translation.0[1];
             let ride = p.chassis_half_extents.0[1] + p.suspension_rest_length.0 - compression;
             // The play view (#1360) stands a craft at this height from the
@@ -754,10 +763,14 @@ mod tests {
                     < 1e-4,
                 "seed {s}: ground_ride_height disagrees with the family derivation"
             );
-            let tyre_bottom = ride - drop - (bp.wheel_r - bp.ride_y) * scale;
+            // The datum floats `ride - drop` over the ground, and the plan says
+            // how far under the datum the ground is meant to be.
+            let datum = ride - drop;
+            let want = skiffs::datum_height_for_seed(s).expect("a skiff has a body plan");
             assert!(
-                tyre_bottom.abs() < 1e-4,
-                "seed {s}: tyres sit {tyre_bottom} m off the ground line"
+                (datum - want).abs() < 1e-4,
+                "seed {s}: the tyres sit {} m off the ground line",
+                datum - want
             );
             checked += 1;
         }

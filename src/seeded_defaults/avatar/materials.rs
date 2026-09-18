@@ -386,6 +386,25 @@ impl MaterialKit {
         m
     }
 
+    /// Tyres, rubbing strips, hoses. Dead matte and untextured: at 109 px/m a
+    /// tread pattern arrives as noise, and the one thing a tyre must do is
+    /// read darker than the coachwork over it - a guard drawn at a tyre's own
+    /// value stops being a guard (#1364).
+    pub fn rubber(&self, color: [f32; 3]) -> SovereignMaterialSettings {
+        let mut m = self.finish(color, 0.0, 0.95);
+        m.roughness = Fp(m.roughness.0.max(0.90));
+        m.metallic = Fp(0.0);
+        m
+    }
+
+    /// Upholstery - seat cushions, a hood, a strap. Softer than [`Self::paint`]
+    /// and untextured for the same reason [`Self::canvas`] is: a hide's grain
+    /// at this range is rivet dots, and a buttoned cushion is a shape rather
+    /// than a pattern.
+    pub fn leather(&self, color: [f32; 3]) -> SovereignMaterialSettings {
+        self.finish(color, 0.0, 0.74)
+    }
+
     /// Organic skin - independent of style and wear (wear is equipment
     /// grime, not biology). Softer than cloth so faces catch the sun.
     pub fn skin(&self, color: [f32; 3]) -> SovereignMaterialSettings {

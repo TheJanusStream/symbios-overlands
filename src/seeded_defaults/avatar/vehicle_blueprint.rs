@@ -99,13 +99,24 @@ impl VehicleStance {
         }
     }
 
-    /// `(length, width)` body multipliers - a Sleek skiff is a long low racer,
-    /// a Heavy one a wide hauler, a Compact one a short runabout.
-    fn skiff_factors(self) -> (f32, f32) {
+    /// `(length, width, height)` multipliers for a skiff of this stance
+    /// (#1364).
+    ///
+    /// The stance moves the machine **inside** the brief's reference bands
+    /// (wheelbase 0.62-0.66 L, wheel diameter 0.22-0.25 L, beltline about
+    /// 0.30 L, overall height 0.36-0.42 L) rather than scaling it out of
+    /// them, exactly as [`Self::boat_factors`] does for a hull. The old
+    /// factors ran the length from 0.90 to 1.12 on top of an undamped body
+    /// knob, which is a fleet spanning 1.7 m to 3.9 m - two different
+    /// vehicles rather than one at two sizes.
+    fn skiff_factors(self) -> (f32, f32, f32) {
         match self {
-            Self::Compact => (0.90, 0.96),
-            Self::Sleek => (1.12, 0.95),
-            Self::Heavy => (0.96, 1.15),
+            // Short, narrow and tall-bodied - a stubby town runabout.
+            Self::Compact => (0.94, 0.98, 1.05),
+            // Long, low and lean - a racer.
+            Self::Sleek => (1.06, 0.96, 0.95),
+            // Wide and tall-sided, and not short - a hauler.
+            Self::Heavy => (0.99, 1.08, 1.03),
         }
     }
 }
@@ -192,8 +203,20 @@ impl BoatBlueprint {
 /// uniform root scale died with the legacy pipeline it was carrying.
 pub const NOMINAL_HULL_LEN: f32 = 2.8;
 
-/// How much of the body's +-30 % height knob a boat's overall length takes
-/// (#1363). See [`BoatBlueprint::derive`].
+/// How much of the body's +-30 % height knob a hull's or a machine's overall
+/// length takes (#1363, #1364).
+///
+/// It exists for the BOAT, where it is load-bearing: the air-draft cap is an
+/// absolute height above the ground, so an undamped fleet ran 2.12-3.74 m and
+/// a quarter of it was visibly under-rigged. The skiff has no such cap, and
+/// **measured over 40 000 skiff seeds the damping is a small effect there**:
+/// 2.26-3.08 m damped against 2.09-3.28 undamped, with 58 % against 52 % of
+/// the fleet inside owner decision 1's 2.5-2.8 m. Most of the skiff's spread
+/// was taken out by narrowing its stance factors instead
+/// ([`VehicleStance::skiff_factors`]). It is shared rather than split because
+/// both families want the same thing of it and neither wants a different
+/// number; if the owner would rather a bigger person drove a visibly bigger
+/// car, the skiff can take the knob raw for the cost of that 6 %.
 const BODY_SIZE_DAMPING: f32 = 0.45;
 
 /// Airship proportions. Each envelope **form** is a seeded Lathe body of
@@ -242,56 +265,88 @@ impl AirshipBlueprint {
     }
 }
 
-/// Concrete skiff proportions + the wheel/fender/anchor landmarks that three
-/// files used to encode as matching magic numbers (the fender tori baked into
-/// the chassis part, the wheel part's radius, and the assembler's wheel
-/// anchors). Deriving them once here is what lets the body vary per seed and
-/// unblocks wheel variants (#788): the chassis sizes its tub + fenders from
-/// this, the assembler places the four wheels from `track` / `wheelbase`, and
-/// the wheel part sizes from `wheel_r` - all guaranteed to agree.
+/// Concrete skiff proportions in **true metres**, with the bow at `+Z`
+/// (#1364).
+///
+/// Every field is a real dimension of a real small car, inside the bands the
+/// redesign brief set from reference machines: wheelbase 0.62-0.66 of the
+/// length, wheel diameter 0.22-0.25 L, half-track about 0.21 L, beltline about
+/// 0.30 L above the ground and an overall height of 0.36-0.42 L.
+/// [`VehicleStance`] moves a machine *inside* those bands rather than outside
+/// them.
+///
+/// No mount landmarks any more, and no `ride_y`. They belonged to a part
+/// catalogue that seated a canopy at a fixed height only one of four chassis
+/// ever reached; the redesigned family reads every station off its own
+/// `BodyPlan`, which is
+/// derived from exactly these numbers - including the axle line, which is now
+/// simply the wheel radius above the ground and so cannot disagree with the
+/// wheels standing on it.
 #[derive(Clone, Copy, Debug)]
 pub struct SkiffBlueprint {
     pub stance: VehicleStance,
-    /// Body tub length (fore-aft).
-    pub body_len: f32,
-    /// Body tub width.
+    /// Overall length, bumper to tail (m) - the nominal every other dimension
+    /// here is a fraction of.
+    pub length: f32,
+    /// Maximum **bodywork** width (m). Not the track: coachwork of this kind
+    /// is far narrower than the wheels it stands between, which is most of
+    /// what makes a machine read as a machine rather than as a slab.
     pub body_w: f32,
-    /// Wheel/fender lateral offset from the centreline (±X).
-    pub track: f32,
-    /// Wheel/fender fore & aft offset (±Z).
+    /// Front to rear wheel-centre distance (m).
     pub wheelbase: f32,
-    /// Wheel hub height (the wheels' axle line, below the body origin).
-    pub ride_y: f32,
-    /// Wheel outer radius (tyre tread). The fender radius tracks this.
+    /// Wheel-centre to wheel-centre across the machine (m).
+    pub track: f32,
+    /// Wheel outer radius, tyre tread (m).
     pub wheel_r: f32,
+    /// The bodywork's crown above the ground (m) - the beltline.
+    pub beltline: f32,
+    /// Overall height above the ground (m), screen included.
+    pub height: f32,
 }
 
 impl SkiffBlueprint {
     fn derive(body: &AvatarBody, rng: &mut ChaCha8Rng) -> Self {
         let stance = VehicleStance::sample(rng);
-        let (len_f, width_f) = stance.skiff_factors();
-        let size = body.height_scale;
-        let body_len = 1.5 * size * len_f * range_f32(rng, 0.95, 1.05);
-        // Floor the width so the (still nominal-width) greenhouse canopy always
-        // fits the cabin until the body redesign scales it too (#787).
-        let body_w =
-            (0.76 * size * body.shoulder_width_scale.clamp(0.85, 1.15) * width_f).clamp(0.64, 1.12);
-        // Wheels "look good" as-is (user), so keep the radius near nominal - a
-        // gentle limb-thickness nudge only. The fender radius derives from it.
-        let wheel_r = (0.21 * body.limb_thickness_scale.clamp(0.9, 1.12)).clamp(0.17, 0.25);
+        let (len_f, width_f, height_f) = stance.skiff_factors();
+        // Overall size rides the body height knob, DAMPED by the same factor
+        // a boat's length is (#1363). A skiff has no air-draft cap to answer
+        // to, so the reason is owner decision 1 alone - "skiffs about 2.5-2.8
+        // m" - and the knob swings +-30 %: taken raw it drew machines from
+        // 1.7 m to 3.9 m, which is a scooter and a lorry rather than one car
+        // at two sizes. Damped, the fleet sits where the decision put it and
+        // "a bigger person drives a bigger car" stays true.
+        let size = 1.0 + (body.height_scale - 1.0) * BODY_SIZE_DAMPING;
+        let length = NOMINAL_BODY_LEN * size * len_f * range_f32(rng, 0.97, 1.03);
+        // Width rides shoulder width and the wheels ride limb thickness, both
+        // clamped back into the brief's bands afterwards, so a clamp corner is
+        // still a car.
+        let body_frac =
+            (0.272 * width_f * body.shoulder_width_scale.clamp(0.92, 1.10)).clamp(0.250, 0.300);
+        let track_frac = (0.420 * width_f).clamp(0.390, 0.455);
+        let wheel_frac = (0.115 * body.limb_thickness_scale.clamp(0.92, 1.08)).clamp(0.110, 0.125);
         Self {
             stance,
-            body_len,
-            body_w,
-            // Track/wheelbase as fractions of the body so wheels sit at its
-            // corners regardless of the seeded size.
-            track: body_w * 0.59,
-            wheelbase: body_len * 0.367,
-            ride_y: -0.12 * size,
-            wheel_r,
+            length,
+            body_w: length * body_frac,
+            wheelbase: length * (0.640 * range_f32(rng, 0.98, 1.02)).clamp(0.62, 0.66),
+            track: length * track_frac,
+            wheel_r: length * wheel_frac,
+            beltline: length * (0.300 * height_f).clamp(0.285, 0.315),
+            height: length * (0.372 * height_f).clamp(0.360, 0.420),
         }
     }
 }
+
+/// Overall length (m) a nominal seeded skiff is drawn at: airship class, per
+/// owner decision 1 of the redesign (skiffs about 2.65 m against the airship's
+/// 3.15 m and a 1.7 m person). Still a scale model of a bigger machine - lit
+/// lamps, no driver - like the airship's 0.9 m gondola.
+///
+/// Since #1364 this is the length the craft is **authored** at as well, so
+/// there is no scale bridge between the two any more: the skiff assembler's
+/// uniform root scale died with the legacy pipeline it was carrying, and the
+/// skiff was the last family to hold one.
+pub const NOMINAL_BODY_LEN: f32 = 2.65;
 
 /// Per-family vehicle proportion blueprint. One variant per chassis that has
 /// been wired to the shared-landmark system; [`VehicleBlueprint::from_seed`]
@@ -445,6 +500,54 @@ mod tests {
             seen += 1;
         }
         assert!(seen > 20, "too few boats sampled: {seen}");
+    }
+
+    #[test]
+    fn skiff_dims_stay_in_sane_range() {
+        // Every skiff seed lands inside the #1364 brief's reference bands, in
+        // true metres around a 2.65 m nominal. Measured over 40 000 seeds the
+        // fleet runs 2.26-3.08 m with the median exactly on the nominal and
+        // the 5th-95th at 2.39-2.94; this is that band with room for the tails
+        // a smaller sample does not reach.
+        let mut seen = 0;
+        for s in 0u64..600 {
+            let Some(b) = VehicleBlueprint::from_seed(s).and_then(|bp| bp.skiff().copied()) else {
+                continue;
+            };
+            assert!(
+                (2.1..=3.2).contains(&b.length),
+                "seed {s} length {}",
+                b.length
+            );
+            // A hair of tolerance on the clamp boundaries: each fraction is
+            // clamped and then multiplied back out by the length, so a seed
+            // sitting exactly on a bound comes back a float ulp outside it.
+            const EPS: f32 = 1e-4;
+            for (what, got, lo, hi) in [
+                ("wheelbase", b.wheelbase / b.length, 0.62, 0.66),
+                ("wheel diameter", 2.0 * b.wheel_r / b.length, 0.22, 0.25),
+                ("half-track", 0.5 * b.track / b.length, 0.195, 0.2275),
+                ("body width", b.body_w / b.length, 0.250, 0.300),
+                ("beltline", b.beltline / b.length, 0.285, 0.315),
+                ("height", b.height / b.length, 0.360, 0.420),
+            ] {
+                assert!(
+                    (lo - EPS..=hi + EPS).contains(&got),
+                    "seed {s}: {what} {got} of the length is outside {lo}..{hi}"
+                );
+            }
+            // The coachwork is far narrower than the wheels it stands between,
+            // which is most of what makes this read as a machine rather than a
+            // slab - and what the collider has to answer to.
+            assert!(
+                b.body_w < b.track,
+                "seed {s}: a {} m body on a {} m track is not a car of this kind",
+                b.body_w,
+                b.track
+            );
+            seen += 1;
+        }
+        assert!(seen > 20, "too few skiffs sampled: {seen}");
     }
 
     #[test]

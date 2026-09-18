@@ -14,7 +14,7 @@
 pub(in crate::pds::avatar::parts) use crate::pds::avatar::colour::{
     darken, ensure_delta, luma, shade,
 };
-pub(super) use crate::pds::avatar::colour::{floor_value, saturate, to_value};
+pub(super) use crate::pds::avatar::colour::{floor_value, saturate};
 
 // ---------------------------------------------------------------------------
 // Humanoid

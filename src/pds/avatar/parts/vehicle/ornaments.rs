@@ -1,5 +1,5 @@
 //! Cross-family ornaments - a flown pennant, a neon strip, a finial, and a
-//! tattered banner. These serve every vehicle family (the `VEHICLES` chassis
+//! tattered banner. These serve every vehicle family (the `AIRSHIP` chassis
 //! list); see the [`super`] module docstring for the mood-group / band scheme.
 
 use crate::pds::avatar::default_visuals::common::{
@@ -10,7 +10,7 @@ use crate::pds::generator::Generator;
 use crate::seeded_defaults::{OrnatenessBand, WearBand};
 
 use super::super::{PartCtx, PartDef, PartSlot};
-use super::{BATTERED, FANCY, NEON, REGAL, UNIVERSAL, VEHICLES};
+use super::{AIRSHIP, BATTERED, FANCY, NEON, REGAL, UNIVERSAL};
 
 fn pennant(ctx: &PartCtx) -> Generator {
     let mut p = prim(
@@ -132,7 +132,7 @@ fn ornament_tattered(ctx: &PartCtx) -> Generator {
 pub(super) static PENNANT: PartDef = PartDef {
     slug: "veh_orn_pennant",
     slot: PartSlot::Ornament,
-    chassis: VEHICLES,
+    chassis: AIRSHIP,
     styles: REGAL,
     // A flown pennant is a fancy flourish - an adorned / ornate craft only.
     ornateness: FANCY,
@@ -142,7 +142,7 @@ pub(super) static PENNANT: PartDef = PartDef {
 pub(super) static NEON_STRIP: PartDef = PartDef {
     slug: "veh_orn_neon_strip",
     slot: PartSlot::Ornament,
-    chassis: VEHICLES,
+    chassis: AIRSHIP,
     styles: NEON,
     ornateness: OrnatenessBand::ANY,
     wear: WearBand::ANY,
@@ -151,7 +151,7 @@ pub(super) static NEON_STRIP: PartDef = PartDef {
 pub(super) static ORNAMENT_FINIAL: PartDef = PartDef {
     slug: "veh_orn_finial",
     slot: PartSlot::Ornament,
-    chassis: VEHICLES,
+    chassis: AIRSHIP,
     // Style-universal ornament floor for every vehicle family: no population's
     // Ornament slot is ever bare.
     styles: UNIVERSAL,
@@ -162,7 +162,7 @@ pub(super) static ORNAMENT_FINIAL: PartDef = PartDef {
 pub(super) static ORNAMENT_TATTERED: PartDef = PartDef {
     slug: "veh_orn_tattered",
     slot: PartSlot::Ornament,
-    chassis: VEHICLES,
+    chassis: AIRSHIP,
     styles: UNIVERSAL,
     ornateness: OrnatenessBand::ANY,
     // The beaten-up counterpart to the finial / pennant - battered craft only.

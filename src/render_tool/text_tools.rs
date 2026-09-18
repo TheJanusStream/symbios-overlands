@@ -120,17 +120,23 @@ pub(super) fn print_outfit(subject: &str) {
     );
     // The seeded craft type (#1362). A property of the SEED, so it answers for
     // every boat and skiff whether or not anything builds that type yet: the
-    // slice that builds one opens by finding the seeds that picked it. A boat
-    // whose type has no builder is DRAWN as the family's universal floor
-    // (#1363), and a skiff is still drawn by the legacy chassis parts below.
+    // slice that builds one opens by finding the seeds that picked it. A craft
+    // whose type has no builder is DRAWN as its family's universal floor
+    // (#1363 for boats, #1364 for skiffs), and this says which - most skiff
+    // seeds are in that position until #1377, because the Wagon takes every
+    // historic theme.
     if let Some(craft) = craft_for(subject) {
         let note = match craft {
             CraftType::Boat(t) if t.implemented() => "picked and built".to_string(),
+            CraftType::Skiff(t) if t.implemented() => "picked and built".to_string(),
             CraftType::Boat(_) => format!(
                 "picked; not built yet, drawn as the {}",
                 BoatType::UNIVERSAL.label()
             ),
-            CraftType::Skiff(_) => "picked; parts below are still legacy".to_string(),
+            CraftType::Skiff(_) => format!(
+                "picked; not built yet, drawn as the {}",
+                SkiffType::UNIVERSAL.label()
+            ),
         };
         println!("  craft type: {} ({note})", craft.label());
     }

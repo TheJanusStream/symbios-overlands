@@ -40,10 +40,8 @@ pub(super) fn attach(
     accent: [f32; 3],
     family: ChassisFamily,
     seed: u64,
-    visual_scale: f32,
 ) {
-    if let Some(mut emitter) = aura_emitter(fx.aura, mount, accent, family, fx.intensity, seed) {
-        scale_particle_sizes(&mut emitter, visual_scale);
+    if let Some(emitter) = aura_emitter(fx.aura, mount, accent, family, fx.intensity, seed) {
         root.children.push(emitter);
     }
     if let Some(audio) = voice_config(fx.voice, family, seed) {
@@ -93,15 +91,6 @@ fn set_inherit_velocity(g: &mut Generator, inherit: f32) {
 /// emitter) with its transform scale set straight from `start_size`. Left
 /// alone, a funnel twice the size would vent the same small puffs.
 ///
-/// Well inside [`limits::MAX_PARTICLE_SIZE`](crate::pds::sanitize::limits)
-/// (100 m) at any bridge scale, so the record still round-trips unchanged.
-fn scale_particle_sizes(g: &mut Generator, factor: f32) {
-    if let GeneratorKind::ParticleSystem(p) = &mut g.kind {
-        p.start_size = Fp(p.start_size.0 * factor);
-        p.end_size = Fp(p.end_size.0 * factor);
-    }
-}
-
 /// Build the aura emitter for `aura`, or `None` for [`ParticleAura::None`].
 /// `intensity` scales the emit rate + population; `accent` colours the
 /// decorative auras; `family` picks the chassis-signature recipes (wake /

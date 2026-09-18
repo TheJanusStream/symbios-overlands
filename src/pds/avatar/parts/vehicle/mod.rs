@@ -1,38 +1,36 @@
-//! Styled vehicle part kits - crafted variants and ornaments for the airship /
-//! skiff families. The boat left in #1363: her craft types draw their own
-//! geometry off one hull profile, so she fills no slots and the bow / stack /
-//! deck / mast kits that dressed her are gone.
+//! Styled vehicle part kits - crafted variants and ornaments for the airship,
+//! the one family still assembled from parts. The boat left in #1363 and the
+//! land-skiff in #1364: both families' craft types draw their own geometry off
+//! one profile, so neither fills a slot, and the bow / stack / deck / mast
+//! kits that dressed a boat and the chassis / canopy / wheel / exhaust kits
+//! that dressed a skiff are gone with them.
 //!
-//! Fills the previously-empty optional vehicle slots
-//! ([`PartSlot::Exhaust`](super::PartSlot::Exhaust) /
-//! [`PartSlot::Ornament`](super::PartSlot::Ornament)) and
-//! adds style-specific variants for the body slots, plus cross-family
-//! ornaments. Tagged by style and by ornateness / wear bands, so a steam funnel
-//! only appears on a steampunk / industrial craft, a neon strip on a cyberpunk
-//! one, and so on. Geometry uses the shared primitive vocabulary with torture
+//! Fills the airship's optional [`PartSlot::Ornament`](super::PartSlot::Ornament)
+//! and adds style-specific variants for its body slots. Tagged by style and by
+//! ornateness / wear bands, so a flown pennant only appears on a stately
+//! craft, a neon strip on a cyberpunk one, and a tattered banner only on a
+//! battered one. Geometry uses the shared primitive vocabulary with torture
 //! shaping; finish comes from the seeded
 //! [`MaterialKit`](crate::seeded_defaults::MaterialKit).
 //!
 //! Every mood group (see the group consts) houses at least one of the 24
-//! [`ThemeArchetype`]s, and every optional slot ships a **style-universal**
-//! floor part (`skiff_exhaust_tailpipe` / `veh_orn_finial`, both
-//! empty-styles) so no theme's optional slots are ever
-//! permanently bare - the styled and band-tagged parts then layer flavour on
-//! top of that floor (#792).
+//! [`ThemeArchetype`]s, and the Ornament slot ships a **style-universal**
+//! floor part (`veh_orn_finial`, empty styles) so no theme's ornament slot is
+//! ever permanently bare - the styled and band-tagged parts then layer flavour
+//! on top of that floor (#792). The Exhaust slot had a floor of its own
+//! (`skiff_exhaust_tailpipe`) and went with the skiff catalogue: no family
+//! fills that slot now.
 
 use crate::seeded_defaults::ThemeArchetype;
 // The mood taxonomy these parts are tagged by lives beside `ThemeArchetype`
 // itself, because the craft-type affinities (#1362) read the same groups.
 // Imported privately so the submodules keep reaching them as `super::NEON`.
-use crate::seeded_defaults::mood::{
-    AGRARIAN, COASTAL, GRUBBY, HISTORIC, MARTIAL, NEON, REGAL, STEAM,
-};
+use crate::seeded_defaults::mood::{GRUBBY, HISTORIC, NEON, REGAL, STEAM};
 use crate::seeded_defaults::{ChassisFamily, OrnatenessBand, OrnatenessTier, WearBand, WearTier};
 
 mod airship;
 mod kits;
 mod ornaments;
-mod skiff;
 
 // The per-family, cross-family, and bespoke-kit `PartDef` statics live in the
 // submodules; glob them in so the shared `ENTRIES` registry below can list them
@@ -40,14 +38,8 @@ mod skiff;
 use airship::*;
 use kits::*;
 use ornaments::*;
-use skiff::*;
 
 const AIRSHIP: &[ChassisFamily] = &[ChassisFamily::Airship];
-const SKIFF: &[ChassisFamily] = &[ChassisFamily::Skiff];
-/// The vehicle families that still assemble from parts. The boat left in
-/// #1363: her craft types draw their own geometry off one hull profile, so she
-/// has no slots for a shared ornament to fill.
-const VEHICLES: &[ChassisFamily] = &[ChassisFamily::Airship, ChassisFamily::Skiff];
 
 /// Empty style list - a **style-universal** part, eligible for every theme (see
 /// the module docstring). Used for the per-slot floor parts that guarantee no
@@ -59,16 +51,9 @@ const UNIVERSAL: &[ThemeArchetype] = &[];
 /// optional-slot pick rather than every styled part being `ANY`/`ANY` (#792).
 const FANCY: OrnatenessBand =
     OrnatenessBand::range(OrnatenessTier::Adorned, OrnatenessTier::Ornate);
-/// "Worn or worse" wear band - a battering ram, sooted exhaust pipes: gear that
-/// only reads on a used or beaten craft, never a factory-fresh one.
-const WORN_PLUS: WearBand = WearBand::range(WearTier::Worn, WearTier::Battered);
 /// Battered-only wear band - the beaten-up counterpart parts (a tattered
 /// banner), so the top wear tier reads distinctly from merely-worn.
 const BATTERED: WearBand = WearBand::only(WearTier::Battered);
-/// Pristine-only wear band - the "clean" counterpart parts (a polished aero
-/// fairing), so the *bottom* wear tier reads too, not just the worn / battered
-/// ends (#793).
-const CLEAN: WearBand = WearBand::only(WearTier::Pristine);
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -84,24 +69,11 @@ pub(super) static ENTRIES: &[&dyn super::BodyPart] = &[
     &POD_SCREW,
     &GONDOLA_BASKET,
     &GONDOLA_CARGO,
-    &BUBBLE_CANOPY,
-    &TWIN_PIPES,
-    &EXHAUST_TAILPIPE,
-    &CHASSIS_DUNE,
-    &CHASSIS_TRIKE,
-    &CHASSIS_ARMORED,
-    &WHEEL_SPOKED,
-    &WHEEL_KNOBBY,
-    &WHEEL_GLOW,
     &PENNANT,
     &NEON_STRIP,
     &ORNAMENT_FINIAL,
     &ORNAMENT_TATTERED,
     // #793 bespoke mood-group kits.
-    &CANOPY_BUCKBOARD,
-    &CANOPY_AERO,
-    &CANOPY_TARGA_RACK,
-    &ORN_BULL_BAR,
     &ORN_LANTERNS,
 ];
 
@@ -113,6 +85,9 @@ mod tests {
     // to the tests since the mood groups moved out to `seeded_defaults::mood`
     // (#1362) and the registry itself now names only the groups.
     use crate::seeded_defaults::ThemeArchetype::Cyberpunk;
+    // The two mood groups only the expectations below name, now that the
+    // skiff kits they tagged have gone.
+    use crate::seeded_defaults::mood::{COASTAL, MARTIAL};
     use crate::seeded_defaults::{OrnatenessTier, WearTier};
 
     /// The three vehicle families (the humanoid is a separate kit).
@@ -203,11 +178,11 @@ mod tests {
     #[test]
     fn every_theme_belongs_to_a_mood_group() {
         // Fold guarantee: every archetype sits in at least one styling group, so
-        // it draws at least one styled part *somewhere* (on some chassis / slot),
-        // not only the universal floors. It does NOT promise a styled BODY variant
-        // on every chassis - e.g. a COASTAL boat still draws the default hull + the
-        // universal floors, since COASTAL's only body part is the sporty skiff
-        // canopy; per-chassis body coverage is the bespoke-parts job (#793).
+        // it draws at least one styled part *somewhere*, not only the
+        // universal floors. It does NOT promise a styled part on every chassis
+        // and slot; since #1363 and #1364 the airship is the only family with
+        // parts at all, and the two redesigned families vary by craft TYPE
+        // instead (#1362).
         for style in ThemeArchetype::ALL {
             let grouped = [NEON, STEAM, MARTIAL, REGAL, GRUBBY, HISTORIC, COASTAL]
                 .iter()
@@ -217,33 +192,55 @@ mod tests {
     }
 
     #[test]
-    fn ornateness_and_wear_bands_gate_optional_skiff_parts() {
-        // The tier axes are not inert (#792): the sooted twin pipes show only
-        // on worn+ craft. The boat halves of this test - the fancy figurehead,
-        // the battering ram, the tattered banner, the bowsprit floor - went
-        // with the legacy boat catalogue in #1363; boat dressing by ornateness
-        // and wear is #1379's, and its guard is #1382's.
+    fn ornateness_and_wear_bands_gate_optional_vehicle_parts() {
+        // The tier axes are not inert (#792). This used to be shown on the
+        // skiff's sooted twin pipes and the boat's fancy figurehead; both
+        // families' catalogues have gone (#1363, #1364), so the airship
+        // carries the claim now - the same claim, on the one family that still
+        // assembles from parts. Per-type dressing by ornateness and wear for
+        // the redesigned boats and skiffs is #1379's, and its guard is #1382's.
         let has = |chassis, slot, style, o, w, slug: &str| {
             parts_for_avatar(chassis, slot, style, o, w).any(|p| p.slug() == slug)
         };
-        use ChassisFamily::Skiff;
-        use OrnatenessTier::Ornate;
+        use ChassisFamily::Airship;
+        use OrnatenessTier::{Ornate, Plain};
         use WearTier::{Battered, Pristine};
+        // Wear gates the tattered banner: a battered craft flies one and a
+        // factory-fresh one does not.
         assert!(!has(
-            Skiff,
-            PartSlot::Exhaust,
+            Airship,
+            PartSlot::Ornament,
             Cyberpunk,
             Ornate,
             Pristine,
-            "skiff_exhaust_twin_pipes"
+            "veh_orn_tattered"
         ));
         assert!(has(
-            Skiff,
-            PartSlot::Exhaust,
+            Airship,
+            PartSlot::Ornament,
             Cyberpunk,
             Ornate,
             Battered,
-            "skiff_exhaust_twin_pipes"
+            "veh_orn_tattered"
+        ));
+        // And ornateness gates the flown pennant on a craft whose style has
+        // one at all: a plain ship never rolls a flourish.
+        use crate::seeded_defaults::ThemeArchetype::Fantasy;
+        assert!(!has(
+            Airship,
+            PartSlot::Ornament,
+            Fantasy,
+            Plain,
+            Pristine,
+            "veh_orn_pennant"
+        ));
+        assert!(has(
+            Airship,
+            PartSlot::Ornament,
+            Fantasy,
+            Ornate,
+            Pristine,
+            "veh_orn_pennant"
         ));
     }
 }

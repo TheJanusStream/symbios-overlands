@@ -16,11 +16,15 @@
 //!
 //! Each part builds its geometry in a **local frame whose origin is the
 //! part's attachment point**; the assembler
-//! ([`super::default_visuals`]) positions the part root into the avatar.
-//! By slot: the vehicle body slots ([`PartSlot::Hull`], [`PartSlot::Envelope`],
-//! [`PartSlot::Chassis`]) are centred on the origin; [`PartSlot::Wheel`] and
-//! [`PartSlot::Fin`] hang from their mount pivot at the origin;
-//! [`PartSlot::Mast`] rises *upward* from a deck pivot at the origin.
+//! ([`super::default_visuals`]) positions the part root into the avatar. By
+//! slot: a body slot ([`PartSlot::Envelope`]) is centred on the origin, and
+//! [`PartSlot::Fin`] and [`PartSlot::Pod`] hang from their mount pivot at the
+//! origin.
+//!
+//! **Only the airship is composed this way now.** The boat left in #1363 and
+//! the land-skiff in #1364: each redesigned family draws its geometry from one
+//! craft-type builder over one profile, so neither fills a slot and neither
+//! has an outfit to roll. The rigged humanoid never did (#1060).
 //!
 //! ## Style coverage
 //!
@@ -44,9 +48,15 @@ use crate::seeded_defaults::{
 /// declares which families it serves via [`BodyPart::chassis`]); the
 /// per-chassis required / optional split lives in [`required_slots`] /
 /// [`optional_slots`].
+/// The Boat and Skiff groups below are **vestigial**: nothing fills them since
+/// #1363 and #1364 retired those catalogues, and no builder reads them. They
+/// are kept rather than deleted because pruning the slot vocabulary touches
+/// the outfit deriver, the editor's part picker and every saved outfit that
+/// names one, which is a documentation-and-guards job rather than a geometry
+/// one - #1382.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PartSlot {
-    // --- Boat ---
+    // --- Boat (vestigial since #1363) ---
     /// The waterline hull.
     Hull,
     /// The deck the rest sits on.
@@ -67,7 +77,7 @@ pub enum PartSlot {
     /// An engine nacelle / propulsion pod (the assembler mirrors it into an
     /// amidships pair) - the airship's visible propulsion.
     Pod,
-    // --- Skiff ---
+    // --- Skiff (vestigial since #1364) ---
     /// The chassis slab.
     Chassis,
     /// The cockpit canopy.
@@ -85,12 +95,12 @@ pub enum PartSlot {
 pub fn required_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
     use PartSlot::*;
     match chassis {
-        // A rigged family assembles no parts (#1060), and since #1363 neither
-        // does a boat: the redesigned craft types draw their own geometry off
-        // one hull profile, so there is nothing for an outfit to fill.
-        ChassisFamily::Humanoid | ChassisFamily::Boat => &[],
+        // A rigged family assembles no parts (#1060), and since #1363 / #1364
+        // neither does a boat or a skiff: the redesigned craft types draw
+        // their own geometry off one profile, so there is nothing for an
+        // outfit to fill. The airship is the last family with parts.
+        ChassisFamily::Humanoid | ChassisFamily::Boat | ChassisFamily::Skiff => &[],
         ChassisFamily::Airship => &[Envelope, Gondola, Fin, Pod],
-        ChassisFamily::Skiff => &[Chassis, Canopy, Wheel],
     }
 }
 
@@ -99,9 +109,8 @@ pub fn required_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
 pub fn optional_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
     use PartSlot::*;
     match chassis {
-        ChassisFamily::Humanoid | ChassisFamily::Boat => &[],
+        ChassisFamily::Humanoid | ChassisFamily::Boat | ChassisFamily::Skiff => &[],
         ChassisFamily::Airship => &[Ornament],
-        ChassisFamily::Skiff => &[Exhaust, Ornament],
     }
 }
 

@@ -26,19 +26,22 @@
 //!
 //! ## Root-scale discipline
 //!
-//! A base part used as a family's structural root ([`chassis`],
+//! A base part used as a family's structural root (today only the airship's
 //! [`envelope`]) must **not** set `transform.scale`, because the assembler
-//! mounts every other slot (canopy, wheels, gondola, fins) as a child
-//! of that root and a root scale would stretch + displace them. Elongated
-//! shapes (the airship envelope) are built from composed primitives instead.
+//! mounts every other slot (gondola, fins, pods) as a child of that root and a
+//! root scale would stretch and displace them. Elongated shapes are built from
+//! composed primitives instead.
 //!
-//! The *assembler* does set one, in
-//! [`apply_travel_pose`](super::super::default_visuals): the airship-class
-//! size bridge (#1361). That is not the same licence - it is uniform, and it
-//! is applied after every slot is mounted, so nothing it touches has been
-//! placed relative to anything it does not also move. A part's own root scale
-//! is free to be per-axis and lands *before* the mounting, which is exactly
-//! why it warps the craft.
+//! The discipline outlived the bridge it was written beside. The *assembler*
+//! used to set a uniform root scale in
+//! [`apply_travel_pose`](super::super::default_visuals) - the airship-class
+//! size bridge of #1361 - and that was never the same licence, because it is
+//! uniform and applied after every slot is mounted. Both families that carried
+//! one now author at the size they are drawn at (#1363, #1364), so every
+//! seeded craft passes 1.0; what remains is the rule that a PART may not set
+//! one, and it binds the redesigned families too - a swept body needs a
+//! per-axis node scale, so it hangs off a hidden hub rather than being the
+//! root itself.
 
 // Crate-visible so the airship assembler (rigging-cable colour) + the styled
 // teardrop envelope (`super::vehicle`) can share its two-hue colour scheme,
@@ -48,20 +51,17 @@ pub(crate) mod airship;
 // Crate-visible so the styled vehicle kits (`super::vehicle`) can share the
 // `shade` colour helper instead of keeping their own copy (#798).
 pub(crate) mod common;
-// Crate-visible so the land-skiff assembler + the styled chassis / wheel
-// variants (`super::vehicle`) can share its blueprint-derived dims, colour
-// scheme, and wheel-anchor / fender contract (#788).
-pub(crate) mod skiff;
+// The land-skiff's defaults (chassis, canopies, wheel) left in #1364, with
+// the boat's in #1363: both families' craft types draw their own geometry off
+// one profile now, so neither fills a slot.
 
 use crate::seeded_defaults::ChassisFamily;
 use crate::seeded_defaults::{OrnatenessBand, WearBand};
 
 use super::{BodyPart, PartDef, PartSlot};
 use airship::*;
-use skiff::*;
 
 const AIRSHIP: &[ChassisFamily] = &[ChassisFamily::Airship];
-const SKIFF: &[ChassisFamily] = &[ChassisFamily::Skiff];
 
 static ENVELOPE: PartDef = PartDef {
     slug: "default_envelope",
@@ -126,51 +126,6 @@ static POD: PartDef = PartDef {
     wear: WearBand::ANY,
     build: pod,
 };
-static CHASSIS: PartDef = PartDef {
-    slug: "default_chassis",
-    slot: PartSlot::Chassis,
-    chassis: SKIFF,
-    styles: &[],
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: chassis,
-};
-static CANOPY: PartDef = PartDef {
-    slug: "default_canopy",
-    slot: PartSlot::Canopy,
-    chassis: SKIFF,
-    styles: &[],
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: canopy,
-};
-static CANOPY_ROADSTER: PartDef = PartDef {
-    slug: "skiff_canopy_roadster",
-    slot: PartSlot::Canopy,
-    chassis: SKIFF,
-    styles: &[],
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: canopy_roadster,
-};
-static CANOPY_COUPE: PartDef = PartDef {
-    slug: "skiff_canopy_coupe",
-    slot: PartSlot::Canopy,
-    chassis: SKIFF,
-    styles: &[],
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: canopy_coupe,
-};
-static WHEEL: PartDef = PartDef {
-    slug: "default_wheel",
-    slot: PartSlot::Wheel,
-    chassis: SKIFF,
-    styles: &[],
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: wheel,
-};
 
 /// Every universal default part, in slot order per chassis.
 pub(super) static ENTRIES: &[&dyn BodyPart] = &[
@@ -181,11 +136,6 @@ pub(super) static ENTRIES: &[&dyn BodyPart] = &[
     &GONDOLA,
     &FIN,
     &POD,
-    &CHASSIS,
-    &CANOPY,
-    &CANOPY_ROADSTER,
-    &CANOPY_COUPE,
-    &WHEEL,
 ];
 
 // ---------------------------------------------------------------------------

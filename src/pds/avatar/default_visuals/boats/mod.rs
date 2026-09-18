@@ -190,7 +190,7 @@ pub(super) fn build(seed: u64) -> Generator {
     // No scale: since #1363 a boat is authored at the size she is drawn at, so
     // the airship-class bridge the legacy pipeline carried has nothing left to
     // convert.
-    apply_travel_pose(&mut root, TRAVEL_DROP, 1.0);
+    apply_travel_pose(&mut root, TRAVEL_DROP);
     root
 }
 

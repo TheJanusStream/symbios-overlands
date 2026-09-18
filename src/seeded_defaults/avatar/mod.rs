@@ -60,6 +60,6 @@ pub use materials::MaterialKit;
 pub use outfit::{AvatarOutfit, OutfitPart};
 pub use palette::AvatarPalette;
 pub use vehicle_blueprint::{
-    AirshipBlueprint, BoatBlueprint, NOMINAL_HULL_LEN, SkiffBlueprint, VehicleBlueprint,
-    VehicleStance,
+    AirshipBlueprint, BoatBlueprint, NOMINAL_BODY_LEN, NOMINAL_HULL_LEN, SkiffBlueprint,
+    VehicleBlueprint, VehicleStance,
 };

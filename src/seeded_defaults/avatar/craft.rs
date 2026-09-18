@@ -24,14 +24,15 @@
 //!
 //! # A type is a property of the seed, not of what is built from it
 //!
-//! [`BoatType::for_seed`] answers for every boat seed today, while the
-//! geometry is still assembled by the legacy part pipeline. That is deliberate
-//! and is what the survey readouts want: the type slices that follow
-//! (#1363 sloop, #1364 roadster, then #1369-#1378) each need to find the seeds
-//! their type was picked for *before* that type can be built. `render --outfit`
-//! prints the picked type and `render --family-seeds --craft <type>` filters by
-//! it. The build seam that routes a seed to its type's own builder lands with
-//! the first builder, in #1363.
+//! [`BoatType::for_seed`] and [`SkiffType::for_seed`] answer for every seed of
+//! their family, whether or not anything builds the type they name. That is
+//! deliberate and is what the survey readouts want: the type slices that
+//! follow (#1363 sloop and #1364 roadster, then #1369-#1378) each need to find
+//! the seeds their type was picked for *before* that type can be built.
+//! `render --outfit` prints the picked type and `render --family-seeds --craft
+//! <type>` filters by it. The build seam that routes a seed to its type's own
+//! builder landed with the first builder of each family, in #1363 and #1364,
+//! and `implemented()` is what says which way a seed goes.
 //!
 //! Seeds may change type as types land; that is allowed by design (a
 //! never-saved seeded default is free to change look, and a saved avatar keeps
@@ -366,6 +367,31 @@ impl SkiffType {
     pub fn weight(self, style: ThemeArchetype) -> u32 {
         let floor = if self == Self::UNIVERSAL { FLOOR } else { 0 };
         floor + if self.at_home(style) { AT_HOME } else { 0 }
+    }
+
+    /// Whether anything actually BUILDS this type yet (#1364).
+    ///
+    /// The skiff half of [`BoatType::implemented`]'s seam, and the same
+    /// contract: the pick is a property of the seed and answers for every type
+    /// from the day the table landed, while the geometry arrives one slice at
+    /// a time. Until a type's slice lands, a seed that picked it is DRAWN as
+    /// the family's [`UNIVERSAL`](Self::UNIVERSAL) floor - the roadster -
+    /// while still *reporting* the type it rolled.
+    ///
+    /// **Most skiff seeds are in that position**, and will be until #1377: a
+    /// horseless carriage takes all ten historic themes, so the Wagon alone is
+    /// 31 % of the family against the Roadster's 30.
+    ///
+    /// Kept in step with the builder table by
+    /// `default_visuals::skiffs::tests::a_skiff_type_is_implemented_exactly_
+    /// when_something_builds_it`.
+    pub fn implemented(self) -> bool {
+        match self {
+            Self::Roadster => true,
+            Self::DuneBuggy | Self::ArmouredCar | Self::Cyclecar | Self::Wagon | Self::Rover => {
+                false
+            }
+        }
     }
 
     /// The type for a seed, weighted by the avatar's style.
