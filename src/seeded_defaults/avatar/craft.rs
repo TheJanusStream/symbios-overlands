@@ -52,12 +52,12 @@ use crate::seeded_defaults::scene::{ThemeArchetype, pick_weighted};
 const AVATAR_CRAFT_SALT: u64 = 0xC4AF_7C4A_F7C4_AF7C;
 
 /// Weight a type carries on a theme it is at home in.
-const AT_HOME: u32 = 6;
+pub(super) const AT_HOME: u32 = 6;
 
 /// Weight the family's universal floor type carries on *every* theme, so no
 /// style is ever cornered and the floor is always a live answer. A floor type
 /// at home in the theme scores this on top of [`AT_HOME`].
-const FLOOR: u32 = 2;
+pub(super) const FLOOR: u32 = 2;
 
 /// The craft type of a seeded vehicle avatar, for the two families that have
 /// one. Airships and the rigged humanoid family have no type pick.

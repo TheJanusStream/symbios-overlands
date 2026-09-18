@@ -70,7 +70,9 @@ const KEEL_CLEARANCE_FRAC: f32 = 0.25;
 /// 2.86 m, so a mast over this sails straight through one (#1359 rule 6). It
 /// is what makes a realistic bermudan rig impossible at this scale and a gaff
 /// or gunter rig the answer: a boat's whole rig has to fit inside a box as
-/// tall as she is long.
+/// tall as she is long. It is resolved against the TOP of a rig, not its
+/// masthead - a gunter's yard and a square topsail's topmast stand over the
+/// mast they are hoisted on (#1366).
 pub(crate) const AIR_DRAFT_CAP: f32 = 2.8;
 
 /// Headroom (m) a rig leaves under [`AIR_DRAFT_CAP`], so a masthead fitting,
@@ -132,8 +134,10 @@ pub(super) struct BoatFeel {
 /// One buildable kind of boat.
 pub(super) trait BoatCraft {
     /// This type's hull, from the seeded blueprint: her own plan form and
-    /// section depth over dimensions everyone shares.
-    fn profile(&self, bp: &BoatBlueprint) -> HullProfile;
+    /// section depth over dimensions everyone shares. The seed is here
+    /// because a type may carry more than one plan form (the sloop's four,
+    /// #1366), and which one a boat is built on is a property of the seed.
+    fn profile(&self, bp: &BoatBlueprint, seed: u64) -> HullProfile;
 
     /// Draw her, at the origin, bow `+Z`, in true metres. The caller owns the
     /// root pose.
@@ -182,7 +186,7 @@ fn hull_for(seed: u64) -> Option<(&'static dyn BoatCraft, HullProfile)> {
     let bp = crate::seeded_defaults::VehicleBlueprint::from_seed(seed)
         .and_then(|b| b.boat().copied())?;
     let craft = craft_for(seed);
-    Some((craft, craft.profile(&bp)))
+    Some((craft, craft.profile(&bp, seed)))
 }
 
 /// Assemble the seeded boat for `seed`, posed for travel.
@@ -266,40 +270,93 @@ mod tests {
         );
     }
 
+    /// Every boat-family builder's inputs that the guards below sweep: the
+    /// five blueprint corners, crossed with every rig, every hull form and
+    /// every ornateness-by-wear pair a seed can roll - which is all of them,
+    /// since the two axes are drawn independently. Returns the built tree and
+    /// a label for the failure message.
+    fn every_sloop() -> Vec<(Generator, String)> {
+        use crate::seeded_defaults::{OrnatenessTier, SloopHull, SloopRig, WearTier};
+        let mut ctx = PartCtx::for_seed(
+            (0u64..600)
+                .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat)
+                .expect("some seed is a boat"),
+        );
+        let mut out = Vec::new();
+        for bp in corners() {
+            for form in SloopHull::ALL {
+                let hull = sloop::profile_of(&bp, form);
+                for rig in SloopRig::ALL {
+                    for o in OrnatenessTier::ALL {
+                        for w in WearTier::ALL {
+                            (ctx.ornateness, ctx.wear) = (o, w);
+                            out.push((
+                                sloop::build_rigged(&ctx, &hull, rig),
+                                format!(
+                                    "a {} m {} sloop, {}, {} / {}",
+                                    hull.loa,
+                                    form.label(),
+                                    rig.label(),
+                                    o.label(),
+                                    w.label()
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// Nothing a seeded boat carries stands over the air-draft cap (#1359
     /// rule 6) - the hard clash constraint of the whole redesign, since
-    /// visuals carry no colliders and a mast over it sails straight through a
+    /// visuals carry no colliders and a spar over it sails straight through a
     /// gateway lintel.
     ///
-    /// Checked on the rig's own derivation rather than on the built mesh,
-    /// because the derivation is where the cap lives; a mesh walk would only
-    /// re-measure what this arithmetic already decides. Every blueprint corner
-    /// the seeded band can reach is swept, including the small end, where the
-    /// masthead's own lower floor could in principle defeat the cap - a
-    /// `.max()` after a `.min()` is exactly how a cap gets quietly lost.
+    /// EVERY RIG is checked on every boat seed, not only the rig the seed
+    /// drew, and each is checked twice: on its own derivation (the height the
+    /// cap was resolved against) and on the tree it actually DRAWS. The
+    /// second is the one that matters for a rig whose highest point is not
+    /// its masthead - a gunter's yard, a square topsail's topmast - because a
+    /// rig that resolved its mast against the cap and then crossed a spar
+    /// over it would pass the first and sail through a lintel (#1366). Every
+    /// blueprint corner a seed can reach is in the population sweep, including
+    /// the small end, where a floor after a cap is how a cap gets lost.
     #[test]
     fn no_seeded_boat_stands_over_the_air_draft_cap() {
-        let mut worst: f32 = 0.0;
+        use super::super::common::touch;
+        use crate::seeded_defaults::SloopRig;
+        let mut worst = [0.0f32; SloopRig::ALL.len()];
         let mut checked = 0;
         for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
             let (_, hull) = hull_for(s).expect("a boat seed has a hull");
-            let top = sloop::masthead(&hull) + hover(hull.draft);
-            assert!(
-                top <= AIR_DRAFT_CAP,
-                "seed {s}: her masthead stands {top} m over the ground, past the \
-                 {AIR_DRAFT_CAP} m cap"
-            );
-            worst = worst.max(top);
+            let ctx = PartCtx::for_seed(s);
+            for (i, rig) in SloopRig::ALL.into_iter().enumerate() {
+                let derived = sloop::top_of_rig(&hull, rig) + hover(hull.draft);
+                let drawn =
+                    touch::highest(&sloop::build_rigged(&ctx, &hull, rig)) + hover(hull.draft);
+                assert!(
+                    derived.max(drawn) <= AIR_DRAFT_CAP,
+                    "seed {s}, {}: the rig was resolved to {derived} m over the \
+                     ground and draws to {drawn} m, past the {AIR_DRAFT_CAP} m cap",
+                    rig.label()
+                );
+                worst[i] = worst[i].max(derived);
+            }
             checked += 1;
         }
         assert!(checked > 100, "too few boats sampled: {checked}");
-        // And it is a real bound rather than a vacuous one: the tallest boat
-        // in the population actually approaches it.
-        assert!(
-            worst > AIR_DRAFT_CAP - 0.5,
-            "the tallest seeded boat only reaches {worst} m - the cap is not \
-             binding on anything, so this test proves nothing"
-        );
+        // And it is a real bound on EVERY rig rather than a vacuous one: the
+        // cap actually binds each of them somewhere in the population.
+        for (rig, worst) in SloopRig::ALL.into_iter().zip(worst) {
+            assert!(
+                worst > AIR_DRAFT_CAP - AIR_DRAFT_MARGIN - 0.01,
+                "the tallest {} only reaches {worst} m - the cap binds on no \
+                 boat carrying it, so this test proves nothing about it",
+                rig.label()
+            );
+        }
     }
 
     /// The blueprint corners a seeded hull can actually reach - where a
@@ -327,85 +384,98 @@ mod tests {
     }
 
     /// Every boat survives the record sanitiser UNCHANGED at the extremes of
-    /// her own blueprint, not only at the seeds the population happens to
-    /// contain (#1359 rule 8).
+    /// her own blueprint, on every rig, hull form and tier (#1359 rule 8).
+    ///
+    /// Exact equality still holds, and that is because no node here carries
+    /// a rotation except the root's 180 degree travel yaw, which is applied
+    /// after this: the sanitiser renormalises quaternions, which moves the
+    /// last ulp of almost any other rotation (#1364). A rig that authors one
+    /// has to bring the skiffs' epsilon compare with it.
     #[test]
     fn a_boat_survives_sanitize_unchanged_at_her_blueprint_extremes() {
         use crate::pds::sanitize_avatar_visuals;
-        let ctx = PartCtx::for_seed(
-            (0u64..600)
-                .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat)
-                .expect("some seed is a boat"),
-        );
-        let craft = craft(BoatType::UNIVERSAL).expect("the floor is built");
-        for bp in corners() {
-            let (loa, ratio) = (bp.hull_len, bp.hull_len / bp.beam);
-            let built = craft.build(&ctx, &craft.profile(&bp));
+        let mut n = 0;
+        for (built, what) in every_sloop() {
             let mut sanitized = built.clone();
             sanitize_avatar_visuals(&mut sanitized);
-            assert_eq!(
-                built, sanitized,
-                "a {loa} m hull at L:B {ratio} was rewritten by the sanitiser"
-            );
+            assert!(built == sanitized, "{what} was rewritten by the sanitiser");
+            n += 1;
         }
+        assert_eq!(n, 5 * 4 * 5 * 9, "the sweep lost a combination");
     }
 
     /// Every part of a built boat meets another, and the whole craft is one
-    /// connected component - the roadster's guard (#1364), now the sloop's
-    /// too.
+    /// connected component - the roadster's guard (#1364), and the sloop's on
+    /// every rig, hull form and tier she can roll.
     ///
-    /// The prototype this hull was ported from was in four pieces - both
-    /// forward lit ports hung up to 25 mm off the cabin trunk and the gaff's
-    /// throat was marginal against the mast - and #1366 recorded the
-    /// reasonable belief that the port had carried the same three defects.
-    /// This test is what answered it: the built sloop meets herself at every
-    /// corner, and did so BEFORE the reads were tidied. The tidying stands
-    /// anyway (a port now reads the trunk's drawn centreline), but the margin
-    /// it was holding was a few millimetres of luck, and luck is what a guard
-    /// is for. Swept over the blueprint extremes rather than one seed,
-    /// because the failure is size-dependent - anything floored at
-    /// [`MIN_DIM`] stops shrinking with the hull, so a part that meets at the
-    /// nominal size can come adrift at the small end. See
-    /// [`super::common::touch`] for why this cannot be judged by eye.
+    /// Swept over the blueprint extremes rather than one seed, because the
+    /// failure is size-dependent - anything floored at [`MIN_DIM`] stops
+    /// shrinking with the hull, so a part that meets at the nominal size can
+    /// come adrift at the small end. See [`super::common::touch`] for why this
+    /// cannot be judged by eye, and for its one blind spot: it resolves a
+    /// tortured cuboid as its UNDEFORMED box, so for the sails it is green
+    /// partly for the wrong reason. That is #1382's to teach it, and why the
+    /// sail patch the phase-1 prototype drew is not in the ladder (#1366).
     #[test]
     fn a_boat_is_one_machine_at_her_blueprint_extremes() {
         use super::super::common::touch;
-        let ctx = PartCtx::for_seed(
-            (0u64..600)
-                .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat)
-                .expect("some seed is a boat"),
-        );
-        let craft = craft(BoatType::UNIVERSAL).expect("the floor is built");
-        for bp in corners() {
-            let built = craft.build(&ctx, &craft.profile(&bp));
-            touch::assert_one_machine(&built, &format!("a {} m sloop", bp.hull_len));
+        for (built, what) in every_sloop() {
+            touch::assert_one_machine(&built, &what);
         }
     }
 
     /// A seeded boat's saved record stays well under the soft budget
-    /// (#1359 rule 9).
+    /// (#1359 rule 9), at a THIRD of it - the owner raised the sloop's guard
+    /// from a quarter to the roadster's fraction for #1366's ladder.
     ///
-    /// The old fleet spent its budget on cuboids - a blob hull at resolution
-    /// 44 plus a deck of planks plus a rail of them - and one swept node
-    /// replaces a great many of those, so the redesigned boat was expected to
-    /// come in lighter. This pins that it did, and would catch a type that
-    /// grew back toward the cap by adding nodes rather than shaping them.
+    /// Two sweeps. The live seeds, as saved - FX emitter and voice included -
+    /// and the heaviest thing the family can draw: every rig and hull form at
+    /// every blueprint corner on the fullest ladder, Ornate and Battered,
+    /// carrying the heaviest FX overhead any live seed carries. Measured
+    /// rather than assumed, so a new aura that grows the emitter moves this
+    /// too.
     #[test]
     fn a_seeded_boats_record_stays_well_inside_the_budget() {
         use crate::pds::record_size::{SOFT_RECORD_BUDGET_BYTES, serialized_record_bytes};
-        let mut worst = 0usize;
+        use crate::seeded_defaults::{OrnatenessTier, SloopHull, SloopRig, WearTier};
+        let bytes = |t: &Generator| serialized_record_bytes(t).expect("a boat serializes");
+        let (mut worst_seed, mut fx_overhead) = (0usize, 0usize);
         for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
-            let built = super::build(s, None);
-            let bytes = serialized_record_bytes(&built).expect("a built boat serializes");
-            worst = worst.max(bytes);
+            let (record, _) = super::super::build_for_seed(s);
+            let saved = serialized_record_bytes(&record).expect("a record serializes");
+            worst_seed = worst_seed.max(saved);
+            fx_overhead = fx_overhead.max(saved.saturating_sub(bytes(&super::build(s, None))));
         }
-        assert!(worst > 0, "no boat seed was measured");
-        assert!(
-            worst * 4 < SOFT_RECORD_BUDGET_BYTES,
-            "the heaviest seeded boat is {worst} bytes, past a quarter of the \
-             {SOFT_RECORD_BUDGET_BYTES}-byte soft budget - a craft type is \
-             spending nodes where it should be spending shape"
+        assert!(worst_seed > 0 && fx_overhead > 0, "nothing was measured");
+        let mut ctx = PartCtx::for_seed(
+            (0u64..600)
+                .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat)
+                .expect("some seed is a boat"),
         );
+        ctx.ornateness = OrnatenessTier::Ornate;
+        ctx.wear = WearTier::Battered;
+        let mut worst_corner = 0usize;
+        for bp in corners() {
+            for form in SloopHull::ALL {
+                let hull = sloop::profile_of(&bp, form);
+                for rig in SloopRig::ALL {
+                    let mut built = sloop::build_rigged(&ctx, &hull, rig);
+                    apply_travel_pose(&mut built, TRAVEL_DROP);
+                    worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
+                }
+            }
+        }
+        for (what, worst) in [
+            ("seeded boat", worst_seed),
+            ("fully dressed corner", worst_corner),
+        ] {
+            assert!(
+                worst * 3 < SOFT_RECORD_BUDGET_BYTES,
+                "the heaviest {what} is {worst} bytes, past a third of the \
+                 {SOFT_RECORD_BUDGET_BYTES}-byte soft budget - a craft type is \
+                 spending nodes where it should be spending shape"
+            );
+        }
     }
 
     /// The hover and the ride height are one derivation, and the waterline is

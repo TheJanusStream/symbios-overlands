@@ -458,7 +458,35 @@ pub(crate) struct BoatColours {
     pub(crate) interior: SovereignMaterialSettings,
     pub(crate) lead: SovereignMaterialSettings,
     pub(crate) window: SovereignMaterialSettings,
+    /// The tender stowed bottom-up on an Ornate boat's foredeck (#1366).
+    ///
+    /// Paint, and off the scheme's ANTIFOUL rather than its topsides: an
+    /// upturned tender shows her bottom, and drawn in the hull's own white she
+    /// is a bar of soap on the foredeck. Held clear of the laid deck she lies
+    /// on, which is the one surface she has to read against.
+    pub(crate) dinghy: SovereignMaterialSettings,
+    /// The boom tent over an Adorned boat's cockpit - cut from sailcloth, and
+    /// taken a step toward the deck's warmth so it does not merge with the
+    /// mainsail standing over it.
+    pub(crate) awning: SovereignMaterialSettings,
+    /// The tarp lashed over a worn boat's coachroof: the scheme's canvas
+    /// taken well down in value, and held clear of the topsides it covers. In
+    /// the canvas itself a tarp on a white boat is invisible (#1366).
+    pub(crate) tarp: SovereignMaterialSettings,
 }
+
+/// How far the tender is held from the deck under her, and the tarp from the
+/// coachroof under it. A mass rather than a line, so less than a boot stripe
+/// needs, like a wheel centre.
+const DINGHY_DELTA: f32 = 0.18;
+const TARP_DELTA: f32 = 0.20;
+
+/// The tarp's value as a fraction of the scheme's canvas - a weathered cloth
+/// under a salt crust, not a clean sail.
+const TARP_VALUE: f32 = 0.42;
+
+/// How far a boom tent's cloth is mixed toward the scheme's deck.
+const AWNING_WARMTH: f32 = 0.15;
 
 /// Ballast lead, and the tarred wire a gaff boat's shrouds are set up with.
 const LEAD: [f32; 3] = [0.30, 0.31, 0.33];
@@ -501,6 +529,13 @@ pub(crate) fn boat_colours(ctx: &PartCtx) -> BoatColours {
         interior: m.paint(shade(topsides, 0.45)),
         lead: m.metal(LEAD),
         window: window_material(window_light(p.tertiary_accent)),
+        dinghy: m.paint(clear_of(l.antifoul, luma(l.deck), DINGHY_DELTA)),
+        awning: m.canvas(mix(l.canvas, l.deck, AWNING_WARMTH)),
+        tarp: m.canvas(clear_of(
+            to_value(l.canvas, luma(l.canvas) * TARP_VALUE),
+            luma(topsides),
+            TARP_DELTA,
+        )),
     }
 }
 
@@ -670,6 +705,38 @@ mod tests {
                 .expect("the black scheme is in the table"),
         );
         assert!(luma(skiff_colours(&ctx).paint.base_color.0) >= GUARD_FLOOR - 2e-3);
+    }
+
+    /// The two wear-and-ornament masses that were invisible in their first
+    /// render stay findable on every scheme (#1366): the upturned tender
+    /// against the laid deck she lies on, and the tarp against the coachroof
+    /// it covers. Both were drawn in a colour the boat already carried and
+    /// both vanished at play distance - the tender in the topsides' white,
+    /// the tarp in the white canvas of a white boat.
+    #[test]
+    fn the_dressing_reads_against_what_it_lies_on() {
+        for s in (0u64..600).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
+            let mut ctx = PartCtx::for_seed(s);
+            for (i, scheme) in BOAT_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = boat_colours(&ctx);
+                let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                // Grime dims both sides of each pair by one factor, so the
+                // delta shrinks by at most that much - as for the boot top.
+                let dinghy = (l(&c.dinghy) - l(&c.timber)).abs();
+                assert!(
+                    dinghy > DINGHY_DELTA * 0.6,
+                    "seed {s} in {}: the tender is {dinghy} from the deck",
+                    scheme.name
+                );
+                let tarp = (l(&c.tarp) - l(&c.topsides)).abs();
+                assert!(
+                    tarp > TARP_DELTA * 0.6,
+                    "seed {s} in {}: the tarp is {tarp} from the coachroof",
+                    scheme.name
+                );
+            }
+        }
     }
 
     /// The seeded accent stays findable against the livery it is painted on,

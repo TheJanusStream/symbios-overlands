@@ -6,7 +6,7 @@
 use crate::pds::avatar::livery;
 use crate::pds::{Generator, GeneratorKind, Placement, RoomRecord};
 use crate::seeded_defaults::hash::fnv1a_64;
-use crate::seeded_defaults::{BoatType, ChassisFamily, CraftType, SkiffType};
+use crate::seeded_defaults::{BoatType, ChassisFamily, CraftType, SkiffType, SloopHull, SloopRig};
 
 use super::Args;
 
@@ -155,6 +155,17 @@ pub(super) fn print_outfit(subject: &str) {
                 CraftType::Skiff(_) => livery::skiff_livery(seed, None).name,
             }
         );
+        // And the sloop's own two picks (#1366), for every boat that is drawn
+        // as one - which, until the other types are built, is every boat.
+        if let CraftType::Boat(t) = craft
+            && (t == BoatType::Sloop || !t.implemented())
+        {
+            println!(
+                "  rig: {}, hull: {}",
+                SloopRig::for_seed(seed).label(),
+                SloopHull::for_seed(seed).label()
+            );
+        }
     }
     for part in &outfit.parts {
         println!("  {:?} -> {}", part.slot, part.slug);

@@ -46,6 +46,7 @@ pub mod materials;
 pub mod mood;
 pub mod outfit;
 pub mod palette;
+pub mod sloop;
 pub mod vehicle_blueprint;
 
 pub use body::{AvatarBody, BodyArchetype, StylizationTier};
@@ -59,6 +60,7 @@ pub use gait::AvatarGait;
 pub use materials::MaterialKit;
 pub use outfit::{AvatarOutfit, OutfitPart};
 pub use palette::AvatarPalette;
+pub use sloop::{SloopHull, SloopRig};
 pub use vehicle_blueprint::{
     AirshipBlueprint, BoatBlueprint, NOMINAL_BODY_LEN, NOMINAL_HULL_LEN, SkiffBlueprint,
     VehicleBlueprint, VehicleStance,

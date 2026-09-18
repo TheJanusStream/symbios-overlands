@@ -145,6 +145,11 @@ pub struct PartCtx {
     /// (gondola dressing, engine-pod richness) so the tier finally reads on the
     /// geometry, not just the optional-slot roll.
     pub ornateness: OrnatenessTier,
+    /// Seeded wear tier - the discrete reading of the wear axis the
+    /// [`MaterialKit`] already grimes every surface by. A finish can only
+    /// darken; a boat's wear also has to read as MASSES at play distance - a
+    /// tarp lashed over the coachroof, fuel cans on the side deck (#1366).
+    pub wear: WearTier,
 }
 
 impl PartCtx {
@@ -156,6 +161,7 @@ impl PartCtx {
     /// to avoid a second outfit derivation went with it.
     pub fn for_seed(seed: u64) -> Self {
         let body = AvatarBody::for_seed(seed);
+        let character = AvatarCharacter::for_seed(seed);
         Self {
             palette: AvatarPalette::for_seed(seed),
             materials: MaterialKit::for_seed(seed),
@@ -163,7 +169,8 @@ impl PartCtx {
             vehicle: VehicleBlueprint::from_body(&body, ChassisFamily::for_seed(seed), seed),
             seed,
             livery: None,
-            ornateness: AvatarCharacter::for_seed(seed).ornateness_tier(),
+            ornateness: character.ornateness_tier(),
+            wear: character.wear_tier(),
         }
     }
 

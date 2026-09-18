@@ -703,6 +703,30 @@ pub(crate) mod touch {
         (roots.len(), loose)
     }
 
+    /// The highest point `root` draws, in its own frame (m): the top of every
+    /// node's sampled surface.
+    ///
+    /// What an air-draft guard checks a DRAWN rig against, rather than the
+    /// arithmetic that placed it - a spar standing over the height its rig
+    /// was resolved to is exactly what a derivation cannot see (#1366). Like
+    /// the rest of this helper it ignores torture and cuts. A cut-away sweep
+    /// read as the whole tube only over-reads a height; a taper and a shear
+    /// act across a prim, never along its height; a bend with a `y` term
+    /// WOULD lift a top edge, so a craft that authors one needs this taught
+    /// the deform first (#1382).
+    pub(crate) fn highest(root: &Generator) -> f32 {
+        let mut parts = Vec::new();
+        walk(
+            root,
+            Vec3::ZERO,
+            Quat::IDENTITY,
+            Vec3::ONE,
+            "0".to_string(),
+            &mut parts,
+        );
+        parts.iter().map(|p| p.hi.y).fold(f32::MIN, f32::max)
+    }
+
     /// Assert that `root` is one machine: every node meets another and the
     /// whole tree is a single connected component.
     pub(crate) fn assert_one_machine(root: &Generator, what: &str) {
