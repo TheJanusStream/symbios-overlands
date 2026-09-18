@@ -3,7 +3,9 @@
 //! road-graph diagnostics, the seeded-room entity census, and the
 //! session-log analyzers.
 
+use crate::pds::avatar::livery;
 use crate::pds::{Generator, GeneratorKind, Placement, RoomRecord};
+use crate::seeded_defaults::hash::fnv1a_64;
 use crate::seeded_defaults::{BoatType, ChassisFamily, CraftType, SkiffType};
 
 use super::Args;
@@ -139,6 +141,20 @@ pub(super) fn print_outfit(subject: &str) {
             ),
         };
         println!("  craft type: {} ({note})", craft.label());
+        // And the heritage livery it is painted in (#1365) - a second DID-
+        // seeded draw on its own stream, so two owners of one craft type still
+        // rarely match. `--livery <index>` overrides it for a survey.
+        let seed = match subject.parse::<u64>() {
+            Ok(seed) => seed,
+            Err(_) => fnv1a_64(subject),
+        };
+        println!(
+            "  livery: {}",
+            match craft {
+                CraftType::Boat(_) => livery::boat_livery(seed, None).name,
+                CraftType::Skiff(_) => livery::skiff_livery(seed, None).name,
+            }
+        );
     }
     for part in &outfit.parts {
         println!("  {:?} -> {}", part.slot, part.slug);

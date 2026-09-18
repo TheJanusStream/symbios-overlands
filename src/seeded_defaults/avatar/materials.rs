@@ -133,6 +133,24 @@ impl MaterialKit {
         }
     }
 
+    /// The fraction of a colour's VALUE that survives this kit's grime.
+    ///
+    /// [`Self::finish`] puts every surface through [`grime`], which darkens by
+    /// up to 35 % at full wear. `grime`'s desaturation mixes toward the
+    /// colour's own luma and so leaves the value alone; the darkening is the
+    /// whole of it, and it is a plain multiplier - which is what makes this
+    /// answerable at all.
+    ///
+    /// A caller that owes a floor on the FINISHED surface divides its floor by
+    /// this before flooring, so the floor holds after the wear rather than
+    /// before it. The two that do are the fleet's liveries: a guard that must
+    /// stay clear of a tyre's value, and a livery mass that must not go to mud
+    /// on a battered seed (#1365). Flooring afterwards is not an option - the
+    /// grime is inside `finish`, which is what produces the material.
+    pub fn value_after_grime(&self) -> f32 {
+        1.0 - 0.35 * self.wear
+    }
+
     /// Whether this avatar's accents are self-lit. Builders/parts use it to
     /// decide between [`Self::accent`] (which already honours it) and a
     /// matte treatment for a non-accent surface.
@@ -311,11 +329,13 @@ impl MaterialKit {
     }
 
     // -----------------------------------------------------------------------
-    // Vehicle finishes (#1363)
+    // Vehicle finishes (#1363, #1364)
     // -----------------------------------------------------------------------
     //
-    // The five surfaces a seeded craft is actually made of, as a named
-    // vocabulary rather than a per-type guess. Four of the five are
+    // The seven surfaces a seeded craft is actually made of, as a named
+    // vocabulary rather than a per-type guess. Which COLOUR each one takes is
+    // the fleet's livery list ([`crate::pds::avatar::livery`]); this is only
+    // how each reads. Six of the seven are
     // deliberately UNTEXTURED, and that is the lesson rather than a shortcut:
     // a normal-mapped finish on a curved skin renders as scales (#784, the
     // airship's belly cloth), and at the chase camera's 109 pixels a metre a

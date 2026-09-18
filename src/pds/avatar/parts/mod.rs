@@ -130,6 +130,17 @@ pub struct PartCtx {
     /// The avatar seed - parts open their own sub-stream for stochastic
     /// detail without re-deriving the anchor.
     pub seed: u64,
+    /// Which heritage livery to draw, overriding the seed's own pick
+    /// ([`crate::pds::avatar::livery`]). `None` - the only value any live
+    /// build path uses - means the seed answers for itself.
+    ///
+    /// It exists for the render tool's `--livery <index>`, which draws every
+    /// scheme in a family's list on ONE hull so the list can be judged side by
+    /// side rather than hunted for across seeds. Carried on the context rather
+    /// than through a process-global, because a global is invisible to the
+    /// nextest run that forks a process per test and would be a lie in every
+    /// other caller.
+    pub livery: Option<usize>,
     /// Seeded ornateness tier - lets a part scale its *visible* detail density
     /// (gondola dressing, engine-pod richness) so the tier finally reads on the
     /// geometry, not just the optional-slot roll.
@@ -151,6 +162,7 @@ impl PartCtx {
             body,
             vehicle: VehicleBlueprint::from_body(&body, ChassisFamily::for_seed(seed), seed),
             seed,
+            livery: None,
             ornateness: AvatarCharacter::for_seed(seed).ornateness_tier(),
         }
     }

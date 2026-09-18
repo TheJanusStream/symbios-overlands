@@ -59,12 +59,37 @@ pub fn build_for_did(did: &str) -> (RecordBody, LocomotionConfig) {
     build_for_seed(fnv1a_64(did))
 }
 
+/// Build a seeded avatar in a NAMED heritage livery instead of the one its
+/// seed picked - the render tool's `--livery <index>`, and the only caller.
+///
+/// It exists because a curated scheme list cannot be judged by hunting for
+/// seeds that happen to have rolled each entry: the schemes have to stand
+/// side by side on ONE hull with everything else held still (#1365). The
+/// index is into that family's table and wraps, so a survey loop over more
+/// indices than the list holds draws each scheme once rather than repeating
+/// the last. `None` is exactly [`build_for_seed`].
+pub fn build_in_livery(seed: u64, livery: Option<usize>) -> (RecordBody, LocomotionConfig) {
+    build_seeded(seed, livery)
+}
+
+/// [`build_in_livery`] for a DID - exactly `build_in_livery(fnv1a_64(did), l)`,
+/// stated here so the DID-to-seed rule stays in the one place that owns it.
+pub fn build_for_did_in_livery(did: &str, livery: Option<usize>) -> (RecordBody, LocomotionConfig) {
+    build_in_livery(fnv1a_64(did), livery)
+}
+
 /// Build from a pre-computed seed - the manual re-roll path. `seed`
 /// chooses the chassis family and drives every derived value.
 /// `build_for_did(did)` is exactly `build_for_seed(fnv1a_64(did))`.
 /// (Avatars no longer wear a pfp identity sign - #733 removed the
 /// chest-badge / hull-decal / bow-crest panels from every chassis.)
 pub fn build_for_seed(seed: u64) -> (RecordBody, LocomotionConfig) {
+    build_seeded(seed, None)
+}
+
+/// The one assembly path, with the livery override [`build_in_livery`] needs
+/// threaded through it.
+fn build_seeded(seed: u64, livery: Option<usize>) -> (RecordBody, LocomotionConfig) {
     let family = ChassisFamily::for_seed(seed);
     // The rigged family short-circuits the whole part-assembly pipeline:
     // there is no tree to compose, no FX mount to snap to a blueprint
@@ -81,9 +106,9 @@ pub fn build_for_seed(seed: u64) -> (RecordBody, LocomotionConfig) {
     // so the bridge is gone from the root, from the particles and from
     // `apply_travel_pose`'s signature.
     let (mut visuals, loco) = match family {
-        ChassisFamily::Boat => (boats::build(seed), boat_locomotion(seed)),
+        ChassisFamily::Boat => (boats::build(seed, livery), boat_locomotion(seed)),
         ChassisFamily::Airship => (airship::build(seed), airship_locomotion(seed)),
-        ChassisFamily::Skiff => (skiffs::build(seed), skiff_locomotion(seed)),
+        ChassisFamily::Skiff => (skiffs::build(seed, livery), skiff_locomotion(seed)),
         // Handled above; a family added later lands here loudly rather
         // than silently assembling nothing.
         ChassisFamily::Humanoid => unreachable!("the rigged family returns above"),

@@ -99,7 +99,7 @@ use bevy_symbios_avatar::AvatarSystems;
 use clap::Parser;
 
 use crate::pds::AvatarBody;
-use crate::pds::avatar::default_visuals::{build_for_did, build_for_seed};
+use crate::pds::avatar::default_visuals::{build_for_did_in_livery, build_in_livery};
 use crate::pds::types::{Fp, Fp2};
 use crate::pds::{Generator, GeneratorKind, RoomRecord};
 
@@ -182,6 +182,25 @@ struct Args {
     /// there is no tool shot of a craft beside a body at all.
     #[arg(long, default_value_t = false)]
     reference_figure: bool,
+    /// Draw every seeded vehicle subject in the heritage livery at this
+    /// index instead of the one its seed picked - the way a curated scheme
+    /// list is judged (#1365).
+    ///
+    /// The schemes cannot be compared by hunting for seeds that happen to
+    /// have rolled each one: two seeds differ in proportion, stance, wear and
+    /// craft type as well as in colour, so the comparison is never of the
+    /// colour. This holds everything else still and changes only the scheme.
+    /// The index is into that family's own table
+    /// ([`livery::BOAT_LIVERIES`](crate::pds::avatar::livery::BOAT_LIVERIES),
+    /// [`livery::SKIFF_LIVERIES`](crate::pds::avatar::livery::SKIFF_LIVERIES))
+    /// and WRAPS, so a survey loop that runs past the end draws each scheme
+    /// once rather than the last one twice. `--outfit` prints the name a seed
+    /// picked for itself.
+    ///
+    /// Applies to `--avatar` and to every seeded `--lineup` slot; a
+    /// `--generator` file carries its own colours and is unaffected.
+    #[arg(long)]
+    livery: Option<usize>,
     /// Several subjects side by side in one shot, comma-separated. Each
     /// entry is a `u64` avatar seed, a path to a `--generator` JSON file, or
     /// a DID - so a hand-written prototype can stand next to the seeded
@@ -773,8 +792,8 @@ pub fn run() {
             Generator::from_kind(kind)
         } else if let Some(avatar) = args.avatar.as_deref() {
             let body = match avatar.parse::<u64>() {
-                Ok(seed) => build_for_seed(seed).0,
-                Err(_) => build_for_did(avatar).0,
+                Ok(seed) => build_in_livery(seed, args.livery).0,
+                Err(_) => build_for_did_in_livery(avatar, args.livery).0,
             };
             generator_body(body, avatar)
         } else {
@@ -1270,7 +1289,7 @@ struct Slot {
 /// like a path - it has a separator or a `.json` tail - but is not readable
 /// is an error rather than a DID, because the alternative is a confusing
 /// "no such DID" for a mistyped filename.
-fn lineup_slot(spec: &str) -> Slot {
+fn lineup_slot(spec: &str, livery: Option<usize>) -> Slot {
     if spec.parse::<u64>().is_err() {
         let path = std::path::Path::new(spec);
         if path.is_file() {
@@ -1294,21 +1313,21 @@ fn lineup_slot(spec: &str) -> Slot {
             "--lineup {spec:?}: looks like a file path, but nothing readable is there"
         );
     }
-    seeded_slot(spec)
+    seeded_slot(spec, livery)
 }
 
 /// A seeded avatar - `u64` seed or DID - as a line-up slot, with the ride
 /// height read off the locomotion the same build produced. Vehicle seeds
 /// only: a rigged humanoid is refused by [`generator_body`], which is why
 /// `--reference-figure` exists.
-fn seeded_slot(spec: &str) -> Slot {
+fn seeded_slot(spec: &str, livery: Option<usize>) -> Slot {
     let (body, loco, label) = match spec.parse::<u64>() {
         Ok(seed) => {
-            let (body, loco) = build_for_seed(seed);
+            let (body, loco) = build_in_livery(seed, livery);
             (body, loco, format!("seed-{seed}"))
         }
         Err(_) => {
-            let (body, loco) = build_for_did(spec);
+            let (body, loco) = build_for_did_in_livery(spec, livery);
             (body, loco, spec.replace([':', '/'], "_"))
         }
     };
@@ -1330,7 +1349,7 @@ fn resolve_subject(args: &Args) -> Resolved {
     if let Some(entries) = &args.lineup {
         let slots: Vec<Slot> = entries
             .split(',')
-            .map(|e| lineup_slot(e.trim()))
+            .map(|e| lineup_slot(e.trim(), args.livery))
             .chain(args.reference_figure.then(|| Slot {
                 generator: figure::reference_figure(),
                 ride: None,
@@ -1465,7 +1484,7 @@ fn resolve_subject(args: &Args) -> Resolved {
         return Resolved::plain(Subject::Single(Box::new(generator)), label);
     }
     let avatar = args.avatar.clone().unwrap_or_else(|| "7".to_string());
-    let slot = seeded_slot(&avatar);
+    let slot = seeded_slot(&avatar, args.livery);
     // `--reference-figure` without `--lineup`: the subject plus the ruler is
     // a two-slot line-up, which is the same picture with fewer flags.
     if args.reference_figure {
@@ -1806,9 +1825,9 @@ mod tests {
     /// resolve as a DID.
     #[test]
     fn a_lineup_entry_is_a_seed_a_file_or_a_did() {
-        assert_eq!(lineup_slot("40").label, "seed-40");
+        assert_eq!(lineup_slot("40", None).label, "seed-40");
         assert!(
-            lineup_slot("40").ride.is_some(),
+            lineup_slot("40", None).ride.is_some(),
             "a seeded boat knows its own ride height"
         );
         let did = "did:render:lineup-test";
@@ -1822,7 +1841,7 @@ mod tests {
             })
             .expect("one of 64 DIDs rolls a vehicle");
         assert_eq!(
-            lineup_slot(&vehicle).label,
+            lineup_slot(&vehicle, None).label,
             vehicle.replace([':', '/'], "_")
         );
     }
@@ -1830,7 +1849,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "looks like a file path")]
     fn a_mistyped_lineup_path_is_not_taken_for_a_did() {
-        lineup_slot("target/dump/no-such-prototype.json");
+        lineup_slot("target/dump/no-such-prototype.json", None);
     }
 
     /// The rig defaults per mode, so a bare `--world` and a bare turntable

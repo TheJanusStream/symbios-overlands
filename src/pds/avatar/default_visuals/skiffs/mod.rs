@@ -39,12 +39,15 @@ mod roadster;
 
 pub(crate) use plan::BodyPlan;
 
-use crate::pds::avatar::colour::{ensure_delta, floor_value, luma, mix, shade, window_light};
 use crate::pds::avatar::locomotion::CarParams;
 use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::Generator;
-use crate::pds::texture::SovereignMaterialSettings;
 use crate::seeded_defaults::{ParticleAura, SkiffBlueprint, SkiffType};
+
+/// The skiff family's colours, which live in the fleet's one livery home
+/// (#1365) rather than beside its geometry - the roadster and every type after
+/// it read them through here.
+pub(crate) use crate::pds::avatar::livery::{SkiffColours, skiff_colours};
 
 use super::assemble::apply_travel_pose;
 
@@ -186,8 +189,9 @@ pub(super) fn travel_drop(craft: &dyn SkiffCraft, plan: &BodyPlan) -> f32 {
 }
 
 /// Assemble the seeded skiff for `seed`, posed for travel.
-pub(super) fn build(seed: u64) -> Generator {
-    let ctx = PartCtx::for_seed(seed);
+pub(super) fn build(seed: u64, livery: Option<usize>) -> Generator {
+    let mut ctx = PartCtx::for_seed(seed);
+    ctx.livery = livery;
     let (craft, plan) = body_for(seed).expect("a skiff seed carries a skiff blueprint");
     let mut root = craft.build(&ctx, &plan);
     // No scale: since #1364 a skiff is authored at the size she is drawn at,
@@ -226,76 +230,6 @@ pub(super) fn datum_height_for_seed(seed: u64) -> Option<f32> {
 pub(super) fn fx_mount(seed: u64, aura: ParticleAura) -> Option<[f32; 3]> {
     let (craft, plan) = body_for(seed)?;
     Some(craft.fx_mount(aura, &plan))
-}
-
-// ---------------------------------------------------------------------------
-// Finishes
-// ---------------------------------------------------------------------------
-
-/// The surfaces a skiff is finished in. One plain livery: the coachwork takes
-/// the seeded primary accent, the guards take the same paint darkened, and
-/// everything else is the colour that thing actually is. Heritage liveries
-/// with the seeded accent on identity trim are their own slice (#1365).
-pub(crate) struct SkiffColours {
-    pub(crate) paint: SovereignMaterialSettings,
-    /// Wings and running boards - coachwork, not rubber. See [`skiff_colours`].
-    pub(crate) guard: SovereignMaterialSettings,
-    pub(crate) rubber: SovereignMaterialSettings,
-    pub(crate) brightwork: SovereignMaterialSettings,
-    pub(crate) leather: SovereignMaterialSettings,
-    /// Wheel discs and hub caps.
-    pub(crate) disc: SovereignMaterialSettings,
-    /// Axles, louvres, the radiator matrix - the dark machinery.
-    pub(crate) machinery: SovereignMaterialSettings,
-    pub(crate) lamp: SovereignMaterialSettings,
-    pub(crate) tail_lamp: SovereignMaterialSettings,
-}
-
-/// The colours those things are, fixed rather than seeded, for the same reason
-/// the sloop's timber and canvas are: a machine whose guards are the same hue
-/// as its tyres has no guards at play distance, and the palette cannot promise
-/// a contrast it does not know about.
-const TYRE: [f32; 3] = [0.045, 0.045, 0.050];
-const CHROME: [f32; 3] = [0.80, 0.80, 0.82];
-const HIDE: [f32; 3] = [0.42, 0.24, 0.13];
-const CREAM: [f32; 3] = [0.84, 0.80, 0.68];
-const MACHINERY: [f32; 3] = [0.10, 0.10, 0.11];
-const TAIL_LAMP: [f32; 3] = [0.90, 0.10, 0.08];
-
-/// The value a guard is floored at.
-///
-/// The one colour rule on this family, and it was found by render (#1364). A
-/// guard drawn near-black - which is what a period photograph suggests and
-/// what the prototype first did - carries the TYRE's own value, so the eye
-/// merges the two and the four wheels read as detached blobs with nothing over
-/// them. Coachwork has to stay clear of rubber.
-const GUARD_FLOOR: f32 = 0.11;
-
-pub(crate) fn skiff_colours(ctx: &PartCtx) -> SkiffColours {
-    let p = &ctx.palette;
-    let m = &ctx.materials;
-    // Coachwork can be genuinely dark - a racing green or a maroon is the
-    // point of this machine - so the accent is only floored off black rather
-    // than lifted the way a boat's topsides are.
-    let body = floor_value(p.primary_accent, 0.20);
-    SkiffColours {
-        paint: m.paint(body),
-        guard: m.paint(floor_value(shade(body, 0.62), GUARD_FLOOR)),
-        rubber: m.rubber(TYRE),
-        brightwork: m.brightwork(CHROME),
-        // A little of the seed's own secondary through the hide and the discs,
-        // so two machines' interiors are not identical, but not enough to lose
-        // what they are.
-        leather: m.leather(mix(HIDE, shade(p.secondary_accent, 0.7), 0.20)),
-        disc: m.paint(ensure_delta(
-            mix(CREAM, p.secondary_accent, 0.18),
-            luma(body),
-            0.22,
-        )),
-        machinery: m.paint(MACHINERY),
-        lamp: crate::pds::avatar::colour::window_material(window_light(p.tertiary_accent)),
-        tail_lamp: m.glow(TAIL_LAMP),
-    }
 }
 
 #[cfg(test)]
@@ -465,7 +399,11 @@ mod tests {
     #[test]
     fn a_seeded_skiff_builds_deterministically() {
         for s in (0u64..200).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
-            assert_eq!(build(s), build(s), "seed {s} is not deterministic");
+            assert_eq!(
+                build(s, None),
+                build(s, None),
+                "seed {s} is not deterministic"
+            );
         }
     }
 
@@ -476,8 +414,8 @@ mod tests {
         use crate::pds::record_size::{SOFT_RECORD_BUDGET_BYTES, serialized_record_bytes};
         let mut worst = 0usize;
         for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
-            worst =
-                worst.max(serialized_record_bytes(&build(s)).expect("a built skiff serializes"));
+            worst = worst
+                .max(serialized_record_bytes(&build(s, None)).expect("a built skiff serializes"));
         }
         assert!(worst > 0, "no skiff seed was measured");
         assert!(

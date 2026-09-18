@@ -72,6 +72,10 @@ fn boot_angle() -> f32 {
     (BOOT_F - 0.5) / 0.5 * PI
 }
 
+/// How far round the section the cove line sits, as an angle down from the
+/// deck edge - a hand's width under the sheer, where a scribed cove goes.
+const COVE_ANGLE: f32 = 0.22;
+
 /// Masthead height as a fraction of the overall length, before the air-draft
 /// cap has its say. 0.84 is what the agreed prototype carries at the nominal
 /// 2.8 m, and at that size the cap lands on the same number.
@@ -271,6 +275,28 @@ fn skin(kids: &mut Vec<Generator>, hull: &HullProfile, c: &BoatColours) {
         },
         |_| true,
     ));
+    // The COVE LINE: the boot stripe's own colour a hand under the deck edge.
+    //
+    // It is here because of where the chase camera stands (#1365). The boot
+    // top is at the waterline, and at 22.9 degrees of down-angle the topsides
+    // roll away under the deck edge, so the one identity line the brief names
+    // first is the one line the player almost never sees. A cove scribed just
+    // under the sheer is the traditional answer to the same problem and it is
+    // in frame from above, so the seed's colour is findable on a hull at play
+    // distance rather than only on a sheet shot from the waterline.
+    kids.extend(trim_line(
+        hull,
+        hull.loa * 0.0060,
+        c.boot.clone(),
+        move |s, side| {
+            [
+                side * s.half_beam * COVE_ANGLE.cos(),
+                s.sheer - s.half_beam * section * COVE_ANGLE.sin(),
+                s.z,
+            ]
+        },
+        |_| true,
+    ));
     // Rub rail on the deck edge, toe rail just inboard and standing proud of
     // the deck - the two lines that give a hull her sheer at play distance.
     kids.extend(trim_line(
@@ -444,27 +470,78 @@ fn deck(kids: &mut Vec<Generator>, hull: &HullProfile, c: &BoatColours) {
     }
 }
 
+/// The cabin trunk's own stations: `(z fraction of LOA, half-beam fraction)`,
+/// forward-going, the same idiom as [`PLAN`].
+const TRUNK: &[(f32, f32)] = &[
+    (-0.120, 0.60),
+    (-0.020, 0.64),
+    (0.080, 0.64),
+    (0.160, 0.58),
+    (0.215, 0.36),
+];
+
+/// Where the three lit ports sit ALONG the trunk, as a parameter in the
+/// sweep's own control-point units (`0` is the after station, `1` the next,
+/// and so on) - see [`trunk_ports`].
+const PORTS: [f32; 3] = [0.45, 1.30, 2.15];
+
+/// The trunk's swept path in true metres, read off [`TRUNK`].
+fn trunk_path(hull: &HullProfile) -> Vec<([f32; 3], f32)> {
+    TRUNK
+        .iter()
+        .map(|&(zf, rf)| {
+            (
+                [0.0, hull.sheer_at(zf) + hull.loa * 0.002, zf * hull.loa],
+                dim(rf * hull.half_beam),
+            )
+        })
+        .collect()
+}
+
+/// The three port seats, each `(centreline point, trunk radius there)`, taken
+/// from the trunk's **drawn** centreline rather than from a fraction restated
+/// beside it.
+///
+/// This is the rule the whole family follows - every line is read off the
+/// shape it lies on - and the ports were the one place that broke it: each
+/// carried its own half-beam fraction and its own `sheer_at`, both LINEAR
+/// reads of a curve the mesher splines. On the agreed PROTOTYPE that cost the
+/// two forward ports up to 25 mm and left the boat in four pieces; the ported
+/// fractions happened to land close enough that the built sloop still met her
+/// cabin, which is luck rather than a rule, and
+/// `tests::a_boat_is_one_machine_at_her_blueprint_extremes` is what turned
+/// that from a belief into a measurement (#1366). Sampling the same
+/// Catmull-Rom `sweeps.rs` draws cannot drift, because there is nothing left
+/// to restate.
+fn trunk_ports(path: &[([f32; 3], f32)]) -> Vec<([f32; 3], f32)> {
+    use bevy::math::cubic_splines::{CubicCardinalSpline, CubicGenerator};
+    use bevy::math::{Vec3, Vec4};
+
+    let ctrl: Vec<Vec4> = path
+        .iter()
+        .map(|&([x, y, z], r)| Vec3::new(x, y, z).extend(r))
+        .collect();
+    let Ok(curve) = CubicCardinalSpline::new_catmull_rom(ctrl).to_curve() else {
+        // Fewer than two stations is not a trunk; there is nothing to hang a
+        // port on and nothing to interpolate.
+        return Vec::new();
+    };
+    PORTS
+        .iter()
+        .map(|&at| {
+            let v = curve.position(at);
+            ([v.x, v.y, v.z], v.w)
+        })
+        .collect()
+}
+
 /// Cabin trunk with its lit port band, companionway, foredeck hatch, and the
 /// cockpit well with its coaming.
 fn deck_furniture(kids: &mut Vec<Generator>, hull: &HullProfile, c: &BoatColours) {
     let loa = hull.loa;
     // Trunk: an UPPER half-pipe over its own stations, so its flat underside
     // sits on the deck and its crown is swept rather than a box lid.
-    let trunk: Vec<([f32; 3], f32)> = [
-        (-0.120, 0.60),
-        (-0.020, 0.64),
-        (0.080, 0.64),
-        (0.160, 0.58),
-        (0.215, 0.36),
-    ]
-    .iter()
-    .map(|&(zf, rf)| {
-        (
-            [0.0, hull.sheer_at(zf) + loa * 0.002, zf * loa],
-            rf * hull.half_beam,
-        )
-    })
-    .collect();
+    let trunk = trunk_path(hull);
     kids.push(sweep(
         &trunk,
         20,
@@ -473,29 +550,35 @@ fn deck_furniture(kids: &mut Vec<Generator>, hull: &HullProfile, c: &BoatColours
         c.topsides.clone(),
     ));
     // The lit port band. NO glass volume: `SovereignMaterialSettings` has no
-    // alpha, so one would render as a dark crate (#1359 rule 4). Each port's
-    // x is read off the trunk's own crowned section, exactly as the boot
-    // stripe reads the hull's, so a port cannot float either.
+    // alpha, so one would render as a dark crate (#1359 rule 4). Each port is
+    // placed by a parameter ALONG the trunk's own drawn centreline, so its
+    // height, its station and the radius it is pressed into all come from the
+    // one sweep - the rule the rest of the family follows.
     let h = loa * 0.0164;
-    for side in [-1.0f32, 1.0] {
-        for &(zf, rf) in &[(-0.075, 0.617), (0.010, 0.638), (0.095, 0.629)] {
-            let r = rf * hull.half_beam;
-            let x = r * (1.0 - (h / (r * TRUNK_CROWN)).powi(2)).max(0.04).sqrt();
+    for ([_, y, z], r) in trunk_ports(&trunk) {
+        // The half-width of the crowned section at the port's own height.
+        // Its centre sits ON that surface, the same seat every trim line on
+        // this boat takes, so half the port is let into the coachroof.
+        let x = r * (1.0 - (h / (r * TRUNK_CROWN)).powi(2)).max(0.04).sqrt();
+        for side in [-1.0f32, 1.0] {
             kids.push(prim(
                 cuboid(
                     [dim(loa * 0.005), dim(loa * 0.0214), dim(loa * 0.0375)],
                     c.window.clone(),
                 ),
-                [side * x, hull.sheer_at(zf) + loa * 0.002 + h, zf * loa],
+                [side * x, y + h, z],
                 id_quat(),
             ));
         }
     }
     // Companionway in the trunk's after face, so the cockpit leads somewhere.
+    // The inside of the boat, in her interior shadow rather than her trim -
+    // a companionway painted the boot stripe's colour spends the seed's
+    // identity on a hatchway nobody sees at play distance.
     kids.push(prim(
         cuboid(
             [dim(loa * 0.0857), dim(loa * 0.05), dim(loa * 0.0071)],
-            c.boot.clone(),
+            c.interior.clone(),
         ),
         [
             0.0,
@@ -525,7 +608,7 @@ fn deck_furniture(kids: &mut Vec<Generator>, hull: &HullProfile, c: &BoatColours
     kids.push(prim(
         cuboid(
             [dim(hull.half_beam * 1.55), dim(well_h), dim(loa * 0.3143)],
-            c.boot.clone(),
+            c.interior.clone(),
         ),
         [0.0, well_top - well_h * 0.5, well_z],
         id_quat(),
@@ -603,33 +686,63 @@ impl Rig {
         }
     }
 
+    /// The mast's three stations, heel to truck, tapering as it goes.
+    ///
+    /// A method rather than three literals inside `build` because the spars
+    /// that hang off it need to know how thick it is where they meet it, and
+    /// a second copy of these numbers is exactly how a gaff ends up 1.4 mm
+    /// clear of the mast it is supposed to hang from (#1366).
+    fn mast(&self, loa: f32) -> [([f32; 3], f32); 3] {
+        [
+            (
+                [0.0, self.heel - loa * 0.007, self.mast_z],
+                dim(loa * 0.0107),
+            ),
+            ([0.0, self.throat, self.mast_z], dim(loa * 0.0086)),
+            ([0.0, self.truck, self.mast_z], dim(loa * 0.0057)),
+        ]
+    }
+
+    /// The mast's radius at height `y`, straight off [`Self::mast`]'s own
+    /// stations. Linear between them, which is what an embed depth wants: the
+    /// question is how deep to bury a jaw, not where a surface is.
+    fn mast_radius_at(&self, loa: f32, y: f32) -> f32 {
+        let m = self.mast(loa);
+        for w in m.windows(2) {
+            let (([_, y0, _], r0), ([_, y1, _], r1)) = (w[0], w[1]);
+            if y <= y1 {
+                let t = ((y - y0) / (y1 - y0).max(1e-6)).clamp(0.0, 1.0);
+                return r0 + (r1 - r0) * t;
+            }
+        }
+        m[2].1
+    }
+
     fn build(&self, kids: &mut Vec<Generator>, hull: &HullProfile, c: &BoatColours) {
         let loa = hull.loa;
         let line = |pts: &[([f32; 3], f32)], res, m: SovereignMaterialSettings| {
             prim(spine(pts, res, m), [0.0; 3], id_quat())
         };
         // Mast, tapering to the truck.
-        kids.push(line(
-            &[
-                (
-                    [0.0, self.heel - loa * 0.007, self.mast_z],
-                    dim(loa * 0.0107),
-                ),
-                ([0.0, self.throat, self.mast_z], dim(loa * 0.0086)),
-                ([0.0, self.truck, self.mast_z], dim(loa * 0.0057)),
-            ],
-            10,
-            c.timber.clone(),
-        ));
+        kids.push(line(&self.mast(loa), 10, c.timber.clone()));
         // Boom and gaff, each standing clear of the canvas it carries - a spar
-        // buried in its own sail is a spar nobody can see.
-        let off = loa * 0.011;
+        // buried in its own sail is a spar nobody can see - but with its
+        // inboard end INSIDE the mast it hangs from. A gaff's jaws embrace the
+        // mast and a gooseneck is a fitting on it, so both are seated half a
+        // mast radius abaft the spar's own axis, at the mast's thickness where
+        // that spar meets it. Written as a constant offset the gaff cleared
+        // the mast by 1.4 mm at the nominal size and the boat came apart at
+        // the throat (#1366).
+        let jaw = |y: f32, rise: f32| {
+            [
+                0.0,
+                y + rise,
+                self.mast_z - self.mast_radius_at(loa, y) * 0.5,
+            ]
+        };
         kids.push(line(
             &[
-                (
-                    [0.0, self.gooseneck - loa * 0.011, self.mast_z - off],
-                    dim(loa * 0.0068),
-                ),
+                (jaw(self.gooseneck, -loa * 0.011), dim(loa * 0.0068)),
                 (
                     [0.0, self.gooseneck + loa * 0.007, self.boom_aft],
                     dim(loa * 0.0082),
@@ -640,10 +753,7 @@ impl Rig {
         ));
         kids.push(line(
             &[
-                (
-                    [0.0, self.throat + loa * 0.010, self.mast_z - off],
-                    dim(loa * 0.0068),
-                ),
+                (jaw(self.throat, loa * 0.010), dim(loa * 0.0068)),
                 (
                     [0.0, self.peak_y + loa * 0.009, self.peak_z],
                     dim(loa * 0.0054),
@@ -674,14 +784,16 @@ impl Rig {
             kids.push(line(
                 &[(masthead, dim(loa * 0.004)), (foot, dim(loa * 0.004))],
                 5,
-                c.boot.clone(),
+                c.rigging.clone(),
             ));
         }
-        // Masthead burgee, flying just under the truck so the cap holds.
+        // Masthead burgee, flying just under the truck so the cap holds. The
+        // highest thing on the boat and one of her three identity slots, so it
+        // is the seeded accent (#1365).
         kids.push(prim(
             cuboid(
                 [dim(loa * 0.0043), dim(loa * 0.0196), dim(loa * 0.0607)],
-                c.boot.clone(),
+                c.pennant.clone(),
             ),
             [0.0, self.truck - loa * 0.0125, self.mast_z - loa * 0.0357],
             id_quat(),
@@ -698,7 +810,8 @@ impl Rig {
     fn sails(&self, kids: &mut Vec<Generator>, hull: &HullProfile, c: &BoatColours, tack_y: f32) {
         let loa = hull.loa;
         let x = loa * 0.0107;
-        let mut sail = |thick: f32,
+        let mut sail = |cloth: &SovereignMaterialSettings,
+                        thick: f32,
                         height: f32,
                         foot: f32,
                         at: [f32; 3],
@@ -707,7 +820,7 @@ impl Rig {
                         bend: f32| {
             kids.push(prim(
                 with_shape(
-                    cuboid([dim(thick), dim(height), dim(foot)], c.canvas.clone()),
+                    cuboid([dim(thick), dim(height), dim(foot)], cloth.clone()),
                     [0.0, taper],
                     [bend, 0.0, 0.0],
                     [0.0, shear],
@@ -721,6 +834,7 @@ impl Rig {
         let taper = 1.0 - head / foot;
         let body_z = (self.mast_z + self.boom_aft) * 0.5;
         sail(
+            &c.canvas,
             loa * 0.0043,
             self.throat - self.gooseneck,
             foot,
@@ -731,6 +845,7 @@ impl Rig {
         );
         let head_z = body_z + foot * 0.5 * taper;
         sail(
+            &c.canvas,
             loa * 0.0039,
             self.peak_y - self.throat,
             head,
@@ -742,7 +857,10 @@ impl Rig {
         let clew_z = 0.29 * loa;
         let jib_foot = self.sprit_z - clew_z;
         let jib_z = (self.sprit_z + clew_z) * 0.5;
+        // The jib is the boat's third identity slot: the one sail small enough
+        // to be trim rather than mass, dyed in the seeded accent (#1365).
         sail(
+            &c.jib,
             loa * 0.0039,
             self.hounds - tack_y,
             jib_foot,

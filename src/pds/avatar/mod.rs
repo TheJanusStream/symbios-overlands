@@ -38,6 +38,7 @@ pub mod body;
 pub(crate) mod colour;
 pub mod default_visuals;
 pub mod gait;
+pub mod livery;
 pub mod locomotion;
 pub mod parts;
 pub mod wardrobe;

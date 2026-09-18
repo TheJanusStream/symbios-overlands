@@ -3,6 +3,10 @@
 //! band and an airship's gondola glazing are the same light rather than two
 //! guesses at it.
 //!
+//! It is the maths, not the taste: WHICH colour a seeded boat or land-skiff
+//! wears is the curated livery list in [`super::livery`], which is this
+//! module's only heavy caller and the one place the fleet's palette lives.
+//!
 //! It lived in `parts/defaults/common.rs` and `parts/defaults/airship.rs`,
 //! visible only inside the part catalogue. The redesigned boat families
 //! (`default_visuals::boats`) assemble their own geometry with no

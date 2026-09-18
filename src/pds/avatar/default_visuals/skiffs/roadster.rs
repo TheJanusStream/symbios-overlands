@@ -312,18 +312,21 @@ fn body(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours) {
             ));
         }
     }
-    // Rubbing strip along each flank at the coaming line - the one trim line,
-    // with its centre ON the skin the way a boot stripe is, because a tube
-    // tangent to what it lies on stipples against it.
+    // The COACHLINE along each flank at the coaming line - the machine's one
+    // trim line and the first place the seed's own colour lands (#1365), with
+    // its centre ON the skin the way a boot stripe is, because a tube tangent
+    // to what it lies on stipples against it. On a period car this line is
+    // painted by hand rather than plated, which is why it carries a colour at
+    // all instead of being another length of brightwork.
     for side in [-1.0f32, 1.0] {
         let strip: Vec<([f32; 3], f32)> = [-0.400f32, -0.200, 0.0, 0.200, 0.400]
             .iter()
             .map(|&zf| {
                 let z = zf * l;
-                ([side * plan.side_at(z, 0.0), 0.0, z], l * 0.0060)
+                ([side * plan.side_at(z, 0.0), 0.0, z], l * 0.0080)
             })
             .collect();
-        kids.push(line(&strip, 6, c.brightwork.clone()));
+        kids.push(line(&strip, 6, c.coachline.clone()));
     }
 }
 

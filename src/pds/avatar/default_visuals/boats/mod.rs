@@ -36,11 +36,14 @@ mod sloop;
 
 pub(crate) use profile::HullProfile;
 
-use crate::pds::avatar::colour::{ensure_delta, floor_value, luma, mix, shade, window_light};
 use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::Generator;
-use crate::pds::texture::SovereignMaterialSettings;
 use crate::seeded_defaults::{BoatBlueprint, BoatType, ParticleAura};
+
+/// The boat family's colours, which live in the fleet's one livery home
+/// (#1365) rather than beside its geometry - the sloop and every type after
+/// her read them through here.
+pub(crate) use crate::pds::avatar::livery::{BoatColours, boat_colours};
 
 use super::assemble::apply_travel_pose;
 
@@ -183,8 +186,9 @@ fn hull_for(seed: u64) -> Option<(&'static dyn BoatCraft, HullProfile)> {
 }
 
 /// Assemble the seeded boat for `seed`, posed for travel.
-pub(super) fn build(seed: u64) -> Generator {
-    let ctx = PartCtx::for_seed(seed);
+pub(super) fn build(seed: u64, livery: Option<usize>) -> Generator {
+    let mut ctx = PartCtx::for_seed(seed);
+    ctx.livery = livery;
     let (craft, hull) = hull_for(seed).expect("a boat seed carries a boat blueprint");
     let mut root = craft.build(&ctx, &hull);
     // No scale: since #1363 a boat is authored at the size she is drawn at, so
@@ -216,60 +220,6 @@ pub(super) fn feel_and_draft(seed: u64) -> (BoatFeel, f32) {
 pub(super) fn fx_mount(seed: u64, aura: ParticleAura) -> Option<[f32; 3]> {
     let (craft, hull) = hull_for(seed)?;
     Some(craft.fx_mount(aura, &hull))
-}
-
-// ---------------------------------------------------------------------------
-// Finishes
-// ---------------------------------------------------------------------------
-
-/// The surfaces a boat is painted in. One plain livery: the hull takes the
-/// seeded primary accent lifted to a topsides value, the boot stripe takes a
-/// value-separated secondary, and everything else is the colour that thing
-/// actually is. Heritage liveries with the seeded accent on identity trim are
-/// their own slice (#1365).
-pub(crate) struct BoatColours {
-    pub(crate) topsides: SovereignMaterialSettings,
-    pub(crate) boot: SovereignMaterialSettings,
-    pub(crate) antifoul: SovereignMaterialSettings,
-    pub(crate) timber: SovereignMaterialSettings,
-    pub(crate) brightwork: SovereignMaterialSettings,
-    pub(crate) canvas: SovereignMaterialSettings,
-    pub(crate) lead: SovereignMaterialSettings,
-    pub(crate) window: SovereignMaterialSettings,
-}
-
-/// Bare timber and varnish, the colours those things are. Fixed rather than
-/// seeded: a boat whose deck is the same hue as her hull has no deck at play
-/// distance, and the palette cannot promise a contrast it does not know about.
-const TIMBER: [f32; 3] = [0.44, 0.27, 0.13];
-const VARNISH: [f32; 3] = [0.58, 0.40, 0.19];
-const CANVAS: [f32; 3] = [0.89, 0.86, 0.78];
-const ANTIFOUL: [f32; 3] = [0.42, 0.11, 0.09];
-const LEAD: [f32; 3] = [0.30, 0.31, 0.33];
-
-pub(crate) fn boat_colours(ctx: &PartCtx) -> BoatColours {
-    let p = &ctx.palette;
-    let m = &ctx.materials;
-    // Topsides are the largest surface on the boat and want to read light -
-    // that is what topsides are - so the accent is floored well up rather than
-    // taken raw, which on a dark seed painted the whole hull near-black.
-    let topsides = floor_value(p.primary_accent, 0.58);
-    // The boot stripe is a hand's width of paint at the waterline; it only
-    // exists if it separates from the hull above it.
-    let boot = shade(ensure_delta(p.secondary_accent, luma(topsides), 0.30), 0.80);
-    BoatColours {
-        topsides: m.paint(topsides),
-        boot: m.paint(boot),
-        // Antifouling is antifouling - a red-brown - with a little of the
-        // seed's own secondary mixed through so two boats' bottoms are not
-        // identical.
-        antifoul: m.antifoul(mix(ANTIFOUL, shade(p.secondary_accent, 0.5), 0.22)),
-        timber: m.timber(TIMBER),
-        brightwork: m.brightwork(VARNISH),
-        canvas: m.canvas(CANVAS),
-        lead: m.metal(LEAD),
-        window: crate::pds::avatar::colour::window_material(window_light(p.tertiary_accent)),
-    }
 }
 
 #[cfg(test)]
@@ -352,13 +302,33 @@ mod tests {
         );
     }
 
+    /// The blueprint corners a seeded hull can actually reach - where a
+    /// dimension floors or a clamp bites. The smallest hull draws the thinnest
+    /// shroud and the finest stem; the largest draws the deepest keel.
+    fn corners() -> Vec<BoatBlueprint> {
+        [
+            (1.60f32, 3.2f32, 0.10f32, 0.92f32),
+            (1.60, 3.8, 0.12, 1.08),
+            (2.80, 3.5, 0.11, 1.00),
+            (4.40, 3.2, 0.12, 1.08),
+            (4.40, 3.8, 0.10, 0.92),
+        ]
+        .iter()
+        .map(|&(loa, ratio, fb, sheer)| BoatBlueprint {
+            stance: crate::seeded_defaults::VehicleStance::Sleek,
+            hull_len: loa,
+            beam: loa / ratio,
+            freeboard: loa * fb,
+            sheer_bow: loa * 0.060 * sheer,
+            sheer_stern: loa * 0.025 * sheer,
+            draft: loa * 0.100 * sheer,
+        })
+        .collect()
+    }
+
     /// Every boat survives the record sanitiser UNCHANGED at the extremes of
     /// her own blueprint, not only at the seeds the population happens to
     /// contain (#1359 rule 8).
-    ///
-    /// The corners are where a dimension floors or a clamp bites: the
-    /// smallest hull draws the thinnest shroud and the finest stem, and the
-    /// largest draws the deepest keel.
     #[test]
     fn a_boat_survives_sanitize_unchanged_at_her_blueprint_extremes() {
         use crate::pds::sanitize_avatar_visuals;
@@ -368,22 +338,8 @@ mod tests {
                 .expect("some seed is a boat"),
         );
         let craft = craft(BoatType::UNIVERSAL).expect("the floor is built");
-        for &(loa, ratio, fb, sheer) in &[
-            (1.60f32, 3.2f32, 0.10f32, 0.92f32),
-            (1.60, 3.8, 0.12, 1.08),
-            (2.80, 3.5, 0.11, 1.00),
-            (4.40, 3.2, 0.12, 1.08),
-            (4.40, 3.8, 0.10, 0.92),
-        ] {
-            let bp = BoatBlueprint {
-                stance: crate::seeded_defaults::VehicleStance::Sleek,
-                hull_len: loa,
-                beam: loa / ratio,
-                freeboard: loa * fb,
-                sheer_bow: loa * 0.060 * sheer,
-                sheer_stern: loa * 0.025 * sheer,
-                draft: loa * 0.100 * sheer,
-            };
+        for bp in corners() {
+            let (loa, ratio) = (bp.hull_len, bp.hull_len / bp.beam);
             let built = craft.build(&ctx, &craft.profile(&bp));
             let mut sanitized = built.clone();
             sanitize_avatar_visuals(&mut sanitized);
@@ -391,6 +347,38 @@ mod tests {
                 built, sanitized,
                 "a {loa} m hull at L:B {ratio} was rewritten by the sanitiser"
             );
+        }
+    }
+
+    /// Every part of a built boat meets another, and the whole craft is one
+    /// connected component - the roadster's guard (#1364), now the sloop's
+    /// too.
+    ///
+    /// The prototype this hull was ported from was in four pieces - both
+    /// forward lit ports hung up to 25 mm off the cabin trunk and the gaff's
+    /// throat was marginal against the mast - and #1366 recorded the
+    /// reasonable belief that the port had carried the same three defects.
+    /// This test is what answered it: the built sloop meets herself at every
+    /// corner, and did so BEFORE the reads were tidied. The tidying stands
+    /// anyway (a port now reads the trunk's drawn centreline), but the margin
+    /// it was holding was a few millimetres of luck, and luck is what a guard
+    /// is for. Swept over the blueprint extremes rather than one seed,
+    /// because the failure is size-dependent - anything floored at
+    /// [`MIN_DIM`] stops shrinking with the hull, so a part that meets at the
+    /// nominal size can come adrift at the small end. See
+    /// [`super::common::touch`] for why this cannot be judged by eye.
+    #[test]
+    fn a_boat_is_one_machine_at_her_blueprint_extremes() {
+        use super::super::common::touch;
+        let ctx = PartCtx::for_seed(
+            (0u64..600)
+                .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat)
+                .expect("some seed is a boat"),
+        );
+        let craft = craft(BoatType::UNIVERSAL).expect("the floor is built");
+        for bp in corners() {
+            let built = craft.build(&ctx, &craft.profile(&bp));
+            touch::assert_one_machine(&built, &format!("a {} m sloop", bp.hull_len));
         }
     }
 
@@ -407,7 +395,7 @@ mod tests {
         use crate::pds::record_size::{SOFT_RECORD_BUDGET_BYTES, serialized_record_bytes};
         let mut worst = 0usize;
         for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
-            let built = super::build(s);
+            let built = super::build(s, None);
             let bytes = serialized_record_bytes(&built).expect("a built boat serializes");
             worst = worst.max(bytes);
         }

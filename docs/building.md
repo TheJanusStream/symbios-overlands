@@ -673,6 +673,24 @@ because a 14 m line shot from 12 m puts its outermost subject 16 % further
 away than its innermost. A line-up wider than the frame is warned about
 rather than quietly shrunk.
 
+**Judging a livery list (#1365).** `--livery <index>` draws every seeded
+vehicle subject in the heritage scheme at that index instead of the one its
+seed picked, so a curated list can be compared on ONE hull with the
+proportions, the stance, the wear and the craft type all held still:
+
+```bash
+for i in $(seq 0 6); do
+  cargo run --profile test-release --bin render -- \
+    --avatar 13 --play-view --livery "$i" --out "/tmp/livery-$i.png"
+done
+```
+
+The index is into that family's own table in `src/pds/avatar/livery.rs` and
+wraps, so a loop that runs past the end draws each scheme once rather than the
+last one twice. `--outfit <seed>` prints the scheme a seed picked for itself,
+beside its craft type. A `--generator` file carries its own colours and is
+unaffected.
+
 `--play-view` is a preset, not a straitjacket: `--yaw` (default 135, the
 sheet's three-quarter angle), `--dist`, `--elev`, `--zoom`, `--lift`,
 `--width`/`--height` and `--frames` all still apply, so the same flag also
