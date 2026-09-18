@@ -45,6 +45,17 @@
 //! every avatar of a theme in the same car, which is the variety problem this
 //! module is supposed to solve.
 //!
+//! **A boat's hull lines are the one exception, and it is a render result**
+//! (#1365 phase 2). The boot top and the cove line carry the accent as PAINT
+//! on every theme, luminous or not. Lit, they are a neon pinstripe running the
+//! whole length of a gaff boat's sheer, and on a battered SpaceOutpost seed
+//! that was the loudest thing in the frame - louder than her sails, her cabin
+//! and her deck, which is what a boat is actually read by at play distance. A
+//! boat's glow belongs where it is small and high: her masthead burgee, and
+//! the lit ports that were always lit. A car is unchanged, because a lit
+//! coachline and lit wheel centres on a cyberpunk machine are exactly the
+//! point and were never the complaint.
+//!
 //! # The two colour rules this fleet learned by render
 //!
 //! 1. **A guard drawn at the tyre's value is not a guard** (#1364). Coachwork
@@ -361,10 +372,15 @@ pub fn skiff_livery(seed: u64, over: Option<usize>) -> &'static SkiffLivery {
 /// accents, ordinary paint everywhere else.
 ///
 /// This is where "theme speaks through finish" actually happens. A neon seed's
-/// coachline and boot stripe GLOW - through [`MaterialKit::accent`], whose
-/// strength is the register's own (4.5, or 8.0 for the bold register) and
-/// well inside the sanitiser's clamp - while a medieval seed's are the same
-/// hue in flat enamel. Nothing else on the craft changes.
+/// coachline, its wheel centres and its masthead burgee GLOW - through
+/// [`MaterialKit::accent`], whose strength is the register's own (4.5, or 8.0
+/// for the bold register) and well inside the sanitiser's clamp - while a
+/// medieval seed's are the same hue in flat enamel. Nothing else on the craft
+/// changes.
+///
+/// **A boat's boot top and cove line do not come through here**, and that is
+/// the one place this helper is deliberately not applied to an identity slot:
+/// see the module docs. They are `paint` on every theme.
 fn trim(m: &MaterialKit, color: [f32; 3]) -> SovereignMaterialSettings {
     if m.emissive_accents() {
         m.accent(color)
@@ -411,8 +427,12 @@ fn clear_of(c: [f32; 3], ref_l: f32, delta: f32) -> [f32; 3] {
 /// simply is.
 pub(crate) struct BoatColours {
     pub(crate) topsides: SovereignMaterialSettings,
-    /// **Identity.** The boot top at the waterline, in the seeded accent held
-    /// clear of the topsides above it.
+    /// **Identity.** The boot top at the waterline and the cove line under the
+    /// sheer, in the seeded accent held clear of the topsides between them.
+    ///
+    /// Always `paint`, never [`trim`]: these two run the whole length of the
+    /// hull, and lit they are the loudest thing on the boat (#1365 phase 2).
+    /// The glow a luminous style is owed goes to [`Self::pennant`].
     pub(crate) boot: SovereignMaterialSettings,
     pub(crate) antifoul: SovereignMaterialSettings,
     /// Laid deck, rub rail and spars.
@@ -425,7 +445,9 @@ pub(crate) struct BoatColours {
     /// enough to be trim rather than mass, and the way a boat is told apart
     /// across a bay.
     pub(crate) jib: SovereignMaterialSettings,
-    /// **Identity.** The masthead burgee.
+    /// **Identity.** The masthead burgee - and the boat's one lit slot, so a
+    /// luminous style still speaks on her without painting a neon pinstripe
+    /// down her sheer. It is the highest and smallest thing she carries.
     pub(crate) pennant: SovereignMaterialSettings,
     /// Standing rigging: tarred wire, not an accent. It used to be the boot
     /// stripe's colour, which spent the seed's identity on three shrouds
@@ -458,7 +480,8 @@ pub(crate) fn boat_colours(ctx: &PartCtx) -> BoatColours {
         } else {
             m.paint(topsides)
         },
-        boot: trim(m, boot),
+        // Paint on every theme, luminous or not - see [`BoatColours::boot`].
+        boot: m.paint(boot),
         // Antifouling is antifouling - the scheme's own - with a little of the
         // seed's secondary mixed through so two bottoms are not identical.
         antifoul: m.antifoul(mix(l.antifoul, shade(p.secondary_accent, 0.5), 0.18)),
@@ -711,6 +734,68 @@ mod tests {
             } else {
                 assert_eq!(c.coachline.emission_strength.0, 0.0);
                 dark += 1;
+            }
+        }
+        assert!(
+            lit > 0 && dark > 0,
+            "the population saw only one kind: {lit} lit, {dark} dark"
+        );
+    }
+
+    /// A boat's glow is her burgee alone: her hull lines are paint on every
+    /// theme, and the masthead flag lights exactly when the style is luminous.
+    ///
+    /// The other half of [`only_the_identity_trim_lights_up`], and a rule the
+    /// car deliberately does not share (#1365 phase 2). The boot top and the
+    /// cove line carry the same accent as the burgee and run the whole length
+    /// of the hull, so lit they are a neon pinstripe down a gaff boat's sheer -
+    /// the loudest thing in the frame on a battered SpaceOutpost seed, louder
+    /// than the sails and the deck a boat is actually read by at play distance.
+    /// The burgee is the slot small enough and high enough to take the glow
+    /// instead.
+    ///
+    /// Both directions are asserted, because the cheap half-fix - dropping
+    /// `trim` from the whole boat - would leave a luminous seed with nothing
+    /// lit at all, and would pass a test that only said the boot is dark.
+    #[test]
+    fn a_boat_glows_at_her_masthead_and_nowhere_on_her_hull() {
+        let mut lit = 0;
+        let mut dark = 0;
+        for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
+            let mut ctx = PartCtx::for_seed(s);
+            // Every scheme, not only the one this seed rolled: the glow is a
+            // property of the style and the schemes must not differ on it.
+            for (i, scheme) in BOAT_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = boat_colours(&ctx);
+                for (what, m) in [
+                    ("boot stripe and cove line", &c.boot),
+                    ("topsides", &c.topsides),
+                    ("deck", &c.timber),
+                    ("mainsail", &c.canvas),
+                    ("jib", &c.jib),
+                ] {
+                    assert_eq!(
+                        m.emission_strength.0, 0.0,
+                        "seed {s} in {}: the {what} is self-lit",
+                        scheme.name
+                    );
+                }
+                if ctx.materials.emissive_accents() {
+                    assert!(
+                        c.pennant.emission_strength.0 > 0.0,
+                        "seed {s} in {}: a luminous style left her burgee dark",
+                        scheme.name
+                    );
+                    lit += 1;
+                } else {
+                    assert_eq!(
+                        c.pennant.emission_strength.0, 0.0,
+                        "seed {s} in {}: a flat style lit her burgee",
+                        scheme.name
+                    );
+                    dark += 1;
+                }
             }
         }
         assert!(
