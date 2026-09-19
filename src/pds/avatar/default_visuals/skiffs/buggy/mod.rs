@@ -62,7 +62,7 @@ use super::super::common::{quat_x, quat_z};
 use super::plan::{Axle, BodyPlan};
 // The family's shape vocabulary, imported here so each part's
 // `use super::{line, ..}` resolves.
-use super::shape::{board, line, solid, sweep};
+use super::shape::{board, line, rim_profile, solid, sweep, tyre_profile};
 use super::{SkiffCraft, SkiffFeel, dim};
 use frame::Frame;
 

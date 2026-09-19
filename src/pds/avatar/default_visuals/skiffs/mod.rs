@@ -20,12 +20,14 @@
 //! implementor: [`craft_for`] resolves an unbuilt pick to
 //! [`SkiffType::UNIVERSAL`] while the PICK stays a property of the seed.
 //!
-//! Three types are built: the roadster, the universal floor; since #1377 the
+//! Four types are built: the roadster, the universal floor; since #1377 the
 //! horseless [`wagon`], which takes all ten historic themes and is 31 % of the
-//! family against the Roadster's 30; and since #1374 the dune [`buggy`], on
-//! the six leisure and frontier themes, 13 % of it. A seed that picked any
-//! other type - about a quarter of the family - is still drawn as the
-//! roadster, and the readouts say so.
+//! family against the Roadster's 30; since #1374 the dune [`buggy`], on the
+//! six leisure and frontier themes, 13 % of it; and since #1376 the
+//! three-wheeled [`cyclecar`], on the neon themes and the campus - the first
+//! type on an unpaired axle. A seed that picked any other type - the armoured
+//! car or the rover, 23 of the 151 skiff seeds under 600 - is still drawn as
+//! the roadster, and the readouts say so.
 //!
 //! # Where a skiff sits
 //!
@@ -37,6 +39,7 @@
 //! for the wheels this seed actually rolls on (#1361).
 
 mod buggy;
+mod cyclecar;
 mod plan;
 mod roadster;
 mod shape;
@@ -136,7 +139,8 @@ fn craft(t: SkiffType) -> Option<&'static dyn SkiffCraft> {
         SkiffType::Roadster => Some(&roadster::Roadster),
         SkiffType::Wagon => Some(&wagon::Wagon),
         SkiffType::DuneBuggy => Some(&buggy::Buggy),
-        SkiffType::ArmouredCar | SkiffType::Cyclecar | SkiffType::Rover => None,
+        SkiffType::Cyclecar => Some(&cyclecar::Cyclecar),
+        SkiffType::ArmouredCar | SkiffType::Rover => None,
     }
 }
 
@@ -317,9 +321,10 @@ mod tests {
 
     /// Every skiff seed draws a skiff, whatever type it picked. This is what
     /// "go live for every skiff seed" means, and the unbuilt types are the
-    /// reason it needs saying: with the roadster, the wagon (#1377) and the
-    /// dune buggy (#1374) built, about a quarter of the family still picks a
-    /// type nothing draws yet. The boats' form: the floor fallback must still
+    /// reason it needs saying: with the roadster, the wagon (#1377), the dune
+    /// buggy (#1374) and the cyclecar (#1376) built, 23 of the 151 skiff
+    /// seeds under 600 still pick a type nothing draws yet (the armoured car
+    /// and the rover). The boats' form: the floor fallback must still
     /// be exercised, and how much of the family it carries is the census's
     /// business, not a threshold to re-tune each slice.
     #[test]
@@ -621,6 +626,169 @@ mod tests {
         );
     }
 
+    /// Every cyclecar the family can draw at the blueprint corners: every
+    /// ornateness-by-wear pair (#1376). Returns the built tree, its plan and
+    /// a label for the failure.
+    fn every_cyclecar() -> Vec<(Generator, cyclecar::CyclecarPlan, String)> {
+        use crate::seeded_defaults::{OrnatenessTier, WearTier};
+        let mut ctx = PartCtx::for_seed(a_skiff_seed());
+        let mut out = Vec::new();
+        for bp in corners() {
+            let plan = cyclecar::plan_of(&bp);
+            for o in OrnatenessTier::ALL {
+                for w in WearTier::ALL {
+                    (ctx.ornateness, ctx.wear) = (o, w);
+                    out.push((
+                        cyclecar::build_dressed(&ctx, &plan),
+                        plan,
+                        format!("a {} m cyclecar, {} / {}", bp.length, o.label(), w.label()),
+                    ));
+                }
+            }
+        }
+        assert_eq!(out.len(), 6 * 9, "the sweep lost a combination");
+        out
+    }
+
+    /// Every part of a built cyclecar meets another and the whole machine is
+    /// one component, on every tier at every blueprint corner (#1376) - on
+    /// the tree AS SAVED, through the record's 0.1 mm wire.
+    ///
+    /// What the guard cannot see: it ignores `path_cut`, so the spat's box
+    /// reaches under the ground and the window band's sectors are judged as
+    /// whole tubes, which lie inside the pod (#1382).
+    #[test]
+    fn a_cyclecar_is_one_machine_at_every_blueprint_extreme() {
+        use super::super::common::touch;
+        for (built, _, what) in every_cyclecar() {
+            let json = serde_json::to_string(&built).expect("a cyclecar serializes");
+            let saved: Generator = serde_json::from_str(&json).expect("and reads back");
+            touch::assert_one_machine(&saved, &what);
+        }
+    }
+
+    /// Every cyclecar survives the record sanitiser UNCHANGED at the extremes
+    /// of her own blueprint, on every tier (#1359 rule 8) - her rotated tyres
+    /// and lamps compared through the quaternion epsilon the sanitiser's
+    /// renormalising needs.
+    #[test]
+    fn a_cyclecar_survives_sanitize_unchanged_at_her_blueprint_extremes() {
+        use crate::pds::sanitize_avatar_visuals;
+        for (built, _, what) in every_cyclecar() {
+            let mut sanitized = built.clone();
+            sanitize_avatar_visuals(&mut sanitized);
+            if let Some(where_) = first_difference(&built, &sanitized, "0") {
+                panic!("{what} was rewritten by the sanitiser at {where_}");
+            }
+        }
+    }
+
+    /// Every cyclecar stands on her three wheels, under the air draft and
+    /// inside the gateway, at every blueprint corner (#1376): each wheel's
+    /// centre is its radius over the ground - the single rear one on the
+    /// centreline as much as the front pair - the spat's cut plane stands
+    /// over the ground, nothing she draws stands higher than rule 6's 2.8 m,
+    /// and she is narrower than the 2.6 m mouth.
+    #[test]
+    fn a_cyclecar_stands_on_her_three_wheels_under_the_air_draft() {
+        use super::super::common::touch;
+        /// Rule 6's air draft and the narrowest gateway mouth (m).
+        const AIR_DRAFT: f32 = 2.8;
+        const MOUTH: f32 = 2.6;
+        for (built, plan, what) in every_cyclecar() {
+            let wheels = plan.wheels();
+            assert_eq!(
+                wheels.len(),
+                3,
+                "{what}: she rolls on {} wheels",
+                wheels.len()
+            );
+            assert_eq!(
+                wheels.iter().filter(|(at, _)| at[0] == 0.0).count(),
+                1,
+                "{what}: she has no single wheel on the centreline"
+            );
+            for (at, r) in wheels {
+                assert!(
+                    (at[1] + plan.datum_height() - r).abs() < 1e-5,
+                    "{what}: a wheel of radius {r} has its centre {} over the ground",
+                    at[1] + plan.datum_height()
+                );
+            }
+            let cut = cyclecar::spat_cut_y(&plan) + plan.datum_height();
+            assert!(
+                cut > 0.0,
+                "{what}: the spat's cut plane is {cut} m over the ground"
+            );
+            let top = touch::highest(&built) + plan.datum_height();
+            assert!(
+                top <= AIR_DRAFT,
+                "{what}: she stands {top} m over the ground, past the {AIR_DRAFT} m air draft"
+            );
+            let wide = cyclecar::Cyclecar.overall_width(&plan, 0);
+            assert!(
+                wide < MOUTH,
+                "{what}: {wide} m wide, past the {MOUTH} m mouth"
+            );
+        }
+    }
+
+    /// Every cyclecar seed is drawn as a cyclecar, electric (#1376) - and no
+    /// other skiff seed is: a skiff is electric exactly when it is drawn as
+    /// one. Her neon themes' haze is the one aura she carries, on the record,
+    /// over her roof; a Solarpunk or CivicCampus cyclecar's exhaust floor is
+    /// dropped, so she carries no emitter at all.
+    #[test]
+    fn a_cyclecar_seed_draws_a_cyclecar() {
+        use crate::pds::generator::GeneratorKind;
+        use crate::seeded_defaults::{AvatarCharacter, ThemeArchetype};
+        let (mut hazy, mut clear) = (0, 0);
+        for s in (0u64..3000).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
+            let cyclecar = SkiffType::for_seed(s) == SkiffType::Cyclecar;
+            assert_eq!(
+                propulsion(s) == Propulsion::Electric,
+                cyclecar,
+                "seed {s}: {:?} drives {:?}",
+                SkiffType::for_seed(s),
+                propulsion(s)
+            );
+            if !cyclecar {
+                continue;
+            }
+            let (record, _) = super::super::build_for_seed(s);
+            let emitters: Vec<_> = record
+                .visuals()
+                .expect("a skiff is an assembled tree")
+                .children
+                .iter()
+                .filter(|g| matches!(g.kind, GeneratorKind::ParticleSystem(..)))
+                .collect();
+            match AvatarCharacter::for_seed(s).style {
+                ThemeArchetype::Cyberpunk | ThemeArchetype::AlienMonolithic => {
+                    assert_eq!(emitters.len(), 1, "seed {s}: no neon haze");
+                    assert_eq!(
+                        Some(emitters[0].transform.translation.0),
+                        fx_mount(s, ParticleAura::NeonHaze),
+                        "seed {s}: her haze is not over her roof"
+                    );
+                    hazy += 1;
+                }
+                ThemeArchetype::Solarpunk | ThemeArchetype::CivicCampus => {
+                    assert!(
+                        emitters.is_empty(),
+                        "seed {s}: an electric pod trails an aura"
+                    );
+                    clear += 1;
+                }
+                style => panic!("seed {s}: a cyclecar on {style:?}"),
+            }
+        }
+        assert!(
+            hazy > 10 && clear > 10,
+            "{hazy} hazy cyclecars, {clear} clear"
+        );
+    }
+
     /// Every part of a built roadster meets another, and the whole machine is
     /// one connected component (#1364, the owner's complaint on the
     /// prototype) - on every body, top, wheel and tier it can roll (#1367).
@@ -687,8 +855,9 @@ mod tests {
     ///
     /// Two sweeps, in the sloop's form (#1366). The live seeds, as saved - FX
     /// emitter and engine voice included - and the heaviest thing the family
-    /// can draw: every roadster body, top and wheel, every wagon body and
-    /// every buggy variant at every blueprint corner on the fullest ladder,
+    /// can draw: every roadster body, top and wheel, every wagon body, every
+    /// buggy variant and the cyclecar at every blueprint corner on the
+    /// fullest ladder,
     /// Ornate and Battered, carrying the heaviest FX overhead
     /// any live seed carries. Measured rather than assumed, so a new aura that
     /// grows the emitter moves this too. The phase-1 prototype put the worst
@@ -750,11 +919,30 @@ mod tests {
                 worst_buggy = worst_buggy.max(bytes(&built) + fx_overhead);
             }
         }
+        // And the cyclecar's, at every corner on her fullest ladder and in
+        // the heavier of her one-colour and split pods (#1376): the lightest
+        // skiff, about 14 KB, one pod sweep most of her.
+        let mut worst_cyclecar = 0usize;
+        for bp in corners() {
+            let plan = cyclecar::plan_of(&bp);
+            let split = crate::pds::avatar::livery::CYCLECAR_LIVERIES
+                .iter()
+                .position(|l| l.name == "Pearl over obsidian")
+                .expect("her two-tone is in her list");
+            for livery in [0, split] {
+                let mut ctx = ctx;
+                ctx.livery = Some(livery);
+                let mut built = cyclecar::build_dressed(&ctx, &plan);
+                apply_travel_pose(&mut built, travel_drop(&cyclecar::Cyclecar, &plan, 0));
+                worst_cyclecar = worst_cyclecar.max(bytes(&built) + fx_overhead);
+            }
+        }
         for (what, worst) in [
             ("seeded skiff", worst_seed),
             ("fully dressed corner", worst_corner),
             ("fully dressed wagon", worst_wagon),
             ("fully dressed buggy", worst_buggy),
+            ("fully dressed cyclecar", worst_cyclecar),
         ] {
             assert!(
                 worst * 3 < SOFT_RECORD_BUDGET_BYTES,

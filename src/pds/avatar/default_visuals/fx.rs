@@ -333,8 +333,8 @@ fn aura_emitter(
 // The three vehicle families no longer share one fixed 55 Hz drone, and a
 // luminous style no longer *replaces* the drive (a cyberpunk skiff used to
 // buzz like a sign with no machine underneath). Each craft speaks with its own
-// DRIVE - an airship's rotor thump, a car's detuned putter and a dune buggy's
-// air-cooled clatter, a motor boat's water-washed rumble and a steam tug's
+// DRIVE - an airship's rotor thump, a car's detuned putter, a dune buggy's
+// air-cooled clatter and a cyclecar's electric whine, a motor boat's water-washed rumble and a steam tug's
 // chuff, for a boat under sail no engine at all, only the wash along her hull
 // and the wind in her rig, for a poled scow the lap of water and her sweep's
 // creak, and for a horseless wagon the roll of iron tyres and a timber creak
@@ -401,9 +401,17 @@ pub(super) fn drive_of(family: ChassisFamily, seed: u64) -> Propulsion {
 /// a Roadside dune buggy's picked steam is drawn as the exhaust wisp from
 /// her stinger's mouth, at her own intensity, and a frontier buggy's embers
 /// leave the same mouth.
+///
+/// An electric motor has neither a pipe nor a boiler (#1376, owner decision
+/// 6): a cyclecar drops her exhaust floor and any steam as a rolling wagon
+/// does - no wisp behind a Solarpunk pod or a campus runabout - and her neon
+/// haze stands, a flourish over her roof.
 pub(super) fn drawn_aura(aura: ParticleAura, drive: Propulsion) -> ParticleAura {
     match (aura, drive) {
-        (ParticleAura::Exhaust | ParticleAura::Steam, Propulsion::Rolling) => ParticleAura::None,
+        (
+            ParticleAura::Exhaust | ParticleAura::Steam,
+            Propulsion::Rolling | Propulsion::Electric,
+        ) => ParticleAura::None,
         (ParticleAura::Wake, Propulsion::Steam) => ParticleAura::Steam,
         (ParticleAura::Steam, Propulsion::AirCooled) => ParticleAura::Exhaust,
         (aura, _) => aura,
@@ -457,6 +465,7 @@ pub(super) fn voice_label(seed: u64) -> String {
         (Propulsion::Poled, _) => "lap and sweep creak",
         (Propulsion::Steam, _) => "chuff and thump",
         (Propulsion::AirCooled, _) => "air-cooled clatter",
+        (Propulsion::Electric, _) => "motor whine",
     };
     let bucket = detune_bucket(seed);
     match voice {
@@ -518,6 +527,7 @@ fn family_drive(
         (Propulsion::Poled, _) => scow_lap(g),
         (Propulsion::Steam, _) => tug_chuff(g, detune),
         (Propulsion::AirCooled, _) => buggy_clatter(g, detune),
+        (Propulsion::Electric, _) => motor_whine(g, detune),
     }
 }
 
@@ -862,6 +872,26 @@ fn buggy_clatter(g: &mut GraphBuilder, detune: f32) -> NodeId {
     g.sink(NodeKind::Gain(Gain { gain: 0.35 }), &[fire, tick, fan])
 }
 
+/// A cyclecar's electric motor (#1376, owner decision 6, the owner's pick
+/// c4): a 330 Hz whine and its 660 Hz second over a 110 Hz body, all three
+/// swelling together once a second through one VCA - the one sound no other
+/// craft in the fleet makes. Tonal only, with no noise layer, so it never
+/// steps at the loop seam (0 of 7 buckets, pure or mixed; the noise that
+/// does is #1387's). RMS about 0.095, between the putter's and the sail's.
+fn motor_whine(g: &mut GraphBuilder, detune: f32) -> NodeId {
+    let whine = g.src(NodeKind::Sine(sine(hz(330.0, detune), 0.20)));
+    let second = g.src(NodeKind::Sine(sine(hz(660.0, detune), 0.07)));
+    let body = g.src(NodeKind::Sine(sine(hz(110.0, detune), 0.16)));
+    let swell = g.src(NodeKind::Lfo(Lfo {
+        rate_hz: 1.0,
+        shape: LfoShape::Sine,
+        depth: 0.2,
+        offset: 0.8,
+    }));
+    let whine = g.vca(&[whine, second, body], swell);
+    g.sink(NodeKind::Gain(Gain { gain: 0.62 }), &[whine])
+}
+
 /// Skiff engine - a saw/sine putter around 78 Hz, chugged by a faster LFO;
 /// the two oscillators sit one hertz apart, so they beat once a second for an
 /// idling-motor waver. (They used to sit 1 % apart, a pair that can never
@@ -1021,13 +1051,14 @@ mod audio_tests {
         AvatarVoice::NeonBuzz,
         AvatarVoice::ArcaneShimmer,
     ];
-    const DRIVES: [Propulsion; 6] = [
+    const DRIVES: [Propulsion; 7] = [
         Propulsion::Sail,
         Propulsion::Engine,
         Propulsion::Rolling,
         Propulsion::Poled,
         Propulsion::Steam,
         Propulsion::AirCooled,
+        Propulsion::Electric,
     ];
 
     /// Every voice patch there is: each voice on each chassis under each
@@ -1146,13 +1177,15 @@ mod audio_tests {
     fn a_tonal_voice_meets_itself_at_the_loop_seam() {
         // Asked for each DRIVE explicitly: a skiff seed's drive is its drawn
         // craft's since #1377, and a wagon rolls on noise, which has no pitch
-        // to close. The tug's thump is a pitch under her chuff, and the
-        // buggy's square a pitch under her clatter.
+        // to close. The tug's thump is a pitch under her chuff, the buggy's
+        // square a pitch under her clatter, and the cyclecar's whine is
+        // nothing but pitches (#1376).
         for (family, drive) in [
             (ChassisFamily::Airship, Propulsion::Engine),
             (ChassisFamily::Skiff, Propulsion::Engine),
             (ChassisFamily::Boat, Propulsion::Steam),
             (ChassisFamily::Skiff, Propulsion::AirCooled),
+            (ChassisFamily::Skiff, Propulsion::Electric),
         ] {
             let patch =
                 driven_voice_patch(AvatarVoice::Drive, family, drive, 0).expect("a drive voice");
@@ -1291,6 +1324,7 @@ mod audio_tests {
             (ChassisFamily::Boat, Propulsion::Poled),
             (ChassisFamily::Boat, Propulsion::Steam),
             (ChassisFamily::Skiff, Propulsion::AirCooled),
+            (ChassisFamily::Skiff, Propulsion::Electric),
         ] {
             let patch = driven_voice_patch(AvatarVoice::Drive, family, drive, 3).expect("a drive");
             assert_audible(&patch, &format!("{family:?} {drive:?}"));
@@ -1316,9 +1350,9 @@ mod audio_tests {
 
     #[test]
     fn the_family_drives_are_distinct() {
-        // The eight drive voices - sail, motor boat, rotor, putter, wagon,
-        // scow, tug, buggy - are genuinely different voices, not one shared
-        // hum.
+        // The nine drive voices - sail, motor boat, rotor, putter, wagon,
+        // scow, tug, buggy, cyclecar - are genuinely different voices, not
+        // one shared hum.
         let baked: Vec<Vec<f32>> = [
             (ChassisFamily::Boat, Propulsion::Sail),
             (ChassisFamily::Boat, Propulsion::Engine),
@@ -1328,6 +1362,7 @@ mod audio_tests {
             (ChassisFamily::Boat, Propulsion::Poled),
             (ChassisFamily::Boat, Propulsion::Steam),
             (ChassisFamily::Skiff, Propulsion::AirCooled),
+            (ChassisFamily::Skiff, Propulsion::Electric),
         ]
         .iter()
         .map(|&(family, drive)| {
@@ -1357,7 +1392,8 @@ mod audio_tests {
     /// Rounding to whole hertz (#1385) keeps the detune audible: the motor
     /// boat's 40 Hz still spreads over three pitches across the buckets, and
     /// the skiff's 78 Hz over five - and the lowest tonal drive, the dune
-    /// buggy's 29 Hz firing note (#1374), over three.
+    /// buggy's 29 Hz firing note (#1374), over three; the cyclecar's 330 Hz
+    /// whine (#1376) over five.
     #[test]
     fn whole_hertz_keeps_the_detune_spread() {
         for (family, base, fewest) in [
@@ -1365,6 +1401,7 @@ mod audio_tests {
             (ChassisFamily::Airship, 52.0, 5),
             (ChassisFamily::Skiff, 78.0, 5),
             (ChassisFamily::Skiff, 29.0, 3),
+            (ChassisFamily::Skiff, 330.0, 5),
         ] {
             let mut pitches: Vec<i32> = (0..DETUNE_BUCKETS)
                 .map(|b| hz(base, detune_factor(b)) as i32)
@@ -1433,12 +1470,49 @@ mod audio_tests {
         );
     }
 
-    /// A rolling craft trails neither exhaust nor steam, and keeps every
-    /// other aura; no other drive loses any (#1377). A boiler turns the wake
-    /// floor to steam (#1370), and an air-cooled engine turns a picked steam
-    /// into her exhaust (#1374); no other drive changes one.
+    /// And the cyclecar's (#1376), both ways: every seed drawn as a cyclecar
+    /// is electric and whines - her voice's oscillators are sines and nothing
+    /// else, the 330 Hz whine among them - and no other skiff seed is
+    /// electric. The unbuilt picks drawn as roadsters keep the putter.
     #[test]
-    fn only_a_rolling_craft_drops_exhaust_and_steam() {
+    fn a_skiff_hums_exactly_when_it_is_drawn_as_a_cyclecar() {
+        use crate::seeded_defaults::SkiffType;
+        let (mut cyclecars, mut others) = (0, 0);
+        for s in (0u64..600).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
+            let cyclecar = SkiffType::for_seed(s) == SkiffType::Cyclecar;
+            let drive = drive_of(ChassisFamily::Skiff, s);
+            assert_eq!(
+                drive == Propulsion::Electric,
+                cyclecar,
+                "seed {s}: {drive:?}"
+            );
+            let patch = voice_patch(AvatarVoice::Drive, ChassisFamily::Skiff, s).unwrap();
+            let oscs = oscillators(&patch);
+            let whines = !oscs.is_empty()
+                && oscs.iter().all(|k| matches!(k, NodeKind::Sine(_)))
+                && oscs.iter().any(|k| {
+                    matches!(k, NodeKind::Sine(o) if o.freq_hz == hz(330.0, detune_factor(detune_bucket(s))))
+                });
+            assert_eq!(whines, cyclecar, "seed {s}: a motor whine is {whines}");
+            if cyclecar {
+                cyclecars += 1;
+            } else {
+                others += 1;
+            }
+        }
+        assert!(
+            cyclecars > 5 && others > 10,
+            "{cyclecars} cyclecars, {others} others"
+        );
+    }
+
+    /// A rolling craft trails neither exhaust nor steam, and keeps every
+    /// other aura (#1377); nor does an electric one (#1376); no other drive
+    /// loses any. A boiler turns the wake floor to steam (#1370), and an
+    /// air-cooled engine turns a picked steam into her exhaust (#1374); no
+    /// other drive changes one.
+    #[test]
+    fn only_a_rolling_or_electric_craft_drops_exhaust_and_steam() {
         use crate::seeded_defaults::ParticleAura as A;
         let all = [
             A::None,
@@ -1454,7 +1528,8 @@ mod audio_tests {
         for drive in DRIVES {
             for aura in all {
                 let drawn = drawn_aura(aura, drive);
-                let dropped = drive == Propulsion::Rolling && matches!(aura, A::Exhaust | A::Steam);
+                let dropped = matches!(drive, Propulsion::Rolling | Propulsion::Electric)
+                    && matches!(aura, A::Exhaust | A::Steam);
                 let promoted = drive == Propulsion::Steam && aura == A::Wake;
                 let folded = drive == Propulsion::AirCooled && aura == A::Steam;
                 assert_eq!(

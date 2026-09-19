@@ -19,7 +19,7 @@ use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
 
 use super::frame::Frame;
-use super::{NEAR, line, outboard, side, solid, tyre_half_width};
+use super::{NEAR, line, outboard, rim_profile, side, solid, tyre_half_width, tyre_profile};
 
 /// The front A-arms, the coilovers, the trailing arms and the axle shafts.
 pub(super) fn suspension(kids: &mut Vec<Generator>, f: &Frame, c: &BuggyColours) {
@@ -91,43 +91,6 @@ pub(super) fn suspension(kids: &mut Vec<Generator>, f: &Frame, c: &BuggyColours)
     }
 }
 
-/// A fat off-road tyre of radius `r` and half-width `w`: squared shoulders
-/// and a single crown point at `r`, so the drawn tyre reaches exactly the
-/// axle's radius and stands on the ground. Its end caps are solid discs at
-/// `0.86 w`.
-fn tyre_profile(r: f32, w: f32) -> [(f32, f32); 9] {
-    let lip = r * 0.58;
-    [
-        (lip, -w * 0.86),
-        (r * 0.80, -w),
-        (r * 0.95, -w * 0.93),
-        (r * 0.995, -w * 0.55),
-        (r, 0.0),
-        (r * 0.995, w * 0.55),
-        (r * 0.95, w * 0.93),
-        (r * 0.80, w),
-        (lip, w * 0.86),
-    ]
-}
-
-/// A wide mag rim standing proud of the tyre's end caps on BOTH faces, at
-/// `1.10 w`.
-fn rim_profile(r: f32, w: f32) -> [(f32, f32); 10] {
-    let lip = r * 0.58;
-    [
-        (0.0, -w * 1.10),
-        (lip * 0.30, -w * 1.06),
-        (lip * 0.42, -w * 0.92),
-        (lip * 1.00, -w * 0.90),
-        (lip * 1.03, -w * 0.50),
-        (lip * 1.03, w * 0.50),
-        (lip * 1.00, w * 0.90),
-        (lip * 0.42, w * 0.92),
-        (lip * 0.30, w * 1.06),
-        (0.0, w * 1.10),
-    ]
-}
-
 /// The four wheels on the plan's anchors, front axle first. A worn buggy's
 /// near rear wheel - the one the chase quarter shows whole - rolls on the
 /// mismatched rim.
@@ -154,32 +117,4 @@ pub(super) fn spare(
 ) {
     kids.push(solid(&tyre_profile(r, w), 24, true, &c.tyre, at, rotation));
     kids.push(solid(&rim_profile(r, w), 20, false, &c.rim, at, rotation));
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A tyre reaches exactly its radius and no further, so with its axle one
-    /// radius over the ground it stands ON the ground; and the rim stands
-    /// proud of both of the tyre's end caps, or the drum swallows it.
-    #[test]
-    fn the_tyre_meets_the_ground_and_the_rim_stands_proud() {
-        for r in [0.2f32, 0.31, 0.37, 0.5] {
-            for w in [r * 0.26, r * 0.38] {
-                let tyre = tyre_profile(r, w);
-                let widest = tyre.iter().map(|&(x, _)| x).fold(0.0f32, f32::max);
-                assert!(
-                    (widest - r).abs() < 1e-6,
-                    "the tyre is {widest} across a {r} wheel"
-                );
-                let cap = tyre[0].1.abs().max(tyre[tyre.len() - 1].1.abs());
-                let rim = rim_profile(r, w);
-                assert!(
-                    rim[0].1 < -cap && rim[rim.len() - 1].1 > cap,
-                    "the rim is inside the tyre's end caps at {cap}"
-                );
-            }
-        }
-    }
 }

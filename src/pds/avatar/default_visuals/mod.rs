@@ -61,9 +61,10 @@ use super::locomotion::{
 /// and only an engine hums. A horseless wagon has neither: it ROLLS, and what
 /// is heard is its running gear - iron tyres on the track and a timber creak
 /// (#1377). A third variant rather than a flag beside the enum, so no skiff
-/// can be under sail and no wagon can putter; a scow's pole, a tug's boiler
-/// and a dune buggy's air-cooled four are variants for the same reason. The
-/// airship's rotors are an engine by construction.
+/// can be under sail and no wagon can putter; a scow's pole, a tug's boiler,
+/// a dune buggy's air-cooled four and a cyclecar's electric motor are
+/// variants for the same reason. The airship's rotors are an engine by
+/// construction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Propulsion {
     /// Sails: no engine note at all.
@@ -87,6 +88,11 @@ enum Propulsion {
     /// radiator to steam, so a Roadside buggy's picked steam is drawn as her
     /// exhaust (`fx::drawn_aura`).
     AirCooled,
+    /// An electric motor (#1376): a clean tonal whine where every other car
+    /// on the road putters or clatters. The cyclecar's - and a motor has no
+    /// pipe and no boiler, so she trails neither exhaust nor steam
+    /// (`fx::drawn_aura`), as a rolling wagon does not.
+    Electric,
 }
 
 impl Propulsion {
@@ -99,6 +105,7 @@ impl Propulsion {
             Self::Poled => "poled and sculled",
             Self::Steam => "under steam",
             Self::AirCooled => "under power, air-cooled",
+            Self::Electric => "under power, electric",
         }
     }
 }

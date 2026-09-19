@@ -7,8 +7,9 @@ use crate::pds::avatar::livery;
 use crate::pds::{Generator, GeneratorKind, Placement, RoomRecord};
 use crate::seeded_defaults::hash::fnv1a_64;
 use crate::seeded_defaults::{
-    BoatType, BuggyVariant, ChassisFamily, CraftType, RoadsterBody, RoadsterTop, RoadsterWheels,
-    RunaboutVariant, ScowLoad, SkiffType, SloopHull, SloopRig, TugVariant, WagonBody,
+    AvatarPalette, BoatType, BuggyVariant, ChassisFamily, CraftType, RoadsterBody, RoadsterTop,
+    RoadsterWheels, RunaboutVariant, ScowLoad, SkiffType, SloopHull, SloopRig, TugVariant,
+    WagonBody,
 };
 
 use super::Args;
@@ -162,6 +163,8 @@ pub(super) fn print_outfit(subject: &str) {
                 CraftType::Skiff(SkiffType::DuneBuggy) => {
                     livery::buggy_livery(seed, BuggyVariant::for_seed(seed), None).name
                 }
+                // And a cyclecar (#1376).
+                CraftType::Skiff(SkiffType::Cyclecar) => livery::cyclecar_livery(seed, None).name,
                 CraftType::Skiff(_) => livery::skiff_livery(seed, None).name,
             }
         );
@@ -177,8 +180,8 @@ pub(super) fn print_outfit(subject: &str) {
             );
         }
         // And the roadster's own three picks (#1367), for every skiff drawn
-        // as one - every skiff but a wagon or a dune buggy, until the other
-        // types are built.
+        // as one - every skiff but a wagon, a dune buggy or a cyclecar, until
+        // the other types are built.
         if let CraftType::Skiff(t) = craft
             && (t == SkiffType::Roadster || !t.implemented())
         {
@@ -211,13 +214,23 @@ pub(super) fn print_outfit(subject: &str) {
             println!("  buggy: {}", BuggyVariant::for_seed(seed).label());
         }
     }
-    // And its voice (#1383), for every family: which drive a boat speaks
-    // with is the DRAWN craft's, and the detune bucket says whether two
-    // craft idle at one pitch.
     let seed = match subject.parse::<u64>() {
         Ok(seed) => seed,
         Err(_) => fnv1a_64(subject),
     };
+    // And its seeded palette's primary accent (#1376), for every subject:
+    // what every identity slot is cleared from, which a dump only carries
+    // once a craft has cleared it - so a python twin can compute a lit strip
+    // or a rim exactly. Three channels to four places, in this form; the
+    // twins' checkers parse it.
+    let accent = AvatarPalette::for_seed(seed).primary_accent;
+    println!(
+        "  palette: primary {:.4}, {:.4}, {:.4}",
+        accent[0], accent[1], accent[2]
+    );
+    // And its voice (#1383), for every family: which drive a boat speaks
+    // with is the DRAWN craft's, and the detune bucket says whether two
+    // craft idle at one pitch.
     println!(
         "  voice: {}",
         crate::pds::avatar::default_visuals::voice_label(seed)

@@ -20,17 +20,20 @@
 //!
 //! - The **scheme** owns every large surface: topsides, antifoul, deck,
 //!   canvas and varnish on a boat; coachwork, wings and brightwork on a car,
-//!   and the tube frame on a dune buggy (#1374). It is picked per seed from
-//!   a curated list on this module's own salted stream, exactly as the craft
-//!   TYPE is picked in [`crate::seeded_defaults::avatar::craft`].
+//!   the tube frame on a dune buggy (#1374), and a cyclecar's pod (#1376).
+//!   It is picked per seed from a curated list on this module's own salted
+//!   stream, exactly as the craft TYPE is picked in
+//!   [`crate::seeded_defaults::avatar::craft`].
 //! - The **seeded accent** ([`primary_accent`](crate::seeded_defaults::AvatarPalette::primary_accent))
 //!   is spent on the
 //!   identity slots ONLY: the boot stripe, the burgee and the jib on a boat,
 //!   and the band round a steam tug's funnel (#1370);
 //!   the coachline, the wheel centres and the hide on a car; a horseless
 //!   wagon's spoked wheels (#1377); a dune buggy's rims and the hide of her
-//!   seats (#1374). The secondary still tints the antifoul and the upholstery a little so two craft of one
-//!   scheme are not identical, and the tertiary still lights the windows.
+//!   seats (#1374); a cyclecar's rims and the strip along her flanks
+//!   (#1376). The secondary still tints the antifoul and the upholstery a
+//!   little so two craft of one scheme are not identical, and the tertiary
+//!   still lights the windows.
 //!
 //! Both the accent hue and the livery index are DID-seeded and independent,
 //! so two owners rarely match, and a craft stays recognisable by its trim
@@ -555,6 +558,76 @@ pub fn buggy_livery(seed: u64, variant: BuggyVariant, over: Option<usize>) -> &'
         BuggyVariant::Raider => pick(RAIDER_LIVERIES, |l| l.weight, seed, over),
         BuggyVariant::Rail | BuggyVariant::Beach => pick(BUGGY_LIVERIES, |l| l.weight, seed, over),
     }
+}
+
+/// A cyclecar's scheme (#1376): her pod, and on a two-tone the colour under
+/// its widest line.
+///
+/// She has a list of her own, as the wagon and the buggy do, and for the
+/// buggy's reason turned round: the heritage car schemes are a 1920s
+/// coachbuilder's colours - racing green, cream - on a neon machine, and the
+/// hardtop roadster beside her wears exactly those. Her schemes are neutral
+/// and deep coachwork a lit accent reads against. And a heritage two-tone
+/// collapses on a wingless pod (there is nowhere for "over black" to go), so
+/// her one two-tone draws a SPLIT pod instead: the upper half in `body`, the
+/// lower half and the spat in `lower`.
+#[derive(Clone, Copy, Debug)]
+pub struct CyclecarLivery {
+    /// See [`BoatLivery::name`].
+    pub name: &'static str,
+    weight: u32,
+    /// The pod, and her fin, lamp shells and cycle wings.
+    body: [f32; 3],
+    /// A two-tone's lower half-pod and spat, or `None` for one colour.
+    lower: Option<[f32; 3]>,
+}
+
+/// The cyclecar's six schemes (#1376), as the owner agreed them on the
+/// phase-1 renders, weights and order: the pick walks the table in this
+/// order.
+pub const CYCLECAR_LIVERIES: &[CyclecarLivery] = &[
+    CyclecarLivery {
+        name: "Obsidian",
+        weight: 5,
+        body: [0.030, 0.030, 0.036],
+        lower: None,
+    },
+    CyclecarLivery {
+        name: "Pearl",
+        weight: 4,
+        body: [0.86, 0.86, 0.84],
+        lower: None,
+    },
+    CyclecarLivery {
+        name: "Midnight",
+        weight: 4,
+        body: [0.05, 0.08, 0.22],
+        lower: None,
+    },
+    CyclecarLivery {
+        name: "Pearl over obsidian",
+        weight: 3,
+        body: [0.86, 0.86, 0.84],
+        lower: Some([0.030, 0.030, 0.036]),
+    },
+    CyclecarLivery {
+        name: "Quicksilver",
+        weight: 3,
+        body: [0.60, 0.62, 0.66],
+        lower: None,
+    },
+    CyclecarLivery {
+        name: "Ultraviolet",
+        weight: 3,
+        body: [0.20, 0.07, 0.32],
+        lower: None,
+    },
+];
+
+/// The scheme this cyclecar seed wears, a pick from [`CYCLECAR_LIVERIES`];
+/// `over` wraps inside it (`render --livery 0` is Obsidian, `1` Pearl).
+pub fn cyclecar_livery(seed: u64, over: Option<usize>) -> &'static CyclecarLivery {
+    pick(CYCLECAR_LIVERIES, |l| l.weight, seed, over)
 }
 
 // ---------------------------------------------------------------------------
@@ -1516,6 +1589,79 @@ pub(crate) fn buggy_colours(ctx: &PartCtx, variant: BuggyVariant) -> BuggyColour
     }
 }
 
+/// The surfaces a cyclecar is built in (#1376): her scheme on the pod, the
+/// seeded accent on her rims and along her flanks, and the colours the rest
+/// of her simply is.
+///
+/// What glows is decided here and nowhere else: the strip and the rims are
+/// the accent through [`trim`], lit on a luminous kit and paint on a flat
+/// one; the window band and the headlamps are lit on every theme, as every
+/// lamp and window band is; the tail light glows; nothing else does.
+pub(crate) struct CyclecarColours {
+    /// The pod (its upper half on a two-tone), the fin, the cycle wings and
+    /// the lamp shells: the scheme, floored off the tyres like any coachwork
+    /// ([`GUARD_FLOOR`]).
+    pub(crate) body: SovereignMaterialSettings,
+    /// A two-tone's lower half-pod and the spat, floored likewise; `None` on
+    /// a one-colour scheme, where the spat is `body`.
+    pub(crate) lower: Option<SovereignMaterialSettings>,
+    /// **Identity.** The accent strip along each flank: the coachline's own
+    /// rule, held clear of the pod it lies on.
+    pub(crate) trim: SovereignMaterialSettings,
+    /// **Identity.** The rims, held clear of the tyre they are set into.
+    pub(crate) rim: SovereignMaterialSettings,
+    /// A worn cyclecar's near-front rim: bare steel, paint on every kit - so
+    /// on a lit kit it reads as a dead rim.
+    pub(crate) odd_rim: SovereignMaterialSettings,
+    pub(crate) tyre: SovereignMaterialSettings,
+    /// The stub axles, the fork, the cycle wings' stays and the hidden hub.
+    pub(crate) arm: SovereignMaterialSettings,
+    /// The headlamps' lenses and the window band: the tertiary's light.
+    pub(crate) lamp: SovereignMaterialSettings,
+    pub(crate) glass: SovereignMaterialSettings,
+    pub(crate) tail_lamp: SovereignMaterialSettings,
+    /// A battered cyclecar's patch on her tail: grey primer held clear of
+    /// the pod, and floored off the tyres like any coachwork.
+    pub(crate) primer: SovereignMaterialSettings,
+}
+
+/// How far the rims are held from the tyre's value, and the bare steel of a
+/// worn cyclecar's odd rim.
+const CYCLECAR_RIM_DELTA: f32 = 0.30;
+const CYCLECAR_ODD_RIM: [f32; 3] = [0.58, 0.58, 0.60];
+
+pub(crate) fn cyclecar_colours(ctx: &PartCtx) -> CyclecarColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let l = cyclecar_livery(ctx.seed, ctx.livery);
+    // An obsidian pod is the point of her, but never as dark as the tyres.
+    let body = floor_finished(m, l.body, GUARD_FLOOR);
+    // Both identity slots are cleared UP off a dark reference or off the
+    // pod, and neither is floored after clearing: the clear-then-floor order
+    // that undid the buggy's rims (#1374, #1389) never arises.
+    let glass = window_material(window_light(p.tertiary_accent));
+    CyclecarColours {
+        body: m.paint(body),
+        lower: l.lower.map(|c| m.paint(floor_finished(m, c, GUARD_FLOOR))),
+        trim: trim(m, clear_of(p.primary_accent, luma(body), COACHLINE_DELTA)),
+        rim: trim(
+            m,
+            clear_of(p.primary_accent, luma(TYRE), CYCLECAR_RIM_DELTA),
+        ),
+        odd_rim: m.paint(floor_finished(m, CYCLECAR_ODD_RIM, GUARD_FLOOR)),
+        tyre: m.rubber(TYRE),
+        arm: m.paint(MACHINERY),
+        lamp: glass.clone(),
+        glass,
+        tail_lamp: m.glow(TAIL_LAMP),
+        primer: m.paint(floor_finished(
+            m,
+            clear_of(PRIMER, luma(body), PRIMER_DELTA),
+            GUARD_FLOOR,
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1586,6 +1732,19 @@ mod tests {
                 "a {variant:?} livery is unreachable: {hits:?}"
             );
         }
+        // And the cyclecar's own six (#1376).
+        let mut cyclecars = vec![0usize; CYCLECAR_LIVERIES.len()];
+        for s in 0u64..4_000 {
+            let c = cyclecar_livery(s, None);
+            cyclecars[CYCLECAR_LIVERIES
+                .iter()
+                .position(|l| l.name == c.name)
+                .expect("the pick came from the table")] += 1;
+        }
+        assert!(
+            cyclecars.iter().all(|&n| n > 0),
+            "a cyclecar livery is unreachable: {cyclecars:?}"
+        );
     }
 
     /// The hearse and the ox-cart wear their forced schemes whatever the seed
@@ -1633,6 +1792,17 @@ mod tests {
                 assert_eq!(buggy_livery(9, variant, Some(i + table.len())).name, l.name);
             }
         }
+        // And a cyclecar's inside her own list (#1376): the agreed ladder
+        // sheets draw Obsidian as `--livery 0` and Pearl as `--livery 1`.
+        for (i, l) in CYCLECAR_LIVERIES.iter().enumerate() {
+            assert_eq!(cyclecar_livery(7, Some(i)).name, l.name);
+            assert_eq!(
+                cyclecar_livery(9, Some(i + CYCLECAR_LIVERIES.len())).name,
+                l.name
+            );
+        }
+        assert_eq!(cyclecar_livery(3, Some(0)).name, "Obsidian");
+        assert_eq!(cyclecar_livery(3, Some(1)).name, "Pearl");
     }
 
     /// No painted surface on a land-skiff carries the tyres' own value, on
@@ -2026,6 +2196,92 @@ mod tests {
             }
         }
         assert!(lit > 0 && dark > 0, "{lit} lit skimmer rails, {dark} dark");
+    }
+
+    /// A cyclecar glows at her rims and her strip, and nowhere else she is
+    /// painted (#1376, owner decision 5) - both directions, on every scheme
+    /// of her list over every skiff seed under 900, so the population's kits
+    /// are the wear sweep. Her pod, its lower half, the spat, the fin, the
+    /// cycle wings, the arms, the fork, the odd rim and the primer are paint
+    /// on every kit; the window band and the headlamps are the tertiary's
+    /// window light on every kit; the strip and the rims are lit exactly when
+    /// the kit is luminous, un-grimed (base = emission colour). On a flat kit
+    /// the finished strip is held clear of the finished pod and the finished
+    /// rim clear of the tyre, by the 0.6 x delta the grime leaves.
+    #[test]
+    fn a_cyclecar_glows_only_at_her_rims_and_strip() {
+        let (mut lit, mut dark) = (0, 0);
+        for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
+            let mut ctx = PartCtx::for_seed(s);
+            let luminous = ctx.materials.emissive_accents();
+            let window = window_material(window_light(ctx.palette.tertiary_accent));
+            for (i, scheme) in CYCLECAR_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = cyclecar_colours(&ctx);
+                assert_eq!(c.lower.is_some(), scheme.lower.is_some());
+                let mut paint = vec![
+                    ("pod, fin, wings and spat", &c.body),
+                    ("odd rim", &c.odd_rim),
+                    ("primer", &c.primer),
+                    ("arms and fork", &c.arm),
+                ];
+                if let Some(lower) = &c.lower {
+                    paint.push(("lower pod and spat", lower));
+                }
+                for (what, m) in paint {
+                    assert_eq!(
+                        m.emission_strength.0, 0.0,
+                        "seed {s} in {}: the {what} is self-lit",
+                        scheme.name
+                    );
+                }
+                for (what, m) in [("window band", &c.glass), ("headlamps", &c.lamp)] {
+                    assert_eq!(
+                        *m, window,
+                        "seed {s} in {}: the {what} is not the window light",
+                        scheme.name
+                    );
+                }
+                for (what, m) in [("strip", &c.trim), ("rims", &c.rim)] {
+                    let on = m.emission_strength.0 > 0.0;
+                    assert_eq!(
+                        on, luminous,
+                        "seed {s} in {}: the {what} is lit {on} on a kit luminous {luminous}",
+                        scheme.name
+                    );
+                    if luminous {
+                        assert_eq!(
+                            m.base_color, m.emission_color,
+                            "seed {s} in {}: the lit {what} is grimed",
+                            scheme.name
+                        );
+                    }
+                }
+                if !luminous {
+                    let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                    for (what, a, b, delta) in [
+                        ("strip", &c.trim, &c.body, COACHLINE_DELTA),
+                        ("rims", &c.rim, &c.tyre, CYCLECAR_RIM_DELTA),
+                    ] {
+                        let d = (l(a) - l(b)).abs();
+                        assert!(
+                            d > delta * 0.6,
+                            "seed {s} in {}: the {what} is {d} from what it lies on",
+                            scheme.name
+                        );
+                    }
+                }
+            }
+            if luminous {
+                lit += 1;
+            } else {
+                dark += 1;
+            }
+        }
+        assert!(
+            lit > 0 && dark > 0,
+            "the population saw only one kind: {lit} lit, {dark} dark"
+        );
     }
 
     /// Two owners rarely wear the same livery AND the same accent: the two
