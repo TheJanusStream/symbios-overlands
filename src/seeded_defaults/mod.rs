@@ -92,7 +92,7 @@ pub use avatar::{
     CraftType, FinishRegister, MaterialKit, NOMINAL_BODY_LEN, NOMINAL_HULL_LEN, OrnatenessBand,
     OrnatenessTier, OutfitPart, ParticleAura, RoadsterBody, RoadsterTop, RoadsterWheels,
     SkiffBlueprint, SkiffType, SloopHull, SloopRig, StylizationTier, VehicleBlueprint,
-    VehicleStance, WearBand, WearTier,
+    VehicleStance, WagonBody, WearBand, WearTier,
 };
 // Re-exported as a module, not item by item: the mood groups are read as a
 // named set (`mood::NEON`), and the vehicle part catalogue reaches them from

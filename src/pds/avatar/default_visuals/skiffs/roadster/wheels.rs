@@ -20,8 +20,8 @@ use crate::pds::generator::Generator;
 use crate::seeded_defaults::RoadsterWheels;
 
 use super::super::super::common::quat_z;
-use super::super::plan::BodyPlan;
 use super::super::{SkiffColours, dim};
+use super::RoadsterPlan;
 use super::{line, turned};
 
 /// The three turned silhouettes a wheel is made of.
@@ -57,7 +57,7 @@ pub(super) trait Wheels: Sync {
     }
 
     /// Draw the road wheels on every anchor the plan publishes.
-    fn build(&self, kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours) {
+    fn build(&self, kids: &mut Vec<Generator>, plan: &RoadsterPlan, c: &SkiffColours) {
         let w = self.profiles(plan.wheel_r);
         for anchor in plan.wheel_anchors() {
             let lay = lay(anchor[0]);
@@ -206,7 +206,7 @@ impl Wheels for Wire {
     /// tyre's end cap and dish outboard to the hub; they carry the wheel
     /// centre's identity colour, and on a luminous style they glow. No rotated
     /// node: a spine takes explicit points.
-    fn build(&self, kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours) {
+    fn build(&self, kids: &mut Vec<Generator>, plan: &RoadsterPlan, c: &SkiffColours) {
         let base = pressed_disc(plan.wheel_r);
         let lip = plan.wheel_r * 0.683;
         let w = plan.wheel_r * 0.193;

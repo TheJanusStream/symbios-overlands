@@ -53,6 +53,37 @@ use super::locomotion::{
     LocomotionPreset,
 };
 
+/// How a craft is driven, which is what she sounds like - asked of the craft
+/// that is DRAWN, never of the type a seed picked, so the voice is right
+/// before every type is built (#1383).
+///
+/// Under sail a boat carries the wash along her hull and the wind in her rig,
+/// and only an engine hums. A horseless wagon has neither: it ROLLS, and what
+/// is heard is its running gear - iron tyres on the track and a timber creak
+/// (#1377). A third variant rather than a flag beside the enum, so no skiff
+/// can be under sail and no wagon can putter. The airship's rotors are an
+/// engine by construction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Propulsion {
+    /// Sails: no engine note at all.
+    Sail,
+    /// An engine, whose note is the family's.
+    Engine,
+    /// No engine and no sail: the rumble of iron tyres and a creak.
+    Rolling,
+}
+
+impl Propulsion {
+    /// What `render --outfit` says of it.
+    fn label(self) -> &'static str {
+        match self {
+            Self::Sail => "under sail",
+            Self::Engine => "under power",
+            Self::Rolling => "rolling on iron tyres",
+        }
+    }
+}
+
 /// Build the full seeded default avatar (body + locomotion) for a
 /// DID. Deterministic: every peer derives the identical record.
 pub fn build_for_did(did: &str) -> (RecordBody, LocomotionConfig) {
@@ -117,7 +148,13 @@ fn build_seeded(seed: u64, livery: Option<usize>) -> (RecordBody, LocomotionConf
     // chassis wake / vent / exhaust) + body voice on the built root. The mount
     // is snapped to the seeded blueprint landmark for the aura - a boat's steam
     // leaves its funnel, its wake rides the stern - via [`fx_mount`].
+    // The PICKED aura is resolved against the drawn craft's drive first: a
+    // rolling wagon has no pipe to trail exhaust from (#1377).
     let fx = AvatarFx::for_seed(seed);
+    let fx = AvatarFx {
+        aura: fx::drawn_aura(fx.aura, fx::drive_of(family, seed)),
+        ..fx
+    };
     let accent = AvatarPalette::for_seed(seed).primary_accent;
     fx::attach(
         &mut visuals,

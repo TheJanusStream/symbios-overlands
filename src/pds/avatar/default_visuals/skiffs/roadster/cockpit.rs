@@ -9,13 +9,13 @@ use std::f32::consts::FRAC_PI_2;
 use crate::pds::generator::Generator;
 
 use super::super::super::common::{bevel, id_quat, prim, quat_x, quat_xyzw};
-use super::super::plan::BodyPlan;
 use super::super::{SkiffColours, dim};
+use super::RoadsterPlan;
 use super::{TUB_HOLLOW, line, turned};
 
 /// The screen frame, the seat, the column and the wheel, and a bench where the
 /// body has a second row.
-pub(super) fn build(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours) {
+pub(super) fn build(kids: &mut Vec<Generator>, plan: &RoadsterPlan, c: &SkiffColours) {
     let l = plan.length;
     // The screen stands at the cockpit's FORWARD lip, not at the cowl: on the
     // cowl it leaves half a metre of bare scuttle behind it and reads as a
@@ -86,7 +86,7 @@ pub(super) fn build(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours
 /// the bore's floor AT ITS OWN STATION. Taking the floor depth amidships
 /// instead floats the back a finger clear of it, which is the same class of
 /// mistake as a mount on a guessed fraction.
-fn seat(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours, sz: f32) {
+fn seat(kids: &mut Vec<Generator>, plan: &RoadsterPlan, c: &SkiffColours, sz: f32) {
     let l = plan.length;
     let cz = sz + 0.062 * l;
     kids.push(prim(

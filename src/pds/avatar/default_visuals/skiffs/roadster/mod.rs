@@ -53,8 +53,9 @@ use crate::seeded_defaults::{
     ParticleAura, RoadsterBody, RoadsterTop, RoadsterWheels, SkiffBlueprint,
 };
 
+use super::super::Propulsion;
 use super::super::common::{cuboid, id_quat, lathe, prim, quat_xyzw, spine, with_cut};
-use super::plan::{Axle, BodyPlan, Layout, TailMount};
+use super::plan::{Axle, BodyPlan};
 use super::{SkiffCraft, SkiffFeel, dim, skiff_colours};
 
 /// Section depth per unit half-width - the ONE node scale every body sweep
@@ -86,10 +87,12 @@ const AXLES: &[Axle] = &[
     Axle {
         at: 1.0,
         paired: true,
+        radius: 1.0,
     },
     Axle {
         at: -1.0,
         paired: true,
+        radius: 1.0,
     },
 ];
 
@@ -144,6 +147,147 @@ const TOURER: &[(f32, f32)] = &[
     (0.422, 0.70),
 ];
 
+/// What a body offers its tail's one mount: the spare wheel every roadster
+/// carries, or the trunk that takes its place on an Ornate one (#1367).
+///
+/// Published by the body because the car as built restated it - a spare at
+/// `-0.462` of the length on the crown there - and on a shorter tail that
+/// fraction is past the end: the wheel stood 34 mm clear of a bobtail's back,
+/// touching it with nothing but its lowest rim.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum TailMount {
+    /// On the tail deck near the tip, leaning back - a boat-tail, which has no
+    /// back to stand a wheel against.
+    Deck {
+        /// Station, as a z fraction of the overall length.
+        at: f32,
+        /// How far over the deck's crown a mounted wheel's centre rides, as a
+        /// fraction of the length.
+        lift: f32,
+        /// How far the wheel leans back from upright (rad).
+        lean: f32,
+    },
+    /// Against the blunt back panel of a bobtail or a tourer.
+    Back {
+        /// How far a mounted wheel is pressed into the panel, as a fraction of
+        /// its own half-width: contact by CONSTRUCTION, because the touch
+        /// guard cannot see a gap at a blunt end - its tube is a chain of
+        /// capsules, and where a sweep closes fast they bulge out past the
+        /// drawn end cap (#1367).
+        sink: f32,
+        /// How far the wheel leans back from upright (rad).
+        lean: f32,
+    },
+}
+
+/// Where the roadster puts the stations along its body - its own, not the
+/// family's: a wagon has no cowl and no radiator (#1377), so these moved here
+/// from the shared plan rather than every type filling in fields that mean
+/// nothing to it.
+///
+/// Separate from the plan-form table because the two answer different
+/// questions - the table is the body's *shape*, this is what is arranged along
+/// it - and because the roadster builds several bodies over one layout idiom
+/// (its boat-tail, bobtail and tourer, #1367).
+#[derive(Debug)]
+pub(super) struct Layout {
+    /// Where the bonnet gives way to the scuttle, as a z fraction of the
+    /// overall length.
+    cowl: f32,
+    /// The cockpit opening's after and forward ends, likewise. Everything
+    /// between them is open: the tub's bored shell is the footwell and the
+    /// scuttle and tail deck stop at these two stations.
+    cockpit: (f32, f32),
+    /// The seat back's station.
+    seat: f32,
+    /// The radiator shell's face.
+    radiator: f32,
+    /// The bumper bar, which is what actually sets the overall length.
+    bumper: f32,
+    /// The tail lamps' station, where this body's quarter still has the
+    /// width to carry them. Restated as `-0.448` of the length the lamps stood
+    /// 32 mm behind a bobtail's back (#1367).
+    tail_lamps: f32,
+    /// A second row's seat station, or `None` for a two-seater.
+    bench: Option<f32>,
+    /// The tail's one mount.
+    tail: TailMount,
+}
+
+/// The roadster's plan: the family's [`BodyPlan`] and the roadster's own
+/// [`Layout`] along it. Every roadster part reads this; it derefs to the
+/// plan, so the shared surface (`crown_at`, `side_at`, the wheels) reads
+/// exactly as before.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct RoadsterPlan {
+    plan: BodyPlan,
+    layout: &'static Layout,
+}
+
+impl std::ops::Deref for RoadsterPlan {
+    type Target = BodyPlan;
+    fn deref(&self) -> &BodyPlan {
+        &self.plan
+    }
+}
+
+impl RoadsterPlan {
+    /// The scuttle break - the bonnet's after end, and the screen's foot.
+    pub(super) fn cowl_z(&self) -> f32 {
+        self.layout.cowl * self.length
+    }
+
+    /// The cockpit opening's after and forward ends (m).
+    pub(super) fn cockpit_z(&self) -> (f32, f32) {
+        (
+            self.layout.cockpit.0 * self.length,
+            self.layout.cockpit.1 * self.length,
+        )
+    }
+
+    /// The seat back's station (m).
+    pub(super) fn seat_z(&self) -> f32 {
+        self.layout.seat * self.length
+    }
+
+    /// The radiator shell's face, and the bumper bar (m).
+    pub(super) fn radiator_z(&self) -> f32 {
+        self.layout.radiator * self.length
+    }
+    pub(super) fn bumper_z(&self) -> f32 {
+        self.layout.bumper * self.length
+    }
+
+    /// Where a hood, a tonneau or a hardtop seats: the coaming plane, centred
+    /// on the cockpit.
+    ///
+    /// **Published by the body** (#1364 item 1), which is the whole of that
+    /// item. The legacy canopy chose its own height and hovered over three of
+    /// the four chassis it could land on; a canopy that asks cannot. The
+    /// hardtop is its first reader (#1367): the cabin stands on this plane,
+    /// centred on this station, and the folded hood lies on its plane at the
+    /// cockpit's after rim.
+    pub(super) fn canopy_seat(&self) -> [f32; 3] {
+        let (aft, fwd) = self.cockpit_z();
+        [0.0, 0.0, (aft + fwd) * 0.5]
+    }
+
+    /// The tail lamps' station (m).
+    pub(super) fn tail_lamps_z(&self) -> f32 {
+        self.layout.tail_lamps * self.length
+    }
+
+    /// The second row's seat station (m), if the body has one.
+    pub(super) fn bench_z(&self) -> Option<f32> {
+        self.layout.bench.map(|b| b * self.length)
+    }
+
+    /// The tail's one mount.
+    pub(super) fn tail_mount(&self) -> TailMount {
+        self.layout.tail
+    }
+}
+
 /// The boat-tail's stations. Its tail lamps and spare are where the car as
 /// built put them - now read off here rather than restated where they are
 /// drawn.
@@ -153,7 +297,6 @@ const BOAT_TAIL_LAYOUT: Layout = Layout {
     seat: -0.250,
     radiator: 0.437,
     bumper: 0.492,
-    axles: AXLES,
     tail_lamps: -0.448,
     bench: None,
     tail: TailMount::Deck {
@@ -209,12 +352,13 @@ impl SkiffCraft for Roadster {
             RoadsterBody::for_seed(seed),
             RoadsterWheels::for_seed(seed),
         )
+        .plan
     }
 
     fn build(&self, ctx: &PartCtx, plan: &BodyPlan) -> Generator {
         build_dressed(
             ctx,
-            plan,
+            &with_layout(*plan, RoadsterBody::for_seed(ctx.seed)),
             RoadsterTop::for_seed(ctx.seed),
             RoadsterWheels::for_seed(ctx.seed),
         )
@@ -232,11 +376,12 @@ impl SkiffCraft for Roadster {
         }
     }
 
-    fn overall_width(&self, plan: &BodyPlan) -> f32 {
+    fn overall_width(&self, plan: &BodyPlan, _seed: u64) -> f32 {
         plan.drawn_width(WING_R * WING_SCALE_X * plan.length)
     }
 
     fn fx_mount(&self, aura: ParticleAura, plan: &BodyPlan, seed: u64) -> [f32; 3] {
+        let plan = &with_layout(*plan, RoadsterBody::for_seed(seed));
         match aura {
             // Exhaust and steam leave the pipe mouth, read off the body's own
             // flank - so the wisp leaves the pipe that is actually drawn
@@ -262,6 +407,10 @@ impl SkiffCraft for Roadster {
             }
         }
     }
+
+    fn propulsion(&self) -> Propulsion {
+        Propulsion::Engine
+    }
 }
 
 /// The roadster's plan for a blueprint on a named body and wheel.
@@ -270,10 +419,27 @@ impl SkiffCraft for Roadster {
 /// radius, and the axle line is one wheel radius over the ground by
 /// construction ([`BodyPlan::on_wheels`]): the axle, the guards, the boards
 /// and the beams all follow the tyre the machine actually rolls on.
-pub(super) fn plan_of(bp: &SkiffBlueprint, body: RoadsterBody, rolls: RoadsterWheels) -> BodyPlan {
+pub(super) fn plan_of(
+    bp: &SkiffBlueprint,
+    body: RoadsterBody,
+    rolls: RoadsterWheels,
+) -> RoadsterPlan {
     let (stations, layout) = form(body);
-    let plan = BodyPlan::new(bp, SECTION, stations, layout);
-    plan.on_wheels(plan.wheel_r * wheels::wheels(rolls).radius_factor())
+    let plan = BodyPlan::new(bp, SECTION, stations, AXLES);
+    RoadsterPlan {
+        plan: plan.on_wheels(plan.wheel_r * wheels::wheels(rolls).radius_factor()),
+        layout,
+    }
+}
+
+/// A plan the family built for this seed, with its body's layout laid back
+/// along it - what [`Roadster::build`] and [`Roadster::fx_mount`] draw with,
+/// since the [`SkiffCraft`] seam carries only the shared [`BodyPlan`].
+fn with_layout(plan: BodyPlan, body: RoadsterBody) -> RoadsterPlan {
+    RoadsterPlan {
+        plan,
+        layout: form(body).1,
+    }
 }
 
 /// The roadster with a named top on named wheels, dressed for the tiers `ctx`
@@ -284,7 +450,7 @@ pub(super) fn plan_of(bp: &SkiffBlueprint, body: RoadsterBody, rolls: RoadsterWh
 /// dump of this tree be checked node by node against it.
 pub(super) fn build_dressed(
     ctx: &PartCtx,
-    plan: &BodyPlan,
+    plan: &RoadsterPlan,
     top: RoadsterTop,
     rolls: RoadsterWheels,
 ) -> Generator {

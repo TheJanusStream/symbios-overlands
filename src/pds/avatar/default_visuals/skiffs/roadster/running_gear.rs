@@ -11,7 +11,7 @@
 use crate::pds::generator::Generator;
 
 use super::super::SkiffColours;
-use super::super::plan::BodyPlan;
+use super::RoadsterPlan;
 use super::line;
 
 /// Axle tube radius, as a fraction of the length.
@@ -36,7 +36,7 @@ const AXLE_DROP: f32 = 0.011;
 const BEAM_DIP_OF_RADIUS: f32 = 0.5;
 
 /// The axles, the track rod and the torque tube.
-pub(super) fn build(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours) {
+pub(super) fn build(kids: &mut Vec<Generator>, plan: &RoadsterPlan, c: &SkiffColours) {
     let l = plan.length;
     let (axle_y, half_track) = (plan.axle_y(), plan.track * 0.5);
     let r = AXLE_R * l;

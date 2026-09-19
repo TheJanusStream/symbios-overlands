@@ -45,6 +45,7 @@ use crate::seeded_defaults::{BoatBlueprint, BoatType, ParticleAura};
 /// her read them through here.
 pub(crate) use crate::pds::avatar::livery::{BoatColours, boat_colours};
 
+use super::Propulsion;
 use super::assemble::apply_travel_pose;
 
 /// Travel-pose drop (m): how far under the chassis origin the assembler hangs
@@ -129,29 +130,6 @@ pub(super) struct BoatFeel {
     pub(super) turn_accel: f32,
     pub(super) linear_damping: f32,
     pub(super) angular_damping: f32,
-}
-
-/// How a craft is driven, which is what she sounds like (#1383): under sail a
-/// boat carries the wash along her hull and the wind in her rig, and only an
-/// engine hums. Every other family is engine-driven by construction - the
-/// airship's rotors, the skiff's motor - so this is a boat's answer, asked of
-/// the craft that is DRAWN (see [`propulsion`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Propulsion {
-    /// Sails: no engine note at all.
-    Sail,
-    /// An engine, whose hum is the family's.
-    Engine,
-}
-
-impl Propulsion {
-    /// What `render --outfit` says of it.
-    pub(super) fn label(self) -> &'static str {
-        match self {
-            Self::Sail => "under sail",
-            Self::Engine => "under power",
-        }
-    }
 }
 
 /// One buildable kind of boat.

@@ -1,7 +1,7 @@
 //! The hardtop: a body-coloured cabin on the canopy seat, glazed with a lit
 //! window band - never a glass box (#1359 rule 4, #1367).
 //!
-//! [`BodyPlan::canopy_seat`] was published in #1364 with nothing reading it,
+//! [`RoadsterPlan::canopy_seat`] was published in #1364 with nothing reading it,
 //! so that a canopy could never again choose its own height and hover over a
 //! body it does not fit. This is its first reader: the cabin stands on that
 //! plane, centred on that station, as wide as the body is there and as long as
@@ -29,7 +29,7 @@ use crate::pds::generator::Generator;
 
 use super::super::super::common::{id_quat, prim, superellipsoid, with_shape};
 use super::super::SkiffColours;
-use super::super::plan::BodyPlan;
+use super::RoadsterPlan;
 use super::{line, sweep};
 
 /// The cabin's vertical profile: small is a flat roof on upright sides.
@@ -60,7 +60,7 @@ const PILLAR_FLATTEN: f32 = 0.35;
 /// The cabin's centre and half extents, all read off the plan: the canopy
 /// seat (its plane and its station), the cockpit's length, the body's own
 /// half-width there, and the screen top the blueprint sets.
-fn cabin(plan: &BodyPlan) -> ([f32; 3], [f32; 3]) {
+fn cabin(plan: &RoadsterPlan) -> ([f32; 3], [f32; 3]) {
     let l = plan.length;
     let [_, base, centre] = plan.canopy_seat();
     let (aft, fwd) = plan.cockpit_z();
@@ -76,7 +76,7 @@ fn cabin(plan: &BodyPlan) -> ([f32; 3], [f32; 3]) {
 
 /// The top of the cabin's roof (m above the datum) - where a decorative aura
 /// hovers over a closed car rather than inside it.
-pub(super) fn roof_y(plan: &BodyPlan) -> f32 {
+pub(super) fn roof_y(plan: &RoadsterPlan) -> f32 {
     let (centre, half) = cabin(plan);
     centre[1] + half[1]
 }
@@ -112,7 +112,7 @@ fn cabin_point(half: [f32; 3], y: f32, omega: f32) -> (f32, f32) {
 }
 
 /// The cabin, its lit window band and a door pillar a side.
-pub(super) fn build(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours) {
+pub(super) fn build(kids: &mut Vec<Generator>, plan: &RoadsterPlan, c: &SkiffColours) {
     let (centre, half) = cabin(plan);
     kids.push(prim(
         with_shape(

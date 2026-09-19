@@ -26,8 +26,8 @@
 //! - The **seeded accent** ([`primary_accent`](crate::seeded_defaults::AvatarPalette::primary_accent))
 //!   is spent on the
 //!   identity slots ONLY: the boot stripe, the burgee and the jib on a boat;
-//!   the coachline, the wheel centres and the hide on a car. The secondary
-//!   still tints the antifoul and the upholstery a little so two craft of one
+//!   the coachline, the wheel centres and the hide on a car; a horseless
+//!   wagon's spoked wheels (#1377). The secondary still tints the antifoul and the upholstery a little so two craft of one
 //!   scheme are not identical, and the tertiary still lights the windows.
 //!
 //! Both the accent hue and the livery index are DID-seeded and independent,
@@ -59,7 +59,7 @@
 //! # The two colour rules this fleet learned by render
 //!
 //! 1. **A guard drawn at the tyre's value is not a guard** (#1364). Coachwork
-//!    has to stay clear of rubber, so every skiff mass is floored at
+//!    has to stay clear of rubber, so every car mass is floored at
 //!    [`GUARD_FLOOR`] - and the floor is owed on the FINISHED surface, which
 //!    is why it is divided by [`MaterialKit::value_after_grime`] before it is
 //!    applied. Flooring before the grime is flooring the wrong number.
@@ -75,8 +75,9 @@ use rand_chacha::rand_core::SeedableRng;
 use super::colour::{floor_value, luma, mix, shade, to_value, window_light, window_material};
 use super::parts::PartCtx;
 use crate::pds::texture::SovereignMaterialSettings;
-use crate::seeded_defaults::MaterialKit;
+use crate::pds::types::Fp;
 use crate::seeded_defaults::scene::pick_weighted;
+use crate::seeded_defaults::{MaterialKit, WagonBody};
 
 /// Sub-stream salt for the livery draw - distinct from every sibling avatar
 /// deriver salt, so which scheme a craft wears is decorrelated from its type,
@@ -364,6 +365,93 @@ pub fn skiff_livery(seed: u64, over: Option<usize>) -> &'static SkiffLivery {
     pick(SKIFF_LIVERIES, |l| l.weight, seed, over)
 }
 
+/// A horseless wagon's scheme (#1377): its box and its brightwork, and - on
+/// the two forced schemes only - its running gear.
+///
+/// A wagon is not a car, and the car schemes proved it by render: a cream
+/// hearse is a bread van. So the wagon has a list of its own, of the colours
+/// a working wagon was actually painted, and the seeded accent goes on its
+/// WHEELS, which are the wagon's wheel centres - the strongest identity mark
+/// a land craft carries at play distance (#1365).
+#[derive(Clone, Copy, Debug)]
+pub struct WagonLivery {
+    /// See [`BoatLivery::name`].
+    pub name: &'static str,
+    weight: u32,
+    /// The box, the hearse's body, the ox-cart's cabin: painted boards.
+    body: [f32; 3],
+    /// The wheels. `None` is the seed's own accent (every listed scheme);
+    /// `Some` is a forced scheme's own gear colour, because a hearse with
+    /// pink wheels is not a hearse.
+    gear: Option<[f32; 3]>,
+    /// Lantern frames, rails, urns and the gilt ridge.
+    brightwork: [f32; 3],
+}
+
+/// The wagon schemes a cart, a buckboard and a chariot draw from. Four, the
+/// owner agreed the set on the phase-1 renders (#1377); the weights are mine.
+pub const WAGON_LIVERIES: &[WagonLivery] = &[
+    WagonLivery {
+        name: "Farm green",
+        weight: 5,
+        body: [0.16, 0.30, 0.16],
+        gear: None,
+        brightwork: BRASS,
+    },
+    WagonLivery {
+        name: "Barn red",
+        weight: 5,
+        body: [0.46, 0.10, 0.07],
+        gear: None,
+        brightwork: BRASS,
+    },
+    WagonLivery {
+        name: "Weathered oak",
+        weight: 4,
+        body: [0.46, 0.34, 0.22],
+        gear: None,
+        brightwork: BRASS,
+    },
+    WagonLivery {
+        name: "Prussian blue",
+        weight: 4,
+        body: [0.10, 0.18, 0.34],
+        gear: None,
+        brightwork: BRASS,
+    },
+];
+
+/// The hearse's one scheme: black box, black wheels, silver fittings.
+pub const MOURNING_BLACK: WagonLivery = WagonLivery {
+    name: "Mourning black",
+    weight: 0,
+    body: [0.060, 0.060, 0.065],
+    gear: Some([0.060, 0.060, 0.065]),
+    brightwork: [0.72, 0.72, 0.74],
+};
+
+/// The ox-cart's one scheme: black lacquer on red wheels, gilt fittings.
+pub const LACQUER: WagonLivery = WagonLivery {
+    name: "Lacquer",
+    weight: 0,
+    body: [0.07, 0.05, 0.05],
+    gear: Some([0.50, 0.08, 0.06]),
+    brightwork: [0.80, 0.62, 0.24],
+};
+
+/// The scheme this wagon seed wears on `body` - a forced one for the hearse
+/// and the ox-cart, whatever `over` says, and a pick from
+/// [`WAGON_LIVERIES`] for the rest.
+pub fn wagon_livery(seed: u64, body: WagonBody, over: Option<usize>) -> &'static WagonLivery {
+    match body {
+        WagonBody::Hearse => &MOURNING_BLACK,
+        WagonBody::OxCart => &LACQUER,
+        WagonBody::Cart | WagonBody::Buckboard | WagonBody::Chariot => {
+            pick(WAGON_LIVERIES, |l| l.weight, seed, over)
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Turning a scheme into surfaces
 // ---------------------------------------------------------------------------
@@ -642,6 +730,92 @@ pub(crate) fn skiff_colours(ctx: &PartCtx) -> SkiffColours {
     }
 }
 
+/// The surfaces a wagon is built in (#1377): its scheme's paint on painted
+/// boards, the seeded accent on its wheels, and the colours the rest simply
+/// is - iron, oak, canvas, cane, a candle.
+pub(crate) struct WagonColours {
+    /// The hearse's body and the ox-cart's cabin and roof: smooth paint.
+    pub(crate) paint: SovereignMaterialSettings,
+    /// The box's side, front and tail boards, a buckboard's riser and dash:
+    /// timber IN THE SCHEME'S COLOUR, so a painted box still shows its
+    /// boards, with the grain turned a quarter to run along them (box UVs run
+    /// it across a side board, and it read as a comb).
+    pub(crate) boards: SovereignMaterialSettings,
+    /// The floor, bolsters, poles, shafts and bows: dark oak.
+    pub(crate) timber: SovereignMaterialSettings,
+    /// Tyres, axles, stakes, springs, cap rails and lantern irons.
+    pub(crate) iron: SovereignMaterialSettings,
+    /// **Identity.** Felloes and spokes, in the seeded accent held clear of
+    /// the box - or a forced scheme's own gear colour.
+    pub(crate) wheel: SovereignMaterialSettings,
+    pub(crate) brightwork: SovereignMaterialSettings,
+    /// The bench's cushion and back.
+    pub(crate) seat: SovereignMaterialSettings,
+    /// The tilt.
+    pub(crate) canvas: SovereignMaterialSettings,
+    /// Every lantern, the hearse's glass and the ox-cart's side window: a
+    /// candle, not the accent - a lantern is a flame, and the accent drawn
+    /// there read as pink lamps and beige glass in daylight.
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// The ox-cart's cane blinds.
+    pub(crate) blind: SovereignMaterialSettings,
+    /// The Ornate cask and the Worn crate.
+    pub(crate) cask: SovereignMaterialSettings,
+    /// The Worn sacks.
+    pub(crate) sack: SovereignMaterialSettings,
+    /// The pale replacement board a worn tilted cart wears on its near side.
+    pub(crate) patch: SovereignMaterialSettings,
+}
+
+const DARK_OAK: [f32; 3] = [0.26, 0.18, 0.11];
+const OAK: [f32; 3] = [0.46, 0.33, 0.20];
+const TILT_CANVAS: [f32; 3] = [0.84, 0.80, 0.68];
+const CANE: [f32; 3] = [0.72, 0.60, 0.36];
+const SACKING: [f32; 3] = [0.66, 0.58, 0.42];
+const PATCH_BOARD: [f32; 3] = [0.66, 0.60, 0.50];
+const CANDLE: [f32; 3] = [1.0, 0.62, 0.22];
+
+/// Timber whose grain runs along a board that box UVs would run it across.
+fn boards(m: &MaterialKit, color: [f32; 3]) -> SovereignMaterialSettings {
+    let mut t = m.timber(color);
+    t.uv_rotation = Fp(90.0);
+    t
+}
+
+pub(crate) fn wagon_colours(ctx: &PartCtx, body: WagonBody) -> WagonColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let l = wagon_livery(ctx.seed, body, ctx.livery);
+    let wheel = match l.gear {
+        Some(gear) => m.paint(gear),
+        // The accent held clear of the box it turns beside, and floored off
+        // the iron tyre round it - the roadster's wheel-centre rule.
+        None => trim(
+            m,
+            floor_finished(
+                m,
+                clear_of(p.primary_accent, luma(l.body), DISC_DELTA),
+                GUARD_FLOOR * 1.6,
+            ),
+        ),
+    };
+    WagonColours {
+        paint: m.paint(l.body),
+        boards: boards(m, l.body),
+        timber: m.timber(DARK_OAK),
+        iron: m.paint(MACHINERY),
+        wheel,
+        brightwork: m.brightwork(l.brightwork),
+        seat: m.leather(mix(HIDE, shade(p.primary_accent, 0.8), 0.28)),
+        canvas: m.canvas(TILT_CANVAS),
+        lamp: window_material(window_light(CANDLE)),
+        blind: m.canvas(CANE),
+        cask: m.timber(OAK),
+        sack: m.canvas(SACKING),
+        patch: boards(m, PATCH_BOARD),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -679,6 +853,42 @@ mod tests {
             skiffs.iter().all(|&n| n > 0),
             "a skiff livery is unreachable: {skiffs:?}"
         );
+        // The wagon's own list, on the bodies that pick from it (#1377).
+        let mut wagons = vec![0usize; WAGON_LIVERIES.len()];
+        for s in 0u64..4_000 {
+            let w = wagon_livery(s, WagonBody::Cart, None);
+            wagons[WAGON_LIVERIES
+                .iter()
+                .position(|l| l.name == w.name)
+                .expect("the pick came from the table")] += 1;
+        }
+        assert!(
+            wagons.iter().all(|&n| n > 0),
+            "a wagon livery is unreachable: {wagons:?}"
+        );
+    }
+
+    /// The hearse and the ox-cart wear their forced schemes whatever the seed
+    /// or the `--livery` override says, and no other body does (#1377): a
+    /// cream hearse is a bread van.
+    #[test]
+    fn a_hearse_and_an_ox_cart_wear_their_own_schemes() {
+        for s in 0u64..200 {
+            for over in [None, Some(0), Some(3)] {
+                assert_eq!(
+                    wagon_livery(s, WagonBody::Hearse, over).name,
+                    MOURNING_BLACK.name
+                );
+                assert_eq!(wagon_livery(s, WagonBody::OxCart, over).name, LACQUER.name);
+                for body in [WagonBody::Cart, WagonBody::Buckboard, WagonBody::Chariot] {
+                    let name = wagon_livery(s, body, over).name;
+                    assert!(
+                        name != MOURNING_BLACK.name && name != LACQUER.name,
+                        "{body:?} on seed {s} wore a forced scheme"
+                    );
+                }
+            }
+        }
     }
 
     /// `--livery <index>` draws the scheme it names, and wraps rather than

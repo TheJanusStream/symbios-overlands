@@ -8,7 +8,7 @@ use crate::pds::{Generator, GeneratorKind, Placement, RoomRecord};
 use crate::seeded_defaults::hash::fnv1a_64;
 use crate::seeded_defaults::{
     BoatType, ChassisFamily, CraftType, RoadsterBody, RoadsterTop, RoadsterWheels, SkiffType,
-    SloopHull, SloopRig,
+    SloopHull, SloopRig, WagonBody,
 };
 
 use super::Args;
@@ -127,9 +127,7 @@ pub(super) fn print_outfit(subject: &str) {
     // every boat and skiff whether or not anything builds that type yet: the
     // slice that builds one opens by finding the seeds that picked it. A craft
     // whose type has no builder is DRAWN as its family's universal floor
-    // (#1363 for boats, #1364 for skiffs), and this says which - most skiff
-    // seeds are in that position until #1377, because the Wagon takes every
-    // historic theme.
+    // (#1363 for boats, #1364 for skiffs), and this says which.
     if let Some(craft) = craft_for(subject) {
         let note = match craft {
             CraftType::Boat(t) if t.implemented() => "picked and built".to_string(),
@@ -155,6 +153,11 @@ pub(super) fn print_outfit(subject: &str) {
             "  livery: {}",
             match craft {
                 CraftType::Boat(_) => livery::boat_livery(seed, None).name,
+                // A wagon wears a scheme of its own (#1377), and the hearse
+                // and the ox-cart a forced one.
+                CraftType::Skiff(SkiffType::Wagon) => {
+                    livery::wagon_livery(seed, WagonBody::for_seed(seed), None).name
+                }
                 CraftType::Skiff(_) => livery::skiff_livery(seed, None).name,
             }
         );
@@ -170,7 +173,7 @@ pub(super) fn print_outfit(subject: &str) {
             );
         }
         // And the roadster's own three picks (#1367), for every skiff drawn
-        // as one - which, until the other types are built, is every skiff.
+        // as one - every skiff but a wagon, until the other types are built.
         if let CraftType::Skiff(t) = craft
             && (t == SkiffType::Roadster || !t.implemented())
         {
@@ -180,6 +183,10 @@ pub(super) fn print_outfit(subject: &str) {
                 RoadsterTop::for_seed(seed).label(),
                 RoadsterWheels::for_seed(seed).label()
             );
+        }
+        // And the wagon's body (#1377), which its theme picks.
+        if let CraftType::Skiff(SkiffType::Wagon) = craft {
+            println!("  wagon body: {}", WagonBody::for_seed(seed).label());
         }
     }
     // And its voice (#1383), for every family: which drive a boat speaks

@@ -61,72 +61,11 @@ pub(crate) struct Axle {
     /// A pair of wheels, or a single one on the centreline (a cyclecar's
     /// front).
     pub(crate) paired: bool,
-}
-
-/// What a body offers its tail's one mount: the spare wheel every roadster
-/// carries, or the trunk that takes its place on an Ornate one (#1367).
-///
-/// Published by the body because the car as built restated it - a spare at
-/// `-0.462` of the length on the crown there - and on a shorter tail that
-/// fraction is past the end: the wheel stood 34 mm clear of a bobtail's back,
-/// touching it with nothing but its lowest rim.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum TailMount {
-    /// On the tail deck near the tip, leaning back - a boat-tail, which has no
-    /// back to stand a wheel against.
-    Deck {
-        /// Station, as a z fraction of the overall length.
-        at: f32,
-        /// How far over the deck's crown a mounted wheel's centre rides, as a
-        /// fraction of the length.
-        lift: f32,
-        /// How far the wheel leans back from upright (rad).
-        lean: f32,
-    },
-    /// Against the blunt back panel of a bobtail or a tourer.
-    Back {
-        /// How far a mounted wheel is pressed into the panel, as a fraction of
-        /// its own half-width: contact by CONSTRUCTION, because the touch
-        /// guard cannot see a gap at a blunt end - its tube is a chain of
-        /// capsules, and where a sweep closes fast they bulge out past the
-        /// drawn end cap (#1367).
-        sink: f32,
-        /// How far the wheel leans back from upright (rad).
-        lean: f32,
-    },
-}
-
-/// Where a craft type puts the stations every land craft has.
-///
-/// Separate from the plan-form table because the two answer different
-/// questions - the table is the body's *shape*, this is what is arranged along
-/// it - and because one type builds several bodies over one layout idiom (the
-/// roadster's boat-tail, bobtail and tourer, #1367).
-#[derive(Debug)]
-pub(crate) struct Layout {
-    /// Where the bonnet gives way to the scuttle, as a z fraction of the
-    /// overall length.
-    pub(crate) cowl: f32,
-    /// The cockpit opening's after and forward ends, likewise. Everything
-    /// between them is open: the tub's bored shell is the footwell and the
-    /// scuttle and tail deck stop at these two stations.
-    pub(crate) cockpit: (f32, f32),
-    /// The seat back's station.
-    pub(crate) seat: f32,
-    /// The radiator shell's face.
-    pub(crate) radiator: f32,
-    /// The bumper bar, which is what actually sets the overall length.
-    pub(crate) bumper: f32,
-    /// The axles, front first.
-    pub(crate) axles: &'static [Axle],
-    /// The tail lamps' station, where this body's quarter still has the
-    /// width to carry them. Restated as `-0.448` of the length the lamps stood
-    /// 32 mm behind a bobtail's back (#1367).
-    pub(crate) tail_lamps: f32,
-    /// A second row's seat station, or `None` for a two-seater.
-    pub(crate) bench: Option<f32>,
-    /// The tail's one mount.
-    pub(crate) tail: TailMount,
+    /// This axle's wheel radius over the plan's [`BodyPlan::wheel_r`] - `1.0`
+    /// on a car, less under a wagon's front, which is small so it can turn
+    /// under the bed (#1377). Each axle stands at its OWN radius over the
+    /// ground, so a wheel of any size meets it.
+    pub(crate) radius: f32,
 }
 
 /// A land craft's body, as the one function every part of her is read off.
@@ -153,18 +92,21 @@ pub(crate) struct BodyPlan {
     /// `(z fraction of the length, half-width fraction)` tail to nose - the
     /// type's own plan form, and the only thing about a body that is a table.
     stations: &'static [(f32, f32)],
-    /// What is arranged along it.
-    layout: &'static Layout,
+    /// The axles, front first - the one arrangement every land craft has.
+    /// What else a type arranges along its body (a roadster's cowl and
+    /// radiator, a wagon's bed and bench) is the type's own, in its own
+    /// wrapper round this plan (#1377).
+    axles: &'static [Axle],
 }
 
 impl BodyPlan {
     /// The plan for a seeded machine of this type: the blueprint's true
-    /// dimensions under the type's own plan form, section depth and layout.
+    /// dimensions under the type's own plan form, section depth and axles.
     pub(crate) fn new(
         bp: &SkiffBlueprint,
         section: f32,
         stations: &'static [(f32, f32)],
-        layout: &'static Layout,
+        axles: &'static [Axle],
     ) -> Self {
         debug_assert!(
             stations.len() >= 2 && stations.len() <= MAX_SWEEP_POINTS,
@@ -181,7 +123,7 @@ impl BodyPlan {
             height: bp.height,
             section,
             stations,
-            layout,
+            axles,
         }
     }
 
@@ -271,7 +213,8 @@ impl BodyPlan {
         self.beltline - self.depth()
     }
 
-    /// The wheel centres' line (m, under the datum).
+    /// The wheel centres' line (m, under the datum) for an axle at the plan's
+    /// own [`Self::wheel_r`] - every axle of a car.
     ///
     /// Not a blueprint field: an axle is exactly one wheel radius above the
     /// ground, so deriving it here means the axle line and the wheels standing
@@ -295,10 +238,10 @@ impl BodyPlan {
     // --- named mount stations -----------------------------------------------
     //
     // A part mounts on one of these rather than on a fraction it wrote down.
-    // A station arrives with the first part that reads it: the tail lamps, a
-    // second row and the tail mount came with the roadster's bodies and its
-    // ladder (#1367); a mascot or a roof rack waits for the slice that dresses
-    // a machine with one (#1379).
+    // The stations every body has live here; the ones only one type has -
+    // the roadster's cowl, radiator and tail mount (#1367), a wagon's bed and
+    // bench (#1377) - live in that type's own wrapper round the plan, so no
+    // type fills in fields that mean nothing to it.
 
     /// The nose and the tail of the bodywork (m from the body's centre).
     pub(crate) fn nose_z(&self) -> f32 {
@@ -306,61 +249,6 @@ impl BodyPlan {
     }
     pub(crate) fn tail_z(&self) -> f32 {
         self.stations[0].0 * self.length
-    }
-
-    /// The scuttle break - the bonnet's after end, and the screen's foot.
-    pub(crate) fn cowl_z(&self) -> f32 {
-        self.layout.cowl * self.length
-    }
-
-    /// The cockpit opening's after and forward ends (m).
-    pub(crate) fn cockpit_z(&self) -> (f32, f32) {
-        (
-            self.layout.cockpit.0 * self.length,
-            self.layout.cockpit.1 * self.length,
-        )
-    }
-
-    /// The seat back's station (m).
-    pub(crate) fn seat_z(&self) -> f32 {
-        self.layout.seat * self.length
-    }
-
-    /// The radiator shell's face, and the bumper bar (m).
-    pub(crate) fn radiator_z(&self) -> f32 {
-        self.layout.radiator * self.length
-    }
-    pub(crate) fn bumper_z(&self) -> f32 {
-        self.layout.bumper * self.length
-    }
-
-    /// Where a hood, a tonneau or a hardtop seats: the coaming plane, centred
-    /// on the cockpit.
-    ///
-    /// **Published by the body** (#1364 item 1), which is the whole of that
-    /// item. The legacy canopy chose its own height and hovered over three of
-    /// the four chassis it could land on; a canopy that asks cannot. The
-    /// roadster's hardtop is its first reader (#1367): the cabin stands on
-    /// this plane, centred on this station, and the folded hood lies on its
-    /// plane at the cockpit's after rim.
-    pub(crate) fn canopy_seat(&self) -> [f32; 3] {
-        let (aft, fwd) = self.cockpit_z();
-        [0.0, 0.0, (aft + fwd) * 0.5]
-    }
-
-    /// The tail lamps' station (m).
-    pub(crate) fn tail_lamps_z(&self) -> f32 {
-        self.layout.tail_lamps * self.length
-    }
-
-    /// The second row's seat station (m), if the body has one.
-    pub(crate) fn bench_z(&self) -> Option<f32> {
-        self.layout.bench.map(|b| b * self.length)
-    }
-
-    /// The tail's one mount.
-    pub(crate) fn tail_mount(&self) -> TailMount {
-        self.layout.tail
     }
 
     /// The same body on wheels of another outer radius (m).
@@ -373,29 +261,48 @@ impl BodyPlan {
         Self { wheel_r, ..self }
     }
 
-    /// The four (or three, or six) wheel anchors, front axle first.
-    pub(crate) fn wheel_anchors(&self) -> Vec<[f32; 3]> {
-        let (y, half_wb, half_track) = (self.axle_y(), self.wheelbase * 0.5, self.track * 0.5);
-        let mut out = Vec::with_capacity(self.layout.axles.len() * 2);
-        for axle in self.layout.axles {
-            let z = axle.at * half_wb;
+    /// The wheel anchors with each one's outer radius (m), front axle first:
+    /// four, or two on a chariot, or three, or six. Each axle's centre is its
+    /// OWN radius over the ground, so a small front wheel stands on the ground
+    /// beside a big rear one (#1377).
+    pub(crate) fn wheels(&self) -> Vec<([f32; 3], f32)> {
+        let (half_wb, half_track) = (self.wheelbase * 0.5, self.track * 0.5);
+        let mut out = Vec::with_capacity(self.axles.len() * 2);
+        for axle in self.axles {
+            let (z, r) = (axle.at * half_wb, self.wheel_r * axle.radius);
+            let y = r - self.datum_height();
             if axle.paired {
-                out.push([-half_track, y, z]);
-                out.push([half_track, y, z]);
+                out.push(([-half_track, y, z], r));
+                out.push(([half_track, y, z], r));
             } else {
-                out.push([0.0, y, z]);
+                out.push(([0.0, y, z], r));
             }
         }
         out
     }
 
-    /// Each axle's station along the machine (m), front first - what a beam is
-    /// drawn on, so a beam cannot miss the wheels it carries.
-    pub(crate) fn axle_stations(&self) -> Vec<f32> {
-        self.layout
-            .axles
+    /// The wheel anchors alone, front axle first.
+    pub(crate) fn wheel_anchors(&self) -> Vec<[f32; 3]> {
+        self.wheels().into_iter().map(|(at, _)| at).collect()
+    }
+
+    /// Each axle's station along the machine (m) and its centre's height
+    /// over the datum, front first - what a beam is drawn on, so a beam
+    /// cannot miss the wheels it carries.
+    pub(crate) fn axle_lines(&self) -> Vec<(f32, f32)> {
+        self.axles
             .iter()
-            .map(|a| a.at * self.wheelbase * 0.5)
+            .map(|a| {
+                (
+                    a.at * self.wheelbase * 0.5,
+                    self.wheel_r * a.radius - self.datum_height(),
+                )
+            })
             .collect()
+    }
+
+    /// Each axle's station along the machine (m), front first.
+    pub(crate) fn axle_stations(&self) -> Vec<f32> {
+        self.axle_lines().into_iter().map(|(z, _)| z).collect()
     }
 }

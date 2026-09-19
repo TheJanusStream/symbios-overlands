@@ -20,10 +20,10 @@
 //! implementor: [`craft_for`] resolves an unbuilt pick to
 //! [`SkiffType::UNIVERSAL`] while the PICK stays a property of the seed.
 //!
-//! **Most skiff seeds draw the roadster floor rather than their own type**, and
-//! will until #1377: a horseless wagon takes all ten historic themes, so the
-//! Wagon is 31 % of the family against the Roadster's 30. That is expected and
-//! the readouts say so.
+//! Two types are built: the roadster, the universal floor, and since #1377 the
+//! horseless [`wagon`], which takes all ten historic themes and is 31 % of the
+//! family against the Roadster's 30. A seed that picked any other type is
+//! still drawn as the roadster, and the readouts say so.
 //!
 //! # Where a skiff sits
 //!
@@ -36,6 +36,7 @@
 
 mod plan;
 mod roadster;
+mod wagon;
 
 pub(crate) use plan::BodyPlan;
 
@@ -49,6 +50,7 @@ use crate::seeded_defaults::{ParticleAura, SkiffBlueprint, SkiffType};
 /// it read them through here.
 pub(crate) use crate::pds::avatar::livery::{SkiffColours, skiff_colours};
 
+use super::Propulsion;
 use super::assemble::apply_travel_pose;
 
 /// Smallest dimension anything on a skiff is built at (m).
@@ -100,13 +102,21 @@ pub(super) trait SkiffCraft {
 
     /// The widest the type is actually drawn, guards included (m) - what the
     /// gateway-mouth guard measures, and a type's own knowledge rather than
-    /// the plan's, because a guard is the type's choice.
-    fn overall_width(&self, plan: &BodyPlan) -> f32;
+    /// the plan's, because a guard is the type's choice. It takes the seed
+    /// because what stands outermost can be the seed's own pick: a wagon's
+    /// naves, bigger on an ox-cart (#1377).
+    fn overall_width(&self, plan: &BodyPlan, seed: u64) -> f32;
 
     /// Where a seeded particle aura issues from, read off the body - and off
     /// the seed's own picks, because a flourish that hovers over an open
     /// cockpit would hover inside a closed one (#1367).
     fn fx_mount(&self, aura: ParticleAura, plan: &BodyPlan, seed: u64) -> [f32; 3];
+
+    /// How it is driven, and so what it sounds like and whether it trails an
+    /// exhaust (#1377). Required, with no default - the boat's rule (#1383):
+    /// a type that lands without saying whether it has an engine does not
+    /// compile, so no wagon inherits a putter.
+    fn propulsion(&self) -> Propulsion;
 }
 
 /// The builder for a craft type, or `None` while nothing implements it.
@@ -120,11 +130,10 @@ pub(super) trait SkiffCraft {
 fn craft(t: SkiffType) -> Option<&'static dyn SkiffCraft> {
     match t {
         SkiffType::Roadster => Some(&roadster::Roadster),
-        SkiffType::DuneBuggy
-        | SkiffType::ArmouredCar
-        | SkiffType::Cyclecar
-        | SkiffType::Wagon
-        | SkiffType::Rover => None,
+        SkiffType::Wagon => Some(&wagon::Wagon),
+        SkiffType::DuneBuggy | SkiffType::ArmouredCar | SkiffType::Cyclecar | SkiffType::Rover => {
+            None
+        }
     }
 }
 
@@ -158,9 +167,9 @@ fn body_for(seed: u64) -> Option<(&'static dyn SkiffCraft, BodyPlan)> {
 /// because what a player collides with is the wheels: this era's body is far
 /// narrower than its track, and a collider cut to the tub would let the guards
 /// pass through a wall.
-pub(super) fn chassis_half_extents(craft: &dyn SkiffCraft, plan: &BodyPlan) -> [f32; 3] {
+pub(super) fn chassis_half_extents(craft: &dyn SkiffCraft, plan: &BodyPlan, seed: u64) -> [f32; 3] {
     [
-        craft.overall_width(plan) * 0.5,
+        craft.overall_width(plan, seed) * 0.5,
         plan.depth(),
         plan.length * 0.5,
     ]
@@ -175,9 +184,9 @@ pub(super) fn chassis_half_extents(craft: &dyn SkiffCraft, plan: &BodyPlan) -> [
 /// the ground. Its compression term is seed-invariant and its `half_y` is not,
 /// which is why [`travel_drop`] has to be derived per craft rather than
 /// written down once.
-fn chassis_ride_height(craft: &dyn SkiffCraft, plan: &BodyPlan) -> f32 {
+fn chassis_ride_height(craft: &dyn SkiffCraft, plan: &BodyPlan, seed: u64) -> f32 {
     let p = CarParams::default();
-    chassis_half_extents(craft, plan)[1] + p.suspension_rest_length.0
+    chassis_half_extents(craft, plan, seed)[1] + p.suspension_rest_length.0
         - super::static_suspension_compression(super::SKIFF_REF_MASS, p.suspension_stiffness.0)
 }
 
@@ -190,8 +199,8 @@ fn chassis_ride_height(craft: &dyn SkiffCraft, plan: &BodyPlan) -> f32 {
 /// ground line - for the wheels THIS seed rolls on, not a nominal pair. The
 /// hand-set 0.55 this replaced assumed one nominal wheel and floated or sank
 /// them by centimetres across the seeded radius band.
-pub(super) fn travel_drop(craft: &dyn SkiffCraft, plan: &BodyPlan) -> f32 {
-    chassis_ride_height(craft, plan) - plan.datum_height()
+pub(super) fn travel_drop(craft: &dyn SkiffCraft, plan: &BodyPlan, seed: u64) -> f32 {
+    chassis_ride_height(craft, plan, seed) - plan.datum_height()
 }
 
 /// Assemble the seeded skiff for `seed`, posed for travel.
@@ -203,14 +212,14 @@ pub(super) fn build(seed: u64, livery: Option<usize>) -> Generator {
     // No scale: since #1364 a skiff is authored at the size she is drawn at,
     // so the airship-class bridge the legacy pipeline carried has nothing left
     // to convert - and the skiff was the last family holding one.
-    apply_travel_pose(&mut root, travel_drop(craft, &plan));
+    apply_travel_pose(&mut root, travel_drop(craft, &plan, seed));
     root
 }
 
 /// How the seeded skiff for `seed` drives, and the collider box it drives in.
 pub(super) fn feel_and_box(seed: u64) -> (SkiffFeel, [f32; 3]) {
     match body_for(seed) {
-        Some((craft, plan)) => (craft.feel(), chassis_half_extents(craft, &plan)),
+        Some((craft, plan)) => (craft.feel(), chassis_half_extents(craft, &plan, seed)),
         // Defensive: a skiff seed always has a blueprint. Falling back to the
         // floor's own feel keeps a locomotion query total rather than
         // panicking in a sanitiser round-trip that exercises the family
@@ -228,6 +237,14 @@ pub(super) fn feel_and_box(seed: u64) -> (SkiffFeel, [f32; 3]) {
 #[cfg(test)]
 pub(super) fn datum_height_for_seed(seed: u64) -> Option<f32> {
     body_for(seed).map(|(_, plan)| plan.datum_height())
+}
+
+/// How the skiff `seed` DRAWS is driven (#1377) - the drawn craft's answer,
+/// so an unbuilt pick drawn as the roadster keeps the roadster's engine. Any
+/// seed answers, as the boats' does: the voice asks before it knows the
+/// family is a skiff's.
+pub(super) fn propulsion(seed: u64) -> Propulsion {
+    craft_for(seed).propulsion()
 }
 
 /// Where a seeded skiff's particle aura issues from (root-local, before the
@@ -337,8 +354,8 @@ mod tests {
 
     /// Every skiff seed draws a skiff, whatever type it picked. This is what
     /// "go live for every skiff seed" means, and the unbuilt types are the
-    /// reason it needs saying - most of the family is unbuilt, because the
-    /// Wagon alone outweighs the hero.
+    /// reason it needs saying: with the roadster and the wagon built (#1377),
+    /// still over a third of the family picks a type nothing draws yet.
     #[test]
     fn every_skiff_seed_resolves_to_a_built_craft() {
         let (mut unbuilt, mut total) = (0, 0);
@@ -352,9 +369,9 @@ mod tests {
         }
         assert!(total > 50, "too few skiffs sampled: {total}");
         assert!(
-            unbuilt * 2 > total,
+            unbuilt * 4 > total,
             "only {unbuilt} of {total} skiff seeds picked an unbuilt type - the \
-             floor fallback is what most of this family draws, so if that has \
+             floor fallback carries over a third of this family, so if that has \
              stopped being true the population has moved"
         );
     }
@@ -396,6 +413,90 @@ mod tests {
             }
         }
         out
+    }
+
+    /// Every wagon the family can draw at the blueprint corners: every body
+    /// crossed with every ornateness-by-wear pair. Returns the built tree, its
+    /// plan and a label for the failure.
+    fn every_wagon() -> Vec<(Generator, wagon::WagonPlan, String)> {
+        use crate::seeded_defaults::{OrnatenessTier, WagonBody, WearTier};
+        let mut ctx = PartCtx::for_seed(a_skiff_seed());
+        let mut out = Vec::new();
+        for bp in corners() {
+            for body in WagonBody::ALL {
+                let plan = wagon::plan_of(&bp, body);
+                for o in OrnatenessTier::ALL {
+                    for w in WearTier::ALL {
+                        (ctx.ornateness, ctx.wear) = (o, w);
+                        out.push((
+                            wagon::build_dressed(&ctx, &plan),
+                            plan,
+                            format!(
+                                "a {} m {}, {} / {}",
+                                bp.length,
+                                body.label(),
+                                o.label(),
+                                w.label()
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+        assert_eq!(out.len(), 6 * 5 * 9, "the sweep lost a combination");
+        out
+    }
+
+    /// Every part of a built wagon meets another and the whole machine is one
+    /// component, on every body and tier at every blueprint corner (#1377) -
+    /// on the tree AS SAVED, through the record's 0.1 mm wire, as the
+    /// roadster's is.
+    ///
+    /// What it cannot see: the guard ignores `hollow`, so it judges a wheel's
+    /// bored felloe as a solid disc and a spoke meets it whatever. A spoke's
+    /// contact is by construction - each is seated half the felloe's depth
+    /// into it (`running_gear::spoked_wheel`).
+    #[test]
+    fn a_wagon_is_one_machine_at_every_blueprint_extreme() {
+        use super::super::common::touch;
+        for (built, _, what) in every_wagon() {
+            let json = serde_json::to_string(&built).expect("a wagon serializes");
+            let saved: Generator = serde_json::from_str(&json).expect("and reads back");
+            touch::assert_one_machine(&saved, &what);
+        }
+    }
+
+    /// Every wagon survives the record sanitiser UNCHANGED at the extremes of
+    /// its own blueprint, on every body and tier (#1359 rule 8) - the bored
+    /// wheel bands included, whose `hollow` is held under the sanitiser's
+    /// 0.95 cap by construction.
+    #[test]
+    fn a_wagon_survives_sanitize_unchanged_at_her_blueprint_extremes() {
+        use crate::pds::sanitize_avatar_visuals;
+        for (built, _, what) in every_wagon() {
+            let mut sanitized = built.clone();
+            sanitize_avatar_visuals(&mut sanitized);
+            if let Some(where_) = first_difference(&built, &sanitized, "0") {
+                panic!("{what} was rewritten by the sanitiser at {where_}");
+            }
+        }
+    }
+
+    /// Every wheel of every wagon stands on the ground: each axle's centre is
+    /// its OWN wheel's radius over it - the small front pair of a four-wheeler
+    /// as much as the big rear one, and the two-wheelers' single pair
+    /// (#1377).
+    #[test]
+    fn every_wagon_wheel_stands_on_the_ground() {
+        for (_, plan, what) in every_wagon() {
+            for (at, r) in plan.wheels() {
+                assert!(
+                    (at[1] + plan.datum_height() - r).abs() < 1e-5,
+                    "{what}: a wheel of radius {r} has its centre {} over the ground",
+                    at[1] + plan.datum_height()
+                );
+            }
+        }
     }
 
     /// Every part of a built roadster meets another, and the whole machine is
@@ -464,8 +565,9 @@ mod tests {
     ///
     /// Two sweeps, in the sloop's form (#1366). The live seeds, as saved - FX
     /// emitter and engine voice included - and the heaviest thing the family
-    /// can draw: every body, top and wheel at every blueprint corner on the
-    /// fullest ladder, Ornate and Battered, carrying the heaviest FX overhead
+    /// can draw: every roadster body, top and wheel and every wagon body at
+    /// every blueprint corner on the fullest ladder, Ornate and Battered,
+    /// carrying the heaviest FX overhead
     /// any live seed carries. Measured rather than assumed, so a new aura that
     /// grows the emitter moves this too. The phase-1 prototype put the worst
     /// of it - an open tourer on wire wheels at 3.6 m - at nine per cent under
@@ -495,15 +597,28 @@ mod tests {
                     let plan = roadster::plan_of(&bp, body, rolls);
                     for top in RoadsterTop::ALL {
                         let mut built = roadster::build_dressed(&ctx, &plan, top, rolls);
-                        apply_travel_pose(&mut built, travel_drop(&roadster::Roadster, &plan));
+                        apply_travel_pose(&mut built, travel_drop(&roadster::Roadster, &plan, 0));
                         worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
                     }
                 }
             }
         }
+        // And the wagon's, every body at every corner, on its fullest ladder
+        // (#1377): the heaviest is a 3.6 m Ornate / Battered cart at about
+        // 27 KB, twelve spokes a wheel spending most of it.
+        let mut worst_wagon = 0usize;
+        for bp in corners() {
+            for body in crate::seeded_defaults::WagonBody::ALL {
+                let plan = wagon::plan_of(&bp, body);
+                let mut built = wagon::build_dressed(&ctx, &plan);
+                apply_travel_pose(&mut built, travel_drop(&wagon::Wagon, &plan, 0));
+                worst_wagon = worst_wagon.max(bytes(&built) + fx_overhead);
+            }
+        }
         for (what, worst) in [
             ("seeded skiff", worst_seed),
             ("fully dressed corner", worst_corner),
+            ("fully dressed wagon", worst_wagon),
         ] {
             assert!(
                 worst * 3 < SOFT_RECORD_BUDGET_BYTES,
@@ -530,7 +645,7 @@ mod tests {
         let mut checked = 0;
         for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
             let (craft, plan) = body_for(s).expect("a skiff seed has a body");
-            let w = craft.overall_width(&plan);
+            let w = craft.overall_width(&plan, s);
             assert!(
                 w < MOUTH,
                 "seed {s} is {w} m wide, past the {MOUTH} m mouth"

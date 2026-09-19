@@ -14,8 +14,9 @@
 use std::collections::BTreeMap;
 
 use bevy_symbios_audio::{
-    AudioPatch, BiquadBandpass, BiquadHighpass, BiquadLowpass, Connection, Gain, GraphNode, Lfo,
-    LfoShape, NodeGraph, NodeId, NodeKind, PinkNoise, SawtoothOsc, SineOsc, WhiteNoise,
+    AudioPatch, BiquadBandpass, BiquadHighpass, BiquadLowpass, BrownNoise, Connection, Gain,
+    GraphNode, Lfo, LfoShape, NodeGraph, NodeId, NodeKind, PinkNoise, SawtoothOsc, SineOsc,
+    WhiteNoise,
 };
 
 use crate::catalogue::items::fx::Emitter;
@@ -27,7 +28,7 @@ use crate::pds::types::{Fp, Fp3};
 use crate::pds::{EmitterShape, ParticleBlendMode, SovereignAudioConfig};
 use crate::seeded_defaults::{AvatarFx, AvatarVoice, ChassisFamily, ParticleAura};
 
-use super::boats::Propulsion;
+use super::Propulsion;
 
 /// Hang the FX on a freshly-built avatar root: push the aura emitter as a
 /// child at `mount` (in the root's local frame) and set the body voice on
@@ -332,13 +333,14 @@ fn aura_emitter(
 // The three vehicle families no longer share one fixed 55 Hz drone, and a
 // luminous style no longer *replaces* the drive (a cyberpunk skiff used to
 // buzz like a sign with no machine underneath). Each craft speaks with its own
-// DRIVE - an airship's rotor thump, a skiff's detuned putter, a motor boat's
-// water-washed rumble, and for a boat under sail no engine at all, only the
-// wash along her hull and the wind in her rig - and on a luminous *vehicle*
-// that drive is mixed in UNDER the neon / arcane voice at low gain instead of
-// being dropped. Which drive a boat has is asked of the craft that is DRAWN
-// (`boats::propulsion`), never of the type a seed picked, so the voice is
-// right before every type is built.
+// DRIVE - an airship's rotor thump, a car's detuned putter, a motor boat's
+// water-washed rumble, for a boat under sail no engine at all, only the wash
+// along her hull and the wind in her rig, and for a horseless wagon the roll
+// of iron tyres and a timber creak - and on a luminous *vehicle* that drive is
+// mixed in UNDER the neon / arcane voice at low gain instead of being
+// dropped. Which drive a boat or a skiff has is asked of the craft that is
+// DRAWN (`boats::propulsion`, `skiffs::propulsion`), never of the type a seed
+// picked, so the voice is right before every type is built.
 //
 // A voice is a construct patch: baked to ONE second and looped whole
 // (`world_builder::spatial_audio::CONSTRUCT_PATCH_SECS`). So every pitch and
@@ -367,14 +369,28 @@ fn voice_patch(voice: AvatarVoice, family: ChassisFamily, seed: u64) -> Option<A
     driven_voice_patch(voice, family, drive_of(family, seed), detune_bucket(seed))
 }
 
-/// How the avatar for `seed` on `family` is driven. A boat answers for the
-/// craft she is drawn as; every other family has an engine.
-fn drive_of(family: ChassisFamily, seed: u64) -> Propulsion {
+/// How the avatar for `seed` on `family` is driven. A boat and a skiff each
+/// answer for the craft they are DRAWN as (#1383, #1377); the airship's
+/// rotors are an engine.
+pub(super) fn drive_of(family: ChassisFamily, seed: u64) -> Propulsion {
     match family {
         ChassisFamily::Boat => super::boats::propulsion(seed),
-        ChassisFamily::Airship | ChassisFamily::Skiff | ChassisFamily::Humanoid => {
-            Propulsion::Engine
-        }
+        ChassisFamily::Skiff => super::skiffs::propulsion(seed),
+        ChassisFamily::Airship | ChassisFamily::Humanoid => Propulsion::Engine,
+    }
+}
+
+/// The aura a craft driven by `drive` actually trails (#1377).
+///
+/// The aura is PICKED in `seeded_defaults`, by style and chassis family, and
+/// that layer cannot see the drawn craft - so it floors every skiff to an
+/// exhaust. A rolling wagon has no pipe and no boiler: its exhaust floor and
+/// a Steampunk style's steam are both dropped here, where the drive is known.
+/// Embers and motes stay - a lantern sparks, and a flourish is a flourish.
+pub(super) fn drawn_aura(aura: ParticleAura, drive: Propulsion) -> ParticleAura {
+    match (aura, drive) {
+        (ParticleAura::Exhaust | ParticleAura::Steam, Propulsion::Rolling) => ParticleAura::None,
+        (aura, _) => aura,
     }
 }
 
@@ -421,6 +437,7 @@ pub(super) fn voice_label(seed: u64) -> String {
         (Propulsion::Engine, ChassisFamily::Boat) => "boat engine hum",
         (Propulsion::Engine, ChassisFamily::Airship) => "rotor thump",
         (Propulsion::Engine, ChassisFamily::Skiff | ChassisFamily::Humanoid) => "putter",
+        (Propulsion::Rolling, _) => "roll and creak",
     };
     let bucket = detune_bucket(seed);
     match voice {
@@ -478,6 +495,7 @@ fn family_drive(
         (Propulsion::Engine, ChassisFamily::Skiff | ChassisFamily::Humanoid) => {
             skiff_putter(g, detune)
         }
+        (Propulsion::Rolling, _) => wagon_roll(g),
     }
 }
 
@@ -596,6 +614,46 @@ fn airship_rotor(g: &mut GraphBuilder, detune: f32) -> NodeId {
         }),
         &[pumped],
     )
+}
+
+/// A horseless wagon rolling (#1377; the owner's ear picked candidate w2 of
+/// the phase-1 bakes): iron tyres on the track - brown noise low-passed,
+/// steady - and a timber creak - narrow-band noise at 640 Hz - swelling once a
+/// second on a saw and letting go. No oscillator, so nothing to detune; the
+/// bucket still seeds the noise. The saw's rate is whole hertz and its offset
+/// equals its depth, so it closes the one-second loop and never drives the
+/// gain below zero (#1385, #1348); it lets go AT the seam by construction,
+/// once a second, as it would anywhere.
+///
+/// Baked as the owner heard it, then taken down by 0.51 to the level the
+/// other drives sit at: the candidate's RMS was 0.21 against the sail's 0.11.
+fn wagon_roll(g: &mut GraphBuilder) -> NodeId {
+    let tyres = g.src(NodeKind::BrownNoise(BrownNoise { amplitude: 0.7 }));
+    let tyres = g.sink(
+        NodeKind::BiquadLowpass(BiquadLowpass {
+            cutoff_hz: 260.0,
+            q: 0.7,
+        }),
+        &[tyres],
+    );
+    let tyres = g.sink(NodeKind::Gain(Gain { gain: 1.6 }), &[tyres]);
+    let timber = g.src(NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));
+    let timber = g.sink(
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 640.0,
+            q: 6.0,
+        }),
+        &[timber],
+    );
+    let swell = g.src(NodeKind::Lfo(Lfo {
+        rate_hz: 1.0,
+        shape: LfoShape::Saw,
+        depth: 0.5,
+        offset: 0.5,
+    }));
+    let creak = g.vca(&[timber], swell);
+    let creak = g.sink(NodeKind::Gain(Gain { gain: 2.2 }), &[creak]);
+    g.sink(NodeKind::Gain(Gain { gain: 0.51 }), &[tyres, creak])
 }
 
 /// Skiff engine - a saw/sine putter around 78 Hz, chugged by a faster LFO;
@@ -757,7 +815,7 @@ mod audio_tests {
         AvatarVoice::NeonBuzz,
         AvatarVoice::ArcaneShimmer,
     ];
-    const DRIVES: [Propulsion; 2] = [Propulsion::Sail, Propulsion::Engine];
+    const DRIVES: [Propulsion; 3] = [Propulsion::Sail, Propulsion::Engine, Propulsion::Rolling];
 
     /// Every voice patch there is: each voice on each chassis under each
     /// drive, on every detune bucket, labelled for a failure message. The
@@ -803,13 +861,6 @@ mod audio_tests {
                         | NodeKind::Triangle(_)
                 )
             })
-            .collect()
-    }
-
-    /// A seed on each detune bucket, in bucket order.
-    fn a_seed_per_bucket() -> Vec<u64> {
-        (0..DETUNE_BUCKETS)
-            .map(|b| (0u64..).find(|&s| detune_bucket(s) == b).unwrap())
             .collect()
     }
 
@@ -878,9 +929,12 @@ mod audio_tests {
     /// the rotor steps 5.4x (the control, run by hand in #1385).
     #[test]
     fn a_tonal_voice_meets_itself_at_the_loop_seam() {
-        let seed = a_seed_per_bucket()[0];
+        // Asked for the ENGINE explicitly: a skiff seed's drive is its drawn
+        // craft's since #1377, and a wagon rolls on noise, which has no pitch
+        // to close.
         for family in [ChassisFamily::Airship, ChassisFamily::Skiff] {
-            let patch = voice_patch(AvatarVoice::Drive, family, seed).expect("a drive voice");
+            let patch = driven_voice_patch(AvatarVoice::Drive, family, Propulsion::Engine, 0)
+                .expect("a drive voice");
             let (wav, _) = crate::world_builder::spatial_audio::bake_construct_wav_bytes(
                 &SovereignAudioConfig::from_patch(&patch),
             )
@@ -977,6 +1031,7 @@ mod audio_tests {
             (ChassisFamily::Boat, Propulsion::Engine),
             (ChassisFamily::Airship, Propulsion::Engine),
             (ChassisFamily::Skiff, Propulsion::Engine),
+            (ChassisFamily::Skiff, Propulsion::Rolling),
         ] {
             let patch = driven_voice_patch(AvatarVoice::Drive, family, drive, 3).expect("a drive");
             assert_audible(&patch, &format!("{family:?} {drive:?}"));
@@ -1002,13 +1057,14 @@ mod audio_tests {
 
     #[test]
     fn the_family_drives_are_distinct() {
-        // The four drive voices - sail, motor boat, rotor, putter - are
-        // genuinely different voices, not one shared hum.
+        // The five drive voices - sail, motor boat, rotor, putter, wagon -
+        // are genuinely different voices, not one shared hum.
         let baked: Vec<Vec<f32>> = [
             (ChassisFamily::Boat, Propulsion::Sail),
             (ChassisFamily::Boat, Propulsion::Engine),
             (ChassisFamily::Airship, Propulsion::Engine),
             (ChassisFamily::Skiff, Propulsion::Engine),
+            (ChassisFamily::Skiff, Propulsion::Rolling),
         ]
         .iter()
         .map(|&(family, drive)| {
@@ -1053,6 +1109,62 @@ mod audio_tests {
                 pitches.len() >= fewest,
                 "{family:?}: {pitches:?} over {DETUNE_BUCKETS} buckets"
             );
+        }
+    }
+
+    /// The skiff's voice follows the DRAWN craft (#1377), in both
+    /// directions: every seed drawn as a wagon rolls, on a patch with no
+    /// oscillator in it, and every other skiff seed still putters - which is
+    /// what keying the voice to the family would get wrong one way, and to
+    /// the picked type the other while any type is unbuilt.
+    #[test]
+    fn a_skiff_rolls_exactly_when_it_is_drawn_as_a_wagon() {
+        use crate::seeded_defaults::SkiffType;
+        let (mut wagons, mut others) = (0, 0);
+        for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
+            let wagon = SkiffType::for_seed(s) == SkiffType::Wagon;
+            let drive = drive_of(ChassisFamily::Skiff, s);
+            assert_eq!(drive == Propulsion::Rolling, wagon, "seed {s}: {drive:?}");
+            if wagon {
+                wagons += 1;
+                let patch = voice_patch(AvatarVoice::Drive, ChassisFamily::Skiff, s).unwrap();
+                assert!(oscillators(&patch).is_empty(), "wagon seed {s} hums");
+            } else {
+                others += 1;
+            }
+        }
+        assert!(
+            wagons > 10 && others > 10,
+            "{wagons} wagons, {others} others"
+        );
+    }
+
+    /// A rolling craft trails neither exhaust nor steam, and keeps every
+    /// other aura; no other drive loses any (#1377).
+    #[test]
+    fn only_a_rolling_craft_drops_exhaust_and_steam() {
+        use crate::seeded_defaults::ParticleAura as A;
+        let all = [
+            A::None,
+            A::Steam,
+            A::NeonHaze,
+            A::Thruster,
+            A::ArcaneMotes,
+            A::Embers,
+            A::Wake,
+            A::Vent,
+            A::Exhaust,
+        ];
+        for drive in DRIVES {
+            for aura in all {
+                let drawn = drawn_aura(aura, drive);
+                let dropped = drive == Propulsion::Rolling && matches!(aura, A::Exhaust | A::Steam);
+                assert_eq!(
+                    drawn,
+                    if dropped { A::None } else { aura },
+                    "{aura:?} under {drive:?}"
+                );
+            }
         }
     }
 

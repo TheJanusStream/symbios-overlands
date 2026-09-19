@@ -49,6 +49,7 @@ pub mod palette;
 pub mod roadster;
 pub mod sloop;
 pub mod vehicle_blueprint;
+pub mod wagon;
 
 pub use body::{AvatarBody, BodyArchetype, StylizationTier};
 pub use character::{
@@ -67,3 +68,4 @@ pub use vehicle_blueprint::{
     AirshipBlueprint, BoatBlueprint, NOMINAL_BODY_LEN, NOMINAL_HULL_LEN, SkiffBlueprint,
     VehicleBlueprint, VehicleStance,
 };
+pub use wagon::WagonBody;

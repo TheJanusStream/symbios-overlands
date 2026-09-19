@@ -32,10 +32,10 @@ use crate::pds::generator::Generator;
 use crate::seeded_defaults::{OrnatenessTier, RoadsterTop, WearTier};
 
 use super::super::super::common::{bevel, id_quat, prim, quat_x, quat_z};
-use super::super::plan::{BodyPlan, TailMount};
 use super::super::{SkiffColours, dim};
 use super::coachwork::{self, NEAR_SIDE};
 use super::wheels::Wheels;
+use super::{RoadsterPlan, TailMount};
 use super::{line, turned};
 
 /// A spare's outer radius over the road wheels', on the tail and on the side.
@@ -51,7 +51,7 @@ pub(super) fn wears_a_primer_wing(wear: WearTier) -> bool {
 /// Dress the roadster for its tiers.
 pub(super) fn dress(
     kids: &mut Vec<Generator>,
-    plan: &BodyPlan,
+    plan: &RoadsterPlan,
     c: &SkiffColours,
     top: RoadsterTop,
     wheel: &dyn Wheels,
@@ -83,7 +83,7 @@ pub(super) fn dress(
 /// pressed into the panel by a fraction of its own half-width - contact by
 /// construction, because the connectedness guard cannot see a gap at a blunt
 /// end ([`TailMount::Back`]).
-fn tail_spare_mount(plan: &BodyPlan, wheel: &dyn Wheels) -> ([f32; 3], [f32; 4]) {
+fn tail_spare_mount(plan: &RoadsterPlan, wheel: &dyn Wheels) -> ([f32; 3], [f32; 4]) {
     let l = plan.length;
     match plan.tail_mount() {
         TailMount::Deck { at, lift, lean } => {
@@ -106,7 +106,7 @@ fn tail_spare_mount(plan: &BodyPlan, wheel: &dyn Wheels) -> ([f32; 3], [f32; 4])
 /// The station of a tail spare's inboard face (m) - what the tail-mount guard
 /// checks against the drawn end of a blunt tail.
 #[cfg(test)]
-pub(super) fn tail_spare_face_z(plan: &BodyPlan, wheel: &dyn Wheels) -> f32 {
+pub(super) fn tail_spare_face_z(plan: &RoadsterPlan, wheel: &dyn Wheels) -> f32 {
     let (at, _) = tail_spare_mount(plan, wheel);
     let face = wheel.spare(plan.wheel_r * TAIL_SPARE).face;
     let lean = match plan.tail_mount() {
@@ -117,7 +117,12 @@ pub(super) fn tail_spare_face_z(plan: &BodyPlan, wheel: &dyn Wheels) -> f32 {
 
 /// The spare every roadster carries short of Ornate, on the tail mount - the
 /// rear of a boat tail is otherwise a blank at play distance.
-fn tail_spare(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours, wheel: &dyn Wheels) {
+fn tail_spare(
+    kids: &mut Vec<Generator>,
+    plan: &RoadsterPlan,
+    c: &SkiffColours,
+    wheel: &dyn Wheels,
+) {
     let (at, lay) = tail_spare_mount(plan, wheel);
     let p = wheel.spare(plan.wheel_r * TAIL_SPARE);
     kids.push(turned(&p.tyre, 24, true, c.rubber.clone(), at, lay));
@@ -127,7 +132,12 @@ fn tail_spare(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours, whee
 /// A spare standing on the near-side running board's FORWARD end, face
 /// outboard, its inboard face against the body's own flank - a side-mount,
 /// the touring car's mark. Sized to the board it stands on.
-fn side_spare(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours, wheel: &dyn Wheels) {
+fn side_spare(
+    kids: &mut Vec<Generator>,
+    plan: &RoadsterPlan,
+    c: &SkiffColours,
+    wheel: &dyn Wheels,
+) {
     let l = plan.length;
     let b = coachwork::board(plan);
     let r = plan.wheel_r * SIDE_SPARE;
@@ -145,7 +155,7 @@ fn side_spare(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours, whee
 /// instead). On a deck it rides the tail deck behind the cockpit, as wide as
 /// the deck is at its narrower end; on a blunt back it stands on a grid run
 /// out of the panel, bedded into it.
-fn trunk(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours) {
+fn trunk(kids: &mut Vec<Generator>, plan: &RoadsterPlan, c: &SkiffColours) {
     let l = plan.length;
     let (size, at, grid) = match plan.tail_mount() {
         TailMount::Deck { .. } => {
@@ -197,7 +207,7 @@ fn trunk(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours) {
 }
 
 /// The top of the bodywork at `(x, z)`: the elliptical section's own crown.
-fn deck_y(plan: &BodyPlan, x: f32, z: f32) -> f32 {
+fn deck_y(plan: &RoadsterPlan, x: f32, z: f32) -> f32 {
     let hw = plan.half_width_at(z);
     let t = (x.abs() / hw.max(1e-4)).min(0.999);
     plan.crown_at(z) * (1.0 - t * t).sqrt()
@@ -207,7 +217,7 @@ fn deck_y(plan: &BodyPlan, x: f32, z: f32) -> f32 {
 /// bedded on the coaming and following the deck's camber. Seated on the
 /// canopy seat's plane - where a hood stands when it is up - at the rim it
 /// folds onto when it is down. An open car's alone.
-fn folded_hood(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours) {
+fn folded_hood(kids: &mut Vec<Generator>, plan: &RoadsterPlan, c: &SkiffColours) {
     let l = plan.length;
     let base = plan.canopy_seat()[1];
     let z = plan.cockpit_z().0 - l * 0.004;
@@ -230,7 +240,7 @@ fn folded_hood(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours) {
 /// else stands: a Bevel can at a real can's proportions against the car this
 /// one models - the first draw was a third of that and read as a matchbox -
 /// and one rope over it, board to board.
-fn jerrycan(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours) {
+fn jerrycan(kids: &mut Vec<Generator>, plan: &RoadsterPlan, c: &SkiffColours) {
     let l = plan.length;
     let b = coachwork::board(plan);
     let side = -NEAR_SIDE;

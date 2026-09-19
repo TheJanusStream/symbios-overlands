@@ -378,19 +378,17 @@ impl SkiffType {
     /// the family's [`UNIVERSAL`](Self::UNIVERSAL) floor - the roadster -
     /// while still *reporting* the type it rolled.
     ///
-    /// **Most skiff seeds are in that position**, and will be until #1377: a
-    /// horseless carriage takes all ten historic themes, so the Wagon alone is
-    /// 31 % of the family against the Roadster's 30.
+    /// The Wagon was built second (#1377): a horseless carriage takes all ten
+    /// historic themes, so it alone is 31 % of the family against the
+    /// Roadster's 30.
     ///
     /// Kept in step with the builder table by
     /// `default_visuals::skiffs::tests::a_skiff_type_is_implemented_exactly_
     /// when_something_builds_it`.
     pub fn implemented(self) -> bool {
         match self {
-            Self::Roadster => true,
-            Self::DuneBuggy | Self::ArmouredCar | Self::Cyclecar | Self::Wagon | Self::Rover => {
-                false
-            }
+            Self::Roadster | Self::Wagon => true,
+            Self::DuneBuggy | Self::ArmouredCar | Self::Cyclecar | Self::Rover => false,
         }
     }
 

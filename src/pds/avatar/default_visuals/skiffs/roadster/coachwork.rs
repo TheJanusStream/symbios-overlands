@@ -8,8 +8,8 @@ use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
 
 use super::super::super::common::{bevel, cuboid, id_quat, prim, quat_x, quat_xyzw};
-use super::super::plan::BodyPlan;
 use super::super::{SkiffColours, dim};
+use super::RoadsterPlan;
 use super::{SECTION, TUB_HOLLOW, WING_ARC, WING_R, WING_SCALE_X, line, sweep, turned};
 
 /// How far the radiator's turned filler cap is seated into the shell it stands
@@ -27,7 +27,7 @@ const CAP_SINK: f32 = 0.002;
 pub(super) const NEAR_SIDE: f32 = -1.0;
 
 /// Bonnet, tub, scuttle, tail deck - and the three lines that run along them.
-pub(super) fn body(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours) {
+pub(super) fn body(kids: &mut Vec<Generator>, plan: &RoadsterPlan, c: &SkiffColours) {
     let l = plan.length;
     let s = [1.0, SECTION, 1.0];
     let (cockpit_aft, cockpit_fwd) = plan.cockpit_z();
@@ -122,7 +122,7 @@ pub(super) fn body(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours)
 /// parallel to its Y extrusion axis, so the size is `[width, depth, height]`
 /// and the shell takes a quarter turn about x; authored the other way it lies
 /// flat across the nose like a tray (found by render, #1359).
-pub(super) fn radiator(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours) {
+pub(super) fn radiator(kids: &mut Vec<Generator>, plan: &RoadsterPlan, c: &SkiffColours) {
     let l = plan.length;
     let (nose, z) = (plan.nose_z(), plan.radiator_z());
     let (w, h) = (plan.half_width_at(nose) * 1.95, plan.crown_at(nose) * 2.30);
@@ -187,7 +187,7 @@ pub(super) struct Board {
 }
 
 /// The running board every guard sweeps into, read off the plan.
-pub(super) fn board(plan: &BodyPlan) -> Board {
+pub(super) fn board(plan: &RoadsterPlan) -> Board {
     let l = plan.length;
     let arc = plan.wheel_r * WING_ARC;
     let y = plan.axle_y() - l * 0.0113 + WING_R * l + l * 0.0023;
@@ -207,7 +207,7 @@ pub(super) fn board(plan: &BodyPlan) -> Board {
 /// trailing arch, swept from the WHEEL LANDMARKS - so a guard is over its own
 /// wheel by construction, and a type with three or six wheels gets three or
 /// six arches out of this same code rather than out of a slug-string check.
-fn guard_path(plan: &BodyPlan, x: f32) -> Vec<([f32; 3], f32)> {
+fn guard_path(plan: &RoadsterPlan, x: f32) -> Vec<([f32; 3], f32)> {
     let l = plan.length;
     let arc = plan.wheel_r * WING_ARC;
     let axle_y = plan.axle_y();
@@ -253,7 +253,12 @@ fn guard(points: &[([f32; 3], f32)], m: SovereignMaterialSettings) -> Generator 
 /// primer: a replacement panel that never matched (#1367). Wear as a mass,
 /// not as texture noise. The split shares the board's first station, so the
 /// two pieces meet end to end on it.
-pub(super) fn wings(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours, primer: bool) {
+pub(super) fn wings(
+    kids: &mut Vec<Generator>,
+    plan: &RoadsterPlan,
+    c: &SkiffColours,
+    primer: bool,
+) {
     let l = plan.length;
     let b = board(plan);
     let stations = plan.axle_stations();
@@ -295,7 +300,7 @@ pub(super) fn wings(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours
 
 /// Turned bullet lamp shells with a lit lens, tail lamps, a bumper and the
 /// side exhaust.
-pub(super) fn lamps_and_bumper(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &SkiffColours) {
+pub(super) fn lamps_and_bumper(kids: &mut Vec<Generator>, plan: &RoadsterPlan, c: &SkiffColours) {
     let l = plan.length;
     let k = l / 2.7;
     let shell: Vec<(f32, f32)> = [
@@ -388,7 +393,7 @@ pub(super) fn lamps_and_bumper(kids: &mut Vec<Generator>, plan: &BodyPlan, c: &S
 
 /// The headlamp station on `side` - standing off the bonnet's shoulder, read
 /// off the flank so the shell is always against the panel.
-fn lamp_mount(plan: &BodyPlan, side: f32) -> [f32; 3] {
+fn lamp_mount(plan: &RoadsterPlan, side: f32) -> [f32; 3] {
     let z = 0.400 * plan.length;
     let y = plan.crown_at(z) * 0.30;
     [side * plan.side_at(z, y) * 1.12, y + plan.length * 0.017, z]
@@ -400,7 +405,7 @@ fn lamp_mount(plan: &BodyPlan, side: f32) -> [f32; 3] {
 /// A fixed height would leave the pipe hanging in air aft, where the section
 /// is a third of what it is amidships - the same mistake as a mount on a
 /// guessed fraction, one part further out.
-pub(super) fn exhaust_path(plan: &BodyPlan) -> Vec<([f32; 3], f32)> {
+pub(super) fn exhaust_path(plan: &RoadsterPlan) -> Vec<([f32; 3], f32)> {
     let l = plan.length;
     [0.300f32, 0.180, 0.0, -0.250, -0.392]
         .iter()
