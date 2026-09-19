@@ -390,13 +390,16 @@ pub(crate) fn ground_ride_height(loco: &LocomotionConfig) -> Option<f32> {
 fn boat_locomotion(seed: u64) -> LocomotionConfig {
     let bp = VehicleBlueprint::from_seed(seed);
     let b = bp.as_ref().and_then(VehicleBlueprint::boat);
-    let (feel, draft) = boats::feel_and_draft(seed);
+    let (feel, draft, drawn_beam) = boats::feel_and_draft(seed);
     // TRUE metres throughout since #1363: the blueprint IS the drawn boat, so
     // mass, collider and ride height are all read straight off her. Dividing
     // by the nominal below is what stops the re-basing simply pinning every
     // craft against its mass clamp.
     let hull_len = b.map_or(NOMINAL_HULL_LEN, |b| b.hull_len);
-    let beam = b.map_or(NOMINAL_HULL_LEN / 3.5, |b| b.beam);
+    // The DRAWN beam where the craft says it differs from the blueprint's -
+    // a catamaran is half as wide again (#1372) - so the collider is as wide
+    // as the boat round it.
+    let beam = drawn_beam.unwrap_or_else(|| b.map_or(NOMINAL_HULL_LEN / 3.5, |b| b.beam));
     let freeboard = b.map_or(NOMINAL_HULL_LEN * 0.107, |b| b.freeboard);
 
     // The 50 kg baseline is what the default suspension stiffness (4200) and
@@ -863,9 +866,6 @@ mod tests {
                 panic!("seed {s} is a boat without hover-boat locomotion");
             };
             let visuals = body.visuals().expect("a boat assembles a tree");
-            let bp = VehicleBlueprint::from_seed(s)
-                .and_then(|b| b.boat().copied())
-                .expect("a boat has a blueprint");
             assert_eq!(
                 visuals.transform.scale.0[1], 1.0,
                 "seed {s}: a boat is authored at the size she is drawn at since #1363, \
@@ -887,15 +887,18 @@ mod tests {
                     < 1e-4,
                 "seed {s}: ground_ride_height disagrees with the family derivation"
             );
-            let want = boats::land_ride_height(bp.draft);
+            // The DRAWN hull's draft: the blueprint's fin draft on a sloop,
+            // and on a runabout her own canoe body plus a skeg (#1372).
+            let (_, draft, _) = boats::feel_and_draft(s);
+            let want = boats::land_ride_height(draft);
             assert!(
                 (ride - want).abs() < 1e-4,
                 "seed {s}: hull rides at {ride} m, wanted {want} m"
             );
             // The keel clears the ground by a quarter of her draft.
-            let keel = ride - drop - bp.draft;
+            let keel = ride - drop - draft;
             assert!(
-                keel > 0.0 && (keel - 0.25 * bp.draft).abs() < 1e-4,
+                keel > 0.0 && (keel - 0.25 * draft).abs() < 1e-4,
                 "seed {s}: the keel sits {keel} m off the ground"
             );
             checked += 1;

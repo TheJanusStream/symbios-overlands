@@ -158,6 +158,11 @@ impl BoatCraft for Sloop {
         Propulsion::Sail
     }
 
+    fn overall_beam(&self, hull: &HullProfile, _seed: u64) -> f32 {
+        // Her blueprint's beam: she is exactly as wide as her profile.
+        hull.half_beam * 2.0
+    }
+
     fn fx_mount(&self, aura: ParticleAura, hull: &HullProfile) -> [f32; 3] {
         match aura {
             // A sloop has no funnel, so steam and wake both leave at the

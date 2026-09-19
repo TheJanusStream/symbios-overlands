@@ -47,6 +47,7 @@ pub mod mood;
 pub mod outfit;
 pub mod palette;
 pub mod roadster;
+pub mod runabout;
 pub mod sloop;
 pub mod vehicle_blueprint;
 pub mod wagon;
@@ -63,6 +64,7 @@ pub use materials::MaterialKit;
 pub use outfit::{AvatarOutfit, OutfitPart};
 pub use palette::AvatarPalette;
 pub use roadster::{RoadsterBody, RoadsterTop, RoadsterWheels};
+pub use runabout::RunaboutVariant;
 pub use sloop::{SloopHull, SloopRig};
 pub use vehicle_blueprint::{
     AirshipBlueprint, BoatBlueprint, NOMINAL_BODY_LEN, NOMINAL_HULL_LEN, SkiffBlueprint,

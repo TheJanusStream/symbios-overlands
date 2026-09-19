@@ -13,9 +13,10 @@
 //! one file per type, and [`craft`] is the only match over the enum - the
 //! central [`build_for_seed`](super::build_for_seed) just delegates.
 //!
-//! Only the sloop is built so far. That is stated once, in [`craft`], as an
-//! explicit `None` for the types with no implementor rather than an arm that
-//! quietly draws something else: [`craft_for`] resolves an unbuilt pick to
+//! The sloop and the runabout (#1372) are built so far. That is stated once,
+//! in [`craft`], as an explicit `None` for the types with no implementor
+//! rather than an arm that quietly draws something else: [`craft_for`]
+//! resolves an unbuilt pick to
 //! [`BoatType::UNIVERSAL`] - the sloop is the family's universal floor exactly
 //! so it can be that answer - while the PICK itself stays a property of the
 //! seed, so `render --outfit` and `render --family-seeds --craft` keep
@@ -32,6 +33,7 @@
 //! two are a pair, and both are derived (#1361).
 
 mod profile;
+mod runabout;
 mod sloop;
 
 pub(crate) use profile::HullProfile;
@@ -43,7 +45,9 @@ use crate::seeded_defaults::{BoatBlueprint, BoatType, ParticleAura};
 /// The boat family's colours, which live in the fleet's one livery home
 /// (#1365) rather than beside its geometry - the sloop and every type after
 /// her read them through here.
-pub(crate) use crate::pds::avatar::livery::{BoatColours, boat_colours};
+pub(crate) use crate::pds::avatar::livery::{
+    BoatColours, RunaboutColours, boat_colours, runabout_colours,
+};
 
 use super::Propulsion;
 use super::assemble::apply_travel_pose;
@@ -154,6 +158,12 @@ pub(super) trait BoatCraft {
     /// no default: a type that lands without saying whether she has an engine
     /// does not compile, so no craft inherits a voice she never had.
     fn propulsion(&self) -> Propulsion;
+
+    /// Her overall beam (m), which her collider is as wide as. Required, like
+    /// [`propulsion`](Self::propulsion): a catamaran is half as wide again as
+    /// her blueprint's beam (#1372), and a collider that defaulted to the
+    /// blueprint would be narrower than the boat drawn round it.
+    fn overall_beam(&self, hull: &HullProfile, seed: u64) -> f32;
 }
 
 /// The builder for a craft type, or `None` while nothing implements it.
@@ -166,11 +176,8 @@ pub(super) trait BoatCraft {
 fn craft(t: BoatType) -> Option<&'static dyn BoatCraft> {
     match t {
         BoatType::Sloop => Some(&sloop::Sloop),
-        BoatType::Longship
-        | BoatType::SteamTug
-        | BoatType::Junk
-        | BoatType::Runabout
-        | BoatType::Scow => None,
+        BoatType::Runabout => Some(&runabout::Runabout),
+        BoatType::Longship | BoatType::SteamTug | BoatType::Junk | BoatType::Scow => None,
     }
 }
 
@@ -208,10 +215,15 @@ pub(super) fn build(seed: u64, livery: Option<usize>) -> Generator {
     root
 }
 
-/// How the seeded boat for `seed` drives, and how deep she floats.
-pub(super) fn feel_and_draft(seed: u64) -> (BoatFeel, f32) {
+/// How the seeded boat for `seed` drives, how deep she floats, and how wide
+/// she is drawn (m) - `None` for the blueprint's own beam.
+pub(super) fn feel_and_draft(seed: u64) -> (BoatFeel, f32, Option<f32>) {
     match hull_for(seed) {
-        Some((craft, hull)) => (craft.feel(), hull.draft),
+        Some((craft, hull)) => (
+            craft.feel(),
+            hull.draft,
+            Some(craft.overall_beam(&hull, seed)),
+        ),
         // Defensive: a boat seed always has a blueprint. Falling back to the
         // floor's own feel keeps a locomotion query total rather than panicking
         // in a sanitiser round-trip that exercises the family off-seed.
@@ -220,6 +232,7 @@ pub(super) fn feel_and_draft(seed: u64) -> (BoatFeel, f32) {
                 .expect("the floor is always built")
                 .feel(),
             0.28,
+            None,
         ),
     }
 }
@@ -244,8 +257,9 @@ pub(super) fn fx_mount(seed: u64, aura: ParticleAura) -> Option<[f32; 3]> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::common::first_difference;
     use super::*;
-    use crate::seeded_defaults::ChassisFamily;
+    use crate::seeded_defaults::{ChassisFamily, RunaboutVariant};
 
     /// The seam (#1362 → #1363). `BoatType::implemented` is what the readouts
     /// and the fan-out slices ask; [`craft`] is what actually draws. They are
@@ -346,7 +360,10 @@ mod tests {
         let mut worst = [0.0f32; SloopRig::ALL.len()];
         let mut checked = 0;
         for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
-            let (_, hull) = hull_for(s).expect("a boat seed has a hull");
+            // The SLOOP's hull on every boat seed, whatever it draws: every
+            // rig is checked everywhere a sloop could stand, which is every
+            // blueprint the family rolls.
+            let hull = sloop_hull_for(s);
             let ctx = PartCtx::for_seed(s);
             for (i, rig) in SloopRig::ALL.into_iter().enumerate() {
                 let derived = sloop::top_of_rig(&hull, rig) + hover(hull.draft);
@@ -373,6 +390,51 @@ mod tests {
                 rig.label()
             );
         }
+    }
+
+    /// The sloop's own hull on seed `s`'s blueprint and hull form - what the
+    /// sloop guards measure on every boat seed, drawn as a sloop or not.
+    fn sloop_hull_for(s: u64) -> HullProfile {
+        use crate::seeded_defaults::SloopHull;
+        let bp = crate::seeded_defaults::VehicleBlueprint::from_seed(s)
+            .and_then(|b| b.boat().copied())
+            .expect("a boat seed has a boat blueprint");
+        sloop::profile_of(&bp, SloopHull::for_seed(s))
+    }
+
+    /// Every runabout variant at every blueprint corner on every
+    /// ornateness-by-wear pair, with its hull and a label (#1372).
+    fn every_runabout() -> Vec<(Generator, HullProfile, RunaboutVariant, String)> {
+        use crate::seeded_defaults::{OrnatenessTier, WearTier};
+        let mut ctx = PartCtx::for_seed(
+            (0u64..600)
+                .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat)
+                .expect("some seed is a boat"),
+        );
+        let mut out = Vec::new();
+        for bp in corners() {
+            for v in RunaboutVariant::ALL {
+                let hull = runabout::profile_of(&bp, v);
+                for o in OrnatenessTier::ALL {
+                    for w in WearTier::ALL {
+                        (ctx.ornateness, ctx.wear) = (o, w);
+                        out.push((
+                            runabout::build_variant(&ctx, &hull, v),
+                            hull,
+                            v,
+                            format!(
+                                "a {} m {}, {} / {}",
+                                hull.loa,
+                                v.label(),
+                                o.label(),
+                                w.label()
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// The blueprint corners a seeded hull can actually reach - where a
@@ -418,6 +480,19 @@ mod tests {
             n += 1;
         }
         assert_eq!(n, 5 * 4 * 5 * 9, "the sweep lost a combination");
+        // The runabout authors ROTATED nodes - her wheel, her seat backs, her
+        // pods - so her round trip takes the skiffs' epsilon on rotations
+        // (#1364) and is exact everywhere else.
+        let mut n = 0;
+        for (built, _, _, what) in every_runabout() {
+            let mut sanitized = built.clone();
+            sanitize_avatar_visuals(&mut sanitized);
+            if let Some(where_) = first_difference(&built, &sanitized, "0") {
+                panic!("{what} was rewritten by the sanitiser at {where_}");
+            }
+            n += 1;
+        }
+        assert_eq!(n, 5 * 3 * 9, "the runabout sweep lost a combination");
     }
 
     /// Every part of a built boat meets another, and the whole craft is one
@@ -438,6 +513,62 @@ mod tests {
         for (built, what) in every_sloop() {
             touch::assert_one_machine(&built, &what);
         }
+        for (built, _, _, what) in every_runabout() {
+            touch::assert_one_machine(&built, &what);
+        }
+    }
+
+    /// A runabout floats IN her water and fits the gateway, at every corner
+    /// on every variant and tier (#1372): her keel is under her own design
+    /// waterline by at least a hundredth of her length - the first sweep of
+    /// the prototype found the small narrow catamaran floating dry above it -
+    /// she is drawn under the air-draft cap hover included, and her overall
+    /// beam clears the narrowest gateway mouth, 2.6 m.
+    #[test]
+    fn a_runabout_floats_in_her_water_and_fits_the_gateway() {
+        use super::super::common::touch;
+        for (built, hull, v, what) in every_runabout() {
+            let keel = hull
+                .stations()
+                .iter()
+                .map(|s| s.keel)
+                .fold(f32::INFINITY, f32::min);
+            assert!(
+                keel <= -0.01 * hull.loa,
+                "{what}: her keel is {keel} m, not under her waterline"
+            );
+            let air = touch::highest(&built) + hover(hull.draft);
+            assert!(
+                air <= AIR_DRAFT_CAP,
+                "{what}: drawn to {air} m over the ground"
+            );
+            let beam = runabout::overall_beam_of(&hull, v);
+            assert!(
+                beam < 2.6,
+                "{what}: {beam} m wide, past the 2.6 m gateway mouth"
+            );
+        }
+    }
+
+    /// Every runabout seed is drawn as a runabout, on the variant its theme
+    /// picks, and drives under power (#1372, #1383) - the seam's other half:
+    /// a built type is drawn, and draws with its own voice.
+    #[test]
+    fn a_runabout_seed_draws_a_runabout_under_power() {
+        use crate::seeded_defaults::BoatType;
+        let mut seen = Vec::new();
+        for s in (0u64..3000).filter(|&s| BoatType::for_seed(s) == BoatType::Runabout) {
+            assert_eq!(propulsion(s), Propulsion::Engine, "seed {s}");
+            let v = RunaboutVariant::for_seed(s);
+            if !seen.contains(&v) {
+                seen.push(v);
+            }
+        }
+        assert_eq!(
+            seen.len(),
+            RunaboutVariant::ALL.len(),
+            "the seeds under 3000 miss a variant: {seen:?}"
+        );
     }
 
     /// A seeded boat's saved record stays well under the soft budget
@@ -480,6 +611,11 @@ mod tests {
                     worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
                 }
             }
+        }
+        for (built, ..) in every_runabout() {
+            let mut built = built;
+            apply_travel_pose(&mut built, TRAVEL_DROP);
+            worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
         }
         for (what, worst) in [
             ("seeded boat", worst_seed),

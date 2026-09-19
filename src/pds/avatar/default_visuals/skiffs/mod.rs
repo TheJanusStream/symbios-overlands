@@ -257,6 +257,7 @@ pub(super) fn fx_mount(seed: u64, aura: ParticleAura) -> Option<[f32; 3]> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::common::first_difference;
     use super::*;
     use crate::seeded_defaults::{ChassisFamily, VehicleStance};
 
@@ -283,47 +284,6 @@ mod tests {
             }
         }
         out
-    }
-
-    /// Where two trees first disagree, as a path plus what moved - so a
-    /// sanitiser rewrite names the part it touched instead of printing two
-    /// whole machines.
-    fn first_difference(a: &Generator, b: &Generator, path: &str) -> Option<String> {
-        if a.kind != b.kind {
-            return Some(format!(
-                "{path} ({}): kind\n  {:?}\n  {:?}",
-                a.kind.kind_tag(),
-                a.kind,
-                b.kind
-            ));
-        }
-        // Rotations are compared with an epsilon: the sanitiser renormalises
-        // every quaternion, which moves the last ulp of an already-normalised
-        // one. `quat_x(FRAC_PI_2)` is exactly that case - sin and cos of a
-        // quarter turn are both 0.70710677 and the pair's norm is a hair under
-        // one - and the sloop never met it because she authors no rotated
-        // node, where a car is nothing but rotated nodes.
-        let turned =
-            (0..4).any(|i| (a.transform.rotation.0[i] - b.transform.rotation.0[i]).abs() > 1e-5);
-        if turned
-            || a.transform.translation != b.transform.translation
-            || a.transform.scale != b.transform.scale
-        {
-            return Some(format!(
-                "{path} ({}): transform {:?} -> {:?}",
-                a.kind.kind_tag(),
-                a.transform,
-                b.transform
-            ));
-        }
-        if a.children.len() != b.children.len() {
-            return Some(format!("{path}: child count"));
-        }
-        a.children
-            .iter()
-            .zip(b.children.iter())
-            .enumerate()
-            .find_map(|(i, (ca, cb))| first_difference(ca, cb, &format!("{path}/{i}")))
     }
 
     fn a_skiff_seed() -> u64 {

@@ -563,9 +563,11 @@ fn under_sail(g: &mut GraphBuilder) -> NodeId {
 }
 
 /// A motor boat's engine - a low water-washed rumble: a deep fundamental over
-/// a band-passed noise wash (the hull working through the water). Heard by no
-/// seed yet: the sloop sails, and the engine types (#1370, #1372) are the
-/// ones that will declare [`Propulsion::Engine`].
+/// a band-passed noise wash (the hull working through the water). The
+/// runabout is the first boat to declare [`Propulsion::Engine`] (#1372), so
+/// hers is the first seed to be heard with it; the steam tug (#1370) will be
+/// the next. Its noise wash can join itself audibly at the one-second loop
+/// seam on some detune buckets - #1387, a bake-side fix.
 ///
 /// The wash used to swell at 0.4 Hz, which a one-second loop cannot hold: it
 /// snapped back 4 dB every second (#1385). It is steady now, at the swell's
@@ -999,29 +1001,47 @@ mod audio_tests {
         }
     }
 
-    /// The voice follows the DRAWN craft (#1383): every boat seed, whatever
-    /// type it picked, is drawn as a sailing sloop today and so sails - a
-    /// Runabout-picked seed included, which is what keying the voice to the
-    /// picked type would have got wrong.
+    /// The voice follows the DRAWN craft (#1383), in both directions: a
+    /// boat seed is under power exactly when it is drawn as a runabout
+    /// (#1372), whose drive voice hums; every other boat seed - the sloops and
+    /// every pick nothing builds yet, which is drawn as a sloop - sails, on a
+    /// patch with no oscillator in it. Keying the voice to the picked type
+    /// would get the unbuilt picks wrong; keying it to the family would get
+    /// the runabout wrong.
     #[test]
-    fn every_drawn_boat_sails_whatever_type_it_picked() {
+    fn a_boat_is_under_power_exactly_when_it_is_drawn_as_a_runabout() {
         use crate::seeded_defaults::BoatType;
-        let boats: Vec<u64> = (0u64..400)
-            .filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat)
-            .collect();
-        assert!(
-            boats.iter().any(|&s| !BoatType::for_seed(s).implemented()),
-            "no seed picked an unbuilt type - the test proves nothing"
-        );
-        for s in boats {
+        let (mut launches, mut sailing, mut unbuilt) = (0, 0, 0);
+        for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
+            let picked = BoatType::for_seed(s);
+            let runabout = picked == BoatType::Runabout;
+            let drive = drive_of(ChassisFamily::Boat, s);
             assert_eq!(
-                drive_of(ChassisFamily::Boat, s),
-                Propulsion::Sail,
-                "seed {s}"
+                drive,
+                if runabout {
+                    Propulsion::Engine
+                } else {
+                    Propulsion::Sail
+                },
+                "seed {s} ({picked:?})"
             );
             let patch = voice_patch(AvatarVoice::Drive, ChassisFamily::Boat, s).unwrap();
-            assert!(oscillators(&patch).is_empty(), "boat seed {s} hums");
+            if runabout {
+                launches += 1;
+                assert!(
+                    !oscillators(&patch).is_empty(),
+                    "runabout seed {s} is silent of her engine"
+                );
+            } else {
+                sailing += 1;
+                unbuilt += usize::from(!picked.implemented());
+                assert!(oscillators(&patch).is_empty(), "boat seed {s} hums");
+            }
         }
+        assert!(
+            launches > 5 && sailing > 5 && unbuilt > 0,
+            "{launches} runabouts, {sailing} sailing ({unbuilt} of them unbuilt picks)"
+        );
     }
 
     #[test]

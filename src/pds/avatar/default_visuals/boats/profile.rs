@@ -29,6 +29,16 @@
 //!
 //! Every dimension is in TRUE METRES, hull centred on the design waterline at
 //! the origin, bow at `+Z`. The assembler applies the travel yaw.
+//!
+//! # Two sheer laws, and a draft a type may derive
+//!
+//! A sailing boat's deck line SPRINGS: it sweeps up toward both ends from a
+//! low point abaft midships. A planing launch's FALLS: it is highest at the
+//! stem and lowest at a wide flat transom (#1372). That is the one thing
+//! about the deck line a type chooses ([`SheerLaw`]); everything read off it
+//! follows. And a planing launch has no fin keel, so her draft - which sets
+//! her hover - is not the blueprint's fin draft but the deepest point of her
+//! own canoe body plus a skeg ([`HullProfile::planing`]).
 
 use crate::pds::sanitize::limits::MAX_SWEEP_POINTS;
 use crate::seeded_defaults::BoatBlueprint;
@@ -50,10 +60,51 @@ const MAST_ZF: f32 = 0.196;
 const CABIN_ZF: f32 = 0.030;
 const COCKPIT_ZF: f32 = -0.271;
 
+/// How a hull's deck edge rises and falls along her length.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum SheerLaw {
+    /// A sailing boat's: up toward both ends from [`SHEER_LOW`], hardest
+    /// forward - the freeboard, plus `sheer_bow` at the stem and
+    /// `sheer_stern` at the transom, each rising as the square of the
+    /// distance from the low point.
+    Spring,
+    /// A planing launch's (#1372): lowest at the transom and rising toward
+    /// the stem as `(zf + 0.5)^pow`, `sheer_bow` over the freeboard there.
+    /// `pow` over one keeps the rise forward, where a runabout's foredeck
+    /// sweeps up to her stem.
+    Falling { pow: f32 },
+}
+
+/// The exponent of a [`SheerLaw::Falling`] deck line: the rise gathers
+/// forward, as a runabout's foredeck sweeps up to her stem (#1372).
+const FALLING_SHEER_POW: f32 = 1.6;
+
+/// A planing type's proportions over the shared blueprint (#1372): each a
+/// factor on the blueprint's own number, so a stance still moves the launch
+/// the way it moves the sloop.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PlaningForm {
+    /// Half-beam over the blueprint's.
+    pub(crate) beam: f32,
+    /// Transom freeboard over the blueprint's freeboard.
+    pub(crate) freeboard: f32,
+    /// Sheer rise at the stem over the blueprint's `sheer_bow`.
+    pub(crate) rise: f32,
+    /// Section depth per unit half-beam.
+    pub(crate) section: f32,
+    /// Skeg depth under the deepest point of the canoe body, as a fraction
+    /// of the length.
+    pub(crate) skeg: f32,
+}
+
 /// One station of the hull: everything about the boat at one point along her
 /// length, all in metres from the design waterline.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Station {
+    /// Distance from amidships as a fraction of the overall length - the
+    /// plan form's own number, so a part keyed to a station can name it
+    /// without re-deriving it from `z`.
+    pub(crate) zf: f32,
     /// Distance from amidships, bow positive.
     pub(crate) z: f32,
     /// Half-beam at the deck edge.
@@ -76,6 +127,8 @@ pub(crate) struct HullProfile {
     /// Sheer rise at the stem and at the transom (m).
     sheer_bow: f32,
     sheer_stern: f32,
+    /// How those rises are laid along her.
+    sheer_law: SheerLaw,
     /// Section depth per unit half-beam - the one knob that turns a plan form
     /// into a hull. See the module docs.
     pub(crate) section: f32,
@@ -102,16 +155,48 @@ impl HullProfile {
             freeboard: bp.freeboard,
             sheer_bow: bp.sheer_bow,
             sheer_stern: bp.sheer_stern,
+            sheer_law: SheerLaw::Spring,
             section,
             draft: bp.draft,
             plan,
         }
     }
 
+    /// A PLANING hull for this blueprint (#1372): the type's own plan form
+    /// and section, the blueprint's dimensions under the type's own factors,
+    /// a [`SheerLaw::Falling`] deck line, and a draft DERIVED from the hull
+    /// itself - the deepest point of the canoe body plus `skeg` (a fraction
+    /// of the length), since a launch has no fin and her hover is a quarter
+    /// of this draft.
+    pub(crate) fn planing(
+        bp: &BoatBlueprint,
+        form: &PlaningForm,
+        plan: &'static [(f32, f32)],
+    ) -> Self {
+        let mut hull = Self::new(bp, form.section, plan);
+        hull.half_beam = bp.beam * 0.5 * form.beam;
+        hull.freeboard = bp.freeboard * form.freeboard;
+        hull.sheer_bow = bp.sheer_bow * form.rise;
+        hull.sheer_stern = 0.0;
+        hull.sheer_law = SheerLaw::Falling {
+            pow: FALLING_SHEER_POW,
+        };
+        let deepest = hull
+            .stations()
+            .iter()
+            .map(|s| s.keel)
+            .fold(f32::INFINITY, f32::min);
+        hull.draft = -deepest + hull.loa * form.skeg;
+        hull
+    }
+
     /// The deck edge's height above the waterline at plan fraction `zf`: the
     /// freeboard, plus a sheer that sweeps up toward both ends and hardest
     /// forward.
     pub(crate) fn sheer_at(&self, zf: f32) -> f32 {
+        if let SheerLaw::Falling { pow } = self.sheer_law {
+            return self.freeboard + self.sheer_bow * (zf + 0.5).max(0.0).powf(pow);
+        }
         let (end, rise) = if zf >= SHEER_LOW {
             (0.5, self.sheer_bow)
         } else {
@@ -129,6 +214,7 @@ impl HullProfile {
                 let half_beam = (rf * self.half_beam).max(0.012);
                 let sheer = self.sheer_at(zf);
                 Station {
+                    zf,
                     z: zf * self.loa,
                     half_beam,
                     sheer,

@@ -52,9 +52,13 @@
 //! that was the loudest thing in the frame - louder than her sails, her cabin
 //! and her deck, which is what a boat is actually read by at play distance. A
 //! boat's glow belongs where it is small and high: her masthead burgee, and
-//! the lit ports that were always lit. A car is unchanged, because a lit
-//! coachline and lit wheel centres on a cyberpunk machine are exactly the
-//! point and were never the complaint.
+//! the lit ports that were always lit. The one boat hull line that does glow
+//! is the neon SKIMMER's rub rail (#1372): the owner's call, on the one
+//! variant whose neon outline is the point, after a lit chine drawn first did
+//! not read at 12 m - and it is the rub rail, not a pinstripe down her
+//! topsides. A car is unchanged, because a lit coachline and lit wheel
+//! centres on a cyberpunk machine are exactly the point and were never the
+//! complaint.
 //!
 //! # The two colour rules this fleet learned by render
 //!
@@ -77,7 +81,7 @@ use super::parts::PartCtx;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::Fp;
 use crate::seeded_defaults::scene::pick_weighted;
-use crate::seeded_defaults::{MaterialKit, WagonBody};
+use crate::seeded_defaults::{MaterialKit, RunaboutVariant, WagonBody};
 
 /// Sub-stream salt for the livery draw - distinct from every sibling avatar
 /// deriver salt, so which scheme a craft wears is decorrelated from its type,
@@ -627,6 +631,173 @@ pub(crate) fn boat_colours(ctx: &PartCtx) -> BoatColours {
     }
 }
 
+/// The surfaces a runabout is built in (#1372): her scheme on the big masses
+/// where the variant honours one, the seeded accent on the spray rail, the
+/// cove line and the ensign, and the colours the rest of her simply is.
+pub(crate) struct RunaboutColours {
+    /// The shell and the transom face: mahogany under varnish on a coastal
+    /// launch whatever the scheme, the scheme's paint on the others.
+    pub(crate) topsides: SovereignMaterialSettings,
+    pub(crate) antifoul: SovereignMaterialSettings,
+    /// **Identity.** The spray rail on the chine and the cove line under the
+    /// sheer: the accent held clear of the hull, as PAINT on every theme -
+    /// the sloop's rule for a line that runs the whole length of a hull.
+    pub(crate) boot: SovereignMaterialSettings,
+    /// The rub rail on the deck edge: chrome - except on the SKIMMER, where
+    /// it is the accent through [`trim`] and so a lit neon outline on every
+    /// neon seed. The owner's call on #1372: the one hull line on the fleet
+    /// that glows, because the skimmer's lit chine did not read at 12 m and
+    /// the lit rail does.
+    pub(crate) rail: SovereignMaterialSettings,
+    /// The laid decks: planked mahogany on the launch, the scheme's paint
+    /// taken toward grey on the skimmer, pale non-skid on the catamaran.
+    pub(crate) deck: SovereignMaterialSettings,
+    /// The engine hatch.
+    pub(crate) hatch: SovereignMaterialSettings,
+    /// Bench cushions, the sunpad and the helm seat. On the launch this is
+    /// where the SCHEME's colour goes (her hull is always varnished), held
+    /// clear of the mahogany it sits in; on the skimmer a dark hide; on the
+    /// catamaran the seed's own accent.
+    pub(crate) upholstery: SovereignMaterialSettings,
+    /// Windscreen frames, the stem band, hoops, posts and the flagstaff.
+    pub(crate) chrome: SovereignMaterialSettings,
+    /// The cockpit sole.
+    pub(crate) sole: SovereignMaterialSettings,
+    /// The inside of the boat: her engine bed, in shadow.
+    pub(crate) interior: SovereignMaterialSettings,
+    /// The surrey top and the T-top: the scheme's sailcloth.
+    pub(crate) canvas: SovereignMaterialSettings,
+    /// A battered boat's tarp: the sloop's rule (#1366).
+    pub(crate) tarp: SovereignMaterialSettings,
+    /// A worn boat's replaced foredeck panel: grey primer held clear of the
+    /// deck it is let into.
+    pub(crate) primer: SovereignMaterialSettings,
+    /// A battered boat's fuel can.
+    pub(crate) can: SovereignMaterialSettings,
+    /// Propeller and rudder.
+    pub(crate) bronze: SovereignMaterialSettings,
+    /// The steering wheel's rim: varnished mahogany.
+    pub(crate) wheel: SovereignMaterialSettings,
+    /// **Identity.** The launch's ensign.
+    pub(crate) flag: SovereignMaterialSettings,
+    /// **Identity.** The skimmer's nozzles and her arch's lit bar: the accent
+    /// through [`trim`], lit on every neon seed.
+    pub(crate) glow: SovereignMaterialSettings,
+    /// The skimmer's pods, fins and arch: brushed metal, held clear of her
+    /// hull.
+    pub(crate) pod: SovereignMaterialSettings,
+    /// The catamaran's console: the scheme, held clear of her deck.
+    pub(crate) console: SovereignMaterialSettings,
+    /// The outboards' cowls - black - and the odd one out on a worn
+    /// catamaran, a white replacement cowl on the near engine.
+    pub(crate) cowl: SovereignMaterialSettings,
+    pub(crate) cowl_odd: SovereignMaterialSettings,
+    /// Outboard legs and the catamaran's crossbeam.
+    pub(crate) leg: SovereignMaterialSettings,
+}
+
+/// A runabout's fixed colours (#1372): what these parts simply are.
+const MAHOGANY: [f32; 3] = [0.34, 0.16, 0.08];
+const MAHOGANY_DECK: [f32; 3] = [0.40, 0.20, 0.10];
+const BRONZE: [f32; 3] = [0.55, 0.40, 0.20];
+const GUNMETAL: [f32; 3] = [0.20, 0.21, 0.23];
+const PALE_METAL: [f32; 3] = [0.62, 0.63, 0.66];
+const NONSKID: [f32; 3] = [0.80, 0.80, 0.76];
+const DARK_HIDE: [f32; 3] = [0.12, 0.12, 0.13];
+const FUEL_RED: [f32; 3] = [0.62, 0.12, 0.08];
+const OUTBOARD: [f32; 3] = [0.07, 0.07, 0.08];
+const COWL_ODD: [f32; 3] = [0.86, 0.86, 0.84];
+
+/// How far the launch's upholstery is held from her mahogany, the skimmer's
+/// hide from her deck and the catamaran's seat from hers: a cushion is a
+/// mass, and the cockpit is read by it.
+const UPHOLSTERY_DELTA: f32 = 0.25;
+
+pub(crate) fn runabout_colours(ctx: &PartCtx, variant: RunaboutVariant) -> RunaboutColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let l = boat_livery(ctx.seed, ctx.livery);
+    let scheme = floor_finished(m, l.topsides, BOAT_MASS_FLOOR);
+    // The hull's own colour, which every trim and mass is held clear of.
+    let hull = match variant {
+        RunaboutVariant::Coastal => MAHOGANY,
+        // A varnished scheme on a painted skimmer is gunmetal instead: a
+        // mahogany hull with lit pods is not a thing.
+        RunaboutVariant::Skimmer if l.varnished_hull => GUNMETAL,
+        RunaboutVariant::Skimmer | RunaboutVariant::Catamaran => scheme,
+    };
+    let boot = clear_of(p.primary_accent, luma(hull), BOOT_DELTA);
+    let chrome = m.brightwork(CHROME);
+    let deck = match variant {
+        RunaboutVariant::Coastal => MAHOGANY_DECK,
+        RunaboutVariant::Skimmer => clear_of(mix(hull, [0.5, 0.5, 0.52], 0.5), luma(hull), 0.18),
+        RunaboutVariant::Catamaran => clear_of(NONSKID, luma(hull), 0.28),
+    };
+    let (topsides, deck_m, hatch, upholstery, sole, rail) = match variant {
+        RunaboutVariant::Coastal => (
+            m.brightwork(MAHOGANY),
+            m.timber(MAHOGANY_DECK),
+            m.brightwork(MAHOGANY_DECK),
+            m.leather(clear_of(scheme, luma(MAHOGANY), UPHOLSTERY_DELTA)),
+            m.timber(l.deck),
+            chrome.clone(),
+        ),
+        RunaboutVariant::Skimmer => (
+            m.paint(hull),
+            m.paint(deck),
+            m.paint(if luma(hull) > 0.3 {
+                shade(hull, 0.7)
+            } else {
+                mix(hull, [1.0; 3], 0.25)
+            }),
+            m.leather(clear_of(DARK_HIDE, luma(deck), UPHOLSTERY_DELTA)),
+            m.paint(shade(hull, 0.45)),
+            trim(m, boot),
+        ),
+        RunaboutVariant::Catamaran => (
+            m.paint(hull),
+            m.paint(deck),
+            m.paint(deck),
+            m.leather(clear_of(p.primary_accent, luma(NONSKID), UPHOLSTERY_DELTA)),
+            m.paint(deck),
+            chrome.clone(),
+        ),
+    };
+    RunaboutColours {
+        topsides,
+        antifoul: m.antifoul(mix(l.antifoul, shade(p.secondary_accent, 0.5), 0.18)),
+        boot: m.paint(boot),
+        rail,
+        deck: deck_m,
+        hatch,
+        upholstery,
+        chrome,
+        sole,
+        interior: m.paint(shade(hull, 0.45)),
+        canvas: m.canvas(l.canvas),
+        tarp: m.canvas(clear_of(
+            to_value(l.canvas, luma(l.canvas) * TARP_VALUE),
+            luma(hull),
+            TARP_DELTA,
+        )),
+        primer: m.paint(clear_of(PRIMER, luma(deck), PRIMER_DELTA)),
+        can: m.paint(FUEL_RED),
+        bronze: m.brightwork(BRONZE),
+        wheel: m.brightwork(MAHOGANY),
+        flag: m.paint(boot),
+        glow: trim(m, boot),
+        pod: m.brightwork(if luma(hull) > 0.3 {
+            GUNMETAL
+        } else {
+            PALE_METAL
+        }),
+        console: m.paint(clear_of(hull, luma(NONSKID), 0.20)),
+        cowl: m.paint(OUTBOARD),
+        cowl_odd: m.paint(COWL_ODD),
+        leg: m.paint(MACHINERY),
+    }
+}
+
 /// The surfaces a land-skiff is painted in.
 pub(crate) struct SkiffColours {
     pub(crate) paint: SovereignMaterialSettings,
@@ -1094,8 +1265,11 @@ mod tests {
         );
     }
 
-    /// A boat's glow is her burgee alone: her hull lines are paint on every
+    /// A SLOOP's glow is her burgee alone: her hull lines are paint on every
     /// theme, and the masthead flag lights exactly when the style is luminous.
+    /// These are the sloop's colours ([`boat_colours`]); the runabout, which
+    /// has no masthead, keeps her own rule in
+    /// [`a_runabout_glows_only_where_the_skimmer_is_lit`] (#1372).
     ///
     /// The other half of [`only_the_identity_trim_lights_up`], and a rule the
     /// car deliberately does not share (#1365 phase 2). The boot top and the
@@ -1154,6 +1328,56 @@ mod tests {
             lit > 0 && dark > 0,
             "the population saw only one kind: {lit} lit, {dark} dark"
         );
+    }
+
+    /// A runabout's hull lines are paint on every theme, as a sloop's are -
+    /// EXCEPT the neon skimmer's rub rail, which is the accent through `trim`
+    /// and so lights exactly when her style is luminous: the owner's call on
+    /// #1372, because the lit chine drawn first did not read at 12 m and the
+    /// lit rail does. Her nozzles glow on the same rule. Both directions, on
+    /// every scheme: a skimmer rail dark on a neon seed fails as surely as a
+    /// lit rail on a launch.
+    #[test]
+    fn a_runabout_glows_only_where_the_skimmer_is_lit() {
+        let (mut lit, mut dark) = (0, 0);
+        for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
+            let mut ctx = PartCtx::for_seed(s);
+            let luminous = ctx.materials.emissive_accents();
+            for i in 0..BOAT_LIVERIES.len() {
+                ctx.livery = Some(i);
+                for v in RunaboutVariant::ALL {
+                    let c = runabout_colours(&ctx, v);
+                    for (what, m) in [
+                        ("spray rail and cove line", &c.boot),
+                        ("topsides", &c.topsides),
+                        ("deck", &c.deck),
+                        ("upholstery", &c.upholstery),
+                        ("canvas", &c.canvas),
+                    ] {
+                        assert_eq!(
+                            m.emission_strength.0, 0.0,
+                            "seed {s}, {v:?}: the {what} is self-lit"
+                        );
+                    }
+                    let rail_lit = c.rail.emission_strength.0 > 0.0;
+                    let want = v == RunaboutVariant::Skimmer && luminous;
+                    assert_eq!(rail_lit, want, "seed {s}, {v:?}: rub rail lit {rail_lit}");
+                    assert_eq!(
+                        c.glow.emission_strength.0 > 0.0,
+                        luminous,
+                        "seed {s}, {v:?}: nozzle glow"
+                    );
+                    if v == RunaboutVariant::Skimmer {
+                        if luminous {
+                            lit += 1;
+                        } else {
+                            dark += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(lit > 0 && dark > 0, "{lit} lit skimmer rails, {dark} dark");
     }
 
     /// Two owners rarely wear the same livery AND the same accent: the two

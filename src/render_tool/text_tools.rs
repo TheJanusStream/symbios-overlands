@@ -7,8 +7,8 @@ use crate::pds::avatar::livery;
 use crate::pds::{Generator, GeneratorKind, Placement, RoomRecord};
 use crate::seeded_defaults::hash::fnv1a_64;
 use crate::seeded_defaults::{
-    BoatType, ChassisFamily, CraftType, RoadsterBody, RoadsterTop, RoadsterWheels, SkiffType,
-    SloopHull, SloopRig, WagonBody,
+    BoatType, ChassisFamily, CraftType, RoadsterBody, RoadsterTop, RoadsterWheels, RunaboutVariant,
+    SkiffType, SloopHull, SloopRig, WagonBody,
 };
 
 use super::Args;
@@ -183,6 +183,10 @@ pub(super) fn print_outfit(subject: &str) {
                 RoadsterTop::for_seed(seed).label(),
                 RoadsterWheels::for_seed(seed).label()
             );
+        }
+        // And the runabout's variant (#1372), which its theme picks.
+        if let CraftType::Boat(BoatType::Runabout) = craft {
+            println!("  runabout: {}", RunaboutVariant::for_seed(seed).label());
         }
         // And the wagon's body (#1377), which its theme picks.
         if let CraftType::Skiff(SkiffType::Wagon) = craft {

@@ -246,8 +246,8 @@ impl BoatType {
     /// be built and silently draws a sloop.
     pub fn implemented(self) -> bool {
         match self {
-            Self::Sloop => true,
-            Self::Longship | Self::SteamTug | Self::Junk | Self::Runabout | Self::Scow => false,
+            Self::Sloop | Self::Runabout => true,
+            Self::Longship | Self::SteamTug | Self::Junk | Self::Scow => false,
         }
     }
 
