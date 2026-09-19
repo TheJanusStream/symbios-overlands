@@ -224,11 +224,23 @@ mod f32_blob {
 /// [`GenJob::run`].
 #[derive(Serialize, Deserialize, Clone)]
 pub enum AudioBakeJob {
-    /// One-shot patch render of `duration_secs` at `sample_rate`.
+    /// One-shot patch render of `duration_secs` at `sample_rate`, after
+    /// `warmup_secs` baked and thrown away.
+    ///
+    /// The warm-up is for a patch the world LOOPS whole: every filter in a
+    /// bake starts from rest, so the loop's first sample is a cold filter's
+    /// and its last a settled one's, and a tonal patch steps at the seam even
+    /// when every rate in it closes the loop (#1385). Baking on past a
+    /// warm-up and keeping only what follows starts the loop settled; with
+    /// every rate a whole number of cycles a loop, it then meets itself.
     Patch {
         patch: AudioPatch,
         sample_rate: u32,
         duration_secs: f32,
+        /// `serde(default)` so a job encoded without it (an older bundle's
+        /// `gen-worker.js`) still decodes, as the cold bake it asked for.
+        #[serde(default)]
+        warmup_secs: f32,
     },
     /// Multi-track sequence render (its sample rate is carried in the recipe).
     Sequence { recipe: SequenceRecipe },
@@ -241,6 +253,7 @@ impl AudioBakeJob {
                 mut patch,
                 sample_rate,
                 duration_secs,
+                warmup_secs,
             } => {
                 // The second line, not a replacement for the first. The
                 // mirror sanitiser clamps on the load path, on the `Fp` grid,
@@ -252,7 +265,12 @@ impl AudioBakeJob {
                 // runs on the main thread. `pds_sanitize`'s drift guard
                 // asserts these two clamps agree constant for constant.
                 patch.clamp_to_envelope(&Envelope::default());
-                let samples = bake(&patch, sample_rate, duration_secs);
+                let warmup_secs = warmup_secs.max(0.0);
+                let mut samples = bake(&patch, sample_rate, warmup_secs + duration_secs);
+                // Keep the last `duration_secs` worth, counted as `bake`
+                // counts a duration, so a warm bake is as long as a cold one.
+                let kept = (f64::from(duration_secs.max(0.0)) * f64::from(sample_rate)).round();
+                samples.drain(..samples.len().saturating_sub(kept as usize));
                 samples_to_wav_bytes_pcm16(&samples, sample_rate)
             }
             AudioBakeJob::Sequence { mut recipe } => {
@@ -1009,5 +1027,60 @@ mod tests {
             unreachable!("the variant is unchanged by dropping one of its fields");
         };
         assert!(!far_hair, "a missing far_hair must default to near-only");
+    }
+
+    /// #1385: a warm Patch bake is exactly as long as a cold one, and it is
+    /// the TAIL of one bake that ran on past the warm-up - the head is thrown
+    /// away, not re-synthesised. The control: the head it drops differs from
+    /// the tail it keeps, so the warm-up did change what was kept.
+    #[test]
+    fn a_warm_patch_bake_keeps_the_settled_tail_at_the_cold_length() {
+        use symbios_audio::{BiquadLowpass, Connection, GraphNode, NodeGraph, NodeId, NodeKind};
+        let mut inputs = std::collections::BTreeMap::new();
+        inputs.insert("in".to_string(), vec![Connection::from_node(NodeId(0))]);
+        let patch = AudioPatch {
+            seed: 0,
+            graph: NodeGraph {
+                nodes: vec![
+                    GraphNode {
+                        id: NodeId(0),
+                        kind: NodeKind::Sine(symbios_audio::SineOsc {
+                            freq_hz: 40.0,
+                            phase_offset: 0.0,
+                            amplitude: 0.34,
+                        }),
+                        inputs: Default::default(),
+                    },
+                    GraphNode {
+                        id: NodeId(1),
+                        kind: NodeKind::BiquadLowpass(BiquadLowpass {
+                            cutoff_hz: 320.0,
+                            q: 0.9,
+                        }),
+                        inputs,
+                    },
+                ],
+                output: NodeId(1),
+            },
+        };
+        let job = |warmup_secs| {
+            AudioBakeJob::Patch {
+                patch: patch.clone(),
+                sample_rate: 22_050,
+                duration_secs: 1.0,
+                warmup_secs,
+            }
+            .run()
+        };
+        let (cold, warm) = (job(0.0), job(0.25));
+        assert_eq!(
+            warm.len(),
+            cold.len(),
+            "a warm-up must not lengthen the loop"
+        );
+        let long = bake(&patch, 22_050, 1.25);
+        let tail = samples_to_wav_bytes_pcm16(&long[long.len() - 22_050..], 22_050);
+        assert_eq!(warm, tail, "the warm bake is the tail of the longer one");
+        assert_ne!(warm, cold, "the warm-up changed nothing it kept");
     }
 }

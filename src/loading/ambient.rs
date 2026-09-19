@@ -272,6 +272,9 @@ pub(crate) fn ambient_bake_job(
             patch: audio.parse_patch()?,
             sample_rate: AMBIENT_PATCH_SAMPLE_RATE,
             duration_secs: AMBIENT_PATCH_SECS,
+            // Cold, as the pop-out auditions it: the construct loop's warm-up
+            // (#1385) was not carried to the bed.
+            warmup_secs: 0.0,
         }),
         SovereignAudioConfig::Sequence { .. } => Some(gen_jobs::AudioBakeJob::Sequence {
             recipe: audio.parse_sequence()?,

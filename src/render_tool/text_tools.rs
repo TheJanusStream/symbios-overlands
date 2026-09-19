@@ -182,6 +182,17 @@ pub(super) fn print_outfit(subject: &str) {
             );
         }
     }
+    // And its voice (#1383), for every family: which drive a boat speaks
+    // with is the DRAWN craft's, and the detune bucket says whether two
+    // craft idle at one pitch.
+    let seed = match subject.parse::<u64>() {
+        Ok(seed) => seed,
+        Err(_) => fnv1a_64(subject),
+    };
+    println!(
+        "  voice: {}",
+        crate::pds::avatar::default_visuals::voice_label(seed)
+    );
     for part in &outfit.parts {
         println!("  {:?} -> {}", part.slot, part.slug);
     }

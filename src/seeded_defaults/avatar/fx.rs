@@ -14,8 +14,10 @@
 //! Gating mirrors the room's theme accents: only signature styles emit an
 //! aura (a cyberpunk avatar trails neon motes, a steampunk one vents
 //! steam); the mundane styles stay clean. The voice respects the chassis -
-//! a vehicle hums, a luminous figure shimmers, an ordinary figure is
-//! silent - so a humanoid never sounds like an idling engine.
+//! a vehicle speaks with its own drive (an engine, or a sailing boat's wash
+//! and rig wind, decided by the craft the build side draws), a luminous
+//! figure shimmers, an ordinary figure is silent - so a humanoid never
+//! sounds like an idling engine.
 
 use super::character::AvatarCharacter;
 use super::chassis::ChassisFamily;
@@ -117,17 +119,33 @@ impl ParticleAura {
 }
 
 /// The spatial-audio voice an avatar emits at its body. Kept small; the
-/// build side maps each to a synth patch.
+/// build side maps each to a synth patch. Not on the wire: a saved avatar
+/// carries the patch it was built with, not this.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AvatarVoice {
     /// Silent.
     None,
-    /// A low mechanical drone - vehicle engines / industrial styles.
-    EngineHum,
+    /// The craft's own drive voice - what moves her. The spec does not know
+    /// which: an engine hums, a boat under sail carries her wash and the wind
+    /// in her rig, and that is a property of the craft the build side draws
+    /// (`default_visuals::boats::propulsion`, #1383), not of the style.
+    Drive,
     /// A buzzing electric hum - neon styles.
     NeonBuzz,
     /// A soft tonal shimmer - arcane / biolume / solar styles.
     ArcaneShimmer,
+}
+
+impl AvatarVoice {
+    /// Human-readable name - the render tool's `--outfit` readout.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::None => "silent",
+            Self::Drive => "drive",
+            Self::NeonBuzz => "neon buzz",
+            Self::ArcaneShimmer => "arcane shimmer",
+        }
+    }
 }
 
 /// All seeded avatar FX.
@@ -173,13 +191,14 @@ impl AvatarFx {
 }
 
 /// The voice for a style+chassis. Luminous styles speak first (neon /
-/// arcane), then any vehicle chassis hums; an ordinary figure is silent.
+/// arcane), then any vehicle chassis speaks with its drive; an ordinary
+/// figure is silent.
 fn voice_for(style: ThemeArchetype, chassis: ChassisFamily) -> AvatarVoice {
     use ThemeArchetype::*;
     match style {
         Cyberpunk | AlienMonolithic => AvatarVoice::NeonBuzz,
         Fantasy | AlienOrganic | Solarpunk => AvatarVoice::ArcaneShimmer,
-        _ if chassis != ChassisFamily::Humanoid => AvatarVoice::EngineHum,
+        _ if chassis != ChassisFamily::Humanoid => AvatarVoice::Drive,
         _ => AvatarVoice::None,
     }
 }
@@ -295,7 +314,8 @@ mod tests {
     #[test]
     fn humanoid_never_hums_like_an_engine() {
         // A non-luminous humanoid is silent; a vehicle of the same style
-        // hums. (Medieval is non-luminous, so it exercises the chassis arm.)
+        // speaks with its drive. (Medieval is non-luminous, so it exercises
+        // the chassis arm.)
         let mut human = AvatarCharacter::for_seed(1);
         human.style = ThemeArchetype::Medieval;
         human.chassis = ChassisFamily::Humanoid;
@@ -303,7 +323,7 @@ mod tests {
 
         let mut boat = human;
         boat.chassis = ChassisFamily::Boat;
-        assert_eq!(AvatarFx::for_character(&boat).voice, AvatarVoice::EngineHum);
+        assert_eq!(AvatarFx::for_character(&boat).voice, AvatarVoice::Drive);
     }
 
     #[test]

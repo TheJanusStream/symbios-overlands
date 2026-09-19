@@ -67,6 +67,105 @@ pub(crate) const CONSTRUCT_PATCH_SAMPLE_RATE: u32 = 22_050;
 /// over a four-second audition and stutters in this one-second loop.
 pub(crate) const CONSTRUCT_PATCH_SECS: f32 = 1.0;
 
+/// How long a construct's `Patch` is baked for and thrown away before its
+/// loop is kept, in seconds (#1385).
+///
+/// Every filter in a bake starts from rest and the loop is played whole, so
+/// without it the loop's first sample is a cold filter's and its last a
+/// settled one's: with every rate closed ([`close_the_loop`]) a tonal voice
+/// still stepped 2.4-12 times the largest step inside its loop, once a second.
+/// A quarter second settles every filter the seeded voices use and brought
+/// each of them to or under that largest step, for a quarter more synthesis.
+///
+/// The pop-out cannot do this yet: its audition is the audio crate's monitor,
+/// which bakes from rest. So a tonal construct patch auditions with a faint
+/// tick at its seam that the world no longer plays.
+pub(crate) const CONSTRUCT_PATCH_WARMUP_SECS: f32 = 0.25;
+
+/// The rate, in hertz, of a node that repeats on its own clock: an
+/// oscillator's pitch, an LFO's rate, a chorus's internal sweep. `None` for
+/// every node that does not (noise, filters, gains, envelopes).
+fn loop_rate(kind: &bevy_symbios_audio::NodeKind) -> Option<f32> {
+    use bevy_symbios_audio::NodeKind;
+    match kind {
+        NodeKind::Sine(o) => Some(o.freq_hz),
+        NodeKind::Square(o) => Some(o.freq_hz),
+        NodeKind::Sawtooth(o) => Some(o.freq_hz),
+        NodeKind::Triangle(o) => Some(o.freq_hz),
+        NodeKind::Lfo(l) => Some(l.rate_hz),
+        NodeKind::Chorus(c) => Some(c.rate_hz),
+        _ => None,
+    }
+}
+
+/// Set the rate [`loop_rate`] reads; a no-op on a node without one.
+fn set_loop_rate(kind: &mut bevy_symbios_audio::NodeKind, hz: f32) {
+    use bevy_symbios_audio::NodeKind;
+    match kind {
+        NodeKind::Sine(o) => o.freq_hz = hz,
+        NodeKind::Square(o) => o.freq_hz = hz,
+        NodeKind::Sawtooth(o) => o.freq_hz = hz,
+        NodeKind::Triangle(o) => o.freq_hz = hz,
+        NodeKind::Lfo(l) => l.rate_hz = hz,
+        NodeKind::Chorus(c) => c.rate_hz = hz,
+        _ => {}
+    }
+}
+
+/// The nearest rate to `hz` that runs a whole number of cycles in a loop of
+/// `secs`. Plain rounding, so a swell slower than half a cycle a loop stops:
+/// it holds the value it starts on (an LFO's `offset`, for a sine), which is
+/// what the owner chose over quickening every slow swell to one cycle a loop.
+fn closed_rate(hz: f32, secs: f32) -> f32 {
+    (hz * secs).round() / secs
+}
+
+/// Close a `Patch`'s loop (#1385): move every rate in it to a whole number of
+/// cycles in `secs`, and return what moved, as `(node, from, to)`.
+///
+/// A `Patch` is baked to one buffer and looped WHOLE, with no crossfade, so a
+/// sine at 38.8 Hz ends its one-second loop part-way through a cycle and the
+/// seam is a step: measured at 51-86 times the largest step inside the loop, a
+/// thump once a second. A slow swell snaps back the same way. Rounding at bake
+/// time closes every loop a record can hold - the seeded voices, the catalogue
+/// and whatever an owner authored - at the price of moving an authored pitch
+/// by up to half a cycle a loop (half a hertz here), which nobody hears, and
+/// of stilling a swell slower than half a cycle a loop, which played only the
+/// first sliver of itself before snapping back anyway: of the catalogue's 123
+/// construct patches, 62 carried such a rate, nearly all a 0.13-0.45 Hz swell. The audio pop-out auditions a construct's patch
+/// through this too, so the editor plays the rates the world does. A closed
+/// rate is half of a closed loop; the other half is
+/// [`CONSTRUCT_PATCH_WARMUP_SECS`].
+///
+/// A rate within the wire's own quantum (1e-4) of a closed one is set exactly
+/// but not reported.
+pub(crate) fn close_the_loop(
+    patch: &mut bevy_symbios_audio::AudioPatch,
+    secs: f32,
+) -> Vec<(bevy_symbios_audio::NodeId, f32, f32)> {
+    let mut moved = Vec::new();
+    for node in &mut patch.graph.nodes {
+        let Some(hz) = loop_rate(&node.kind) else {
+            continue;
+        };
+        let closed = closed_rate(hz, secs);
+        if (closed - hz).abs() > 1e-4 {
+            moved.push((node.id, hz, closed));
+        }
+        set_loop_rate(&mut node.kind, closed);
+    }
+    moved
+}
+
+/// Whether every rate in `patch` already closes a loop of `secs`, so
+/// [`close_the_loop`] would move nothing - asked before cloning a patch to
+/// close it.
+pub(crate) fn loop_is_closed(patch: &bevy_symbios_audio::AudioPatch, secs: f32) -> bool {
+    patch.graph.nodes.iter().all(|node| {
+        loop_rate(&node.kind).is_none_or(|hz| (closed_rate(hz, secs) - hz).abs() <= 1e-4)
+    })
+}
+
 /// Playback settings for a looping, spatial construct / avatar-voice emitter:
 /// Bevy's `LOOP` shape, spatialised, with the gentler [`CONSTRUCT_SPATIAL_SCALE`]
 /// so the loop carries across a normal viewing distance, starting every pass
@@ -525,17 +624,23 @@ pub fn poll_spatial_audio_tasks(
 /// Build the offloadable bake job for a construct's *procedural* audio config.
 /// `None` for non-procedural variants or malformed JSON (the construct then
 /// simply doesn't hum). Construct patches loop on a
-/// [`CONSTRUCT_PATCH_SECS`] window at [`CONSTRUCT_PATCH_SAMPLE_RATE`]. The
-/// heavy synth runs off-thread via [`crate::offload`].
+/// [`CONSTRUCT_PATCH_SECS`] window at [`CONSTRUCT_PATCH_SAMPLE_RATE`], with
+/// the loop closed first ([`close_the_loop`]). The heavy synth runs
+/// off-thread via [`crate::offload`].
 pub(crate) fn construct_bake_job(audio: &SovereignAudioConfig) -> Option<gen_jobs::AudioBakeJob> {
     match audio {
         SovereignAudioConfig::None
         | SovereignAudioConfig::Unknown
         | SovereignAudioConfig::Referenced { .. } => None,
         SovereignAudioConfig::Patch { .. } => Some(gen_jobs::AudioBakeJob::Patch {
-            patch: audio.parse_patch()?,
+            patch: {
+                let mut patch = audio.parse_patch()?;
+                close_the_loop(&mut patch, CONSTRUCT_PATCH_SECS);
+                patch
+            },
             sample_rate: CONSTRUCT_PATCH_SAMPLE_RATE,
             duration_secs: CONSTRUCT_PATCH_SECS,
+            warmup_secs: CONSTRUCT_PATCH_WARMUP_SECS,
         }),
         SovereignAudioConfig::Sequence { .. } => Some(gen_jobs::AudioBakeJob::Sequence {
             recipe: audio.parse_sequence()?,
@@ -546,7 +651,7 @@ pub(crate) fn construct_bake_job(audio: &SovereignAudioConfig) -> Option<gen_job
 /// Test helper: run the construct bake path synchronously, returning
 /// `(wav_bytes, sample_rate)` to match the prior contract.
 #[cfg(test)]
-fn bake_construct_wav_bytes(audio: &SovereignAudioConfig) -> Option<(Vec<u8>, u32)> {
+pub(crate) fn bake_construct_wav_bytes(audio: &SovereignAudioConfig) -> Option<(Vec<u8>, u32)> {
     let job = construct_bake_job(audio)?;
     let sample_rate = match &job {
         gen_jobs::AudioBakeJob::Patch { sample_rate, .. } => *sample_rate,

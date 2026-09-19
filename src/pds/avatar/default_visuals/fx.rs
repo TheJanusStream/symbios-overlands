@@ -14,8 +14,8 @@
 use std::collections::BTreeMap;
 
 use bevy_symbios_audio::{
-    AudioPatch, BiquadBandpass, BiquadLowpass, Connection, Gain, GraphNode, Lfo, LfoShape,
-    NodeGraph, NodeId, NodeKind, SawtoothOsc, SineOsc, WhiteNoise,
+    AudioPatch, BiquadBandpass, BiquadHighpass, BiquadLowpass, Connection, Gain, GraphNode, Lfo,
+    LfoShape, NodeGraph, NodeId, NodeKind, PinkNoise, SawtoothOsc, SineOsc, WhiteNoise,
 };
 
 use crate::catalogue::items::fx::Emitter;
@@ -26,6 +26,8 @@ use crate::pds::texture::{
 use crate::pds::types::{Fp, Fp3};
 use crate::pds::{EmitterShape, ParticleBlendMode, SovereignAudioConfig};
 use crate::seeded_defaults::{AvatarFx, AvatarVoice, ChassisFamily, ParticleAura};
+
+use super::boats::Propulsion;
 
 /// Hang the FX on a freshly-built avatar root: push the aura emitter as a
 /// child at `mount` (in the root's local frame) and set the body voice on
@@ -325,18 +327,28 @@ fn aura_emitter(
 }
 
 // ---------------------------------------------------------------------------
-// Spatial-audio voices (#796)
+// Spatial-audio voices (#796, #1383, #1385)
 //
 // The three vehicle families no longer share one fixed 55 Hz drone, and a
-// luminous style no longer *replaces* the engine (a cyberpunk skiff used to
-// buzz like a sign with no machine underneath). Each family gets its own
-// seeded engine voice - a boat's low water-washed rumble, an airship's rotor
-// thump, a skiff's detuned putter - and on a luminous *vehicle* that engine is
-// mixed in UNDER the neon / arcane voice at low gain instead of being dropped.
-// The fundamental + LFO rate are detuned a few percent per avatar (quantised
-// into a handful of buckets, so two skiffs rarely idle in unison without
-// spawning an unbounded number of distinct bakes). Patch construction is pure
-// data (no `std::time`), so it is wasm-safe.
+// luminous style no longer *replaces* the drive (a cyberpunk skiff used to
+// buzz like a sign with no machine underneath). Each craft speaks with its own
+// DRIVE - an airship's rotor thump, a skiff's detuned putter, a motor boat's
+// water-washed rumble, and for a boat under sail no engine at all, only the
+// wash along her hull and the wind in her rig - and on a luminous *vehicle*
+// that drive is mixed in UNDER the neon / arcane voice at low gain instead of
+// being dropped. Which drive a boat has is asked of the craft that is DRAWN
+// (`boats::propulsion`), never of the type a seed picked, so the voice is
+// right before every type is built.
+//
+// A voice is a construct patch: baked to ONE second and looped whole
+// (`world_builder::spatial_audio::CONSTRUCT_PATCH_SECS`). So every pitch and
+// every modulation rate here is a whole number of hertz, through [`hz`], or
+// the loop seam steps once a second (#1385). Pitches are detuned a few
+// percent per avatar and rounded after the detune, so the low voices keep
+// three to five distinct pitches over the buckets and the high ones all
+// seven; a modulator's rate rounds back to its own. The buckets also bound
+// the number of distinct bakes. Patch construction is pure data (no
+// `std::time`), so it is wasm-safe.
 // ---------------------------------------------------------------------------
 
 /// Build the spatial-audio voice config for `voice` on `family`, seeded by
@@ -349,30 +361,84 @@ fn voice_config(
     voice_patch(voice, family, seed).map(|p| SovereignAudioConfig::from_patch(&p))
 }
 
-/// The raw [`AudioPatch`] for a voice: the family engine, or a luminous voice
-/// (with the family engine mixed in underneath at low gain on a *vehicle*,
-/// pure on a humanoid). Split from [`voice_config`] so tests can bake it.
+/// The raw [`AudioPatch`] for a voice on the craft `seed` draws. Split from
+/// [`voice_config`] so tests can bake it.
 fn voice_patch(voice: AvatarVoice, family: ChassisFamily, seed: u64) -> Option<AudioPatch> {
+    driven_voice_patch(voice, family, drive_of(family, seed), detune_bucket(seed))
+}
+
+/// How the avatar for `seed` on `family` is driven. A boat answers for the
+/// craft she is drawn as; every other family has an engine.
+fn drive_of(family: ChassisFamily, seed: u64) -> Propulsion {
+    match family {
+        ChassisFamily::Boat => super::boats::propulsion(seed),
+        ChassisFamily::Airship | ChassisFamily::Skiff | ChassisFamily::Humanoid => {
+            Propulsion::Engine
+        }
+    }
+}
+
+/// The voice for an explicit drive and detune bucket: the family's drive, or
+/// a luminous voice (with the drive mixed in underneath at low gain on a
+/// *vehicle*, pure on a humanoid). Split from [`voice_patch`] so the tests
+/// reach an engine boat before any boat type with an engine is drawn.
+fn driven_voice_patch(
+    voice: AvatarVoice,
+    family: ChassisFamily,
+    drive: Propulsion,
+    bucket: u32,
+) -> Option<AudioPatch> {
     let is_vehicle = family != ChassisFamily::Humanoid;
-    let bucket = detune_bucket(seed);
     let detune = detune_factor(bucket);
     let mut g = GraphBuilder::new();
     let out = match voice {
         AvatarVoice::None => return None,
-        AvatarVoice::EngineHum => family_engine(&mut g, family, detune),
+        AvatarVoice::Drive => family_drive(&mut g, family, drive, detune),
         AvatarVoice::NeonBuzz => {
             let lum = neon_buzz(&mut g, detune);
-            mix_engine_under(&mut g, lum, family, detune, is_vehicle)
+            mix_drive_under(&mut g, lum, family, drive, detune, is_vehicle)
         }
         AvatarVoice::ArcaneShimmer => {
             let lum = arcane_shimmer(&mut g, detune);
-            mix_engine_under(&mut g, lum, family, detune, is_vehicle)
+            mix_drive_under(&mut g, lum, family, drive, detune, is_vehicle)
         }
     };
     Some(g.into_patch(out, bucket))
 }
 
-/// Number of detune buckets - small so a family's engine bakes into at most
+/// What the seeded avatar for `seed` sounds like, in words (#1383) - the
+/// render tool's `--outfit` line, so a survey can find a seed by its voice.
+pub(super) fn voice_label(seed: u64) -> String {
+    let family = ChassisFamily::for_seed(seed);
+    if family == ChassisFamily::Humanoid {
+        // The rigged family returns before any FX is attached.
+        return "silent (a rigged body carries no seeded voice)".to_string();
+    }
+    let voice = AvatarFx::for_seed(seed).voice;
+    let drive = drive_of(family, seed);
+    let under = match (drive, family) {
+        (Propulsion::Sail, _) => "wash and rig wind",
+        (Propulsion::Engine, ChassisFamily::Boat) => "boat engine hum",
+        (Propulsion::Engine, ChassisFamily::Airship) => "rotor thump",
+        (Propulsion::Engine, ChassisFamily::Skiff | ChassisFamily::Humanoid) => "putter",
+    };
+    let bucket = detune_bucket(seed);
+    match voice {
+        AvatarVoice::None => "silent".to_string(),
+        AvatarVoice::Drive => format!(
+            "{}, {} ({under}), detune bucket {bucket}",
+            voice.label(),
+            drive.label()
+        ),
+        AvatarVoice::NeonBuzz | AvatarVoice::ArcaneShimmer => format!(
+            "{} over the {under} ({}), detune bucket {bucket}",
+            voice.label(),
+            drive.label()
+        ),
+    }
+}
+
+/// Number of detune buckets - small so a family's drive bakes into at most
 /// this many distinct patches (bounded audio-cache footprint) while still
 /// spreading avatars across audibly different pitches.
 const DETUNE_BUCKETS: u32 = 7;
@@ -388,40 +454,61 @@ fn detune_factor(bucket: u32) -> f32 {
     1.0 + centred / ((DETUNE_BUCKETS - 1) as f32 * 0.5) * 0.03
 }
 
-/// The engine sub-voice for a family (a vehicle always has one; a humanoid
-/// never reaches this via `EngineHum`, but maps to the skiff putter as a
-/// harmless default).
-fn family_engine(g: &mut GraphBuilder, family: ChassisFamily, detune: f32) -> NodeId {
-    match family {
-        ChassisFamily::Boat => boat_hum(g, detune),
-        ChassisFamily::Airship => airship_rotor(g, detune),
-        ChassisFamily::Skiff | ChassisFamily::Humanoid => skiff_putter(g, detune),
+/// A pitch or a rate, detuned and then rounded to a whole number of hertz,
+/// so it closes the one-second loop it is baked into (#1385). Every voice
+/// reaches its oscillators and modulators through this, and the rounding
+/// comes AFTER the detune: 40 Hz x 0.97 is 38.8, which stepped at the seam.
+fn hz(base: f32, detune: f32) -> f32 {
+    (base * detune).round()
+}
+
+/// The drive sub-voice for a family (a vehicle always has one; a humanoid
+/// never reaches this via `Drive`, but maps to the skiff putter as a harmless
+/// default). A sailing craft has no engine note, whatever her family.
+fn family_drive(
+    g: &mut GraphBuilder,
+    family: ChassisFamily,
+    drive: Propulsion,
+    detune: f32,
+) -> NodeId {
+    match (drive, family) {
+        (Propulsion::Sail, _) => under_sail(g),
+        (Propulsion::Engine, ChassisFamily::Boat) => boat_hum(g, detune),
+        (Propulsion::Engine, ChassisFamily::Airship) => airship_rotor(g, detune),
+        (Propulsion::Engine, ChassisFamily::Skiff | ChassisFamily::Humanoid) => {
+            skiff_putter(g, detune)
+        }
     }
 }
 
-/// Sum `luminous` with the family engine at low gain when `is_vehicle`, else
+/// Sum `luminous` with the family's drive at low gain when `is_vehicle`, else
 /// return the luminous voice alone.
-fn mix_engine_under(
+fn mix_drive_under(
     g: &mut GraphBuilder,
     luminous: NodeId,
     family: ChassisFamily,
+    drive: Propulsion,
     detune: f32,
     is_vehicle: bool,
 ) -> NodeId {
     if !is_vehicle {
         return luminous;
     }
-    let engine = family_engine(g, family, detune);
-    // The machine sits quietly under the luminous voice - present, not
+    let under = family_drive(g, family, drive, detune);
+    // The craft sits quietly under the luminous voice - present, not
     // dominant. A `Gain` with several `"in"` connections sums them.
-    let quiet = g.sink(NodeKind::Gain(Gain { gain: 0.14 }), &[engine]);
+    let quiet = g.sink(NodeKind::Gain(Gain { gain: 0.14 }), &[under]);
     g.sink(NodeKind::Gain(Gain { gain: 1.0 }), &[luminous, quiet])
 }
 
-/// Boat engine - a low water-washed rumble: a deep fundamental under a slow,
-/// band-passed noise wash (the hull working through the water).
-fn boat_hum(g: &mut GraphBuilder, detune: f32) -> NodeId {
-    let rumble = g.src(NodeKind::Sine(sine(40.0 * detune, 0.34)));
+/// A boat under sail (#1383, owner decision C1; the owner's ear picked the
+/// steady candidate): no engine and no tone, only the wash along her hull -
+/// band-passed noise, softened - and a thin wind in the rig - pink noise
+/// high-passed and banded up where rigging sings. Nothing in it oscillates,
+/// so there is no pitch to detune and nothing to close at the loop seam; the
+/// detune bucket still seeds the noise, so seven textures remain. RMS about
+/// 0.11, near the skiff putter's.
+fn under_sail(g: &mut GraphBuilder) -> NodeId {
     let noise = g.src(NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));
     let band = g.sink(
         NodeKind::BiquadBandpass(BiquadBandpass {
@@ -430,13 +517,53 @@ fn boat_hum(g: &mut GraphBuilder, detune: f32) -> NodeId {
         }),
         &[noise],
     );
-    let swell = g.src(NodeKind::Lfo(Lfo {
-        rate_hz: 0.4 * detune,
-        shape: LfoShape::Sine,
-        depth: 0.459,
-        offset: 0.459,
-    }));
-    let wash = g.vca(&[band], swell);
+    let wash = g.sink(NodeKind::Gain(Gain { gain: 0.62 }), &[band]);
+    let wash = g.sink(
+        NodeKind::BiquadLowpass(BiquadLowpass {
+            cutoff_hz: 700.0,
+            q: 0.7,
+        }),
+        &[wash],
+    );
+    let air = g.src(NodeKind::PinkNoise(PinkNoise { amplitude: 0.5 }));
+    let high = g.sink(
+        NodeKind::BiquadHighpass(BiquadHighpass {
+            cutoff_hz: 900.0,
+            q: 0.7,
+        }),
+        &[air],
+    );
+    let rig = g.sink(
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 1600.0,
+            q: 1.2,
+        }),
+        &[high],
+    );
+    let wind = g.sink(NodeKind::Gain(Gain { gain: 0.30 }), &[rig]);
+    g.sink(NodeKind::Gain(Gain { gain: 3.0 }), &[wash, wind])
+}
+
+/// A motor boat's engine - a low water-washed rumble: a deep fundamental over
+/// a band-passed noise wash (the hull working through the water). Heard by no
+/// seed yet: the sloop sails, and the engine types (#1370, #1372) are the
+/// ones that will declare [`Propulsion::Engine`].
+///
+/// The wash used to swell at 0.4 Hz, which a one-second loop cannot hold: it
+/// snapped back 4 dB every second (#1385). It is steady now, at the swell's
+/// own RMS level (0.459 x sqrt(1.5)), matching the steady wash the owner
+/// picked for the sail.
+fn boat_hum(g: &mut GraphBuilder, detune: f32) -> NodeId {
+    let rumble = g.src(NodeKind::Sine(sine(hz(40.0, detune), 0.34)));
+    let noise = g.src(NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));
+    let band = g.sink(
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 480.0,
+            q: 0.8,
+        }),
+        &[noise],
+    );
+    let wash = g.sink(NodeKind::Gain(Gain { gain: 0.56 }), &[band]);
     let mix = g.sink(NodeKind::Gain(Gain { gain: 0.7 }), &[rumble, wash]);
     g.sink(
         NodeKind::BiquadLowpass(BiquadLowpass {
@@ -447,14 +574,16 @@ fn boat_hum(g: &mut GraphBuilder, detune: f32) -> NodeId {
     )
 }
 
-/// Airship engine - a hum amplitude-modulated by a 4–6 Hz rotor thump (the
-/// beat of the props), matching the helicopter feel.
+/// Airship engine - a hum amplitude-modulated by a 5 Hz rotor thump (the
+/// beat of the props), matching the helicopter feel. The octave is twice the
+/// rounded fundamental, so it stays a true octave on every bucket.
 fn airship_rotor(g: &mut GraphBuilder, detune: f32) -> NodeId {
-    let fund = g.src(NodeKind::Sine(sine(52.0 * detune, 0.34)));
-    let oct = g.src(NodeKind::Sine(sine(104.0 * detune, 0.14)));
+    let pitch = hz(52.0, detune);
+    let fund = g.src(NodeKind::Sine(sine(pitch, 0.34)));
+    let oct = g.src(NodeKind::Sine(sine(2.0 * pitch, 0.14)));
     let body = g.sink(NodeKind::Gain(Gain { gain: 0.8 }), &[fund, oct]);
     let thump = g.src(NodeKind::Lfo(Lfo {
-        rate_hz: 5.0 * detune,
+        rate_hz: hz(5.0, detune),
         shape: LfoShape::Sine,
         depth: 0.495,
         offset: 0.495,
@@ -469,19 +598,22 @@ fn airship_rotor(g: &mut GraphBuilder, detune: f32) -> NodeId {
     )
 }
 
-/// Skiff engine - a detuned saw/sine putter around 78 Hz, chugged by a faster
-/// LFO; the two slightly-detuned oscillators beat for an idling-motor waver.
+/// Skiff engine - a saw/sine putter around 78 Hz, chugged by a faster LFO;
+/// the two oscillators sit one hertz apart, so they beat once a second for an
+/// idling-motor waver. (They used to sit 1 % apart, a pair that can never
+/// both be whole numbers of hertz, #1385.)
 fn skiff_putter(g: &mut GraphBuilder, detune: f32) -> NodeId {
+    let pitch = hz(78.0, detune);
     let saw = g.src(NodeKind::Sawtooth(SawtoothOsc {
-        freq_hz: 78.0 * detune,
+        freq_hz: pitch,
         polarity: Default::default(),
         amplitude: 0.3,
         anti_alias: Default::default(),
     }));
-    let sine = g.src(NodeKind::Sine(sine(78.0 * detune * 0.99, 0.22)));
+    let sine = g.src(NodeKind::Sine(sine(pitch - 1.0, 0.22)));
     let body = g.sink(NodeKind::Gain(Gain { gain: 0.6 }), &[saw, sine]);
     let chug = g.src(NodeKind::Lfo(Lfo {
-        rate_hz: 8.0 * detune,
+        rate_hz: hz(8.0, detune),
         shape: LfoShape::Sine,
         depth: 0.5,
         offset: 0.5,
@@ -497,10 +629,10 @@ fn skiff_putter(g: &mut GraphBuilder, detune: f32) -> NodeId {
 }
 
 /// A buzzing, faintly flickering neon hum - a sawtooth through a bandpass,
-/// tremolo'd by a slow LFO.
+/// tremolo'd by a 9 Hz LFO.
 fn neon_buzz(g: &mut GraphBuilder, detune: f32) -> NodeId {
     let saw = g.src(NodeKind::Sawtooth(SawtoothOsc {
-        freq_hz: 120.0 * detune,
+        freq_hz: hz(120.0, detune),
         polarity: Default::default(),
         amplitude: 0.4,
         anti_alias: Default::default(),
@@ -521,15 +653,20 @@ fn neon_buzz(g: &mut GraphBuilder, detune: f32) -> NodeId {
     g.vca(&[band], lfo)
 }
 
-/// A soft tonal shimmer - a high sine fifth slowly swelling under an LFO.
+/// A soft tonal shimmer - a high sine fifth swelling once a second.
+///
+/// The swell was 0.5 Hz, and a one-second loop played only its upper half: a
+/// rise from 0.5 to 1 and back, every second. It is that, as a whole cycle
+/// now (#1385): 1 Hz between 0.55 and 1.05, a level within 0.2 dB of what
+/// played.
 fn arcane_shimmer(g: &mut GraphBuilder, detune: f32) -> NodeId {
-    let s1 = g.src(NodeKind::Sine(sine(660.0 * detune, 0.22)));
-    let s2 = g.src(NodeKind::Sine(sine(990.0 * detune, 0.14)));
+    let s1 = g.src(NodeKind::Sine(sine(hz(660.0, detune), 0.22)));
+    let s2 = g.src(NodeKind::Sine(sine(hz(990.0, detune), 0.14)));
     let lfo = g.src(NodeKind::Lfo(Lfo {
-        rate_hz: 0.5,
+        rate_hz: 1.0,
         shape: LfoShape::Sine,
-        depth: 0.5,
-        offset: 0.5,
+        depth: 0.25,
+        offset: 0.8,
     }));
     g.vca(&[s1, s2], lfo)
 }
@@ -615,6 +752,67 @@ mod audio_tests {
     use super::*;
     use bevy_symbios_audio::bake;
 
+    const VOICES: [AvatarVoice; 3] = [
+        AvatarVoice::Drive,
+        AvatarVoice::NeonBuzz,
+        AvatarVoice::ArcaneShimmer,
+    ];
+    const DRIVES: [Propulsion; 2] = [Propulsion::Sail, Propulsion::Engine];
+
+    /// Every voice patch there is: each voice on each chassis under each
+    /// drive, on every detune bucket, labelled for a failure message. The
+    /// drive is walked explicitly, because no boat is DRAWN with an engine
+    /// yet and the engine boat's voice must still hold every rule for the
+    /// types that will be (#1370, #1372).
+    fn every_voice() -> Vec<(String, AudioPatch)> {
+        let mut all = Vec::new();
+        for voice in VOICES {
+            for family in ChassisFamily::ALL {
+                for drive in DRIVES {
+                    for bucket in 0..DETUNE_BUCKETS {
+                        if let Some(patch) = driven_voice_patch(voice, family, drive, bucket) {
+                            all.push((
+                                format!("{voice:?} on {family:?} {drive:?}, bucket {bucket}"),
+                                patch,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            !all.is_empty(),
+            "no voice built a patch - a walk would prove nothing"
+        );
+        all
+    }
+
+    /// The oscillators in a patch - the nodes that carry a pitch.
+    fn oscillators(patch: &AudioPatch) -> Vec<&NodeKind> {
+        patch
+            .graph
+            .nodes
+            .iter()
+            .map(|n| &n.kind)
+            .filter(|k| {
+                matches!(
+                    k,
+                    NodeKind::Sine(_)
+                        | NodeKind::Square(_)
+                        | NodeKind::Sawtooth(_)
+                        | NodeKind::Triangle(_)
+                )
+            })
+            .collect()
+    }
+
+    /// A seed on each detune bucket, in bucket order.
+    fn a_seed_per_bucket() -> Vec<u64> {
+        (0..DETUNE_BUCKETS)
+            .map(|b| (0u64..).find(|&s| detune_bucket(s) == b).unwrap())
+            .collect()
+    }
+
     /// Bake a voice patch to a short buffer and assert it makes real,
     /// finite sound - a structural guard that the node graph is valid (no
     /// dangling refs / silence / NaN) before it ever reaches an ear.
@@ -634,54 +832,162 @@ mod audio_tests {
     /// No avatar voice drives a `Gain` below zero (#1348): the VCA has no
     /// floor, so a trough below zero flips the voice's phase and it keeps
     /// sounding where the swell or the thump means to fall away. Every voice
-    /// on every chassis, over several detune buckets, since the engine a
-    /// luminous vehicle carries is built into the same graph.
+    /// on every chassis and drive, over every detune bucket, since the drive
+    /// a luminous vehicle carries is built into the same graph.
     #[test]
     fn no_avatar_voice_inverts_through_a_gain_trough() {
         use crate::catalogue::items::fx::gain_troughs;
-        let mut checked = 0;
-        for voice in [
-            AvatarVoice::EngineHum,
-            AvatarVoice::NeonBuzz,
-            AvatarVoice::ArcaneShimmer,
-        ] {
-            for family in ChassisFamily::ALL {
-                for seed in [0, 3, 7, 11] {
-                    let Some(patch) = voice_patch(voice, family, seed) else {
-                        continue;
-                    };
-                    checked += 1;
-                    let troughs = gain_troughs(&patch);
-                    assert!(
-                        troughs.is_empty(),
-                        "{voice:?} on {family:?} (seed {seed}) flips phase: {troughs:?}"
-                    );
-                }
-            }
+        for (label, patch) in every_voice() {
+            let troughs = gain_troughs(&patch);
+            assert!(troughs.is_empty(), "{label} flips phase: {troughs:?}");
         }
+    }
+
+    /// Every avatar voice closes its one-second loop (#1385): no oscillator
+    /// and no LFO in it runs a fractional number of cycles a second, on any
+    /// chassis, drive or detune bucket. A voice is a construct patch, baked
+    /// to one second and looped whole, so a pitch of 40 Hz x 0.97 left a step
+    /// at the seam 51-86 times the largest one inside the loop - a thump once
+    /// a second on six buckets of seven. The bake now rounds such a rate, but
+    /// a voice states the pitch it will be heard at.
+    #[test]
+    fn every_avatar_voice_closes_its_one_second_loop() {
+        use crate::catalogue::items::fx::off_loop_rates;
+        let found: Vec<String> = every_voice()
+            .iter()
+            .flat_map(|(label, patch)| {
+                off_loop_rates(patch)
+                    .into_iter()
+                    .map(move |(node, hz)| format!("{label}: node {} at {hz} Hz", node.0))
+            })
+            .collect();
         assert!(
-            checked > 0,
-            "no voice built a patch - the walk proved nothing"
+            found.is_empty(),
+            "{} rates leave the loop open:\n{}",
+            found.len(),
+            found.join("\n")
         );
     }
 
+    /// The seam as the world plays it (#1385): a tonal voice baked through
+    /// the construct bake job - the app's own rate, length and warm-up -
+    /// steps across its loop seam by no more than the largest step inside
+    /// the loop. The airship's rotor and the skiff's putter on the worst
+    /// detune bucket, since a noise voice has no pitch to close and the
+    /// luminous voices carry no filter to settle. With the warm-up at zero
+    /// the rotor steps 5.4x (the control, run by hand in #1385).
     #[test]
-    fn each_family_engine_bakes_to_real_sound() {
-        for fam in [
-            ChassisFamily::Boat,
-            ChassisFamily::Airship,
-            ChassisFamily::Skiff,
-        ] {
-            let patch = voice_patch(AvatarVoice::EngineHum, fam, 7).expect("engine voice");
-            assert_audible(&patch, &format!("{fam:?} engine"));
+    fn a_tonal_voice_meets_itself_at_the_loop_seam() {
+        let seed = a_seed_per_bucket()[0];
+        for family in [ChassisFamily::Airship, ChassisFamily::Skiff] {
+            let patch = voice_patch(AvatarVoice::Drive, family, seed).expect("a drive voice");
+            let (wav, _) = crate::world_builder::spatial_audio::bake_construct_wav_bytes(
+                &SovereignAudioConfig::from_patch(&patch),
+            )
+            .expect("a patch bakes");
+            // Mono 16-bit PCM behind a 44-byte header.
+            let s: Vec<f32> = wav[44..]
+                .chunks_exact(2)
+                .map(|b| f32::from(i16::from_le_bytes([b[0], b[1]])) / 32_768.0)
+                .collect();
+            let inner = s
+                .windows(2)
+                .map(|p| (p[1] - p[0]).abs())
+                .fold(0.0f32, f32::max);
+            let seam = (s[0] - s[s.len() - 1]).abs();
+            assert!(
+                seam <= inner,
+                "{family:?}: the seam steps {seam:.4}, {:.1}x the largest step inside the loop ({inner:.4})",
+                seam / inner
+            );
+        }
+    }
+
+    /// A craft under sail makes no engine note (#1383, owner decision C1):
+    /// her voice holds no oscillator at all, on any family or bucket - the
+    /// wash and the rig wind are noise. And it is still real sound.
+    #[test]
+    fn a_sailing_craft_voice_holds_no_oscillator() {
+        for family in ChassisFamily::ALL {
+            for bucket in 0..DETUNE_BUCKETS {
+                let patch =
+                    driven_voice_patch(AvatarVoice::Drive, family, Propulsion::Sail, bucket)
+                        .expect("a drive voice");
+                assert!(
+                    oscillators(&patch).is_empty(),
+                    "{family:?} under sail, bucket {bucket}: {:?}",
+                    oscillators(&patch)
+                );
+                assert_audible(&patch, &format!("{family:?} under sail"));
+            }
+        }
+    }
+
+    /// A luminous boat under sail mixes the sail under her neon or arcane
+    /// voice, not an engine: the only oscillators in her graph are the
+    /// luminous voice's own - exactly as many as the same voice carries pure,
+    /// on a humanoid.
+    #[test]
+    fn a_luminous_sailing_boat_holds_only_the_luminous_voices_oscillators() {
+        for voice in [AvatarVoice::NeonBuzz, AvatarVoice::ArcaneShimmer] {
+            let boat = driven_voice_patch(voice, ChassisFamily::Boat, Propulsion::Sail, 0).unwrap();
+            let pure =
+                driven_voice_patch(voice, ChassisFamily::Humanoid, Propulsion::Engine, 0).unwrap();
+            assert_eq!(
+                oscillators(&boat),
+                oscillators(&pure),
+                "{voice:?}: a sailing boat carries an oscillator the luminous voice does not"
+            );
+            assert!(
+                boat.graph.nodes.len() > pure.graph.nodes.len(),
+                "{voice:?}: the sail wash is missing from under the luminous voice"
+            );
+        }
+    }
+
+    /// The voice follows the DRAWN craft (#1383): every boat seed, whatever
+    /// type it picked, is drawn as a sailing sloop today and so sails - a
+    /// Runabout-picked seed included, which is what keying the voice to the
+    /// picked type would have got wrong.
+    #[test]
+    fn every_drawn_boat_sails_whatever_type_it_picked() {
+        use crate::seeded_defaults::BoatType;
+        let boats: Vec<u64> = (0u64..400)
+            .filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat)
+            .collect();
+        assert!(
+            boats.iter().any(|&s| !BoatType::for_seed(s).implemented()),
+            "no seed picked an unbuilt type - the test proves nothing"
+        );
+        for s in boats {
+            assert_eq!(
+                drive_of(ChassisFamily::Boat, s),
+                Propulsion::Sail,
+                "seed {s}"
+            );
+            let patch = voice_patch(AvatarVoice::Drive, ChassisFamily::Boat, s).unwrap();
+            assert!(oscillators(&patch).is_empty(), "boat seed {s} hums");
         }
     }
 
     #[test]
-    fn luminous_vehicle_voices_bake_with_engine_underneath() {
-        // A luminous *vehicle* carries the family engine mixed in; a luminous
+    fn each_family_drive_bakes_to_real_sound() {
+        for (family, drive) in [
+            (ChassisFamily::Boat, Propulsion::Sail),
+            (ChassisFamily::Boat, Propulsion::Engine),
+            (ChassisFamily::Airship, Propulsion::Engine),
+            (ChassisFamily::Skiff, Propulsion::Engine),
+        ] {
+            let patch = driven_voice_patch(AvatarVoice::Drive, family, drive, 3).expect("a drive");
+            assert_audible(&patch, &format!("{family:?} {drive:?}"));
+        }
+    }
+
+    #[test]
+    fn luminous_vehicle_voices_bake_with_drive_underneath() {
+        // A luminous *vehicle* carries its drive mixed in; a luminous
         // humanoid stays pure. Both must bake to sound, and the vehicle's
-        // graph is strictly larger (the extra engine + mix nodes).
+        // graph is strictly larger (the extra drive + mix nodes).
         for voice in [AvatarVoice::NeonBuzz, AvatarVoice::ArcaneShimmer] {
             let vehicle = voice_patch(voice, ChassisFamily::Skiff, 3).expect("vehicle voice");
             let humanoid = voice_patch(voice, ChassisFamily::Humanoid, 3).expect("humanoid voice");
@@ -689,24 +995,32 @@ mod audio_tests {
             assert_audible(&humanoid, &format!("{voice:?} humanoid"));
             assert!(
                 vehicle.graph.nodes.len() > humanoid.graph.nodes.len(),
-                "{voice:?}: vehicle should carry an engine under the luminous voice"
+                "{voice:?}: vehicle should carry a drive under the luminous voice"
             );
         }
     }
 
     #[test]
-    fn the_three_family_engines_are_distinct() {
-        let boat = voice_patch(AvatarVoice::EngineHum, ChassisFamily::Boat, 7).unwrap();
-        let airship = voice_patch(AvatarVoice::EngineHum, ChassisFamily::Airship, 7).unwrap();
-        let skiff = voice_patch(AvatarVoice::EngineHum, ChassisFamily::Skiff, 7).unwrap();
-        // Bake each and require the waveforms differ - they are genuinely
-        // different voices, not one shared hum.
-        let b = bake(&boat, 22_050, 0.3);
-        let a = bake(&airship, 22_050, 0.3);
-        let s = bake(&skiff, 22_050, 0.3);
-        assert_ne!(b, a, "boat and airship engines are identical");
-        assert_ne!(a, s, "airship and skiff engines are identical");
-        assert_ne!(b, s, "boat and skiff engines are identical");
+    fn the_family_drives_are_distinct() {
+        // The four drive voices - sail, motor boat, rotor, putter - are
+        // genuinely different voices, not one shared hum.
+        let baked: Vec<Vec<f32>> = [
+            (ChassisFamily::Boat, Propulsion::Sail),
+            (ChassisFamily::Boat, Propulsion::Engine),
+            (ChassisFamily::Airship, Propulsion::Engine),
+            (ChassisFamily::Skiff, Propulsion::Engine),
+        ]
+        .iter()
+        .map(|&(family, drive)| {
+            let patch = driven_voice_patch(AvatarVoice::Drive, family, drive, 3).unwrap();
+            bake(&patch, 22_050, 0.3)
+        })
+        .collect();
+        for i in 0..baked.len() {
+            for j in i + 1..baked.len() {
+                assert_ne!(baked[i], baked[j], "drives {i} and {j} are identical");
+            }
+        }
     }
 
     #[test]
@@ -721,10 +1035,31 @@ mod audio_tests {
         }
     }
 
+    /// Rounding to whole hertz (#1385) keeps the detune audible: the lowest
+    /// tonal drive (the motor boat's 40 Hz) still spreads over three pitches
+    /// across the buckets, and the skiff's 78 Hz over five.
     #[test]
-    fn humanoid_luminous_voice_has_no_engine() {
+    fn whole_hertz_keeps_the_detune_spread() {
+        for (family, base, fewest) in [
+            (ChassisFamily::Boat, 40.0, 3),
+            (ChassisFamily::Airship, 52.0, 5),
+            (ChassisFamily::Skiff, 78.0, 5),
+        ] {
+            let mut pitches: Vec<i32> = (0..DETUNE_BUCKETS)
+                .map(|b| hz(base, detune_factor(b)) as i32)
+                .collect();
+            pitches.dedup();
+            assert!(
+                pitches.len() >= fewest,
+                "{family:?}: {pitches:?} over {DETUNE_BUCKETS} buckets"
+            );
+        }
+    }
+
+    #[test]
+    fn humanoid_luminous_voice_has_no_drive() {
         // Pure neon / arcane on a humanoid == the same voice with no vehicle
-        // engine: the mix step is a no-op, so the node graph is engine-free.
+        // drive: the mix step is a no-op, so the node graph is drive-free.
         let human = voice_patch(AvatarVoice::NeonBuzz, ChassisFamily::Humanoid, 9).unwrap();
         // neon_buzz alone is 4 nodes (saw, bandpass, lfo, vca).
         assert_eq!(human.graph.nodes.len(), 4);

@@ -109,6 +109,26 @@ impl AudioSlotKind {
             ),
         }
     }
+
+    /// `patch` as the world bakes it in this kind of slot: a construct's with
+    /// its loop closed (#1385, every rate a whole number of cycles a loop), an
+    /// ambient bed's as authored. Borrowed when there is nothing to close, so
+    /// a closed patch is not cloned every frame the pop-out draws.
+    pub(crate) fn as_baked(
+        self,
+        patch: &bevy_symbios_audio::AudioPatch,
+    ) -> std::borrow::Cow<'_, bevy_symbios_audio::AudioPatch> {
+        use crate::world_builder::spatial_audio::{close_the_loop, loop_is_closed};
+        let (_, secs) = self.patch_bake();
+        match self {
+            Self::Construct if !loop_is_closed(patch, secs) => {
+                let mut closed = patch.clone();
+                close_the_loop(&mut closed, secs);
+                std::borrow::Cow::Owned(closed)
+            }
+            Self::Construct | Self::WorldAmbient => std::borrow::Cow::Borrowed(patch),
+        }
+    }
 }
 
 /// The audio pop-out's share of an editor system: the crate's monitor, the
@@ -1289,13 +1309,19 @@ fn audio_editor_body(
     let audition = &mut editor.slots.entry(&salt).audition;
     if let Some((patch, state)) = editor.patch.as_mut() {
         let (sample_rate, secs) = editor.kind.patch_bake();
-        let source = AuditionSource::patch(patch, sample_rate, secs).with_note(AUDITION_NOTE);
-        region(ui, strip_id(id), |ui| {
-            super::widgets::mute_banner(ui, muted);
-            requests.extend(audition_strip(
-                ui, monitor, audition, source, committed, *muted,
-            ));
-        });
+        let kind = editor.kind;
+        // The strip auditions the patch as the world bakes it, closed loop
+        // and all (#1385); the canvas below edits the patch as authored.
+        {
+            let baked = kind.as_baked(patch);
+            let source = AuditionSource::patch(&baked, sample_rate, secs).with_note(AUDITION_NOTE);
+            region(ui, strip_id(id), |ui| {
+                super::widgets::mute_banner(ui, muted);
+                requests.extend(audition_strip(
+                    ui, monitor, audition, source, committed, *muted,
+                ));
+            });
+        }
         controls.extend(audition.take_controls());
         ui.separator();
         let res = region(ui, canvas_id(id), |ui| {
@@ -1310,7 +1336,7 @@ fn audio_editor_body(
         // Before the commit below, not after: `audition` borrows out of
         // `editor`, and `editor.commit` wants the whole of it.
         if let Some(node) = state.take_hear_node() {
-            let heard = bevy_symbios_audio::ui::patch_hearing(patch, node);
+            let heard = bevy_symbios_audio::ui::patch_hearing(&kind.as_baked(patch), node);
             // Claimed by the strip AS THE COPY, not as the whole patch: a
             // strip recognises its own audition by a fingerprint of the
             // request, and the copy's differs from the original's. Telling
@@ -2250,6 +2276,78 @@ mod tests {
                 run.text.contains(&caption),
                 "{kind:?}: the caption says so; painted {:?}",
                 run.text
+            );
+        }
+    }
+
+    /// #1385. A construct's patch is baked with its loop closed - every rate
+    /// a whole number of cycles a second - so the pop-out auditions it that
+    /// way too, while an ambient bed, which the world bakes as authored,
+    /// auditions as authored. The working copy is never touched: closing is
+    /// the bake's business, not an edit.
+    #[test]
+    fn a_construct_patch_auditions_with_its_loop_closed() {
+        use bevy_symbios_audio::NodeKind;
+        // A lone sine at 40.4 Hz: 0.4 of a cycle short of closing a
+        // one-second loop.
+        let patch = bevy_symbios_audio::AudioPatch {
+            seed: 0,
+            graph: bevy_symbios_audio::NodeGraph {
+                nodes: vec![bevy_symbios_audio::GraphNode {
+                    id: bevy_symbios_audio::NodeId(0),
+                    kind: NodeKind::Sine(bevy_symbios_audio::SineOsc {
+                        freq_hz: 40.4,
+                        phase_offset: 0.0,
+                        amplitude: 0.5,
+                    }),
+                    inputs: Default::default(),
+                }],
+                output: bevy_symbios_audio::NodeId(0),
+            },
+        };
+        let slot = SovereignAudioConfig::from_patch(&patch);
+        let pitches = |patch: &bevy_symbios_audio::AudioPatch| -> Vec<f32> {
+            patch
+                .graph
+                .nodes
+                .iter()
+                .filter_map(|node| match &node.kind {
+                    NodeKind::Sine(o) => Some(o.freq_hz),
+                    _ => None,
+                })
+                .collect()
+        };
+        for (kind, heard) in [
+            (AudioSlotKind::Construct, 40.0),
+            (AudioSlotKind::WorldAmbient, 40.4),
+        ] {
+            let mut editor = AudioEditorState::default();
+            editor.open_for(&slot, "slot", "A slot", kind);
+            let run = run_pop_out(
+                &mut editor,
+                &AudioMonitor::default(),
+                6,
+                Some("\u{25B6} Audition"),
+                &mut false,
+            );
+            let played: Vec<Vec<f32>> = run
+                .requests
+                .iter()
+                .filter_map(|request| match request {
+                    MonitorRequest::PlayPatch { patch, .. } => Some(pitches(patch)),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(played.len(), 1, "{kind:?}: one audition");
+            assert!(
+                played[0].contains(&heard),
+                "{kind:?}: auditioned {:?}, wanted {heard} among them",
+                played[0]
+            );
+            let (working, _) = editor.patch.as_ref().expect("a patch slot");
+            assert!(
+                pitches(working).contains(&40.4),
+                "{kind:?}: the working copy was edited by an audition"
             );
         }
     }

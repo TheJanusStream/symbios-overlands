@@ -40,7 +40,7 @@ use crate::seeded_defaults::{BoatBlueprint, ParticleAura, SloopHull, SloopRig};
 
 use super::super::common::{cuboid, id_quat, prim};
 use super::profile::HullProfile;
-use super::{BoatCraft, BoatFeel, boat_colours, dim};
+use super::{BoatCraft, BoatFeel, Propulsion, boat_colours, dim};
 use rig::{Rig, rigging};
 
 /// Section depth per unit half-beam. The knob that turns a plan form into a
@@ -150,6 +150,12 @@ impl BoatCraft for Sloop {
             linear_damping: 1.5,
             angular_damping: 6.0,
         }
+    }
+
+    fn propulsion(&self) -> Propulsion {
+        // A sloop is a sailing rig; her voice is the wash and the wind in
+        // it, never an engine's (owner decision C1 on #1368).
+        Propulsion::Sail
     }
 
     fn fx_mount(&self, aura: ParticleAura, hull: &HullProfile) -> [f32; 3] {

@@ -25,10 +25,14 @@
 //! with its inputs, which is most of the text of any patch.
 //!
 //! Two properties of the audio graph shape every patch here. A construct's
-//! patch is baked to a one-second buffer and looped
+//! patch is baked to a one-second buffer and looped whole
 //! (`world_builder::spatial_audio::CONSTRUCT_PATCH_SECS`), so anything that
-//! modulates a new patch runs at a whole number of hertz or the loop seam
-//! stutters. And a `Gain` node multiplies by `gain + input("gain")` with no
+//! repeats - an oscillator's pitch as much as an LFO's rate - runs at a whole
+//! number of hertz or the loop seam steps once a second. Since #1385 the bake
+//! rounds every rate to one (`close_the_loop`), so an off-loop rate no longer
+//! ticks, but it is not played as written either: a new patch states the rate
+//! it will be heard at, and `off_loop_rates` names the ones that do not. And a
+//! `Gain` node multiplies by `gain + input("gain")` with no
 //! floor: an LFO whose trough dips below zero flips the signal's phase rather
 //! than silencing it. A sound that must fall quiet between events keeps its
 //! LFO's `offset` at or above its `depth`, or decays on a sawtooth as
@@ -447,9 +451,79 @@ pub(crate) fn gain_troughs(patch: &AudioPatch) -> Vec<(NodeId, f32)> {
     troughs
 }
 
+/// Every node whose rate the construct bake would move to close its
+/// one-second loop, with the rate it was written at (#1385): an oscillator
+/// (`Sine`, `Square`, `Sawtooth`, `Triangle`) or a modulator (`Lfo`, and a
+/// `Chorus`'s internal sweep) that does not run a whole number of cycles in
+/// `CONSTRUCT_PATCH_SECS`.
+///
+/// The structural twin of [`gain_troughs`], and read off the bake's own
+/// rounding rather than restating it, so the guard and the fix cannot
+/// disagree about which rates close the loop.
+#[cfg(test)]
+pub(crate) fn off_loop_rates(patch: &AudioPatch) -> Vec<(NodeId, f32)> {
+    use crate::world_builder::spatial_audio::{CONSTRUCT_PATCH_SECS, close_the_loop};
+    close_the_loop(&mut patch.clone(), CONSTRUCT_PATCH_SECS)
+        .into_iter()
+        .map(|(node, from, _)| (node, from))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The control for `off_loop_rates`: it names a detuned pitch, a
+    /// sub-hertz swell and a fractional chug, and passes whole ones - a pitch,
+    /// a rate, and a still node with no rate at all.
+    #[test]
+    fn off_loop_rates_names_a_detuned_pitch_and_a_slow_swell() {
+        let rate_patch = |pitch: f32, swell: f32| AudioPatch {
+            seed: 0,
+            graph: NodeGraph {
+                nodes: vec![
+                    node(
+                        0,
+                        NodeKind::Sine(SineOsc {
+                            freq_hz: pitch,
+                            phase_offset: 0.0,
+                            amplitude: 0.3,
+                        }),
+                    ),
+                    node(
+                        1,
+                        NodeKind::Lfo(Lfo {
+                            rate_hz: swell,
+                            shape: LfoShape::Sine,
+                            depth: 0.4,
+                            offset: 0.4,
+                        }),
+                    ),
+                    node(2, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 })),
+                    wired(
+                        3,
+                        NodeKind::Gain(Gain { gain: 0.0 }),
+                        &[("in", &[0, 2]), ("gain", &[1])],
+                    ),
+                ],
+                output: NodeId(3),
+            },
+        };
+        assert_eq!(
+            off_loop_rates(&rate_patch(38.8, 0.4)),
+            [(NodeId(0), 38.8), (NodeId(1), 0.4)],
+            "the boat's detuned rumble and its swell"
+        );
+        assert_eq!(
+            off_loop_rates(&rate_patch(40.0, 7.76)),
+            [(NodeId(1), 7.76)],
+            "a detuned chug"
+        );
+        assert!(
+            off_loop_rates(&rate_patch(40.0, 1.0)).is_empty(),
+            "whole rates close the loop"
+        );
+    }
 
     /// The control for `gain_troughs`: it must name a graph that inverts,
     /// and pass the three ways a graph stays at or above zero. A guard that

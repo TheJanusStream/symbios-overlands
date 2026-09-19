@@ -130,6 +130,14 @@ fn build_seeded(seed: u64, livery: Option<usize>) -> (RecordBody, LocomotionConf
     (RecordBody::generator(visuals), loco)
 }
 
+/// What the seeded avatar for `seed` sounds like, in one line: its voice, the
+/// drive under it and its detune bucket (#1383). The render tool's `--outfit`
+/// readout, which is native-only, hence `pub` - a crate-private reader it
+/// alone called would be dead code on wasm.
+pub fn voice_label(seed: u64) -> String {
+    fx::voice_label(seed)
+}
+
 /// How tall the engine body this seed rolls actually stands, in metres.
 ///
 /// Read off the archetype's own stature axis rather than by building the

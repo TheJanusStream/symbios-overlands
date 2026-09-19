@@ -131,6 +131,29 @@ pub(super) struct BoatFeel {
     pub(super) angular_damping: f32,
 }
 
+/// How a craft is driven, which is what she sounds like (#1383): under sail a
+/// boat carries the wash along her hull and the wind in her rig, and only an
+/// engine hums. Every other family is engine-driven by construction - the
+/// airship's rotors, the skiff's motor - so this is a boat's answer, asked of
+/// the craft that is DRAWN (see [`propulsion`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Propulsion {
+    /// Sails: no engine note at all.
+    Sail,
+    /// An engine, whose hum is the family's.
+    Engine,
+}
+
+impl Propulsion {
+    /// What `render --outfit` says of it.
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::Sail => "under sail",
+            Self::Engine => "under power",
+        }
+    }
+}
+
 /// One buildable kind of boat.
 pub(super) trait BoatCraft {
     /// This type's hull, from the seeded blueprint: her own plan form and
@@ -148,6 +171,11 @@ pub(super) trait BoatCraft {
 
     /// Where a seeded particle aura issues from, read off the hull.
     fn fx_mount(&self, aura: ParticleAura, hull: &HullProfile) -> [f32; 3];
+
+    /// How she is driven, and so what she sounds like (#1383). Required, with
+    /// no default: a type that lands without saying whether she has an engine
+    /// does not compile, so no craft inherits a voice she never had.
+    fn propulsion(&self) -> Propulsion;
 }
 
 /// The builder for a craft type, or `None` while nothing implements it.
@@ -216,6 +244,16 @@ pub(super) fn feel_and_draft(seed: u64) -> (BoatFeel, f32) {
             0.28,
         ),
     }
+}
+
+/// How the boat drawn for `seed` is driven - her voice's answer (#1383).
+///
+/// Asked of the DRAWN craft, never of the picked type: until #1369-#1373 land,
+/// most boat seeds pick a type nothing builds yet and are drawn as the sloop,
+/// and a sloop's sails must not hum like the runabout a seed picked. Total
+/// over every seed, as [`craft_for`] is.
+pub(super) fn propulsion(seed: u64) -> Propulsion {
+    craft_for(seed).propulsion()
 }
 
 /// Where a seeded boat's particle aura issues from (root-local, before the

@@ -5,7 +5,7 @@
 //! |----------|-------------------------------------------------|
 //! | every    | a laid coachroof over the cabin trunk           |
 //! | Adorned  | a boom tent over the cockpit                    |
-//! | Ornate   | the boom tent, a tender, a stern lantern, an anchor |
+//! | Ornate   | the boom tent, a tender, a stern lantern        |
 //! | Worn     | a tarp lashed over the coachroof                |
 //! | Battered | the tarp, and fuel cans on the side deck        |
 //!
@@ -16,6 +16,10 @@
 //! degrees, so everything here is on deck or aloft; the fender row the brief
 //! suggested was rendered and dropped, because the topsides it hangs on roll
 //! away out of that view.
+//!
+//! The Ornate tier carried an anchor on the foredeck too, until #1368 judged
+//! it at play distance: it shared the tender's stretch of deck, and in none of
+//! four placements did it read as an anchor at 109 px a metre (#1384).
 //!
 //! Every mass is placed off the hull profile, the trunk's own stations or a
 //! spar the rig already drew - never off a restated fraction - which is what
@@ -45,7 +49,6 @@ pub(super) fn dress(
     if ornateness == OrnatenessTier::Ornate {
         dinghy(kids, hull, c);
         stern_lantern(kids, hull, c);
-        anchor(kids, hull, c);
     }
     if wear >= WearTier::Worn {
         tarp(kids, hull, c);
@@ -167,55 +170,6 @@ fn stern_lantern(kids: &mut Vec<Generator>, hull: &HullProfile, c: &BoatColours)
         [loa * 0.030, loa * 0.034, loa * 0.030],
         c.window.clone(),
         [x, top + loa * 0.012, z],
-    ));
-}
-
-/// A stocked anchor lying on the foredeck, to starboard of the centreline -
-/// on one bow, as a real one is stowed.
-///
-/// Three spines and no rotated node: a spine takes explicit point positions,
-/// so a thing lying on its side costs nothing in the sanitise round trip.
-fn anchor(kids: &mut Vec<Generator>, hull: &HullProfile, c: &BoatColours) {
-    let loa = hull.loa;
-    let x = hull.half_beam * 0.30;
-    let (ring_z, crown_z) = (0.455 * loa, 0.215 * loa);
-    let on_deck = |z: f32, lift: f32| deck_y(hull, z) + lift;
-    let r = dim(loa * 0.0090);
-    kids.push(line(
-        &[
-            ([x, on_deck(ring_z, loa * 0.010), ring_z], dim(loa * 0.0062)),
-            ([x, on_deck(crown_z, loa * 0.012), crown_z], r),
-        ],
-        8,
-        c.lead.clone(),
-    ));
-    // The stock, across the shank just inside the ring.
-    let stock_z = ring_z - loa * 0.016;
-    let stock_y = on_deck(stock_z, loa * 0.010);
-    kids.push(line(
-        &[
-            ([x - loa * 0.062, stock_y, stock_z], dim(loa * 0.0055)),
-            ([x + loa * 0.062, stock_y, stock_z], dim(loa * 0.0055)),
-        ],
-        6,
-        c.lead.clone(),
-    ));
-    // The arms, swept back from the crown.
-    let arm_y = on_deck(crown_z, loa * 0.012);
-    kids.push(line(
-        &[
-            (
-                [x - loa * 0.054, arm_y, crown_z + loa * 0.030],
-                dim(loa * 0.0075),
-            ),
-            ([x, arm_y, crown_z], r),
-            (
-                [x + loa * 0.054, arm_y, crown_z + loa * 0.030],
-                dim(loa * 0.0075),
-            ),
-        ],
-        8,
-        c.lead.clone(),
     ));
 }
 
