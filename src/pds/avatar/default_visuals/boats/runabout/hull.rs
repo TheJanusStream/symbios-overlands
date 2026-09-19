@@ -18,8 +18,9 @@ use crate::pds::generator::Generator;
 use super::super::super::common::quat_x;
 use super::super::RunaboutColours;
 use super::super::profile::HullProfile;
+use super::super::shape::hull_path;
 pub(super) use super::super::shape::{
-    DECK_CROWN, UPRIGHT, box_at, deck_run, line, panel, run_z, sweep, turned,
+    DECK_CROWN, UPRIGHT, box_at, deck_run, line, panel, run_z, sweep, turned, underbody,
 };
 
 /// Segments over the hull's kept half-section - see the module docs.
@@ -70,25 +71,6 @@ pub(super) fn inner_half_width(hull: &HullProfile, z: f32, depth: f32, hollow: f
         return hb * (1.0 - (1.0 - CHINE) * depth / chine_d);
     }
     hb * CHINE * (1.0 - (depth - chine_d) / (hb * s - chine_d)).max(0.0)
-}
-
-/// The hull's stations as a sweep path on a hull centred at `x0`, each
-/// radius grown by `grow`; from `from_z` aft of which nothing is drawn, when
-/// given.
-fn hull_path(hull: &HullProfile, grow: f32, x0: f32, from_z: Option<f32>) -> Vec<([f32; 3], f32)> {
-    let st = hull.stations();
-    let mut pts: Vec<([f32; 3], f32)> = Vec::with_capacity(st.len() + 1);
-    if let Some(z0) = from_z {
-        pts.push(([x0, hull.sheer_z(z0), z0], hull.half_beam_at(z0) * grow));
-        pts.extend(
-            st.iter()
-                .filter(|s| s.z > z0 + 1e-6)
-                .map(|s| ([x0, s.sheer, s.z], s.half_beam * grow)),
-        );
-    } else {
-        pts.extend(st.iter().map(|s| ([x0, s.sheer, s.z], s.half_beam * grow)));
-    }
-    pts
 }
 
 // ---------------------------------------------------------------------------
@@ -162,75 +144,6 @@ pub(super) fn skin(
             .collect();
         kids.push(line(&pts, 8, &c.rail));
     }
-}
-
-/// Skeg, and on an inboard boat a propeller and a rudder - on show, because
-/// she hovers. The skeg is what the derived draft's skeg allowance is.
-pub(super) fn underbody(
-    kids: &mut Vec<Generator>,
-    hull: &HullProfile,
-    c: &RunaboutColours,
-    x0: f32,
-    prop: bool,
-) {
-    let l = hull.loa;
-    let t = hull.transom_z();
-    let k_t = hull.keel_at(t + l * 0.02);
-    let deep = -hull.draft;
-    let skeg = [
-        (
-            [x0, hull.keel_at(-0.05 * l) + l * 0.004, -0.05 * l],
-            l * 0.004,
-        ),
-        (
-            [x0, (k_t + deep) * 0.5 + l * 0.006, t + l * 0.10],
-            (k_t - deep) * 0.5,
-        ),
-        (
-            [x0, (k_t + deep) * 0.5 + l * 0.004, t + l * 0.045],
-            (k_t - deep) * 0.5,
-        ),
-    ];
-    kids.push(sweep(
-        &skeg,
-        8,
-        [0.18, 1.0, 1.0],
-        [0.0, 1.0],
-        &c.antifoul,
-        0.0,
-    ));
-    if !prop {
-        return;
-    }
-    let py = (k_t + deep) * 0.5 - l * 0.004;
-    let pz = t + l * 0.030;
-    let r = (k_t - deep) * 0.55;
-    kids.push(turned(
-        &[
-            (r * 0.25, -l * 0.010),
-            (r, -l * 0.004),
-            (r, l * 0.004),
-            (r * 0.25, l * 0.010),
-        ],
-        12,
-        false,
-        &c.bronze,
-        [x0, py, pz],
-        quat_x(std::f32::consts::FRAC_PI_2),
-        0.0,
-    ));
-    let rudder = [
-        ([x0, k_t + l * 0.010, t + l * 0.006], l * 0.012),
-        ([x0, deep + l * 0.004, t + l * 0.010], l * 0.012),
-    ];
-    kids.push(sweep(
-        &rudder,
-        8,
-        [0.25, 1.0, 1.0],
-        [0.0, 1.0],
-        &c.bronze,
-        0.0,
-    ));
 }
 
 /// A wraparound windscreen FRAME, no glass (#1359 rule 4): one spine from

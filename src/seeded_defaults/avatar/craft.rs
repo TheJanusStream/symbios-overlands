@@ -43,7 +43,7 @@ use rand_chacha::rand_core::SeedableRng;
 
 use super::character::AvatarCharacter;
 use super::chassis::ChassisFamily;
-use super::mood::{COASTAL, GRUBBY, HISTORIC, NEON, REGAL, STEAM, WORKING, holds};
+use super::mood::{COASTAL, GRUBBY, HISTORIC, NEON, REGAL, STEAM, holds};
 use crate::seeded_defaults::hash::fnv1a_64;
 use crate::seeded_defaults::scene::{ThemeArchetype, pick_weighted};
 
@@ -101,7 +101,9 @@ pub enum BoatType {
     Sloop,
     /// Clinker-built double-ender under a square sail, shields on the sheer.
     Longship,
-    /// Squat working steam tug: tall funnel, rubbing fenders, low waist.
+    /// Working steam tug: a tall raked funnel over a wheelhouse forward,
+    /// tyre fenders along the sheer and a low towing deck aft - the boat of
+    /// the themes with a boiler in them (#1370).
     SteamTug,
     /// Battened-lug junk with a high transom stern.
     Junk,
@@ -189,8 +191,15 @@ impl BoatType {
                     | ThemeArchetype::Fantasy
                     | ThemeArchetype::AncientClassical
             ),
-            // Anything with a boiler in it, and the labouring craft themes.
-            Self::SteamTug => holds(STEAM, style) || holds(WORKING, style),
+            // Anything with a boiler in it, and the two frontier themes that
+            // burn wood under one. NOT the rest of the labouring craft
+            // (WORKING): a funnel on a medieval, Nordic or pirate boat is the
+            // costume error, so those seeds go to the longship and the sloop
+            // instead - the owner's narrowing on #1370's phase-1 renders.
+            Self::SteamTug => {
+                holds(STEAM, style)
+                    || matches!(style, ThemeArchetype::WildWest | ThemeArchetype::PostApoc)
+            }
             // Battened lug rig - the eastern and ritual old-world themes.
             Self::Junk => matches!(
                 style,
@@ -246,8 +255,8 @@ impl BoatType {
     /// be built and silently draws a sloop.
     pub fn implemented(self) -> bool {
         match self {
-            Self::Sloop | Self::Runabout | Self::Scow => true,
-            Self::Longship | Self::SteamTug | Self::Junk => false,
+            Self::Sloop | Self::Runabout | Self::Scow | Self::SteamTug => true,
+            Self::Longship | Self::Junk => false,
         }
     }
 
@@ -456,6 +465,15 @@ mod tests {
     /// that theme actually suggests. A theme with only the floor would look
     /// identical across its whole population once the types land, which is
     /// the defect the type pick exists to remove.
+    ///
+    /// ONE named exception, for boats only: PIRATE, whose boats have all been
+    /// sloops since the steam tug left the labouring themes (#1370). The
+    /// sloop is not the bare floor there - Pirate is at home on her, the gaff
+    /// cutter being the apt pirate craft - and her five rigs, the square
+    /// topsail among them, are that theme's variety; a funnel on a buccaneer
+    /// is the costume error the narrowing took out. Named, not relaxed: "the
+    /// floor counts where the theme is at home on it" would unpin every
+    /// COASTAL and REGAL theme with it.
     #[test]
     fn every_theme_reaches_at_least_two_types_per_family() {
         for style in ThemeArchetype::ALL {
@@ -464,7 +482,17 @@ mod tests {
                 .iter()
                 .filter(|t| t.weight(style) > 0)
                 .count();
-            assert!(boats >= 2, "{style:?} boats have only {boats} type(s)");
+            if style == ThemeArchetype::Pirate {
+                // Pinned both ways, so the exception cannot outlive its
+                // reason: one boat type, and a type Pirate is at home on.
+                assert_eq!(
+                    boats, 1,
+                    "Pirate reaches {boats} boat types - drop its exception"
+                );
+                assert!(BoatType::Sloop.at_home(style));
+            } else {
+                assert!(boats >= 2, "{style:?} boats have only {boats} type(s)");
+            }
             assert!(skiffs >= 2, "{style:?} skiffs have only {skiffs} type(s)");
         }
     }
@@ -543,9 +571,10 @@ mod tests {
     /// gives no weight is never drawn at all.
     #[test]
     fn a_themes_own_types_dominate_its_population() {
-        // A Nordic boat is a longship or a steam tug (6 each) far more often
-        // than the sloop the floor always leaves open (2) - about 6 in 7.
-        let style = ThemeArchetype::Nordic;
+        // A Steampunk boat is a steam tug or a scow (6 each) far more often
+        // than the sloop the floor always leaves open (2) - about 6 in 7. It
+        // was written on Nordic until the tug left that theme (#1370).
+        let style = ThemeArchetype::Steampunk;
         let mut at_home = 0;
         for s in 0u64..4000 {
             let t = BoatType::for_style(style, s);
@@ -558,7 +587,7 @@ mod tests {
         // 12 of 14 weight is at home; allow a wide sampling margin.
         assert!(
             (3200..=3700).contains(&at_home),
-            "{at_home} of 4000 Nordic boats were at home, expected about 3430"
+            "{at_home} of 4000 Steampunk boats were at home, expected about 3430"
         );
     }
 
@@ -577,5 +606,15 @@ mod tests {
         assert!(SkiffType::Wagon.at_home(ThemeArchetype::Steampunk));
         assert!(SkiffType::Wagon.at_home(ThemeArchetype::RuralFarmland));
         assert!(SkiffType::DuneBuggy.at_home(ThemeArchetype::Suburban));
+        // And the steam tug's narrowed reach (#1370): the boiler themes and
+        // the two frontier ones, and none of the pre-industrial labouring
+        // themes that WORKING still gathers for the sloop's rigs.
+        use ThemeArchetype::*;
+        for style in [Steampunk, WildWest, PostApoc] {
+            assert!(BoatType::SteamTug.at_home(style), "{style:?}");
+        }
+        for style in [Medieval, Nordic, Pirate] {
+            assert!(!BoatType::SteamTug.at_home(style), "{style:?}");
+        }
     }
 }

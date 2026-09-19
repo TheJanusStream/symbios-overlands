@@ -25,7 +25,8 @@
 //!   [`crate::seeded_defaults::avatar::craft`].
 //! - The **seeded accent** ([`primary_accent`](crate::seeded_defaults::AvatarPalette::primary_accent))
 //!   is spent on the
-//!   identity slots ONLY: the boot stripe, the burgee and the jib on a boat;
+//!   identity slots ONLY: the boot stripe, the burgee and the jib on a boat,
+//!   and the band round a steam tug's funnel (#1370);
 //!   the coachline, the wheel centres and the hide on a car; a horseless
 //!   wagon's spoked wheels (#1377). The secondary still tints the antifoul and the upholstery a little so two craft of one
 //!   scheme are not identical, and the tertiary still lights the windows.
@@ -949,6 +950,148 @@ pub(crate) fn scow_colours(ctx: &PartCtx) -> ScowColours {
     }
 }
 
+/// The surfaces a steam tug is built in (#1370). Her scheme goes on her
+/// FUNNEL, as a company's colours do: the scheme's topsides colour on the
+/// stack under a black top, with the seeded accent as the band round it -
+/// over a black steel hull on the scheme's antifoul, a superstructure in the
+/// scheme's canvas (white, cream, or tanbark on the black scheme) and the
+/// scheme's deck on her deck. The varnished scheme is a varnished mahogany
+/// superstructure under a buff funnel. The owner agreed this on the phase-1
+/// renders: from the chase camera the pale superstructure always reads
+/// against the black hull and the funnel carries the scheme, and on the
+/// three dark schemes, whose funnels are close at 12 m, the band carries
+/// the seed.
+///
+/// The seeded accent is spent on ONE identity slot, the funnel band, through
+/// [`trim`] - a luminous style would light it, though no tug theme is one.
+pub(crate) struct TugColours {
+    /// The shell, the stem and the counter's end face: black steel.
+    pub(crate) hull: SovereignMaterialSettings,
+    pub(crate) transom: SovereignMaterialSettings,
+    /// Below the waterline, the forefoot and the keel with it: the scheme's
+    /// antifoul.
+    pub(crate) antifoul: SovereignMaterialSettings,
+    /// The sunk deck, the scheme's deck in boards run along her.
+    pub(crate) deck: SovereignMaterialSettings,
+    /// The capping rail along the bulwark's top.
+    pub(crate) rail: SovereignMaterialSettings,
+    /// The keelson post in the void under the deck.
+    pub(crate) interior: SovereignMaterialSettings,
+    /// The engine casing and the wheelhouse: the scheme's canvas, or
+    /// varnished mahogany on the varnished scheme.
+    pub(crate) house: SovereignMaterialSettings,
+    /// The casing top and the wheelhouse roof: the canvas taken down and
+    /// held clear of the walls under it.
+    pub(crate) roof: SovereignMaterialSettings,
+    pub(crate) window: SovereignMaterialSettings,
+    /// The funnel: the scheme's topsides colour, or buff on the varnished
+    /// scheme.
+    pub(crate) funnel: SovereignMaterialSettings,
+    /// The funnel's sooted top, whose closed cap is its dark mouth.
+    pub(crate) funnel_top: SovereignMaterialSettings,
+    /// **Identity.** The band round the funnel, through [`trim`], held clear
+    /// of the funnel it is painted on.
+    pub(crate) band: SovereignMaterialSettings,
+    /// A battered funnel, rusted through at its base.
+    pub(crate) rust: SovereignMaterialSettings,
+    /// The towing hook and arches, the bitts, the boat's chocks, and the
+    /// derrick's lift, sling and winch.
+    pub(crate) iron: SovereignMaterialSettings,
+    /// The tyre fenders.
+    pub(crate) tyre: SovereignMaterialSettings,
+    /// The stem collar, the counter fender and the Ornate hawser: manila.
+    pub(crate) rope: SovereignMaterialSettings,
+    /// Propeller and rudder: the runabout's.
+    pub(crate) bronze: SovereignMaterialSettings,
+    /// The ship's boat an Adorned tug carries, white inside her gunwale.
+    pub(crate) boat: SovereignMaterialSettings,
+    /// Her canvas cover: the scheme's canvas taken down, held clear of the
+    /// casing top she rides over.
+    pub(crate) cover: SovereignMaterialSettings,
+    /// A battered tug's boat under a weathered tarp: the sloop's rule
+    /// (#1366), held clear of the superstructure.
+    pub(crate) tarp: SovereignMaterialSettings,
+    /// The cowl ventilators, in the funnel's colour.
+    pub(crate) vent: SovereignMaterialSettings,
+    /// The Ornate signal mast and its crosstree, and its lit masthead lamp.
+    pub(crate) mast: SovereignMaterialSettings,
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// A worn tug's re-laid deck boards, pale and new.
+    pub(crate) patch: SovereignMaterialSettings,
+    /// The crate the derrick tender has slung, pine.
+    pub(crate) cargo: SovereignMaterialSettings,
+    /// The derrick's post and boom: buff, held clear of the deck under them.
+    pub(crate) derrick: SovereignMaterialSettings,
+}
+
+/// A tug's fixed colours (#1370): what these parts simply are.
+const STEEL_BLACK: [f32; 3] = [0.050, 0.050, 0.055];
+const SOOT: [f32; 3] = [0.035, 0.034, 0.034];
+const MANILA: [f32; 3] = [0.66, 0.56, 0.38];
+const BOAT_WHITE: [f32; 3] = [0.86, 0.86, 0.83];
+const LAMP: [f32; 3] = [1.0, 0.93, 0.74];
+/// A varnished tug's funnel, and every derrick.
+const BUFF: [f32; 3] = [0.78, 0.62, 0.36];
+
+/// How far the funnel band is held from the funnel, the roof and the boat's
+/// cover from what they lie on, and the derrick from the deck it stands on.
+const FUNNEL_BAND_DELTA: f32 = 0.30;
+const TUG_ROOF_DELTA: f32 = 0.22;
+const COVER_DELTA: f32 = 0.22;
+const DERRICK_DELTA: f32 = 0.12;
+
+pub(crate) fn tug_colours(ctx: &PartCtx) -> TugColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let l = boat_livery(ctx.seed, ctx.livery);
+    let funnel = if l.varnished_hull {
+        BUFF
+    } else {
+        floor_finished(m, l.topsides, BOAT_MASS_FLOOR)
+    };
+    let house = if l.varnished_hull { MAHOGANY } else { l.canvas };
+    let roof = clear_of(shade(l.canvas, 0.62), luma(house), TUG_ROOF_DELTA);
+    TugColours {
+        hull: m.paint(STEEL_BLACK),
+        transom: m.paint(STEEL_BLACK),
+        antifoul: m.antifoul(mix(l.antifoul, shade(p.secondary_accent, 0.5), 0.18)),
+        deck: boards(m, l.deck),
+        rail: boards(m, shade(l.varnish, 0.70)),
+        interior: m.paint(shade(STEEL_BLACK, 0.8)),
+        house: if l.varnished_hull {
+            m.brightwork(house)
+        } else {
+            m.paint(house)
+        },
+        roof: m.paint(roof),
+        window: window_material(window_light(p.tertiary_accent)),
+        funnel: m.paint(funnel),
+        funnel_top: m.paint(SOOT),
+        band: trim(
+            m,
+            clear_of(p.primary_accent, luma(funnel), FUNNEL_BAND_DELTA),
+        ),
+        rust: m.paint(RUST),
+        iron: m.paint(MACHINERY),
+        tyre: m.rubber(TYRE),
+        rope: m.canvas(MANILA),
+        bronze: m.brightwork(BRONZE),
+        boat: m.paint(BOAT_WHITE),
+        cover: m.canvas(clear_of(shade(l.canvas, 0.78), luma(roof), COVER_DELTA)),
+        tarp: m.canvas(clear_of(
+            to_value(l.canvas, luma(l.canvas) * TARP_VALUE),
+            luma(house),
+            TARP_DELTA,
+        )),
+        vent: m.paint(funnel),
+        mast: m.timber(l.varnish),
+        lamp: window_material(window_light(LAMP)),
+        patch: boards(m, PATCH_BOARD),
+        cargo: m.timber(PINE),
+        derrick: m.paint(clear_of(BUFF, luma(l.deck), DERRICK_DELTA)),
+    }
+}
+
 /// The surfaces a land-skiff is painted in.
 pub(crate) struct SkiffColours {
     pub(crate) paint: SovereignMaterialSettings,
@@ -1308,6 +1451,44 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A steam tug's company colours read on every scheme (#1370), on every
+    /// seed drawn as a tug: the band round her funnel - the seed's one
+    /// identity slot - against the funnel it is painted on, the wheelhouse
+    /// roof against the walls under it, and the boat's cover against the
+    /// casing top it rides over.
+    #[test]
+    fn a_tugs_funnel_band_and_roof_read_on_every_scheme() {
+        use crate::seeded_defaults::BoatType;
+        let mut tugs = 0;
+        for s in (0u64..3000).filter(|&s| {
+            ChassisFamily::for_seed(s) == ChassisFamily::Boat
+                && BoatType::for_seed(s) == BoatType::SteamTug
+        }) {
+            let mut ctx = PartCtx::for_seed(s);
+            for (i, scheme) in BOAT_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = tug_colours(&ctx);
+                let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                // Grime dims both sides of each pair by one factor, so each
+                // delta shrinks by at most that much - as for the boot top.
+                for (what, a, b, delta) in [
+                    ("funnel band", &c.band, &c.funnel, FUNNEL_BAND_DELTA),
+                    ("wheelhouse roof", &c.roof, &c.house, TUG_ROOF_DELTA),
+                    ("boat's cover", &c.cover, &c.roof, COVER_DELTA),
+                ] {
+                    let d = (l(a) - l(b)).abs();
+                    assert!(
+                        d > delta * 0.6,
+                        "seed {s} in {}: the {what} is {d} from what it lies on",
+                        scheme.name
+                    );
+                }
+            }
+            tugs += 1;
+        }
+        assert!(tugs > 30, "only {tugs} tug seeds under 3000");
     }
 
     /// The roadster's dressing reads against what it lies on, on every scheme

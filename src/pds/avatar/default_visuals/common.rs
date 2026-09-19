@@ -97,6 +97,18 @@ pub(crate) fn cuboid(size: [f32; 3], material: SovereignMaterialSettings) -> Gen
     }
 }
 
+/// A right-triangular prism in its `size` box: the slope rises from the
+/// front-bottom edge (`+Z`, `-Y`) to the back-top one (`-Z`, `+Y`) across
+/// the full width, so the `-Z` face is the upright one. The steam tug's
+/// forefoot and stem are two (#1370): a sweep's end cap tilts with its path,
+/// and a keel line rising as steeply as a bow's tilted it into a ram.
+pub(crate) fn wedge(size: [f32; 3], material: SovereignMaterialSettings) -> GeneratorKind {
+    GeneratorKind::Wedge {
+        size: Fp3(size),
+        common: PrimCommon::with_material(material),
+    }
+}
+
 pub(crate) fn sphere(
     radius: f32,
     resolution: u32,

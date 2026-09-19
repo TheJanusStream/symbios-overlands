@@ -66,7 +66,7 @@ impl Launch for Coastal {
         let cockpit = FORM.cockpit(hull);
         let (za, zf) = cockpit;
         skin(kids, hull, c, 0.0, HULL_HOLLOW);
-        underbody(kids, hull, c, 0.0, true);
+        underbody(kids, hull, &c.antifoul, &c.bronze, 0.0, true);
         // The planked foredeck from the dash to the stem and the after deck
         // from the cockpit to the transom - the cockpit is the gap.
         kids.push(deck_run(hull, zf, hull.stem_z() - l * 0.004, &c.deck, 0.0));

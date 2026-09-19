@@ -9,14 +9,10 @@ use crate::pds::generator::Generator;
 
 use super::super::ScowColours;
 use super::super::profile::HullProfile;
-use super::super::shape::{DECK_CROWN, run_z, sweep};
+use super::super::shape::{DECK_CROWN, PATCH_CUT, run_z, sweep};
 use super::cargo::Hold;
 use super::hold_z;
 use super::house::House;
-
-/// The re-laid quadrant's arc: a quarter of the crowned deck's section, to
-/// one side of the centreline.
-const PATCH_CUT: [f32; 2] = [0.30, 0.46];
 
 /// Worn: a quadrant of the foredeck re-laid in new pale boards, a hair proud
 /// of the deck.

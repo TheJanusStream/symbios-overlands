@@ -389,9 +389,15 @@ pub(super) fn drive_of(family: ChassisFamily, seed: u64) -> Propulsion {
 /// Embers and motes stay - a lantern sparks, and a flourish is a flourish.
 /// A poled scow keeps her steam (#1373): her stove steams, and the stovepipe
 /// through her deckhouse roof is where it leaves.
+///
+/// A boiler always smokes (#1370, owner decision 2): a craft under steam
+/// trails steam from her funnel where her style only picked the family's
+/// wake floor - a ModernCity tug - and the steam and embers the boiler
+/// themes pick stand, since both leave the same funnel mouth.
 pub(super) fn drawn_aura(aura: ParticleAura, drive: Propulsion) -> ParticleAura {
     match (aura, drive) {
         (ParticleAura::Exhaust | ParticleAura::Steam, Propulsion::Rolling) => ParticleAura::None,
+        (ParticleAura::Wake, Propulsion::Steam) => ParticleAura::Steam,
         (aura, _) => aura,
     }
 }
@@ -441,6 +447,7 @@ pub(super) fn voice_label(seed: u64) -> String {
         (Propulsion::Engine, ChassisFamily::Skiff | ChassisFamily::Humanoid) => "putter",
         (Propulsion::Rolling, _) => "roll and creak",
         (Propulsion::Poled, _) => "lap and sweep creak",
+        (Propulsion::Steam, _) => "chuff and thump",
     };
     let bucket = detune_bucket(seed);
     match voice {
@@ -500,6 +507,7 @@ fn family_drive(
         }
         (Propulsion::Rolling, _) => wagon_roll(g),
         (Propulsion::Poled, _) => scow_lap(g),
+        (Propulsion::Steam, _) => tug_chuff(g, detune),
     }
 }
 
@@ -569,9 +577,9 @@ fn under_sail(g: &mut GraphBuilder) -> NodeId {
 /// A motor boat's engine - a low water-washed rumble: a deep fundamental over
 /// a band-passed noise wash (the hull working through the water). The
 /// runabout is the first boat to declare [`Propulsion::Engine`] (#1372), so
-/// hers is the first seed to be heard with it; the steam tug (#1370) will be
-/// the next. Its noise wash can join itself audibly at the one-second loop
-/// seam on some detune buckets - #1387, a bake-side fix.
+/// hers is the first seed to be heard with it; the steam tug (#1370) has a
+/// drive of her own, [`tug_chuff`]. Its noise wash can join itself audibly at
+/// the one-second loop seam on some detune buckets - #1387, a bake-side fix.
 ///
 /// The wash used to swell at 0.4 Hz, which a one-second loop cannot hold: it
 /// snapped back 4 dB every second (#1385). It is steady now, at the swell's
@@ -730,6 +738,68 @@ fn scow_lap(g: &mut GraphBuilder) -> NodeId {
     let creak = g.vca(&[timber], swell);
     let creak = g.sink(NodeKind::Gain(Gain { gain: 1.5 }), &[creak]);
     g.sink(NodeKind::Gain(Gain { gain: 1.0 }), &[water, creak])
+}
+
+/// A steam tug's engine (#1370; the owner's ear picked candidate t2 of the
+/// phase-1 bakes): two heavy beats a second, the pace of a slow compound
+/// engine, over the wash along her hull. Each beat is a chuff of exhaust
+/// hiss AND a thump of the engine - a 46 Hz sine, detuned and rounded - under
+/// one decaying envelope, and the thump is what keeps her a boat rather than
+/// a locomotive. The envelope is a Saw LFO at depth -0.5 offset 0.5, falling
+/// from one at each beat to nothing at its end, squared by a second in
+/// series so each beat dies early: the first voice to ship a NEGATIVE depth,
+/// and its trough is zero, never under it (#1348). Every rate is whole hertz,
+/// and the seam never steps - each beat's own attack dwarfs it (#1385). RMS
+/// about 0.14, between the sail and the motor boat's hum.
+fn tug_chuff(g: &mut GraphBuilder, detune: f32) -> NodeId {
+    let noise = g.src(NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));
+    let hiss = g.sink(
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 900.0,
+            q: 0.8,
+        }),
+        &[noise],
+    );
+    let hiss = g.sink(NodeKind::Gain(Gain { gain: 0.9 }), &[hiss]);
+    let thump = g.src(NodeKind::Sine(sine(hz(46.0, detune), 0.30)));
+    let body = g.sink(NodeKind::Gain(Gain { gain: 1.0 }), &[hiss, thump]);
+    let decay = || {
+        NodeKind::Lfo(Lfo {
+            rate_hz: 2.0,
+            shape: LfoShape::Saw,
+            depth: -0.5,
+            offset: 0.5,
+        })
+    };
+    let fall = g.src(decay());
+    let fall_again = g.src(decay());
+    let beat = g.vca(&[body], fall);
+    let beat = g.vca(&[beat], fall_again);
+    let beat = g.sink(
+        NodeKind::BiquadLowpass(BiquadLowpass {
+            cutoff_hz: 1600.0,
+            q: 0.7,
+        }),
+        &[beat],
+    );
+    let beat = g.sink(NodeKind::Gain(Gain { gain: 1.4 }), &[beat]);
+    let noise = g.src(NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));
+    let wash = g.sink(
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 480.0,
+            q: 0.8,
+        }),
+        &[noise],
+    );
+    let wash = g.sink(
+        NodeKind::BiquadLowpass(BiquadLowpass {
+            cutoff_hz: 700.0,
+            q: 0.7,
+        }),
+        &[wash],
+    );
+    let wash = g.sink(NodeKind::Gain(Gain { gain: 0.55 }), &[wash]);
+    g.sink(NodeKind::Gain(Gain { gain: 1.0 }), &[beat, wash])
 }
 
 /// Skiff engine - a saw/sine putter around 78 Hz, chugged by a faster LFO;
@@ -891,18 +961,19 @@ mod audio_tests {
         AvatarVoice::NeonBuzz,
         AvatarVoice::ArcaneShimmer,
     ];
-    const DRIVES: [Propulsion; 4] = [
+    const DRIVES: [Propulsion; 5] = [
         Propulsion::Sail,
         Propulsion::Engine,
         Propulsion::Rolling,
         Propulsion::Poled,
+        Propulsion::Steam,
     ];
 
     /// Every voice patch there is: each voice on each chassis under each
     /// drive, on every detune bucket, labelled for a failure message. The
     /// drive is walked explicitly, so every drive's voice holds every rule
-    /// on every chassis, whether or not a seed draws that pairing yet - the
-    /// steam tug's engine (#1370) is heard on a type not built today.
+    /// on every chassis, whether or not a seed draws that pairing - a boiler
+    /// under an airship's luminous voice is still walked.
     fn every_voice() -> Vec<(String, AudioPatch)> {
         let mut all = Vec::new();
         for voice in VOICES {
@@ -1004,18 +1075,23 @@ mod audio_tests {
     /// The seam as the world plays it (#1385): a tonal voice baked through
     /// the construct bake job - the app's own rate, length and warm-up -
     /// steps across its loop seam by no more than the largest step inside
-    /// the loop. The airship's rotor and the skiff's putter on the worst
-    /// detune bucket, since a noise voice has no pitch to close and the
-    /// luminous voices carry no filter to settle. With the warm-up at zero
-    /// the rotor steps 5.4x (the control, run by hand in #1385).
+    /// the loop. The airship's rotor and the skiff's putter on their worst
+    /// detune bucket, and the steam tug's chuff and thump (#1370) on the
+    /// same one, since a noise voice has no pitch to close and the luminous
+    /// voices carry no filter to settle. With the warm-up at zero the rotor
+    /// steps 5.4x (the control, run by hand in #1385).
     #[test]
     fn a_tonal_voice_meets_itself_at_the_loop_seam() {
-        // Asked for the ENGINE explicitly: a skiff seed's drive is its drawn
+        // Asked for each DRIVE explicitly: a skiff seed's drive is its drawn
         // craft's since #1377, and a wagon rolls on noise, which has no pitch
-        // to close.
-        for family in [ChassisFamily::Airship, ChassisFamily::Skiff] {
-            let patch = driven_voice_patch(AvatarVoice::Drive, family, Propulsion::Engine, 0)
-                .expect("a drive voice");
+        // to close. The tug's thump is a pitch under her chuff.
+        for (family, drive) in [
+            (ChassisFamily::Airship, Propulsion::Engine),
+            (ChassisFamily::Skiff, Propulsion::Engine),
+            (ChassisFamily::Boat, Propulsion::Steam),
+        ] {
+            let patch =
+                driven_voice_patch(AvatarVoice::Drive, family, drive, 0).expect("a drive voice");
             let (wav, _) = crate::world_builder::spatial_audio::bake_construct_wav_bytes(
                 &SovereignAudioConfig::from_patch(&patch),
             )
@@ -1032,7 +1108,7 @@ mod audio_tests {
             let seam = (s[0] - s[s.len() - 1]).abs();
             assert!(
                 seam <= inner,
-                "{family:?}: the seam steps {seam:.4}, {:.1}x the largest step inside the loop ({inner:.4})",
+                "{family:?} {drive:?}: the seam steps {seam:.4}, {:.1}x the largest step inside the loop ({inner:.4})",
                 seam / inner
             );
         }
@@ -1083,15 +1159,16 @@ mod audio_tests {
     /// The voice follows the DRAWN craft (#1383), in both directions: a
     /// boat seed is under power exactly when it is drawn as a runabout
     /// (#1372), whose drive voice hums; poled exactly when it is drawn as a
-    /// scow (#1373), whose lap and creak are noise; and every other boat
-    /// seed, the sloops and every pick nothing builds yet (drawn as a sloop),
-    /// sails, on a patch with no oscillator in it. Keying the voice to
-    /// the picked type would get the unbuilt picks wrong; keying it to the
-    /// family would get the runabout and the scow wrong.
+    /// scow (#1373), whose lap and creak are noise; under steam exactly when
+    /// it is drawn as a steam tug (#1370), whose thump is a pitch under the
+    /// chuff; and every other boat seed, the sloops and every pick nothing
+    /// builds yet (drawn as a sloop), sails, on a patch with no oscillator in
+    /// it. Keying the voice to the picked type would get the unbuilt picks
+    /// wrong; keying it to the family would get every other type wrong.
     #[test]
     fn a_boat_is_driven_as_the_craft_she_is_drawn_as() {
         use crate::seeded_defaults::BoatType;
-        let (mut launches, mut scows, mut sailing, mut unbuilt) = (0, 0, 0, 0);
+        let (mut launches, mut scows, mut tugs, mut sailing, mut unbuilt) = (0, 0, 0, 0, 0);
         for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
             let picked = BoatType::for_seed(s);
             let drive = drive_of(ChassisFamily::Boat, s);
@@ -1100,6 +1177,7 @@ mod audio_tests {
                 match picked {
                     BoatType::Runabout => Propulsion::Engine,
                     BoatType::Scow => Propulsion::Poled,
+                    BoatType::SteamTug => Propulsion::Steam,
                     _ => Propulsion::Sail,
                 },
                 "seed {s} ({picked:?})"
@@ -1117,6 +1195,13 @@ mod audio_tests {
                     scows += 1;
                     assert!(oscillators(&patch).is_empty(), "scow seed {s} hums");
                 }
+                BoatType::SteamTug => {
+                    tugs += 1;
+                    assert!(
+                        !oscillators(&patch).is_empty(),
+                        "tug seed {s} is silent of her engine's thump"
+                    );
+                }
                 _ => {
                     sailing += 1;
                     unbuilt += usize::from(!picked.implemented());
@@ -1125,8 +1210,9 @@ mod audio_tests {
             }
         }
         assert!(
-            launches > 5 && scows > 5 && sailing > 5 && unbuilt > 0,
-            "{launches} runabouts, {scows} scows, {sailing} sailing ({unbuilt} of them unbuilt picks)"
+            launches > 5 && scows > 5 && tugs > 5 && sailing > 5 && unbuilt > 0,
+            "{launches} runabouts, {scows} scows, {tugs} tugs, {sailing} sailing \
+             ({unbuilt} of them unbuilt picks)"
         );
     }
 
@@ -1139,6 +1225,7 @@ mod audio_tests {
             (ChassisFamily::Skiff, Propulsion::Engine),
             (ChassisFamily::Skiff, Propulsion::Rolling),
             (ChassisFamily::Boat, Propulsion::Poled),
+            (ChassisFamily::Boat, Propulsion::Steam),
         ] {
             let patch = driven_voice_patch(AvatarVoice::Drive, family, drive, 3).expect("a drive");
             assert_audible(&patch, &format!("{family:?} {drive:?}"));
@@ -1164,8 +1251,8 @@ mod audio_tests {
 
     #[test]
     fn the_family_drives_are_distinct() {
-        // The six drive voices - sail, motor boat, rotor, putter, wagon, scow -
-        // are genuinely different voices, not one shared hum.
+        // The seven drive voices - sail, motor boat, rotor, putter, wagon,
+        // scow, tug - are genuinely different voices, not one shared hum.
         let baked: Vec<Vec<f32>> = [
             (ChassisFamily::Boat, Propulsion::Sail),
             (ChassisFamily::Boat, Propulsion::Engine),
@@ -1173,6 +1260,7 @@ mod audio_tests {
             (ChassisFamily::Skiff, Propulsion::Engine),
             (ChassisFamily::Skiff, Propulsion::Rolling),
             (ChassisFamily::Boat, Propulsion::Poled),
+            (ChassisFamily::Boat, Propulsion::Steam),
         ]
         .iter()
         .map(|&(family, drive)| {
@@ -1248,7 +1336,8 @@ mod audio_tests {
     }
 
     /// A rolling craft trails neither exhaust nor steam, and keeps every
-    /// other aura; no other drive loses any (#1377).
+    /// other aura; no other drive loses any (#1377). And a boiler turns the
+    /// wake floor to steam (#1370); no other drive changes one.
     #[test]
     fn only_a_rolling_craft_drops_exhaust_and_steam() {
         use crate::seeded_defaults::ParticleAura as A;
@@ -1267,13 +1356,69 @@ mod audio_tests {
             for aura in all {
                 let drawn = drawn_aura(aura, drive);
                 let dropped = drive == Propulsion::Rolling && matches!(aura, A::Exhaust | A::Steam);
+                let promoted = drive == Propulsion::Steam && aura == A::Wake;
                 assert_eq!(
                     drawn,
-                    if dropped { A::None } else { aura },
+                    if dropped {
+                        A::None
+                    } else if promoted {
+                        A::Steam
+                    } else {
+                        aura
+                    },
                     "{aura:?} under {drive:?}"
                 );
             }
         }
+    }
+
+    /// A drawn tug always smokes (#1370, owner decision 2): no seed drawn as
+    /// a steam tug under 3000 trails a wake. Her boiler promotes the wake
+    /// floor her style picked - a ModernCity tug's - to steam, and the
+    /// boiler themes' own steam and embers stand. Asked of the emitter the
+    /// record actually carries, by its recipe, so the promotion is proved on
+    /// the tree and not only in [`drawn_aura`].
+    #[test]
+    fn a_steam_tug_never_trails_a_wake() {
+        use crate::seeded_defaults::BoatType;
+        // A recipe's fingerprint: its sprite's sizes and colours, which
+        // neither the mount, the intensity nor the seed moves.
+        let recipe = |g: &Generator| match &g.kind {
+            GeneratorKind::ParticleSystem(p) => Some((p.start_size, p.end_size, p.start_color)),
+            _ => None,
+        };
+        let of = |aura| {
+            aura_emitter(aura, [0.0; 3], [0.0; 3], ChassisFamily::Boat, 1.0, 0)
+                .as_ref()
+                .and_then(recipe)
+                .expect("a recipe")
+        };
+        let (wake, steam, embers) = (
+            of(ParticleAura::Wake),
+            of(ParticleAura::Steam),
+            of(ParticleAura::Embers),
+        );
+        let (mut tugs, mut promoted) = (0, 0);
+        for s in (0u64..3000).filter(|&s| {
+            ChassisFamily::for_seed(s) == ChassisFamily::Boat
+                && BoatType::for_seed(s) == BoatType::SteamTug
+        }) {
+            let (record, _) = super::super::build_for_seed(s);
+            let tree = record.visuals().expect("a boat is an assembled tree");
+            let fx: Vec<_> = tree.children.iter().filter_map(recipe).collect();
+            assert_eq!(fx.len(), 1, "seed {s} carries {} emitters", fx.len());
+            assert_ne!(fx[0], wake, "tug seed {s} trails a wake");
+            assert!(
+                fx[0] == steam || fx[0] == embers,
+                "tug seed {s} trails neither steam nor embers"
+            );
+            promoted += usize::from(AvatarFx::for_seed(s).aura == ParticleAura::Wake);
+            tugs += 1;
+        }
+        assert!(
+            tugs > 30 && promoted > 0,
+            "{tugs} tugs under 3000, {promoted} of them promoted from a wake"
+        );
     }
 
     #[test]

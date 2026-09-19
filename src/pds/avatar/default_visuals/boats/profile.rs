@@ -42,6 +42,10 @@
 //! fin keel, so her draft - which sets her hover - is not the blueprint's fin
 //! draft but the deepest point of her own canoe body plus an allowance for a
 //! skeg or a rubbing batten ([`HullProfile::finless`]).
+//!
+//! The steam tug (#1370) is the third finless type, and the first on the
+//! sloop's own Spring law: a low towing deck aft, a bow springing hard to
+//! her stem. Her allowance is the keel she drags, drawn as its own part.
 
 use crate::pds::sanitize::limits::MAX_SWEEP_POINTS;
 use crate::seeded_defaults::BoatBlueprint;
@@ -49,8 +53,9 @@ use crate::seeded_defaults::BoatBlueprint;
 /// Where the sheer bottoms out, as a fraction of the overall length from
 /// amidships. Abaft midships, because a boat's deck line sweeps up hardest
 /// forward and its lowest point sits aft of centre - a sheer that bottoms out
-/// exactly amidships reads as a symmetrical banana.
-const SHEER_LOW: f32 = -0.08;
+/// exactly amidships reads as a symmetrical banana. A type reads it where a
+/// part follows the sheer's own rise - the steam tug's bulwark (#1370).
+pub(super) const SHEER_LOW: f32 = -0.08;
 
 /// Where a fore-and-aft rig steps its mast, as a fraction of the overall
 /// length forward of amidships - about 30 % of the length abaft the stem,
@@ -84,9 +89,9 @@ pub(crate) enum SheerLaw {
     Swim { pow: i32 },
 }
 
-/// A finless type's proportions over the shared blueprint (#1372, #1373):
-/// each a factor on the blueprint's own number, so a stance still moves the
-/// launch or the scow the way it moves the sloop.
+/// A finless type's proportions over the shared blueprint (#1372, #1373,
+/// #1370): each a factor on the blueprint's own number, so a stance still
+/// moves the launch, the scow or the tug the way it moves the sloop.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct FinlessForm {
     /// Half-beam over the blueprint's.
@@ -101,7 +106,8 @@ pub(crate) struct FinlessForm {
     /// Section depth per unit half-beam.
     pub(crate) section: f32,
     /// What hangs under the deepest point of the canoe body - a launch's
-    /// skeg, a scow's rubbing batten - as a fraction of the length.
+    /// skeg, a scow's rubbing batten, a tug's keel - as a fraction of the
+    /// length.
     pub(crate) allowance: f32,
     /// How the deck line is laid.
     pub(crate) sheer: SheerLaw,
@@ -172,12 +178,12 @@ impl HullProfile {
         }
     }
 
-    /// A FINLESS hull for this blueprint - a planing launch (#1372) or a
-    /// working scow (#1373): the type's own plan form and section, the
-    /// blueprint's dimensions under the type's own factors, the type's own
-    /// [`SheerLaw`], and a draft DERIVED from the hull itself - the deepest
-    /// point of the canoe body plus the form's allowance, since neither has a
-    /// fin and her hover is a quarter of this draft.
+    /// A FINLESS hull for this blueprint - a planing launch (#1372), a
+    /// working scow (#1373) or a steam tug (#1370): the type's own plan form
+    /// and section, the blueprint's dimensions under the type's own factors,
+    /// the type's own [`SheerLaw`], and a draft DERIVED from the hull itself -
+    /// the deepest point of the canoe body plus the form's allowance, since
+    /// none of them has a fin and her hover is a quarter of this draft.
     pub(crate) fn finless(
         bp: &BoatBlueprint,
         form: &FinlessForm,

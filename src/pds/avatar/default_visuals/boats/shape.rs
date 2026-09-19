@@ -1,8 +1,10 @@
-//! The shape vocabulary every finless boat is drawn in (#1372, #1373): a
-//! sweep that pre-divides its path by its own node scale, a thin line, a
-//! rounded panel, a turned part, and the crowned deck run over a hull's
-//! stations. The runabout drew them first; the scow draws the same parts, so
-//! they live beside the [`HullProfile`] rather than inside one type.
+//! The shape vocabulary every finless boat is drawn in (#1372, #1373,
+//! #1370): a sweep that pre-divides its path by its own node scale, a thin
+//! line, a rounded panel, a turned part, the hull's stations as a sweep path,
+//! the crowned deck run over them, and the underbody a screw boat hangs
+//! under her counter. The runabout drew them first; the scow and the steam
+//! tug draw the same parts, so they live beside the [`HullProfile`] rather
+//! than inside one type.
 //!
 //! The sloop keeps her own (`sloop/hull.rs`): she was built before these
 //! and her dumps are pinned byte for byte.
@@ -11,7 +13,9 @@ use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::Fp3;
 
-use super::super::common::{bevel, cuboid, id_quat, lathe, prim, quat_xyzw, spine, with_cut};
+use super::super::common::{
+    bevel, cuboid, id_quat, lathe, prim, quat_x, quat_xyzw, spine, with_cut,
+};
 use super::dim;
 use super::profile::HullProfile;
 
@@ -101,6 +105,35 @@ pub(super) const UPRIGHT: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 /// Deck crown, as a section-depth factor on the deck's own sweep.
 pub(super) const DECK_CROWN: f32 = 0.16;
 
+/// A re-laid quadrant's arc on a crowned deck: a quarter of the deck's
+/// section, to one side of the centreline - where a worn boat's pale new
+/// boards go (#1373, #1370).
+pub(super) const PATCH_CUT: [f32; 2] = [0.30, 0.46];
+
+/// The hull's stations as a sweep path on a hull centred at `x0`, each
+/// radius grown by `grow`; from `from_z` aft of which nothing is drawn, when
+/// given.
+pub(super) fn hull_path(
+    hull: &HullProfile,
+    grow: f32,
+    x0: f32,
+    from_z: Option<f32>,
+) -> Vec<([f32; 3], f32)> {
+    let st = hull.stations();
+    let mut pts: Vec<([f32; 3], f32)> = Vec::with_capacity(st.len() + 1);
+    if let Some(z0) = from_z {
+        pts.push(([x0, hull.sheer_z(z0), z0], hull.half_beam_at(z0) * grow));
+        pts.extend(
+            st.iter()
+                .filter(|s| s.z > z0 + 1e-6)
+                .map(|s| ([x0, s.sheer, s.z], s.half_beam * grow)),
+        );
+    } else {
+        pts.extend(st.iter().map(|s| ([x0, s.sheer, s.z], s.half_beam * grow)));
+    }
+    pts
+}
+
 /// The stations strictly between `z0` and `z1`, bracketed by both ends - a
 /// sub-run of the hull that still reads every station on it.
 pub(super) fn run_z(hull: &HullProfile, z0: f32, z1: f32) -> Vec<f32> {
@@ -135,4 +168,62 @@ pub(super) fn deck_run(
         })
         .collect();
     sweep(&pts, 14, [1.0, DECK_CROWN, 1.0], [0.0, 0.5], m, 0.0)
+}
+
+/// Skeg, and on an inboard boat a propeller and a rudder - on show, because
+/// she hovers. The skeg is what the derived draft's skeg allowance is. Every
+/// screw boat hangs the same one under her counter - the runabout (#1372)
+/// and the steam tug (#1370) - painted in her own `antifoul` and `bronze`.
+pub(super) fn underbody(
+    kids: &mut Vec<Generator>,
+    hull: &HullProfile,
+    antifoul: &SovereignMaterialSettings,
+    bronze: &SovereignMaterialSettings,
+    x0: f32,
+    prop: bool,
+) {
+    let l = hull.loa;
+    let t = hull.transom_z();
+    let k_t = hull.keel_at(t + l * 0.02);
+    let deep = -hull.draft;
+    let skeg = [
+        (
+            [x0, hull.keel_at(-0.05 * l) + l * 0.004, -0.05 * l],
+            l * 0.004,
+        ),
+        (
+            [x0, (k_t + deep) * 0.5 + l * 0.006, t + l * 0.10],
+            (k_t - deep) * 0.5,
+        ),
+        (
+            [x0, (k_t + deep) * 0.5 + l * 0.004, t + l * 0.045],
+            (k_t - deep) * 0.5,
+        ),
+    ];
+    kids.push(sweep(&skeg, 8, [0.18, 1.0, 1.0], [0.0, 1.0], antifoul, 0.0));
+    if !prop {
+        return;
+    }
+    let py = (k_t + deep) * 0.5 - l * 0.004;
+    let pz = t + l * 0.030;
+    let r = (k_t - deep) * 0.55;
+    kids.push(turned(
+        &[
+            (r * 0.25, -l * 0.010),
+            (r, -l * 0.004),
+            (r, l * 0.004),
+            (r * 0.25, l * 0.010),
+        ],
+        12,
+        false,
+        bronze,
+        [x0, py, pz],
+        quat_x(std::f32::consts::FRAC_PI_2),
+        0.0,
+    ));
+    let rudder = [
+        ([x0, k_t + l * 0.010, t + l * 0.006], l * 0.012),
+        ([x0, deep + l * 0.004, t + l * 0.010], l * 0.012),
+    ];
+    kids.push(sweep(&rudder, 8, [0.25, 1.0, 1.0], [0.0, 1.0], bronze, 0.0));
 }

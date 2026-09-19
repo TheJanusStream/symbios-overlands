@@ -8,7 +8,7 @@ use crate::pds::{Generator, GeneratorKind, Placement, RoomRecord};
 use crate::seeded_defaults::hash::fnv1a_64;
 use crate::seeded_defaults::{
     BoatType, ChassisFamily, CraftType, RoadsterBody, RoadsterTop, RoadsterWheels, RunaboutVariant,
-    ScowLoad, SkiffType, SloopHull, SloopRig, WagonBody,
+    ScowLoad, SkiffType, SloopHull, SloopRig, TugVariant, WagonBody,
 };
 
 use super::Args;
@@ -192,6 +192,10 @@ pub(super) fn print_outfit(subject: &str) {
         // her stern gear.
         if let CraftType::Boat(BoatType::Scow) = craft {
             println!("  scow: {}", ScowLoad::for_seed(seed).label());
+        }
+        // And the tug's variant (#1370), which her theme picks.
+        if let CraftType::Boat(BoatType::SteamTug) = craft {
+            println!("  tug: {}", TugVariant::for_seed(seed).label());
         }
         // And the wagon's body (#1377), which its theme picks.
         if let CraftType::Skiff(SkiffType::Wagon) = craft {

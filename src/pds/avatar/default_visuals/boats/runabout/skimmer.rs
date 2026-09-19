@@ -121,7 +121,7 @@ impl Launch for Skimmer {
         let cockpit = FORM.cockpit(hull);
         let (za, zf) = cockpit;
         skin(kids, hull, c, 0.0, HULL_HOLLOW);
-        underbody(kids, hull, c, 0.0, false);
+        underbody(kids, hull, &c.antifoul, &c.bronze, 0.0, false);
         kids.push(deck_run(hull, zf, hull.stem_z() - l * 0.004, &c.deck, 0.0));
         kids.push(deck_run(hull, hull.transom_z(), za, &c.deck, 0.0));
         let sole_y = cockpit_sole(kids, hull, c, cockpit);

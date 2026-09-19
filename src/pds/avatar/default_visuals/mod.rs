@@ -75,6 +75,11 @@ enum Propulsion {
     /// creaking in its crutch. A working scow's, her stern-wheel variant
     /// included - the wheel is her stern gear, drawn, not an engine.
     Poled,
+    /// A boiler (#1370): the chuff of the exhaust and the thump of a slow
+    /// steam engine over the wash. The steam tug's - and a boiler is the one
+    /// drive that makes smoke, so it is also what promotes her picked wake
+    /// to steam from her funnel (`fx::drawn_aura`).
+    Steam,
 }
 
 impl Propulsion {
@@ -85,6 +90,7 @@ impl Propulsion {
             Self::Engine => "under power",
             Self::Rolling => "rolling on iron tyres",
             Self::Poled => "poled and sculled",
+            Self::Steam => "under steam",
         }
     }
 }
@@ -154,7 +160,8 @@ fn build_seeded(seed: u64, livery: Option<usize>) -> (RecordBody, LocomotionConf
     // is snapped to the seeded blueprint landmark for the aura - a boat's steam
     // leaves its funnel, its wake rides the stern - via [`fx_mount`].
     // The PICKED aura is resolved against the drawn craft's drive first: a
-    // rolling wagon has no pipe to trail exhaust from (#1377).
+    // rolling wagon has no pipe to trail exhaust from (#1377), and a boiler
+    // turns the wake floor into steam from her funnel (#1370).
     let fx = AvatarFx::for_seed(seed);
     let fx = AvatarFx {
         aura: fx::drawn_aura(fx.aura, fx::drive_of(family, seed)),

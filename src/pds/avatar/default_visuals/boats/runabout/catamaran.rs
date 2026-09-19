@@ -104,7 +104,7 @@ impl Launch for Catamaran {
         let hulls = [-off, off];
         for x0 in hulls {
             skin(kids, hull, c, x0, 0.0);
-            underbody(kids, hull, c, x0, false);
+            underbody(kids, hull, &c.antifoul, &c.bronze, x0, false);
         }
         // The bridge deck: an UPPER half-pipe over the demihulls' own
         // stations, its radius reaching each one's outer rail.

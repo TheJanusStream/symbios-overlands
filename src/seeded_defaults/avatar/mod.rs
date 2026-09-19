@@ -50,6 +50,7 @@ pub mod roadster;
 pub mod runabout;
 pub mod scow;
 pub mod sloop;
+pub mod tug;
 pub mod vehicle_blueprint;
 pub mod wagon;
 
@@ -68,6 +69,7 @@ pub use roadster::{RoadsterBody, RoadsterTop, RoadsterWheels};
 pub use runabout::RunaboutVariant;
 pub use scow::ScowLoad;
 pub use sloop::{SloopHull, SloopRig};
+pub use tug::TugVariant;
 pub use vehicle_blueprint::{
     AirshipBlueprint, BoatBlueprint, NOMINAL_BODY_LEN, NOMINAL_HULL_LEN, SkiffBlueprint,
     VehicleBlueprint, VehicleStance,
