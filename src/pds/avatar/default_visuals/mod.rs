@@ -71,6 +71,10 @@ enum Propulsion {
     Engine,
     /// No engine and no sail: the rumble of iron tyres and a creak.
     Rolling,
+    /// A pole and a sweep (#1373): water lapping a flat hull and the sweep
+    /// creaking in its crutch. A working scow's, her stern-wheel variant
+    /// included - the wheel is her stern gear, drawn, not an engine.
+    Poled,
 }
 
 impl Propulsion {
@@ -80,6 +84,7 @@ impl Propulsion {
             Self::Sail => "under sail",
             Self::Engine => "under power",
             Self::Rolling => "rolling on iron tyres",
+            Self::Poled => "poled and sculled",
         }
     }
 }

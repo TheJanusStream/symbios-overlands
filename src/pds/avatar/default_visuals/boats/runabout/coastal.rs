@@ -8,13 +8,13 @@ use crate::pds::generator::Generator;
 use crate::seeded_defaults::OrnatenessTier;
 
 use super::super::RunaboutColours;
-use super::super::profile::{HullProfile, PlaningForm};
+use super::super::profile::{FinlessForm, HullProfile};
 use super::dressing::{Hatch, flagstaff, surrey_top, wear_ladder};
 use super::hull::{
     DECK_CROWN, HULL_HOLLOW, UPRIGHT, bench, bench_half_width, cockpit_sole, deck_run, panel, skin,
     steering_wheel, stem_band, underbody, windscreen,
 };
-use super::{Launch, LaunchForm};
+use super::{FALLING, Launch, LaunchForm};
 
 /// The launch's plan form, `(z fraction of LOA, half-beam fraction)` transom
 /// to stem: the half-beam held FULL to a wide flat transom and a fine raked
@@ -37,12 +37,14 @@ pub(super) struct Coastal;
 
 const FORM: LaunchForm = LaunchForm {
     plan: PLAN,
-    planing: PlaningForm {
+    planing: FinlessForm {
         beam: 1.22,
         freeboard: 0.70,
-        rise: 1.05,
+        bow_rise: 1.05,
+        stern_rise: 0.0,
         section: 0.64,
-        skeg: 0.040,
+        allowance: 0.040,
+        sheer: FALLING,
     },
     screen: 0.080,
     cockpit_aft: -0.250,

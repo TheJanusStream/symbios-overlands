@@ -13,7 +13,7 @@
 //! one file per type, and [`craft`] is the only match over the enum - the
 //! central [`build_for_seed`](super::build_for_seed) just delegates.
 //!
-//! The sloop and the runabout (#1372) are built so far. That is stated once,
+//! The sloop, the runabout (#1372) and the scow (#1373) are built so far. That is stated once,
 //! in [`craft`], as an explicit `None` for the types with no implementor
 //! rather than an arm that quietly draws something else: [`craft_for`]
 //! resolves an unbuilt pick to
@@ -34,6 +34,8 @@
 
 mod profile;
 mod runabout;
+mod scow;
+mod shape;
 mod sloop;
 
 pub(crate) use profile::HullProfile;
@@ -46,7 +48,7 @@ use crate::seeded_defaults::{BoatBlueprint, BoatType, ParticleAura};
 /// (#1365) rather than beside its geometry - the sloop and every type after
 /// her read them through here.
 pub(crate) use crate::pds::avatar::livery::{
-    BoatColours, RunaboutColours, boat_colours, runabout_colours,
+    BoatColours, RunaboutColours, ScowColours, boat_colours, runabout_colours, scow_colours,
 };
 
 use super::Propulsion;
@@ -151,8 +153,11 @@ pub(super) trait BoatCraft {
     /// How she drives.
     fn feel(&self) -> BoatFeel;
 
-    /// Where a seeded particle aura issues from, read off the hull.
-    fn fx_mount(&self, aura: ParticleAura, hull: &HullProfile) -> [f32; 3];
+    /// Where a seeded particle aura issues from, read off the hull. The seed
+    /// is here for the same reason it is on [`overall_beam`](Self::overall_beam):
+    /// a mount may sit on a part the seed's tiers move - a battered scow's
+    /// stovepipe leans, and her steam leaves it where it leans (#1373).
+    fn fx_mount(&self, aura: ParticleAura, hull: &HullProfile, seed: u64) -> [f32; 3];
 
     /// How she is driven, and so what she sounds like (#1383). Required, with
     /// no default: a type that lands without saying whether she has an engine
@@ -172,12 +177,14 @@ pub(super) trait BoatCraft {
 /// non-empty enum needs an arm per variant, and an arm that drew *something*
 /// for an unimplemented type would be a lie the population census could not
 /// see. The unbuilt group is named in full, so adding a type is a compile
-/// error here until it is listed - which is what each of #1369-#1373 will do.
+/// error here until it is listed - which is what each of #1369-#1373 does
+/// (the runabout, #1372, and the scow, #1373, so far).
 fn craft(t: BoatType) -> Option<&'static dyn BoatCraft> {
     match t {
         BoatType::Sloop => Some(&sloop::Sloop),
         BoatType::Runabout => Some(&runabout::Runabout),
-        BoatType::Longship | BoatType::SteamTug | BoatType::Junk | BoatType::Scow => None,
+        BoatType::Scow => Some(&scow::Scow),
+        BoatType::Longship | BoatType::SteamTug | BoatType::Junk => None,
     }
 }
 
@@ -186,7 +193,7 @@ fn craft(t: BoatType) -> Option<&'static dyn BoatCraft> {
 ///
 /// The pick itself is untouched - [`BoatType::for_seed`] still answers with
 /// the longship a Nordic seed rolled, and the readouts still print it. This is
-/// only what gets drawn until #1369-#1373 land, and it is why #1363 can go
+/// only what gets drawn until #1369-#1371 land, and it is why #1363 can go
 /// live for every boat seed rather than half of them.
 fn craft_for(seed: u64) -> &'static dyn BoatCraft {
     craft(BoatType::for_seed(seed)).unwrap_or_else(|| {
@@ -239,9 +246,10 @@ pub(super) fn feel_and_draft(seed: u64) -> (BoatFeel, f32, Option<f32>) {
 
 /// How the boat drawn for `seed` is driven - her voice's answer (#1383).
 ///
-/// Asked of the DRAWN craft, never of the picked type: until #1369-#1373 land,
+/// Asked of the DRAWN craft, never of the picked type: until #1369-#1371 land,
 /// most boat seeds pick a type nothing builds yet and are drawn as the sloop,
-/// and a sloop's sails must not hum like the runabout a seed picked. Total
+/// and a sloop's sails must not hum like the runabout, or lap like the scow, a
+/// seed picked. Total
 /// over every seed, as [`craft_for`] is.
 pub(super) fn propulsion(seed: u64) -> Propulsion {
     craft_for(seed).propulsion()
@@ -252,14 +260,14 @@ pub(super) fn propulsion(seed: u64) -> Propulsion {
 /// wake leaves the transom of the boat that is actually drawn.
 pub(super) fn fx_mount(seed: u64, aura: ParticleAura) -> Option<[f32; 3]> {
     let (craft, hull) = hull_for(seed)?;
-    Some(craft.fx_mount(aura, &hull))
+    Some(craft.fx_mount(aura, &hull, seed))
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::common::first_difference;
     use super::*;
-    use crate::seeded_defaults::{ChassisFamily, RunaboutVariant};
+    use crate::seeded_defaults::{ChassisFamily, RunaboutVariant, ScowLoad};
 
     /// The seam (#1362 → #1363). `BoatType::implemented` is what the readouts
     /// and the fan-out slices ask; [`craft`] is what actually draws. They are
@@ -437,6 +445,40 @@ mod tests {
         out
     }
 
+    /// Every scow load at every blueprint corner on every ornateness-by-wear
+    /// pair, with its hull and a label (#1373).
+    fn every_scow() -> Vec<(Generator, HullProfile, String)> {
+        use crate::seeded_defaults::{OrnatenessTier, WearTier};
+        let mut ctx = PartCtx::for_seed(
+            (0u64..600)
+                .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat)
+                .expect("some seed is a boat"),
+        );
+        let mut out = Vec::new();
+        for bp in corners() {
+            let hull = scow::profile_of(&bp);
+            for load in ScowLoad::ALL {
+                for o in OrnatenessTier::ALL {
+                    for w in WearTier::ALL {
+                        (ctx.ornateness, ctx.wear) = (o, w);
+                        out.push((
+                            scow::build_load(&ctx, &hull, load),
+                            hull,
+                            format!(
+                                "a {} m {}, {} / {}",
+                                hull.loa,
+                                load.label(),
+                                o.label(),
+                                w.label()
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// The blueprint corners a seeded hull can actually reach - where a
     /// dimension floors or a clamp bites. The smallest hull draws the thinnest
     /// shroud and the finest stem; the largest draws the deepest keel.
@@ -493,6 +535,19 @@ mod tests {
             n += 1;
         }
         assert_eq!(n, 5 * 3 * 9, "the runabout sweep lost a combination");
+        // The scow authors rotated nodes too - her blade, her paddles and
+        // rims, a battered stovepipe, the propped scrap - so hers takes the
+        // same epsilon (#1373).
+        let mut n = 0;
+        for (built, _, what) in every_scow() {
+            let mut sanitized = built.clone();
+            sanitize_avatar_visuals(&mut sanitized);
+            if let Some(where_) = first_difference(&built, &sanitized, "0") {
+                panic!("{what} was rewritten by the sanitiser at {where_}");
+            }
+            n += 1;
+        }
+        assert_eq!(n, 5 * 4 * 9, "the scow sweep lost a combination");
     }
 
     /// Every part of a built boat meets another, and the whole craft is one
@@ -514,6 +569,9 @@ mod tests {
             touch::assert_one_machine(&built, &what);
         }
         for (built, _, _, what) in every_runabout() {
+            touch::assert_one_machine(&built, &what);
+        }
+        for (built, _, what) in every_scow() {
             touch::assert_one_machine(&built, &what);
         }
     }
@@ -548,6 +606,67 @@ mod tests {
                 "{what}: {beam} m wide, past the 2.6 m gateway mouth"
             );
         }
+    }
+
+    /// A scow floats IN her water and fits the gateway, at every corner on
+    /// every load and tier (#1373) - the runabout's guard: her flat bottom is
+    /// under her own design waterline by at least a hundredth of her length
+    /// even though her swept-up ends are clear of it, she is drawn under the
+    /// air-draft cap hover included, and her overall beam clears the 2.6 m
+    /// gateway mouth.
+    #[test]
+    fn a_scow_floats_in_her_water_and_fits_the_gateway() {
+        use super::super::common::touch;
+        for (built, hull, what) in every_scow() {
+            let keel = hull
+                .stations()
+                .iter()
+                .map(|s| s.keel)
+                .fold(f32::INFINITY, f32::min);
+            assert!(
+                keel <= -0.01 * hull.loa,
+                "{what}: her bottom is at {keel} m, not under her waterline"
+            );
+            let air = touch::highest(&built) + hover(hull.draft);
+            assert!(
+                air <= AIR_DRAFT_CAP,
+                "{what}: drawn to {air} m over the ground"
+            );
+            let beam = scow::Scow.overall_beam(&hull, 0);
+            assert!(
+                beam < 2.6,
+                "{what}: {beam} m wide, past the 2.6 m gateway mouth"
+            );
+        }
+    }
+
+    /// Every scow seed is drawn as a scow, carrying the load its theme picks,
+    /// and is poled (#1373) - and no other boat seed is: a boat is poled
+    /// exactly when she is drawn as a scow.
+    #[test]
+    fn a_scow_seed_draws_a_scow_poled() {
+        let mut seen = Vec::new();
+        for s in (0u64..3000).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
+            let scow = BoatType::for_seed(s) == BoatType::Scow;
+            assert_eq!(
+                propulsion(s) == Propulsion::Poled,
+                scow,
+                "seed {s}: {:?} drives {:?}",
+                BoatType::for_seed(s),
+                propulsion(s)
+            );
+            if scow {
+                let load = ScowLoad::for_seed(s);
+                if !seen.contains(&load) {
+                    seen.push(load);
+                }
+            }
+        }
+        assert_eq!(
+            seen.len(),
+            ScowLoad::ALL.len(),
+            "the seeds under 3000 miss a load: {seen:?}"
+        );
     }
 
     /// Every runabout seed is drawn as a runabout, on the variant its theme
@@ -613,6 +732,11 @@ mod tests {
             }
         }
         for (built, ..) in every_runabout() {
+            let mut built = built;
+            apply_travel_pose(&mut built, TRAVEL_DROP);
+            worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
+        }
+        for (built, ..) in every_scow() {
             let mut built = built;
             apply_travel_pose(&mut built, TRAVEL_DROP);
             worst_corner = worst_corner.max(bytes(&built) + fx_overhead);

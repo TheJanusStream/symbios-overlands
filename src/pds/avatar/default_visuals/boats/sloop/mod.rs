@@ -163,7 +163,7 @@ impl BoatCraft for Sloop {
         hull.half_beam * 2.0
     }
 
-    fn fx_mount(&self, aura: ParticleAura, hull: &HullProfile) -> [f32; 3] {
+    fn fx_mount(&self, aura: ParticleAura, hull: &HullProfile, _seed: u64) -> [f32; 3] {
         match aura {
             // A sloop has no funnel, so steam and wake both leave at the
             // stern, low, where a hovering hull's spray would.

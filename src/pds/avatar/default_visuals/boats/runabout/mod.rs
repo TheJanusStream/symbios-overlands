@@ -6,7 +6,7 @@
 //! catamaran. Each is a [`Launch`]: its own plan form, its planing
 //! proportions over the shared blueprint, its cockpit stations and its build.
 //! Every one is swept from ONE [`HullProfile`], built by
-//! [`HullProfile::planing`]: a sheer that FALLS aft to a wide flat transom,
+//! [`HullProfile::finless`]: a sheer that FALLS aft to a wide flat transom,
 //! and a draft derived from the hull (she has no fin keel, and her hover is
 //! a quarter of it). See [`hull`] for the polygon section that makes her
 //! chines.
@@ -25,16 +25,21 @@ use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::{BoatBlueprint, ParticleAura, RunaboutVariant};
 
-use super::profile::{HullProfile, PlaningForm};
+use super::profile::{FinlessForm, HullProfile, SheerLaw};
 use super::{BoatCraft, BoatFeel, Propulsion, RunaboutColours, runabout_colours};
 use hull::{HULL_HOLLOW, line, sole_depth};
+
+/// Every runabout's deck line: lowest at the transom, the rise gathering
+/// forward as `(zf + 0.5)^1.6`, as a runabout's foredeck sweeps up to her
+/// stem (#1372).
+const FALLING: SheerLaw = SheerLaw::Falling { pow: 1.6 };
 
 /// What makes a runabout variant: its plan form, its planing proportions,
 /// and where its cockpit runs.
 pub(super) struct LaunchForm {
     /// `(z fraction of LOA, half-beam fraction)` transom to stem.
     plan: &'static [(f32, f32)],
-    planing: PlaningForm,
+    planing: FinlessForm,
     /// The dash - the cockpit's forward end - as a fraction of the length.
     screen: f32,
     /// The cockpit's after end, likewise.
@@ -120,7 +125,7 @@ impl BoatCraft for Runabout {
         }
     }
 
-    fn fx_mount(&self, aura: ParticleAura, hull: &HullProfile) -> [f32; 3] {
+    fn fx_mount(&self, aura: ParticleAura, hull: &HullProfile, _seed: u64) -> [f32; 3] {
         match aura {
             // Wake and steam leave the after end of the wetted length just
             // under the surface - which on a planing hull is the transom
@@ -150,7 +155,7 @@ impl BoatCraft for Runabout {
 /// The runabout's hull for a blueprint on a named variant.
 pub(super) fn profile_of(bp: &BoatBlueprint, v: RunaboutVariant) -> HullProfile {
     let form = launch(v).form();
-    HullProfile::planing(bp, &form.planing, form.plan)
+    HullProfile::finless(bp, &form.planing, form.plan)
 }
 
 /// The runabout on a named variant, dressed for the tiers `ctx` carries -

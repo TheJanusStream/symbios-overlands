@@ -91,7 +91,7 @@ pub use avatar::{
     AvatarPalette, AvatarPins, AvatarVoice, BoatBlueprint, BoatType, BodyArchetype, ChassisFamily,
     CraftType, FinishRegister, MaterialKit, NOMINAL_BODY_LEN, NOMINAL_HULL_LEN, OrnatenessBand,
     OrnatenessTier, OutfitPart, ParticleAura, RoadsterBody, RoadsterTop, RoadsterWheels,
-    RunaboutVariant, SkiffBlueprint, SkiffType, SloopHull, SloopRig, StylizationTier,
+    RunaboutVariant, ScowLoad, SkiffBlueprint, SkiffType, SloopHull, SloopRig, StylizationTier,
     VehicleBlueprint, VehicleStance, WagonBody, WearBand, WearTier,
 };
 // Re-exported as a module, not item by item: the mood groups are read as a

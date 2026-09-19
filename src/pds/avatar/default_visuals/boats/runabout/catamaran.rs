@@ -11,9 +11,9 @@ use crate::seeded_defaults::{OrnatenessTier, WearTier};
 
 use super::super::super::common::quat_x;
 use super::super::RunaboutColours;
-use super::super::profile::{HullProfile, PlaningForm};
+use super::super::profile::{FinlessForm, HullProfile};
 use super::hull::{UPRIGHT, deck_run, line, panel, run_z, skin, steering_wheel, sweep, underbody};
-use super::{Launch, LaunchForm};
+use super::{FALLING, Launch, LaunchForm};
 
 /// The demihull's plan form: slim, full aft, a knife bow.
 const PLAN: &[(f32, f32)] = &[
@@ -44,12 +44,14 @@ pub(super) struct Catamaran;
 
 const FORM: LaunchForm = LaunchForm {
     plan: PLAN,
-    planing: PlaningForm {
+    planing: FinlessForm {
         beam: DEMIHULL_BEAM,
         freeboard: 0.64,
-        rise: 1.45,
+        bow_rise: 1.45,
+        stern_rise: 0.0,
         section: 1.45,
-        skeg: 0.030,
+        allowance: 0.030,
+        sheer: FALLING,
     },
     screen: 0.060,
     cockpit_aft: -0.300,

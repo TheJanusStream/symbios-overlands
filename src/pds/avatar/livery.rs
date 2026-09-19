@@ -798,6 +798,157 @@ pub(crate) fn runabout_colours(ctx: &PartCtx, variant: RunaboutVariant) -> Runab
     }
 }
 
+/// The surfaces a working scow is built in (#1373). Her HULL is working
+/// timber - tarred, or bare weathered boards on the varnished scheme - and
+/// her scheme goes on her DECKHOUSE, the one mass the chase camera sees whole
+/// from 22.9 degrees: its topsides colour on the walls (varnished mahogany on
+/// the varnished scheme), its canvas on the barrel roof, its deck on the
+/// decks. All seven schemes are honoured, on the house rather than the hull,
+/// because on a flared hull the topsides roll away under the deck edge
+/// (#1365) and the owner agreed the house on the phase-1 renders.
+///
+/// The seeded accent is spent on the identity slots: the roof trim (lit
+/// through [`trim`] on a luminous style - the cyberpunk canal barge's neon
+/// outline), the door, and the sweep's blade or the stern wheel's rims.
+pub(crate) struct ScowColours {
+    /// The shell and both end faces: paint, not the Plank - its grain runs
+    /// across its boards and combs into a fringe on the flared facets (#1388).
+    pub(crate) hull: SovereignMaterialSettings,
+    pub(crate) transom: SovereignMaterialSettings,
+    /// The fore and after decks, the scheme's deck in boards run along her.
+    pub(crate) deck: SovereignMaterialSettings,
+    /// The gunwale rail.
+    pub(crate) rail: SovereignMaterialSettings,
+    /// The keelson post in the void under the hold floor.
+    pub(crate) interior: SovereignMaterialSettings,
+    /// The hold floor.
+    pub(crate) floor: SovereignMaterialSettings,
+    /// The deckhouse walls: the scheme's topsides as boards.
+    pub(crate) house: SovereignMaterialSettings,
+    /// The barrel roof: the scheme's canvas.
+    pub(crate) roof: SovereignMaterialSettings,
+    /// **Identity.** The strip along each shoulder of the roof, through
+    /// [`trim`].
+    pub(crate) trim: SovereignMaterialSettings,
+    /// **Identity.** The deckhouse door.
+    pub(crate) door: SovereignMaterialSettings,
+    pub(crate) window: SovereignMaterialSettings,
+    /// The stovepipe, the sweep's crutch, the wheel's axle and hub.
+    pub(crate) iron: SovereignMaterialSettings,
+    /// The samson post.
+    pub(crate) post: SovereignMaterialSettings,
+    /// The sweep's loom and the quant pole.
+    pub(crate) oar: SovereignMaterialSettings,
+    /// **Identity.** The sweep's blade.
+    pub(crate) blade: SovereignMaterialSettings,
+    /// The stern wheel's beams.
+    pub(crate) beam: SovereignMaterialSettings,
+    /// **Identity.** The stern wheel's rims.
+    pub(crate) wheel: SovereignMaterialSettings,
+    pub(crate) paddle: SovereignMaterialSettings,
+    /// Pine packing crates, two shades, and oak casks.
+    pub(crate) crate_a: SovereignMaterialSettings,
+    pub(crate) crate_b: SovereignMaterialSettings,
+    pub(crate) cask: SovereignMaterialSettings,
+    /// Hay bales, two shades.
+    pub(crate) hay_a: SovereignMaterialSettings,
+    pub(crate) hay_b: SovereignMaterialSettings,
+    /// The scrap load's three painted drums.
+    pub(crate) drums: [SovereignMaterialSettings; 3],
+    /// The fire drum on the foredeck, and the embers glowing in its mouth.
+    pub(crate) drum_fire: SovereignMaterialSettings,
+    pub(crate) ember: SovereignMaterialSettings,
+    pub(crate) tyre: SovereignMaterialSettings,
+    /// Sheet iron, a rusted panel and a car's bonnet on the scrap heap.
+    pub(crate) sheet: SovereignMaterialSettings,
+    pub(crate) rust: SovereignMaterialSettings,
+    pub(crate) car: SovereignMaterialSettings,
+    /// A battered scow's tarp over her load: the sloop's rule (#1366).
+    pub(crate) tarp: SovereignMaterialSettings,
+    /// A worn scow's re-laid foredeck boards, pale and new.
+    pub(crate) patch: SovereignMaterialSettings,
+    /// A battered scow's tarred felt patch on the roof.
+    pub(crate) felt: SovereignMaterialSettings,
+}
+
+/// A scow's fixed colours (#1373): what these parts simply are.
+const BARE_TIMBER: [f32; 3] = [0.47, 0.43, 0.37];
+const TAR: [f32; 3] = [0.07, 0.065, 0.06];
+const PINE: [f32; 3] = [0.72, 0.58, 0.38];
+const CASK: [f32; 3] = [0.52, 0.34, 0.18];
+const STRAW: [f32; 3] = [0.80, 0.68, 0.38];
+const STRAW_B: [f32; 3] = [0.70, 0.58, 0.30];
+const RUST: [f32; 3] = [0.42, 0.20, 0.10];
+const DRUM_BLUE: [f32; 3] = [0.18, 0.26, 0.36];
+const DRUM_RED: [f32; 3] = [0.46, 0.14, 0.10];
+const DRUM_YELLOW: [f32; 3] = [0.60, 0.48, 0.16];
+const SHEET_IRON: [f32; 3] = [0.40, 0.40, 0.42];
+const CAR_PAINT: [f32; 3] = [0.30, 0.44, 0.46];
+const FELT: [f32; 3] = [0.10, 0.10, 0.11];
+const EMBER: [f32; 3] = [1.0, 0.42, 0.10];
+
+/// How far the scow's roof is held from the walls under it, and her
+/// identity slots from what they lie on.
+const ROOF_DELTA: f32 = 0.25;
+const SCOW_TRIM_DELTA: f32 = 0.30;
+
+pub(crate) fn scow_colours(ctx: &PartCtx) -> ScowColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let l = boat_livery(ctx.seed, ctx.livery);
+    let hull = if l.varnished_hull { BARE_TIMBER } else { TAR };
+    let house = if l.varnished_hull {
+        MAHOGANY
+    } else {
+        floor_finished(m, l.topsides, BOAT_MASS_FLOOR)
+    };
+    let roof = clear_of(l.canvas, luma(house), ROOF_DELTA);
+    let accent = p.primary_accent;
+    ScowColours {
+        hull: m.paint(hull),
+        transom: m.paint(hull),
+        deck: boards(m, l.deck),
+        rail: boards(m, shade(l.varnish, 0.55)),
+        interior: m.paint(shade(hull, 0.45)),
+        floor: boards(m, shade(l.deck, 0.55)),
+        house: if l.varnished_hull {
+            m.brightwork(house)
+        } else {
+            m.timber(house)
+        },
+        roof: m.canvas(roof),
+        trim: trim(m, clear_of(accent, luma(roof), SCOW_TRIM_DELTA)),
+        door: m.paint(clear_of(accent, luma(house), SCOW_TRIM_DELTA)),
+        window: window_material(window_light(p.tertiary_accent)),
+        iron: m.paint(MACHINERY),
+        post: m.timber(shade(l.varnish, 0.7)),
+        oar: m.timber(l.varnish),
+        blade: m.paint(clear_of(accent, luma(TAR), SCOW_TRIM_DELTA)),
+        beam: m.timber(shade(l.varnish, 0.6)),
+        wheel: m.paint(clear_of(accent, luma(MACHINERY), SCOW_TRIM_DELTA)),
+        paddle: m.timber(l.deck),
+        crate_a: m.timber(PINE),
+        crate_b: m.timber(shade(PINE, 0.82)),
+        cask: m.timber(CASK),
+        hay_a: m.canvas(STRAW),
+        hay_b: m.canvas(STRAW_B),
+        drums: [m.paint(DRUM_BLUE), m.paint(DRUM_RED), m.paint(DRUM_YELLOW)],
+        drum_fire: m.paint(RUST),
+        ember: window_material(window_light(EMBER)),
+        tyre: m.rubber(TYRE),
+        sheet: m.metal(SHEET_IRON),
+        rust: m.paint(RUST),
+        car: m.paint(CAR_PAINT),
+        tarp: m.canvas(clear_of(
+            to_value(l.canvas, luma(l.canvas) * TARP_VALUE),
+            luma(hull),
+            TARP_DELTA,
+        )),
+        patch: boards(m, PATCH_BOARD),
+        felt: m.paint(FELT),
+    }
+}
+
 /// The surfaces a land-skiff is painted in.
 pub(crate) struct SkiffColours {
     pub(crate) paint: SovereignMaterialSettings,

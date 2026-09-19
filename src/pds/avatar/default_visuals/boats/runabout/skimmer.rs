@@ -13,13 +13,13 @@ use crate::seeded_defaults::OrnatenessTier;
 
 use super::super::super::common::quat_x;
 use super::super::RunaboutColours;
-use super::super::profile::{HullProfile, PlaningForm};
+use super::super::profile::{FinlessForm, HullProfile};
 use super::dressing::{Hatch, wear_ladder};
 use super::hull::{
     CHINE, DECK_CROWN, HULL_HOLLOW, UPRIGHT, bench, bench_half_width, cockpit_sole, deck_run, line,
     panel, skin, sweep, turned, underbody, windscreen,
 };
-use super::{Launch, LaunchForm};
+use super::{FALLING, Launch, LaunchForm};
 
 /// The skimmer's plan form: the launch's wide transom, a longer finer entry.
 const PLAN: &[(f32, f32)] = &[
@@ -39,12 +39,14 @@ pub(super) struct Skimmer;
 
 const FORM: LaunchForm = LaunchForm {
     plan: PLAN,
-    planing: PlaningForm {
+    planing: FinlessForm {
         beam: 1.20,
         freeboard: 0.56,
-        rise: 0.90,
+        bow_rise: 0.90,
+        stern_rise: 0.0,
         section: 0.58,
-        skeg: 0.034,
+        allowance: 0.034,
+        sheer: FALLING,
     },
     screen: 0.040,
     cockpit_aft: -0.230,
