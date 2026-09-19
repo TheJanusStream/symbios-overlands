@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use bevy_symbios_audio::{
     AudioPatch, BiquadBandpass, BiquadHighpass, BiquadLowpass, BrownNoise, Connection, Gain,
     GraphNode, Lfo, LfoShape, NodeGraph, NodeId, NodeKind, PinkNoise, SawtoothOsc, SineOsc,
-    WhiteNoise,
+    SquareOsc, WhiteNoise,
 };
 
 use crate::catalogue::items::fx::Emitter;
@@ -333,14 +333,16 @@ fn aura_emitter(
 // The three vehicle families no longer share one fixed 55 Hz drone, and a
 // luminous style no longer *replaces* the drive (a cyberpunk skiff used to
 // buzz like a sign with no machine underneath). Each craft speaks with its own
-// DRIVE - an airship's rotor thump, a car's detuned putter, a motor boat's
-// water-washed rumble, for a boat under sail no engine at all, only the wash
-// along her hull and the wind in her rig, and for a horseless wagon the roll
-// of iron tyres and a timber creak - and on a luminous *vehicle* that drive is
-// mixed in UNDER the neon / arcane voice at low gain instead of being
-// dropped. Which drive a boat or a skiff has is asked of the craft that is
-// DRAWN (`boats::propulsion`, `skiffs::propulsion`), never of the type a seed
-// picked, so the voice is right before every type is built.
+// DRIVE - an airship's rotor thump, a car's detuned putter and a dune buggy's
+// air-cooled clatter, a motor boat's water-washed rumble and a steam tug's
+// chuff, for a boat under sail no engine at all, only the wash along her hull
+// and the wind in her rig, for a poled scow the lap of water and her sweep's
+// creak, and for a horseless wagon the roll of iron tyres and a timber creak
+// - and on a luminous *vehicle* that drive is mixed in UNDER the neon /
+// arcane voice at low gain instead of being dropped. Which drive a boat or a
+// skiff has is asked of the craft that is DRAWN (`boats::propulsion`,
+// `skiffs::propulsion`), never of the type a seed picked, so the voice is
+// right before every type is built.
 //
 // A voice is a construct patch: baked to ONE second and looped whole
 // (`world_builder::spatial_audio::CONSTRUCT_PATCH_SECS`). So every pitch and
@@ -394,10 +396,16 @@ pub(super) fn drive_of(family: ChassisFamily, seed: u64) -> Propulsion {
 /// trails steam from her funnel where her style only picked the family's
 /// wake floor - a ModernCity tug - and the steam and embers the boiler
 /// themes pick stand, since both leave the same funnel mouth.
+///
+/// An air-cooled engine has no radiator to steam (#1374, owner decision 5):
+/// a Roadside dune buggy's picked steam is drawn as the exhaust wisp from
+/// her stinger's mouth, at her own intensity, and a frontier buggy's embers
+/// leave the same mouth.
 pub(super) fn drawn_aura(aura: ParticleAura, drive: Propulsion) -> ParticleAura {
     match (aura, drive) {
         (ParticleAura::Exhaust | ParticleAura::Steam, Propulsion::Rolling) => ParticleAura::None,
         (ParticleAura::Wake, Propulsion::Steam) => ParticleAura::Steam,
+        (ParticleAura::Steam, Propulsion::AirCooled) => ParticleAura::Exhaust,
         (aura, _) => aura,
     }
 }
@@ -448,6 +456,7 @@ pub(super) fn voice_label(seed: u64) -> String {
         (Propulsion::Rolling, _) => "roll and creak",
         (Propulsion::Poled, _) => "lap and sweep creak",
         (Propulsion::Steam, _) => "chuff and thump",
+        (Propulsion::AirCooled, _) => "air-cooled clatter",
     };
     let bucket = detune_bucket(seed);
     match voice {
@@ -508,6 +517,7 @@ fn family_drive(
         (Propulsion::Rolling, _) => wagon_roll(g),
         (Propulsion::Poled, _) => scow_lap(g),
         (Propulsion::Steam, _) => tug_chuff(g, detune),
+        (Propulsion::AirCooled, _) => buggy_clatter(g, detune),
     }
 }
 
@@ -802,6 +812,56 @@ fn tug_chuff(g: &mut GraphBuilder, detune: f32) -> NodeId {
     g.sink(NodeKind::Gain(Gain { gain: 1.0 }), &[beat, wash])
 }
 
+/// A dune buggy's air-cooled flat four on an open stinger (#1374; the
+/// owner's ear picked candidate b1 of the phase-1 bakes): a raspy low firing
+/// note - a 0.3-duty square at 29 Hz, the flat four's idle firing rate,
+/// detuned and rounded, low-passed at 420 Hz - under a valve-train clatter
+/// and a thin cooling-fan whine. The clatter is white noise banded at
+/// 2.8 kHz and gated fourteen times a second by the tug's decay: a Saw LFO
+/// at depth -0.5 offset 0.5, squared by a second in series, so each tick
+/// dies early and its trough is zero, never under it (#1348). The first
+/// voice to ship a SQUARE oscillator. Every rate is whole hertz; the tick's
+/// envelope restarts at the loop seam, so the noise under it cannot step
+/// there (#1385, #1387). RMS about 0.12, between the sail's and the tug's.
+fn buggy_clatter(g: &mut GraphBuilder, detune: f32) -> NodeId {
+    let fire = g.src(NodeKind::Square(SquareOsc {
+        freq_hz: hz(29.0, detune),
+        duty: 0.30,
+        amplitude: 0.34,
+        anti_alias: Default::default(),
+    }));
+    let fire = g.sink(
+        NodeKind::BiquadLowpass(BiquadLowpass {
+            cutoff_hz: 420.0,
+            q: 0.9,
+        }),
+        &[fire],
+    );
+    let noise = g.src(NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));
+    let tick = g.sink(
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 2800.0,
+            q: 2.5,
+        }),
+        &[noise],
+    );
+    let decay = || {
+        NodeKind::Lfo(Lfo {
+            rate_hz: 14.0,
+            shape: LfoShape::Saw,
+            depth: -0.5,
+            offset: 0.5,
+        })
+    };
+    let fall = g.src(decay());
+    let fall_again = g.src(decay());
+    let tick = g.vca(&[tick], fall);
+    let tick = g.vca(&[tick], fall_again);
+    let tick = g.sink(NodeKind::Gain(Gain { gain: 1.6 }), &[tick]);
+    let fan = g.src(NodeKind::Sine(sine(hz(660.0, detune), 0.025)));
+    g.sink(NodeKind::Gain(Gain { gain: 0.35 }), &[fire, tick, fan])
+}
+
 /// Skiff engine - a saw/sine putter around 78 Hz, chugged by a faster LFO;
 /// the two oscillators sit one hertz apart, so they beat once a second for an
 /// idling-motor waver. (They used to sit 1 % apart, a pair that can never
@@ -961,12 +1021,13 @@ mod audio_tests {
         AvatarVoice::NeonBuzz,
         AvatarVoice::ArcaneShimmer,
     ];
-    const DRIVES: [Propulsion; 5] = [
+    const DRIVES: [Propulsion; 6] = [
         Propulsion::Sail,
         Propulsion::Engine,
         Propulsion::Rolling,
         Propulsion::Poled,
         Propulsion::Steam,
+        Propulsion::AirCooled,
     ];
 
     /// Every voice patch there is: each voice on each chassis under each
@@ -1076,19 +1137,22 @@ mod audio_tests {
     /// the construct bake job - the app's own rate, length and warm-up -
     /// steps across its loop seam by no more than the largest step inside
     /// the loop. The airship's rotor and the skiff's putter on their worst
-    /// detune bucket, and the steam tug's chuff and thump (#1370) on the
-    /// same one, since a noise voice has no pitch to close and the luminous
-    /// voices carry no filter to settle. With the warm-up at zero the rotor
-    /// steps 5.4x (the control, run by hand in #1385).
+    /// detune bucket, and the steam tug's chuff and thump (#1370) and the
+    /// dune buggy's clatter over her firing note (#1374) on the same one,
+    /// since a noise voice has no pitch to close and the luminous voices
+    /// carry no filter to settle. With the warm-up at zero the rotor steps
+    /// 5.4x (the control, run by hand in #1385).
     #[test]
     fn a_tonal_voice_meets_itself_at_the_loop_seam() {
         // Asked for each DRIVE explicitly: a skiff seed's drive is its drawn
         // craft's since #1377, and a wagon rolls on noise, which has no pitch
-        // to close. The tug's thump is a pitch under her chuff.
+        // to close. The tug's thump is a pitch under her chuff, and the
+        // buggy's square a pitch under her clatter.
         for (family, drive) in [
             (ChassisFamily::Airship, Propulsion::Engine),
             (ChassisFamily::Skiff, Propulsion::Engine),
             (ChassisFamily::Boat, Propulsion::Steam),
+            (ChassisFamily::Skiff, Propulsion::AirCooled),
         ] {
             let patch =
                 driven_voice_patch(AvatarVoice::Drive, family, drive, 0).expect("a drive voice");
@@ -1226,6 +1290,7 @@ mod audio_tests {
             (ChassisFamily::Skiff, Propulsion::Rolling),
             (ChassisFamily::Boat, Propulsion::Poled),
             (ChassisFamily::Boat, Propulsion::Steam),
+            (ChassisFamily::Skiff, Propulsion::AirCooled),
         ] {
             let patch = driven_voice_patch(AvatarVoice::Drive, family, drive, 3).expect("a drive");
             assert_audible(&patch, &format!("{family:?} {drive:?}"));
@@ -1251,8 +1316,9 @@ mod audio_tests {
 
     #[test]
     fn the_family_drives_are_distinct() {
-        // The seven drive voices - sail, motor boat, rotor, putter, wagon,
-        // scow, tug - are genuinely different voices, not one shared hum.
+        // The eight drive voices - sail, motor boat, rotor, putter, wagon,
+        // scow, tug, buggy - are genuinely different voices, not one shared
+        // hum.
         let baked: Vec<Vec<f32>> = [
             (ChassisFamily::Boat, Propulsion::Sail),
             (ChassisFamily::Boat, Propulsion::Engine),
@@ -1261,6 +1327,7 @@ mod audio_tests {
             (ChassisFamily::Skiff, Propulsion::Rolling),
             (ChassisFamily::Boat, Propulsion::Poled),
             (ChassisFamily::Boat, Propulsion::Steam),
+            (ChassisFamily::Skiff, Propulsion::AirCooled),
         ]
         .iter()
         .map(|&(family, drive)| {
@@ -1287,15 +1354,17 @@ mod audio_tests {
         }
     }
 
-    /// Rounding to whole hertz (#1385) keeps the detune audible: the lowest
-    /// tonal drive (the motor boat's 40 Hz) still spreads over three pitches
-    /// across the buckets, and the skiff's 78 Hz over five.
+    /// Rounding to whole hertz (#1385) keeps the detune audible: the motor
+    /// boat's 40 Hz still spreads over three pitches across the buckets, and
+    /// the skiff's 78 Hz over five - and the lowest tonal drive, the dune
+    /// buggy's 29 Hz firing note (#1374), over three.
     #[test]
     fn whole_hertz_keeps_the_detune_spread() {
         for (family, base, fewest) in [
             (ChassisFamily::Boat, 40.0, 3),
             (ChassisFamily::Airship, 52.0, 5),
             (ChassisFamily::Skiff, 78.0, 5),
+            (ChassisFamily::Skiff, 29.0, 3),
         ] {
             let mut pitches: Vec<i32> = (0..DETUNE_BUCKETS)
                 .map(|b| hz(base, detune_factor(b)) as i32)
@@ -1310,9 +1379,9 @@ mod audio_tests {
 
     /// The skiff's voice follows the DRAWN craft (#1377), in both
     /// directions: every seed drawn as a wagon rolls, on a patch with no
-    /// oscillator in it, and every other skiff seed still putters - which is
-    /// what keying the voice to the family would get wrong one way, and to
-    /// the picked type the other while any type is unbuilt.
+    /// oscillator in it, and no other skiff seed does - they have engines -
+    /// which is what keying the voice to the family would get wrong one way,
+    /// and to the picked type the other while any type is unbuilt.
     #[test]
     fn a_skiff_rolls_exactly_when_it_is_drawn_as_a_wagon() {
         use crate::seeded_defaults::SkiffType;
@@ -1335,9 +1404,39 @@ mod audio_tests {
         );
     }
 
+    /// And the dune buggy's (#1374), both ways: every seed drawn as a buggy
+    /// clatters - her voice carries the square of her firing note - and no
+    /// other skiff seed is air-cooled. The unbuilt picks drawn as roadsters
+    /// keep the putter.
+    #[test]
+    fn a_skiff_clatters_exactly_when_it_is_drawn_as_a_buggy() {
+        use crate::seeded_defaults::SkiffType;
+        let (mut buggies, mut others) = (0, 0);
+        for s in (0u64..600).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
+            let buggy = SkiffType::for_seed(s) == SkiffType::DuneBuggy;
+            let drive = drive_of(ChassisFamily::Skiff, s);
+            assert_eq!(drive == Propulsion::AirCooled, buggy, "seed {s}: {drive:?}");
+            let patch = voice_patch(AvatarVoice::Drive, ChassisFamily::Skiff, s).unwrap();
+            let square = oscillators(&patch)
+                .iter()
+                .any(|k| matches!(k, NodeKind::Square(_)));
+            assert_eq!(square, buggy, "seed {s}: a square firing note is {square}");
+            if buggy {
+                buggies += 1;
+            } else {
+                others += 1;
+            }
+        }
+        assert!(
+            buggies > 10 && others > 10,
+            "{buggies} buggies, {others} others"
+        );
+    }
+
     /// A rolling craft trails neither exhaust nor steam, and keeps every
-    /// other aura; no other drive loses any (#1377). And a boiler turns the
-    /// wake floor to steam (#1370); no other drive changes one.
+    /// other aura; no other drive loses any (#1377). A boiler turns the wake
+    /// floor to steam (#1370), and an air-cooled engine turns a picked steam
+    /// into her exhaust (#1374); no other drive changes one.
     #[test]
     fn only_a_rolling_craft_drops_exhaust_and_steam() {
         use crate::seeded_defaults::ParticleAura as A;
@@ -1357,12 +1456,15 @@ mod audio_tests {
                 let drawn = drawn_aura(aura, drive);
                 let dropped = drive == Propulsion::Rolling && matches!(aura, A::Exhaust | A::Steam);
                 let promoted = drive == Propulsion::Steam && aura == A::Wake;
+                let folded = drive == Propulsion::AirCooled && aura == A::Steam;
                 assert_eq!(
                     drawn,
                     if dropped {
                         A::None
                     } else if promoted {
                         A::Steam
+                    } else if folded {
+                        A::Exhaust
                     } else {
                         aura
                     },
@@ -1418,6 +1520,53 @@ mod audio_tests {
         assert!(
             tugs > 30 && promoted > 0,
             "{tugs} tugs under 3000, {promoted} of them promoted from a wake"
+        );
+    }
+
+    /// No drawn dune buggy steams (#1374, owner decision 5): an air-cooled
+    /// engine has no radiator, so a Roadside buggy's picked steam is drawn as
+    /// her exhaust and every buggy under 3000 trails the exhaust wisp or a
+    /// frontier theme's embers. Asked of the emitter the record carries, by
+    /// its recipe, as the tug's wake is - so the fold is proved on the tree
+    /// and not only in [`drawn_aura`].
+    #[test]
+    fn a_dune_buggy_never_trails_steam() {
+        use crate::seeded_defaults::SkiffType;
+        let recipe = |g: &Generator| match &g.kind {
+            GeneratorKind::ParticleSystem(p) => Some((p.start_size, p.end_size, p.start_color)),
+            _ => None,
+        };
+        let of = |aura| {
+            aura_emitter(aura, [0.0; 3], [0.0; 3], ChassisFamily::Skiff, 1.0, 0)
+                .as_ref()
+                .and_then(recipe)
+                .expect("a recipe")
+        };
+        let (steam, exhaust, embers) = (
+            of(ParticleAura::Steam),
+            of(ParticleAura::Exhaust),
+            of(ParticleAura::Embers),
+        );
+        let (mut buggies, mut folded) = (0, 0);
+        for s in (0u64..3000).filter(|&s| {
+            ChassisFamily::for_seed(s) == ChassisFamily::Skiff
+                && SkiffType::for_seed(s) == SkiffType::DuneBuggy
+        }) {
+            let (record, _) = super::super::build_for_seed(s);
+            let tree = record.visuals().expect("a skiff is an assembled tree");
+            let fx: Vec<_> = tree.children.iter().filter_map(recipe).collect();
+            assert_eq!(fx.len(), 1, "seed {s} carries {} emitters", fx.len());
+            assert_ne!(fx[0], steam, "buggy seed {s} trails steam");
+            assert!(
+                fx[0] == exhaust || fx[0] == embers,
+                "buggy seed {s} trails neither exhaust nor embers"
+            );
+            folded += usize::from(AvatarFx::for_seed(s).aura == ParticleAura::Steam);
+            buggies += 1;
+        }
+        assert!(
+            buggies > 90 && folded > 0,
+            "{buggies} buggies under 3000, {folded} of them folded from steam"
         );
     }
 

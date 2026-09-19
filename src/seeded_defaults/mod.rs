@@ -88,11 +88,11 @@ impl SeedPins for scene::ScenePins {
 
 pub use avatar::{
     AirshipBlueprint, AvatarBody, AvatarCharacter, AvatarFx, AvatarGait, AvatarOutfit,
-    AvatarPalette, AvatarPins, AvatarVoice, BoatBlueprint, BoatType, BodyArchetype, ChassisFamily,
-    CraftType, FinishRegister, MaterialKit, NOMINAL_BODY_LEN, NOMINAL_HULL_LEN, OrnatenessBand,
-    OrnatenessTier, OutfitPart, ParticleAura, RoadsterBody, RoadsterTop, RoadsterWheels,
-    RunaboutVariant, ScowLoad, SkiffBlueprint, SkiffType, SloopHull, SloopRig, StylizationTier,
-    TugVariant, VehicleBlueprint, VehicleStance, WagonBody, WearBand, WearTier,
+    AvatarPalette, AvatarPins, AvatarVoice, BoatBlueprint, BoatType, BodyArchetype, BuggyVariant,
+    ChassisFamily, CraftType, FinishRegister, MaterialKit, NOMINAL_BODY_LEN, NOMINAL_HULL_LEN,
+    OrnatenessBand, OrnatenessTier, OutfitPart, ParticleAura, RoadsterBody, RoadsterTop,
+    RoadsterWheels, RunaboutVariant, ScowLoad, SkiffBlueprint, SkiffType, SloopHull, SloopRig,
+    StylizationTier, TugVariant, VehicleBlueprint, VehicleStance, WagonBody, WearBand, WearTier,
 };
 // Re-exported as a module, not item by item: the mood groups are read as a
 // named set (`mood::NEON`), and the vehicle part catalogue reaches them from

@@ -48,14 +48,16 @@ mod wheels;
 use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
-use crate::pds::types::Fp3;
 use crate::seeded_defaults::{
     ParticleAura, RoadsterBody, RoadsterTop, RoadsterWheels, SkiffBlueprint,
 };
 
 use super::super::Propulsion;
-use super::super::common::{cuboid, id_quat, lathe, prim, quat_xyzw, spine, with_cut};
+use super::super::common::{cuboid, id_quat, lathe, prim, quat_xyzw, spine};
 use super::plan::{Axle, BodyPlan};
+// The family's scaled sweep (#1374), imported here so the coachwork's and
+// the hardtop's `use super::{.., sweep}` still resolve.
+use super::shape::sweep;
 use super::{SkiffCraft, SkiffFeel, dim, skiff_colours};
 
 /// Section depth per unit half-width - the ONE node scale every body sweep
@@ -484,43 +486,9 @@ pub(super) fn build_dressed(
 }
 
 // ---------------------------------------------------------------------------
-// The helpers every part is built with
+// The helpers every part is built with - the scaled sweep is the family's,
+// in `super::shape` (#1374); these two take their material by value
 // ---------------------------------------------------------------------------
-
-/// A swept shape whose section is shaped by its own node scale - a body run, a
-/// flattened guard.
-///
-/// **The path is pre-divided by that scale here, and that is the trap this
-/// helper exists to close.** A node scale moves its path as well as its
-/// profile, so a station written straight into the path is drawn displaced by
-/// exactly the factor that makes the shape the shape. It cost the boat two
-/// silent defects before a `debug_assert` caught it (#1363), and the guards
-/// here would be the next: they carry a 3.4x scale on x and their arcs are
-/// written in true metres off the wheel landmarks.
-///
-/// `cut` is the swept profile's kept fraction: `[0.5, 1.0]` is the lower half
-/// (and its flat cut face is the coaming), `[0.0, 0.5]` the upper half (a
-/// deck), `[0.0, 1.0]` the whole barrel. `hollow` bores it.
-fn sweep(
-    points: &[([f32; 3], f32)],
-    resolution: u32,
-    scale: [f32; 3],
-    cut: [f32; 2],
-    hollow: f32,
-    material: SovereignMaterialSettings,
-) -> Generator {
-    let path: Vec<([f32; 3], f32)> = points
-        .iter()
-        .map(|&([x, y, z], r)| ([x / scale[0], y / scale[1], z / scale[2]], dim(r)))
-        .collect();
-    let mut node = prim(
-        with_cut(spine(&path, resolution, material), cut, [0.0, 1.0], hollow),
-        [0.0, 0.0, 0.0],
-        id_quat(),
-    );
-    node.transform.scale = Fp3(scale);
-    node
-}
 
 /// A turned part laid on an axis: the family's only other idiom.
 fn turned(

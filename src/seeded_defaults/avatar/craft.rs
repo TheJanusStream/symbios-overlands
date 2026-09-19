@@ -389,15 +389,17 @@ impl SkiffType {
     ///
     /// The Wagon was built second (#1377): a horseless carriage takes all ten
     /// historic themes, so it alone is 31 % of the family against the
-    /// Roadster's 30.
+    /// Roadster's 30. The Dune buggy is the third (#1374), on its six leisure
+    /// and frontier themes: 13 % of the family, so about a quarter of it now
+    /// picks a type nothing draws yet.
     ///
     /// Kept in step with the builder table by
     /// `default_visuals::skiffs::tests::a_skiff_type_is_implemented_exactly_
     /// when_something_builds_it`.
     pub fn implemented(self) -> bool {
         match self {
-            Self::Roadster | Self::Wagon => true,
-            Self::DuneBuggy | Self::ArmouredCar | Self::Cyclecar | Self::Rover => false,
+            Self::Roadster | Self::Wagon | Self::DuneBuggy => true,
+            Self::ArmouredCar | Self::Cyclecar | Self::Rover => false,
         }
     }
 

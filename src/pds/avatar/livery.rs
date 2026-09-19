@@ -19,16 +19,17 @@
 //! # What is scheme and what is seed
 //!
 //! - The **scheme** owns every large surface: topsides, antifoul, deck,
-//!   canvas and varnish on a boat; coachwork, wings and brightwork on a car.
-//!   It is picked per seed from a curated list on this module's own salted
-//!   stream, exactly as the craft TYPE is picked in
-//!   [`crate::seeded_defaults::avatar::craft`].
+//!   canvas and varnish on a boat; coachwork, wings and brightwork on a car,
+//!   and the tube frame on a dune buggy (#1374). It is picked per seed from
+//!   a curated list on this module's own salted stream, exactly as the craft
+//!   TYPE is picked in [`crate::seeded_defaults::avatar::craft`].
 //! - The **seeded accent** ([`primary_accent`](crate::seeded_defaults::AvatarPalette::primary_accent))
 //!   is spent on the
 //!   identity slots ONLY: the boot stripe, the burgee and the jib on a boat,
 //!   and the band round a steam tug's funnel (#1370);
 //!   the coachline, the wheel centres and the hide on a car; a horseless
-//!   wagon's spoked wheels (#1377). The secondary still tints the antifoul and the upholstery a little so two craft of one
+//!   wagon's spoked wheels (#1377); a dune buggy's rims and the hide of her
+//!   seats (#1374). The secondary still tints the antifoul and the upholstery a little so two craft of one
 //!   scheme are not identical, and the tertiary still lights the windows.
 //!
 //! Both the accent hue and the livery index are DID-seeded and independent,
@@ -82,7 +83,7 @@ use super::parts::PartCtx;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::Fp;
 use crate::seeded_defaults::scene::pick_weighted;
-use crate::seeded_defaults::{MaterialKit, RunaboutVariant, WagonBody};
+use crate::seeded_defaults::{BuggyVariant, MaterialKit, RunaboutVariant, WagonBody};
 
 /// Sub-stream salt for the livery draw - distinct from every sibling avatar
 /// deriver salt, so which scheme a craft wears is decorrelated from its type,
@@ -457,6 +458,105 @@ pub fn wagon_livery(seed: u64, body: WagonBody, over: Option<usize>) -> &'static
     }
 }
 
+/// A dune buggy's scheme (#1374): the colour of her TUBE FRAME.
+///
+/// A buggy's coachwork is her frame, so the scheme goes on it, over a dark
+/// gelcoat pod; on the pod the seven schemes looked alike at 12 m, a coloured
+/// patch inside a grey cage. And a buggy is not a roadster either: on a frame
+/// the heritage car list goes dull - its black is charcoal lines over black
+/// tyres, and a two-tone's "over black" can only mean the pod, which every
+/// buggy already has - so she has lists of her own, as the wagon does. Her
+/// brightwork is chrome on every scheme (the 1960s buggy's, where brass is
+/// the roadster's era), so a scheme carries nothing else.
+#[derive(Clone, Copy, Debug)]
+pub struct BuggyLivery {
+    /// See [`BoatLivery::name`].
+    pub name: &'static str,
+    weight: u32,
+    /// The tube frame, its suspension arms and the canopy's stripes.
+    frame: [f32; 3],
+}
+
+/// The gelcoat brights a sand rail and a beach buggy draw from - the colours
+/// dune buggies were actually sold in. Seven; the owner agreed the list and
+/// the weights on the phase-1 renders (#1374), and the pick walks it in this
+/// order.
+pub const BUGGY_LIVERIES: &[BuggyLivery] = &[
+    BuggyLivery {
+        name: "Tangerine",
+        weight: 5,
+        frame: [0.90, 0.38, 0.06],
+    },
+    BuggyLivery {
+        name: "Lime",
+        weight: 4,
+        frame: [0.50, 0.74, 0.12],
+    },
+    BuggyLivery {
+        name: "Sunshine yellow",
+        weight: 4,
+        frame: [0.95, 0.76, 0.10],
+    },
+    BuggyLivery {
+        name: "Surf turquoise",
+        weight: 4,
+        frame: [0.07, 0.56, 0.62],
+    },
+    BuggyLivery {
+        name: "Candy red",
+        weight: 4,
+        frame: [0.72, 0.07, 0.06],
+    },
+    BuggyLivery {
+        name: "Metalflake purple",
+        weight: 3,
+        frame: [0.38, 0.13, 0.54],
+    },
+    BuggyLivery {
+        name: "Baja white",
+        weight: 3,
+        frame: [0.88, 0.88, 0.84],
+    },
+];
+
+/// The desert raider's wasteland list: in the brights she reads as a toy.
+/// Four, at equal weights - the wagon's forced hearse and ox-cart schemes
+/// are the precedent for a variant with colours of its own. "Gunmetal" is
+/// also a heritage skiff scheme's name, in another colour; nothing looks a
+/// scheme up across the lists.
+pub const RAIDER_LIVERIES: &[BuggyLivery] = &[
+    BuggyLivery {
+        name: "Desert tan",
+        weight: 1,
+        frame: [0.64, 0.52, 0.34],
+    },
+    BuggyLivery {
+        name: "Olive drab",
+        weight: 1,
+        frame: [0.30, 0.34, 0.17],
+    },
+    BuggyLivery {
+        name: "Gunmetal",
+        weight: 1,
+        frame: [0.30, 0.31, 0.33],
+    },
+    BuggyLivery {
+        name: "Rust red",
+        weight: 1,
+        frame: [0.46, 0.18, 0.10],
+    },
+];
+
+/// The scheme this buggy seed wears as `variant`: a pick from
+/// [`RAIDER_LIVERIES`] for a raider and from [`BUGGY_LIVERIES`] for the
+/// rest. `over` wraps inside the variant's own list.
+pub fn buggy_livery(seed: u64, variant: BuggyVariant, over: Option<usize>) -> &'static BuggyLivery {
+    match variant {
+        BuggyVariant::Raider => pick(RAIDER_LIVERIES, |l| l.weight, seed, over),
+        BuggyVariant::Rail | BuggyVariant::Beach => pick(BUGGY_LIVERIES, |l| l.weight, seed, over),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Turning a scheme into surfaces
 // ---------------------------------------------------------------------------
@@ -512,6 +612,28 @@ fn clear_of(c: [f32; 3], ref_l: f32, delta: f32) -> [f32; 3] {
         to_value(c, (ref_l + delta).min(0.92))
     } else {
         to_value(c, (ref_l - delta).max(0.08))
+    }
+}
+
+/// Hold an identity colour `delta` clear of the value `ref_l` it is seen
+/// against AND at `min_l` or over on the finished surface, on whichever side
+/// has room for both (#1374).
+///
+/// [`clear_of`] and then [`floor_finished`] can undo each other: on a worn
+/// kit the floor lifts a colour cleared DOWN off a mid-bright mass straight
+/// back into that mass's value, and floors a dark colour on a mid-dark mass
+/// up into it. Flooring first and choosing the side by the room left above
+/// the floor keeps both promises.
+fn clear_over_floor(m: &MaterialKit, c: [f32; 3], ref_l: f32, delta: f32, min_l: f32) -> [f32; 3] {
+    let floor = min_l / m.value_after_grime();
+    let c = floor_value(c, floor);
+    if (luma(c) - ref_l).abs() >= delta {
+        return c;
+    }
+    if ref_l >= 0.45 && ref_l - delta >= floor {
+        to_value(c, (ref_l - delta).max(0.08))
+    } else {
+        to_value(c, (ref_l + delta).min(0.92))
     }
 }
 
@@ -1281,6 +1403,119 @@ pub(crate) fn wagon_colours(ctx: &PartCtx, body: WagonBody) -> WagonColours {
     }
 }
 
+/// The surfaces a dune buggy is built in (#1374): her scheme on the tube
+/// frame, the seeded accent on her rims and through her seats, and the
+/// colours the rest of her simply is - a black gelcoat pod, black engine tin,
+/// cast alloy, chrome, red coilovers. None of her themes is luminous, so the
+/// one identity slot [`trim`] could light never glows.
+pub(crate) struct BuggyColours {
+    /// The tube frame, the suspension arms and the spare's bracket: the
+    /// scheme, floored off the tyres like any coachwork ([`GUARD_FLOOR`]).
+    pub(crate) frame: SovereignMaterialSettings,
+    /// The seat pod: dark gelcoat, floored off the tyres too.
+    pub(crate) pod: SovereignMaterialSettings,
+    /// **Identity.** The two buckets - the roadster's hide with the seed's
+    /// accent through it.
+    pub(crate) seat: SovereignMaterialSettings,
+    /// The engine tin: the cylinder banks, the fan shroud, and the whip.
+    pub(crate) tin: SovereignMaterialSettings,
+    /// The cast case, the transaxle, the backbone and the axle shafts.
+    pub(crate) alloy: SovereignMaterialSettings,
+    /// The air cleaner, the headers and the stinger, the lamp shells and the
+    /// light bar's cans: chrome on every scheme.
+    pub(crate) bright: SovereignMaterialSettings,
+    pub(crate) tyre: SovereignMaterialSettings,
+    /// **Identity.** The rims: the accent held clear of the frame and floored
+    /// well above the tyre it is set into - floored FIRST, so on a worn kit
+    /// the floor cannot lift it back into the frame's value
+    /// ([`clear_over_floor`]; the wagon's wheel still clears first, #1389).
+    pub(crate) rim: SovereignMaterialSettings,
+    /// A worn buggy's mismatched near-rear rim: bare steel off another
+    /// buggy, held well clear of the seed's own rims - up off a dark rim and
+    /// down off a pale one.
+    pub(crate) odd_rim: SovereignMaterialSettings,
+    /// The coilovers.
+    pub(crate) spring: SovereignMaterialSettings,
+    pub(crate) lamp: SovereignMaterialSettings,
+    pub(crate) tail_lamp: SovereignMaterialSettings,
+    /// The beach buggy's canopy: white bands, and the scheme's colour
+    /// between them - no texture draws a stripe.
+    pub(crate) canvas: SovereignMaterialSettings,
+    pub(crate) stripe: SovereignMaterialSettings,
+    /// The dune whip's pennant: safety orange, what a dune flag really is.
+    pub(crate) pennant: SovereignMaterialSettings,
+    pub(crate) whip: SovereignMaterialSettings,
+    /// The raider's jerrycans, olive and red.
+    pub(crate) can: SovereignMaterialSettings,
+    pub(crate) can_red: SovereignMaterialSettings,
+    /// A battered buggy's exhaust and the raider's nose plate, held clear of
+    /// the frame they are seen against.
+    pub(crate) rust: SovereignMaterialSettings,
+    /// A battered buggy's replacement fan shroud.
+    pub(crate) primer: SovereignMaterialSettings,
+    /// The silver tape across a battered buggy's near seat.
+    pub(crate) tape: SovereignMaterialSettings,
+}
+
+/// A buggy's fixed colours (#1374): what these parts simply are.
+const POD_DARK: [f32; 3] = [0.13, 0.13, 0.14];
+const TIN: [f32; 3] = [0.075, 0.075, 0.080];
+const ALLOY: [f32; 3] = [0.52, 0.52, 0.50];
+const SPRING: [f32; 3] = [0.80, 0.14, 0.08];
+const CANVAS_WHITE: [f32; 3] = [0.90, 0.89, 0.84];
+const STEEL: [f32; 3] = [0.58, 0.58, 0.60];
+const SAFETY: [f32; 3] = [1.00, 0.36, 0.04];
+const TAPE: [f32; 3] = [0.70, 0.71, 0.72];
+
+/// How far the odd rim is held from the seed's own rims, and a rusted pipe
+/// or plate from the frame: on a Rust red raider (and a Candy red rail)
+/// rust at its own value merged with the frame.
+const ODD_RIM_DELTA: f32 = 0.34;
+const BUGGY_RUST_DELTA: f32 = 0.12;
+
+pub(crate) fn buggy_colours(ctx: &PartCtx, variant: BuggyVariant) -> BuggyColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let l = buggy_livery(ctx.seed, variant, ctx.livery);
+    // A frame can be genuinely dark - an olive drab raider - but never as
+    // dark as the tyres it stands on, and nor can the pod.
+    let frame = floor_finished(m, l.frame, GUARD_FLOOR);
+    let rim = clear_over_floor(
+        m,
+        p.primary_accent,
+        luma(frame),
+        DISC_DELTA,
+        GUARD_FLOOR * 1.6,
+    );
+    BuggyColours {
+        frame: m.paint(frame),
+        pod: m.paint(floor_finished(m, POD_DARK, GUARD_FLOOR)),
+        seat: m.leather(mix(HIDE, shade(p.primary_accent, 0.8), 0.28)),
+        tin: m.paint(TIN),
+        alloy: m.paint(ALLOY),
+        bright: m.brightwork(CHROME),
+        tyre: m.rubber(TYRE),
+        rim: trim(m, rim),
+        odd_rim: m.paint(floor_finished(
+            m,
+            clear_of(STEEL, luma(rim), ODD_RIM_DELTA),
+            GUARD_FLOOR,
+        )),
+        spring: m.paint(SPRING),
+        lamp: window_material(window_light(p.tertiary_accent)),
+        tail_lamp: m.glow(TAIL_LAMP),
+        canvas: m.canvas(CANVAS_WHITE),
+        stripe: m.canvas(frame),
+        pennant: m.paint(SAFETY),
+        whip: m.paint(TIN),
+        can: m.paint(CAN),
+        can_red: m.paint(FUEL_RED),
+        rust: m.paint(clear_of(RUST, luma(frame), BUGGY_RUST_DELTA)),
+        primer: m.paint(floor_finished(m, PRIMER, GUARD_FLOOR)),
+        tape: m.paint(TAPE),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1331,6 +1566,26 @@ mod tests {
             wagons.iter().all(|&n| n > 0),
             "a wagon livery is unreachable: {wagons:?}"
         );
+        // And the dune buggy's two (#1374): the brights a rail and a beach
+        // buggy pick from, and the raider's wasteland list.
+        for (variant, table) in [
+            (BuggyVariant::Rail, BUGGY_LIVERIES),
+            (BuggyVariant::Beach, BUGGY_LIVERIES),
+            (BuggyVariant::Raider, RAIDER_LIVERIES),
+        ] {
+            let mut hits = vec![0usize; table.len()];
+            for s in 0u64..4_000 {
+                let b = buggy_livery(s, variant, None);
+                hits[table
+                    .iter()
+                    .position(|l| l.name == b.name)
+                    .expect("the pick came from the variant's own table")] += 1;
+            }
+            assert!(
+                hits.iter().all(|&n| n > 0),
+                "a {variant:?} livery is unreachable: {hits:?}"
+            );
+        }
     }
 
     /// The hearse and the ox-cart wear their forced schemes whatever the seed
@@ -1367,6 +1622,16 @@ mod tests {
         }
         for (i, l) in SKIFF_LIVERIES.iter().enumerate() {
             assert_eq!(skiff_livery(7, Some(i)).name, l.name);
+        }
+        // A buggy's override wraps inside her variant's own list (#1374).
+        for (variant, table) in [
+            (BuggyVariant::Rail, BUGGY_LIVERIES),
+            (BuggyVariant::Raider, RAIDER_LIVERIES),
+        ] {
+            for (i, l) in table.iter().enumerate() {
+                assert_eq!(buggy_livery(7, variant, Some(i)).name, l.name);
+                assert_eq!(buggy_livery(9, variant, Some(i + table.len())).name, l.name);
+            }
         }
     }
 
@@ -1489,6 +1754,57 @@ mod tests {
             tugs += 1;
         }
         assert!(tugs > 30, "only {tugs} tug seeds under 3000");
+    }
+
+    /// A dune buggy's colours read on every scheme of both her lists, at
+    /// every wear (#1374): her frame and her pod are coachwork, so each
+    /// finishes at or over [`GUARD_FLOOR`] and well clear of the tyres they
+    /// stand on, and her rims - the seed's one identity slot on her wheels -
+    /// stay clear of the frame they turn inside. Over every skiff seed under
+    /// 900, so the population's kits are the wear sweep, as for the roadster;
+    /// the rims on the kits a buggy can wear, because none of her themes is
+    /// luminous and a lit rim is an unground glow whose value is not the
+    /// question.
+    #[test]
+    fn a_buggys_frame_pod_and_rims_read_on_every_scheme() {
+        for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
+            let mut ctx = PartCtx::for_seed(s);
+            let lit = ctx.materials.emissive_accents();
+            for (variant, table) in [
+                (BuggyVariant::Rail, BUGGY_LIVERIES),
+                (BuggyVariant::Raider, RAIDER_LIVERIES),
+            ] {
+                for (i, scheme) in table.iter().enumerate() {
+                    ctx.livery = Some(i);
+                    let c = buggy_colours(&ctx, variant);
+                    let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                    let tyre = l(&c.tyre);
+                    for (what, v) in [("frame", l(&c.frame)), ("pod", l(&c.pod))] {
+                        // `to_value`'s own slack, as for the roadster.
+                        assert!(
+                            v >= GUARD_FLOOR - 2e-3,
+                            "seed {s} in {}: the {what} finished at {v}, under the \
+                             {GUARD_FLOOR} floor",
+                            scheme.name
+                        );
+                        assert!(
+                            v > tyre * 1.8,
+                            "seed {s} in {}: the {what} ({v}) is inside the tyres' \
+                             own value ({tyre})",
+                            scheme.name
+                        );
+                    }
+                    // Grime dims both sides by one factor, so the delta
+                    // shrinks by at most that much - as for the coachline.
+                    let d = (l(&c.rim) - l(&c.frame)).abs();
+                    assert!(
+                        lit || d > DISC_DELTA * 0.6,
+                        "seed {s} in {}: the rims are {d} from the frame",
+                        scheme.name
+                    );
+                }
+            }
+        }
     }
 
     /// The roadster's dressing reads against what it lies on, on every scheme

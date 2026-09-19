@@ -7,8 +7,8 @@ use crate::pds::avatar::livery;
 use crate::pds::{Generator, GeneratorKind, Placement, RoomRecord};
 use crate::seeded_defaults::hash::fnv1a_64;
 use crate::seeded_defaults::{
-    BoatType, ChassisFamily, CraftType, RoadsterBody, RoadsterTop, RoadsterWheels, RunaboutVariant,
-    ScowLoad, SkiffType, SloopHull, SloopRig, TugVariant, WagonBody,
+    BoatType, BuggyVariant, ChassisFamily, CraftType, RoadsterBody, RoadsterTop, RoadsterWheels,
+    RunaboutVariant, ScowLoad, SkiffType, SloopHull, SloopRig, TugVariant, WagonBody,
 };
 
 use super::Args;
@@ -158,6 +158,10 @@ pub(super) fn print_outfit(subject: &str) {
                 CraftType::Skiff(SkiffType::Wagon) => {
                     livery::wagon_livery(seed, WagonBody::for_seed(seed), None).name
                 }
+                // So does a dune buggy (#1374), and a raider hers.
+                CraftType::Skiff(SkiffType::DuneBuggy) => {
+                    livery::buggy_livery(seed, BuggyVariant::for_seed(seed), None).name
+                }
                 CraftType::Skiff(_) => livery::skiff_livery(seed, None).name,
             }
         );
@@ -173,7 +177,8 @@ pub(super) fn print_outfit(subject: &str) {
             );
         }
         // And the roadster's own three picks (#1367), for every skiff drawn
-        // as one - every skiff but a wagon, until the other types are built.
+        // as one - every skiff but a wagon or a dune buggy, until the other
+        // types are built.
         if let CraftType::Skiff(t) = craft
             && (t == SkiffType::Roadster || !t.implemented())
         {
@@ -200,6 +205,10 @@ pub(super) fn print_outfit(subject: &str) {
         // And the wagon's body (#1377), which its theme picks.
         if let CraftType::Skiff(SkiffType::Wagon) = craft {
             println!("  wagon body: {}", WagonBody::for_seed(seed).label());
+        }
+        // And the dune buggy's variant (#1374), which her theme picks.
+        if let CraftType::Skiff(SkiffType::DuneBuggy) = craft {
+            println!("  buggy: {}", BuggyVariant::for_seed(seed).label());
         }
     }
     // And its voice (#1383), for every family: which drive a boat speaks

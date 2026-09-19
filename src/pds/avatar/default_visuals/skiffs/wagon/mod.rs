@@ -67,8 +67,11 @@ use crate::pds::types::Fp3;
 use crate::seeded_defaults::{OrnatenessTier, ParticleAura, SkiffBlueprint, WagonBody, WearTier};
 
 use super::super::Propulsion;
-use super::super::common::{bevel, cuboid, id_quat, lathe, prim, quat_xyzw, spine, with_cut};
+use super::super::common::{cuboid, id_quat, prim, spine, with_cut};
 use super::plan::{Axle, BodyPlan};
+// The family's shape vocabulary (#1374), imported here so every body's
+// `use super::{board, line, ..}` still resolves.
+use super::shape::{board, line, solid, turned};
 use super::{SkiffCraft, SkiffFeel, dim};
 
 /// A wagon wheel is HIGH: 0.30-0.34 of the length across (the brief). The
@@ -292,80 +295,9 @@ pub(super) fn build_dressed(ctx: &PartCtx, plan: &WagonPlan) -> Generator {
 }
 
 // ---------------------------------------------------------------------------
-// The helpers every part is built with
+// The helpers only a wagon builds with - the board, the line and the turned
+// parts are the family's, in `super::shape`
 // ---------------------------------------------------------------------------
-
-/// A board: a Bevel whose corners are rounded in its `[x, z]` footprint, with
-/// every dimension floored at [`super::MIN_DIM`] and the corner radius held
-/// under half the smaller footprint axis - the sanitiser's clamp, which would
-/// otherwise rewrite it and fail the round trip.
-fn board(
-    size: [f32; 3],
-    m: &SovereignMaterialSettings,
-    at: [f32; 3],
-    rotation: [f32; 4],
-    radius: f32,
-) -> Generator {
-    let size = size.map(dim);
-    let cap = size[0].min(size[2]) * 0.5 - 1e-4;
-    prim(
-        bevel(size, radius.min(cap).max(0.0), 2, m.clone()),
-        at,
-        quat_xyzw(rotation),
-    )
-}
-
-/// A thin swept line - a rail, a spoke, a spring, an axle, a pole.
-fn line(points: &[([f32; 3], f32)], resolution: u32, m: &SovereignMaterialSettings) -> Generator {
-    let pts: Vec<([f32; 3], f32)> = points.iter().map(|&(p, r)| (p, dim(r))).collect();
-    prim(spine(&pts, resolution, m.clone()), [0.0; 3], id_quat())
-}
-
-/// A turned part, optionally bored (`hollow`) and cut to an angular range
-/// (`path`).
-#[allow(clippy::too_many_arguments)]
-fn turned(
-    profile: &[(f32, f32)],
-    resolution: u32,
-    smooth: bool,
-    m: &SovereignMaterialSettings,
-    at: [f32; 3],
-    rotation: [f32; 4],
-    hollow: f32,
-    path: [f32; 2],
-) -> Generator {
-    prim(
-        with_cut(
-            lathe(profile, resolution, smooth, m.clone()),
-            path,
-            [0.0, 1.0],
-            hollow,
-        ),
-        at,
-        quat_xyzw(rotation),
-    )
-}
-
-/// A solid turned part, whole round.
-fn solid(
-    profile: &[(f32, f32)],
-    resolution: u32,
-    smooth: bool,
-    m: &SovereignMaterialSettings,
-    at: [f32; 3],
-    rotation: [f32; 4],
-) -> Generator {
-    turned(
-        profile,
-        resolution,
-        smooth,
-        m,
-        at,
-        rotation,
-        0.0,
-        [0.0, 1.0],
-    )
-}
 
 /// A swept half-pipe shaped by its own node scale - the tilt and the ox-cart's
 /// roof. The path is PRE-DIVIDED by that scale (the roadster's `sweep`, and

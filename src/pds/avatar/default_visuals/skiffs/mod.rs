@@ -20,10 +20,12 @@
 //! implementor: [`craft_for`] resolves an unbuilt pick to
 //! [`SkiffType::UNIVERSAL`] while the PICK stays a property of the seed.
 //!
-//! Two types are built: the roadster, the universal floor, and since #1377 the
+//! Three types are built: the roadster, the universal floor; since #1377 the
 //! horseless [`wagon`], which takes all ten historic themes and is 31 % of the
-//! family against the Roadster's 30. A seed that picked any other type is
-//! still drawn as the roadster, and the readouts say so.
+//! family against the Roadster's 30; and since #1374 the dune [`buggy`], on
+//! the six leisure and frontier themes, 13 % of it. A seed that picked any
+//! other type - about a quarter of the family - is still drawn as the
+//! roadster, and the readouts say so.
 //!
 //! # Where a skiff sits
 //!
@@ -34,8 +36,10 @@
 //! number, which is what puts the tyres on the suspension's own ground line
 //! for the wheels this seed actually rolls on (#1361).
 
+mod buggy;
 mod plan;
 mod roadster;
+mod shape;
 mod wagon;
 
 pub(crate) use plan::BodyPlan;
@@ -131,9 +135,8 @@ fn craft(t: SkiffType) -> Option<&'static dyn SkiffCraft> {
     match t {
         SkiffType::Roadster => Some(&roadster::Roadster),
         SkiffType::Wagon => Some(&wagon::Wagon),
-        SkiffType::DuneBuggy | SkiffType::ArmouredCar | SkiffType::Cyclecar | SkiffType::Rover => {
-            None
-        }
+        SkiffType::DuneBuggy => Some(&buggy::Buggy),
+        SkiffType::ArmouredCar | SkiffType::Cyclecar | SkiffType::Rover => None,
     }
 }
 
@@ -314,8 +317,11 @@ mod tests {
 
     /// Every skiff seed draws a skiff, whatever type it picked. This is what
     /// "go live for every skiff seed" means, and the unbuilt types are the
-    /// reason it needs saying: with the roadster and the wagon built (#1377),
-    /// still over a third of the family picks a type nothing draws yet.
+    /// reason it needs saying: with the roadster, the wagon (#1377) and the
+    /// dune buggy (#1374) built, about a quarter of the family still picks a
+    /// type nothing draws yet. The boats' form: the floor fallback must still
+    /// be exercised, and how much of the family it carries is the census's
+    /// business, not a threshold to re-tune each slice.
     #[test]
     fn every_skiff_seed_resolves_to_a_built_craft() {
         let (mut unbuilt, mut total) = (0, 0);
@@ -329,10 +335,8 @@ mod tests {
         }
         assert!(total > 50, "too few skiffs sampled: {total}");
         assert!(
-            unbuilt * 4 > total,
-            "only {unbuilt} of {total} skiff seeds picked an unbuilt type - the \
-             floor fallback carries over a third of this family, so if that has \
-             stopped being true the population has moved"
+            unbuilt > 0,
+            "no seed picked an unbuilt type - the floor fallback is untested"
         );
     }
 
@@ -459,6 +463,164 @@ mod tests {
         }
     }
 
+    /// Every dune buggy the family can draw at the blueprint corners: every
+    /// variant crossed with every ornateness-by-wear pair (#1374). Returns the
+    /// built tree, its plan and a label for the failure.
+    fn every_buggy() -> Vec<(Generator, buggy::BuggyPlan, String)> {
+        use crate::seeded_defaults::{BuggyVariant, OrnatenessTier, WearTier};
+        let mut ctx = PartCtx::for_seed(a_skiff_seed());
+        let mut out = Vec::new();
+        for bp in corners() {
+            for variant in BuggyVariant::ALL {
+                let plan = buggy::plan_of(&bp, variant);
+                for o in OrnatenessTier::ALL {
+                    for w in WearTier::ALL {
+                        (ctx.ornateness, ctx.wear) = (o, w);
+                        out.push((
+                            buggy::build_dressed(&ctx, &plan),
+                            plan,
+                            format!(
+                                "a {} m {}, {} / {}",
+                                bp.length,
+                                variant.label(),
+                                o.label(),
+                                w.label()
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+        assert_eq!(out.len(), 6 * 3 * 9, "the sweep lost a combination");
+        out
+    }
+
+    /// Every part of a built dune buggy meets another and the whole machine
+    /// is one component, on every variant and tier at every blueprint corner
+    /// (#1374) - on the tree AS SAVED, through the record's 0.1 mm wire.
+    ///
+    /// Nothing on her is fattened to meet: every frame member is drawn
+    /// through joints another member also runs through, and a mass hung
+    /// between joints sits on the tube's drawn centreline (see the buggy's
+    /// module docs). What the guard cannot see: it ignores `hollow` and
+    /// `path_cut`, so the pod's bore and the canopy's stripes are judged as
+    /// whole tubes, and it samples a turned tyre only at its profile rings
+    /// (#1382).
+    #[test]
+    fn a_buggy_is_one_machine_at_every_blueprint_extreme() {
+        use super::super::common::touch;
+        for (built, _, what) in every_buggy() {
+            let json = serde_json::to_string(&built).expect("a buggy serializes");
+            let saved: Generator = serde_json::from_str(&json).expect("and reads back");
+            touch::assert_one_machine(&saved, &what);
+        }
+    }
+
+    /// Every buggy survives the record sanitiser UNCHANGED at the extremes of
+    /// her own blueprint, on every variant and tier (#1359 rule 8) - her
+    /// rotated tyres, lamps, cylinder banks, seat backs and spare compared
+    /// through the quaternion epsilon the sanitiser's renormalising needs.
+    #[test]
+    fn a_buggy_survives_sanitize_unchanged_at_her_blueprint_extremes() {
+        use crate::pds::sanitize_avatar_visuals;
+        for (built, _, what) in every_buggy() {
+            let mut sanitized = built.clone();
+            sanitize_avatar_visuals(&mut sanitized);
+            if let Some(where_) = first_difference(&built, &sanitized, "0") {
+                panic!("{what} was rewritten by the sanitiser at {where_}");
+            }
+        }
+    }
+
+    /// Every buggy stands on her wheels, under the air draft and inside the
+    /// gateway, at every blueprint corner (#1374): each axle's centre is its
+    /// OWN wheel's radius over the ground - the small fronts as much as the
+    /// big rears - nothing she draws stands higher than rule 6's 2.8 m over
+    /// it, and she is narrower than the 2.6 m mouth.
+    ///
+    /// The first skiff air-draft guard (owner decision 11): the dune whip
+    /// reaches 2.57 m at the largest corner, held there by construction, and
+    /// this reads the DRAWN tree rather than the arithmetic that held it.
+    #[test]
+    fn a_buggy_stands_on_her_wheels_under_the_air_draft() {
+        use super::super::common::touch;
+        /// Rule 6's air draft and the narrowest gateway mouth (m).
+        const AIR_DRAFT: f32 = 2.8;
+        const MOUTH: f32 = 2.6;
+        for (built, plan, what) in every_buggy() {
+            let mut radii = Vec::new();
+            for (at, r) in plan.wheels() {
+                assert!(
+                    (at[1] + plan.datum_height() - r).abs() < 1e-5,
+                    "{what}: a wheel of radius {r} has its centre {} over the ground",
+                    at[1] + plan.datum_height()
+                );
+                if !radii.contains(&r) {
+                    radii.push(r);
+                }
+            }
+            assert_eq!(radii.len(), 2, "{what}: her two axles share a radius");
+            let top = touch::highest(&built) + plan.datum_height();
+            assert!(
+                top <= AIR_DRAFT,
+                "{what}: she stands {top} m over the ground, past the {AIR_DRAFT} m air draft"
+            );
+            let wide = buggy::Buggy.overall_width(&plan, 0);
+            assert!(
+                wide < MOUTH,
+                "{what}: {wide} m wide, past the {MOUTH} m mouth"
+            );
+        }
+    }
+
+    /// Every dune buggy seed is drawn as a buggy, on the variant her theme
+    /// picks, air-cooled (#1374) - and no other skiff seed is: a skiff is
+    /// air-cooled exactly when it is drawn as a buggy. And the aura her
+    /// record carries - her exhaust, a Roadside buggy's folded steam, or a
+    /// frontier theme's embers - leaves her stinger's mouth.
+    #[test]
+    fn a_buggy_seed_draws_a_buggy() {
+        use crate::pds::generator::GeneratorKind;
+        use crate::seeded_defaults::BuggyVariant;
+        let mut seen = Vec::new();
+        for s in (0u64..3000).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
+            let buggy = SkiffType::for_seed(s) == SkiffType::DuneBuggy;
+            assert_eq!(
+                propulsion(s) == Propulsion::AirCooled,
+                buggy,
+                "seed {s}: {:?} drives {:?}",
+                SkiffType::for_seed(s),
+                propulsion(s)
+            );
+            if !buggy {
+                continue;
+            }
+            let v = BuggyVariant::for_seed(s);
+            if !seen.contains(&v) {
+                seen.push(v);
+            }
+            let (_, plan) = body_for(s).expect("a buggy seed has a body");
+            let (record, _) = super::super::build_for_seed(s);
+            let emitter = record
+                .visuals()
+                .expect("a skiff is an assembled tree")
+                .children
+                .iter()
+                .find(|g| matches!(g.kind, GeneratorKind::ParticleSystem(..)))
+                .expect("a buggy trails an aura");
+            assert_eq!(
+                emitter.transform.translation.0,
+                buggy::stinger_mouth(&buggy::with_variant(plan, v)),
+                "seed {s}: her aura does not leave her stinger's mouth"
+            );
+        }
+        assert_eq!(
+            seen.len(),
+            BuggyVariant::ALL.len(),
+            "the seeds under 3000 miss a variant: {seen:?}"
+        );
+    }
+
     /// Every part of a built roadster meets another, and the whole machine is
     /// one connected component (#1364, the owner's complaint on the
     /// prototype) - on every body, top, wheel and tier it can roll (#1367).
@@ -525,9 +687,9 @@ mod tests {
     ///
     /// Two sweeps, in the sloop's form (#1366). The live seeds, as saved - FX
     /// emitter and engine voice included - and the heaviest thing the family
-    /// can draw: every roadster body, top and wheel and every wagon body at
-    /// every blueprint corner on the fullest ladder, Ornate and Battered,
-    /// carrying the heaviest FX overhead
+    /// can draw: every roadster body, top and wheel, every wagon body and
+    /// every buggy variant at every blueprint corner on the fullest ladder,
+    /// Ornate and Battered, carrying the heaviest FX overhead
     /// any live seed carries. Measured rather than assumed, so a new aura that
     /// grows the emitter moves this too. The phase-1 prototype put the worst
     /// of it - an open tourer on wire wheels at 3.6 m - at nine per cent under
@@ -575,10 +737,24 @@ mod tests {
                 worst_wagon = worst_wagon.max(bytes(&built) + fx_overhead);
             }
         }
+        // And the dune buggy's, every variant at every corner on her fullest
+        // ladder (#1374): the heaviest is a 3.6 m Ornate / Battered beach
+        // buggy at about 28 KB, her canopy's six stripes and her frame's
+        // members spending most of it.
+        let mut worst_buggy = 0usize;
+        for bp in corners() {
+            for variant in crate::seeded_defaults::BuggyVariant::ALL {
+                let plan = buggy::plan_of(&bp, variant);
+                let mut built = buggy::build_dressed(&ctx, &plan);
+                apply_travel_pose(&mut built, travel_drop(&buggy::Buggy, &plan, 0));
+                worst_buggy = worst_buggy.max(bytes(&built) + fx_overhead);
+            }
+        }
         for (what, worst) in [
             ("seeded skiff", worst_seed),
             ("fully dressed corner", worst_corner),
             ("fully dressed wagon", worst_wagon),
+            ("fully dressed buggy", worst_buggy),
         ] {
             assert!(
                 worst * 3 < SOFT_RECORD_BUDGET_BYTES,

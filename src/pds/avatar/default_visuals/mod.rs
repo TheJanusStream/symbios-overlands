@@ -61,8 +61,9 @@ use super::locomotion::{
 /// and only an engine hums. A horseless wagon has neither: it ROLLS, and what
 /// is heard is its running gear - iron tyres on the track and a timber creak
 /// (#1377). A third variant rather than a flag beside the enum, so no skiff
-/// can be under sail and no wagon can putter. The airship's rotors are an
-/// engine by construction.
+/// can be under sail and no wagon can putter; a scow's pole, a tug's boiler
+/// and a dune buggy's air-cooled four are variants for the same reason. The
+/// airship's rotors are an engine by construction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Propulsion {
     /// Sails: no engine note at all.
@@ -80,6 +81,12 @@ enum Propulsion {
     /// drive that makes smoke, so it is also what promotes her picked wake
     /// to steam from her funnel (`fx::drawn_aura`).
     Steam,
+    /// An air-cooled flat four on an open stinger (#1374): a raspy low
+    /// firing note under a valve-train clatter, where every other car on the
+    /// road putters. The dune buggy's - and an air-cooled engine has no
+    /// radiator to steam, so a Roadside buggy's picked steam is drawn as her
+    /// exhaust (`fx::drawn_aura`).
+    AirCooled,
 }
 
 impl Propulsion {
@@ -91,6 +98,7 @@ impl Propulsion {
             Self::Rolling => "rolling on iron tyres",
             Self::Poled => "poled and sculled",
             Self::Steam => "under steam",
+            Self::AirCooled => "under power, air-cooled",
         }
     }
 }
@@ -160,8 +168,10 @@ fn build_seeded(seed: u64, livery: Option<usize>) -> (RecordBody, LocomotionConf
     // is snapped to the seeded blueprint landmark for the aura - a boat's steam
     // leaves its funnel, its wake rides the stern - via [`fx_mount`].
     // The PICKED aura is resolved against the drawn craft's drive first: a
-    // rolling wagon has no pipe to trail exhaust from (#1377), and a boiler
-    // turns the wake floor into steam from her funnel (#1370).
+    // rolling wagon has no pipe to trail exhaust from (#1377), a boiler
+    // turns the wake floor into steam from her funnel (#1370), and an
+    // air-cooled engine has no radiator to steam, so a dune buggy's picked
+    // steam is her exhaust (#1374).
     let fx = AvatarFx::for_seed(seed);
     let fx = AvatarFx {
         aura: fx::drawn_aura(fx.aura, fx::drive_of(family, seed)),
