@@ -293,3 +293,449 @@ mod tests {
         assert_eq!(discarded_tuning(&LocomotionConfig::Unknown), None);
     }
 }
+
+/// The Locomotion tab must not edit what it shows (#1390).
+///
+/// The tab draws the LIVE record - `TabCtx`'s own doc is "the live record
+/// every tab edits in place", and `draw_tab` hands `draw_locomotion_tab` a
+/// `&mut` to `ctx.record.locomotion` - so a widget that writes on sight
+/// writes into the avatar, not into a copy. Two ways it did:
+///
+/// * **the range clamp.** egui 0.35's `SliderClamping` default is `Always`
+///   ("Always clamp values, even existing ones"), and `Slider::add_contents`
+///   acts on it with no input at all: `let old_value = self.get_value(); if
+///   self.clamping == SliderClamping::Always { self.set_value(old_value); }`.
+///   The hover-boat Mass slider was 5..=200 against seeded masses reaching
+///   474, so a steam tug lost 212 kg for being looked at - and `changed`
+///   stayed FALSE, so the change tick never moved and no peer was told.
+/// * **the step snap.** `set_value` is also where `step_by`'s rounding is
+///   applied, so every seeded value was quantised on arrival; that one DOES
+///   report `changed`, which marks the avatar edited and queues a broadcast
+///   for opening a tab.
+///
+/// Both are the same default, and `ui::num` exists to own defaults, so the
+/// fix is one line there rather than one per call site.
+#[cfg(test)]
+mod inert_panel_tests {
+    use super::*;
+    use crate::pds::AvatarRecord;
+    use crate::seeded_defaults::{AvatarPins, ChassisFamily, CraftType};
+    use bevy_egui::egui;
+
+    /// One seed per craft type from the craft pin's own hunt (#1380), plus
+    /// an airship and a humanoid: fourteen records, every locomotion preset
+    /// a seed can produce. The two non-craft families are found by pinning
+    /// the chassis, which is the only axis they have.
+    fn seeded_fleet() -> Vec<(String, u64, AvatarRecord)> {
+        let mut out = Vec::new();
+        for craft in CraftType::BOATS.into_iter().chain(CraftType::SKIFFS) {
+            let mut pins = AvatarPins::default();
+            pins.lock_craft(Some(craft));
+            let seed = pins
+                .find_seed(0)
+                .unwrap_or_else(|| panic!("{} is reachable", craft.label()));
+            out.push((
+                craft.label().to_string(),
+                seed,
+                AvatarRecord::default_for_seed(seed),
+            ));
+        }
+        for family in [ChassisFamily::Airship, ChassisFamily::Humanoid] {
+            let mut pins = AvatarPins::default();
+            pins.set_chassis(Some(family));
+            let seed = pins
+                .find_seed(0)
+                .unwrap_or_else(|| panic!("{} is reachable", family.label()));
+            out.push((
+                family.label().to_string(),
+                seed,
+                AvatarRecord::default_for_seed(seed),
+            ));
+        }
+        out
+    }
+
+    /// What one draw of the whole tab did to the record.
+    struct Drawn {
+        /// Every field whose value moved, as `name: before -> after`.
+        moved: Vec<String>,
+        /// Whether the panel raised the editor's dirty flag.
+        dirty: bool,
+        /// Whether the record grew a `gait` section it did not have.
+        materialised_gait: bool,
+        /// Every control the draw reached, by AccessKit label - the
+        /// collapsing-section headers among them.
+        controls: Vec<String>,
+    }
+
+    /// Draw the whole tab `frames` times over a bare context with no input
+    /// at all, and report what it did to `record`.
+    ///
+    /// **Every collapsing section is open**, through
+    /// `Memory::set_everything_is_visible`, which makes
+    /// `CollapsingState::openness` 1.0 for every header and so runs every
+    /// body. That is coverage by construction rather than by a list: a
+    /// section added tomorrow is drawn here without anybody remembering to
+    /// add it. It matters because session 834's one-frame probe reached
+    /// only the default-open sections, which is exactly how it caught the
+    /// boat's mass moving and missed her drive force - and how the
+    /// Idle-motion section (`default_open(false)`) hid entirely.
+    fn draw_tab_over(record: &mut AvatarRecord, seed: u64, frames: usize) -> Drawn {
+        let before_cfg = record.locomotion.clone();
+        let before_gait = record.gait.clone();
+        let before = serde_json::to_value(&record.locomotion).expect("a locomotion config");
+        let before_g = serde_json::to_value(&record.gait).expect("a gait section");
+        let had_gait = record.gait.is_some();
+
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        ctx.memory_mut(|m| m.set_everything_is_visible(true));
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 720.0));
+
+        let mut dirty = false;
+        let mut controls: Vec<String> = Vec::new();
+        for _ in 0..frames {
+            let mut labels = crate::ui::undo::PendingUndoLabels::default();
+            let mut toasts = crate::notify::Toasts::default();
+            let movement = crate::player::LocalMovement::default();
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let output = ctx.run_ui(input, |ui| {
+                draw_locomotion_tab(
+                    ui,
+                    &mut record.locomotion,
+                    &mut record.gait,
+                    seed,
+                    &mut dirty,
+                    &mut labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
+                    &movement,
+                    &mut toasts,
+                    0.0,
+                );
+            });
+            controls = button_labels(&output);
+        }
+
+        let after = serde_json::to_value(&record.locomotion).expect("a locomotion config");
+        let after_g = serde_json::to_value(&record.gait).expect("a gait section");
+        let mut moved = diff_numbers("", &before, &after);
+        // The Idle-motion section is the same shape as the panels above it
+        // and was never measured, because it is `default_open(false)` and
+        // session 834's probe drew one frame. It draws a CLONE of the gait
+        // through `fp_slider` and writes it back under `if changed`, so a
+        // slider that reports a snap it invented materialises a section or
+        // rewrites one.
+        moved.extend(diff_numbers("gait", &before_g, &after_g));
+        // The serialised form is the wire form, so the report above is
+        // quantised to the record's own 1e-4 (`Fp` is an i32 scaled by
+        // `FP_SCALE`). The live config is what the drive systems read, and
+        // a change too small to reach the wire still reaches them - so the
+        // equality that decides is the config's, and the diff is only the
+        // sentence it gets to say.
+        if moved.is_empty() && (before_cfg != record.locomotion || before_gait != record.gait) {
+            moved.push(
+                "the live config moved by less than the record's own 1e-4 resolution".to_string(),
+            );
+        }
+        Drawn {
+            moved,
+            dirty,
+            materialised_gait: !had_gait && record.gait.is_some(),
+            controls,
+        }
+    }
+
+    /// Every clickable control in the last pass's AccessKit tree, by label.
+    ///
+    /// A `CollapsingHeader` reports `Role::Button` with its header text
+    /// (`response.rs` maps `WidgetType::CollapsingHeader` there), and so
+    /// does a plain button; a `selectable_label` reports the same role but
+    /// also carries `toggled`, which is how the preset picker's row is kept
+    /// out. So this list is the sections plus the tab's own buttons, and a
+    /// new section changes it.
+    fn button_labels(output: &egui::FullOutput) -> Vec<String> {
+        let Some(update) = output.platform_output.accesskit_update.as_ref() else {
+            panic!("accesskit was enabled, so the pass has a tree");
+        };
+        let mut out: Vec<String> = update
+            .nodes
+            .iter()
+            .filter(|(_, n)| {
+                n.role() == bevy_egui::egui::accesskit::Role::Button && n.toggled().is_none()
+            })
+            .filter_map(|(_, n)| n.label().map(str::to_string))
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// Every number that differs between two serialised configs, as
+    /// `path: before -> after`.
+    ///
+    /// The report is the point: "the record moved" is not a finding, and
+    /// #1390's whole story is which field moved and by how much.
+    fn diff_numbers(path: &str, a: &serde_json::Value, b: &serde_json::Value) -> Vec<String> {
+        use serde_json::Value;
+        match (a, b) {
+            (Value::Object(a), Value::Object(b)) => a
+                .iter()
+                .flat_map(|(k, av)| {
+                    let bv = b.get(k).unwrap_or(&Value::Null);
+                    diff_numbers(
+                        &format!("{path}{}{k}", if path.is_empty() { "" } else { "." }),
+                        av,
+                        bv,
+                    )
+                })
+                .collect(),
+            (Value::Array(a), Value::Array(b)) => a
+                .iter()
+                .zip(b)
+                .enumerate()
+                .flat_map(|(i, (av, bv))| diff_numbers(&format!("{path}[{i}]"), av, bv))
+                .collect(),
+            (a, b) if a != b => vec![format!("{path}: {} -> {}", unscaled(a), unscaled(b))],
+            _ => Vec::new(),
+        }
+    }
+
+    /// A wire scalar back in the unit the owner reads on the slider: every
+    /// numeric field of a locomotion config is an `Fp`, an i32 scaled by
+    /// `FP_SCALE`, so the raw JSON integer is metres x 10 000.
+    fn unscaled(v: &serde_json::Value) -> String {
+        match v.as_i64() {
+            Some(n) => format!("{:.4}", n as f32 / crate::pds::types::FP_SCALE),
+            None => v.to_string(),
+        }
+    }
+
+    /// Every numeric control the tab draws, as its own AccessKit node
+    /// reports it: the label painted above it, the value and the range.
+    ///
+    /// The range is read off the WIDGET rather than off a table copied
+    /// from the panels, so the audit cannot drift from what is on screen:
+    /// a `Slider` publishes `min_numeric_value` / `max_numeric_value`, and
+    /// so does a `DragValue` given a `.range(..)`.
+    struct Control {
+        label: String,
+        value: f64,
+        min: f64,
+        max: f64,
+    }
+
+    /// The numeric controls of one draw, in draw order, each paired with
+    /// the label painted in front of it.
+    ///
+    /// `fp_slider` deliberately emits no inline label - the caller draws
+    /// `ui.label("Mass (kg)")` above a stack of related sliders - so the
+    /// slider's own AccessKit label is empty and the name has to come from
+    /// the node before it.
+    ///
+    /// TWO TRAPS, both paid for once. `TreeUpdate::nodes` is NOT in draw
+    /// order - it comes out of an id map, so a straight walk of it pairs
+    /// a slider with whatever label hashed next to it - hence the depth
+    /// first walk from the tree's own root, which is document order. And
+    /// an `egui::Slider` reports TWICE, once as `Slider` and once as the
+    /// `SpinButton` of the number beside it, with the same value and the
+    /// same range; a bare `DragValue` (`fp3_extents`) reports only the
+    /// second, so a `SpinButton` is kept unless the control just before it
+    /// was a slider saying exactly the same thing.
+    fn numeric_controls(output: &egui::FullOutput) -> Vec<Control> {
+        use bevy_egui::egui::accesskit::{Node, NodeId, Role};
+        use std::collections::HashMap;
+        let Some(update) = output.platform_output.accesskit_update.as_ref() else {
+            panic!("accesskit was enabled, so the pass has a tree");
+        };
+        let by_id: HashMap<NodeId, &Node> = update.nodes.iter().map(|(id, n)| (*id, n)).collect();
+        let root = update.tree.as_ref().expect("the pass has a tree").root;
+
+        let mut out: Vec<Control> = Vec::new();
+        let mut last_label = String::new();
+        let mut last_was_slider = false;
+        // Explicit stack rather than recursion: the tree is the panel's,
+        // not this test's, and a deep one should not be a stack overflow.
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            let Some(node) = by_id.get(&id) else { continue };
+            match node.role() {
+                Role::Label => {
+                    if let Some(v) = node.value() {
+                        last_label = v.to_string();
+                    }
+                    last_was_slider = false;
+                }
+                role @ (Role::Slider | Role::SpinButton) => {
+                    if let (Some(value), Some(min), Some(max)) = (
+                        node.numeric_value(),
+                        node.min_numeric_value(),
+                        node.max_numeric_value(),
+                    ) {
+                        let companion = role == Role::SpinButton
+                            && last_was_slider
+                            && out.last().is_some_and(|c: &Control| {
+                                c.value == value && c.min == min && c.max == max
+                            });
+                        if !companion {
+                            let label = node
+                                .label()
+                                .filter(|l| !l.is_empty())
+                                .map_or_else(|| last_label.clone(), str::to_string);
+                            out.push(Control {
+                                label,
+                                value,
+                                min,
+                                max,
+                            });
+                        }
+                        last_was_slider = role == Role::Slider;
+                    }
+                }
+                _ => {}
+            }
+            // Children are pushed in reverse so the first one is popped
+            // first, which makes the walk document order.
+            stack.extend(node.children().iter().rev().copied());
+        }
+        out
+    }
+
+    /// The numeric controls the tab draws for one record, every section
+    /// open, on a draw that writes nothing.
+    fn controls_for(record: &mut AvatarRecord, seed: u64) -> Vec<Control> {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        ctx.memory_mut(|m| m.set_everything_is_visible(true));
+        let mut labels = crate::ui::undo::PendingUndoLabels::default();
+        let mut toasts = crate::notify::Toasts::default();
+        let movement = crate::player::LocalMovement::default();
+        let mut dirty = false;
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 720.0),
+            )),
+            ..Default::default()
+        };
+        let output = ctx.run_ui(input, |ui| {
+            draw_locomotion_tab(
+                ui,
+                &mut record.locomotion,
+                &mut record.gait,
+                seed,
+                &mut dirty,
+                &mut labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
+                &movement,
+                &mut toasts,
+                0.0,
+            );
+        });
+        numeric_controls(&output)
+    }
+
+    /// PRINT-ONLY. What every slider-backed field of the Locomotion tab
+    /// actually derives, over seeds 0..4000, against the range its own
+    /// slider offers (#1390 design call 2).
+    ///
+    /// Under `SliderClamping::Edits` an out-of-range value is no longer
+    /// corrupted by being looked at - but it still cannot be DRAGGED,
+    /// because the track only spans the range. So the ranges have to hold
+    /// the fleet, and the only way to know is to derive the fleet and
+    /// look. Re-run it after any retune that moves a derived field
+    /// (#1381's tuples move four of them).
+    #[test]
+    #[ignore = "audit for #1390: what the seeds derive against what the sliders offer"]
+    fn audit_every_slider_range_against_what_the_seeds_derive() {
+        use std::collections::BTreeMap;
+        /// One control's span over the seeds: min and max seen, the range
+        /// its own slider offers, and the seed of the worst excursion.
+        type Band = (f64, f64, f64, f64, u64);
+        let mut bands: BTreeMap<String, BTreeMap<String, Band>> = BTreeMap::new();
+        for seed in 0u64..4000 {
+            let mut record = AvatarRecord::default_for_seed(seed);
+            let preset = record.locomotion.kind_tag().to_string();
+            for c in controls_for(&mut record, seed) {
+                let e = bands
+                    .entry(preset.clone())
+                    .or_default()
+                    .entry(c.label.clone())
+                    .or_insert((c.value, c.value, c.min, c.max, seed));
+                if c.value < e.0 {
+                    e.0 = c.value;
+                    if c.value < c.min {
+                        e.4 = seed;
+                    }
+                }
+                if c.value > e.1 {
+                    e.1 = c.value;
+                    if c.value > c.max {
+                        e.4 = seed;
+                    }
+                }
+            }
+        }
+        for (preset, fields) in &bands {
+            println!("\n== {preset} ==");
+            println!(
+                "{:<38} {:>12} {:>12}   {:>12} {:>12}  verdict",
+                "control", "seeds min", "seeds max", "slider lo", "slider hi"
+            );
+            for (label, (lo, hi, rlo, rhi, worst)) in fields {
+                let out = *lo < *rlo || *hi > *rhi;
+                println!(
+                    "{:<38} {:>12.4} {:>12.4}   {:>12.4} {:>12.4}  {}",
+                    label,
+                    lo,
+                    hi,
+                    rlo,
+                    rhi,
+                    if out {
+                        format!("OUT OF RANGE (seed {worst})")
+                    } else {
+                        "ok".to_string()
+                    }
+                );
+            }
+        }
+    }
+
+    /// THE GUARD. Drawing the Locomotion tab, every section open and
+    /// nothing touched, leaves the record bit-identical and the editor
+    /// clean - on all fourteen seeded presets (#1390).
+    #[test]
+    fn an_untouched_locomotion_tab_writes_nothing() {
+        let mut complaints = Vec::new();
+        let mut sections: Vec<String> = Vec::new();
+        for (name, seed, mut record) in seeded_fleet() {
+            // Two frames: the first lays the panel out, the second draws it
+            // against a settled layout, and a widget that writes on sight
+            // writes on both.
+            let drawn = draw_tab_over(&mut record, seed, 2);
+            sections.extend(drawn.controls.iter().cloned());
+            for moved in &drawn.moved {
+                complaints.push(format!("{name} (seed {seed}): {moved}"));
+            }
+            if drawn.dirty {
+                complaints.push(format!(
+                    "{name} (seed {seed}): the panel raised `dirty` with no input"
+                ));
+            }
+            if drawn.materialised_gait {
+                complaints.push(format!(
+                    "{name} (seed {seed}): the panel materialised a gait section on a record \
+                     that had none"
+                ));
+            }
+        }
+        sections.sort();
+        sections.dedup();
+        assert!(
+            complaints.is_empty(),
+            "an untouched Locomotion tab wrote to the live record.\n  sections drawn: {}\n{}",
+            sections.join(" | "),
+            complaints.join("\n")
+        );
+    }
+}

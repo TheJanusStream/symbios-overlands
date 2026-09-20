@@ -72,7 +72,7 @@ use super::plan::{Axle, BodyPlan};
 // The family's shape vocabulary (#1374), imported here so every body's
 // `use super::{board, line, ..}` still resolves.
 use super::shape::{board, line, solid, turned};
-use super::{SkiffCraft, SkiffFeel, dim};
+use super::{SkiffCraft, SkiffFeel, SkiffIdle, dim};
 
 /// A wagon wheel is HIGH: 0.30-0.34 of the length across (the brief). The
 /// blueprint's wheel fraction is 0.110-0.125 of the length, so this maps that
@@ -244,12 +244,57 @@ impl SkiffCraft for Wagon {
     }
 
     fn feel(&self) -> SkiffFeel {
-        // Heavier and slower than the roadster's 1.0 / 8.9 / 2.0 - a
-        // placeholder the owner agreed, for #1381's per-type sweep to tune.
+        // #1381's sweep, agreed by the owner on 2026-09-20. A cart horse
+        // walks at 6 km/h and trots at 13 to 16; she was doing 31.6, which is
+        // a bolting team. drive_accel 7.0 -> 1.9 and linear_damping
+        // 0.8 -> 0.45 give 15.2 km/h (4.23 m/s - a trot), reached in 5.12 s
+        // and shed in 5.08: the slowest skiff in the fleet and the slowest
+        // to gather way, which is the pair of claims one shared damping
+        // could not express.
+        //
+        // Her steering is untouched at 1.7 and her yaw rate is unchanged at
+        // 26.9 deg/s, yet her circle halves to 17.7 m = 6.0 of her own
+        // 2.97 m. She simply travels slower through the same turn. That is
+        // what a team of horses does.
+        //
+        // 1.9 m/s^2 is under the old 5.0 floor of
+        // `every_vehicle_drive_accel_is_in_the_feel_band`, which widened to
+        // 1.5 with this sweep - see the guard for why a slope does not make
+        // her undriveable.
+        //
+        // HER MASS FACTOR ROSE 1.15 -> 1.45 with the IDLE half of #1381,
+        // and it is the one feel literal that half touches. It changes
+        // nothing she drives like - the probe's own control proved the mass
+        // factor cancels out of speed, acceleration, yaw rate and circle -
+        // and it is not there for weight. It is there so her mass BAND
+        // clears the roadster's: a laden wagon rolls OUT of a corner and a
+        // sports car leans in, the record carries no craft type for a peer
+        // to read, and mass is the one thing it does carry that separates
+        // them. See `player::gait::skiff_bank_sign` for the blend and the
+        // measured gap it sits in.
         SkiffFeel {
-            mass_factor: 1.15,
-            drive_accel: 7.0,
+            mass_factor: 1.45,
+            drive_accel: 1.9,
             turn_accel: 1.7,
+            linear_damping: 0.45,
+            angular_damping: 4.0,
+        }
+    }
+
+    fn idle(&self) -> SkiffIdle {
+        // `Propulsion::Rolling`: a horse-drawn wagon has no engine at all,
+        // and she was the WORST case of the buzz - she carried it while
+        // being the one craft in the fleet with nothing under her at all.
+        // She sits still.
+        //
+        // 4 degrees, and she ROLLS OUT: a high laden bed over a narrow
+        // track leans away from a corner, mildly. The direction comes from
+        // her mass, and her mass factor rose 1.15 -> 1.45 with this slice
+        // for exactly that - see `SkiffFeel::mass_factor` and
+        // `player::gait::skiff_bank_sign`.
+        SkiffIdle {
+            shiver: None,
+            bank_degrees: 4.0,
         }
     }
 

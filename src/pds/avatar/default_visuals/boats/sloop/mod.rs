@@ -40,7 +40,7 @@ use crate::seeded_defaults::{BoatBlueprint, ParticleAura, SloopHull, SloopRig};
 
 use super::super::common::{cuboid, id_quat, prim};
 use super::profile::HullProfile;
-use super::{BoatCraft, BoatFeel, Propulsion, boat_colours, dim};
+use super::{BoatCraft, BoatFeel, BoatIdle, Propulsion, boat_colours, dim};
 use rig::{Rig, rigging};
 
 /// Section depth per unit half-beam. The knob that turns a plan form into a
@@ -141,14 +141,32 @@ impl BoatCraft for Sloop {
         // The retired monohull's numbers exactly. The hull *arrangements*
         // carried the feel before #1363 and a sloop is what the monohull was;
         // keeping them unchanged means the drive the owner validated with the
-        // scale bridge (#1361) is the drive that ships. Per-type feel is
-        // #1381's whole slice.
+        // scale bridge (#1361) is the drive that ships.
+        //
+        // #1381's sweep DROVE her and kept her, and she is the yardstick the
+        // other five boats were set against: 21.7 km/h, 90% of it in 1.55 s,
+        // 112.0 deg/s, round in 6.2 m = 2.4 of her own 2.57 m length. Only
+        // the runabout is quicker in a straight line and only the tug turns
+        // in fewer of her own lengths, and both were chosen against this row.
         BoatFeel {
             mass_factor: 4.0,
             drive_accel: 9.0,
             turn_accel: 7.0,
             linear_damping: 1.5,
             angular_damping: 6.0,
+        }
+    }
+
+    fn idle(&self) -> BoatIdle {
+        // THE BASELINE, and the only one that is a definition rather than a
+        // choice: every other hull's swell is a multiple of the sloop's, so
+        // hers is 1.0 by construction. On the seeded amplitude band that is
+        // 15-75 mm of heave (1.6-8.2 px at the game's 12 m camera) and
+        // 1.0-5.0 degrees of list, which is what shipped and what the owner
+        // has been looking at since #1361.
+        BoatIdle {
+            heave: 1.0,
+            list: 1.0,
         }
     }
 

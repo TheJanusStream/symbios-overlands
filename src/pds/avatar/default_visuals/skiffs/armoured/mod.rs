@@ -84,7 +84,7 @@ use super::plan::{Axle, BodyPlan};
 // The family's shape vocabulary, imported here so each part's
 // `use super::{plate, ..}` resolves.
 use super::shape::{board, line, plate, ramp, rim_profile, solid, tapered_plate, tyre_profile};
-use super::{SkiffCraft, SkiffFeel, dim};
+use super::{Shiver, SkiffCraft, SkiffFeel, SkiffIdle, dim};
 
 /// Her hull's half-width over the blueprint's body half-width: an armoured
 /// car is wide for her length, and the arches stand outboard of that again.
@@ -356,17 +356,48 @@ impl SkiffCraft for Armoured {
     }
 
     fn feel(&self) -> SkiffFeel {
-        // The brief's own armoured numbers: the heaviest and least nimble
-        // skiff, against the roadster's 1.0 / 8.9 / 2.0 - a placeholder the
-        // owner agreed, for #1381's per-type sweep to tune. Note for that
-        // sweep: she is the first type to reach the family's 1500 kg mass
-        // ceiling, and twelve of the 65 seeds under 3000 clamp at it, so a
-        // mass factor much over this stops moving the long half of her
-        // population at all.
+        // #1381's sweep, agreed by the owner on 2026-09-20. She is the first
+        // craft in the fleet to be PONDEROUS rather than merely slow, and
+        // that is what the new linear_damping buys: before the sweep every
+        // skiff shared 0.8, so she reached 90% of her speed in the same
+        // 2.89 s as a dune buggy however heavy she was. Measured now:
+        // 24.9 km/h, 90% of it in 4.20 s against everyone else's 2.89, and
+        // 4.17 s to shed it again - heavy, slow to gather way and slower to
+        // lose it. Her steering is untouched at 1.7; angular_damping 4.0 ->
+        // 5.0 settles the turn, and she is the first skiff to come OFF the
+        // 17.2 degree bank clamp, at 11.0.
+        //
+        // The mass factor is untouched, and it is not a feel knob (see
+        // `SkiffFeel::mass_factor`). She is still the first type to reach
+        // the family's 1500 kg ceiling, with twelve of the 65 seeds under
+        // 3000 clamped at it, so a factor much over this stops moving the
+        // long half of her population at all.
         SkiffFeel {
             mass_factor: 1.55,
-            drive_accel: 6.5,
+            drive_accel: 3.8,
             turn_accel: 1.7,
+            linear_damping: 0.55,
+            angular_damping: 5.0,
+        }
+    }
+
+    fn idle(&self) -> SkiffIdle {
+        // `Propulsion::Diesel`: a big slow lump lopes at 6 Hz, and shakes
+        // the whole box doing it - the largest tremble in the family.
+        //
+        // 5 degrees, and she ROLLS OUT of a corner rather than into it. A
+        // tall armoured box leaning into its turn was the reading that most
+        // needed fixing, and the direction is not written here: it comes
+        // from her MASS, through `player::gait::skiff_bank_sign`, because
+        // mass is the only thing about her a peer receives. Her band is the
+        // heaviest in the family, which is what puts her on the far side of
+        // the blend.
+        SkiffIdle {
+            shiver: Some(Shiver {
+                amplitude: 1.8,
+                hz: 6.0,
+            }),
+            bank_degrees: 5.0,
         }
     }
 

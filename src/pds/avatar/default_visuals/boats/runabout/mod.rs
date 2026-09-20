@@ -26,7 +26,7 @@ use crate::pds::generator::Generator;
 use crate::seeded_defaults::{BoatBlueprint, ParticleAura, RunaboutVariant};
 
 use super::profile::{FinlessForm, HullProfile, SheerLaw};
-use super::{BoatCraft, BoatFeel, Propulsion, RunaboutColours, runabout_colours};
+use super::{BoatCraft, BoatFeel, BoatIdle, Propulsion, RunaboutColours, runabout_colours};
 use hull::{HULL_HOLLOW, line, sole_depth};
 
 /// Every runabout's deck line: lowest at the transom, the rise gathering
@@ -114,14 +114,30 @@ impl BoatCraft for Runabout {
     }
 
     fn feel(&self) -> BoatFeel {
-        // The legacy catamaran's numbers, as the brief asks: light and
-        // nimble. A placeholder for #1381's per-type sweep.
+        // #1381's sweep, agreed by the owner on 2026-09-20. Her straight
+        // line was right and is untouched: 46.9 km/h, the fastest thing on
+        // the water here, 90% of it in 2.31 s. What moved is the turn. At
+        // 160.1 deg/s a planing mahogany runabout was spinning on the spot -
+        // a full revolution every 2.2 seconds at thirteen metres a second -
+        // and a planing hull CARVES. turn_accel 10.0 -> 7.0 and
+        // angular_damping 4.0 -> 4.5 give 99.8 deg/s and a circle of 15.0 m
+        // = 4.8 of her own 3.14 m, the widest arc of any boat.
         BoatFeel {
             mass_factor: 2.4,
             drive_accel: 13.0,
-            turn_accel: 10.0,
+            turn_accel: 7.0,
             linear_damping: 1.0,
-            angular_damping: 4.0,
+            angular_damping: 4.5,
+        }
+    }
+
+    fn idle(&self) -> BoatIdle {
+        // Light and lively, but a planing hull sits FLAT: her list is barely
+        // over the sloop's while her heave is under it. 14-68 mm of heave,
+        // 1.1-5.5 degrees of list.
+        BoatIdle {
+            heave: 0.9,
+            list: 1.1,
         }
     }
 

@@ -63,7 +63,7 @@ use super::plan::{Axle, BodyPlan};
 // The family's shape vocabulary, imported here so each part's
 // `use super::{line, ..}` resolves.
 use super::shape::{board, line, rim_profile, solid, sweep, tyre_profile};
-use super::{SkiffCraft, SkiffFeel, dim};
+use super::{Shiver, SkiffCraft, SkiffFeel, SkiffIdle, dim};
 use frame::Frame;
 
 /// The frame's depth per unit half-width - see [`BodyPlan::section`]. As
@@ -262,13 +262,33 @@ impl SkiffCraft for Buggy {
     }
 
     fn feel(&self) -> SkiffFeel {
-        // The legacy dune chassis's numbers: light and nimble against the
-        // roadster's 1.0 / 8.9 / 2.0 - a placeholder the owner agreed, for
-        // #1381's per-type sweep to tune.
+        // #1381's sweep, agreed by the owner on 2026-09-20. Her straight
+        // line was right and is untouched: 49.6 km/h. What moved is the
+        // turn - light, short-wheelbase and with enormous grip, she is the
+        // darty one, and at 48.7 deg/s she was cornering like the roadster.
+        // turn_accel 2.6 -> 3.6 and angular_damping 4.0 -> 3.5 give
+        // 76.9 deg/s and a circle of 19.0 m = 7.0 of her own lengths,
+        // against the roadster's 11.8.
         SkiffFeel {
             mass_factor: 0.62,
             drive_accel: 11.0,
-            turn_accel: 2.6,
+            turn_accel: 3.6,
+            linear_damping: 0.8,
+            angular_damping: 3.5,
+        }
+    }
+
+    fn idle(&self) -> SkiffIdle {
+        // `Propulsion::AirCooled`: a flat-four shakes, and shakes fast. The
+        // tremble is half again the roadster's and the pace is 11 Hz.
+        // 14 degrees of lean - she leans IN, but a tall-sprung buggy on
+        // balloon tyres does not lean as far as a low sports car.
+        SkiffIdle {
+            shiver: Some(Shiver {
+                amplitude: 1.4,
+                hz: 11.0,
+            }),
+            bank_degrees: 14.0,
         }
     }
 

@@ -5,7 +5,21 @@
 //! motion (see [`crate::pds::avatar::gait`]), so the sliders start from
 //! that derivation and the record only materialises an explicit section
 //! once the owner actually moves one - untouched avatars keep publishing
-//! byte-identical records.
+//! byte-identical records. (Until #1390 that promise was false, because
+//! every slider here snapped its value to its own step on sight; the fix
+//! is in `ui::num`, and `inert_panel_tests` is the guard.)
+//!
+//! # One field, four meanings (#1381)
+//!
+//! `head_turn_variance_degrees` is each profile's angular RANGE, and the
+//! label follows the mode because the number means a different thing in
+//! each: a humanoid's head turn, an airship's nose wander, a BOAT'S LIST
+//! and a SKIFF'S BANK CLAMP. The last two are new - before the idle sweep
+//! a boat took her heave and her list from the one `idle_sway_amplitude`,
+//! so a scow that follows the surface while barely listing could not be
+//! authored at all, and a skiff's lean was a constant no record could
+//! reach. The section's own comment used to claim the vehicles reused this
+//! field as their list, which was not true then and is now.
 
 use bevy_egui::egui;
 
@@ -46,6 +60,14 @@ pub(super) fn draw_gait_section(
             // Baseline: the explicit record section, else the seed
             // derivation every peer falls back to. Edits materialise the
             // section; an untouched panel writes nothing.
+            //
+            // Deliberately the CRAFT-BLIND `for_seed`, where the re-derive
+            // button below is craft-aware (#1381). They are answering
+            // different questions: this shows what is on screen right now,
+            // and a record with no gait section is rendered by every peer
+            // through `GaitParams::for_seed` because a peer cannot know the
+            // craft. The button says "make this what a re-roll would
+            // write", which is the craft-aware derivation.
             let mut p = gait
                 .clone()
                 .unwrap_or_else(|| GaitParams::for_seed(fallback_seed));
@@ -62,8 +84,9 @@ pub(super) fn draw_gait_section(
             }
 
             // The humanoid profile is the only walker; the vehicle
-            // profiles reuse sway amplitude/frequency and head-turn as
-            // heave / list / shiver / nose-wander scale.
+            // profiles reuse sway amplitude and frequency as heave /
+            // shiver and their pace, and the angular field below as their
+            // own angular range (#1381).
             if mode == GaitMode::Humanoid {
                 ui.label("Step cadence (steps/s at full walk speed)");
                 fp_slider(ui, &mut p.step_cadence, 0.2..=6.0, 0.05, &mut changed);
@@ -92,7 +115,7 @@ pub(super) fn draw_gait_section(
                 0.005,
                 &mut changed,
             );
-            ui.label("Head turn / nose wander (±°)");
+            ui.label(angular_label(mode));
             fp_slider(
                 ui,
                 &mut p.head_turn_variance_degrees,
@@ -117,9 +140,31 @@ pub(super) fn draw_gait_section(
                 )
                 .clicked()
             {
-                *gait = Some(GaitParams::for_seed(fallback_seed));
+                // The CRAFT-AWARE derivation since #1381, which is what a
+                // re-roll of this seed writes. `GaitParams::for_seed` is
+                // craft-blind and would hand a wagon a buzz she does not
+                // have, making the hover text above false - see
+                // `default_visuals::seeded_gait`.
+                *gait = Some(crate::pds::avatar::default_visuals::seeded_gait(
+                    fallback_seed,
+                ));
                 undo_label.set("idle-motion reseed".to_string());
                 *dirty = true;
             }
         });
+}
+
+/// What the record's angular field means to `mode` (#1381).
+///
+/// One field per profile's angular range, so the label is the only thing
+/// that tells the owner which question the slider is asking. A wrong label
+/// here is a silent mis-edit: a boat owner dragging "head turn" is in fact
+/// setting how far she rolls.
+fn angular_label(mode: GaitMode) -> &'static str {
+    match mode {
+        GaitMode::Humanoid => "Head turn (±°)",
+        GaitMode::Airship => "Nose wander (±°)",
+        GaitMode::Boat => "List (±°, how far she rolls at rest)",
+        GaitMode::Skiff => "Bank range (±°, how far she leans in a corner)",
+    }
 }

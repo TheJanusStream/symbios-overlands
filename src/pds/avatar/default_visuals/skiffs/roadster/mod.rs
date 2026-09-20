@@ -58,7 +58,7 @@ use super::plan::{Axle, BodyPlan};
 // The family's scaled sweep (#1374), imported here so the coachwork's and
 // the hardtop's `use super::{.., sweep}` still resolve.
 use super::shape::sweep;
-use super::{SkiffCraft, SkiffFeel, dim, skiff_colours};
+use super::{Shiver, SkiffCraft, SkiffFeel, SkiffIdle, dim, skiff_colours};
 
 /// Section depth per unit half-width - the ONE node scale every body sweep
 /// shares, and the knob that turns a plan form below into a body. 0.80 makes
@@ -370,11 +370,45 @@ impl SkiffCraft for Roadster {
         // The retired default chassis's numbers exactly. The chassis *classes*
         // carried the feel before #1364 and the roadster is what the default
         // chassis was, so the drive the owner validated with the scale bridge
-        // (#1361) is the drive that ships. Per-type feel is #1381's slice.
+        // (#1361) is the drive that ships.
+        //
+        // #1381's sweep DROVE her and kept her, and she is the yardstick the
+        // other five skiffs were set against: 40.1 km/h, 90% of it in 2.89 s,
+        // 39.6 deg/s, round in 31.6 m = 11.8 of her own 2.67 m. The two
+        // damping numbers are new LITERALS and not a new value: they are
+        // `CarParams`' own defaults, which is what every skiff silently
+        // shared before the struct grew them, so her published record is
+        // bit-identical to the one #1361 signed off.
+        //
+        // One thing the sweep noticed and did not change: 11.8 lengths is a
+        // very wide circle for a car, and a real roadster comes round in
+        // three or four. If the whole land fleet ever reads as understeering,
+        // the answer is a family-wide turn_accel lift and not six separate
+        // ones.
         SkiffFeel {
             mass_factor: 1.0,
             drive_accel: 8.9,
             turn_accel: 2.0,
+            linear_damping: 0.8,
+            angular_damping: 4.0,
+        }
+    }
+
+    fn idle(&self) -> SkiffIdle {
+        // THE BASELINE. `Propulsion::Engine`, so she idles, and at the 9 Hz
+        // that was the family-wide constant - the pace the owner has been
+        // looking at since #1361. Her bank clamp is 17.19 degrees, which is
+        // the `SKIFF_BANK_MAX` constant it replaces - 0.3 rad is 17.1887
+        // degrees - so the lean validated in #1368 is hers unchanged. Every
+        // record now states its own clamp, so the constant is gone: this
+        // literal is the last thing left of it, which is why the arithmetic
+        // is written out here.
+        SkiffIdle {
+            shiver: Some(Shiver {
+                amplitude: 1.0,
+                hz: 9.0,
+            }),
+            bank_degrees: 17.19,
         }
     }
 

@@ -52,13 +52,10 @@ const BLEND_RATE: f32 = 6.0;
 /// Idle look-around frequency (Hz) - deliberately much slower than the
 /// weight-shift sway so the two don't read as one wobble.
 const HEAD_TURN_FREQ_HZ: f32 = 0.08;
-/// Midpoint of the seeded `idle_sway_frequency` range (0.4–1.2 Hz). The
-/// skiff and airship profiles have characteristic frequencies of their own
-/// (engine buzz, lazy drift) far from the human sway band, so they consume
-/// the authored frequency as a *ratio* against this nominal - the slider
-/// modulates their pace proportionally (#878) while the seeded midpoint
-/// reproduces the historical `veh` constants exactly.
-const NOMINAL_SWAY_HZ: f32 = 0.8;
+/// Midpoint of the seeded `idle_sway_frequency` range (0.4-1.2 Hz) - see
+/// [`crate::pds::avatar::gait::NOMINAL_SWAY_HZ`], which owns it because the
+/// seeded derivation writes through it.
+use crate::pds::avatar::gait::NOMINAL_SWAY_HZ;
 
 /// Vehicle idle-motion tuning. The vehicle modes reuse the seeded
 /// [`AvatarGait`] amplitudes (no new seeded fields - the individuality is
@@ -67,12 +64,29 @@ mod veh {
     /// Boat hull heave (vertical bob) as a multiple of `idle_sway_amplitude`
     /// - a hull rides a swell far more than a person shifts weight.
     pub const BOAT_HEAVE: f32 = 3.0;
-    /// Boat list (roll about the fore-aft axis) as a multiple of
-    /// `idle_sway_amplitude`, in radians (≈1–5°).
-    pub const BOAT_ROLL: f32 = 3.5;
     /// Boat swell frequency floor (Hz) so a low-`idle_sway_frequency` seed
     /// still visibly rocks.
     pub const BOAT_SWELL_HZ: f32 = 0.35;
+    /// Boat list as a fraction of `head_turn_variance_degrees` - the
+    /// boat profile's reading of the record's angular field (#1381).
+    ///
+    /// # Why 0.24, and why this field at all
+    ///
+    /// `advance_boat` took heave AND list from the one
+    /// `idle_sway_amplitude`, so a scow that follows the surface (heave
+    /// x1.1) while barely listing (x0.4) could not be written through the
+    /// record as the profile read it. The angular field was already
+    /// overloaded - the humanoid's head turn AND the airship's nose wander
+    /// (x`AIRSHIP_YAW`) - and the Idle-motion section's own comment already
+    /// claimed the vehicles reused it as their list, which was false. Since
+    /// #1381 it is true: the field is each profile's angular RANGE, which
+    /// costs no lexicon change and reaches every peer.
+    ///
+    /// The fraction is what keeps an OLD record looking like itself. A boat
+    /// published before the port carries 5-20 degrees there, from the
+    /// craft-blind seeded derivation, and 0.24 of that is 1.2-4.8 degrees
+    /// of list against the 1.0-5.0 she has today.
+    pub(crate) use crate::pds::avatar::gait::BOAT_LIST_FRACTION;
     /// Airship nose-wander yaw as a fraction of `head_turn_variance_degrees`.
     pub const AIRSHIP_YAW: f32 = 0.4;
     /// Airship drift frequency (Hz) at the seeded-nominal sway frequency -
@@ -85,28 +99,115 @@ mod veh {
     pub const SKIFF_SHIVER: f32 = 0.6;
     /// Skiff shiver frequency (Hz) at the seeded-nominal sway frequency -
     /// an idling-engine buzz, much faster than the boat swell, scaled by
-    /// the authored ratio (#878).
-    pub const SKIFF_SHIVER_HZ: f32 = 9.0;
+    /// the authored ratio (#878). Since #1381 the seeded derivation writes
+    /// a frequency that lands this on the craft's OWN engine pace, so it
+    /// owns the number (11 Hz air-cooled, 9 engine, 6 diesel).
+    pub(crate) use crate::pds::avatar::gait::SKIFF_SHIVER_HZ;
     /// Skiff banking lean gain: radians of roll per (rad/s of yaw-rate × m/s
     /// of speed). Turning harder / faster leans harder into the corner.
+    ///
+    /// UNCHANGED by #1381, deliberately: below her clamp the validated
+    /// roadster's lean is hers to the bit.
     pub const SKIFF_BANK_GAIN: f32 = 0.06;
-    /// Skiff maximum banking lean (radians, ≈17°) so a hard swerve can't flip
-    /// the visual on its side.
-    pub const SKIFF_BANK_MAX: f32 = 0.3;
+    /// Below this mass (kg) a skiff leans INTO her corner, and above
+    /// [`BANK_ROLLS_OUT_ABOVE_KG`] she rolls OUT of it, blending smoothly
+    /// between (#1381). See [`super::skiff_bank_sign`].
+    ///
+    /// # Where the two numbers come from
+    ///
+    /// The measured GAP between the roadster's mass band and the wagon's,
+    /// over seeds 0..4000 at the ported feels
+    /// (`default_visuals::tests::audit_the_skiff_mass_bands`):
+    ///
+    /// ```text
+    /// Cyclecar      480.0 -  622.1      Roadster    779.0 - 1042.1
+    /// Rover         480.0 -  599.4    < the gap: 82.5 kg >
+    /// Dune buggy    489.2 -  627.3      Wagon      1124.6 - 1500.0
+    ///                                   Armoured   1205.9 - 1500.0
+    /// ```
+    ///
+    /// Centred in that gap with about 18 kg of margin at each end, so no
+    /// seeded craft of any type falls INSIDE the blend - a craft in the
+    /// middle would have her lean partly cancelled -  and so a later change
+    /// to a band has room before it flips a whole type.
+    /// `no_seeded_skiff_sits_inside_the_bank_blend` is the guard, and the
+    /// audit above is what to re-run after any `mass_factor` moves.
+    pub const BANK_LEANS_IN_BELOW_KG: f32 = 1_060.0;
+    /// The other end of that blend.
+    pub const BANK_ROLLS_OUT_ABOVE_KG: f32 = 1_105.0;
+}
+
+/// The two ends of [`skiff_bank_sign`]'s blend, in kg - reachable from the
+/// seeded derivation's own guards, which is where the claim that no craft
+/// sits inside the blend lives (`default_visuals::tests`). The law itself
+/// only ever reads them through [`skiff_bank_sign`].
+#[cfg(test)]
+pub(crate) use veh::{BANK_LEANS_IN_BELOW_KG, BANK_ROLLS_OUT_ABOVE_KG};
+
+/// The boat profile's list amplitude in radians, read off the record's
+/// angular field (#1381).
+///
+/// The one place that field's boat meaning is stated, so the seeded
+/// derivation and the profile cannot drift: `default_visuals::seeded_gait`
+/// writes through exactly this.
+pub(crate) fn boat_list(angular_degrees: f32) -> f32 {
+    (angular_degrees * veh::BOAT_LIST_FRACTION).to_radians()
+}
+
+/// The skiff profile's bank clamp in radians, read off the record's angular
+/// field (#1381) - the twin of [`boat_list`].
+///
+/// A record whose angular field is 0 would pin the craft flat, which is a
+/// legal authored answer ("do not lean") and is left alone.
+pub(crate) fn skiff_bank_clamp(angular_degrees: f32) -> f32 {
+    angular_degrees.to_radians()
+}
+
+/// Which way a skiff leans, from the one thing about her a peer receives:
+/// her mass (#1381). `+1` leans INTO the corner, `-1` rolls OUT of it, and
+/// the blend between is smooth so nothing snaps at a boundary.
+///
+/// # Why mass, of all things
+///
+/// A low sports car leaning into a bend is right and a tall armoured box
+/// doing it is not, so the direction has to be per type - but a vehicle's
+/// published record is a generator tree, a locomotion config and a gait
+/// section, with no craft type, no propulsion and no seed in it. The
+/// collider box cannot carry it either: measured, the armoured car's box is
+/// SHALLOWER than the roadster's (it is the bodywork the builder draws), so
+/// a roll law reading the box would lean the tall one hardest. Mass is what
+/// is left, and it happens to separate the fleet cleanly - the two craft
+/// that should roll out are the two heaviest.
+///
+/// The ends of the blend sit in the measured GAP between the roadster's mass
+/// band and the wagon's, over seeds 0..4000 at the ported feels. Its price,
+/// and it is a real one: an owner who drags a skiff's mass across the blend
+/// in the Locomotion tab flips her lean, and a heavy skiff published before
+/// #1381 flips on sight. The alternative was a signed bank field in
+/// `GaitParams`, which is a lexicon change, a scaled int, a sanitiser range,
+/// a three-direction wire test and an editor slice.
+pub(crate) fn skiff_bank_sign(mass: f32) -> f32 {
+    let lo = veh::BANK_LEANS_IN_BELOW_KG;
+    let hi = veh::BANK_ROLLS_OUT_ABOVE_KG;
+    let t = ((mass - lo) / (hi - lo)).clamp(0.0, 1.0);
+    // Smoothstep, so the derivative is zero at both ends: a mass dragged
+    // through the band crosses without a visible kink at either edge.
+    let s = t * t * (3.0 - 2.0 * t);
+    1.0 - 2.0 * s
 }
 
 /// The skiff profile's banking lean in radians, for a yaw rate (rad/s,
-/// positive turning left about +Y) and a flat speed (m/s):
-/// [`veh::SKIFF_BANK_GAIN`] times their product, clamped to
-/// [`veh::SKIFF_BANK_MAX`] (17.2 degrees) so a hard swerve cannot flip the
-/// visual on its side.
+/// positive turning left about +Y), a flat speed (m/s), her clamp
+/// ([`skiff_bank_clamp`]) and her direction ([`skiff_bank_sign`]):
+/// [`veh::SKIFF_BANK_GAIN`] times the product of the first two, signed and
+/// clamped so a hard swerve cannot flip the visual on its side.
 ///
 /// Its own function because the #1381 drive probe asks it of a yaw rate and
 /// a speed it MEASURED off the real drive systems, and a probe that carries
 /// its own copy of the law is a probe that can agree with itself while the
 /// game does something else.
-pub(crate) fn skiff_bank(yaw_rate: f32, speed: f32) -> f32 {
-    (veh::SKIFF_BANK_GAIN * yaw_rate * speed).clamp(-veh::SKIFF_BANK_MAX, veh::SKIFF_BANK_MAX)
+pub(crate) fn skiff_bank(yaw_rate: f32, speed: f32, clamp_radians: f32, sign: f32) -> f32 {
+    (sign * veh::SKIFF_BANK_GAIN * yaw_rate * speed).clamp(-clamp_radians, clamp_radians)
 }
 
 /// Which animation profile drives an avatar's visual root - chosen from the
@@ -173,6 +274,11 @@ pub struct GaitAnimation {
     prev_yaw: Option<f32>,
     /// Per-avatar phase offset so a crowd doesn't sway in lockstep.
     salt: f32,
+    /// Which way the skiff profile leans, from the record's mass
+    /// ([`skiff_bank_sign`]), refreshed from the record each frame. `+1`
+    /// until a record says otherwise, which is what every skiff did before
+    /// #1381.
+    bank_sign: f32,
 }
 
 impl GaitAnimation {
@@ -191,6 +297,7 @@ impl GaitAnimation {
             prev_pos: None,
             prev_yaw: None,
             salt,
+            bank_sign: 1.0,
         }
     }
 
@@ -209,6 +316,14 @@ impl GaitAnimation {
         self.walk_speed_hint = match &record.locomotion {
             LocomotionConfig::Humanoid(p) => Some(p.walk_speed.0),
             _ => None,
+        };
+        // A skiff's lean direction, from the one thing about her the record
+        // carries that separates a sports car from an armoured box (#1381).
+        // Read every frame like the rest of this, so dragging the Mass
+        // slider is under the wheel on the next one.
+        self.bank_sign = match &record.locomotion {
+            LocomotionConfig::Car(p) => skiff_bank_sign(p.mass.0),
+            _ => 1.0,
         };
     }
 }
@@ -521,7 +636,11 @@ impl GaitAnimation {
         let ts = t + self.salt;
         let f = g.idle_sway_frequency.max(veh::BOAT_SWELL_HZ);
         let heave = g.idle_sway_amplitude * veh::BOAT_HEAVE * (TAU * f * ts).sin();
-        let roll = g.idle_sway_amplitude * veh::BOAT_ROLL * (TAU * f * 0.73 * ts + 1.1).sin();
+        // The list is the record's own angular range since #1381, so a scow
+        // can follow the surface without rolling like a longship. The pace
+        // and the phase offset are unchanged, so the two motions still read
+        // as one sea rather than as two oscillators.
+        let roll = boat_list(g.head_turn_variance_degrees) * (TAU * f * 0.73 * ts + 1.1).sin();
         (Vec3::new(0.0, heave, 0.0), 0.0, roll)
     }
 
@@ -544,9 +663,10 @@ impl GaitAnimation {
     /// Skiff: a faint fast suspension shiver at idle, crossfading into a
     /// banking lean into turns under way (roll ∝ yaw-rate × speed, clamped).
     ///
-    /// Bank sign: positive `yaw_rate` (turning left about +Y) leans the hull
-    /// to the inside of the turn. If in-app it reads as leaning *out* of the
-    /// corner, flip the sign of [`veh::SKIFF_BANK_GAIN`]'s use here.
+    /// Bank: positive `yaw_rate` (turning left about +Y) leans a LIGHT hull
+    /// to the inside of the turn and rolls a heavy one out of it, by
+    /// [`skiff_bank_sign`]; how far is the record's own angular range, by
+    /// [`skiff_bank_clamp`].
     fn advance_skiff(&mut self, dt: f32, t: f32, speed: f32, yaw_rate: f32) -> (Vec3, f32, f32) {
         use std::f32::consts::TAU;
         let g = self.gait;
@@ -565,7 +685,12 @@ impl GaitAnimation {
         let shiver_hz = veh::SKIFF_SHIVER_HZ * (g.idle_sway_frequency / NOMINAL_SWAY_HZ);
         let shiver =
             g.idle_sway_amplitude * veh::SKIFF_SHIVER * (TAU * shiver_hz * ts).sin() * idle;
-        let bank = skiff_bank(yaw_rate, speed) * mv;
+        let bank = skiff_bank(
+            yaw_rate,
+            speed,
+            skiff_bank_clamp(g.head_turn_variance_degrees),
+            self.bank_sign,
+        ) * mv;
         (Vec3::new(0.0, shiver, 0.0), 0.0, bank)
     }
 }
@@ -649,11 +774,14 @@ mod tests {
             max_heave = max_heave.max(o.y.abs());
             max_roll = max_roll.max(roll.abs());
         }
-        // Heave and list are non-trivial and bounded by the seeded amplitude.
+        // Heave is non-trivial and bounded by the seeded amplitude, and the
+        // list by the record's own angular range - two fields since #1381,
+        // because a scow follows the surface while barely listing and a
+        // longship does the opposite, and one amplitude cannot say both.
         assert!(
             max_heave > 0.0 && max_heave <= a.gait.idle_sway_amplitude * veh::BOAT_HEAVE + 1e-6
         );
-        assert!(max_roll > 0.0 && max_roll <= a.gait.idle_sway_amplitude * veh::BOAT_ROLL + 1e-6);
+        assert!(max_roll > 0.0 && max_roll <= boat_list(a.gait.head_turn_variance_degrees) + 1e-6);
     }
 
     #[test]
@@ -691,8 +819,8 @@ mod tests {
         }
         assert!(last.2.abs() > 0.01, "should bank into a sustained turn");
         assert!(
-            last.2.abs() <= veh::SKIFF_BANK_MAX + 1e-6,
-            "bank is clamped"
+            last.2.abs() <= skiff_bank_clamp(b.gait.head_turn_variance_degrees) + 1e-6,
+            "bank is clamped to the record's own angular range (#1381)"
         );
         assert!(
             last.0.y.abs() < b.gait.idle_sway_amplitude * veh::SKIFF_SHIVER * 0.1,
@@ -704,6 +832,12 @@ mod tests {
     fn bank_magnitude_grows_with_turn_sharpness_and_speed() {
         let sample = |speed: f32, yaw_rate: f32| {
             let mut a = anim_mode(GaitMode::Skiff);
+            // Both samples must sit UNDER the clamp or the law being pinned
+            // is invisible: the seeded angular field is 5-20 degrees and the
+            // gentler sample alone wants 8.25, so the clamp is pinned wide
+            // here rather than left to the dice (#1381 made it a record
+            // field; before that it was a 17.2 degree constant).
+            a.gait.head_turn_variance_degrees = 60.0;
             let mut last = 0.0;
             for i in 0..400 {
                 last = a.advance(1.0 / 60.0, i as f32 / 60.0, speed, yaw_rate).2;
@@ -722,11 +856,14 @@ mod tests {
     /// skiff/boat read the vertical offset, airship its wander yaw.
     fn idle_sign_changes(mode: GaitMode, freq: f32) -> usize {
         let mut record = AvatarRecord::default_for_did("did:plc:freq-test");
-        record
-            .gait
-            .as_mut()
-            .expect("seeded default carries gait")
-            .idle_sway_frequency = crate::pds::Fp(freq);
+        let gait = record.gait.as_mut().expect("seeded default carries gait");
+        gait.idle_sway_frequency = crate::pds::Fp(freq);
+        // The amplitude is pinned so this counts what it says it counts.
+        // Since #1381 a seeded engine-less skiff carries amplitude 0 - she
+        // has no engine to idle - and a record that happened to roll one
+        // would make every count zero for a reason that is not the
+        // frequency.
+        gait.idle_sway_amplitude = crate::pds::Fp(0.02);
         let mut a = anim_mode(mode);
         a.refresh_from_record(&record);
         let mut count = 0;
@@ -775,6 +912,94 @@ mod tests {
         // deliberately floors its swell - a hull always rides water.)
         assert_eq!(idle_sign_changes(GaitMode::Skiff, 0.0), 0);
         assert_eq!(idle_sign_changes(GaitMode::Airship, 0.0), 0);
+    }
+
+    /// #1381 proof 3. A boat record PUBLISHED before the port keeps the
+    /// list she was published with.
+    ///
+    /// The standing no-migration rule means an old record arrives with the
+    /// craft-blind derivation's 5-20 degrees in the angular field, which
+    /// before #1381 was her head-turn variance and meant nothing to a boat
+    /// at all. `BOAT_LIST_FRACTION` is chosen so that reading it as a list
+    /// lands inside the band she already had (1.0-5.0 degrees), and this is
+    /// the claim: 1.2 to 4.8 degrees, end to end.
+    #[test]
+    fn an_old_boat_record_keeps_a_list_inside_the_band_she_had() {
+        // The tolerance is the degrees-radians-degrees round trip's own,
+        // not slack in the claim: 5.0 x 0.24 comes back as 1.1999999 in f32.
+        for degrees in [5.0_f32, 12.5, 20.0] {
+            let list = boat_list(degrees).to_degrees();
+            assert!(
+                (1.2 - 1e-4..=4.8 + 1e-4).contains(&list),
+                "an old boat carrying {degrees} degrees lists {list:.4}, outside 1.2..4.8"
+            );
+        }
+        // ...and the ends are exactly the fraction, so the sentence above
+        // is arithmetic rather than a coincidence of three samples.
+        assert!((boat_list(5.0).to_degrees() - 1.2).abs() < 1e-4);
+        assert!((boat_list(20.0).to_degrees() - 4.8).abs() < 1e-4);
+    }
+
+    /// #1381. Which way a skiff leans is her mass's answer, and the blend
+    /// between the two is smooth, monotone and saturated at both ends.
+    #[test]
+    fn a_light_skiff_leans_in_a_heavy_one_rolls_out_and_the_change_is_smooth() {
+        let lo = veh::BANK_LEANS_IN_BELOW_KG;
+        let hi = veh::BANK_ROLLS_OUT_ABOVE_KG;
+        // Saturated outside, and exactly +-1 so a craft clear of the blend
+        // gets her whole lean rather than a fraction of it.
+        assert_eq!(skiff_bank_sign(0.0), 1.0);
+        assert_eq!(skiff_bank_sign(lo), 1.0);
+        assert_eq!(skiff_bank_sign(hi), -1.0);
+        assert_eq!(skiff_bank_sign(5_000.0), -1.0);
+        // Monotone through the blend, and flat at both edges (smoothstep),
+        // so dragging the Mass slider across it has no visible kink.
+        let mut prev = 2.0;
+        for i in 0..=100 {
+            let m = lo + (hi - lo) * i as f32 / 100.0;
+            let s = skiff_bank_sign(m);
+            assert!(s <= prev + 1e-6, "the blend must not go back on itself");
+            prev = s;
+        }
+        assert!(
+            skiff_bank_sign((lo + hi) * 0.5).abs() < 1e-6,
+            "flat in the middle"
+        );
+
+        // And the sign reaches the lean itself, both ways.
+        let (clamp, yaw, speed) = (0.3_f32, 1.0_f32, 8.0_f32);
+        assert!(skiff_bank(yaw, speed, clamp, 1.0) > 0.0);
+        assert!(skiff_bank(yaw, speed, clamp, -1.0) < 0.0);
+        assert_eq!(
+            skiff_bank(yaw, speed, clamp, 1.0),
+            -skiff_bank(yaw, speed, clamp, -1.0),
+            "the direction is the only thing the sign changes"
+        );
+    }
+
+    /// #1381. The lean direction is refreshed from the record like
+    /// everything else, so the profile a peer renders follows the mass a
+    /// peer receives.
+    #[test]
+    fn the_lean_direction_comes_off_the_record() {
+        let mut a = anim_mode(GaitMode::Skiff);
+        assert_eq!(
+            a.bank_sign, 1.0,
+            "a skiff leans in until a record says otherwise"
+        );
+
+        let mut record = AvatarRecord::default_for_did("did:plc:bank-sign");
+        let at = |kg: f32| crate::pds::CarParams {
+            mass: crate::pds::Fp(kg),
+            ..Default::default()
+        };
+        record.locomotion = at(veh::BANK_ROLLS_OUT_ABOVE_KG + 100.0).into_config();
+        a.refresh_from_record(&record);
+        assert_eq!(a.bank_sign, -1.0, "a heavy skiff rolls out");
+
+        record.locomotion = at(veh::BANK_LEANS_IN_BELOW_KG - 100.0).into_config();
+        a.refresh_from_record(&record);
+        assert_eq!(a.bank_sign, 1.0, "...and a light one leans back in");
     }
 
     #[test]

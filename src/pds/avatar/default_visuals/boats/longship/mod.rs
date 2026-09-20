@@ -36,7 +36,7 @@ use crate::seeded_defaults::avatar::mood;
 use crate::seeded_defaults::{BoatBlueprint, LongshipVariant, OrnatenessTier, ParticleAura};
 
 use super::profile::{FinlessForm, HullProfile, SheerLaw};
-use super::{BoatCraft, BoatFeel, Propulsion, longship_colours};
+use super::{BoatCraft, BoatFeel, BoatIdle, Propulsion, longship_colours};
 
 /// Her plan form, `(z fraction of LOA, half-beam fraction)` stern post to
 /// stem. SYMMETRIC, and fine at BOTH ends: a double-ender has no transom at
@@ -88,17 +88,31 @@ impl BoatCraft for Longship {
     }
 
     fn feel(&self) -> BoatFeel {
-        // Between the old monohull (the sloop's, 4.0 / 9.0 / 7.0 / 1.5 / 6.0)
-        // and the trimaran (3.2 / 8.0 / 1.3 / 5.0): a longship is long, light
-        // and shallow - she accelerates and turns better than a keelboat and
-        // holds way longer than a multihull. #1381's per-type sweep is where
-        // she may part from this.
+        // #1381's sweep, agreed by the owner on 2026-09-20. The straight
+        // line is the placeholder's and was right: she is the fastest hull
+        // in the fleet under oar or sail, 25.3 km/h to the sloop's 21.7,
+        // reached in 1.66 s. What moved is the TURN - a long shallow
+        // keel-less hull skids, and at 133 deg/s she was out-turning a
+        // keelboat. turn_accel 7.5 -> 5.0 and angular_damping 5.5 -> 6.5
+        // give 75.2 deg/s and a circle of 10.7 m = 4.1 of her own lengths,
+        // against the sloop's 2.4: she out-runs a yacht and loses to her in
+        // a turn, which is the whole of what the hull says.
         BoatFeel {
             mass_factor: 3.6,
             drive_accel: 9.8,
-            turn_accel: 7.5,
+            turn_accel: 5.0,
             linear_damping: 1.4,
-            angular_damping: 5.5,
+            angular_damping: 6.5,
+        }
+    }
+
+    fn idle(&self) -> BoatIdle {
+        // Long, shallow and keel-less: she rolls freely, and she is the only
+        // hull in the fleet that both heaves and lists MORE than the sloop.
+        // 18-90 mm of heave, 1.4-7.0 degrees of list.
+        BoatIdle {
+            heave: 1.2,
+            list: 1.4,
         }
     }
 

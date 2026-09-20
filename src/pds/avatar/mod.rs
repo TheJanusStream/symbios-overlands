@@ -134,7 +134,15 @@ impl AvatarRecord {
             // Explicit rather than None so a re-roll re-rolls the idle
             // motion with the same seed as the visuals - peers rendering
             // the published record see the identical gait.
-            gait: Some(GaitParams::for_seed(seed)),
+            //
+            // Craft-aware since #1381: a seeded boat or skiff has her
+            // type's heave, list, shiver and bank folded in here, because
+            // the record is the ONLY thing a peer receives - it carries no
+            // craft type, no propulsion and no seed - so this is the one
+            // place a per-type idle can be said. `GaitParams::for_seed`
+            // stays the craft-blind fallback for a record with no gait
+            // section at all. See `default_visuals::seeded_gait`.
+            gait: Some(default_visuals::seeded_gait(seed)),
         }
     }
 

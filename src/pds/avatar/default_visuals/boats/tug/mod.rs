@@ -26,7 +26,7 @@ use crate::seeded_defaults::{BoatBlueprint, OrnatenessTier, ParticleAura, TugVar
 
 use super::profile::{FinlessForm, HullProfile, SheerLaw};
 use super::shape::underbody;
-use super::{BoatCraft, BoatFeel, Propulsion, tug_colours};
+use super::{BoatCraft, BoatFeel, BoatIdle, Propulsion, tug_colours};
 use works::Works;
 
 /// The tug's plan form, `(z fraction of LOA, half-beam fraction)` transom to
@@ -80,15 +80,33 @@ impl BoatCraft for Tug {
     }
 
     fn feel(&self) -> BoatFeel {
-        // The legacy barge's numbers - the scow's - as the brief asks: the
-        // starting point. A tug is all engine and turns on her heel, so
-        // #1381's per-type sweep is where she may part from the scow.
+        // #1381's sweep, agreed by the owner on 2026-09-20. She carried the
+        // poled scow's tuple bit for bit until here, which is the thing this
+        // fixes: a harbour tug has the bollard pull of a craft five times her
+        // size and a screw right under her rudder, so she shoves hard and is
+        // famously handy, while her hull speed caps her at about seven knots.
+        // Measured: 12.8 km/h (3.56 m/s = 6.9 knots), 90% of it in 0.97 s,
+        // 59.4 deg/s, round in 6.9 m = 2.4 of her own 2.88 m.
+        //
+        // 2.4 lengths is the SLOOP's circle, and that is deliberate - a tug
+        // that turns like a barge is what was wrong. Nothing else in the
+        // fleet turns in fewer.
         BoatFeel {
             mass_factor: 8.0,
-            drive_accel: 6.5,
-            turn_accel: 4.0,
-            linear_damping: 2.2,
-            angular_damping: 8.0,
+            drive_accel: 8.5,
+            turn_accel: 5.5,
+            linear_damping: 2.4,
+            angular_damping: 7.0,
+        }
+    }
+
+    fn idle(&self) -> BoatIdle {
+        // Heavy and stiff: the least lively hull afloat, and the one whose
+        // own wash should move her less than anything else's. 9-45 mm of
+        // heave, 0.5-2.5 degrees of list.
+        BoatIdle {
+            heave: 0.6,
+            list: 0.5,
         }
     }
 

@@ -64,7 +64,7 @@ use super::plan::{Axle, BodyPlan};
 use super::shape::{
     FAIRING_CLEAR, FAIRING_DROP, fairing, line, rim_profile, solid, sweep, tyre_profile,
 };
-use super::{SkiffCraft, SkiffFeel, dim};
+use super::{SkiffCraft, SkiffFeel, SkiffIdle, dim};
 
 /// The pod's depth per unit half-width - see [`BodyPlan::section`]. A little
 /// taller than it is wide: the pod carries the cabin.
@@ -254,13 +254,36 @@ impl SkiffCraft for Cyclecar {
     }
 
     fn feel(&self) -> SkiffFeel {
-        // The legacy trike's numbers: the nimblest skiff, against the buggy's
-        // 0.62 / 11.0 / 2.6 - a placeholder the owner agreed, for #1381's
-        // per-type sweep to tune.
+        // #1381's sweep, agreed by the owner on 2026-09-20. Her straight
+        // line was right and is untouched: 51.9 km/h, the fastest land craft
+        // in the fleet. What moved is the turn - a tiny light buzzbox on a
+        // short wheelbase should be the most AGILE thing on land and not
+        // merely the fastest, and at 50.3 deg/s she cornered like everything
+        // else. turn_accel 2.8 -> 4.0 and angular_damping 4.0 -> 3.2 give
+        // 89.5 deg/s and a circle of 16.6 m = 6.1 of her own lengths, the
+        // tightest of any skiff.
         SkiffFeel {
             mass_factor: 0.60,
             drive_accel: 11.5,
-            turn_accel: 2.8,
+            turn_accel: 4.0,
+            linear_damping: 0.8,
+            angular_damping: 3.2,
+        }
+    }
+
+    fn idle(&self) -> SkiffIdle {
+        // `Propulsion::Electric`: there is no engine to idle, so she sits
+        // STILL. Until #1381 she trembled at 9 Hz from one she has never
+        // had.
+        //
+        // 20 degrees, the deepest lean in the fleet: the tippiest box
+        // measured (a width-to-height ratio of 1.56 against the roadster's
+        // 2.32), on a short wheelbase, carving the tightest skiff circle at
+        // the highest yaw rate. She leans IN, and her mass band is the
+        // lightest but one, so she is nowhere near the blend.
+        SkiffIdle {
+            shiver: None,
+            bank_degrees: 20.0,
         }
     }
 

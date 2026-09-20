@@ -13,6 +13,50 @@ use crate::pds::types::Fp;
 use crate::seeded_defaults::AvatarGait;
 use serde::{Deserialize, Serialize};
 
+/// What a boat's list is, per metre of `idle_sway_amplitude`, in radians
+/// - the list a SLOOP has, which every other hull's is a multiple of.
+///
+/// # Why these four numbers live beside the record and not beside the
+/// profile that animates with them
+///
+/// They are the translation between a record FIELD and a motion, so both
+/// ends need them: `player::gait` reads a record and animates, and
+/// `default_visuals::seeded_gait` decides what a seeded craft's record
+/// should say in order to move a given way. `player` already depends on
+/// `pds` everywhere, and nothing under `pds` reaches the other way, so the
+/// definitions sit here and `player::gait::veh` names them. Moving them the
+/// other way would make the record layer depend on the runtime.
+pub(crate) const BOAT_ROLL: f32 = 3.5;
+
+/// A boat's list as a fraction of [`GaitParams::head_turn_variance_degrees`]
+/// (#1381).
+///
+/// The angular field is each profile's angular RANGE: the humanoid's head
+/// turn, the airship's nose wander, the boat's list and the skiff's bank
+/// clamp. Before #1381 a boat took her heave AND her list from the one
+/// `idle_sway_amplitude`, so a scow that follows the surface while barely
+/// listing could not be written at all.
+///
+/// The fraction is what keeps an OLD record looking like itself: a boat
+/// published before the port carries 5-20 degrees there, from the
+/// craft-blind derivation, and 0.24 of that is 1.2-4.8 degrees of list
+/// against the 1.0-5.0 she has today.
+pub(crate) const BOAT_LIST_FRACTION: f32 = 0.24;
+
+/// The skiff shiver pace (Hz) that [`NOMINAL_SWAY_HZ`] reproduces - the
+/// historical family-wide "idling-engine buzz", and the roadster's own.
+pub(crate) const SKIFF_SHIVER_HZ: f32 = 9.0;
+
+/// Midpoint of the seeded `idle_sway_frequency` range (0.4-1.2 Hz).
+///
+/// The skiff and airship profiles have characteristic frequencies of their
+/// own - engine buzz, lazy drift - far from the human sway band, so they
+/// consume the authored frequency as a RATIO against this nominal (#878).
+/// It is also how a per-type engine pace is written into a record with no
+/// new field: `default_visuals::seeded_gait` picks the frequency that lands
+/// the buzz on the engine's own hertz.
+pub(crate) const NOMINAL_SWAY_HZ: f32 = 0.8;
+
 /// Authorable idle-motion tuning, mirroring the five seeded
 /// [`AvatarGait`] fields plus an overall intensity multiplier that lets
 /// a chassis wallow theatrically or sit near-still without re-tuning

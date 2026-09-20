@@ -92,7 +92,7 @@ use super::plan::{Axle, BodyPlan};
 // The family's shape vocabulary, imported here so each part's
 // `use super::{plate, ..}` resolves.
 use super::shape::{line, plate, rim_profile, solid, tapered_plate, tyre_profile};
-use super::{SkiffCraft, SkiffFeel, dim};
+use super::{SkiffCraft, SkiffFeel, SkiffIdle, dim};
 
 /// Her deck's half-width over the blueprint's body half-width: the deck
 /// overhangs the coachwork a real car of this blueprint would carry, because
@@ -342,20 +342,50 @@ impl SkiffCraft for Rover {
     }
 
     fn feel(&self) -> SkiffFeel {
-        // The brief's own rover numbers: the LIGHTEST and the
-        // SLOWEST-TURNING skiff, against the roadster's 1.0 / 8.9 / 2.0 - a
-        // placeholder the owner agreed, for #1381's per-type sweep to tune.
-        // Note for that sweep: she is the first type to reach the family's
-        // 480 kg mass FLOOR, as the armoured car was the first to reach the
-        // 1500 kg ceiling. Nine of the 54 seeds under 3000 clamp at it -
-        // every seed under 2.437 m - so a mass factor much under this stops
-        // moving the short third of her population at all. 0.62 (the
-        // buggy's) is the smallest factor that clears the floor at her
+        // #1381's sweep, agreed by the owner on 2026-09-20, and the most
+        // opinionated row on the card. A servo rover drives each wheel:
+        // slow, deliberate, and it PIVOTS - nothing about it should turn
+        // like a lorry, and at 21.0 deg/s round 40.8 m she had both the
+        // slowest turn and the widest circle in the whole fleet.
+        //
+        // The placeholder had her the SLOWEST-TURNING skiff, which was the
+        // reading that most needed driving: turn_accel 1.2 -> 2.4 with
+        // angular_damping 4.0 -> 3.0 gives 55.8 deg/s, and drive_accel
+        // 6.0 -> 2.5 with linear_damping 0.8 -> 0.9 gives 10.0 km/h
+        // (2.78 m/s). Together that is a circle of 5.5 m = 2.0 of her own
+        // 2.72 m: a pivot, and the tightest thing on land or water. If she
+        // should merely be tidy rather than a tank, turn_accel 1.8 gives
+        // about four lengths.
+        //
+        // The mass factor is untouched, and it is not a feel knob (see
+        // `SkiffFeel::mass_factor`). She is still the first type to reach
+        // the family's 480 kg mass FLOOR, as the armoured car was the first
+        // to reach the 1500 kg ceiling. Nine of the 54 seeds under 3000
+        // clamp at it - every seed under 2.437 m - so a factor much under
+        // this stops moving the short third of her population at all. 0.62
+        // (the buggy's) is the smallest that clears the floor at her
         // shortest seed.
         SkiffFeel {
             mass_factor: 0.58,
-            drive_accel: 6.0,
-            turn_accel: 1.2,
+            drive_accel: 2.5,
+            turn_accel: 2.4,
+            linear_damping: 0.9,
+            angular_damping: 3.0,
+        }
+    }
+
+    fn idle(&self) -> SkiffIdle {
+        // `Propulsion::Servo`: each wheel is driven by its own motor and
+        // there is no engine to idle, so she sits still. Whether a servo
+        // rover should TICK rather than be silent is a taste call the owner
+        // can take later; stillness is the honest floor.
+        //
+        // 3 degrees, the flattest lean in the fleet: the flattest box
+        // measured, a width-to-height ratio of 7.77 against the roadster's
+        // 2.32, on six wheels. She leans IN, barely.
+        SkiffIdle {
+            shiver: None,
+            bank_degrees: 3.0,
         }
     }
 

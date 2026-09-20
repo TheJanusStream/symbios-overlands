@@ -92,15 +92,91 @@ fn dim(v: f32) -> f32 {
 /// [`skiff_locomotion`](super::skiff_locomotion) scales its preset by.
 ///
 /// Per type rather than per chassis *class*, which is what the four legacy
-/// chassis slugs used to carry. The roadster's are the old default chassis's
-/// exactly, so the drive the owner validated in #1361 is the drive that ships;
-/// a real per-type feel sweep is #1381's.
-#[derive(Clone, Copy, Debug)]
+/// chassis slugs used to carry. Every tuple here was driven through the
+/// probe in #1381 and agreed by the owner on 2026-09-20; the roadster's are
+/// the old default chassis's exactly, so the drive validated in #1361 is
+/// still the drive that ships and is still the yardstick the other five are
+/// set against.
+///
+/// # Why this grew two damping fields (#1381)
+///
+/// Until the sweep it carried three numbers, and every skiff therefore
+/// shared `CarParams`' own 0.8 / 4.0. Measured on the drive probe, that
+/// made all six reach 90% of their speed in the same 2.89 s and coast down
+/// in the same 2.89 s: with one shared damping a craft can be made SLOW but
+/// never PONDEROUS, because `top speed = drive_accel / linear_damping` and
+/// `t90 = ln(10) / linear_damping` are then the same knob. Six of the ten
+/// agreed tuples need their own.
+///
+/// It costs nothing on the wire. This struct is `pub(super)` and build-time
+/// only; what the two fields WRITE is `CarParams::linear_damping` and
+/// `::angular_damping`, which the record has always carried. So there is no
+/// lexicon change, no sanitiser range and no editor slice - and the
+/// roadster's literals are `CarParams`' own defaults, so her published
+/// record comes out bit-identical to the one #1361 signed off.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct SkiffFeel {
     /// Mass over the family's 900 kg baseline, before the size re-basing.
+    ///
+    /// It moves nothing the owner drives by - measured as the probe's own
+    /// control (#1381): `drive_force = mass x drive_accel`, `turn_torque =
+    /// mass x turn_accel` and avian's inertia is `mass x box`, so the mass
+    /// cancels out of top speed, acceleration, yaw rate and turning circle
+    /// alike. It sets how hard she shoves another body, and how the
+    /// suspension and grip are scaled so she keeps her ride height.
     pub(super) mass_factor: f32,
+    /// Target acceleration (m/s^2); `drive_force` is this times the mass.
     pub(super) drive_accel: f32,
+    /// Target angular acceleration; `turn_torque` is this times the mass.
+    /// What it BUYS depends on the collider box, because the body answers
+    /// with torque over inertia - so the card was measured, never derived.
     pub(super) turn_accel: f32,
+    /// Sets both her top speed (`drive_accel / linear_damping`) and how
+    /// long she takes to reach it (`ln(10) / linear_damping`), exactly on
+    /// all six.
+    pub(super) linear_damping: f32,
+    /// How quickly a turn settles, and so - with the box - how tight a
+    /// circle she holds.
+    pub(super) angular_damping: f32,
+}
+
+/// What a craft type does at rest, and how far she leans in a corner
+/// (#1381).
+///
+/// # Stillness is a type, not a number
+///
+/// `SKIFF_SHIVER_HZ` is documented as "an idling-engine buzz" and was worn
+/// by all six, so a horse-drawn wagon, a servo rover and an ELECTRIC
+/// cyclecar each trembled at 9 Hz from an engine they do not have. A craft
+/// with nothing to idle has `shiver: None` and sits still, and that is
+/// enforced by the shape of this struct rather than by a zero somebody has
+/// to remember to write.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct SkiffIdle {
+    /// What she does at rest, or `None` for a craft with no engine.
+    pub(super) shiver: Option<Shiver>,
+    /// How far she leans in a corner, in degrees - the bank CLAMP, which
+    /// rides the record's angular field since #1381 (see
+    /// [`SkiffIdle`]'s boat twin, `BoatIdle`, for why that field).
+    ///
+    /// The DIRECTION is not here, and cannot be: a vehicle's published
+    /// record is a generator tree, a locomotion config and a gait section -
+    /// no craft type, no propulsion, no seed - so a peer could never key a
+    /// table on it. It comes from the record's own MASS instead, through
+    /// `player::gait::skiff_bank_sign`.
+    pub(super) bank_degrees: f32,
+}
+
+/// An idling engine's tremble.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Shiver {
+    /// Vertical tremble, as a multiple of what the roadster does on the
+    /// same seed.
+    pub(super) amplitude: f32,
+    /// What the engine idles at (Hz), before the seed's own spread is
+    /// carried across it. A flat-four shakes at 11, the roadster's
+    /// validated baseline is 9, and a big slow diesel lopes at 6.
+    pub(super) hz: f32,
 }
 
 /// One buildable kind of land craft.
@@ -119,6 +195,12 @@ pub(super) trait SkiffCraft {
 
     /// How it drives.
     fn feel(&self) -> SkiffFeel;
+
+    /// How it sits at rest, and how far it leans. Required with no
+    /// default, like [`propulsion`](Self::propulsion): a craft that lands
+    /// without saying whether it has an engine to idle does not compile,
+    /// so no wagon inherits a buzz.
+    fn idle(&self) -> SkiffIdle;
 
     /// The widest the type is actually drawn, guards included (m) - what the
     /// gateway-mouth guard measures, and a type's own knowledge rather than
@@ -175,6 +257,35 @@ fn craft_for(seed: u64) -> &'static dyn SkiffCraft {
     craft(SkiffType::for_seed(seed)).unwrap_or_else(|| {
         craft(SkiffType::UNIVERSAL).expect("the family's universal floor is always built")
     })
+}
+
+/// The idle of the type a seed actually draws with (#1381) - what
+/// `super::seeded_gait` folds into the seeded gait section.
+pub(super) fn idle_for(seed: u64) -> SkiffIdle {
+    craft_for(seed).idle()
+}
+
+/// Every built type's idle, by name - for the per-type idle guard and the
+/// owner's idle page.
+#[cfg(test)]
+pub(super) fn every_idle() -> Vec<(&'static str, SkiffIdle)> {
+    SkiffType::ALL
+        .into_iter()
+        .filter_map(|t| craft(t).map(|c| (t.label(), c.idle())))
+        .collect()
+}
+
+/// Every built type's feel, by name - the per-type feel guard's table half
+/// (#1381, `no_two_craft_types_in_a_family_share_a_feel`).
+///
+/// Test-only, for the reason in the boats' twin: only `skiff_locomotion`
+/// reads a feel in the build, and it reads the seed's own.
+#[cfg(test)]
+pub(super) fn every_feel() -> Vec<(&'static str, SkiffFeel)> {
+    SkiffType::ALL
+        .into_iter()
+        .filter_map(|t| craft(t).map(|c| (t.label(), c.feel())))
+        .collect()
 }
 
 /// The seeded body for `seed`, or `None` for a seed that is not a skiff.

@@ -136,7 +136,7 @@ pub(crate) fn hover(draft: f32) -> f32 {
 /// used to carry. The sloop's are the old monohull's exactly, so the feel the
 /// owner validated in #1361 is unchanged; a real per-type feel sweep is
 /// #1381's.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct BoatFeel {
     /// Mass over the family's 50 kg baseline, before the size re-basing.
     pub(super) mass_factor: f32,
@@ -144,6 +144,34 @@ pub(super) struct BoatFeel {
     pub(super) turn_accel: f32,
     pub(super) linear_damping: f32,
     pub(super) angular_damping: f32,
+}
+
+/// What a craft type does at rest: how she rides a swell, and how far she
+/// lists doing it (#1381).
+///
+/// Both are MULTIPLIERS on what the seed already gives her, not absolutes.
+/// The seeded `idle_sway_amplitude` (0.005-0.025 m) is her individuality
+/// and the sweep had no quarrel with it - the finding was that one swell
+/// rocked a longship and a laden scow alike. So a type says how much of
+/// her own swell she takes, and `super::seeded_gait` folds it in.
+///
+/// # Why heave and list are two numbers and one field
+///
+/// `advance_boat` takes BOTH from `idle_sway_amplitude` - heave is
+/// `amp x 3.0` m and list is `amp x 3.5` rad - so a scow that heaves x1.1
+/// and lists x0.4 cannot be written through that one field at all. Since
+/// #1381 the list rides the record's ANGULAR field instead (the humanoid's
+/// head turn, the airship's nose wander, and now the boat's list), which
+/// is a meaning per profile rather than a new field on the wire. The
+/// seeded sloop writes hers so her list comes out exactly `amp x 3.5` rad
+/// as before, and a boat record published before the port keeps a list
+/// inside the band she had. See `player::gait::boat_list`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct BoatIdle {
+    /// Vertical bob, as a multiple of what the sloop does on the same seed.
+    pub(super) heave: f32,
+    /// Roll about the fore-aft axis, likewise.
+    pub(super) list: f32,
 }
 
 /// One buildable kind of boat.
@@ -160,6 +188,12 @@ pub(super) trait BoatCraft {
 
     /// How she drives.
     fn feel(&self) -> BoatFeel;
+
+    /// How she lies at rest. Required with no default, like
+    /// [`propulsion`](Self::propulsion): a hull that lands without saying
+    /// what a swell does to her does not compile, so no scow inherits a
+    /// yacht's roll.
+    fn idle(&self) -> BoatIdle;
 
     /// Where a seeded particle aura issues from, read off the hull. The seed
     /// is here for the same reason it is on [`overall_beam`](Self::overall_beam):
@@ -217,6 +251,36 @@ fn craft_for(seed: u64) -> &'static dyn BoatCraft {
     craft(BoatType::for_seed(seed)).unwrap_or_else(|| {
         craft(BoatType::UNIVERSAL).expect("the family's universal floor is always built")
     })
+}
+
+/// The idle of the type a seed actually draws with (#1381) - what
+/// `super::seeded_gait` folds into the seeded gait section.
+pub(super) fn idle_for(seed: u64) -> BoatIdle {
+    craft_for(seed).idle()
+}
+
+/// Every built type's idle, by name - for the per-type idle guard and the
+/// owner's idle page.
+#[cfg(test)]
+pub(super) fn every_idle() -> Vec<(&'static str, BoatIdle)> {
+    BoatType::ALL
+        .into_iter()
+        .filter_map(|t| craft(t).map(|c| (t.label(), c.idle())))
+        .collect()
+}
+
+/// Every built type's feel, by name - the per-type feel guard's table half
+/// (#1381, `no_two_craft_types_in_a_family_share_a_feel`).
+///
+/// Test-only, because nothing in the build wants a type's feel except
+/// `boat_locomotion`, and that asks the seed's OWN craft for it. A guard
+/// about the whole family is the one reader that needs them all at once.
+#[cfg(test)]
+pub(super) fn every_feel() -> Vec<(&'static str, BoatFeel)> {
+    BoatType::ALL
+        .into_iter()
+        .filter_map(|t| craft(t).map(|c| (t.label(), c.feel())))
+        .collect()
 }
 
 /// The seeded hull for `seed`, or `None` for a seed that is not a boat.

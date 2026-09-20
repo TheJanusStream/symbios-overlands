@@ -220,21 +220,6 @@ pub(super) fn fp_slider(
     response
 }
 
-/// A min/max PAIR of [`fp_slider`]s that cannot be inverted (#1238 f90).
-///
-/// Four such pairs shipped as two independent sliders with no
-/// cross-validation, and what happened downstream to an inverted pair was
-/// neither uniform nor universal: the particle sanitiser clamps the max UP
-/// to the min (losing the typed max), the road-lot sanitiser SWAPS the
-/// pair (preserving both), and the splat rules have no sanitiser at all,
-/// so an inverted rule is never corrected and never flagged. Where a
-/// repair does happen it lands about a quarter-second later, in the panel
-/// the user is looking at, unexplained.
-///
-/// Clamping at the widget removes the question: the max slider starts at
-/// the current min and the min slider stops at the current max, so an
-/// inverted pair cannot be entered and no sanitiser has to guess what was
-/// meant.
 /// [`fp_slider`] on a logarithmic track (#1254 f317).
 ///
 /// For the ranges the record permits and a person almost never wants: a
@@ -267,6 +252,37 @@ pub(super) fn fp_slider_log(
     .inner
 }
 
+/// A min/max PAIR of [`fp_slider`]s that cannot be inverted (#1238 f90).
+///
+/// (This doc was stranded on [`fp_slider_log`] when that landed above it in
+/// #1254 f317, so `fp_range_sliders` shipped undocumented and the log
+/// slider claimed a contract that is not its. `cargo doc` cannot catch
+/// that: it checks that links resolve, not that sentences are about the
+/// item under them. Moved back with #1390.)
+///
+/// Four such pairs shipped as two independent sliders with no
+/// cross-validation, and what happened downstream to an inverted pair was
+/// neither uniform nor universal: the particle sanitiser clamps the max UP
+/// to the min (losing the typed max), the road-lot sanitiser SWAPS the
+/// pair (preserving both), and the splat rules have no sanitiser at all,
+/// so an inverted rule is never corrected and never flagged. Where a
+/// repair does happen it lands about a quarter-second later, in the panel
+/// the user is looking at, unexplained.
+///
+/// Clamping at the widget removes the question: the max slider starts at
+/// the current min and the min slider stops at the current max, so an
+/// inverted pair cannot be entered and no sanitiser has to guess what was
+/// meant.
+///
+/// #1390 narrowed that to what it always claimed. This is the one pair of
+/// sliders in the app whose range is computed from live state, so it is
+/// the one place where an ALREADY inverted pair - a hand-edited record,
+/// never anything this panel can produce - sits outside its own slider's
+/// range. Until #1390 the widget silently pulled it back on sight, which
+/// is the defect that issue is about: a write with no input, not reported
+/// as a change. Now the pair is SHOWN inverted, each handle pinned at the
+/// bound it is past, and the first drag on either one resolves it - the
+/// sentence above is about what can be ENTERED, and edits still clamp.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn fp_range_sliders(
     ui: &mut egui::Ui,

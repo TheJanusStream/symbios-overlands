@@ -48,6 +48,7 @@ use crate::seeded_defaults::{
     NOMINAL_HULL_LEN, ParticleAura, VehicleBlueprint, fnv1a_64,
 };
 
+use super::gait::GaitParams;
 use super::locomotion::{
     CarParams, HelicopterParams, HoverBoatParams, HumanoidParams, LocomotionConfig,
     LocomotionPreset,
@@ -557,6 +558,11 @@ fn skiff_locomotion(seed: u64) -> LocomotionConfig {
     p.mass = Fp(mass);
     p.drive_force = Fp((mass * feel.drive_accel).min(200_000.0));
     p.turn_torque = Fp((mass * feel.turn_accel).min(50_000.0));
+    // Per type since #1381, as the boats' have always been. Before the
+    // sweep every skiff kept `CarParams`' 0.8 / 4.0, which made all six
+    // gather way in the same 2.89 s however slow their top speed was.
+    p.linear_damping = Fp(feel.linear_damping);
+    p.angular_damping = Fp(feel.angular_damping);
     p.suspension_stiffness = scaled(p.suspension_stiffness.0, 200_000.0);
     p.suspension_damping = scaled(p.suspension_damping.0, 20_000.0);
     p.lateral_grip = scaled(p.lateral_grip.0, 200_000.0);
@@ -569,6 +575,116 @@ fn skiff_locomotion(seed: u64) -> LocomotionConfig {
     p.chassis_half_extents = fit_extents(half_extents);
     p.into_config()
 }
+
+/// The gait section a freshly seeded avatar publishes: the seed's own
+/// derivation with the drawn craft type's idle folded into it (#1381).
+///
+/// # Why the craft's idle lands in the RECORD and not in the profile
+///
+/// A vehicle's published record is a generator tree, a locomotion config
+/// and a gait section (`pds::avatar::body::GeneratorBody`): no craft type,
+/// no propulsion, no seed. A peer rendering someone else's wagon receives
+/// none of those, so a per-type table in `player::gait` could never reach
+/// it - the profile only ever sees the record
+/// (`GaitAnimation::refresh_from_record`). Anything that decides what a
+/// craft does at rest therefore has to BE in the record, and the record's
+/// gait section is the one place the fields already exist.
+///
+/// [`GaitParams::for_seed`] stays exactly what it was and is NOT
+/// craft-aware: it is the fallback every peer falls back to for a record
+/// with no gait section at all, where the craft is precisely what is not
+/// known. `seeded_params_match_the_avatar_gait_derivation` still pins it
+/// to `AvatarGait::for_seed`.
+///
+/// # What is folded in
+///
+/// * BOATS - `idle_sway_amplitude` takes the type's heave multiplier (the
+///   law stays `amp x 3.0`), and the angular field carries her LIST, which
+///   `player::gait::boat_list` reads back. The sloop's multipliers are
+///   both 1.0, so a seeded sloop lists exactly `amp x 3.5` rad as before.
+/// * SKIFFS - `idle_sway_amplitude` takes the type's shiver multiplier, or
+///   ZERO for a craft with no engine to idle; `idle_sway_frequency` is set
+///   so the buzz lands on the engine's own pace, carrying the seed's own
+///   spread across it so a type is not in unison; and the angular field
+///   carries her BANK CLAMP, which `player::gait::skiff_bank_clamp` reads
+///   back.
+/// * AIRSHIPS AND HUMANOIDS pass through untouched. Neither has a craft
+///   type, and the angular field keeps its old meaning for both.
+///
+/// An avatar PUBLISHED before this landed keeps the gait it was published
+/// with - the standing no-migration rule - so an old wagon buzzes until
+/// she is re-rolled.
+///
+/// # A note for #1382's gap 3
+///
+/// Gap 3 is the air-draft cap against an EDITED idle amplitude: the margin
+/// is proven for the seeded heave only, and the sanitiser lets an authored
+/// `idle_sway_amplitude` reach 0.2, which is 0.6 m of boat heave against a
+/// 0.10 m margin. That half is unchanged by this slice - the heave law is
+/// still `amp x BOAT_HEAVE` and the seeded amplitude still tops out inside
+/// the cap. What DID change is the arithmetic beside it: the list now rides
+/// the angular field, and an edited angular field reaches the sanitiser's
+/// 60 degrees, which is 14.4 degrees of list. A hull heeled 14.4 degrees
+/// lifts her weather rail by `beam/2 x sin(14.4)`, and that is a second
+/// term the air-draft guard did not have to carry before.
+pub fn seeded_gait(seed: u64) -> GaitParams {
+    let mut g = GaitParams::for_seed(seed);
+    match ChassisFamily::for_seed(seed) {
+        ChassisFamily::Boat => {
+            let idle = boats::idle_for(seed);
+            let amp = g.idle_sway_amplitude.0;
+            g.idle_sway_amplitude = Fp(amp * idle.heave);
+            // The list the sloop would have on this seed, scaled by the
+            // type's multiplier, written back through the angular field's
+            // own fraction so `boat_list` reads exactly this out again.
+            let list_radians = amp * super::gait::BOAT_ROLL * idle.list;
+            g.head_turn_variance_degrees =
+                Fp(list_radians.to_degrees() / super::gait::BOAT_LIST_FRACTION);
+        }
+        ChassisFamily::Skiff => {
+            let idle = skiffs::idle_for(seed);
+            let amp = g.idle_sway_amplitude.0;
+            match idle.shiver {
+                Some(s) => {
+                    g.idle_sway_amplitude = Fp(amp * s.amplitude);
+                    g.idle_sway_frequency = Fp(engine_pace(s.hz, g.idle_sway_frequency.0));
+                }
+                // Nothing to idle: she sits still. The frequency is left
+                // as the seed drew it, so raising the amplitude in the
+                // editor gives her a pace rather than nothing.
+                None => g.idle_sway_amplitude = Fp(0.0),
+            }
+            g.head_turn_variance_degrees = Fp(idle.bank_degrees);
+        }
+        // No craft type, and the angular field keeps its old meaning.
+        ChassisFamily::Airship | ChassisFamily::Humanoid => {}
+    }
+    g
+}
+
+/// The `idle_sway_frequency` that puts a skiff's buzz on `engine_hz`,
+/// carrying the seed's own place in the derivation's band across it
+/// (#1381).
+///
+/// `player::gait::advance_skiff` paces the shiver at
+/// `SKIFF_SHIVER_HZ x (frequency / NOMINAL_SWAY_HZ)`, so the frequency IS
+/// the pace knob in disguise and no new field is needed. The seeded band
+/// is 0.4-1.2 Hz about a 0.8 nominal; that spread is kept but compressed
+/// to [`ENGINE_PACE_SPREAD`], so every roadster idles at about 9 Hz
+/// without every roadster idling at exactly 9 Hz.
+fn engine_pace(engine_hz: f32, seeded_frequency: f32) -> f32 {
+    use super::gait::{NOMINAL_SWAY_HZ, SKIFF_SHIVER_HZ};
+    /// Half the width of the seeded band (0.4-1.2 Hz about the nominal).
+    const HALF_BAND: f32 = 0.4;
+    let spread = ((seeded_frequency - NOMINAL_SWAY_HZ) / HALF_BAND).clamp(-1.0, 1.0);
+    let base = NOMINAL_SWAY_HZ * engine_hz / SKIFF_SHIVER_HZ;
+    base * (1.0 + ENGINE_PACE_SPREAD * spread)
+}
+
+/// How far either side of her engine's nominal pace a seeded skiff's idle
+/// may land, as a fraction (#1381). Ten percent: enough that a car park of
+/// roadsters is not one machine, small enough that the type still reads.
+const ENGINE_PACE_SPREAD: f32 = 0.1;
 
 /// Clamp a raw `[x, y, z]` half-extent to the collider sanitiser's per-axis
 /// bounds (`0.05..50`) so the derived cuboid round-trips unchanged and never
@@ -626,11 +742,42 @@ mod tests {
     // ran the rover tuning at 36 m/s². Both boat arrangements it named went
     // with the legacy pipeline in #1363, and the claim that survives them -
     // that nothing is a rocket or a brick - is `every_vehicle_drive_accel_is_
-    // in_the_feel_band` below, which checks every seed rather than three. A
-    // per-type feel guard lands with the feel sweep, #1381.
+    // in_the_feel_band` below, which checks every seed rather than three. The
+    // per-type claim is `no_two_craft_types_in_a_family_share_a_feel` below
+    // and `the_fleet_drives_in_the_agreed_order` in `player::spawn`, which
+    // #1381 landed together.
 
     /// Every derived drive acceleration lands in a tuned, driveable band -
     /// nothing is a 36 m/s² rocket or an undriveable brick.
+    ///
+    /// # Why the floor came down to 1.5 with #1381
+    ///
+    /// The band was 5.0..=14.0, from #782, where the complaint was a 50 kg
+    /// barge running the rover tuning at 36 m/s²; the ceiling is that
+    /// complaint and has not moved. The floor was the other half of the
+    /// sentence - "nothing is an undriveable brick" - and four of the tuples
+    /// the owner agreed on 2026-09-20 sit under it: the scow at 3.6, the
+    /// armoured car at 3.8, the rover at 2.5 and the wagon at 1.9. A wagon
+    /// at 1.9 m/s² is not an undriveable brick. She is a wagon: 15.2 km/h,
+    /// which is a cart horse's trot.
+    ///
+    /// THE FEAR THE OLD FLOOR CARRIED DOES NOT APPLY HERE, AND IT WAS
+    /// MEASURED RATHER THAN ARGUED (session 835). On an ordinary inclined
+    /// plane a craft stalls where `tan(theta) = a / g` - eleven degrees for
+    /// the agreed wagon - and 38.9% of seeded land is steeper than that,
+    /// with no road network in a seeded room to drive round it. But both
+    /// suspensions cast along world -Y and push along world +Y, so the
+    /// support force has NO along-slope component and the drive is not
+    /// fighting one. Run on the real `apply_car_suspension` +
+    /// `apply_car_drive`, gravity on, over a static tilted slab: the agreed
+    /// wagon holds exactly 4.23 m/s up 10, 20 and 30 degrees alike (`vy =
+    /// v tan theta` to the digit), the rover 2.78, the armoured car 6.92,
+    /// and nothing slides at rest. A slope costs a craft nothing here.
+    ///
+    /// So this guard keeps the claim it can make for every seed - a band
+    /// wide enough to be driveable at both ends - and the claim about which
+    /// type should be where inside it belongs to the two per-type guards
+    /// named above, which measure rather than read a tuple.
     #[test]
     fn every_vehicle_drive_accel_is_in_the_feel_band() {
         for s in 0u64..600 {
@@ -640,9 +787,490 @@ mod tests {
             }
             let a = drive_accel(&loco);
             assert!(
-                (5.0..=14.0).contains(&a),
+                (1.5..=14.0).contains(&a),
                 "seed {s} drive accel {a} out of the feel band"
             );
+        }
+    }
+
+    /// Walk every seeded skiff of `want` and hand each one's gait section
+    /// and built locomotion to `check`. The seeds are walked rather than
+    /// sampled: a claim about "every seeded wagon" that looked at one wagon
+    /// would be a claim about one seed.
+    fn walk_skiffs(
+        want: crate::seeded_defaults::SkiffType,
+        mut check: impl FnMut(u64, &GaitParams, &CarParams),
+    ) {
+        use crate::seeded_defaults::SkiffType;
+        let mut seen = 0;
+        for seed in 0u64..4000 {
+            if ChassisFamily::for_seed(seed) != ChassisFamily::Skiff
+                || SkiffType::for_seed(seed) != want
+            {
+                continue;
+            }
+            let LocomotionConfig::Car(p) = skiff_locomotion(seed) else {
+                panic!("a skiff seed builds a car preset");
+            };
+            check(seed, &seeded_gait(seed), &p);
+            seen += 1;
+        }
+        assert!(seen > 0, "no seed under 4000 rolled a {}", want.label());
+    }
+
+    /// The same for boats.
+    fn walk_boats(
+        want: crate::seeded_defaults::BoatType,
+        mut check: impl FnMut(u64, &GaitParams, &HoverBoatParams),
+    ) {
+        use crate::seeded_defaults::BoatType;
+        let mut seen = 0;
+        for seed in 0u64..4000 {
+            if ChassisFamily::for_seed(seed) != ChassisFamily::Boat
+                || BoatType::for_seed(seed) != want
+            {
+                continue;
+            }
+            let LocomotionConfig::HoverBoat(p) = boat_locomotion(seed) else {
+                panic!("a boat seed builds a hover-boat preset");
+            };
+            check(seed, &seeded_gait(seed), &p);
+            seen += 1;
+        }
+        assert!(seen > 0, "no seed under 4000 rolled a {}", want.label());
+    }
+
+    /// #1381 proof 4. A craft with no engine to idle sits STILL, and one
+    /// with an engine does not.
+    ///
+    /// `SKIFF_SHIVER_HZ` is documented as "an idling-engine buzz" and was
+    /// worn by all six types, so a horse-drawn wagon, a servo rover and an
+    /// electric cyclecar each trembled at 9 Hz from an engine they have
+    /// never had. Asked of every seed rather than of one each, because the
+    /// amplitude the shiver scales is the seed's own.
+    #[test]
+    fn only_a_craft_with_an_engine_idles() {
+        use crate::seeded_defaults::SkiffType;
+        for still in [SkiffType::Wagon, SkiffType::Rover, SkiffType::Cyclecar] {
+            walk_skiffs(still, |seed, g, _| {
+                assert_eq!(
+                    g.idle_sway_amplitude.0,
+                    0.0,
+                    "{} seed {seed} has no engine to idle and must sit still",
+                    still.label()
+                );
+            });
+        }
+        for idling in [
+            SkiffType::Roadster,
+            SkiffType::DuneBuggy,
+            SkiffType::ArmouredCar,
+        ] {
+            walk_skiffs(idling, |seed, g, _| {
+                assert!(
+                    g.idle_sway_amplitude.0 > 0.0,
+                    "{} seed {seed} has an engine and must tremble",
+                    idling.label()
+                );
+            });
+        }
+    }
+
+    /// #1381 proof 5. Every seeded craft of a type leans the way her type
+    /// should, and the direction is the record's own mass answering.
+    ///
+    /// This is the claim the whole mass-factor change exists for: a low
+    /// sports car leans INTO a bend, a tall armoured box and a laden wagon
+    /// roll OUT of one, and the record a peer receives carries no craft
+    /// type to key that on. Walked over every seed, because the thing that
+    /// could go wrong is a band creeping across the blend for a few seeds
+    /// at one end.
+    #[test]
+    fn every_seeded_skiff_leans_the_way_her_type_should() {
+        use crate::player::gait::skiff_bank_sign;
+        use crate::seeded_defaults::SkiffType;
+        for leans_in in [
+            SkiffType::Roadster,
+            SkiffType::DuneBuggy,
+            SkiffType::Cyclecar,
+            SkiffType::Rover,
+        ] {
+            walk_skiffs(leans_in, |seed, _, p| {
+                assert_eq!(
+                    skiff_bank_sign(p.mass.0),
+                    1.0,
+                    "{} seed {seed} at {:.1} kg must lean INTO her corner",
+                    leans_in.label(),
+                    p.mass.0
+                );
+            });
+        }
+        for rolls_out in [SkiffType::ArmouredCar, SkiffType::Wagon] {
+            walk_skiffs(rolls_out, |seed, _, p| {
+                assert_eq!(
+                    skiff_bank_sign(p.mass.0),
+                    -1.0,
+                    "{} seed {seed} at {:.1} kg must roll OUT of her corner",
+                    rolls_out.label(),
+                    p.mass.0
+                );
+            });
+        }
+    }
+
+    /// #1381. No seeded craft sits INSIDE the bank blend, where her lean
+    /// would be partly cancelled - and each band keeps a margin from it, so
+    /// a later `mass_factor` change has room before it flips a type.
+    ///
+    /// The margin is what `audit_the_skiff_mass_bands` is for; this is the
+    /// assertion that the audit's answer was acted on.
+    #[test]
+    fn no_seeded_skiff_sits_inside_the_bank_blend() {
+        use crate::player::gait::{BANK_LEANS_IN_BELOW_KG, BANK_ROLLS_OUT_ABOVE_KG};
+        use crate::seeded_defaults::SkiffType;
+        /// Kilograms of clearance every band owes the blend.
+        const MARGIN: f32 = 10.0;
+        for t in [
+            SkiffType::Roadster,
+            SkiffType::DuneBuggy,
+            SkiffType::ArmouredCar,
+            SkiffType::Cyclecar,
+            SkiffType::Wagon,
+            SkiffType::Rover,
+        ] {
+            walk_skiffs(t, |seed, _, p| {
+                let m = p.mass.0;
+                assert!(
+                    m <= BANK_LEANS_IN_BELOW_KG - MARGIN || m >= BANK_ROLLS_OUT_ABOVE_KG + MARGIN,
+                    "{} seed {seed} at {m:.1} kg is inside the bank blend \
+                     ({BANK_LEANS_IN_BELOW_KG}..{BANK_ROLLS_OUT_ABOVE_KG}) or within \
+                     {MARGIN} kg of it - re-run audit_the_skiff_mass_bands and move the blend",
+                    t.label()
+                );
+            });
+        }
+    }
+
+    /// #1381 proof 2. The two craft the owner DROVE and signed off do at
+    /// rest exactly what they did before the idle port.
+    ///
+    /// The sloop's heave and list multipliers are both 1.0 by construction,
+    /// so her heave is her seeded amplitude untouched and her list comes
+    /// back through the angular field as `amp x BOAT_ROLL` radians - the
+    /// law she had. The roadster's shiver multiplier is 1.0 and her engine
+    /// pace is the 9 Hz that was the family-wide constant, and her bank
+    /// clamp is the 0.3 rad constant it replaces. The tolerances are the
+    /// field's own round trip through degrees and `Fp`'s 1e-4.
+    #[test]
+    fn the_two_validated_craft_idle_as_they_did_before_the_port() {
+        use crate::pds::avatar::gait::{BOAT_ROLL, NOMINAL_SWAY_HZ, SKIFF_SHIVER_HZ};
+        use crate::player::gait::{boat_list, skiff_bank_clamp};
+        use crate::seeded_defaults::{BoatType, SkiffType};
+
+        walk_boats(BoatType::Sloop, |seed, g, _| {
+            let base = GaitParams::for_seed(seed);
+            assert_eq!(
+                g.idle_sway_amplitude, base.idle_sway_amplitude,
+                "sloop seed {seed}: her heave is the seed's own, x1.0"
+            );
+            let want = base.idle_sway_amplitude.0 * BOAT_ROLL;
+            let got = boat_list(g.head_turn_variance_degrees.0);
+            assert!(
+                (got - want).abs() < 1e-3,
+                "sloop seed {seed}: lists {got:.5} rad, was {want:.5}"
+            );
+        });
+
+        walk_skiffs(SkiffType::Roadster, |seed, g, _| {
+            let base = GaitParams::for_seed(seed);
+            assert_eq!(
+                g.idle_sway_amplitude, base.idle_sway_amplitude,
+                "roadster seed {seed}: her shiver is the seed's own, x1.0"
+            );
+            // The pace is the old 9 Hz, carrying the seed's own spread.
+            let hz = SKIFF_SHIVER_HZ * (g.idle_sway_frequency.0 / NOMINAL_SWAY_HZ);
+            assert!(
+                (8.0..=10.0).contains(&hz),
+                "roadster seed {seed}: idles at {hz:.2} Hz, not about 9"
+            );
+            let clamp = skiff_bank_clamp(g.head_turn_variance_degrees.0);
+            assert!(
+                (clamp - 0.3).abs() < 1e-3,
+                "roadster seed {seed}: banks to {clamp:.5} rad, was the validated 0.3"
+            );
+        });
+    }
+
+    /// #1381, the idle's companion to `no_two_craft_types_in_a_family_
+    /// share_a_feel`. No two types in a family lie the same way at rest.
+    ///
+    /// The point of the whole idle half: one swell rocked a longship and a
+    /// laden scow alike, and one 9 Hz buzz was worn by three craft with no
+    /// engine between them. A type that lands later and forgets to say what
+    /// it does at rest cannot quietly inherit its neighbour's.
+    #[test]
+    fn no_two_craft_types_in_a_family_share_an_idle() {
+        let boats = boats::every_idle();
+        assert_eq!(boats.len(), 6, "every boat type is built");
+        for (i, (an, a)) in boats.iter().enumerate() {
+            for (bn, b) in boats.iter().skip(i + 1) {
+                assert_ne!(a, b, "the {an} and the {bn} lie the same way at rest");
+            }
+        }
+        let skiffs = skiffs::every_idle();
+        assert_eq!(skiffs.len(), 6, "every skiff type is built");
+        for (i, (an, a)) in skiffs.iter().enumerate() {
+            for (bn, b) in skiffs.iter().skip(i + 1) {
+                assert_ne!(a, b, "the {an} and the {bn} lie the same way at rest");
+            }
+        }
+    }
+
+    /// #1381 proof 7. The editor's re-derive button writes exactly what a
+    /// re-roll of the same seed writes.
+    ///
+    /// Its hover text promises "what an untouched avatar of this seed would
+    /// show", and the seeded derivation is craft-aware now, so a button
+    /// still calling `GaitParams::for_seed` would hand a wagon the buzz she
+    /// does not have and make its own sentence false. Asked of the two
+    /// craft families, which are the only ones the derivation touches.
+    #[test]
+    fn the_editors_reseed_agrees_with_a_re_roll() {
+        let mut checked = 0;
+        for seed in 0u64..400 {
+            let family = ChassisFamily::for_seed(seed);
+            if !matches!(family, ChassisFamily::Boat | ChassisFamily::Skiff) {
+                continue;
+            }
+            let from_record = crate::pds::AvatarRecord::default_for_seed(seed)
+                .gait
+                .expect("a seeded default carries a gait section");
+            assert_eq!(
+                seeded_gait(seed),
+                from_record,
+                "seed {seed} ({family:?}): the re-derive button and the re-roll disagree"
+            );
+            checked += 1;
+        }
+        assert!(checked > 0, "no craft seed exercised the claim");
+    }
+
+    /// PRINT-ONLY. One line per type for the owner's idle page: what she
+    /// does at rest now, and what to look for in a hard turn (#1381).
+    ///
+    /// The page beside the drive card is written from THIS, so its numbers
+    /// are the code's rather than a transcription - the idle is a taste
+    /// call (epic #1359 rule 12) and a taste call shown with the wrong
+    /// numbers is worse than none.
+    #[test]
+    #[ignore = "the owner's idle page for #1381"]
+    fn print_the_idle_page() {
+        use crate::pds::avatar::gait::{BOAT_ROLL, NOMINAL_SWAY_HZ, SKIFF_SHIVER_HZ};
+        // The seeded amplitude band, which every multiplier below rides.
+        const LO: f32 = 0.005;
+        const HI: f32 = 0.025;
+        println!("BOATS - heave (mm) and list (degrees) over the seeded band");
+        println!(
+            "{:<12} {:>5} {:>14} {:>5} {:>14}",
+            "type", "xheave", "heave mm", "xlist", "list deg"
+        );
+        for (name, idle) in boats::every_idle() {
+            let list = |a: f32| (a * BOAT_ROLL * idle.list).to_degrees();
+            println!(
+                "{name:<12} {:>5.1} {:>6.0} - {:<5.0} {:>5.1} {:>6.1} - {:<5.1}",
+                idle.heave,
+                LO * idle.heave * 3.0 * 1000.0,
+                HI * idle.heave * 3.0 * 1000.0,
+                idle.list,
+                list(LO),
+                list(HI),
+            );
+        }
+        println!("\nSKIFFS - shiver (mm at Hz) and bank clamp (degrees)");
+        println!(
+            "{:<14} {:>7} {:>14} {:>7} {:>6}",
+            "type", "xshiver", "shiver mm", "Hz", "bank"
+        );
+        for (name, idle) in skiffs::every_idle() {
+            match idle.shiver {
+                Some(s) => {
+                    let pace = |f: f32| SKIFF_SHIVER_HZ * (f / NOMINAL_SWAY_HZ);
+                    println!(
+                        "{name:<14} {:>7.1} {:>6.1} - {:<5.1} {:>4.1}-{:<4.1} {:>5.1}",
+                        s.amplitude,
+                        LO * s.amplitude * 0.6 * 1000.0,
+                        HI * s.amplitude * 0.6 * 1000.0,
+                        pace(engine_pace(s.hz, 0.4)),
+                        pace(engine_pace(s.hz, 1.2)),
+                        idle.bank_degrees,
+                    );
+                }
+                None => println!(
+                    "{name:<14} {:>7} {:>14} {:>7} {:>6.1}",
+                    "-", "still", "-", idle.bank_degrees
+                ),
+            }
+        }
+    }
+
+    /// #1381 proof 6. The craft-aware gait survives the sanitiser unchanged
+    /// for every seed, as the craft-blind one always did.
+    ///
+    /// It is not obvious: the derivation multiplies the seeded amplitude by
+    /// up to 1.8 against a 0.2 cap, divides a list by 0.24 against a
+    /// 60-degree cap, and moves the frequency against a 3 Hz cap. A value
+    /// the sanitiser rewrote would be one the owner never published and
+    /// every peer would see differently.
+    #[test]
+    fn the_craft_aware_seeded_gait_survives_sanitize_unchanged() {
+        for seed in 0u64..2000 {
+            let g = seeded_gait(seed);
+            let mut sanitized = g.clone();
+            sanitized.sanitize();
+            assert_eq!(g, sanitized, "seed {seed}'s seeded gait was rewritten");
+        }
+    }
+
+    /// PRINT-ONLY. The mass band of every skiff type over seeds 0..4000,
+    /// which is what `player::gait::skiff_bank_sign`'s blend has to sit in
+    /// the gap of (#1381).
+    ///
+    /// Re-run it after any change to a skiff's `mass_factor` or to the
+    /// family's mass clamp, and move the blend to the measured gap: the
+    /// direction a craft leans is decided by where her mass falls, so a
+    /// band that crept across the blend would silently flip a whole type.
+    #[test]
+    #[ignore = "audit for #1381: the skiff mass bands the bank blend sits between"]
+    fn audit_the_skiff_mass_bands() {
+        use crate::seeded_defaults::SkiffType;
+        use std::collections::BTreeMap;
+        let mut bands: BTreeMap<&'static str, (f32, f32, usize)> = BTreeMap::new();
+        for seed in 0u64..4000 {
+            if ChassisFamily::for_seed(seed) != ChassisFamily::Skiff {
+                continue;
+            }
+            let LocomotionConfig::Car(p) = skiff_locomotion(seed) else {
+                panic!("a skiff seed builds a car preset");
+            };
+            let e =
+                bands
+                    .entry(SkiffType::for_seed(seed).label())
+                    .or_insert((f32::MAX, f32::MIN, 0));
+            e.0 = e.0.min(p.mass.0);
+            e.1 = e.1.max(p.mass.0);
+            e.2 += 1;
+        }
+        let mut rows: Vec<_> = bands.iter().collect();
+        rows.sort_by(|a, b| a.1.0.partial_cmp(&b.1.0).expect("a real mass"));
+        println!(
+            "{:<14} {:>9} {:>9} {:>7}",
+            "type", "min kg", "max kg", "seeds"
+        );
+        let mut prev: Option<(&str, f32)> = None;
+        for (name, (lo, hi, n)) in rows {
+            if let Some((pname, phi)) = prev {
+                println!(
+                    "        ---- gap {pname} {phi:.1} .. {name} {lo:.1} = {:.1} kg ----",
+                    lo - phi
+                );
+            }
+            println!("{name:<14} {lo:>9.1} {hi:>9.1} {n:>7}");
+            prev = Some((name, *hi));
+        }
+        println!(
+            "blend: leans in at or under {:.1}, rolls out at or over {:.1}",
+            crate::player::gait::BANK_LEANS_IN_BELOW_KG,
+            crate::player::gait::BANK_ROLLS_OUT_ABOVE_KG
+        );
+    }
+
+    /// The two craft the owner DROVE and signed off keep the drive they
+    /// were signed off with (#1361, #1368, kept by #1381's sweep).
+    ///
+    /// They are the yardsticks the other ten were set against, so a retune
+    /// that moved one of them would move the whole fleet's reference
+    /// without anybody deciding to. The roadster's case is the sharper one:
+    /// #1381 grew `SkiffFeel` two damping fields, which means her `fn feel`
+    /// now states two numbers it used to leave to `CarParams::default()`.
+    /// They have to be the SAME two numbers, or her published record moves
+    /// for a refactor - so this asks `CarParams` rather than repeating the
+    /// literals.
+    #[test]
+    fn the_two_validated_craft_keep_the_drive_they_were_signed_off_with() {
+        let sloop = boats::every_feel()
+            .into_iter()
+            .find(|(n, _)| *n == "Sloop")
+            .expect("the sloop is built")
+            .1;
+        assert_eq!(
+            (
+                sloop.mass_factor,
+                sloop.drive_accel,
+                sloop.turn_accel,
+                sloop.linear_damping,
+                sloop.angular_damping
+            ),
+            (4.0, 9.0, 7.0, 1.5, 6.0),
+            "the sloop is the boat yardstick and #1381 kept her"
+        );
+
+        let roadster = skiffs::every_feel()
+            .into_iter()
+            .find(|(n, _)| *n == "Roadster")
+            .expect("the roadster is built")
+            .1;
+        assert_eq!(
+            (
+                roadster.mass_factor,
+                roadster.drive_accel,
+                roadster.turn_accel
+            ),
+            (1.0, 8.9, 2.0),
+            "the roadster is the skiff yardstick and #1381 kept her"
+        );
+        let stock = crate::pds::avatar::locomotion::CarParams::default();
+        assert_eq!(
+            (roadster.linear_damping, roadster.angular_damping),
+            (stock.linear_damping.0, stock.angular_damping.0),
+            "the roadster's damping literals must be exactly what every skiff \
+             silently shared before `SkiffFeel` grew the fields, or her record \
+             moved for a refactor"
+        );
+    }
+
+    /// THE PER-TYPE FEEL GUARD, first half (#1381). No two craft types in a
+    /// family carry the same feel tuple.
+    ///
+    /// `distinct_hull_classes_drive_differently` pinned this for the hull
+    /// ARRANGEMENTS until #1363 retired them, and default_visuals promised
+    /// it back with the feel sweep. It is the control for the sweep, and it
+    /// FAILED TWICE at 0211f30: the junk carried the sloop's tuple bit for
+    /// bit and the steam tug carried the scow's, each as an explicit
+    /// placeholder written when its type landed.
+    ///
+    /// This is the cheap half and it reads the TABLE. It is not the claim
+    /// that matters on its own - two types can share nothing here and still
+    /// drive almost alike, and two types with the same tuple still differ
+    /// under the wheel because the inertia follows the collider box (the
+    /// junk yawed 80.6 deg/s to the sloop's 112.0 on identical numbers).
+    /// The claim about what the fleet actually DOES is
+    /// `player::spawn::tests::the_fleet_drives_in_the_agreed_order`, which
+    /// runs the real drive systems.
+    #[test]
+    fn no_two_craft_types_in_a_family_share_a_feel() {
+        let boats = boats::every_feel();
+        assert_eq!(boats.len(), 6, "every boat type is built");
+        for (i, (an, a)) in boats.iter().enumerate() {
+            for (bn, b) in boats.iter().skip(i + 1) {
+                assert_ne!(a, b, "the {an} and the {bn} carry the same feel tuple");
+            }
+        }
+        let skiffs = skiffs::every_feel();
+        assert_eq!(skiffs.len(), 6, "every skiff type is built");
+        for (i, (an, a)) in skiffs.iter().enumerate() {
+            for (bn, b) in skiffs.iter().skip(i + 1) {
+                assert_ne!(a, b, "the {an} and the {bn} carry the same feel tuple");
+            }
         }
     }
 
@@ -711,9 +1339,11 @@ mod tests {
     // `distinct_hull_classes_drive_differently` pinned that a barge and a
     // catamaran did not share one bit-identical locomotion config. Both hull
     // arrangements went with the legacy boat pipeline in #1363: a boat's feel
-    // is a property of her craft TYPE now, and until a second type is built
-    // there is nothing for it to compare. It comes back, as a per-type feel
-    // guard, with #1381.
+    // is a property of her craft TYPE now. It came back with #1381's sweep,
+    // in two halves: `no_two_craft_types_in_a_family_share_a_feel` above
+    // reads the table for all twelve types, and
+    // `player::spawn::tests::the_fleet_drives_in_the_agreed_order` measures
+    // what they do under the wheel. #1382 owns its final form.
 
     use crate::pds::sanitize_avatar_visuals;
 

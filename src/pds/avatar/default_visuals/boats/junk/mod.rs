@@ -27,7 +27,7 @@ use crate::pds::generator::Generator;
 use crate::seeded_defaults::{BoatBlueprint, OrnatenessTier, ParticleAura};
 
 use super::profile::{FinlessForm, HullProfile, SheerLaw};
-use super::{BoatCraft, BoatFeel, Propulsion, junk_colours};
+use super::{BoatCraft, BoatFeel, BoatIdle, Propulsion, junk_colours};
 
 /// The junk's plan form, `(z fraction of LOA, half-beam fraction)` transom
 /// to stem: a WIDE flat transom, full through the middle, and a bluff bow
@@ -73,15 +73,28 @@ impl BoatCraft for Junk {
     }
 
     fn feel(&self) -> BoatFeel {
-        // The sloop's - the old monohull's - as the brief asks: a junk is a
-        // handy sailing boat, not a barge. #1381's per-type sweep is where
-        // she may part from the sloop.
+        // #1381's sweep, agreed by the owner on 2026-09-20. She carried the
+        // sloop's tuple bit for bit until here, and only her longer hull made
+        // her turn differently at all. A battened-lug trader is laden:
+        // slower than a yacht, and her battens let her point well but she
+        // does not accelerate. Measured: 16.3 km/h (4.52 m/s) to the sloop's
+        // 21.7, 90% of it in 1.45 s, 47.9 deg/s, round in 10.8 m = 3.5 of
+        // her own 3.05 m against the sloop's 2.4.
         BoatFeel {
             mass_factor: 4.0,
-            drive_accel: 9.0,
-            turn_accel: 7.0,
-            linear_damping: 1.5,
-            angular_damping: 6.0,
+            drive_accel: 7.2,
+            turn_accel: 4.5,
+            linear_damping: 1.6,
+            angular_damping: 6.5,
+        }
+    }
+
+    fn idle(&self) -> BoatIdle {
+        // Laden and beamy: a loaded trader is damped by her own cargo.
+        // 12-60 mm of heave, 0.7-3.5 degrees of list.
+        BoatIdle {
+            heave: 0.8,
+            list: 0.7,
         }
     }
 

@@ -30,7 +30,7 @@ use crate::seeded_defaults::{
 };
 
 use super::profile::{FinlessForm, HullProfile, SheerLaw};
-use super::{BoatCraft, BoatFeel, Propulsion, scow_colours};
+use super::{BoatCraft, BoatFeel, BoatIdle, Propulsion, scow_colours};
 use cargo::Hold;
 use house::House;
 
@@ -104,14 +104,32 @@ impl BoatCraft for Scow {
     }
 
     fn feel(&self) -> BoatFeel {
-        // The legacy barge's numbers, as the brief asks: heavy. A
-        // placeholder for #1381's per-type sweep.
+        // #1381's sweep, agreed by the owner on 2026-09-20. A loaded scow is
+        // POLED, at walking pace, and a flat punt with no keel and no rudder
+        // answers a pole slowly and grudgingly. Measured: 5.4 km/h
+        // (1.51 m/s - walking pace), 90% of it in 0.97 s, 13.1 deg/s, round
+        // in 13.2 m = 4.9 of her own 2.69 m.
+        //
+        // She is the slowest craft in the fleet by a wide margin, on purpose.
+        // The halfway house, if 5.4 km/h ever reads as broken rather than as
+        // laden, is drive_accel 4.6.
         BoatFeel {
             mass_factor: 8.0,
-            drive_accel: 6.5,
-            turn_accel: 4.0,
-            linear_damping: 2.2,
-            angular_damping: 8.0,
+            drive_accel: 3.6,
+            turn_accel: 1.4,
+            linear_damping: 2.4,
+            angular_damping: 9.0,
+        }
+    }
+
+    fn idle(&self) -> BoatIdle {
+        // A raft FOLLOWS the surface and barely lists: the widest split in
+        // the fleet between the two, and the reason the list could not stay
+        // on the same record field as the heave. 17-83 mm of heave, 0.4-2.0
+        // degrees of list.
+        BoatIdle {
+            heave: 1.1,
+            list: 0.4,
         }
     }
 

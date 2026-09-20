@@ -178,7 +178,14 @@ mod tests {
     /// produce it. Every field is measured, never derived.
     struct DriveCard {
         turn_speed: f32,
+        /// How much the yaw rate still moved over the last second of the
+        /// turn, as a fraction of the reading. The reading is only a
+        /// STEADY turn if this is tiny, and it is what lets the guard use
+        /// a shorter window than the card and prove the window was enough.
         yaw_drift: f32,
+        /// The same question of the straight line: how much the speed
+        /// still moved over its last second.
+        speed_drift: f32,
         top_speed: f32,
         to_half: f32,
         to_ninety: f32,
@@ -190,6 +197,56 @@ mod tests {
         bank_degrees: Option<f32>,
         hull_len: f32,
         mass: f32,
+    }
+
+    /// How long the probe holds each phase of the drive, and whether it
+    /// measures the coast at all (#1381).
+    ///
+    /// The card the owner drives by wants everything and can afford it.
+    /// The per-type guard runs in the gate, so it wants the least that is
+    /// still honest - and "honest" is not a judgement here: `DriveCard`
+    /// reports how far the speed and the yaw rate still moved over their
+    /// last second, and the guard asserts both are under a tenth of a
+    /// percent, so a window that were too short would fail loudly rather
+    /// than quietly measure a transient.
+    #[derive(Clone, Copy)]
+    struct Window {
+        straight_secs: f64,
+        turn_secs: f64,
+        coast: bool,
+    }
+
+    impl Window {
+        /// The card: far past converged for every type, coast included.
+        const FULL: Self = Self {
+            straight_secs: 20.0,
+            turn_secs: 20.0,
+            coast: true,
+        };
+
+        /// What the guard needs, and no more.
+        ///
+        /// Both phases are first-order lags, so what the width has to buy
+        /// is a reading that has stopped moving. The guard asserts the
+        /// speed and the yaw rate each drift under 0.1% over their last
+        /// second, and for a lag at rate `k` that drift is
+        /// `(1 - e^-k) e^-k(T-1)`: the slowest linear rate in the fleet is
+        /// the wagon's `linear_damping` 0.45, which needs 14.1 s, and the
+        /// slowest angular is the rover's `angular_damping` 3.0, which
+        /// needs 2.9 s. Rounded up to 16 and 4. The coast is dropped
+        /// because no relation the guard asserts reads it.
+        ///
+        /// MEASURED, one binary, twelve types, after the port: the full
+        /// probe is 4.51 s at test-release and this is 2.41 s; under plain
+        /// `cargo test --lib`, which CI runs, the guard is 21.9 s. The
+        /// drift assertions hold on all twelve at both widths, which is
+        /// what says the width is enough rather than merely cheap. #1382
+        /// owns its final form and may trim it further.
+        const GUARD: Self = Self {
+            straight_secs: 16.0,
+            turn_secs: 4.0,
+            coast: false,
+        };
     }
 
     /// A headless avian app holding one seeded craft, built through the
@@ -286,7 +343,7 @@ mod tests {
 
     /// Drive one craft: hold forward to her top speed, then hold a turn at
     /// speed, then let go.
-    fn drive_card(record: &AvatarRecord) -> DriveCard {
+    fn drive_card(record: &AvatarRecord, window: Window) -> DriveCard {
         let (mut app, entity) = drive_app(record);
         let (hull_len, mass) = match &record.locomotion {
             LocomotionConfig::HoverBoat(p) => (p.chassis_half_extents.0[2] * 2.0, p.mass.0),
@@ -294,8 +351,8 @@ mod tests {
             _ => panic!("the card is for the two driven families"),
         };
 
-        // 1. From rest, W held. 20 s is far past converged for every type.
-        let steps = (DRIVE_HZ * 20.0) as usize;
+        // 1. From rest, W held.
+        let steps = (DRIVE_HZ * window.straight_secs) as usize;
         let mut speeds = Vec::with_capacity(steps);
         for _ in 0..steps {
             drive_step(&mut app, &[KeyCode::KeyW]);
@@ -309,11 +366,15 @@ mod tests {
                 .map_or(f32::NAN, |i| (i + 1) as f32 / DRIVE_HZ as f32)
         };
         let (to_half, to_ninety) = (after(0.5), after(0.9));
+        // How far the speed still moved over its last second - the straight
+        // line's own answer to "was this window long enough".
+        let a_second_back = speeds[speeds.len().saturating_sub(DRIVE_HZ as usize + 1)];
+        let speed_drift = (top_speed - a_second_back).abs() / top_speed.abs().max(1e-6);
 
         // 2. W and A held together, from that speed: the steady turn. The
         // yaw rate a second before the reading says whether it IS steady -
         // an un-converged turn would make the circle below fiction.
-        for _ in 0..(DRIVE_HZ * 19.0) as usize {
+        for _ in 0..(DRIVE_HZ * (window.turn_secs - 1.0)) as usize {
             drive_step(&mut app, &[KeyCode::KeyW, KeyCode::KeyA]);
         }
         let early_yaw = motion(&app, entity).1;
@@ -330,25 +391,43 @@ mod tests {
         };
         // The idle profile's bank, from the two numbers it reads - both
         // measured here rather than guessed (src/player/gait.rs `advance_skiff`).
-        let bank_degrees = matches!(record.locomotion, LocomotionConfig::Car(_))
-            .then(|| crate::player::gait::skiff_bank(yaw_rate, turn_speed).to_degrees());
+        let bank_degrees = matches!(record.locomotion, LocomotionConfig::Car(_)).then(|| {
+            use crate::player::gait::{skiff_bank, skiff_bank_clamp, skiff_bank_sign};
+            let (clamp, sign) = match &record.locomotion {
+                LocomotionConfig::Car(p) => (
+                    skiff_bank_clamp(
+                        record
+                            .gait
+                            .as_ref()
+                            .map_or(0.0, |g| g.head_turn_variance_degrees.0),
+                    ),
+                    skiff_bank_sign(p.mass.0),
+                ),
+                _ => unreachable!("the bank column is a skiff's"),
+            };
+            skiff_bank(yaw_rate, turn_speed, clamp, sign).to_degrees()
+        });
 
         // 3. Everything released: the coast down to a tenth of her top speed.
+        // Skipped for the guard, which asserts no relation that reads it.
         let mut coast_time = f32::NAN;
         let mut coast_distance = 0.0;
-        for step in 0..(DRIVE_HZ * 60.0) as usize {
-            drive_step(&mut app, &[]);
-            let (speed, _) = motion(&app, entity);
-            coast_distance += speed / DRIVE_HZ as f32;
-            if coast_time.is_nan() && speed <= 0.1 * top_speed {
-                coast_time = (step + 1) as f32 / DRIVE_HZ as f32;
-                break;
+        if window.coast {
+            for step in 0..(DRIVE_HZ * 60.0) as usize {
+                drive_step(&mut app, &[]);
+                let (speed, _) = motion(&app, entity);
+                coast_distance += speed / DRIVE_HZ as f32;
+                if coast_time.is_nan() && speed <= 0.1 * top_speed {
+                    coast_time = (step + 1) as f32 / DRIVE_HZ as f32;
+                    break;
+                }
             }
         }
 
         DriveCard {
             turn_speed,
             yaw_drift,
+            speed_drift,
             top_speed,
             to_half,
             to_ninety,
@@ -427,17 +506,25 @@ mod tests {
         loco
     }
 
-    /// PRINT-ONLY. The recommended candidate tuples of
+    /// PRINT-ONLY. The candidate tuples of
     /// `target/dump/vehicles2026-09/feel/drive_card.txt`, run through the
     /// same probe that measured the craft as she is, so the card's "what it
-    /// would do" column is measured and not predicted (#1381 phase 1).
+    /// would do" column was measured and not predicted (#1381 phase 1).
     ///
-    /// The first row of each pair is the craft at HEAD. The last row is the
-    /// CONTROL: the sloop under a doubled mass factor and nothing else, which
-    /// must come out identical - `drive_force` and `turn_torque` are both
-    /// mass times an acceleration, so the mass cancels out of every number on
-    /// this card. It is the one knob the owner should NOT be asked to turn
-    /// for feel.
+    /// SINCE THE PORT IT IS A CROSS-CHECK, and that is worth keeping. The
+    /// `now` row builds the config the way the game does - the seed's own
+    /// craft hands `skiff_locomotion` / `boat_locomotion` its feel - while
+    /// the `cand` row RE-DERIVES one through [`under_candidate`] from the
+    /// tuple written here. The two arrive by different routes, so any
+    /// difference between them is a bug in one of the two. Run after the
+    /// port: identical on all ten, to every printed digit.
+    ///
+    /// The last row is the CONTROL: the sloop under a doubled mass factor
+    /// and nothing else, which must come out identical - `drive_force` and
+    /// `turn_torque` are both mass times an acceleration, and avian's
+    /// inertia is mass times the box, so the mass cancels out of every
+    /// number on this card. It is the one knob the owner should NOT be
+    /// asked to turn for feel.
     #[test]
     #[ignore = "probe for #1381: what the recommended feel tuples would do"]
     fn probe_what_the_candidate_feels_would_do() {
@@ -611,8 +698,8 @@ mod tests {
                         .map_or("-".to_string(), |b| format!("{b:.1}")),
                 );
             };
-            line("now", &drive_card(&record));
-            line("cand", &drive_card(&after));
+            line("now", &drive_card(&record, Window::FULL));
+            line("cand", &drive_card(&after, Window::FULL));
             println!("                   -> {why}");
         }
     }
@@ -652,7 +739,7 @@ mod tests {
         );
         for (craft, seed) in seed_per_craft() {
             let record = AvatarRecord::default_for_seed(seed);
-            let c = drive_card(&record);
+            let c = drive_card(&record, Window::FULL);
             println!(
                 "{:<14} {:>5.2} {:>6.0} {:>6.2} {:>6.1} {:>6.2} {:>6.2} {:>6.2} {:>7.1} {:>6.1} {:>6.1} {:>6.2} {:>6}  seed {seed}",
                 craft.label(),
@@ -675,6 +762,248 @@ mod tests {
                  {:.4}% over its last second",
                 c.coast_distance,
                 c.yaw_drift * 100.0
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // The per-type feel guard, measured half (#1381 work item D)
+    // -----------------------------------------------------------------------
+
+    /// Assert that `a` clears `b` by at least `margin`, naming the claim it
+    /// is part of.
+    fn clears(claim: &str, a_name: &str, a: f32, b_name: &str, b: f32, margin: f32) {
+        assert!(
+            a >= b * (1.0 + margin),
+            "{claim}: {a_name} {a:.2} is not {:.0}% clear of {b_name} {b:.2}",
+            margin * 100.0
+        );
+    }
+
+    /// The card of every craft type, by label, measured through the real
+    /// drive systems at [`Window::GUARD`].
+    fn fleet_cards() -> std::collections::BTreeMap<&'static str, DriveCard> {
+        seed_per_craft()
+            .into_iter()
+            .map(|(craft, seed)| {
+                let record = AvatarRecord::default_for_seed(seed);
+                (craft.label(), drive_card(&record, Window::GUARD))
+            })
+            .collect()
+    }
+
+    /// THE PER-TYPE FEEL GUARD, measured half (#1381). The fleet drives in
+    /// the order the owner agreed on 2026-09-20, asked of the real
+    /// `apply_hover_boat_drive` / `apply_car_drive` over avian rather than
+    /// of the feel table.
+    ///
+    /// Its table half is
+    /// `pds::avatar::default_visuals::tests::no_two_craft_types_in_a_family_
+    /// share_a_feel`, and this is the half that matters: two types can carry
+    /// different tuples and still drive alike, and two types carrying the
+    /// SAME tuple drive differently anyway, because the body answers a
+    /// torque with `torque / inertia` and avian takes the inertia from the
+    /// collider box. At 0211f30 the junk carried the sloop's tuple bit for
+    /// bit and yawed 80.6 deg/s to her 112.0.
+    ///
+    /// # Why relations with a margin, and never digits
+    ///
+    /// Local glibc is 2.43 and CI's is 2.39, and the two disagree in the
+    /// last ulp of `f32` `sin` and `acos` (memory `project_libm_nudge_shim`),
+    /// which is enough to move a printed digit of a turning circle. A
+    /// relation with a ten percent margin cannot flip on an ulp. The margins
+    /// below are the measured ones rounded DOWN to a tenth, and each
+    /// assertion says what it is claiming in words.
+    ///
+    /// # Why this window
+    ///
+    /// [`Window::GUARD`] is 16 s of straight line and 4 s of turn against
+    /// the card's 20 and 20, with no coast - see its doc for the arithmetic.
+    /// The first two assertions here are the proof that it was enough: every
+    /// craft's speed and yaw rate must still be moving by under a tenth of a
+    /// percent over their last second, so a window that were too short fails
+    /// loudly instead of quietly measuring a transient.
+    #[test]
+    fn the_fleet_drives_in_the_agreed_order() {
+        let c = fleet_cards();
+        let at = |name: &str| -> &DriveCard {
+            c.get(name)
+                .unwrap_or_else(|| panic!("{name} is in the seeded fleet"))
+        };
+
+        // THE CONTROL FOR THE WINDOW. Every reading below is a steady-state
+        // one or it is nothing.
+        for (name, card) in &c {
+            assert!(
+                card.speed_drift < 0.001,
+                "{name}: the straight line had not settled - speed still moving \
+                 {:.4}% over its last second",
+                card.speed_drift * 100.0
+            );
+            assert!(
+                card.yaw_drift < 0.001,
+                "{name}: the turn had not settled - yaw rate still moving {:.4}% \
+                 over its last second",
+                card.yaw_drift * 100.0
+            );
+        }
+
+        // ---- THE BOATS ----
+
+        // The runabout is the fastest boat, and it is not close: a planing
+        // mahogany hull against five displacement ones.
+        let boats = ["Sloop", "Longship", "Steam tug", "Junk", "Runabout", "Scow"];
+        for other in boats.iter().filter(|b| **b != "Runabout") {
+            clears(
+                "the runabout is the fastest boat",
+                "the runabout",
+                at("Runabout").top_speed,
+                other,
+                at(other).top_speed,
+                0.5,
+            );
+        }
+        // ...and the scow the slowest, being poled at walking pace. She is
+        // the slowest of all twelve, which is the stronger claim.
+        for other in c.keys().filter(|b| **b != "Scow") {
+            clears(
+                "the scow is the slowest craft in the fleet",
+                other,
+                at(other).top_speed,
+                "the scow",
+                at("Scow").top_speed,
+                0.5,
+            );
+        }
+
+        // A long, shallow, keel-less hull out-runs a keelboat and skids in
+        // the turn. Both halves, because either alone would let the port
+        // drift back to a faster longship that also out-turns a yacht.
+        clears(
+            "the longship out-runs the sloop",
+            "the longship",
+            at("Longship").top_speed,
+            "the sloop",
+            at("Sloop").top_speed,
+            0.1,
+        );
+        clears(
+            "...and loses to her in the turn",
+            "the sloop",
+            at("Sloop").yaw_rate,
+            "the longship",
+            at("Longship").yaw_rate,
+            0.3,
+        );
+        clears(
+            "...in her own lengths too",
+            "the longship's circle",
+            at("Longship").lengths,
+            "the sloop's",
+            at("Sloop").lengths,
+            0.3,
+        );
+
+        // A tug has a screw right under her rudder and a barge has a pole.
+        clears(
+            "the tug out-turns the scow",
+            "the tug",
+            at("Steam tug").yaw_rate,
+            "the scow",
+            at("Scow").yaw_rate,
+            0.5,
+        );
+        clears(
+            "...and comes round in fewer of her own lengths",
+            "the scow's circle",
+            at("Scow").lengths,
+            "the tug's",
+            at("Steam tug").lengths,
+            0.5,
+        );
+
+        // ---- THE SKIFFS ----
+
+        // The cyclecar is the most agile thing on land, not merely the
+        // fastest: the highest yaw rate of any skiff.
+        //
+        // NOT ASSERTED, and said here rather than left to be rediscovered:
+        // the agreed order called her "the tightest skiff circle", and on
+        // the measured card she is not. The ROVER comes round in 5.5 m to
+        // her 16.6, and among the skiffs that carve rather than pivot the
+        // wagon's 17.7 m is only 6.6% off hers - inside any margin an ulp
+        // cannot flip. Her yaw rate is the claim that survives measuring.
+        let skiffs = [
+            "Roadster",
+            "Dune buggy",
+            "Armoured car",
+            "Cyclecar",
+            "Wagon",
+            "Rover",
+        ];
+        for other in skiffs.iter().filter(|s| **s != "Cyclecar") {
+            clears(
+                "the cyclecar is the most agile skiff",
+                "the cyclecar",
+                at("Cyclecar").yaw_rate,
+                other,
+                at(other).yaw_rate,
+                0.1,
+            );
+        }
+
+        // A servo rover drives each wheel: it pivots, it does not corner.
+        for other in skiffs.iter().filter(|s| **s != "Rover") {
+            clears(
+                "the rover turns in the fewest of her own lengths",
+                other,
+                at(other).lengths,
+                "the rover",
+                at("Rover").lengths,
+                1.0,
+            );
+        }
+
+        // The wagon is the slowest skiff to gather way - a claim that one
+        // shared damping could not express at all, because top speed and
+        // time-to-speed were the same knob until #1381 gave `SkiffFeel` its
+        // own linear damping. The armoured car is next, and both are clear
+        // of the 2.89 s the other four share.
+        for other in skiffs.iter().filter(|s| **s != "Wagon") {
+            clears(
+                "the wagon is the slowest skiff to gather way",
+                "the wagon",
+                at("Wagon").to_ninety,
+                other,
+                at(other).to_ninety,
+                0.1,
+            );
+        }
+        for other in skiffs
+            .iter()
+            .filter(|s| **s != "Wagon" && **s != "Armoured car")
+        {
+            clears(
+                "the armoured car is ponderous: second slowest to gather way",
+                "the armoured car",
+                at("Armoured car").to_ninety,
+                other,
+                at(other).to_ninety,
+                0.1,
+            );
+        }
+
+        // NOT the wagon, and the agreed order said it was: measured, the
+        // ROVER is the slowest skiff on top speed (2.78 m/s to the wagon's
+        // 4.23). The wagon's claim is the acceleration one above.
+        for other in skiffs.iter().filter(|s| **s != "Rover") {
+            clears(
+                "the rover is the slowest skiff",
+                other,
+                at(other).top_speed,
+                "the rover",
+                at("Rover").top_speed,
+                0.3,
             );
         }
     }
