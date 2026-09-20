@@ -8,8 +8,8 @@ use crate::pds::{Generator, GeneratorKind, Placement, RoomRecord};
 use crate::seeded_defaults::hash::fnv1a_64;
 use crate::seeded_defaults::{
     ArmouredVariant, AvatarPalette, BoatType, BuggyVariant, ChassisFamily, CraftType, RoadsterBody,
-    RoadsterTop, RoadsterWheels, RunaboutVariant, ScowLoad, SkiffType, SloopHull, SloopRig,
-    TugVariant, WagonBody,
+    RoadsterTop, RoadsterWheels, RoverVariant, RunaboutVariant, ScowLoad, SkiffType, SloopHull,
+    SloopRig, TugVariant, WagonBody,
 };
 
 use super::Args;
@@ -137,6 +137,10 @@ pub(super) fn print_outfit(subject: &str) {
                 "picked; not built yet, drawn as the {}",
                 BoatType::UNIVERSAL.label()
             ),
+            // Unreachable at runtime since #1378 - every skiff type is
+            // built - and the match still needs it, because `implemented()`
+            // is a method rather than a constant and the arm above is
+            // guarded by it.
             CraftType::Skiff(_) => format!(
                 "picked; not built yet, drawn as the {}",
                 SkiffType::UNIVERSAL.label()
@@ -173,6 +177,9 @@ pub(super) fn print_outfit(subject: &str) {
                 CraftType::Skiff(SkiffType::ArmouredCar) => {
                     livery::armoured_livery(seed, None).name
                 }
+                // And a rover (#1378). Hers has to come BEFORE the wildcard
+                // for the same reason.
+                CraftType::Skiff(SkiffType::Rover) => livery::rover_livery(seed, None).name,
                 CraftType::Skiff(_) => livery::skiff_livery(seed, None).name,
             }
         );
@@ -188,11 +195,10 @@ pub(super) fn print_outfit(subject: &str) {
             );
         }
         // And the roadster's own three picks (#1367), for every skiff drawn
-        // as one - every skiff but a wagon, a dune buggy or a cyclecar, until
-        // the other types are built.
-        if let CraftType::Skiff(t) = craft
-            && (t == SkiffType::Roadster || !t.implemented())
-        {
+        // as one - which since #1378 is the roadster's own seeds and nothing
+        // else: every skiff type is built, so `!t.implemented()` never fires
+        // and the condition has reduced to the type itself.
+        if let CraftType::Skiff(SkiffType::Roadster) = craft {
             println!(
                 "  body: {}, top: {}, wheels: {}",
                 RoadsterBody::for_seed(seed).label(),
@@ -224,6 +230,10 @@ pub(super) fn print_outfit(subject: &str) {
         // And the armoured car's (#1375), which her theme picks too.
         if let CraftType::Skiff(SkiffType::ArmouredCar) = craft {
             println!("  armoured: {}", ArmouredVariant::for_seed(seed).label());
+        }
+        // And the rover's (#1378), which her theme picks as well.
+        if let CraftType::Skiff(SkiffType::Rover) = craft {
+            println!("  rover: {}", RoverVariant::for_seed(seed).label());
         }
     }
     let seed = match subject.parse::<u64>() {

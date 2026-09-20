@@ -106,6 +106,18 @@ enum Propulsion {
     /// her theme picked, off her own drawn pipe (`fx::drawn_aura` needs no
     /// arm for her).
     Diesel,
+    /// Six wheel motors and a gear train (#1378): a 150 Hz gear tone banded
+    /// where a gear train sings, breathing six times a second over a body
+    /// note - a small machine picking its way, where every other car on the
+    /// road putters, clatters, whines or rumbles. The rover's.
+    ///
+    /// NOT the cyclecar's [`Electric`](Self::Electric), which two
+    /// both-direction tests key to her: reusing it would cost a restatement
+    /// of both and still leave two types sounding alike. And a servo has
+    /// neither a pipe nor a boiler, so she trails neither exhaust nor steam
+    /// (`fx::drawn_aura`), as a rolling wagon and an electric pod do not -
+    /// which is what leaves her 25 SpaceOutpost seeds with no emitter at all.
+    Servo,
 }
 
 impl Propulsion {
@@ -121,6 +133,7 @@ impl Propulsion {
             Self::Electric => "under power, electric",
             Self::Battened => "under battened sail",
             Self::Diesel => "under power, diesel",
+            Self::Servo => "under power, servo",
         }
     }
 }

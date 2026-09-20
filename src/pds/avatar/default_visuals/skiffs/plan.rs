@@ -52,11 +52,14 @@ use crate::seeded_defaults::SkiffBlueprint;
 /// on the chassis part the way the legacy trike's single front wheel was: a
 /// type declares its axles and the wheels, the guards and the beams all read
 /// the same list: four wheels on a car or a buggy, two on a chariot (#1377),
-/// three on the cyclecar (#1376), six to come with #1378.
+/// three on the cyclecar (#1376), and SIX on the rover, as three paired rows
+/// (#1378) - which this needed no new field for, and neither did
+/// [`BodyPlan::wheels`] or [`BodyPlan::axle_lines`].
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Axle {
     /// Station in units of half the wheelbase from its centre: `+1.0` is the
-    /// front axle and `-1.0` the rear, so a six-wheeler adds one between.
+    /// front axle and `-1.0` the rear, so the rover's six-wheeler adds one
+    /// at `0.0` between them (#1378).
     pub(crate) at: f32,
     /// A pair of wheels, or a single one on the centreline - a cyclecar's
     /// rear, the tadpole's spatted wheel (#1376).

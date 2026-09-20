@@ -26,7 +26,10 @@
 //! second discrete pick follows it: the [`CraftType`] (sloop / longship /
 //! tug / junk / runabout / scow, roadster / buggy / armoured car / cyclecar /
 //! wagon / rover), weighted by the style through the shared mood taxonomy in
-//! [`mood`] so a theme arrives on the craft it would actually build (#1362). The actual silhouette is no longer a per-family design
+//! [`mood`] so a theme arrives on the craft it would actually build (#1362).
+//! Since #1378 every one of those twelve types is BUILT on the skiff side
+//! and all but the longship on the boat side. The actual silhouette is no
+//! longer a per-family design
 //! deriver - it is *composed* from the tagged part catalogue
 //! ([`crate::pds::avatar::parts`]): [`AvatarOutfit`] fills each chassis slot
 //! by querying parts for the avatar's style + tiers, and the assembler
@@ -49,6 +52,7 @@ pub mod mood;
 pub mod outfit;
 pub mod palette;
 pub mod roadster;
+pub mod rover;
 pub mod runabout;
 pub mod scow;
 pub mod sloop;
@@ -70,6 +74,7 @@ pub use materials::MaterialKit;
 pub use outfit::{AvatarOutfit, OutfitPart};
 pub use palette::AvatarPalette;
 pub use roadster::{RoadsterBody, RoadsterTop, RoadsterWheels};
+pub use rover::RoverVariant;
 pub use runabout::RunaboutVariant;
 pub use scow::ScowLoad;
 pub use sloop::{SloopHull, SloopRig};

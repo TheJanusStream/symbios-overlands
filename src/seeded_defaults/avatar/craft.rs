@@ -394,19 +394,28 @@ impl SkiffType {
     /// Roadster's 30. The Dune buggy is the third (#1374), on its six leisure
     /// and frontier themes: 13 % of the family. The Cyclecar is the fourth
     /// (#1376), on the neon themes and the campus. The Armoured car is the
-    /// fifth (#1375), on the three modern martial themes: 8 % of the family,
-    /// and after her the ROVER is the last skiff type nothing builds - 13 of
-    /// the 151 skiff seeds under 600 still pick it (#1378).
+    /// fifth (#1375), on the three modern martial themes: 8 % of the family.
+    /// The six-wheeled ROVER is the sixth (#1378), on the outpost and alien
+    /// themes and the other 8 % - and with her NO SKIFF TYPE IS UNBUILT.
+    /// Every skiff seed now draws the machine it rolled, and the answer here
+    /// is `true` six times.
+    ///
+    /// It is still asked, and is still a `match` rather than a `true`: the
+    /// boats keep their own unbuilt group until #1369, the readouts print
+    /// this and #1380's pinned re-roll will ask it, and a seventh type filed
+    /// before its builder lands has to be able to say so.
     ///
     /// Kept in step with the builder table by
     /// `default_visuals::skiffs::tests::a_skiff_type_is_implemented_exactly_
     /// when_something_builds_it`.
     pub fn implemented(self) -> bool {
         match self {
-            Self::Roadster | Self::Wagon | Self::DuneBuggy | Self::Cyclecar | Self::ArmouredCar => {
-                true
-            }
-            Self::Rover => false,
+            Self::Roadster
+            | Self::Wagon
+            | Self::DuneBuggy
+            | Self::Cyclecar
+            | Self::ArmouredCar
+            | Self::Rover => true,
         }
     }
 

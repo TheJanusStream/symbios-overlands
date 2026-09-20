@@ -697,6 +697,68 @@ pub fn armoured_livery(seed: u64, over: Option<usize>) -> &'static ArmouredLiver
     pick(ARMOUR_LIVERIES, |l| l.weight, seed, over)
 }
 
+/// A rover's scheme (#1378): the one colour every mass of her carries.
+///
+/// A list of her own, as the wagon, the buggy, the cyclecar and the armoured
+/// car have: a racing green or a cream rover is a coachbuilder's colour on a
+/// machine with a solar panel, and the roadster parked beside her wears
+/// exactly those. These are the finishes an instrument platform is really
+/// built in - thermal white, foil gold, bare titanium, basalt, regolith and a
+/// deep violet - and every one of them is a value a seeded accent reads
+/// against, which it has to be, because her accent lights a band round her
+/// deck and six rims.
+#[derive(Clone, Copy, Debug)]
+pub struct RoverLivery {
+    /// See [`BoatLivery::name`].
+    pub name: &'static str,
+    weight: u32,
+    /// Every mass of her: the deck, the mast, the camera head's housing, the
+    /// dish, the carapace's shell, the monolith's slab, its obelisk and its
+    /// stele.
+    body: [f32; 3],
+}
+
+/// The rover's six schemes (#1378), as the owner agreed them on the phase-1
+/// renders, weights and order: the pick walks the table in this order.
+pub const ROVER_LIVERIES: &[RoverLivery] = &[
+    RoverLivery {
+        name: "Thermal white",
+        weight: 5,
+        body: [0.860, 0.860, 0.830],
+    },
+    RoverLivery {
+        name: "Foil gold",
+        weight: 4,
+        body: [0.640, 0.480, 0.170],
+    },
+    RoverLivery {
+        name: "Titanium",
+        weight: 4,
+        body: [0.400, 0.410, 0.430],
+    },
+    RoverLivery {
+        name: "Basalt",
+        weight: 4,
+        body: [0.085, 0.088, 0.100],
+    },
+    RoverLivery {
+        name: "Regolith",
+        weight: 3,
+        body: [0.420, 0.300, 0.220],
+    },
+    RoverLivery {
+        name: "Deep violet",
+        weight: 3,
+        body: [0.170, 0.080, 0.300],
+    },
+];
+
+/// The scheme this rover seed wears, a pick from [`ROVER_LIVERIES`]; `over`
+/// wraps inside it (`render --livery 0` is Thermal white, `1` Foil gold).
+pub fn rover_livery(seed: u64, over: Option<usize>) -> &'static RoverLivery {
+    pick(ROVER_LIVERIES, |l| l.weight, seed, over)
+}
+
 /// A junk's scheme (#1371): her HULL and her SAILS.
 ///
 /// She has a list of her own, as the wagon, the buggy and the cyclecar do,
@@ -1924,6 +1986,126 @@ pub(crate) fn armoured_colours(ctx: &PartCtx) -> ArmouredColours {
     }
 }
 
+/// The surfaces a rover is built in (#1378): her scheme on every mass, the
+/// seeded accent on the band round her deck and on all six rims, and the
+/// colours the rest of her simply is - a dark running deck, machinery grey
+/// arms, deep blue-black solar cells, bare alloy.
+///
+/// What glows is decided here and nowhere else: the deck band (the
+/// carapace's dorsal ridge, the monolith's three seams) and the six rims are
+/// the accent through [`trim`]; the camera head's pane is the tertiary's
+/// window light, lit on every theme as every lamp and window band in the
+/// fleet is; the antenna whip's beacon glows. Nothing else does - the panel
+/// frame lit as a fourth slot was drawn and rejected, because it turns the
+/// solar panel into a light box and the cells stop reading as cells.
+///
+/// **She is the first type in the fleet whose lit arm is live on every
+/// seed.** All three of her themes are luminous, so [`trim`] takes its
+/// emissive arm on all 54 seeds under 3000, in both registers (28 bold at
+/// emission 8.0, 26 soft at 4.5) - the armoured car's exact opposite, whose
+/// lit arm no seed exercises.
+///
+/// And she is the first skiff to carry a TEXTURED finish: the carapace's
+/// shell is [`MaterialKit::skin`]'s chitin, 422 B on one material and one
+/// slot. Rule 5 (#784) does not bite at this tile - 4 plates a metre with
+/// 2.5 cm sutures puts six or eight hand-sized plates on a 0.9 m shell,
+/// where #784's failure was a FINE weave mipping into fish scales.
+pub(crate) struct RoverColours {
+    /// The deck (the carapace's is [`Self::under`] instead), the mast, the
+    /// camera head's housing, the dish, the monolith's slab, its obelisk and
+    /// its stele: the scheme, floored off the tyres like any coachwork
+    /// ([`GUARD_FLOOR`]).
+    pub(crate) body: SovereignMaterialSettings,
+    /// The carapace's shell and its head plate: the scheme in
+    /// [`MaterialKit::skin`]'s chitin, un-grimed and un-floored because the
+    /// colour handed to it has already been through both.
+    pub(crate) shell: SovereignMaterialSettings,
+    /// The carapace's running deck under her shell: a dark chassis held
+    /// clear of the scheme and floored off the tyres.
+    pub(crate) under: SovereignMaterialSettings,
+    /// **Identity.** The band round the deck's edge, the carapace's dorsal
+    /// ridge, the monolith's roof and flank seams and its stele's band: the
+    /// coachline's own rule, held clear of the mass they lie on.
+    pub(crate) strip: SovereignMaterialSettings,
+    /// **Identity.** All six rims, held clear of the tyre they are set into.
+    pub(crate) rim: SovereignMaterialSettings,
+    /// A worn rover's near-REAR rim: bare steel, paint on every kit - so on
+    /// a lit kit it reads as one dead rim among five lit ones.
+    pub(crate) odd_rim: SovereignMaterialSettings,
+    pub(crate) tyre: SovereignMaterialSettings,
+    /// The rockers, the bogies, the differential bar, the six stub axles,
+    /// the panel's pedestal, the dish's stem, the antenna whip and the
+    /// hidden hub.
+    pub(crate) arm: SovereignMaterialSettings,
+    /// The camera head's pane: the tertiary's window light, the fleet's one
+    /// lit pane and the only thing on her lit on every theme by
+    /// construction. She carries no headlamp, so unlike every other land
+    /// craft's this is her ONE window slot rather than one of two.
+    pub(crate) glass: SovereignMaterialSettings,
+    /// The solar cells: deep blue-black glass under the one glossy vehicle
+    /// finish, whatever the scheme - a cell is a cell.
+    pub(crate) cell: SovereignMaterialSettings,
+    /// The solar panel's frame and the wing panel's: bare alloy, held clear
+    /// of the cells laid on it.
+    pub(crate) frame: SovereignMaterialSettings,
+    /// The stern pallet's two sample boxes: bare alloy, held clear of the
+    /// mass behind them. It is the SAME alloy as [`Self::frame`] and comes
+    /// out one colour with it on a surveyor - they are the same material in
+    /// life, and the fault matrix works around the collapse rather than
+    /// pretending otherwise.
+    pub(crate) boxes: SovereignMaterialSettings,
+    /// The antenna whip's beacon cap: a red glow.
+    pub(crate) tip: SovereignMaterialSettings,
+    /// A battered rover's dead solar cell, or the primer patch on a
+    /// monolith's roof or a carapace's shell.
+    pub(crate) primer: SovereignMaterialSettings,
+}
+
+/// The rover's fixed colours (#1378): what these parts simply are, and how
+/// far each is held from the one surface it has to read against.
+const ROVER_CELL: [f32; 3] = [0.035, 0.050, 0.130];
+const ROVER_ALLOY: [f32; 3] = [0.62, 0.63, 0.65];
+const ROVER_UNDER: [f32; 3] = [0.11, 0.11, 0.12];
+const ROVER_RIM_DELTA: f32 = 0.30;
+const ROVER_FRAME_DELTA: f32 = 0.22;
+const ROVER_BOX_DELTA: f32 = 0.18;
+const ROVER_UNDER_DELTA: f32 = 0.16;
+
+pub(crate) fn rover_colours(ctx: &PartCtx) -> RoverColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let l = rover_livery(ctx.seed, ctx.livery);
+    // A basalt or a deep violet deck is the point of her, but never as dark
+    // as the tyres she stands on. The shell takes this SAME colour: `skin`
+    // neither grimes nor floors, so the floor has to be owed before it.
+    let body = floor_finished(m, l.body, GUARD_FLOOR);
+    let bl = luma(body);
+    RoverColours {
+        body: m.paint(body),
+        shell: m.skin(body),
+        under: m.paint(floor_finished(
+            m,
+            clear_of(ROVER_UNDER, bl, ROVER_UNDER_DELTA),
+            GUARD_FLOOR,
+        )),
+        strip: trim(m, clear_of(p.primary_accent, bl, COACHLINE_DELTA)),
+        rim: trim(m, clear_of(p.primary_accent, luma(TYRE), ROVER_RIM_DELTA)),
+        odd_rim: m.paint(floor_finished(m, STEEL, GUARD_FLOOR)),
+        tyre: m.rubber(TYRE),
+        arm: m.paint(MACHINERY),
+        glass: window_material(window_light(p.tertiary_accent)),
+        cell: m.brightwork(ROVER_CELL),
+        frame: m.paint(clear_of(ROVER_ALLOY, luma(ROVER_CELL), ROVER_FRAME_DELTA)),
+        boxes: m.paint(clear_of(ROVER_ALLOY, bl, ROVER_BOX_DELTA)),
+        tip: m.glow(TAIL_LAMP),
+        primer: m.paint(floor_finished(
+            m,
+            clear_of(PRIMER, bl, PRIMER_DELTA),
+            GUARD_FLOOR,
+        )),
+    }
+}
+
 /// The surfaces a junk is built in (#1371): her scheme on her hull and her
 /// sails, the seeded accent on her transom roundel and her eyes, and the
 /// colours the rest of her simply is - teak decks, timber spars, bamboo
@@ -2138,6 +2320,19 @@ mod tests {
             cars.iter().all(|&n| n > 0),
             "an armoured-car livery is unreachable: {cars:?}"
         );
+        // And the rover's own six (#1378).
+        let mut rovers = vec![0usize; ROVER_LIVERIES.len()];
+        for s in 0u64..4_000 {
+            let r = rover_livery(s, None);
+            rovers[ROVER_LIVERIES
+                .iter()
+                .position(|l| l.name == r.name)
+                .expect("the pick came from the table")] += 1;
+        }
+        assert!(
+            rovers.iter().all(|&n| n > 0),
+            "a rover livery is unreachable: {rovers:?}"
+        );
         // And the junk's own seven (#1371).
         let mut junks = vec![0usize; JUNK_LIVERIES.len()];
         for s in 0u64..4_000 {
@@ -2228,6 +2423,14 @@ mod tests {
         }
         assert_eq!(armoured_livery(3, Some(0)).name, "Olive drab");
         assert_eq!(armoured_livery(3, Some(1)).name, "Works grey");
+        // And a rover's inside hers (#1378): the agreed ladder sheets draw
+        // Thermal white as `--livery 0` and Foil gold as `--livery 1`.
+        for (i, l) in ROVER_LIVERIES.iter().enumerate() {
+            assert_eq!(rover_livery(7, Some(i)).name, l.name);
+            assert_eq!(rover_livery(9, Some(i + ROVER_LIVERIES.len())).name, l.name);
+        }
+        assert_eq!(rover_livery(3, Some(0)).name, "Thermal white");
+        assert_eq!(rover_livery(3, Some(1)).name, "Foil gold");
     }
 
     /// No painted surface on a land-skiff carries the tyres' own value, on
@@ -2818,6 +3021,202 @@ mod tests {
             "{lit} of her seeds now carry a luminous kit - the lit arm is live"
         );
         assert!(dark > 50, "{dark} flat armoured cars");
+    }
+
+    /// A rover's colours read on every scheme of her list, on every seed
+    /// drawn as one under 3000 (#1378), BOTH directions.
+    ///
+    /// **Hers is the first guard in the fleet whose LIT arm is exercised on
+    /// every seed.** All three of her themes are luminous, so her deck band
+    /// (the carapace's dorsal ridge, the monolith's seams) and her six rims
+    /// take [`trim`]'s emissive arm on all 54 seeds, in both registers - the
+    /// armoured car's exact opposite, whose lit arm no seed of hers
+    /// exercises. So the census at the end asserts the FLAT arm is the
+    /// unexercised one, and the day a flat theme picks her it starts
+    /// checking.
+    ///
+    /// What is lit: the deck band and the rims through [`trim`]; the camera
+    /// head's pane, which is the tertiary's window light on every theme; and
+    /// the antenna whip's beacon. Her deck, her shell, her running deck, her
+    /// rims' odd steel, her tyres, her arms, her cells, her panel frame, her
+    /// pallet boxes and her primer are paint on every kit.
+    ///
+    /// And each of her cleared colours really is clear of the one surface it
+    /// reads against. On a LIT kit the identity colour is un-grimed while
+    /// the mass under it is not, so the reference is the mass's own value
+    /// with the grime divided back out - which is the number [`clear_of`]
+    /// was actually given.
+    ///
+    /// **Rule 9, and she is the first skiff it bites on**: exactly ONE slot
+    /// may carry a texture, and it is the carapace's chitin SHELL. Every
+    /// other slot of hers is flat PBR, [`trim`] included - which takes
+    /// `paint` rather than `accent` on a flat kit, so it is untextured in
+    /// either register.
+    #[test]
+    fn a_rovers_band_rims_and_pane_read_on_every_scheme() {
+        use crate::pds::texture::SovereignTextureConfig;
+        use crate::seeded_defaults::{RoverVariant, SkiffType};
+        let (mut rovers, mut lit, mut dark) = (0, 0, 0);
+        for s in (0u64..3000).filter(|&s| {
+            ChassisFamily::for_seed(s) == ChassisFamily::Skiff
+                && SkiffType::for_seed(s) == SkiffType::Rover
+        }) {
+            let mut ctx = PartCtx::for_seed(s);
+            let luminous = ctx.materials.emissive_accents();
+            let grime = ctx.materials.value_after_grime();
+            let window = window_material(window_light(ctx.palette.tertiary_accent));
+            let carapace = RoverVariant::for_seed(s) == RoverVariant::Carapace;
+            for (i, scheme) in ROVER_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = rover_colours(&ctx);
+                for (what, m) in [
+                    ("deck and mast", &c.body),
+                    ("carapace shell", &c.shell),
+                    ("running deck", &c.under),
+                    ("odd rim", &c.odd_rim),
+                    ("tyres", &c.tyre),
+                    ("arms and stubs", &c.arm),
+                    ("solar cells", &c.cell),
+                    ("panel frame", &c.frame),
+                    ("pallet boxes", &c.boxes),
+                    ("primer", &c.primer),
+                ] {
+                    assert_eq!(
+                        m.emission_strength.0, 0.0,
+                        "seed {s} in {}: the {what} is self-lit",
+                        scheme.name
+                    );
+                }
+                assert_eq!(
+                    c.glass, window,
+                    "seed {s} in {}: the camera head's pane is not the window light",
+                    scheme.name
+                );
+                assert!(
+                    c.tip.emission_strength.0 > 0.0,
+                    "seed {s} in {}: the beacon is dark",
+                    scheme.name
+                );
+                // Rule 9: her shell is the one textured finish in the
+                // family, and it is chitin exactly on the carapace's theme.
+                for (what, m) in [
+                    ("deck and mast", &c.body),
+                    ("running deck", &c.under),
+                    ("deck band", &c.strip),
+                    ("rims", &c.rim),
+                    ("odd rim", &c.odd_rim),
+                    ("tyres", &c.tyre),
+                    ("arms and stubs", &c.arm),
+                    ("camera pane", &c.glass),
+                    ("solar cells", &c.cell),
+                    ("panel frame", &c.frame),
+                    ("pallet boxes", &c.boxes),
+                    ("beacon", &c.tip),
+                    ("primer", &c.primer),
+                ] {
+                    assert!(
+                        matches!(m.texture, SovereignTextureConfig::None),
+                        "seed {s} in {}: the {what} carries a texture - only the \
+                         carapace's shell may",
+                        scheme.name
+                    );
+                }
+                assert_eq!(
+                    matches!(c.shell.texture, SovereignTextureConfig::Chitin(..)),
+                    carapace,
+                    "seed {s} in {}: her shell's chitin and her carapace variant disagree",
+                    scheme.name
+                );
+                for (what, m) in [("deck band", &c.strip), ("rims", &c.rim)] {
+                    let on = m.emission_strength.0 > 0.0;
+                    assert_eq!(
+                        on, luminous,
+                        "seed {s} in {}: the {what} is lit {on} on a kit luminous {luminous}",
+                        scheme.name
+                    );
+                    if luminous {
+                        assert_eq!(
+                            m.base_color, m.emission_color,
+                            "seed {s} in {}: the lit {what} is grimed",
+                            scheme.name
+                        );
+                    }
+                }
+                // Grime dims both sides of a flat pair by one factor, so
+                // each delta shrinks by at most that much - as the boot
+                // top's does. On the lit pairs only the mass is grimed, so
+                // the grime is divided back out of it instead.
+                let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                let body = l(&c.body);
+                let against = if luminous { body / grime } else { body };
+                for (what, a, b, delta) in [
+                    ("deck band", l(&c.strip), against, COACHLINE_DELTA),
+                    (
+                        "rims",
+                        l(&c.rim),
+                        if luminous { luma(TYRE) } else { l(&c.tyre) },
+                        ROVER_RIM_DELTA,
+                    ),
+                    ("panel frame", l(&c.frame), l(&c.cell), ROVER_FRAME_DELTA),
+                    ("pallet boxes", l(&c.boxes), body, ROVER_BOX_DELTA),
+                    ("primer", l(&c.primer), body, PRIMER_DELTA),
+                ] {
+                    let d = (a - b).abs();
+                    assert!(
+                        d > delta * 0.6,
+                        "seed {s} in {}: the {what} is {d} from what it lies on",
+                        scheme.name
+                    );
+                }
+                // The RUNNING DECK is not in that list, and the reason is
+                // worth writing down rather than hiding: it is cleared off
+                // the scheme AND floored off the tyres, and on a dark scheme
+                // at high wear the floor lifts it back toward the value it
+                // was cleared from - 0.065 apart on a battered Regolith
+                // seed, against the 0.16 the clear asked for. That is
+                // #1374's clear-then-floor collision, which #1389 owns for
+                // the whole fleet; the FLOOR is what wins by design, because
+                // a running deck at rubber's own value stops being a
+                // surface. So the floor is what is asked of it here, on the
+                // three slots that carry one.
+                for (what, m) in [
+                    ("deck and mast", &c.body),
+                    ("running deck", &c.under),
+                    ("primer", &c.primer),
+                ] {
+                    let v = l(m);
+                    // `to_value` leaves a colour alone within 1e-3 of its
+                    // target, so a floored surface can land that far under.
+                    assert!(
+                        v >= GUARD_FLOOR - 2e-3,
+                        "seed {s} in {}: the {what} finished at {v}, under the \
+                         {GUARD_FLOOR} floor",
+                        scheme.name
+                    );
+                    assert!(
+                        v > l(&c.tyre) * 1.8,
+                        "seed {s} in {}: the {what} ({v}) is inside the tyres' own value",
+                        scheme.name
+                    );
+                }
+            }
+            if luminous {
+                lit += 1;
+            } else {
+                dark += 1;
+            }
+            rovers += 1;
+        }
+        assert!(rovers > 40, "only {rovers} rover seeds under 3000");
+        // Every one of her three themes is LUMINOUS, so unlike the armoured
+        // car's the lit arm above is the exercised one and the flat arm is
+        // the one the population never reaches. The day a flat theme picks
+        // her, this says so.
+        assert_eq!(
+            dark, 0,
+            "{dark} of her seeds now carry a flat kit - the unlit arm is live"
+        );
+        assert!(lit > 40, "{lit} luminous rovers");
     }
 
     /// A junk's colours read on every scheme of her list, on every seed drawn

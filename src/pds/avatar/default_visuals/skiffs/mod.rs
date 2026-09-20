@@ -20,16 +20,25 @@
 //! implementor: [`craft_for`] resolves an unbuilt pick to
 //! [`SkiffType::UNIVERSAL`] while the PICK stays a property of the seed.
 //!
-//! Five types are built: the roadster, the universal floor; since #1377 the
-//! horseless [`wagon`], which takes all ten historic themes and is 31 % of the
-//! family against the Roadster's 30; since #1374 the dune [`buggy`], on the
-//! six leisure and frontier themes, 13 % of it; since #1376 the three-wheeled
-//! [`cyclecar`], on the neon themes and the campus - the first type on an
-//! unpaired axle; and since #1375 the [`armoured`] car, on the three modern
-//! martial themes, 8 % of it - the first type drawn in FACETS rather than in
-//! sweeps. A seed that picked the rover, the last unbuilt type, is still
-//! drawn as the roadster (13 of the 151 skiff seeds under 600), and the
-//! readouts say so.
+//! ALL SIX types are built: the roadster, the universal floor; since #1377
+//! the horseless [`wagon`], which takes all ten historic themes and is 31 %
+//! of the family against the Roadster's 30; since #1374 the dune [`buggy`],
+//! on the six leisure and frontier themes, 13 % of it; since #1376 the
+//! three-wheeled [`cyclecar`], on the neon themes and the campus - the first
+//! type on an unpaired axle; since #1375 the [`armoured`] car, on the three
+//! modern martial themes, 8 % of it - the first type drawn in FACETS rather
+//! than in sweeps; and since #1378 the six-wheeled [`rover`], on the outpost
+//! and alien themes, the other 8 % - the first type on more than four
+//! wheels, the first to carry a textured finish and the first whose identity
+//! trim is LIT on every seed she has. No skiff seed draws another type's
+//! machine any more.
+//!
+//! **The Option seam nevertheless stays** (#1378, owner decision): the boat
+//! half of the same idiom still needs it while the longship is unbuilt
+//! (#1369), so collapsing the skiff half alone would leave one family's
+//! idiom differing from the other's for exactly one slice. #1382 collapses
+//! both in one decision. What that costs here is named where it sits:
+//! [`craft_for`]'s fallback is unreachable at runtime and still compiles.
 //!
 //! # Where a skiff sits
 //!
@@ -45,6 +54,7 @@ mod buggy;
 mod cyclecar;
 mod plan;
 mod roadster;
+mod rover;
 mod shape;
 mod wagon;
 
@@ -134,9 +144,14 @@ pub(super) trait SkiffCraft {
 /// The seam, and deliberately not a stub (the same reasoning as the boats'):
 /// a match over a non-empty enum needs an arm per variant, and an arm that
 /// drew *something* for an unimplemented type would be a lie the population
-/// census could not see. The unbuilt group is named in full, so adding a type
-/// is a compile error here until it is listed - which is what each of
-/// #1374-#1378 will do.
+/// census could not see. Each of #1374-#1378 moved one type out of the
+/// unbuilt group, and #1378 emptied it: every arm is `Some` today.
+///
+/// It still returns `Option`, and that is a decision rather than an
+/// oversight (#1378): the boats' half of this idiom keeps its own `None`
+/// group until #1369 builds the longship, and #1382 collapses both families
+/// together. The type stays honest in the meantime - a seventh skiff type
+/// filed tomorrow is a compile error here until something builds it.
 fn craft(t: SkiffType) -> Option<&'static dyn SkiffCraft> {
     match t {
         SkiffType::Roadster => Some(&roadster::Roadster),
@@ -144,12 +159,18 @@ fn craft(t: SkiffType) -> Option<&'static dyn SkiffCraft> {
         SkiffType::DuneBuggy => Some(&buggy::Buggy),
         SkiffType::Cyclecar => Some(&cyclecar::Cyclecar),
         SkiffType::ArmouredCar => Some(&armoured::Armoured),
-        SkiffType::Rover => None,
+        SkiffType::Rover => Some(&rover::Rover),
     }
 }
 
 /// The builder a seed actually draws with: its own type where that type is
 /// built, and the family's universal floor where it is not.
+///
+/// **The floor is unreachable since #1378** - every [`SkiffType`] builds -
+/// so this is `craft` with an arm nothing takes. It is kept rather than
+/// deleted because [`craft`] keeps its `Option` until #1369 and #1382 close
+/// the same seam on the boats (see [`craft`]), and because a seventh type
+/// filed before its builder lands would need it back the same day.
 fn craft_for(seed: u64) -> &'static dyn SkiffCraft {
     craft(SkiffType::for_seed(seed)).unwrap_or_else(|| {
         craft(SkiffType::UNIVERSAL).expect("the family's universal floor is always built")
@@ -323,31 +344,53 @@ mod tests {
         );
     }
 
-    /// Every skiff seed draws a skiff, whatever type it picked. This is what
-    /// "go live for every skiff seed" means, and the unbuilt type is the
-    /// reason it needs saying: with the roadster, the wagon (#1377), the dune
-    /// buggy (#1374), the cyclecar (#1376) and the armoured car (#1375)
-    /// built, 13 of the 151 skiff seeds under 600 still pick the one type
-    /// nothing draws yet - the rover, whose slice (#1378) is what ends this
-    /// `unbuilt > 0`. The boats' form: the floor fallback must still be
-    /// exercised, and how much of the family it carries is the census's
-    /// business, not a threshold to re-tune each slice.
+    /// Every skiff seed draws a skiff, whatever type it picked - and since
+    /// #1378 it draws ITS OWN, which is a strictly stronger claim than the
+    /// one this made before.
+    ///
+    /// It used to assert `unbuilt > 0`: that some seed still picked a type
+    /// nothing drew, so the floor fallback was exercised. The rover was the
+    /// last of those (13 of the 151 skiff seeds under 600 picked her), so
+    /// the count is now ZERO and the fallback in [`craft_for`] is
+    /// unreachable. Restated rather than deleted, because what it means now
+    /// is the thing worth guarding: every one of the six [`SkiffType`]s is
+    /// PICKED by some seed under 600 and BUILT by [`craft`], so no seed
+    /// anywhere in the population is quietly drawn as somebody else's
+    /// machine.
     #[test]
     fn every_skiff_seed_resolves_to_a_built_craft() {
         let (mut unbuilt, mut total) = (0, 0);
+        let mut picked: Vec<SkiffType> = Vec::new();
         for s in (0u64..600).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
-            if !SkiffType::for_seed(s).implemented() {
+            let t = SkiffType::for_seed(s);
+            if !t.implemented() {
                 unbuilt += 1;
+            }
+            if !picked.contains(&t) {
+                picked.push(t);
             }
             total += 1;
             let (_, plan) = body_for(s).expect("a skiff seed has a body");
             assert!(plan.length > 1.0, "seed {s}: degenerate body");
         }
         assert!(total > 50, "too few skiffs sampled: {total}");
-        assert!(
-            unbuilt > 0,
-            "no seed picked an unbuilt type - the floor fallback is untested"
+        assert_eq!(
+            unbuilt, 0,
+            "{unbuilt} seeds picked an unbuilt type - since #1378 every skiff type \
+             is built, and `craft_for`'s floor fallback is unreachable"
         );
+        // The census, which is what the assertion above now rests on: every
+        // type is drawn by somebody, and every type that is drawn is built.
+        for t in SkiffType::ALL {
+            assert!(
+                picked.contains(&t),
+                "no skiff seed under 600 picked {t:?} - the census sampled \
+                 {} of the {} types",
+                picked.len(),
+                SkiffType::ALL.len()
+            );
+            assert!(craft(t).is_some(), "{t:?} is picked and nothing builds it");
+        }
     }
 
     /// Every roadster the family can draw at the blueprint corners: every
@@ -966,6 +1009,233 @@ mod tests {
         );
     }
 
+    /// Every rover the family can draw at the blueprint corners: every
+    /// variant crossed with every ornateness-by-wear pair (#1378). Returns
+    /// the built tree, its plan and a label for the failure.
+    fn every_rover() -> Vec<(Generator, rover::RoverPlan, String)> {
+        use crate::seeded_defaults::{OrnatenessTier, RoverVariant, WearTier};
+        let mut ctx = PartCtx::for_seed(a_skiff_seed());
+        let mut out = Vec::new();
+        for bp in corners() {
+            for variant in RoverVariant::ALL {
+                let plan = rover::plan_of(&bp, variant);
+                for o in OrnatenessTier::ALL {
+                    for w in WearTier::ALL {
+                        (ctx.ornateness, ctx.wear) = (o, w);
+                        out.push((
+                            rover::build_dressed(&ctx, &plan),
+                            plan,
+                            format!(
+                                "a {} m {}, {} / {}",
+                                bp.length,
+                                variant.label(),
+                                o.label(),
+                                w.label()
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+        assert_eq!(out.len(), 6 * 3 * 9, "the sweep lost a combination");
+        out
+    }
+
+    /// Every part of a built rover meets another and the whole machine is
+    /// one component, on every variant and tier at every blueprint corner
+    /// (#1378) - on the tree AS SAVED, through the record's 0.1 mm wire.
+    ///
+    /// Her linkage is what this is really for. Her front and rear axles lie
+    /// BEYOND the deck's own ends, so the arms that reach them start over
+    /// open air: drawn as straight stubs off the deck's flank she comes
+    /// apart into three components, and the rocker-bogie through shared
+    /// joints is what makes her one machine. Nothing of hers is fattened to
+    /// meet - every member ends ON a centreline another member runs along
+    /// (the buggy's law, #1374) - and the differential bar athwart both
+    /// rocker pivots is what carries the whole linkage back to the deck.
+    ///
+    /// What the guard cannot see: it reads a Bevel and a Superellipsoid as
+    /// their BOX, so her deck's taper and chamfer and her shell's curvature
+    /// are invisible to it and it is generous about every plate she carries.
+    /// Her contact is by CONSTRUCTION instead: every stem, pedestal, mast
+    /// and box reaches INSIDE what it stands on, and the dorsal ridge stands
+    /// off the shell's own drawn CROWN rather than off its box's flat top
+    /// (#1382).
+    #[test]
+    fn a_rover_is_one_machine_at_every_blueprint_extreme() {
+        use super::super::common::touch;
+        for (built, _, what) in every_rover() {
+            let json = serde_json::to_string(&built).expect("a rover serializes");
+            let saved: Generator = serde_json::from_str(&json).expect("and reads back");
+            touch::assert_one_machine(&saved, &what);
+        }
+    }
+
+    /// Every rover survives the record sanitiser UNCHANGED at the extremes
+    /// of her own blueprint, on every variant and tier (#1359 rule 8).
+    ///
+    /// She carries no node scale at all - the second type that does not -
+    /// so what is at risk here is her ROTATED nodes (the solar panel's frame
+    /// and its cell plates, the wing panel, the dish, and all six wheels),
+    /// compared through the quaternion epsilon the sanitiser's renormalising
+    /// needs; her deck's taper and chamfers, which the sanitiser clamps; and
+    /// the antenna whip's TIP radius, which is under [`MIN_DIM`] on every
+    /// rover shorter than 2.44 m and is floored by `line` before the
+    /// sanitiser can rewrite it.
+    #[test]
+    fn a_rover_survives_sanitize_unchanged_at_her_blueprint_extremes() {
+        use crate::pds::sanitize_avatar_visuals;
+        for (built, _, what) in every_rover() {
+            let mut sanitized = built.clone();
+            sanitize_avatar_visuals(&mut sanitized);
+            if let Some(where_) = first_difference(&built, &sanitized, "0") {
+                panic!("{what} was rewritten by the sanitiser at {where_}");
+            }
+        }
+    }
+
+    /// Every rover stands on all SIX wheels with her deck clear of the
+    /// ground, under the air draft and inside the gateway, at every
+    /// blueprint corner (#1378).
+    ///
+    /// The six are the point of the first half: three paired axles evenly
+    /// spaced, and the MIDDLE pair stand on the ground by the plan's own
+    /// arithmetic exactly as the outer four do - nothing special-cases
+    /// them, and nothing in locomotion reads them at all.
+    ///
+    /// The air draft is the point of the second. The tallest thing she
+    /// carries is an Ornate machine's antenna BEACON, and it is held under
+    /// rule 6 by construction: the whip's tip is clamped a cap's half-height
+    /// under the line so the drawn top lands at 2.740 m at the 3.60 m
+    /// corner, 6 cm to spare. This reads the DRAWN tree rather than the
+    /// arithmetic that held it.
+    ///
+    /// And her ground clearance is the point of the third: her section is
+    /// DERIVED from the top her deck stands at and the floor it stands over,
+    /// so the clearance holds at every corner - 0.375 m at the worst of
+    /// them, on a machine whose wheels are only 0.78 of the blueprint's.
+    #[test]
+    fn a_rover_stands_on_six_wheels_under_the_air_draft() {
+        use super::super::common::touch;
+        /// Rule 6's air draft and the narrowest gateway mouth (m).
+        const AIR_DRAFT: f32 = 2.8;
+        const MOUTH: f32 = 2.6;
+        for (built, plan, what) in every_rover() {
+            let wheels = plan.wheels();
+            assert_eq!(
+                wheels.len(),
+                6,
+                "{what}: she rolls on {} wheels",
+                wheels.len()
+            );
+            let mut stations: Vec<f32> = Vec::new();
+            for (at, r) in wheels {
+                assert!(
+                    (at[1] + plan.datum_height() - r).abs() < 1e-5,
+                    "{what}: a wheel of radius {r} has its centre {} over the ground",
+                    at[1] + plan.datum_height()
+                );
+                assert_ne!(at[0], 0.0, "{what}: a rover has no wheel on her centreline");
+                if !stations.contains(&at[2]) {
+                    stations.push(at[2]);
+                }
+            }
+            assert_eq!(
+                stations.len(),
+                3,
+                "{what}: her six wheels are not three pairs"
+            );
+            let floor = plan.sill_at(0.0) + plan.datum_height();
+            assert!(
+                floor > 0.30,
+                "{what}: the deck's floor is {floor} m over the ground"
+            );
+            let top = touch::highest(&built) + plan.datum_height();
+            assert!(
+                top <= AIR_DRAFT,
+                "{what}: she stands {top} m over the ground, past the {AIR_DRAFT} m air draft"
+            );
+            let wide = rover::Rover.overall_width(&plan, 0);
+            assert!(
+                wide < MOUTH,
+                "{what}: {wide} m wide, past the {MOUTH} m mouth"
+            );
+        }
+    }
+
+    /// Every rover seed is drawn as a rover, on the variant her theme picks,
+    /// under a servo (#1378) - and no other skiff seed is: a skiff drives a
+    /// servo exactly when she is drawn as one.
+    ///
+    /// And the aura her record carries is her theme's own flourish, over
+    /// whatever she stands on her deck - the carapace's crown, the
+    /// monolith's slab - or NOTHING AT ALL on a SpaceOutpost seed, whose
+    /// Thruster floors to an exhaust on a skiff and whose servo then drops
+    /// it. She has no pipe, and a dust plume off her rear tyres would be a
+    /// particle system nobody can see: at 22.9 degrees of look-down nothing
+    /// under the machine is ever in frame.
+    #[test]
+    fn a_rover_seed_draws_a_rover() {
+        use crate::pds::generator::GeneratorKind;
+        use crate::seeded_defaults::{AvatarCharacter, RoverVariant, ThemeArchetype};
+        let mut seen = Vec::new();
+        let (mut flourish, mut clear) = (0, 0);
+        for s in (0u64..3000).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
+            let rover = SkiffType::for_seed(s) == SkiffType::Rover;
+            assert_eq!(
+                propulsion(s) == Propulsion::Servo,
+                rover,
+                "seed {s}: {:?} drives {:?}",
+                SkiffType::for_seed(s),
+                propulsion(s)
+            );
+            if !rover {
+                continue;
+            }
+            let v = RoverVariant::for_seed(s);
+            if !seen.contains(&v) {
+                seen.push(v);
+            }
+            let (record, _) = super::super::build_for_seed(s);
+            let emitters: Vec<_> = record
+                .visuals()
+                .expect("a skiff is an assembled tree")
+                .children
+                .iter()
+                .filter(|g| matches!(g.kind, GeneratorKind::ParticleSystem(..)))
+                .collect();
+            let aura = match AvatarCharacter::for_seed(s).style {
+                ThemeArchetype::SpaceOutpost => {
+                    assert!(
+                        emitters.is_empty(),
+                        "seed {s}: a rover with no pipe trails an aura"
+                    );
+                    clear += 1;
+                    continue;
+                }
+                ThemeArchetype::AlienOrganic => ParticleAura::ArcaneMotes,
+                ThemeArchetype::AlienMonolithic => ParticleAura::NeonHaze,
+                style => panic!("seed {s}: a rover on {style:?}"),
+            };
+            assert_eq!(emitters.len(), 1, "seed {s}: no flourish over her deck");
+            assert_eq!(
+                Some(emitters[0].transform.translation.0),
+                fx_mount(s, aura),
+                "seed {s}: her flourish is not over her deck"
+            );
+            flourish += 1;
+        }
+        assert_eq!(
+            seen.len(),
+            RoverVariant::ALL.len(),
+            "the seeds under 3000 miss a variant: {seen:?}"
+        );
+        assert!(
+            flourish > 10 && clear > 10,
+            "{flourish} rovers with a flourish, {clear} with none"
+        );
+    }
+
     /// Every part of a built roadster meets another, and the whole machine is
     /// one connected component (#1364, the owner's complaint on the
     /// prototype) - on every body, top, wheel and tier it can roll (#1367).
@@ -1128,6 +1398,20 @@ mod tests {
                 worst_armoured = worst_armoured.max(bytes(&built) + fx_overhead);
             }
         }
+        // And the rover's, every variant at every corner on her fullest
+        // ladder (#1378): the heaviest is a 3.6 m Ornate / Battered
+        // SURVEYOR at about 15 KB, her solar panel and her six wheels most
+        // of it. The carapace's chitin shell is the one textured material
+        // the family draws and costs 422 B of that.
+        let mut worst_rover = 0usize;
+        for bp in corners() {
+            for variant in crate::seeded_defaults::RoverVariant::ALL {
+                let plan = rover::plan_of(&bp, variant);
+                let mut built = rover::build_dressed(&ctx, &plan);
+                apply_travel_pose(&mut built, travel_drop(&rover::Rover, &plan, 0));
+                worst_rover = worst_rover.max(bytes(&built) + fx_overhead);
+            }
+        }
         for (what, worst) in [
             ("seeded skiff", worst_seed),
             ("fully dressed corner", worst_corner),
@@ -1135,6 +1419,7 @@ mod tests {
             ("fully dressed buggy", worst_buggy),
             ("fully dressed cyclecar", worst_cyclecar),
             ("fully dressed armoured car", worst_armoured),
+            ("fully dressed rover", worst_rover),
         ] {
             assert!(
                 worst * 3 < SOFT_RECORD_BUDGET_BYTES,
