@@ -1344,36 +1344,91 @@ pub fn pin_axis_row<T: Copy + PartialEq>(
     pin: &mut Option<T>,
     rolled: T,
 ) {
+    pin_axis_row_gated(ui, axis, options, label_of, pin, Ok(rolled), |_| None);
+}
+
+/// [`pin_axis_row`] with two things an *independent* axis never needs, for
+/// the craft type - the first dependent axis the re-roll has (#1380).
+///
+/// `rolled` is `Err(why)` when the axis does not apply to the record at all
+/// ("an airship has no craft types"): the value cell then reads
+/// `none - {why}` in weak text and the lock toggle is disabled, because
+/// locking captures the ROLLED value and there is none to capture. The
+/// toggle stays live while something *is* pinned, so a pin can always be
+/// released - a lock with no way out is the one state this must not build.
+///
+/// `why_disabled` gates the combo's options one by one. A refused option is
+/// drawn disabled reading `{label} - {why}`, and the reason is **painted**
+/// rather than hovered because no tooltip of any kind fires inside an open
+/// popup - not `on_hover_text`, not `on_disabled_hover_text` (#1336,
+/// #1337). The hover is attached from the same string anyway, both because
+/// the rule in `affordances::tests::a_disabled_control_states_its_reason`
+/// is exemption-free and because one binding cannot drift from itself.
+///
+/// The gate paints and disables; it never filters. An option that has
+/// silently vanished from a list teaches nothing, and the whole point of
+/// this row is that 184 of the 288 (type, style) pairs are unreachable and
+/// an owner has no way to know which without being told.
+pub fn pin_axis_row_gated<T: Copy + PartialEq>(
+    ui: &mut egui::Ui,
+    axis: &str,
+    options: &[T],
+    label_of: impl Fn(T) -> &'static str,
+    pin: &mut Option<T>,
+    rolled: Result<T, &str>,
+    why_disabled: impl Fn(T) -> Option<String>,
+) {
     ui.label(format!("{axis}:"));
 
     let locked = pin.is_some();
     let glyph = if locked { "🔒" } else { "🔓" };
+    // Lockable when there is either something to capture or something to
+    // release. Only "unlocked with no rolled value" is dead.
+    let can_toggle = locked || rolled.is_ok();
     let hover = if locked {
         format!("{axis} is locked: re-rolls hold it. Click to let it roll freely.")
     } else {
         format!("Lock {axis}: re-rolls will hold the shown value.")
     };
-    if ui
-        .selectable_label(locked, glyph)
+    let no_value = rolled.err().unwrap_or_default();
+    let toggle = ui
+        .add_enabled(can_toggle, egui::Button::selectable(locked, glyph))
         .on_hover_text(hover)
-        .clicked()
-    {
-        *pin = if locked { None } else { Some(rolled) };
+        .on_disabled_hover_text(format!("There is no {axis} to lock: {no_value}."));
+    if toggle.clicked() {
+        *pin = match (locked, rolled) {
+            (true, _) => None,
+            (false, Ok(r)) => Some(r),
+            // Unreachable: the toggle is disabled in this state.
+            (false, Err(_)) => None,
+        };
     }
 
-    match pin {
-        Some(v) => {
+    match (pin.as_mut(), rolled) {
+        (Some(v), _) => {
             egui::ComboBox::from_id_salt(("pin_axis", axis))
                 .selected_text(label_of(*v))
                 .show_ui(ui, |ui| {
                     for opt in options {
-                        ui.selectable_value(v, *opt, label_of(*opt));
+                        match why_disabled(*opt) {
+                            Some(why) => {
+                                let row = format!("{} - {why}", label_of(*opt));
+                                ui.add_enabled(false, egui::Button::selectable(false, row))
+                                    .on_disabled_hover_text(why);
+                            }
+                            None => {
+                                ui.selectable_value(v, *opt, label_of(*opt));
+                            }
+                        }
                     }
                 });
         }
-        None => {
-            ui.weak(label_of(rolled))
+        (None, Ok(r)) => {
+            ui.weak(label_of(r))
                 .on_hover_text("Rolled by this seed. Lock to hold it across re-rolls.");
+        }
+        (None, Err(why)) => {
+            ui.weak(format!("none - {why}"));
         }
     }
     ui.end_row();

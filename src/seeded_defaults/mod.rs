@@ -67,10 +67,20 @@ pub mod scene;
 /// direction matters, so the trait lives here with its implementors rather
 /// than in `ui`.
 pub trait SeedPins: Copy + PartialEq {
-    /// The first seed at or after `start` whose seeded character satisfies
-    /// every pinned axis, or `None` if the hunt capped out. With nothing
-    /// pinned this is `start` itself, so the un-pinned path stays
-    /// bit-identical to the pre-#1005 re-roll.
+    /// The first seed at or after `start` whose seeded derivation satisfies
+    /// every pinned axis, or `None` if there is none. With nothing pinned
+    /// this is `start` itself, so the un-pinned path stays bit-identical to
+    /// the pre-#1005 re-roll.
+    ///
+    /// Derivation rather than *character*: [`AvatarPins`]'s craft axis is a
+    /// second draw off the anchor rather than a field on it, so its
+    /// predicate takes the seed (#1380).
+    ///
+    /// `None` has two causes, and an implementation may have either. The
+    /// hunt walked its whole cap without a match - vanishingly unlikely for
+    /// a pin set that is reachable at all - or the set cannot be satisfied
+    /// by construction and was answered without a single trial, which is
+    /// what [`AvatarPins::is_reachable`] does for the one dependent axis.
     fn find_seed(&self, start: u64) -> Option<u64>;
 }
 
@@ -93,7 +103,7 @@ pub use avatar::{
     NOMINAL_BODY_LEN, NOMINAL_HULL_LEN, OrnatenessBand, OrnatenessTier, OutfitPart, ParticleAura,
     RoadsterBody, RoadsterTop, RoadsterWheels, RoverVariant, RunaboutVariant, ScowLoad,
     SkiffBlueprint, SkiffType, SloopHull, SloopRig, StylizationTier, TugVariant, VehicleBlueprint,
-    VehicleStance, WagonBody, WearBand, WearTier,
+    VehicleStance, WagonBody, WearBand, WearTier, craft_axis,
 };
 // Re-exported as a module, not item by item: the mood groups are read as a
 // named set (`mood::NEON`), and the vehicle part catalogue reaches them from

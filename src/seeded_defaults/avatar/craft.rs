@@ -68,14 +68,49 @@ pub enum CraftType {
 }
 
 impl CraftType {
+    /// Every boat type as a craft type, in [`BoatType::ALL`]'s order - the
+    /// pinned re-roll's combo list under a Boat chassis (#1380).
+    pub const BOATS: [Self; 6] = [
+        Self::Boat(BoatType::Sloop),
+        Self::Boat(BoatType::Longship),
+        Self::Boat(BoatType::SteamTug),
+        Self::Boat(BoatType::Junk),
+        Self::Boat(BoatType::Runabout),
+        Self::Boat(BoatType::Scow),
+    ];
+
+    /// Every skiff type as a craft type, in [`SkiffType::ALL`]'s order.
+    pub const SKIFFS: [Self; 6] = [
+        Self::Skiff(SkiffType::Roadster),
+        Self::Skiff(SkiffType::DuneBuggy),
+        Self::Skiff(SkiffType::ArmouredCar),
+        Self::Skiff(SkiffType::Cyclecar),
+        Self::Skiff(SkiffType::Wagon),
+        Self::Skiff(SkiffType::Rover),
+    ];
+
     /// The craft type for a seed, or `None` for a family without one (the
     /// airship, whose envelope forms are its variety, and the humanoid).
     pub fn for_seed(seed: u64) -> Option<Self> {
-        match ChassisFamily::for_seed(seed) {
-            ChassisFamily::Boat => Some(Self::Boat(BoatType::for_seed(seed))),
-            ChassisFamily::Skiff => Some(Self::Skiff(SkiffType::for_seed(seed))),
-            ChassisFamily::Airship | ChassisFamily::Humanoid => None,
-        }
+        Self::for_character(&AvatarCharacter::for_seed(seed))
+    }
+
+    /// The craft type of an **already-derived** anchor - the path that
+    /// derives the character exactly once.
+    ///
+    /// [`Self::for_seed`] is this over [`AvatarCharacter::for_seed`], so
+    /// there is one derivation in the crate rather than two that could
+    /// drift. The pinned re-roll's hunt (#1380) is why the distinction
+    /// earns a function: its predicate has just derived the anchor to test
+    /// the four independent axes, and calling `for_seed` beside that would
+    /// derive it a second time for every trial - on the UI thread, for a
+    /// hunt whose measured worst case is 52 571 trials.
+    ///
+    /// The type is a second draw on its own salt, so it cannot be *read*
+    /// off the anchor the way `chassis` and `style` can; but it is derived
+    /// from nothing else, which is what makes one derivation enough.
+    pub fn for_character(c: &AvatarCharacter) -> Option<Self> {
+        craft_axis(c).ok()
     }
 
     /// The craft type for a DID. `for_did(did)` is exactly
@@ -84,12 +119,76 @@ impl CraftType {
         Self::for_seed(fnv1a_64(did))
     }
 
+    /// The chassis family this type belongs to.
+    ///
+    /// A craft type implies its family absolutely, which is why pinning one
+    /// also pins the chassis (`AvatarPins::lock_craft`): a pinned longship
+    /// is a pinned Boat, and a chassis row reading "unlocked" beside it
+    /// would be a lie.
+    pub fn family(self) -> ChassisFamily {
+        match self {
+            Self::Boat(_) => ChassisFamily::Boat,
+            Self::Skiff(_) => ChassisFamily::Skiff,
+        }
+    }
+
+    /// The six types of `family`, or an empty slice for the two families
+    /// that have no type pick.
+    pub fn all_of(family: ChassisFamily) -> &'static [Self] {
+        match family {
+            ChassisFamily::Boat => &Self::BOATS,
+            ChassisFamily::Skiff => &Self::SKIFFS,
+            ChassisFamily::Airship | ChassisFamily::Humanoid => &[],
+        }
+    }
+
+    /// Sampling weight of this type for an avatar of `style` - see
+    /// [`BoatType::weight`].
+    ///
+    /// Zero means the draw can *never* pick this type on that style, and
+    /// that is exactly the pinned re-roll's gate (#1380): 184 of the 288
+    /// (type, style) pairs are unreachable, so an ungated combo would offer
+    /// mostly pin sets no seed will ever satisfy.
+    pub fn weight(self, style: ThemeArchetype) -> u32 {
+        match self {
+            Self::Boat(t) => t.weight(style),
+            Self::Skiff(t) => t.weight(style),
+        }
+    }
+
+    /// Whether anything actually builds this type - see
+    /// [`BoatType::implemented`].
+    pub fn implemented(self) -> bool {
+        match self {
+            Self::Boat(t) => t.implemented(),
+            Self::Skiff(t) => t.implemented(),
+        }
+    }
+
     /// Human-readable display name - the readouts and the pinned re-roll.
     pub fn label(self) -> &'static str {
         match self {
             Self::Boat(t) => t.label(),
             Self::Skiff(t) => t.label(),
         }
+    }
+}
+
+/// The craft axis of an already-derived anchor: the type it rolled, or why
+/// its family has none.
+///
+/// One match over the four families, so the value and the explanation can
+/// never disagree and neither arm is dead. [`CraftType::for_character`] is
+/// this with the words thrown away, and the pinned re-roll draws its craft
+/// row straight from it: `Ok` as a lockable value, `Err` as the weak
+/// `none - {why}` cell with the lock toggle disabled, because locking
+/// captures the ROLLED value and here there is none to capture (#1380).
+pub fn craft_axis(c: &AvatarCharacter) -> Result<CraftType, &'static str> {
+    match c.chassis {
+        ChassisFamily::Boat => Ok(CraftType::Boat(BoatType::for_style(c.style, c.seed))),
+        ChassisFamily::Skiff => Ok(CraftType::Skiff(SkiffType::for_style(c.style, c.seed))),
+        ChassisFamily::Airship => Err("an airship has no craft types"),
+        ChassisFamily::Humanoid => Err("a rigged avatar has no craft types"),
     }
 }
 

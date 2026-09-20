@@ -1040,6 +1040,52 @@ mod tests {
         assert_eq!(la, lb);
     }
 
+    /// The pinned re-roll's craft axis and the builder agree, for all
+    /// twelve types (#1380).
+    ///
+    /// The editor's craft row promises that locking a type and re-rolling
+    /// lands on an avatar that IS that type. Three separate things have to
+    /// hold for that: the hunt finds a seed at all, the seed's own pick
+    /// reports the pinned type through the ordinary `CraftType::for_seed`
+    /// path (not just through the hunt's predicate, which could agree with
+    /// itself while both drifted from the pick), and the builder draws it
+    /// rather than falling back to the family floor.
+    ///
+    /// The last is why this lives here rather than beside `AvatarPins`:
+    /// `seeded_defaults` cannot see a builder, and a pin that resolves to a
+    /// seed drawn as somebody else's craft is exactly the failure an owner
+    /// would report as "the lock does not work".
+    #[test]
+    fn a_pinned_craft_type_is_the_type_the_builder_draws() {
+        use crate::seeded_defaults::{AvatarPins, CraftType};
+
+        for craft in CraftType::BOATS.into_iter().chain(CraftType::SKIFFS) {
+            let mut pins = AvatarPins::default();
+            // Through the coupling method, as the UI writes it: locking a
+            // craft is also what pins the chassis.
+            pins.lock_craft(Some(craft));
+            assert_eq!(pins.chassis, Some(craft.family()));
+
+            let found = pins
+                .find_seed(0)
+                .unwrap_or_else(|| panic!("{} is offered and unreachable", craft.label()));
+            assert_eq!(
+                CraftType::for_seed(found),
+                Some(craft),
+                "the hunt accepted seed {found} for {}, which the pick does not call one",
+                craft.label()
+            );
+
+            let (body, _) = build_for_seed(found);
+            let visuals = body.visuals().expect("a vehicle seed assembles geometry");
+            assert!(
+                !visuals.children.is_empty(),
+                "{} built an empty tree from seed {found}",
+                craft.label()
+            );
+        }
+    }
+
     /// Seeded FX must actually land on the tree: a seed whose anchor rolls a
     /// signature aura grows a `ParticleSystem` node, and a seed with a voice
     /// sets the root audio. Proves the [`fx::attach`] wiring, not just the

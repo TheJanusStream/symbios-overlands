@@ -82,7 +82,8 @@ use crate::state::{
     LiveAvatarRecord, LiveInventoryRecord, PublishFeedback, PublishStatus, StoredAvatarRecord,
 };
 use crate::ui::editable::{
-    RecordAction, SeedAction, pin_axis_row, publish_status_line, save_load_reset_row, seed_row,
+    RecordAction, SeedAction, pin_axis_row, pin_axis_row_gated, publish_status_line,
+    save_load_reset_row, seed_row,
 };
 use crate::ui::room::RoomEditorState;
 use crate::ui::room::generators::{AvatarVisualsTreeSource, GenNodeId};
@@ -1124,29 +1125,82 @@ pub fn avatar_ui(
                             let start = reroll.start_seed(did_seed);
                             let effective = reroll.effective_seed(start);
                             use crate::seeded_defaults::{
-                                AvatarCharacter, ChassisFamily, OrnatenessTier, ThemeArchetype,
-                                WearTier,
+                                AvatarCharacter, ChassisFamily, CraftType, OrnatenessTier,
+                                ThemeArchetype, WearTier, craft_axis,
                             };
                             let rolled = AvatarCharacter::for_seed(effective.unwrap_or(start));
+                            // The craft cell: the type this avatar rolled,
+                            // or why its family has none. Both come off one
+                            // match, so the row can never show a value its
+                            // own explanation contradicts.
+                            let craft = craft_axis(&rolled);
+                            // The combo lists the family of the craft ON
+                            // SCREEN, which under any pin set the gates
+                            // allow is also the pinned family.
+                            //
+                            // "Only implemented types are offered" is the
+                            // brief's rule (#1380). Since b1b4648 landed the
+                            // longship this filters NOTHING - all twelve are
+                            // built - but it is still asked: whether the
+                            // seam survives at all is #1382's call, and this
+                            // is one of the two callers it will weigh.
+                            let craft_options: Vec<CraftType> = CraftType::all_of(rolled.chassis)
+                                .iter()
+                                .copied()
+                                .filter(|c| c.implemented())
+                                .collect();
                             egui::Grid::new("avatar_pin_axes")
                                 .num_columns(3)
                                 .show(ui, |ui| {
+                                    // Each dependent axis is drawn into a
+                                    // COPY and written back through the
+                                    // method carrying its coupling rule, so
+                                    // the two rules live in one place and
+                                    // the UI cannot half-apply them. Both
+                                    // writers are no-ops when nothing
+                                    // changed: the combo redraws every
+                                    // frame, and a re-write of the same
+                                    // value would re-key `PinHuntCache` and
+                                    // re-run the whole hunt on each one.
+                                    let mut chassis = reroll.pins.chassis;
                                     pin_axis_row(
                                         ui,
                                         "Chassis",
                                         &ChassisFamily::ALL,
                                         ChassisFamily::label,
-                                        &mut reroll.pins.chassis,
+                                        &mut chassis,
                                         rolled.chassis,
                                     );
-                                    pin_axis_row(
+                                    reroll.pins.set_chassis(chassis);
+
+                                    // Symmetric gate: once a craft is
+                                    // pinned, the styles whose draw gives it
+                                    // zero weight are painted and disabled
+                                    // rather than offered and then missed.
+                                    let mut style = reroll.pins.style;
+                                    pin_axis_row_gated(
                                         ui,
                                         "Style",
                                         &ThemeArchetype::ALL,
                                         ThemeArchetype::label,
-                                        &mut reroll.pins.style,
-                                        rolled.style,
+                                        &mut style,
+                                        Ok(rolled.style),
+                                        |s| reroll.pins.style_gate(s),
                                     );
+                                    reroll.pins.style = style;
+
+                                    let mut craft_pin = reroll.pins.craft;
+                                    pin_axis_row_gated(
+                                        ui,
+                                        "Craft",
+                                        &craft_options,
+                                        CraftType::label,
+                                        &mut craft_pin,
+                                        craft,
+                                        |c| reroll.pins.craft_gate(c),
+                                    );
+                                    reroll.pins.lock_craft(craft_pin);
+
                                     pin_axis_row(
                                         ui,
                                         "Ornateness",

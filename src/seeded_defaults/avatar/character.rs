@@ -23,6 +23,7 @@ use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
 use super::chassis::ChassisFamily;
+use super::craft::CraftType;
 use crate::seeded_defaults::hash::fnv1a_64;
 use crate::seeded_defaults::scene::{
     ThemeArchetype, find_matching_seed, pick, signed_unit_f32, unit_f32,
@@ -264,6 +265,28 @@ impl AvatarCharacter {
 /// a seed that *naturally* rolls the pinned axes leaves every deriver
 /// untouched and mutually consistent. Pins are editor UI state only;
 /// nothing is stored in the record.
+///
+/// # Four independent axes, and one that is not (#1380)
+///
+/// `chassis`, `style`, `ornateness` and `wear` are drawn from decorrelated
+/// sub-streams, so *every* combination of them occurs somewhere in the seed
+/// space: any pin set the editor can build is reachable, and the hunt's
+/// `PIN_HUNT_CAP` is the safety net its own doc calls practically
+/// unreachable.
+///
+/// [`Self::craft`] breaks that. It depends on the chassis absolutely (there
+/// are no craft types under Airship or Humanoid) and on the style by
+/// weight: a type that is neither its family's floor nor at home on a theme
+/// scores zero there and can never be rolled. 184 of the 288 (type, style)
+/// pairs are unreachable, so a naive combo would offer mostly pin sets no
+/// seed satisfies - and each one would walk the *whole* two-million-trial
+/// cap before failing, 0.38 s native and several times that on wasm, on the
+/// UI thread. Three things keep the cap a safety net rather than a code
+/// path: [`Self::craft_gate`] and [`Self::style_gate`] stop the UI offering
+/// an unreachable pair, [`Self::lock_craft`] and [`Self::set_chassis`] hold
+/// the chassis coupling so the families can never disagree, and
+/// [`Self::is_reachable`] answers `None` without a single trial if one is
+/// somehow built anyway.
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
 pub struct AvatarPins {
     pub chassis: Option<ChassisFamily>,
@@ -274,11 +297,24 @@ pub struct AvatarPins {
     pub ornateness: Option<OrnatenessTier>,
     /// Pinned as the discrete tier, like [`Self::ornateness`].
     pub wear: Option<WearTier>,
+    /// The craft type inside the vehicle families - the one *dependent*
+    /// axis, and the reason the hunt's predicate takes a seed rather than
+    /// an [`AvatarCharacter`]: the type is a second draw on its own salt,
+    /// so it cannot be read off the anchor.
+    ///
+    /// Write it through [`Self::lock_craft`] and [`Self::set_chassis`],
+    /// never field-by-field: the two carry the coupling rules that keep a
+    /// pinned craft and a pinned chassis in the same family.
+    pub craft: Option<CraftType>,
 }
 
 impl AvatarPins {
-    /// Whether `c` satisfies every pinned axis (unpinned axes accept
-    /// anything).
+    /// Whether `c` satisfies every pinned axis that can be read off the
+    /// anchor (unpinned axes accept anything).
+    ///
+    /// This is the four independent axes only. [`Self::craft`] needs a
+    /// second derivation and so lives in [`Self::accepts`], which is what
+    /// the hunt calls.
     pub fn matches(&self, c: &AvatarCharacter) -> bool {
         self.chassis.is_none_or(|p| p == c.chassis)
             && self.style.is_none_or(|p| p == c.style)
@@ -286,19 +322,114 @@ impl AvatarPins {
             && self.wear.is_none_or(|p| p == c.wear_tier())
     }
 
-    /// The first seed at or after `start` whose [`AvatarCharacter`]
-    /// satisfies every pin. With no pins this is `start` itself, so the
-    /// un-pinned path is bit-identical to the pre-#1005 re-roll.
+    /// Whether the seed `seed` satisfies every pin - the hunt's predicate.
+    ///
+    /// Takes the seed rather than an [`AvatarCharacter`] because the craft
+    /// type is not on the anchor; it derives the anchor **once** and hands
+    /// it to [`CraftType::for_character`], so a pinned craft costs one
+    /// extra ChaCha8 stream per trial rather than a whole second
+    /// character. The four-axis test runs first and short-circuits, so an
+    /// unpinned craft costs nothing at all.
+    pub fn accepts(&self, seed: u64) -> bool {
+        let c = AvatarCharacter::for_seed(seed);
+        self.matches(&c)
+            && self
+                .craft
+                .is_none_or(|p| CraftType::for_character(&c) == Some(p))
+    }
+
+    /// Whether *any* seed can satisfy these pins.
+    ///
+    /// Always true for the four independent axes; false only for a craft
+    /// pinned against a chassis of another family, or against a style whose
+    /// draw gives it zero weight. The UI cannot build either (see the type
+    /// doc), and this is the second line: without it an unreachable set
+    /// spends the whole `PIN_HUNT_CAP` on the UI thread to learn what the
+    /// affinity table answers in constant time.
+    pub fn is_reachable(&self) -> bool {
+        let Some(craft) = self.craft else {
+            return true;
+        };
+        self.chassis.is_none_or(|f| f == craft.family())
+            && self.style.is_none_or(|s| craft.weight(s) > 0)
+    }
+
+    /// The first seed at or after `start` satisfying every pin. With no
+    /// pins this is `start` itself, so the un-pinned path is bit-identical
+    /// to the pre-#1005 re-roll.
     pub fn find_seed(&self, start: u64) -> Option<u64> {
         if *self == Self::default() {
             return Some(start);
         }
-        find_matching_seed(start, |s| self.matches(&AvatarCharacter::for_seed(s)))
+        if !self.is_reachable() {
+            return None;
+        }
+        find_matching_seed(start, |s| self.accepts(s))
+    }
+
+    /// Why the craft combo must refuse `craft` under these pins, or `None`
+    /// when it is reachable. With the style unpinned nothing is refused.
+    ///
+    /// The reason is a **clause**, not a sentence: the row paints
+    /// `"{label} - {why}"` ("Longship - never rolls on Cyberpunk"). It is
+    /// painted rather than hovered because neither `on_hover_text` nor
+    /// `on_disabled_hover_text` fires inside an open `ComboBox`'s rows
+    /// (#1337), and a disabled option that cannot say why reads as a bug.
+    pub fn craft_gate(&self, craft: CraftType) -> Option<String> {
+        if let Some(chassis) = self.chassis
+            && craft.family() != chassis
+        {
+            return Some(format!("not carried by the {} chassis", chassis.label()));
+        }
+        let style = self.style?;
+        (craft.weight(style) == 0).then(|| format!("never rolls on {}", style.label()))
+    }
+
+    /// Why the style combo must refuse `style` under these pins, or `None`
+    /// when it can reach the pinned craft - the mirror of
+    /// [`Self::craft_gate`], painted the same way ("Cyberpunk - no
+    /// Longship"). With the craft unpinned nothing is refused.
+    pub fn style_gate(&self, style: ThemeArchetype) -> Option<String> {
+        let craft = self.craft?;
+        (craft.weight(style) == 0).then(|| format!("no {}", craft.label()))
+    }
+
+    /// Pin (or clear) the craft type, holding the chassis coupling.
+    ///
+    /// Locking a craft locks the chassis to its family: a pinned longship
+    /// implies a Boat, and a chassis row reading "unlocked" while it could
+    /// never change would be a lie.
+    ///
+    /// A no-op when nothing changes. The combo redraws every frame, and a
+    /// re-write of the same value would re-key `PinHuntCache` and re-run
+    /// the whole hunt on each one.
+    pub fn lock_craft(&mut self, craft: Option<CraftType>) {
+        if self.craft == craft {
+            return;
+        }
+        self.craft = craft;
+        if let Some(c) = craft {
+            self.chassis = Some(c.family());
+        }
+    }
+
+    /// Pin (or clear) the chassis family. **Any** change clears the craft
+    /// pin - the brief's rule, and the only consistent one: one family's
+    /// types mean nothing under another, and two of the four families have
+    /// none at all. A no-op when unchanged, for the reason in
+    /// [`Self::lock_craft`].
+    pub fn set_chassis(&mut self, chassis: Option<ChassisFamily>) {
+        if self.chassis == chassis {
+            return;
+        }
+        self.chassis = chassis;
+        self.craft = None;
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::craft::{BoatType, SkiffType};
     use super::*;
 
     #[test]
@@ -537,17 +668,407 @@ mod tests {
 
     #[test]
     fn fully_pinned_hunt_succeeds() {
-        // The hardest legal avatar pin-set: all four axes at once (~1 in
-        // 828 seeds). Must land inside the hunt cap with a match.
+        // Four axes at once (~1 in 828 seeds) - the hardest set until the
+        // craft joined them. Must land inside the hunt cap with a match.
         let pins = AvatarPins {
             chassis: Some(ChassisFamily::Skiff),
             style: Some(ThemeArchetype::AlienOrganic),
             ornateness: Some(OrnatenessTier::Ornate),
             wear: Some(WearTier::Pristine),
+            ..Default::default()
         };
         let s = pins
             .find_seed(0xC0FF_EE00)
             .expect("full pin-set unreachable");
         assert!(pins.matches(&AvatarCharacter::for_seed(s)));
+    }
+
+    /// The five-axis worst case, MEASURED (#1380): sweeping all 936
+    /// reachable pin sets from start 0, this one walks furthest - 52 571
+    /// trials, 2.6 % of `PIN_HUNT_CAP`. The assertion is the margin, not
+    /// the number: an affinity or draw change that pushed a legal set near
+    /// the cap would turn a safety net into a stall on the UI thread.
+    #[test]
+    fn the_measured_worst_pin_set_stays_far_inside_the_cap() {
+        let pins = AvatarPins {
+            chassis: Some(ChassisFamily::Skiff),
+            style: Some(ThemeArchetype::PostApoc),
+            ornateness: Some(OrnatenessTier::Ornate),
+            wear: Some(WearTier::Worn),
+            craft: Some(CraftType::Skiff(SkiffType::Roadster)),
+        };
+        const START: u64 = 0;
+        let s = pins
+            .find_seed(START)
+            .expect("the measured worst case missed");
+        assert!(pins.accepts(s));
+        let trials = s - START;
+        assert!(
+            trials < 200_000,
+            "the worst legal pin set now walks {trials} trials; it was 52 571 at b1b4648, \
+             and PIN_HUNT_CAP is 2 000 000 on the UI thread"
+        );
+    }
+
+    // --- The craft pin: the one dependent axis (#1380) ----------------
+
+    /// Every (type, style) pair, both families - the census the gates are
+    /// measured against.
+    fn every_pair() -> impl Iterator<Item = (CraftType, ThemeArchetype)> {
+        CraftType::BOATS
+            .into_iter()
+            .chain(CraftType::SKIFFS)
+            .flat_map(|c| ThemeArchetype::ALL.into_iter().map(move |t| (c, t)))
+    }
+
+    #[test]
+    fn the_craft_gate_refuses_exactly_the_zero_weight_pairs() {
+        // Exact in both directions, and both gates read the SAME table, so
+        // the two counts must agree: a type the craft combo refuses on a
+        // style is a style the style combo refuses under that type.
+        let (mut refused, mut enabled) = (0, 0);
+        for (craft, style) in every_pair() {
+            let pins = AvatarPins {
+                style: Some(style),
+                ..Default::default()
+            };
+            let zero = craft.weight(style) == 0;
+            assert_eq!(
+                pins.craft_gate(craft).is_some(),
+                zero,
+                "craft_gate disagrees with weight() on {} / {}",
+                craft.label(),
+                style.label()
+            );
+
+            let mirrored = AvatarPins {
+                craft: Some(craft),
+                chassis: Some(craft.family()),
+                ..Default::default()
+            };
+            assert_eq!(
+                mirrored.style_gate(style).is_some(),
+                zero,
+                "style_gate disagrees with craft_gate on {} / {}",
+                craft.label(),
+                style.label()
+            );
+
+            if zero {
+                refused += 1;
+            } else {
+                enabled += 1;
+            }
+        }
+        // Measured at b1b4648: 92 of 144 unreachable in EACH family. Pinned
+        // so that an affinity edit has to come here on purpose - the table
+        // is a taste call, and a silent change to it changes which pin sets
+        // an owner can even build.
+        assert_eq!(
+            (refused, enabled),
+            (184, 104),
+            "the (type, style) census moved"
+        );
+    }
+
+    #[test]
+    fn neither_gate_refuses_anything_while_the_other_axis_is_free() {
+        // A gate that fired on an unpinned partner would grey out options
+        // for no reason an owner could see or undo.
+        for (craft, style) in every_pair() {
+            let no_style = AvatarPins {
+                chassis: Some(craft.family()),
+                ..Default::default()
+            };
+            assert_eq!(no_style.craft_gate(craft), None);
+            assert_eq!(AvatarPins::default().style_gate(style), None);
+        }
+    }
+
+    #[test]
+    fn the_craft_gate_refuses_the_other_familys_types() {
+        // The combo only ever lists one family, but the gate is the thing
+        // the reachability guarantee rests on, so it answers for the pair
+        // the UI cannot build as well.
+        let boat = AvatarPins {
+            chassis: Some(ChassisFamily::Boat),
+            ..Default::default()
+        };
+        assert!(
+            boat.craft_gate(CraftType::Skiff(SkiffType::Rover))
+                .is_some()
+        );
+        assert_eq!(boat.craft_gate(CraftType::Boat(BoatType::Sloop)), None);
+    }
+
+    #[test]
+    fn locking_a_craft_locks_the_chassis_to_its_family() {
+        // A pinned longship IS a pinned boat; a chassis row reading
+        // "unlocked" beside it would be a lie.
+        let mut pins = AvatarPins::default();
+        pins.lock_craft(Some(CraftType::Boat(BoatType::Longship)));
+        assert_eq!(pins.chassis, Some(ChassisFamily::Boat));
+        pins.lock_craft(Some(CraftType::Skiff(SkiffType::Wagon)));
+        assert_eq!(pins.chassis, Some(ChassisFamily::Skiff));
+        // Clearing the craft leaves the chassis where the owner can see it,
+        // rather than silently unlocking a second row they did not touch.
+        pins.lock_craft(None);
+        assert_eq!(pins.chassis, Some(ChassisFamily::Skiff));
+        assert_eq!(pins.craft, None);
+    }
+
+    #[test]
+    fn changing_or_clearing_the_chassis_clears_the_craft() {
+        for next in [
+            Some(ChassisFamily::Skiff),
+            Some(ChassisFamily::Airship),
+            Some(ChassisFamily::Humanoid),
+            None,
+        ] {
+            let mut pins = AvatarPins::default();
+            pins.lock_craft(Some(CraftType::Boat(BoatType::Junk)));
+            pins.set_chassis(next);
+            assert_eq!(pins.chassis, next);
+            assert_eq!(pins.craft, None, "a junk survived a move to {next:?}");
+        }
+        // ...and re-picking the SAME family is not a change, so it must not
+        // drop a pin the owner never touched.
+        let mut pins = AvatarPins::default();
+        pins.lock_craft(Some(CraftType::Boat(BoatType::Junk)));
+        pins.set_chassis(Some(ChassisFamily::Boat));
+        assert_eq!(pins.craft, Some(CraftType::Boat(BoatType::Junk)));
+    }
+
+    #[test]
+    fn the_two_families_without_a_type_pick_have_no_craft_and_say_so() {
+        for (family, seed_of) in [
+            (ChassisFamily::Airship, "an airship"),
+            (ChassisFamily::Humanoid, "a rigged avatar"),
+        ] {
+            let pins = AvatarPins {
+                chassis: Some(family),
+                ..Default::default()
+            };
+            let s = pins.find_seed(0).expect("chassis unreachable");
+            let c = AvatarCharacter::for_seed(s);
+            assert_eq!(CraftType::for_character(&c), None);
+            let why = super::super::craft::craft_axis(&c).expect_err("a type where there is none");
+            assert!(
+                why.starts_with(seed_of),
+                "{family:?} explains itself as {why:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unreachable_pin_set_costs_no_trials() {
+        // The cap is a safety net, not a code path. A Longship on
+        // FeudalJapan walked all 2 000 000 trials before this - 0.38 s
+        // native, several times that on wasm, on the UI thread - to learn
+        // what the affinity table answers in constant time.
+        let pins = AvatarPins {
+            style: Some(ThemeArchetype::FeudalJapan),
+            chassis: Some(ChassisFamily::Boat),
+            craft: Some(CraftType::Boat(BoatType::Longship)),
+            ..Default::default()
+        };
+        assert!(!pins.is_reachable());
+        assert_eq!(pins.find_seed(0), None);
+        // The four independent axes can never build one.
+        for f in ChassisFamily::ALL {
+            for t in ThemeArchetype::ALL {
+                for o in OrnatenessTier::ALL {
+                    for w in WearTier::ALL {
+                        let pins = AvatarPins {
+                            chassis: Some(f),
+                            style: Some(t),
+                            ornateness: Some(o),
+                            wear: Some(w),
+                            craft: None,
+                        };
+                        assert!(pins.is_reachable(), "{f:?}/{t:?}/{o:?}/{w:?} unreachable");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_pin_set_the_gate_enables_is_reachable() {
+        // The census as a test: for every (type, style) pair the gate
+        // ENABLES, a seed exists that rolls it. An option an owner can pick
+        // and the hunt can never satisfy is the one failure this slice is
+        // built to prevent, and the gate is only as good as this.
+        //
+        // Ornateness and wear are left free: they are independent draws,
+        // so pinning them narrows each hunt without changing WHICH pairs
+        // are reachable. Both sweeps were timed in one binary under one
+        // profile before this one was chosen: the full 104 x 9 = 936 sets
+        // cost 30.9 s under plain `cargo test` against 0.35 s here (0.458 s
+        // against 0.005 s at test-release), and CI runs the unoptimised
+        // one. The full space is held instead by
+        // `the_measured_worst_pin_set_stays_far_inside_the_cap`, whose
+        // 52 571 trials are that 936-set sweep's own measured worst.
+        let mut enabled = 0;
+        for (craft, style) in every_pair() {
+            let pins = AvatarPins {
+                chassis: Some(craft.family()),
+                style: Some(style),
+                craft: Some(craft),
+                ..Default::default()
+            };
+            if !pins.is_reachable() {
+                continue;
+            }
+            assert_eq!(pins.craft_gate(craft), None, "gated but reachable");
+            let s = pins.find_seed(0).unwrap_or_else(|| {
+                panic!(
+                    "{} on {} is offered and unreachable",
+                    craft.label(),
+                    style.label()
+                )
+            });
+            assert!(pins.accepts(s));
+            enabled += 1;
+        }
+        assert_eq!(enabled, 104);
+    }
+
+    #[test]
+    fn the_four_axis_hunt_did_not_move() {
+        // Every seed here was taken at b1b4648, BEFORE the craft pin
+        // touched the predicate. With `craft: None` the hunt must still
+        // walk to exactly the same seed it did then: the craft is a fifth
+        // axis, not a change to the four.
+        const AT_B1B4648: [(ChassisFamily, ThemeArchetype, OrnatenessTier, WearTier, u64); 16] = [
+            (
+                ChassisFamily::Boat,
+                ThemeArchetype::Nordic,
+                OrnatenessTier::Plain,
+                WearTier::Pristine,
+                4906,
+            ),
+            (
+                ChassisFamily::Boat,
+                ThemeArchetype::Cyberpunk,
+                OrnatenessTier::Adorned,
+                WearTier::Battered,
+                841,
+            ),
+            (
+                ChassisFamily::Boat,
+                ThemeArchetype::PostApoc,
+                OrnatenessTier::Ornate,
+                WearTier::Worn,
+                439,
+            ),
+            (
+                ChassisFamily::Boat,
+                ThemeArchetype::CoastalResort,
+                OrnatenessTier::Plain,
+                WearTier::Pristine,
+                493,
+            ),
+            (
+                ChassisFamily::Skiff,
+                ThemeArchetype::Nordic,
+                OrnatenessTier::Adorned,
+                WearTier::Worn,
+                1173,
+            ),
+            (
+                ChassisFamily::Skiff,
+                ThemeArchetype::Cyberpunk,
+                OrnatenessTier::Ornate,
+                WearTier::Pristine,
+                239,
+            ),
+            (
+                ChassisFamily::Skiff,
+                ThemeArchetype::PostApoc,
+                OrnatenessTier::Plain,
+                WearTier::Battered,
+                786,
+            ),
+            (
+                ChassisFamily::Skiff,
+                ThemeArchetype::CoastalResort,
+                OrnatenessTier::Adorned,
+                WearTier::Worn,
+                830,
+            ),
+            (
+                ChassisFamily::Airship,
+                ThemeArchetype::Nordic,
+                OrnatenessTier::Ornate,
+                WearTier::Battered,
+                944,
+            ),
+            (
+                ChassisFamily::Airship,
+                ThemeArchetype::Cyberpunk,
+                OrnatenessTier::Plain,
+                WearTier::Worn,
+                862,
+            ),
+            (
+                ChassisFamily::Airship,
+                ThemeArchetype::PostApoc,
+                OrnatenessTier::Adorned,
+                WearTier::Pristine,
+                504,
+            ),
+            (
+                ChassisFamily::Airship,
+                ThemeArchetype::CoastalResort,
+                OrnatenessTier::Ornate,
+                WearTier::Battered,
+                53,
+            ),
+            (
+                ChassisFamily::Humanoid,
+                ThemeArchetype::Nordic,
+                OrnatenessTier::Plain,
+                WearTier::Pristine,
+                1,
+            ),
+            (
+                ChassisFamily::Humanoid,
+                ThemeArchetype::Cyberpunk,
+                OrnatenessTier::Adorned,
+                WearTier::Battered,
+                365,
+            ),
+            (
+                ChassisFamily::Humanoid,
+                ThemeArchetype::PostApoc,
+                OrnatenessTier::Ornate,
+                WearTier::Worn,
+                215,
+            ),
+            (
+                ChassisFamily::Humanoid,
+                ThemeArchetype::CoastalResort,
+                OrnatenessTier::Plain,
+                WearTier::Pristine,
+                1003,
+            ),
+        ];
+        for (chassis, style, ornateness, wear, was) in AT_B1B4648 {
+            let pins = AvatarPins {
+                chassis: Some(chassis),
+                style: Some(style),
+                ornateness: Some(ornateness),
+                wear: Some(wear),
+                craft: None,
+            };
+            assert_eq!(
+                pins.find_seed(0),
+                Some(was),
+                "{chassis:?}/{style:?}/{ornateness:?}/{wear:?} moved"
+            );
+        }
+        // And the empty set is still the identity - the un-pinned re-roll.
+        assert_eq!(AvatarPins::default().find_seed(42), Some(42));
     }
 }

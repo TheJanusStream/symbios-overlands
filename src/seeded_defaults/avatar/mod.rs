@@ -69,7 +69,7 @@ pub use character::{
     AvatarCharacter, AvatarPins, FinishRegister, OrnatenessBand, OrnatenessTier, WearBand, WearTier,
 };
 pub use chassis::ChassisFamily;
-pub use craft::{BoatType, CraftType, SkiffType};
+pub use craft::{BoatType, CraftType, SkiffType, craft_axis};
 pub use fx::{AvatarFx, AvatarVoice, ParticleAura};
 pub use gait::AvatarGait;
 pub use longship::LongshipVariant;
