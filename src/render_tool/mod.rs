@@ -190,10 +190,18 @@ struct Args {
     /// have rolled each one: two seeds differ in proportion, stance, wear and
     /// craft type as well as in colour, so the comparison is never of the
     /// colour. This holds everything else still and changes only the scheme.
-    /// The index is into that family's own table
+    /// The index is into the table the subject's craft type paints from: its
+    /// family's heritage list
     /// ([`livery::BOAT_LIVERIES`](crate::pds::avatar::livery::BOAT_LIVERIES),
-    /// [`livery::SKIFF_LIVERIES`](crate::pds::avatar::livery::SKIFF_LIVERIES))
-    /// and WRAPS, so a survey loop that runs past the end draws each scheme
+    /// [`livery::SKIFF_LIVERIES`](crate::pds::avatar::livery::SKIFF_LIVERIES)),
+    /// or a type's own
+    /// ([`livery::WAGON_LIVERIES`](crate::pds::avatar::livery::WAGON_LIVERIES),
+    /// [`livery::BUGGY_LIVERIES`](crate::pds::avatar::livery::BUGGY_LIVERIES)
+    /// and a raider's
+    /// [`livery::RAIDER_LIVERIES`](crate::pds::avatar::livery::RAIDER_LIVERIES),
+    /// [`livery::CYCLECAR_LIVERIES`](crate::pds::avatar::livery::CYCLECAR_LIVERIES),
+    /// [`livery::JUNK_LIVERIES`](crate::pds::avatar::livery::JUNK_LIVERIES)).
+    /// It WRAPS, so a survey loop that runs past the end draws each scheme
     /// once rather than the last one twice. `--outfit` prints the name a seed
     /// picked for itself.
     ///

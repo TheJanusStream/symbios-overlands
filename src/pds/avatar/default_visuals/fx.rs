@@ -336,9 +336,10 @@ fn aura_emitter(
 // DRIVE - an airship's rotor thump, a car's detuned putter, a dune buggy's
 // air-cooled clatter and a cyclecar's electric whine, a motor boat's water-washed rumble and a steam tug's
 // chuff, for a boat under sail no engine at all, only the wash along her hull
-// and the wind in her rig, for a poled scow the lap of water and her sweep's
-// creak, and for a horseless wagon the roll of iron tyres and a timber creak
-// - and on a luminous *vehicle* that drive is mixed in UNDER the neon /
+// and the wind in her rig, and under a junk's battened sails the same with
+// her bamboo battens creaking over it, for a poled scow the lap of water and
+// her sweep's creak, and for a horseless wagon the roll of iron tyres and a
+// timber creak - and on a luminous *vehicle* that drive is mixed in UNDER the neon /
 // arcane voice at low gain instead of being dropped. Which drive a boat or a
 // skiff has is asked of the craft that is DRAWN (`boats::propulsion`,
 // `skiffs::propulsion`), never of the type a seed picked, so the voice is
@@ -466,6 +467,7 @@ pub(super) fn voice_label(seed: u64) -> String {
         (Propulsion::Steam, _) => "chuff and thump",
         (Propulsion::AirCooled, _) => "air-cooled clatter",
         (Propulsion::Electric, _) => "motor whine",
+        (Propulsion::Battened, _) => "batten creak",
     };
     let bucket = detune_bucket(seed);
     match voice {
@@ -528,6 +530,7 @@ fn family_drive(
         (Propulsion::Steam, _) => tug_chuff(g, detune),
         (Propulsion::AirCooled, _) => buggy_clatter(g, detune),
         (Propulsion::Electric, _) => motor_whine(g, detune),
+        (Propulsion::Battened, _) => batten_creak(g),
     }
 }
 
@@ -592,6 +595,37 @@ fn under_sail(g: &mut GraphBuilder) -> NodeId {
     );
     let wind = g.sink(NodeKind::Gain(Gain { gain: 0.30 }), &[rig]);
     g.sink(NodeKind::Gain(Gain { gain: 3.0 }), &[wash, wind])
+}
+
+/// A junk under battened sail (#1371; the owner's ear picked candidate j1
+/// of the phase-1 bakes): the sail she has - [`under_sail`], node for node -
+/// and the wood that makes her a junk, a dry bamboo creak over it: noise
+/// banded narrow at 760 Hz, swelling once a second on a rising saw and let go
+/// at the seam, the wagon's and the scow's creak (#1377, #1373) higher and
+/// narrower. No oscillator, so the sailing no-tone rule holds for her unchanged
+/// and there is nothing to detune; the bucket still seeds the noise. The
+/// saw's rate is whole hertz and its offset equals its depth (#1385,
+/// #1348). RMS about 0.10, a hair under the sail's own. Its noise seam is
+/// the sail's, #1387's.
+fn batten_creak(g: &mut GraphBuilder) -> NodeId {
+    let sail = under_sail(g);
+    let bamboo = g.src(NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));
+    let bamboo = g.sink(
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 760.0,
+            q: 7.0,
+        }),
+        &[bamboo],
+    );
+    let swell = g.src(NodeKind::Lfo(Lfo {
+        rate_hz: 1.0,
+        shape: LfoShape::Saw,
+        depth: 0.5,
+        offset: 0.5,
+    }));
+    let creak = g.vca(&[bamboo], swell);
+    let creak = g.sink(NodeKind::Gain(Gain { gain: 1.4 }), &[creak]);
+    g.sink(NodeKind::Gain(Gain { gain: 0.85 }), &[sail, creak])
 }
 
 /// A motor boat's engine - a low water-washed rumble: a deep fundamental over
@@ -1051,7 +1085,7 @@ mod audio_tests {
         AvatarVoice::NeonBuzz,
         AvatarVoice::ArcaneShimmer,
     ];
-    const DRIVES: [Propulsion; 7] = [
+    const DRIVES: [Propulsion; 8] = [
         Propulsion::Sail,
         Propulsion::Engine,
         Propulsion::Rolling,
@@ -1059,6 +1093,7 @@ mod audio_tests {
         Propulsion::Steam,
         Propulsion::AirCooled,
         Propulsion::Electric,
+        Propulsion::Battened,
     ];
 
     /// Every voice patch there is: each voice on each chassis under each
@@ -1213,20 +1248,22 @@ mod audio_tests {
 
     /// A craft under sail makes no engine note (#1383, owner decision C1):
     /// her voice holds no oscillator at all, on any family or bucket - the
-    /// wash and the rig wind are noise. And it is still real sound.
+    /// wash and the rig wind are noise. And it is still real sound. A junk
+    /// sails too (#1371): her batten creak is noise over the same wash.
     #[test]
     fn a_sailing_craft_voice_holds_no_oscillator() {
-        for family in ChassisFamily::ALL {
-            for bucket in 0..DETUNE_BUCKETS {
-                let patch =
-                    driven_voice_patch(AvatarVoice::Drive, family, Propulsion::Sail, bucket)
+        for drive in [Propulsion::Sail, Propulsion::Battened] {
+            for family in ChassisFamily::ALL {
+                for bucket in 0..DETUNE_BUCKETS {
+                    let patch = driven_voice_patch(AvatarVoice::Drive, family, drive, bucket)
                         .expect("a drive voice");
-                assert!(
-                    oscillators(&patch).is_empty(),
-                    "{family:?} under sail, bucket {bucket}: {:?}",
-                    oscillators(&patch)
-                );
-                assert_audible(&patch, &format!("{family:?} under sail"));
+                    assert!(
+                        oscillators(&patch).is_empty(),
+                        "{family:?} {drive:?}, bucket {bucket}: {:?}",
+                        oscillators(&patch)
+                    );
+                    assert_audible(&patch, &format!("{family:?} {drive:?}"));
+                }
             }
         }
     }
@@ -1258,14 +1295,17 @@ mod audio_tests {
     /// (#1372), whose drive voice hums; poled exactly when it is drawn as a
     /// scow (#1373), whose lap and creak are noise; under steam exactly when
     /// it is drawn as a steam tug (#1370), whose thump is a pitch under the
-    /// chuff; and every other boat seed, the sloops and every pick nothing
-    /// builds yet (drawn as a sloop), sails, on a patch with no oscillator in
-    /// it. Keying the voice to the picked type would get the unbuilt picks
-    /// wrong; keying it to the family would get every other type wrong.
+    /// chuff; under battened sail exactly when it is drawn as a junk
+    /// (#1371), whose creak is noise; and every other boat seed, the sloops
+    /// and every pick nothing builds yet (the longships, drawn as sloops),
+    /// sails, on a patch with no oscillator in it. Keying the voice to the
+    /// picked type would get the unbuilt picks wrong; keying it to the family
+    /// would get every other type wrong.
     #[test]
     fn a_boat_is_driven_as_the_craft_she_is_drawn_as() {
         use crate::seeded_defaults::BoatType;
-        let (mut launches, mut scows, mut tugs, mut sailing, mut unbuilt) = (0, 0, 0, 0, 0);
+        let (mut launches, mut scows, mut tugs, mut junks, mut sailing, mut unbuilt) =
+            (0, 0, 0, 0, 0, 0);
         for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
             let picked = BoatType::for_seed(s);
             let drive = drive_of(ChassisFamily::Boat, s);
@@ -1275,6 +1315,7 @@ mod audio_tests {
                     BoatType::Runabout => Propulsion::Engine,
                     BoatType::Scow => Propulsion::Poled,
                     BoatType::SteamTug => Propulsion::Steam,
+                    BoatType::Junk => Propulsion::Battened,
                     _ => Propulsion::Sail,
                 },
                 "seed {s} ({picked:?})"
@@ -1299,6 +1340,10 @@ mod audio_tests {
                         "tug seed {s} is silent of her engine's thump"
                     );
                 }
+                BoatType::Junk => {
+                    junks += 1;
+                    assert!(oscillators(&patch).is_empty(), "junk seed {s} hums");
+                }
                 _ => {
                     sailing += 1;
                     unbuilt += usize::from(!picked.implemented());
@@ -1307,9 +1352,9 @@ mod audio_tests {
             }
         }
         assert!(
-            launches > 5 && scows > 5 && tugs > 5 && sailing > 5 && unbuilt > 0,
-            "{launches} runabouts, {scows} scows, {tugs} tugs, {sailing} sailing \
-             ({unbuilt} of them unbuilt picks)"
+            launches > 5 && scows > 5 && tugs > 5 && junks > 5 && sailing > 5 && unbuilt > 0,
+            "{launches} runabouts, {scows} scows, {tugs} tugs, {junks} junks, {sailing} \
+             sailing ({unbuilt} of them unbuilt picks)"
         );
     }
 
@@ -1325,6 +1370,7 @@ mod audio_tests {
             (ChassisFamily::Boat, Propulsion::Steam),
             (ChassisFamily::Skiff, Propulsion::AirCooled),
             (ChassisFamily::Skiff, Propulsion::Electric),
+            (ChassisFamily::Boat, Propulsion::Battened),
         ] {
             let patch = driven_voice_patch(AvatarVoice::Drive, family, drive, 3).expect("a drive");
             assert_audible(&patch, &format!("{family:?} {drive:?}"));
@@ -1350,9 +1396,9 @@ mod audio_tests {
 
     #[test]
     fn the_family_drives_are_distinct() {
-        // The nine drive voices - sail, motor boat, rotor, putter, wagon,
-        // scow, tug, buggy, cyclecar - are genuinely different voices, not
-        // one shared hum.
+        // The ten drive voices - sail, motor boat, rotor, putter, wagon,
+        // scow, tug, buggy, cyclecar, junk - are genuinely different voices,
+        // not one shared hum.
         let baked: Vec<Vec<f32>> = [
             (ChassisFamily::Boat, Propulsion::Sail),
             (ChassisFamily::Boat, Propulsion::Engine),
@@ -1363,6 +1409,7 @@ mod audio_tests {
             (ChassisFamily::Boat, Propulsion::Steam),
             (ChassisFamily::Skiff, Propulsion::AirCooled),
             (ChassisFamily::Skiff, Propulsion::Electric),
+            (ChassisFamily::Boat, Propulsion::Battened),
         ]
         .iter()
         .map(|&(family, drive)| {

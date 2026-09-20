@@ -62,9 +62,9 @@ use super::locomotion::{
 /// is heard is its running gear - iron tyres on the track and a timber creak
 /// (#1377). A third variant rather than a flag beside the enum, so no skiff
 /// can be under sail and no wagon can putter; a scow's pole, a tug's boiler,
-/// a dune buggy's air-cooled four and a cyclecar's electric motor are
-/// variants for the same reason. The airship's rotors are an engine by
-/// construction.
+/// a dune buggy's air-cooled four, a cyclecar's electric motor and a junk's
+/// battened sails are variants for the same reason. The airship's rotors are
+/// an engine by construction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Propulsion {
     /// Sails: no engine note at all.
@@ -93,6 +93,11 @@ enum Propulsion {
     /// pipe and no boiler, so she trails neither exhaust nor steam
     /// (`fx::drawn_aura`), as a rolling wagon does not.
     Electric,
+    /// Battened lug sails (#1371): the sail's wash and rig wind, and a dry
+    /// creak of bamboo battens working over them. The junk's - she sails, so
+    /// no engine note and no oscillator, as under [`Sail`](Self::Sail); the
+    /// creak is what makes her a junk to the ear.
+    Battened,
 }
 
 impl Propulsion {
@@ -106,6 +111,7 @@ impl Propulsion {
             Self::Steam => "under steam",
             Self::AirCooled => "under power, air-cooled",
             Self::Electric => "under power, electric",
+            Self::Battened => "under battened sail",
         }
     }
 }

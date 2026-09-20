@@ -19,15 +19,16 @@
 //! # What is scheme and what is seed
 //!
 //! - The **scheme** owns every large surface: topsides, antifoul, deck,
-//!   canvas and varnish on a boat; coachwork, wings and brightwork on a car,
-//!   the tube frame on a dune buggy (#1374), and a cyclecar's pod (#1376).
-//!   It is picked per seed from a curated list on this module's own salted
-//!   stream, exactly as the craft TYPE is picked in
-//!   [`crate::seeded_defaults::avatar::craft`].
+//!   canvas and varnish on a boat, and a junk's hull and sails (#1371);
+//!   coachwork, wings and brightwork on a car, the tube frame on a dune
+//!   buggy (#1374), and a cyclecar's pod (#1376). It is picked per seed from
+//!   a curated list on this module's own salted stream, exactly as the craft
+//!   TYPE is picked in [`crate::seeded_defaults::avatar::craft`].
 //! - The **seeded accent** ([`primary_accent`](crate::seeded_defaults::AvatarPalette::primary_accent))
 //!   is spent on the
 //!   identity slots ONLY: the boot stripe, the burgee and the jib on a boat,
-//!   and the band round a steam tug's funnel (#1370);
+//!   the band round a steam tug's funnel (#1370), and a junk's transom
+//!   roundel and the eye on each bow (#1371);
 //!   the coachline, the wheel centres and the hide on a car; a horseless
 //!   wagon's spoked wheels (#1377); a dune buggy's rims and the hide of her
 //!   seats (#1374); a cyclecar's rims and the strip along her flanks
@@ -628,6 +629,96 @@ pub const CYCLECAR_LIVERIES: &[CyclecarLivery] = &[
 /// `over` wraps inside it (`render --livery 0` is Obsidian, `1` Pearl).
 pub fn cyclecar_livery(seed: u64, over: Option<usize>) -> &'static CyclecarLivery {
     pick(CYCLECAR_LIVERIES, |l| l.weight, seed, over)
+}
+
+/// A junk's scheme (#1371): her HULL and her SAILS.
+///
+/// She has a list of her own, as the wagon, the buggy and the cyclecar do,
+/// and the scheme owns both her big masses. The sails first: they are the
+/// largest mass any sailing craft carries at 12 m, and a junk's cloth is
+/// tanbark, ochre, vermilion or black, never a yacht's white - under the
+/// heritage boat schemes six of seven junks wore white or cream sails and
+/// drifted toward the pale-sailed sloops. And the hull, whose transom is the
+/// face the chase camera looks at: the heritage colours on her hull alone,
+/// under one tanbark, drew seven junks that were one junk.
+#[derive(Clone, Copy, Debug)]
+pub struct JunkLivery {
+    /// See [`BoatLivery::name`].
+    pub name: &'static str,
+    weight: u32,
+    /// The shell, the transom and the break's bulkhead.
+    hull: [f32; 3],
+    /// Oiled teak under a gloss (brightwork) rather than paint - and so not
+    /// floored, as a varnished hull is not.
+    bright: bool,
+    /// Every sail she sets.
+    sail: [f32; 3],
+}
+
+/// A junk's black lacquer, and the colours her sails are dyed.
+const LACQUER_BLACK: [f32; 3] = [0.055, 0.050, 0.050];
+const TANBARK: [f32; 3] = [0.50, 0.24, 0.12];
+
+/// The junk's seven schemes (#1371), as the owner agreed them on the
+/// phase-1 renders, weights and order: the pick walks the table in this
+/// order.
+pub const JUNK_LIVERIES: &[JunkLivery] = &[
+    JunkLivery {
+        name: "Black and tanbark",
+        weight: 5,
+        hull: LACQUER_BLACK,
+        bright: false,
+        sail: TANBARK,
+    },
+    JunkLivery {
+        name: "Oiled teak",
+        weight: 4,
+        hull: [0.42, 0.25, 0.12],
+        bright: true,
+        sail: TANBARK,
+    },
+    JunkLivery {
+        name: "Oxblood and ochre",
+        weight: 4,
+        hull: [0.30, 0.065, 0.055],
+        bright: false,
+        sail: [0.70, 0.50, 0.22],
+    },
+    JunkLivery {
+        name: "Vermilion sails",
+        weight: 4,
+        hull: LACQUER_BLACK,
+        bright: false,
+        sail: [0.72, 0.17, 0.07],
+    },
+    JunkLivery {
+        name: "Vermilion lacquer",
+        weight: 3,
+        hull: [0.70, 0.15, 0.06],
+        bright: false,
+        sail: [0.12, 0.11, 0.10],
+    },
+    JunkLivery {
+        name: "Jade",
+        weight: 3,
+        hull: [0.14, 0.32, 0.26],
+        bright: false,
+        sail: TANBARK,
+    },
+    JunkLivery {
+        name: "Ghost",
+        weight: 2,
+        hull: LACQUER_BLACK,
+        bright: false,
+        sail: [0.84, 0.80, 0.68],
+    },
+];
+
+/// The scheme this junk seed wears, a pick from [`JUNK_LIVERIES`]; `over`
+/// wraps inside it (`render --livery 0` is Black and tanbark, `1` Oiled
+/// teak).
+pub fn junk_livery(seed: u64, over: Option<usize>) -> &'static JunkLivery {
+    pick(JUNK_LIVERIES, |l| l.weight, seed, over)
 }
 
 // ---------------------------------------------------------------------------
@@ -1662,6 +1753,124 @@ pub(crate) fn cyclecar_colours(ctx: &PartCtx) -> CyclecarColours {
     }
 }
 
+/// The surfaces a junk is built in (#1371): her scheme on her hull and her
+/// sails, the seeded accent on her transom roundel and her eyes, and the
+/// colours the rest of her simply is - teak decks, timber spars, bamboo
+/// battens, a chunam bottom.
+///
+/// Nothing of hers is lit but the stern lantern and the quarter windows: none
+/// of her themes is luminous, so the accent is paint (were one ever to be,
+/// the roundel would go through [`trim`]).
+pub(crate) struct JunkColours {
+    /// The shell and the headboard: the scheme's lacquer, or oiled teak
+    /// under a gloss.
+    pub(crate) hull: SovereignMaterialSettings,
+    /// The transom - the face the chase camera looks at - and the break's
+    /// bulkhead, in the hull's own finish.
+    pub(crate) transom: SovereignMaterialSettings,
+    pub(crate) bulkhead: SovereignMaterialSettings,
+    /// Below the waterline: chunam, the lime-and-oil paste a junk's bottom
+    /// was paid with, under the fleet's antifoul rule (a little of the
+    /// seed's secondary).
+    pub(crate) antifoul: SovereignMaterialSettings,
+    /// The main deck, and the poop deck a shade darker.
+    pub(crate) deck: SovereignMaterialSettings,
+    pub(crate) poop: SovereignMaterialSettings,
+    /// The capping rail along the bulwark's top.
+    pub(crate) rail: SovereignMaterialSettings,
+    /// The keelson post in the void under the deck.
+    pub(crate) interior: SovereignMaterialSettings,
+    /// Every sail: the scheme's cloth.
+    pub(crate) sail: SovereignMaterialSettings,
+    /// A worn mainsail's replaced panel: new cloth, held clear of the sail.
+    pub(crate) patch: SovereignMaterialSettings,
+    /// The battens and the mat shelter's hoops: pale bamboo, held clear of
+    /// the sail they lie across.
+    pub(crate) batten: SovereignMaterialSettings,
+    /// The masts, the yards and the booms.
+    pub(crate) spar: SovereignMaterialSettings,
+    /// The rudder's stock, tiller and blade: dark wood.
+    pub(crate) rudder: SovereignMaterialSettings,
+    /// The dark inlays: the rudder's six slots and each eye's pupil.
+    pub(crate) inlay: SovereignMaterialSettings,
+    /// The lantern's gooseneck and hanger.
+    pub(crate) iron: SovereignMaterialSettings,
+    /// The stern cabin's quarter windows: the tertiary's light.
+    pub(crate) window: SovereignMaterialSettings,
+    /// **Identity.** The roundel on her transom and the eye on each bow: the
+    /// seeded accent held clear of the hull it is painted on.
+    pub(crate) mark: SovereignMaterialSettings,
+    /// The roundel's gilt ring.
+    pub(crate) ring: SovereignMaterialSettings,
+    /// The stern lantern: a candle, as every lantern in the fleet is.
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// The mat shelter's woven matting.
+    pub(crate) mat: SovereignMaterialSettings,
+}
+
+/// A junk's fixed colours (#1371): what these parts simply are.
+const CHUNAM: [f32; 3] = [0.78, 0.76, 0.68];
+const TEAK_DECK: [f32; 3] = [0.58, 0.41, 0.22];
+const SPAR: [f32; 3] = [0.50, 0.34, 0.16];
+const BAMBOO: [f32; 3] = [0.66, 0.55, 0.32];
+const RUDDER_WOOD: [f32; 3] = [0.22, 0.15, 0.09];
+const INLAY: [f32; 3] = [0.03, 0.03, 0.03];
+const GILT: [f32; 3] = [0.80, 0.62, 0.24];
+const MATTING: [f32; 3] = [0.62, 0.52, 0.32];
+
+/// How far the roundel and the eyes are held from the hull, the battens from
+/// the sail they lie across, and a replaced panel from the sail it mends.
+const MARK_DELTA: f32 = 0.26;
+const BATTEN_DELTA: f32 = 0.16;
+const JUNK_PATCH_DELTA: f32 = 0.12;
+
+pub(crate) fn junk_colours(ctx: &PartCtx) -> JunkColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let l = junk_livery(ctx.seed, ctx.livery);
+    // Lacquer is floored off mud on a battered kit, as a boat's topsides
+    // are; oiled teak is a colour under a gloss, as a varnished hull is.
+    let hull = if l.bright {
+        l.hull
+    } else {
+        floor_finished(m, l.hull, BOAT_MASS_FLOOR)
+    };
+    let finish = |c| {
+        if l.bright {
+            m.brightwork(c)
+        } else {
+            m.paint(c)
+        }
+    };
+    // The one identity slot is cleared off the hull and never floored after:
+    // the clear-then-floor order that undid the buggy's rims (#1374, #1389)
+    // does not arise.
+    let mark = m.paint(clear_of(p.primary_accent, luma(hull), MARK_DELTA));
+    let sail_l = luma(l.sail);
+    JunkColours {
+        hull: finish(hull),
+        transom: finish(hull),
+        bulkhead: finish(hull),
+        antifoul: m.antifoul(mix(CHUNAM, shade(p.secondary_accent, 0.5), 0.18)),
+        deck: boards(m, TEAK_DECK),
+        poop: boards(m, shade(TEAK_DECK, 0.9)),
+        rail: boards(m, shade(SPAR, 0.70)),
+        interior: m.paint(shade(hull, 0.45)),
+        sail: m.canvas(l.sail),
+        patch: m.canvas(clear_of(shade(l.sail, 0.62), sail_l, JUNK_PATCH_DELTA)),
+        batten: m.paint(clear_of(BAMBOO, sail_l, BATTEN_DELTA)),
+        spar: m.timber(SPAR),
+        rudder: m.paint(RUDDER_WOOD),
+        inlay: m.paint(INLAY),
+        iron: m.paint(MACHINERY),
+        window: window_material(window_light(p.tertiary_accent)),
+        mark,
+        ring: m.paint(GILT),
+        lamp: window_material(window_light(CANDLE)),
+        mat: m.canvas(MATTING),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1745,6 +1954,19 @@ mod tests {
             cyclecars.iter().all(|&n| n > 0),
             "a cyclecar livery is unreachable: {cyclecars:?}"
         );
+        // And the junk's own seven (#1371).
+        let mut junks = vec![0usize; JUNK_LIVERIES.len()];
+        for s in 0u64..4_000 {
+            let j = junk_livery(s, None);
+            junks[JUNK_LIVERIES
+                .iter()
+                .position(|l| l.name == j.name)
+                .expect("the pick came from the table")] += 1;
+        }
+        assert!(
+            junks.iter().all(|&n| n > 0),
+            "a junk livery is unreachable: {junks:?}"
+        );
     }
 
     /// The hearse and the ox-cart wear their forced schemes whatever the seed
@@ -1803,6 +2025,14 @@ mod tests {
         }
         assert_eq!(cyclecar_livery(3, Some(0)).name, "Obsidian");
         assert_eq!(cyclecar_livery(3, Some(1)).name, "Pearl");
+        // And a junk's inside hers (#1371): the agreed ladder sheets draw
+        // Black and tanbark as `--livery 0` and Oiled teak as `--livery 1`.
+        for (i, l) in JUNK_LIVERIES.iter().enumerate() {
+            assert_eq!(junk_livery(7, Some(i)).name, l.name);
+            assert_eq!(junk_livery(9, Some(i + JUNK_LIVERIES.len())).name, l.name);
+        }
+        assert_eq!(junk_livery(3, Some(0)).name, "Black and tanbark");
+        assert_eq!(junk_livery(3, Some(1)).name, "Oiled teak");
     }
 
     /// No painted surface on a land-skiff carries the tyres' own value, on
@@ -2282,6 +2512,82 @@ mod tests {
             lit > 0 && dark > 0,
             "the population saw only one kind: {lit} lit, {dark} dark"
         );
+    }
+
+    /// A junk's colours read on every scheme of her list, on every seed drawn
+    /// as a junk under 3000 (#1371): her roundel and her eyes - the seed's
+    /// one identity slot - against the hull they are painted on, and the
+    /// battens and a worn sail's replaced panel against the sail they lie on.
+    /// And nothing of hers is lit but the stern lantern and the quarter
+    /// windows, which are the tertiary's window light.
+    #[test]
+    fn a_junks_roundel_battens_and_lamps_read_on_every_scheme() {
+        use crate::seeded_defaults::BoatType;
+        let mut junks = 0;
+        for s in (0u64..3000).filter(|&s| {
+            ChassisFamily::for_seed(s) == ChassisFamily::Boat
+                && BoatType::for_seed(s) == BoatType::Junk
+        }) {
+            let mut ctx = PartCtx::for_seed(s);
+            let window = window_material(window_light(ctx.palette.tertiary_accent));
+            for (i, scheme) in JUNK_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = junk_colours(&ctx);
+                let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                // Grime dims both sides of each pair by one factor, so each
+                // delta shrinks by at most that much - as for the boot top.
+                for (what, a, b, delta) in [
+                    ("roundel and eyes", &c.mark, &c.hull, MARK_DELTA),
+                    ("battens", &c.batten, &c.sail, BATTEN_DELTA),
+                    ("replaced panel", &c.patch, &c.sail, JUNK_PATCH_DELTA),
+                ] {
+                    let d = (l(a) - l(b)).abs();
+                    assert!(
+                        d > delta * 0.6,
+                        "seed {s} in {}: the {what} is {d} from what it lies on",
+                        scheme.name
+                    );
+                }
+                for (what, m) in [
+                    ("hull", &c.hull),
+                    ("transom", &c.transom),
+                    ("bulkhead", &c.bulkhead),
+                    ("bottom", &c.antifoul),
+                    ("deck", &c.deck),
+                    ("poop deck", &c.poop),
+                    ("rail", &c.rail),
+                    ("keelson", &c.interior),
+                    ("sails", &c.sail),
+                    ("replaced panel", &c.patch),
+                    ("battens", &c.batten),
+                    ("spars", &c.spar),
+                    ("rudder", &c.rudder),
+                    ("inlays", &c.inlay),
+                    ("lantern iron", &c.iron),
+                    ("roundel and eyes", &c.mark),
+                    ("gilt ring", &c.ring),
+                    ("matting", &c.mat),
+                ] {
+                    assert_eq!(
+                        m.emission_strength.0, 0.0,
+                        "seed {s} in {}: the {what} is self-lit",
+                        scheme.name
+                    );
+                }
+                assert_eq!(
+                    c.window, window,
+                    "seed {s} in {}: the quarter windows are not the window light",
+                    scheme.name
+                );
+                assert!(
+                    c.lamp.emission_strength.0 > 0.0,
+                    "seed {s} in {}: the stern lantern is dark",
+                    scheme.name
+                );
+            }
+            junks += 1;
+        }
+        assert!(junks > 50, "only {junks} junk seeds under 3000");
     }
 
     /// Two owners rarely wear the same livery AND the same accent: the two

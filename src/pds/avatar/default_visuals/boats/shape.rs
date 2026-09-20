@@ -1,17 +1,26 @@
 //! The shape vocabulary every finless boat is drawn in (#1372, #1373,
-//! #1370): a sweep that pre-divides its path by its own node scale, a thin
-//! line, a rounded panel, a turned part, the hull's stations as a sweep path,
-//! the crowned deck run over them, and the underbody a screw boat hangs
-//! under her counter. The runabout drew them first; the scow and the steam
-//! tug draw the same parts, so they live beside the [`HullProfile`] rather
-//! than inside one type.
+//! #1370, #1371): a sweep that pre-divides its path by its own node scale, a
+//! thin line, a rounded panel, a turned part, the hull's stations as a sweep
+//! path, the crowned deck run over them, and the underbody a screw boat
+//! hangs under her counter. The runabout drew them first; the scow and the
+//! steam tug draw the same parts, so they live beside the [`HullProfile`]
+//! rather than inside one type.
+//!
+//! The junk added a FLATTENED sweep ([`flat_sweep`]): a Spine squashed thin
+//! across one axis is a board with a free outline, each station's radius its
+//! half-width - her sails, her transom, her bulkhead and her rudder blade are
+//! all one - and a [`band`] of one, kept between two of its stations as the
+//! mesher samples it, is a panel of a sail that lies on its cloth exactly.
 //!
 //! The sloop keeps her own (`sloop/hull.rs`): she was built before these
 //! and her dumps are pinned byte for byte.
 
-use crate::pds::generator::Generator;
+use bevy::math::cubic_splines::{CubicCardinalSpline, CubicGenerator};
+use bevy::math::{Vec3, Vec4};
+
+use crate::pds::generator::{Generator, GeneratorKind};
 use crate::pds::texture::SovereignMaterialSettings;
-use crate::pds::types::Fp3;
+use crate::pds::types::{Fp2, Fp3};
 
 use super::super::common::{
     bevel, cuboid, id_quat, lathe, prim, quat_x, quat_xyzw, spine, with_cut,
@@ -40,6 +49,96 @@ pub(super) fn sweep(
         id_quat(),
     );
     node.transform.scale = Fp3(scale);
+    node
+}
+
+/// A FLATTENED sweep (#1371): a Spine squashed to `s` across `axis` (0 is
+/// x, 2 is z) and placed at `at` by its node's translation.
+///
+/// The path is given in the root frame, taken about `at` and pre-divided by
+/// the scale, as [`sweep`]'s is. The offset rides the node rather than the
+/// path: pre-divided by a scale of a hundredth, an offset in the path grows a
+/// hundredfold, and the record sanitiser clamps a Spine's positions at 100
+/// local units.
+/// Every section is perpendicular to the path, so the lens-thin board it
+/// draws has a free outline - each station's radius is its half-width - and
+/// the connectivity guard, which honours node scale, reads it as the board it
+/// is. Never rotate one: a non-uniform scale under a rotation is not a
+/// similarity, which that guard asserts. Lay it out where it stands instead.
+pub(super) fn flat_sweep(
+    points: &[([f32; 3], f32)],
+    resolution: u32,
+    axis: usize,
+    s: f32,
+    m: &SovereignMaterialSettings,
+    at: [f32; 3],
+) -> Generator {
+    let mut scale = [1.0; 3];
+    scale[axis] = s;
+    let path: Vec<([f32; 3], f32)> = points
+        .iter()
+        .map(|&(p, r)| {
+            // A negative half-width is a bug to report, never a value to
+            // floor into a hair-thin board (the tug's deck walk, #1370).
+            debug_assert!(r > 0.0, "a flattened sweep's half-width is {r}");
+            (std::array::from_fn(|k| (p[k] - at[k]) / scale[k]), dim(r))
+        })
+        .collect();
+    let mut node = prim(spine(&path, resolution, m.clone()), at, id_quat());
+    node.transform.scale = Fp3(scale);
+    node
+}
+
+/// A Spine kept only between its stations `i0` and `i1` (#1371): a
+/// `profile_cut` band over the sweep it is given.
+///
+/// The mesher trims a Spine's PATH by `profile_cut`, measured in the arc
+/// length it samples and snapped to its samples
+/// (`world_builder/prim/sweeps.rs`: bevy's Catmull-Rom over position and
+/// radius, mirrored ends, `samples_per_segment` a segment). So each
+/// station's fraction is measured exactly that way, on the node's own local
+/// path, and each end of the band goes half a sample outside its station so
+/// the snap lands ON it. The kept sections are the whole sweep's, so a band
+/// of a sail lies on its cloth exactly: a worn junk's replaced panel, and
+/// the two halves of a battered one's mainsail either side of the panel she
+/// has lost.
+pub(super) fn band(mut node: Generator, i0: usize, i1: usize) -> Generator {
+    let GeneratorKind::Spine {
+        points,
+        samples_per_segment,
+        ..
+    } = &node.kind
+    else {
+        panic!("a band is cut from a Spine, not a {}", node.kind.kind_tag());
+    };
+    let per = (*samples_per_segment).clamp(2, 64);
+    let ctrl: Vec<Vec4> = points
+        .iter()
+        .map(|p| Vec3::from(p.position.0).extend(p.radius.0.max(0.005)))
+        .collect();
+    let n = (ctrl.len() as u32 - 1) * per;
+    let curve = CubicCardinalSpline::new_catmull_rom(ctrl)
+        .to_curve()
+        .expect("a band is cut from a Spine of two stations or more");
+    let mut arc = Vec::with_capacity(n as usize + 1);
+    let (mut total, mut prev) = (0.0f32, curve.position(0.0).truncate());
+    arc.push(total);
+    for i in 1..=n {
+        let p = curve.position(i as f32 / per as f32).truncate();
+        total += (p - prev).length();
+        arc.push(total);
+        prev = p;
+    }
+    let total = total.max(1e-5);
+    let at = |station: usize| arc[station * per as usize] / total;
+    let half = 1.0 / n as f32;
+    let cut = [
+        (at(i0) - half * 0.5).max(0.0),
+        (at(i1) + half * 0.5).min(1.0),
+    ];
+    if let Some(t) = node.kind.torture_mut() {
+        t.profile_cut = Fp2(cut);
+    }
     node
 }
 

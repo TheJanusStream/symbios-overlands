@@ -153,6 +153,8 @@ pub(super) fn print_outfit(subject: &str) {
         println!(
             "  livery: {}",
             match craft {
+                // A junk wears a scheme of her own, hull and sails (#1371).
+                CraftType::Boat(BoatType::Junk) => livery::junk_livery(seed, None).name,
                 CraftType::Boat(_) => livery::boat_livery(seed, None).name,
                 // A wagon wears a scheme of its own (#1377), and the hearse
                 // and the ox-cart a forced one.
@@ -169,7 +171,7 @@ pub(super) fn print_outfit(subject: &str) {
             }
         );
         // And the sloop's own two picks (#1366), for every boat that is drawn
-        // as one - which, until the other types are built, is every boat.
+        // as one: a sloop, and a longship pick until #1369 builds her.
         if let CraftType::Boat(t) = craft
             && (t == BoatType::Sloop || !t.implemented())
         {
@@ -218,15 +220,19 @@ pub(super) fn print_outfit(subject: &str) {
         Ok(seed) => seed,
         Err(_) => fnv1a_64(subject),
     };
-    // And its seeded palette's primary accent (#1376), for every subject:
-    // what every identity slot is cleared from, which a dump only carries
-    // once a craft has cleared it - so a python twin can compute a lit strip
-    // or a rim exactly. Three channels to four places, in this form; the
-    // twins' checkers parse it.
-    let accent = AvatarPalette::for_seed(seed).primary_accent;
+    // And its seeded palette's three accents, for every subject: the primary
+    // (#1376) is what every identity slot is cleared from, which a dump only
+    // carries once a craft has cleared it; the secondary tints a bottom's
+    // antifoul and the tertiary lights the windows (#1371) - so a python
+    // twin can compute each slot exactly. Three channels each to four
+    // places, on one line in this form; the twins' checkers parse it.
+    let palette = AvatarPalette::for_seed(seed);
+    let three = |c: [f32; 3]| format!("{:.4}, {:.4}, {:.4}", c[0], c[1], c[2]);
     println!(
-        "  palette: primary {:.4}, {:.4}, {:.4}",
-        accent[0], accent[1], accent[2]
+        "  palette: primary {}; secondary {}; tertiary {}",
+        three(palette.primary_accent),
+        three(palette.secondary_accent),
+        three(palette.tertiary_accent)
     );
     // And its voice (#1383), for every family: which drive a boat speaks
     // with is the DRAWN craft's, and the detune bucket says whether two

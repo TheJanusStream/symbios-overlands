@@ -807,6 +807,25 @@ pub(crate) mod touch {
         parts.iter().map(|p| p.hi.y).fold(f32::MIN, f32::max)
     }
 
+    /// The lowest point `root` draws, in its own frame (m): the bottom of
+    /// every node's sampled surface - [`highest`]'s mirror, blind to the
+    /// same things. And one more: a tube is read ROUND, so the flat bottom
+    /// of a res-3 hull sweep, whose polygon's bottom lies at `cos 30` of its
+    /// radius, is read too deep (#1382). A guard asks this of the parts that
+    /// are not such a hull, and asks the profile about the hull.
+    pub(crate) fn lowest(root: &Generator) -> f32 {
+        let mut parts = Vec::new();
+        walk(
+            root,
+            Vec3::ZERO,
+            Quat::IDENTITY,
+            Vec3::ONE,
+            "0".to_string(),
+            &mut parts,
+        );
+        parts.iter().map(|p| p.lo.y).fold(f32::MAX, f32::min)
+    }
+
     /// Assert that `root` is one machine: every node meets another and the
     /// whole tree is a single connected component.
     pub(crate) fn assert_one_machine(root: &Generator, what: &str) {

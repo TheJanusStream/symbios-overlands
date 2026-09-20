@@ -13,8 +13,9 @@
 //! one file per type, and [`craft`] is the only match over the enum - the
 //! central [`build_for_seed`](super::build_for_seed) just delegates.
 //!
-//! The sloop, the runabout (#1372), the scow (#1373) and the steam tug
-//! (#1370) are built so far. That is stated once,
+//! The sloop, the runabout (#1372), the scow (#1373), the steam tug (#1370)
+//! and the junk (#1371) are built so far; the longship (#1369) is the last
+//! type nothing builds. That is stated once,
 //! in [`craft`], as an explicit `None` for the types with no implementor
 //! rather than an arm that quietly draws something else: [`craft_for`]
 //! resolves an unbuilt pick to
@@ -33,6 +34,7 @@
 //! plus her draft, plus a clearance that keeps the keel off the ground. The
 //! two are a pair, and both are derived (#1361).
 
+mod junk;
 mod profile;
 mod runabout;
 mod scow;
@@ -50,8 +52,8 @@ use crate::seeded_defaults::{BoatBlueprint, BoatType, ParticleAura};
 /// (#1365) rather than beside its geometry - the sloop and every type after
 /// her read them through here.
 pub(crate) use crate::pds::avatar::livery::{
-    BoatColours, RunaboutColours, ScowColours, TugColours, boat_colours, runabout_colours,
-    scow_colours, tug_colours,
+    BoatColours, JunkColours, RunaboutColours, ScowColours, TugColours, boat_colours, junk_colours,
+    runabout_colours, scow_colours, tug_colours,
 };
 
 use super::Propulsion;
@@ -181,14 +183,16 @@ pub(super) trait BoatCraft {
 /// for an unimplemented type would be a lie the population census could not
 /// see. The unbuilt group is named in full, so adding a type is a compile
 /// error here until it is listed - which is what each of #1369-#1373 does
-/// (the runabout, #1372, the scow, #1373, and the steam tug, #1370, so far).
+/// (the runabout, #1372, the scow, #1373, the steam tug, #1370, and the
+/// junk, #1371, so far).
 fn craft(t: BoatType) -> Option<&'static dyn BoatCraft> {
     match t {
         BoatType::Sloop => Some(&sloop::Sloop),
         BoatType::Runabout => Some(&runabout::Runabout),
         BoatType::Scow => Some(&scow::Scow),
         BoatType::SteamTug => Some(&tug::Tug),
-        BoatType::Longship | BoatType::Junk => None,
+        BoatType::Junk => Some(&junk::Junk),
+        BoatType::Longship => None,
     }
 }
 
@@ -197,8 +201,8 @@ fn craft(t: BoatType) -> Option<&'static dyn BoatCraft> {
 ///
 /// The pick itself is untouched - [`BoatType::for_seed`] still answers with
 /// the longship a Nordic seed rolled, and the readouts still print it. This is
-/// only what gets drawn until #1369 and #1371 land, and it is why #1363 could
-/// go live for every boat seed rather than half of them.
+/// only what gets drawn until #1369 lands, and it is why #1363 could go live
+/// for every boat seed rather than half of them.
 fn craft_for(seed: u64) -> &'static dyn BoatCraft {
     craft(BoatType::for_seed(seed)).unwrap_or_else(|| {
         craft(BoatType::UNIVERSAL).expect("the family's universal floor is always built")
@@ -250,10 +254,10 @@ pub(super) fn feel_and_draft(seed: u64) -> (BoatFeel, f32, Option<f32>) {
 
 /// How the boat drawn for `seed` is driven - her voice's answer (#1383).
 ///
-/// Asked of the DRAWN craft, never of the picked type: until #1369 and #1371
-/// land, many boat seeds pick a type nothing builds yet and are drawn as the
-/// sloop, and a boat drawn under sail must sound like one whatever her seed
-/// picked. Total over every seed, as [`craft_for`] is.
+/// Asked of the DRAWN craft, never of the picked type: until #1369 lands, a
+/// seed that picks the longship is drawn as the sloop, and a boat drawn
+/// under sail must sound like one whatever her seed picked. Total over every
+/// seed, as [`craft_for`] is.
 pub(super) fn propulsion(seed: u64) -> Propulsion {
     craft_for(seed).propulsion()
 }
@@ -293,7 +297,10 @@ mod tests {
 
     /// Every boat seed draws a boat, whatever type it picked. This is what
     /// "go live for every boat seed" means, and the unbuilt types are the
-    /// reason it needs saying.
+    /// reason it needs saying. Since the junk (#1371) the longship is the
+    /// only one: 15 of the 146 boat seeds under 600 pick her and are drawn as
+    /// sloops, and #1369's flip ends the `unbuilt > 0` half of this - reshape
+    /// or retire it then.
     #[test]
     fn every_boat_seed_resolves_to_a_built_craft() {
         let mut unbuilt = 0;
@@ -516,6 +523,32 @@ mod tests {
         out
     }
 
+    /// Every junk at every blueprint corner on every ornateness-by-wear
+    /// pair, with her hull and a label (#1371): one rig, no variant.
+    fn every_junk() -> Vec<(Generator, HullProfile, String)> {
+        use crate::seeded_defaults::{OrnatenessTier, WearTier};
+        let mut ctx = PartCtx::for_seed(
+            (0u64..600)
+                .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat)
+                .expect("some seed is a boat"),
+        );
+        let mut out = Vec::new();
+        for bp in corners() {
+            let hull = junk::profile_of(&bp);
+            for o in OrnatenessTier::ALL {
+                for w in WearTier::ALL {
+                    (ctx.ornateness, ctx.wear) = (o, w);
+                    out.push((
+                        junk::build_tiered(&ctx, &hull),
+                        hull,
+                        format!("a {} m junk, {} / {}", hull.loa, o.label(), w.label()),
+                    ));
+                }
+            }
+        }
+        out
+    }
+
     /// The blueprint corners a seeded hull can actually reach - where a
     /// dimension floors or a clamp bites. The smallest hull draws the thinnest
     /// shroud and the finest stem; the largest draws the deepest keel.
@@ -598,6 +631,20 @@ mod tests {
             n += 1;
         }
         assert_eq!(n, 5 * 2 * 9, "the tug sweep lost a combination");
+        // The junk authors rotated nodes too - her eyes, her quarter
+        // windows, her rudder's slots and her roundel - so hers takes the
+        // same epsilon (#1371). Her sails' hundredth node scales and their
+        // bands' profile cuts pass as built.
+        let mut n = 0;
+        for (built, _, what) in every_junk() {
+            let mut sanitized = built.clone();
+            sanitize_avatar_visuals(&mut sanitized);
+            if let Some(where_) = first_difference(&built, &sanitized, "0") {
+                panic!("{what} was rewritten by the sanitiser at {where_}");
+            }
+            n += 1;
+        }
+        assert_eq!(n, 5 * 9, "the junk sweep lost a combination");
     }
 
     /// Every part of a built boat meets another, and the whole craft is one
@@ -626,6 +673,15 @@ mod tests {
         }
         for (built, _, what) in every_tug() {
             touch::assert_one_machine(&built, &what);
+        }
+        // The junk on the tree AS SAVED, through the record's 0.1 mm wire
+        // (#1371): the skiffs' form. The helper honours node scale, so it
+        // reads each flattened sail as the lens it is - batten-to-cloth
+        // contact holds by construction and by this.
+        for (built, _, what) in every_junk() {
+            let json = serde_json::to_string(&built).expect("a junk serializes");
+            let saved: Generator = serde_json::from_str(&json).expect("and reads back");
+            touch::assert_one_machine(&saved, &what);
         }
     }
 
@@ -725,6 +781,60 @@ mod tests {
         }
     }
 
+    /// A junk floats IN her water and fits the gateway, at every corner on
+    /// every tier (#1371) - the runabout's guard: her flat bottom is under
+    /// her own design waterline by at least a hundredth of her length, she
+    /// is drawn under the air-draft cap hover included - the mizzen's yard
+    /// and the lantern alike - and her overall beam clears the 2.6 m mouth.
+    ///
+    /// And her lowest point is her rudder's foot, at exactly her derived
+    /// draft - the allowance IS the rudder - so her hover, a quarter of a
+    /// draft, clears it. Read off the drawn tree less the hull's own res-3
+    /// sweeps, which the connectivity helper reads too deep as round tubes
+    /// (#1382); for those the profile answers, and her flat bottom lies an
+    /// allowance over the foot.
+    #[test]
+    fn a_junk_floats_in_her_water_and_fits_the_gateway() {
+        use super::super::common::touch;
+        use crate::pds::generator::GeneratorKind;
+        for (built, hull, what) in every_junk() {
+            let keel = hull
+                .stations()
+                .iter()
+                .map(|s| s.keel)
+                .fold(f32::INFINITY, f32::min);
+            assert!(
+                keel <= -0.01 * hull.loa,
+                "{what}: her bottom is at {keel} m, not under her waterline"
+            );
+            let air = touch::highest(&built) + hover(hull.draft);
+            assert!(
+                air <= AIR_DRAFT_CAP,
+                "{what}: drawn to {air} m over the ground"
+            );
+            let beam = junk::Junk.overall_beam(&hull, 0);
+            assert!(
+                beam < 2.6,
+                "{what}: {beam} m wide, past the 2.6 m gateway mouth"
+            );
+            let foot = junk::rudder_foot(&hull);
+            assert_eq!(foot, -hull.draft, "{what}: her rudder is not her draft");
+            let mut rest = built.clone();
+            rest.children
+                .retain(|g| !matches!(g.kind, GeneratorKind::Spine { resolution: 3, .. }));
+            let low = touch::lowest(&rest);
+            assert!(
+                (low - foot).abs() < 1e-4,
+                "{what}: her lowest point is {low} m, not her rudder's foot at {foot} m"
+            );
+            assert!(
+                keel > foot && foot > -hover(hull.draft),
+                "{what}: her bottom {keel} m, her rudder's foot {foot} m, the ground {} m",
+                -hover(hull.draft)
+            );
+        }
+    }
+
     /// Every steam tug seed is drawn as a tug, on the variant her theme
     /// picks, under steam (#1370) - and no other boat seed is: a boat is
     /// under steam exactly when she is drawn as a tug. And the aura her
@@ -769,6 +879,67 @@ mod tests {
             seen.len(),
             TugVariant::ALL.len(),
             "the seeds under 3000 miss a variant: {seen:?}"
+        );
+    }
+
+    /// Every junk seed is drawn as a junk under battened sail (#1371) - and
+    /// no other boat seed is: a boat is under battened sail exactly when she
+    /// is drawn as a junk. The aura her record carries - every junk seed's
+    /// is the family's wake floor, since none of her themes lights one -
+    /// leaves her own wake mount.
+    ///
+    /// And EVERY live junk seed stands under the air-draft cap as drawn, at
+    /// her own tiers: [`no_seeded_boat_stands_over_the_air_draft_cap`] builds
+    /// the sloop's rigs on every seed's sloop hull and never the drawn craft,
+    /// so this and [`a_junk_floats_in_her_water_and_fits_the_gateway`] are
+    /// the only guards on her rig - and her cap binds on the long seeds.
+    #[test]
+    fn a_junk_seed_draws_a_junk_under_battened_sail() {
+        use super::super::common::touch;
+        use crate::pds::generator::GeneratorKind;
+        let (mut junks, mut worst) = (0, 0.0f32);
+        for s in (0u64..3000).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
+            let junk = BoatType::for_seed(s) == BoatType::Junk;
+            assert_eq!(
+                propulsion(s) == Propulsion::Battened,
+                junk,
+                "seed {s}: {:?} drives {:?}",
+                BoatType::for_seed(s),
+                propulsion(s)
+            );
+            if !junk {
+                continue;
+            }
+            let (craft, hull) = hull_for(s).expect("a junk seed has a hull");
+            let aura = crate::seeded_defaults::AvatarFx::for_seed(s).aura;
+            assert_eq!(aura, ParticleAura::Wake, "seed {s}: a junk picked {aura:?}");
+            let (record, _) = super::super::build_for_seed(s);
+            let emitter = record
+                .visuals()
+                .expect("a boat is an assembled tree")
+                .children
+                .iter()
+                .find(|g| matches!(g.kind, GeneratorKind::ParticleSystem(..)))
+                .expect("a junk trails her wake");
+            assert_eq!(
+                emitter.transform.translation.0,
+                craft.fx_mount(ParticleAura::Wake, &hull, s),
+                "seed {s}: her wake does not leave her own mount"
+            );
+            let air =
+                touch::highest(&craft.build(&PartCtx::for_seed(s), &hull)) + hover(hull.draft);
+            assert!(
+                air <= AIR_DRAFT_CAP,
+                "seed {s}: drawn to {air} m over the ground"
+            );
+            worst = worst.max(air);
+            junks += 1;
+        }
+        assert!(junks > 50, "only {junks} junk seeds under 3000");
+        // A real bound, not a vacuous one: the cap binds on her longest seeds.
+        assert!(
+            worst > AIR_DRAFT_CAP - AIR_DRAFT_MARGIN,
+            "the tallest junk under 3000 stands only {worst} m - the cap binds on none"
         );
     }
 
@@ -875,6 +1046,13 @@ mod tests {
         }
         for (built, ..) in every_tug() {
             let mut built = built;
+            apply_travel_pose(&mut built, TRAVEL_DROP);
+            worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
+        }
+        // The junk at her fullest - the mizzen, the lantern, the shelter and
+        // both of a battered mainsail's bands - on every corner (#1371).
+        for bp in corners() {
+            let mut built = junk::build_tiered(&ctx, &junk::profile_of(&bp));
             apply_travel_pose(&mut built, TRAVEL_DROP);
             worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
         }
