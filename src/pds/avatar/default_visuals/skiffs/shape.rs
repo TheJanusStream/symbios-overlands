@@ -1,9 +1,15 @@
-//! The shape vocabulary the land craft are drawn in (#1377, #1374, #1376): a
-//! board, a thin swept line, a turned part (bored and cut, or solid) and a
-//! sweep that pre-divides its path by its own node scale. The wagon drew the
-//! first four and the roadster the sweep; the dune buggy draws all five, so
-//! they live beside the [`BodyPlan`](super::BodyPlan) rather than inside one
-//! type, as the boats' own shape vocabulary does (#1373).
+//! The shape vocabulary the land craft are drawn in (#1377, #1374, #1376,
+//! #1375): a board, a thin swept line, a turned part (bored and cut, or
+//! solid) and a sweep that pre-divides its path by its own node scale. The
+//! wagon drew the first four and the roadster the sweep; the dune buggy draws
+//! all five, so they live beside the [`BodyPlan`](super::BodyPlan) rather than
+//! inside one type, as the boats' own shape vocabulary does (#1373).
+//!
+//! And the FACETED half of it: a [`plate`], a [`tapered_plate`] and a
+//! [`ramp`], which the armoured car is built from and nothing else in the
+//! family is. They are here rather than in her own module because what they
+//! close is a fact about the whole vocabulary - a swept or turned shape can
+//! never be faceted, whatever its resolution - and the rover is next (#1378).
 //!
 //! And the parts two types now share: the buggy's turned tyre and the rim
 //! that stands proud of it, which the cyclecar rolls on too, and the fairing
@@ -17,7 +23,9 @@ use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::Fp3;
 
-use super::super::common::{bevel, id_quat, lathe, prim, quat_xyzw, spine, with_cut};
+use super::super::common::{
+    bevel, id_quat, lathe, prim, quat_xyzw, spine, wedge, with_cut, with_taper,
+};
 use super::dim;
 
 /// A board: a Bevel whose corners are rounded in its `[x, z]` footprint, with
@@ -38,6 +46,70 @@ pub(super) fn board(
         at,
         quat_xyzw(rotation),
     )
+}
+
+/// An armour PLATE: a Bevel with a FLAT chamfer - one bevel segment, so the
+/// prim IS an octagonal prism - with its faces planar and its edges hard.
+///
+/// `chamfer` is a FRACTION of the smaller footprint axis, held under half of
+/// it (the sanitiser's own clamp, as [`board`] holds its radius). A board is
+/// the same prim with two segments, which rounds its vertical edges off; a
+/// plate keeps them, and that difference is the whole reason this helper
+/// exists: **a swept or turned shape cannot be faceted at all**. A Spine
+/// pushes a radial ring normal at every station and a Lathe a radial revolve
+/// normal at every profile point, whatever the resolution, so a res-6 hull
+/// has a hexagonal silhouette and smooth barrel SHADING - and at 12 m the
+/// shading is what reads. Facets come only from Bevel, Wedge and Cuboid
+/// (#1375).
+pub(super) fn plate(
+    size: [f32; 3],
+    m: &SovereignMaterialSettings,
+    at: [f32; 3],
+    rotation: [f32; 4],
+    chamfer: f32,
+) -> Generator {
+    tapered_plate(size, m, at, rotation, chamfer, [0.0; 2], [0.0; 2])
+}
+
+/// The same plate cut to a section: `taper` slopes its flanks in toward its
+/// roof and `taper_bottom` in toward its floor, per axis `[x, z]`.
+///
+/// One node is then an armoured hull plate with sloped flanks, or an
+/// octagonal turret frustum. `taper` 0.5 over the datum and `taper_bottom`
+/// 0.5 under it reproduce exactly the hexagon a res-6 sweep of the same plan
+/// would draw, which is what lets every mount read one function -
+/// `flank_x(z, y)` - whichever form the hull is drawn in (#1375).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn tapered_plate(
+    size: [f32; 3],
+    m: &SovereignMaterialSettings,
+    at: [f32; 3],
+    rotation: [f32; 4],
+    chamfer: f32,
+    taper: [f32; 2],
+    taper_bottom: [f32; 2],
+) -> Generator {
+    let size = size.map(dim);
+    let smaller = size[0].min(size[2]);
+    let radius = (smaller * chamfer).min(smaller * 0.5 - 1e-4).max(0.0);
+    prim(
+        with_taper(bevel(size, radius, 1, m.clone()), taper, taper_bottom),
+        at,
+        quat_xyzw(rotation),
+    )
+}
+
+/// A right-triangular prism in its `size` box, placed and turned: the slope
+/// rises from the front-bottom (`+Z`, `-Y`) edge to the back-top (`-Z`, `+Y`)
+/// one, so the `-Z` face is the upright one and a wedge placed nose-forward
+/// IS a glacis with no rotation at all (#1375).
+pub(super) fn ramp(
+    size: [f32; 3],
+    m: &SovereignMaterialSettings,
+    at: [f32; 3],
+    rotation: [f32; 4],
+) -> Generator {
+    prim(wedge(size.map(dim), m.clone()), at, quat_xyzw(rotation))
 }
 
 /// A thin swept line - a rail, a spoke, a spring, an axle, a pole.

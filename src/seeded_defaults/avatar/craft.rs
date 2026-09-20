@@ -393,17 +393,20 @@ impl SkiffType {
     /// historic themes, so it alone is 31 % of the family against the
     /// Roadster's 30. The Dune buggy is the third (#1374), on its six leisure
     /// and frontier themes: 13 % of the family. The Cyclecar is the fourth
-    /// (#1376), on the neon themes and the campus; after her, 23 of the 151
-    /// skiff seeds under 600 still pick a type nothing draws yet - the
-    /// armoured car and the rover.
+    /// (#1376), on the neon themes and the campus. The Armoured car is the
+    /// fifth (#1375), on the three modern martial themes: 8 % of the family,
+    /// and after her the ROVER is the last skiff type nothing builds - 13 of
+    /// the 151 skiff seeds under 600 still pick it (#1378).
     ///
     /// Kept in step with the builder table by
     /// `default_visuals::skiffs::tests::a_skiff_type_is_implemented_exactly_
     /// when_something_builds_it`.
     pub fn implemented(self) -> bool {
         match self {
-            Self::Roadster | Self::Wagon | Self::DuneBuggy | Self::Cyclecar => true,
-            Self::ArmouredCar | Self::Rover => false,
+            Self::Roadster | Self::Wagon | Self::DuneBuggy | Self::Cyclecar | Self::ArmouredCar => {
+                true
+            }
+            Self::Rover => false,
         }
     }
 

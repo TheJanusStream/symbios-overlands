@@ -98,6 +98,14 @@ enum Propulsion {
     /// no engine note and no oscillator, as under [`Sail`](Self::Sail); the
     /// creak is what makes her a junk to the ear.
     Battened,
+    /// A heavy diesel (#1375): a 33 Hz block note under a hard lowpass,
+    /// loped twice a second - the lowest voice in the fleet, where every
+    /// other car on the road putters, clatters or whines. The armoured car's.
+    /// And a diesel has a radiator and a pipe, so unlike the buggy's
+    /// air-cooled flat four she folds nothing away and trails whatever aura
+    /// her theme picked, off her own drawn pipe (`fx::drawn_aura` needs no
+    /// arm for her).
+    Diesel,
 }
 
 impl Propulsion {
@@ -112,6 +120,7 @@ impl Propulsion {
             Self::AirCooled => "under power, air-cooled",
             Self::Electric => "under power, electric",
             Self::Battened => "under battened sail",
+            Self::Diesel => "under power, diesel",
         }
     }
 }

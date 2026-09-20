@@ -20,14 +20,16 @@
 //! implementor: [`craft_for`] resolves an unbuilt pick to
 //! [`SkiffType::UNIVERSAL`] while the PICK stays a property of the seed.
 //!
-//! Four types are built: the roadster, the universal floor; since #1377 the
+//! Five types are built: the roadster, the universal floor; since #1377 the
 //! horseless [`wagon`], which takes all ten historic themes and is 31 % of the
 //! family against the Roadster's 30; since #1374 the dune [`buggy`], on the
-//! six leisure and frontier themes, 13 % of it; and since #1376 the
-//! three-wheeled [`cyclecar`], on the neon themes and the campus - the first
-//! type on an unpaired axle. A seed that picked any other type - the armoured
-//! car or the rover, 23 of the 151 skiff seeds under 600 - is still drawn as
-//! the roadster, and the readouts say so.
+//! six leisure and frontier themes, 13 % of it; since #1376 the three-wheeled
+//! [`cyclecar`], on the neon themes and the campus - the first type on an
+//! unpaired axle; and since #1375 the [`armoured`] car, on the three modern
+//! martial themes, 8 % of it - the first type drawn in FACETS rather than in
+//! sweeps. A seed that picked the rover, the last unbuilt type, is still
+//! drawn as the roadster (13 of the 151 skiff seeds under 600), and the
+//! readouts say so.
 //!
 //! # Where a skiff sits
 //!
@@ -38,6 +40,7 @@
 //! number, which is what puts the tyres on the suspension's own ground line
 //! for the wheels this seed actually rolls on (#1361).
 
+mod armoured;
 mod buggy;
 mod cyclecar;
 mod plan;
@@ -140,7 +143,8 @@ fn craft(t: SkiffType) -> Option<&'static dyn SkiffCraft> {
         SkiffType::Wagon => Some(&wagon::Wagon),
         SkiffType::DuneBuggy => Some(&buggy::Buggy),
         SkiffType::Cyclecar => Some(&cyclecar::Cyclecar),
-        SkiffType::ArmouredCar | SkiffType::Rover => None,
+        SkiffType::ArmouredCar => Some(&armoured::Armoured),
+        SkiffType::Rover => None,
     }
 }
 
@@ -320,12 +324,13 @@ mod tests {
     }
 
     /// Every skiff seed draws a skiff, whatever type it picked. This is what
-    /// "go live for every skiff seed" means, and the unbuilt types are the
+    /// "go live for every skiff seed" means, and the unbuilt type is the
     /// reason it needs saying: with the roadster, the wagon (#1377), the dune
-    /// buggy (#1374) and the cyclecar (#1376) built, 23 of the 151 skiff
-    /// seeds under 600 still pick a type nothing draws yet (the armoured car
-    /// and the rover). The boats' form: the floor fallback must still
-    /// be exercised, and how much of the family it carries is the census's
+    /// buggy (#1374), the cyclecar (#1376) and the armoured car (#1375)
+    /// built, 13 of the 151 skiff seeds under 600 still pick the one type
+    /// nothing draws yet - the rover, whose slice (#1378) is what ends this
+    /// `unbuilt > 0`. The boats' form: the floor fallback must still be
+    /// exercised, and how much of the family it carries is the census's
     /// business, not a threshold to re-tune each slice.
     #[test]
     fn every_skiff_seed_resolves_to_a_built_craft() {
@@ -789,6 +794,178 @@ mod tests {
         );
     }
 
+    /// Every armoured car the family can draw at the blueprint corners: every
+    /// variant crossed with every ornateness-by-wear pair (#1375). Returns
+    /// the built tree, its plan and a label for the failure.
+    fn every_armoured() -> Vec<(Generator, armoured::ArmouredPlan, String)> {
+        use crate::seeded_defaults::{ArmouredVariant, OrnatenessTier, WearTier};
+        let mut ctx = PartCtx::for_seed(a_skiff_seed());
+        let mut out = Vec::new();
+        for bp in corners() {
+            for variant in ArmouredVariant::ALL {
+                let plan = armoured::plan_of(&bp, variant);
+                for o in OrnatenessTier::ALL {
+                    for w in WearTier::ALL {
+                        (ctx.ornateness, ctx.wear) = (o, w);
+                        out.push((
+                            armoured::build_dressed(&ctx, &plan),
+                            plan,
+                            format!(
+                                "a {} m {}, {} / {}",
+                                bp.length,
+                                variant.label(),
+                                o.label(),
+                                w.label()
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+        assert_eq!(out.len(), 6 * 2 * 9, "the sweep lost a combination");
+        out
+    }
+
+    /// Every part of a built armoured car meets another and the whole machine
+    /// is one component, on every variant and tier at every blueprint corner
+    /// (#1375) - on the tree AS SAVED, through the record's 0.1 mm wire.
+    ///
+    /// Her contact is by CONSTRUCTION rather than by fit, and it has to be:
+    /// the guard reads a Wedge and a Bevel as their BOX, so her `taper`,
+    /// `taper_bottom` and chamfers are all invisible to it and it is generous
+    /// about every plate she carries. Each mount is bedded against the DRAWN
+    /// flank at its own height ([`armoured::ArmouredPlan::flank_x`]), which
+    /// lies inside that box; and the spare, the stern rails and the tail
+    /// lamps reach inside the stern PLANE, which a swept form's ball would
+    /// have met on its own.
+    #[test]
+    fn an_armoured_car_is_one_machine_at_every_blueprint_extreme() {
+        use super::super::common::touch;
+        for (built, _, what) in every_armoured() {
+            let json = serde_json::to_string(&built).expect("an armoured car serializes");
+            let saved: Generator = serde_json::from_str(&json).expect("and reads back");
+            touch::assert_one_machine(&saved, &what);
+        }
+    }
+
+    /// Every armoured car survives the record sanitiser UNCHANGED at the
+    /// extremes of her own blueprint, on every variant and tier (#1359 rule
+    /// 8).
+    ///
+    /// She carries no node scale at all - the first type that does not - so
+    /// what is at risk here is her TAPERS and her chamfers, which the
+    /// sanitiser clamps, and the rotations she authors: her slits, her flash,
+    /// her bins, her cans and an Ornate machine's thrown-open hatch, compared
+    /// through the quaternion epsilon the sanitiser's renormalising needs.
+    #[test]
+    fn an_armoured_car_survives_sanitize_unchanged_at_her_blueprint_extremes() {
+        use crate::pds::sanitize_avatar_visuals;
+        for (built, _, what) in every_armoured() {
+            let mut sanitized = built.clone();
+            sanitize_avatar_visuals(&mut sanitized);
+            if let Some(where_) = first_difference(&built, &sanitized, "0") {
+                panic!("{what} was rewritten by the sanitiser at {where_}");
+            }
+        }
+    }
+
+    /// Every armoured car stands on her four wheels with her hull clear of the
+    /// ground, under the air draft and inside the gateway, at every blueprint
+    /// corner (#1375).
+    ///
+    /// The ground clearance is the point of it: her section is DERIVED from
+    /// the roof she stands under and the floor she stands over, and with a
+    /// constant section instead that clearance swings 3.4x across these six
+    /// corners. So this reads the DRAWN tree's lowest plate rather than the
+    /// arithmetic that held it - the tyres excepted, which are the only thing
+    /// of hers that touches the ground.
+    #[test]
+    fn an_armoured_car_stands_clear_of_the_ground_under_the_air_draft() {
+        use super::super::common::touch;
+        /// Rule 6's air draft and the narrowest gateway mouth (m).
+        const AIR_DRAFT: f32 = 2.8;
+        const MOUTH: f32 = 2.6;
+        for (built, plan, what) in every_armoured() {
+            let wheels = plan.wheels();
+            assert_eq!(
+                wheels.len(),
+                4,
+                "{what}: she rolls on {} wheels",
+                wheels.len()
+            );
+            for (at, r) in wheels {
+                assert!(
+                    (at[1] + plan.datum_height() - r).abs() < 1e-5,
+                    "{what}: a wheel of radius {r} has its centre {} over the ground",
+                    at[1] + plan.datum_height()
+                );
+            }
+            let floor = plan.sill_at(0.0) + plan.datum_height();
+            assert!(
+                floor > 0.10,
+                "{what}: the hull's floor is {floor} m over the ground"
+            );
+            let top = touch::highest(&built) + plan.datum_height();
+            assert!(
+                top <= AIR_DRAFT,
+                "{what}: she stands {top} m over the ground, past the {AIR_DRAFT} m air draft"
+            );
+            let wide = armoured::Armoured.overall_width(&plan, 0);
+            assert!(
+                wide < MOUTH,
+                "{what}: {wide} m wide, past the {MOUTH} m mouth"
+            );
+        }
+    }
+
+    /// Every armoured-car seed is drawn as an armoured car, on the variant her
+    /// theme picks, a diesel (#1375) - and no other skiff seed is: a skiff is
+    /// a diesel exactly when she is drawn as one. And the aura her record
+    /// carries - her theme's steam, embers or exhaust, none of them folded -
+    /// leaves her own drawn pipe's mouth.
+    #[test]
+    fn an_armoured_car_seed_draws_an_armoured_car() {
+        use crate::pds::generator::GeneratorKind;
+        use crate::seeded_defaults::ArmouredVariant;
+        let mut seen = Vec::new();
+        for s in (0u64..3000).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
+            let car = SkiffType::for_seed(s) == SkiffType::ArmouredCar;
+            assert_eq!(
+                propulsion(s) == Propulsion::Diesel,
+                car,
+                "seed {s}: {:?} drives {:?}",
+                SkiffType::for_seed(s),
+                propulsion(s)
+            );
+            if !car {
+                continue;
+            }
+            let v = ArmouredVariant::for_seed(s);
+            if !seen.contains(&v) {
+                seen.push(v);
+            }
+            let (_, plan) = body_for(s).expect("an armoured-car seed has a body");
+            let (record, _) = super::super::build_for_seed(s);
+            let emitter = record
+                .visuals()
+                .expect("a skiff is an assembled tree")
+                .children
+                .iter()
+                .find(|g| matches!(g.kind, GeneratorKind::ParticleSystem(..)))
+                .expect("an armoured car trails an aura");
+            assert_eq!(
+                emitter.transform.translation.0,
+                armoured::pipe_mouth(&armoured::with_variant(plan, v)),
+                "seed {s}: her aura does not leave her pipe's mouth"
+            );
+        }
+        assert_eq!(
+            seen.len(),
+            ArmouredVariant::ALL.len(),
+            "the seeds under 3000 miss a variant: {seen:?}"
+        );
+    }
+
     /// Every part of a built roadster meets another, and the whole machine is
     /// one connected component (#1364, the owner's complaint on the
     /// prototype) - on every body, top, wheel and tier it can roll (#1367).
@@ -856,8 +1033,8 @@ mod tests {
     /// Two sweeps, in the sloop's form (#1366). The live seeds, as saved - FX
     /// emitter and engine voice included - and the heaviest thing the family
     /// can draw: every roadster body, top and wheel, every wagon body, every
-    /// buggy variant and the cyclecar at every blueprint corner on the
-    /// fullest ladder,
+    /// buggy variant, every armoured-car variant and the cyclecar at every
+    /// blueprint corner on the fullest ladder,
     /// Ornate and Battered, carrying the heaviest FX overhead
     /// any live seed carries. Measured rather than assumed, so a new aura that
     /// grows the emitter moves this too. The phase-1 prototype put the worst
@@ -937,12 +1114,27 @@ mod tests {
                 worst_cyclecar = worst_cyclecar.max(bytes(&built) + fx_overhead);
             }
         }
+        // And the armoured car's, every variant at every corner on her
+        // fullest ladder (#1375): the heaviest is a 3.6 m Ornate / Battered
+        // raider at about 18 KB, her plates and her four wheels most of it.
+        // She spends the least of any type on thin tubes, which is what keeps
+        // her the second lightest.
+        let mut worst_armoured = 0usize;
+        for bp in corners() {
+            for variant in crate::seeded_defaults::ArmouredVariant::ALL {
+                let plan = armoured::plan_of(&bp, variant);
+                let mut built = armoured::build_dressed(&ctx, &plan);
+                apply_travel_pose(&mut built, travel_drop(&armoured::Armoured, &plan, 0));
+                worst_armoured = worst_armoured.max(bytes(&built) + fx_overhead);
+            }
+        }
         for (what, worst) in [
             ("seeded skiff", worst_seed),
             ("fully dressed corner", worst_corner),
             ("fully dressed wagon", worst_wagon),
             ("fully dressed buggy", worst_buggy),
             ("fully dressed cyclecar", worst_cyclecar),
+            ("fully dressed armoured car", worst_armoured),
         ] {
             assert!(
                 worst * 3 < SOFT_RECORD_BUDGET_BYTES,

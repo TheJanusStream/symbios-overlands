@@ -7,9 +7,9 @@ use crate::pds::avatar::livery;
 use crate::pds::{Generator, GeneratorKind, Placement, RoomRecord};
 use crate::seeded_defaults::hash::fnv1a_64;
 use crate::seeded_defaults::{
-    AvatarPalette, BoatType, BuggyVariant, ChassisFamily, CraftType, RoadsterBody, RoadsterTop,
-    RoadsterWheels, RunaboutVariant, ScowLoad, SkiffType, SloopHull, SloopRig, TugVariant,
-    WagonBody,
+    ArmouredVariant, AvatarPalette, BoatType, BuggyVariant, ChassisFamily, CraftType, RoadsterBody,
+    RoadsterTop, RoadsterWheels, RunaboutVariant, ScowLoad, SkiffType, SloopHull, SloopRig,
+    TugVariant, WagonBody,
 };
 
 use super::Args;
@@ -167,6 +167,12 @@ pub(super) fn print_outfit(subject: &str) {
                 }
                 // And a cyclecar (#1376).
                 CraftType::Skiff(SkiffType::Cyclecar) => livery::cyclecar_livery(seed, None).name,
+                // And an armoured car (#1375). Her arm has to come BEFORE the
+                // wildcard: forgetting it compiles and prints a heritage
+                // roadster scheme she never wears.
+                CraftType::Skiff(SkiffType::ArmouredCar) => {
+                    livery::armoured_livery(seed, None).name
+                }
                 CraftType::Skiff(_) => livery::skiff_livery(seed, None).name,
             }
         );
@@ -214,6 +220,10 @@ pub(super) fn print_outfit(subject: &str) {
         // And the dune buggy's variant (#1374), which her theme picks.
         if let CraftType::Skiff(SkiffType::DuneBuggy) = craft {
             println!("  buggy: {}", BuggyVariant::for_seed(seed).label());
+        }
+        // And the armoured car's (#1375), which her theme picks too.
+        if let CraftType::Skiff(SkiffType::ArmouredCar) = craft {
+            println!("  armoured: {}", ArmouredVariant::for_seed(seed).label());
         }
     }
     let seed = match subject.parse::<u64>() {

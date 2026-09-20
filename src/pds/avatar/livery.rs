@@ -21,7 +21,8 @@
 //! - The **scheme** owns every large surface: topsides, antifoul, deck,
 //!   canvas and varnish on a boat, and a junk's hull and sails (#1371);
 //!   coachwork, wings and brightwork on a car, the tube frame on a dune
-//!   buggy (#1374), and a cyclecar's pod (#1376). It is picked per seed from
+//!   buggy (#1374), a cyclecar's pod (#1376) and every plate of an armoured
+//!   car (#1375). It is picked per seed from
 //!   a curated list on this module's own salted stream, exactly as the craft
 //!   TYPE is picked in [`crate::seeded_defaults::avatar::craft`].
 //! - The **seeded accent** ([`primary_accent`](crate::seeded_defaults::AvatarPalette::primary_accent))
@@ -31,8 +32,10 @@
 //!   roundel and the eye on each bow (#1371);
 //!   the coachline, the wheel centres and the hide on a car; a horseless
 //!   wagon's spoked wheels (#1377); a dune buggy's rims and the hide of her
-//!   seats (#1374); a cyclecar's rims and the strip along her flanks
-//!   (#1376). The secondary still tints the antifoul and the upholstery a
+//!   seats (#1374); a cyclecar's rims and the strip along her flanks (#1376);
+//!   and an armoured car's unit flash and the band round her turret - never
+//!   her wheel centres, which on a military machine read as a toy
+//!   (#1375). The secondary still tints the antifoul and the upholstery a
 //!   little so two craft of one scheme are not identical, and the tertiary
 //!   still lights the windows.
 //!
@@ -629,6 +632,69 @@ pub const CYCLECAR_LIVERIES: &[CyclecarLivery] = &[
 /// `over` wraps inside it (`render --livery 0` is Obsidian, `1` Pearl).
 pub fn cyclecar_livery(seed: u64, over: Option<usize>) -> &'static CyclecarLivery {
     pick(CYCLECAR_LIVERIES, |l| l.weight, seed, over)
+}
+
+/// An armoured car's scheme (#1375): her armour plate.
+///
+/// A list of her own, as the wagon, the buggy and the cyclecar have: a
+/// racing green or a cream armoured car is a coachbuilder's colour on a
+/// machine with a turret, and the roadster parked beside her wears exactly
+/// those. These are the colours a works, municipal or raider machine is
+/// really painted, and every one of them is a value a seeded accent reads
+/// against - which it has to be, because her accent goes on a unit flash and
+/// a turret band and nowhere else.
+#[derive(Clone, Copy, Debug)]
+pub struct ArmouredLivery {
+    /// See [`BoatLivery::name`].
+    pub name: &'static str,
+    weight: u32,
+    /// Every plate of her: the tub, the decks, the fighting compartment, the
+    /// glacis, the arches, the turret, the cupola and the lamp shells.
+    hull: [f32; 3],
+}
+
+/// The armoured car's six schemes (#1375), as the owner agreed them on the
+/// phase-1 renders, weights and order: the pick walks the table in this
+/// order.
+pub const ARMOUR_LIVERIES: &[ArmouredLivery] = &[
+    ArmouredLivery {
+        name: "Olive drab",
+        weight: 5,
+        hull: [0.190, 0.200, 0.120],
+    },
+    ArmouredLivery {
+        name: "Works grey",
+        weight: 4,
+        hull: [0.300, 0.310, 0.320],
+    },
+    ArmouredLivery {
+        name: "Desert sand",
+        weight: 4,
+        hull: [0.660, 0.580, 0.400],
+    },
+    ArmouredLivery {
+        name: "Midnight blue",
+        weight: 4,
+        hull: [0.070, 0.105, 0.190],
+    },
+    ArmouredLivery {
+        name: "Oxide red",
+        weight: 3,
+        hull: [0.260, 0.125, 0.095],
+    },
+    ArmouredLivery {
+        name: "Slate green",
+        weight: 3,
+        hull: [0.130, 0.195, 0.180],
+    },
+];
+
+/// The scheme this armoured-car seed wears, a pick from [`ARMOUR_LIVERIES`];
+/// `over` wraps inside it (`render --livery 0` is Olive drab, `1` Works
+/// grey). "Olive drab" is also a dune buggy raider scheme's name, in another
+/// colour; nothing looks a scheme up across the lists.
+pub fn armoured_livery(seed: u64, over: Option<usize>) -> &'static ArmouredLivery {
+    pick(ARMOUR_LIVERIES, |l| l.weight, seed, over)
 }
 
 /// A junk's scheme (#1371): her HULL and her SAILS.
@@ -1753,6 +1819,111 @@ pub(crate) fn cyclecar_colours(ctx: &PartCtx) -> CyclecarColours {
     }
 }
 
+/// The surfaces an armoured car is built in (#1375): her scheme on every
+/// plate, the seeded accent on her unit flash and her turret band, and the
+/// colours the rest of her simply is - steel rims, olive stowage, canvas, a
+/// raider's bolted slabs.
+///
+/// **Her wheel centres are machinery, not identity.** Painted hubs on a
+/// military machine read as a toy at 12 m (the buggy's lesson about brights,
+/// turned round), so the rims are steel held clear of the tyre they are set
+/// into and the accent goes on the flash and the band instead. Both of those
+/// go through [`trim`], so the day a luminous theme picks her they light;
+/// none of her three does today, so they are paint.
+///
+/// What is lit: her vision slits and her lamp lenses, which are the one slot
+/// (`window_material(window_light(tertiary))`), and her tail lamps. Nothing
+/// else.
+pub(crate) struct ArmouredColours {
+    /// Every plate: the belly tub, the rear deck, the fighting compartment,
+    /// the glacis, the arches, the turret, the cupola and the lamp shells.
+    /// The scheme, floored off the tyres like any coachwork
+    /// ([`GUARD_FLOOR`]).
+    pub(crate) hull: SovereignMaterialSettings,
+    /// **Identity.** The unit flash on each flank and the band round the
+    /// turret's base: the coachline's own rule, held clear of the plate they
+    /// lie on.
+    pub(crate) flash: SovereignMaterialSettings,
+    /// The wheel centres: machinery steel, held clear of the tyre.
+    pub(crate) rim: SovereignMaterialSettings,
+    /// A worn machine's near-front rim: bare steel off another wheel.
+    pub(crate) odd_rim: SovereignMaterialSettings,
+    pub(crate) tyre: SovereignMaterialSettings,
+    /// The axle beams, the exhaust pipe, the stern rails, the tow cable, the
+    /// lamp guards and the hidden hub.
+    pub(crate) arm: SovereignMaterialSettings,
+    /// The turret's hatch and the cupola's lid: the hull shaded, held clear
+    /// of it so the lid reads against the roof it lies on.
+    pub(crate) hatch: SovereignMaterialSettings,
+    /// The headlamps' lenses and every vision slit: the tertiary's light.
+    pub(crate) lamp: SovereignMaterialSettings,
+    pub(crate) glass: SovereignMaterialSettings,
+    pub(crate) tail_lamp: SovereignMaterialSettings,
+    /// The stowage bins, and the raider's pile of scavenged kit: olive.
+    pub(crate) bin: SovereignMaterialSettings,
+    /// The bedroll lashed along the near bin: canvas.
+    pub(crate) roll: SovereignMaterialSettings,
+    /// The jerrycans in her rack.
+    pub(crate) can: SovereignMaterialSettings,
+    /// The raider's applique slabs: bare bolted steel, held clear of the
+    /// plate they are bolted to and floored off the tyres.
+    pub(crate) plate: SovereignMaterialSettings,
+    /// A battered machine's patched panel on the rear deck.
+    pub(crate) primer: SovereignMaterialSettings,
+}
+
+/// The armoured car's fixed colours (#1375): what these parts simply are, and
+/// how far each is held from the one surface it has to read against.
+const ARMOUR_RIM: [f32; 3] = [0.24, 0.245, 0.25];
+const ARMOUR_RIM_DELTA: f32 = 0.30;
+const BIN_OLIVE: [f32; 3] = [0.26, 0.28, 0.16];
+const BIN_DELTA: f32 = 0.16;
+const ROLL_CANVAS: [f32; 3] = [0.52, 0.47, 0.34];
+const ROLL_DELTA: f32 = 0.18;
+const APPLIQUE_STEEL: [f32; 3] = [0.30, 0.28, 0.26];
+const APPLIQUE_DELTA: f32 = 0.18;
+const HATCH_DELTA: f32 = 0.10;
+/// How far the unit flash and the turret band are held from the plate they
+/// are painted on - a coachline's delta, a little wider because a flash is
+/// an area rather than a line.
+const FLASH_DELTA: f32 = 0.26;
+
+pub(crate) fn armoured_colours(ctx: &PartCtx) -> ArmouredColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let l = armoured_livery(ctx.seed, ctx.livery);
+    // A midnight blue or an olive drab plate is the point of her, but never
+    // as dark as the tyres she stands on.
+    let hull = floor_finished(m, l.hull, GUARD_FLOOR);
+    let body = luma(hull);
+    let lamp = window_material(window_light(p.tertiary_accent));
+    ArmouredColours {
+        hull: m.paint(hull),
+        flash: trim(m, clear_of(p.primary_accent, body, FLASH_DELTA)),
+        rim: m.paint(clear_of(ARMOUR_RIM, luma(TYRE), ARMOUR_RIM_DELTA)),
+        odd_rim: m.paint(floor_finished(m, STEEL, GUARD_FLOOR)),
+        tyre: m.rubber(TYRE),
+        arm: m.paint(MACHINERY),
+        hatch: m.paint(clear_of(shade(hull, 0.72), body, HATCH_DELTA)),
+        lamp: lamp.clone(),
+        glass: lamp,
+        tail_lamp: m.glow(TAIL_LAMP),
+        bin: m.paint(clear_of(BIN_OLIVE, body, BIN_DELTA)),
+        roll: m.canvas(clear_of(ROLL_CANVAS, body, ROLL_DELTA)),
+        can: m.paint(clear_of(CAN, luma(MACHINERY), CAN_DELTA)),
+        plate: m.paint(floor_finished(
+            m,
+            clear_of(APPLIQUE_STEEL, body, APPLIQUE_DELTA),
+            GUARD_FLOOR,
+        )),
+        primer: m.paint(floor_finished(
+            m,
+            clear_of(PRIMER, body, PRIMER_DELTA),
+            GUARD_FLOOR,
+        )),
+    }
+}
+
 /// The surfaces a junk is built in (#1371): her scheme on her hull and her
 /// sails, the seeded accent on her transom roundel and her eyes, and the
 /// colours the rest of her simply is - teak decks, timber spars, bamboo
@@ -1954,6 +2125,19 @@ mod tests {
             cyclecars.iter().all(|&n| n > 0),
             "a cyclecar livery is unreachable: {cyclecars:?}"
         );
+        // And the armoured car's own six (#1375).
+        let mut cars = vec![0usize; ARMOUR_LIVERIES.len()];
+        for s in 0u64..4_000 {
+            let a = armoured_livery(s, None);
+            cars[ARMOUR_LIVERIES
+                .iter()
+                .position(|l| l.name == a.name)
+                .expect("the pick came from the table")] += 1;
+        }
+        assert!(
+            cars.iter().all(|&n| n > 0),
+            "an armoured-car livery is unreachable: {cars:?}"
+        );
         // And the junk's own seven (#1371).
         let mut junks = vec![0usize; JUNK_LIVERIES.len()];
         for s in 0u64..4_000 {
@@ -2033,6 +2217,17 @@ mod tests {
         }
         assert_eq!(junk_livery(3, Some(0)).name, "Black and tanbark");
         assert_eq!(junk_livery(3, Some(1)).name, "Oiled teak");
+        // And an armoured car's inside hers (#1375): the agreed ladder sheets
+        // draw Olive drab as `--livery 0` and Works grey as `--livery 1`.
+        for (i, l) in ARMOUR_LIVERIES.iter().enumerate() {
+            assert_eq!(armoured_livery(7, Some(i)).name, l.name);
+            assert_eq!(
+                armoured_livery(9, Some(i + ARMOUR_LIVERIES.len())).name,
+                l.name
+            );
+        }
+        assert_eq!(armoured_livery(3, Some(0)).name, "Olive drab");
+        assert_eq!(armoured_livery(3, Some(1)).name, "Works grey");
     }
 
     /// No painted surface on a land-skiff carries the tyres' own value, on
@@ -2512,6 +2707,117 @@ mod tests {
             lit > 0 && dark > 0,
             "the population saw only one kind: {lit} lit, {dark} dark"
         );
+    }
+
+    /// An armoured car's colours read on every scheme of her list, on every
+    /// seed drawn as one under 3000 (#1375), BOTH directions.
+    ///
+    /// What is lit: her vision slits and her lamp lenses, which are one slot -
+    /// the tertiary's window light - and her tail lamps. Every plate of her,
+    /// her rims, her stowage, her bedroll, her cans, a raider's slabs and a
+    /// battered machine's primer are paint on every kit. Her unit flash and
+    /// her turret band are the seed's accent through [`trim`], so they light
+    /// exactly when the kit is luminous - none of her three themes is today,
+    /// and the rule is written because the flash and the band ARE identity
+    /// trim.
+    ///
+    /// And each of her cleared colours really is clear of the one surface it
+    /// reads against: the flash of the plate it is painted on, the rims of the
+    /// tyre they are set into, the hatch of the roof it lies on, the stowage
+    /// and the bedroll of the plate behind them.
+    #[test]
+    fn an_armoured_cars_flash_band_and_slits_read_on_every_scheme() {
+        use crate::seeded_defaults::SkiffType;
+        let (mut cars, mut lit, mut dark) = (0, 0, 0);
+        for s in (0u64..3000).filter(|&s| {
+            ChassisFamily::for_seed(s) == ChassisFamily::Skiff
+                && SkiffType::for_seed(s) == SkiffType::ArmouredCar
+        }) {
+            let mut ctx = PartCtx::for_seed(s);
+            let luminous = ctx.materials.emissive_accents();
+            let window = window_material(window_light(ctx.palette.tertiary_accent));
+            for (i, scheme) in ARMOUR_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = armoured_colours(&ctx);
+                for (what, m) in [
+                    ("plate", &c.hull),
+                    ("rims", &c.rim),
+                    ("odd rim", &c.odd_rim),
+                    ("tyres", &c.tyre),
+                    ("beams, pipe and rails", &c.arm),
+                    ("hatch", &c.hatch),
+                    ("stowage bins", &c.bin),
+                    ("bedroll", &c.roll),
+                    ("jerrycans", &c.can),
+                    ("applique slabs", &c.plate),
+                    ("primer patch", &c.primer),
+                ] {
+                    assert_eq!(
+                        m.emission_strength.0, 0.0,
+                        "seed {s} in {}: the {what} is self-lit",
+                        scheme.name
+                    );
+                }
+                for (what, m) in [("vision slits", &c.glass), ("headlamps", &c.lamp)] {
+                    assert_eq!(
+                        *m, window,
+                        "seed {s} in {}: the {what} is not the window light",
+                        scheme.name
+                    );
+                }
+                assert!(
+                    c.tail_lamp.emission_strength.0 > 0.0,
+                    "seed {s} in {}: the tail lamps are dark",
+                    scheme.name
+                );
+                let on = c.flash.emission_strength.0 > 0.0;
+                assert_eq!(
+                    on, luminous,
+                    "seed {s} in {}: the flash and band are lit {on} on a kit luminous {luminous}",
+                    scheme.name
+                );
+                if luminous {
+                    assert_eq!(
+                        c.flash.base_color, c.flash.emission_color,
+                        "seed {s} in {}: the lit flash is grimed",
+                        scheme.name
+                    );
+                    continue;
+                }
+                // Grime dims both sides of each pair by one factor, so each
+                // delta shrinks by at most that much - as the boot top's does.
+                let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                for (what, a, b, delta) in [
+                    ("flash and band", &c.flash, &c.hull, FLASH_DELTA),
+                    ("rims", &c.rim, &c.tyre, ARMOUR_RIM_DELTA),
+                    ("hatch", &c.hatch, &c.hull, HATCH_DELTA),
+                    ("stowage bins", &c.bin, &c.hull, BIN_DELTA),
+                    ("bedroll", &c.roll, &c.hull, ROLL_DELTA),
+                ] {
+                    let d = (l(a) - l(b)).abs();
+                    assert!(
+                        d > delta * 0.6,
+                        "seed {s} in {}: the {what} is {d} from what it lies on",
+                        scheme.name
+                    );
+                }
+            }
+            if luminous {
+                lit += 1;
+            } else {
+                dark += 1;
+            }
+            cars += 1;
+        }
+        assert!(cars > 50, "only {cars} armoured-car seeds under 3000");
+        // Her three themes are all FLAT today, so the luminous arm above is
+        // unexercised by the population and says so rather than pretending:
+        // the day one of them turns luminous this test starts checking it.
+        assert_eq!(
+            lit, 0,
+            "{lit} of her seeds now carry a luminous kit - the lit arm is live"
+        );
+        assert!(dark > 50, "{dark} flat armoured cars");
     }
 
     /// A junk's colours read on every scheme of her list, on every seed drawn

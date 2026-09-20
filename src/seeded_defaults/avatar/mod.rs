@@ -36,6 +36,7 @@
 //! family-agnostic and feed every part build; [`MaterialKit`] supplies the
 //! style/wear finish.
 
+pub mod armoured;
 pub mod body;
 pub mod buggy;
 pub mod character;
@@ -55,6 +56,7 @@ pub mod tug;
 pub mod vehicle_blueprint;
 pub mod wagon;
 
+pub use armoured::ArmouredVariant;
 pub use body::{AvatarBody, BodyArchetype, StylizationTier};
 pub use buggy::BuggyVariant;
 pub use character::{

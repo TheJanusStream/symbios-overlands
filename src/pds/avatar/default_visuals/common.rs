@@ -322,6 +322,33 @@ pub(crate) fn with_shape(
     kind
 }
 
+/// Per-axis taper at BOTH ends - [`with_shape`]'s sibling for a form that
+/// narrows toward its top AND toward its base independently. `taper` scales
+/// `[x, z]` toward the top (`1 - taper·t`) and `taper_bottom` toward the base
+/// (`1 - taper_bottom·(1 - t)`), and the two compose, so one prim can be a
+/// frustum, a lens or a spearhead.
+///
+/// The armoured car's hull plates are the first caller (#1375): a Bevel with
+/// one bevel segment is an octagonal prism, and these two sliders cut it to
+/// the hexagonal section its [`BodyPlan`](super::skiffs::BodyPlan)
+/// publishes (`taper` 0.5 over the datum and `taper_bottom` 0.5 under it),
+/// so an armour plate is one node with flat faces and hard edges. Nothing in
+/// the family had ever written `taper_bottom`, which is why this sits beside
+/// [`with_shape`] rather than inside it: adding it there would rewrite the
+/// field on every part that has ever asked for a plain taper, and those dumps
+/// are pinned.
+pub(crate) fn with_taper(
+    mut kind: GeneratorKind,
+    taper: [f32; 2],
+    taper_bottom: [f32; 2],
+) -> GeneratorKind {
+    if let Some(t) = kind.torture_mut() {
+        t.taper = Fp2(taper);
+        t.taper_bottom = Fp2(taper_bottom);
+    }
+    kind
+}
+
 /// Stamp the SL-style topology cuts onto a swept primitive (Sphere / Cylinder /
 /// Cone / Torus / Tube): `path_cut` (`[begin, end]` kept angular fraction),
 /// `profile_cut` (`[begin, end]` kept latitude band - domes / bowls), and
