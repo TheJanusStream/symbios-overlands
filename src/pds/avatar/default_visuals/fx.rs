@@ -1413,16 +1413,25 @@ mod audio_tests {
     /// scow (#1373), whose lap and creak are noise; under steam exactly when
     /// it is drawn as a steam tug (#1370), whose thump is a pitch under the
     /// chuff; under battened sail exactly when it is drawn as a junk
-    /// (#1371), whose creak is noise; and every other boat seed, the sloops
-    /// and every pick nothing builds yet (the longships, drawn as sloops),
-    /// sails, on a patch with no oscillator in it. Keying the voice to the
-    /// picked type would get the unbuilt picks wrong; keying it to the family
-    /// would get every other type wrong.
+    /// (#1371), whose creak is noise; and every other boat seed - the SLOOPS
+    /// and the LONGSHIPS - sails, on a patch with no oscillator in it.
+    ///
+    /// The sailing group used to assert `unbuilt > 0` as well: that some
+    /// seed in it was a pick nothing drew, so keying the voice to the picked
+    /// type rather than to the drawn craft would have been caught here.
+    /// Since #1369 built the longship that count is ZERO, and the group is
+    /// two BUILT types that both sail. Restated rather than deleted, in the
+    /// form #1378 took on the skiff side: what it guards now is that the
+    /// group is a real pair rather than the sloop alone, so the
+    /// `_ => Propulsion::Sail` arm is still answering for more than one
+    /// type. Keying the voice to the FAMILY would still get every other type
+    /// wrong.
     #[test]
     fn a_boat_is_driven_as_the_craft_she_is_drawn_as() {
         use crate::seeded_defaults::BoatType;
         let (mut launches, mut scows, mut tugs, mut junks, mut sailing, mut unbuilt) =
             (0, 0, 0, 0, 0, 0);
+        let mut sails: Vec<BoatType> = Vec::new();
         for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
             let picked = BoatType::for_seed(s);
             let drive = drive_of(ChassisFamily::Boat, s);
@@ -1464,14 +1473,30 @@ mod audio_tests {
                 _ => {
                     sailing += 1;
                     unbuilt += usize::from(!picked.implemented());
+                    if !sails.contains(&picked) {
+                        sails.push(picked);
+                    }
                     assert!(oscillators(&patch).is_empty(), "boat seed {s} hums");
                 }
             }
         }
         assert!(
-            launches > 5 && scows > 5 && tugs > 5 && junks > 5 && sailing > 5 && unbuilt > 0,
+            launches > 5 && scows > 5 && tugs > 5 && junks > 5 && sailing > 5,
             "{launches} runabouts, {scows} scows, {tugs} tugs, {junks} junks, {sailing} \
-             sailing ({unbuilt} of them unbuilt picks)"
+             sailing"
+        );
+        assert_eq!(
+            unbuilt, 0,
+            "{unbuilt} sailing seeds picked an unbuilt type - since #1369 every \
+             boat type is built"
+        );
+        // And the sailing group is the PAIR it is meant to be, not the sloop
+        // alone - see the doc comment.
+        sails.sort_by_key(|t| format!("{t:?}"));
+        assert_eq!(
+            sails,
+            [BoatType::Longship, BoatType::Sloop],
+            "the sailing arm answers for {sails:?}, not for both sailing types"
         );
     }
 

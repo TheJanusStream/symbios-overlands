@@ -13,16 +13,18 @@
 //! one file per type, and [`craft`] is the only match over the enum - the
 //! central [`build_for_seed`](super::build_for_seed) just delegates.
 //!
-//! The sloop, the runabout (#1372), the scow (#1373), the steam tug (#1370)
-//! and the junk (#1371) are built so far; the longship (#1369) is the last
-//! type nothing builds. That is stated once,
-//! in [`craft`], as an explicit `None` for the types with no implementor
-//! rather than an arm that quietly draws something else: [`craft_for`]
-//! resolves an unbuilt pick to
-//! [`BoatType::UNIVERSAL`] - the sloop is the family's universal floor exactly
-//! so it can be that answer - while the PICK itself stays a property of the
-//! seed, so `render --outfit` and `render --family-seeds --craft` keep
-//! answering for types before anyone has drawn them.
+//! The sloop, the runabout (#1372), the scow (#1373), the steam tug (#1370),
+//! the junk (#1371) and the longship (#1369) are built - which since the
+//! longship is ALL SIX, so no boat seed anywhere is drawn as somebody else's
+//! craft. [`craft`] is still the one match that says so, and it still
+//! returns an `Option`: the seam it names is what let #1363 go live for
+//! every boat seed rather than half of them, [`craft_for`] still resolves an
+//! unbuilt pick to [`BoatType::UNIVERSAL`] - the sloop is the family's
+//! universal floor exactly so it can be that answer - and collapsing the
+//! `Option` across both families is #1382's, which is the slice whose job is
+//! guards and documentation. The PICK itself has always been a property of
+//! the seed, so `render --outfit` and `render --family-seeds --craft`
+//! answered for every type before anyone had drawn them.
 //!
 //! # Where a boat sits
 //!
@@ -35,6 +37,7 @@
 //! two are a pair, and both are derived (#1361).
 
 mod junk;
+mod longship;
 mod profile;
 mod runabout;
 mod scow;
@@ -52,8 +55,8 @@ use crate::seeded_defaults::{BoatBlueprint, BoatType, ParticleAura};
 /// (#1365) rather than beside its geometry - the sloop and every type after
 /// her read them through here.
 pub(crate) use crate::pds::avatar::livery::{
-    BoatColours, JunkColours, RunaboutColours, ScowColours, TugColours, boat_colours, junk_colours,
-    runabout_colours, scow_colours, tug_colours,
+    BoatColours, JunkColours, LongshipColours, RunaboutColours, ScowColours, TugColours,
+    boat_colours, junk_colours, longship_colours, runabout_colours, scow_colours, tug_colours,
 };
 
 use super::Propulsion;
@@ -181,10 +184,16 @@ pub(super) trait BoatCraft {
 /// The seam, and deliberately not a stub (#1362's own note): a match over a
 /// non-empty enum needs an arm per variant, and an arm that drew *something*
 /// for an unimplemented type would be a lie the population census could not
-/// see. The unbuilt group is named in full, so adding a type is a compile
-/// error here until it is listed - which is what each of #1369-#1373 does
-/// (the runabout, #1372, the scow, #1373, the steam tug, #1370, and the
-/// junk, #1371, so far).
+/// see. Adding a type is a compile error here until it is listed - which is
+/// what each of #1369-#1373 did in turn (the runabout, #1372, the scow,
+/// #1373, the steam tug, #1370, the junk, #1371, and the longship, #1369).
+///
+/// Since the longship every arm is `Some`, so the `Option` is now a shape
+/// with no `None` in it and [`craft_for`]'s fallback is unreachable. Kept,
+/// not collapsed: the same is true on the skiff side since #1378, both
+/// halves collapse in one decision rather than two, and that decision is
+/// #1382's - a fleet-wide refactor with no geometry in it does not belong in
+/// the commit that lands a craft type.
 fn craft(t: BoatType) -> Option<&'static dyn BoatCraft> {
     match t {
         BoatType::Sloop => Some(&sloop::Sloop),
@@ -192,17 +201,18 @@ fn craft(t: BoatType) -> Option<&'static dyn BoatCraft> {
         BoatType::Scow => Some(&scow::Scow),
         BoatType::SteamTug => Some(&tug::Tug),
         BoatType::Junk => Some(&junk::Junk),
-        BoatType::Longship => None,
+        BoatType::Longship => Some(&longship::Longship),
     }
 }
 
 /// The builder a seed actually draws with: its own type where that type is
 /// built, and the family's universal floor where it is not.
 ///
-/// The pick itself is untouched - [`BoatType::for_seed`] still answers with
-/// the longship a Nordic seed rolled, and the readouts still print it. This is
-/// only what gets drawn until #1369 lands, and it is why #1363 could go live
-/// for every boat seed rather than half of them.
+/// Since #1369 every type is built, so the floor is never reached and this
+/// IS `craft(BoatType::for_seed(seed))` unwrapped. The fallback is what let
+/// #1363 go live for every boat seed rather than half of them, and it is
+/// kept until #1382 collapses the seam in both families at once - see
+/// [`craft`].
 fn craft_for(seed: u64) -> &'static dyn BoatCraft {
     craft(BoatType::for_seed(seed)).unwrap_or_else(|| {
         craft(BoatType::UNIVERSAL).expect("the family's universal floor is always built")
@@ -254,10 +264,12 @@ pub(super) fn feel_and_draft(seed: u64) -> (BoatFeel, f32, Option<f32>) {
 
 /// How the boat drawn for `seed` is driven - her voice's answer (#1383).
 ///
-/// Asked of the DRAWN craft, never of the picked type: until #1369 lands, a
-/// seed that picks the longship is drawn as the sloop, and a boat drawn
-/// under sail must sound like one whatever her seed picked. Total over every
-/// seed, as [`craft_for`] is.
+/// Asked of the DRAWN craft, never of the picked type. Since #1369 the two
+/// agree on every seed, because every type is built; the distinction still
+/// matters, because keying a voice to the PICK would have got every unbuilt
+/// pick wrong while the fan-out ran, and keying it to the FAMILY would get
+/// every type but the sloop wrong now. Total over every seed, as
+/// [`craft_for`] is.
 pub(super) fn propulsion(seed: u64) -> Propulsion {
     craft_for(seed).propulsion()
 }
@@ -295,27 +307,53 @@ mod tests {
         );
     }
 
-    /// Every boat seed draws a boat, whatever type it picked. This is what
-    /// "go live for every boat seed" means, and the unbuilt types are the
-    /// reason it needs saying. Since the junk (#1371) the longship is the
-    /// only one: 15 of the 146 boat seeds under 600 pick her and are drawn as
-    /// sloops, and #1369's flip ends the `unbuilt > 0` half of this - reshape
-    /// or retire it then.
+    /// Every boat seed draws a boat, whatever type it picked - and since
+    /// #1369 it draws ITS OWN, which is a strictly stronger claim than the
+    /// one this made before.
+    ///
+    /// It used to assert `unbuilt > 0`: that some seed still picked a type
+    /// nothing drew, so the floor fallback was exercised. The longship was
+    /// the last of those (15 of the 146 boat seeds under 600 picked her and
+    /// were drawn as sloops), so the count is now ZERO and the fallback in
+    /// [`craft_for`] is unreachable. Restated rather than deleted, in the
+    /// skiffs' form (#1378), because what it means now is the thing worth
+    /// guarding: every one of the six [`BoatType`]s is PICKED by some seed
+    /// under 600 and BUILT by [`craft`], so no seed anywhere in the
+    /// population is quietly drawn as somebody else's craft.
     #[test]
     fn every_boat_seed_resolves_to_a_built_craft() {
-        let mut unbuilt = 0;
+        let (mut unbuilt, mut total) = (0, 0);
+        let mut picked: Vec<BoatType> = Vec::new();
         for s in (0u64..600).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
-            let picked = BoatType::for_seed(s);
-            if !picked.implemented() {
+            let t = BoatType::for_seed(s);
+            if !t.implemented() {
                 unbuilt += 1;
             }
+            if !picked.contains(&t) {
+                picked.push(t);
+            }
+            total += 1;
             let (_, hull) = hull_for(s).expect("a boat seed has a hull");
             assert!(hull.loa > 0.5, "seed {s}: degenerate hull");
         }
-        assert!(
-            unbuilt > 0,
-            "no seed picked an unbuilt type - the floor fallback is untested"
+        assert!(total > 50, "too few boats sampled: {total}");
+        assert_eq!(
+            unbuilt, 0,
+            "{unbuilt} seeds picked an unbuilt type - since #1369 every boat type \
+             is built, and `craft_for`'s floor fallback is unreachable"
         );
+        // The census, which is what the assertion above now rests on: every
+        // type is drawn by somebody, and every type that is drawn is built.
+        for t in BoatType::ALL {
+            assert!(
+                picked.contains(&t),
+                "no boat seed under 600 picked {t:?} - the census sampled \
+                 {} of the {} types",
+                picked.len(),
+                BoatType::ALL.len()
+            );
+            assert!(craft(t).is_some(), "{t:?} is picked and nothing builds it");
+        }
     }
 
     /// Every boat-family builder's inputs that the guards below sweep: the
@@ -549,6 +587,43 @@ mod tests {
         out
     }
 
+    /// Every longship at every blueprint corner, on every combination of the
+    /// two things her SEED decides - the variant her theme draws and whether
+    /// she carries the serpent - crossed with every ornateness-by-wear pair
+    /// (#1369). Returns the built tree, her hull, her kind and a label.
+    fn every_longship() -> Vec<(Generator, HullProfile, longship::LongshipKind, String)> {
+        use crate::seeded_defaults::{OrnatenessTier, WearTier};
+        let mut ctx = PartCtx::for_seed(
+            (0u64..600)
+                .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat)
+                .expect("some seed is a boat"),
+        );
+        let mut out = Vec::new();
+        for bp in corners() {
+            let hull = longship::profile_of(&bp);
+            for kind in longship::LongshipKind::ALL {
+                for o in OrnatenessTier::ALL {
+                    for w in WearTier::ALL {
+                        (ctx.ornateness, ctx.wear) = (o, w);
+                        out.push((
+                            longship::build_tiered(&ctx, &hull, kind),
+                            hull,
+                            kind,
+                            format!(
+                                "a {} m {}, {} / {}",
+                                hull.loa,
+                                kind.label(),
+                                o.label(),
+                                w.label()
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// The blueprint corners a seeded hull can actually reach - where a
     /// dimension floors or a clamp bites. The smallest hull draws the thinnest
     /// shroud and the finest stem; the largest draws the deepest keel.
@@ -645,6 +720,20 @@ mod tests {
             n += 1;
         }
         assert_eq!(n, 5 * 9, "the junk sweep lost a combination");
+        // The longship authors rotated nodes too - every shield in her row,
+        // and the serpent's horns and eyes - so hers takes the same epsilon
+        // (#1369). Her sail's hundredth node scales and her stripes'
+        // profile cuts pass as built, as the junk's do.
+        let mut n = 0;
+        for (built, _, _, what) in every_longship() {
+            let mut sanitized = built.clone();
+            sanitize_avatar_visuals(&mut sanitized);
+            if let Some(where_) = first_difference(&built, &sanitized, "0") {
+                panic!("{what} was rewritten by the sanitiser at {where_}");
+            }
+            n += 1;
+        }
+        assert_eq!(n, 5 * 4 * 9, "the longship sweep lost a combination");
     }
 
     /// Every part of a built boat meets another, and the whole craft is one
@@ -680,6 +769,15 @@ mod tests {
         // contact holds by construction and by this.
         for (built, _, what) in every_junk() {
             let json = serde_json::to_string(&built).expect("a junk serializes");
+            let saved: Generator = serde_json::from_str(&json).expect("and reads back");
+            touch::assert_one_machine(&saved, &what);
+        }
+        // The longship on the tree AS SAVED too, and hers is the sweep that
+        // needs it most: her strakes, her shield row and her sail's bands
+        // are all thin parts held against the shell by construction, and the
+        // record's 0.1 mm wire is what they have to survive.
+        for (built, _, _, what) in every_longship() {
+            let json = serde_json::to_string(&built).expect("a longship serializes");
             let saved: Generator = serde_json::from_str(&json).expect("and reads back");
             touch::assert_one_machine(&saved, &what);
         }
@@ -833,6 +931,207 @@ mod tests {
                 -hover(hull.draft)
             );
         }
+    }
+
+    /// A longship floats IN her water and fits the gateway, at every corner
+    /// on every kind and tier (#1369) - the runabout's guard: her canoe body
+    /// is under her own design waterline by at least a hundredth of her
+    /// length, she is drawn under the air-draft cap hover included, and her
+    /// overall beam - shields, and a galley's oars - clears the narrowest
+    /// gateway mouth, 2.6 m.
+    ///
+    /// And she is a DOUBLE-ENDER, which is the whole reason
+    /// [`SheerLaw::Crescent`](super::profile::SheerLaw::Crescent) exists:
+    /// her two ends stand at EXACTLY the same height, on every corner. That
+    /// is asserted bit for bit rather than within a tolerance, because the
+    /// law computes one rise and lays it twice - if it ever came to differ
+    /// by a rounding, the law would not be the law any more.
+    ///
+    /// And her lowest point is the STEERING OAR'S foot, at exactly her
+    /// derived draft - the allowance IS the oar - so her hover, a quarter of
+    /// a draft, clears it. Read off the drawn tree less the hull's own
+    /// sweeps, which the connectivity helper reads too deep as round tubes
+    /// (#1382); for those the profile answers, and her canoe body lies an
+    /// allowance over the foot.
+    #[test]
+    fn a_longship_floats_in_her_water_and_fits_the_gateway() {
+        use super::super::common::touch;
+        use crate::pds::generator::GeneratorKind;
+        let mut capped = 0;
+        for (built, hull, kind, what) in every_longship() {
+            capped += usize::from(longship::mast_is_capped(&hull));
+            let keel = hull
+                .stations()
+                .iter()
+                .map(|s| s.keel)
+                .fold(f32::INFINITY, f32::min);
+            assert!(
+                keel <= -0.01 * hull.loa,
+                "{what}: her keel is {keel} m, not under her waterline"
+            );
+            let air = touch::highest(&built) + hover(hull.draft);
+            assert!(
+                air <= AIR_DRAFT_CAP,
+                "{what}: drawn to {air} m over the ground"
+            );
+            // THE CAP COUNTS THE DRAWN TOP, NOT THE MASTHEAD (#1378's
+            // finding 7, here again in a rig). Her mast is what the cap is
+            // resolved against, and her vane - and at Ornate her banner -
+            // stand OVER it, so the rig leaves them room by construction.
+            // Both halves are asserted: that something really does stand
+            // over the masthead, so the allowance is not guarding thin air,
+            // and that the masthead itself is under the cap.
+            let mast = longship::top_of_rig(&hull) + hover(hull.draft);
+            assert!(
+                air > mast,
+                "{what}: her drawn top is {air} m and her masthead {mast} m - \
+                 nothing stands over the mast, so the fitting allowance the \
+                 cap is resolved with guards nothing"
+            );
+            assert!(
+                mast <= AIR_DRAFT_CAP,
+                "{what}: her masthead is at {mast} m over the ground"
+            );
+            let beam = longship::overall_beam_of(&hull, kind.variant);
+            assert!(
+                beam < 2.6,
+                "{what}: {beam} m wide, past the 2.6 m gateway mouth"
+            );
+            // The double-ender's own guard.
+            assert_eq!(
+                hull.sheer_at(-0.5),
+                hull.sheer_at(0.5),
+                "{what}: her stern post and her stem do not stand level - \
+                 the Crescent law is what makes her a double-ender"
+            );
+            // Her steering oar IS her draft's allowance, so her blade's
+            // foot is her draft by construction, her canoe body hangs an
+            // allowance over it, and her hover - a quarter of a draft -
+            // clears it: the junk's rudder rule, and the twin's corner
+            // check.
+            let foot = longship::blade_foot(&hull);
+            assert_eq!(
+                foot, -hull.draft,
+                "{what}: her steering oar is not her draft"
+            );
+            assert!(
+                keel > foot && foot > -hover(hull.draft),
+                "{what}: her bottom {keel} m, her oar's foot {foot} m, the ground {} m",
+                -hover(hull.draft)
+            );
+            // And NOTHING she draws hangs under that foot. Read off the
+            // drawn tree less the hull's own sweeps, which the connectivity
+            // helper reads too deep as round tubes (#1382); for those the
+            // profile answers above.
+            //
+            // The blade does not reach the foot exactly, and that is a fact
+            // about a Spine rather than a slack bound: its radius is
+            // perpendicular to its PATH, and her blade's path rakes down and
+            // outboard, so the deepest station's section is tilted and its
+            // lowest drawn point sits a little inside the foot. The bound
+            // below is what keeps the oar the deepest thing she carries.
+            let mut rest = built.clone();
+            rest.children.retain(|g| {
+                !matches!(
+                    g.kind,
+                    GeneratorKind::Spine {
+                        resolution: longship::HULL_RES,
+                        ..
+                    }
+                )
+            });
+            let low = touch::lowest(&rest);
+            assert!(
+                (foot - 1e-4..=foot + 0.02 * hull.loa).contains(&low),
+                "{what}: her lowest drawn point is {low} m, against a steering \
+                 oar's foot at {foot} m"
+            );
+        }
+        // The cap is a REAL bound on her rig, not a vacuous one: it clamps
+        // the mast on her long hulls. Her live seeds never reach it - the
+        // tallest longship under 3000 stands 2.04 m of the 2.8 m cap - so
+        // this sweep, which runs out to the 4.40 m corner, is the only place
+        // the clamp is exercised at all.
+        assert!(
+            capped > 0,
+            "the cap clamped no longship's mast in the corner sweep - the \
+             clamp in Rig::new is never exercised"
+        );
+    }
+
+    /// Every longship seed is drawn as a longship, on the variant her theme
+    /// picks, under sail (#1369) - the seam's other half, and the last type
+    /// in the family to be able to say it.
+    ///
+    /// Unlike the tug, the scow, the junk and the runabout this canNOT say
+    /// "and no other boat seed is": a SLOOP sails too, and so the drive is
+    /// one-way here. What replaces the other direction is the variant census
+    /// and the air-draft sweep below.
+    ///
+    /// EVERY live longship seed is walked through the cap as DRAWN, at her
+    /// own tiers, because [`no_seeded_boat_stands_over_the_air_draft_cap`]
+    /// builds the SLOOP's rigs on every seed's sloop hull and never the
+    /// drawn craft - so this and
+    /// [`a_longship_floats_in_her_water_and_fits_the_gateway`] are the only
+    /// guards on her rig.
+    #[test]
+    fn a_longship_seed_draws_a_longship() {
+        use super::super::common::touch;
+        use crate::pds::generator::GeneratorKind;
+        use crate::seeded_defaults::LongshipVariant;
+        let (mut ships, mut worst) = (0, 0.0f32);
+        let mut seen = Vec::new();
+        for s in (0u64..3000).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
+            if BoatType::for_seed(s) != BoatType::Longship {
+                continue;
+            }
+            assert_eq!(propulsion(s), Propulsion::Sail, "seed {s}");
+            let v = LongshipVariant::for_seed(s);
+            if !seen.contains(&v) {
+                seen.push(v);
+            }
+            let (craft, hull) = hull_for(s).expect("a longship seed has a hull");
+            let aura = crate::seeded_defaults::AvatarFx::for_seed(s).aura;
+            let (record, _) = super::super::build_for_seed(s);
+            let emitter = record
+                .visuals()
+                .expect("a boat is an assembled tree")
+                .children
+                .iter()
+                .find(|g| matches!(g.kind, GeneratorKind::ParticleSystem(..)))
+                .expect("a longship trails an aura");
+            assert_eq!(
+                emitter.transform.translation.0,
+                craft.fx_mount(aura, &hull, s),
+                "seed {s}: her aura does not leave her own mount"
+            );
+            let air =
+                touch::highest(&craft.build(&PartCtx::for_seed(s), &hull)) + hover(hull.draft);
+            assert!(
+                air <= AIR_DRAFT_CAP,
+                "seed {s}: drawn to {air} m over the ground"
+            );
+            worst = worst.max(air);
+            ships += 1;
+        }
+        assert!(ships > 50, "only {ships} longship seeds under 3000");
+        assert_eq!(
+            seen.len(),
+            LongshipVariant::ALL.len(),
+            "the seeds under 3000 miss a variant: {seen:?}"
+        );
+        // Unlike the junk's, this is NOT where the cap is shown to bind. A
+        // longship carries one mast at 0.56 L and nothing over it but a
+        // vane, so the tallest of her live seeds stands about 2.04 m of the
+        // 2.8 m cap and the clamp never fires in the population. Where it
+        // does fire is the 4.40 m blueprint corner, and
+        // `a_longship_floats_in_her_water_and_fits_the_gateway` is what
+        // asserts it there. What this bound says is only that the sweep
+        // measured something.
+        assert!(
+            worst > 1.0,
+            "the tallest longship under 3000 stands {worst} m - nothing was measured"
+        );
     }
 
     /// Every steam tug seed is drawn as a tug, on the variant her theme
@@ -1053,6 +1352,16 @@ mod tests {
         // both of a battered mainsail's bands - on every corner (#1371).
         for bp in corners() {
             let mut built = junk::build_tiered(&ctx, &junk::profile_of(&bp));
+            apply_travel_pose(&mut built, TRAVEL_DROP);
+            worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
+        }
+        // And the longship at HERS, which is the heaviest tree in the family:
+        // a galley's bank of eighteen oars and her beak, over twelve shields,
+        // twelve strakes, a striped and patched sail, the tent and the
+        // serpent. `every_longship` crosses both variants with the serpent
+        // either way, so the worst of it is in here.
+        for (built, ..) in every_longship() {
+            let mut built = built;
             apply_travel_pose(&mut built, TRAVEL_DROP);
             worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
         }

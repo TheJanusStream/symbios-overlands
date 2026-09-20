@@ -252,13 +252,24 @@ impl BoatType {
     /// Kept in step with the builder table by
     /// `default_visuals::boats::tests::a_type_is_implemented_exactly_when_
     /// something_builds_it`; the failure it prevents is a type that claims to
-    /// be built and silently draws a sloop. Since the junk (#1371) the
-    /// longship is the last boat type nothing builds: 15 of the 146 boat seeds
-    /// under 600 still pick an unbuilt type, all of them longships (#1369).
+    /// be built and silently draws a sloop.
+    ///
+    /// The LONGSHIP was the sixth and last (#1369), on her four old-world
+    /// themes - and with her NO BOAT TYPE IS UNBUILT. Every boat seed now
+    /// draws the craft it rolled, and the answer here is `true` six times.
+    ///
+    /// It is still asked, and is still a `match` rather than a `true`: the
+    /// readouts print it (`render_tool::text_tools`, "picked and built"),
+    /// #1380's pinned re-roll will ask it, and a seventh type filed before
+    /// its builder lands has to be able to say so.
     pub fn implemented(self) -> bool {
         match self {
-            Self::Sloop | Self::Runabout | Self::Scow | Self::SteamTug | Self::Junk => true,
-            Self::Longship => false,
+            Self::Sloop
+            | Self::Longship
+            | Self::Runabout
+            | Self::Scow
+            | Self::SteamTug
+            | Self::Junk => true,
         }
     }
 

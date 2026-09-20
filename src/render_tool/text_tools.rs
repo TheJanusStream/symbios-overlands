@@ -7,9 +7,9 @@ use crate::pds::avatar::livery;
 use crate::pds::{Generator, GeneratorKind, Placement, RoomRecord};
 use crate::seeded_defaults::hash::fnv1a_64;
 use crate::seeded_defaults::{
-    ArmouredVariant, AvatarPalette, BoatType, BuggyVariant, ChassisFamily, CraftType, RoadsterBody,
-    RoadsterTop, RoadsterWheels, RoverVariant, RunaboutVariant, ScowLoad, SkiffType, SloopHull,
-    SloopRig, TugVariant, WagonBody,
+    ArmouredVariant, AvatarPalette, BoatType, BuggyVariant, ChassisFamily, CraftType,
+    LongshipVariant, RoadsterBody, RoadsterTop, RoadsterWheels, RoverVariant, RunaboutVariant,
+    ScowLoad, SkiffType, SloopHull, SloopRig, TugVariant, WagonBody,
 };
 
 use super::Args;
@@ -133,6 +133,10 @@ pub(super) fn print_outfit(subject: &str) {
         let note = match craft {
             CraftType::Boat(t) if t.implemented() => "picked and built".to_string(),
             CraftType::Skiff(t) if t.implemented() => "picked and built".to_string(),
+            // Unreachable at runtime since #1369 - every boat type is
+            // built - and the match still needs it, for the same reason the
+            // Skiff arm below does: `implemented()` is a method rather than
+            // a constant and the arm above is guarded by it.
             CraftType::Boat(_) => format!(
                 "picked; not built yet, drawn as the {}",
                 BoatType::UNIVERSAL.label()
@@ -159,6 +163,10 @@ pub(super) fn print_outfit(subject: &str) {
             match craft {
                 // A junk wears a scheme of her own, hull and sails (#1371).
                 CraftType::Boat(BoatType::Junk) => livery::junk_livery(seed, None).name,
+                // And a longship, hull and sail (#1369). Hers has to come
+                // BEFORE the wildcard: forgetting it compiles and prints a
+                // heritage sloop scheme she never wears.
+                CraftType::Boat(BoatType::Longship) => livery::longship_livery(seed, None).name,
                 CraftType::Boat(_) => livery::boat_livery(seed, None).name,
                 // A wagon wears a scheme of its own (#1377), and the hearse
                 // and the ox-cart a forced one.
@@ -183,11 +191,12 @@ pub(super) fn print_outfit(subject: &str) {
                 CraftType::Skiff(_) => livery::skiff_livery(seed, None).name,
             }
         );
-        // And the sloop's own two picks (#1366), for every boat that is drawn
-        // as one: a sloop, and a longship pick until #1369 builds her.
-        if let CraftType::Boat(t) = craft
-            && (t == BoatType::Sloop || !t.implemented())
-        {
+        // And the sloop's own two picks (#1366), for every boat drawn as one
+        // - which since #1369 is the sloop's own seeds and nothing else:
+        // every boat type is built, so `!t.implemented()` never fires and
+        // the condition has reduced to the type itself, exactly as the
+        // roadster's body/top/wheels line did at #1378.
+        if let CraftType::Boat(BoatType::Sloop) = craft {
             println!(
                 "  rig: {}, hull: {}",
                 SloopRig::for_seed(seed).label(),
@@ -218,6 +227,10 @@ pub(super) fn print_outfit(subject: &str) {
         // And the tug's variant (#1370), which her theme picks.
         if let CraftType::Boat(BoatType::SteamTug) = craft {
             println!("  tug: {}", TugVariant::for_seed(seed).label());
+        }
+        // And the longship's (#1369), which her theme picks too.
+        if let CraftType::Boat(BoatType::Longship) = craft {
+            println!("  longship: {}", LongshipVariant::for_seed(seed).label());
         }
         // And the wagon's body (#1377), which its theme picks.
         if let CraftType::Skiff(SkiffType::Wagon) = craft {

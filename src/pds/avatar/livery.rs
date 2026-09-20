@@ -849,6 +849,98 @@ pub fn junk_livery(seed: u64, over: Option<usize>) -> &'static JunkLivery {
     pick(JUNK_LIVERIES, |l| l.weight, seed, over)
 }
 
+/// A longship's scheme (#1369): her HULL and her SAIL.
+///
+/// She has a list of her own, as the junk, the wagon, the buggy and the
+/// cyclecar do, and for the junk's reason: her ONE square sail is the
+/// largest mass she carries at 12 m, and four of the first four heritage
+/// boat schemes give a white or a cream sail - four longships that were one
+/// longship on the render. What a Norse, a medieval, a fae and a classical
+/// hull and sail actually were is a short list, and this is it.
+#[derive(Clone, Copy, Debug)]
+pub struct LongshipLivery {
+    /// See [`BoatLivery::name`].
+    pub name: &'static str,
+    weight: u32,
+    /// The shell, her end plugs and - shaded - her strakes and her interior.
+    hull: [f32; 3],
+    /// Oiled oak under a gloss (brightwork) rather than paint - and so not
+    /// floored, as a varnished hull is not.
+    bright: bool,
+    /// Her square sail, and her stripes are the accent held clear of it.
+    sail: [f32; 3],
+}
+
+/// The hulls a longship was, and the colours her wool sail was dyed.
+const PITCH_BLACK: [f32; 3] = [0.060, 0.058, 0.055];
+const OILED_OAK: [f32; 3] = [0.38, 0.24, 0.115];
+const TARRED_PINE: [f32; 3] = [0.20, 0.155, 0.105];
+const LIMEWASH: [f32; 3] = [0.78, 0.74, 0.66];
+const OXBLOOD_HULL: [f32; 3] = [0.30, 0.070, 0.055];
+const SEA_GREY: [f32; 3] = [0.30, 0.33, 0.34];
+const WOOL_NATURAL: [f32; 3] = [0.66, 0.60, 0.48];
+
+/// The longship's seven schemes (#1369), weights and order: the pick walks
+/// the table in this order.
+pub const LONGSHIP_LIVERIES: &[LongshipLivery] = &[
+    LongshipLivery {
+        name: "Oak and red wool",
+        weight: 5,
+        hull: OILED_OAK,
+        bright: true,
+        sail: [0.60, 0.16, 0.11],
+    },
+    LongshipLivery {
+        name: "Tarred and ochre",
+        weight: 4,
+        hull: TARRED_PINE,
+        bright: false,
+        sail: [0.70, 0.50, 0.20],
+    },
+    LongshipLivery {
+        name: "Black and white wool",
+        weight: 4,
+        hull: PITCH_BLACK,
+        bright: false,
+        sail: [0.82, 0.79, 0.70],
+    },
+    LongshipLivery {
+        name: "Oxblood and natural",
+        weight: 4,
+        hull: OXBLOOD_HULL,
+        bright: false,
+        sail: WOOL_NATURAL,
+    },
+    LongshipLivery {
+        name: "Limewashed",
+        weight: 3,
+        hull: LIMEWASH,
+        bright: false,
+        sail: [0.16, 0.26, 0.44],
+    },
+    LongshipLivery {
+        name: "Sea grey",
+        weight: 3,
+        hull: SEA_GREY,
+        bright: false,
+        sail: WOOL_NATURAL,
+    },
+    LongshipLivery {
+        name: "Oak and black wool",
+        weight: 2,
+        hull: OILED_OAK,
+        bright: true,
+        sail: [0.14, 0.13, 0.12],
+    },
+];
+
+/// The scheme this longship seed wears, a pick from [`LONGSHIP_LIVERIES`];
+/// `over` wraps inside it (`render --livery 0` is Oak and red wool, `1`
+/// Tarred and ochre).
+pub fn longship_livery(seed: u64, over: Option<usize>) -> &'static LongshipLivery {
+    pick(LONGSHIP_LIVERIES, |l| l.weight, seed, over)
+}
+
 // ---------------------------------------------------------------------------
 // Turning a scheme into surfaces
 // ---------------------------------------------------------------------------
@@ -2221,6 +2313,152 @@ pub(crate) fn junk_colours(ctx: &PartCtx) -> JunkColours {
         ring: m.paint(GILT),
         lamp: window_material(window_light(CANDLE)),
         mat: m.canvas(MATTING),
+    }
+}
+
+/// The surfaces a longship is built in (#1369): her scheme on her hull and
+/// her sail, the seeded accent on her SHIELD ROW and on her sail's stripes,
+/// and the colours the rest of her simply is - oak bottom boards, timber
+/// spars, a tarred bottom, undyed wool.
+///
+/// Her ONE lit slot on a luminous kit is the masthead VANE, through
+/// [`trim`]. Her two other identity surfaces may not glow: the shield row is
+/// a HULL LINE, which #1365 phase 2 took the glow off for exactly the reason
+/// the phase-1 renders show again, and her stripes are the largest surface
+/// she carries.
+///
+/// No slot of hers is `floor_finished(clear_of(..))`, so the clear-then-floor
+/// order that undid the buggy's rims (#1374, #1389) does not arise: the hull
+/// is floored and never cleared, and every accent is cleared and never
+/// floored.
+pub(crate) struct LongshipColours {
+    /// The bored shell and her two end plugs: the scheme's paint, or oiled
+    /// oak under a gloss.
+    pub(crate) hull: SovereignMaterialSettings,
+    /// Below the waterline: a longship's bottom was TARRED, not coppered,
+    /// under the fleet's antifoul rule (a little of the seed's secondary).
+    pub(crate) antifoul: SovereignMaterialSettings,
+    /// The capping rail along the shell's wall at both sheers.
+    pub(crate) rail: SovereignMaterialSettings,
+    /// The bottom boards you look down at inside her.
+    pub(crate) sole: SovereignMaterialSettings,
+    /// The keelson in the void under the boards.
+    pub(crate) interior: SovereignMaterialSettings,
+    /// Her twelve clinker strakes, held clear of the shell they lie on.
+    pub(crate) strake: SovereignMaterialSettings,
+    /// **Identity.** The SHIELD ROW along her gunwale: the seeded accent
+    /// held clear of the hull it hangs on. Paint on every theme - see the
+    /// struct docs.
+    pub(crate) shield: SovereignMaterialSettings,
+    /// A BATTERED row's one dead shield: bare timber among the painted.
+    pub(crate) bare: SovereignMaterialSettings,
+    /// The mast, the yard and the tent's ridge pole. PAINT, not
+    /// [`MaterialKit::timber`]: a texture block is written PER NODE, and a
+    /// Plank on a part thinner than a plank is wide is mips into its own
+    /// pitch (#784).
+    pub(crate) spar: SovereignMaterialSettings,
+    /// Her square sail.
+    pub(crate) sail: SovereignMaterialSettings,
+    /// **Identity.** Her sail's STRIPES: the seeded accent held clear of the
+    /// cloth, in canvas so they read as dyed wool rather than as paint.
+    pub(crate) stripe: SovereignMaterialSettings,
+    /// A worn or battered sail's replaced panel: new cloth, held clear of
+    /// the sail.
+    pub(crate) patch: SovereignMaterialSettings,
+    /// Her two braces.
+    pub(crate) rope: SovereignMaterialSettings,
+    /// **Identity, and her ONE lit slot.** The masthead VANE - and the
+    /// Ornate BANNER, which wears this same material rather than one of its
+    /// own. That is a fact of the livery, not an oversight: the two are one
+    /// cloth in life, the same accent held clear of the same sail, so at the
+    /// fullest tiers a repaint of one IS a repaint of both.
+    pub(crate) vane: SovereignMaterialSettings,
+    /// The steering oar's stock and tiller, and the galley's bank of oars.
+    /// Paint, for [`spar`](Self::spar)'s reason.
+    pub(crate) oar: SovereignMaterialSettings,
+    /// The steering oar's blade.
+    pub(crate) blade: SovereignMaterialSettings,
+    /// The galley's bronze beak.
+    pub(crate) iron: SovereignMaterialSettings,
+    /// The crew's tent aft: undyed wool held clear of the hull under it.
+    pub(crate) tent: SovereignMaterialSettings,
+    /// The serpent's neck, snout and jaw.
+    pub(crate) scale: SovereignMaterialSettings,
+    /// Her horns: the seed's tertiary, held clear of the hull.
+    pub(crate) horn: SovereignMaterialSettings,
+    /// Her eyes - the one place a LUMINOUS kit lights something low on the
+    /// boat, because an eye that is not lit on a fae serpent is a dead eye.
+    pub(crate) eye: SovereignMaterialSettings,
+}
+
+/// A longship's fixed colours (#1369): what these parts simply are.
+const PITCH_BOTTOM: [f32; 3] = [0.10, 0.095, 0.085];
+const OAK_BARE: [f32; 3] = [0.47, 0.43, 0.37];
+const OAK_SOLE: [f32; 3] = [0.50, 0.38, 0.22];
+const LONGSHIP_SPAR: [f32; 3] = [0.50, 0.34, 0.16];
+const SEIZING: [f32; 3] = [0.64, 0.55, 0.38];
+const SCALE_GREEN: [f32; 3] = [0.16, 0.26, 0.19];
+
+/// How far the shield row is held from the hull it hangs on, the stripes and
+/// the vane from the sail they are seen against, the strakes from the shell
+/// they lie on, the tent from the hull under it, a replaced panel from the
+/// sail it mends, and the serpent's scales, horns and eyes from the hull.
+const SHIELD_DELTA: f32 = 0.26;
+const STRIPE_DELTA: f32 = 0.22;
+const STRAKE_DELTA: f32 = 0.10;
+const TENT_DELTA: f32 = 0.16;
+const LONGSHIP_PATCH_DELTA: f32 = 0.12;
+const SCALE_DELTA: f32 = 0.14;
+const HORN_DELTA: f32 = 0.20;
+const SERPENT_EYE_DELTA: f32 = 0.30;
+
+pub(crate) fn longship_colours(ctx: &PartCtx) -> LongshipColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let l = longship_livery(ctx.seed, ctx.livery);
+    // Paint is floored off mud on a battered kit, as a boat's topsides are;
+    // oiled oak is a colour under a gloss, as a varnished hull is.
+    let hull = if l.bright {
+        l.hull
+    } else {
+        floor_finished(m, l.hull, BOAT_MASS_FLOOR)
+    };
+    let hull_l = luma(hull);
+    let sail_l = luma(l.sail);
+    // Her two accent surfaces, each cleared off the mass it is seen against
+    // and never floored after - see the struct docs.
+    let shield = clear_of(p.primary_accent, hull_l, SHIELD_DELTA);
+    let on_sail = clear_of(p.primary_accent, sail_l, STRIPE_DELTA);
+    LongshipColours {
+        hull: if l.bright {
+            m.brightwork(hull)
+        } else {
+            m.paint(hull)
+        },
+        antifoul: m.antifoul(mix(PITCH_BOTTOM, shade(p.secondary_accent, 0.5), 0.18)),
+        rail: boards(m, shade(LONGSHIP_SPAR, 0.70)),
+        sole: boards(m, OAK_SOLE),
+        interior: m.paint(shade(hull, 0.45)),
+        strake: m.paint(clear_of(shade(hull, 0.72), hull_l, STRAKE_DELTA)),
+        shield: m.paint(shield),
+        bare: m.timber(OAK_BARE),
+        spar: m.paint(LONGSHIP_SPAR),
+        sail: m.canvas(l.sail),
+        stripe: m.canvas(on_sail),
+        patch: m.canvas(clear_of(shade(l.sail, 0.62), sail_l, LONGSHIP_PATCH_DELTA)),
+        rope: m.canvas(SEIZING),
+        vane: trim(m, on_sail),
+        oar: m.paint(shade(LONGSHIP_SPAR, 0.92)),
+        blade: m.paint(shade(LONGSHIP_SPAR, 0.86)),
+        iron: m.paint(MACHINERY),
+        tent: m.canvas(clear_of(WOOL_NATURAL, hull_l, TENT_DELTA)),
+        scale: m.paint(clear_of(SCALE_GREEN, hull_l, SCALE_DELTA)),
+        horn: m.paint(clear_of(p.tertiary_accent, hull_l, HORN_DELTA)),
+        eye: if m.emissive_accents() {
+            window_material(window_light(p.primary_accent))
+        } else {
+            m.paint(clear_of(p.primary_accent, hull_l, SERPENT_EYE_DELTA))
+        },
     }
 }
 

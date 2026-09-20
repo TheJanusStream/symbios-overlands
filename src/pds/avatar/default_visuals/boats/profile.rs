@@ -30,7 +30,7 @@
 //! Every dimension is in TRUE METRES, hull centred on the design waterline at
 //! the origin, bow at `+Z`. The assembler applies the travel yaw.
 //!
-//! # Four sheer laws, and a draft a type may derive
+//! # Five sheer laws, and a draft a type may derive
 //!
 //! A sailing boat's deck line SPRINGS: it sweeps up toward both ends from a
 //! low point abaft midships. A planing launch's FALLS: it is highest at the
@@ -38,19 +38,37 @@
 //! flat through her hold and sweeping up hard at both ends, which is what
 //! lifts her flat bottom out of the water into raked punt ends (#1373). A
 //! junk's rises into her POOP: low and flat forward, climbing through her
-//! after body to a high stern and levelling off at her transom (#1371). That
+//! after body to a high stern and levelling off at her transom (#1371). A
+//! longship's is a CRESCENT: one rise laid symmetrically about amidships, so
+//! both her ends stand at exactly the same height (#1369). That
 //! is the one thing about the deck line a type chooses ([`SheerLaw`]);
 //! everything read off it follows. And no finless type has a fin keel, so
 //! her draft - which sets her hover - is not the blueprint's fin draft but
 //! the deepest point of her own canoe body plus an allowance for what hangs
-//! under it: a skeg, a rubbing batten, a keel or a rudder
+//! under it: a skeg, a rubbing batten, a keel, a rudder or a steering oar
 //! ([`HullProfile::finless`]).
 //!
 //! The steam tug (#1370) is the third finless type, and the first on the
 //! sloop's own Spring law: a low towing deck aft, a bow springing hard to
 //! her stem. Her allowance is the keel she drags, drawn as its own part. The
 //! junk (#1371) is the fourth, and the first on the Poop law. Her allowance
-//! is her rudder, whose foot is her draft.
+//! is her rudder, whose foot is her draft. The longship (#1369) is the
+//! FIFTH, and the first on the Crescent law; her allowance is her steering
+//! oar, whose blade foot is her draft.
+//!
+//! # Why a double-ender needed a law of its own
+//!
+//! A longship's two ends rise EQUALLY - that is what being a double-ender
+//! means, and it is visible beam-on at 12 m. Spring cannot hold it, and not
+//! for want of the right factors. Two things stop it. Its low point is
+//! [`SHEER_LOW`] - 0.08 L abaft midships - so even with one rise its two
+//! arms are laid over 0.58 L forward and 0.42 L aft and reach different
+//! heights. And the blueprint's `sheer_bow` and `sheer_stern` are
+//! INDEPENDENTLY jittered: over the longship's 75 seeds under 3000 their
+//! ratio runs from 2.05 to 2.81, so no fixed pair of factors can level two
+//! ends across the population. Under her own best Spring factors the two
+//! ends part by up to 0.0174 L; [`SheerLaw::Crescent`] is exact to
+//! 0.000000 L on every one of the 75.
 
 use crate::pds::sanitize::limits::MAX_SWEEP_POINTS;
 use crate::seeded_defaults::BoatBlueprint;
@@ -101,12 +119,20 @@ pub(crate) enum SheerLaw {
     /// which climbs with the sheer in one sweep. Plain multiplies, never a
     /// libm call.
     Poop,
+    /// A longship's (#1369): ONE rise, laid symmetrically about AMIDSHIPS as
+    /// `rise x (2 zf)^2`, so the two ends stand at exactly the same height -
+    /// which is what a DOUBLE-ENDER is. Its low point is amidships, not
+    /// [`SHEER_LOW`], and it reads `bow_rise` for BOTH ends and never
+    /// `stern_rise`, as [`Falling`](Self::Falling) does not. Plain
+    /// multiplies, never a libm call, as Swim and Poop are. See the module
+    /// docs for why neither Spring nor a pair of factors can do this.
+    Crescent,
 }
 
 /// A finless type's proportions over the shared blueprint (#1372, #1373,
-/// #1370, #1371): each a factor on the blueprint's own number, so a stance
-/// still moves the launch, the scow, the tug or the junk the way it moves
-/// the sloop.
+/// #1370, #1371, #1369): each a factor on the blueprint's own number, so a
+/// stance still moves the launch, the scow, the tug, the junk or the
+/// longship the way it moves the sloop.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct FinlessForm {
     /// Half-beam over the blueprint's.
@@ -116,13 +142,18 @@ pub(crate) struct FinlessForm {
     /// Sheer rise at the stem over the blueprint's `sheer_bow`.
     pub(crate) bow_rise: f32,
     /// Sheer rise at the transom over the blueprint's `sheer_stern` - zero on
-    /// a launch, whose falling sheer does not read it.
+    /// a launch, whose falling sheer does not read it. A longship's
+    /// [`SheerLaw::Crescent`] does not read it either: it lays ONE rise about
+    /// amidships and takes that from [`bow_rise`](Self::bow_rise) at both
+    /// ends, so whatever a Crescent form puts here is dead (#1369). Hers is
+    /// set to the same 2.0 as her bow rise, so the field reads as what it
+    /// would be if it were read at all.
     pub(crate) stern_rise: f32,
     /// Section depth per unit half-beam.
     pub(crate) section: f32,
     /// What hangs under the deepest point of the canoe body - a launch's
-    /// skeg, a scow's rubbing batten, a tug's keel, a junk's rudder - as a
-    /// fraction of the length.
+    /// skeg, a scow's rubbing batten, a tug's keel, a junk's rudder, a
+    /// longship's steering oar - as a fraction of the length.
     pub(crate) allowance: f32,
     /// How the deck line is laid.
     pub(crate) sheer: SheerLaw,
@@ -194,7 +225,8 @@ impl HullProfile {
     }
 
     /// A FINLESS hull for this blueprint - a planing launch (#1372), a
-    /// working scow (#1373), a steam tug (#1370) or a junk (#1371): the
+    /// working scow (#1373), a steam tug (#1370), a junk (#1371) or a
+    /// longship (#1369): the
     /// type's own plan form
     /// and section, the blueprint's dimensions under the type's own factors,
     /// the type's own [`SheerLaw`], and a draft DERIVED from the hull itself -
@@ -225,6 +257,13 @@ impl HullProfile {
     pub(crate) fn sheer_at(&self, zf: f32) -> f32 {
         if let SheerLaw::Falling { pow } = self.sheer_law {
             return self.freeboard + self.sheer_bow * (zf + 0.5).max(0.0).powf(pow);
+        }
+        if self.sheer_law == SheerLaw::Crescent {
+            // ONE rise about AMIDSHIPS, taken from `sheer_bow` at both ends:
+            // `(2 zf)^2` is 0 amidships and 1 at either end, so a double-ender
+            // stands level however her two blueprint sheers were jittered.
+            let u = 2.0 * zf;
+            return self.freeboard + self.sheer_bow * u * u;
         }
         let (end, rise) = if zf >= SHEER_LOW {
             (0.5, self.sheer_bow)
