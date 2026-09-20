@@ -272,9 +272,13 @@ pub(crate) fn ambient_bake_job(
             patch: audio.parse_patch()?,
             sample_rate: AMBIENT_PATCH_SAMPLE_RATE,
             duration_secs: AMBIENT_PATCH_SECS,
-            // Cold, as the pop-out auditions it: the construct loop's warm-up
-            // (#1385) was not carried to the bed.
+            // Cold and unfaded, as the pop-out auditions it: neither the
+            // construct loop's warm-up (#1385) nor its seam fade (#1387) was
+            // carried to the bed. The bed is four seconds of wind or water,
+            // not a filtered tonal voice, and whether it wants either is one
+            // decision for the owner (#1386 holds the pop-out's half of it).
             warmup_secs: 0.0,
+            loop_fade_secs: 0.0,
         }),
         SovereignAudioConfig::Sequence { .. } => Some(gen_jobs::AudioBakeJob::Sequence {
             recipe: audio.parse_sequence()?,

@@ -95,6 +95,20 @@ mod veh {
     pub const SKIFF_BANK_MAX: f32 = 0.3;
 }
 
+/// The skiff profile's banking lean in radians, for a yaw rate (rad/s,
+/// positive turning left about +Y) and a flat speed (m/s):
+/// [`veh::SKIFF_BANK_GAIN`] times their product, clamped to
+/// [`veh::SKIFF_BANK_MAX`] (17.2 degrees) so a hard swerve cannot flip the
+/// visual on its side.
+///
+/// Its own function because the #1381 drive probe asks it of a yaw rate and
+/// a speed it MEASURED off the real drive systems, and a probe that carries
+/// its own copy of the law is a probe that can agree with itself while the
+/// game does something else.
+pub(crate) fn skiff_bank(yaw_rate: f32, speed: f32) -> f32 {
+    (veh::SKIFF_BANK_GAIN * yaw_rate * speed).clamp(-veh::SKIFF_BANK_MAX, veh::SKIFF_BANK_MAX)
+}
+
 /// Which animation profile drives an avatar's visual root - chosen from the
 /// runtime locomotion *preset* (physics), never the seeded chassis family, so
 /// a boat-visualled avatar the owner drives as a car banks like a car (#797).
@@ -551,9 +565,7 @@ impl GaitAnimation {
         let shiver_hz = veh::SKIFF_SHIVER_HZ * (g.idle_sway_frequency / NOMINAL_SWAY_HZ);
         let shiver =
             g.idle_sway_amplitude * veh::SKIFF_SHIVER * (TAU * shiver_hz * ts).sin() * idle;
-        let bank = (veh::SKIFF_BANK_GAIN * yaw_rate * speed)
-            .clamp(-veh::SKIFF_BANK_MAX, veh::SKIFF_BANK_MAX)
-            * mv;
+        let bank = skiff_bank(yaw_rate, speed) * mv;
         (Vec3::new(0.0, shiver, 0.0), 0.0, bank)
     }
 }

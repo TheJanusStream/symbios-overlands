@@ -1321,6 +1321,13 @@ mod audio_tests {
     /// since a noise voice has no pitch to close and the luminous voices
     /// carry no filter to settle. With the warm-up at zero the rotor steps
     /// 5.4x (the control, run by hand in #1385).
+    ///
+    /// The TIGHTER of the two seam guards, and the narrower: it asks these
+    /// seven for `seam <= inner` exactly, where
+    /// [`every_avatar_voice_meets_itself_at_the_loop_seam`] walks all 266
+    /// distinct patches at 1.05x, the ceiling that yardstick has once a fade
+    /// has made the seam an ordinary step. Keep both: this one is the guard
+    /// on the WARM-UP, and it would still hold with the fade removed.
     #[test]
     fn a_tonal_voice_meets_itself_at_the_loop_seam() {
         // Asked for each DRIVE explicitly: a skiff seed's drive is its drawn
@@ -1360,6 +1367,170 @@ mod audio_tests {
                 "{family:?} {drive:?}: the seam steps {seam:.4}, {:.1}x the largest step inside the loop ({inner:.4})",
                 seam / inner
             );
+        }
+    }
+
+    /// Every avatar voice meets itself at its loop seam (#1387) - all 266
+    /// distinct patches, on every detune bucket, not the seven tonal ones
+    /// [`a_tonal_voice_meets_itself_at_the_loop_seam`] names on bucket 0.
+    ///
+    /// A closed rate and a warm filter (#1385) settle everything PERIODIC in
+    /// a voice, but a NOISE source is not periodic: the seam joins two
+    /// unrelated noise samples, and under a heavy low-pass the steps inside
+    /// the loop are tiny while the seam's is not, so it reads as a soft tick
+    /// once a second. Before the seam fade, 19 of these 266 stepped past
+    /// their own loop's texture, in 7 of 38 voices - every one of them
+    /// carrying a noise layer. The wagon's roll was worst at 6.29x, then the
+    /// runabout's hum at 4.22x (the four buckets #1387 was filed on), the
+    /// sail every sloop and longship wears at 3.35x, the junk's battens at
+    /// 2.25x and the scow's lap at 2.21x. WHICH buckets fail is the dice:
+    /// the bucket seeds the noise, which is why this walks every one.
+    ///
+    /// THE YARDSTICK HAS A CEILING OF 1.0 BY CONSTRUCTION, so this asks
+    /// 1.05x and not `seam <= inner`. Past a fade the seam is an ORDINARY
+    /// step of a continuous signal, and an ordinary step can be the largest
+    /// in the loop: a clean voice that happens to start on its steepest slope
+    /// already sits at 0.97-1.00 as shipped, and one went 0.71 -> 1.01 under
+    /// the fade without a defect in it. Measured over all 266 afterwards:
+    /// worst 1.008.
+    #[test]
+    fn every_avatar_voice_meets_itself_at_the_loop_seam() {
+        // One bake each over the DISTINCT patches - 266 of the 840 labelled
+        // pairs, since a drive's voice is the same graph on every chassis
+        // that carries it. Timed in one binary before it was written this
+        // wide: 1.0 s at test-release, 7.9 s under the plain `cargo test`
+        // the --lib gate runs. The alternative was to walk only the patches
+        // holding a noise source, which are the only ones a sum-to-one fade
+        // can move at all; at 7.9 s the whole census is worth its seat,
+        // because a voice ACQUIRING a noise layer is exactly the change that
+        // would reopen this.
+        let mut seen = std::collections::BTreeSet::new();
+        let mut worst = (0.0f32, String::new());
+        for (label, patch) in every_voice() {
+            if !seen.insert(format!("{patch:?}")) {
+                continue;
+            }
+            let (wav, _) = crate::world_builder::spatial_audio::bake_construct_wav_bytes(
+                &SovereignAudioConfig::from_patch(&patch),
+            )
+            .expect("a patch bakes");
+            // Mono 16-bit PCM behind a 44-byte header.
+            let s: Vec<f32> = wav[44..]
+                .chunks_exact(2)
+                .map(|b| f32::from(i16::from_le_bytes([b[0], b[1]])) / 32_768.0)
+                .collect();
+            let inner = s
+                .windows(2)
+                .map(|p| (p[1] - p[0]).abs())
+                .fold(0.0f32, f32::max);
+            let ratio = (s[0] - s[s.len() - 1]).abs() / inner.max(1e-9);
+            if ratio > worst.0 {
+                worst = (ratio, label);
+            }
+        }
+        assert_eq!(seen.len(), 266, "the census walked 266 distinct patches");
+        assert!(
+            worst.0 <= 1.05,
+            "{}: the seam steps {:.2}x the largest step inside its own loop",
+            worst.1,
+            worst.0
+        );
+    }
+
+    /// The seam fade's law SUMS TO ONE, so a purely tonal voice comes out of
+    /// it unchanged (#1387): the cyclecar's whine, which is nothing but
+    /// pitches (#1376), and the rover's gear whirr, a banded saw over a body
+    /// note (#1378), on every detune bucket.
+    ///
+    /// Every rate in a voice closes its loop (#1385), so the tail past the
+    /// loop's end is the SAME waveform as the loop's head - correlated, and
+    /// correlated signals sum in AMPLITUDE. `g x + (1 - g) x` is `x`, so
+    /// gains that sum to one leave the periodic part exact; an equal-power
+    /// pair, which is what #1387 was filed asking for, peaks at 1.41 and
+    /// leaves the faded window 2.0-2.3 dB hot on every tonal patch - a new
+    /// swell once a second on all 266 voices to fix the 19 that ticked.
+    ///
+    /// THE LEVEL IS THE HALF THAT DISCRIMINATES THE LAW; the samples are the
+    /// half that says the voice is untouched. The few LSB that do move are
+    /// the patch's own residual settling, not the law's doing: the tail is a
+    /// second further from a cold filter than the head is, and an
+    /// equal-power fade would carry that drift too, on top of its 2 dB.
+    #[test]
+    fn a_sum_to_one_seam_fade_leaves_a_tonal_voice_alone() {
+        for (drive, what) in [
+            (Propulsion::Electric, "the cyclecar's whine"),
+            (Propulsion::Servo, "the rover's gear whirr"),
+        ] {
+            for bucket in 0..DETUNE_BUCKETS {
+                let patch =
+                    driven_voice_patch(AvatarVoice::Drive, ChassisFamily::Skiff, drive, bucket)
+                        .expect("a drive voice");
+                let config = SovereignAudioConfig::from_patch(&patch);
+                let faded = crate::world_builder::spatial_audio::bake_construct_wav_bytes(&config)
+                    .expect("a patch bakes")
+                    .0;
+                let unfaded = bake_with_no_seam_fade(&config);
+                let pcm = |wav: &[u8]| -> Vec<i32> {
+                    wav[44..]
+                        .chunks_exact(2)
+                        .map(|b| i32::from(i16::from_le_bytes([b[0], b[1]])))
+                        .collect()
+                };
+                // The faded window: 10 ms at 22.05 kHz, at the loop's head.
+                let window = (crate::world_builder::spatial_audio::CONSTRUCT_PATCH_LOOP_FADE_SECS
+                    * crate::world_builder::spatial_audio::CONSTRUCT_PATCH_SAMPLE_RATE as f32)
+                    as usize;
+                let (a, b) = (pcm(&unfaded), pcm(&faded));
+                let moved = a[..window]
+                    .iter()
+                    .zip(&b[..window])
+                    .map(|(x, y)| x.abs_diff(*y))
+                    .max()
+                    .expect("the window holds samples");
+                assert!(
+                    moved <= 16,
+                    "{what}, bucket {bucket}: the fade moved a tonal voice by {moved} LSB \
+                     (measured 1-11 across both voices)"
+                );
+                let rms = |v: &[i32]| {
+                    (v.iter().map(|x| f64::from(*x) * f64::from(*x)).sum::<f64>() / v.len() as f64)
+                        .sqrt()
+                };
+                let db = 20.0 * (rms(&b[..window]) / rms(&a[..window]).max(1e-9)).log10();
+                assert!(
+                    db.abs() <= 0.25,
+                    "{what}, bucket {bucket}: the faded window came out {db:+.2} dB \
+                     (measured within 0.002 dB; an equal-power crossfade gives +2.0 to +2.3)"
+                );
+            }
+        }
+    }
+
+    /// The same construct bake with the seam fade turned off - the loop
+    /// exactly as it was before #1387, for a test that needs the before as
+    /// well as the after.
+    fn bake_with_no_seam_fade(config: &SovereignAudioConfig) -> Vec<u8> {
+        let Some(gen_jobs::AudioBakeJob::Patch {
+            patch,
+            sample_rate,
+            duration_secs,
+            warmup_secs,
+            ..
+        }) = crate::world_builder::spatial_audio::construct_bake_job(config)
+        else {
+            panic!("a patch config bakes a Patch job");
+        };
+        match gen_jobs::GenJob::AudioBake(gen_jobs::AudioBakeJob::Patch {
+            patch,
+            sample_rate,
+            duration_secs,
+            warmup_secs,
+            loop_fade_secs: 0.0,
+        })
+        .run()
+        {
+            gen_jobs::GenResult::Audio(bytes) => bytes,
+            _ => panic!("an audio job bakes audio"),
         }
     }
 

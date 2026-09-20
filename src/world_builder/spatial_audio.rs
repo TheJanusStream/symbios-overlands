@@ -77,10 +77,34 @@ pub(crate) const CONSTRUCT_PATCH_SECS: f32 = 1.0;
 /// A quarter second settles every filter the seeded voices use and brought
 /// each of them to or under that largest step, for a quarter more synthesis.
 ///
-/// The pop-out cannot do this yet: its audition is the audio crate's monitor,
-/// which bakes from rest. So a tonal construct patch auditions with a faint
-/// tick at its seam that the world no longer plays.
+/// The pop-out cannot do this yet, and since #1387 it lacks the seam fade
+/// ([`CONSTRUCT_PATCH_LOOP_FADE_SECS`]) too: its audition is the audio
+/// crate's monitor, which bakes a patch from rest and loops it whole. So a
+/// construct patch auditions with a faint tick at its seam that the world no
+/// longer plays - a filter's, on a tonal voice, and a noise layer's on the
+/// rest. #1386 is the one upstream ask for both.
 pub(crate) const CONSTRUCT_PATCH_WARMUP_SECS: f32 = 0.25;
+
+/// How much of a construct's `Patch` past the end of its loop is baked and
+/// faded back into the loop's head, in seconds (#1387).
+///
+/// A closed rate and a warm filter settle everything PERIODIC in a patch, but
+/// a noise source is not periodic: the seam joins two unrelated noise samples,
+/// and under a heavy low-pass the in-loop steps are tiny while the seam's is
+/// not, so it reads as a soft tick once a second. Measured over all 266
+/// distinct avatar voice patches, 19 of them - in 7 of 38 voices, every one
+/// carrying a noise layer - stepped past the largest step inside their own
+/// loop, the wagon's roll worst at 6.3 times it. Which detune buckets fail is
+/// the dice: the bucket seeds the noise.
+///
+/// 10 ms is 220 samples at [`CONSTRUCT_PATCH_SAMPLE_RATE`]. The length is not
+/// load-bearing: every fade from 5 ms to 50 ms closed every seam in the
+/// census, so this is the shortest that is comfortably past the click and
+/// still far under the 1 s loop. What matters is the LAW, and the law lives
+/// with the indexing in [`gen_jobs::AudioBakeJob::Patch`]: it sums to one,
+/// because the tail and the head are correlated and an equal-power pair would
+/// leave the faded window 2 dB hot on every one of the 266.
+pub(crate) const CONSTRUCT_PATCH_LOOP_FADE_SECS: f32 = 0.01;
 
 /// The rate, in hertz, of a node that repeats on its own clock: an
 /// oscillator's pitch, an LFO's rate, a chorus's internal sweep. `None` for
@@ -625,7 +649,9 @@ pub fn poll_spatial_audio_tasks(
 /// `None` for non-procedural variants or malformed JSON (the construct then
 /// simply doesn't hum). Construct patches loop on a
 /// [`CONSTRUCT_PATCH_SECS`] window at [`CONSTRUCT_PATCH_SAMPLE_RATE`], with
-/// the loop closed first ([`close_the_loop`]). The heavy synth runs
+/// the loop closed first ([`close_the_loop`]), baked after a
+/// [`CONSTRUCT_PATCH_WARMUP_SECS`] warm-up and seamed with a
+/// [`CONSTRUCT_PATCH_LOOP_FADE_SECS`] fade. The heavy synth runs
 /// off-thread via [`crate::offload`].
 pub(crate) fn construct_bake_job(audio: &SovereignAudioConfig) -> Option<gen_jobs::AudioBakeJob> {
     match audio {
@@ -641,6 +667,7 @@ pub(crate) fn construct_bake_job(audio: &SovereignAudioConfig) -> Option<gen_job
             sample_rate: CONSTRUCT_PATCH_SAMPLE_RATE,
             duration_secs: CONSTRUCT_PATCH_SECS,
             warmup_secs: CONSTRUCT_PATCH_WARMUP_SECS,
+            loop_fade_secs: CONSTRUCT_PATCH_LOOP_FADE_SECS,
         }),
         SovereignAudioConfig::Sequence { .. } => Some(gen_jobs::AudioBakeJob::Sequence {
             recipe: audio.parse_sequence()?,

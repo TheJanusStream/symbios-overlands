@@ -225,7 +225,8 @@ mod f32_blob {
 #[derive(Serialize, Deserialize, Clone)]
 pub enum AudioBakeJob {
     /// One-shot patch render of `duration_secs` at `sample_rate`, after
-    /// `warmup_secs` baked and thrown away.
+    /// `warmup_secs` baked and thrown away, with the last `loop_fade_secs`
+    /// of the loop's own continuation faded back into its head.
     ///
     /// The warm-up is for a patch the world LOOPS whole: every filter in a
     /// bake starts from rest, so the loop's first sample is a cold filter's
@@ -233,6 +234,14 @@ pub enum AudioBakeJob {
     /// when every rate in it closes the loop (#1385). Baking on past a
     /// warm-up and keeping only what follows starts the loop settled; with
     /// every rate a whole number of cycles a loop, it then meets itself.
+    ///
+    /// The fade is for what a settled filter cannot close: a NOISE source is
+    /// not periodic, so the seam joins two unrelated noise samples and a
+    /// heavily low-passed noise layer ticks once a second (#1387 - 19 of the
+    /// 266 avatar voice patches, the wagon's roll worst at 6.3 times the
+    /// largest step inside its own loop). Baking `loop_fade_secs` further
+    /// gives the loop's own continuation past its end, and blending that
+    /// into the head makes the seam an ordinary step of a continuous signal.
     Patch {
         patch: AudioPatch,
         sample_rate: u32,
@@ -241,6 +250,16 @@ pub enum AudioBakeJob {
         /// `gen-worker.js`) still decodes, as the cold bake it asked for.
         #[serde(default)]
         warmup_secs: f32,
+        /// Seconds of crossfade at the loop seam; `0.0` bakes the loop
+        /// unfaded, bit for bit as it was before #1387.
+        ///
+        /// `serde(default)` as `warmup_secs` is, and the wire codec is NAMED
+        /// msgpack, so both directions are safe: a new worker decodes an old
+        /// job as an unfaded bake, and an old cached `gen-worker.js` ignores
+        /// a key it does not know and bakes unfaded - a tick until the bundle
+        /// updates, never a crash.
+        #[serde(default)]
+        loop_fade_secs: f32,
     },
     /// Multi-track sequence render (its sample rate is carried in the recipe).
     Sequence { recipe: SequenceRecipe },
@@ -254,6 +273,7 @@ impl AudioBakeJob {
                 sample_rate,
                 duration_secs,
                 warmup_secs,
+                loop_fade_secs,
             } => {
                 // The second line, not a replacement for the first. The
                 // mirror sanitiser clamps on the load path, on the `Fp` grid,
@@ -266,11 +286,52 @@ impl AudioBakeJob {
                 // asserts these two clamps agree constant for constant.
                 patch.clamp_to_envelope(&Envelope::default());
                 let warmup_secs = warmup_secs.max(0.0);
-                let mut samples = bake(&patch, sample_rate, warmup_secs + duration_secs);
-                // Keep the last `duration_secs` worth, counted as `bake`
-                // counts a duration, so a warm bake is as long as a cold one.
-                let kept = (f64::from(duration_secs.max(0.0)) * f64::from(sample_rate)).round();
-                samples.drain(..samples.len().saturating_sub(kept as usize));
+                let duration_secs = duration_secs.max(0.0);
+                // Clamped here for the same reason, and before it lengthens
+                // the bake rather than after: half the loop is the most a
+                // seam fade can mean, and `max(0.0)` first sends a NaN to
+                // zero rather than through `min`.
+                let loop_fade_secs = loop_fade_secs.max(0.0).min(duration_secs * 0.5);
+                let mut samples = bake(
+                    &patch,
+                    sample_rate,
+                    warmup_secs + duration_secs + loop_fade_secs,
+                );
+                // Count every offset as `bake` itself counts a duration, from
+                // the SUM - never as `len - fade`. Rounding the sum is not
+                // rounding the parts: (0.25 + 1.0) s x 22 050 Hz is 27 562.5,
+                // a genuine half sample, so a loop derived from the end of the
+                // longer bake would land one sample off today's and every
+                // construct loop in the world would move for nothing.
+                let duration_samples =
+                    |secs: f32| (f64::from(secs) * f64::from(sample_rate)).round() as usize;
+                let loop_end = duration_samples(warmup_secs + duration_secs).min(samples.len());
+                let kept = duration_samples(duration_secs).min(loop_end);
+                let head = loop_end - kept;
+                // However many the longer bake actually added, never more
+                // than half of what is kept.
+                let fade = (samples.len() - loop_end).min(kept / 2);
+                // Sum-to-one Hann, NOT equal-power. Every rate in a looped
+                // patch is closed (#1385), so the tail past the loop's end is
+                // the same waveform as its head: correlated, and correlated
+                // signals sum in AMPLITUDE. An equal-power pair peaks at 1.41
+                // and leaves the faded window 2.0-2.3 dB hot on every tonal
+                // patch - a new swell once a second on all 266 avatar voices
+                // to fix the 19 that tick. Gains that sum to one leave the
+                // periodic part exact, because `g x + (1 - g) x` is `x`; what
+                // they cost is a 1.25 dB dip in the noise layer alone, inside
+                // the material's own level swing over 10 ms (#1387).
+                for i in 0..fade {
+                    let t = (i as f32 + 0.5) / fade as f32;
+                    let g = 0.5 - 0.5 * (std::f32::consts::PI * t).cos();
+                    let tail = samples[loop_end + i];
+                    samples[head + i] = samples[head + i] * g + tail * (1.0 - g);
+                }
+                // Keep the `duration_secs` window that ends at the loop's end,
+                // so a warm or faded bake is as long as a cold one and the
+                // samples past the faded window are the ones it always was.
+                samples.truncate(loop_end);
+                samples.drain(..head);
                 samples_to_wav_bytes_pcm16(&samples, sample_rate)
             }
             AudioBakeJob::Sequence { mut recipe } => {
@@ -1029,10 +1090,13 @@ mod tests {
         assert!(!far_hair, "a missing far_hair must default to near-only");
     }
 
-    /// #1385: a warm Patch bake is exactly as long as a cold one, and it is
-    /// the TAIL of one bake that ran on past the warm-up - the head is thrown
-    /// away, not re-synthesised. The control: the head it drops differs from
-    /// the tail it keeps, so the warm-up did change what was kept.
+    /// #1385 and #1387: a warm Patch bake, faded or not, is exactly as long
+    /// as a cold one, and it is the TAIL of one bake that ran on past the
+    /// warm-up - the head is thrown away, not re-synthesised. A seam fade
+    /// bakes further still and touches only its own window at the loop's
+    /// head; the samples past that window are the ones the unfaded bake
+    /// kept, byte for byte. The control: the head it drops differs from the
+    /// tail it keeps, so the warm-up did change what was kept.
     #[test]
     fn a_warm_patch_bake_keeps_the_settled_tail_at_the_cold_length() {
         use symbios_audio::{BiquadLowpass, Connection, GraphNode, NodeGraph, NodeId, NodeKind};
@@ -1063,24 +1127,245 @@ mod tests {
                 output: NodeId(1),
             },
         };
-        let job = |warmup_secs| {
+        let job = |warmup_secs, loop_fade_secs| {
             AudioBakeJob::Patch {
                 patch: patch.clone(),
                 sample_rate: 22_050,
                 duration_secs: 1.0,
                 warmup_secs,
+                loop_fade_secs,
             }
             .run()
         };
-        let (cold, warm) = (job(0.0), job(0.25));
+        let (cold, warm, faded) = (job(0.0, 0.0), job(0.25, 0.0), job(0.25, 0.01));
         assert_eq!(
             warm.len(),
             cold.len(),
             "a warm-up must not lengthen the loop"
         );
+        assert_eq!(
+            faded.len(),
+            cold.len(),
+            "a seam fade must not lengthen the loop either"
+        );
         let long = bake(&patch, 22_050, 1.25);
         let tail = samples_to_wav_bytes_pcm16(&long[long.len() - 22_050..], 22_050);
         assert_eq!(warm, tail, "the warm bake is the tail of the longer one");
         assert_ne!(warm, cold, "the warm-up changed nothing it kept");
+        // 44-byte WAV header, then the 220 faded samples (10 ms at 22.05 kHz)
+        // as 440 bytes of PCM16. Past them the loop must not have moved at
+        // all: this is the guard on the INDEXING, where rounding the sum of
+        // warm-up and loop (27 562.5, a genuine half sample) is not the same
+        // as counting back from the longer bake's end.
+        const WINDOW: usize = 44 + 220 * 2;
+        assert_eq!(
+            faded[WINDOW..],
+            warm[WINDOW..],
+            "the fade moved the loop past its own window"
+        );
+    }
+
+    /// #1387: an older bundle's `gen-worker.js` encodes a Patch job with no
+    /// `loop_fade_secs` key at all, and a current worker must decode that as
+    /// the unfaded bake it asked for rather than fail the job - a tick until
+    /// the bundle updates, never a crash. The other direction is the same
+    /// property read backwards: the key an old worker does not know is one
+    /// named msgpack lets it ignore. `warmup_secs` landed this way in #1385;
+    /// this is the second field to, so the shape is worth a guard.
+    #[test]
+    fn a_patch_job_with_no_seam_fade_on_the_wire_bakes_unfaded() {
+        use symbios_audio::{Connection, GraphNode, NodeGraph, NodeId, NodeKind, SineOsc};
+        let mut inputs = std::collections::BTreeMap::new();
+        inputs.insert("in".to_string(), vec![Connection::from_node(NodeId(0))]);
+        let patch = AudioPatch {
+            seed: 0,
+            graph: NodeGraph {
+                nodes: vec![GraphNode {
+                    id: NodeId(0),
+                    kind: NodeKind::Sine(SineOsc {
+                        freq_hz: 40.0,
+                        phase_offset: 0.0,
+                        amplitude: 0.34,
+                    }),
+                    inputs: Default::default(),
+                }],
+                output: NodeId(0),
+            },
+        };
+        // The job as an older bundle encoded it: the variant's fields without
+        // `loop_fade_secs`, built as its own type rather than by editing the
+        // new encoding, because that is what actually sits in a stale worker.
+        #[derive(Serialize)]
+        enum OlderAudioBakeJob<'a> {
+            Patch {
+                patch: &'a AudioPatch,
+                sample_rate: u32,
+                duration_secs: f32,
+                warmup_secs: f32,
+            },
+        }
+        let older = rmp_serde::to_vec_named(&OlderAudioBakeJob::Patch {
+            patch: &patch,
+            sample_rate: 22_050,
+            duration_secs: 1.0,
+            warmup_secs: 0.25,
+        })
+        .expect("encode the older job");
+        let decoded: AudioBakeJob =
+            rmp_serde::from_slice(&older).expect("a job with no loop_fade_secs key still decodes");
+        let AudioBakeJob::Patch { loop_fade_secs, .. } = &decoded else {
+            unreachable!("the variant is unchanged by dropping one of its fields");
+        };
+        assert_eq!(
+            *loop_fade_secs, 0.0,
+            "a missing seam fade must bake unfaded"
+        );
+        let unfaded = AudioBakeJob::Patch {
+            patch: patch.clone(),
+            sample_rate: 22_050,
+            duration_secs: 1.0,
+            warmup_secs: 0.25,
+            loop_fade_secs: 0.0,
+        }
+        .run();
+        assert_eq!(
+            decoded.run(),
+            unfaded,
+            "an older job must bake the loop it always baked"
+        );
+        // And a fade set on this side survives the round trip, so a current
+        // worker bakes what the app asked for.
+        let bytes = rmp_serde::to_vec_named(&AudioBakeJob::Patch {
+            patch,
+            sample_rate: 22_050,
+            duration_secs: 1.0,
+            warmup_secs: 0.25,
+            loop_fade_secs: 0.01,
+        })
+        .expect("encode");
+        let back: AudioBakeJob = rmp_serde::from_slice(&bytes).expect("decode");
+        let AudioBakeJob::Patch { loop_fade_secs, .. } = &back else {
+            unreachable!("a patch job decodes as a patch job");
+        };
+        assert_eq!(*loop_fade_secs, 0.01, "the fade crossed the boundary");
+        assert_ne!(back.run(), unfaded, "the fade that crossed did nothing");
+    }
+
+    /// #1387: the fade's law sums to one, so it leaves a PERIODIC loop
+    /// exactly as it was - the tail past the loop's end is the same waveform
+    /// as its head, and `g x + (1 - g) x` is `x`. What it changes is a NOISE
+    /// layer, which has no such tail. Both halves in one test, on the same
+    /// graph with and without the noise, because either alone reads as the
+    /// fade doing nothing or doing everything.
+    ///
+    /// This is the test that fails if anyone swaps the law for the
+    /// equal-power crossfade #1387 originally asked for: equal-power sums two
+    /// correlated signals to 1.41 and leaves the window 2 dB hot, so the
+    /// tonal half of it would stop holding.
+    #[test]
+    fn the_seam_fade_leaves_a_tonal_loop_alone_and_moves_a_noisy_one() {
+        use symbios_audio::{
+            BiquadLowpass, Connection, GraphNode, Mix, NodeGraph, NodeId, NodeKind, SineOsc,
+            WhiteNoise,
+        };
+        // A 40 Hz sine - a whole number of cycles in the loop (#1385) - under
+        // the same lowpass, optionally mixed with white noise.
+        let build = |noisy: bool| {
+            let mut nodes = vec![GraphNode {
+                id: NodeId(0),
+                kind: NodeKind::Sine(SineOsc {
+                    freq_hz: 40.0,
+                    phase_offset: 0.0,
+                    amplitude: 0.34,
+                }),
+                inputs: Default::default(),
+            }];
+            let mut mix_inputs = std::collections::BTreeMap::new();
+            mix_inputs.insert("a".to_string(), vec![Connection::from_node(NodeId(0))]);
+            if noisy {
+                nodes.push(GraphNode {
+                    id: NodeId(2),
+                    kind: NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.3 }),
+                    inputs: Default::default(),
+                });
+                mix_inputs.insert("b".to_string(), vec![Connection::from_node(NodeId(2))]);
+            }
+            nodes.push(GraphNode {
+                id: NodeId(3),
+                kind: NodeKind::Mix(Mix::default()),
+                inputs: mix_inputs,
+            });
+            let mut lp_inputs = std::collections::BTreeMap::new();
+            lp_inputs.insert("in".to_string(), vec![Connection::from_node(NodeId(3))]);
+            nodes.push(GraphNode {
+                id: NodeId(1),
+                kind: NodeKind::BiquadLowpass(BiquadLowpass {
+                    cutoff_hz: 320.0,
+                    q: 0.9,
+                }),
+                inputs: lp_inputs,
+            });
+            AudioPatch {
+                seed: 7,
+                graph: NodeGraph {
+                    nodes,
+                    output: NodeId(1),
+                },
+            }
+        };
+        const WINDOW: usize = 44 + 220 * 2;
+        for noisy in [false, true] {
+            let job = |loop_fade_secs| {
+                AudioBakeJob::Patch {
+                    patch: build(noisy),
+                    sample_rate: 22_050,
+                    duration_secs: 1.0,
+                    warmup_secs: 0.25,
+                    loop_fade_secs,
+                }
+                .run()
+            };
+            let (plain, faded) = (job(0.0), job(0.01));
+            let pcm = |wav: &[u8]| -> Vec<i32> {
+                wav[44..WINDOW]
+                    .chunks_exact(2)
+                    .map(|b| i32::from(i16::from_le_bytes([b[0], b[1]])))
+                    .collect()
+            };
+            let (a, b) = (pcm(&plain), pcm(&faded));
+            let worst = a
+                .iter()
+                .zip(&b)
+                .map(|(x, y)| x.abs_diff(*y))
+                .max()
+                .expect("the window holds samples");
+            let rms = |v: &[i32]| {
+                (v.iter().map(|x| f64::from(*x) * f64::from(*x)).sum::<f64>() / v.len() as f64)
+                    .sqrt()
+            };
+            let db = 20.0 * (rms(&b) / rms(&a).max(1e-9)).log10();
+            if noisy {
+                // The control. Without it "the level did not move" would
+                // prove only that the fade never ran.
+                assert!(
+                    worst > 100,
+                    "the fade did not move the noise layer: worst {worst} LSB"
+                );
+            } else {
+                // The LEVEL is what discriminates the law: a sum-to-one pair
+                // leaves a correlated window exactly where it was, an
+                // equal-power pair leaves it 2.0-2.3 dB hot. The handful of
+                // LSB that do move are the patch's own residual settling -
+                // the tail is a second further from a cold filter than the
+                // head - and an equal-power fade would carry that drift too,
+                // on top of its 2 dB, so only the level is asked here.
+                assert!(
+                    db.abs() <= 0.25,
+                    "a sum-to-one fade left a purely tonal window {db:+.2} dB \
+                     ({worst} LSB) - has the law been swapped for an \
+                     equal-power crossfade?"
+                );
+            }
+        }
     }
 }
