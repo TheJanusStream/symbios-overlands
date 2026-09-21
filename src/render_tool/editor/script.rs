@@ -10,6 +10,7 @@
 //! ```text
 //! click widget "Placements" over 8  # glide onto a widget, rest, press, release
 //! click right-of "Theme:"           # the control beside a label
+//! right-click ground 118,-3         # the same, with the right button
 //! type "253"                        # select all in the focused field, then type
 //! start                             # everything above runs before frame 0
 //! hold 10                           # ten frames of nothing
@@ -133,6 +134,11 @@ pub(crate) enum Step {
         on: Target,
         over: u32,
     },
+    /// A `Click` with the right button: what opens the scene context menu.
+    RightClick {
+        on: Target,
+        over: u32,
+    },
     Type(String),
     /// Wheel the surface under the pointer, in egui points: positive scrolls
     /// DOWN a list, as a wheel pulled toward you does.
@@ -159,7 +165,7 @@ impl Step {
             Self::Hold(n) => *n,
             Self::Move { over, .. } | Self::DragGizmo { over, .. } => *over,
             Self::Press | Self::Release | Self::Type(_) | Self::Scroll(_) => 1,
-            Self::Click { over, .. } => over + CLICK_TAIL,
+            Self::Click { over, .. } | Self::RightClick { over, .. } => over + CLICK_TAIL,
         }
     }
 }
@@ -291,14 +297,21 @@ fn step(words: &[Word]) -> Result<Step, String> {
             }
             _ => Err("expected `scroll <points>`".into()),
         },
-        "move" | "click" => {
+        "move" | "click" | "right-click" => {
             let (target, rest) = target(rest)?;
-            if verb == "move" {
-                let over = over(rest)?.unwrap_or(1);
-                Ok(Step::Move { to: target, over })
-            } else {
-                let over = over(rest)?.unwrap_or(CLICK_GLIDE);
-                Ok(Step::Click { on: target, over })
+            match verb {
+                "move" => {
+                    let over = over(rest)?.unwrap_or(1);
+                    Ok(Step::Move { to: target, over })
+                }
+                "click" => {
+                    let over = over(rest)?.unwrap_or(CLICK_GLIDE);
+                    Ok(Step::Click { on: target, over })
+                }
+                _ => {
+                    let over = over(rest)?.unwrap_or(CLICK_GLIDE);
+                    Ok(Step::RightClick { on: target, over })
+                }
             }
         }
         "drag-gizmo" => match rest {
@@ -317,7 +330,8 @@ fn step(words: &[Word]) -> Result<Step, String> {
             _ => Err("expected `drag-gizmo <x|y|z> <metres> over <frames>`".into()),
         },
         other => Err(format!(
-            "unknown step `{other}`: expected hold, move, press, release, click, type, drag-gizmo or start"
+            "unknown step `{other}`: expected hold, move, press, release, click, right-click, type, \
+             drag-gizmo or start"
         )),
     }
 }
@@ -388,6 +402,8 @@ pub(crate) struct FrameInput {
     pub(crate) moved: bool,
     pub(crate) press: bool,
     pub(crate) release: bool,
+    /// Whether `press` and `release` are the right button's, not the left's.
+    pub(crate) secondary: bool,
     pub(crate) typed: Option<String>,
     /// Points to wheel the surface under the pointer by, down-positive.
     pub(crate) scrolled: Option<f32>,
@@ -476,7 +492,9 @@ impl ScriptRunner {
             Step::Release => input.release = true,
             Step::Type(text) => input.typed = Some(text.clone()),
             Step::Scroll(by) => input.scrolled = Some(*by),
-            Step::Move { to, over } | Step::Click { on: to, over } => {
+            Step::Move { to, over }
+            | Step::Click { on: to, over }
+            | Step::RightClick { on: to, over } => {
                 if frame == 0 {
                     match self.screen_path(to, scene)? {
                         Resolved::Ready(path) => self.path = path,
@@ -490,6 +508,7 @@ impl ScriptRunner {
                 } else if frame == over + 2 {
                     input.release = true;
                 }
+                input.secondary = matches!(step, Step::RightClick { .. });
             }
             Step::DragGizmo { axis, metres, over } => {
                 if frame == 0 {
@@ -918,6 +937,11 @@ pub(crate) fn run_script(
         }
         egui_events.0.push(egui::Event::PointerMoved(egui_at));
     }
+    let (button, egui_button) = if input.secondary {
+        (MouseButton::Right, egui::PointerButton::Secondary)
+    } else {
+        (MouseButton::Left, egui::PointerButton::Primary)
+    };
     for (edge, state, pressed) in [
         (input.press, ButtonState::Pressed, true),
         (input.release, ButtonState::Released, false),
@@ -927,13 +951,13 @@ pub(crate) fn run_script(
         }
         pointer.pressed = pressed;
         buttons.write(MouseButtonInput {
-            button: MouseButton::Left,
+            button,
             state,
             window: window_entity,
         });
         egui_events.0.push(egui::Event::PointerButton {
             pos: egui_at,
-            button: egui::PointerButton::Primary,
+            button: egui_button,
             pressed,
             modifiers: egui::Modifiers::NONE,
         });
@@ -1094,7 +1118,8 @@ mod tests {
              drag-gizmo x -6.5 over 20\n\
              release\n\
              move ground 118,-3 over 20\n\
-             type \"253\"\n",
+             type \"253\"\n\
+             right-click px 400,300 over 2\n",
         )
         .expect("the script parses");
         assert_eq!(script.start, 2);
@@ -1130,6 +1155,10 @@ mod tests {
                     over: 20
                 },
                 Step::Type("253".into()),
+                Step::RightClick {
+                    on: Target::Px(Vec2::new(400.0, 300.0)),
+                    over: 2
+                },
             ]
         );
         assert_eq!(script.steps[0].frames(), 8 + CLICK_TAIL);
@@ -1182,8 +1211,32 @@ mod tests {
         );
         assert!(frames[6].press && !frames[6].release);
         assert!(frames[7].release && !frames[7].press);
+        assert!(
+            frames.iter().all(|f| !f.secondary),
+            "a click is the left button's"
+        );
         assert_eq!(frames[8].typed.as_deref(), Some("253"));
         assert_eq!(frames[8].pointer, Some(Vec2::new(200.0, 40.0)));
+    }
+
+    #[test]
+    fn a_right_click_presses_and_releases_the_right_button_on_a_clicks_frames() {
+        let scene = FakeScene {
+            widgets: Vec::new(),
+            handle: None,
+        };
+        let frames = play(
+            "move px 100,100\nright-click px 200,40 over 2\npress",
+            &scene,
+            7,
+        );
+        assert_eq!(frames[2].pointer, Some(Vec2::new(200.0, 40.0)));
+        assert!(frames[4].press && frames[4].secondary);
+        assert!(frames[5].release && frames[5].secondary);
+        assert!(
+            frames[6].press && !frames[6].secondary,
+            "a bare press after it is the left button's again"
+        );
     }
 
     #[test]

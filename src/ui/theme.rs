@@ -696,6 +696,25 @@ pub fn sync_ui_scale(
     }
 }
 
+/// A position in Bevy's logical window pixels - a cursor, or a camera's
+/// `world_to_viewport` - as the egui point that lands on the same screen
+/// pixel (#1401).
+///
+/// The two agree only at an Interface size of 1.0. bevy_egui hands egui the
+/// window's own scale factor as its native pixels-per-point and egui
+/// multiplies the zoom on top, so one egui point is `zoom_factor` logical
+/// pixels - bevy_egui divides the cursor by exactly that before egui sees
+/// it. A position passed across unconverted is drawn `zoom_factor` times as
+/// far from the top-left corner, so a nametag or a context menu slid away
+/// from what it marks while the size changed, instead of growing in place.
+///
+/// Reads `ctx.zoom_factor()`, not the setting: a new zoom takes effect at the
+/// start of the next pass, and this pass paints with the one it began with.
+pub fn window_to_egui(ctx: &egui::Context, logical: Vec2) -> egui::Pos2 {
+    let zoom = ctx.zoom_factor();
+    egui::pos2(logical.x / zoom, logical.y / zoom)
+}
+
 /// Push a [`Theme`] into an egui context: pin the theme preference (see
 /// [`Theme::egui_base`]), then overlay our palette onto the matching
 /// stock visuals. Deliberately a light touch on widget internals - the
@@ -986,6 +1005,50 @@ mod tests {
             ("light", Theme::light()),
             ("high_contrast", Theme::high_contrast()),
         ]
+    }
+
+    /// #1401. A window position converted by [`window_to_egui`] is painted
+    /// on the pixel it came from at every Interface size, on a hiDPI window
+    /// too - asked of egui's own pixels-per-point, which is what the painter
+    /// multiplies by, rather than of the division again.
+    ///
+    /// Asked on the pass that SETS the zoom as well as the one after it:
+    /// `sync_ui_scale` runs inside the egui pass, and that pass still paints
+    /// at the old size.
+    #[test]
+    fn a_window_position_is_painted_on_its_own_pixel_at_every_interface_size() {
+        let logical = Vec2::new(420.0, 520.0);
+        for native in [1.0_f32, 2.0] {
+            let input = || {
+                let mut raw = egui::RawInput::default();
+                raw.viewports
+                    .entry(egui::ViewportId::ROOT)
+                    .or_default()
+                    .native_pixels_per_point = Some(native);
+                raw
+            };
+            for zoom in [0.8_f32, 1.0, 1.5, 2.0] {
+                let ctx = egui::Context::default();
+                let _ = ctx.run_ui(input(), |_| {});
+                for sets_it in [true, false] {
+                    let _ = ctx.run_ui(input(), |ui| {
+                        let ctx = ui.ctx();
+                        if sets_it {
+                            ctx.set_zoom_factor(zoom);
+                        }
+                        let painted =
+                            window_to_egui(ctx, logical).to_vec2() * ctx.pixels_per_point();
+                        let want = logical * native;
+                        assert!(
+                            (painted.x - want.x).abs() < 1e-3 && (painted.y - want.y).abs() < 1e-3,
+                            "native {native}, zoom {zoom}, setting pass {sets_it}: \
+                             logical {logical} painted at physical {painted:?}, not {want}"
+                        );
+                    });
+                }
+                assert_eq!(ctx.zoom_factor(), zoom, "the zoom never landed");
+            }
+        }
     }
 
     /// The 2026-07-17 decision every palette encodes: the identity accent

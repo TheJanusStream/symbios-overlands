@@ -149,7 +149,10 @@ pub(super) struct SceneContextMenu {
     /// [`detect_scene_right_click`]; egui's `open_bool` flips it back to
     /// closed on click / click-outside / Escape.
     open: bool,
-    /// Screen-space anchor for the popup - the release-frame cursor.
+    /// Screen-space anchor for the popup - the release-frame cursor, in
+    /// Bevy's logical window pixels. Kept in those rather than in egui
+    /// points because the Interface size can change while the menu is open,
+    /// and the menu must stay on the pixel that was clicked (#1401).
     anchor: Vec2,
     /// World-space ray hit under the cursor: the spawn point for a
     /// `Create new…` placement.
@@ -504,7 +507,7 @@ pub(super) fn scene_context_menu_ui(
     egui::Popup::new(
         egui::Id::new("scene_context_menu"),
         ctx.clone(),
-        egui::pos2(anchor.x, anchor.y),
+        crate::ui::theme::window_to_egui(ctx, anchor),
         egui::LayerId::new(
             egui::Order::Foreground,
             egui::Id::new("scene_context_menu_layer"),

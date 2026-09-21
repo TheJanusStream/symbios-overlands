@@ -179,8 +179,10 @@ pub struct PeerNametag {
     pub mutual: bool,
     /// The one loading/failure chip [`peer_status`] picked, if any.
     pub status: Option<PeerStatus>,
-    /// Logical-viewport position of the anchor, in egui points.
-    pub screen: egui::Pos2,
+    /// Where the anchor projects, in Bevy's logical viewport pixels - which
+    /// are egui points only at an Interface size of 1.0, so the painter
+    /// converts it with [`crate::ui::theme::window_to_egui`] (#1401).
+    pub viewport: Vec2,
     /// Fade from [`nametag_alpha`].
     pub alpha: f32,
     /// Metres from the camera - painted far-to-near so a near tag lands on
@@ -246,7 +248,7 @@ pub fn measure_peer_nametags(
         let Some(alpha) = nametag_alpha(settings.show_peer_nametags, hidden, distance) else {
             continue;
         };
-        let Ok(screen) = camera.world_to_viewport(camera_gt, anchor) else {
+        let Ok(viewport) = camera.world_to_viewport(camera_gt, anchor) else {
             // Behind the camera, past a clip plane, or the camera has no
             // viewport yet (headless). Not a failure worth reporting: the
             // body is not on screen either.
@@ -263,7 +265,7 @@ pub fn measure_peer_nametags(
             // of you is a translucent stand-in, and the user is looking at
             // the body, not the list.
             status: peer_status(peer.did.is_some(), resolve),
-            screen: egui::pos2(screen.x, screen.y),
+            viewport,
             alpha,
             distance,
         });
@@ -321,6 +323,7 @@ pub fn peer_nametags_ui(
     let mut hovered = None;
 
     for tag in &tags.tags {
+        let screen = crate::ui::theme::window_to_egui(ctx, tag.viewport);
         let a = |c: egui::Color32| c.gamma_multiply(tag.alpha);
         let focused = focus.row == Some(tag.peer);
         let name_color = if tag.mutual {
@@ -349,7 +352,7 @@ pub fn peer_nametags_ui(
         let height = name.rect.height() + status.as_ref().map_or(0.0, |g| g.rect.height());
         // The anchor is the point in the world; the tag hangs above it.
         let rect = egui::Rect::from_min_size(
-            egui::pos2(tag.screen.x - width * 0.5, tag.screen.y - height),
+            egui::pos2(screen.x - width * 0.5, screen.y - height),
             egui::vec2(width, height),
         )
         .expand2(egui::vec2(5.0, 3.0));
@@ -372,14 +375,14 @@ pub fn peer_nametags_ui(
             );
         }
         painter.galley(
-            egui::pos2(tag.screen.x - name.rect.width() * 0.5, rect.top() + 3.0),
+            egui::pos2(screen.x - name.rect.width() * 0.5, rect.top() + 3.0),
             name,
             egui::Color32::PLACEHOLDER,
         );
         if let Some(status) = status {
             painter.galley(
                 egui::pos2(
-                    tag.screen.x - status.rect.width() * 0.5,
+                    screen.x - status.rect.width() * 0.5,
                     rect.bottom() - 3.0 - status.rect.height(),
                 ),
                 status,
