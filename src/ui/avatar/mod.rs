@@ -641,15 +641,16 @@ impl AvatarEditorState {
             }
         }
         match &sel.prim_path {
-            // `select_from_scene_pick` is exactly the fixup contract:
-            // aim set, ancestors expanded, row selected + focused.
+            // `select_visuals_node` is exactly the fixup contract: aim
+            // set, ancestors expanded, row selected + focused - and no tab
+            // change, which is why this is not the scene pick (#1394).
             Some(path)
                 if record
                     .body
                     .visuals()
                     .is_some_and(|v| crate::ui::undo::restore::node_path_valid(v, path)) =>
             {
-                self.select_from_scene_pick(path.clone());
+                self.select_visuals_node(path.clone());
             }
             // Root ROW selected without a node path: keep the row - the
             // single visuals root always exists - but it aims no gizmo,
@@ -677,14 +678,35 @@ impl AvatarEditorState {
         }
     }
 
-    /// Select a visuals node from an in-world scene pick (#823), exactly
-    /// as if its tree row had been clicked: aim set, every ancestor
-    /// expanded (the tree collapses by default, so the picked row must be
-    /// revealed), the row marked selected in the tree widget, and a
-    /// one-shot focus request armed so the row gets the bright focused
-    /// highlight on the next draw. Mirrors the room editor's pick path in
-    /// `editor_gizmo::pick_on_scene_click`.
+    /// Select a visuals node from an in-world scene pick (#823) - the
+    /// left-click picker and the scene menu's "Select part": the Visuals
+    /// tab comes forward, then the node is selected exactly as if its tree
+    /// row had been clicked ([`Self::select_visuals_node`]). The two
+    /// worn-prop picks bring the Attachments tab forward the same way.
+    ///
+    /// The tab is not optional (#1394). The end-of-frame release
+    /// ([`Self::release_hidden_selections`]) keeps a visuals aim only on
+    /// the Visuals tab, so a pick that left the window on Body - where
+    /// every session starts since #1059 - was taken back down the frame it
+    /// was made, and "Select part" opened the editor with no row selected
+    /// and no gizmo. This pick was written when Visuals was the default.
     pub fn select_from_scene_pick(&mut self, path: Vec<usize>) {
+        self.selected_tab = AvatarTab::Visuals;
+        self.select_visuals_node(path);
+    }
+
+    /// Select a visuals node exactly as if its tree row had been clicked:
+    /// aim set, every ancestor expanded (the tree collapses by default, so
+    /// the row must be revealed), the row marked selected in the tree
+    /// widget, and a one-shot focus request armed so the row gets the
+    /// bright focused highlight on the next draw. Mirrors the room
+    /// editor's pick path in `editor_gizmo::pick_on_scene_click`.
+    ///
+    /// Leaves the tab alone, which is what the undo restore needs: it
+    /// re-seeds the row it snapshotted without moving the owner off the
+    /// tab they are on. A scene pick wants the tab as well, and goes
+    /// through [`Self::select_from_scene_pick`].
+    fn select_visuals_node(&mut self, path: Vec<usize>) {
         self.aim(GizmoTarget::VisualsNode { path: path.clone() });
         let root = AvatarVisualsTreeSource::ROOT_NAME.to_string();
         for depth in 0..path.len() {
@@ -2496,6 +2518,120 @@ mod tests {
                 Some(true),
                 "ancestor at depth {depth} expanded"
             );
+        }
+    }
+
+    /// #1394. THE SEQUENCE: right-click a part of your vehicle, pick
+    /// "Select part". The Avatar window opens - on Body, the tab every
+    /// session starts on since #1059 - and stays there. The pick HAD aimed
+    /// the gizmo, and the end-of-frame release took the aim straight back
+    /// down, because the tab on screen cannot show a visuals node: no row,
+    /// no gizmo. The worn-prop picks have brought their tab forward since
+    /// #1062; the visuals pick is older than the Body tab, written when
+    /// Visuals was the default, and was never told.
+    ///
+    /// The tests above could not see it: they assert the aim straight after
+    /// the pick and never run the release that follows it in a real frame.
+    /// This one does - for every scene pick, from every tab the window can
+    /// be sitting on.
+    #[test]
+    fn every_scene_pick_brings_its_tab_forward_and_survives_the_frame() {
+        type Pick = (&'static str, fn(&mut AvatarEditorState, &str), AvatarTab);
+        let rkey = String::from("3jzfcijpj2z2a");
+        let picks: [Pick; 3] = [
+            (
+                "visuals",
+                |s, _| s.select_from_scene_pick(vec![0, 1]),
+                AvatarTab::Visuals,
+            ),
+            (
+                "prop",
+                |s, k| s.select_attachment_from_scene_pick(k.to_string()),
+                AvatarTab::Attachments,
+            ),
+            (
+                "part",
+                |s, k| s.select_attachment_part_from_scene_pick(k.to_string(), vec![0]),
+                AvatarTab::Attachments,
+            ),
+        ];
+        let room = crate::ui::room::RoomEditorState::default();
+        for (what, pick, shows_it) in picks {
+            for from in [
+                AvatarTab::Body,
+                AvatarTab::Attachments,
+                AvatarTab::Visuals,
+                AvatarTab::Locomotion,
+            ] {
+                let mut state = AvatarEditorState {
+                    selected_tab: from,
+                    window_visible: true,
+                    ..Default::default()
+                };
+                pick(&mut state, &rkey);
+                let aimed = state.gizmo().clone();
+                assert!(aimed.is_aimed(), "{what} pick from {from:?}: aims nothing");
+
+                // The end of the frame the pick landed in.
+                state.release_hidden_selections(true);
+                assert_eq!(
+                    state.selected_tab, shows_it,
+                    "{what} pick from {from:?}: the tab that can show it comes forward"
+                );
+                assert_eq!(
+                    *state.gizmo(),
+                    aimed,
+                    "{what} pick from {from:?}: the aim survives its own frame"
+                );
+                assert_ne!(
+                    crate::editor_gizmo::determine_active_target(&room, &state),
+                    crate::editor_gizmo::ActiveTarget::None,
+                    "{what} pick from {from:?}: a gizmo is dispatched to it"
+                );
+            }
+        }
+        // And the tab bar leaves Visuals up on the one body this pick can
+        // come from: `AvatarVisualPrim` rides only a construction-kit body,
+        // whose Visuals tab is live.
+        assert!(tab_disabled_reason(AvatarTab::Visuals, false).is_none());
+    }
+
+    /// The other way into the same row-click contract, which must NOT
+    /// switch (#1394): an undo re-seeds the visuals row it snapshotted and
+    /// leaves the owner on the tab they are on. Undoing a Locomotion tweak
+    /// whose snapshot still names a node would otherwise throw the window
+    /// onto Visuals mid-tune. Off Visuals, the re-seeded aim lets go at the
+    /// end of the frame, as it always has.
+    #[test]
+    fn an_undo_reseeds_the_visuals_row_without_changing_tabs() {
+        let mut record = AvatarRecord::wearing("3jzfcijpj2z2a");
+        let mut visuals = crate::pds::Generator::default();
+        visuals.children.push(crate::pds::Generator::default());
+        record.body = pds::avatar::AvatarBody::generator(visuals);
+        let root = AvatarVisualsTreeSource::ROOT_NAME.to_string();
+        let snapshot = crate::ui::undo::AvatarSelection {
+            generator: Some(root.clone()),
+            prim_path: Some(vec![0]),
+            tree: vec![GenNodeId::child(root, vec![0])],
+        };
+        for on in [
+            AvatarTab::Body,
+            AvatarTab::Attachments,
+            AvatarTab::Visuals,
+            AvatarTab::Locomotion,
+        ] {
+            let mut state = AvatarEditorState {
+                selected_tab: on,
+                window_visible: true,
+                ..Default::default()
+            };
+            state.restore_from_undo(&record, &snapshot);
+            assert_eq!(
+                *state.gizmo(),
+                GizmoTarget::VisualsNode { path: vec![0] },
+                "on {on:?}: the snapshotted row is re-seeded"
+            );
+            assert_eq!(state.selected_tab, on, "on {on:?}: an undo changes no tab");
         }
     }
 }

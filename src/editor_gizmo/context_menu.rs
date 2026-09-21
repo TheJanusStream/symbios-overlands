@@ -2,8 +2,9 @@
 //! in-world workflows. Right-clicking the ground, an object, or your own
 //! avatar opens a small menu offering:
 //!
-//! * **Select part** - (any room, #824) open the Avatar editor on the
-//!   exact visuals node of your OWN avatar under the cursor.
+//! * **Select part** - (any room, #824) open the Avatar editor's Visuals
+//!   tab on the exact visuals node of your OWN avatar under the cursor,
+//!   gizmo armed.
 //! * **Select item** - open the World Editor on the Region Assets tab and
 //!   select the exact sub-part under the cursor (identical to the left-click
 //!   picker's Generators branch, but it also *opens* the editor).
