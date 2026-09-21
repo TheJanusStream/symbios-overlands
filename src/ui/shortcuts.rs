@@ -508,7 +508,16 @@ fn window_area_id(window: UiWindow) -> egui::Id {
 /// (`Window::show_dyn`); writing `open = true` there is exactly what the
 /// title-bar arrow does. A window never drawn has no stored state and
 /// opens expanded by default, so there is nothing to do for it.
-fn expand_window(ctx: &egui::Context, window: UiWindow) {
+///
+/// Ctrl+S needs the body because the Save row that takes its request is in
+/// it. A scene action that lands in an editor needs it more urgently
+/// (#1395): the Avatar editor and the World Editor both drop their
+/// selection on a pass where the body did not run, so "Select part" or a
+/// left-click pick into a collapsed editor was cleared the frame it was
+/// made. The body runs again on the very next pass - the open animation
+/// starts above zero, `stable_dt` into it - which is what lets the
+/// selection survive.
+pub(crate) fn expand_window(ctx: &egui::Context, window: UiWindow) {
     let id = window_area_id(window).with("collapsing");
     if let Some(mut state) = egui::collapsing_header::CollapsingState::load(ctx, id)
         && !state.is_open()
@@ -1574,6 +1583,68 @@ mod tests {
             pass(t + 1.0),
             "after expanding, the body runs on the next pass - inside PUBLISH_REQUEST_TTL_FRAMES"
         );
+    }
+
+    /// #1395: a scene action leans on [`expand_window`] harder than Ctrl+S.
+    /// A Save request waits out a TTL of several frames for the body; a
+    /// selection does not wait at all - the Avatar editor and the World
+    /// Editor both drop it on the first pass their body does not run. So the
+    /// body has to run on the very FIRST frame after the expand, at a real
+    /// frame rate, while the open animation has barely begun. It does: egui
+    /// steps a bool animation by `stable_dt` before reading it, so that
+    /// frame opens to about a fifth rather than to nothing.
+    #[test]
+    fn an_expanded_editor_runs_its_body_on_the_very_next_frame() {
+        const FRAME: f64 = 1.0 / 60.0;
+        for window in [UiWindow::Avatar, UiWindow::WorldEditor] {
+            let ctx = egui::Context::default();
+            // One 60 fps frame drawing the window; reports whether its body
+            // ran.
+            let frame = |t: f64| {
+                let mut body_ran = false;
+                let input = egui::RawInput {
+                    time: Some(t),
+                    predicted_dt: FRAME as f32,
+                    ..Default::default()
+                };
+                let _ = ctx.run_ui(input, |root| {
+                    egui::Window::new(window_title(window))
+                        .collapsible(true)
+                        .show(root.ctx(), |_ui| body_ran = true);
+                });
+                body_ran
+            };
+            let mut t = 0.0;
+            assert!(
+                frame(t),
+                "{window:?}: control - an expanded window runs its body"
+            );
+
+            // Collapse it the way the title-bar arrow does, and let the
+            // animation close at 60 fps.
+            let id = window_area_id(window).with("collapsing");
+            let mut state = egui::collapsing_header::CollapsingState::load(&ctx, id)
+                .expect("drawn once, so the collapse flag is stored");
+            state.set_open(false);
+            state.store(&ctx);
+            for _ in 0..30 {
+                t += FRAME;
+                frame(t);
+            }
+            t += FRAME;
+            assert!(
+                !frame(t),
+                "{window:?}: collapsed, the body does not run - the pass that drops a selection"
+            );
+
+            expand_window(&ctx, window);
+            t += FRAME;
+            assert!(
+                frame(t),
+                "{window:?}: the body must run on the first frame after the expand, or the \
+                 selection made with it is dropped before anyone sees it"
+            );
+        }
     }
 
     /// The other half of "one derivation": a rigged body nobody has touched

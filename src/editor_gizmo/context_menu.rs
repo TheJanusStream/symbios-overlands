@@ -80,9 +80,11 @@ use crate::state::{
 };
 use crate::ui::avatar::AvatarEditorState;
 use crate::ui::catalogue::catalogue_menu;
+use crate::ui::layout::UiWindow;
 use crate::ui::room::construct::{ROOM_ROOT_KINDS, make_default_for_kind};
 use crate::ui::room::generators::{GeneratorTreeSource, RoomTreeSource};
 use crate::ui::room::{EditorTab, GenNodeId, RoomEditorState};
+use crate::ui::shortcuts::expand_window;
 use crate::ui::toolbar::UiPanels;
 use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
 
@@ -751,12 +753,19 @@ pub(super) fn scene_context_menu_ui(
     };
     menu.open = false;
 
+    // Every arm that lands in an editor opens its window AND expands it
+    // (#1395). Both editors drop their selection on a pass where the body
+    // did not run, so opening a window the owner had collapsed cleared the
+    // selection the entry had just made: no row, no gizmo, and for a root
+    // delete a confirm nobody could see. `menu_openers_expand_what_they_open`
+    // holds the pairing.
     match choice {
         MenuChoice::EditWorn => {
             let Some(worn) = picked_worn else {
                 return;
             };
             panels.avatar = true;
+            expand_window(ctx, UiWindow::Avatar);
             avatar_editor.select_attachment_from_scene_pick(worn.rkey);
             if editor.has_selection() {
                 editor.clear_selection();
@@ -767,6 +776,7 @@ pub(super) fn scene_context_menu_ui(
                 return;
             };
             panels.avatar = true;
+            expand_window(ctx, UiWindow::Avatar);
             avatar_editor
                 .select_attachment_part_from_scene_pick(worn.rkey, worn.part.unwrap_or_default());
             if editor.has_selection() {
@@ -832,6 +842,7 @@ pub(super) fn scene_context_menu_ui(
         }
         MenuChoice::EditAvatar => {
             panels.avatar = true;
+            expand_window(ctx, UiWindow::Avatar);
             avatar_editor.open_body_tab();
             if editor.has_selection() {
                 editor.clear_selection();
@@ -869,6 +880,7 @@ pub(super) fn scene_context_menu_ui(
             // ancestors so the picked row is visible in the collapse-by-default
             // tree, select it, and request focus so it highlights brightly.
             panels.world_editor = true;
+            expand_window(ctx, UiWindow::WorldEditor);
             editor.selected_tab = EditorTab::Generators;
             editor.selected_placement = None;
             editor.tree.selection.root = Some(prim.generator_ref.clone());
@@ -890,6 +902,7 @@ pub(super) fn scene_context_menu_ui(
                 return;
             };
             panels.world_editor = true;
+            expand_window(ctx, UiWindow::WorldEditor);
             editor.selected_tab = EditorTab::Placements;
             editor.tree.selection.root = None;
             editor.tree.selection.path = None;
@@ -905,6 +918,7 @@ pub(super) fn scene_context_menu_ui(
             // yields per the cross-editor mutex so the gizmo dispatch is
             // unambiguous.
             panels.avatar = true;
+            expand_window(ctx, UiWindow::Avatar);
             avatar_editor.select_from_scene_pick(path);
             if editor.has_selection() {
                 editor.clear_selection();
@@ -920,6 +934,7 @@ pub(super) fn scene_context_menu_ui(
                 // the original - the selection highlight + gizmo make it
                 // grabbable despite the overlap).
                 panels.world_editor = true;
+                expand_window(ctx, UiWindow::WorldEditor);
                 editor.selected_tab = EditorTab::Generators;
                 editor.selected_placement = None;
                 editor.tree.selection.root = Some(prim.generator_ref.clone());
@@ -945,6 +960,7 @@ pub(super) fn scene_context_menu_ui(
                 Ok(new_idx) => {
                     undo_labels.set_room(format!("duplicate of placement {idx}"));
                     panels.world_editor = true;
+                    expand_window(ctx, UiWindow::WorldEditor);
                     editor.selected_tab = EditorTab::Placements;
                     editor.tree.selection.root = None;
                     editor.tree.selection.path = None;
@@ -970,6 +986,10 @@ pub(super) fn scene_context_menu_ui(
                 // shifted under whatever was selected - clear rather than
                 // leave a stale path pointing at the wrong node.
                 editor.clear_selection();
+            } else if editor.tree.confirms.delete.is_pending() {
+                // A root delete opened the World Editor on the tree's
+                // confirm, which is drawn in the window's body.
+                expand_window(ctx, UiWindow::WorldEditor);
             }
         }
         MenuChoice::DeletePlacement => {
@@ -994,7 +1014,12 @@ pub(super) fn scene_context_menu_ui(
                 &mut editor,
                 &mut room.0,
             ) {
-                Ok(key) => undo_labels.set_room(format!("create of {key}")),
+                Ok(key) => {
+                    // `create_at_point` opened the World Editor on the new
+                    // item; it is pure, so the window is expanded here.
+                    expand_window(ctx, UiWindow::WorldEditor);
+                    undo_labels.set_room(format!("create of {key}"));
+                }
                 Err(reason) => toasts.warn(reason, time.elapsed_secs_f64()),
             }
         }
@@ -1507,5 +1532,69 @@ mod tests {
         assert!(delete_placement(&mut record, 1));
         assert_eq!(record.placements.len(), 1);
         assert!(!delete_placement(&mut record, 5));
+    }
+
+    /// #1395: every entry that lands in an editor window also expands it.
+    /// Both editors drop their selection on a pass their body did not run,
+    /// so an entry that opened a window the owner had collapsed made its
+    /// selection and lost it the same frame - no row, no gizmo, and for a
+    /// root delete a confirm nobody could see.
+    ///
+    /// Read from the source, like `avatar_edits_report_themselves`: the
+    /// entries run inside an egui popup, and what is pinned is a pairing in
+    /// the code. Counted per window rather than line by line, because
+    /// `create_at_point` and `delete_item` open the World Editor inside
+    /// pure helpers and their callers do the expanding.
+    #[test]
+    fn menu_openers_expand_what_they_open() {
+        /// `(opens, expands)` for the Avatar editor, then the World Editor.
+        fn tally(source: &str) -> [(usize, usize); 2] {
+            let code: Vec<&str> = source
+                .lines()
+                .map(|line| line.split("//").next().unwrap_or(""))
+                .collect();
+            let count = |needle: &str| code.iter().filter(|line| line.contains(needle)).count();
+            [
+                (
+                    count("panels.avatar = true"),
+                    count("expand_window(ctx, UiWindow::Avatar)"),
+                ),
+                (
+                    count("panels.world_editor = true"),
+                    count("expand_window(ctx, UiWindow::WorldEditor)"),
+                ),
+            ]
+        }
+
+        // Controls: an unpaired opener shows, and a comment is not code.
+        assert_eq!(tally("    panels.avatar = true;\n")[0], (1, 0));
+        assert_eq!(
+            tally("    // panels.world_editor = true; expand_window(ctx, UiWindow::Avatar)\n"),
+            [(0, 0), (0, 0)]
+        );
+
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src/editor_gizmo/context_menu.rs"),
+        )
+        .expect("this file is readable");
+        let [avatar, world] = tally(crate::ui::fonts::glyph_coverage_tests::non_test_source(
+            &source,
+        ));
+        // A floor, so a scan that stops matching cannot pass by finding
+        // nothing: four entries open the Avatar editor and six the World
+        // Editor as this is written.
+        assert!(
+            avatar.0 >= 4 && world.0 >= 6,
+            "the scan found {avatar:?} and {world:?} - it has gone blind"
+        );
+        assert_eq!(
+            avatar.0, avatar.1,
+            "an entry opens the Avatar editor without expanding it (opens, expands)"
+        );
+        assert_eq!(
+            world.0, world.1,
+            "an entry opens the World Editor without expanding it (opens, expands)"
+        );
     }
 }

@@ -109,7 +109,9 @@ use crate::state::AppState;
 // has selected for a gizmo to be attached TO. Both keep the word, since a
 // grep for `GizmoTarget` should find either.
 use crate::ui::avatar::{AvatarEditorState, GizmoTarget as AvatarGizmoTarget};
+use crate::ui::layout::UiWindow;
 use crate::ui::room::{EditorTab, RoomEditorState};
+use crate::ui::shortcuts::expand_window;
 use crate::world_builder::{
     AttachmentPrim, AvatarVisualPrim, PlacementMarker, PrimFaceGroup, PrimMarker,
 };
@@ -702,6 +704,9 @@ fn pick_on_scene_click(
     // `is_local = false`, so no prop carries a visuals path) and a hit on a
     // prop is unambiguous. Only the owner's props carry the component, so a
     // peer's outfit is never selectable.
+    //
+    // "Open" includes collapsed, so each pick expands the window it lands in
+    // (#1395): the editor drops a selection on a pass its body did not run.
     if panels.avatar {
         let mut cursor_entity = hit_entity;
         // A part of a worn prop (#1098) is the deepest marker on the path;
@@ -723,6 +728,7 @@ fn pick_on_scene_click(
                     }
                     None => avatar_state.select_attachment_from_scene_pick(worn.rkey.clone()),
                 }
+                expand_window(ctx, UiWindow::Avatar);
                 if room_state.has_selection() {
                     room_state.clear_selection();
                 }
@@ -730,6 +736,7 @@ fn pick_on_scene_click(
             }
             if let Ok(marker) = avatar_prims.get(entity) {
                 avatar_state.select_from_scene_pick(marker.path.clone());
+                expand_window(ctx, UiWindow::Avatar);
                 if room_state.has_selection() {
                     room_state.clear_selection();
                 }
@@ -810,13 +817,19 @@ fn pick_on_scene_click(
         }
     };
 
-    match room_state.selected_tab {
+    // Whether this click selected something - the same "open includes
+    // collapsed" rule as the avatar branch above (#1395).
+    let landed = match room_state.selected_tab {
         EditorTab::Generators => {
             if let Some((marker, marker_entity)) = picked_prim {
                 record_face(&marker, &mut face_pick);
                 select_prim_in_tree(&mut room_state, marker, marker_entity, &global_tfs);
-            } else if !face_pick.is_armed() {
-                room_state.clear_selection();
+                true
+            } else {
+                if !face_pick.is_armed() {
+                    room_state.clear_selection();
+                }
+                false
             }
         }
         EditorTab::Placements => {
@@ -825,8 +838,12 @@ fn pick_on_scene_click(
                 room_state.tree.selection.path = None;
                 room_state.tree.view.set_selected(Vec::new());
                 room_state.selected_placement = Some(index);
-            } else if !face_pick.is_armed() {
-                room_state.clear_selection();
+                true
+            } else {
+                if !face_pick.is_armed() {
+                    room_state.clear_selection();
+                }
+                false
             }
         }
         // Environment / Effects / Raw JSON (#824): a hit switches to the
@@ -838,16 +855,24 @@ fn pick_on_scene_click(
                 room_state.selected_tab = EditorTab::Generators;
                 record_face(&marker, &mut face_pick);
                 select_prim_in_tree(&mut room_state, marker, marker_entity, &global_tfs);
+                true
             } else if let Some(index) = picked_placement {
                 room_state.selected_tab = EditorTab::Placements;
                 room_state.tree.selection.root = None;
                 room_state.tree.selection.path = None;
                 room_state.tree.view.set_selected(Vec::new());
                 room_state.selected_placement = Some(index);
-            } else if !face_pick.is_armed() {
-                room_state.clear_selection();
+                true
+            } else {
+                if !face_pick.is_armed() {
+                    room_state.clear_selection();
+                }
+                false
             }
         }
+    };
+    if landed {
+        expand_window(ctx, UiWindow::WorldEditor);
     }
 }
 
