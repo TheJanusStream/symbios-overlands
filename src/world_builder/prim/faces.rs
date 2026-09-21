@@ -15,7 +15,7 @@
 //!
 //! Everything downstream of a mesher preserves triangle order and count:
 //! vertex torture mutates positions and normals only; the UV re-projection
-//! walks `chunks_exact(3)` and re-points indices in place; `generate_tangents`
+//! walks `as_chunks::<3>()` and re-points indices in place; `generate_tangents`
 //! only adds an attribute; [`orient_to_normals`](super::base::orient_to_normals)
 //! swaps two corners *within* a triangle; and `subdivide_flat` expands each
 //! triangle into four consecutive ones, which [`FaceTable::subdivide`]

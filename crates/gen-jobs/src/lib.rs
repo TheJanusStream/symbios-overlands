@@ -1328,8 +1328,10 @@ mod tests {
             let (plain, faded) = (job(0.0), job(0.01));
             let pcm = |wav: &[u8]| -> Vec<i32> {
                 wav[44..WINDOW]
-                    .chunks_exact(2)
-                    .map(|b| i32::from(i16::from_le_bytes([b[0], b[1]])))
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|b| i32::from(i16::from_le_bytes(*b)))
                     .collect()
             };
             let (a, b) = (pcm(&plain), pcm(&faded));

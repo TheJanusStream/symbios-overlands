@@ -1354,8 +1354,10 @@ mod audio_tests {
             .expect("a patch bakes");
             // Mono 16-bit PCM behind a 44-byte header.
             let s: Vec<f32> = wav[44..]
-                .chunks_exact(2)
-                .map(|b| f32::from(i16::from_le_bytes([b[0], b[1]])) / 32_768.0)
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|b| f32::from(i16::from_le_bytes(*b)) / 32_768.0)
                 .collect();
             let inner = s
                 .windows(2)
@@ -1416,8 +1418,10 @@ mod audio_tests {
             .expect("a patch bakes");
             // Mono 16-bit PCM behind a 44-byte header.
             let s: Vec<f32> = wav[44..]
-                .chunks_exact(2)
-                .map(|b| f32::from(i16::from_le_bytes([b[0], b[1]])) / 32_768.0)
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|b| f32::from(i16::from_le_bytes(*b)) / 32_768.0)
                 .collect();
             let inner = s
                 .windows(2)
@@ -1472,8 +1476,10 @@ mod audio_tests {
                 let unfaded = bake_with_no_seam_fade(&config);
                 let pcm = |wav: &[u8]| -> Vec<i32> {
                     wav[44..]
-                        .chunks_exact(2)
-                        .map(|b| i32::from(i16::from_le_bytes([b[0], b[1]])))
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|b| i32::from(i16::from_le_bytes(*b)))
                         .collect()
                 };
                 // The faded window: 10 ms at 22.05 kHz, at the loop's head.
