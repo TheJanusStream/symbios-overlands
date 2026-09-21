@@ -168,12 +168,19 @@ mod tests {
     // `boat_mast_black_colours` / `boat_bow_skull_head` / `boat_deck_gunports`
     // / `boat_mast_square_rig` to the Pirate style. They went with the legacy
     // boat catalogue in #1363: boats are no longer assembled from parts at
-    // all, so there are no boat slugs left to pin. The pirate's black colours
-    // are a livery and a rig variant now, and belong to #1365 (liveries) and
-    // #1366 (rig variants); the guard that they stay pirate-only belongs to
-    // #1382 with the rest of the refitted guards. Deliberately NOT rewritten
-    // against the sloop - pinning an unfinished design is the trap the
-    // geometry-before-instruments rule exists for.
+    // all, so there are no boat slugs left to pin.
+    //
+    // This used to say the pirate's black colours were "a livery and a rig
+    // variant now". THEY ARE NEITHER, and they cannot be a livery:
+    // `crate::pds::avatar::livery` is keyed to nothing about the avatar's
+    // theme by written decision, because hue-keying by theme would put every
+    // avatar of a theme in the same craft - and the sail is the scheme's too.
+    // The gaff cutter is equally at home on MARTIAL and WORKING, so the rig
+    // is not hers either. What is left of the kit is GEOMETRY in the sloop's
+    // own builder, gated on the theme the way the longship's serpent is
+    // (#1369), and that is #1379's remaining work - still unported, because
+    // the shape is agreed on render first. The guard that it stays
+    // pirate-only lands with it.
 
     #[test]
     fn every_theme_belongs_to_a_mood_group() {

@@ -1677,12 +1677,16 @@ pub(crate) fn skiff_colours(ctx: &PartCtx) -> SkiffColours {
         leather: m.leather(mix(HIDE, shade(p.primary_accent, 0.8), 0.28)),
         // The wheel centre is a solid disc a hand across at play distance,
         // held clear of the guard arching over it and floored well above the
-        // tyre it is set into.
+        // tyre it is set into - floored FIRST, so on a worn kit the floor
+        // cannot lift it back into the guard's own value ([`clear_over_floor`],
+        // #1389).
         disc: trim(
             m,
-            floor_finished(
+            clear_over_floor(
                 m,
-                clear_of(p.primary_accent, luma(guard), DISC_DELTA),
+                p.primary_accent,
+                luma(guard),
+                DISC_DELTA,
                 GUARD_FLOOR * 1.6,
             ),
         ),
@@ -1760,12 +1764,15 @@ pub(crate) fn wagon_colours(ctx: &PartCtx, body: WagonBody) -> WagonColours {
     let wheel = match l.gear {
         Some(gear) => m.paint(gear),
         // The accent held clear of the box it turns beside, and floored off
-        // the iron tyre round it - the roadster's wheel-centre rule.
+        // the iron tyre round it - the roadster's wheel-centre rule, which
+        // since #1389 is floor-first ([`clear_over_floor`]).
         None => trim(
             m,
-            floor_finished(
+            clear_over_floor(
                 m,
-                clear_of(p.primary_accent, luma(l.body), DISC_DELTA),
+                p.primary_accent,
+                luma(l.body),
+                DISC_DELTA,
                 GUARD_FLOOR * 1.6,
             ),
         ),
@@ -1812,7 +1819,8 @@ pub(crate) struct BuggyColours {
     /// **Identity.** The rims: the accent held clear of the frame and floored
     /// well above the tyre it is set into - floored FIRST, so on a worn kit
     /// the floor cannot lift it back into the frame's value
-    /// ([`clear_over_floor`]; the wagon's wheel still clears first, #1389).
+    /// ([`clear_over_floor`]). The roadster's disc and the wagon's wheel take
+    /// the same order since #1389, so one rule now paints all three.
     pub(crate) rim: SovereignMaterialSettings,
     /// A worn buggy's mismatched near-rear rim: bare steel off another
     /// buggy, held well clear of the seed's own rims - up off a dark rim and
@@ -2836,6 +2844,83 @@ mod tests {
                     assert!(
                         lit || d > DISC_DELTA * 0.6,
                         "seed {s} in {}: the rims are {d} from the frame",
+                        scheme.name
+                    );
+                }
+            }
+        }
+    }
+
+    /// A roadster's wheel disc stays findable against the guard arching over
+    /// it, on every scheme at every wear (#1389).
+    ///
+    /// The slot the buggy's rims already hold, on the type they were copied
+    /// from. It was NOT held: on the one pale scheme in the list the accent
+    /// was cleared DOWN off a cream guard and then floored straight back up
+    /// toward it, and 44 of these pairs - every one of them Cream - finished
+    /// inside the guard's own value. `clear_over_floor` floors first and
+    /// clears to the side with room, so the disc leaves the cream UPWARD and
+    /// the floor has nothing left to undo.
+    ///
+    /// Over every skiff seed under 900, so the population's kits are the wear
+    /// sweep. Lit kits are skipped for the reason the buggy's guard gives: a
+    /// luminous disc is an unground glow and its VALUE against a grimed guard
+    /// is not the question.
+    #[test]
+    fn a_roadsters_disc_reads_against_her_guard_on_every_scheme() {
+        for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
+            let mut ctx = PartCtx::for_seed(s);
+            if ctx.materials.emissive_accents() {
+                continue;
+            }
+            for (i, scheme) in SKIFF_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = skiff_colours(&ctx);
+                let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                // Grime dims both sides by one factor, so the delta shrinks
+                // by at most that much - as for the buggy's rims.
+                let d = (l(&c.disc) - l(&c.guard)).abs();
+                assert!(
+                    d > DISC_DELTA * 0.6,
+                    "seed {s} in {}: the disc is {d} from the guard over it",
+                    scheme.name
+                );
+            }
+        }
+    }
+
+    /// A wagon's spoked wheels stay findable against the box they turn
+    /// beside, on every body and every scheme at every wear (#1389).
+    ///
+    /// Her four box colours are all dark, so the accent is always cleared
+    /// UP, where a floor cannot undo it, and this guard passed before
+    /// `clear_over_floor` reached her as well as after. It is here because
+    /// nothing asserted it: the rule the roadster and the buggy are held to
+    /// is now one rule over three types, and a third type agreeing by luck is
+    /// not the same as a third type being checked.
+    ///
+    /// The bodies whose scheme forces a gear colour carry no accent on their
+    /// wheels at all, so there is nothing on them for this to be about.
+    #[test]
+    fn a_wagons_wheels_read_against_her_box_on_every_scheme() {
+        for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
+            let mut ctx = PartCtx::for_seed(s);
+            if ctx.materials.emissive_accents() {
+                continue;
+            }
+            for body in WagonBody::ALL {
+                for i in 0..WAGON_LIVERIES.len() {
+                    ctx.livery = Some(i);
+                    let scheme = wagon_livery(s, body, ctx.livery);
+                    if scheme.gear.is_some() {
+                        continue;
+                    }
+                    let c = wagon_colours(&ctx, body);
+                    let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                    let d = (l(&c.wheel) - l(&c.paint)).abs();
+                    assert!(
+                        d > DISC_DELTA * 0.6,
+                        "seed {s} as a {body:?} in {}: the wheels are {d} from the box",
                         scheme.name
                     );
                 }
