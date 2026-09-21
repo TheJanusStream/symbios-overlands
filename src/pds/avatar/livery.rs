@@ -1072,7 +1072,29 @@ pub(crate) struct BoatColours {
     /// taken well down in value, and held clear of the topsides it covers. In
     /// the canvas itself a tarp on a white boat is invisible (#1366).
     pub(crate) tarp: SovereignMaterialSettings,
+    /// A Pirate sloop's ensign, and the bone the roger is painted in (#1379).
+    ///
+    /// THESE TWO ARE NOT A LIVERY AND DO NOT BREAK THIS MODULE'S RULE. They
+    /// are fixed colours a thing simply IS, like [`TYRE`] and [`LEAD`], and
+    /// nothing here asks what theme the avatar wears: the sloop's own builder
+    /// decides whether a boat flies an ensign at all, the way the longship's
+    /// builder decides whether she carries a serpent (#1369). What would
+    /// break the rule is keying a SCHEME to a theme, and no scheme moves.
+    pub(crate) bunting: SovereignMaterialSettings,
+    pub(crate) bone: SovereignMaterialSettings,
+    /// The inside of an open gunport - a shadow, whatever she is painted, as
+    /// [`Self::interior`] is (#1379).
+    pub(crate) port: SovereignMaterialSettings,
 }
+
+/// A pirate's bunting and the bone on it (#1379). Tarred black rather than
+/// pure black, because nothing else on these boats is pure anything and a
+/// flat 0.0 reads as a hole rather than as cloth; the bone is an off-white
+/// for the same reason.
+const PITCH: [f32; 3] = [0.055, 0.052, 0.058];
+const BONE: [f32; 3] = [0.855, 0.840, 0.790];
+/// The dark inside an open gunport shows.
+const GUNPORT: [f32; 3] = [0.030, 0.028, 0.030];
 
 /// How far the tender is held from the deck under her, and the tarp from the
 /// coachroof under it. A mass rather than a line, so less than a boot stripe
@@ -1135,6 +1157,9 @@ pub(crate) fn boat_colours(ctx: &PartCtx) -> BoatColours {
             luma(topsides),
             TARP_DELTA,
         )),
+        bunting: m.canvas(PITCH),
+        bone: m.canvas(BONE),
+        port: m.paint(GUNPORT),
     }
 }
 

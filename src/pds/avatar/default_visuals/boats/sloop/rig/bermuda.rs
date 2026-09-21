@@ -23,6 +23,12 @@ impl Rigging for Bermuda {
         (0.045, 0.012)
     }
 
+    /// One triangle on one spar: nothing is peaked, so there is no peak -
+    /// see [`Rigging::has_gaff_peak`].
+    fn has_gaff_peak(&self) -> bool {
+        false
+    }
+
     fn build(&self, rig: &Rig, kids: &mut Vec<Generator>, hull: &HullProfile, c: &BoatColours) {
         rig.mast_spar(kids, c);
         rig.boom(kids, c);

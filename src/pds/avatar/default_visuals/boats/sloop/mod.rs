@@ -32,11 +32,15 @@
 
 mod dressing;
 mod hull;
+mod kit;
 mod rig;
 
 use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::Generator;
-use crate::seeded_defaults::{BoatBlueprint, ParticleAura, SloopHull, SloopRig};
+use crate::seeded_defaults::avatar::mood;
+use crate::seeded_defaults::{
+    AvatarCharacter, BoatBlueprint, ParticleAura, SloopHull, SloopRig, ThemeArchetype,
+};
 
 use super::super::common::{cuboid, id_quat, prim};
 use super::profile::HullProfile;
@@ -126,6 +130,52 @@ fn plan(form: SloopHull) -> &'static [(f32, f32)] {
     }
 }
 
+/// Whether this sloop's owner is a Pirate - the one thing her SEED decides
+/// about her beyond her hull form and her rig, and the gate on the whole of
+/// [`kit`].
+///
+/// A named value rather than a bare `bool` for the reason
+/// [`super::longship::LongshipKind`] is one: it is derived once from the
+/// character's style and then carried into the builder, so a guard can build
+/// a kitted boat without finding a seed that rolls one.
+///
+/// Unlike the longship's, this value has no `ALL`, and the asymmetry is
+/// deliberate: her sweep crosses both answers because it is cheap, and this
+/// type's is 900 builds already. The kit gets its OWN hundred-build sweep at
+/// the one tier pair that draws all of it - see `every_kitted_sloop`.
+///
+/// `BUCCANEER` is a mood group of one, and deliberately so - a jolly roger on
+/// a Nordic longship is a costume error, which is why this asks the mood
+/// table rather than the theme directly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct SloopKit {
+    pub(super) pirate: bool,
+}
+
+impl SloopKit {
+    pub(super) fn for_seed(seed: u64) -> Self {
+        Self::for_style(AvatarCharacter::for_seed(seed).style)
+    }
+
+    /// Visible to the guards, which sweep EVERY theme rather than the
+    /// themes the seeds under some bound happen to roll.
+    pub(super) fn for_style(style: ThemeArchetype) -> Self {
+        Self {
+            pirate: mood::holds(mood::BUCCANEER, style),
+        }
+    }
+
+    /// A label for a guard's failure message.
+    #[cfg(test)]
+    pub(super) fn label(self) -> &'static str {
+        if self.pirate {
+            "under a roger"
+        } else {
+            "unkitted"
+        }
+    }
+}
+
 pub(super) struct Sloop;
 
 impl BoatCraft for Sloop {
@@ -134,7 +184,12 @@ impl BoatCraft for Sloop {
     }
 
     fn build(&self, ctx: &PartCtx, hull: &HullProfile) -> Generator {
-        build_rigged(ctx, hull, SloopRig::for_seed(ctx.seed))
+        build_rigged(
+            ctx,
+            hull,
+            SloopRig::for_seed(ctx.seed),
+            SloopKit::for_seed(ctx.seed),
+        )
     }
 
     fn feel(&self) -> BoatFeel {
@@ -207,10 +262,15 @@ pub(super) fn profile_of(bp: &BoatBlueprint, form: SloopHull) -> HullProfile {
     HullProfile::new(bp, SECTION, plan(form))
 }
 
-/// The sloop on a named rig, dressed for the tiers `ctx` carries - what
-/// [`Sloop::build`] draws with the seed's own rig, and what the guards sweep
-/// every rig through.
-pub(super) fn build_rigged(ctx: &PartCtx, hull: &HullProfile, rig: SloopRig) -> Generator {
+/// The sloop on a named rig under a named kit, dressed for the tiers `ctx`
+/// carries - what [`Sloop::build`] draws with the seed's own, and what the
+/// guards sweep every rig and both kits through.
+pub(super) fn build_rigged(
+    ctx: &PartCtx,
+    hull: &HullProfile,
+    rig: SloopRig,
+    kit: SloopKit,
+) -> Generator {
     let c = boat_colours(ctx);
     let rigging = rigging(rig);
     let heights = Rig::new(hull, rigging);
@@ -233,6 +293,13 @@ pub(super) fn build_rigged(ctx: &PartCtx, hull: &HullProfile, rig: SloopRig) -> 
     hull::deck_furniture(kids, hull, &c);
     rigging.build(&heights, kids, hull, &c);
     dressing::dress(kids, hull, &heights, &c, ctx.ornateness, ctx.wear);
+    if kit.pirate {
+        // The mount is the rig's to answer, not this function's: the three
+        // rigs that set a gaff fly at its peak and the two that do not step a
+        // staff aft (#1379).
+        let peak = rigging.has_gaff_peak().then(|| heights.peak_head());
+        kit::dress(kids, hull, peak, &c, ctx.ornateness, ctx.wear);
+    }
     root
 }
 

@@ -425,6 +425,10 @@ mod tests {
     /// every ornateness-by-wear pair a seed can roll - which is all of them,
     /// since the two axes are drawn independently. Returns the built tree and
     /// a label for the failure message.
+    /// A sloop whose owner is not a Pirate - what every sweep that is not
+    /// ABOUT the kit builds, so the kit cannot quietly change what they see.
+    const UNKITTED: sloop::SloopKit = sloop::SloopKit { pirate: false };
+
     fn every_sloop() -> Vec<(Generator, String)> {
         use crate::seeded_defaults::{OrnatenessTier, SloopHull, SloopRig, WearTier};
         let mut ctx = PartCtx::for_seed(
@@ -441,7 +445,7 @@ mod tests {
                         for w in WearTier::ALL {
                             (ctx.ornateness, ctx.wear) = (o, w);
                             out.push((
-                                sloop::build_rigged(&ctx, &hull, rig),
+                                sloop::build_rigged(&ctx, &hull, rig, UNKITTED),
                                 format!(
                                     "a {} m {} sloop, {}, {} / {}",
                                     hull.loa,
@@ -457,6 +461,193 @@ mod tests {
             }
         }
         out
+    }
+
+    /// Every KITTED sloop at the corners that matter - the Pirate kit's own
+    /// sweep, and deliberately a hundredth the size of [`every_sloop`].
+    ///
+    /// THE SWEEP-COST TRAP (#1379): `every_sloop` is 5 corners x 4 hulls x 5
+    /// rigs x 9 tier pairs = 900 builds and the dearest test in the family.
+    /// Crossing it with the kit would have made it 1800 for one theme. The
+    /// kit's ladder tops out at Ornate / Battered - gunports from Adorned and
+    /// a tattered fly at Battered - so its FULLEST draw is that one tier pair,
+    /// and sweeping only that pair across every corner, hull and rig is 100
+    /// builds that reach everything the kit can put on a boat.
+    fn every_kitted_sloop() -> Vec<(
+        Generator,
+        HullProfile,
+        crate::seeded_defaults::SloopRig,
+        String,
+    )> {
+        use crate::seeded_defaults::{OrnatenessTier, SloopHull, SloopRig, WearTier};
+        let mut ctx = PartCtx::for_seed(
+            (0u64..600)
+                .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat)
+                .expect("some seed is a boat"),
+        );
+        ctx.ornateness = OrnatenessTier::Ornate;
+        ctx.wear = WearTier::Battered;
+        let kit = sloop::SloopKit { pirate: true };
+        let mut out = Vec::new();
+        for bp in corners() {
+            for form in SloopHull::ALL {
+                let hull = sloop::profile_of(&bp, form);
+                for rig in SloopRig::ALL {
+                    out.push((
+                        sloop::build_rigged(&ctx, &hull, rig, kit),
+                        hull,
+                        rig,
+                        format!(
+                            "a {} m {} pirate sloop on a {}",
+                            hull.loa,
+                            form.label(),
+                            rig.label()
+                        ),
+                    ));
+                }
+            }
+        }
+        out
+    }
+
+    /// The Pirate kit is PIRATE-ONLY - the successor to the retired catalogue
+    /// contract test `the_buccaneer_boat_kit_is_pirate_only`, which went with
+    /// the boat slugs in #1363 and had nothing to pin since (#1379).
+    ///
+    /// Over EVERY theme, not over the seeds that happen to roll: the gate is
+    /// [`mood::BUCCANEER`], a group of one, and the failure this prevents is
+    /// a second theme drifting into that group and quietly putting a jolly
+    /// roger on a Nordic longship's owner's sloop.
+    #[test]
+    fn the_pirate_kit_is_pirate_only() {
+        use crate::seeded_defaults::ThemeArchetype;
+        let mut pirates = 0;
+        for style in ThemeArchetype::ALL {
+            let kit = sloop::SloopKit::for_style(style);
+            let want = style == ThemeArchetype::Pirate;
+            assert_eq!(
+                kit.pirate,
+                want,
+                "{style:?} draws {} - the kit is the Pirate's alone",
+                kit.label()
+            );
+            pirates += usize::from(kit.pirate);
+        }
+        assert_eq!(pirates, 1, "exactly one theme wears the kit");
+    }
+
+    /// A seed's kit follows her theme, and a Pirate seed's boat really does
+    /// come out heavier than the same seed's would without one - the gate is
+    /// wired to the builder and not only to the value.
+    #[test]
+    fn a_pirate_seed_draws_the_kit_and_no_one_else_does() {
+        use crate::seeded_defaults::{AvatarCharacter, BoatType, SloopRig, ThemeArchetype};
+        let (mut pirates, mut others) = (0, 0);
+        for s in (0u64..1200).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
+            if BoatType::for_seed(s) != BoatType::Sloop {
+                continue;
+            }
+            let ctx = PartCtx::for_seed(s);
+            let hull = sloop_hull_for(s);
+            let rig = SloopRig::for_seed(s);
+            let kit = sloop::SloopKit::for_seed(s);
+            let is_pirate = AvatarCharacter::for_seed(s).style == ThemeArchetype::Pirate;
+            assert_eq!(kit.pirate, is_pirate, "seed {s}: the kit ignored her theme");
+            let bare = sloop::build_rigged(&ctx, &hull, rig, UNKITTED);
+            let drawn = sloop::build_rigged(&ctx, &hull, rig, kit);
+            if is_pirate {
+                pirates += 1;
+                assert!(
+                    count_nodes(&drawn) > count_nodes(&bare),
+                    "seed {s} is a Pirate and drew nothing extra"
+                );
+            } else {
+                others += 1;
+                assert!(drawn == bare, "seed {s} is not a Pirate and her tree moved");
+            }
+        }
+        assert!(
+            pirates > 5 && others > 50,
+            "only {pirates} pirates and {others} others were reached"
+        );
+    }
+
+    /// Every node in a tree, so a kit can be shown to have drawn something.
+    fn count_nodes(g: &Generator) -> usize {
+        1 + g.children.iter().map(count_nodes).sum::<usize>()
+    }
+
+    /// The kit is deterministic and survives the sanitiser untouched at every
+    /// blueprint extreme, and nothing it adds floats or stands over the cap
+    /// (#1379). The binary defect tests that land with the slice.
+    #[test]
+    fn the_pirate_kit_is_one_machine_inside_the_cap_at_every_corner() {
+        use super::super::common::touch;
+        use crate::pds::sanitize_avatar_visuals;
+        let mut n = 0;
+        for (built, hull, rig, what) in every_kitted_sloop() {
+            let mut sanitized = built.clone();
+            sanitize_avatar_visuals(&mut sanitized);
+            // The kit is the SLOOP'S FIRST ROTATED NODE - her gunports lie on
+            // the skin's own normal and the roger's bones are laid over - so
+            // hers is now a round trip with the rotation epsilon the car
+            // families have always needed (`first_difference`), and exact
+            // everywhere else. Unkitted she still round-trips bit for bit,
+            // which `a_boat_survives_sanitize_unchanged_at_her_blueprint_
+            // extremes` still asserts.
+            if let Some(where_) = first_difference(&built, &sanitized, "0") {
+                panic!("{what} was rewritten by the sanitiser at {where_}");
+            }
+            // Nothing floats: the ensign has to touch the spar or the staff
+            // it flies from, and every port its own hull.
+            touch::assert_one_machine(&built, &what);
+            // The DRAWN top, not the mount - a flag hangs below the head it
+            // flies from, so the kit must not move the air draft at all.
+            let drawn = touch::highest(&built) + hover(hull.draft);
+            assert!(
+                drawn <= AIR_DRAFT_CAP,
+                "{what}: she draws to {drawn} m over the ground, past the \
+                 {AIR_DRAFT_CAP} m cap"
+            );
+            let bare = touch::highest(&sloop::build_rigged(
+                &PartCtx::for_seed(
+                    (0u64..600)
+                        .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat)
+                        .expect("some seed is a boat"),
+                ),
+                &hull,
+                rig,
+                UNKITTED,
+            ));
+            assert!(
+                touch::highest(&built) <= bare + 1e-4,
+                "{what}: the kit raised her highest point from {bare} to {}",
+                touch::highest(&built)
+            );
+            n += 1;
+        }
+        assert_eq!(n, 5 * 4 * 5, "the kit sweep lost a combination");
+    }
+
+    /// The kit is deterministic: the same seed draws the same bytes twice.
+    #[test]
+    fn a_pirate_sloop_is_deterministic() {
+        use crate::seeded_defaults::{BoatType, SloopRig};
+        let mut n = 0;
+        for s in (0u64..1200).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
+            if BoatType::for_seed(s) != BoatType::Sloop || !sloop::SloopKit::for_seed(s).pirate {
+                continue;
+            }
+            let ctx = PartCtx::for_seed(s);
+            let hull = sloop_hull_for(s);
+            let kit = sloop::SloopKit::for_seed(s);
+            let rig = SloopRig::for_seed(s);
+            let once = sloop::build_rigged(&ctx, &hull, rig, kit);
+            let twice = sloop::build_rigged(&ctx, &hull, rig, kit);
+            assert!(once == twice, "seed {s} drew two different pirates");
+            n += 1;
+        }
+        assert!(n > 5, "only {n} pirate sloops were reached");
     }
 
     /// Nothing a seeded boat carries stands over the air-draft cap (#1359
@@ -487,8 +678,8 @@ mod tests {
             let ctx = PartCtx::for_seed(s);
             for (i, rig) in SloopRig::ALL.into_iter().enumerate() {
                 let derived = sloop::top_of_rig(&hull, rig) + hover(hull.draft);
-                let drawn =
-                    touch::highest(&sloop::build_rigged(&ctx, &hull, rig)) + hover(hull.draft);
+                let drawn = touch::highest(&sloop::build_rigged(&ctx, &hull, rig, UNKITTED))
+                    + hover(hull.draft);
                 assert!(
                     derived.max(drawn) <= AIR_DRAFT_CAP,
                     "seed {s}, {}: the rig was resolved to {derived} m over the \
@@ -1391,7 +1582,7 @@ mod tests {
             for form in SloopHull::ALL {
                 let hull = sloop::profile_of(&bp, form);
                 for rig in SloopRig::ALL {
-                    let mut built = sloop::build_rigged(&ctx, &hull, rig);
+                    let mut built = sloop::build_rigged(&ctx, &hull, rig, UNKITTED);
                     apply_travel_pose(&mut built, TRAVEL_DROP);
                     worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
                 }
@@ -1424,6 +1615,13 @@ mod tests {
         // twelve strakes, a striped and patched sail, the tent and the
         // serpent. `every_longship` crosses both variants with the serpent
         // either way, so the worst of it is in here.
+        // And a PIRATE sloop at her fullest, which is the only thing the
+        // sloop can draw that `every_sloop` above does not (#1379).
+        for (built, ..) in every_kitted_sloop() {
+            let mut built = built;
+            apply_travel_pose(&mut built, TRAVEL_DROP);
+            worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
+        }
         for (built, ..) in every_longship() {
             let mut built = built;
             apply_travel_pose(&mut built, TRAVEL_DROP);

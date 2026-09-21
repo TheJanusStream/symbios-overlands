@@ -74,6 +74,21 @@ pub(super) trait Rigging: Sync {
         (0.0, 0.007)
     }
 
+    /// Whether this rig sets a GAFF, and so has a peak - the aft top corner
+    /// of the mainsail, and the traditional place for a flag bigger than a
+    /// burgee.
+    ///
+    /// True for the three rigs that draw through [`Rig::gaff_main`]. The
+    /// gunter's yard and the stumpy bermudan's mast carry no peak at all, so
+    /// [`Rig::peak_head`] means nothing on them and the Pirate kit steps a
+    /// staff at the taffrail instead (#1379). Asked of the rig rather than
+    /// measured off its spars: a gunter's yard head stands only 0.03 of her
+    /// length abaft the mast, so a geometric test for "a spar ending aft and
+    /// high" is a threshold waiting to be wrong.
+    fn has_gaff_peak(&self) -> bool {
+        true
+    }
+
     /// Draw the rig.
     fn build(&self, rig: &Rig, kids: &mut Vec<Generator>, hull: &HullProfile, c: &BoatColours);
 }
@@ -93,9 +108,9 @@ pub(super) fn rigging(r: SloopRig) -> &'static dyn Rigging {
 /// there.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Head {
-    y: f32,
-    z: f32,
-    r: f32,
+    pub(super) y: f32,
+    pub(super) z: f32,
+    pub(super) r: f32,
 }
 
 /// A rig's heights, all measured from the design waterline and all resolved
@@ -205,6 +220,23 @@ impl Rig {
     /// nominal size and the boat came apart at the throat (#1366).
     fn jaw(&self, y: f32, rise: f32) -> [f32; 3] {
         [0.0, y + rise, self.mast_z - self.mast_radius_at(y) * 0.5]
+    }
+
+    /// The GAFF'S head as a spar head: where [`Self::gaff_main`] ends the
+    /// spar, not where the sail's corner is.
+    ///
+    /// One definition, read by the spar itself and by anything flown from it.
+    /// A second copy of these numbers is exactly how the burgee came to float
+    /// clear of the gunter's yard (#1366 defect 4), and a flag at the peak is
+    /// the same shape of mistake waiting to happen.
+    ///
+    /// Only meaningful where [`Rigging::has_gaff_peak`] holds.
+    pub(super) fn peak_head(&self) -> Head {
+        Head {
+            y: self.peak_y + self.loa * 0.009,
+            z: self.peak_z,
+            r: dim(self.loa * 0.0054),
+        }
     }
 
     /// The masthead as a spar head.
@@ -332,13 +364,11 @@ impl Rig {
     /// its forward edge running up the gaff.
     fn gaff_main(&self, kids: &mut Vec<Generator>, c: &BoatColours) {
         let loa = self.loa;
+        let peak = self.peak_head();
         kids.push(line(
             &[
                 (self.jaw(self.throat, loa * 0.010), dim(loa * 0.0068)),
-                (
-                    [0.0, self.peak_y + loa * 0.009, self.peak_z],
-                    dim(loa * 0.0054),
-                ),
+                ([0.0, peak.y, peak.z], peak.r),
             ],
             8,
             c.timber.clone(),

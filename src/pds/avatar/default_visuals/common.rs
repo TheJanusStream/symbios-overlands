@@ -438,9 +438,11 @@ pub(crate) fn first_difference(a: &Generator, b: &Generator, path: &str) -> Opti
     // every quaternion, which moves the last ulp of an already-normalised
     // one. `quat_x(FRAC_PI_2)` is exactly that case - sin and cos of a
     // quarter turn are both 0.70710677 and the pair's norm is a hair under
-    // one - and the sloop never met it because she authors no rotated
-    // node, where a car is nothing but rotated nodes, and a runabout has her
-    // wheel, her seat backs and her pods (#1372). Shared by both families'
+    // one - where a car is nothing but rotated nodes, and a runabout has her
+    // wheel, her seat backs and her pods (#1372). The SLOOP met it for the
+    // first time in #1379: unkitted she still authors no rotated node and
+    // round-trips bit for bit, but a Pirate's gunports lie on the skin's own
+    // normal and her roger's bones are laid over. Shared by both families'
     // round-trip guards.
     let turned =
         (0..4).any(|i| (a.transform.rotation.0[i] - b.transform.rotation.0[i]).abs() > 1e-5);

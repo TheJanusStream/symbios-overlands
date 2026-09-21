@@ -22,6 +22,12 @@ impl Rigging for Gunter {
         0.62
     }
 
+    /// Her yard is hoisted almost up the mast, not peaked aft, so there is no
+    /// peak on this rig - see [`Rigging::has_gaff_peak`].
+    fn has_gaff_peak(&self) -> bool {
+        false
+    }
+
     fn build(&self, rig: &Rig, kids: &mut Vec<Generator>, hull: &HullProfile, c: &BoatColours) {
         let loa = rig.loa;
         rig.mast_spar(kids, c);
