@@ -112,7 +112,7 @@ use bevy::math::Isometry3d;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 
-pub use compile::pad::{snap_footprint_radius, snap_radius_of, snapped_ground_y};
+pub use compile::pad::{snap_footprint_radius, snapped_absolute_anchor, snapped_ground_y};
 pub use lsystem::{LSystemMaterialCache, LSystemMeshCache};
 pub use prim::{FaceTable, PrimMesh, build_primitive_mesh, enumerate_faces};
 pub use shape::{ShapeMaterialCache, ShapeMeshCache};
@@ -700,9 +700,9 @@ fn draw_placement_visualizers(
         return;
     };
 
-    // Resolve through the shared reader so the preview marker sits where
-    // the compile will actually put the anchor - a seeded structure
-    // resolves against its whole footprint, not its centre (#1008/#1011).
+    // Resolve through the shared readers so each outline sits where the
+    // compile will actually put the anchor (#1008/#1011) - for an
+    // Absolute placement, through `snapped_absolute_anchor` below.
     let radius = snap_footprint_radius(placement);
     let get_y = |x: f32, z: f32| -> f32 {
         heightmap
@@ -717,15 +717,26 @@ fn draw_placement_visualizers(
         Placement::Absolute {
             transform,
             snap_to_terrain,
+            avoid_water,
+            avoid_water_clearance,
             ..
         } => {
             let mut pos = Vec3::from_array(transform.translation.0);
-            if *snap_to_terrain {
+            if *snap_to_terrain && let Some(hm) = heightmap.as_deref() {
                 // Match the compile executor's Absolute semantics: the
                 // authored Y is an OFFSET from the terrain height, not
                 // replaced by it - a preview that drops the offset shows
-                // the gizmo at the wrong altitude (#700).
-                pos.y += get_y(pos.x, pos.z);
+                // the gizmo at the wrong altitude (#700) - and a seeded
+                // placement is first walked off water and steep ground,
+                // so the sphere marks the building, not the spot its
+                // record names (#1399).
+                pos = snapped_absolute_anchor(
+                    &hm.0,
+                    transform,
+                    *avoid_water,
+                    avoid_water_clearance.0,
+                    compile::room_water_level(record),
+                );
             }
             gizmos.sphere(pos, 1.0, color);
         }

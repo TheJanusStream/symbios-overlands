@@ -32,6 +32,20 @@
 //! reads is baked into the offset and *accumulates on every drag*. Read
 //! [`snapped_ground_y`] from all four rather than sampling the heightmap
 //! directly; it is the reason this module is public.
+//!
+//! # Where it stands
+//!
+//! A seeded structure is also MOVED before it snaps: the compile walks it
+//! off water and then off over-steep ground ([`relocate_snapped_anchor`])
+//! and reads the ground under the walked anchor, while its record keeps
+//! the authored x/z - seed 253's kiosk stands 6 m from its record's spot.
+//! So the sites that show an object where the world has it, or keep one
+//! there, walk it the same way (#1399): the placement outline and the snap
+//! toggle through [`snapped_absolute_anchor`], the executor through the
+//! walk itself. The drag commit needs neither - it rebases against the
+//! pose the drag started from, which is already the walked one (#1398).
+
+use bevy::math::Vec3;
 
 /// Samples around the footprint rim. A heightfield's maximum over a disc
 /// lies either at a grid vertex inside it or somewhere on its rim; the
@@ -68,7 +82,7 @@ pub fn snap_footprint_radius(placement: &crate::pds::Placement) -> Option<f32> {
 
 /// [`snap_footprint_radius`] from the loose fields, for callers that hold
 /// a destructured placement rather than the enum.
-pub fn snap_radius_of(avoid_water: bool, clearance: f32, scale_x: f32) -> Option<f32> {
+fn snap_radius_of(avoid_water: bool, clearance: f32, scale_x: f32) -> Option<f32> {
     let r = clearance * scale_x.max(0.0);
     (avoid_water && r > 0.0).then_some(r)
 }
@@ -87,6 +101,60 @@ pub fn snapped_ground_y(
     let extent = (hm.width().saturating_sub(1)) as f32 * hm.scale();
     let half = extent * 0.5;
     footprint_height(hm, extent, half, x, z, radius.unwrap_or(0.0))
+}
+
+/// The dry disc a snapped placement's relocation must clear, or `None`
+/// for one the compile never relocates.
+///
+/// Only a placement that opts into Avoid Water - the seeded pipeline's
+/// marker - is walked, and its disc scales with the placement's own scale,
+/// so a 1.2x landmark demands a 1.2x dry disc. Unlike [`snap_radius_of`],
+/// zero is an answer: the walk then checks the anchor's centre alone.
+pub(super) fn relocation_clearance(avoid_water: bool, clearance: f32, scale_x: f32) -> Option<f32> {
+    avoid_water.then_some(clearance * scale_x.max(0.0))
+}
+
+/// Walk a snapped anchor to where the compile stands it: off water, then
+/// off over-steep ground (#905), along its bearing through the origin.
+/// Moves X/Z only. `clearance` comes from [`relocation_clearance`]; a
+/// placement without one is never walked.
+pub(super) fn relocate_snapped_anchor(
+    hm: &bevy_symbios_ground::HeightMap,
+    translation: &mut Vec3,
+    clearance: f32,
+    room_water_y: Option<f32>,
+) {
+    let extent = (hm.width().saturating_sub(1)) as f32 * hm.scale();
+    let half = extent * 0.5;
+    if let Some(water_y) = room_water_y {
+        super::water::relocate_above_water(hm, extent, half, translation, water_y, clearance);
+    }
+    super::slope::relocate_off_steep_ground(hm, extent, half, translation, room_water_y, clearance);
+}
+
+/// Where the compile draws a SNAPPED `Absolute` placement's anchor: its
+/// record's x/z, walked by [`relocate_snapped_anchor`] when it avoids
+/// water, on the ground there ([`snapped_ground_y`]) plus its authored Y
+/// as an offset. `room_water_y` is the room's water line, as the compile
+/// reads it (`room_water_level`).
+///
+/// The editor's reading of the anchor, for the sites in the module docs'
+/// "Where it stands" (#1399).
+pub fn snapped_absolute_anchor(
+    hm: &bevy_symbios_ground::HeightMap,
+    transform: &crate::pds::TransformData,
+    avoid_water: bool,
+    avoid_water_clearance: f32,
+    room_water_y: Option<f32>,
+) -> Vec3 {
+    let mut anchor = Vec3::from_array(transform.translation.0);
+    let scale_x = transform.scale.0[0];
+    if let Some(clearance) = relocation_clearance(avoid_water, avoid_water_clearance, scale_x) {
+        relocate_snapped_anchor(hm, &mut anchor, clearance, room_water_y);
+    }
+    let radius = snap_radius_of(avoid_water, avoid_water_clearance, scale_x);
+    anchor.y += snapped_ground_y(hm, anchor.x, anchor.z, radius);
+    anchor
 }
 
 /// Height of the ground a footprint of `radius` centred on `(x, z)` rests
@@ -157,6 +225,24 @@ pub(super) fn footprint_height(
         }
     }
     highest
+}
+
+/// Ground a seeded anchor is walked across (#1399): 129 x 129 at 1 m
+/// (world -64..64), rising 0.2 m per metre of +X through 0 at x = 30 and
+/// flat along Z - gentle everywhere against the steep walk's 0.45. Under a
+/// water line at 0 it is wet out to x = 33.75, where the walks' 0.75 m
+/// freeboard begins. So an anchor recorded at (25, 0) with a 3 m clearance
+/// is walked out along its bearing to exactly (37, 0): the probes at 31 m
+/// and 19 m are wet, and at 37 m the ring's nearest point (34 m) reads 0.8.
+#[cfg(test)]
+pub(crate) fn wet_ramp() -> crate::terrain::FinishedHeightMap {
+    let mut hm = bevy_symbios_ground::HeightMap::new(129, 129, 1.0);
+    for z in 0..129 {
+        for x in 0..129 {
+            hm.set(x, z, 0.2 * (x as f32 - 64.0 - 30.0));
+        }
+    }
+    crate::terrain::FinishedHeightMap(hm)
 }
 
 #[cfg(test)]

@@ -624,12 +624,23 @@ pub(super) fn draw_placements_tab(
                     );
                     return;
                 };
+                // Read before the placement is borrowed out of the record:
+                // un-snapping walks a seeded anchor against it (#1399).
+                let room_water_y = crate::world_builder::compile::room_water_level(record);
                 let Some(p) = record.placements.get_mut(idx) else {
                     return;
                 };
                 ui.heading(placement_label(idx, p));
                 ui.add_space(4.0);
-                draw_placement_detail(ui, p, &all_names, &eligible_names, heightmap, dirty);
+                draw_placement_detail(
+                    ui,
+                    p,
+                    &all_names,
+                    &eligible_names,
+                    heightmap,
+                    room_water_y,
+                    dirty,
+                );
             });
     });
 }
@@ -640,6 +651,9 @@ fn draw_placement_detail(
     all_names: &[String],
     eligible_names: &[String],
     heightmap: Option<&crate::terrain::FinishedHeightMap>,
+    // The room's water line, which the compile walks a seeded anchor
+    // against (`room_water_level`).
+    room_water_y: Option<f32>,
     dirty: &mut bool,
 ) {
     match placement {
@@ -668,23 +682,26 @@ fn draw_placement_detail(
                     // ON: drop onto the surface - zero the offset (#701).
                     transform.translation.0[1] = 0.0;
                 } else if let Some(hm) = heightmap {
-                    // OFF: stay in place - bake the ground height into the
-                    // now-absolute Y (#700). Read through the shared
-                    // resolver so the object does not move when the flag
-                    // flips: a seeded structure is rendered at its
-                    // footprint's high point, not its centre (#1008/#1011).
-                    transform.translation.0[1] += crate::world_builder::snapped_ground_y(
+                    // OFF: stay in place (#700). Unsnapped, the compile
+                    // draws the record verbatim, so write back the anchor
+                    // it drew while snapped - read through the shared
+                    // resolver, so the object does not move when the flag
+                    // flips. That bakes the ground under it into the now-
+                    // absolute Y (a seeded structure's is its footprint's
+                    // high point, #1008/#1011), and it keeps the x/z too:
+                    // a seeded placement is walked off water and steep
+                    // ground only while snapped, so leaving the record's
+                    // spot jumped it back there - 6 m on seed 253's kiosk
+                    // (#1399). `avoid_water` is untouched by this toggle,
+                    // so the walk reads exactly as it did while snapped.
+                    transform.translation = Fp3(crate::world_builder::snapped_absolute_anchor(
                         &hm.0,
-                        transform.translation.0[0],
-                        transform.translation.0[2],
-                        // `avoid_water` is untouched by this toggle, so the
-                        // radius reads exactly as it did while snapped.
-                        crate::world_builder::snap_radius_of(
-                            *avoid_water,
-                            avoid_water_clearance.0,
-                            transform.scale.0[0],
-                        ),
-                    );
+                        transform,
+                        *avoid_water,
+                        avoid_water_clearance.0,
+                        room_water_y,
+                    )
+                    .to_array());
                 }
                 *dirty = true;
             }
@@ -1472,5 +1489,143 @@ mod tests {
         assert_eq!(placement_target(&rows[1]), "shed_v2");
         assert_eq!(placement_target(&rows[2]), "shed_v2");
         assert!(matches!(rows[3], Placement::Unknown));
+    }
+
+    /// Click "Snap to Terrain" on `placement`'s detail panel the way a
+    /// person does - lay the panel out, press on the checkbox, release -
+    /// and say whether the panel marked the record dirty.
+    fn click_snap_to_terrain(
+        placement: &mut Placement,
+        hm: &crate::terrain::FinishedHeightMap,
+        room_water_y: Option<f32>,
+    ) -> bool {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let names = vec!["landmark".to_string()];
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let mut dirty = false;
+        let mut checkbox = None;
+        for frame in 0..3 {
+            let events = match (frame, checkbox) {
+                (1, Some(at)) => vec![egui::Event::PointerMoved(at), button(at, true)],
+                (2, Some(at)) => vec![button(at, false)],
+                _ => Vec::new(),
+            };
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            };
+            let output = ctx.run_ui(input, |ui| {
+                draw_placement_detail(
+                    ui,
+                    placement,
+                    &names,
+                    &names,
+                    Some(hm),
+                    room_water_y,
+                    &mut dirty,
+                );
+            });
+            if frame == 0 {
+                checkbox = output
+                    .platform_output
+                    .accesskit_update
+                    .iter()
+                    .flat_map(|update| &update.nodes)
+                    .find(|(_, node)| {
+                        node.role() == egui::accesskit::Role::CheckBox
+                            && node.label() == Some("Snap to Terrain")
+                    })
+                    .and_then(|(_, node)| node.bounds())
+                    .map(|b| {
+                        egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
+                    });
+            }
+        }
+        assert!(
+            checkbox.is_some(),
+            "the panel drew no Snap to Terrain checkbox"
+        );
+        dirty
+    }
+
+    /// #1399: "Snap to Terrain" clicked off keeps a seeded placement where
+    /// the world drew it, x/z and all. The compile walks a seeded anchor off
+    /// water and steep ground only while it is snapped, and the toggle kept
+    /// the record's x/z - baking only the ground under it into Y - so the
+    /// placement jumped back to the spot it had been walked off: 6 m, into
+    /// a palm and a gateway, on seed 253's kiosk. The control is one the
+    /// walk left alone, which un-snaps exactly as before. The reading is
+    /// tied to what the compile draws by the executor's
+    /// `the_editor_reads_a_snapped_anchor_where_the_compile_draws_it`.
+    #[test]
+    fn snapping_off_keeps_a_walked_placement_where_it_was_drawn() {
+        use crate::world_builder::{snapped_absolute_anchor, snapped_ground_y};
+
+        let hm = crate::world_builder::compile::pad::wet_ramp();
+        let room_water_y = Some(0.0);
+        let landmark = |x: f32| Placement::Absolute {
+            generator_ref: "landmark".into(),
+            transform: TransformData {
+                translation: Fp3([x, -0.35, 0.0]),
+                ..Default::default()
+            },
+            snap_to_terrain: true,
+            avoid_water: true,
+            avoid_water_clearance: Fp(3.0),
+        };
+        let snapped_off = |mut placement: Placement| {
+            assert!(
+                click_snap_to_terrain(&mut placement, &hm, room_water_y),
+                "a toggle is an edit"
+            );
+            let Placement::Absolute {
+                transform,
+                snap_to_terrain,
+                ..
+            } = placement
+            else {
+                panic!("landmark() is Absolute");
+            };
+            assert!(!snap_to_terrain, "the click turned snap off");
+            transform.translation.0
+        };
+        let bits = |v: [f32; 3]| v.map(f32::to_bits);
+
+        // Control: recorded on dry ground, so never walked - the ground
+        // under it baked into Y, to the bit what it always was.
+        let ground = snapped_ground_y(&hm.0, 44.0, 0.0, Some(3.0));
+        let before = [44.0, -0.35 + ground, 0.0];
+        let after = snapped_off(landmark(44.0));
+        assert_eq!(
+            bits(after),
+            bits(before),
+            "control: an unwalked placement un-snaps as it always did, at {before:?}, not {after:?}"
+        );
+
+        // Recorded in the water at 25 m, drawn 12 m further out: it stays
+        // out there.
+        let Placement::Absolute { transform, .. } = landmark(25.0) else {
+            panic!("landmark() is Absolute");
+        };
+        let drawn = snapped_absolute_anchor(&hm.0, &transform, true, 3.0, room_water_y);
+        assert_eq!(
+            [drawn.x, drawn.z],
+            [37.0, 0.0],
+            "fixture: the walk moves it"
+        );
+        let after = snapped_off(landmark(25.0));
+        assert_eq!(
+            bits(after),
+            bits(drawn.to_array()),
+            "a walked placement un-snaps where it was drawn, {drawn}, not at {after:?}"
+        );
     }
 }

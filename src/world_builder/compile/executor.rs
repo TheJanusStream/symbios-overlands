@@ -50,7 +50,7 @@ use super::job::{
 };
 use super::scatter::unit_f32;
 use super::spawn_ctx::{GeneratorCaches, SpawnCtx, budget_exceeded, transform_from_data};
-use super::water::{relocate_above_water, room_water_level};
+use super::water::room_water_level;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn compile_room_record(
@@ -515,9 +515,11 @@ fn start_unit(
         } => (
             transform_from_data(transform).with_scale(Vec3::ONE),
             *snap_to_terrain,
-            // Clearance scales with the placement's uniform scale so
-            // a 1.2× landmark demands a 1.2× dry disc.
-            avoid_water.then_some(avoid_water_clearance.0 * transform.scale.0[0].max(0.0)),
+            super::pad::relocation_clearance(
+                *avoid_water,
+                avoid_water_clearance.0,
+                transform.scale.0[0],
+            ),
         ),
         Placement::Scatter {
             bounds,
@@ -564,32 +566,20 @@ fn start_unit(
     if snap {
         if let Some(hm_res) = ctx.heightmap {
             let hm = &hm_res.0;
-            let extent = (hm.width() - 1) as f32 * hm.scale();
-            let half = extent * 0.5;
             // Water-avoiding placements slide to dry land before the
             // height sample (may move X/Z, preserves bearing), then off
             // over-steep ground (#905) - the safety net under the
             // derive-time proxy siting. Both walks are gated on the
             // seeded pipeline's `avoid_water` opt-in, so editor-authored
-            // placements are never second-guessed.
+            // placements are never second-guessed. The editor walks an
+            // anchor through the same function wherever it shows one
+            // (#1399), so the two cannot disagree about where it stands.
             if let Some(clearance) = avoid_water {
-                if let Some(water_y) = room_water_y {
-                    relocate_above_water(
-                        hm,
-                        extent,
-                        half,
-                        &mut anchor_world_tf.translation,
-                        water_y,
-                        clearance,
-                    );
-                }
-                super::slope::relocate_off_steep_ground(
+                super::pad::relocate_snapped_anchor(
                     hm,
-                    extent,
-                    half,
                     &mut anchor_world_tf.translation,
-                    room_water_y,
                     clearance,
+                    room_water_y,
                 );
             }
             // Absolute placements keep their authored Y as an offset
@@ -911,7 +901,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::pds::{Environment, Fp, Fp3, Fp4, Generator, TransformData};
+    use crate::pds::{Environment, Fp, Fp3, Fp4, Generator, GeneratorKind, TransformData};
 
     fn test_placement(x: f32) -> Placement {
         Placement::Absolute {
@@ -1120,5 +1110,112 @@ mod tests {
         assert_eq!(anchors_after[0], anchors_before[0], "unit 0 untouched");
         assert_eq!(anchors_after[2], anchors_before[2], "unit 2 untouched");
         assert_ne!(anchors_after[1], anchors_before[1], "unit 1 rebuilt");
+    }
+
+    /// #1399: the editor reads a snapped Absolute anchor exactly where this
+    /// compile draws it, walk and all, and a record carrying that pose with
+    /// snap off draws in the same place - the snap toggle's "turning it OFF
+    /// keeps it where it is". Compiled for real: the editor's reading is
+    /// only worth its agreement with the executor.
+    #[test]
+    fn the_editor_reads_a_snapped_anchor_where_the_compile_draws_it() {
+        let snapped = |x: f32, avoid_water: bool| Placement::Absolute {
+            generator_ref: "box".to_string(),
+            transform: TransformData {
+                translation: Fp3([x, -0.35, 0.0]),
+                ..Default::default()
+            },
+            snap_to_terrain: true,
+            avoid_water,
+            avoid_water_clearance: Fp(3.0),
+        };
+        let mut record = test_record(0);
+        // The seeded layout: the room's water is a child of its terrain,
+        // here at 0 - the line `wet_ramp` is drawn against.
+        let mut terrain = Generator::from_kind(GeneratorKind::Terrain(Default::default()));
+        terrain
+            .children
+            .push(Generator::from_kind(GeneratorKind::Water {
+                surface: Default::default(),
+            }));
+        record
+            .generators
+            .insert("base_terrain".to_string(), terrain);
+        record.placements = vec![
+            // Controls first. Seeded, recorded on dry ground: stays.
+            snapped(44.0, true),
+            // Hand-placed in the water: never second-guessed.
+            snapped(25.0, false),
+            // Seeded, recorded in the water: walked out along its bearing.
+            snapped(25.0, true),
+        ];
+        let room_water_y = room_water_level(&record);
+        assert_eq!(room_water_y, Some(0.0));
+
+        let mut app = compile_app(record);
+        app.insert_resource(super::super::pad::wet_ramp());
+        settle(&mut app);
+        let drawn = |app: &App| -> Vec<Vec3> {
+            unit_anchors(app)
+                .into_iter()
+                .map(|anchor| {
+                    let anchor = anchor.expect("every unit spawns an anchor");
+                    app.world()
+                        .get::<Transform>(anchor)
+                        .expect("an anchor")
+                        .translation
+                })
+                .collect()
+        };
+        let bits = |v: Vec3| v.to_array().map(f32::to_bits);
+        let snapped_poses = drawn(&app);
+
+        // The fixture does what it says: the walk moved the seeded anchor
+        // recorded in the water, and nothing else.
+        let xz = |v: Vec3| [v.x, v.z];
+        assert_eq!(xz(snapped_poses[0]), [44.0, 0.0]);
+        assert_eq!(xz(snapped_poses[1]), [25.0, 0.0]);
+        assert_eq!(xz(snapped_poses[2]), [37.0, 0.0], "walked 12 m out");
+
+        let hm = super::super::pad::wet_ramp();
+        let mut record = app.world().resource::<LiveRoomRecord>().0.clone();
+        for (i, placement) in record.placements.iter_mut().enumerate() {
+            let Placement::Absolute {
+                transform,
+                snap_to_terrain,
+                avoid_water,
+                avoid_water_clearance,
+                ..
+            } = placement
+            else {
+                panic!("test record uses Absolute placements");
+            };
+            let read = crate::world_builder::snapped_absolute_anchor(
+                &hm.0,
+                transform,
+                *avoid_water,
+                avoid_water_clearance.0,
+                room_water_y,
+            );
+            assert_eq!(
+                bits(read),
+                bits(snapped_poses[i]),
+                "placement {i}: the editor reads {read}, the compile draws {}",
+                snapped_poses[i]
+            );
+            // Un-snapped the way the editor's toggle does it: the pose it
+            // was drawn at becomes its absolute translation.
+            transform.translation = Fp3(read.to_array());
+            *snap_to_terrain = false;
+        }
+        app.world_mut().resource_mut::<LiveRoomRecord>().0 = record;
+        settle(&mut app);
+        for (i, (after, before)) in drawn(&app).into_iter().zip(&snapped_poses).enumerate() {
+            assert_eq!(
+                bits(after),
+                bits(*before),
+                "placement {i} moved from {before} to {after} when snap was turned off"
+            );
+        }
     }
 }
