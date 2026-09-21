@@ -105,7 +105,12 @@ pub(super) fn commit_room_drag(
         if is_copy {
             if let Some(original) = record.placements.get(marker_idx).cloned() {
                 let mut new_placement = original;
-                if write_transform_into_placement(&mut new_placement, &transform, heightmap) {
+                if write_transform_into_placement(
+                    &mut new_placement,
+                    &transform,
+                    &original_world_tf,
+                    heightmap,
+                ) {
                     record.placements.push(new_placement);
                     editor.selected_placement = Some(record.placements.len() - 1);
                     return true;
@@ -114,7 +119,7 @@ pub(super) fn commit_room_drag(
             return false;
         }
         if let Some(placement) = record.placements.get_mut(marker_idx)
-            && write_transform_into_placement(placement, &transform, heightmap)
+            && write_transform_into_placement(placement, &transform, &original_world_tf, heightmap)
         {
             return true;
         }
@@ -524,9 +529,16 @@ pub(crate) fn append_sibling_at_path(
 /// the next recompile (#701). The Y rebase below keeps the two frames
 /// straight: sideways drags preserve the surface offset (the object
 /// sticks to the terrain), vertical drags adjust it.
+///
+/// `drag_start` is the anchor's world pose when the drag began, which is
+/// where the compile DREW it - not always where the record says. Avoid
+/// Water slides a seeded placement off water and then off steep ground
+/// before it snaps, and the record keeps the authored x/z, so the rebase
+/// reads the ground under the drag start (#1398).
 fn write_transform_into_placement(
     placement: &mut Placement,
     transform: &Transform,
+    drag_start: &Transform,
     heightmap: Option<&crate::terrain::FinishedHeightMap>,
 ) -> bool {
     // The ground reading MUST match the compile executor's (#1011): the
@@ -543,15 +555,20 @@ fn write_transform_into_placement(
         } => {
             let mut translation = transform.translation.to_array();
             if *snap_to_terrain && let Some(hm) = heightmap {
-                // The anchor sat at ground(old x/z) + old offset when the
-                // drag started, so subtracting the ground at the OLD x/z
-                // (still in the record here) turns the dragged world Y
-                // back into "offset + vertical drag delta": pure sideways
-                // drags keep the offset, vertical drags change it.
+                // The anchor sat at ground(start x/z) + offset when the
+                // drag started, so subtracting the ground at the START
+                // turns the dragged world Y back into "offset + vertical
+                // drag delta": pure sideways drags keep the offset,
+                // vertical drags change it. Read at the record's x/z, a
+                // relocated anchor's ground differs and the difference
+                // lands in the offset - one drag of seed 253's kiosk took
+                // it from -0.35 (sunk foundations) to 0.395 (floating).
+                // For a placement the compile did not move, the two x/z
+                // are the same numbers.
                 translation[1] -= crate::world_builder::snapped_ground_y(
                     &hm.0,
-                    rec_tf.translation.0[0],
-                    rec_tf.translation.0[2],
+                    drag_start.translation.x,
+                    drag_start.translation.z,
                     radius,
                 );
             }
@@ -668,6 +685,98 @@ mod tests {
         assert!(unchanged.rotation.angle_between(root_old.rotation) < 5e-3);
         assert!(unchanged.scale.distance(root_old.scale) < 1e-3);
     }
+
+    /// 129 x 129 at 1 m, so world -64..64: `map_from` from
+    /// `world_builder::compile::pad`'s tests, finished.
+    fn map_from(f: impl Fn(f32, f32) -> f32) -> crate::terrain::FinishedHeightMap {
+        let mut hm = bevy_symbios_ground::HeightMap::new(129, 129, 1.0);
+        for z in 0..129 {
+            for x in 0..129 {
+                hm.set(x, z, f(x as f32 - 64.0, z as f32 - 64.0));
+            }
+        }
+        crate::terrain::FinishedHeightMap(hm)
+    }
+
+    /// #1398: a sideways drag keeps a snapped placement's offset even when
+    /// the compile drew it away from its record. Avoid Water slides a
+    /// seeded placement off water and steep ground and snaps it where it
+    /// lands, so the drag starts on other ground than the record's x/z;
+    /// rebased against the record's, the difference went into the offset
+    /// (seed 253's kiosk: -0.35 to 0.395 on one 2 m drag, floating). The
+    /// control is a placement drawn where it is recorded, which must commit
+    /// exactly what it did before.
+    #[test]
+    fn a_relocated_placement_keeps_its_offset_when_dragged_sideways() {
+        use crate::pds::Fp;
+        use crate::world_builder::{snap_footprint_radius, snapped_ground_y};
+
+        const OFFSET: f32 = -0.35;
+        let hm = map_from(|x, z| 0.25 * x + 0.1 * z);
+        // A seeded landmark as the settlement deriver writes one: snapped,
+        // Avoid Water, foundations sunk, recorded 25 m from the origin.
+        let (rx, rz) = (24.0, -7.0);
+        let landmark = || Placement::Absolute {
+            generator_ref: "landmark".into(),
+            transform: TransformData {
+                translation: Fp3([rx, OFFSET, rz]),
+                ..Default::default()
+            },
+            snap_to_terrain: true,
+            avoid_water: true,
+            avoid_water_clearance: Fp(8.0),
+        };
+        let radius = snap_footprint_radius(&landmark());
+        // The anchor the compile spawns at (x, z): its own ground reading
+        // plus the offset.
+        let drawn_at = |x: f32, z: f32| {
+            Transform::from_xyz(x, snapped_ground_y(&hm.0, x, z, radius) + OFFSET, z)
+        };
+        // Two metres along the ground, no lift.
+        let sideways = |start: &Transform| {
+            Transform::from_translation(start.translation + Vec3::new(1.6, 0.0, 1.2))
+        };
+        let committed = |start: &Transform| {
+            let mut placement = landmark();
+            assert!(write_transform_into_placement(
+                &mut placement,
+                &sideways(start),
+                start,
+                Some(&hm)
+            ));
+            match placement {
+                Placement::Absolute { transform, .. } => transform.translation.0,
+                other => panic!("variant changed: {other:?}"),
+            }
+        };
+
+        let start = drawn_at(rx, rz);
+        let released = sideways(&start).translation;
+        assert_eq!(
+            committed(&start).map(f32::to_bits),
+            [
+                released.x,
+                released.y - snapped_ground_y(&hm.0, rx, rz, radius),
+                released.z
+            ]
+            .map(f32::to_bits),
+            "control: a placement drawn where it is recorded commits what it always did, to the bit"
+        );
+
+        // Drawn 6 m further out along its bearing - one step of the
+        // dry-land walk - on higher ground.
+        let start = drawn_at(rx * 31.0 / 25.0, rz * 31.0 / 25.0);
+        let rise = start.translation.y - drawn_at(rx, rz).translation.y;
+        assert!(
+            rise > 1.0,
+            "fixture: the relocation must change the ground, rose {rise}"
+        );
+        let offset = committed(&start)[1];
+        assert!(
+            (offset - OFFSET).abs() < 1e-4,
+            "a sideways drag of a relocated placement stored offset {offset}, not {OFFSET}"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -701,6 +810,7 @@ mod scatter_commit_tests {
         assert!(write_transform_into_placement(
             &mut placement,
             &dragged,
+            &Transform::IDENTITY,
             None
         ));
         match placement {
