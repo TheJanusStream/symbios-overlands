@@ -56,6 +56,23 @@ impl BlobElementProxy {
     }
 }
 
+#[cfg(test)]
+impl BlobElementProxy {
+    /// A proxy for element `index` of `blob_entity`, for a test outside
+    /// this module that needs one to exist and nothing more - the drag
+    /// session's lookup (#1397). Its cached element state is a placeholder.
+    pub(crate) fn for_test(index: usize, blob_entity: Entity) -> Self {
+        Self {
+            index,
+            blob_entity,
+            shape: BlobShape::Sphere,
+            radii: [1.0; 3],
+            subtract: false,
+            selected: false,
+        }
+    }
+}
+
 /// Meshes/materials shared by every proxy + the wireframe line material.
 /// Built once at plugin init; per-band materials are shared handles so
 /// reconciling selection state is a handle swap, not an asset write.

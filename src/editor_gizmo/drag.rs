@@ -38,7 +38,7 @@ fn report_drag(toasts: &mut crate::notify::Toasts, time: &Time, outcome: DragOut
     }
 }
 
-/// Placement anchors under the gizmo. This and the four aliases after it
+/// Placement anchors under the gizmo. This and the five aliases after it
 /// are the kinds a drag session tracks, named because both of its edges
 /// look an entity up through them ([`tracked_pose`]). Each holds
 /// `&mut Transform`; the `Without`s keep them provably disjoint.
@@ -123,17 +123,42 @@ type Attachments<'w, 's> = Query<
     ),
 >;
 
+/// Parts of worn props under the gizmo (#1098) - see [`Placements`].
+type AttachmentParts<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static mut Transform,
+        &'static AttachmentPrim,
+        &'static GizmoTarget,
+        Option<&'static GizmoDetachedPrim>,
+    ),
+    (
+        Without<PlacementMarker>,
+        Without<PrimMarker>,
+        Without<AvatarVisualPrim>,
+        Without<BlobElementProxy>,
+        Without<LocalAttachment>,
+    ),
+>;
+
 /// Where a tracked entity stands, and whether it is a blueprint root. The
 /// one lookup both edges of a drag use: the rising edge for the pose the
 /// drag starts from (and whether Shift may copy it), the falling edge for
 /// whether it moved at all (#1396). `None` for anything else, including an
 /// entity that despawned mid-drag.
+///
+/// A kind the `is_active` scan in [`manage_gizmo_drag`] can report but this
+/// cannot find never starts a drag, so its release commits nothing - worn
+/// props' parts, from #1098 until #1397.
 fn tracked_pose(
     entity: Entity,
     placements: &Placements,
     prims: &Prims,
     avatar_prims: &AvatarPrims,
     attachments: &Attachments,
+    parts: &AttachmentParts,
     proxies: &Proxies,
 ) -> Option<(Transform, bool)> {
     if let Ok((_, tf, ..)) = placements.get(entity) {
@@ -147,6 +172,9 @@ fn tracked_pose(
     }
     if let Ok((_, tf, ..)) = attachments.get(entity) {
         return Some((*tf, false));
+    }
+    if let Ok((_, tf, marker, ..)) = parts.get(entity) {
+        return Some((*tf, marker.path.is_empty()));
     }
     proxies.get(entity).ok().map(|(_, tf, ..)| (*tf, false))
 }
@@ -249,25 +277,10 @@ pub(super) fn manage_gizmo_drag(
     // Bundled with the parts-of-worn-props query (#1098) to stay under the
     // 16-parameter ceiling; that query's five `Without`s keep it disjoint
     // from every other `&mut Transform` query above.
-    (rigged_bodies, global_tf, part_query, mut toasts, time): (
+    (rigged_bodies, global_tf, mut part_query, mut toasts, time): (
         Query<&bevy_symbios_avatar::AvatarBody>,
         Query<&GlobalTransform>,
-        Query<
-            (
-                Entity,
-                &mut Transform,
-                &AttachmentPrim,
-                &GizmoTarget,
-                Option<&GizmoDetachedPrim>,
-            ),
-            (
-                Without<PlacementMarker>,
-                Without<PrimMarker>,
-                Without<AvatarVisualPrim>,
-                Without<BlobElementProxy>,
-                Without<LocalAttachment>,
-            ),
-        >,
+        AttachmentParts,
         // #1237 f144 / #1243 f150: every commit refusal in this system was
         // a `warn!` to a console the user does not have, and the scene
         // went on showing the move as having succeeded.
@@ -352,6 +365,7 @@ pub(super) fn manage_gizmo_drag(
             &prim_query,
             &avatar_prim_query,
             &attachment_query,
+            &part_query,
             &proxy_query,
         ) else {
             return;
@@ -381,9 +395,14 @@ pub(super) fn manage_gizmo_drag(
         // session info above, not the placement/prim copy path.
         // Worn props join avatar visuals in refusing copy-on-drag: a second
         // prop means a second attachment RECORD (owned copy, minted TID,
-        // fan-out cap), which is the Attach row's job, not a drag's.
+        // fan-out cap), which is the Attach row's job, not a drag's. Their
+        // parts refuse too (#1397): the part commit has no copy path, so a
+        // Shift-drag would draw the copy ghost and then move the part.
         if is_prim_root
-            || matches!(target_kind, ActiveTarget::Avatar | ActiveTarget::Attachment)
+            || matches!(
+                target_kind,
+                ActiveTarget::Avatar | ActiveTarget::Attachment | ActiveTarget::AttachmentPart
+            )
             || state.blob.is_some()
         {
             is_copy = false;
@@ -416,6 +435,8 @@ pub(super) fn manage_gizmo_drag(
             } else if let Ok((_e, mut tf, _m, _t, _d)) = avatar_prim_query.get_mut(active_entity) {
                 *tf = state.original_world_tf;
             } else if let Ok((_e, mut tf, _w, _t, _d)) = attachment_query.get_mut(active_entity) {
+                *tf = state.original_world_tf;
+            } else if let Ok((_e, mut tf, _a, _t, _d)) = part_query.get_mut(active_entity) {
                 *tf = state.original_world_tf;
             } else if let Ok((_e, mut tf, _p, _t, _d)) = proxy_query.get_mut(active_entity) {
                 *tf = state.original_world_tf;
@@ -478,6 +499,7 @@ pub(super) fn manage_gizmo_drag(
         &prim_query,
         &avatar_prim_query,
         &attachment_query,
+        &part_query,
         &proxy_query,
     )
     .is_some_and(|(released, _)| !moved(&state.original_world_tf, &released));
@@ -738,6 +760,156 @@ mod tests {
             drag_starts(true),
             0,
             "the selecting press is withheld from the gizmo it made appear"
+        );
+    }
+
+    /// What [`tracked_pose`] answers for each of `entities`, asked the way
+    /// the drag session asks it: from a system, over the tracked kinds'
+    /// queries.
+    fn looked_up(
+        In(entities): In<Vec<Entity>>,
+        placements: Placements,
+        prims: Prims,
+        avatar_prims: AvatarPrims,
+        attachments: Attachments,
+        parts: AttachmentParts,
+        proxies: Proxies,
+    ) -> Vec<Option<Transform>> {
+        entities
+            .into_iter()
+            .map(|entity| {
+                tracked_pose(
+                    entity,
+                    &placements,
+                    &prims,
+                    &avatar_prims,
+                    &attachments,
+                    &parts,
+                    &proxies,
+                )
+                .map(|(pose, _)| pose)
+            })
+            .collect()
+    }
+
+    /// #1397: the drag session's lookup finds an entity of every kind its
+    /// `is_active` scan can report. A kind the lookup misses never starts a
+    /// drag - the rising edge returns - so its release commits nothing: a
+    /// worn item's parts moved under the gizmo and were never saved, from
+    /// #1098 (189e484) until #1397. The kinds below are the SCAN's, in its
+    /// order, not the lookup's own arms - a list copied from the lookup
+    /// cannot catch what the lookup forgot - and the scan is read back at
+    /// the end, so a kind added to it fails here until it gets a row.
+    #[test]
+    fn the_drag_lookup_finds_every_kind_the_scan_reports() {
+        use bevy::ecs::system::RunSystemOnce;
+
+        let mut world = World::new();
+        let pose = |i: usize| Transform::from_xyz(i as f32 + 1.0, 2.0, -3.0);
+        let kinds = [
+            (
+                "a placement anchor",
+                world
+                    .spawn((PlacementMarker(0), pose(0), GizmoTarget::default()))
+                    .id(),
+            ),
+            (
+                "a room prim",
+                world
+                    .spawn((
+                        PrimMarker {
+                            generator_ref: "house".into(),
+                            path: vec![1],
+                        },
+                        pose(1),
+                        GizmoTarget::default(),
+                    ))
+                    .id(),
+            ),
+            (
+                "a node of your avatar's visuals",
+                world
+                    .spawn((
+                        AvatarVisualPrim { path: vec![0] },
+                        pose(2),
+                        GizmoTarget::default(),
+                    ))
+                    .id(),
+            ),
+            (
+                "a worn prop",
+                world
+                    .spawn((
+                        LocalAttachment {
+                            rkey: "hat".into(),
+                            joint: 0,
+                            rigged_root: Entity::PLACEHOLDER,
+                            source: None,
+                        },
+                        pose(3),
+                        GizmoTarget::default(),
+                    ))
+                    .id(),
+            ),
+            (
+                "a part of a worn prop",
+                world
+                    .spawn((
+                        AttachmentPrim {
+                            rkey: "hat".into(),
+                            path: vec![0],
+                        },
+                        pose(4),
+                        GizmoTarget::default(),
+                    ))
+                    .id(),
+            ),
+            (
+                "a blob element proxy",
+                world
+                    .spawn((
+                        BlobElementProxy::for_test(0, Entity::PLACEHOLDER),
+                        pose(5),
+                        GizmoTarget::default(),
+                    ))
+                    .id(),
+            ),
+        ];
+        // Control: a gizmo target of no tracked kind.
+        let stranger = world.spawn((pose(6), GizmoTarget::default())).id();
+
+        let entities: Vec<Entity> = kinds
+            .iter()
+            .map(|&(_, entity)| entity)
+            .chain([stranger])
+            .collect();
+        let found = world
+            .run_system_once_with(looked_up, entities)
+            .expect("the lookup runs");
+        for (i, (kind, _)) in kinds.iter().enumerate() {
+            assert_eq!(
+                found[i],
+                Some(pose(i)),
+                "the drag lookup cannot find {kind}: its drag never starts, and its release saves nothing"
+            );
+        }
+        assert_eq!(
+            found[kinds.len()],
+            None,
+            "control: a gizmo target of no tracked kind is not tracked"
+        );
+
+        // The scan, read back: each `is_active` check in it is one kind.
+        let scan = include_str!("drag.rs")
+            .split("fn manage_gizmo_drag(")
+            .nth(1)
+            .and_then(|body| body.split("// Rising edge").next())
+            .expect("manage_gizmo_drag's is_active scan");
+        assert_eq!(
+            scan.matches(".is_active()").count(),
+            kinds.len(),
+            "manage_gizmo_drag's scan reports a kind this test does not spawn: \
+             add it above, and to tracked_pose"
         );
     }
 }
