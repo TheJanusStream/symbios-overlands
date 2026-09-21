@@ -488,6 +488,10 @@ impl Plugin for EditorGizmoPlugin {
                     blob::resolve_blob_edit.after(TransformSystems::Propagate),
                     blob::proxy::reconcile_blob_proxies,
                     sync::sync_gizmo_selection,
+                    // After the attach, so a gizmo inserted this frame is
+                    // `Added`, and before transform-gizmo's `Last` update
+                    // reads the press (#1396).
+                    drag::withhold_the_selecting_press,
                     drag::manage_gizmo_drag,
                     highlight::draw_selection_highlight,
                     face_pick::draw_face_pick_highlight,
@@ -567,7 +571,10 @@ impl Plugin for EditorGizmoPlugin {
 /// `Last`-schedule update, so on the mouse-down frame they already reflect
 /// the prior frame's hover - and the owner always hovers a handle before
 /// pressing - so a click that *starts* a drag is caught here and leaves
-/// the selection (and the drag) untouched.
+/// the selection (and the drag) untouched. The converse - a pick whose
+/// NEW gizmo puts a handle under the same press - is not a drag either:
+/// [`drag::withhold_the_selecting_press`] keeps that press from grabbing
+/// it (#1396).
 ///
 /// **Face picking (#961).** While the Faces panel has [`FacePick`] armed,
 /// the same click additionally resolves *which face* of the prim was under

@@ -4,9 +4,15 @@
 //! back to `false`. Writebacks are routed to
 //! [`commit::commit_room_drag`](super::commit::commit_room_drag) /
 //! [`commit::commit_avatar_drag`](super::commit::commit_avatar_drag).
+//!
+//! Two gestures are not moves, and write nothing (#1396): a press that
+//! never moves the gizmo (the falling edge finds the target where the drag
+//! began - see [`moved`]), and a press on a gizmo that appeared under it
+//! (never a drag at all - see [`withhold_the_selecting_press`]).
 
+use bevy::ecs::message::Messages;
 use bevy::prelude::*;
-use transform_gizmo_bevy::GizmoTarget;
+use transform_gizmo_bevy::{GizmoDragStarted, GizmoTarget};
 
 use crate::player::attachments::LocalAttachment;
 use crate::state::{LiveAvatarRecord, LiveRoomRecord};
@@ -22,6 +28,179 @@ use super::commit::{
     resolve_committed_local,
 };
 use super::{ActiveTarget, DragState, GizmoDetachedPrim};
+
+/// Say what a finished drag did, when it is not what was asked (#1237
+/// f144, #1243 f150). Silent on success - a toast per completed drag
+/// would be noise on the app's most-repeated gesture.
+fn report_drag(toasts: &mut crate::notify::Toasts, time: &Time, outcome: DragOutcome) {
+    if let Some(text) = outcome.toast() {
+        toasts.warn(text, time.elapsed_secs_f64());
+    }
+}
+
+/// Placement anchors under the gizmo. This and the four aliases after it
+/// are the kinds a drag session tracks, named because both of its edges
+/// look an entity up through them ([`tracked_pose`]). Each holds
+/// `&mut Transform`; the `Without`s keep them provably disjoint.
+type Placements<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static mut Transform,
+        &'static PlacementMarker,
+        &'static GizmoTarget,
+    ),
+    (
+        Without<PrimMarker>,
+        Without<AvatarVisualPrim>,
+        Without<BlobElementProxy>,
+    ),
+>;
+
+/// Room prims under the gizmo - see [`Placements`].
+type Prims<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static mut Transform,
+        &'static PrimMarker,
+        &'static GizmoTarget,
+        Option<&'static GizmoDetachedPrim>,
+    ),
+    (Without<AvatarVisualPrim>, Without<BlobElementProxy>),
+>;
+
+/// The local avatar's visuals nodes under the gizmo - see [`Placements`].
+type AvatarPrims<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static mut Transform,
+        &'static AvatarVisualPrim,
+        &'static GizmoTarget,
+        Option<&'static GizmoDetachedPrim>,
+    ),
+    (Without<PrimMarker>, Without<BlobElementProxy>),
+>;
+
+/// Blob element proxies under the gizmo - see [`Placements`].
+type Proxies<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static mut Transform,
+        &'static BlobElementProxy,
+        &'static GizmoTarget,
+        Option<&'static GizmoDetachedPrim>,
+    ),
+    (
+        Without<PlacementMarker>,
+        Without<PrimMarker>,
+        Without<AvatarVisualPrim>,
+    ),
+>;
+
+/// Worn props under the gizmo (#1062) - see [`Placements`].
+type Attachments<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static mut Transform,
+        &'static LocalAttachment,
+        &'static GizmoTarget,
+        Option<&'static GizmoDetachedPrim>,
+    ),
+    (
+        Without<PlacementMarker>,
+        Without<PrimMarker>,
+        Without<AvatarVisualPrim>,
+        Without<BlobElementProxy>,
+    ),
+>;
+
+/// Where a tracked entity stands, and whether it is a blueprint root. The
+/// one lookup both edges of a drag use: the rising edge for the pose the
+/// drag starts from (and whether Shift may copy it), the falling edge for
+/// whether it moved at all (#1396). `None` for anything else, including an
+/// entity that despawned mid-drag.
+fn tracked_pose(
+    entity: Entity,
+    placements: &Placements,
+    prims: &Prims,
+    avatar_prims: &AvatarPrims,
+    attachments: &Attachments,
+    proxies: &Proxies,
+) -> Option<(Transform, bool)> {
+    if let Ok((_, tf, ..)) = placements.get(entity) {
+        return Some((*tf, false));
+    }
+    if let Ok((_, tf, marker, ..)) = prims.get(entity) {
+        return Some((*tf, marker.path.is_empty()));
+    }
+    if let Ok((_, tf, marker, ..)) = avatar_prims.get(entity) {
+        return Some((*tf, marker.path.is_empty()));
+    }
+    if let Ok((_, tf, ..)) = attachments.get(entity) {
+        return Some((*tf, false));
+    }
+    proxies.get(entity).ok().map(|(_, tf, ..)| (*tf, false))
+}
+
+/// Whether a released gizmo moved its target from where the drag began
+/// (#1396).
+///
+/// transform-gizmo reports a press on a handle as a drag whether or not
+/// the pointer then moves, and every commit writes the target's DRAWN pose.
+/// For a placement Avoid Water or the terrain snap moved, that is not the
+/// recorded pose - so a click on a handle rewrote the record: seed 253's
+/// kiosk went from (123.350, -0.35, -5.363) to (129.344, 0.395, -5.624)
+/// with nothing dragged. A drag that did not move is a click, and a click
+/// writes nothing.
+///
+/// Measured against the pose taken at the rising edge, when the drag has
+/// not yet applied a delta. The tolerances are float noise: at zero delta
+/// the gizmo's f32 -> f64 -> f32 round trip is exact, while one pixel of
+/// drag on a 720-line frame, with the camera a metre from the target,
+/// already moves it about a millimetre.
+fn moved(from: &Transform, to: &Transform) -> bool {
+    !from.translation.abs_diff_eq(to.translation, 1e-4)
+        || !from.rotation.abs_diff_eq(to.rotation, 1e-5)
+        || !from.scale.abs_diff_eq(to.scale, 1e-5)
+}
+
+/// A gizmo that appears on the frame of a press cannot be grabbed by that
+/// press (#1396).
+///
+/// A left-click pick selects in `Update` and `sync_gizmo_selection`
+/// attaches the gizmo in `PostUpdate`; transform-gizmo then starts a drag
+/// in `Last` for any press (`GizmoDragStarted`, written on `just_pressed`)
+/// that has a handle under the pointer. So the click that picked an object
+/// also grabbed whichever handle of its brand-new gizmo it landed on, and
+/// the release committed a move: on seed 253's kiosk a 0.65 m jump the
+/// pointer never made, on top of the drawn pose [`moved`] is about.
+///
+/// `pick_on_scene_click`'s drag-safety rule already assumed the opposite:
+/// a drag starts only on a handle that was there, and hovered, before the
+/// press. Withholding the press on the one frame a gizmo is new makes that
+/// true for every route a selection can arrive by. Runs between the attach
+/// (so the new target is `Added`) and transform-gizmo's `Last` update.
+pub(super) fn withhold_the_selecting_press(
+    mouse: Res<ButtonInput<MouseButton>>,
+    new_gizmos: Query<(), Added<GizmoTarget>>,
+    drag_started: Option<ResMut<Messages<GizmoDragStarted>>>,
+) {
+    if mouse.just_pressed(MouseButton::Left)
+        && !new_gizmos.is_empty()
+        && let Some(mut drag_started) = drag_started
+    {
+        drag_started.clear();
+    }
+}
 
 /// Drive the full drag session: detect the rising edge (Shift at drag
 /// start chooses copy-on-drag), watch for `Escape` aborts and render the
@@ -53,16 +232,6 @@ use super::{ActiveTarget, DragState, GizmoDetachedPrim};
 /// expressed at the placement layer instead. Avatar prims do not support
 /// copy-on-drag in v1: there's only one local avatar tree, and the
 /// inventory + room placements vocabulary doesn't apply.
-#[allow(clippy::type_complexity, clippy::too_many_arguments)]
-/// Say what a finished drag did, when it is not what was asked (#1237
-/// f144, #1243 f150). Silent on success - a toast per completed drag
-/// would be noise on the app's most-repeated gesture.
-fn report_drag(toasts: &mut crate::notify::Toasts, time: &Time, outcome: DragOutcome) {
-    if let Some(text) = outcome.toast() {
-        toasts.warn(text, time.elapsed_secs_f64());
-    }
-}
-
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(super) fn manage_gizmo_drag(
     mut state: Local<DragState>,
@@ -70,66 +239,11 @@ pub(super) fn manage_gizmo_drag(
     mut gizmos: Gizmos<super::EditorOverlayGizmos>,
     mut room_editor: ResMut<RoomEditorState>,
     mut blob_ctx: ResMut<BlobEditContext>,
-    mut placement_query: Query<
-        (Entity, &mut Transform, &PlacementMarker, &GizmoTarget),
-        (
-            Without<PrimMarker>,
-            Without<AvatarVisualPrim>,
-            Without<BlobElementProxy>,
-        ),
-    >,
-    mut prim_query: Query<
-        (
-            Entity,
-            &mut Transform,
-            &PrimMarker,
-            &GizmoTarget,
-            Option<&GizmoDetachedPrim>,
-        ),
-        (Without<AvatarVisualPrim>, Without<BlobElementProxy>),
-    >,
-    mut avatar_prim_query: Query<
-        (
-            Entity,
-            &mut Transform,
-            &AvatarVisualPrim,
-            &GizmoTarget,
-            Option<&GizmoDetachedPrim>,
-        ),
-        (Without<PrimMarker>, Without<BlobElementProxy>),
-    >,
-    mut proxy_query: Query<
-        (
-            Entity,
-            &mut Transform,
-            &BlobElementProxy,
-            &GizmoTarget,
-            Option<&GizmoDetachedPrim>,
-        ),
-        (
-            Without<PlacementMarker>,
-            Without<PrimMarker>,
-            Without<AvatarVisualPrim>,
-        ),
-    >,
-    // Worn props (#1062). The four `Without`s are what keep this query
-    // provably disjoint from the four above - every one of them takes
-    // `&mut Transform`, and Bevy rejects overlapping mutable access.
-    mut attachment_query: Query<
-        (
-            Entity,
-            &mut Transform,
-            &LocalAttachment,
-            &GizmoTarget,
-            Option<&GizmoDetachedPrim>,
-        ),
-        (
-            Without<PlacementMarker>,
-            Without<PrimMarker>,
-            Without<AvatarVisualPrim>,
-            Without<BlobElementProxy>,
-        ),
-    >,
+    mut placement_query: Placements,
+    mut prim_query: Prims,
+    mut avatar_prim_query: AvatarPrims,
+    mut proxy_query: Proxies,
+    mut attachment_query: Attachments,
     // The rigged bodies worn props hang off - the rig (for its rest joint
     // positions) and the root pose that puts the rest frame in the world.
     // Bundled with the parts-of-worn-props query (#1098) to stay under the
@@ -232,20 +346,16 @@ pub(super) fn manage_gizmo_drag(
         let Some((entity, target_kind)) = active_target else {
             return;
         };
-        let (original_world_tf, is_prim_root) =
-            if let Ok((_e, tf, _m, _t)) = placement_query.get(entity) {
-                (*tf, false)
-            } else if let Ok((_e, tf, marker, _t, _d)) = prim_query.get(entity) {
-                (*tf, marker.path.is_empty())
-            } else if let Ok((_e, tf, marker, _t, _d)) = avatar_prim_query.get(entity) {
-                (*tf, marker.path.is_empty())
-            } else if let Ok((_e, tf, _w, _t, _d)) = attachment_query.get(entity) {
-                (*tf, false)
-            } else if let Ok((_e, tf, _p, _t, _d)) = proxy_query.get(entity) {
-                (*tf, false)
-            } else {
-                return;
-            };
+        let Some((original_world_tf, is_prim_root)) = tracked_pose(
+            entity,
+            &placement_query,
+            &prim_query,
+            &avatar_prim_query,
+            &attachment_query,
+            &proxy_query,
+        ) else {
+            return;
+        };
         let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
         // A blob element drag snapshots its routing at the rising edge so
         // a mid-drag GUI selection change can't reroute the writeback.
@@ -358,7 +468,20 @@ pub(super) fn manage_gizmo_drag(
     state.aborted = false;
     state.target = ActiveTarget::None;
 
-    if was_aborted {
+    // A drag that never moved the gizmo is a click (#1396): discarded like
+    // an Escape, Shift or not - a copy dropped exactly on its original is
+    // one nobody can see. An entity that despawned mid-drag has no pose to
+    // compare and falls through to the commit, which reports the refusal.
+    let never_moved = tracked_pose(
+        active_entity,
+        &placement_query,
+        &prim_query,
+        &avatar_prim_query,
+        &attachment_query,
+        &proxy_query,
+    )
+    .is_some_and(|(released, _)| !moved(&state.original_world_tf, &released));
+    if was_aborted || never_moved {
         if blob_info.is_some() {
             // The in-drag preview may have painted speculative edge lines;
             // repaint from the (unchanged) record.
@@ -528,5 +651,93 @@ pub(super) fn manage_gizmo_drag(
             }
         }
         ActiveTarget::None => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #1396: a press that never moved the gizmo is a click, and a click
+    /// writes nothing - so "did not move" has to survive float noise, and
+    /// any drag a pointer can make has to count as a move. Posed where the
+    /// click was measured: seed 253's kiosk, 129 m out, yawed 87.6 degrees.
+    #[test]
+    fn a_still_press_is_a_click_and_any_real_drag_is_a_move() {
+        let start = Transform::from_xyz(129.344, 2.1, -5.624)
+            .with_rotation(Quat::from_rotation_y(87.6_f32.to_radians()))
+            .with_scale(Vec3::splat(0.94));
+        let after = |edit: fn(&mut Transform)| {
+            let mut released = start;
+            edit(&mut released);
+            released
+        };
+
+        assert!(!moved(&start, &start), "a press that went nowhere");
+        // One ulp at 129 m is about 1.5e-5 m: noise, not a drag.
+        assert!(!moved(
+            &start,
+            &after(|t| t.translation.x = f32::from_bits(t.translation.x.to_bits() + 1))
+        ));
+        assert!(!moved(
+            &start,
+            &after(|t| t.rotation.w = f32::from_bits(t.rotation.w.to_bits() + 1))
+        ));
+
+        assert!(
+            moved(&start, &after(|t| t.translation.z += 0.001)),
+            "a millimetre - one pixel at a metre - is a move"
+        );
+        assert!(
+            moved(&start, &after(|t| t.rotate_y(0.1_f32.to_radians()))),
+            "a tenth of a degree is a move"
+        );
+        assert!(
+            moved(&start, &after(|t| t.scale *= 1.001)),
+            "a 0.1% scale is a move"
+        );
+    }
+
+    /// #1396: the press that makes a gizmo appear cannot grab it. The
+    /// control is the other half of the rule, and without it "no drag ever
+    /// starts" would pass too: a press on a gizmo that was already there
+    /// still reaches transform-gizmo.
+    #[test]
+    fn a_press_cannot_grab_a_gizmo_that_appeared_under_it() {
+        /// One press, with a gizmo that was there before it or one that
+        /// appears with it. Returns the drag starts transform-gizmo would
+        /// read in `Last`.
+        fn drag_starts(gizmo_appears_with_the_press: bool) -> usize {
+            let mut app = App::new();
+            app.add_message::<GizmoDragStarted>()
+                .init_resource::<ButtonInput<MouseButton>>()
+                .add_systems(Update, withhold_the_selecting_press);
+            if !gizmo_appears_with_the_press {
+                app.world_mut().spawn(GizmoTarget::default());
+            }
+            // A frame with no press: a gizmo spawned above is old news by
+            // the time the button goes down.
+            app.update();
+            if gizmo_appears_with_the_press {
+                app.world_mut().spawn(GizmoTarget::default());
+            }
+            app.world_mut()
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .press(MouseButton::Left);
+            app.world_mut().write_message(GizmoDragStarted);
+            app.update();
+            app.world().resource::<Messages<GizmoDragStarted>>().len()
+        }
+
+        assert_eq!(
+            drag_starts(false),
+            1,
+            "control: a press on a gizmo that was already there can start a drag"
+        );
+        assert_eq!(
+            drag_starts(true),
+            0,
+            "the selecting press is withheld from the gizmo it made appear"
+        );
     }
 }
