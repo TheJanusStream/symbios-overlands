@@ -238,10 +238,22 @@ mod tests {
         ///
         /// MEASURED, one binary, twelve types, after the port: the full
         /// probe is 4.51 s at test-release and this is 2.41 s; under plain
-        /// `cargo test --lib`, which CI runs, the guard is 21.9 s. The
-        /// drift assertions hold on all twelve at both widths, which is
-        /// what says the width is enough rather than merely cheap. #1382
-        /// owns its final form and may trim it further.
+        /// `cargo test --lib`, which CI runs, the guard is 21.4 s
+        /// (re-measured at #1382; 21.9 s at #1381). The drift assertions hold
+        /// on all twelve at both widths, which is what says the width is
+        /// enough rather than merely cheap.
+        ///
+        /// #1382 LOOKED FOR A TRIM HERE AND FOUND THE COST IS SOMEWHERE ELSE.
+        /// Timed type by type in one unoptimised binary, the whole vehicle
+        /// guard set is about 155 s on CI and about 130 s of that is
+        /// `common::touch::assert_one_machine` - the boats' one-machine sweep
+        /// alone is 100.4 s. The BUILDS are nearly free: the sanitiser sweep
+        /// covers the same 900 sloops plus five other types in 0.2 s. So
+        /// thinning a sweep buys almost nothing and costs coverage, while
+        /// making `touch::report` cheaper than its pairwise O(n^2) scan would
+        /// buy back most of the gate for nothing - which is #1393's, since it
+        /// is already the issue that owns that helper. This 21.4 s is the
+        /// second-largest single item and is left as it stands.
         const GUARD: Self = Self {
             straight_secs: 16.0,
             turn_secs: 4.0,
@@ -708,7 +720,7 @@ mod tests {
     /// the wheel, measured by running the game's own drive systems on a body
     /// built through the game's own spawn path (#1381 phase 1). Feeds
     /// `target/dump/vehicles2026-09/feel/drive_card.txt`, the card the owner
-    /// drives by, and the per-type feel guard #1382 cuts from it.
+    /// drives by, and the per-type feel guard #1381 cut from it.
     ///
     /// WHY NOT ARITHMETIC. Top speed is `drive accel / linear damping` to a
     /// fair first approximation, but turn_torque is `mass x turn_accel` and

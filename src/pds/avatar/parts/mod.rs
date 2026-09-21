@@ -2,15 +2,20 @@
 //! structure catalogue ([`crate::catalogue`]) and its
 //! [`Settlement`](crate::seeded_defaults::Settlement) slot-filler.
 //!
-//! An avatar is composed from tagged [`BodyPart`] blueprints rather than
-//! hardcoded per-family geometry: each part declares which [`PartSlot`] it
+//! **The AIRSHIP is the one family composed this way**, and the rest of this
+//! header is about her. She is built from tagged [`BodyPart`] blueprints
+//! rather than hardcoded geometry: each part declares which [`PartSlot`] it
 //! fills, which [`ChassisFamily`] families and [`ThemeArchetype`] styles it
 //! suits, and (optionally) the ornateness / wear bands it's appropriate
 //! for. The seeded [`AvatarOutfit`](crate::seeded_defaults) deriver fills
-//! each of an avatar's slots by querying [`parts_for_avatar`], exactly the
+//! each of her slots by querying [`parts_for_avatar`], exactly the
 //! way the room settlement queries
 //! [`entries_for_room`](crate::catalogue::entries_for_room) - so authoring a
-//! new part grows avatar variety automatically.
+//! new part grows her variety automatically.
+//!
+//! The boat left this pipeline in #1363 and the land-skiff in #1364, and the
+//! rigged humanoid never used it (#1060) - see the "Only the airship" section
+//! below, which is the whole of what changed.
 //!
 //! ## Slot frame convention
 //!
@@ -21,10 +26,14 @@
 //! [`PartSlot::Fin`] and [`PartSlot::Pod`] hang from their mount pivot at the
 //! origin.
 //!
-//! **Only the airship is composed this way now.** The boat left in #1363 and
-//! the land-skiff in #1364: each redesigned family draws its geometry from one
-//! craft-type builder over one profile, so neither fills a slot and neither
-//! has an outfit to roll. The rigged humanoid never did (#1060).
+//! ## Only the airship is composed this way now
+//!
+//! The boat left in #1363 and the land-skiff in #1364: each redesigned family
+//! draws its geometry from one craft-type builder over one profile
+//! (`HullProfile`, `BodyPlan`), so neither fills a slot and neither has an
+//! outfit to roll. The rigged humanoid never did (#1060). What that leaves
+//! here is the airship's five slots ([`PartSlot`]) and the cross-family
+//! [`PartSlot::Ornament`] her ornate tiers hang off.
 //!
 //! ## Style coverage
 //!
@@ -48,25 +57,17 @@ use crate::seeded_defaults::{
 /// declares which families it serves via [`BodyPart::chassis`]); the
 /// per-chassis required / optional split lives in [`required_slots`] /
 /// [`optional_slots`].
-/// The Boat and Skiff groups below are **vestigial**: nothing fills them since
-/// #1363 and #1364 retired those catalogues, and no builder reads them. They
-/// are kept rather than deleted because pruning the slot vocabulary touches
-/// the outfit deriver, the editor's part picker and every saved outfit that
-/// names one, which is a documentation-and-guards job rather than a geometry
-/// one - #1382.
+///
+/// The AIRSHIP's four slots plus the cross-family [`Ornament`](Self::Ornament)
+/// are all of it. A boat's five (hull, deck, mast, bow, stack) and a skiff's
+/// four (chassis, canopy, wheel, exhaust) went vestigial when #1363 and #1364
+/// retired those catalogues, and #1382 deleted them: nothing named one, an
+/// [`AvatarOutfit`](crate::seeded_defaults::AvatarOutfit) is not `Serialize`
+/// so no saved outfit ever carried one, and no exhaustive match over this
+/// enum exists outside this module. Rustc could not say so - a dead `pub`
+/// item in a lib crate raises no warning - so it was measured by grep.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PartSlot {
-    // --- Boat (vestigial since #1363) ---
-    /// The waterline hull.
-    Hull,
-    /// The deck the rest sits on.
-    Deck,
-    /// The central mast / spar.
-    Mast,
-    /// Optional prow ornament.
-    Bow,
-    /// Optional stern stack / funnel.
-    Stack,
     // --- Airship ---
     /// The gas-bag envelope.
     Envelope,
@@ -77,15 +78,6 @@ pub enum PartSlot {
     /// An engine nacelle / propulsion pod (the assembler mirrors it into an
     /// amidships pair) - the airship's visible propulsion.
     Pod,
-    // --- Skiff (vestigial since #1364) ---
-    /// The chassis slab.
-    Chassis,
-    /// The cockpit canopy.
-    Canopy,
-    /// One wheel / skid (the assembler repeats it).
-    Wheel,
-    /// Optional exhaust / engine ornament.
-    Exhaust,
     // --- Shared ---
     /// A small cross-family decorative accent.
     Ornament,
@@ -353,11 +345,13 @@ mod tests {
     fn required_slots_fillable_across_every_style_and_tier() {
         // The band-gated query must stay non-empty for required slots at every
         // style AND every ornateness/wear tier (the universal defaults carry ANY
-        // bands and so floor it). Iterating all styles - not just one - matters
-        // now that band-gated parts sit on required slots (deck_barrels = Worn+
-        // Deck, canopy_aero = Pristine-only Canopy, #793): a regression that
-        // band-gated or dropped a default would else slip through at the styles
-        // those bespoke parts target.
+        // bands and so floor it). Iterating all styles - not just one - rather
+        // than trusting the universal floor is what catches a regression that
+        // band-gated or dropped a default at the styles a bespoke part targets.
+        // The two band-gated parts on required slots that made the case for it
+        // (#793) were a boat's and a skiff's, and went with those catalogues in
+        // #1363 / #1364; the airship's required slots are all universal today,
+        // so this sweep is a standing guard rather than a live constraint.
         for chassis in ChassisFamily::ALL {
             for &slot in required_slots(chassis) {
                 for style in ThemeArchetype::ALL {

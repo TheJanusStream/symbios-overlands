@@ -235,7 +235,7 @@ pub(super) fn overall_beam_of(hull: &HullProfile, v: LongshipVariant) -> f32 {
 
 /// The resolution her HULL's own sweeps are drawn at - the shell, her bottom
 /// paint and her two end plugs. The connectivity helper reads a swept
-/// polygon as a round tube and so reads those too deep (#1382), which is why
+/// polygon as a round tube and so reads those too deep (#1393), which is why
 /// a guard on her lowest point has to set them aside.
 #[cfg(test)]
 pub(super) const HULL_RES: u32 = hull::HULL_RES;

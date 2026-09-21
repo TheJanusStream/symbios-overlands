@@ -743,7 +743,10 @@ cargo run --bin render -- --dump --catalogue neon_kiosk
 # Print one avatar's resolved outfit (chassis / style / socio tiers / slot→slug):
 cargo run --bin render -- --outfit 7
 # Scan seeds for one that rolls a styled part (capped by --family-count):
-cargo run --bin render -- --find-part skiff_exhaust_twin_pipes
+# The AIRSHIP is the last family with parts, so its slugs are the only ones
+# this can find (#1363, #1364): an ornament is the selective case, rolled on
+# the ornate tiers alone.
+cargo run --bin render -- --find-part airship_orn_lanterns
 # Gateway veil-vs-frame fit report - one slug, or `all`:
 cargo run --bin render -- --gateway-fit all
 # Plinth-depth audit of every settlement-placeable entry (`all` lists the

@@ -33,12 +33,9 @@
 //! trim is LIT on every seed she has. No skiff seed draws another type's
 //! machine any more.
 //!
-//! **The Option seam nevertheless stays** (#1378, owner decision): the boat
-//! half of the same idiom still needs it while the longship is unbuilt
-//! (#1369), so collapsing the skiff half alone would leave one family's
-//! idiom differing from the other's for exactly one slice. #1382 collapses
-//! both in one decision. What that costs here is named where it sits:
-//! [`craft_for`]'s fallback is unreachable at runtime and still compiles.
+//! **The Option seam is gone** (#1382): [`craft`] returns the builder rather
+//! than an `Option` of one, in both families at once. See its own note for
+//! what that costs a seventh type.
 //!
 //! # Where a skiff sits
 //!
@@ -72,6 +69,12 @@ pub(crate) use crate::pds::avatar::livery::{SkiffColours, skiff_colours};
 
 use super::Propulsion;
 use super::assemble::apply_travel_pose;
+
+/// The gate both families drive through - one home, in the module that owns
+/// them both (#1382). These used to be a local `const AIR_DRAFT = 2.8` in four
+/// of this file's tests and a `const MOUTH = 2.6` in five.
+#[cfg(test)]
+use super::{AIR_DRAFT_CAP, GATEWAY_MOUTH};
 
 /// Smallest dimension anything on a skiff is built at (m).
 ///
@@ -221,42 +224,36 @@ pub(super) trait SkiffCraft {
     fn propulsion(&self) -> Propulsion;
 }
 
-/// The builder for a craft type, or `None` while nothing implements it.
+/// The builder for a craft type - the twin of the boats' own `craft`.
 ///
-/// The seam, and deliberately not a stub (the same reasoning as the boats'):
-/// a match over a non-empty enum needs an arm per variant, and an arm that
-/// drew *something* for an unimplemented type would be a lie the population
-/// census could not see. Each of #1374-#1378 moved one type out of the
-/// unbuilt group, and #1378 emptied it: every arm is `Some` today.
+/// The one match over [`SkiffType`], and deliberately not a stub: a match
+/// over a non-empty enum needs an arm per variant, so ADDING A TYPE IS A
+/// COMPILE ERROR HERE until it is listed. Each of #1374-#1378 added one.
 ///
-/// It still returns `Option`, and that is a decision rather than an
-/// oversight (#1378): the boats' half of this idiom keeps its own `None`
-/// group until #1369 builds the longship, and #1382 collapses both families
-/// together. The type stays honest in the meantime - a seventh skiff type
-/// filed tomorrow is a compile error here until something builds it.
-fn craft(t: SkiffType) -> Option<&'static dyn SkiffCraft> {
+/// # It used to return an `Option`, and no longer does (#1382)
+///
+/// Through the fan-out this returned `None` for a type nothing drew yet, and
+/// [`craft_for`] resolved such a pick to [`SkiffType::UNIVERSAL`]. The rover
+/// (#1378) emptied that group on this side and the longship (#1369) on the
+/// boats'; both halves collapsed together, as they were held open together.
+///
+/// The price, the same on both sides: a SEVENTH TYPE CANNOT LAND HALF-BUILT.
+/// There is no unbuilt state to report and no floor to fall back to, so a new
+/// type arrives with its builder in the same commit as its enum variant.
+fn craft(t: SkiffType) -> &'static dyn SkiffCraft {
     match t {
-        SkiffType::Roadster => Some(&roadster::Roadster),
-        SkiffType::Wagon => Some(&wagon::Wagon),
-        SkiffType::DuneBuggy => Some(&buggy::Buggy),
-        SkiffType::Cyclecar => Some(&cyclecar::Cyclecar),
-        SkiffType::ArmouredCar => Some(&armoured::Armoured),
-        SkiffType::Rover => Some(&rover::Rover),
+        SkiffType::Roadster => &roadster::Roadster,
+        SkiffType::Wagon => &wagon::Wagon,
+        SkiffType::DuneBuggy => &buggy::Buggy,
+        SkiffType::Cyclecar => &cyclecar::Cyclecar,
+        SkiffType::ArmouredCar => &armoured::Armoured,
+        SkiffType::Rover => &rover::Rover,
     }
 }
 
-/// The builder a seed actually draws with: its own type where that type is
-/// built, and the family's universal floor where it is not.
-///
-/// **The floor is unreachable since #1378** - every [`SkiffType`] builds -
-/// so this is `craft` with an arm nothing takes. It is kept rather than
-/// deleted because [`craft`] keeps its `Option` until #1369 and #1382 close
-/// the same seam on the boats (see [`craft`]), and because a seventh type
-/// filed before its builder lands would need it back the same day.
+/// The builder a seed draws with - its own type's, always.
 fn craft_for(seed: u64) -> &'static dyn SkiffCraft {
-    craft(SkiffType::for_seed(seed)).unwrap_or_else(|| {
-        craft(SkiffType::UNIVERSAL).expect("the family's universal floor is always built")
-    })
+    craft(SkiffType::for_seed(seed))
 }
 
 /// The idle of the type a seed actually draws with (#1381) - what
@@ -271,7 +268,7 @@ pub(super) fn idle_for(seed: u64) -> SkiffIdle {
 pub(super) fn every_idle() -> Vec<(&'static str, SkiffIdle)> {
     SkiffType::ALL
         .into_iter()
-        .filter_map(|t| craft(t).map(|c| (t.label(), c.idle())))
+        .map(|t| (t.label(), craft(t).idle()))
         .collect()
 }
 
@@ -284,7 +281,7 @@ pub(super) fn every_idle() -> Vec<(&'static str, SkiffIdle)> {
 pub(super) fn every_feel() -> Vec<(&'static str, SkiffFeel)> {
     SkiffType::ALL
         .into_iter()
-        .filter_map(|t| craft(t).map(|c| (t.label(), c.feel())))
+        .map(|t| (t.label(), craft(t).feel()))
         .collect()
 }
 
@@ -367,10 +364,7 @@ pub(super) fn feel_and_box(seed: u64) -> (SkiffFeel, [f32; 3]) {
         // floor's own feel keeps a locomotion query total rather than
         // panicking in a sanitiser round-trip that exercises the family
         // off-seed.
-        None => {
-            let craft = craft(SkiffType::UNIVERSAL).expect("the floor is always built");
-            (craft.feel(), [0.66, 0.29, 1.33])
-        }
+        None => (craft(SkiffType::UNIVERSAL).feel(), [0.66, 0.29, 1.33]),
     }
 }
 
@@ -382,10 +376,9 @@ pub(super) fn datum_height_for_seed(seed: u64) -> Option<f32> {
     body_for(seed).map(|(_, plan)| plan.datum_height())
 }
 
-/// How the skiff `seed` DRAWS is driven (#1377) - the drawn craft's answer,
-/// so an unbuilt pick drawn as the roadster keeps the roadster's engine. Any
-/// seed answers, as the boats' does: the voice asks before it knows the
-/// family is a skiff's.
+/// How the skiff `seed` DRAWS is driven (#1377) - asked of the DRAWN craft,
+/// which since #1378 is her own type's. Any seed answers, as the boats' does:
+/// the voice asks before it knows the family is a skiff's.
 pub(super) fn propulsion(seed: u64) -> Propulsion {
     craft_for(seed).propulsion()
 }
@@ -435,48 +428,21 @@ mod tests {
             .expect("some seed is a skiff")
     }
 
-    /// The seam (#1362 → #1364). [`SkiffType::implemented`] is what the
-    /// readouts and the fan-out slices ask; [`craft`] is what actually draws.
-    /// They are two matches over one enum, so pin them together - the failure
-    /// they prevent is a type that says it is built and silently draws a
-    /// roadster.
-    #[test]
-    fn a_skiff_type_is_implemented_exactly_when_something_builds_it() {
-        for t in SkiffType::ALL {
-            assert_eq!(
-                craft(t).is_some(),
-                t.implemented(),
-                "{t:?}: `implemented()` and the builder table disagree"
-            );
-        }
-        assert!(
-            SkiffType::UNIVERSAL.implemented(),
-            "the universal floor must be built - every unbuilt pick resolves to it"
-        );
-    }
-
-    /// Every skiff seed draws a skiff, whatever type it picked - and since
-    /// #1378 it draws ITS OWN, which is a strictly stronger claim than the
-    /// one this made before.
+    /// Every skiff seed draws a skiff, and draws ITS OWN - the boats' twin.
     ///
-    /// It used to assert `unbuilt > 0`: that some seed still picked a type
-    /// nothing drew, so the floor fallback was exercised. The rover was the
-    /// last of those (13 of the 151 skiff seeds under 600 picked her), so
-    /// the count is now ZERO and the fallback in [`craft_for`] is
-    /// unreachable. Restated rather than deleted, because what it means now
-    /// is the thing worth guarding: every one of the six [`SkiffType`]s is
-    /// PICKED by some seed under 600 and BUILT by [`craft`], so no seed
-    /// anywhere in the population is quietly drawn as somebody else's
-    /// machine.
+    /// It used to count the seeds whose pick nothing drew, and assert that
+    /// count was zero; since #1382 collapsed [`craft`] there is no unbuilt
+    /// state left to count - a pick that had no builder would not compile.
+    /// What survives is the half that is still a real claim about the
+    /// POPULATION: every one of the six [`SkiffType`]s is PICKED by some seed
+    /// under 600, so the fleet the owner actually meets contains all six, and
+    /// each one's body is non-degenerate on every seed that picks it.
     #[test]
     fn every_skiff_seed_resolves_to_a_built_craft() {
-        let (mut unbuilt, mut total) = (0, 0);
+        let mut total = 0;
         let mut picked: Vec<SkiffType> = Vec::new();
         for s in (0u64..600).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
             let t = SkiffType::for_seed(s);
-            if !t.implemented() {
-                unbuilt += 1;
-            }
             if !picked.contains(&t) {
                 picked.push(t);
             }
@@ -485,13 +451,6 @@ mod tests {
             assert!(plan.length > 1.0, "seed {s}: degenerate body");
         }
         assert!(total > 50, "too few skiffs sampled: {total}");
-        assert_eq!(
-            unbuilt, 0,
-            "{unbuilt} seeds picked an unbuilt type - since #1378 every skiff type \
-             is built, and `craft_for`'s floor fallback is unreachable"
-        );
-        // The census, which is what the assertion above now rests on: every
-        // type is drawn by somebody, and every type that is drawn is built.
         for t in SkiffType::ALL {
             assert!(
                 picked.contains(&t),
@@ -500,15 +459,126 @@ mod tests {
                 picked.len(),
                 SkiffType::ALL.len()
             );
-            assert!(craft(t).is_some(), "{t:?} is picked and nothing builds it");
         }
+    }
+
+    /// Every drawn sweep END in `root`'s own frame, with the node's path so a
+    /// failure can name it (#1382).
+    ///
+    /// This exists so a mount guard can be read against the GEOMETRY rather
+    /// than against the function that placed it. `Roadster::fx_mount` returns
+    /// the last point of `coachwork::exhaust_path`, and `coachwork` sweeps the
+    /// pipe along that same path - so asserting the emitter equals
+    /// `fx_mount(..)` compares one call with itself and cannot fail. It was
+    /// written that way first and a 10 mm perturbation of the mount did not
+    /// turn it red, which is exactly the compensating-reading trap. Reading
+    /// the tube out of the tree is the independent half.
+    fn sweep_ends(root: &Generator) -> Vec<([f32; 3], String)> {
+        use crate::pds::generator::GeneratorKind;
+        use bevy::math::{Quat, Vec3};
+        fn walk(
+            g: &Generator,
+            t: Vec3,
+            r: Quat,
+            s: Vec3,
+            path: String,
+            out: &mut Vec<([f32; 3], String)>,
+        ) {
+            let lt = Vec3::from(g.transform.translation.0);
+            let lr = Quat::from_array(g.transform.rotation.0).normalize();
+            let ls = Vec3::from(g.transform.scale.0);
+            let (wt, wr, ws) = (t + r * (s * lt), r * lr, s * ls);
+            if let GeneratorKind::Spine { points, .. } = &g.kind {
+                for (which, p) in [("head", points.first()), ("tail", points.last())] {
+                    if let Some(p) = p {
+                        let v = wt + wr * (ws * Vec3::from(p.position.0));
+                        out.push((v.to_array(), format!("{path} {which}")));
+                    }
+                }
+            }
+            for (i, c) in g.children.iter().enumerate() {
+                walk(c, wt, wr, ws, format!("{path}/{i}"), out);
+            }
+        }
+        let mut out = Vec::new();
+        // The ROOT's own transform is excluded: an FX mount is expressed in
+        // the root's local frame, before the travel pose the assembler puts on
+        // the root, and `fx::attach` hangs the emitter as a child of that root.
+        for (i, c) in root.children.iter().enumerate() {
+            walk(
+                c,
+                Vec3::ZERO,
+                Quat::IDENTITY,
+                Vec3::ONE,
+                format!("{i}"),
+                &mut out,
+            );
+        }
+        out
+    }
+
+    /// The box every drawn node's ORIGIN falls inside, in `root`'s own frame -
+    /// [`sweep_ends`]'s blunter companion (#1382).
+    ///
+    /// Node origins rather than sampled surfaces, so this needs no shape
+    /// vocabulary and cannot drift with `common::touch` - which is also why it
+    /// is used here rather than `touch::highest`: touch PANICS on a prim it has
+    /// no solid for, and the tree this is asked about is the RECORD's, with the
+    /// FX emitter already hung on it. It is a loose envelope, and it is enough
+    /// for the claim it serves: an FX mount that has come adrift from the
+    /// machine - the fixed `y = 0.33` canopy of the legacy skiff, which hovered
+    /// over every chassis the default did not reach (#1364) - lands outside it.
+    ///
+    /// Only DRAWN prims count. A `ParticleSystem` is not a primitive, so the
+    /// emitter whose position is being judged is not in its own bound.
+    fn origin_bounds(root: &Generator) -> ([f32; 3], [f32; 3]) {
+        use bevy::math::{Quat, Vec3};
+        fn walk(g: &Generator, t: Vec3, r: Quat, s: Vec3, lo: &mut Vec3, hi: &mut Vec3) {
+            let lt = Vec3::from(g.transform.translation.0);
+            let lr = Quat::from_array(g.transform.rotation.0).normalize();
+            let ls = Vec3::from(g.transform.scale.0);
+            let (wt, wr, ws) = (t + r * (s * lt), r * lr, s * ls);
+            if g.is_primitive() {
+                *lo = lo.min(wt);
+                *hi = hi.max(wt);
+            }
+            for c in &g.children {
+                walk(c, wt, wr, ws, lo, hi);
+            }
+        }
+        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        for c in &root.children {
+            walk(c, Vec3::ZERO, Quat::IDENTITY, Vec3::ONE, &mut lo, &mut hi);
+        }
+        (lo.to_array(), hi.to_array())
+    }
+
+    /// `root` with every non-primitive node pruned - the DRAWN machine, which
+    /// is what `common::touch` can read (#1382).
+    ///
+    /// touch panics on a prim it has no solid for, and a record's tree carries
+    /// the FX emitter, which is a `ParticleSystem`. Pruning it is what lets a
+    /// guard ask touch how tall the machine actually is while judging where the
+    /// emitter sits on it. The emitter is a leaf child of the root, so nothing
+    /// drawn is orphaned by the prune.
+    fn drawn_only(root: &Generator) -> Generator {
+        let mut out = root.clone();
+        out.children = root
+            .children
+            .iter()
+            .filter(|c| c.is_primitive())
+            .map(drawn_only)
+            .collect();
+        out
     }
 
     /// Every roadster the family can draw at the blueprint corners: every
     /// body, top and wheel crossed with every ornateness-by-wear pair a seed
     /// can roll - which is all of them, since the axes are drawn
-    /// independently. Returns the built tree and a label for the failure.
-    fn every_roadster() -> Vec<(Generator, String)> {
+    /// independently. Returns the built tree, its plan and a label for the
+    /// failure - the plan because the air-draft guard has to resolve a drawn
+    /// height against the ground this machine stands on (#1382).
+    fn every_roadster() -> Vec<(Generator, roadster::RoadsterPlan, String)> {
         use crate::seeded_defaults::{
             OrnatenessTier, RoadsterBody, RoadsterTop, RoadsterWheels, WearTier,
         };
@@ -524,6 +594,7 @@ mod tests {
                                 (ctx.ornateness, ctx.wear) = (o, w);
                                 out.push((
                                     roadster::build_dressed(&ctx, &plan, top, rolls),
+                                    plan,
                                     format!(
                                         "a {} m {} {} roadster on {} wheels, {} / {}",
                                         bp.length,
@@ -610,13 +681,26 @@ mod tests {
         }
     }
 
-    /// Every wheel of every wagon stands on the ground: each axle's centre is
-    /// its OWN wheel's radius over it - the small front pair of a four-wheeler
-    /// as much as the big rear one, and the two-wheelers' single pair
-    /// (#1377).
+    /// The wagon stands on her wheels under the air draft and inside the
+    /// gateway mouth, on every body and tier at every blueprint corner: each
+    /// axle's centre is its OWN wheel's radius over the ground - the small
+    /// front pair of a four-wheeler as much as the big rear one, and the
+    /// two-wheelers' single pair (#1377).
+    ///
+    /// The wheel half is #1377's. The air-draft and mouth halves are #1382's,
+    /// folded into the same sweep rather than added beside it: she was the
+    /// first fan-out type and landed before the dune buggy set the per-type
+    /// pattern, so she is one of the two machines it skipped (see the
+    /// roadster's). Nothing is FIXED here either - measured first, her tallest
+    /// is 2.438 m, the Adorned Cart's canvas tilt at the 3.6 m corner, against
+    /// a 2.8 m cap, and her widest is 2.020 m against a 2.6 m mouth. She is
+    /// the tallest machine in the family and the one that would find a
+    /// lowered lintel first.
     #[test]
-    fn every_wagon_wheel_stands_on_the_ground() {
-        for (_, plan, what) in every_wagon() {
+    fn a_wagon_stands_on_her_wheels_under_the_air_draft() {
+        use super::super::common::touch;
+        let (mut tallest, mut widest): (f32, f32) = (0.0, 0.0);
+        for (built, plan, what) in every_wagon() {
             for (at, r) in plan.wheels() {
                 assert!(
                     (at[1] + plan.datum_height() - r).abs() < 1e-5,
@@ -624,7 +708,30 @@ mod tests {
                     at[1] + plan.datum_height()
                 );
             }
+            let top = touch::highest(&built) + plan.datum_height();
+            assert!(
+                top <= AIR_DRAFT_CAP,
+                "{what}: she stands {top} m over the ground, past the \
+                 {AIR_DRAFT_CAP} m air draft"
+            );
+            // Her width is asked of the WAGON rather than of the seed's own
+            // body, because `overall_width` reads `WagonBody::for_seed` and
+            // this sweep is over bodies rather than over seeds: the widest
+            // nave is what the mouth has to clear whichever body wears it.
+            let wide = wagon::Wagon.overall_width(&plan, a_skiff_seed());
+            assert!(
+                wide < GATEWAY_MOUTH,
+                "{what}: {wide} m wide, past the {GATEWAY_MOUTH} m mouth"
+            );
+            (tallest, widest) = (tallest.max(top), widest.max(wide));
         }
+        // The numbers the guard was written against (#1382).
+        assert!(
+            (2.2..2.7).contains(&tallest) && widest > 1.5,
+            "the tallest wagon is {tallest} m and the widest {widest} m, not \
+             the 2.438 m and 2.020 m this was measured at - the shape moved, \
+             so re-read the cap margin"
+        );
     }
 
     /// Every dune buggy the family can draw at the blueprint corners: every
@@ -669,7 +776,7 @@ mod tests {
     /// module docs). What the guard cannot see: it ignores `hollow` and
     /// `path_cut`, so the pod's bore and the canopy's stripes are judged as
     /// whole tubes, and it samples a turned tyre only at its profile rings
-    /// (#1382).
+    /// (#1393).
     #[test]
     fn a_buggy_is_one_machine_at_every_blueprint_extreme() {
         use super::super::common::touch;
@@ -699,8 +806,8 @@ mod tests {
     /// Every buggy stands on her wheels, under the air draft and inside the
     /// gateway, at every blueprint corner (#1374): each axle's centre is its
     /// OWN wheel's radius over the ground - the small fronts as much as the
-    /// big rears - nothing she draws stands higher than rule 6's 2.8 m over
-    /// it, and she is narrower than the 2.6 m mouth.
+    /// big rears - nothing she draws stands higher than rule 6's air-draft cap
+    /// over it, and she is narrower than the gateway mouth.
     ///
     /// The first skiff air-draft guard (owner decision 11): the dune whip
     /// reaches 2.57 m at the largest corner, held there by construction, and
@@ -708,9 +815,6 @@ mod tests {
     #[test]
     fn a_buggy_stands_on_her_wheels_under_the_air_draft() {
         use super::super::common::touch;
-        /// Rule 6's air draft and the narrowest gateway mouth (m).
-        const AIR_DRAFT: f32 = 2.8;
-        const MOUTH: f32 = 2.6;
         for (built, plan, what) in every_buggy() {
             let mut radii = Vec::new();
             for (at, r) in plan.wheels() {
@@ -726,13 +830,13 @@ mod tests {
             assert_eq!(radii.len(), 2, "{what}: her two axles share a radius");
             let top = touch::highest(&built) + plan.datum_height();
             assert!(
-                top <= AIR_DRAFT,
-                "{what}: she stands {top} m over the ground, past the {AIR_DRAFT} m air draft"
+                top <= AIR_DRAFT_CAP,
+                "{what}: she stands {top} m over the ground, past the {AIR_DRAFT_CAP} m air draft"
             );
             let wide = buggy::Buggy.overall_width(&plan, 0);
             assert!(
-                wide < MOUTH,
-                "{what}: {wide} m wide, past the {MOUTH} m mouth"
+                wide < GATEWAY_MOUTH,
+                "{what}: {wide} m wide, past the {GATEWAY_MOUTH} m mouth"
             );
         }
     }
@@ -815,7 +919,7 @@ mod tests {
     ///
     /// What the guard cannot see: it ignores `path_cut`, so the spat's box
     /// reaches under the ground and the window band's sectors are judged as
-    /// whole tubes, which lie inside the pod (#1382).
+    /// whole tubes, which lie inside the pod (#1393).
     #[test]
     fn a_cyclecar_is_one_machine_at_every_blueprint_extreme() {
         use super::super::common::touch;
@@ -846,14 +950,11 @@ mod tests {
     /// inside the gateway, at every blueprint corner (#1376): each wheel's
     /// centre is its radius over the ground - the single rear one on the
     /// centreline as much as the front pair - the spat's cut plane stands
-    /// over the ground, nothing she draws stands higher than rule 6's 2.8 m,
-    /// and she is narrower than the 2.6 m mouth.
+    /// over the ground, nothing she draws stands higher than rule 6's air-draft
+    /// cap, and she is narrower than the gateway mouth.
     #[test]
     fn a_cyclecar_stands_on_her_three_wheels_under_the_air_draft() {
         use super::super::common::touch;
-        /// Rule 6's air draft and the narrowest gateway mouth (m).
-        const AIR_DRAFT: f32 = 2.8;
-        const MOUTH: f32 = 2.6;
         for (built, plan, what) in every_cyclecar() {
             let wheels = plan.wheels();
             assert_eq!(
@@ -881,13 +982,13 @@ mod tests {
             );
             let top = touch::highest(&built) + plan.datum_height();
             assert!(
-                top <= AIR_DRAFT,
-                "{what}: she stands {top} m over the ground, past the {AIR_DRAFT} m air draft"
+                top <= AIR_DRAFT_CAP,
+                "{what}: she stands {top} m over the ground, past the {AIR_DRAFT_CAP} m air draft"
             );
             let wide = cyclecar::Cyclecar.overall_width(&plan, 0);
             assert!(
-                wide < MOUTH,
-                "{what}: {wide} m wide, past the {MOUTH} m mouth"
+                wide < GATEWAY_MOUTH,
+                "{what}: {wide} m wide, past the {GATEWAY_MOUTH} m mouth"
             );
         }
     }
@@ -1036,9 +1137,6 @@ mod tests {
     #[test]
     fn an_armoured_car_stands_clear_of_the_ground_under_the_air_draft() {
         use super::super::common::touch;
-        /// Rule 6's air draft and the narrowest gateway mouth (m).
-        const AIR_DRAFT: f32 = 2.8;
-        const MOUTH: f32 = 2.6;
         for (built, plan, what) in every_armoured() {
             let wheels = plan.wheels();
             assert_eq!(
@@ -1061,13 +1159,13 @@ mod tests {
             );
             let top = touch::highest(&built) + plan.datum_height();
             assert!(
-                top <= AIR_DRAFT,
-                "{what}: she stands {top} m over the ground, past the {AIR_DRAFT} m air draft"
+                top <= AIR_DRAFT_CAP,
+                "{what}: she stands {top} m over the ground, past the {AIR_DRAFT_CAP} m air draft"
             );
             let wide = armoured::Armoured.overall_width(&plan, 0);
             assert!(
-                wide < MOUTH,
-                "{what}: {wide} m wide, past the {MOUTH} m mouth"
+                wide < GATEWAY_MOUTH,
+                "{what}: {wide} m wide, past the {GATEWAY_MOUTH} m mouth"
             );
         }
     }
@@ -1171,7 +1269,7 @@ mod tests {
     /// Her contact is by CONSTRUCTION instead: every stem, pedestal, mast
     /// and box reaches INSIDE what it stands on, and the dorsal ridge stands
     /// off the shell's own drawn CROWN rather than off its box's flat top
-    /// (#1382).
+    /// (#1393).
     #[test]
     fn a_rover_is_one_machine_at_every_blueprint_extreme() {
         use super::super::common::touch;
@@ -1228,9 +1326,6 @@ mod tests {
     #[test]
     fn a_rover_stands_on_six_wheels_under_the_air_draft() {
         use super::super::common::touch;
-        /// Rule 6's air draft and the narrowest gateway mouth (m).
-        const AIR_DRAFT: f32 = 2.8;
-        const MOUTH: f32 = 2.6;
         for (built, plan, what) in every_rover() {
             let wheels = plan.wheels();
             assert_eq!(
@@ -1263,13 +1358,13 @@ mod tests {
             );
             let top = touch::highest(&built) + plan.datum_height();
             assert!(
-                top <= AIR_DRAFT,
-                "{what}: she stands {top} m over the ground, past the {AIR_DRAFT} m air draft"
+                top <= AIR_DRAFT_CAP,
+                "{what}: she stands {top} m over the ground, past the {AIR_DRAFT_CAP} m air draft"
             );
             let wide = rover::Rover.overall_width(&plan, 0);
             assert!(
-                wide < MOUTH,
-                "{what}: {wide} m wide, past the {MOUTH} m mouth"
+                wide < GATEWAY_MOUTH,
+                "{what}: {wide} m wide, past the {GATEWAY_MOUTH} m mouth"
             );
         }
     }
@@ -1371,11 +1466,305 @@ mod tests {
     #[test]
     fn a_roadster_is_one_machine_at_every_blueprint_extreme() {
         use super::super::common::touch;
-        for (built, what) in every_roadster() {
+        for (built, _, what) in every_roadster() {
             let json = serde_json::to_string(&built).expect("a roadster serializes");
             let saved: Generator = serde_json::from_str(&json).expect("and reads back");
             touch::assert_one_machine(&saved, &what);
         }
+    }
+
+    /// The roadster stands on her wheels under the air draft and inside the
+    /// gateway mouth, on every body, top, wheel and tier at every blueprint
+    /// corner (#1382).
+    ///
+    /// SHE AND THE WAGON ARE THE LAST TWO TYPES TO GET THIS. The two heroes
+    /// and the first fan-out type predate the per-type guard set every later
+    /// slice landed with - the dune buggy's
+    /// [`a_buggy_stands_on_her_wheels_under_the_air_draft`] was the first of
+    /// them (#1374, owner decision 11) - so the pattern reached four of the
+    /// six machines and skipped the two it started from. Nothing is being
+    /// FIXED here: measured before it was written, the tallest roadster the
+    /// family can draw stands 1.591 m over the ground at the 3.6 m corner,
+    /// against a 2.8 m cap. It is a guard against the next change, not
+    /// against this one.
+    ///
+    /// Read on the DRAWN tree plus the datum, as the other four are, rather
+    /// than on the arithmetic that placed the top: a hardtop resolved to a
+    /// height and then crowned over it would pass a derivation and fail this.
+    #[test]
+    fn a_roadster_stands_on_her_wheels_under_the_air_draft() {
+        use super::super::common::touch;
+        let mut tallest: f32 = 0.0;
+        for (built, plan, what) in every_roadster() {
+            for (at, r) in plan.wheels() {
+                assert!(
+                    (at[1] + plan.datum_height() - r).abs() < 1e-5,
+                    "{what}: a wheel of radius {r} has its centre {} over the ground",
+                    at[1] + plan.datum_height()
+                );
+            }
+            let top = touch::highest(&built) + plan.datum_height();
+            assert!(
+                top <= AIR_DRAFT_CAP,
+                "{what}: she stands {top} m over the ground, past the \
+                 {AIR_DRAFT_CAP} m air draft"
+            );
+            let wide = roadster::Roadster.overall_width(&plan, 0);
+            assert!(
+                wide < GATEWAY_MOUTH,
+                "{what}: {wide} m wide, past the {GATEWAY_MOUTH} m mouth"
+            );
+            tallest = tallest.max(top);
+        }
+        // The number the guard was written against, so a change that halves
+        // her or doubles her is caught here rather than at the cap.
+        assert!(
+            (1.4..1.8).contains(&tallest),
+            "the tallest roadster is {tallest} m, not the 1.591 m this was \
+             measured at - the shape moved, so re-read the cap margin"
+        );
+    }
+
+    /// Every roadster seed is drawn as a roadster, on the body, top and
+    /// wheels her seed picks, under an engine (#1364) - and no other skiff
+    /// seed is: a skiff has a plain engine exactly when she is drawn as a
+    /// roadster. And the aura her record carries LEAVES HER PIPE MOUTH.
+    ///
+    /// THIS IS #1382's GAP 2, and it is the reason the test exists. The skiff
+    /// exhaust mount was right only BY CONSTRUCTION - `Roadster::fx_mount`
+    /// reads `coachwork::exhaust_path`, which is also what sweeps the pipe, so
+    /// the two agree because they are the same call. Nothing said so. The boat
+    /// has `a_boats_aura_leaves_her_own_hull`; the other four skiffs each got
+    /// this as their slice landed (the buggy's stinger, the rover's deck); the
+    /// hero was the one machine with no such pin, so an `fx_mount` rewritten
+    /// to a fraction of a nominal body - the very defect #1364 item 8 removed
+    /// - would have gone unnoticed on her.
+    ///
+    /// Asked through the RECORD rather than of the mount function, so what is
+    /// checked is where the emitter actually ends up.
+    #[test]
+    fn a_roadster_seed_draws_a_roadster() {
+        use crate::pds::generator::GeneratorKind;
+        use crate::seeded_defaults::{ParticleAura, RoadsterBody, RoadsterTop, RoadsterWheels};
+        let (mut seen_body, mut seen_top, mut seen_wheels) = (Vec::new(), Vec::new(), Vec::new());
+        let (mut piped, mut flourish, mut bare) = (0, 0, 0);
+        for s in (0u64..3000).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
+            let roadster = SkiffType::for_seed(s) == SkiffType::Roadster;
+            assert_eq!(
+                propulsion(s) == Propulsion::Engine,
+                roadster,
+                "seed {s}: {:?} drives {:?}",
+                SkiffType::for_seed(s),
+                propulsion(s)
+            );
+            if !roadster {
+                continue;
+            }
+            for (v, seen) in [
+                (format!("{:?}", RoadsterBody::for_seed(s)), &mut seen_body),
+                (format!("{:?}", RoadsterTop::for_seed(s)), &mut seen_top),
+                (
+                    format!("{:?}", RoadsterWheels::for_seed(s)),
+                    &mut seen_wheels,
+                ),
+            ] {
+                if !seen.contains(&v) {
+                    seen.push(v);
+                }
+            }
+            let (record, _) = super::super::build_for_seed(s);
+            let emitters: Vec<_> = record
+                .visuals()
+                .expect("a skiff is an assembled tree")
+                .children
+                .iter()
+                .filter(|g| matches!(g.kind, GeneratorKind::ParticleSystem(..)))
+                .collect();
+            // A roadster has an engine, so her picked aura survives
+            // `drawn_aura` whatever it is - except `ParticleAura::None`,
+            // which no theme has to roll.
+            let aura = super::super::fx::drawn_aura(
+                crate::seeded_defaults::AvatarFx::for_seed(s).aura,
+                Propulsion::Engine,
+            );
+            let Some(want) = fx_mount(s, aura) else {
+                bare += 1;
+                assert!(emitters.is_empty(), "seed {s}: an aura with no mount");
+                continue;
+            };
+            assert_eq!(emitters.len(), 1, "seed {s}: not exactly one aura");
+            let at = emitters[0].transform.translation.0;
+            // (a) THE WIRING: the assembler hangs the emitter at the mount the
+            // craft published, rather than at a constant of its own.
+            assert_eq!(
+                at, want,
+                "seed {s}: her aura does not leave the mount her body publishes"
+            );
+            // (b) THE GEOMETRY, which is the half that can actually fail
+            // (#1382 gap 2): an exhaust or a steam wisp leaves the mouth of a
+            // pipe THAT IS DRAWN. Read off the tree's own sweeps, so a mount
+            // recomputed from a fraction of a nominal body - the defect #1364
+            // item 8 removed - comes out red here even though (a) still holds.
+            if matches!(aura, ParticleAura::Exhaust | ParticleAura::Steam) {
+                let tree = record.visuals().expect("a skiff is a tree");
+                let ends = sweep_ends(tree);
+                let near = ends
+                    .iter()
+                    .map(|(p, what)| {
+                        let d = (0..3).map(|i| (p[i] - at[i]).powi(2)).sum::<f32>().sqrt();
+                        (d, what)
+                    })
+                    .min_by(|a, b| a.0.total_cmp(&b.0))
+                    .expect("a roadster draws sweeps");
+                assert!(
+                    near.0 < 1e-3,
+                    "seed {s}: her {aura:?} issues from {at:?}, {} m from the \
+                     nearest drawn sweep end ({}) - it is not leaving a pipe \
+                     she draws",
+                    near.0,
+                    near.1
+                );
+                piped += 1;
+            } else {
+                flourish += 1;
+            }
+        }
+        assert!(
+            piped > 10 && flourish > 10,
+            "{piped} roadsters trailed a pipe and {flourish} a flourish - both \
+             arms of `fx_mount` have to be reached or half of it is untested"
+        );
+        assert_eq!(bare, 0, "{bare} roadsters rolled an aura with no mount");
+        assert_eq!(
+            (seen_body.len(), seen_top.len(), seen_wheels.len()),
+            (
+                RoadsterBody::ALL.len(),
+                RoadsterTop::ALL.len(),
+                RoadsterWheels::ALL.len()
+            ),
+            "the seeds under 3000 miss a pick: {seen_body:?} / {seen_top:?} / {seen_wheels:?}"
+        );
+    }
+
+    /// Every wagon seed is drawn as a wagon, on the body her theme picks,
+    /// ROLLING (#1377) - and no other skiff seed is - and the aura her record
+    /// carries sits where her body publishes it: sparks at a lit lantern, any
+    /// other flourish over the seat.
+    ///
+    /// She is the second of the two types that predate the per-type pattern
+    /// (see her air-draft guard). Her exhaust half is the interesting one: a
+    /// horse-drawn wagon has no pipe, so `drawn_aura` drops a picked Exhaust
+    /// or Steam to nothing, and a seed that rolled one carries NO emitter at
+    /// all - which this counts rather than skips, because "no aura" is the
+    /// answer being guarded.
+    #[test]
+    fn a_wagon_seed_draws_a_wagon() {
+        use crate::pds::generator::GeneratorKind;
+        use crate::seeded_defaults::{AvatarFx, ParticleAura, WagonBody};
+        let mut seen = Vec::new();
+        let (mut flourish, mut dropped) = (0, 0);
+        for s in (0u64..3000).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
+            let wagon = SkiffType::for_seed(s) == SkiffType::Wagon;
+            assert_eq!(
+                propulsion(s) == Propulsion::Rolling,
+                wagon,
+                "seed {s}: {:?} drives {:?}",
+                SkiffType::for_seed(s),
+                propulsion(s)
+            );
+            if !wagon {
+                continue;
+            }
+            let body = WagonBody::for_seed(s);
+            if !seen.contains(&body) {
+                seen.push(body);
+            }
+            let (record, _) = super::super::build_for_seed(s);
+            let emitters: Vec<_> = record
+                .visuals()
+                .expect("a skiff is an assembled tree")
+                .children
+                .iter()
+                .filter(|g| matches!(g.kind, GeneratorKind::ParticleSystem(..)))
+                .collect();
+            let aura =
+                super::super::fx::drawn_aura(AvatarFx::for_seed(s).aura, Propulsion::Rolling);
+            if aura == ParticleAura::None {
+                dropped += 1;
+                assert!(
+                    emitters.is_empty(),
+                    "seed {s}: a horse-drawn wagon trails an exhaust"
+                );
+                continue;
+            }
+            assert_eq!(emitters.len(), 1, "seed {s}: not exactly one aura");
+            let at = emitters[0].transform.translation.0;
+            // (a) THE WIRING: the assembler uses the mount the craft
+            // published, not a constant.
+            assert_eq!(
+                Some(at),
+                fx_mount(s, aura),
+                "seed {s}: her {aura:?} is not where her body publishes it"
+            );
+            // (b) THE GEOMETRY. Weaker than the roadster's pipe pin, because a
+            // lantern's flame and a seat's sparks are not a sweep MOUTH and
+            // there is no single drawn feature to name: what is claimed is
+            // that the flourish is ON THE MACHINE - inside the drawn envelope
+            // across and along, and between the ground and her drawn top. That
+            // is the #1364 failure (a mount at a fixed height, hovering over
+            // every body the default did not reach), and it is what a mount
+            // recomputed off a nominal rather than off this plan would break.
+            // A tight per-slot pin for her lantern is not built here.
+            let tree = record.visuals().expect("a skiff is a tree");
+            let (lo, hi) = origin_bounds(tree);
+            let (_, plan) = body_for(s).expect("a wagon seed has a body");
+            // ACROSS and ALONG against the drawn node origins: a machine's
+            // parts are spread over her whole plan, so origins bound these two
+            // axes closely enough to catch a mount that has left her.
+            for (ax, name) in [(0usize, "across"), (2, "along")] {
+                assert!(
+                    at[ax] >= lo[ax] - 0.05 && at[ax] <= hi[ax] + 0.05,
+                    "seed {s}: her {aura:?} sits at {} {name}, outside the \
+                     machine she is drawn on ({}..{})",
+                    at[ax],
+                    lo[ax],
+                    hi[ax]
+                );
+            }
+            // UP is a WEAKER claim than across and along, and deliberately
+            // so. A flourish HOVERS - `bodywork::perch` puts it where a person
+            // would be, which is over the seat and in the air - so neither the
+            // topmost node origin nor the drawn top is an upper bound on it.
+            // Both were tried and both were red on real seeds: origins put
+            // seed 240's sparks 0.334 m over the topmost origin (a lantern's
+            // node is at the foot of its post), and the drawn surface put seed
+            // 96's motes 0.211 m over her drawn top. What is asserted is that
+            // the flourish is over the GROUND and inside a machine's own
+            // length of her top - which is the #1364 failure (a mount at a
+            // fixed height, which on the small end of the blueprint range
+            // leaves the machine entirely) without pretending to pin a height
+            // this test has no independent derivation for.
+            let top = super::super::common::touch::highest(&drawn_only(tree));
+            let up = at[1] + plan.datum_height();
+            assert!(
+                up > 0.0 && at[1] <= top + plan.length,
+                "seed {s}: her {aura:?} sits {up} m over the ground against a \
+                 drawn top of {} m - under the ground, or adrift over a \
+                 {} m machine",
+                top + plan.datum_height(),
+                plan.length
+            );
+            flourish += 1;
+        }
+        assert!(
+            flourish > 10 && dropped > 10,
+            "{flourish} wagons with a flourish, {dropped} with a dropped exhaust"
+        );
+        assert_eq!(
+            seen.len(),
+            WagonBody::ALL.len(),
+            "the seeds under 3000 miss a body: {seen:?}"
+        );
     }
 
     /// Every roadster survives the record sanitiser UNCHANGED at the extremes
@@ -1385,7 +1774,7 @@ mod tests {
     fn a_skiff_survives_sanitize_unchanged_at_her_blueprint_extremes() {
         use crate::pds::sanitize_avatar_visuals;
         let mut n = 0;
-        for (built, what) in every_roadster() {
+        for (built, _, what) in every_roadster() {
             let mut sanitized = built.clone();
             sanitize_avatar_visuals(&mut sanitized);
             if let Some(where_) = first_difference(&built, &sanitized, "0") {
@@ -1421,21 +1810,33 @@ mod tests {
     /// grows the emitter moves this too. The phase-1 prototype put the worst
     /// of it - an open tourer on wire wheels at 3.6 m - at nine per cent under
     /// the guard (#1367), and it is the wire wheels that spend the margin.
+    ///
+    /// # It sizes what a SAVE writes (#1382 gap 1)
+    ///
+    /// The boats' twin, and for the same reason - see
+    /// `boats::tests::a_seeded_boats_record_stays_well_inside_the_budget`. It
+    /// used to bind `build_for_seed`'s locomotion half to `_` and size the
+    /// visual body alone; a publish writes the whole
+    /// [`AvatarRecord`](crate::pds::avatar::AvatarRecord), about 770 B more.
+    /// The heaviest skiff in the population (seed 1731) is the heaviest saved
+    /// record in the fleet, so this is the guard that had the least to spare
+    /// and still has over 2 KB of it.
     #[test]
     fn a_seeded_skiffs_record_stays_well_inside_the_budget() {
+        use crate::pds::avatar::AvatarRecord;
         use crate::pds::record_size::{SOFT_RECORD_BUDGET_BYTES, serialized_record_bytes};
         use crate::seeded_defaults::{
             OrnatenessTier, RoadsterBody, RoadsterTop, RoadsterWheels, WearTier,
         };
         let bytes = |t: &Generator| serialized_record_bytes(t).expect("a skiff serializes");
-        let (mut worst_seed, mut fx_overhead) = (0usize, 0usize);
+        let (mut worst_seed, mut overhead) = (0usize, 0usize);
         for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
-            let (record, _) = super::super::build_for_seed(s);
-            let saved = serialized_record_bytes(&record).expect("a record serializes");
+            let saved = serialized_record_bytes(&AvatarRecord::default_for_seed(s))
+                .expect("a record serializes");
             worst_seed = worst_seed.max(saved);
-            fx_overhead = fx_overhead.max(saved.saturating_sub(bytes(&build(s, None))));
+            overhead = overhead.max(saved.saturating_sub(bytes(&build(s, None))));
         }
-        assert!(worst_seed > 0 && fx_overhead > 0, "nothing was measured");
+        assert!(worst_seed > 0 && overhead > 0, "nothing was measured");
         let mut ctx = PartCtx::for_seed(a_skiff_seed());
         ctx.ornateness = OrnatenessTier::Ornate;
         ctx.wear = WearTier::Battered;
@@ -1447,7 +1848,7 @@ mod tests {
                     for top in RoadsterTop::ALL {
                         let mut built = roadster::build_dressed(&ctx, &plan, top, rolls);
                         apply_travel_pose(&mut built, travel_drop(&roadster::Roadster, &plan, 0));
-                        worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
+                        worst_corner = worst_corner.max(bytes(&built) + overhead);
                     }
                 }
             }
@@ -1461,7 +1862,7 @@ mod tests {
                 let plan = wagon::plan_of(&bp, body);
                 let mut built = wagon::build_dressed(&ctx, &plan);
                 apply_travel_pose(&mut built, travel_drop(&wagon::Wagon, &plan, 0));
-                worst_wagon = worst_wagon.max(bytes(&built) + fx_overhead);
+                worst_wagon = worst_wagon.max(bytes(&built) + overhead);
             }
         }
         // And the dune buggy's, every variant at every corner on her fullest
@@ -1474,7 +1875,7 @@ mod tests {
                 let plan = buggy::plan_of(&bp, variant);
                 let mut built = buggy::build_dressed(&ctx, &plan);
                 apply_travel_pose(&mut built, travel_drop(&buggy::Buggy, &plan, 0));
-                worst_buggy = worst_buggy.max(bytes(&built) + fx_overhead);
+                worst_buggy = worst_buggy.max(bytes(&built) + overhead);
             }
         }
         // And the cyclecar's, at every corner on her fullest ladder and in
@@ -1492,7 +1893,7 @@ mod tests {
                 ctx.livery = Some(livery);
                 let mut built = cyclecar::build_dressed(&ctx, &plan);
                 apply_travel_pose(&mut built, travel_drop(&cyclecar::Cyclecar, &plan, 0));
-                worst_cyclecar = worst_cyclecar.max(bytes(&built) + fx_overhead);
+                worst_cyclecar = worst_cyclecar.max(bytes(&built) + overhead);
             }
         }
         // And the armoured car's, every variant at every corner on her
@@ -1506,7 +1907,7 @@ mod tests {
                 let plan = armoured::plan_of(&bp, variant);
                 let mut built = armoured::build_dressed(&ctx, &plan);
                 apply_travel_pose(&mut built, travel_drop(&armoured::Armoured, &plan, 0));
-                worst_armoured = worst_armoured.max(bytes(&built) + fx_overhead);
+                worst_armoured = worst_armoured.max(bytes(&built) + overhead);
             }
         }
         // And the rover's, every variant at every corner on her fullest
@@ -1520,7 +1921,7 @@ mod tests {
                 let plan = rover::plan_of(&bp, variant);
                 let mut built = rover::build_dressed(&ctx, &plan);
                 apply_travel_pose(&mut built, travel_drop(&rover::Rover, &plan, 0));
-                worst_rover = worst_rover.max(bytes(&built) + fx_overhead);
+                worst_rover = worst_rover.max(bytes(&built) + overhead);
             }
         }
         for (what, worst) in [
@@ -1548,19 +1949,17 @@ mod tests {
     /// brief asked for it: visuals carry no colliders, and wheels and guards
     /// stand a long way outboard of coachwork this narrow, so the width is not
     /// the blueprint's `body_w` but the guards' own. Measured rather than
-    /// assumed - the legacy fleet reached 2.39 m against this same 2.6 m.
+    /// assumed - the legacy fleet reached 2.39 m against this same mouth.
     #[test]
     fn no_seeded_skiff_is_wider_than_the_narrowest_gateway_mouth() {
-        /// The narrowest mouth on a seeded gateway (m) - see #1359 rule 6.
-        const MOUTH: f32 = 2.6;
         let mut worst: f32 = 0.0;
         let mut checked = 0;
         for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
             let (craft, plan) = body_for(s).expect("a skiff seed has a body");
             let w = craft.overall_width(&plan, s);
             assert!(
-                w < MOUTH,
-                "seed {s} is {w} m wide, past the {MOUTH} m mouth"
+                w < GATEWAY_MOUTH,
+                "seed {s} is {w} m wide, past the {GATEWAY_MOUTH} m mouth"
             );
             worst = worst.max(w);
             checked += 1;

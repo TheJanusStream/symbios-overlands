@@ -32,7 +32,11 @@
 //! `render --outfit` prints the picked type and `render --family-seeds --craft
 //! <type>` filters by it. The build seam that routes a seed to its type's own
 //! builder landed with the first builder of each family, in #1363 and #1364,
-//! and `implemented()` is what says which way a seed goes.
+//! and ALL TWELVE TYPES ARE NOW BUILT - the longship closed the boat half
+//! (#1369) and the rover the skiff half (#1378) - so every seed is drawn as
+//! the craft it rolled. The `implemented()` predicate that used to say which
+//! way a seed went, and the `Option` the builder tables returned, went with
+//! the last unbuilt type (#1382).
 //!
 //! Seeds may change type as types land; that is allowed by design (a
 //! never-saved seeded default is free to change look, and a saved avatar keeps
@@ -156,15 +160,6 @@ impl CraftType {
         }
     }
 
-    /// Whether anything actually builds this type - see
-    /// [`BoatType::implemented`].
-    pub fn implemented(self) -> bool {
-        match self {
-            Self::Boat(t) => t.implemented(),
-            Self::Skiff(t) => t.implemented(),
-        }
-    }
-
     /// Human-readable display name - the readouts and the pinned re-roll.
     pub fn label(self) -> &'static str {
         match self {
@@ -193,6 +188,11 @@ pub fn craft_axis(c: &AvatarCharacter) -> Result<CraftType, &'static str> {
 }
 
 /// The recognisable kind of boat a seeded hover-boat avatar is.
+///
+/// All six are built, one slice each, in the order the owner set by share of
+/// the family (#1368): the SLOOP as the hero (#1363), then the runabout
+/// (#1372, 19 %), the scow (#1373, 18 %), the steam tug (#1370, 15 %), the
+/// junk (#1371, 10 %) and the longship (#1369, 7 %), which closed the family.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BoatType {
     /// Fore-and-aft rigged sailing yacht - the family's universal floor, and
@@ -213,6 +213,13 @@ pub enum BoatType {
 }
 
 /// The recognisable kind of land craft a seeded skiff avatar is.
+///
+/// All six are built, one slice each, in the same share order as the boats
+/// (#1368): the ROADSTER as the hero (#1364, 30 % of the family), then the
+/// wagon (#1377) - a horseless carriage takes all ten historic themes, so she
+/// alone is 31 %, the largest share in either family - the dune buggy (#1374,
+/// 13 %), the cyclecar (#1376, 10 %), the armoured car (#1375, 8 %) and the
+/// rover (#1378, 8 %), which closed the family.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SkiffType {
     /// Open two-seat sports car on a boat-tailed body - the family's universal
@@ -339,39 +346,6 @@ impl BoatType {
         floor + if self.at_home(style) { AT_HOME } else { 0 }
     }
 
-    /// Whether anything actually BUILDS this type yet (#1363).
-    ///
-    /// The pick is a property of the seed and answers for every type from the
-    /// day the table landed; the geometry arrives one slice at a time. Until a
-    /// type's slice lands, a seed that picked it is DRAWN as the family's
-    /// [`UNIVERSAL`](Self::UNIVERSAL) floor - the sloop - while still
-    /// *reporting* the type it rolled, which is what lets each fan-out slice
-    /// find its own seeds before it builds them.
-    ///
-    /// Kept in step with the builder table by
-    /// `default_visuals::boats::tests::a_type_is_implemented_exactly_when_
-    /// something_builds_it`; the failure it prevents is a type that claims to
-    /// be built and silently draws a sloop.
-    ///
-    /// The LONGSHIP was the sixth and last (#1369), on her four old-world
-    /// themes - and with her NO BOAT TYPE IS UNBUILT. Every boat seed now
-    /// draws the craft it rolled, and the answer here is `true` six times.
-    ///
-    /// It is still asked, and is still a `match` rather than a `true`: the
-    /// readouts print it (`render_tool::text_tools`, "picked and built"),
-    /// #1380's pinned re-roll will ask it, and a seventh type filed before
-    /// its builder lands has to be able to say so.
-    pub fn implemented(self) -> bool {
-        match self {
-            Self::Sloop
-            | Self::Longship
-            | Self::Runabout
-            | Self::Scow
-            | Self::SteamTug
-            | Self::Junk => true,
-        }
-    }
-
     /// The type for a seed, weighted by the avatar's style.
     pub fn for_seed(seed: u64) -> Self {
         Self::for_style(AvatarCharacter::for_seed(seed).style, seed)
@@ -490,45 +464,6 @@ impl SkiffType {
         floor + if self.at_home(style) { AT_HOME } else { 0 }
     }
 
-    /// Whether anything actually BUILDS this type yet (#1364).
-    ///
-    /// The skiff half of [`BoatType::implemented`]'s seam, and the same
-    /// contract: the pick is a property of the seed and answers for every type
-    /// from the day the table landed, while the geometry arrives one slice at
-    /// a time. Until a type's slice lands, a seed that picked it is DRAWN as
-    /// the family's [`UNIVERSAL`](Self::UNIVERSAL) floor - the roadster -
-    /// while still *reporting* the type it rolled.
-    ///
-    /// The Wagon was built second (#1377): a horseless carriage takes all ten
-    /// historic themes, so it alone is 31 % of the family against the
-    /// Roadster's 30. The Dune buggy is the third (#1374), on its six leisure
-    /// and frontier themes: 13 % of the family. The Cyclecar is the fourth
-    /// (#1376), on the neon themes and the campus. The Armoured car is the
-    /// fifth (#1375), on the three modern martial themes: 8 % of the family.
-    /// The six-wheeled ROVER is the sixth (#1378), on the outpost and alien
-    /// themes and the other 8 % - and with her NO SKIFF TYPE IS UNBUILT.
-    /// Every skiff seed now draws the machine it rolled, and the answer here
-    /// is `true` six times.
-    ///
-    /// It is still asked, and is still a `match` rather than a `true`: the
-    /// boats keep their own unbuilt group until #1369, the readouts print
-    /// this and #1380's pinned re-roll will ask it, and a seventh type filed
-    /// before its builder lands has to be able to say so.
-    ///
-    /// Kept in step with the builder table by
-    /// `default_visuals::skiffs::tests::a_skiff_type_is_implemented_exactly_
-    /// when_something_builds_it`.
-    pub fn implemented(self) -> bool {
-        match self {
-            Self::Roadster
-            | Self::Wagon
-            | Self::DuneBuggy
-            | Self::Cyclecar
-            | Self::ArmouredCar
-            | Self::Rover => true,
-        }
-    }
-
     /// The type for a seed, weighted by the avatar's style.
     pub fn for_seed(seed: u64) -> Self {
         Self::for_style(AvatarCharacter::for_seed(seed).style, seed)
@@ -595,13 +530,22 @@ mod tests {
     /// the defect the type pick exists to remove.
     ///
     /// ONE named exception, for boats only: PIRATE, whose boats have all been
-    /// sloops since the steam tug left the labouring themes (#1370). The
-    /// sloop is not the bare floor there - Pirate is at home on her, the gaff
-    /// cutter being the apt pirate craft - and her five rigs, the square
-    /// topsail among them, are that theme's variety; a funnel on a buccaneer
-    /// is the costume error the narrowing took out. Named, not relaxed: "the
-    /// floor counts where the theme is at home on it" would unpin every
-    /// COASTAL and REGAL theme with it.
+    /// sloops since the steam tug left the labouring themes (#1370) - a funnel
+    /// on a buccaneer being the costume error that narrowing took out.
+    ///
+    /// The sloop is not the bare FLOOR there: Pirate is at home on her, and
+    /// since #1379 a Pirate sloop is the one boat in the fleet that wears a
+    /// KIT - a black ensign, gun ports with lids, a taffrail staff - which no
+    /// other theme can draw. That kit, not the count of types, is what keeps a
+    /// Pirate population from reading as everyone else's; the five rigs vary
+    /// her on top of it. The kit's own half of this bargain is pinned by
+    /// `default_visuals::boats::tests::the_pirate_kit_is_pirate_only`, which
+    /// is where the assertion that it is Pirate-only lives - deliberately NOT
+    /// repeated here, because the kit is geometry and this module derives
+    /// picks.
+    ///
+    /// Named, not relaxed: "the floor counts where the theme is at home on
+    /// it" would unpin every COASTAL and REGAL theme with it.
     #[test]
     fn every_theme_reaches_at_least_two_types_per_family() {
         for style in ThemeArchetype::ALL {
@@ -654,7 +598,8 @@ mod tests {
         );
     }
 
-    /// Only the two part-assembled vehicle families carry a type.
+    /// Only the two craft-type vehicle families carry a type - the airship is
+    /// composed from parts instead, and the humanoid is rigged.
     #[test]
     fn the_type_follows_the_family() {
         let mut families = 0;

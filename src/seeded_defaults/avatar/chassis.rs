@@ -3,14 +3,21 @@
 //! Sampled into the [`AvatarCharacter`](super::AvatarCharacter) anchor so the
 //! rest of the avatar pipeline can branch: a DID resolves to exactly one
 //! visual family (hover-boat, airship, humanoid, land-skiff), and only that
-//! family's slots are filled and assembled. Locomotion follows the family
+//! family's build path runs. Locomotion follows the family
 //! (boat → HoverBoat, airship → Helicopter, humanoid → Humanoid, skiff →
 //! Car) so the default chassis *feels* like what it looks like.
 //!
-//! The pick is uniform - every family is equally likely on a fresh DID.
-//! Diversity inside each family comes from the seeded
-//! [`AvatarOutfit`](super::AvatarOutfit) composing the tagged part catalogue
-//! ([`crate::pds::avatar::parts`]).
+//! The pick is uniform - every family is equally likely on a fresh DID
+//! ([`crate::seeded_defaults::scene::pick`] is an unweighted draw over
+//! [`ChassisFamily::ALL`]).
+//!
+//! Diversity inside a family is NOT one mechanism. A boat or a skiff rolls a
+//! [`CraftType`](super::CraftType) and is drawn by that type's own builder
+//! over one profile (#1363, #1364); an airship is composed by the seeded
+//! [`AvatarOutfit`](super::AvatarOutfit) filling slots from the tagged part
+//! catalogue ([`crate::pds::avatar::parts`]) - the last family that is; a
+//! humanoid is a seeded `symbios-avatar` engine record (#1060). See
+//! [`super`]'s header for the three routes.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
@@ -20,18 +27,21 @@ use crate::seeded_defaults::scene::pick;
 
 const AVATAR_CHASSIS_SALT: u64 = 0xC4A5_51F0_C4A5_51F0;
 
-/// Discrete visual family of the default avatar. Picked first; the
-/// silhouette is then shaped by filling that family's outfit slots
-/// from the tagged part catalogue.
+/// Discrete visual family of the default avatar. Picked first; how the
+/// silhouette follows from it is the family's own affair - see the module
+/// header.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChassisFamily {
-    /// Hover-boat - monohull / catamaran / trimaran / barge.
+    /// Hover-boat - one of six seeded craft types, from a sloop to a scow
+    /// ([`BoatType`](super::BoatType)).
     Boat,
-    /// Lighter-than-air - envelope + gondola.
+    /// Lighter-than-air - envelope + gondola, composed from parts.
     Airship,
-    /// Primitive-built figure consuming skin / hair / eye / gait.
+    /// Rigged figure from the `symbios-avatar` engine, consuming skin / hair
+    /// / eye / gait (#1060).
     Humanoid,
-    /// Land vehicle - rover / dune-skiff / trike.
+    /// Land vehicle - one of six seeded craft types, from a roadster to a
+    /// six-wheeled rover ([`SkiffType`](super::SkiffType)).
     Skiff,
 }
 

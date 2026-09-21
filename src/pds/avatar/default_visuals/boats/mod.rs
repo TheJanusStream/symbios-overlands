@@ -16,15 +16,10 @@
 //! The sloop, the runabout (#1372), the scow (#1373), the steam tug (#1370),
 //! the junk (#1371) and the longship (#1369) are built - which since the
 //! longship is ALL SIX, so no boat seed anywhere is drawn as somebody else's
-//! craft. [`craft`] is still the one match that says so, and it still
-//! returns an `Option`: the seam it names is what let #1363 go live for
-//! every boat seed rather than half of them, [`craft_for`] still resolves an
-//! unbuilt pick to [`BoatType::UNIVERSAL`] - the sloop is the family's
-//! universal floor exactly so it can be that answer - and collapsing the
-//! `Option` across both families is #1382's, which is the slice whose job is
-//! guards and documentation. The PICK itself has always been a property of
-//! the seed, so `render --outfit` and `render --family-seeds --craft`
-//! answered for every type before anyone had drawn them.
+//! craft. [`craft`] is the one match that says so. The PICK itself has always
+//! been a property of the seed, so `render --outfit` and `render
+//! --family-seeds --craft` answered for every type before anyone had drawn
+//! them.
 //!
 //! # Where a boat sits
 //!
@@ -78,21 +73,12 @@ pub(super) const TRAVEL_DROP: f32 = crate::config::rover::WATER_REST_LENGTH;
 /// any size.
 const KEEL_CLEARANCE_FRAC: f32 = 0.25;
 
-/// The tallest anything on a seeded boat may stand above the **ground**, hover
-/// included (m).
-///
-/// Visuals carry no colliders, and the lowest lintel on a seeded gateway is
-/// 2.86 m, so a mast over this sails straight through one (#1359 rule 6). It
-/// is what makes a realistic bermudan rig impossible at this scale and a gaff
-/// or gunter rig the answer: a boat's whole rig has to fit inside a box as
-/// tall as she is long. It is resolved against the TOP of a rig, not its
-/// masthead - a gunter's yard and a square topsail's topmast stand over the
-/// mast they are hoisted on (#1366).
-pub(crate) const AIR_DRAFT_CAP: f32 = 2.8;
-
-/// Headroom (m) a rig leaves under [`AIR_DRAFT_CAP`], so a masthead fitting,
-/// a burgee or a vane still has somewhere to go.
-pub(crate) const AIR_DRAFT_MARGIN: f32 = 0.10;
+#[cfg(test)]
+pub(crate) use super::GATEWAY_MOUTH;
+/// The gate both families drive through - one home, in the module that owns
+/// them both (#1382). Re-exported here rather than restated so the rigs that
+/// resolve a mast against the cap keep reaching it as `super::super::`.
+pub(crate) use super::{AIR_DRAFT_CAP, AIR_DRAFT_MARGIN};
 
 /// Smallest dimension anything on a boat is built at (m).
 ///
@@ -213,44 +199,40 @@ pub(super) trait BoatCraft {
     fn overall_beam(&self, hull: &HullProfile, seed: u64) -> f32;
 }
 
-/// The builder for a craft type, or `None` while nothing implements it.
+/// The builder for a craft type.
 ///
-/// The seam, and deliberately not a stub (#1362's own note): a match over a
-/// non-empty enum needs an arm per variant, and an arm that drew *something*
-/// for an unimplemented type would be a lie the population census could not
-/// see. Adding a type is a compile error here until it is listed - which is
-/// what each of #1369-#1373 did in turn (the runabout, #1372, the scow,
-/// #1373, the steam tug, #1370, the junk, #1371, and the longship, #1369).
+/// The one match over [`BoatType`], and deliberately not a stub (#1362's own
+/// note): a match over a non-empty enum needs an arm per variant, so ADDING A
+/// TYPE IS A COMPILE ERROR HERE until it is listed.
 ///
-/// Since the longship every arm is `Some`, so the `Option` is now a shape
-/// with no `None` in it and [`craft_for`]'s fallback is unreachable. Kept,
-/// not collapsed: the same is true on the skiff side since #1378, both
-/// halves collapse in one decision rather than two, and that decision is
-/// #1382's - a fleet-wide refactor with no geometry in it does not belong in
-/// the commit that lands a craft type.
-fn craft(t: BoatType) -> Option<&'static dyn BoatCraft> {
+/// # It used to return an `Option`, and no longer does (#1382)
+///
+/// Through the fan-out this returned `None` for a type nothing drew yet, and
+/// [`craft_for`] resolved such a pick to [`BoatType::UNIVERSAL`]. That seam is
+/// what let #1363 go live for every boat seed rather than half of them, and it
+/// closed when the longship (#1369) made every arm `Some` - the skiffs' twin
+/// with the rover (#1378).
+///
+/// The price of collapsing it, said here because this is where the next
+/// person will look: a SEVENTH TYPE CANNOT LAND HALF-BUILT. There is no
+/// unbuilt state to report and no floor to fall back to, so a new type has to
+/// arrive with its builder in the same commit as its enum variant. That is a
+/// one-commit slice now that the pattern is ten types old, and it is the
+/// trade the seam was carrying.
+fn craft(t: BoatType) -> &'static dyn BoatCraft {
     match t {
-        BoatType::Sloop => Some(&sloop::Sloop),
-        BoatType::Runabout => Some(&runabout::Runabout),
-        BoatType::Scow => Some(&scow::Scow),
-        BoatType::SteamTug => Some(&tug::Tug),
-        BoatType::Junk => Some(&junk::Junk),
-        BoatType::Longship => Some(&longship::Longship),
+        BoatType::Sloop => &sloop::Sloop,
+        BoatType::Runabout => &runabout::Runabout,
+        BoatType::Scow => &scow::Scow,
+        BoatType::SteamTug => &tug::Tug,
+        BoatType::Junk => &junk::Junk,
+        BoatType::Longship => &longship::Longship,
     }
 }
 
-/// The builder a seed actually draws with: its own type where that type is
-/// built, and the family's universal floor where it is not.
-///
-/// Since #1369 every type is built, so the floor is never reached and this
-/// IS `craft(BoatType::for_seed(seed))` unwrapped. The fallback is what let
-/// #1363 go live for every boat seed rather than half of them, and it is
-/// kept until #1382 collapses the seam in both families at once - see
-/// [`craft`].
+/// The builder a seed draws with - its own type's, always.
 fn craft_for(seed: u64) -> &'static dyn BoatCraft {
-    craft(BoatType::for_seed(seed)).unwrap_or_else(|| {
-        craft(BoatType::UNIVERSAL).expect("the family's universal floor is always built")
-    })
+    craft(BoatType::for_seed(seed))
 }
 
 /// The idle of the type a seed actually draws with (#1381) - what
@@ -265,7 +247,7 @@ pub(super) fn idle_for(seed: u64) -> BoatIdle {
 pub(super) fn every_idle() -> Vec<(&'static str, BoatIdle)> {
     BoatType::ALL
         .into_iter()
-        .filter_map(|t| craft(t).map(|c| (t.label(), c.idle())))
+        .map(|t| (t.label(), craft(t).idle()))
         .collect()
 }
 
@@ -279,7 +261,7 @@ pub(super) fn every_idle() -> Vec<(&'static str, BoatIdle)> {
 pub(super) fn every_feel() -> Vec<(&'static str, BoatFeel)> {
     BoatType::ALL
         .into_iter()
-        .filter_map(|t| craft(t).map(|c| (t.label(), c.feel())))
+        .map(|t| (t.label(), craft(t).feel()))
         .collect()
 }
 
@@ -316,13 +298,7 @@ pub(super) fn feel_and_draft(seed: u64) -> (BoatFeel, f32, Option<f32>) {
         // Defensive: a boat seed always has a blueprint. Falling back to the
         // floor's own feel keeps a locomotion query total rather than panicking
         // in a sanitiser round-trip that exercises the family off-seed.
-        None => (
-            craft(BoatType::UNIVERSAL)
-                .expect("the floor is always built")
-                .feel(),
-            0.28,
-            None,
-        ),
+        None => (craft(BoatType::UNIVERSAL).feel(), 0.28, None),
     }
 }
 
@@ -352,47 +328,22 @@ mod tests {
     use super::*;
     use crate::seeded_defaults::{ChassisFamily, RunaboutVariant, ScowLoad, TugVariant};
 
-    /// The seam (#1362 → #1363). `BoatType::implemented` is what the readouts
-    /// and the fan-out slices ask; [`craft`] is what actually draws. They are
-    /// two matches over one enum, so pin them together - the failure they
-    /// prevent is a type that says it is built and silently draws a sloop.
-    #[test]
-    fn a_type_is_implemented_exactly_when_something_builds_it() {
-        for t in BoatType::ALL {
-            assert_eq!(
-                craft(t).is_some(),
-                t.implemented(),
-                "{t:?}: `implemented()` and the builder table disagree"
-            );
-        }
-        assert!(
-            BoatType::UNIVERSAL.implemented(),
-            "the universal floor must be built - every unbuilt pick resolves to it"
-        );
-    }
-
-    /// Every boat seed draws a boat, whatever type it picked - and since
-    /// #1369 it draws ITS OWN, which is a strictly stronger claim than the
-    /// one this made before.
+    /// Every boat seed draws a boat, and draws ITS OWN.
     ///
-    /// It used to assert `unbuilt > 0`: that some seed still picked a type
-    /// nothing drew, so the floor fallback was exercised. The longship was
-    /// the last of those (15 of the 146 boat seeds under 600 picked her and
-    /// were drawn as sloops), so the count is now ZERO and the fallback in
-    /// [`craft_for`] is unreachable. Restated rather than deleted, in the
-    /// skiffs' form (#1378), because what it means now is the thing worth
-    /// guarding: every one of the six [`BoatType`]s is PICKED by some seed
-    /// under 600 and BUILT by [`craft`], so no seed anywhere in the
-    /// population is quietly drawn as somebody else's craft.
+    /// It used to count the seeds whose pick nothing drew, and assert that
+    /// count was zero; since #1382 collapsed [`craft`] there is no unbuilt
+    /// state left to count - a pick that had no builder would not compile.
+    /// What survives is the half that is still a real claim about the
+    /// POPULATION rather than about the match: every one of the six
+    /// [`BoatType`]s is PICKED by some seed under 600, so the fleet the owner
+    /// actually meets contains all six, and each one's hull is non-degenerate
+    /// on every seed that picks it.
     #[test]
     fn every_boat_seed_resolves_to_a_built_craft() {
-        let (mut unbuilt, mut total) = (0, 0);
+        let mut total = 0;
         let mut picked: Vec<BoatType> = Vec::new();
         for s in (0u64..600).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
             let t = BoatType::for_seed(s);
-            if !t.implemented() {
-                unbuilt += 1;
-            }
             if !picked.contains(&t) {
                 picked.push(t);
             }
@@ -401,13 +352,6 @@ mod tests {
             assert!(hull.loa > 0.5, "seed {s}: degenerate hull");
         }
         assert!(total > 50, "too few boats sampled: {total}");
-        assert_eq!(
-            unbuilt, 0,
-            "{unbuilt} seeds picked an unbuilt type - since #1369 every boat type \
-             is built, and `craft_for`'s floor fallback is unreachable"
-        );
-        // The census, which is what the assertion above now rests on: every
-        // type is drawn by somebody, and every type that is drawn is built.
         for t in BoatType::ALL {
             assert!(
                 picked.contains(&t),
@@ -416,7 +360,6 @@ mod tests {
                 picked.len(),
                 BoatType::ALL.len()
             );
-            assert!(craft(t).is_some(), "{t:?} is picked and nothing builds it");
         }
     }
 
@@ -518,6 +461,14 @@ mod tests {
     /// [`mood::BUCCANEER`], a group of one, and the failure this prevents is
     /// a second theme drifting into that group and quietly putting a jolly
     /// roger on a Nordic longship's owner's sloop.
+    ///
+    /// The other half of the bargain is in the pick layer:
+    /// `seeded_defaults::avatar::craft::tests::
+    /// every_theme_reaches_at_least_two_types_per_family` lets Pirate reach
+    /// ONE boat type where every other theme must reach two, and this kit is
+    /// the reason it may. If the kit ever stopped being Pirate-only, that
+    /// exception would have lost its reason - so the two tests are a pair and
+    /// each names the other (#1382).
     #[test]
     fn the_pirate_kit_is_pirate_only() {
         use crate::seeded_defaults::ThemeArchetype;
@@ -664,11 +615,37 @@ mod tests {
     /// over it would pass the first and sail through a lintel (#1366). Every
     /// blueprint corner a seed can reach is in the population sweep, including
     /// the small end, where a floor after a cap is how a cap gets lost.
+    ///
+    /// # And the MOUTH (#1382)
+    ///
+    /// The other half of rule 6, which the sloop alone was missing: the five
+    /// later boat types each check their overall beam against
+    /// [`GATEWAY_MOUTH`] in their own `fits_the_gateway` guard, and the hero
+    /// predates that pattern. Hers is checked twice over, in the same sweep
+    /// and for the same reason the air draft is: on the beam she DECLARES
+    /// (what her collider is cut to) and on the width she DRAWS, which is
+    /// what actually meets a jamb. They are not the same claim - a shroud, a
+    /// chainplate or a Pirate's port lid stands outboard of the topsides -
+    /// and `touch::widest` reads a tortured prim wide, so the drawn figure is
+    /// a pessimistic bound.
+    ///
+    /// **THE MOUTH IS SLACK ON HER, AND THAT IS THE ANSWER, NOT AN OVERSIGHT.**
+    /// The first version of this asserted the mouth *binds* somewhere in the
+    /// population, the way the cap is asserted to bind on every rig below, and
+    /// it failed: the widest sloop in the population draws **0.967 m** against
+    /// a 2.600 m mouth, 1.6 m of slack. A monohull at a realistic L:B of
+    /// 3.2-4.5 simply cannot approach a gate this wide at 2.8 m LOA - which is
+    /// why the boat family's binding constraint is the air draft and the
+    /// SKIFF family's is the mouth (a wagon reaches 2.020 m on her naves).
+    /// So her width is guarded as a BAND rather than as a bound: it catches a
+    /// change that doubles her, which is the failure that could actually
+    /// happen here, instead of pretending a gate constrains her.
     #[test]
     fn no_seeded_boat_stands_over_the_air_draft_cap() {
         use super::super::common::touch;
         use crate::seeded_defaults::SloopRig;
         let mut worst = [0.0f32; SloopRig::ALL.len()];
+        let mut widest: f32 = 0.0;
         let mut checked = 0;
         for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
             // The SLOOP's hull on every boat seed, whatever it draws: every
@@ -676,21 +653,43 @@ mod tests {
             // blueprint the family rolls.
             let hull = sloop_hull_for(s);
             let ctx = PartCtx::for_seed(s);
+            // The kit is in the sweep for the width, and out of it for the
+            // height: her ports and lids are on the TOPSIDES, so they can
+            // widen her and cannot raise her - which is exactly what
+            // `the_pirate_kit_is_one_machine_inside_the_cap_at_every_corner`
+            // pins on the height side.
+            let kit = sloop::SloopKit::for_style(crate::seeded_defaults::ThemeArchetype::Pirate);
             for (i, rig) in SloopRig::ALL.into_iter().enumerate() {
                 let derived = sloop::top_of_rig(&hull, rig) + hover(hull.draft);
-                let drawn = touch::highest(&sloop::build_rigged(&ctx, &hull, rig, UNKITTED))
-                    + hover(hull.draft);
+                let bare = sloop::build_rigged(&ctx, &hull, rig, UNKITTED);
+                let drawn = touch::highest(&bare) + hover(hull.draft);
                 assert!(
                     derived.max(drawn) <= AIR_DRAFT_CAP,
                     "seed {s}, {}: the rig was resolved to {derived} m over the \
                      ground and draws to {drawn} m, past the {AIR_DRAFT_CAP} m cap",
                     rig.label()
                 );
+                let beam = sloop::Sloop.overall_beam(&hull, s);
+                let wide = touch::widest(&bare)
+                    .max(touch::widest(&sloop::build_rigged(&ctx, &hull, rig, kit)));
+                assert!(
+                    beam.max(wide) < GATEWAY_MOUTH,
+                    "seed {s}, {}: she declares a {beam} m beam and draws \
+                     {wide} m wide, past the {GATEWAY_MOUTH} m gateway mouth",
+                    rig.label()
+                );
+                widest = widest.max(wide);
                 worst[i] = worst[i].max(derived);
             }
             checked += 1;
         }
         assert!(checked > 100, "too few boats sampled: {checked}");
+        // Her width against the number this was measured at - see the doc.
+        assert!(
+            (0.8..1.2).contains(&widest),
+            "the widest sloop draws {widest} m, not the 0.967 m this was \
+             measured at - her proportions moved, so re-read the mouth margin"
+        );
         // And it is a real bound on EVERY rig rather than a vacuous one: the
         // cap actually binds each of them somewhere in the population.
         for (rig, worst) in SloopRig::ALL.into_iter().zip(worst) {
@@ -1000,9 +999,11 @@ mod tests {
     /// shrinking with the hull, so a part that meets at the nominal size can
     /// come adrift at the small end. See [`super::common::touch`] for why this
     /// cannot be judged by eye, and for its one blind spot: it resolves a
-    /// tortured cuboid as its UNDEFORMED box, so for the sails it is green
-    /// partly for the wrong reason. That is #1382's to teach it, and why the
-    /// sail patch the phase-1 prototype drew is not in the ladder (#1366).
+    /// tortured cuboid as its UNDEFORMED box, so for the SLOOP's sails it is
+    /// green partly for the wrong reason - measured at #1382, hers are the
+    /// only tortured sails in the fleet. Teaching it the deform is #1393's,
+    /// and the blind spot is why the sail patch the phase-1 prototype drew is
+    /// not in the ladder (#1366).
     #[test]
     fn a_boat_is_one_machine_at_her_blueprint_extremes() {
         use super::super::common::touch;
@@ -1043,7 +1044,7 @@ mod tests {
     /// waterline by at least a hundredth of her length - the first sweep of
     /// the prototype found the small narrow catamaran floating dry above it -
     /// she is drawn under the air-draft cap hover included, and her overall
-    /// beam clears the narrowest gateway mouth, 2.6 m.
+    /// beam clears the narrowest gateway mouth.
     #[test]
     fn a_runabout_floats_in_her_water_and_fits_the_gateway() {
         use super::super::common::touch;
@@ -1064,8 +1065,8 @@ mod tests {
             );
             let beam = runabout::overall_beam_of(&hull, v);
             assert!(
-                beam < 2.6,
-                "{what}: {beam} m wide, past the 2.6 m gateway mouth"
+                beam < GATEWAY_MOUTH,
+                "{what}: {beam} m wide, past the {GATEWAY_MOUTH} m gateway mouth"
             );
         }
     }
@@ -1074,7 +1075,7 @@ mod tests {
     /// every load and tier (#1373) - the runabout's guard: her flat bottom is
     /// under her own design waterline by at least a hundredth of her length
     /// even though her swept-up ends are clear of it, she is drawn under the
-    /// air-draft cap hover included, and her overall beam clears the 2.6 m
+    /// air-draft cap hover included, and her overall beam clears the narrowest
     /// gateway mouth.
     #[test]
     fn a_scow_floats_in_her_water_and_fits_the_gateway() {
@@ -1096,8 +1097,8 @@ mod tests {
             );
             let beam = scow::Scow.overall_beam(&hull, 0);
             assert!(
-                beam < 2.6,
-                "{what}: {beam} m wide, past the 2.6 m gateway mouth"
+                beam < GATEWAY_MOUTH,
+                "{what}: {beam} m wide, past the {GATEWAY_MOUTH} m gateway mouth"
             );
         }
     }
@@ -1107,7 +1108,7 @@ mod tests {
     /// canoe body is under her own design waterline by at least a hundredth
     /// of her length, she is drawn under the air-draft cap hover included -
     /// signal mast, funnel and derrick alike - and her overall beam, tyres
-    /// and all, clears the 2.6 m gateway mouth.
+    /// and all, clears the narrowest gateway mouth.
     #[test]
     fn a_tug_floats_in_her_water_and_fits_the_gateway() {
         use super::super::common::touch;
@@ -1128,8 +1129,8 @@ mod tests {
             );
             let beam = tug::Tug.overall_beam(&hull, 0);
             assert!(
-                beam < 2.6,
-                "{what}: {beam} m wide, past the 2.6 m gateway mouth"
+                beam < GATEWAY_MOUTH,
+                "{what}: {beam} m wide, past the {GATEWAY_MOUTH} m gateway mouth"
             );
         }
     }
@@ -1138,13 +1139,13 @@ mod tests {
     /// every tier (#1371) - the runabout's guard: her flat bottom is under
     /// her own design waterline by at least a hundredth of her length, she
     /// is drawn under the air-draft cap hover included - the mizzen's yard
-    /// and the lantern alike - and her overall beam clears the 2.6 m mouth.
+    /// and the lantern alike - and her overall beam clears the narrowest mouth.
     ///
     /// And her lowest point is her rudder's foot, at exactly her derived
     /// draft - the allowance IS the rudder - so her hover, a quarter of a
     /// draft, clears it. Read off the drawn tree less the hull's own res-3
     /// sweeps, which the connectivity helper reads too deep as round tubes
-    /// (#1382); for those the profile answers, and her flat bottom lies an
+    /// (#1393); for those the profile answers, and her flat bottom lies an
     /// allowance over the foot.
     #[test]
     fn a_junk_floats_in_her_water_and_fits_the_gateway() {
@@ -1167,8 +1168,8 @@ mod tests {
             );
             let beam = junk::Junk.overall_beam(&hull, 0);
             assert!(
-                beam < 2.6,
-                "{what}: {beam} m wide, past the 2.6 m gateway mouth"
+                beam < GATEWAY_MOUTH,
+                "{what}: {beam} m wide, past the {GATEWAY_MOUTH} m gateway mouth"
             );
             let foot = junk::rudder_foot(&hull);
             assert_eq!(foot, -hull.draft, "{what}: her rudder is not her draft");
@@ -1193,7 +1194,7 @@ mod tests {
     /// is under her own design waterline by at least a hundredth of her
     /// length, she is drawn under the air-draft cap hover included, and her
     /// overall beam - shields, and a galley's oars - clears the narrowest
-    /// gateway mouth, 2.6 m.
+    /// gateway mouth.
     ///
     /// And she is a DOUBLE-ENDER, which is the whole reason
     /// [`SheerLaw::Crescent`](super::profile::SheerLaw::Crescent) exists:
@@ -1206,7 +1207,7 @@ mod tests {
     /// derived draft - the allowance IS the oar - so her hover, a quarter of
     /// a draft, clears it. Read off the drawn tree less the hull's own
     /// sweeps, which the connectivity helper reads too deep as round tubes
-    /// (#1382); for those the profile answers, and her canoe body lies an
+    /// (#1393); for those the profile answers, and her canoe body lies an
     /// allowance over the foot.
     #[test]
     fn a_longship_floats_in_her_water_and_fits_the_gateway() {
@@ -1249,8 +1250,8 @@ mod tests {
             );
             let beam = longship::overall_beam_of(&hull, kind.variant);
             assert!(
-                beam < 2.6,
-                "{what}: {beam} m wide, past the 2.6 m gateway mouth"
+                beam < GATEWAY_MOUTH,
+                "{what}: {beam} m wide, past the {GATEWAY_MOUTH} m gateway mouth"
             );
             // The double-ender's own guard.
             assert_eq!(
@@ -1276,7 +1277,7 @@ mod tests {
             );
             // And NOTHING she draws hangs under that foot. Read off the
             // drawn tree less the hull's own sweeps, which the connectivity
-            // helper reads too deep as round tubes (#1382); for those the
+            // helper reads too deep as round tubes (#1393); for those the
             // profile answers above.
             //
             // The blade does not reach the foot exactly, and that is a fact
@@ -1554,22 +1555,36 @@ mod tests {
     /// Two sweeps. The live seeds, as saved - FX emitter and voice included -
     /// and the heaviest thing the family can draw: every rig and hull form at
     /// every blueprint corner on the fullest ladder, Ornate and Battered,
-    /// carrying the heaviest FX overhead any live seed carries. Measured
+    /// carrying the heaviest record overhead any live seed carries. Measured
     /// rather than assumed, so a new aura that grows the emitter moves this
     /// too.
+    ///
+    /// # It sizes what a SAVE writes (#1382 gap 1)
+    ///
+    /// It used to size the [`super::super::RecordBody`] alone - the visual
+    /// tree plus the FX hung on it - because `build_for_seed` returns the body
+    /// and a [`LocomotionConfig`](crate::pds::LocomotionConfig) and this bound
+    /// the second to `_`. A publish writes the whole
+    /// [`AvatarRecord`](crate::pds::avatar::AvatarRecord): the `$type`, the
+    /// body, the locomotion preset and the seeded gait section, about 770 B
+    /// more. So the record itself is what is measured now, and the "overhead"
+    /// added to each corner is everything the record carries besides the tree.
+    /// The margin was never in danger - the heaviest craft has over 2 KB of it
+    /// - and this is honesty rather than a rescue.
     #[test]
     fn a_seeded_boats_record_stays_well_inside_the_budget() {
+        use crate::pds::avatar::AvatarRecord;
         use crate::pds::record_size::{SOFT_RECORD_BUDGET_BYTES, serialized_record_bytes};
         use crate::seeded_defaults::{OrnatenessTier, SloopHull, SloopRig, WearTier};
         let bytes = |t: &Generator| serialized_record_bytes(t).expect("a boat serializes");
-        let (mut worst_seed, mut fx_overhead) = (0usize, 0usize);
+        let (mut worst_seed, mut overhead) = (0usize, 0usize);
         for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
-            let (record, _) = super::super::build_for_seed(s);
-            let saved = serialized_record_bytes(&record).expect("a record serializes");
+            let saved = serialized_record_bytes(&AvatarRecord::default_for_seed(s))
+                .expect("a record serializes");
             worst_seed = worst_seed.max(saved);
-            fx_overhead = fx_overhead.max(saved.saturating_sub(bytes(&super::build(s, None))));
+            overhead = overhead.max(saved.saturating_sub(bytes(&super::build(s, None))));
         }
-        assert!(worst_seed > 0 && fx_overhead > 0, "nothing was measured");
+        assert!(worst_seed > 0 && overhead > 0, "nothing was measured");
         let mut ctx = PartCtx::for_seed(
             (0u64..600)
                 .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat)
@@ -1584,31 +1599,31 @@ mod tests {
                 for rig in SloopRig::ALL {
                     let mut built = sloop::build_rigged(&ctx, &hull, rig, UNKITTED);
                     apply_travel_pose(&mut built, TRAVEL_DROP);
-                    worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
+                    worst_corner = worst_corner.max(bytes(&built) + overhead);
                 }
             }
         }
         for (built, ..) in every_runabout() {
             let mut built = built;
             apply_travel_pose(&mut built, TRAVEL_DROP);
-            worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
+            worst_corner = worst_corner.max(bytes(&built) + overhead);
         }
         for (built, ..) in every_scow() {
             let mut built = built;
             apply_travel_pose(&mut built, TRAVEL_DROP);
-            worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
+            worst_corner = worst_corner.max(bytes(&built) + overhead);
         }
         for (built, ..) in every_tug() {
             let mut built = built;
             apply_travel_pose(&mut built, TRAVEL_DROP);
-            worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
+            worst_corner = worst_corner.max(bytes(&built) + overhead);
         }
         // The junk at her fullest - the mizzen, the lantern, the shelter and
         // both of a battered mainsail's bands - on every corner (#1371).
         for bp in corners() {
             let mut built = junk::build_tiered(&ctx, &junk::profile_of(&bp));
             apply_travel_pose(&mut built, TRAVEL_DROP);
-            worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
+            worst_corner = worst_corner.max(bytes(&built) + overhead);
         }
         // And the longship at HERS, which is the heaviest tree in the family:
         // a galley's bank of eighteen oars and her beak, over twelve shields,
@@ -1620,12 +1635,12 @@ mod tests {
         for (built, ..) in every_kitted_sloop() {
             let mut built = built;
             apply_travel_pose(&mut built, TRAVEL_DROP);
-            worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
+            worst_corner = worst_corner.max(bytes(&built) + overhead);
         }
         for (built, ..) in every_longship() {
             let mut built = built;
             apply_travel_pose(&mut built, TRAVEL_DROP);
-            worst_corner = worst_corner.max(bytes(&built) + fx_overhead);
+            worst_corner = worst_corner.max(bytes(&built) + overhead);
         }
         for (what, worst) in [
             ("seeded boat", worst_seed),

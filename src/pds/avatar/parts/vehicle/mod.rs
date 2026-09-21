@@ -17,9 +17,10 @@
 //! [`ThemeArchetype`]s, and the Ornament slot ships a **style-universal**
 //! floor part (`veh_orn_finial`, empty styles) so no theme's ornament slot is
 //! ever permanently bare - the styled and band-tagged parts then layer flavour
-//! on top of that floor (#792). The Exhaust slot had a floor of its own
-//! (`skiff_exhaust_tailpipe`) and went with the skiff catalogue: no family
-//! fills that slot now.
+//! on top of that floor (#792). The skiff's own Exhaust slot had a floor of
+//! its own (`skiff_exhaust_tailpipe`) and went with the skiff catalogue in
+//! #1364; the slot itself was deleted in #1382, with the other eight the two
+//! retired catalogues left behind.
 
 use crate::seeded_defaults::ThemeArchetype;
 // The mood taxonomy these parts are tagged by lives beside `ThemeArchetype`
@@ -205,7 +206,9 @@ mod tests {
         // families' catalogues have gone (#1363, #1364), so the airship
         // carries the claim now - the same claim, on the one family that still
         // assembles from parts. Per-type dressing by ornateness and wear for
-        // the redesigned boats and skiffs is #1379's, and its guard is #1382's.
+        // the redesigned boats and skiffs is #1379's, and its guards landed
+        // with it - `boats::tests::every_sloop` and each type's `every_*`
+        // helper cross ornateness by wear at every blueprint corner.
         let has = |chassis, slot, style, o, w, slug: &str| {
             parts_for_avatar(chassis, slot, style, o, w).any(|p| p.slug() == slug)
         };

@@ -110,10 +110,13 @@ impl AvatarRecord {
     /// anchor - one of four visual families
     /// ([`crate::seeded_defaults::ChassisFamily`]: hover-boat, airship,
     /// humanoid figure, land-skiff) plus a style + ornateness / wear. The
-    /// assembler in [`default_visuals`] composes the silhouette from the
-    /// tagged part catalogue ([`parts`]) via the seeded
-    /// [`crate::seeded_defaults::AvatarOutfit`], colouring each part from
-    /// [`crate::seeded_defaults::AvatarPalette`] and finishing it with
+    /// assembler in [`default_visuals`] then draws that family: a boat or a
+    /// skiff from its own seeded craft type's builder over one profile
+    /// (#1363, #1364), an airship composed from the tagged part catalogue
+    /// ([`parts`]) via the seeded
+    /// [`crate::seeded_defaults::AvatarOutfit`], a humanoid as a rigged
+    /// `symbios-avatar` record. Colours come from
+    /// [`crate::seeded_defaults::AvatarPalette`] and finishes from
     /// [`crate::seeded_defaults::MaterialKit`]. Locomotion follows the family
     /// (boat → HoverBoat, airship → Helicopter, humanoid → Humanoid, skiff →
     /// Car) so the chassis drives like it looks.

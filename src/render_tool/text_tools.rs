@@ -124,33 +124,13 @@ pub(super) fn print_outfit(subject: &str) {
         character.ornateness_tier(),
         character.wear_tier(),
     );
-    // The seeded craft type (#1362). A property of the SEED, so it answers for
-    // every boat and skiff whether or not anything builds that type yet: the
-    // slice that builds one opens by finding the seeds that picked it. A craft
-    // whose type has no builder is DRAWN as its family's universal floor
-    // (#1363 for boats, #1364 for skiffs), and this says which.
+    // The seeded craft type (#1362). A property of the SEED, and since #1369
+    // and #1378 every type is BUILT, so the type a seed reports is also the
+    // craft it is drawn as. The readout used to carry a second answer - "not
+    // built yet, drawn as the <floor>" - for a pick nothing drew; that state
+    // no longer exists and #1382 removed it with the seam.
     if let Some(craft) = craft_for(subject) {
-        let note = match craft {
-            CraftType::Boat(t) if t.implemented() => "picked and built".to_string(),
-            CraftType::Skiff(t) if t.implemented() => "picked and built".to_string(),
-            // Unreachable at runtime since #1369 - every boat type is
-            // built - and the match still needs it, for the same reason the
-            // Skiff arm below does: `implemented()` is a method rather than
-            // a constant and the arm above is guarded by it.
-            CraftType::Boat(_) => format!(
-                "picked; not built yet, drawn as the {}",
-                BoatType::UNIVERSAL.label()
-            ),
-            // Unreachable at runtime since #1378 - every skiff type is
-            // built - and the match still needs it, because `implemented()`
-            // is a method rather than a constant and the arm above is
-            // guarded by it.
-            CraftType::Skiff(_) => format!(
-                "picked; not built yet, drawn as the {}",
-                SkiffType::UNIVERSAL.label()
-            ),
-        };
-        println!("  craft type: {} ({note})", craft.label());
+        println!("  craft type: {}", craft.label());
         // And the heritage livery it is painted in (#1365) - a second DID-
         // seeded draw on its own stream, so two owners of one craft type still
         // rarely match. `--livery <index>` overrides it for a survey.
@@ -192,10 +172,8 @@ pub(super) fn print_outfit(subject: &str) {
             }
         );
         // And the sloop's own two picks (#1366), for every boat drawn as one
-        // - which since #1369 is the sloop's own seeds and nothing else:
-        // every boat type is built, so `!t.implemented()` never fires and
-        // the condition has reduced to the type itself, exactly as the
-        // roadster's body/top/wheels line did at #1378.
+        // - which since #1369 is the sloop's own seeds and nothing else,
+        // every boat type being built.
         if let CraftType::Boat(BoatType::Sloop) = craft {
             println!(
                 "  rig: {}, hull: {}",
@@ -205,8 +183,7 @@ pub(super) fn print_outfit(subject: &str) {
         }
         // And the roadster's own three picks (#1367), for every skiff drawn
         // as one - which since #1378 is the roadster's own seeds and nothing
-        // else: every skiff type is built, so `!t.implemented()` never fires
-        // and the condition has reduced to the type itself.
+        // else, every skiff type being built.
         if let CraftType::Skiff(SkiffType::Roadster) = craft {
             println!(
                 "  body: {}, top: {}, wheels: {}",

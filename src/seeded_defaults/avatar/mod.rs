@@ -15,7 +15,9 @@
 //!     → palette    (skin/hair/eye + style/temperature/wear-aware accents)
 //!     → materials  (MaterialKit: style + wear finish per surface role)
 //!     → fx         (style-gated particle aura + spatial-audio voice)
-//!     → outfit     (slot → part choice, querying the part catalogue)
+//!     → craft      (the craft TYPE a boat or a skiff is, weighted by style)
+//!     → outfit     (slot → part choice, querying the part catalogue - the
+//!                  AIRSHIP's path only, since #1363 and #1364)
 //!     → body/gait  (proportions + locomotion tuning)
 //!     → vehicle_blueprint (the vehicle counterpart: hull / cabin / envelope
 //!                  proportions from a seeded stance register)
@@ -29,15 +31,28 @@
 //! [`mood`] so a theme arrives on the craft it would actually build (#1362).
 //! Since #1369 every one of those twelve types is BUILT, on both sides: the
 //! rover closed the skiff half at #1378 and the longship closes the boat
-//! half. The actual silhouette is no
-//! longer a per-family design
-//! deriver - it is *composed* from the tagged part catalogue
-//! ([`crate::pds::avatar::parts`]): [`AvatarOutfit`] fills each chassis slot
-//! by querying parts for the avatar's style + tiers, and the assembler
-//! ([`crate::pds::avatar::default_visuals`]) builds + positions them.
+//! half.
+//!
+//! How that pick becomes a silhouette depends on the family, and the two
+//! routes are not the same one:
+//!
+//! * A BOAT or a SKIFF is drawn by ITS OWN TYPE'S BUILDER, one per
+//!   [`CraftType`], each reading every line and every mount off one profile
+//!   derived from [`VehicleBlueprint`] - a `HullProfile` for the boat
+//!   (#1363), a `BodyPlan` for the skiff (#1364). Neither fills a slot and
+//!   neither rolls an outfit. Variety inside a type comes from the type's own
+//!   seeded variants (a sloop's rig and hull form, a roadster's body, top and
+//!   wheels) and from the livery.
+//! * The AIRSHIP is the one family still *composed* from the tagged part
+//!   catalogue ([`crate::pds::avatar::parts`]): [`AvatarOutfit`] fills each of
+//!   its slots by querying parts for the avatar's style + tiers, and the
+//!   assembler ([`crate::pds::avatar::default_visuals`]) builds + positions
+//!   them.
+//! * The HUMANOID short-circuits both: it rolls a `symbios-avatar` engine
+//!   record and is skinned at spawn (#1060).
 //!
 //! [`AvatarBody`] (proportions) and [`AvatarPalette`] (colours) are
-//! family-agnostic and feed every part build; [`MaterialKit`] supplies the
+//! family-agnostic and feed every build; [`MaterialKit`] supplies the
 //! style/wear finish.
 
 pub mod armoured;

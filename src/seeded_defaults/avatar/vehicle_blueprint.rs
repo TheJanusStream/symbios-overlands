@@ -3,20 +3,29 @@
 //! Turns the seeded [`AvatarBody`] multiplier knobs (plus a vehicle
 //! [`VehicleStance`] register sampled the way the body samples its
 //! [`StylizationTier`](super::body::StylizationTier)) into concrete
-//! world-space proportions and mount landmarks for one vehicle chassis. The
-//! part builders ([`crate::pds::avatar::parts`]) size their geometry from it
-//! and the family assembler ([`crate::pds::avatar::default_visuals`]) reads
-//! the *same* landmarks for its mount anchors - so the two can never drift
-//! (the fixed-anchor / part-internal-constant coupling that floated stacks
-//! and bows off mis-sized hulls, #782/#783).
+//! world-space DIMENSIONS for one vehicle chassis: a boat's seven numbers
+//! (length, beam, freeboard, two sheer rises, draft, and the stance that
+//! banded them), a skiff's eight, an airship's four.
 //!
-//! Per-family structs behind the [`VehicleBlueprint`] enum: a boat and an
-//! airship have genuinely different landmarks (deck line vs belly line), so
-//! each family exposes only its own, and a part reads its family's blueprint
-//! or nothing. Families are added as their redesigns wire them; a chassis
-//! with no blueprint yet (and the rigged humanoid family, whose body is a
-//! parametric `symbios-avatar` record rather than assembled parts) yields
-//! `None`.
+//! # Dimensions here, landmarks downstream
+//!
+//! A blueprint is deliberately NOT a set of mount anchors any more. Since
+//! #1363 and #1364 a boat's and a skiff's landmarks - every trim line, every
+//! mount, the deck edge, the beltline - are read off ONE PROFILE that the
+//! craft type's own builder derives from these numbers (`HullProfile`,
+//! `BodyPlan` in [`crate::pds::avatar::default_visuals`]), which is what
+//! stopped stacks and bows floating off mis-sized hulls (#782/#783) more
+//! completely than a shared landmark ever did: there is now one surface to
+//! read rather than two tables to keep in step. The AIRSHIP is the family
+//! that still works the old way, and its parts
+//! ([`crate::pds::avatar::parts`]) size themselves from
+//! [`AirshipBlueprint`] directly.
+//!
+//! Per-family structs behind the [`VehicleBlueprint`] enum, because the three
+//! families share no dimension: a hull has a draft and a skiff has a
+//! wheelbase. A chassis reads its own family's struct or nothing, and the
+//! rigged humanoid family - whose body is a parametric `symbios-avatar`
+//! record rather than primitives at all - yields `None`.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};

@@ -8,8 +8,10 @@
 //! default chassis drives the way it looks.
 //!
 //! **The humanoid family is rigged now** (#1060, epic #1054). The three
-//! vehicle families still assemble a [`crate::pds::Generator`] tree out of the tagged
-//! part catalogue, one file per family; a humanoid instead resolves to a
+//! vehicle families build a [`crate::pds::Generator`] tree, one module each -
+//! the [`airship`] out of the tagged part catalogue, [`boats`] and [`skiffs`]
+//! from their own craft-type builders (see the next paragraph); a humanoid
+//! instead resolves to a
 //! parametric `symbios-avatar` body rolled from the same seed. That body
 //! is filled in **locally** rather than fetched: the engine's roll is
 //! deterministic, so every peer derives the same person for a DID with
@@ -53,6 +55,80 @@ use super::locomotion::{
     CarParams, HelicopterParams, HoverBoatParams, HumanoidParams, LocomotionConfig,
     LocomotionPreset,
 };
+
+// ---------------------------------------------------------------------------
+// The gate every seeded vehicle has to drive through
+// ---------------------------------------------------------------------------
+//
+// One home for the three numbers that #1359 rule 6 sets, because they used to
+// be restated twenty times under this module: `AIR_DRAFT_CAP` as a local
+// `const AIR_DRAFT` in four skiff tests beside the boats' own, and the mouth
+// as a local `const MOUTH` in five and a bare literal in eleven more. A
+// gateway that came out lower or narrower would have had to be found in
+// twenty places (#1382).
+//
+// They are not remembered numbers any more either:
+// `tests::the_gate_constants_clear_every_seeded_gateway` measures the whole
+// catalogue and fails if one of them stops being true.
+
+/// The tallest anything on a seeded vehicle may stand above the **ground**,
+/// hover included (m) - #1359 rule 6.
+///
+/// Visuals carry no colliders, and the lowest lintel on a seeded gateway is
+/// 2.86 m (the Hive Maw's), so a mast over this sails straight through one.
+/// It is what makes a realistic bermudan rig impossible at this scale and a
+/// gaff or gunter rig the answer: a boat's whole rig has to fit inside a box
+/// as tall as she is long. It is resolved against the TOP of a rig, not its
+/// masthead - a gunter's yard and a square topsail's topmast stand over the
+/// mast they are hoisted on (#1366).
+///
+/// # What it is NOT proven against (#1382 gap 3, accepted)
+///
+/// A SEEDED gait only, and the two terms an EDITED one can add are worked out
+/// here because #1382 was asked to decide whether either needed a guard. Both
+/// come off [`seeded_gait`], both are clamped by `GaitParams::sanitize` far
+/// above anything a seed rolls, and they do NOT both matter:
+///
+/// * HEAVE **breaches the cap, by 0.44 m.** A boat's idle heave is
+///   `idle_sway_amplitude x BOAT_HEAVE` (3.0). The seeded amplitude tops out
+///   at 0.025, so 0.075 m; the sanitiser allows 0.2, so 0.600 m. Every rig is
+///   resolved to at most `2.8 - 0.10 = 2.70` m over the ground, which leaves a
+///   seeded boat at 2.775 m - clear of the 2.860 m lowest lintel by 0.085 m -
+///   and an edited one at 3.300 m, which is 0.440 m THROUGH it.
+/// * LIST **costs nothing, either way.** Since #1381 the list rides the
+///   record's angular field at `BOAT_LIST_FRACTION` (0.24), and the sanitiser
+///   allows 60 degrees, so 14.4 degrees of heel. Heeling LOWERS a masthead, by
+///   `1 - cos(14.4) = 3.1 %`, i.e. 0.085 m off a 2.70 m rig - it buys headroom
+///   rather than spending it. It raises the weather rail by
+///   `beam/2 x sin(14.4)`, which on the widest boat the family allows (2.6 m,
+///   her own mouth limit) is 0.323 m from a freeboard of about 0.3 m: nowhere
+///   near a lintel. And it swings the masthead `2.70 x sin(14.4) = 0.672` m off
+///   the centreline, which on a 2.600 m mouth is inside it.
+///
+/// ACCEPTED, NOT GUARDED. The one real breach is an avatar owner's own edit to
+/// her own boat's idle; visuals carry no colliders, so the clipped lintel is
+/// cosmetic and self-inflicted. A guard would have to re-derive the cap per
+/// record, which prices a gateway into the idle sliders - the wrong trade for
+/// a cosmetic clip.
+pub(crate) const AIR_DRAFT_CAP: f32 = 2.8;
+
+/// Headroom (m) a rig leaves under [`AIR_DRAFT_CAP`], so a masthead fitting,
+/// a burgee or a vane still has somewhere to go.
+pub(crate) const AIR_DRAFT_MARGIN: f32 = 0.10;
+
+/// The narrowest clear MOUTH on a seeded gateway (m) - the width half of
+/// rule 6, and what every craft's overall beam or track has to pass.
+///
+/// A gateway's clear opening is its veil box, which is why this can be
+/// measured rather than remembered: see the guard above.
+///
+/// Test-only, unlike [`AIR_DRAFT_CAP`]: no builder resolves a width against
+/// the mouth the way a rig resolves its mast against the cap, because
+/// nothing on a vehicle is *sized* by how wide a gate is - a craft is drawn
+/// to her own proportions and then has to fit. So the mouth is a claim the
+/// guards make about what was drawn, and lives where they can see it.
+#[cfg(test)]
+pub(crate) const GATEWAY_MOUTH: f32 = 2.6;
 
 /// How a craft is driven, which is what she sounds like - asked of the craft
 /// that is DRAWN, never of the type a seed picked, so the voice is right
@@ -615,18 +691,12 @@ fn skiff_locomotion(seed: u64) -> LocomotionConfig {
 /// with - the standing no-migration rule - so an old wagon buzzes until
 /// she is re-rolled.
 ///
-/// # A note for #1382's gap 3
+/// # What an EDITED gait can do to the air draft
 ///
-/// Gap 3 is the air-draft cap against an EDITED idle amplitude: the margin
-/// is proven for the seeded heave only, and the sanitiser lets an authored
-/// `idle_sway_amplitude` reach 0.2, which is 0.6 m of boat heave against a
-/// 0.10 m margin. That half is unchanged by this slice - the heave law is
-/// still `amp x BOAT_HEAVE` and the seeded amplitude still tops out inside
-/// the cap. What DID change is the arithmetic beside it: the list now rides
-/// the angular field, and an edited angular field reaches the sanitiser's
-/// 60 degrees, which is 14.4 degrees of list. A hull heeled 14.4 degrees
-/// lifts her weather rail by `beam/2 x sin(14.4)`, and that is a second
-/// term the air-draft guard did not have to carry before.
+/// Both terms this writes are capped by the sanitiser far above anything a
+/// seed rolls, so an avatar's owner can type an idle that clips a gateway
+/// lintel. That is accepted, with the arithmetic, beside [`AIR_DRAFT_CAP`]
+/// (#1382).
 pub fn seeded_gait(seed: u64) -> GaitParams {
     let mut g = GaitParams::for_seed(seed);
     match ChassisFamily::for_seed(seed) {
@@ -1343,7 +1413,8 @@ mod tests {
     // in two halves: `no_two_craft_types_in_a_family_share_a_feel` above
     // reads the table for all twelve types, and
     // `player::spawn::tests::the_fleet_drives_in_the_agreed_order` measures
-    // what they do under the wheel. #1382 owns its final form.
+    // what they do under the wheel. #1382 re-measured its width and left it -
+    // see that test's `Window::GUARD`.
 
     use crate::pds::sanitize_avatar_visuals;
 
@@ -1814,5 +1885,143 @@ mod tests {
         let (a, _) = build_for_seed(1);
         let (b, _) = build_for_seed(2);
         assert_ne!(a, b, "re-roll produced an identical avatar for two seeds");
+    }
+
+    /// #1382. The two gate constants are MEASURED against the catalogue's own
+    /// gateways rather than remembered from a survey.
+    ///
+    /// [`AIR_DRAFT_CAP`] and [`GATEWAY_MOUTH`] came from one pass over the
+    /// gateways on 2026-09-17 ("lowest lintel 2.86 m, narrowest mouth 2.6 m")
+    /// and nothing tied either to the catalogue after that. #972 is the
+    /// STANDING catalogue overhaul and it re-authors gateways, so the day one
+    /// comes out lower or narrower every vehicle guard in this module would
+    /// stay green while the fleet sailed through a lintel. This is the tie.
+    ///
+    /// A gateway's clear opening is its **veil** box - the zone the world
+    /// builder cuts the doorway out of - which `catalogue::items::gateway_fit`
+    /// already measures for `render --gateway-fit`. The veil's `x` span is the
+    /// mouth and its `max.y` is the lintel; the sill (`min.y`, 0.20-0.56 m) is
+    /// not subtracted, because a vehicle drives over a threshold rather than
+    /// through it.
+    ///
+    /// Today: 25 gateways, narrowest mouth 2.600 m (the Hive Maw and the
+    /// Solarpunk arch), lowest lintel 2.860 m (the Hive Maw), so the cap sits
+    /// 0.060 m under the lowest lintel. Both are asserted as bounds, not as
+    /// equalities - a wider catalogue is not a failure.
+    #[test]
+    fn the_gate_constants_clear_every_seeded_gateway() {
+        use crate::catalogue::items::gateway_fit::measure;
+        use crate::catalogue::{ENTRIES, StructureRole};
+        let (mut narrowest, mut lowest) = (f32::MAX, f32::MAX);
+        let (mut narrow_who, mut low_who) = ("", "");
+        let mut checked = 0;
+        for entry in ENTRIES {
+            if entry.role() != StructureRole::Gateway {
+                continue;
+            }
+            let geo = measure(&entry.build("did:plc:gateconstants"))
+                .unwrap_or_else(|| panic!("{}: no Gateway zone to measure", entry.slug()));
+            let (mouth, lintel) = (geo.veil.size().x, geo.veil.max.y);
+            if mouth < narrowest {
+                (narrowest, narrow_who) = (mouth, entry.slug());
+            }
+            if lintel < lowest {
+                (lowest, low_who) = (lintel, entry.slug());
+            }
+            checked += 1;
+        }
+        assert!(checked >= 20, "only {checked} gateways were measured");
+        assert!(
+            GATEWAY_MOUTH <= narrowest,
+            "the narrowest gateway is {narrow_who} at {narrowest} m, under the \
+             {GATEWAY_MOUTH} m every vehicle guard is written against - widen \
+             the craft or lower this constant, but do not leave them disagreeing"
+        );
+        assert!(
+            AIR_DRAFT_CAP <= lowest,
+            "the lowest lintel is {low_who}'s at {lowest} m, under the \
+             {AIR_DRAFT_CAP} m cap every rig is resolved against"
+        );
+        // And the cap is not slack to the point of meaninglessness: a cap a
+        // metre under the lowest lintel would pass this while costing every
+        // rig a metre of mast for nothing.
+        assert!(
+            lowest - AIR_DRAFT_CAP < 0.5,
+            "the cap is {} m under the lowest lintel ({low_who}) - it has \
+             stopped being the constraint it is documented as",
+            lowest - AIR_DRAFT_CAP
+        );
+    }
+
+    /// #1359 owner decision 4, as a test at last (#1382): **machines are swept
+    /// and turned, never blobs.** No boat and no skiff draws a
+    /// [`GeneratorKind::BlobGroup`] node.
+    ///
+    /// A blob iso-surface is what the retired #778 pipeline built hulls from,
+    /// and the owner's objection to it was that it looks ORGANIC - grown
+    /// rather than manufactured - and that nothing can be predicted off it, so
+    /// every trim line floats. The redesigned fleet uses Spine, Lathe, Bevel
+    /// and Wedge instead. Blobs remain legal for a genuinely organic part, and
+    /// none of the twelve types has wanted one.
+    ///
+    /// The airship is deliberately NOT swept by this: she was never
+    /// redesigned, she is the quality bar, and decision 4 is about the two
+    /// families that were.
+    #[test]
+    fn no_seeded_boat_or_skiff_draws_a_blob() {
+        use crate::pds::generator::{BlobElement, BlobShape, GeneratorKind, PrimCommon};
+        use crate::pds::types::Fp;
+        fn blobs(g: &Generator, path: &str, out: &mut Vec<String>) {
+            if matches!(g.kind, GeneratorKind::BlobGroup { .. }) {
+                out.push(path.to_string());
+            }
+            for (i, child) in g.children.iter().enumerate() {
+                blobs(child, &format!("{path}/{i}"), out);
+            }
+        }
+        // THE CONTROL, first, so this cannot pass by looking at nothing or by
+        // looking for a variant that has been renamed: a tree built HERE with
+        // one blob in it is found, and found at the right path. Built rather
+        // than made by breaking a builder, so the control cannot drift with
+        // the fleet.
+        let mut probe = Generator::default_cuboid();
+        probe
+            .children
+            .push(Generator::from_kind(GeneratorKind::BlobGroup {
+                elements: vec![BlobElement {
+                    shape: BlobShape::Sphere,
+                    radii: Fp3([0.5, 0.5, 0.5]),
+                    blend: Fp(0.1),
+                    ..Default::default()
+                }],
+                resolution: 16,
+                common: PrimCommon::default(),
+            }));
+        let mut found = Vec::new();
+        blobs(&probe, "0", &mut found);
+        assert_eq!(found, ["0/0"], "the control blob was not detected");
+
+        let (mut boats, mut skiffs) = (0, 0);
+        for s in 0u64..900 {
+            let family = ChassisFamily::for_seed(s);
+            match family {
+                ChassisFamily::Boat => boats += 1,
+                ChassisFamily::Skiff => skiffs += 1,
+                _ => continue,
+            }
+            let tree = visuals_for_seed(s).expect("a vehicle seed assembles a tree");
+            let mut found = Vec::new();
+            blobs(&tree, "0", &mut found);
+            assert!(
+                found.is_empty(),
+                "seed {s} ({family:?}) draws {} BlobGroup node(s) at {found:?} - \
+                 owner decision 4 of #1359: machines are swept and turned",
+                found.len()
+            );
+        }
+        assert!(
+            boats > 100 && skiffs > 100,
+            "{boats} boats and {skiffs} skiffs were swept"
+        );
     }
 }

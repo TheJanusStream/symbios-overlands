@@ -1593,21 +1593,16 @@ mod audio_tests {
     /// (#1371), whose creak is noise; and every other boat seed - the SLOOPS
     /// and the LONGSHIPS - sails, on a patch with no oscillator in it.
     ///
-    /// The sailing group used to assert `unbuilt > 0` as well: that some
-    /// seed in it was a pick nothing drew, so keying the voice to the picked
-    /// type rather than to the drawn craft would have been caught here.
-    /// Since #1369 built the longship that count is ZERO, and the group is
-    /// two BUILT types that both sail. Restated rather than deleted, in the
-    /// form #1378 took on the skiff side: what it guards now is that the
-    /// group is a real pair rather than the sloop alone, so the
-    /// `_ => Propulsion::Sail` arm is still answering for more than one
-    /// type. Keying the voice to the FAMILY would still get every other type
-    /// wrong.
+    /// The sailing group used to count the seeds in it whose pick nothing
+    /// drew, and assert that count was zero. Since #1382 collapsed the
+    /// builder seam there is no unbuilt state left to count. What the group
+    /// still guards is that it is a real PAIR rather than the sloop alone, so
+    /// the `_ => Propulsion::Sail` arm is answering for more than one type -
+    /// keying the voice to the FAMILY would get every other type wrong.
     #[test]
     fn a_boat_is_driven_as_the_craft_she_is_drawn_as() {
         use crate::seeded_defaults::BoatType;
-        let (mut launches, mut scows, mut tugs, mut junks, mut sailing, mut unbuilt) =
-            (0, 0, 0, 0, 0, 0);
+        let (mut launches, mut scows, mut tugs, mut junks, mut sailing) = (0, 0, 0, 0, 0);
         let mut sails: Vec<BoatType> = Vec::new();
         for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
             let picked = BoatType::for_seed(s);
@@ -1649,7 +1644,6 @@ mod audio_tests {
                 }
                 _ => {
                     sailing += 1;
-                    unbuilt += usize::from(!picked.implemented());
                     if !sails.contains(&picked) {
                         sails.push(picked);
                     }
@@ -1661,11 +1655,6 @@ mod audio_tests {
             launches > 5 && scows > 5 && tugs > 5 && junks > 5 && sailing > 5,
             "{launches} runabouts, {scows} scows, {tugs} tugs, {junks} junks, {sailing} \
              sailing"
-        );
-        assert_eq!(
-            unbuilt, 0,
-            "{unbuilt} sailing seeds picked an unbuilt type - since #1369 every \
-             boat type is built"
         );
         // And the sailing group is the PAIR it is meant to be, not the sloop
         // alone - see the doc comment.
@@ -1801,8 +1790,7 @@ mod audio_tests {
     /// The skiff's voice follows the DRAWN craft (#1377), in both
     /// directions: every seed drawn as a wagon rolls, on a patch with no
     /// oscillator in it, and no other skiff seed does - they have engines -
-    /// which is what keying the voice to the family would get wrong one way,
-    /// and to the picked type the other while any type is unbuilt.
+    /// which is what keying the voice to the family would get wrong.
     #[test]
     fn a_skiff_rolls_exactly_when_it_is_drawn_as_a_wagon() {
         use crate::seeded_defaults::SkiffType;

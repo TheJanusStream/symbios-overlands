@@ -197,8 +197,8 @@ almost everything downstream:
 - **`#generator`** - the classic `Generator` tree, spawned by the avatar-side
   spawner back through the world compiler's own primitive / L-system /
   shape-grammar machinery. This is the vehicle families: boat, airship and
-  skiff - whether the tree came from the part catalogue (airship, skiff) or
-  from a craft type's own builder (boat).
+  skiff - whether the tree came from the part catalogue (the airship) or from
+  a craft type's own builder (the boat since #1363, the skiff since #1364).
 - **Neither** - two marker variants that never appear on the wire. A record
   published *before* the union has no `body` field at all, and is treated as
   *no record*: the seeded default is synthesised, matching the record layer's
@@ -433,11 +433,12 @@ generation cores shared with the wasm Web Worker.
   theme accent nudged back onto the natural derivers (fog tint, particle mood),
   and the layered ambient soundtrack. Avatar side: one of four chassis families
   (boat / airship / humanoid / skiff) plus its palette, body proportions and
-  gait. The airship and the land-skiff assemble their geometry from a tagged
-  outfit the part catalogue fills. The boat does not: since #1363 she is drawn
-  by one builder per seeded craft type, each reading every line and mount off a
-  single `HullProfile`, which is what stopped her trim floating and her mounts
-  needing embed fudge factors. The humanoid family short-circuits both
+  gait. The airship alone assembles its geometry from a tagged outfit the part
+  catalogue fills. The boat and the land-skiff do not: since #1363 and #1364
+  each is drawn by one builder per seeded craft type, reading every line and
+  mount off a single profile - `HullProfile` for the boat, `BodyPlan` for the
+  skiff - which is what stopped their trim floating and their mounts needing
+  embed fudge factors. The humanoid family short-circuits both
   pipelines and rolls a seeded `symbios-avatar` engine record instead, whose
   stature the locomotion capsule is then cut to.
 - [`src/catalogue/`](../src/catalogue/) - code-shipped read-only library of

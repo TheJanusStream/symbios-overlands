@@ -1138,17 +1138,13 @@ pub fn avatar_ui(
                             // SCREEN, which under any pin set the gates
                             // allow is also the pinned family.
                             //
-                            // "Only implemented types are offered" is the
-                            // brief's rule (#1380). Since b1b4648 landed the
-                            // longship this filters NOTHING - all twelve are
-                            // built - but it is still asked: whether the
-                            // seam survives at all is #1382's call, and this
-                            // is one of the two callers it will weigh.
-                            let craft_options: Vec<CraftType> = CraftType::all_of(rolled.chassis)
-                                .iter()
-                                .copied()
-                                .filter(|c| c.implemented())
-                                .collect();
+                            // "Only implemented types are offered" was the
+                            // brief's rule (#1380), and it is satisfied by
+                            // construction now: every type a family lists is
+                            // built, so #1382 dropped the predicate and the
+                            // filter that never removed anything with it.
+                            let craft_options: Vec<CraftType> =
+                                CraftType::all_of(rolled.chassis).to_vec();
                             egui::Grid::new("avatar_pin_axes")
                                 .num_columns(3)
                                 .show(ui, |ui| {

@@ -822,7 +822,10 @@ pub(crate) mod touch {
     /// read as the whole tube only over-reads a height; a taper and a shear
     /// act across a prim, never along its height; a bend with a `y` term
     /// WOULD lift a top edge, so a craft that authors one needs this taught
-    /// the deform first (#1382).
+    /// the deform first (#1393). MEASURED over every seeded tree at #1382:
+    /// no craft in the fleet authors a bend, an s-bend, a bulge or a twist -
+    /// the 3.4 % of nodes that carry a deform carry taper and shear, which
+    /// act ACROSS a prim - so no air-draft reading here is wrong today.
     pub(crate) fn highest(root: &Generator) -> f32 {
         let mut parts = Vec::new();
         walk(
@@ -840,7 +843,8 @@ pub(crate) mod touch {
     /// every node's sampled surface - [`highest`]'s mirror, blind to the
     /// same things. And one more: a tube is read ROUND, so the flat bottom
     /// of a res-3 hull sweep, whose polygon's bottom lies at `cos 30` of its
-    /// radius, is read too deep (#1382). A guard asks this of the parts that
+    /// radius, is read too deep (#1393 - 60 % of the fleet's sweeps are under
+    /// resolution 8, measured at #1382). A guard asks this of the parts that
     /// are not such a hull, and asks the profile about the hull.
     pub(crate) fn lowest(root: &Generator) -> f32 {
         let mut parts = Vec::new();
@@ -853,6 +857,31 @@ pub(crate) mod touch {
             &mut parts,
         );
         parts.iter().map(|p| p.lo.y).fold(f32::MAX, f32::min)
+    }
+
+    /// How wide `root` draws, in its own frame (m): the full `x` extent of
+    /// every node's sampled surface.
+    ///
+    /// [`highest`]'s sideways twin, sharing every one of its blind spots -
+    /// and sharing them in the SAFE direction for a clearance guard. A
+    /// tortured cuboid read as its undeformed box, and a low-resolution
+    /// sweep read as a round tube, both read WIDER than the craft is drawn,
+    /// so a gateway-mouth guard written against this can only be
+    /// pessimistic. (`highest` has the same property against a cut, and the
+    /// opposite one against a bend with a `y` term - see its note.)
+    pub(crate) fn widest(root: &Generator) -> f32 {
+        let mut parts = Vec::new();
+        walk(
+            root,
+            Vec3::ZERO,
+            Quat::IDENTITY,
+            Vec3::ONE,
+            "0".to_string(),
+            &mut parts,
+        );
+        let hi = parts.iter().map(|p| p.hi.x).fold(f32::MIN, f32::max);
+        let lo = parts.iter().map(|p| p.lo.x).fold(f32::MAX, f32::min);
+        hi - lo
     }
 
     /// Assert that `root` is one machine: every node meets another and the

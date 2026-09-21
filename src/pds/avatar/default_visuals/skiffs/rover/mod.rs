@@ -67,7 +67,8 @@
 //! -0.339 m at the 3.60 m corner and +0.094 m at the 1.90 m one. Nothing in
 //! the family asserts a sign, `apply_travel_pose` simply negates it, and her
 //! tyres are on the ground at every corner either way - which is what the
-//! derivation was for. #1382 must not add a sign assertion here.
+//! derivation was for. #1382 read this and did NOT assert a sign; anything
+//! that revisits her drive has to read this paragraph first.
 //!
 //! The shape was prototyped in generator JSON and agreed by the owner on its
 //! renders before any of this was written (#1378, #1359 rules 1, 12 and 14):
