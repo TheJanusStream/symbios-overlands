@@ -177,8 +177,11 @@ pub(super) struct Shiver {
     /// same seed.
     pub(super) amplitude: f32,
     /// What the engine idles at (Hz), before the seed's own spread is
-    /// carried across it. A flat-four shakes at 11, the roadster's
-    /// validated baseline is 9, and a big slow diesel lopes at 6.
+    /// carried across it. A flat-four shakes at 4.6, the roadster's
+    /// baseline is 3.75, and a big slow diesel lopes at 2.5 - the 11, 9 and
+    /// 6 of #1381 scaled together into the owner's sway band (#1400), which
+    /// `every_seeded_skiff_idles_and_banks_inside_the_owners_bands` holds
+    /// every type to.
     pub(super) hz: f32,
 }
 

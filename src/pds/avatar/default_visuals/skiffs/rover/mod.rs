@@ -381,12 +381,12 @@ impl SkiffCraft for Rover {
         // rover should TICK rather than be silent is a taste call the owner
         // can take later; stillness is the honest floor.
         //
-        // 3 degrees, the flattest lean in the fleet: the flattest box
+        // 1.2 degrees, the flattest lean in the fleet: the flattest box
         // measured, a width-to-height ratio of 7.77 against the roadster's
         // 2.32, on six wheels. She leans IN, barely.
         SkiffIdle {
             shiver: None,
-            bank_degrees: 3.0,
+            bank_degrees: 1.2,
         }
     }
 

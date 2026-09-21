@@ -287,14 +287,14 @@ impl SkiffCraft for Wagon {
         // being the one craft in the fleet with nothing under her at all.
         // She sits still.
         //
-        // 4 degrees, and she ROLLS OUT: a high laden bed over a narrow
+        // 1.6 degrees, and she ROLLS OUT: a high laden bed over a narrow
         // track leans away from a corner, mildly. The direction comes from
         // her mass, and her mass factor rose 1.15 -> 1.45 with this slice
         // for exactly that - see `SkiffFeel::mass_factor` and
         // `player::gait::skiff_bank_sign`.
         SkiffIdle {
             shiver: None,
-            bank_degrees: 4.0,
+            bank_degrees: 1.6,
         }
     }
 

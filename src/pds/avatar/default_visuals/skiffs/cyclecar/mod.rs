@@ -276,14 +276,14 @@ impl SkiffCraft for Cyclecar {
         // STILL. Until #1381 she trembled at 9 Hz from one she has never
         // had.
         //
-        // 20 degrees, the deepest lean in the fleet: the tippiest box
+        // 8 degrees, the deepest lean in the fleet: the tippiest box
         // measured (a width-to-height ratio of 1.56 against the roadster's
         // 2.32), on a short wheelbase, carving the tightest skiff circle at
         // the highest yaw rate. She leans IN, and her mass band is the
         // lightest but one, so she is nowhere near the blend.
         SkiffIdle {
             shiver: None,
-            bank_degrees: 20.0,
+            bank_degrees: 8.0,
         }
     }
 

@@ -101,7 +101,8 @@ mod veh {
     /// an idling-engine buzz, much faster than the boat swell, scaled by
     /// the authored ratio (#878). Since #1381 the seeded derivation writes
     /// a frequency that lands this on the craft's OWN engine pace, so it
-    /// owns the number (11 Hz air-cooled, 9 engine, 6 diesel).
+    /// owns the number (4.6 Hz air-cooled, 3.75 engine, 2.5 diesel since
+    /// #1400).
     pub(crate) use crate::pds::avatar::gait::SKIFF_SHIVER_HZ;
     /// Skiff banking lean gain: radians of roll per (rad/s of yaw-rate × m/s
     /// of speed). Turning harder / faster leans harder into the corner.

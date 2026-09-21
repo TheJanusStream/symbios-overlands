@@ -280,15 +280,16 @@ impl SkiffCraft for Buggy {
 
     fn idle(&self) -> SkiffIdle {
         // `Propulsion::AirCooled`: a flat-four shakes, and shakes fast. The
-        // tremble is half again the roadster's and the pace is 11 Hz.
-        // 14 degrees of lean - she leans IN, but a tall-sprung buggy on
-        // balloon tyres does not lean as far as a low sports car.
+        // tremble is half again the roadster's and the pace is 4.6 Hz, the
+        // quickest in the family. 5.6 degrees of lean - she leans IN, but a
+        // tall-sprung buggy on balloon tyres does not lean as far as a low
+        // sports car.
         SkiffIdle {
             shiver: Some(Shiver {
                 amplitude: 1.4,
-                hz: 11.0,
+                hz: 4.6,
             }),
-            bank_degrees: 14.0,
+            bank_degrees: 5.6,
         }
     }
 

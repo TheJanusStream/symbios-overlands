@@ -681,9 +681,9 @@ fn skiff_locomotion(seed: u64) -> LocomotionConfig {
 /// * SKIFFS - `idle_sway_amplitude` takes the type's shiver multiplier, or
 ///   ZERO for a craft with no engine to idle; `idle_sway_frequency` is set
 ///   so the buzz lands on the engine's own pace, carrying the seed's own
-///   spread across it so a type is not in unison; and the angular field
-///   carries her BANK CLAMP, which `player::gait::skiff_bank_clamp` reads
-///   back.
+///   spread across it so a type is not in unison, and always inside
+///   [`SKIFF_SWAY_BAND`]; and the angular field carries her BANK CLAMP,
+///   which `player::gait::skiff_bank_clamp` reads back.
 /// * AIRSHIPS AND HUMANOIDS pass through untouched. Neither has a craft
 ///   type, and the angular field keeps its old meaning for both.
 ///
@@ -714,22 +714,51 @@ pub fn seeded_gait(seed: u64) -> GaitParams {
         ChassisFamily::Skiff => {
             let idle = skiffs::idle_for(seed);
             let amp = g.idle_sway_amplitude.0;
-            match idle.shiver {
-                Some(s) => {
-                    g.idle_sway_amplitude = Fp(amp * s.amplitude);
-                    g.idle_sway_frequency = Fp(engine_pace(s.hz, g.idle_sway_frequency.0));
-                }
-                // Nothing to idle: she sits still. The frequency is left
-                // as the seed drew it, so raising the amplitude in the
-                // editor gives her a pace rather than nothing.
-                None => g.idle_sway_amplitude = Fp(0.0),
-            }
+            // Nothing to idle: she sits still. She still carries a pace, so
+            // raising the amplitude in the editor gives her one rather than
+            // nothing.
+            g.idle_sway_amplitude = Fp(idle.shiver.map_or(0.0, |s| amp * s.amplitude));
+            g.idle_sway_frequency = Fp(skiff_pace(idle.shiver, g.idle_sway_frequency.0));
             g.head_turn_variance_degrees = Fp(idle.bank_degrees);
         }
         // No craft type, and the angular field keeps its old meaning.
         ChassisFamily::Airship | ChassisFamily::Humanoid => {}
     }
     g
+}
+
+/// The band every seeded skiff's `idle_sway_frequency` falls in (#1400) -
+/// the owner's range, in the record's own unit, which is what the gait
+/// editor's "Sway frequency" slider shows.
+///
+/// Below the craft-blind derivation's 0.4-1.2 on purpose: a skiff reads the
+/// field as a RATIO against [`NOMINAL_SWAY_HZ`](super::gait::NOMINAL_SWAY_HZ)
+/// (see [`engine_pace`]), so this band is a shiver of about 2.3-5.1 Hz, where
+/// the family used to buzz at 6-11.
+const SKIFF_SWAY_BAND: std::ops::RangeInclusive<f32> = 0.2..=0.45;
+
+/// The `idle_sway_frequency` a seeded skiff publishes: on her engine's pace
+/// ([`engine_pace`]) when she has one, and otherwise the seed's own place
+/// across [`SKIFF_SWAY_BAND`] - the pace she would have if the owner raised
+/// her amplitude from zero in the editor.
+fn skiff_pace(shiver: Option<skiffs::Shiver>, seeded_frequency: f32) -> f32 {
+    match shiver {
+        Some(s) => engine_pace(s.hz, seeded_frequency),
+        None => {
+            let t = (seed_spread(seeded_frequency) + 1.0) * 0.5;
+            let (lo, hi) = (*SKIFF_SWAY_BAND.start(), *SKIFF_SWAY_BAND.end());
+            lo + t * (hi - lo)
+        }
+    }
+}
+
+/// Where a seeded `idle_sway_frequency` sits in the craft-blind derivation's
+/// band, from -1 at its floor to +1 at its ceiling.
+fn seed_spread(seeded_frequency: f32) -> f32 {
+    use super::gait::NOMINAL_SWAY_HZ;
+    /// Half the width of the seeded band (0.4-1.2 Hz about the nominal).
+    const HALF_BAND: f32 = 0.4;
+    ((seeded_frequency - NOMINAL_SWAY_HZ) / HALF_BAND).clamp(-1.0, 1.0)
 }
 
 /// The `idle_sway_frequency` that puts a skiff's buzz on `engine_hz`,
@@ -740,15 +769,12 @@ pub fn seeded_gait(seed: u64) -> GaitParams {
 /// `SKIFF_SHIVER_HZ x (frequency / NOMINAL_SWAY_HZ)`, so the frequency IS
 /// the pace knob in disguise and no new field is needed. The seeded band
 /// is 0.4-1.2 Hz about a 0.8 nominal; that spread is kept but compressed
-/// to [`ENGINE_PACE_SPREAD`], so every roadster idles at about 9 Hz
-/// without every roadster idling at exactly 9 Hz.
+/// to [`ENGINE_PACE_SPREAD`], so every roadster idles at about 3.75 Hz
+/// without every roadster idling at exactly 3.75 Hz.
 fn engine_pace(engine_hz: f32, seeded_frequency: f32) -> f32 {
     use super::gait::{NOMINAL_SWAY_HZ, SKIFF_SHIVER_HZ};
-    /// Half the width of the seeded band (0.4-1.2 Hz about the nominal).
-    const HALF_BAND: f32 = 0.4;
-    let spread = ((seeded_frequency - NOMINAL_SWAY_HZ) / HALF_BAND).clamp(-1.0, 1.0);
     let base = NOMINAL_SWAY_HZ * engine_hz / SKIFF_SHIVER_HZ;
-    base * (1.0 + ENGINE_PACE_SPREAD * spread)
+    base * (1.0 + ENGINE_PACE_SPREAD * seed_spread(seeded_frequency))
 }
 
 /// How far either side of her engine's nominal pace a seeded skiff's idle
@@ -1022,17 +1048,17 @@ mod tests {
     }
 
     /// #1381 proof 2. The two craft the owner DROVE and signed off do at
-    /// rest exactly what they did before the idle port.
+    /// rest what they were signed off doing.
     ///
     /// The sloop's heave and list multipliers are both 1.0 by construction,
     /// so her heave is her seeded amplitude untouched and her list comes
     /// back through the angular field as `amp x BOAT_ROLL` radians - the
-    /// law she had. The roadster's shiver multiplier is 1.0 and her engine
-    /// pace is the 9 Hz that was the family-wide constant, and her bank
-    /// clamp is the 0.3 rad constant it replaces. The tolerances are the
-    /// field's own round trip through degrees and `Fp`'s 1e-4.
+    /// law she had. The roadster's shiver multiplier is 1.0; her engine
+    /// pace and bank clamp are the ones the owner turned down in #1400, from
+    /// the old 9 Hz and 0.3 rad to 3.75 Hz and 0.12 rad. The tolerances are
+    /// the field's own round trip through degrees and `Fp`'s 1e-4.
     #[test]
-    fn the_two_validated_craft_idle_as_they_did_before_the_port() {
+    fn the_two_validated_craft_idle_as_signed_off() {
         use crate::pds::avatar::gait::{BOAT_ROLL, NOMINAL_SWAY_HZ, SKIFF_SHIVER_HZ};
         use crate::player::gait::{boat_list, skiff_bank_clamp};
         use crate::seeded_defaults::{BoatType, SkiffType};
@@ -1057,18 +1083,58 @@ mod tests {
                 g.idle_sway_amplitude, base.idle_sway_amplitude,
                 "roadster seed {seed}: her shiver is the seed's own, x1.0"
             );
-            // The pace is the old 9 Hz, carrying the seed's own spread.
+            // The pace is 3.75 Hz, carrying the seed's own 10% spread.
             let hz = SKIFF_SHIVER_HZ * (g.idle_sway_frequency.0 / NOMINAL_SWAY_HZ);
             assert!(
-                (8.0..=10.0).contains(&hz),
-                "roadster seed {seed}: idles at {hz:.2} Hz, not about 9"
+                (3.37..=4.13).contains(&hz),
+                "roadster seed {seed}: idles at {hz:.2} Hz, not about 3.75"
             );
             let clamp = skiff_bank_clamp(g.head_turn_variance_degrees.0);
             assert!(
-                (clamp - 0.3).abs() < 1e-3,
-                "roadster seed {seed}: banks to {clamp:.5} rad, was the validated 0.3"
+                (clamp - 0.12).abs() < 1e-3,
+                "roadster seed {seed}: banks to {clamp:.5} rad, not the #1400 0.12"
             );
         });
+    }
+
+    /// #1400. Every seeded skiff's sway frequency lies in the owner's
+    /// 0.2-0.45 and her bank clamp in 0-8 degrees - the two numbers the
+    /// gait editor shows her owner, so the bands are asked of the record.
+    ///
+    /// Asked twice: of every seed under 4000, which is what the fleet
+    /// actually rolls, and of each type at the two ENDS of the seeded
+    /// frequency draw, which no finite walk is sure to reach and which is
+    /// where a table value that spills the band would show first.
+    #[test]
+    fn every_seeded_skiff_idles_and_banks_inside_the_owners_bands() {
+        use crate::seeded_defaults::SkiffType;
+        const BANK_DEGREES: std::ops::RangeInclusive<f32> = 0.0..=8.0;
+        for t in SkiffType::ALL {
+            walk_skiffs(t, |seed, g, _| {
+                let f = g.idle_sway_frequency.0;
+                assert!(
+                    SKIFF_SWAY_BAND.contains(&f),
+                    "{} seed {seed}: sway frequency {f:.4} is outside {SKIFF_SWAY_BAND:?}",
+                    t.label()
+                );
+                let bank = g.head_turn_variance_degrees.0;
+                assert!(
+                    BANK_DEGREES.contains(&bank),
+                    "{} seed {seed}: bank {bank:.2} degrees is outside {BANK_DEGREES:?}",
+                    t.label()
+                );
+            });
+        }
+        for (name, idle) in skiffs::every_idle() {
+            for seeded in [0.4, 1.2] {
+                let f = skiff_pace(idle.shiver, seeded);
+                assert!(
+                    SKIFF_SWAY_BAND.contains(&f),
+                    "the {name} at a seeded {seeded}: sway frequency {f:.5} is outside \
+                     {SKIFF_SWAY_BAND:?}"
+                );
+            }
+        }
     }
 
     /// #1381, the idle's companion to `no_two_craft_types_in_a_family_

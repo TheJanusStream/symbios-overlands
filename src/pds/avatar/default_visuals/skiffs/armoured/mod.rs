@@ -382,10 +382,11 @@ impl SkiffCraft for Armoured {
     }
 
     fn idle(&self) -> SkiffIdle {
-        // `Propulsion::Diesel`: a big slow lump lopes at 6 Hz, and shakes
-        // the whole box doing it - the largest tremble in the family.
+        // `Propulsion::Diesel`: a big slow lump lopes at 2.5 Hz, the slowest
+        // pace in the family, and shakes the whole box doing it - the
+        // largest tremble in the family.
         //
-        // 5 degrees, and she ROLLS OUT of a corner rather than into it. A
+        // 2 degrees, and she ROLLS OUT of a corner rather than into it. A
         // tall armoured box leaning into its turn was the reading that most
         // needed fixing, and the direction is not written here: it comes
         // from her MASS, through `player::gait::skiff_bank_sign`, because
@@ -395,9 +396,9 @@ impl SkiffCraft for Armoured {
         SkiffIdle {
             shiver: Some(Shiver {
                 amplitude: 1.8,
-                hz: 6.0,
+                hz: 2.5,
             }),
-            bank_degrees: 5.0,
+            bank_degrees: 2.0,
         }
     }
 

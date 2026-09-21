@@ -395,20 +395,19 @@ impl SkiffCraft for Roadster {
     }
 
     fn idle(&self) -> SkiffIdle {
-        // THE BASELINE. `Propulsion::Engine`, so she idles, and at the 9 Hz
-        // that was the family-wide constant - the pace the owner has been
-        // looking at since #1361. Her bank clamp is 17.19 degrees, which is
-        // the `SKIFF_BANK_MAX` constant it replaces - 0.3 rad is 17.1887
-        // degrees - so the lean validated in #1368 is hers unchanged. Every
-        // record now states its own clamp, so the constant is gone: this
-        // literal is the last thing left of it, which is why the arithmetic
-        // is written out here.
+        // THE BASELINE. `Propulsion::Engine`, so she idles, at 3.75 Hz.
+        // Until #1400 that was 9 Hz, the family-wide constant, and her bank
+        // clamp was 17.19 degrees, the `SKIFF_BANK_MAX` constant (0.3 rad)
+        // it replaced. The owner turned the whole family down in #1400 - the
+        // sway frequency into 0.2-0.45 and the bank into 0-8 degrees - and
+        // every type's pace and lean were scaled together, so she keeps her
+        // place among them: 0.4 of the old clamp is 6.88 degrees (0.12 rad).
         SkiffIdle {
             shiver: Some(Shiver {
                 amplitude: 1.0,
-                hz: 9.0,
+                hz: 3.75,
             }),
-            bank_degrees: 17.19,
+            bank_degrees: 6.88,
         }
     }
 

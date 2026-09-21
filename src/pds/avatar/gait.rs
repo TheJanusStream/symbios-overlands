@@ -44,7 +44,9 @@ pub(crate) const BOAT_ROLL: f32 = 3.5;
 pub(crate) const BOAT_LIST_FRACTION: f32 = 0.24;
 
 /// The skiff shiver pace (Hz) that [`NOMINAL_SWAY_HZ`] reproduces - the
-/// historical family-wide "idling-engine buzz", and the roadster's own.
+/// historical family-wide "idling-engine buzz", and the roadster's own
+/// until #1400 turned every seeded skiff down to 2.25-5.1 Hz. It stays the
+/// law's anchor, because a published record's frequency is read against it.
 pub(crate) const SKIFF_SHIVER_HZ: f32 = 9.0;
 
 /// Midpoint of the seeded `idle_sway_frequency` range (0.4-1.2 Hz).
