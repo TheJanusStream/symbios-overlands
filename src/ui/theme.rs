@@ -578,28 +578,6 @@ impl Default for CurrentTheme {
     }
 }
 
-/// Interface scale: push [`crate::state::LocalSettings::ui_scale`] into
-/// the egui context, and read egui's own keyboard zoom back out (#1259
-/// f239).
-///
-/// **Both directions, because there are two controls for one setting.**
-/// egui's Ctrl+plus / Ctrl+minus has always worked here
-/// (`Options::zoom_with_keyboard` defaults on) but was documented
-/// nowhere and reset at every launch, because nothing in this app or in
-/// bevy_egui serialises egui's `Options`. Adopting the context's value
-/// whenever this system did not set it makes the keyboard shortcut
-/// persist through the same prefs file as the slider, instead of the two
-/// fighting each other.
-///
-/// The `Local` is the arbitration: it holds the last value **we** wrote,
-/// so a difference between it and `ctx.zoom_factor()` can only have come
-/// from the keyboard. The write back to `LocalSettings` is guarded-dirty
-/// (#879) - an unguarded `ResMut` deref here would re-arm the prefs save
-/// debounce on every frame of the session.
-///
-/// Not `run_if(resource_changed)`, for [`apply_theme_on_change`]'s
-/// reason: the egui context may not exist on the frame the prefs load
-/// swaps `LocalSettings` in, and a `run_if` would eat that one-shot edge.
 /// What [`sync_ui_scale`] should do with the interface scale this frame.
 ///
 /// Pure, because the arbitration is the whole of the logic and the rest
