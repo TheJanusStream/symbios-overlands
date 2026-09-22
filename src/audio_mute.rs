@@ -33,7 +33,7 @@ use bevy::prelude::*;
 ///
 /// Defaults to **muted** so a first launch is silent (the owner opts in
 /// to sound via the toolbar or the Settings window's Audio section).
-/// Deliberately *not* reset on logout - it's an app-level preference, not
+/// Deliberately *not* reset by logout's teardown - it's a preference, not
 /// session state, so a relog keeps the owner's choice.
 ///
 /// Since #1276 f38 it is also **persisted**, as `prefs::AudioPrefs`. The
@@ -45,8 +45,13 @@ use bevy::prelude::*;
 /// persistence that did not exist is what made the gap invisible to
 /// maintainers as well as to users.
 ///
+/// Since #1407 the choice is the ACCOUNT's, kept with the rest of its
+/// settings: `prefs::follow_session_prefs` installs it at sign-in and puts
+/// the muted default back at logout. The login screen has no mute control,
+/// so it is always silent.
+///
 /// **Absent from the prefs file still means muted.** Only an explicitly
-/// remembered `false` unsilences a launch, so an upgrade never starts
+/// remembered `false` unsilences a session, so an upgrade never starts
 /// playing music at somebody who never asked for it.
 ///
 /// Every writer copies the bool out, hands the WIDGET the local and

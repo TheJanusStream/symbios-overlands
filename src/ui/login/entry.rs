@@ -111,6 +111,49 @@ pub struct ResumeIdentity {
     pub target_did: String,
 }
 
+/// A saved session this tab was OFFERED rather than signed into (#1408).
+///
+/// Inserted by `check_wasm_resume` on a tab that has signed in as nobody
+/// while the browser still holds an account - a new tab, or the first one
+/// after an upgrade. The card puts a "Continue as @alice" button beside the
+/// form; taking it claims that account for this tab, and ignoring it and
+/// signing in as somebody else is what makes two tabs, two accounts work.
+///
+/// WASM-only in practice, like [`ResumeIdentity`], and declared without a
+/// `cfg` for the same reason: the card reads it plainly.
+#[derive(Resource, Clone, Debug, Default)]
+pub struct OfferedSession {
+    /// The account's DID, which addresses its saved session.
+    pub did: String,
+    /// Its handle, as the blob recorded it - the name on the button.
+    pub handle: String,
+}
+
+/// The label of the button that takes the offer (#1408).
+///
+/// Named through [`PeerLabel`] like every other name on this screen, and
+/// it degrades rather than inventing: a blob with no handle still offers
+/// the session, it just cannot say whose.
+pub fn continue_label(handle: &str) -> String {
+    match resume_name(handle) {
+        Some(name) => format!("Continue as {name}"),
+        None => String::from("Continue with the saved sign-in"),
+    }
+}
+
+/// The label of the button that forgets it instead.
+///
+/// The counterpart to [`not_you_label`], for the state where the form is
+/// already on screen: signing in as somebody else needs no button, so this
+/// one is only about the saved session that would otherwise keep being
+/// offered - on a shared computer, by name.
+pub fn forget_label(handle: &str) -> String {
+    match resume_name(handle).filter(|n| n.chars().count() <= MAX_NAMED_HATCH_CHARS) {
+        Some(name) => format!("Not {name}? Forget this sign-in"),
+        None => String::from("Forget the saved sign-in"),
+    }
+}
+
 /// The destination a resume lands in, or `None` for "your own world".
 ///
 /// Pure because the blob spells "home" two ways - an empty `target_did`
@@ -445,6 +488,34 @@ mod tests {
             "the line still names them"
         );
         assert_eq!(not_you_label(long), "Not you? Sign in differently");
+    }
+
+    /// The offer a fresh tab gets says whose it is, in the same words the
+    /// rest of the screen uses (#1408) - and stays sayable when the saved
+    /// blob has no handle to spell.
+    #[test]
+    fn the_offer_names_the_account_it_would_continue_as() {
+        assert_eq!(
+            continue_label("alice.bsky.social"),
+            "Continue as @alice.bsky.social"
+        );
+        assert_eq!(
+            forget_label("alice.bsky.social"),
+            "Not @alice.bsky.social? Forget this sign-in"
+        );
+
+        for blank in ["", "   "] {
+            assert_eq!(continue_label(blank), "Continue with the saved sign-in");
+            assert_eq!(forget_label(blank), "Forget the saved sign-in");
+        }
+
+        // The same width rule the resume's hatch follows: past what fits,
+        // the button drops the name rather than widening the card. The
+        // Continue button keeps it either way - it is the one thing on the
+        // card that has to say WHICH account, and it is full width.
+        let long = "an-extremely-long-vanity-domain.example.com";
+        assert!(continue_label(long).contains(long));
+        assert_eq!(forget_label(long), "Forget the saved sign-in");
     }
 
     /// The blob spells "home" two ways - an empty `target_did` from the

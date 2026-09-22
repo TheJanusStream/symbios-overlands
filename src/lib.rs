@@ -272,9 +272,12 @@ pub fn run() {
     #[cfg(target_arch = "wasm32")]
     {
         let callback = oauth::wasm::read_callback_params();
+        // A session this tab will restore by itself, not one it will merely
+        // be OFFERED (#1408): an offer leaves the login screen idle, and an
+        // idle login screen is exactly what the backdrop is for.
         if callback.code.is_some()
             || callback.error.is_some()
-            || oauth::wasm::load_persisted().is_some()
+            || oauth::wasm::will_resume_without_asking()
         {
             app.insert_resource(oauth::AuthHandoffPending);
         }
@@ -342,23 +345,6 @@ pub fn run() {
         .init_resource::<state::PendingOutgoingOffers>()
         .init_resource::<state::BusyAutoDeclines>()
         .init_resource::<state::MutedDids>()
-        // The two halves of the mute list need defaults here, not just the
-        // `insert_resource` in `load_prefs_at_startup` (#1317).
-        //
-        // That system opens with `let Some(prefs) = load() else { return }`,
-        // so on an EMPTY store - a first visit, or a stored blob that no
-        // longer parses - it returns before inserting anything. Every other
-        // resource it can insert is defaulted here or by its own plugin and
-        // is therefore unaffected; these two were added later (#1223) on the
-        // unconditional-insert path and never got a default, so on that path
-        // they simply did not exist. `adopt_owner_mute_list` and
-        // `save_prefs_when_changed` both take `ResMut<MutedByOwner>`, and
-        // under Bevy 0.19 a missing required parameter is a PANIC rather
-        // than a skipped system - which on wasm aborts the app and freezes
-        // the canvas on the last frame it drew, so the login screen showed
-        // the attract backdrop and no UI at all.
-        .init_resource::<state::MutedByOwner>()
-        .init_resource::<prefs::LegacyMutedDids>()
         .init_resource::<ui::login::LoginError>()
         .init_resource::<ui::login::LoginUiLatch>()
         .init_resource::<ui::login::LoginPostFeed>()
@@ -796,14 +782,19 @@ pub fn run() {
             )
                 .run_if(in_state(AppState::InGame)),
         )
-        // Machine-local UI prefs (#820): restore panels/settings from the
-        // store once at startup, then persist them (debounced) whenever
-        // they change. Runs in every AppState - panel toggles only happen
-        // InGame, but the startup load must land before the first frame.
-        .add_systems(Startup, prefs::load_prefs_at_startup)
+        // Local UI prefs (#820), one set per account and the login screen's
+        // for the machine (#1407): the login screen's at startup, then the
+        // signed-in account's, persisted (debounced) whenever they change.
+        .add_plugins(prefs::PrefsPlugin)
+        // egui remembers every window's position and size for the life of
+        // the process, so an account swap has to make it forget them - after
+        // the swap, and before the theme sync that re-applies the new
+        // account's palette.
         .add_systems(
             Update,
-            (prefs::adopt_owner_mute_list, prefs::save_prefs_when_changed).chain(),
+            ui::layout::forget_window_state_on_account_change
+                .after(prefs::PrefsSystems)
+                .before(ui::theme::sync_theme_from_settings),
         )
         .add_systems(Startup, setup_lighting)
         .add_systems(

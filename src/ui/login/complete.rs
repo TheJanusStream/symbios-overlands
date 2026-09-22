@@ -108,6 +108,12 @@ pub(crate) fn install_completed_session(
     // The destination itself is kept: the field stays pre-filled, so a
     // deliberate retry is still one click.
     commands.insert_resource(crate::boot_params::BootEntrySpent);
+    // This tab has an account now, so it has nothing left to be offered
+    // (#1408). Dropped here rather than at logout because the offer would
+    // otherwise outlive the sign-in that answered it, and the account it
+    // names may be signed out by then - leaving the login screen a
+    // "Continue as @alice" button that does nothing at all.
+    commands.remove_resource::<super::entry::OfferedSession>();
     commands.insert_resource(CurrentRoomDid(room_did.clone()));
     // Where a reload should come back to (#1229 f2). On the resume path
     // this is where a landmark link's in-memory `did=` override becomes

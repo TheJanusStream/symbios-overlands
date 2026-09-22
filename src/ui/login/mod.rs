@@ -59,7 +59,7 @@ mod wasm_resume;
 
 pub use begin::poll_begin_auth_task;
 pub use complete::poll_complete_auth_task;
-pub use entry::{DestinationLabel, ResumeIdentity, resolve_boot_destination};
+pub use entry::{DestinationLabel, OfferedSession, ResumeIdentity, resolve_boot_destination};
 #[cfg(not(target_arch = "wasm32"))]
 pub use native_callback::poll_native_callback;
 pub use posts::{LoginPostFeed, poll_login_feed_fetch, start_login_feed_fetch};
@@ -174,14 +174,16 @@ pub struct LoginUiLatch {
     /// to the form pre-latched, so the loading screen's abort and Log out
     /// land on a form that stays put.
     pub autosubmitted: bool,
-    /// Whether this machine has a persisted session, answered once per
-    /// visit to the form rather than once per frame.
+    /// Whether this page load has a saved session to restore or to be
+    /// offered (#1408), answered once per visit to the form rather than
+    /// once per frame.
     ///
-    /// `oauth::wasm::load_persisted` reads localStorage and deserialises a
-    /// blob; the entry decision (#1227) needs the answer every frame, and
+    /// `oauth::wasm::has_saved_session` reads localStorage and deserialises
+    /// a blob; the entry decision (#1227) needs the answer every frame, and
     /// asking the browser sixty times a second for a fact that changes at
     /// most once per visit is not a bargain worth making. Cleared by the
-    /// one thing that changes it mid-visit - "Not you? Sign in differently".
+    /// two things that change it mid-visit - "Not you? Sign in differently"
+    /// on a resume, and "Forget this sign-in" on an offer.
     pub persisted: Option<bool>,
     /// Set the first frame the idle form gives keyboard focus to the
     /// destination field (#848), so the type-then-Enter reflex works
@@ -249,10 +251,15 @@ pub struct NativeWaitState<'w> {
 pub struct WasmResumeState<'w, 's> {
     resume_tasks: Query<'w, 's, Entity, With<wasm_resume::ResumeAuthTask>>,
     /// The resume one-shot, so the Retry button on a recoverable failure
-    /// can re-arm it without touching the saved session (#1228 f6).
+    /// can re-arm it without touching the saved session (#1228 f6) - and so
+    /// the Continue button can re-arm it once this tab has claimed the
+    /// account it offers (#1408).
     latch: ResMut<'w, wasm_resume::ResumeLatch>,
     /// Whose session is being resumed, and where it lands (#1229 f10).
     identity: Option<Res<'w, entry::ResumeIdentity>>,
+    /// A saved session this tab was offered rather than signed into
+    /// (#1408): the account behind the "Continue as @alice" button.
+    offer: Option<Res<'w, entry::OfferedSession>>,
 }
 
 /// The two things the login card needs that are neither form state nor a
@@ -465,6 +472,62 @@ pub fn login_ui(
         .show(&ctx, |ui| {
             card_frame(&theme.0).show(ui, |ui| {
                 ui.set_width(login_w);
+                let redirecting = !begin_tasks.is_empty();
+                let completing = !complete_tasks.is_empty();
+                // Target-specific third busy state (#847): on native, the
+                // stretch between browser launch and loopback callback; on
+                // WASM, the silent persisted-session resume that used to
+                // hide behind a fully-clickable form.
+                #[cfg(not(target_arch = "wasm32"))]
+                let waiting = native.receiver.is_some();
+                #[cfg(target_arch = "wasm32")]
+                let waiting = !wasm.resume_tasks.is_empty();
+                let idle = !redirecting && !completing && !waiting;
+
+                // This browser has a saved session and this tab has signed
+                // in as nobody (#1408): OFFER it, above the form, rather
+                // than resuming it behind the person's back. Taking the
+                // offer claims that account for this tab and re-arms
+                // `check_wasm_resume`, which then restores it exactly as a
+                // reload would; ignoring it and signing in below is what
+                // makes a second tab a second account.
+                #[cfg(target_arch = "wasm32")]
+                if idle
+                    && let Some(offer) = wasm.offer.as_deref().cloned()
+                {
+                    // Full width so it is unmissable, but not the accent
+                    // fill the Enter button carries: on this screen the
+                    // primary action is still "go", and two identical
+                    // primaries would make the person choose between
+                    // buttons instead of between accounts.
+                    let take = ui.add_sized(
+                        [ui.available_width(), cfg::ENTER_BUTTON_HEIGHT],
+                        egui::Button::new(
+                            egui::RichText::new(entry::continue_label(&offer.handle)).strong(),
+                        ),
+                    );
+                    if take.clicked() {
+                        oauth::wasm::claim_session(&offer.did);
+                        commands.remove_resource::<entry::OfferedSession>();
+                        wasm.latch.rearm();
+                    }
+                    if ui
+                        .button(entry::forget_label(&offer.handle))
+                        .on_hover_text(
+                            "Removes this browser's saved sign-in for that account. \
+                             Anything open in another tab keeps running.",
+                        )
+                        .clicked()
+                    {
+                        oauth::wasm::forget_offered_session(&offer.did);
+                        commands.remove_resource::<entry::OfferedSession>();
+                        latch.persisted = Some(false);
+                    }
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(6.0);
+                }
+
                 // The account server is a login INPUT, not decoration
                 // (#1229 f1): `begin_authorization` discovers the
                 // authorization server from the typed PDS rather than from
@@ -495,14 +558,19 @@ pub fn login_ui(
                 // acted on in three places: this card, the Advanced fold
                 // below, and the submit at the bottom.
                 //
-                // On WASM a persisted session is preferred over any of it:
+                // On WASM a saved session is preferred over any of it:
                 // `check_wasm_resume` skips the OAuth redirect entirely and
                 // already applies the URL `did=` override, so doing anything
-                // here would spawn a second, competing auth task.
+                // here would spawn a second, competing auth task. An OFFER
+                // counts (#1408): it is not resuming by itself, but the
+                // Continue button above applies that same override, and
+                // auto-submitting a fresh login over a card that is asking
+                // which account to use would answer the question for the
+                // person.
                 #[cfg(target_arch = "wasm32")]
                 let has_persisted = *latch
                     .persisted
-                    .get_or_insert_with(|| oauth::wasm::load_persisted().is_some());
+                    .get_or_insert_with(oauth::wasm::has_saved_session);
                 #[cfg(not(target_arch = "wasm32"))]
                 let has_persisted = false;
                 let plan = boot
@@ -637,18 +705,8 @@ pub fn login_ui(
 
                 ui.add_space(8.0);
 
-                let redirecting = !begin_tasks.is_empty();
-                let completing = !complete_tasks.is_empty();
-                // Target-specific third busy state (#847): on native, the
-                // stretch between browser launch and loopback callback; on
-                // WASM, the silent persisted-session resume that used to
-                // hide behind a fully-clickable form.
-                #[cfg(not(target_arch = "wasm32"))]
-                let waiting = native.receiver.is_some();
-                #[cfg(target_arch = "wasm32")]
-                let waiting = !wasm.resume_tasks.is_empty();
                 let mut begin_now = false;
-                if !redirecting && !completing && !waiting {
+                if idle {
                     // Primary call to action - full card width, oversized,
                     // and filled with the identity accent (#855, teal - was
                     // a one-off green) so it reads as *the* thing to do on
@@ -950,7 +1008,7 @@ pub fn login_ui(
                 // Settings window for `AppState::Login`, which was the
                 // finding's first suggestion. Settings is nine sections and
                 // most of them are wrong before sign-in: `muted_people_section`
-                // reads `MutedDids`, and `prefs::adopt_owner_mute_list`
+                // reads `MutedDids`, and `prefs::follow_session_prefs`
                 // installs that at the moment a session appears - so a
                 // pre-login list is nobody's, and an edit to it would land
                 // under whichever account signed in next. That is #1223
@@ -963,6 +1021,14 @@ pub fn login_ui(
                 // runs unconditionally in `Update`, so Ctrl+plus and
                 // Ctrl+minus already work on this screen and are already
                 // persisted.
+                //
+                // Both are the LOGIN SCREEN's pair since #1407, not any
+                // account's: nobody is signed in here, so the pick lands in
+                // the live `LocalSettings`, and
+                // `prefs::mirror_login_screen_settings` carries it into the
+                // machine's `LoginScreenSettings`. An account's own pair
+                // replaces it at sign-in (a new account starts from it), and
+                // it comes back at logout.
                 //
                 // At the foot of the card and not in a corner of the screen
                 // on purpose: the card carries its own contrast guarantee
@@ -992,8 +1058,9 @@ pub fn login_ui(
                 });
                 ui.label(
                     egui::RichText::new(
-                        "Applies immediately; remembered on this machine. More \
-                         under Settings once you are signed in.",
+                        "Applies immediately and is remembered on this device. \
+                         Once you are signed in, each account keeps its own \
+                         under Settings.",
                     )
                     .small()
                     .color(theme.0.text_weak),
@@ -1318,6 +1385,54 @@ mod wasm_path_guards {
             !retry_block.contains("clear_persisted"),
             "Retry must keep the saved session - forgetting it is the OTHER \
              button, and having only that one was the defect"
+        );
+    }
+
+    /// THE SEQUENCE (#1408): a second tab, opened to run a second account.
+    /// It is OFFERED the account the browser used last rather than signed
+    /// into it, so the tab that is already running keeps its session.
+    ///
+    /// Two halves, both wasm-only and so invisible to the rest of the
+    /// suite. The offer arm must not spawn the resume it is declining to
+    /// make; and the Continue button must claim the account for this tab
+    /// before re-arming the one-shot, or `check_wasm_resume` would find the
+    /// same "this tab is nobody" state, offer it again, and the button
+    /// would do nothing at all.
+    #[test]
+    fn an_offered_session_is_not_resumed_until_the_tab_claims_it() {
+        let source = include_str!("wasm_resume.rs");
+        let offer_arm = source
+            .split_once("SavedSession::Offer(blob)) => {")
+            .expect("the offer arm is where the decision is made")
+            .1
+            .split_once("None => return,")
+            .expect("the arms end at the empty case")
+            .0;
+        assert!(
+            offer_arm.contains("OfferedSession"),
+            "an offer has to reach the card, or it is just a silent refusal to resume"
+        );
+        assert!(
+            !offer_arm.contains("spawn_resume_task"),
+            "offering is precisely NOT resuming - the whole point of #1408"
+        );
+
+        let card = include_str!("mod.rs");
+        let take = card
+            .split_once("if take.clicked() {")
+            .expect("the Continue button is wired in the card")
+            .1
+            .split_once("\n                    }")
+            .expect("a brace-balanced arm")
+            .0;
+        assert!(
+            take.contains("claim_session"),
+            "taking the offer must make the account THIS TAB's, or the \
+             re-armed one-shot only offers it again"
+        );
+        assert!(
+            take.contains("latch.rearm()"),
+            "and must re-arm the one-shot that does the restoring"
         );
     }
 }

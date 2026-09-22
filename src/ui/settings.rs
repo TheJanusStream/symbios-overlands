@@ -1,9 +1,12 @@
-//! The Settings window (#857): client-side, this-machine-only
-//! preferences - the theme picker and the remote-peer smoothing toggle
-//! (absorbed from its odd first home in the Avatar editor's footer).
+//! The Settings window (#857): client-side preferences - the theme picker
+//! and the remote-peer smoothing toggle (absorbed from its odd first home
+//! in the Avatar editor's footer), and everything that has joined them.
 //!
-//! Everything here edits [`LocalSettings`], which `crate::prefs`
-//! persists (#820); the theme pick reaches egui via
+//! Everything here - [`LocalSettings`] and the resources beside it (the
+//! master mute, the mute list, the window layout) - is kept per account on
+//! this machine by `crate::prefs` (#820, #1407), except the Login screen
+//! section, which edits the machine's [`LoginScreenSettings`]: that screen
+//! is shared by every account. The theme pick reaches egui via
 //! `theme::sync_theme_from_settings` → `theme::apply_theme_on_change`,
 //! so a click recolors the whole UI the same frame. Writes go through
 //! `bypass_change_detection` with an explicit `set_changed` on real
@@ -14,7 +17,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::camera::CameraGroundAvoidance;
-use crate::state::LocalSettings;
+use crate::state::{LocalSettings, LoginScreenSettings};
 use crate::ui::theme::UserTheme;
 use crate::ui::toolbar::UiPanels;
 
@@ -30,6 +33,8 @@ pub fn settings_ui(
     clipboard: Res<crate::boot_params::ClipboardQueue>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
     mut audio_muted: ResMut<crate::audio_mute::AudioMuted>,
+    // The machine's half (#1407): the Login screen section edits it.
+    mut login_screen: ResMut<LoginScreenSettings>,
     time: Res<Time>,
     // Whether "Reset window layout" has been pressed while this window
     // has been open (#1261 f45). A `Local` and not a frame-local, because
@@ -76,7 +81,7 @@ pub fn settings_ui(
                         .changed();
                 }
             });
-            ui.small("Applies immediately; remembered on this machine.");
+            ui.small("Applies immediately; remembered for this account on this device.");
 
             ui.add_space(8.0);
             // The other half of the accessibility surface (#1259 f239).
@@ -259,7 +264,7 @@ pub fn settings_ui(
             {
                 audio_muted.0 = muted;
             }
-            ui.small("Remembered on this machine.");
+            ui.small("Remembered for this account on this device.");
 
             ui.add_space(8.0);
             ui.separator();
@@ -299,15 +304,24 @@ pub fn settings_ui(
             ui.add_space(8.0);
             ui.separator();
             ui.strong("Login screen");
-            dirty |= ui
-                .checkbox(&mut s.login_world_backdrop, "Live world backdrop")
+            // The machine's, not the account's (#1407): the login screen is
+            // the one screen every account on this device shares. Guarded
+            // like the audio checkbox above - the widget gets a LOCAL and
+            // the write-back happens on a real click, because `prefs`
+            // watches this resource's change tick too.
+            let mut backdrop = login_screen.world_backdrop;
+            if ui
+                .checkbox(&mut backdrop, "Live world backdrop")
                 .on_hover_text(
                     "Build and slowly orbit a random seeded world behind the \
                      login screen. Costs a few seconds of world generation; \
                      applies the next time you see the login screen.",
                 )
-                .changed();
-            ui.small("(this device only - not saved to your account)");
+                .changed()
+            {
+                login_screen.world_backdrop = backdrop;
+            }
+            ui.small("Shared by every account on this device.");
 
             ui.add_space(8.0);
             ui.separator();

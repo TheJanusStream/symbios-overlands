@@ -46,16 +46,18 @@ pub struct UiPanels {
     /// The controls overlay. Defaults to open - this is the first-run
     /// hint - and is re-openable from the toolbar.
     pub controls: bool,
-    /// True once the Controls sheet has been dismissed at least once on
-    /// this machine (#834). While false - a true first run - the sheet
-    /// is center-anchored so a brand-new visitor cannot miss it; ever
-    /// after it is a normal draggable window near the right edge.
+    /// True once the Controls sheet has been dismissed at least once by
+    /// this account on this machine (#834, #1407). While false - a true
+    /// first run - the sheet is center-anchored so a brand-new visitor
+    /// cannot miss it; ever after it is a normal draggable window near the
+    /// right edge.
     pub controls_seen: bool,
     /// True once the owner-gestures callout has fired (#851): the first
     /// `InGame` arrival in a world the player OWNS re-opens the Controls
     /// sheet so its "You own this world" section (right-click menu,
     /// Shift-copy, Esc) is actually seen. Persisted like the rest of the
-    /// struct so it happens once per machine, not once per session.
+    /// struct so it happens once per account on a machine (#1407), not
+    /// once per session.
     pub owner_hint_seen: bool,
 }
 

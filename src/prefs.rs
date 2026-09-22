@@ -1,20 +1,61 @@
-//! Local UI-state persistence (#820).
+//! Local UI-state persistence (#820), kept per account (#1407).
 //!
 //! Machine-local preferences that describe how THIS client presents the
 //! app - which panels are open ([`crate::ui::toolbar::UiPanels`],
-//! including the first-run Controls hint's dismissed state) and the
-//! [`crate::state::LocalSettings`] toggles. They are deliberately NOT
-//! PDS records: they say nothing about the world or the identity, so
-//! they live in a local file (native) / `localStorage` (wasm) and are
-//! shared by every account that logs in from this machine.
+//! including the first-run Controls hint's dismissed state), where each
+//! window was left, the [`LocalSettings`] toggles, the gizmo frame, the
+//! master mute and the mute list. They are deliberately NOT PDS records:
+//! they say nothing about the world, so they live in local files (native)
+//! / `localStorage` (wasm).
 //!
-//! Flow: [`load_prefs_at_startup`] reads the store once and overwrites
-//! the freshly-initialised resources; [`save_prefs_when_changed`]
-//! watches both resources with Bevy change detection and writes a
-//! snapshot after a short trailing debounce, so toggling five panels in
-//! two seconds costs one write, not five. A corrupt or unreadable store
-//! degrades to defaults and heals itself on the next save - the same
-//! philosophy as the OAuth session blob (`crate::oauth::wasm`).
+//! ## Whose settings (#1407)
+//!
+//! Every account that signs in on this machine keeps its own set, under its
+//! DID. There used to be one set per machine, so accounts took over each
+//! other's windows, theme and sound, and two copies of the app signed in
+//! side by side overwrote each other's whole file on every save. Only the
+//! login screen's settings ([`LoginScreenSettings`]: its theme, its
+//! interface size and the live world backdrop) are the machine's, because
+//! the login screen is the one screen every account shares.
+//!
+//! The live resources always hold ONE set: the signed-in account's, or,
+//! while nobody is signed in, defaults under the login screen's theme and
+//! size. [`follow_session_prefs`] swaps them when the session's DID
+//! changes. It writes the outgoing account's set to that account's slot
+//! FIRST, so a change made a moment before logout can never be saved under
+//! the next account, and only then installs the incoming one.
+//! [`PrefsOwner`] records whose set is live, and every save is addressed
+//! by it. While the login screen's set is live,
+//! [`mirror_login_screen_settings`] carries the theme and size its controls
+//! change into [`LoginScreenSettings`].
+//!
+//! ## Where they live
+//!
+//! [`PrefsStore`] addresses three kinds of slot:
+//!
+//! * the machine's: `machine.json` / `symbios_overlands_machine_prefs_v1`;
+//! * one per account: `accounts/<DID>.json` (the DID percent-encoded, see
+//!   [`account_file_name`]) / `symbios_overlands_account_prefs_v1:<DID>`;
+//! * the shared file every build before #1407 wrote: `prefs.json` /
+//!   `symbios_overlands_prefs_v1`. It is READ-ONLY now. An account with no
+//!   slot of its own starts from a copy of it (owner decision 2026-09-22),
+//!   so no account lost its layout to the upgrade, and the machine's slot
+//!   is seeded from it once.
+//!
+//! Native files sit in `$XDG_CONFIG_HOME/symbios-overlands/`, falling back
+//! to `%APPDATA%` (Windows) then `~/.config`. With nowhere to write - no
+//! base directory, a browser without storage - the store is a map that
+//! lasts as long as the process, so the accounts of one run still keep
+//! their settings apart.
+//!
+//! ## Saving
+//!
+//! [`save_prefs_when_changed`] watches the live resources with Bevy change
+//! detection and writes a snapshot after a short trailing debounce, so
+//! toggling five panels in two seconds costs one write, not five. A corrupt
+//! or unreadable slot degrades to its starting point and heals itself on
+//! the next save - the same philosophy as the OAuth session blob
+//! (`crate::oauth::wasm`).
 //!
 //! CONTRACT for systems touching a watched resource (#879): mutate it
 //! GUARDED - `bypass_change_detection` + `set_changed` on a real edit,
@@ -25,17 +66,23 @@
 //! prefs only reached disk at logout. [`SAVE_MAX_LATENCY_SECS`] is the
 //! backstop if a future writer forgets.
 //!
-//! Schema stability: [`PersistedPrefs`] only ever GROWS `Option` fields
-//! (`#[serde(default)]` everywhere), so an old file loads under a newer
-//! binary (missing fields stay `None`) and an older binary ignores
-//! fields a newer one wrote. Per-window rects landed as `windows`
-//! (#833); planned growth: the DID-keyed mute list (#844).
+//! Schema stability: [`AccountPrefs`] and [`MachinePrefs`] only ever GROW
+//! `Option` fields (`#[serde(default)]` everywhere), so an old slot loads
+//! under a newer binary (missing fields stay `None`) and an older binary
+//! ignores fields a newer one wrote.
 
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::{Arc, Mutex};
+
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+use bevy_symbios_multiuser::auth::AtprotoSession;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::audio_mute::AudioMuted;
 use crate::editor_gizmo::GizmoFramePref;
-use crate::state::LocalSettings;
+use crate::state::{LocalSettings, LoginScreenSettings, MutedDids};
 use crate::ui::layout::WindowLayout;
 use crate::ui::toolbar::UiPanels;
 use transform_gizmo_bevy::GizmoOrientation;
@@ -56,45 +103,46 @@ const SAVE_DEBOUNCE_SECS: f64 = 1.0;
 /// regression into "saves every few seconds" instead of "never saves".
 const SAVE_MAX_LATENCY_SECS: f64 = 5.0;
 
-/// `localStorage` key on wasm. Namespaced like the OAuth session blob's
-/// key so the origin's storage stays legible in devtools.
-#[cfg(target_arch = "wasm32")]
-const STORAGE_KEY: &str = "symbios_overlands_prefs_v1";
+/// `localStorage` key of the machine's slot (#1407), and the in-memory
+/// store's, which borrows the browser's names. Namespaced like the OAuth
+/// session blob's key so the origin's storage stays legible in devtools.
+const MACHINE_KEY: &str = "symbios_overlands_machine_prefs_v1";
 
-/// Everything this machine remembers about its UI. All fields are
-/// `Option` + `#[serde(default)]`: absent-in-file means "no opinion,
-/// keep the resource's default" - distinct from an explicitly-saved
-/// default value.
+/// Prefix of an account's `localStorage` key; the DID follows verbatim.
+const ACCOUNT_KEY_PREFIX: &str = "symbios_overlands_account_prefs_v1:";
+
+/// The pre-#1407 shared blob's key. Read, never written.
+const LEGACY_KEY: &str = "symbios_overlands_prefs_v1";
+
+// ---------------------------------------------------------------------
+// Persisted shapes.
+// ---------------------------------------------------------------------
+
+/// One account's settings on this machine (#1407).
+///
+/// All fields are `Option` + `#[serde(default)]`: absent means "no
+/// opinion, keep the resource's default" - distinct from an explicitly
+/// saved default value. A save always writes every field.
 #[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq)]
-pub struct PersistedPrefs {
+pub struct AccountPrefs {
     /// Open/closed state of every toolbar-managed window, including the
     /// Controls hint - persisting `controls: false` after the first
     /// "Got it" is what makes the first-run hint first-run-only.
     #[serde(default)]
     pub panels: Option<UiPanels>,
-    /// Client-side presentation toggles (peer smoothing today; UI scale
-    /// and friends land here later).
+    /// Client-side presentation toggles, the account's theme and
+    /// interface size among them.
     #[serde(default)]
     pub settings: Option<LocalSettings>,
     /// Last-shown rect of every managed window (#833), keyed by
-    /// [`crate::ui::layout::UiWindow::key`] - a machine's arranged
+    /// [`crate::ui::layout::UiWindow::key`] - an account's arranged
     /// layout beats the computed defaults on the next run.
     #[serde(default)]
     pub windows: Option<WindowLayout>,
-    /// DIDs muted by the local user (#844) - the durable mute list a
-    /// reconnecting peer can no longer reset.
-    ///
-    /// LEGACY, machine-wide (#1223 f292). Kept only so an existing
-    /// installation's list survives the upgrade: it is adopted by the next
-    /// account to sign in and then cleared. New writes go to
-    /// [`Self::muted_by_owner`].
+    /// DIDs this account has muted (#844, #1223 f292) - the durable
+    /// mute list a reconnecting peer can no longer reset.
     #[serde(default)]
-    pub muted_dids: Option<crate::state::MutedDids>,
-    /// Every account's mute list on this machine, keyed by owner DID
-    /// (#1223 f292). A block list is a statement about who *you* will not
-    /// hear; a shared computer used to hand one user's to the next.
-    #[serde(default)]
-    pub muted_by_owner: Option<crate::state::MutedByOwner>,
+    pub muted: Option<MutedDids>,
     /// Gizmo frame + snap preferences (#871). A serde mirror rather than
     /// the resource itself: the upstream `GizmoOrientation` doesn't
     /// implement serde, and mirroring keeps the on-disk schema
@@ -103,12 +151,153 @@ pub struct PersistedPrefs {
     pub gizmo: Option<GizmoPrefs>,
     /// Master mute (#1276 f38). The last preference the app forgot.
     ///
-    /// [`crate::audio_mute::AudioMuted`] defaults to `true` and its doc
-    /// asserted an app-level persistence that lived nowhere, so every
-    /// launch was silent and the procedural soundtrack had to be
-    /// rediscovered as a toolbar glyph each session.
+    /// [`AudioMuted`] defaults to `true` and its doc asserted an app-level
+    /// persistence that lived nowhere, so every launch was silent and the
+    /// procedural soundtrack had to be rediscovered as a toolbar glyph each
+    /// session. Absent still means muted: only an explicitly remembered
+    /// `false` unsilences a session.
     #[serde(default)]
     pub audio: Option<AudioPrefs>,
+}
+
+impl AccountPrefs {
+    /// Snapshot the live resources for saving.
+    fn capture(
+        panels: &UiPanels,
+        settings: &LocalSettings,
+        windows: &WindowLayout,
+        muted: &MutedDids,
+        gizmo: &GizmoFramePref,
+        audio: &AudioMuted,
+    ) -> Self {
+        Self {
+            panels: Some(panels.clone()),
+            settings: Some(settings.clone()),
+            windows: Some(windows.clone()),
+            muted: Some(muted.clone()),
+            gizmo: Some(gizmo.into()),
+            audio: Some(audio.into()),
+        }
+    }
+}
+
+/// The machine's own slot (#1407): the login screen's settings, plus the
+/// one piece of a pre-#1223 file that is still waiting for an owner.
+#[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq)]
+pub struct MachinePrefs {
+    #[serde(default)]
+    pub login_screen: Option<LoginScreenSettings>,
+    /// The machine-wide mute list every build before #1223 kept, carried
+    /// here out of the old shared file until the next account signs in and
+    /// takes it. See [`LegacyMutedDids`].
+    #[serde(default)]
+    pub unclaimed_mutes: Option<MutedDids>,
+}
+
+impl MachinePrefs {
+    fn capture(login: &LoginScreenSettings, unclaimed: &LegacyMutedDids) -> Self {
+        Self {
+            login_screen: Some(login.clone()),
+            unclaimed_mutes: unclaimed.0.clone(),
+        }
+    }
+}
+
+/// The shared file every build before #1407 wrote. Read as a starting
+/// point, never written.
+///
+/// `settings` is read raw rather than as [`LocalSettings`], because one of
+/// its fields - `login_world_backdrop` - is the machine's now and lives in
+/// [`LoginScreenSettings`]; [`LocalSettings`] no longer has anywhere to put
+/// it.
+#[derive(Deserialize, Default, Debug)]
+struct LegacyPrefs {
+    #[serde(default)]
+    panels: Option<UiPanels>,
+    #[serde(default)]
+    settings: Option<serde_json::Value>,
+    #[serde(default)]
+    windows: Option<WindowLayout>,
+    /// The one list for the whole machine that builds before #1223 kept.
+    #[serde(default)]
+    muted_dids: Option<MutedDids>,
+    /// Every account's mute list, keyed by owner DID (#1223 f292).
+    #[serde(default)]
+    muted_by_owner: Option<HashMap<String, HashSet<String>>>,
+    #[serde(default)]
+    gizmo: Option<GizmoPrefs>,
+    #[serde(default)]
+    audio: Option<AudioPrefs>,
+}
+
+impl LegacyPrefs {
+    /// The old `settings` object as today's [`LocalSettings`]. The backdrop
+    /// field it may carry is ignored here - [`Self::machine`] reads it.
+    fn local_settings(&self) -> Option<LocalSettings> {
+        serde_json::from_value(self.settings.clone()?).ok()
+    }
+
+    /// The machine's slot as the old file describes it: its theme, size and
+    /// backdrop become the login screen's, and a pre-#1223 mute list waits
+    /// for the first account to sign in.
+    fn machine(&self) -> MachinePrefs {
+        let mut login = LoginScreenSettings::default();
+        if let Some(settings) = self.local_settings() {
+            login.theme = settings.theme;
+            login.ui_scale = settings.ui_scale;
+        }
+        if let Some(backdrop) = self
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.get("login_world_backdrop"))
+            .and_then(serde_json::Value::as_bool)
+        {
+            login.world_backdrop = backdrop;
+        }
+        MachinePrefs {
+            login_screen: Some(login),
+            unclaimed_mutes: self.muted_dids.clone().filter(|list| !list.0.is_empty()),
+        }
+    }
+}
+
+/// An account's first settings on this machine (#1407).
+///
+/// A copy of the old shared file where there is one - owner decision
+/// 2026-09-22, so every account kept its layout through the upgrade - under
+/// the login screen's theme and size, which is what a new account starts
+/// with, and with the account's OWN mute list from the old file (#1223
+/// f292), never another's.
+fn seed_account(
+    legacy: Option<&LegacyPrefs>,
+    owner: &str,
+    login: &LoginScreenSettings,
+) -> AccountPrefs {
+    let mut settings = legacy
+        .and_then(LegacyPrefs::local_settings)
+        .unwrap_or_default();
+    settings.theme = login.theme;
+    settings.ui_scale = login.ui_scale;
+    AccountPrefs {
+        panels: legacy.and_then(|l| l.panels.clone()),
+        settings: Some(settings),
+        windows: legacy.and_then(|l| l.windows.clone()),
+        muted: legacy
+            .and_then(|l| l.muted_by_owner.as_ref()?.get(owner).cloned())
+            .map(MutedDids),
+        gizmo: legacy.and_then(|l| l.gizmo.clone()),
+        audio: legacy.and_then(|l| l.audio),
+    }
+}
+
+/// What the live [`LocalSettings`] hold while nobody is signed in: the
+/// defaults, under the login screen's theme and size.
+fn login_screen_local_settings(login: &LoginScreenSettings) -> LocalSettings {
+    LocalSettings {
+        theme: login.theme,
+        ui_scale: login.ui_scale,
+        ..Default::default()
+    }
 }
 
 /// Serde mirror of [`crate::audio_mute::AudioMuted`] (#1276 f38).
@@ -123,13 +312,13 @@ pub struct AudioPrefs {
     pub muted: bool,
 }
 
-impl From<&crate::audio_mute::AudioMuted> for AudioPrefs {
-    fn from(m: &crate::audio_mute::AudioMuted) -> Self {
+impl From<&AudioMuted> for AudioPrefs {
+    fn from(m: &AudioMuted) -> Self {
         Self { muted: m.0 }
     }
 }
 
-impl From<&AudioPrefs> for crate::audio_mute::AudioMuted {
+impl From<&AudioPrefs> for AudioMuted {
     fn from(p: &AudioPrefs) -> Self {
         Self(p.muted)
     }
@@ -173,87 +362,193 @@ impl From<&GizmoPrefs> for GizmoFramePref {
     }
 }
 
-impl PersistedPrefs {
-    /// Snapshot the live resources for saving.
-    fn capture(
-        panels: &UiPanels,
-        settings: &LocalSettings,
-        windows: &WindowLayout,
-        muted_by_owner: &crate::state::MutedByOwner,
-        gizmo: &GizmoFramePref,
-        audio: &crate::audio_mute::AudioMuted,
-    ) -> Self {
-        Self {
-            panels: Some(panels.clone()),
-            settings: Some(settings.clone()),
-            windows: Some(windows.clone()),
-            // Never written again (#1223 f292): the legacy machine-wide
-            // list is migrated on the first sign-in after the upgrade and
-            // must not be resurrected by a later save, or it would leak
-            // back into the next account.
-            muted_dids: None,
-            muted_by_owner: Some(muted_by_owner.clone()),
-            gizmo: Some(gizmo.into()),
-            audio: Some(audio.into()),
+// ---------------------------------------------------------------------
+// The store.
+// ---------------------------------------------------------------------
+
+/// One addressable piece of the store (#1407).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Slot<'a> {
+    /// The machine's settings: [`MachinePrefs`].
+    Machine,
+    /// One account's settings, by DID: [`AccountPrefs`].
+    Account(&'a str),
+    /// The pre-#1407 shared file: [`LegacyPrefs`]. Never written.
+    Legacy,
+}
+
+impl Slot<'_> {
+    /// The slot's `localStorage` key, which the in-memory store uses too.
+    fn storage_key(self) -> String {
+        match self {
+            Slot::Machine => MACHINE_KEY.to_owned(),
+            Slot::Account(did) => format!("{ACCOUNT_KEY_PREFIX}{did}"),
+            Slot::Legacy => LEGACY_KEY.to_owned(),
+        }
+    }
+
+    /// The slot's file, relative to the prefs directory.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn file(self) -> std::path::PathBuf {
+        match self {
+            Slot::Machine => "machine.json".into(),
+            Slot::Account(did) => std::path::Path::new("accounts").join(account_file_name(did)),
+            Slot::Legacy => "prefs.json".into(),
         }
     }
 }
 
-// ---------------------------------------------------------------------
-// Storage backends.
-// ---------------------------------------------------------------------
-
-/// Native store: `$XDG_CONFIG_HOME/symbios-overlands/prefs.json`,
-/// falling back to `%APPDATA%` (Windows) then `~/.config`. `None` when
-/// no base directory can be resolved (headless CI without HOME) - the
-/// app then simply runs without persistence.
+/// An account's file name (#1407): the DID with every byte outside
+/// `[A-Za-z0-9._-]` percent-encoded, then `.json`.
+///
+/// A DID is `did:plc:…` or `did:web:host[:path…]`; the colons alone make it
+/// an illegal file name on Windows, and a `did:web` may carry `%` of its
+/// own. Encoding every other byte - `%` included - keeps the mapping
+/// one-to-one, so two accounts never share a file, and keeps the name a
+/// single path component: no `/` or `\` survives, and it cannot be `.` or
+/// `..` because it ends in `.json`.
 #[cfg(not(target_arch = "wasm32"))]
-fn native_prefs_path() -> Option<std::path::PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("APPDATA").map(std::path::PathBuf::from))
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config"))
-        })?;
-    Some(base.join("symbios-overlands").join("prefs.json"))
+fn account_file_name(did: &str) -> String {
+    use std::fmt::Write as _;
+    let mut name = String::with_capacity(did.len() + 16);
+    for byte in did.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_') {
+            name.push(char::from(byte));
+        } else {
+            let _ = write!(name, "%{byte:02X}");
+        }
+    }
+    name.push_str(".json");
+    name
 }
 
-/// Read + parse a prefs file. Split from [`load`] so tests can exercise
-/// the round-trip against a temp path.
-#[cfg(not(target_arch = "wasm32"))]
-fn load_from_path(path: &std::path::Path) -> Option<PersistedPrefs> {
-    let raw = std::fs::read_to_string(path).ok()?;
-    match serde_json::from_str(&raw) {
-        Ok(prefs) => Some(prefs),
-        Err(e) => {
-            warn!("prefs file unreadable ({e}); using defaults");
-            None
+/// Where the prefs live (#1407).
+///
+/// A resource rather than a pair of free functions so a test can hand the
+/// systems a store of its own instead of the user's real one, and so a
+/// machine with nowhere to write still keeps each account's settings apart
+/// for the life of the process.
+#[derive(Resource, Clone, Debug)]
+pub enum PrefsStore {
+    /// One file per slot under this directory (native).
+    #[cfg(not(target_arch = "wasm32"))]
+    Dir(std::path::PathBuf),
+    /// The page's `localStorage` (wasm).
+    #[cfg(target_arch = "wasm32")]
+    Browser,
+    /// A map that lasts as long as the process: the fallback when the
+    /// platform store is unavailable, and what tests run against.
+    Memory(Arc<Mutex<BTreeMap<String, String>>>),
+}
+
+impl Default for PrefsStore {
+    fn default() -> Self {
+        Self::platform()
+    }
+}
+
+impl PrefsStore {
+    /// `$XDG_CONFIG_HOME/symbios-overlands/`, falling back to `%APPDATA%`
+    /// (Windows) then `~/.config` - or, with no base directory at all
+    /// (headless CI without HOME), [`Self::memory`].
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn platform() -> Self {
+        let base = std::env::var_os("XDG_CONFIG_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::var_os("APPDATA").map(std::path::PathBuf::from))
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config"))
+            });
+        base.map_or_else(Self::memory, |base| {
+            Self::Dir(base.join("symbios-overlands"))
+        })
+    }
+
+    /// The page's `localStorage` - or, in a browser that offers none
+    /// (some private-browsing modes), [`Self::memory`].
+    #[cfg(target_arch = "wasm32")]
+    pub fn platform() -> Self {
+        if local_storage().is_some() {
+            Self::Browser
+        } else {
+            Self::memory()
+        }
+    }
+
+    /// A fresh, empty store that lasts as long as the process.
+    pub fn memory() -> Self {
+        Self::Memory(Arc::default())
+    }
+
+    fn read(&self, slot: Slot<'_>) -> Option<String> {
+        match self {
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::Dir(dir) => std::fs::read_to_string(dir.join(slot.file())).ok(),
+            #[cfg(target_arch = "wasm32")]
+            Self::Browser => local_storage()?
+                .get_item(&slot.storage_key())
+                .ok()
+                .flatten(),
+            Self::Memory(map) => map.lock().ok()?.get(&slot.storage_key()).cloned(),
+        }
+    }
+
+    fn write(&self, slot: Slot<'_>, json: &str) -> Result<(), String> {
+        match self {
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::Dir(dir) => write_file_atomically(&dir.join(slot.file()), json),
+            #[cfg(target_arch = "wasm32")]
+            Self::Browser => local_storage()
+                .ok_or_else(|| "localStorage unavailable".to_owned())?
+                .set_item(&slot.storage_key(), json)
+                .map_err(|e| format!("{e:?}")),
+            Self::Memory(map) => {
+                map.lock()
+                    .map_err(|e| e.to_string())?
+                    .insert(slot.storage_key(), json.to_owned());
+                Ok(())
+            }
+        }
+    }
+
+    /// Read and parse one slot. `None` when it is empty, and when it no
+    /// longer parses - a slot that then heals on its next save.
+    fn load<T: DeserializeOwned>(&self, slot: Slot<'_>) -> Option<T> {
+        let raw = self.read(slot)?;
+        serde_json::from_str(&raw)
+            .inspect_err(|e| warn!("prefs {slot:?} unreadable ({e}); starting it over"))
+            .ok()
+    }
+
+    /// Serialise and write one slot. Best effort: a failure is logged and
+    /// the live settings are unaffected.
+    fn save<T: Serialize>(&self, slot: Slot<'_>, value: &T) {
+        let written = serde_json::to_string_pretty(value)
+            .map_err(|e| e.to_string())
+            .and_then(|json| self.write(slot, &json));
+        if let Err(e) = written {
+            warn!("failed to save prefs {slot:?}: {e}");
         }
     }
 }
 
+/// Write `json` to `path` through a sibling temp file and a rename, so a
+/// crash - or a second copy of the app saving the machine's slot at the
+/// same moment - leaves the old contents or the new, never half of each.
+/// The temp name carries the process id, so two copies never share one.
 #[cfg(not(target_arch = "wasm32"))]
-fn save_to_path(path: &std::path::Path, prefs: &PersistedPrefs) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(prefs).map_err(|e| e.to_string())?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(path, json).map_err(|e| e.to_string())
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn load() -> Option<PersistedPrefs> {
-    load_from_path(&native_prefs_path()?)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn save(prefs: &PersistedPrefs) {
-    let Some(path) = native_prefs_path() else {
-        return;
-    };
-    if let Err(e) = save_to_path(&path, prefs) {
-        warn!("failed to save prefs to {}: {e}", path.display());
-    }
+fn write_file_atomically(path: &std::path::Path, json: &str) -> Result<(), String> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| format!("{} has no directory", path.display()))?;
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(format!(".{}.tmp", std::process::id()));
+    std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -261,30 +556,86 @@ fn local_storage() -> Option<web_sys::Storage> {
     web_sys::window()?.local_storage().ok().flatten()
 }
 
-#[cfg(target_arch = "wasm32")]
-fn load() -> Option<PersistedPrefs> {
-    let raw = local_storage()?.get_item(STORAGE_KEY).ok().flatten()?;
-    match serde_json::from_str(&raw) {
-        Ok(prefs) => Some(prefs),
-        Err(e) => {
-            warn!("prefs blob unreadable ({e}); using defaults");
-            None
-        }
-    }
+// ---------------------------------------------------------------------
+// Resources.
+// ---------------------------------------------------------------------
+
+/// Whose settings the live resources hold (#1407): the signed-in account's
+/// DID, or `None` while the login screen's are live. Written only by
+/// [`follow_session_prefs`]; every save is addressed by it.
+#[derive(Resource, Default, Clone, Debug, PartialEq, Eq)]
+pub struct PrefsOwner(pub Option<String>);
+
+/// A pre-#1223 machine-wide mute list, waiting for its owner (#1223 f292,
+/// #1407).
+///
+/// Builds before #1223 kept one list for the whole machine. It belongs to
+/// whoever was using the machine, and the first account to sign in is the
+/// best available answer - so [`follow_session_prefs`] TAKES it for that
+/// account and leaves `None` behind, and the second account inherits
+/// nothing, which is the defect #1223 fixed. Until then it rides in the
+/// machine's slot as [`MachinePrefs::unclaimed_mutes`].
+#[derive(Resource, Default, Debug)]
+pub struct LegacyMutedDids(pub Option<MutedDids>);
+
+/// The live resources an account's settings are installed into, as one
+/// parameter (#1407).
+#[derive(SystemParam)]
+pub struct LivePrefs<'w> {
+    panels: ResMut<'w, UiPanels>,
+    settings: ResMut<'w, LocalSettings>,
+    windows: ResMut<'w, WindowLayout>,
+    muted: ResMut<'w, MutedDids>,
+    gizmo: ResMut<'w, GizmoFramePref>,
+    audio: ResMut<'w, AudioMuted>,
 }
 
-#[cfg(target_arch = "wasm32")]
-fn save(prefs: &PersistedPrefs) {
-    let Ok(json) = serde_json::to_string(prefs) else {
-        return;
-    };
-    let Some(storage) = local_storage() else {
-        // Private-browsing mode without storage: run without persistence,
-        // mirroring how the OAuth blob degrades.
-        return;
-    };
-    if let Err(e) = storage.set_item(STORAGE_KEY, &json) {
-        warn!("failed to save prefs to localStorage: {e:?}");
+impl LivePrefs<'_> {
+    fn capture(&self) -> AccountPrefs {
+        AccountPrefs::capture(
+            &self.panels,
+            &self.settings,
+            &self.windows,
+            &self.muted,
+            &self.gizmo,
+            &self.audio,
+        )
+    }
+
+    /// Replace every live resource with `prefs` - a `None` field with the
+    /// resource's default, and missing settings with the login screen's
+    /// theme and size over defaults. Each is written only where it differs
+    /// (#879), so a swap to an identical set stamps nothing.
+    fn install(&mut self, prefs: &AccountPrefs, login: &LoginScreenSettings) {
+        self.panels
+            .set_if_neq(prefs.panels.clone().unwrap_or_default());
+        self.settings.set_if_neq(
+            prefs
+                .settings
+                .clone()
+                .unwrap_or_else(|| login_screen_local_settings(login)),
+        );
+        self.windows
+            .set_if_neq(prefs.windows.clone().unwrap_or_default());
+        self.muted
+            .set_if_neq(prefs.muted.clone().unwrap_or_default());
+        self.gizmo.set_if_neq(
+            prefs
+                .gizmo
+                .as_ref()
+                .map(GizmoFramePref::from)
+                .unwrap_or_default(),
+        );
+        // Absent means muted (#1276 f38), which is also what the login
+        // screen gets: it has no mute control, so a sound left on by the
+        // last account would be one nobody there can turn off.
+        self.audio.set_if_neq(
+            prefs
+                .audio
+                .as_ref()
+                .map(AudioMuted::from)
+                .unwrap_or_default(),
+        );
     }
 }
 
@@ -292,35 +643,154 @@ fn save(prefs: &PersistedPrefs) {
 // Systems.
 // ---------------------------------------------------------------------
 
-/// Startup: overwrite the `init_resource` defaults with whatever the
-/// store remembers. Field-by-field, so a file that only knows about
-/// panels leaves `LocalSettings` at its default.
-pub fn load_prefs_at_startup(mut commands: Commands) {
-    let Some(prefs) = load() else {
+/// The prefs chain, for a system that has to see an account swap on the
+/// frame it happens (`ui::layout::forget_window_state_on_account_change`).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PrefsSystems;
+
+/// Everything the prefs layer needs, registered in one place (#1407).
+///
+/// The live resources are registered by their own modules too;
+/// `init_resource` keeps whichever came first. Registering them here as
+/// well is what keeps the systems below runnable on an EMPTY store - a
+/// first visit, or a slot that no longer parses - which #1317 learnt the
+/// hard way: under Bevy 0.19 a missing required parameter is a panic, and
+/// on wasm that freezes the canvas on the login screen with no UI.
+pub struct PrefsPlugin;
+
+impl Plugin for PrefsPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<PrefsStore>()
+            .init_resource::<PrefsOwner>()
+            .init_resource::<LoginScreenSettings>()
+            .init_resource::<LegacyMutedDids>()
+            .init_resource::<UiPanels>()
+            .init_resource::<LocalSettings>()
+            .init_resource::<WindowLayout>()
+            .init_resource::<MutedDids>()
+            .init_resource::<GizmoFramePref>()
+            .init_resource::<AudioMuted>()
+            // Restore at startup, then follow the session and persist
+            // (debounced) whenever something changes. Every AppState: a
+            // session appears in `Login`, leaves on the way out of `InGame`
+            // or an aborted `Loading`, and the login screen's own controls
+            // are drawn before either.
+            .add_systems(Startup, load_prefs_at_startup)
+            .add_systems(
+                Update,
+                (
+                    follow_session_prefs,
+                    mirror_login_screen_settings,
+                    save_prefs_when_changed,
+                )
+                    .chain()
+                    .in_set(PrefsSystems),
+            );
+    }
+}
+
+/// Startup: install the login screen's settings.
+///
+/// Nobody is signed in yet, so the live set is the login screen's theme
+/// and size over defaults; an account's own set arrives with its session,
+/// through [`follow_session_prefs`]. The first run after #1407 finds no
+/// machine slot and seeds one from the old shared file, so the login
+/// screen looks exactly as it did before the upgrade.
+pub fn load_prefs_at_startup(mut commands: Commands, store: Res<PrefsStore>) {
+    let machine = store
+        .load::<MachinePrefs>(Slot::Machine)
+        .unwrap_or_else(|| {
+            store
+                .load::<LegacyPrefs>(Slot::Legacy)
+                .map(|legacy| legacy.machine())
+                .unwrap_or_default()
+        });
+    let login = machine.login_screen.unwrap_or_default();
+    commands.insert_resource(login_screen_local_settings(&login));
+    commands.insert_resource(login);
+    commands.insert_resource(LegacyMutedDids(machine.unclaimed_mutes));
+}
+
+/// Keep the live settings on the signed-in account's set (#1407).
+///
+/// Runs every frame and acts when the session's DID differs from
+/// [`PrefsOwner`] - a sign-in, the wasm resume, a logout, an aborted
+/// loading screen - so no door into or out of a session has to remember
+/// it. #1214's in-place re-authenticate inserts a new session for the SAME
+/// DID, and that is deliberately nothing: reloading would throw away
+/// whatever changed since the last save.
+///
+/// The order is the point. The outgoing account's set is written to its
+/// slot BEFORE the incoming one replaces it, while the live resources
+/// still hold it: the debounced save is up to five seconds behind, and a
+/// save that fired after the swap would file the last few changes under
+/// the wrong account - the #1223 f292 defect in general form. Which is
+/// also why logout no longer resets the mute list itself: that ran first
+/// and would have saved an empty list here.
+pub fn follow_session_prefs(
+    session: Option<Res<AtprotoSession>>,
+    mut owner: ResMut<PrefsOwner>,
+    store: Res<PrefsStore>,
+    login: Res<LoginScreenSettings>,
+    mut legacy_mutes: ResMut<LegacyMutedDids>,
+    mut live: LivePrefs,
+) {
+    let signed_in = session.as_deref().map(|session| session.did.as_str());
+    if signed_in == owner.0.as_deref() {
         return;
-    };
-    if let Some(panels) = prefs.panels {
-        commands.insert_resource(panels);
     }
-    if let Some(settings) = prefs.settings {
-        commands.insert_resource(settings);
+    if let Some(outgoing) = owner.0.as_deref() {
+        store.save(Slot::Account(outgoing), &live.capture());
     }
-    if let Some(windows) = prefs.windows {
-        commands.insert_resource(windows);
+    match signed_in {
+        None => live.install(&AccountPrefs::default(), &login),
+        Some(did) => {
+            let mut prefs = store
+                .load::<AccountPrefs>(Slot::Account(did))
+                .unwrap_or_else(|| {
+                    seed_account(
+                        store.load::<LegacyPrefs>(Slot::Legacy).as_ref(),
+                        did,
+                        &login,
+                    )
+                });
+            // Bypassed, because a `&mut` through the `ResMut` stamps the
+            // resource whether or not there is anything to take (#879).
+            if let Some(list) = legacy_mutes.bypass_change_detection().0.take() {
+                legacy_mutes.set_changed();
+                prefs.muted.get_or_insert_default().0.extend(list.0);
+                // One-time and not repeatable, so both halves are written
+                // now rather than a debounce later: a quit in between would
+                // hand the list to whoever signed in next.
+                store.save(Slot::Account(did), &prefs);
+                store.save(Slot::Machine, &MachinePrefs::capture(&login, &legacy_mutes));
+            }
+            live.install(&prefs, &login);
+        }
     }
-    // Both, and neither becomes `MutedDids` yet (#1223 f292): whose list
-    // applies is not known until somebody signs in, and prefs load at
-    // startup. `adopt_owner_mute_list` picks one when a session appears.
-    commands.insert_resource(prefs.muted_by_owner.unwrap_or_default());
-    commands.insert_resource(LegacyMutedDids(prefs.muted_dids));
-    if let Some(gizmo) = prefs.gizmo {
-        commands.insert_resource(GizmoFramePref::from(&gizmo));
+    owner.0 = signed_in.map(str::to_owned);
+}
+
+/// While nobody is signed in, the theme and size on screen ARE the login
+/// screen's (#1407): carry what its controls change - the login card's
+/// picker, Ctrl+plus / Ctrl+minus through `theme::sync_ui_scale` - into
+/// [`LoginScreenSettings`], where they survive the next account's session
+/// and the next launch.
+///
+/// Guarded both ways: nothing while an account's set is live, and a write
+/// only when the pair actually differs, because the swap back at logout
+/// installs these very values and must not re-save them.
+pub fn mirror_login_screen_settings(
+    owner: Res<PrefsOwner>,
+    settings: Res<LocalSettings>,
+    mut login: ResMut<LoginScreenSettings>,
+) {
+    if owner.0.is_some() || !settings.is_changed() {
+        return;
     }
-    // Absent means "no opinion", which for audio means the muted default
-    // stands (#1276 f38). Only an explicit remembered choice unsilences a
-    // launch - an upgrade does not start playing music at somebody.
-    if let Some(audio) = prefs.audio {
-        commands.insert_resource(crate::audio_mute::AudioMuted::from(&audio));
+    if login.theme != settings.theme || login.ui_scale != settings.ui_scale {
+        login.theme = settings.theme;
+        login.ui_scale = settings.ui_scale;
     }
 }
 
@@ -334,9 +804,14 @@ struct PendingSave {
     cap: f64,
 }
 
-/// Trailing-debounce state for [`save_prefs_when_changed`].
+/// Trailing-debounce state for [`save_prefs_when_changed`], and which of
+/// the two slots the burst touched.
 #[derive(Default)]
-pub struct SaveDebounce(Option<PendingSave>);
+pub struct SaveDebounce {
+    pending: Option<PendingSave>,
+    machine: bool,
+    account: bool,
+}
 
 /// Step the debounce: a change (re)arms the trailing deadline - clamped
 /// to the max-latency cap the burst's FIRST change fixed - and a
@@ -364,150 +839,524 @@ fn debounce_step(
     }
 }
 
-/// Watch [`UiPanels`] + [`LocalSettings`] + [`WindowLayout`] and persist
-/// a snapshot shortly after the last change. Change detection also fires
-/// on the startup load's own insert - that lone extra write of identical
-/// data is harmless and keeps the system free of special cases.
+/// Persist the live settings shortly after the last change: the account's
+/// set to the signed-in account's slot, the login screen's to the
+/// machine's. Change detection also fires on a swap's own install - that
+/// lone extra write of identical data is harmless, and it is what first
+/// persists a newly seeded account.
+///
+/// A burst still pending when its account signs out is not lost:
+/// [`follow_session_prefs`] wrote that account's slot on the way out, and
+/// with nobody signed in the account half of the burst has nowhere to go.
 #[allow(clippy::too_many_arguments)]
 pub fn save_prefs_when_changed(
+    store: Res<PrefsStore>,
+    owner: Res<PrefsOwner>,
     panels: Res<UiPanels>,
     settings: Res<LocalSettings>,
     windows: Res<WindowLayout>,
-    muted_dids: Res<crate::state::MutedDids>,
-    mut muted_by_owner: ResMut<crate::state::MutedByOwner>,
-    session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
+    muted: Res<MutedDids>,
+    // Guarded-dirty at the source (#871): the editors borrow the pref
+    // bypassed and tick it only on a real toggle/edit.
     gizmo: Res<GizmoFramePref>,
-    audio: Res<crate::audio_mute::AudioMuted>,
+    // Same discipline (#1276 f38): the toolbar toggle and the Settings
+    // checkbox both copy the bool out, hand the WIDGET the local, and
+    // write back only on a real click - so this ticks on a toggle and
+    // never merely because a panel that shows it is open.
+    audio: Res<AudioMuted>,
+    login: Res<LoginScreenSettings>,
+    legacy_mutes: Res<LegacyMutedDids>,
     time: Res<Time>,
     mut debounce: Local<SaveDebounce>,
 ) {
-    let changed = panels.is_changed()
-        || settings.is_changed()
-        || windows.is_changed()
-        || muted_dids.is_changed()
-        // Guarded-dirty at the source (#871): the editors borrow the
-        // pref bypassed and tick it only on a real toggle/edit.
-        || gizmo.is_changed()
-        // Same discipline (#1276 f38): the toolbar toggle and the Settings
-        // checkbox both copy the bool out, hand the WIDGET the local, and
-        // write back only on a real click - so this ticks on a toggle and
-        // never merely because a panel that shows it is open.
-        || audio.is_changed();
-    // Fold the live list back under its owner before capturing (#1223
-    // f292). Guarded, because the fold itself must not dirty the resource
-    // on a frame where nothing moved.
-    if let Some(owner) = session.as_deref().map(|s| s.did.as_str())
-        && muted_dids.is_changed()
-        && muted_by_owner.for_owner(owner) != *muted_dids
+    let account = owner.0.is_some()
+        && (panels.is_changed()
+            || settings.is_changed()
+            || windows.is_changed()
+            || muted.is_changed()
+            || gizmo.is_changed()
+            || audio.is_changed());
+    let machine = login.is_changed() || legacy_mutes.is_changed();
+    debounce.account |= account;
+    debounce.machine |= machine;
+    let (pending, fire) = debounce_step(
+        debounce.pending,
+        account || machine,
+        time.elapsed_secs_f64(),
+    );
+    debounce.pending = pending;
+    if !fire {
+        return;
+    }
+    if std::mem::take(&mut debounce.machine) {
+        store.save(Slot::Machine, &MachinePrefs::capture(&login, &legacy_mutes));
+    }
+    if std::mem::take(&mut debounce.account)
+        && let Some(did) = owner.0.as_deref()
     {
-        muted_by_owner.set_owner(owner, &muted_dids);
-    }
-    let (pending, fire) = debounce_step(debounce.0, changed, time.elapsed_secs_f64());
-    debounce.0 = pending;
-    if fire {
-        save(&PersistedPrefs::capture(
-            &panels,
-            &settings,
-            &windows,
-            &muted_by_owner,
-            &gizmo,
-            &audio,
-        ));
-    }
-}
-
-/// The legacy machine-wide mute list read from prefs at startup, held only
-/// until somebody signs in (#1223 f292).
-///
-/// A newtype rather than a bare `Option` so it can be a resource and so
-/// [`adopt_owner_mute_list`] can take it once and leave `None` behind: the
-/// migration happens for the FIRST account to sign in after the upgrade,
-/// and must not repeat for the second.
-#[derive(Resource, Default, Debug)]
-pub struct LegacyMutedDids(pub Option<crate::state::MutedDids>);
-
-/// Install the signed-in owner's mute list, and migrate the legacy
-/// machine-wide one on the first sign-in after the upgrade (#1223 f292).
-///
-/// Runs whenever an `AtprotoSession` appears - the ordinary login, the wasm
-/// resume, and #1214's in-place re-authenticate all insert one, and none of
-/// them should have to remember this.
-pub fn adopt_owner_mute_list(
-    session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
-    mut by_owner: ResMut<crate::state::MutedByOwner>,
-    mut legacy: ResMut<LegacyMutedDids>,
-    mut muted_dids: ResMut<crate::state::MutedDids>,
-) {
-    let Some(session) = session else {
-        return;
-    };
-    if !session.is_added() {
-        return;
-    }
-    let owner = session.did.as_str();
-    let mut list = by_owner.for_owner(owner);
-    // The machine's pre-#1223 list belongs to whoever was using the
-    // machine, and the first person to sign in after the upgrade is the
-    // best available answer. Taken, not copied: a second account signing in
-    // on the same machine must not inherit it, which is the whole defect.
-    if let Some(legacy) = legacy.0.take() {
-        list.0.extend(legacy.0);
-        by_owner.set_owner(owner, &list);
-    }
-    // Written through `ResMut`, not `insert_resource`: a command applies at
-    // the end of the schedule, so `save_prefs_when_changed` - chained
-    // immediately after this - would still see the PREVIOUS owner's list
-    // alongside the new session and fold one user's blocks under the other's
-    // account. Which is the exact defect (#1223 f292) this is fixing.
-    if *muted_dids != list {
-        *muted_dids = list;
+        store.save(
+            Slot::Account(did),
+            &AccountPrefs::capture(&panels, &settings, &windows, &muted, &gizmo, &audio),
+        );
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::theme::UserTheme;
 
-    /// The empty-store path must leave a world the mute systems can run in
-    /// (#1317).
-    ///
-    /// [`load_prefs_at_startup`] opens with
-    /// `let Some(prefs) = load() else { return }`, so on a first visit - or a
-    /// stored blob that no longer parses - it inserts **nothing at all**.
-    /// Every resource its consumers require therefore has to be registered as
-    /// a default by the app itself; `lib.rs` does that, beside
-    /// `state::MutedDids`.
-    ///
-    /// Getting it wrong is not a degraded feature, it is the whole app: under
-    /// Bevy 0.19 a missing required parameter is a **panic**, not a skipped
-    /// system. On wasm that panic aborts the module and the canvas freezes on
-    /// the last frame it drew, which is how a missing `MutedByOwner` default
-    /// shipped a login screen showing the attract backdrop and no UI.
-    ///
-    /// This walks the resources [`adopt_owner_mute_list`] requires and runs it
-    /// against defaults alone, so a newly-required resource cannot reach a
-    /// release un-defaulted. [`save_prefs_when_changed`], chained after it,
-    /// takes the same `ResMut<MutedByOwner>`; it is deliberately not run here
-    /// because it writes to the real prefs store.
-    #[test]
-    fn adopting_a_mute_list_needs_no_stored_prefs() {
+    const ALICE: &str = "did:plc:alice";
+    const BOB: &str = "did:plc:bob";
+    const CAROL: &str = "did:plc:carol";
+
+    /// A signed-in account. The prefs layer reads only `did`; the rest is
+    /// the live signing session the type insists on (the fixture
+    /// `ui::room`'s tests use).
+    fn session(did: &str) -> AtprotoSession {
+        AtprotoSession {
+            did: String::from(did),
+            handle: String::from("someone"),
+            pds_url: String::from("https://pds.example"),
+            session: Arc::new(proto_blue_oauth::session::OAuthSession::new(
+                proto_blue_oauth::types::TokenSet {
+                    issuer: String::from("https://as.example"),
+                    sub: String::from(did),
+                    scope: String::from("atproto"),
+                    access_token: String::from("access"),
+                    refresh_token: Some(String::from("refresh")),
+                    token_type: String::from("DPoP"),
+                    expires_at: Some(String::from("2099-01-01T00:00:00Z")),
+                    aud: Some(String::from("https://as.example")),
+                },
+                proto_blue_oauth::DpopKey::generate().expect("DPoP key"),
+                proto_blue_oauth::DpopNonceCache::new(),
+            )),
+        }
+    }
+
+    /// The prefs layer alone, over `store`, through its first frame. Time
+    /// stands still unless [`settle`] moves it, so a debounced save fires
+    /// only where a test asks for one.
+    fn prefs_app(store: &PrefsStore) -> App {
         let mut app = App::new();
-        // Exactly what `adopt_owner_mute_list` requires. `AtprotoSession` is
-        // an `Option` parameter, so its absence is the nobody-signed-in case
-        // rather than a validation failure - which is the case a first visit
-        // to the login screen actually is.
-        app.init_resource::<crate::state::MutedByOwner>()
-            .init_resource::<LegacyMutedDids>()
-            .init_resource::<crate::state::MutedDids>()
-            .add_systems(Update, adopt_owner_mute_list);
-
-        // The assertion is that this does not panic.
+        app.insert_resource(store.clone())
+            .init_resource::<Time>()
+            .add_plugins(PrefsPlugin);
         app.update();
+        app
+    }
 
+    fn sign_in(app: &mut App, did: &str) {
+        app.insert_resource(session(did));
+        app.update();
+    }
+
+    fn sign_out(app: &mut App) {
+        app.world_mut().remove_resource::<AtprotoSession>();
+        app.update();
+    }
+
+    /// Let every pending debounced save fire: one frame for a change made
+    /// since the last to register and arm the debounce, then one past its
+    /// deadline.
+    fn settle(app: &mut App) {
+        app.update();
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(std::time::Duration::from_secs_f64(
+                SAVE_MAX_LATENCY_SECS + 1.0,
+            ));
+        app.update();
+    }
+
+    fn account_slot(store: &PrefsStore, did: &str) -> AccountPrefs {
+        store
+            .load(Slot::Account(did))
+            .expect("the account has a slot")
+    }
+
+    fn machine_slot(store: &PrefsStore) -> MachinePrefs {
+        store.load(Slot::Machine).expect("the machine has a slot")
+    }
+
+    /// The owner's request (#1407), in the order it was put: settings made
+    /// by one account are that account's, and the next one to sign in on
+    /// the same machine - in the same run - starts from its own.
+    #[test]
+    fn each_account_keeps_its_own_settings() {
+        let store = PrefsStore::memory();
+        let mut app = prefs_app(&store);
+
+        sign_in(&mut app, ALICE);
+        {
+            let world = app.world_mut();
+            world.resource_mut::<UiPanels>().chat = true;
+            world.resource_mut::<LocalSettings>().theme = UserTheme::Light;
+            world
+                .resource_mut::<WindowLayout>()
+                .rects
+                .insert("chat".to_owned(), [890.0, 40.0, 380.0, 400.0]);
+            world.resource_mut::<AudioMuted>().0 = false;
+            world
+                .resource_mut::<MutedDids>()
+                .set("did:plc:harasser", true);
+        }
+        app.update();
+        sign_out(&mut app);
+
+        // The login screen has no mute control, so it is silent whatever
+        // the last account chose.
+        assert!(
+            app.world().resource::<AudioMuted>().0,
+            "the login screen is muted"
+        );
+
+        sign_in(&mut app, BOB);
+        {
+            let world = app.world();
+            assert!(!world.resource::<UiPanels>().chat, "alice's open Chat");
+            assert_eq!(
+                world.resource::<LocalSettings>().theme,
+                UserTheme::Dark,
+                "alice's theme"
+            );
+            assert!(
+                world.resource::<WindowLayout>().rects.is_empty(),
+                "alice's window layout"
+            );
+            assert!(world.resource::<AudioMuted>().0, "alice's unmute");
+            assert!(
+                world.resource::<MutedDids>().0.is_empty(),
+                "alice's mute list"
+            );
+        }
+        sign_out(&mut app);
+
+        sign_in(&mut app, ALICE);
+        let world = app.world();
+        assert!(world.resource::<UiPanels>().chat);
+        assert_eq!(world.resource::<LocalSettings>().theme, UserTheme::Light);
+        assert_eq!(
+            world.resource::<WindowLayout>().rects["chat"],
+            [890.0, 40.0, 380.0, 400.0]
+        );
+        assert!(!world.resource::<AudioMuted>().0);
+        assert!(world.resource::<MutedDids>().0.contains("did:plc:harasser"));
+    }
+
+    /// The sequence the swap's ordering exists for: a change made inside
+    /// the debounce window, then straight out and into another account.
+    /// The debounced save fires after the swap, and it must not file
+    /// alice's last change under bob.
+    #[test]
+    fn a_change_just_before_logout_is_saved_to_the_account_that_made_it() {
+        let store = PrefsStore::memory();
+        let mut app = prefs_app(&store);
+
+        sign_in(&mut app, ALICE);
+        settle(&mut app);
+        app.world_mut().resource_mut::<UiPanels>().people = true;
+        app.update();
+        sign_out(&mut app);
+        assert!(
+            account_slot(&store, ALICE)
+                .panels
+                .expect("panels saved")
+                .people,
+            "written on the way out, not left to a debounce that fires later"
+        );
+
+        sign_in(&mut app, BOB);
+        settle(&mut app);
+        assert!(
+            !account_slot(&store, BOB)
+                .panels
+                .expect("panels saved")
+                .people,
+            "bob's slot holds bob's panels"
+        );
+        assert!(
+            account_slot(&store, ALICE)
+                .panels
+                .expect("panels saved")
+                .people,
+            "and alice's still holds hers"
+        );
+    }
+
+    /// The login screen's theme and size are its own (#1407, owner decision
+    /// 2026-09-22): an account's pair replaces them while it is signed in,
+    /// they come back at logout, and a NEW account starts from them.
+    #[test]
+    fn the_login_screen_keeps_its_own_theme_and_size() {
+        let store = PrefsStore::memory();
+        let mut app = prefs_app(&store);
+
+        // What the login card's picker and Ctrl+plus write.
+        {
+            let mut settings = app.world_mut().resource_mut::<LocalSettings>();
+            settings.theme = UserTheme::HighContrast;
+            settings.ui_scale = 1.5;
+        }
+        app.update();
+        let login = app.world().resource::<LoginScreenSettings>().clone();
+        assert_eq!(
+            (login.theme, login.ui_scale),
+            (UserTheme::HighContrast, 1.5)
+        );
+
+        sign_in(&mut app, ALICE);
+        {
+            let settings = app.world().resource::<LocalSettings>();
+            assert_eq!(
+                (settings.theme, settings.ui_scale),
+                (UserTheme::HighContrast, 1.5),
+                "a new account starts from the login screen's pair"
+            );
+        }
+        {
+            let mut settings = app.world_mut().resource_mut::<LocalSettings>();
+            settings.theme = UserTheme::Light;
+            settings.ui_scale = 1.0;
+        }
+        app.update();
+        let login = app.world().resource::<LoginScreenSettings>().clone();
+        assert_eq!(
+            (login.theme, login.ui_scale),
+            (UserTheme::HighContrast, 1.5),
+            "an account's own pair does not move the login screen's"
+        );
+
+        sign_out(&mut app);
+        let settings = app.world().resource::<LocalSettings>().clone();
+        assert_eq!(
+            (settings.theme, settings.ui_scale),
+            (UserTheme::HighContrast, 1.5),
+            "logging out brings the login screen's pair back"
+        );
+        settle(&mut app);
+
+        // And the next launch opens on it.
+        let app = prefs_app(&store);
+        let settings = app.world().resource::<LocalSettings>();
+        assert_eq!(
+            (settings.theme, settings.ui_scale),
+            (UserTheme::HighContrast, 1.5)
+        );
+        assert_eq!(
+            account_slot(&store, ALICE).settings.map(|s| s.theme),
+            Some(UserTheme::Light),
+            "alice's own theme is in her slot"
+        );
+    }
+
+    /// The backdrop switch lives in the in-game Settings window but is the
+    /// machine's (#1407): flipped while signed in, it lands in the
+    /// machine's slot and outlives the session.
+    #[test]
+    fn the_backdrop_switch_is_the_machines_even_when_set_in_game() {
+        let store = PrefsStore::memory();
+        let mut app = prefs_app(&store);
+        sign_in(&mut app, ALICE);
+        app.world_mut()
+            .resource_mut::<LoginScreenSettings>()
+            .world_backdrop = false;
+        settle(&mut app);
+        sign_out(&mut app);
+        sign_in(&mut app, BOB);
+
+        assert!(!app.world().resource::<LoginScreenSettings>().world_backdrop);
+        assert_eq!(
+            machine_slot(&store).login_screen.map(|l| l.world_backdrop),
+            Some(false)
+        );
+    }
+
+    /// The upgrade (#1407, owner decision 2026-09-22). Every account that
+    /// signs in after it starts from a copy of the old shared file - so none
+    /// of them loses its layout - with its OWN mute list from that file
+    /// (#1223 f292); the login screen takes the file's theme, size and
+    /// backdrop; and the file itself is never written again.
+    #[test]
+    fn every_account_starts_from_a_copy_of_the_old_shared_file() {
+        let store = PrefsStore::memory();
+        let legacy = serde_json::json!({
+            "panels": { "chat": true, "controls": false, "controls_seen": true },
+            "settings": {
+                "theme": "Light",
+                "ui_scale": 1.25,
+                "login_world_backdrop": false,
+                "show_peer_nametags": false,
+            },
+            "windows": { "rects": { "chat": [1.0, 2.0, 3.0, 4.0] } },
+            "muted_by_owner": {
+                ALICE: ["did:plc:x"],
+                BOB: ["did:plc:y"],
+            },
+            "gizmo": {
+                "local_frame": false,
+                "snap": true,
+                "snap_distance": 0.5,
+                "snap_angle_deg": 15.0,
+                "snap_scale": 0.25,
+            },
+            "audio": { "muted": false },
+        })
+        .to_string();
+        store.write(Slot::Legacy, &legacy).unwrap();
+
+        let mut app = prefs_app(&store);
+        let login = app.world().resource::<LoginScreenSettings>().clone();
+        assert_eq!(
+            (login.theme, login.ui_scale, login.world_backdrop),
+            (UserTheme::Light, 1.25, false),
+            "the login screen looks as it did before the upgrade"
+        );
+
+        for (did, own, other) in [
+            (ALICE, "did:plc:x", "did:plc:y"),
+            (BOB, "did:plc:y", "did:plc:x"),
+        ] {
+            sign_in(&mut app, did);
+            let world = app.world();
+            let panels = world.resource::<UiPanels>();
+            assert!(panels.chat && !panels.controls && panels.controls_seen);
+            let settings = world.resource::<LocalSettings>();
+            assert_eq!(settings.theme, UserTheme::Light);
+            assert!(!settings.show_peer_nametags);
+            assert_eq!(
+                world.resource::<WindowLayout>().rects["chat"],
+                [1.0, 2.0, 3.0, 4.0]
+            );
+            let gizmo = world.resource::<GizmoFramePref>();
+            assert_eq!(gizmo.orientation, GizmoOrientation::Global);
+            assert!(gizmo.snap);
+            assert!(!world.resource::<AudioMuted>().0);
+            let muted = world.resource::<MutedDids>();
+            assert!(muted.0.contains(own), "{did} keeps their own mute list");
+            assert!(!muted.0.contains(other), "and never another account's");
+            settle(&mut app);
+            sign_out(&mut app);
+        }
+
+        assert_eq!(
+            store.read(Slot::Legacy).as_deref(),
+            Some(legacy.as_str()),
+            "the old file is kept unchanged as the starting copy"
+        );
+    }
+
+    /// A file from before #1223 has ONE mute list for the whole machine. The
+    /// #1223 rule stands: the first account to sign in takes it, and nobody
+    /// after - not the next account, and not the first account of the next
+    /// launch.
+    #[test]
+    fn a_pre_1223_machine_wide_mute_list_goes_to_the_first_account_only() {
+        let store = PrefsStore::memory();
+        store
+            .write(Slot::Legacy, r#"{"muted_dids": ["did:plc:old"]}"#)
+            .unwrap();
+
+        let mut app = prefs_app(&store);
+        sign_in(&mut app, ALICE);
         assert!(
             app.world()
-                .contains_resource::<crate::state::MutedByOwner>(),
-            "the owner mute list must survive a run with no stored prefs"
+                .resource::<MutedDids>()
+                .0
+                .contains("did:plc:old")
+        );
+        sign_out(&mut app);
+        sign_in(&mut app, BOB);
+        assert!(app.world().resource::<MutedDids>().0.is_empty());
+        drop(app);
+
+        let mut app = prefs_app(&store);
+        sign_in(&mut app, CAROL);
+        assert!(
+            app.world().resource::<MutedDids>().0.is_empty(),
+            "a relaunch does not hand the list out again"
+        );
+        assert!(
+            account_slot(&store, ALICE)
+                .muted
+                .expect("saved when taken")
+                .0
+                .contains("did:plc:old")
+        );
+    }
+
+    /// #1214's in-place re-authenticate inserts a fresh session for the
+    /// SAME account. Reloading the account's slot then would throw away
+    /// everything changed since the last save.
+    #[test]
+    fn reauthenticating_as_the_same_account_keeps_what_is_on_screen() {
+        let store = PrefsStore::memory();
+        let mut app = prefs_app(&store);
+        sign_in(&mut app, ALICE);
+        settle(&mut app);
+        app.world_mut().resource_mut::<UiPanels>().people = true;
+        app.update();
+
+        sign_in(&mut app, ALICE);
+        assert!(app.world().resource::<UiPanels>().people);
+    }
+
+    /// Two copies of the app signed in side by side, as two accounts. With
+    /// one shared file each save wrote its whole in-memory copy, so the last
+    /// to save erased the other's changes - mute lists included.
+    #[test]
+    fn two_copies_of_the_app_as_two_accounts_do_not_overwrite_each_other() {
+        let store = PrefsStore::memory();
+        let mut first = prefs_app(&store);
+        let mut second = prefs_app(&store);
+        sign_in(&mut first, ALICE);
+        sign_in(&mut second, BOB);
+
+        // Bob saves first; alice's copy, which never saw his changes, saves
+        // after. That order is the one that used to lose data.
+        second.world_mut().resource_mut::<UiPanels>().people = true;
+        second
+            .world_mut()
+            .resource_mut::<MutedDids>()
+            .set("did:plc:harasser", true);
+        settle(&mut second);
+        first.world_mut().resource_mut::<UiPanels>().chat = true;
+        settle(&mut first);
+
+        let alice = account_slot(&store, ALICE);
+        let bob = account_slot(&store, BOB);
+        assert!(alice.panels.as_ref().is_some_and(|p| p.chat && !p.people));
+        assert!(bob.panels.as_ref().is_some_and(|p| p.people && !p.chat));
+        assert!(
+            bob.muted.is_some_and(|m| m.0.contains("did:plc:harasser")),
+            "bob's mute survives alice's copy saving after it"
+        );
+    }
+
+    /// The empty-store path must leave a world the prefs systems can run in
+    /// (#1317).
+    ///
+    /// A first visit - or a slot that no longer parses - loads nothing, so
+    /// every resource the systems require has to be registered as a
+    /// default. Getting it wrong is not a degraded feature, it is the whole
+    /// app: under Bevy 0.19 a missing required parameter is a **panic**, and
+    /// on wasm that aborts the module and freezes the canvas on the last
+    /// frame it drew - which is how a missing mute-list default once shipped
+    /// a login screen showing the attract backdrop and no UI.
+    /// [`PrefsPlugin`] registers them itself; this runs it with nothing
+    /// else, through a sign-in, a save and a sign-out.
+    #[test]
+    fn the_prefs_layer_runs_on_an_empty_store() {
+        let store = PrefsStore::memory();
+        let mut app = prefs_app(&store);
+        sign_in(&mut app, ALICE);
+        settle(&mut app);
+        sign_out(&mut app);
+        assert_eq!(app.world().resource::<PrefsOwner>().0, None);
+        assert!(
+            store.read(Slot::Legacy).is_none(),
+            "nothing wrote the old file"
         );
     }
 
@@ -535,7 +1384,7 @@ mod tests {
     }
 
     #[test]
-    fn prefs_round_trip_preserves_both_fields() {
+    fn an_account_slot_round_trips_every_field() {
         let panels = UiPanels {
             chat: true,
             controls: false,
@@ -547,13 +1396,15 @@ mod tests {
             // proves only that the DEFAULT survives the wire (#1226 f325).
             show_peer_nametags: false,
             load_external_assets: false,
+            theme: UserTheme::HighContrast,
+            ui_scale: 1.4,
             ..Default::default()
         };
         let mut windows = WindowLayout::default();
         windows
             .rects
             .insert("chat".to_owned(), [890.0, 40.0, 380.0, 400.0]);
-        let mut muted = crate::state::MutedDids::default();
+        let mut muted = MutedDids::default();
         assert!(muted.set("did:plc:harasser", true));
         // Re-muting an already-muted DID reports "no change".
         assert!(!muted.set("did:plc:harasser", true));
@@ -564,19 +1415,16 @@ mod tests {
             snap_angle_deg: 15.0,
             snap_scale: 0.25,
         };
-        let mut by_owner = crate::state::MutedByOwner::default();
-        by_owner.set_owner("did:plc:me", &muted);
-        let prefs = PersistedPrefs {
-            panels: Some(panels.clone()),
-            settings: Some(settings.clone()),
+        let prefs = AccountPrefs {
+            panels: Some(panels),
+            settings: Some(settings),
             windows: Some(windows),
-            muted_dids: Some(muted),
-            muted_by_owner: Some(by_owner),
+            muted: Some(muted),
             gizmo: Some(gizmo),
             audio: Some(AudioPrefs { muted: false }),
         };
         let json = serde_json::to_string(&prefs).unwrap();
-        let back: PersistedPrefs = serde_json::from_str(&json).unwrap();
+        let back: AccountPrefs = serde_json::from_str(&json).unwrap();
         assert_eq!(back, prefs);
         // The mirror round-trips through the live resource shape too:
         // a persisted World choice survives the Local default (#871).
@@ -586,134 +1434,38 @@ mod tests {
             GizmoPrefs::from(&restored_pref),
             *back.gizmo.as_ref().unwrap()
         );
-        let restored = back.panels.unwrap();
-        assert!(restored.chat);
-        assert!(!restored.controls);
-        let restored_settings = back.settings.clone().unwrap();
-        assert!(!restored_settings.smooth_kinematics);
-        assert!(
-            !restored_settings.show_peer_nametags,
-            "a switched-off nametag preference survives the wire (#1226)"
-        );
-        assert!(
-            !restored_settings.load_external_assets,
-            "and so does a switched-off external-asset preference (#1248 f298)"
-        );
-        assert_eq!(
-            back.windows.unwrap().rects["chat"],
-            [890.0, 40.0, 380.0, 400.0]
-        );
-        assert!(back.muted_dids.unwrap().0.contains("did:plc:harasser"));
-        assert!(
-            back.muted_by_owner
-                .unwrap()
-                .for_owner("did:plc:me")
-                .0
-                .contains("did:plc:harasser"),
-            "the account-scoped list is what a save writes now (#1223 f292)"
-        );
-        assert_eq!(
-            back.audio,
-            Some(AudioPrefs { muted: false }),
-            "an unmuted choice survives the wire (#1276 f38)"
-        );
-    }
-
-    /// #1223 f292. The sequence: two people share a computer. One mutes a
-    /// harasser; the other signs in and that person is invisible to them,
-    /// with no way to discover why - a muted peer renders as a hidden body
-    /// and a faint dot, and there was no list to look at anywhere.
-    #[test]
-    fn one_users_block_list_does_not_reach_the_next_account() {
-        let mut by_owner = crate::state::MutedByOwner::default();
-        let mut mine = crate::state::MutedDids::default();
-        mine.set("did:plc:harasser", true);
-        by_owner.set_owner("did:plc:alice", &mine);
-
-        assert!(
-            by_owner
-                .for_owner("did:plc:alice")
-                .0
-                .contains("did:plc:harasser")
-        );
-        assert!(
-            by_owner.for_owner("did:plc:bob").0.is_empty(),
-            "bob never muted anybody"
-        );
-
-        // Unmuting everyone leaves no record of who was signed in here.
-        mine.set("did:plc:harasser", false);
-        by_owner.set_owner("did:plc:alice", &mine);
-        assert!(by_owner.0.is_empty());
-    }
-
-    /// The one-time migration: the pre-#1223 machine-wide list belongs to
-    /// whoever was using the machine, so the FIRST account to sign in after
-    /// the upgrade adopts it - and the second must not, which is the defect
-    /// being fixed. `LegacyMutedDids` is taken, not read.
-    #[test]
-    fn the_legacy_machine_wide_list_is_adopted_once_and_only_once() {
-        use bevy::prelude::*;
-
-        let mut legacy = crate::state::MutedDids::default();
-        legacy.set("did:plc:oldharasser", true);
-
-        let mut world = World::new();
-        world.insert_resource(crate::state::MutedByOwner::default());
-        world.insert_resource(LegacyMutedDids(Some(legacy)));
-
-        // Alice signs in first and inherits the machine's history.
-        {
-            let by_owner = world.resource::<crate::state::MutedByOwner>();
-            let mut list = by_owner.for_owner("did:plc:alice");
-            let taken = world
-                .resource_mut::<LegacyMutedDids>()
-                .0
-                .take()
-                .expect("the legacy list is there for the first sign-in");
-            list.0.extend(taken.0);
-            world
-                .resource_mut::<crate::state::MutedByOwner>()
-                .set_owner("did:plc:alice", &list);
-        }
-        assert!(
-            world
-                .resource::<crate::state::MutedByOwner>()
-                .for_owner("did:plc:alice")
-                .0
-                .contains("did:plc:oldharasser")
-        );
-        assert!(
-            world.resource::<LegacyMutedDids>().0.is_none(),
-            "taken, so bob's sign-in finds nothing to inherit"
-        );
-        assert!(
-            world
-                .resource::<crate::state::MutedByOwner>()
-                .for_owner("did:plc:bob")
-                .0
-                .is_empty()
-        );
     }
 
     #[test]
     fn missing_and_unknown_fields_degrade_gracefully() {
-        // Old file with no fields at all → both None, no error.
-        let empty: PersistedPrefs = serde_json::from_str("{}").unwrap();
-        assert_eq!(empty, PersistedPrefs::default());
-        // A file written by a NEWER binary carries fields we don't know;
+        // An empty slot → every field None, no error.
+        let empty: AccountPrefs = serde_json::from_str("{}").unwrap();
+        assert_eq!(empty, AccountPrefs::default());
+        let empty: MachinePrefs = serde_json::from_str("{}").unwrap();
+        assert_eq!(empty, MachinePrefs::default());
+        // A slot written by a NEWER binary carries fields we don't know;
         // serde ignores them rather than failing the whole load.
-        let newer: PersistedPrefs =
+        let newer: AccountPrefs =
             serde_json::from_str(r#"{"panels": null, "window_rects": {"chat": [1, 2, 3, 4]}}"#)
                 .unwrap();
         assert!(newer.panels.is_none());
         // A panels object missing NEW bools fills them from Default -
         // the forward-compat contract for growing UiPanels.
-        let partial: PersistedPrefs =
-            serde_json::from_str(r#"{"panels": {"chat": true}}"#).unwrap();
+        let partial: AccountPrefs = serde_json::from_str(r#"{"panels": {"chat": true}}"#).unwrap();
         let panels = partial.panels.unwrap();
         assert!(panels.chat);
         assert!(panels.controls, "missing fields take UiPanels defaults");
+        // The old file's settings still carry the backdrop field; the
+        // account half reads straight past it.
+        let legacy: LegacyPrefs = serde_json::from_str(
+            r#"{"settings": {"login_world_backdrop": false, "smooth_kinematics": false}}"#,
+        )
+        .unwrap();
+        assert!(!legacy.local_settings().unwrap().smooth_kinematics);
+        assert_eq!(
+            legacy.machine().login_screen.map(|l| l.world_backdrop),
+            Some(false)
+        );
     }
 
     #[test]
@@ -769,36 +1521,101 @@ mod tests {
         assert!(!fire);
     }
 
+    /// A DID names a file on every desktop platform (#1407): Windows
+    /// refuses the colons every DID has, and nothing in a DID may climb
+    /// out of the accounts directory.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
-    fn native_save_and_load_round_trip_through_a_real_file() {
-        let dir = std::env::temp_dir().join(format!("symbios-prefs-{}", std::process::id()));
+    fn account_file_names_are_one_to_one_and_stay_in_their_directory() {
+        assert_eq!(
+            account_file_name("did:plc:abc234"),
+            "did%3Aplc%3Aabc234.json"
+        );
+        assert_eq!(
+            account_file_name("did:web:example.com%3A8080"),
+            "did%3Aweb%3Aexample.com%253A8080.json",
+            "a did:web's own percent sign is encoded too"
+        );
+        assert_ne!(
+            account_file_name("did:web:a%3Ab"),
+            account_file_name("did:web:a:b"),
+            "which is what keeps two accounts from sharing a file"
+        );
+        for hostile in [
+            "did:web:../../etc",
+            "did:web:a/b",
+            "did:web:a\\b",
+            "..",
+            ".",
+        ] {
+            let name = account_file_name(hostile);
+            assert!(!name.contains('/') && !name.contains('\\'), "{name}");
+            let path = std::path::Path::new(&name);
+            assert_eq!(path.components().count(), 1, "{name}");
+            assert!(
+                matches!(
+                    path.components().next(),
+                    Some(std::path::Component::Normal(_))
+                ),
+                "{name}"
+            );
+        }
+    }
+
+    /// The native store end to end against a real directory: one file per
+    /// slot, the rename leaving no temp file behind, and a corrupt file
+    /// reading as empty (it heals on the next save) rather than a panic.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn the_directory_store_keeps_one_file_per_slot() {
+        let dir = std::env::temp_dir().join(format!("symbios-prefs-slots-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let path = dir.join("nested").join("prefs.json");
+        let store = PrefsStore::Dir(dir.clone());
 
-        // Missing file → None (fresh install).
-        assert!(load_from_path(&path).is_none());
+        assert!(
+            store.load::<MachinePrefs>(Slot::Machine).is_none(),
+            "fresh install"
+        );
 
-        let panels = UiPanels {
-            diagnostics: true,
+        let alice = AccountPrefs {
+            audio: Some(AudioPrefs { muted: false }),
             ..Default::default()
         };
-        let prefs = PersistedPrefs {
-            panels: Some(panels),
-            settings: None,
-            windows: None,
-            muted_dids: None,
-            muted_by_owner: None,
-            gizmo: None,
-            audio: None,
+        let machine = MachinePrefs {
+            login_screen: Some(LoginScreenSettings {
+                world_backdrop: false,
+                ..Default::default()
+            }),
+            unclaimed_mutes: None,
         };
-        save_to_path(&path, &prefs).unwrap();
-        let back = load_from_path(&path).unwrap();
-        assert_eq!(back, prefs);
+        store.save(Slot::Account(ALICE), &alice);
+        store.save(Slot::Machine, &machine);
 
-        // Corrupt file → None (self-heals on next save) rather than a panic.
-        std::fs::write(&path, "{not json").unwrap();
-        assert!(load_from_path(&path).is_none());
+        assert!(
+            dir.join("accounts")
+                .join("did%3Aplc%3Aalice.json")
+                .is_file()
+        );
+        assert!(dir.join("machine.json").is_file());
+        assert!(
+            !dir.join("prefs.json").exists(),
+            "nothing writes the old file"
+        );
+        assert_eq!(
+            store.load::<AccountPrefs>(Slot::Account(ALICE)),
+            Some(alice)
+        );
+        assert_eq!(store.load::<MachinePrefs>(Slot::Machine), Some(machine));
+        let leftovers: Vec<_> = [dir.clone(), dir.join("accounts")]
+            .iter()
+            .flat_map(|d| std::fs::read_dir(d).unwrap())
+            .map(|entry| entry.unwrap().file_name())
+            .filter(|name| name.to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+
+        std::fs::write(dir.join("machine.json"), "{not json").unwrap();
+        assert!(store.load::<MachinePrefs>(Slot::Machine).is_none());
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -807,60 +1624,40 @@ mod tests {
     /// back - and the world is silent again, because `AudioMuted` was the
     /// one preference nothing ever wrote.
     ///
-    /// Driven through the FULL round trip - `capture` → `save_to_path` →
-    /// `load_from_path` → the resource - rather than over the struct
-    /// alone, because the struct was never the part that was missing: the
-    /// gap was that `capture` did not read the resource and
-    /// `load_prefs_at_startup` did not install one. A test over
-    /// `PersistedPrefs` on its own would have passed against the shipped
-    /// code.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// Driven through the FULL round trip - the live resource, the
+    /// debounced save, a new launch, the sign-in that installs it - rather
+    /// than over the struct alone, because the struct was never the part
+    /// that was missing: the gap was that the save did not read the
+    /// resource and the load did not install one.
     #[test]
     fn an_unmuted_choice_survives_a_restart() {
-        let dir = std::env::temp_dir().join(format!("symbios-audio-prefs-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let path = dir.join("prefs.json");
+        let store = PrefsStore::memory();
+        let mut app = prefs_app(&store);
+        sign_in(&mut app, ALICE);
+        app.world_mut().resource_mut::<AudioMuted>().0 = false;
+        settle(&mut app);
+        drop(app);
 
-        let unmuted = crate::audio_mute::AudioMuted(false);
-        let captured = PersistedPrefs::capture(
-            &UiPanels::default(),
-            &LocalSettings::default(),
-            &WindowLayout::default(),
-            &crate::state::MutedByOwner::default(),
-            &GizmoFramePref::default(),
-            &unmuted,
+        let mut app = prefs_app(&store);
+        sign_in(&mut app, ALICE);
+        assert_eq!(
+            *app.world().resource::<AudioMuted>(),
+            AudioMuted(false),
+            "the next launch is not silent"
         );
-        save_to_path(&path, &captured).unwrap();
-
-        let back = load_from_path(&path).expect("the file we just wrote loads");
-        let restored = crate::audio_mute::AudioMuted::from(
-            back.audio.as_ref().expect("capture writes the audio key"),
-        );
-        assert_eq!(restored, unmuted, "the next launch is not silent");
 
         // And the muted direction round-trips too, so the test is not
         // passing on `AudioMuted`'s own default.
-        let muted = crate::audio_mute::AudioMuted(true);
-        let captured = PersistedPrefs::capture(
-            &UiPanels::default(),
-            &LocalSettings::default(),
-            &WindowLayout::default(),
-            &crate::state::MutedByOwner::default(),
-            &GizmoFramePref::default(),
-            &muted,
-        );
-        save_to_path(&path, &captured).unwrap();
-        let back = load_from_path(&path).expect("the file we just wrote loads");
-        assert_eq!(
-            crate::audio_mute::AudioMuted::from(back.audio.as_ref().unwrap()),
-            muted
-        );
-
-        let _ = std::fs::remove_dir_all(&dir);
+        app.world_mut().resource_mut::<AudioMuted>().0 = true;
+        settle(&mut app);
+        drop(app);
+        let mut app = prefs_app(&store);
+        sign_in(&mut app, ALICE);
+        assert_eq!(*app.world().resource::<AudioMuted>(), AudioMuted(true));
     }
 
     /// A prefs file written before #1276 f38 has no audio key, and that
-    /// must leave the launch SILENT.
+    /// must leave the session SILENT.
     ///
     /// The opposite of the nametag rule above, and deliberately so: an
     /// absent boolean means "no opinion", and the app's no-opinion answer
@@ -868,15 +1665,20 @@ mod tests {
     /// read a missing key as "unmuted" would start playing music at
     /// somebody who had never asked for any.
     #[test]
-    fn a_prefs_file_written_before_the_audio_key_still_launches_silent() {
-        let older = r#"{"panels":{"chat":true}}"#;
-        let prefs: PersistedPrefs = serde_json::from_str(older).expect("older prefs load");
-        assert!(prefs.audio.is_none(), "the key is absent");
-        // `load_prefs_at_startup` inserts nothing for `None`, so the
-        // `init_resource` default stands.
+    fn a_prefs_file_written_before_the_audio_key_still_starts_silent() {
+        let store = PrefsStore::memory();
+        store
+            .write(Slot::Legacy, r#"{"panels":{"chat":true}}"#)
+            .unwrap();
+        let mut app = prefs_app(&store);
+        sign_in(&mut app, ALICE);
         assert!(
-            crate::audio_mute::AudioMuted::default().0,
-            "and the default is muted"
+            app.world().resource::<UiPanels>().chat,
+            "the copy was taken"
+        );
+        assert!(
+            app.world().resource::<AudioMuted>().0,
+            "and the absent audio key left the session muted"
         );
     }
 }

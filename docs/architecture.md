@@ -412,7 +412,13 @@ generation cores shared with the wasm Web Worker.
   Ctrl+Shift+Z.
 - [`src/oauth/`](../src/oauth/) - ATProto OAuth 2.0 + DPoP (WASM redirect /
   native loopback), token refresh, and the periodically-refreshed relay
-  service-auth token that underwrites the relay-signed session map. The
+  service-auth token that underwrites the relay-signed session map. On the web
+  a saved session is kept per ACCOUNT in `localStorage`, with each tab
+  remembering in `sessionStorage` which account it signed in as
+  (`session_store.rs`), so two tabs of one browser can hold two accounts and
+  each restores its own on a reload; a tab that has signed in as nobody is
+  offered the browser's most recent account behind a "Continue as @alice"
+  button rather than resumed into it. The
   requested scope is granular rather than `transition:generic`: one `repo:`
   grant per written collection - derived at runtime from
   `pds::WRITTEN_COLLECTIONS`, so a new collection cannot ship unscoped, which
@@ -486,11 +492,15 @@ generation cores shared with the wasm Web Worker.
   vegetation wind, contact-effect pools, networking, HTTP timeouts, UI
   windows).
 - [`src/prefs.rs`](../src/prefs.rs) - the machine-local counterpart: which
-  panels are open, the per-window rects, the gizmo frame, the locally muted
-  DIDs and the `LocalSettings` toggles, persisted to a file (native) /
+  panels are open, the per-window rects, the gizmo frame, the master mute, the
+  muted DIDs and the `LocalSettings` toggles, persisted to files (native) /
   `localStorage` (wasm) behind a debounced change-detection save. Deliberately
-  *not* PDS records - they describe this client, not the world or the identity
-  - so every account logging in from the machine shares them.
+  *not* PDS records - they describe this client, not the world. Each account
+  that signs in on the machine keeps its own set under its DID, swapped in and
+  out as the session changes; only the login screen's settings (its theme,
+  interface size and live world backdrop) belong to the machine. The shared
+  `prefs.json` older builds wrote is read-only, the starting copy for an
+  account with no settings of its own yet.
 - [`src/offload.rs`](../src/offload.rs) + [`src/offload/`](../src/offload/),
   [`crates/gen-jobs/`](../crates/gen-jobs/),
   [`crates/gen-worker/`](../crates/gen-worker/) - the compute-offload layer: the

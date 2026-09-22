@@ -596,9 +596,15 @@ pub struct StoredRoomRecord(pub RoomRecord);
 
 /// Local-only UX preferences that are *not* stored on the PDS (they
 /// describe how this client renders the world, not the world itself).
-/// Persisted machine-locally by [`crate::prefs`] (#820); grow it only
-/// with `#[serde(default)]`-compatible fields so old prefs files keep
-/// loading.
+/// Persisted per account on this machine by [`crate::prefs`] (#820,
+/// #1407); grow it only with `#[serde(default)]`-compatible fields so old
+/// prefs files keep loading.
+///
+/// Always the settings on screen NOW: the signed-in account's, or while
+/// nobody is signed in, defaults under the login screen's theme and size
+/// ([`LoginScreenSettings`]). `prefs::follow_session_prefs` swaps the
+/// contents when the account changes, so every reader keeps reading this
+/// one resource.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct LocalSettings {
@@ -606,7 +612,7 @@ pub struct LocalSettings {
     /// applied to a delayed jitter buffer.  When false, peers snap to the
     /// latest received packet (useful for debugging raw network latency).
     pub smooth_kinematics: bool,
-    /// Which shipped UI palette this machine uses (#857). Applied by
+    /// Which shipped UI palette this account uses (#857, #1407). Applied by
     /// `ui::theme::sync_theme_from_settings`; old prefs files without
     /// the field default to Dark via the struct-level `serde(default)`.
     pub theme: crate::ui::theme::UserTheme,
@@ -617,10 +623,6 @@ pub struct LocalSettings {
     /// Headroom the ground avoidance keeps between the camera and the
     /// terrain surface, in metres (#872).
     pub camera_ground_clearance_m: f32,
-    /// Build and slowly orbit a live seeded demo world behind the login
-    /// screen (#897). Off ⇒ the login screen keeps its sky-gradient
-    /// backdrop and skips the pre-login world build entirely.
-    pub login_world_backdrop: bool,
     /// How loudly the room's contact effects are allowed to play (#1221
     /// f308). The visual counterpart to the app-wide audio mute, and the
     /// accessibility control the app lacked for flashing and motion.
@@ -736,11 +738,51 @@ impl Default for LocalSettings {
             theme: crate::ui::theme::UserTheme::Dark,
             camera_ground_avoidance: crate::camera::CameraGroundAvoidance::default(),
             camera_ground_clearance_m: crate::config::camera::TERRAIN_CLEARANCE,
-            login_world_backdrop: true,
             effects_intensity: EffectsIntensity::default(),
             show_peer_nametags: true,
             ui_scale: 1.0,
             load_external_assets: true,
+        }
+    }
+}
+
+/// The login screen's own settings, shared by every account on this
+/// machine (#1407).
+///
+/// Everything a signed-in session shows is kept per account (see
+/// [`crate::prefs`]), but the login screen is the one screen every account
+/// on the machine sees, before any of them is known - so how it looks is
+/// the machine's to remember. `theme` and `ui_scale` are the login
+/// screen's pair: the login card's picker and Ctrl+plus / Ctrl+minus edit
+/// them, an account's own pair in [`LocalSettings`] replaces them at
+/// sign-in, and they come back at logout. A new account's first pair is
+/// copied from here (owner decision 2026-09-22), so a high-contrast or
+/// large-text choice made to get through the sign-in carries into that
+/// account's first session.
+#[derive(Resource, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct LoginScreenSettings {
+    /// The login screen's palette.
+    pub theme: crate::ui::theme::UserTheme,
+    /// The login screen's interface size. Clamped where
+    /// [`LocalSettings::ui_scale`] is, on its way through the live
+    /// settings.
+    pub ui_scale: f32,
+    /// Build and slowly orbit a live seeded demo world behind the login
+    /// screen (#897). Off ⇒ the login screen keeps its sky-gradient
+    /// backdrop and skips the pre-login world build entirely. Set from the
+    /// in-game Settings window, and still the machine's: it is a statement
+    /// about the one screen no account owns.
+    pub world_backdrop: bool,
+}
+
+impl Default for LoginScreenSettings {
+    fn default() -> Self {
+        let local = LocalSettings::default();
+        Self {
+            theme: local.theme,
+            ui_scale: local.ui_scale,
+            world_backdrop: true,
         }
     }
 }
@@ -869,11 +911,12 @@ pub struct HeldOffer(pub IncomingOfferDialog);
 /// session-scoped peer entity, so a harasser reset the block by simply
 /// reconnecting.
 ///
-/// Scoped to the account, not the machine (#1223 f292). It is stored in
-/// machine-local prefs like everything else, but under the owner's DID in
-/// [`MutedByOwner`] - a block list is a statement about who *you* will not
-/// hear, and a shared computer used to hand one user's list to the next,
-/// invisibly, since a muted peer renders as a hidden body and a faint dot.
+/// Scoped to the account, not the machine (#1223 f292) - a block list is a
+/// statement about who *you* will not hear, and a shared computer used to
+/// hand one user's list to the next, invisibly, since a muted peer renders
+/// as a hidden body and a faint dot. Since #1407 it is saved with the rest
+/// of the account's settings, in that account's own prefs slot; while
+/// nobody is signed in it is empty.
 #[derive(Resource, Default, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct MutedDids(pub std::collections::HashSet<String>);
 
@@ -895,35 +938,6 @@ impl MutedDids {
         let mut dids: Vec<&str> = self.0.iter().map(String::as_str).collect();
         dids.sort_unstable();
         dids
-    }
-}
-
-/// Every account's mute list on this machine, keyed by the owner's DID
-/// (#1223 f292).
-///
-/// The persisted shape behind [`MutedDids`], which holds only the signed-in
-/// owner's entry. Kept as a separate resource rather than folded into
-/// `MutedDids` because every reader in the crate wants "the list that
-/// applies to me right now", and exactly two places - login and the prefs
-/// save - care whose it is.
-#[derive(Resource, Default, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
-pub struct MutedByOwner(pub std::collections::HashMap<String, std::collections::HashSet<String>>);
-
-impl MutedByOwner {
-    /// The list belonging to `owner`, empty when they have muted nobody.
-    pub fn for_owner(&self, owner: &str) -> MutedDids {
-        MutedDids(self.0.get(owner).cloned().unwrap_or_default())
-    }
-
-    /// Store `list` as `owner`'s. An empty list is REMOVED rather than
-    /// stored empty, so unmuting everyone leaves no trace of who was
-    /// signed in on this machine.
-    pub fn set_owner(&mut self, owner: &str, list: &MutedDids) {
-        if list.0.is_empty() {
-            self.0.remove(owner);
-        } else {
-            self.0.insert(owner.to_owned(), list.0.clone());
-        }
     }
 }
 

@@ -24,10 +24,15 @@
 //! * [`discovery`] - client-metadata builder, authorization-server
 //!   discovery, and the URL-bar constants (`WASM_REDIRECT_URI`,
 //!   `NATIVE_CALLBACK_PORT`, `CLIENT_METADATA_URL`).
-//! * module root - the wasm browser-storage keys: `SESSION_STORAGE_KEY`
-//!   (`sessionStorage`, parks the pending auth across the redirect) and
-//!   `PERSISTED_SESSION_KEY` (`localStorage`, persists the session across
-//!   page reloads).
+//! * module root - the wasm browser-storage keys and the rule that reads
+//!   them: `SESSION_STORAGE_KEY` (`sessionStorage`, parks the pending auth
+//!   across the redirect), `TAB_SESSION_KEY` (`sessionStorage`, the account
+//!   THIS TAB is signed in as), `ACCOUNT_SESSION_KEY_PREFIX`
+//!   (`localStorage`, one saved session per account) and `LAST_SESSION_KEY`
+//!   (`localStorage`, the account a new tab is offered). `session_on_boot`
+//!   turns them into "restore", "offer" or "nothing" (#1408);
+//!   `PERSISTED_SESSION_KEY` is the pre-#1408 single slot, read once and
+//!   migrated.
 //! * [`refresh`] - DPoP-nonce retry (`oauth_*_with_nonce_retry`),
 //!   refresh-on-expiry retry (`oauth_*_with_refresh`), and the shared
 //!   `refresh_session` helper.
@@ -50,6 +55,7 @@ mod discovery;
 mod native_server;
 mod refresh;
 mod service_token;
+mod session_store;
 mod util;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
@@ -79,6 +85,7 @@ pub use refresh::{
 pub use service_token::{
     get_relay_service_auth, poll_service_token_refresh, schedule_service_token_refresh,
 };
+pub use session_store::{KeyValue, SessionOnBoot, SessionStore, session_on_boot};
 pub use util::CallbackParams;
 
 /// Remember which overland the browser should come back to on the next
@@ -140,14 +147,43 @@ pub struct PendingAuth {
 /// no wasm runner. A `&str` costs nothing on native.
 pub const SESSION_STORAGE_KEY: &str = "symbios_overlands_pending_auth";
 
-/// `localStorage` key holding the serialized `wasm::PersistedSession`
-/// across page reloads. Cleared on logout and on a refresh failure.
-/// Defined unconditionally for the reason on [`SESSION_STORAGE_KEY`].
+/// The ONE `localStorage` slot every build before #1408 saved its session
+/// in. Defined unconditionally for the reason on [`SESSION_STORAGE_KEY`].
+///
+/// LEGACY. It is why two tabs could not hold two accounts: a second tab's
+/// sign-in overwrote it, a reload came back as whoever signed in last, and
+/// one tab's token refresh rotated the refresh token the other was still
+/// holding. Read once per page load, folded into the signing account's own
+/// slot ([`account_session_key`]) and removed; nothing writes it now.
 pub const PERSISTED_SESSION_KEY: &str = "symbios_overlands_session";
+
+/// Prefix of the `localStorage` key holding ONE account's saved session
+/// (#1408); the DID follows it verbatim.
+pub const ACCOUNT_SESSION_KEY_PREFIX: &str = "symbios_overlands_session:";
+
+/// `localStorage` key naming the account a new tab may offer to continue
+/// as: the last one to sign in or resume anywhere in this browser (#1408).
+pub const LAST_SESSION_KEY: &str = "symbios_overlands_last_session";
+
+/// `sessionStorage` key naming the account THIS TAB is signed in as
+/// (#1408).
+///
+/// Per tab by construction, and kept across reloads and the OAuth redirect
+/// (which is a navigation within the same tab), which is what lets two tabs
+/// hold two accounts: each one restores the account it signed in as, not
+/// the one that signed in most recently.
+pub const TAB_SESSION_KEY: &str = "symbios_overlands_tab_session";
+
+/// The `localStorage` key holding `did`'s saved session (#1408).
+pub fn account_session_key(did: &str) -> String {
+    format!("{ACCOUNT_SESSION_KEY_PREFIX}{did}")
+}
 
 /// WASM-only marker: this page load began as an *auth handoff* rather
 /// than a cold visit - the URL carries an OAuth callback (`?code=` or
-/// `?error=`), or `localStorage` holds a session to resume. Inserted in
+/// `?error=`), or this tab has a saved session of its own to restore
+/// (#1408: an OFFER is not a handoff - that screen is idle, and its
+/// backdrop should build like any other login screen). Inserted in
 /// [`crate::run`] before the first frame, so the fact is settled outside
 /// the ECS schedule entirely.
 ///
@@ -226,6 +262,11 @@ pub struct NativeAuthUrl(pub String);
 
 #[cfg(test)]
 mod tests {
+    use super::{
+        LAST_SESSION_KEY, PERSISTED_SESSION_KEY, SESSION_STORAGE_KEY, TAB_SESSION_KEY,
+        account_session_key,
+    };
+
     /// THE SEQUENCE (#1229 f2): a visitor is onboarded through a friend's
     /// landmark link, walks home through a gateway, and reloads the page -
     /// and lands back in the friend's world. The persisted blob's
@@ -298,6 +339,32 @@ mod tests {
                 .collect::<Vec<_>>(),
             "the set of room writers moved; each one owes the saved session \
              an update"
+        );
+    }
+
+    /// Browser storage is one flat map per origin, so every key this app
+    /// writes is namespaced - and an account's slot must not be mistakable
+    /// for the pre-#1408 single slot it sits beside.
+    #[test]
+    fn every_browser_storage_key_is_namespaced_and_distinct() {
+        let keys = [
+            SESSION_STORAGE_KEY.to_string(),
+            PERSISTED_SESSION_KEY.to_string(),
+            LAST_SESSION_KEY.to_string(),
+            TAB_SESSION_KEY.to_string(),
+            account_session_key("did:plc:alice"),
+        ];
+        for key in &keys {
+            assert!(key.starts_with("symbios_overlands_"), "{key} is not ours");
+        }
+        let mut unique: Vec<&String> = keys.iter().collect();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), keys.len(), "two keys collide: {keys:?}");
+        assert_ne!(
+            account_session_key("did:plc:alice"),
+            account_session_key("did:plc:bob"),
+            "two accounts sharing a slot is the defect #1408 exists to fix"
         );
     }
 }

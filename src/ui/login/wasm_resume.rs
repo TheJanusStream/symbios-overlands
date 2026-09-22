@@ -104,9 +104,23 @@ impl ResumeLatch {
 }
 
 /// One-shot system that fires on the first frame in `AppState::Login` and
-/// kicks off a [`ResumeAuthTask`] if a valid persisted session is on disk.
-/// A bad blob (deserialise failure) is silently dropped by `load_persisted`,
-/// so the worst-case behaviour is "show the login form anyway."
+/// decides what the browser's saved sessions mean for THIS TAB (#1408).
+///
+/// * This tab's own account - a reload, or the tab that just signed in -
+///   is restored without asking, by the [`ResumeAuthTask`] spawned below.
+/// * A tab that has signed in as nobody is OFFERED the browser's most
+///   recent account instead ([`entry::OfferedSession`]), and the card puts
+///   a "Continue as @alice" button beside the form. Clicking it claims
+///   that account for this tab and re-arms this one-shot, which then takes
+///   the restore path above.
+///
+///   Not automatic, so that opening a second tab to run a second account
+///   does not resume the first one over it: that would build the first
+///   account's world and, if its access token had expired, rotate the
+///   refresh token the other tab is still holding - expiring the session
+///   under it (owner decision 2026-09-22).
+/// * A bad blob (deserialise failure) is silently dropped, so the
+///   worst-case behaviour is "show the login form anyway."
 #[allow(clippy::too_many_arguments)]
 pub fn check_wasm_resume(
     mut commands: Commands,
@@ -130,8 +144,17 @@ pub fn check_wasm_resume(
     // takes over as the attract backdrop's "not idle" signal (through
     // `mirror_login_activity`, #1297).
     commands.remove_resource::<oauth::AuthHandoffPending>();
-    let Some(mut blob) = oauth::wasm::load_persisted() else {
-        return;
+    let mut blob = match oauth::wasm::saved_session_on_boot() {
+        Some(oauth::wasm::SavedSession::Resume(blob)) => blob,
+        Some(oauth::wasm::SavedSession::Offer(blob)) => {
+            info!("Offering the saved session for {} to this tab", blob.handle);
+            commands.insert_resource(super::entry::OfferedSession {
+                did: blob.did,
+                handle: blob.handle,
+            });
+            return;
+        }
+        None => return,
     };
     // URL/CLI boot params win over the persisted blob: a shared landmark
     // link should drop the recipient at the linked overland even though

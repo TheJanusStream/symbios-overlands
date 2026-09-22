@@ -417,10 +417,12 @@ pub(crate) fn cleanup_on_logout(
     // "✓ Saved (Ns ago)".
     commands.insert_resource(PublishFeedback::<RoomRecord>::default());
     // UiPanels is deliberately NOT reset here (#820): panel layout is a
-    // machine-local preference persisted by `crate::prefs`, so logging
-    // out and back in reopens the same windows - and the dismissed
+    // preference persisted by `crate::prefs`, per account since #1407, so
+    // logging back in reopens the same windows - and the dismissed
     // first-run Controls hint stays dismissed instead of greeting the
-    // user every session.
+    // user every session. `prefs::follow_session_prefs` swaps it, with
+    // the rest of the account's settings, on the first frame without a
+    // session.
     commands.insert_resource(PublishFeedback::<AvatarRecord>::default());
     commands.insert_resource(PublishFeedback::<InventoryRecord>::default());
     // Toasts are session-scoped feedback: a "Copied: …" from the old
@@ -435,13 +437,12 @@ pub(crate) fn cleanup_on_logout(
     // so a `Failed` slot from the old session suppressed the new user's
     // first retry and a `Ready` one showed a list no fetch had run for.
     commands.insert_resource(crate::social::MutualsCache::default());
-    // The signed-in owner's mute list (#1223 f292). App-lifetime, so it is
-    // RESET rather than removed - `save_prefs_when_changed` reads it every
-    // frame, in every state. `MutedByOwner` keeps the stored copy; the next
-    // sign-in installs theirs through `prefs::adopt_owner_mute_list`, and
-    // until then nothing on a shared machine is muted by somebody else's
-    // list.
-    commands.insert_resource(crate::state::MutedDids::default());
+    // The signed-in owner's mute list (#1223 f292) is NOT reset here any
+    // more (#1407). `prefs::follow_session_prefs` saves it to the departing
+    // account on the first frame without a session and only then empties
+    // it; a reset here ran first, and would have saved an empty list under
+    // the account that was leaving. Until the next sign-in installs its
+    // own, nothing on a shared machine is muted by somebody else's list.
     // The blob-audio cache (#1204): content-keyed like the baked-audio
     // cache cleared below, and for the same reason - its retained
     // `AudioSource` buffers are memory the next session would inherit.
@@ -882,5 +883,82 @@ mod tests {
             "the previous session's pick is still selected"
         );
         assert_eq!(browser.picked_at(), 0.0, "and still stamped");
+    }
+
+    /// Signing in answers the offer a fresh tab was shown (#1408).
+    ///
+    /// THE SEQUENCE: a new tab is offered "Continue as @alice" and the
+    /// person signs in as @bob instead, then logs out. `check_wasm_resume`
+    /// is page-load scoped and does not run again, so an offer left in the
+    /// world would still be on the card - naming an account that may have
+    /// been signed out since, behind a button that could then do nothing at
+    /// all. Installing a session is where a tab stops being offerable.
+    #[test]
+    fn signing_in_clears_the_offer_the_tab_was_shown() {
+        let mut world = World::new();
+        world.insert_resource(crate::ui::login::OfferedSession {
+            did: "did:plc:alice".into(),
+            handle: "alice.test".into(),
+        });
+        let mut next_state = NextState::<AppState>::default();
+        with_commands(&mut world, |commands| {
+            crate::ui::login::complete::install_completed_session(
+                commands,
+                &mut next_state,
+                completed_session(),
+                Some(&RelayHost("relay.test".into())),
+            );
+        });
+        assert!(
+            !world.contains_resource::<crate::ui::login::OfferedSession>(),
+            "the offer outlived the sign-in that answered it"
+        );
+    }
+
+    /// Logout's teardown leaves the account's settings alone (#1407).
+    ///
+    /// `prefs::follow_session_prefs` saves them to the DEPARTING account on
+    /// the first frame without a session, and every system in this file runs
+    /// before that - `OnExit(InGame)`, or the frame an aborted loading screen
+    /// tears down. So a reset here is not a reset: it is saved as that
+    /// account's own choice. The mute list had such a reset until #1407 -
+    /// harmless while a separate map kept every account's stored list, and
+    /// under the per-account swap it would have unmuted everybody an account
+    /// had muted, every time it logged out.
+    ///
+    /// A scan rather than a run, because `cleanup_on_logout` sits at Bevy's
+    /// parameter ceiling and a world that satisfies it would be most of the
+    /// app; the rule itself is one line - the teardown's code does not name
+    /// a resource the prefs layer owns.
+    #[test]
+    fn the_teardown_leaves_the_accounts_settings_for_prefs_to_save() {
+        let source = include_str!("logout.rs");
+        let (teardown, _) = source
+            .split_once("#[cfg(test)]\nmod tests")
+            .expect("the file has a test module");
+        let mut faults = Vec::new();
+        for owned in [
+            "UiPanels",
+            "LocalSettings",
+            "WindowLayout",
+            "MutedDids",
+            "GizmoFramePref",
+            "AudioMuted",
+            "LoginScreenSettings",
+            "PrefsOwner",
+        ] {
+            for (n, line) in teardown.lines().enumerate() {
+                let code = line.split("//").next().unwrap_or("");
+                if code.contains(owned) {
+                    faults.push(format!("logout.rs:{}: {}", n + 1, line.trim()));
+                }
+            }
+        }
+        assert!(
+            faults.is_empty(),
+            "the logout teardown touches a prefs-owned resource, which would be \
+             saved as the departing account's own setting:\n  {}",
+            faults.join("\n  ")
+        );
     }
 }

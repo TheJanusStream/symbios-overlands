@@ -24,8 +24,10 @@
 //!   as a bounded cascade when the screen genuinely has no free room.
 //! * The rect a window actually ends up with (drag, resize) is captured
 //!   every frame by [`WindowChrome::remember`] and persisted through
-//!   the #820 prefs layer, so the machine's arranged layout survives a
-//!   restart and beats the computed default thereafter.
+//!   the #820 prefs layer, so each account's arranged layout survives a
+//!   restart and beats the computed default thereafter (#1407). An
+//!   account switch inside one run makes egui forget the previous
+//!   account's rects: [`forget_window_state_on_account_change`].
 //!
 //! Consumers add a [`WindowChrome`] system param, ask it to
 //! [`place`](WindowChrome::place) the window before building it, and
@@ -354,9 +356,10 @@ impl UiWindow {
 /// Persisted window rects, keyed by [`UiWindow::key`] as `[x, y, w, h]`.
 /// Written whenever a shown window's rect actually changes (drag,
 /// resize - not every frame, so the #820 save debounce can settle) and
-/// saved/restored through [`crate::prefs::PersistedPrefs`]. A persisted
-/// rect beats the computed default; `constrain_to` at the call sites
-/// keeps a rect from a bigger screen on-screen and below the toolbar.
+/// saved/restored per account through [`crate::prefs::AccountPrefs`]
+/// (#1407). A persisted rect beats the computed default; `constrain_to` at
+/// the call sites keeps a rect from a bigger screen on-screen and below
+/// the toolbar.
 #[derive(Resource, Serialize, Deserialize, Clone, Default, Debug, PartialEq)]
 pub struct WindowLayout {
     #[serde(default)]
@@ -406,7 +409,7 @@ impl WindowChrome<'_> {
     }
 
     /// Default position + size for `id`: the persisted rect when this
-    /// machine has one **that still fits this screen**, otherwise the slot
+    /// account has one **that still fits this screen**, otherwise the slot
     /// default staggered around the currently-open windows. Cheap to call
     /// every frame - egui only consumes `default_pos`/`default_size` on a
     /// window's first show.
@@ -473,6 +476,57 @@ impl WindowChrome<'_> {
         self.layout.rects.clear();
         true
     }
+}
+
+/// Make egui forget every window's position and size when the account
+/// whose settings are live changes (#1407).
+///
+/// egui keeps each window's rect for the life of the process and reads
+/// `default_pos` / `default_size` only for a window it has never shown, so
+/// [`WindowChrome::place`] speaks only to a stranger. After one account
+/// logged out and another signed in, in the same run, the second account's
+/// windows therefore opened where the first had left them - and
+/// [`WindowChrome::remember`] then wrote those rects into the second
+/// account's layout. The web build never did this, because every sign-in
+/// there is a new page load; this starts a switch on the desktop from the
+/// same place.
+///
+/// Acts on the transition rather than the change tick: there is nothing to
+/// forget at startup, and a switch seen before the egui context exists is
+/// retried on the next frame instead of lost.
+pub fn forget_window_state_on_account_change(
+    mut contexts: bevy_egui::EguiContexts,
+    owner: Res<crate::prefs::PrefsOwner>,
+    theme: Res<crate::ui::theme::CurrentTheme>,
+    mut forgotten_for: Local<Option<String>>,
+) {
+    if *forgotten_for == owner.0 {
+        return;
+    }
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+    forget_window_state(ctx, &theme.0);
+    forgotten_for.clone_from(&owner.0);
+}
+
+/// The reset behind [`forget_window_state_on_account_change`], on a bare
+/// context so it can be tested.
+///
+/// `reset_areas` forgets every window's position. A resizable window's
+/// SIZE lives in the context's data map instead, under a type egui does not
+/// export, so the only way to forget it is to clear the map. That map also
+/// holds the palette [`crate::ui::theme::current`] reads and the audio
+/// editor's style, and [`crate::ui::theme::apply_theme`] puts both straight
+/// back. Everything else the app keeps there is scratch - a pass's shortcut
+/// and modal bookkeeping, an editor's half-typed field - that an account
+/// switch should drop anyway.
+pub(crate) fn forget_window_state(ctx: &egui::Context, theme: &crate::ui::theme::Theme) {
+    ctx.memory_mut(|memory| {
+        memory.reset_areas();
+        memory.data.clear();
+    });
+    crate::ui::theme::apply_theme(ctx, theme);
 }
 
 /// Pure placement: slot default staggered around `taken` within
@@ -1450,6 +1504,80 @@ mod placement {
              footer at {:?} in {:?}",
             footer,
             content
+        );
+    }
+}
+
+#[cfg(test)]
+mod account_switch {
+    use bevy_egui::egui;
+
+    use crate::ui::theme::{Theme, apply_theme, current};
+
+    const SCREEN: egui::Vec2 = egui::vec2(1280.0, 720.0);
+
+    /// Show a resizable window with these defaults for a few passes - long
+    /// enough for egui's sizing pass to settle - and report where it landed.
+    fn show(ctx: &egui::Context, pos: egui::Pos2, size: egui::Vec2) -> egui::Rect {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, SCREEN);
+        let mut shown = None;
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                shown = egui::Window::new("People")
+                    .default_pos(pos)
+                    .default_size(size)
+                    .resizable(true)
+                    .show(ui.ctx(), |ui| {
+                        ui.label("a roster row");
+                    })
+                    .map(|response| response.response.rect);
+            });
+        }
+        shown.expect("the window was shown")
+    }
+
+    /// #1407: after an account switch a window lands on the NEW account's
+    /// rect - position and size - and the palette the UI reads survives the
+    /// reset that makes that happen.
+    ///
+    /// The control is the defect itself: without the reset, egui ignores
+    /// the second account's defaults for a window it has already shown, and
+    /// the window stays exactly where the first account left it.
+    #[test]
+    fn an_account_switch_makes_egui_forget_where_windows_were() {
+        let theme = Theme::high_contrast();
+        let alice = (egui::pos2(40.0, 60.0), egui::vec2(300.0, 420.0));
+        let bob = (egui::pos2(600.0, 200.0), egui::vec2(460.0, 260.0));
+
+        // Where bob's defaults put the window in a context that never saw
+        // alice's: what a fresh page load gives on the web.
+        let fresh = egui::Context::default();
+        apply_theme(&fresh, &theme);
+        let expected = show(&fresh, bob.0, bob.1);
+
+        let ctx = egui::Context::default();
+        apply_theme(&ctx, &theme);
+        let alices = show(&ctx, alice.0, alice.1);
+        assert_ne!(
+            alices, expected,
+            "the two layouts must differ to test anything"
+        );
+        assert_eq!(
+            show(&ctx, bob.0, bob.1),
+            alices,
+            "control: egui keeps a shown window's rect whatever the new defaults say"
+        );
+
+        super::forget_window_state(&ctx, &theme);
+        assert_eq!(show(&ctx, bob.0, bob.1), expected);
+        assert_eq!(
+            *current(&ctx),
+            theme,
+            "the palette the UI reads is put back, not left at the dark fallback"
         );
     }
 }

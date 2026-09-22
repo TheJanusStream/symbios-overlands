@@ -63,9 +63,9 @@
 //! * [`gateway`]      - gateway destination picker (#748): walking into a
 //!   gateway zone lists the **room owner's** mutual follows, so a visitor
 //!   browses the owner's social neighbourhood rather than their own.
-//! * [`settings`]     - the Settings window (#857): this-machine-only
-//!   preferences (theme pick, remote-peer smoothing), persisted by
-//!   [`crate::prefs`].
+//! * [`settings`]     - the Settings window (#857): client-side
+//!   preferences (theme pick, remote-peer smoothing, …), kept per account
+//!   on this machine by [`crate::prefs`] (#1407).
 //! * [`theme`]        - semantic theme foundation (#855): three palettes
 //!   behind `theme::current(ctx)`, applied on startup and re-applied
 //!   whenever the picker swaps the resource.
@@ -141,7 +141,8 @@ mod tests {
         (
             "src/state.rs",
             "#1297 group 5, owner decision 2026-09-10: LocalSettings::theme \
-             records WHICH shipped palette this machine chose, and a palette \
+             (and LoginScreenSettings::theme since #1407) records WHICH shipped \
+             palette an account or the login screen chose, and a palette \
              is ui vocabulary. Moving UserTheme to state would drag the theme \
              module's meaning out of the layer that renders it, for one \
              serialised field.",

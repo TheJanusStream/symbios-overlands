@@ -6,7 +6,7 @@
 //! screen orbits a genuine seeded overland - terrain, splat textures,
 //! water, settlements, roads - instead of a flat backdrop. The login
 //! UI keeps painting its sky-gradient fallback until the terrain mesh
-//! lands (and forever, when the [`LocalSettings::login_world_backdrop`]
+//! lands (and forever, when the [`LoginScreenSettings::world_backdrop`]
 //! toggle is off).
 //!
 //! ## How it plugs into the pipeline
@@ -53,7 +53,7 @@ use bevy::prelude::*;
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraSystemSet};
 
 use crate::pds::RoomRecord;
-use crate::state::{AppState, LiveRoomRecord, LocalSettings};
+use crate::state::{AppState, LiveRoomRecord, LoginScreenSettings};
 use crate::terrain::FinishedHeightMap;
 
 /// Marker resource: the world currently compiled from [`LiveRoomRecord`]
@@ -120,7 +120,7 @@ pub fn world_pipeline_active(
 /// redirect would slow the *real* login down for nothing.
 pub fn start_attract_scene(
     mut commands: Commands,
-    settings: Res<LocalSettings>,
+    login_screen: Res<LoginScreenSettings>,
     attract: Option<Res<AttractScene>>,
     record: Option<Res<LiveRoomRecord>>,
     activity: Res<LoginActivity>,
@@ -130,7 +130,7 @@ pub fn start_attract_scene(
     >,
     #[cfg(target_arch = "wasm32")] handoff: Option<Res<crate::oauth::AuthHandoffPending>>,
 ) {
-    if !settings.login_world_backdrop || attract.is_some() || record.is_some() {
+    if !login_screen.world_backdrop || attract.is_some() || record.is_some() {
         return;
     }
     // An initiation, an exchange or (wasm) a resume is running: the
