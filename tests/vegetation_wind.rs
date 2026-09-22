@@ -318,3 +318,73 @@ fn despawned_foliage_releases_its_wind_material() {
         "nor, through the extension's source handle, the material it wrapped"
     );
 }
+
+/// THE SEQUENCE (#1410): two clients, and one teleports into the region the
+/// other is standing in. The room's owner broadcasts its record, the arriving
+/// client installs it, and the compile executor sweeps every entity of the
+/// world it is replacing - in the SAME frame that `attach_wind_materials` has
+/// queued a material swap for the foliage of the old one.
+///
+/// The two systems are unordered, so the sweep's `try_despawn` can be applied
+/// first; the swap's commands then land on an entity whose index has already
+/// been reused, and Bevy 0.19's default command error handler turns that into
+/// a panic. The client aborted mid-arrival:
+///
+/// ```text
+/// Encountered an error in command `insert<MeshMaterial3d<ExtendedMaterial<
+/// StandardMaterial, WindExtension>>>`: Entity despawned: The entity with ID
+/// 895v1 is invalid; its index now has generation 2.
+/// ```
+///
+/// `chain_ignore_deferred` is what makes this deterministic rather than a
+/// coin toss: it orders the despawn before the swap WITHOUT a sync point
+/// between them, so the swap still sees the entity in its query and both
+/// queues are applied together afterwards - exactly the interleaving the
+/// crash needs.
+#[test]
+fn foliage_despawned_before_the_swap_lands_does_not_abort_the_client() {
+    fn sweep_the_world(mut commands: Commands, doomed: Query<Entity, With<WindSway>>) {
+        // Mirrors `world_builder::compile::executor`'s full sweep: marker-blind
+        // and tolerant of an entity that is already gone.
+        for entity in doomed.iter().take(1) {
+            commands.entity(entity).try_despawn();
+        }
+    }
+
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()));
+    app.init_asset::<StandardMaterial>();
+    app.init_asset::<VegetationWindMaterial>();
+    app.init_resource::<VegetationWind>();
+    app.init_resource::<WindMaterialLinks>();
+    app.add_systems(
+        Update,
+        (sweep_the_world, attach_wind_materials).chain_ignore_deferred(),
+    );
+
+    let (_source, entities) = spawn_marked(&mut app, WindSway::Card, 2);
+
+    // The assertion is that this does not panic.
+    app.update();
+
+    // And that the swap still happened for the foliage that survived: a
+    // tolerant command must skip the dead entity, not the batch.
+    let world = app.world();
+    let survivor = entities
+        .iter()
+        .copied()
+        .find(|e| world.get_entity(*e).is_ok())
+        .expect("one of the two was left alive");
+    assert!(
+        world
+            .get::<MeshMaterial3d<VegetationWindMaterial>>(survivor)
+            .is_some(),
+        "the surviving card must still have been swapped to the wind material"
+    );
+    assert!(
+        world
+            .get::<MeshMaterial3d<StandardMaterial>>(survivor)
+            .is_none(),
+        "and must have given up its plain material"
+    );
+}

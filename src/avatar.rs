@@ -261,7 +261,15 @@ fn retry_peer_profile_fetches(
         let Some(did) = peer.did.clone() else {
             continue;
         };
-        commands.entity(entity).insert(AvatarFetchPending { did });
+        // `try_insert`, here and at every other command in this file
+        // (#1411): the target is a peer entity, `network::lifecycle`
+        // despawns those the frame a transport drops, and the two systems
+        // are unordered - so a queued insert can land on an entity that is
+        // already gone. Under Bevy 0.19 that aborts the client (#1410); a
+        // profile fetch for a peer who has left is simply nothing to do.
+        commands
+            .entity(entity)
+            .try_insert(AvatarFetchPending { did });
     }
 }
 
@@ -274,7 +282,7 @@ fn trigger_avatar_fetches(
 ) {
     for (entity, pending) in pending.iter() {
         let did = pending.did.clone();
-        commands.entity(entity).remove::<AvatarFetchPending>();
+        commands.entity(entity).try_remove::<AvatarFetchPending>();
 
         // Cache hit - install the verified handle directly. The bsky CDN
         // charges us a round trip per DID per session otherwise, and a
@@ -313,7 +321,7 @@ fn spawn_avatar_task(commands: &mut Commands, entity: Entity, did: String) {
     });
     commands
         .entity(entity)
-        .insert(AvatarFetchTask { did, task });
+        .try_insert(AvatarFetchTask { did, task });
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -341,7 +349,7 @@ fn poll_avatar_tasks(
         let did = pending.did.clone();
         let bytes = std::mem::take(&mut pending.bytes);
         let handle = pending.handle.take();
-        commands.entity(entity).remove::<PendingAvatarImage>();
+        commands.entity(entity).try_remove::<PendingAvatarImage>();
         decode_and_cache_avatar(
             &did,
             &bytes,
@@ -360,7 +368,7 @@ fn poll_avatar_tasks(
         };
 
         let did = task.did.clone();
-        commands.entity(entity).remove::<AvatarFetchTask>();
+        commands.entity(entity).try_remove::<AvatarFetchTask>();
 
         // Promote the profile-verified handle to the authoritative one on
         // the peer entity. The handle field on `OverlandsMessage::Identity`
@@ -396,7 +404,7 @@ fn poll_avatar_tasks(
         // next frame. The handle above has already landed, so nothing the
         // player reads by name is waiting on this.
         if decoded_this_frame >= MAX_AVATAR_DECODES_PER_FRAME {
-            commands.entity(entity).insert(PendingAvatarImage {
+            commands.entity(entity).try_insert(PendingAvatarImage {
                 did,
                 bytes,
                 handle: verified_handle,
@@ -667,6 +675,73 @@ mod presence_tests {
             build: None,
             connected_at: 0.0,
         }
+    }
+
+    /// #1411, the peer half of #1410's crash. THE SEQUENCE: a peer's
+    /// transport drops in the same frame a system queues something onto
+    /// their entity - here the profile retry, but every attach site in this
+    /// file, `social`, `network::presence`, `network::peer_cache`,
+    /// `player::gait`, `player::attachments` and `player::rigged::build` has
+    /// the same shape.
+    ///
+    /// `network::lifecycle` despawns the peer through `Commands`, and these
+    /// systems are unordered against it, so the despawn can be applied
+    /// first. Bevy 0.19 sends an `insert` into a despawned entity to the
+    /// default error handler, which panics - and the client aborts because
+    /// somebody left at the wrong moment.
+    ///
+    /// `chain_ignore_deferred` pins that interleaving: it orders the
+    /// departure first WITHOUT a sync point, so the retry still sees the
+    /// peer in its query and both command queues are applied afterwards.
+    #[test]
+    fn a_peer_who_leaves_in_the_same_frame_does_not_abort_the_client() {
+        #[derive(Resource)]
+        struct Leaving(Entity);
+
+        fn drop_the_transport(mut commands: Commands, leaving: Res<Leaving>) {
+            // What `network::lifecycle` does when a transport reports the
+            // peer gone.
+            commands.entity(leaving.0).despawn();
+        }
+
+        let mut app = App::new();
+        app.add_plugins((bevy::app::TaskPoolPlugin::default(), bevy::time::TimePlugin));
+        app.add_systems(
+            Update,
+            (drop_the_transport, retry_peer_profile_fetches).chain_ignore_deferred(),
+        );
+
+        // Both are due a retry, so the system queues an insert for each.
+        let due = || PeerResolve {
+            profile: FetchState::Failed(RetryBackoff {
+                attempts: 1,
+                wait_secs: 2.0,
+                failed_at: -100.0,
+            }),
+            ..PeerResolve::default()
+        };
+        let leaving = app
+            .world_mut()
+            .spawn((remote(1, "did:plc:leaving"), due()))
+            .id();
+        let staying = app
+            .world_mut()
+            .spawn((remote(2, "did:plc:staying"), due()))
+            .id();
+        app.insert_resource(Leaving(leaving));
+
+        // The assertion is that this does not panic.
+        app.update();
+
+        assert!(
+            app.world().get_entity(leaving).is_err(),
+            "precondition: the peer really did leave"
+        );
+        assert!(
+            app.world().entity(staying).contains::<AvatarFetchPending>(),
+            "and the peer who stayed is still re-armed - a tolerant command \
+             skips the entity that went, not the rest of the pass"
+        );
     }
 
     /// #1217 f326. The sequence: a peer's `getProfile` call errors once, at

@@ -29,6 +29,20 @@ the artifact, not while you are iterating.
 binary, the headless [render tool](#developer-tooling), which still wants
 `--bin render`.)
 
+The two profiles also differ in what a Bevy **command error** does, which is
+deliberate (#1412). Bevy routes an error nothing else handled - a command whose
+target was despawned before the queue applied, a system missing a required
+parameter - to a fallback handler that panics by default, and that is how a
+player's session ended in #1410. The shipped build (`--release`, and the
+deployed wasm bundle) installs a handler that logs at `error` instead, so one
+stray command cannot abort somebody's session. The dev loop
+(`--profile test-release`, which turns `debug_assertions` back on) and the whole
+test suite keep the panicking default, because that is where such a failure
+should be impossible to walk past. `run()` is the only place allowed to install
+the handler, and `gate_contract::only_the_shipped_build_stops_panicking_on_a_command_error`
+fails if that stops being true - a handler reachable from a test would leave the
+regression tests for #1410 / #1411 asserting nothing.
+
 On Linux the build links Bevy's default backends, so their dev packages have to
 be present first - ALSA for `bevy_audio`, udev for input enumeration, and
 Wayland plus libxkbcommon for `winit`:

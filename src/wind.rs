@@ -306,10 +306,20 @@ pub fn attach_wind_materials(
             }
         };
 
+        // `try_*`, because the entity can be despawned between this query
+        // and the command queue being applied (#1410). A record update from
+        // the room's owner - a peer arriving in the region broadcasts one -
+        // replaces `LiveRoomRecord` and the compile executor sweeps every
+        // spawned entity in the SAME frame, foliage marked here included.
+        // The two systems are unordered, so whether the despawn lands first
+        // is a coin toss; when it did, this insert hit a dead entity and
+        // Bevy 0.19's default command error handler aborted the client.
+        // Same reason `world_builder::spatial_audio` and `audio_resolver`
+        // attach their baked voices this way.
         commands
             .entity(entity)
-            .remove::<MeshMaterial3d<StandardMaterial>>()
-            .insert(MeshMaterial3d(handle));
+            .try_remove::<MeshMaterial3d<StandardMaterial>>()
+            .try_insert(MeshMaterial3d(handle));
     }
 
     if links.links.len() > MAX_LINKS {

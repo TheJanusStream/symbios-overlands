@@ -287,7 +287,13 @@ pub fn tick_emitter_spawn(
                     &mut blob_image_cache,
                     emitter,
                 );
-                commands.entity(entity).insert(built.clone());
+                // `try_insert` for `wind::attach_wind_materials`' reason
+                // (#1410): a record update recompiles the world and the
+                // executor's flat sweep despawns every spawned entity -
+                // world-space emitters by name - in the same frame this
+                // pins the ramp. The two are unordered, and an ordinary
+                // `insert` landing on the swept entity aborts the client.
+                commands.entity(entity).try_insert(built.clone());
                 built
             }
         };

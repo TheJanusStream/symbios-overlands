@@ -335,9 +335,15 @@ pub(super) fn spawn_peer_rig_resolutions(
         });
         // Stamped at START, not at completion: the cost this bounds is the
         // fan-out itself, which is already spent by the time a result lands.
+        // `try_insert`, here and at the backoffs below (#1411): a peer
+        // entity is despawned the frame its transport drops. These are the
+        // stalest targets of the class - the backoffs address an `Entity`
+        // carried in a task that spans frames, so the `peers.get()` guards
+        // beside them cannot see a despawn that is merely QUEUED. An
+        // ordinary insert landing on one aborts the client (#1410).
         commands
             .entity(peer_entity)
-            .insert(PeerRigResolveFloor { started_at: now });
+            .try_insert(PeerRigResolveFloor { started_at: now });
     }
 }
 
@@ -432,7 +438,7 @@ pub(super) fn poll_peer_rig_resolutions(
                         .map(|rig| PeerRigResolveBackoff::after_failure(backoff, rig, now))
                 });
             if let Some(backoff) = rig {
-                commands.entity(task.peer_entity).insert(backoff);
+                commands.entity(task.peer_entity).try_insert(backoff);
             }
             continue;
         };
@@ -467,10 +473,10 @@ pub(super) fn poll_peer_rig_resolutions(
             None => {
                 commands
                     .entity(task.peer_entity)
-                    .remove::<PeerRigResolveBackoff>();
+                    .try_remove::<PeerRigResolveBackoff>();
             }
             Some(backoff) => {
-                commands.entity(task.peer_entity).insert(backoff);
+                commands.entity(task.peer_entity).try_insert(backoff);
             }
         }
     }

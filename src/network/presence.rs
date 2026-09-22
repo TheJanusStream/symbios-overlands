@@ -663,9 +663,14 @@ pub(super) fn adopt_peer_did(
     if peer.did.as_deref() == Some(did) {
         return false;
     }
+    // `try_insert`, here and at the placeholder systems below (#1411): a
+    // peer entity is despawned the frame its transport drops, by systems
+    // unordered against these - so an ordinary insert can land on an entity
+    // that is already gone, which under Bevy 0.19 aborts the client
+    // (#1410). Nothing here is worth keeping for a peer who has left.
     commands
         .entity(entity)
-        .insert(crate::avatar::AvatarFetchPending {
+        .try_insert(crate::avatar::AvatarFetchPending {
             did: did.to_owned(),
         });
     // Clear any stale handle from a prior identity so the HUD reverts to the
@@ -968,7 +973,7 @@ pub(super) fn dress_peer_placeholders(
         })
         .clone();
     for entity in peers {
-        commands.entity(entity).insert((
+        commands.entity(entity).try_insert((
             Mesh3d(mesh.clone()),
             MeshMaterial3d(material.clone()),
             PeerPlaceholder::Standing,
@@ -1016,8 +1021,8 @@ pub(super) fn retire_peer_placeholders(
         if standing && *placeholder == PeerPlaceholder::Standing {
             commands
                 .entity(entity)
-                .remove::<(Mesh3d, MeshMaterial3d<StandardMaterial>)>()
-                .insert(PeerPlaceholder::Retired);
+                .try_remove::<(Mesh3d, MeshMaterial3d<StandardMaterial>)>()
+                .try_insert(PeerPlaceholder::Retired);
         }
     }
 }

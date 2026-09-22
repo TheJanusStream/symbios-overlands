@@ -396,9 +396,11 @@ pub(super) fn attach_gait_animation(
         let Some(did) = peer.did.as_deref() else {
             continue;
         };
+        // `try_insert` (#1411): a peer entity is despawned the frame its
+        // transport drops, by a system unordered against this one.
         commands
             .entity(entity)
-            .insert(GaitAnimation::for_did(did, mode));
+            .try_insert(GaitAnimation::for_did(did, mode));
     }
 }
 
@@ -474,7 +476,8 @@ pub(super) fn animate_avatar_gait(
             peer.and_then(peer_gait_mode)
         };
         if current != Some(anim.mode) {
-            commands.entity(entity).remove::<GaitAnimation>();
+            // Peers are in this query too, and they can be gone (#1411).
+            commands.entity(entity).try_remove::<GaitAnimation>();
             continue;
         }
 

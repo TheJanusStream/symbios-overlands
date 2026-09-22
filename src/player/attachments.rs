@@ -298,7 +298,11 @@ pub(super) fn sync_rigged_attachments(
         // See `AttachmentsSteady`: skip the whole-outfit value comparison
         // below while nothing that feeds it can have moved.
         if source_changed || swept {
-            commands.entity(root).remove::<AttachmentsSteady>();
+            // `try_*` at every command in this system that addresses a
+            // rigged root or one of its joints (#1411): peers are dressed
+            // by it too, and `network::lifecycle` despawns a peer - taking
+            // the body parented under it - the frame its transport drops.
+            commands.entity(root).try_remove::<AttachmentsSteady>();
         } else if dressed.contains(root) {
             continue;
         }
@@ -322,7 +326,7 @@ pub(super) fn sync_rigged_attachments(
         {
             // Dressed as described - latch it so the comparison is skipped
             // until the record changes or a sweep fires.
-            commands.entity(root).insert(AttachmentsSteady);
+            commands.entity(root).try_insert(AttachmentsSteady);
             continue;
         }
         // Keep every standing prop the record still describes verbatim;
@@ -405,7 +409,7 @@ pub(super) fn sync_rigged_attachments(
         });
         commands
             .entity(root)
-            .insert(AttachmentsApplied { worn: spawned });
+            .try_insert(AttachmentsApplied { worn: spawned });
     }
 }
 
@@ -586,7 +590,9 @@ fn perimeter_at(skull: &symbios_avatar::face::Skull, height: f32) -> f32 {
 /// inserts per dress, only when an outfit actually changes.
 pub(crate) fn ensure_joint_visibility(commands: &mut Commands, joints: &AvatarJoints) {
     for &joint in &joints.0 {
-        commands.entity(joint).insert_if_new(Visibility::default());
+        commands
+            .entity(joint)
+            .try_insert_if_new(Visibility::default());
     }
 }
 

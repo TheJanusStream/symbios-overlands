@@ -126,7 +126,13 @@ pub(in crate::player) fn kick_rigged_builds(
         // shared by every local surface) leaves the chassis reconciled
         // instead of re-dispatching the doomed build one more time.
         if source_changed {
-            commands.entity(chassis).remove::<RiggedSteady>();
+            // `try_*` at every command in this system that addresses a
+            // chassis (#1411): the query gathers peers as well as the local
+            // player, and `network::lifecycle` despawns a peer the frame
+            // its transport drops - unordered against this one, so an
+            // ordinary insert can land on an entity that is already gone
+            // and abort the client (#1410).
+            commands.entity(chassis).try_remove::<RiggedSteady>();
         } else if steady.contains(chassis)
             && !building.contains(chassis)
             && (failed.contains(chassis)
@@ -164,7 +170,7 @@ pub(in crate::player) fn kick_rigged_builds(
                 if !same_record {
                     commands
                         .entity(chassis)
-                        .insert(RiggedSettle { changed_at: now });
+                        .try_insert(RiggedSettle { changed_at: now });
                 }
                 let settled = settle
                     .get(chassis)
@@ -181,7 +187,7 @@ pub(in crate::player) fn kick_rigged_builds(
                 if doomed || (same_record && has_root && !atlas_owed) {
                     // Reconciled: latch it so the compare above is skipped
                     // until something clears the latch.
-                    commands.entity(chassis).insert(RiggedSteady);
+                    commands.entity(chassis).try_insert(RiggedSteady);
                     return;
                 }
                 // One in flight per chassis: a stale target lands, and the
@@ -207,7 +213,7 @@ pub(in crate::player) fn kick_rigged_builds(
                     atlas,
                     far_hair: true,
                 });
-                commands.entity(chassis).insert(RiggedBuild {
+                commands.entity(chassis).try_insert(RiggedBuild {
                     target,
                     atlas,
                     offset,
@@ -221,7 +227,7 @@ pub(in crate::player) fn kick_rigged_builds(
                 // chassis. Drop any rigged residue so switching back later
                 // rebuilds from scratch.
                 if applied.contains(chassis) || building.contains(chassis) {
-                    commands.entity(chassis).remove::<(
+                    commands.entity(chassis).try_remove::<(
                         RiggedApplied,
                         RiggedBuild,
                         RiggedSteady,
@@ -290,12 +296,15 @@ pub(in crate::player) fn land_rigged_builds(
                 None
             }
         };
-        commands.entity(chassis).remove::<RiggedBuild>();
+        // `try_*` here for the same reason as the kick above (#1411), and
+        // more sharply: a build spans frames, so the peer it was kicked for
+        // has had that long to leave.
+        commands.entity(chassis).try_remove::<RiggedBuild>();
         // Stamped even on failure: the engine returns None for exactly one
         // reason (limbs overlapping at a joint), and re-kicking the same
         // doomed record every frame would burn a core proving it. A changed
         // record re-triggers through the value comparison.
-        commands.entity(chassis).insert(RiggedApplied {
+        commands.entity(chassis).try_insert(RiggedApplied {
             record: build.target.clone(),
             atlas: build.atlas,
         });
@@ -327,7 +336,7 @@ pub(in crate::player) fn land_rigged_builds(
             // missing from their own camera (no rigged root was ever
             // installed and nothing draws a placeholder), or - with a body
             // already standing - an edit that did nothing at all.
-            commands.entity(chassis).insert(RiggedBuildFailed);
+            commands.entity(chassis).try_insert(RiggedBuildFailed);
             if is_local
                 && !was_failing
                 && let Some(toasts) = toasts.as_deref_mut()
@@ -337,7 +346,7 @@ pub(in crate::player) fn land_rigged_builds(
             continue;
         };
         // Landed a body, so whatever the last attempt did is history.
-        commands.entity(chassis).remove::<RiggedBuildFailed>();
+        commands.entity(chassis).try_remove::<RiggedBuildFailed>();
         let stale: Vec<Entity> = roots
             .iter()
             .filter(|(_, child_of)| child_of.parent() == chassis)

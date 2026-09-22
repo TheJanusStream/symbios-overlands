@@ -102,7 +102,12 @@ fn dispatch_resonance_queries(
         };
         if remote_did == sess.did {
             // Self-loop: nothing to query.
-            commands.entity(entity).insert(SocialResonance::None);
+            // `try_insert`, here and below (#1411): these land on peer
+            // entities, which `network::lifecycle` despawns the frame a
+            // transport drops. An unordered despawn applying first turns an
+            // ordinary insert into an aborted client (#1410), and a
+            // resonance answer for a peer who has left is nothing to write.
+            commands.entity(entity).try_insert(SocialResonance::None);
             continue;
         }
         let local_did = sess.did.clone();
@@ -120,7 +125,7 @@ fn dispatch_resonance_queries(
             // `Unknown` rendered identically to a genuine non-mutual.
             crate::config::http::run_or(fut, SocialResonance::Failed).await
         });
-        commands.entity(entity).insert(ResonanceFetchTask(task));
+        commands.entity(entity).try_insert(ResonanceFetchTask(task));
     }
 }
 
@@ -154,14 +159,14 @@ fn poll_resonance_tasks(
             },
         );
         let mut entity = commands.entity(entity);
-        entity.remove::<ResonanceFetchTask>().insert(status);
+        entity.try_remove::<ResonanceFetchTask>().try_insert(status);
         if status == SocialResonance::Failed {
-            entity.insert(ResonanceRetry(RetryBackoff::after_failure(
+            entity.try_insert(ResonanceRetry(RetryBackoff::after_failure(
                 retry.map(|r| &r.0),
                 time.elapsed_secs_f64(),
             )));
         } else {
-            entity.remove::<ResonanceRetry>();
+            entity.try_remove::<ResonanceRetry>();
         }
     }
 }

@@ -213,9 +213,12 @@ pub(super) fn handle_records_published(
         if carrying && let Some(record) = peer.avatar.as_mut() {
             forget_rig_resolution(record);
         }
+        // `try_remove` (#1411): the peer whose record this is can be
+        // despawned by `network::lifecycle` in the same frame its last
+        // message is handled.
         commands
             .entity(peer_entity)
-            .remove::<crate::network::peer_cache::PeerRigResolveBackoff>();
+            .try_remove::<crate::network::peer_cache::PeerRigResolveBackoff>();
         break;
     }
 }

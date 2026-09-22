@@ -182,6 +182,32 @@ pub fn run() {
 
     let fc = config::camera::fog::COLOR;
     let mut app = App::new();
+    // A command error must not end somebody's session (#1412).
+    //
+    // Bevy 0.19 routes an error nothing else handled - a command whose
+    // target was despawned before the queue applied, a system whose
+    // required parameter is missing - to `FallbackErrorHandler`, which
+    // defaults to `match_severity` and so PANICS for the severities those
+    // carry. #1410 was exactly that: a player arrived in a region, the
+    // owner's record broadcast recompiled the world under an in-flight
+    // material swap, and the client aborted. #1411 swept the 33 sites that
+    // could reach it; this is the backstop for the 34th, which nothing
+    // stops a future system from adding.
+    //
+    // `error` rather than `warn`: after the sweep, anything still arriving
+    // here is a bug in this crate, and it should read like one in the
+    // console rather than hiding among the ICE handshake's warnings.
+    //
+    // ONLY where `debug_assertions` is off, which is the deployed wasm
+    // bundle and a `--release` native build. The dev loop
+    // (`--profile test-release`, which turns debug assertions back on) and
+    // the whole test suite keep the panicking default, because that is
+    // where a failure should be impossible to walk past - it is how #1410
+    // was reported in the first place. The two regression tests for that
+    // class assert "this frame does not panic", so they would also be
+    // hollowed out by a handler installed process-wide.
+    #[cfg(not(debug_assertions))]
+    app.set_error_handler(bevy::ecs::error::error);
     app.insert_resource(ClearColor(Color::srgba(fc[0], fc[1], fc[2], fc[3])))
         .add_plugins(
             DefaultPlugins
@@ -944,6 +970,83 @@ mod gate_contract {
     //! stopped looking, and went on reporting green for two years of
     //! commits. A configuration that can be weakened without anything going
     //! red is exactly the kind that needs a test pointing at it.
+
+    /// The non-panicking command error handler (#1412) belongs to the
+    /// SHIPPED build, and to nothing else.
+    ///
+    /// Two halves, both of which have already gone wrong somewhere in this
+    /// class. The handler must be installed exactly once, from `run`, so
+    /// that the dev loop and CI keep the panicking default - a command error
+    /// is how #1410 was reported at all, and the regression tests for it
+    /// (`vegetation_wind::foliage_despawned_before_the_swap_lands…`,
+    /// `avatar::presence_tests::a_peer_who_leaves…`) assert that a frame
+    /// does NOT panic, so a handler installed from anywhere a test can reach
+    /// would leave them passing over the very bug they pin.
+    ///
+    /// And it must stay behind `cfg(not(debug_assertions))`: `test-release`,
+    /// the profile the build docs prescribe for running the app, turns
+    /// assertions back on precisely so the dev loop stays loud.
+    #[test]
+    fn only_the_shipped_build_stops_panicking_on_a_command_error() {
+        let lib = include_str!("lib.rs");
+        let (shipped, _tests) = lib
+            .split_once("#[cfg(test)]\nmod gate_contract")
+            .expect("this module is the end of the file");
+        let calls: Vec<&str> = shipped
+            .lines()
+            .filter(|line| line.contains("set_error_handler("))
+            .collect();
+        assert_eq!(
+            calls.len(),
+            1,
+            "the fallback handler is installed from exactly one place: {calls:?}"
+        );
+        let gated = shipped
+            .split_once("#[cfg(not(debug_assertions))]")
+            .is_some_and(|(_, after)| {
+                after
+                    .lines()
+                    .find(|line| !line.trim().is_empty())
+                    .is_some_and(|line| line.contains("set_error_handler("))
+            });
+        assert!(
+            gated,
+            "the handler must sit directly under `#[cfg(not(debug_assertions))]`, \
+             or the dev loop and the suite stop panicking too"
+        );
+
+        // Nowhere else - including the tests, which is the half that would
+        // be invisible: they would still pass, just without asserting
+        // anything.
+        let mut offenders = Vec::new();
+        let mut stack = vec![
+            std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src")),
+            std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/tests")),
+        ];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("a readable source tree") {
+                let path = entry.expect("a readable entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|ext| ext != "rs")
+                    || path.file_name().is_some_and(|name| name == "lib.rs")
+                {
+                    continue;
+                }
+                let source = std::fs::read_to_string(&path).expect("a readable source");
+                if source.contains("set_error_handler(") || source.contains("FallbackErrorHandler")
+                {
+                    offenders.push(path.display().to_string());
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "only `run` may install a fallback error handler: {offenders:?}"
+        );
+    }
 
     /// The 16 `debug_assert!` sites in this crate are load-bearing -
     /// geometry invariants that hold or the mesh is wrong - and they cost
