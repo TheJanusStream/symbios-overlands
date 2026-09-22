@@ -145,7 +145,12 @@ jobs:
           # app:        57.9 MB raw / 15.95 MB gzip on 2026-08-29
           check ./dist/symbios-overlands_bg.wasm 65000000 18000000
           # gen-worker:  3.25 MB raw /  0.68 MB gzip on 2026-08-29
-          check ./dist/gen-worker_bg.wasm 4000000 800000
+          #              3.57 MB raw /  0.80 MB gzip on 2026-09-22, after the
+          # outfit textures (#1403). Measured locally, that commit added
+          # 355 KB raw / 99 KB gzip, about three quarters of it serde code
+          # for the 35 texture configs' wire format, which crosses the worker
+          # boundary inside the avatar record (#1406).
+          check ./dist/gen-worker_bg.wasm 4000000 900000
           exit $fail
 
       - name: Setup Pages
