@@ -500,10 +500,11 @@ clip whose sheet or later frames look right is this, not a missing asset.
 walks them from the record's landing toward the origin (`--walk-from x,z` /
 `--walk-to x,z` override the line, `--walker-pace` the speed,
 `--walker-wear satchel,circlet` dresses every body, and `--walker-outfit
-top_hue,top_shade,leg_hue,leg_shade` - the avatar editor's four axes, each
-0..1, the flag repeated once per body in seed order - changes their
-clothes, which no seed does: a reroll never touches the outfit, so every
-seeded body ships in the engine's one default). The first seed is the body
+#top,#trousers[,sleeve,leg]` - the two garments' colours in hex and
+optionally their lengths as shares of the limb, 0.5 being the elbow or the
+knee, the flag repeated once per body in seed order - holds their clothes
+fixed; without it each body wears the outfit its seed rolls, since engine
+0.10 dresses a re-roll (#1404)). The first seed is the body
 `--focus walker` follows; the others walk beside it, `--walker-spread`
 metres apart (default 1.6) on alternate sides and each half a metre further
 back, so three seeds read as friends walking together (#1352). They are

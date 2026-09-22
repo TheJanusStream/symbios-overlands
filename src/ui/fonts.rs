@@ -969,6 +969,14 @@ pub(crate) mod glyph_coverage_tests {
     /// four of them in 0.9.1's literals, three in 0.10.0's. Scanned by
     /// lexing the literals rather than grepping the lines, because the `⚠`
     /// sits in a `\`-continued string that a line-oriented scan walks past.
+    ///
+    /// Re-scanned against 0.11.0 (#1404, the outfit's colours, lengths and
+    /// textures): the same seven. The outfit section's new controls are all
+    /// ASCII - its swatch marker is the existing bullet. It also hosts
+    /// `bevy_symbios_texture`'s config panels now, for a garment's texture,
+    /// and those draw one glyph this list does not probe: U+2192 in the
+    /// Shingle panel's label, tofu here and already in the room editor's
+    /// Material Forge before #1404 (#1405).
     const HOSTED_EDITOR_GLYPHS: &[char] = &[
         '·', // U+00B7, axis readouts
         // An escape, not the glyph: the 2026-09-14 hyphen sweep rewrote the

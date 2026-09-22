@@ -74,28 +74,40 @@ pub(super) struct WalkerSpec {
     /// Seconds of walking before the first captured frame, so a clip opens
     /// mid-stride rather than on the first step.
     pub(super) lead: f32,
-    /// `--walker-outfit`, one per body in `seeds` order: the editor's four
-    /// outfit axes (top hue, top shade, leg hue, leg shade), replacing the
-    /// engine's one default outfit every seeded body otherwise wears. A
-    /// body past the end of this list wears that default.
-    pub(super) outfits: Vec<[f32; 4]>,
+    /// `--walker-outfit`, one per body in `seeds` order: the garments'
+    /// colours and optionally their lengths, over the outfit the body's seed
+    /// rolls. A body past the end of this list wears what it rolled.
+    pub(super) outfits: Vec<WalkerOutfit>,
     /// `--walker-spread`: metres between neighbouring bodies across the
     /// line of walk.
     pub(super) spread: f32,
 }
 
+/// One `--walker-outfit`: the top's and the trousers' sRGB colours, and
+/// optionally the sleeve's and the trouser leg's lengths as shares of the
+/// limb (engine 0.10, #1404).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct WalkerOutfit {
+    pub(super) top: [f32; 3],
+    pub(super) trousers: [f32; 3],
+    pub(super) lengths: Option<(f32, f32)>,
+}
+
 /// The body one `--walker` seed rolls: the seed's default record - the
-/// same derivation a fresh account takes - in the outfit asked for.
+/// same derivation a fresh account takes, outfit included since engine
+/// 0.10 rolls one (#358) - in the colours and lengths asked for.
 pub(super) fn walker_record(
     seed: u64,
-    outfit: Option<[f32; 4]>,
+    outfit: Option<WalkerOutfit>,
 ) -> crate::pds::avatar::EngineAvatarRecord {
     let mut record = engine_default_for_seed(seed);
-    if let Some([top_hue, top_shade, leg_hue, leg_shade]) = outfit {
-        record.outfit.top_hue = top_hue;
-        record.outfit.top_shade = top_shade;
-        record.outfit.leg_hue = leg_hue;
-        record.outfit.leg_shade = leg_shade;
+    if let Some(outfit) = outfit {
+        record.outfit.top.colour = outfit.top;
+        record.outfit.trousers.colour = outfit.trousers;
+        if let Some((sleeve, leg)) = outfit.lengths {
+            record.outfit.top.length = sleeve;
+            record.outfit.trousers.length = leg;
+        }
         // Onto the wire's grid, as the editor's own sliders land.
         record.sanitize();
     }
@@ -602,27 +614,54 @@ mod tests {
         assert_eq!(companion_offset(4, 1.6), (-3.2, -2.0));
     }
 
-    /// A reroll never touches the outfit, so every seed wears the engine
-    /// default; `--walker-outfit` is what changes it, and the values land
-    /// on the wire's grid exactly as the editor's sliders would.
+    /// Since engine 0.10 a seed rolls its own outfit (#358), so two seeds
+    /// dress differently with no flag; `--walker-outfit` holds the colours
+    /// and, when given, the lengths, and lands them on the wire's grid
+    /// exactly as the editor's own controls would.
     #[test]
-    fn the_walker_outfit_replaces_the_one_default_every_seed_wears() {
+    fn the_walker_outfit_replaces_the_outfit_a_seed_rolls() {
         let plain = walker_record(3, None);
-        let default = symbios_avatar::dress::OutfitParams::default();
-        assert_eq!(plain.outfit, default, "no flag: the shipped outfit");
         assert_eq!(
-            walker_record(40, None).outfit,
-            default,
-            "another seed: the same shipped outfit"
+            plain.outfit,
+            engine_default_for_seed(3).outfit,
+            "no flag: the outfit the seed rolled"
         );
-        let record = walker_record(3, Some([0.6, 0.45, 0.1, 0.25]));
-        let o = &record.outfit;
-        assert!((o.top_hue - 0.6).abs() < 1e-3, "{}", o.top_hue);
-        assert!((o.top_shade - 0.45).abs() < 1e-3, "{}", o.top_shade);
-        assert!((o.leg_hue - 0.1).abs() < 1e-3, "{}", o.leg_hue);
-        assert!((o.leg_shade - 0.25).abs() < 1e-3, "{}", o.leg_shade);
+        assert_ne!(
+            walker_record(40, None).outfit,
+            plain.outfit,
+            "another seed: another outfit"
+        );
+        let coloured = walker_record(
+            3,
+            Some(WalkerOutfit {
+                top: [0.6, 0.45, 0.1],
+                trousers: [0.1, 0.2, 0.25],
+                lengths: None,
+            }),
+        );
+        let o = &coloured.outfit;
+        assert!((o.top.colour[0] - 0.6).abs() < 1e-3, "{:?}", o.top.colour);
+        assert!(
+            (o.trousers.colour[2] - 0.25).abs() < 1e-3,
+            "{:?}",
+            o.trousers.colour
+        );
         assert_eq!(
-            record.archetype, plain.archetype,
+            o.top.length, plain.outfit.top.length,
+            "lengths not asked for keep"
+        );
+        let cut = walker_record(
+            3,
+            Some(WalkerOutfit {
+                top: [0.6, 0.45, 0.1],
+                trousers: [0.1, 0.2, 0.25],
+                lengths: Some((0.3, 0.6)),
+            }),
+        );
+        assert!((cut.outfit.top.length - 0.3).abs() < 1e-3);
+        assert!((cut.outfit.trousers.length - 0.6).abs() < 1e-3);
+        assert_eq!(
+            cut.archetype, plain.archetype,
             "the outfit is all that changed"
         );
     }

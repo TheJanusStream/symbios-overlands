@@ -429,12 +429,14 @@ struct Args {
     /// is NOT settable: a non-zero one quits every WebGL2 client.
     #[arg(long)]
     hair_switch: Option<f32>,
-    /// With `--walker`: a body's outfit as the avatar editor's four axes,
-    /// `top_hue,top_shade,leg_hue,leg_shade`, each 0..1 (#1351). Every
-    /// seeded body ships in the engine's one default outfit - a reroll
-    /// never touches it - so this is the only way to see a walker in
-    /// anything else. Repeat the flag once per body, in `--walker` order;
-    /// bodies past the last one keep the shipped default.
+    /// With `--walker`: a body's outfit as the top's and the trousers'
+    /// sRGB colours in hex, then optionally the sleeve's and the trouser
+    /// leg's lengths as shares of the limb (0.5 the elbow or knee) -
+    /// `#c0392b,#1f2a44` or `#c0392b,#1f2a44,0.3,1` (#1351, #1404). A seeded
+    /// body wears the outfit its seed rolls (engine 0.10, #358), so this is
+    /// how to hold one fixed for a comparison. Repeat the flag once per body,
+    /// in `--walker` order; bodies past the last one keep their rolled
+    /// outfit.
     #[arg(long, action = clap::ArgAction::Append)]
     walker_outfit: Vec<String>,
     /// With `--walker`: metres between neighbouring bodies across the line
@@ -1176,18 +1178,37 @@ fn parse_hex_colour(s: &str) -> Result<[u8; 3], String> {
     Ok([channel(0)?, channel(2)?, channel(4)?])
 }
 
-/// Parse `--walker-outfit`: four comma-separated axes in `0..=1`, in the
-/// avatar editor's order - top hue, top shade, leg hue, leg shade.
-fn parse_outfit(s: &str) -> Result<[f32; 4], String> {
+/// Parse `--walker-outfit`: the top's and the trousers' colours as hex
+/// sRGB, then optionally the sleeve's and the leg's lengths in `0..=1`.
+fn parse_outfit(s: &str) -> Result<world::WalkerOutfit, String> {
     let bad = || {
-        format!("--walker-outfit {s:?}: expected top_hue,top_shade,leg_hue,leg_shade, each 0..1")
+        format!(
+            "--walker-outfit {s:?}: expected #top,#trousers[,sleeve,leg] - two hex \
+             colours, then optionally two lengths in 0..1"
+        )
     };
-    let v: Vec<f32> = s
-        .split(',')
-        .map(|p| p.trim().parse::<f32>().map_err(|_| bad()))
-        .collect::<Result<_, _>>()?;
-    match v.as_slice() {
-        [a, b, c, d] if v.iter().all(|x| (0.0..=1.0).contains(x)) => Ok([*a, *b, *c, *d]),
+    let parts: Vec<&str> = s.split(',').map(str::trim).collect();
+    let colour = |part: &str| -> Result<[f32; 3], String> {
+        let bytes = parse_hex_colour(part).map_err(|_| bad())?;
+        Ok(bytes.map(|byte| f32::from(byte) / 255.0))
+    };
+    let length = |part: &str| -> Result<f32, String> {
+        part.parse::<f32>()
+            .ok()
+            .filter(|length| (0.0..=1.0).contains(length))
+            .ok_or_else(bad)
+    };
+    match parts.as_slice() {
+        [top, trousers] => Ok(world::WalkerOutfit {
+            top: colour(top)?,
+            trousers: colour(trousers)?,
+            lengths: None,
+        }),
+        [top, trousers, sleeve, leg] => Ok(world::WalkerOutfit {
+            top: colour(top)?,
+            trousers: colour(trousers)?,
+            lengths: Some((length(sleeve)?, length(leg)?)),
+        }),
         _ => Err(bad()),
     }
 }
@@ -1651,12 +1672,21 @@ mod tests {
     }
 
     #[test]
-    fn a_walker_outfit_is_four_unit_axes_in_the_editor_order() {
-        assert_eq!(
-            parse_outfit("0.6, 0.45,0.1,0.25").unwrap(),
-            [0.6, 0.45, 0.1, 0.25]
-        );
-        for bad in ["0.6,0.45,0.1", "0.6,0.45,0.1,1.5", "blue,0.4,0.1,0.2", ""] {
+    fn a_walker_outfit_is_two_hex_colours_and_optionally_two_lengths() {
+        let plain = parse_outfit("#ff0000, 000080").unwrap();
+        assert_eq!(plain.top, [1.0, 0.0, 0.0]);
+        assert_eq!(plain.trousers, [0.0, 0.0, 128.0 / 255.0]);
+        assert_eq!(plain.lengths, None);
+        let cut = parse_outfit("#ff0000,#000080,0.3,1").unwrap();
+        assert_eq!(cut.lengths, Some((0.3, 1.0)));
+        for bad in [
+            "#ff0000",
+            "#ff0000,#000080,0.3",
+            "#ff0000,#000080,0.3,1.5",
+            "red,#000080",
+            "0.6,0.45,0.1,0.25",
+            "",
+        ] {
             let err = parse_outfit(bad).unwrap_err();
             assert!(err.contains("--walker-outfit"), "{bad:?}: {err}");
         }
