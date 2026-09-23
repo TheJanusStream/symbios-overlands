@@ -59,11 +59,14 @@
 //! * [`inbound`] - [`inbound::handle_incoming_messages`] dispatcher.
 //! * [`broadcast`] - outbound `Transform` / `Identity` /
 //!   `AvatarStateUpdate` / `RoomStateUpdate` writers.
+//! * [`chat_send`] - sending one line of chat as the local player, the one
+//!   path the chat window and the agent client share (#1417).
 //! * [`chunk`] - app-layer fragmentation/reassembly that carries reliable
 //!   messages past WebRTC's 64 KiB SCTP message ceiling (#716).
 //! * [`smoother`] - jitter-buffered playout (cubic Hermite spline).
 
 mod broadcast;
+pub mod chat_send;
 pub mod chunk;
 mod inbound;
 mod lifecycle;

@@ -32,11 +32,13 @@ use super::OauthRefreshCtx;
 /// response is discarded and only the retry's status/body are returned.
 ///
 /// There is deliberately no `oauth_get_with_refresh` sibling to
-/// [`oauth_post_with_refresh`]. This helper has exactly one caller,
-/// [`fetch_session_identity`], which runs immediately after the token
-/// exchange - the access token it uses is seconds old, so there is
-/// nothing for a refresh wrapper to heal. An unused symmetric helper
-/// would be a claim of coverage that no call site relies on.
+/// [`oauth_post_with_refresh`]. This helper has two callers and neither
+/// needs one: [`fetch_session_identity`] runs immediately after the token
+/// exchange, on an access token seconds old, and
+/// [`get_relay_service_auth`](super::get_relay_service_auth) is only called
+/// after its caller has refreshed an expired token itself - the resume
+/// paths and the periodic re-mint all do (#1425). An unused symmetric
+/// helper would be a claim of coverage that no call site relies on.
 pub async fn oauth_get_with_nonce_retry(
     oauth_session: &OAuthSession,
     url: &str,
@@ -80,8 +82,11 @@ pub async fn oauth_post_with_nonce_retry(
     Ok((status, body))
 }
 
-/// Refresh the OAuth access token and re-persist the rotated `TokenSet`
-/// to the WASM session blob. On native this is a thin pass-through.
+/// Refresh the OAuth access token and save the rotated `TokenSet` wherever
+/// this session is kept: the context's
+/// [`rotation_sink`](OauthRefreshCtx::rotation_sink) when it has one (an
+/// agent daemon's session file, #1414), and the WASM session blob. The app's
+/// native sessions live in memory, so for them this is a thin pass-through.
 ///
 /// `proto_blue_oauth::OAuthSession::refresh` is internally mutex-serialised
 /// so concurrent callers share one `/token` round-trip; we trust that
@@ -94,6 +99,20 @@ pub async fn refresh_session(
         .refresh(&refresh.client, &refresh.server_metadata)
         .await
         .map_err(|e| format!("refresh: {e}"))?;
+    // The refresh token this call presented is spent, so a session a later
+    // process resumes has to have the new one on disk before anything can
+    // lose it (#1414). Logged rather than returned: the session in memory
+    // is good, and failing the caller's write over the bookkeeping would be
+    // worse. The cost lands on the next start, which will need a fresh
+    // sign-in - hence `error`, not `warn`.
+    if let Some(sink) = &refresh.rotation_sink
+        && let Err(e) = sink.save(&session.token_set())
+    {
+        bevy::prelude::error!(
+            "could not save the rotated token set; the next start will need a fresh \
+             sign-in: {e}"
+        );
+    }
     #[cfg(target_arch = "wasm32")]
     {
         // Persist the rotated token set so a subsequent reload doesn't
@@ -377,8 +396,27 @@ mod tests {
                 fetcher,
             )),
             server_metadata,
+            rotation_sink: None,
         };
         (session, ctx)
+    }
+
+    /// A [`TokenSetSink`](crate::oauth::TokenSetSink) that keeps every token
+    /// set it was handed, or refuses them all.
+    #[derive(Default)]
+    struct RecordingSink {
+        saved: Mutex<Vec<TokenSet>>,
+        refuse: bool,
+    }
+
+    impl crate::oauth::TokenSetSink for RecordingSink {
+        fn save(&self, token_set: &TokenSet) -> Result<(), String> {
+            if self.refuse {
+                return Err("disk full".into());
+            }
+            self.saved.lock().unwrap().push(token_set.clone());
+            Ok(())
+        }
     }
 
     /// Read the claims out of a compact JWS without verifying it. The
@@ -667,6 +705,133 @@ mod tests {
     /// has to catch that - and, more importantly, has to catch nothing else:
     /// a timeout or a 5xx called terminal would disable Save on a session
     /// whose next attempt would have worked.
+    /// **The relay token mint survives a cold nonce cache** (#1425).
+    ///
+    /// THE SEQUENCE: a session rebuilt in a fresh process mints its relay
+    /// token as the first request it ever sends to its PDS. The PDS answers
+    /// `401 use_dpop_nonce` with the nonce in a header, and the mint has to
+    /// replay with it - a bare GET handed the 401 back and the agent daemon
+    /// could not sign in at all.
+    #[tokio::test]
+    async fn the_relay_token_mint_survives_the_first_use_dpop_nonce_challenge() {
+        let script = Scripted::new(
+            vec![],
+            vec![
+                reply(
+                    401,
+                    r#"{"error":"use_dpop_nonce"}"#,
+                    &[
+                        ("dpop-nonce", "nonce-from-server"),
+                        ("www-authenticate", r#"DPoP error="use_dpop_nonce""#),
+                    ],
+                ),
+                reply(200, r#"{"token":"relay-token"}"#, &[]),
+            ],
+        );
+        let (session, _ctx) = rig(&script, "access-1", "2099-01-01T00:00:00Z");
+        let session = bevy_symbios_multiuser::auth::AtprotoSession {
+            did: "did:plc:tester".into(),
+            handle: "tester.example".into(),
+            pds_url: ISSUER.into(),
+            session: Arc::new(session),
+        };
+
+        let token = crate::oauth::get_relay_service_auth(&session, "relay.example")
+            .await
+            .expect("the replay mints the token");
+
+        assert_eq!(token, "relay-token");
+        let log = script.log();
+        assert_eq!(log.len(), 2, "sent once, replayed once");
+        assert!(
+            log.iter()
+                .all(|r| r.url.contains("com.atproto.server.getServiceAuth")),
+            "{:?}",
+            log.iter().map(|r| &r.url).collect::<Vec<_>>()
+        );
+        let retry = dpop_claims(log[1].headers.get("dpop").expect("retry proof"));
+        assert_eq!(
+            retry.get("nonce").and_then(|v| v.as_str()),
+            Some("nonce-from-server")
+        );
+    }
+
+    /// **A landed refresh is saved as part of the refresh** (#1414).
+    ///
+    /// An agent daemon resumes its session from a file, and the refresh
+    /// token in that file is spent the moment a refresh presents it. The
+    /// rotated pair has to reach the sink inside `refresh_session` itself,
+    /// not on some later tick that a crash could skip - so this asserts
+    /// the sink holds the NEW refresh token by the time the call returns.
+    #[tokio::test]
+    async fn a_landed_refresh_hands_the_rotated_token_set_to_the_sink() {
+        let script = Scripted::new(vec![rotated_token("access-2", "refresh-2")], vec![]);
+        let (session, mut ctx) = rig(&script, "access-1", "2020-01-01T00:00:00Z");
+        let sink = Arc::new(RecordingSink::default());
+        ctx.rotation_sink = Some(sink.clone());
+
+        refresh_session(&session, &ctx)
+            .await
+            .expect("the refresh lands");
+
+        let saved = sink.saved.lock().unwrap().clone();
+        assert_eq!(saved.len(), 1, "one refresh, one save");
+        assert_eq!(saved[0].access_token, "access-2");
+        assert_eq!(
+            saved[0].refresh_token.as_deref(),
+            Some("refresh-2"),
+            "the refresh token the NEXT start must present, not the spent one"
+        );
+    }
+
+    /// **A refused refresh saves nothing** (#1414): there is no new token set
+    /// to keep, and overwriting the stored one with the in-memory copy would
+    /// only re-save what the server just refused.
+    #[tokio::test]
+    async fn a_refused_refresh_leaves_the_sink_untouched() {
+        let script = Scripted::new(
+            vec![reply(
+                400,
+                r#"{"error":"invalid_grant","error_description":"refresh token revoked"}"#,
+                &[("content-type", "application/json")],
+            )],
+            vec![],
+        );
+        let (session, mut ctx) = rig(&script, "access-1", "2020-01-01T00:00:00Z");
+        let sink = Arc::new(RecordingSink::default());
+        ctx.rotation_sink = Some(sink.clone());
+
+        let err = refresh_session(&session, &ctx)
+            .await
+            .expect_err("a revoked refresh token cannot be rotated");
+
+        assert!(refresh_is_terminal(&err), "{err}");
+        assert!(sink.saved.lock().unwrap().is_empty(), "nothing was rotated");
+    }
+
+    /// **A sink that cannot save does not fail the refresh** (#1414).
+    ///
+    /// Pinning a decision: the session in memory is rotated and good, and
+    /// the caller is usually a write or a relay-token mint that has nothing
+    /// to do with the bookkeeping. Failing it would turn a disk problem into
+    /// a lost Save; the cost of the unsaved rotation is a fresh sign-in on
+    /// the next start, which the error log says.
+    #[tokio::test]
+    async fn a_sink_that_cannot_save_does_not_fail_the_refresh() {
+        let script = Scripted::new(vec![rotated_token("access-2", "refresh-2")], vec![]);
+        let (session, mut ctx) = rig(&script, "access-1", "2020-01-01T00:00:00Z");
+        ctx.rotation_sink = Some(Arc::new(RecordingSink {
+            refuse: true,
+            ..RecordingSink::default()
+        }));
+
+        refresh_session(&session, &ctx)
+            .await
+            .expect("the refresh itself landed");
+
+        assert_eq!(session.token_set().access_token, "access-2");
+    }
+
     #[test]
     fn only_a_dead_refresh_token_is_terminal() {
         // The pinned shape: `400 invalid_grant` from the token endpoint,

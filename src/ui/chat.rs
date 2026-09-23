@@ -291,72 +291,21 @@ pub fn chat_ui(
                         let submit =
                             send.clicked() || crate::ui::shortcuts::enter_submitted(ui, &response);
 
-                        if submit && !input.trim().is_empty() {
-                            // Enforce a strict per-message length cap *before*
-                            // the text is broadcast. Otherwise a peer could
-                            // paste an 800 KiB junk string (well under the 1
-                            // MiB packet limit) and every guest would try to
-                            // word-wrap it in egui on every frame - an instant
-                            // room-wide DoS.
-                            //
-                            // CHARACTERS, not bytes (#1264 f362): the
-                            // old cap gave a CJK writer a third of
-                            // everyone else's message length. The
-                            // field's `char_limit` below means this
-                            // clip cannot fire on anything a person
-                            // typed or pasted into it; it stays as
-                            // the invariant's enforcement, because
-                            // what is broadcast must be what the
-                            // limit says however the draft got here.
-                            let trimmed = input.trim();
-                            let clipped: String =
-                                trimmed.chars().take(cfg::MAX_MESSAGE_CHARS).collect();
-                            // Strip ASCII control characters (newlines,
-                            // carriage returns, form feeds, …) before either
-                            // pushing to our own HUD or broadcasting. The
-                            // receiver runs the same filter defensively, so
-                            // skipping it here previously left the local
-                            // sender's row showing a multi-line paste while
-                            // every remote peer saw a single-line version -
-                            // a permanent visual desync on the sender's HUD.
-                            let text: String = clipped
-                                .chars()
-                                .map(|c| if c.is_control() && c != '\t' { ' ' } else { c })
-                                .collect();
+                        if submit
+                            && let Some(text) =
+                                crate::network::chat_send::outgoing_chat_line(&input)
+                        {
                             input.clear();
                             response.request_focus();
-
-                            let (did, author) = match session.as_ref() {
-                                Some(s) => (Some(s.did.clone()), s.handle.clone()),
-                                None => (None, "me".to_owned()),
-                            };
-                            // Capped + wall-clock-stamped (#846): local sends
-                            // used to push uncapped with a session-relative
-                            // stamp.
-                            // Stamped with the delivery outcome resolved above
-                            // (#1213) - the sender's HUD used to render a
-                            // message that reached nobody exactly like one that
-                            // was delivered.
-                            chat.push_sent(did, author, text.clone(), delivery);
-
-                            // Chat-keyword emotes (#1068): my own body plays what
-                            // I just said, exactly as every peer's does. Without
-                            // this the sender is the one person in the room who
-                            // never sees their own gesture, which reads as the
-                            // feature being broken rather than as an omission.
-                            // Same `request_for` the inbound path uses, so the two
-                            // cannot drift.
-                            if let Ok(chassis) = local.single()
-                                && let Some(request) =
-                                    crate::player::emote::request_for(chassis, &text)
-                            {
-                                emotes.write(request);
-                            }
-
-                            writer.write(Broadcast {
-                                payload: OverlandsMessage::Chat { text },
-                                channel: ChannelKind::Reliable,
-                            });
+                            crate::network::chat_send::send_chat_line(
+                                text,
+                                session.as_deref(),
+                                delivery,
+                                local.single().ok(),
+                                &mut chat,
+                                &mut emotes,
+                                &mut writer,
+                            );
                         }
                     });
                 });

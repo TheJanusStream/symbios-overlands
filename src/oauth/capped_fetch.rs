@@ -353,7 +353,7 @@ mod tests {
         let session_new = concat!("OAuthSession", "::new(");
         let client_new = concat!("OAuthClient", "::new(");
 
-        // The three production constructions, by file. A count alone is a
+        // The production constructions, by file. A count alone is a
         // weak control here: `refresh.rs`'s scripted-transport tests are
         // gated `#[cfg(all(test, …))]` too, so `non_test_source` does not
         // cut them and their two `with_fetch_handler` calls would satisfy a
@@ -362,6 +362,7 @@ mod tests {
             "src/oauth/mod.rs",            // the shared OAuthClient
             "src/oauth/auth_flow.rs",      // the session a login builds
             "src/ui/login/wasm_resume.rs", // the session a reload rebuilds
+            "src/agent/daemon/resume.rs",  // the session an agent daemon rebuilds (#1415)
         ];
 
         let mut uncapped: Vec<String> = Vec::new();

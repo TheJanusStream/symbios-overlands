@@ -47,6 +47,8 @@
 //!   (compiled only on `wasm32`).
 //! * [`native_server`] - the `tiny_http` loopback callback listener
 //!   (compiled only on native).
+//! * [`stand_in`] - a session signed in to nothing, for the headless tools
+//!   (compiled only on native).
 
 mod auth_flow;
 pub mod capped_fetch;
@@ -56,6 +58,8 @@ mod native_server;
 mod refresh;
 mod service_token;
 mod session_store;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod stand_in;
 mod util;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
@@ -221,6 +225,26 @@ pub struct AuthHandoffPending;
 pub struct OauthRefreshCtx {
     pub client: Arc<OAuthClient>,
     pub server_metadata: OAuthServerMetadata,
+    /// Where [`refresh_session`] saves each rotated token set, for a session
+    /// that a later process resumes from storage: the agent daemon's session
+    /// file (#1414). `None` for the app's own sessions - native keeps its
+    /// session in memory for the life of the process, and wasm saves through
+    /// `wasm::update_persisted_token_set`.
+    pub rotation_sink: Option<Arc<dyn TokenSetSink>>,
+}
+
+/// Somewhere a rotated [`TokenSet`](proto_blue_oauth::types::TokenSet) is
+/// saved the moment a refresh lands (#1414).
+///
+/// Refresh tokens are single-use: every refresh spends the one it presents
+/// and hands back a new one. A session that lives only in memory can let the
+/// old one go, but a session that a later process resumes must have the new
+/// one written down before anything can lose it, or that process starts from
+/// a token the authorization server has already spent, and the only way back
+/// is signing in again.
+pub trait TokenSetSink: Send + Sync {
+    /// Save `token_set` in place of the one stored before it.
+    fn save(&self, token_set: &proto_blue_oauth::types::TokenSet) -> Result<(), String>;
 }
 
 /// Shared [`OAuthClient`] used by every login attempt this session. Wraps

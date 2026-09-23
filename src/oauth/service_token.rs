@@ -51,6 +51,13 @@ struct GetServiceAuthResponse {
 /// wildcard *audience* instead, so one static client metadata document
 /// serves every relay host. The relay itself ignores the token's `lxm`
 /// claim; it validates `iss`/`exp`/`nbf`/`aud` only.
+///
+/// Through the DPoP-nonce retry (#1425). A session rebuilt in a fresh
+/// process, like the agent daemon's or the browser's after a reload, has no
+/// nonce for its PDS yet, and this mint can be the first request it sends
+/// there: the PDS answers `401 use_dpop_nonce`, and a bare `get` handed that
+/// back as a failed sign-in. A fresh login never showed it, because its
+/// `getSession` had already fetched the nonce.
 pub async fn get_relay_service_auth(
     session: &AtprotoSession,
     relay_host: &str,
@@ -60,20 +67,14 @@ pub async fn get_relay_service_auth(
     url.query_pairs_mut()
         .append_pair("aud", &format!("did:web:{relay_host}"))
         .append_pair("lxm", super::RELAY_SERVICE_LXM);
-    let resp = session
-        .session
-        .get(url.as_str())
+    let (status, body) = super::refresh::oauth_get_with_nonce_retry(&session.session, url.as_str())
         .await
         .map_err(|e| format!("getServiceAuth: {e}"))?;
-    let status = resp.status();
     if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
         return Err(format!("getServiceAuth returned {status}: {body}"));
     }
-    let parsed: GetServiceAuthResponse = resp
-        .json()
-        .await
-        .map_err(|e| format!("getServiceAuth decode: {e}"))?;
+    let parsed: GetServiceAuthResponse =
+        serde_json::from_str(&body).map_err(|e| format!("getServiceAuth decode: {e}"))?;
     Ok(parsed.token)
 }
 

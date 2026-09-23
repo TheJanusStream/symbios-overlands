@@ -200,6 +200,14 @@ name = "render"
 path = "src/bin/render.rs"
 test = false
 
+# The agent client (#1413): a headless Overlands client an AI agent drives
+# from the command line, signed in as its own account
+# (`cargo run --profile test-release --bin agent -- --help`). Unix-only.
+[[bin]]
+name = "agent"
+path = "src/bin/agent.rs"
+test = false
+
 # The one integration-test target (#1179). Each `tests/*.rs` is a `mod` of
 # `tests/main.rs`; nextest still runs every test in its own process, so
 # parallelism and isolation are unchanged.

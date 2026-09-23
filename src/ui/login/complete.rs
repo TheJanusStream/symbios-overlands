@@ -176,6 +176,9 @@ pub(super) fn spawn_complete_task(
             let refresh_ctx = crate::oauth::OauthRefreshCtx {
                 client: client.clone(),
                 server_metadata: server_metadata.clone(),
+                // Native keeps this session in memory; wasm saves its
+                // rotations through `wasm::update_persisted_token_set`.
+                rotation_sink: None,
             };
 
             // Persist the session blob to localStorage *before* the

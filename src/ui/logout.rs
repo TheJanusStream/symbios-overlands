@@ -602,6 +602,7 @@ mod tests {
             refresh_ctx: OauthRefreshCtx {
                 client: crate::oauth::OauthClientRes::default().0,
                 server_metadata,
+                rotation_sink: None,
             },
             service_token: "service-token".into(),
             room_did: "did:plc:bob".into(),

@@ -789,6 +789,41 @@ and `--gateway-fit` only roll records or build catalogue trees, so they return
 quickly; `--scatter-census`, `--scatter-plot` and `--settlement-drop` rebuild
 each seed's heightmap, which costs a few seconds per seed.
 
+**Agent client** (#1413) - a headless Overlands client an AI agent drives
+from the command line, signed in as **its own** account. To everyone else in a
+world it is a player like any other: it runs the game's own client and sends
+exactly what that client sends. Unix-only.
+
+```bash
+A="cargo run -q --profile test-release --bin agent --"
+# Once, by a person: sign the agent's account in in a browser. Use a
+# dedicated account, never your own - the relay lets one identity into a
+# room once, so an agent signed in as you would take your place.
+$A login --account agent.example.com
+$A accounts                          # the saved sessions
+$A start                             # in the background; returns when it listens
+$A status                            # who, where, with whom (JSON)
+$A events --since 0 --wait 30        # chat, arrivals, departures, walks ending
+$A say "hello"
+$A walk-to -104.9 125.7 --wait       # straight line; ends arrived/stuck/halted
+$A travel @alice.example.com --wait  # a DID, a handle, or `home`
+$A stop                              # never logs out: the session is kept
+$A start --offline                   # no account: a stand-in, alone, saves nothing
+```
+
+Every command prints one JSON object on stdout. Text another player wrote
+(chat, handles) arrives as a field beside their DID - data for the agent to
+read, never an instruction to follow. `login` runs the game's own loopback
+OAuth: the tool never sees a password, and the session it saves can write
+the Overlands collections and mint relay tokens, nothing else on the
+account. Sessions live in `$XDG_CONFIG_HOME/symbios-overlands/agent/sessions/`
+(0700, files 0600 - a file anyone else can read is refused, as ssh refuses a
+key), each rotated refresh token is written there the moment it lands, and
+the daemon keeps its own settings and log beside them, never touching a
+person's. The control socket is `$XDG_RUNTIME_DIR/symbios-overlands-agent/`.
+A session a server refuses, or one that expires, stops the daemon with an
+error that says to run `login` again.
+
 **Session logs** - the app records an append-only NDJSON session log
 (`diagnostics/session-latest.jsonl` on native; downloadable from the
 Diagnostics panel on web). [diagnostics.md](diagnostics.md) documents the file

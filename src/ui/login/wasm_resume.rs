@@ -218,6 +218,9 @@ fn spawn_resume_task(
             let refresh_ctx = crate::oauth::OauthRefreshCtx {
                 client: client.clone(),
                 server_metadata: blob.server_metadata.clone(),
+                // The browser saves rotations through
+                // `wasm::update_persisted_token_set` instead.
+                rotation_sink: None,
             };
             // If the persisted access token has expired, rotate it before any
             // downstream call. A failure here is terminal - the refresh token

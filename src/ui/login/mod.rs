@@ -106,6 +106,20 @@ pub struct BeginAuthTask(bevy::tasks::Task<BeginOutcome>);
 #[derive(Component)]
 pub struct CompleteAuthTask(bevy::tasks::Task<CompleteOutcome>);
 
+impl CompleteAuthTask {
+    /// A sign-in finished somewhere other than this screen - the agent
+    /// daemon's session, resumed from its file (#1415) - handed to
+    /// [`poll_complete_auth_task`] so it is installed exactly as a fresh
+    /// login is. While it runs it also holds the login screen's world
+    /// backdrop off, since [`mirror_login_activity`] counts these tasks.
+    #[cfg(unix)]
+    pub(crate) fn resumed_elsewhere(
+        task: bevy::tasks::Task<Result<CompletedSession, String>>,
+    ) -> Self {
+        Self(task)
+    }
+}
+
 /// Spawn the `authorize()` round-trip for an already-known destination.
 ///
 /// The login form's own path (in [`login_ui`]) validates a typed PDS,

@@ -235,6 +235,13 @@ pub struct ChatHistory {
     /// has to live somewhere logout can scrub, and the history it belongs
     /// to is already that place.
     pub draft: String,
+    /// How many entries have ever been pushed (#1417). `messages` is capped
+    /// and cleared on travel, so neither its length nor an index says which
+    /// lines are new; this count only ever grows (until logout replaces the
+    /// whole history), so a reader that remembers it knows exactly how many
+    /// arrived since it last looked. The agent client turns them into
+    /// events that way.
+    pub pushed: u64,
 }
 
 impl ChatHistory {
@@ -282,6 +289,7 @@ impl ChatHistory {
             at_epoch_secs: now_epoch_secs(),
             delivery,
         });
+        self.pushed += 1;
         let cap = crate::config::ui::chat::MAX_HISTORY_ENTRIES;
         if self.messages.len() > cap {
             let drop = self.messages.len() - cap;

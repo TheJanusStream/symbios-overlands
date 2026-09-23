@@ -109,6 +109,14 @@ pub mod world_digest;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod render_tool;
 
+// The agent client (#1413): a headless Overlands client an AI agent drives
+// from the command line, signed in as its own account. Unix-only: it keeps
+// the account's credentials in owner-only files. Documented in its own
+// `//!` header - an outer doc here would move that header's links to the
+// crate root's scope.
+#[cfg(unix)]
+pub mod agent;
+
 /// Marker for the unlit sky cuboid spawned in `setup_lighting`. The world
 /// compiler uses this to retint the sky material when a room record's
 /// `environment.sky_color` changes.
@@ -180,8 +188,120 @@ pub fn run() {
     // Bevy window first. WASM reads from the URL bar - no I/O risk.
     let boot = boot_params::detect();
 
-    let fc = config::camera::fog::COLOR;
     let mut app = App::new();
+    build_client_app(&mut app, boot, ClientShell::Window);
+    app.run();
+}
+
+/// Where the client app runs.
+pub(crate) enum ClientShell {
+    /// A window on the desktop, or the page's canvas: the game as a person
+    /// plays it.
+    Window,
+    /// No window, no winit and no sound: the agent daemon (#1415). A
+    /// `ScheduleRunnerPlugin` drives the loop at one frame per `frame`, the
+    /// compute pool that runs the systems in parallel is held to
+    /// `compute_threads` (#1426), and the caller spawns the primary window
+    /// the UI and the gizmo read, which nothing renders to.
+    #[cfg(unix)]
+    Headless {
+        frame: std::time::Duration,
+        compute_threads: usize,
+    },
+}
+
+/// Bevy's default plugins as the client configures them for `shell`.
+fn client_default_plugins(shell: &ClientShell) -> bevy::app::PluginGroupBuilder {
+    // `webrtc_ice::agent::agent_internal` emits a `WARN` every
+    // ~200ms during ICE bring-up whenever the agent has zero
+    // candidate pairs ("pingAllCandidates called with no
+    // candidate pairs"). This is expected behaviour - candidate
+    // gathering + signalling of the remote side takes several
+    // seconds, and the agent keeps retrying the pairing loop in
+    // the meantime. Demote the whole agent_internal module to
+    // `error` so the handshake log stays readable; genuine ICE
+    // failures still surface via the `webrtc_ice` module's other
+    // error-level events.
+    let log = LogPlugin {
+        filter: format!(
+            "{},webrtc_ice::agent::agent_internal=error",
+            bevy::log::DEFAULT_FILTER
+        ),
+        ..default()
+    };
+    match shell {
+        ClientShell::Window => DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Symbios Overlands".into(),
+                    prevent_default_event_handling: false,
+                    ..default()
+                }),
+                // The [x] must not kill the process with unsaved edits
+                // aboard (#839): `intercept_window_close` routes it
+                // through the unsaved guard and exits via `AppExit`.
+                close_when_requested: false,
+                ..default()
+            })
+            .set(log),
+        #[cfg(unix)]
+        ClientShell::Headless {
+            compute_threads, ..
+        } => DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: None,
+                // With no window the default condition would end the app
+                // on its first frame; the daemon ends on `AppExit` alone.
+                exit_condition: bevy::window::ExitCondition::DontExit,
+                close_when_requested: false,
+                ..default()
+            })
+            .set(log)
+            // A daemon on somebody's desktop never makes a sound, so every
+            // sink is born silent. The master mute is the wrong lever here:
+            // it is an account preference the daemon would have to keep
+            // winning against.
+            .set(bevy::audio::AudioPlugin {
+                global_volume: bevy::audio::GlobalVolume::new(bevy::audio::Volume::SILENT),
+                ..default()
+            })
+            // Pipelines compile on the render thread rather than on the
+            // async compute pool. A daemon can exit a few frames after it
+            // starts - a refused session does exactly that - and tearing the
+            // device down under an in-flight compile aborted the process in
+            // the NVIDIA shader compiler ("double free or corruption"). It
+            // draws nothing until something asks to see, so nobody watches
+            // the hitch this costs.
+            .set(bevy::render::RenderPlugin {
+                synchronous_pipeline_compilation: true,
+                ..default()
+            })
+            // Dispatching the game's system graph across a thread per core
+            // was two thirds of an idle daemon's CPU (#1426): measured at
+            // 66% of a core in the compute pool alone, with the world
+            // standing still.
+            .set(TaskPoolPlugin {
+                task_pool_options: TaskPoolOptions {
+                    compute: bevy::app::TaskPoolThreadAssignmentPolicy {
+                        max_threads: *compute_threads,
+                        ..TaskPoolOptions::default().compute
+                    },
+                    ..default()
+                },
+            })
+            .disable::<bevy::winit::WinitPlugin>(),
+    }
+}
+
+/// Register every plugin, resource and system the client runs, hosted in
+/// `shell`.
+///
+/// [`run`] and the agent daemon (#1415) share this, so an agent is the game's
+/// own client rather than a copy of it: nothing here has a headless twin to
+/// keep in step, the way the render tool's `register_headless_*` registrars
+/// must be kept in step with the plugins they mirror.
+pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, shell: ClientShell) {
+    let fc = config::camera::fog::COLOR;
     // A command error must not end somebody's session (#1412).
     //
     // Bevy 0.19 routes an error nothing else handled - a command whose
@@ -209,42 +329,15 @@ pub fn run() {
     #[cfg(not(debug_assertions))]
     app.set_error_handler(bevy::ecs::error::error);
     app.insert_resource(ClearColor(Color::srgba(fc[0], fc[1], fc[2], fc[3])))
-        .add_plugins(
-            DefaultPlugins
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "Symbios Overlands".into(),
-                        prevent_default_event_handling: false,
-                        ..default()
-                    }),
-                    // The [x] must not kill the process with unsaved edits
-                    // aboard (#839): `intercept_window_close` routes it
-                    // through the unsaved guard and exits via `AppExit`.
-                    close_when_requested: false,
-                    ..default()
-                })
-                // `webrtc_ice::agent::agent_internal` emits a `WARN` every
-                // ~200ms during ICE bring-up whenever the agent has zero
-                // candidate pairs ("pingAllCandidates called with no
-                // candidate pairs"). This is expected behaviour - candidate
-                // gathering + signalling of the remote side takes several
-                // seconds, and the agent keeps retrying the pairing loop in
-                // the meantime. Demote the whole agent_internal module to
-                // `error` so the handshake log stays readable; genuine ICE
-                // failures still surface via the `webrtc_ice` module's other
-                // error-level events.
-                .set(LogPlugin {
-                    filter: format!(
-                        "{},webrtc_ice::agent::agent_internal=error",
-                        bevy::log::DEFAULT_FILTER
-                    ),
-                    ..default()
-                }),
-        )
+        .add_plugins(client_default_plugins(&shell))
         // The plugin's automatic primary-context pick is turned off by
         // `camera::CameraPlugin`, which names the world camera instead
         // (#1317); plugin order does not matter for that.
         .add_plugins(EguiPlugin::default());
+    #[cfg(unix)]
+    if let ClientShell::Headless { frame, .. } = shell {
+        app.add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(frame));
+    }
     // Native-only: WebGL2 lacks the POLYGON_MODE_LINE wgpu feature the
     // wireframe plugin depends on, and Overlands' WASM build can land on
     // either WebGPU or WebGL2 depending on the browser, so the safer
@@ -826,8 +919,7 @@ pub fn run() {
         .add_systems(
             Update,
             (clouds::track_cloud_layer_to_camera, track_skybox_to_camera),
-        )
-        .run();
+        );
 }
 
 /// Register the game's atmosphere - sun + cascaded shadows, global ambient,
@@ -837,7 +929,7 @@ pub fn run() {
 /// The headless render tool's `--world` mode calls this so a world sheet
 /// shows the room's sky the way the game does; `apply_environment_state`
 /// then re-tints all of it from the record exactly as it does in-game.
-/// **Keep this in step with the plugin list in [`run`]** - the same
+/// **Keep this in step with the plugin list in [`build_client_app`]** - the same
 /// keep-in-sync contract `world_builder::register_headless_spawn` and
 /// `terrain::register_headless_terrain` carry. Native-only under the render
 /// tool's own cfg (#1321): the wasm build never has a caller for it, and CI's
@@ -975,7 +1067,8 @@ mod gate_contract {
     /// SHIPPED build, and to nothing else.
     ///
     /// Two halves, both of which have already gone wrong somewhere in this
-    /// class. The handler must be installed exactly once, from `run`, so
+    /// class. The handler must be installed exactly once, from
+    /// `build_client_app` (which `run` and the agent daemon share, #1415), so
     /// that the dev loop and CI keep the panicking default - a command error
     /// is how #1410 was reported at all, and the regression tests for it
     /// (`vegetation_wind::foliage_despawned_before_the_swap_lands…`,
@@ -1044,7 +1137,7 @@ mod gate_contract {
         }
         assert!(
             offenders.is_empty(),
-            "only `run` may install a fallback error handler: {offenders:?}"
+            "only `build_client_app` may install a fallback error handler: {offenders:?}"
         );
     }
 

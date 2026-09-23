@@ -1555,6 +1555,125 @@ pub(crate) mod login {
 }
 
 // ---------------------------------------------------------------------------
+// Agent client (agent/, #1413)
+// ---------------------------------------------------------------------------
+// Unix-only like the client itself: the wasm check denies warnings, and a
+// constant nothing on that target reads is one.
+#[cfg(unix)]
+pub(crate) mod agent {
+    use std::time::Duration;
+
+    /// How long `agent login` waits for the browser consent before it gives
+    /// up and releases the loopback port the app's own login also uses.
+    pub const LOGIN_WAIT: Duration = Duration::from_secs(10 * 60);
+    /// The agent client's directory under the app's config directory
+    /// (`prefs::config_dir`): its saved sessions and its own settings, kept
+    /// apart from the ones a person signed in on this machine uses.
+    pub const HOME_DIR: &str = "agent";
+    /// Saved sessions, one file per account, under [`HOME_DIR`]. Private:
+    /// created 0700, and every file in it 0600.
+    pub const SESSIONS_DIR: &str = "sessions";
+    /// The daemon's own client settings (a `prefs::PrefsStore` directory),
+    /// under [`HOME_DIR`].
+    pub const PREFS_DIR: &str = "prefs";
+    /// One frame of the daemon's loop. Physics runs on its own fixed step
+    /// (64 Hz) either way, and so does the transform stream peers see; this
+    /// sets how often everything else - the network, the UI, the agent's
+    /// commands - gets a turn. Half a display's rate: nobody watches these
+    /// frames, and at 60 an idle daemon spent 81% of a core (#1426).
+    pub const FRAME: Duration = Duration::from_nanos(1_000_000_000 / 30);
+    /// Threads in the daemon's compute pool, which runs the game's systems in
+    /// parallel. Bevy's default is one per core, and dispatching a frame
+    /// across sixteen of them cost more than the frame's work (#1426).
+    /// Measured idle, offline, 30 Hz: default 51-56% of a core, 4 threads
+    /// 32%, 2 threads 27%, with no change in the time to enter a world.
+    pub const COMPUTE_THREADS: usize = 2;
+    /// The size of the window the daemon pretends to have, in pixels at a
+    /// scale factor of one. The UI lays itself out for at least 1280x720.
+    pub const VIEWPORT: (u32, u32) = (1280, 720);
+
+    // --- The control socket (#1416) ---
+
+    /// The directory under `$XDG_RUNTIME_DIR` holding one control socket per
+    /// running agent.
+    pub const RUNTIME_DIR_NAME: &str = "symbios-overlands-agent";
+    /// Where the sockets go instead, under [`HOME_DIR`], on a system with no
+    /// runtime directory.
+    pub const RUN_DIR: &str = "run";
+    /// Each account's daemon log, written by `agent start`, under
+    /// [`HOME_DIR`]. Private, like the sessions beside it: it names the
+    /// accounts and worlds the agent met. (Chat text stays out of it, as it
+    /// stays out of the game's own session log, #1144.)
+    pub const LOG_DIR: &str = "logs";
+    /// How many events the daemon keeps for `agent events`. An agent that
+    /// falls further behind is told how many it missed.
+    pub const EVENT_CAPACITY: usize = 1000;
+    /// The longest request line the socket reads. Commands are small; this
+    /// only bounds what a misbehaving client can make the daemon buffer.
+    pub const MAX_REQUEST_BYTES: u64 = 64 * 1024;
+    /// How long a connection has to send its request line.
+    pub const REQUEST_READ_TIMEOUT: Duration = Duration::from_secs(5);
+    /// How long a request for the world may wait for the daemon's frame to
+    /// answer it. A healthy daemon answers within a frame; this is for one
+    /// that has stopped running frames.
+    pub const WORLD_ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
+    /// The longest `agent events --wait` the daemon honours in one call; an
+    /// agent that wants to wait longer asks again.
+    pub const MAX_EVENT_WAIT: Duration = Duration::from_secs(60);
+    /// How long `agent start` waits for the daemon it launched to open its
+    /// socket before calling the start failed.
+    pub const START_WAIT: Duration = Duration::from_secs(60);
+    /// How often `agent start` checks for that socket.
+    pub const START_POLL: Duration = Duration::from_millis(100);
+
+    // --- Seeing (#1416) ---
+
+    /// How far `agent status` looks for placed things (m).
+    pub const NEARBY_RADIUS_M: f32 = 80.0;
+    /// The most placed things `agent status` lists, nearest first.
+    pub const NEARBY_MAX: usize = 12;
+
+    // --- Walking (#1418) ---
+
+    /// How close a body on foot has to get for a walk to have arrived (m).
+    pub const ARRIVE_ON_FOOT_M: f32 = 1.0;
+    /// The same for a driven body, which cannot stop on a coin (m).
+    pub const ARRIVE_WHEELED_M: f32 = 3.0;
+    /// How much closer counts as progress (m). Less than this is jitter.
+    pub const PROGRESS_STEP_M: f32 = 0.5;
+    /// How long a walk may go without progress before it is `stuck` (s).
+    pub const STUCK_AFTER_SECS: f64 = 6.0;
+    /// How far off the nose a point may be before a driven body steers
+    /// toward it: the sine of the angle, about 5 degrees.
+    pub const STEER_DEAD_ZONE: f32 = 0.08;
+    /// The longest `agent walk-to --wait` waits for the walk to end before
+    /// it gives up waiting (the walk itself carries on).
+    pub const WALK_WAIT: Duration = Duration::from_secs(30 * 60);
+
+    // --- Travel (#1419) ---
+
+    /// How long the unsaved-edits guard may stand asking before the daemon
+    /// withdraws the trip and says why: nobody is there to answer the
+    /// dialog it draws (s).
+    pub const GUARD_WAIT_SECS: f64 = 3.0;
+    /// The longest `agent travel --wait` waits for the trip to end.
+    pub const TRAVEL_WAIT: Duration = Duration::from_secs(5 * 60);
+
+    // --- Offline mode (#1415) ---
+
+    /// The identity an offline agent stands in as: a well-formed `did:plc`
+    /// no directory knows, so its world is the one seeded from it (the
+    /// loading gate reads an unknown identity as "nothing published").
+    pub const OFFLINE_DID: &str = "did:plc:agentofflinestandin22222";
+    /// The offline agent's handle, on a name that can never resolve.
+    pub const OFFLINE_HANDLE: &str = "agent.offline.invalid";
+    /// The relay an offline agent is pointed at: a name that can never
+    /// resolve (RFC 6761), so its socket never leaves the machine and it
+    /// meets nobody.
+    pub const OFFLINE_RELAY_HOST: &str = "relay.offline.invalid";
+}
+
+// ---------------------------------------------------------------------------
 // UI panels (ui/chat.rs, ui/diagnostics.rs, ui/avatar/, ui/room/, ui/login/)
 // ---------------------------------------------------------------------------
 pub(crate) mod ui {

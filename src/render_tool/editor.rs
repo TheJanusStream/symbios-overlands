@@ -15,7 +15,7 @@
 //!
 //! One thing stands in. The World Editor is owner-only (`session.did ==
 //! CurrentRoomDid`), and no OAuth handshake can run in a headless tool, so
-//! [`stand_in_session`] inserts an offline `AtprotoSession` for the world's
+//! [`stand_in_session`](crate::oauth::stand_in::stand_in_session) inserts an offline `AtprotoSession` for the world's
 //! own DID, built the way the crate's tests build theirs, with every URL on
 //! `example.invalid` so nothing it names can resolve. Nothing registered
 //! here performs network I/O: the lazy CJK font fetch is left out, the peer
@@ -45,7 +45,6 @@ use bevy_egui::{
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::{Broadcast, SendTo};
 
-use crate::oauth::OauthRefreshCtx;
 use crate::pds::{Placement, RoomRecord};
 use crate::protocol::OverlandsMessage;
 use crate::state::{AppState, LiveRoomRecord, PublishFeedback, StoredRoomRecord};
@@ -182,8 +181,14 @@ pub(super) fn register(
         .insert_resource(EditorHost)
         .insert_resource(opening)
         .insert_resource(layout)
-        .insert_resource(stand_in_session(did))
-        .insert_resource(stand_in_refresh_ctx())
+        .insert_resource(
+            crate::oauth::stand_in::stand_in_session(did, "you.example")
+                .expect("a stand-in session builds offline"),
+        )
+        .insert_resource(
+            crate::oauth::stand_in::stand_in_refresh_ctx()
+                .expect("a stand-in refresh context builds offline"),
+        )
         .insert_resource(StoredRoomRecord(record.clone()))
         // A returning owner: the Controls sheet was dismissed long ago and
         // one editor is up - the World Editor, or the Avatar editor under
@@ -427,49 +432,6 @@ fn register_avatar_editor(app: &mut App) {
 /// real TID shape, because the record is sanitised like any other.
 const WARDROBE_RKEY: &str = "3jzfcijpj2z2a";
 
-fn stand_in_session(did: &str) -> AtprotoSession {
-    use crate::oauth::capped_fetch::CappedFetcher;
-    use proto_blue_oauth::types::TokenSet;
-    use proto_blue_oauth::{DpopKey, DpopNonceCache, OAuthSession};
-
-    let token_set = TokenSet {
-        issuer: "https://example.invalid".into(),
-        sub: did.into(),
-        scope: "atproto".into(),
-        access_token: "render-tool".into(),
-        refresh_token: None,
-        token_type: "DPoP".into(),
-        expires_at: None,
-        aud: None,
-    };
-    AtprotoSession {
-        did: did.into(),
-        handle: "you.example".into(),
-        pds_url: "https://example.invalid".into(),
-        session: std::sync::Arc::new(OAuthSession::with_fetch_handler(
-            token_set,
-            DpopKey::generate().expect("an ES256 key generates offline"),
-            DpopNonceCache::new(),
-            std::sync::Arc::new(CappedFetcher::new()),
-        )),
-    }
-}
-
-/// The refresh context the World Editor requires beside the session. Never
-/// used: nothing here refreshes a token or publishes.
-fn stand_in_refresh_ctx() -> OauthRefreshCtx {
-    let server_metadata = serde_json::from_str(
-        r#"{"issuer":"https://example.invalid",
-            "authorization_endpoint":"https://example.invalid/authorize",
-            "token_endpoint":"https://example.invalid/token"}"#,
-    )
-    .expect("the stand-in server metadata parses");
-    OauthRefreshCtx {
-        client: crate::oauth::OauthClientRes::default().0,
-        server_metadata,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -580,7 +542,8 @@ mod tests {
 
     #[test]
     fn the_stand_in_owns_the_world_it_signs_into_and_no_other() {
-        let session = stand_in_session("did:render:253");
+        let session = crate::oauth::stand_in::stand_in_session("did:render:253", "you.example")
+            .expect("builds");
         let room = |did: &str| crate::state::CurrentRoomDid(did.to_string());
         assert!(ui::toolbar::owns_current_room(
             Some(&session),

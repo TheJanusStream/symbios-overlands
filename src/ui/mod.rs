@@ -156,6 +156,16 @@ mod tests {
              back.",
         ),
         (
+            "src/agent/daemon/",
+            "#1415: the agent daemon is a composition root, like lib.rs. It \
+             hands its resumed session to the login layer's own installer (a \
+             finished CompleteAuthTask), so the agent enters a world by the path \
+             a person's sign-in takes, and it stops on the login layer's own \
+             failure states (LoginError, SessionExpired). Mirroring those facts \
+             out of ui would give the one consumer that must behave exactly like \
+             the login screen a second copy of the login screen's rules.",
+        ),
+        (
             "src/render_tool/editor.rs",
             "#1353: the render tool's `--editor` host is a composition root, \
              like lib.rs. It schedules the game's own editor systems (the \

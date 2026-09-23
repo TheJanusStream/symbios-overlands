@@ -407,8 +407,19 @@ impl Slot<'_> {
 /// one-to-one, so two accounts never share a file, and keeps the name a
 /// single path component: no `/` or `\` survives, and it cannot be `.` or
 /// `..` because it ends in `.json`.
+///
+/// Shared with the agent client's saved sessions (#1414), which are kept per
+/// account under the same rule.
 #[cfg(not(target_arch = "wasm32"))]
-fn account_file_name(did: &str) -> String {
+pub(crate) fn account_file_name(did: &str) -> String {
+    format!("{}.json", account_file_stem(did))
+}
+
+/// [`account_file_name`] before its extension. Callers must add one, or the
+/// name could be `.` or `..`; the agent client names its per-account control
+/// sockets with it (#1416).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn account_file_stem(did: &str) -> String {
     use std::fmt::Write as _;
     let mut name = String::with_capacity(did.len() + 16);
     for byte in did.bytes() {
@@ -418,7 +429,6 @@ fn account_file_name(did: &str) -> String {
             let _ = write!(name, "%{byte:02X}");
         }
     }
-    name.push_str(".json");
     name
 }
 
@@ -448,20 +458,11 @@ impl Default for PrefsStore {
 }
 
 impl PrefsStore {
-    /// `$XDG_CONFIG_HOME/symbios-overlands/`, falling back to `%APPDATA%`
-    /// (Windows) then `~/.config` - or, with no base directory at all
-    /// (headless CI without HOME), [`Self::memory`].
+    /// [`config_dir`] - or, with no base directory at all (headless CI
+    /// without HOME), [`Self::memory`].
     #[cfg(not(target_arch = "wasm32"))]
     pub fn platform() -> Self {
-        let base = std::env::var_os("XDG_CONFIG_HOME")
-            .map(std::path::PathBuf::from)
-            .or_else(|| std::env::var_os("APPDATA").map(std::path::PathBuf::from))
-            .or_else(|| {
-                std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config"))
-            });
-        base.map_or_else(Self::memory, |base| {
-            Self::Dir(base.join("symbios-overlands"))
-        })
+        config_dir().map_or_else(Self::memory, Self::Dir)
     }
 
     /// The page's `localStorage` - or, in a browser that offers none
@@ -530,6 +531,24 @@ impl PrefsStore {
             warn!("failed to save prefs {slot:?}: {e}");
         }
     }
+}
+
+/// The app's own directory under the platform's config base:
+/// `$XDG_CONFIG_HOME/symbios-overlands/`, falling back to `%APPDATA%`
+/// (Windows) then `~/.config`. `None` with no base directory at all
+/// (headless CI without HOME).
+///
+/// The prefs live directly in it; the agent client keeps its saved sessions
+/// and its own settings in a subdirectory (#1414).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn config_dir() -> Option<std::path::PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("APPDATA").map(std::path::PathBuf::from))
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config"))
+        })?;
+    Some(base.join("symbios-overlands"))
 }
 
 /// Write `json` to `path` through a sibling temp file and a rename, so a
