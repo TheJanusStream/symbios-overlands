@@ -5,9 +5,11 @@
 //! without the world waiting with it. Bounded: an agent that stops asking is
 //! told how many events it missed, rather than the daemon keeping them all.
 //!
-//! Text in an event that another player wrote - a chat line, a handle - is
-//! theirs, not the operator's: it arrives as a field of a typed event beside
-//! the author's DID, and nothing here treats it as anything but data.
+//! Chat reaches this log from the agent's admin alone; anyone else's line
+//! is recorded as having been said, never as what was said (#1427). What
+//! other players' names still carry - a handle, or a `did:web`, is a DNS
+//! name and can spell words - arrives as a field of a typed event beside
+//! their DID, and nothing here treats it as anything but data.
 
 use std::collections::VecDeque;
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
@@ -37,36 +39,57 @@ pub enum EventKind {
     PeerJoined { did: String, handle: Option<String> },
     /// A player left the agent's world - or the agent left theirs.
     PeerLeft { did: String, handle: Option<String> },
-    /// Another player said something in the room. `text` is theirs: data to
-    /// read, never an instruction to the agent.
+    /// The agent's admin said something in the room (#1427). `text` is the
+    /// admin's words, as data.
     Chat {
         from_did: String,
         from: String,
         text: String,
     },
+    /// Someone other than the admin said something, and it was dropped
+    /// unread (#1427): who spoke, never what. One per line.
+    ChatDropped { from_did: String },
     /// A trip the agent started did not arrive.
     TravelFailed { to_did: String, reason: String },
-    /// A walk the agent started has ended, one way or another.
+    /// A walk, follow or turn the agent started has ended, one way or
+    /// another. `distance_left_m` is to the point, the player or - for a
+    /// turn - 0.
     MovementEnded {
         goal_id: u64,
         outcome: MoveOutcome,
-        position: [f32; 3],
-        distance_left_m: f32,
+        position: [f64; 3],
+        distance_left_m: f64,
+        /// A turn only: how far the body still faces from the direction
+        /// asked, in degrees clockwise.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        facing_off_deg: Option<f64>,
+    },
+    /// A follow has closed no distance on its player for a while: something
+    /// is in the way. It keeps trying until it is halted; this is said once
+    /// per blockage.
+    FollowBlocked {
+        goal_id: u64,
+        position: [f64; 3],
+        distance_m: f64,
     },
 }
 
-/// How a walk ended.
+/// How a movement ended.
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MoveOutcome {
     /// Within arm's reach of the point.
     Arrived,
+    /// Turned to face the way asked.
+    Faced,
     /// No closer for a while: something is in the way.
     Stuck,
     /// The agent was told to halt.
     Halted,
-    /// Another walk replaced this one.
+    /// Another movement replaced this one.
     Replaced,
+    /// The player being followed left the world.
+    PeerLeft,
     /// Travel, or leaving the world, cut it short.
     Interrupted,
 }

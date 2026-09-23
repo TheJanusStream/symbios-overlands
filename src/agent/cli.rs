@@ -8,6 +8,8 @@ use clap::{Args, Parser, Subcommand};
 
 use crate::config::login::{DEFAULT_PDS, DEFAULT_RELAY_HOST};
 
+use super::control::protocol::LookView;
+
 /// A headless Overlands client that an AI agent drives, signed in as its own
 /// account.
 #[derive(Parser, Debug)]
@@ -29,7 +31,7 @@ pub enum Command {
     Start(RunArgs),
     /// Run the agent in the foreground, logging to the terminal, until it is
     /// stopped. What `start` runs in the background.
-    Run(RunArgs),
+    Run(DaemonArgs),
     /// Who, where and with whom the running agent is.
     Status(AccountArg),
     /// What has happened since an event, waiting for something to if
@@ -45,6 +47,81 @@ pub enum Command {
     Halt(AccountArg),
     /// Travel to another player's world - or `home`.
     Travel(TravelArgs),
+    /// Take a picture of what the agent sees, write it to a PNG and print
+    /// where. Nothing is drawn while nobody asks.
+    Look(LookArgs),
+    /// Follow another player in this world, keeping near them until halted,
+    /// until they leave, or until the agent travels.
+    Follow(FollowArgs),
+    /// Turn to face another player, or a point on the ground.
+    Face(FaceArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct FollowArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// Whom: a DID, or a handle (with or without its @).
+    pub peer: String,
+    /// How close to keep, in metres.
+    #[arg(long, value_name = "METRES", default_value_t = crate::config::agent::FOLLOW_DISTANCE_M)]
+    pub distance: f32,
+    /// Run all the way, not only to catch up.
+    #[arg(long)]
+    pub run: bool,
+    /// Wait for the follow to end - halted, the player gone, or travel - and
+    /// print how.
+    #[arg(long)]
+    pub wait: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct FaceArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// Whom or where: a player's DID or handle, or a point's x and z in
+    /// world metres.
+    #[arg(
+        num_args = 1..=2,
+        value_names = ["PLAYER_OR_X", "Z"],
+        allow_negative_numbers = true,
+        required = true
+    )]
+    pub target: Vec<String>,
+    /// Wait for the turn to end and print how.
+    #[arg(long)]
+    pub wait: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct LookArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// Where the picture is taken from.
+    #[arg(long, value_enum, default_value_t = LookView::Play)]
+    pub view: LookView,
+    /// Which way to look, in degrees clockwise from where the agent faces:
+    /// 0 ahead, 90 right, 180 behind, -90 left.
+    #[arg(
+        long,
+        value_name = "DEGREES",
+        allow_negative_numbers = true,
+        conflicts_with = "at"
+    )]
+    pub heading: Option<f32>,
+    /// Look toward a point on the ground instead: its x and z, in world
+    /// metres (as `status` gives positions).
+    #[arg(
+        long,
+        num_args = 2,
+        value_names = ["X", "Z"],
+        allow_negative_numbers = true
+    )]
+    pub at: Option<Vec<f32>>,
+    /// Write the picture here rather than in the agent's own directory,
+    /// which keeps only the most recent ones.
+    #[arg(long, value_name = "PATH")]
+    pub out: Option<std::path::PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -109,6 +186,30 @@ pub struct RunArgs {
     /// once it travels away it cannot travel back `home`.
     #[arg(long, conflicts_with = "name")]
     pub offline: bool,
+    /// Offline only: stand in as this identity instead - its seeded world
+    /// and its seeded body. A DID no directory knows keeps them seeded:
+    /// `did:plc:agentofflinecar22222222e` drives a car,
+    /// `did:plc:agentofflineboat2222222d` a hover-boat. Other commands reach
+    /// it with `--account <DID>`.
+    #[arg(long, value_name = "DID", requires = "offline", value_parser = room_did)]
+    pub stand_in: Option<String>,
+    /// The one player whose chat the agent hears, as a handle or DID. Every
+    /// other player's lines are dropped unread, so nobody else can talk the
+    /// agent into anything; with no admin it hears no chat at all. A handle
+    /// that does not resolve stops the start.
+    #[arg(long, value_name = "HANDLE_OR_DID", value_parser = account_name)]
+    pub admin: Option<String>,
+}
+
+/// `run`: what `start` takes, and what `start` hands the daemon it launches.
+#[derive(Args, Debug)]
+pub struct DaemonArgs {
+    #[command(flatten)]
+    pub run: RunArgs,
+    /// The handle `start` resolved `--admin` from, so `status` can show it
+    /// without looking it up again. A label only: the admin is the DID.
+    #[arg(long, hide = true, requires = "admin", value_name = "HANDLE")]
+    pub admin_handle: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -178,6 +279,30 @@ fn relay_host(raw: &str) -> Result<String, String> {
     Ok(host.to_owned())
 }
 
+/// `--admin`: a DID, or a handle with or without its @. Handles are
+/// lower-case ASCII names with a dot in them; anything else is a typo best
+/// caught before a lookup is spent on it.
+fn account_name(raw: &str) -> Result<String, String> {
+    let name = raw.trim();
+    if name.starts_with("did:") {
+        return room_did(name);
+    }
+    let handle = name.trim_start_matches('@').to_ascii_lowercase();
+    let well_formed = handle.contains('.')
+        && !handle.starts_with(['.', '-'])
+        && !handle.ends_with(['.', '-'])
+        && handle
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+    if well_formed {
+        Ok(handle)
+    } else {
+        Err(format!(
+            "{name:?} is neither a handle (name.example.com) nor a DID (did:plc:...)"
+        ))
+    }
+}
+
 /// `--room`: a DID - `did:<method>:<id>`, both parts non-empty.
 fn room_did(raw: &str) -> Result<String, String> {
     let did = raw.trim();
@@ -233,6 +358,137 @@ mod tests {
         };
         assert_eq!((args.x, args.z), (-12.5, -3.0));
         assert!(args.wait && !args.run);
+    }
+
+    /// `--admin` takes a handle the way a person writes one - with its @, in
+    /// any case - or a DID, and refuses what is neither before anything is
+    /// looked up.
+    #[test]
+    fn an_admin_is_a_handle_or_a_did() {
+        let admin = |raw: &str| {
+            let cli = Cli::try_parse_from(["agent", "start", "--admin", raw])?;
+            let Command::Start(args) = cli.command else {
+                panic!("start");
+            };
+            Ok::<_, clap::Error>(args.admin)
+        };
+        assert_eq!(
+            admin("@Codewright.bsky.social").unwrap().as_deref(),
+            Some("codewright.bsky.social")
+        );
+        assert_eq!(
+            admin("did:plc:z5yhcebtrvzblrojezn6pjgi")
+                .unwrap()
+                .as_deref(),
+            Some("did:plc:z5yhcebtrvzblrojezn6pjgi")
+        );
+        for typo in [
+            "codewright",
+            "code wright.bsky.social",
+            "@",
+            "did:plc:",
+            "-a.test",
+        ] {
+            assert!(admin(typo).is_err(), "{typo:?} was taken");
+        }
+        let cli = Cli::try_parse_from(["agent", "start"]).expect("parses");
+        let Command::Start(args) = cli.command else {
+            panic!("start");
+        };
+        assert_eq!(args.admin, None, "no admin unless one is named");
+    }
+
+    /// The label `start` hands its daemon is `run`'s alone - an operator
+    /// cannot put a name beside a DID on `start` - and means nothing
+    /// without the DID it labels.
+    #[test]
+    fn only_run_takes_the_admins_handle_and_only_with_an_admin() {
+        let run = Cli::try_parse_from([
+            "agent",
+            "run",
+            "--admin",
+            "did:plc:admin",
+            "--admin-handle",
+            "admin.test",
+        ])
+        .expect("parses");
+        let Command::Run(args) = run.command else {
+            panic!("run");
+        };
+        assert_eq!(args.run.admin.as_deref(), Some("did:plc:admin"));
+        assert_eq!(args.admin_handle.as_deref(), Some("admin.test"));
+
+        assert!(
+            Cli::try_parse_from(["agent", "run", "--admin-handle", "admin.test"]).is_err(),
+            "a label with no admin"
+        );
+        assert!(
+            Cli::try_parse_from([
+                "agent",
+                "start",
+                "--admin",
+                "did:plc:admin",
+                "--admin-handle",
+                "admin.test",
+            ])
+            .is_err(),
+            "start resolves its own"
+        );
+    }
+
+    /// A look is from the game's camera, straight ahead, unless it says
+    /// otherwise; a point to look at takes minus signs, and a heading and a
+    /// point are two answers to one question.
+    #[test]
+    fn a_look_takes_a_view_and_one_direction() {
+        let parse = |args: &[&str]| {
+            let cli = Cli::try_parse_from(["agent", "look"].iter().chain(args))?;
+            let Command::Look(look) = cli.command else {
+                panic!("look");
+            };
+            Ok::<_, clap::Error>(look)
+        };
+        let plain = parse(&[]).expect("parses");
+        assert_eq!(plain.view, LookView::Play);
+        assert_eq!((plain.heading, plain.at.as_deref()), (None, None));
+
+        let eyes = parse(&["--view", "eyes", "--heading", "-90"]).expect("parses");
+        assert_eq!((eyes.view, eyes.heading), (LookView::Eyes, Some(-90.0)));
+
+        let at = parse(&["--at", "-12.5", "40"]).expect("parses");
+        assert_eq!(at.at.as_deref(), Some(&[-12.5, 40.0][..]));
+
+        assert!(parse(&["--heading", "90", "--at", "1", "2"]).is_err());
+        assert!(
+            parse(&["--at", "1"]).is_err(),
+            "a point has two coordinates"
+        );
+    }
+
+    /// `face` takes one player or two coordinates, minus signs and all.
+    #[test]
+    fn a_face_takes_a_player_or_a_point() {
+        let target = |args: &[&str]| {
+            let cli = Cli::try_parse_from(["agent", "face"].iter().chain(args))?;
+            let Command::Face(face) = cli.command else {
+                panic!("face");
+            };
+            Ok::<_, clap::Error>(face.target)
+        };
+        assert_eq!(target(&["@friend.test"]).unwrap(), ["@friend.test"]);
+        assert_eq!(target(&["-4.5", "12"]).unwrap(), ["-4.5", "12"]);
+        assert!(target(&[]).is_err(), "whom or where");
+        assert!(target(&["1", "2", "3"]).is_err());
+    }
+
+    /// A stand-in is an offline thing; naming one online is a mistake.
+    #[test]
+    fn a_stand_in_needs_offline() {
+        assert!(
+            Cli::try_parse_from(["agent", "start", "--offline", "--stand-in", "did:plc:boat"])
+                .is_ok()
+        );
+        assert!(Cli::try_parse_from(["agent", "start", "--stand-in", "did:plc:boat"]).is_err());
     }
 
     #[test]

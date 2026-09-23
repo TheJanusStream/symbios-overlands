@@ -13,6 +13,7 @@ use std::time::Instant;
 
 use crate::config::agent::{HOME_DIR, LOG_DIR, START_POLL, START_WAIT};
 
+use super::admin::Admin;
 use super::control;
 use super::private_fs::{create_private, ensure_private_dir};
 
@@ -35,6 +36,8 @@ pub struct Launch<'a> {
     pub room: Option<&'a str>,
     /// Stand in offline rather than resume a saved session.
     pub offline: bool,
+    /// Whose chat it hears, already resolved; `None` is nobody's.
+    pub admin: Option<&'a Admin>,
 }
 
 /// Launch the daemon, and wait until it takes commands.
@@ -72,17 +75,8 @@ fn spawn(launch: &Launch<'_>, log: &Path) -> Result<Child, String> {
     let err = out
         .try_clone()
         .map_err(|e| format!("{}: {e}", log.display()))?;
-    let mut command = Command::new(program);
-    command.arg("run");
-    if launch.offline {
-        command.arg("--offline");
-    } else {
-        command.arg("--account").arg(launch.did);
-    }
-    if let Some(room) = launch.room {
-        command.arg("--room").arg(room);
-    }
-    command
+    Command::new(program)
+        .args(run_args(launch))
         .stdin(Stdio::null())
         .stdout(out)
         .stderr(err)
@@ -91,6 +85,31 @@ fn spawn(launch: &Launch<'_>, log: &Path) -> Result<Child, String> {
         .process_group(0)
         .spawn()
         .map_err(|e| format!("launching the agent: {e}"))
+}
+
+/// The daemon's command line: `run`, with what `start` settled. The admin
+/// goes as its DID - never the name it was given, which could resolve to
+/// someone else the second time it was looked up.
+fn run_args(launch: &Launch<'_>) -> Vec<String> {
+    let mut args = vec!["run".to_owned()];
+    if launch.offline {
+        args.push("--offline".to_owned());
+        if launch.did != crate::config::agent::OFFLINE_DID {
+            args.extend(["--stand-in".to_owned(), launch.did.to_owned()]);
+        }
+    } else {
+        args.extend(["--account".to_owned(), launch.did.to_owned()]);
+    }
+    if let Some(room) = launch.room {
+        args.extend(["--room".to_owned(), room.to_owned()]);
+    }
+    if let Some(admin) = launch.admin {
+        args.extend(["--admin".to_owned(), admin.did.clone()]);
+        if let Some(handle) = &admin.handle {
+            args.extend(["--admin-handle".to_owned(), handle.clone()]);
+        }
+    }
+    args
 }
 
 /// Poll until the daemon answers on `socket`, it exits, or the start is
@@ -148,5 +167,75 @@ mod tests {
         assert!(shown.starts_with("line 31"), "{shown}");
         assert!(shown.ends_with("line 50"), "{shown}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `start` hands its daemon the admin it resolved - the DID, and the
+    /// handle to show beside it - and the daemon's command line parses.
+    #[test]
+    fn start_forwards_the_admin_as_its_did() {
+        use clap::Parser as _;
+        let admin = Admin {
+            did: "did:plc:admin".into(),
+            handle: Some("admin.test".into()),
+        };
+        let launch = Launch {
+            did: "did:plc:agent",
+            handle: "agent.test",
+            room: None,
+            offline: false,
+            admin: Some(&admin),
+        };
+
+        let args = run_args(&launch);
+
+        let cli = super::super::cli::Cli::try_parse_from(
+            std::iter::once("agent".to_owned()).chain(args.iter().cloned()),
+        )
+        .expect("the daemon's command line parses");
+        let super::super::cli::Command::Run(run) = cli.command else {
+            panic!("run: {args:?}");
+        };
+        assert_eq!(run.run.admin.as_deref(), Some("did:plc:admin"));
+        assert_eq!(run.admin_handle.as_deref(), Some("admin.test"));
+        assert_eq!(run.run.account.name.as_deref(), Some("did:plc:agent"));
+    }
+
+    /// No admin: nothing about one on the daemon's command line, so it
+    /// hears nobody.
+    #[test]
+    fn no_admin_is_forwarded_as_none() {
+        let launch = Launch {
+            did: crate::config::agent::OFFLINE_DID,
+            handle: "agent.test",
+            room: Some("did:plc:room"),
+            offline: true,
+            admin: None,
+        };
+        assert_eq!(
+            run_args(&launch),
+            ["run", "--offline", "--room", "did:plc:room"]
+        );
+    }
+
+    /// An offline agent standing in as another identity takes it to the
+    /// daemon; the usual stand-in needs no saying.
+    #[test]
+    fn a_stand_in_is_forwarded_when_it_is_not_the_usual_one() {
+        let launch = Launch {
+            did: "did:plc:agentofflineboat2222222d",
+            handle: "agent.test",
+            room: None,
+            offline: true,
+            admin: None,
+        };
+        assert_eq!(
+            run_args(&launch),
+            [
+                "run",
+                "--offline",
+                "--stand-in",
+                "did:plc:agentofflineboat2222222d"
+            ]
+        );
     }
 }

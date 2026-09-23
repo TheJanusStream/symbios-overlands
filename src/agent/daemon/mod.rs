@@ -4,9 +4,9 @@
 //! The app is [`crate::build_client_app`] - the plugin list the game runs,
 //! not a copy of it - hosted without a window: no winit, no sound, and a
 //! primary window that exists only as data, because the UI and the gizmo
-//! read one. Nothing renders to it, so the world costs the GPU nothing until
-//! something asks to see it. The world camera still exists, because a person
-//! walks relative to it and so will the agent.
+//! read one. The world camera still exists, because a person walks relative
+//! to it and so will the agent, but it is parked - inactive - so the world
+//! costs the renderer nothing until something asks to see it (`look`).
 //!
 //! Three things differ from a person's session, and each is small:
 //!
@@ -21,6 +21,7 @@
 //!   takes the client back to its login screen ends the process with an
 //!   error saying so.
 
+mod look;
 mod movement;
 mod observe;
 mod resume;
@@ -37,10 +38,12 @@ use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowResolution};
 use bevy_egui::EguiContextSettings;
 
+use crate::camera::IsWorldCamera;
 use crate::state::{AppState, CurrentRoomDid};
 use crate::ui::login::LoginError;
 use crate::ui::reauth::SessionExpired;
 
+use super::admin::Admin;
 use super::control;
 use super::session_file::AgentSession;
 
@@ -51,8 +54,9 @@ pub enum Identity {
         session_file: PathBuf,
         session: Box<AgentSession>,
     },
-    /// Nobody: a stand-in signed in to nothing, alone in a world (#1415).
-    Offline,
+    /// Nobody: a stand-in signed in to nothing, alone in a world (#1415),
+    /// as `did` - whose seeded world and body it takes (#1421).
+    Offline { did: String },
 }
 
 impl Identity {
@@ -60,7 +64,7 @@ impl Identity {
     pub fn did(&self) -> &str {
         match self {
             Self::Saved { session, .. } => &session.did,
-            Self::Offline => crate::config::agent::OFFLINE_DID,
+            Self::Offline { did } => did,
         }
     }
 }
@@ -70,6 +74,8 @@ pub struct RunRequest {
     pub identity: Identity,
     /// The world to enter, by its owner's DID; `None` is the agent's own.
     pub room_did: Option<String>,
+    /// The one player whose chat the agent hears; `None` hears nobody.
+    pub admin: Option<Admin>,
 }
 
 /// Build the headless client, resume the session into it, and run until the
@@ -80,7 +86,11 @@ pub struct RunRequest {
 /// only have let one of them into a room.
 pub fn run(request: RunRequest) -> Result<ExitCode, String> {
     let prefs_dir = agent_prefs_dir()?;
-    let RunRequest { identity, room_did } = request;
+    let RunRequest {
+        identity,
+        room_did,
+        admin,
+    } = request;
     let room_did = room_did.unwrap_or_else(|| identity.did().to_owned());
     let events = Arc::new(control::events::EventLog::new(
         crate::config::agent::EVENT_CAPACITY,
@@ -104,6 +114,16 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
         },
     );
     spawn_primary_window(app.world_mut());
+    match admin {
+        Some(admin) => {
+            info!(
+                "Hearing chat from the admin {} only; every other line is dropped unread",
+                admin_name(&admin)
+            );
+            app.insert_resource(admin);
+        }
+        None => info!("No admin was named, so the agent hears no chat at all"),
+    }
     app.insert_resource(resume::PendingResume { identity, room_did })
         .insert_resource(serve::ControlInbox::new(inbox))
         .insert_resource(observe::EventSink(events))
@@ -112,6 +132,7 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
             PreUpdate,
             (
                 turn_off_ime,
+                park_world_camera,
                 movement::steer
                     .after(bevy::input::InputSystems)
                     .run_if(resource_exists::<movement::Movement>),
@@ -123,6 +144,7 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
                 end_if_sign_in_failed,
                 end_if_session_expired,
                 serve::serve_requests,
+                look::advance.after(serve::serve_requests),
                 observe::record_peers,
                 observe::record_chat,
                 travel::record_travel,
@@ -137,6 +159,14 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
     let exit = app.run();
     drop(socket);
     Ok(exit_code(exit))
+}
+
+/// `@handle (did)`, or the bare DID when the admin was named by one.
+fn admin_name(admin: &Admin) -> String {
+    match &admin.handle {
+        Some(handle) => format!("@{handle} ({})", admin.did),
+        None => admin.did.clone(),
+    }
 }
 
 /// A name for this run of the daemon, so a client can tell its event numbers
@@ -183,6 +213,21 @@ fn turn_off_ime(mut contexts: Query<&mut EguiContextSettings, Added<EguiContextS
     }
 }
 
+/// The world camera draws to a window with no surface, and Bevy still
+/// prepares its view every frame the camera is active - visibility,
+/// extraction, specialisation, the shadow cascades and the GPU's mesh
+/// preprocessing - for a picture nobody will see. So it is parked the moment
+/// it exists: its orbit still follows the body and still turns, which is
+/// all a walk steers by, and a picture brings a camera of its own (#1420).
+/// Measured idle, offline, 30 Hz: 25-28% of a core active against 20-21%
+/// parked, and the GPU sampled busy at up to 6% against never; the first
+/// picture then pays its pipelines once, 390 ms against 155 ms after.
+fn park_world_camera(mut cameras: Query<&mut Camera, (IsWorldCamera, Added<Camera>)>) {
+    for mut camera in &mut cameras {
+        camera.is_active = false;
+    }
+}
+
 /// The resume was refused, or never answered: say why and stop, rather than
 /// idle on a login screen nobody can see.
 fn end_if_sign_in_failed(login_error: Res<LoginError>, mut exit: MessageWriter<AppExit>) {
@@ -226,5 +271,53 @@ fn exit_code(exit: AppExit) -> ExitCode {
     match exit {
         AppExit::Success => ExitCode::SUCCESS,
         AppExit::Error(code) => ExitCode::from(code.get()),
+    }
+}
+
+/// `value` to the hundredth - centimetres, for a length - as the f64 that
+/// JSON prints. Rounding an f32 does not survive the trip: 0.15 as an f32
+/// is 0.15000000596..., and JSON widens it and prints every digit (#1428).
+/// Adding zero turns the `-0.0` a hair left of the axis rounds to into
+/// `0.0`.
+fn hundredths(value: f32) -> f64 {
+    (f64::from(value) * 100.0).round() / 100.0 + 0.0
+}
+
+/// [`hundredths`] of each of a point's coordinates.
+fn hundredths3(point: Vec3) -> [f64; 3] {
+    [
+        hundredths(point.x),
+        hundredths(point.y),
+        hundredths(point.z),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// THE CASE: `status` printed `facing: [-0.15000000596046448, ...]`
+    /// under a comment promising centimetres. The control line is the old
+    /// rounding, still printing the noise - so this test would have caught
+    /// it.
+    #[test]
+    fn a_rounded_number_prints_the_way_it_reads() {
+        let f32_rounded = ((-0.1501_f32) * 100.0).round() / 100.0;
+        assert_ne!(
+            serde_json::json!(f32_rounded).to_string(),
+            "-0.15",
+            "control: rounding in f32 prints the noise"
+        );
+
+        assert_eq!(serde_json::json!(hundredths(-0.1501)).to_string(), "-0.15");
+        assert_eq!(
+            serde_json::json!(hundredths(-0.001)).to_string(),
+            "0.0",
+            "right_m: -0.0 was seen live"
+        );
+        assert_eq!(
+            serde_json::json!(hundredths3(Vec3::new(4.73, -104.9, 18.004))).to_string(),
+            "[4.73,-104.9,18.0]"
+        );
     }
 }

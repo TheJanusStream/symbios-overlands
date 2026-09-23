@@ -41,6 +41,7 @@ fn answer_bound(request: &Request) -> Duration {
         Request::Events { wait_secs, .. } => {
             Duration::from_secs(*wait_secs).min(crate::config::agent::MAX_EVENT_WAIT)
         }
+        Request::Look(_) => crate::config::agent::LOOK_ANSWER_TIMEOUT,
         _ => WORLD_ANSWER_TIMEOUT,
     };
     waits + MARGIN

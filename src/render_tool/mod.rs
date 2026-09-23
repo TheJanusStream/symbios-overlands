@@ -111,6 +111,7 @@ mod rig;
 mod text_tools;
 mod world;
 
+pub(crate) use headless::new_target;
 use headless::{Capture, Clock, PlayView, RenderJob, Ride, Subject, drive, setup};
 use rig::{CameraRig, Focus};
 use text_tools::{

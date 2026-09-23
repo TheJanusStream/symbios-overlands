@@ -7,7 +7,7 @@ use bevy::prelude::*;
 
 use super::super::control::protocol::{Response, WorldRequest};
 use super::super::control::server::Envelope;
-use super::{movement, speech, status, travel};
+use super::{look, movement, speech, status, travel};
 
 /// Requests waiting for the world, handed over by the control socket.
 #[derive(Resource)]
@@ -30,15 +30,15 @@ pub(super) fn serve_requests(world: &mut World) {
         receiver.try_iter().collect()
     };
     for Envelope { request, reply } in pending {
-        let response = answer(world, request);
-        // INTENTIONAL: the client may have stopped waiting; there is nobody
-        // left to tell.
-        let _ = reply.send(response);
+        answer(world, request, reply);
     }
 }
 
-fn answer(world: &mut World, request: WorldRequest) -> Response {
-    match request {
+fn answer(world: &mut World, request: WorldRequest, reply: mpsc::Sender<Response>) {
+    let response = match request {
+        // A picture is answered frames later, once it has been rendered and
+        // written, so it takes the reply with it.
+        WorldRequest::Look(spec) => return look::begin(world, spec, reply),
         WorldRequest::Status => Response::success(status::snapshot(world)),
         WorldRequest::Stop => {
             info!("Stopping at the operator's request");
@@ -56,7 +56,22 @@ fn answer(world: &mut World, request: WorldRequest) -> Response {
         WorldRequest::Travel { room_did, label } => {
             travel::travel(world, room_did, label).map_or_else(Response::failure, Response::success)
         }
-    }
+        WorldRequest::Follow { did, distance, run } => movement::follow(world, did, distance, run)
+            .map_or_else(Response::failure, Response::success),
+        WorldRequest::Face { did, at } => {
+            let target = match (did, at) {
+                (Some(did), None) => Ok(movement::FaceTarget::Peer(did)),
+                (None, Some(at)) => Ok(movement::FaceTarget::Point(Vec2::from_array(at))),
+                _ => Err("face takes a player or a point, not both and not neither".to_owned()),
+            };
+            target
+                .and_then(|target| movement::face(world, target))
+                .map_or_else(Response::failure, Response::success)
+        }
+    };
+    // INTENTIONAL: the client may have stopped waiting; there is nobody left
+    // to tell.
+    let _ = reply.send(response);
 }
 
 #[cfg(test)]

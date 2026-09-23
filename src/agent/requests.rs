@@ -5,9 +5,9 @@
 
 use std::process::ExitCode;
 
-use super::cli::{EventsArgs, TravelArgs, WalkToArgs};
-use super::control::protocol::{Request, Response};
-use super::{config, control, find_session, print_json, session_file};
+use super::cli::{EventsArgs, FaceArgs, FollowArgs, LookArgs, TravelArgs, WalkToArgs};
+use super::control::protocol::{LookSpec, Request, Response};
+use super::{config, control, find_session, print_json, resolve_name, session_file};
 
 pub(super) fn watch_events(args: EventsArgs) -> Result<ExitCode, String> {
     ask(
@@ -29,16 +29,24 @@ pub(super) fn ask(account: Option<&str>, request: Request) -> Result<ExitCode, S
 /// The control socket of the agent `account` names.
 ///
 /// With no saved session at all, the one agent that can be running is the
-/// offline one, so that is who is meant.
+/// offline one, so that is who is meant; an offline agent standing in as
+/// another identity is named by its DID.
 fn socket_for(account: Option<&str>) -> Result<std::path::PathBuf, String> {
-    let did = match find_session(account) {
-        Ok((_, session)) => session.did,
+    control::socket_path(&agent_did(account)?)
+}
+
+/// The DID of the agent `account` names - see [`socket_for`].
+fn agent_did(account: Option<&str>) -> Result<String, String> {
+    match find_session(account) {
+        Ok((_, session)) => Ok(session.did),
         Err(_) if account.is_none() && !has_saved_sessions() => {
-            config::agent::OFFLINE_DID.to_owned()
+            Ok(config::agent::OFFLINE_DID.to_owned())
         }
-        Err(e) => return Err(e),
-    };
-    control::socket_path(&did)
+        Err(_) if account.is_some_and(|name| name.trim().starts_with("did:")) => {
+            Ok(account.unwrap_or_default().trim().to_owned())
+        }
+        Err(e) => Err(e),
+    }
 }
 
 fn has_saved_sessions() -> bool {
@@ -60,43 +68,76 @@ fn print_response(response: &Response) -> Result<ExitCode, String> {
 /// Start a walk; with `--wait`, follow the event log from the moment it
 /// started until this walk's `movement_ended` arrives, and print that.
 pub(super) fn walk_to(args: WalkToArgs) -> Result<ExitCode, String> {
-    let socket = socket_for(args.account.name.as_deref())?;
-    let started = control::client::call(
-        &socket,
-        &Request::WalkTo {
-            x: args.x,
-            z: args.z,
-            run: args.run,
-        },
-    )?;
-    let Some(result) = started.result.as_ref().filter(|_| args.wait && started.ok) else {
-        return print_response(&started);
+    let request = Request::WalkTo {
+        x: args.x,
+        z: args.z,
+        run: args.run,
     };
-    let goal_id = result["goal_id"]
-        .as_u64()
-        .ok_or("the walk has no goal_id")?;
-    let since = result["events_seq"]
-        .as_u64()
-        .ok_or("the walk has no events_seq")?;
-    let ended = wait_for_walk_end(&socket, goal_id, since)?;
-    print_response(&Response::success(ended))
+    move_and_wait(args.account.name.as_deref(), &request, args.wait)
 }
 
-fn wait_for_walk_end(
-    socket: &std::path::Path,
-    goal_id: u64,
-    since: u64,
-) -> Result<serde_json::Value, String> {
-    wait_for_event(socket, since, config::agent::WALK_WAIT, |event| {
+/// Follow a player - by DID, or a handle looked up here - and with `--wait`,
+/// wait for the follow to end.
+pub(super) fn follow(args: FollowArgs) -> Result<ExitCode, String> {
+    let (did, _) = resolve_name(&args.peer)?;
+    let request = Request::Follow {
+        did,
+        distance: Some(args.distance),
+        run: args.run,
+    };
+    move_and_wait(args.account.name.as_deref(), &request, args.wait)
+}
+
+/// Turn toward a point (two numbers) or a player (anything else).
+pub(super) fn face(args: FaceArgs) -> Result<ExitCode, String> {
+    let request = match args.target.as_slice() {
+        [x, z] => {
+            let number = |raw: &str| {
+                raw.trim()
+                    .parse::<f32>()
+                    .map_err(|_| format!("{raw:?} is not a number of metres"))
+            };
+            Request::Face {
+                did: None,
+                at: Some([number(x)?, number(z)?]),
+            }
+        }
+        [player] => Request::Face {
+            did: Some(resolve_name(player)?.0),
+            at: None,
+        },
+        _ => return Err("face takes a player, or a point's x and z".to_owned()),
+    };
+    move_and_wait(args.account.name.as_deref(), &request, args.wait)
+}
+
+/// Start a movement; with `wait`, follow the event log from the moment it
+/// started until its `movement_ended` arrives, and print that instead. A
+/// movement that had nothing to do (a turn already facing) has no goal to
+/// wait for, and its answer is printed as it is.
+fn move_and_wait(account: Option<&str>, request: &Request, wait: bool) -> Result<ExitCode, String> {
+    let socket = socket_for(account)?;
+    let started = control::client::call(&socket, request)?;
+    let Some(result) = started.result.as_ref().filter(|_| wait && started.ok) else {
+        return print_response(&started);
+    };
+    let Some(goal_id) = result["goal_id"].as_u64() else {
+        return print_response(&started);
+    };
+    let since = result["events_seq"]
+        .as_u64()
+        .ok_or("the movement has no events_seq")?;
+    let ended = wait_for_event(&socket, since, config::agent::WALK_WAIT, |event| {
         event["kind"] == "movement_ended" && event["goal_id"].as_u64() == Some(goal_id)
     })
     .map_err(|waited| {
         format!(
-            "the walk had not ended after {} minutes; it goes on, and `agent halt` stops \
-             it",
+            "the movement had not ended after {} minutes; it goes on, and `agent halt` \
+             stops it",
             waited.as_secs() / 60
         )
-    })
+    })?;
+    print_response(&Response::success(ended))
 }
 
 /// Follow the event log from `since` until an event `ends` accepts, and
@@ -167,24 +208,33 @@ pub(super) fn travel(args: TravelArgs) -> Result<ExitCode, String> {
     print_response(&Response::success(ended))
 }
 
+/// Take a picture. `--out` is made absolute here, against this command's own
+/// directory: the daemon that writes the file was started from another.
+pub(super) fn look(args: LookArgs) -> Result<ExitCode, String> {
+    let out = args
+        .out
+        .map(|path| {
+            std::path::absolute(&path).map_err(|e| format!("--out {}: {e}", path.display()))
+        })
+        .transpose()?;
+    let at = args.at.as_deref().map(|at| [at[0], at[1]]);
+    ask(
+        args.account.name.as_deref(),
+        Request::Look(LookSpec {
+            view: args.view,
+            heading_deg: args.heading,
+            at,
+            out,
+        }),
+    )
+}
+
 /// Whose world `to` names, as a DID, and what the operator called it.
 fn destination(account: Option<&str>, to: &str) -> Result<(String, Option<String>), String> {
     let to = to.trim();
     if to.eq_ignore_ascii_case("home") {
-        let did = match find_session(account) {
-            Ok((_, session)) => session.did,
-            Err(_) if account.is_none() => config::agent::OFFLINE_DID.to_owned(),
-            Err(e) => return Err(e),
-        };
-        return Ok((did, Some("home".to_owned())));
+        return Ok((agent_did(account)?, Some("home".to_owned())));
     }
-    if to.starts_with("did:") {
-        return Ok((to.to_owned(), None));
-    }
-    let handle = to.trim_start_matches('@').to_ascii_lowercase();
-    let did = config::http::block_on(crate::pds::xrpc::resolve_handle(
-        &config::http::default_client(),
-        &handle,
-    ))?;
-    Ok((did, Some(format!("@{handle}"))))
+    let (did, handle) = resolve_name(to)?;
+    Ok((did, handle.map(|handle| format!("@{handle}"))))
 }

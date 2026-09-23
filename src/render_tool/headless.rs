@@ -1685,7 +1685,11 @@ fn srgb3(c: [f32; 3]) -> Color {
     Color::srgb(c[0], c[1], c[2])
 }
 
-fn new_target((width, height): (u32, u32)) -> Image {
+/// An off-screen colour target a camera renders into and a [`Readback`] can
+/// copy out: sRGB RGBA8, a flat blue until the first frame lands. A width
+/// that is a multiple of 64 reads back with no row padding. The agent's
+/// snapshots (#1420) shoot into the same target.
+pub(crate) fn new_target((width, height): (u32, u32)) -> Image {
     let mut image = Image::new_fill(
         Extent3d {
             width,

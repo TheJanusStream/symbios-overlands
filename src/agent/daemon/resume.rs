@@ -33,17 +33,11 @@ pub(super) struct PendingResume {
 /// offline - as a [`CompleteAuthTask`] the game's own
 /// `poll_complete_auth_task` installs. That takes the app from `Login`
 /// through `Loading` into the world exactly as a person's sign-in does.
-pub(super) fn begin_resume(
-    mut commands: Commands,
-    pending: Option<ResMut<PendingResume>>,
-    client: Res<oauth::OauthClientRes>,
-) {
-    let Some(mut pending) = pending else {
+pub(super) fn begin_resume(world: &mut World) {
+    let Some(PendingResume { identity, room_did }) = world.remove_resource::<PendingResume>()
+    else {
         return;
     };
-    let room_did = std::mem::take(&mut pending.room_did);
-    let identity = std::mem::replace(&mut pending.identity, Identity::Offline);
-    commands.remove_resource::<PendingResume>();
     let task = match identity {
         Identity::Saved {
             session_file,
@@ -53,10 +47,10 @@ pub(super) fn begin_resume(
                 "Resuming the saved session for @{} ({})",
                 session.handle, session.did
             );
-            commands.insert_resource(crate::state::RelayHost(session.relay_host.clone()));
+            world.insert_resource(crate::state::RelayHost(session.relay_host.clone()));
             let session = *session;
             let sink = Arc::new(SessionFileSink::new(session_file, session.clone()));
-            let client = Arc::clone(&client.0);
+            let client = Arc::clone(&world.resource::<oauth::OauthClientRes>().0);
             IoTaskPool::get().spawn(async move {
                 crate::config::http::run_or(
                     resume(client, session, sink, room_did),
@@ -65,23 +59,23 @@ pub(super) fn begin_resume(
                 .await
             })
         }
-        Identity::Offline => {
-            info!("Standing in offline: nobody will see the agent, and nothing is saved");
-            commands.insert_resource(crate::state::RelayHost(
+        Identity::Offline { did } => {
+            info!("Standing in offline as {did}: nobody will see the agent, and nothing is saved");
+            world.insert_resource(crate::state::RelayHost(
                 crate::config::agent::OFFLINE_RELAY_HOST.to_owned(),
             ));
-            IoTaskPool::get().spawn(async move { stand_in(room_did) })
+            IoTaskPool::get().spawn(async move { stand_in(&did, room_did) })
         }
     };
-    commands.spawn(CompleteAuthTask::resumed_elsewhere(task));
+    world.spawn(CompleteAuthTask::resumed_elsewhere(task));
 }
 
-/// A sign-in to nothing: the offline agent's session, which reaches no PDS
-/// and no relay.
-fn stand_in(room_did: String) -> Result<CompletedSession, String> {
-    use crate::config::agent::{OFFLINE_DID, OFFLINE_HANDLE};
+/// A sign-in to nothing as `did`: the offline agent's session, which
+/// reaches no PDS and no relay.
+fn stand_in(did: &str, room_did: String) -> Result<CompletedSession, String> {
+    use crate::config::agent::OFFLINE_HANDLE;
     Ok(CompletedSession {
-        session: oauth::stand_in::stand_in_session(OFFLINE_DID, OFFLINE_HANDLE)?,
+        session: oauth::stand_in::stand_in_session(did, OFFLINE_HANDLE)?,
         refresh_ctx: oauth::stand_in::stand_in_refresh_ctx()?,
         service_token: "offline".to_owned(),
         room_did,

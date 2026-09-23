@@ -13,6 +13,7 @@
 //! ## Sub-module map
 //!
 //! * [`cli`] - the command line, one JSON object per command on stdout.
+//! * [`admin`] - the one account whose chat the agent hears.
 //! * [`login`] - the one-time browser sign-in.
 //! * [`session_file`] - the saved sessions, one private file per account.
 //! * [`daemon`] - the headless client itself, resumed from a saved session.
@@ -22,6 +23,7 @@
 //! * [`lifecycle`] - the commands that sign an agent in and bring it up.
 //! * [`requests`] - the commands that talk to a running agent.
 
+mod admin;
 mod cli;
 mod control;
 mod daemon;
@@ -39,7 +41,7 @@ use clap::Parser as _;
 use cli::{Cli, Command};
 use control::protocol::Request;
 use lifecycle::{list_accounts, run_daemon, run_login, start_daemon};
-use requests::{ask, travel, walk_to, watch_events};
+use requests::{ask, face, follow, look, travel, walk_to, watch_events};
 
 use crate::config;
 
@@ -68,6 +70,9 @@ fn execute(command: Command) -> Result<ExitCode, String> {
         Command::WalkTo(args) => walk_to(args),
         Command::Halt(account) => ask(account.name.as_deref(), Request::Halt),
         Command::Travel(args) => travel(args),
+        Command::Look(args) => look(args),
+        Command::Follow(args) => follow(args),
+        Command::Face(args) => face(args),
     }
 }
 
@@ -78,6 +83,21 @@ pub(super) fn find_session(
     session_file::SessionStore::platform()
         .and_then(|store| store.find(account))
         .map_err(|e| e.to_string())
+}
+
+/// The DID `name` stands for - a DID as given, or a handle (with or without
+/// its @) looked up - and the handle, when it was one.
+pub(super) fn resolve_name(name: &str) -> Result<(String, Option<String>), String> {
+    let name = name.trim();
+    if name.starts_with("did:") {
+        return Ok((name.to_owned(), None));
+    }
+    let handle = name.trim_start_matches('@').to_ascii_lowercase();
+    let did = config::http::block_on(crate::pds::xrpc::resolve_handle(
+        &config::http::default_client(),
+        &handle,
+    ))?;
+    Ok((did, Some(handle)))
 }
 
 /// Print one command's result as a single line of JSON.

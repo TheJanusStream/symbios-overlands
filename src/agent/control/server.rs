@@ -14,9 +14,7 @@ use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
 
-use crate::config::agent::{
-    MAX_EVENT_WAIT, MAX_REQUEST_BYTES, REQUEST_READ_TIMEOUT, WORLD_ANSWER_TIMEOUT,
-};
+use crate::config::agent::{MAX_EVENT_WAIT, MAX_REQUEST_BYTES, REQUEST_READ_TIMEOUT};
 
 use super::events::EventLog;
 use super::protocol::{Request, Response, Route, WorldRequest};
@@ -135,20 +133,20 @@ fn answer(request: Request, requests: &mpsc::Sender<Envelope>, events: &EventLog
 }
 
 /// Hand `request` to the daemon and wait for its answer, which comes on the
-/// daemon's next frame - or never, if the daemon is shutting down.
+/// daemon's next frame (a picture, a few frames later) - or never, if the
+/// daemon is shutting down.
 fn ask_the_world(request: WorldRequest, requests: &mpsc::Sender<Envelope>) -> Response {
+    let within = request.answer_within();
     let (reply, answer) = mpsc::channel();
     if requests.send(Envelope { request, reply }).is_err() {
         return Response::failure("the agent is shutting down");
     }
-    answer
-        .recv_timeout(WORLD_ANSWER_TIMEOUT)
-        .unwrap_or_else(|_| {
-            Response::failure(format!(
-                "the agent did not answer within {} s",
-                WORLD_ANSWER_TIMEOUT.as_secs()
-            ))
-        })
+    answer.recv_timeout(within).unwrap_or_else(|_| {
+        Response::failure(format!(
+            "the agent did not answer within {} s",
+            within.as_secs()
+        ))
+    })
 }
 
 /// Read one request line, bounded in size and in time.

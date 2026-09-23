@@ -11,19 +11,23 @@
 //! lead elsewhere - where they are drawn, which is not always where the
 //! record puts them (a placement kept out of the water is moved to dry land).
 //! A walk into one of them ends `stuck`; this is how the agent sees it coming.
+//! A thing's name is its world owner's words, so it says whose (`named_by`).
 
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde_json::{Value, json};
 
 use crate::config::agent::{NEARBY_MAX, NEARBY_RADIUS_M};
-use crate::network::LinkPhase;
+use crate::network::{LinkPhase, PeerResolve};
 use crate::pds::{Generator, GeneratorKind, LocomotionConfig, Placement};
 use crate::state::{
     AppState, CurrentRoomDid, LiveAvatarRecord, LiveRoomRecord, LocalPlayer, RemotePeer,
     TravelingTo,
 };
 use crate::world_builder::PlacementMarker;
+
+use super::super::admin::Admin;
+use super::{hundredths, hundredths3};
 
 /// Where the agent's body is and which way it faces on the ground.
 struct Pose {
@@ -45,23 +49,38 @@ impl Pose {
 /// The whole status object.
 pub(super) fn snapshot(world: &mut World) -> Value {
     let pose = local_pose(world);
+    let admin = world.get_resource::<Admin>().cloned();
     json!({
         "state": state_word(world.resource::<State<AppState>>().get()),
         "account": world.get_resource::<AtprotoSession>().map(|s| json!({
             "did": s.did,
             "handle": s.handle,
         })),
+        "admin": admin.as_ref().map(Admin::to_json),
+        "chat": chat_heard(admin.as_ref()),
         "room_did": world.get_resource::<CurrentRoomDid>().map(|room| room.0.clone()),
         "travelling_to": world.get_resource::<TravelingTo>().map(|t| t.target_did.clone()),
         "link": world.get_resource::<crate::network::LinkState>().map(|l| link_word(l.phase())),
         "locomotion": world
             .get_resource::<LiveAvatarRecord>()
             .map(|live| locomotion_word(&live.0.locomotion)),
-        "position": pose.as_ref().map(|p| rounded(p.position)),
-        "facing": pose.as_ref().map(|p| [round(p.forward.x), round(p.forward.z)]),
-        "peers": peers(world, pose.as_ref()),
+        "position": pose.as_ref().map(|p| hundredths3(p.position)),
+        "facing": pose.as_ref().map(|p| [hundredths(p.forward.x), hundredths(p.forward.z)]),
+        "movement": super::movement::describe(world),
+        "peers": peers(world, pose.as_ref(), admin.as_ref()),
         "nearby": nearby(world, pose.as_ref()),
     })
+}
+
+/// Whose chat the agent hears (#1427), and when it is nobody's, why.
+fn chat_heard(admin: Option<&Admin>) -> Value {
+    match admin {
+        Some(_) => json!({ "hears": "admin_only" }),
+        None => json!({
+            "hears": "nobody",
+            "why": "the agent was started without --admin",
+        }),
+    }
 }
 
 fn local_pose(world: &mut World) -> Option<Pose> {
@@ -77,24 +96,36 @@ fn local_pose(world: &mut World) -> Option<Pose> {
     })
 }
 
-fn peers(world: &mut World, pose: Option<&Pose>) -> Vec<Value> {
-    let mut query = world.query::<(&RemotePeer, &GlobalTransform)>();
+/// The players in the world whose identity is known, nearest first. One
+/// whose body has not been placed yet - no movement has reached the agent
+/// from them, as from a browser tab asleep since they arrived - is listed
+/// with no position rather than at the spot it waits at, the map's centre
+/// ten metres up; and one gone quiet says so.
+fn peers(world: &mut World, pose: Option<&Pose>, admin: Option<&Admin>) -> Vec<Value> {
+    let mut query = world.query::<(&RemotePeer, &GlobalTransform, Option<&PeerResolve>)>();
     let mut peers: Vec<(f32, Value)> = query
         .iter(world)
-        .filter_map(|(peer, transform)| {
+        .filter_map(|(peer, transform, resolve)| {
             let did = peer.did.as_ref()?;
             let position = transform.translation();
+            let placed = resolve.is_some_and(|r| r.placed);
             let mut entry = json!({
                 "did": did,
                 "handle": peer.handle,
+                "admin": admin.is_some_and(|admin| &admin.did == did),
                 "muted": peer.muted,
-                "position": rounded(position),
+                "placed": placed,
+                "quiet": resolve.is_some_and(|r| r.quiet),
+                "position": placed.then(|| hundredths3(position)),
             });
+            if !placed {
+                return Some((f32::INFINITY, entry));
+            }
             let distance = pose.map_or(f32::INFINITY, |pose| {
                 let (ahead, right) = pose.frame_of(position);
-                entry["distance_m"] = json!(round(position.distance(pose.position)));
-                entry["ahead_m"] = json!(round(ahead));
-                entry["right_m"] = json!(round(right));
+                entry["distance_m"] = json!(hundredths(position.distance(pose.position)));
+                entry["ahead_m"] = json!(hundredths(ahead));
+                entry["right_m"] = json!(hundredths(right));
                 position.distance(pose.position)
             });
             Some((distance, entry))
@@ -106,10 +137,18 @@ fn peers(world: &mut World, pose: Option<&Pose>) -> Vec<Value> {
 
 /// The placed things within [`NEARBY_RADIUS_M`] of the agent, nearest first
 /// and at most [`NEARBY_MAX`] of them, each by the name its world gives it.
+///
+/// A name is whatever the world's owner typed - in a stranger's world, up
+/// to a few hundred characters of anything at all - so each one is marked
+/// with whose it is (`named_by`, the world owner's DID) for the agent to
+/// weigh against its own DID and its admin's (#1427).
 fn nearby(world: &mut World, pose: Option<&Pose>) -> Vec<Value> {
     let Some(pose) = pose else {
         return Vec::new();
     };
+    let named_by = world
+        .get_resource::<CurrentRoomDid>()
+        .map(|room| room.0.clone());
     let Some(record) = world.get_resource::<LiveRoomRecord>() else {
         return Vec::new();
     };
@@ -144,11 +183,12 @@ fn nearby(world: &mut World, pose: Option<&Pose>) -> Vec<Value> {
                 distance,
                 json!({
                     "name": name,
+                    "named_by": named_by,
                     "kind": kind,
-                    "position": rounded(position),
-                    "distance_m": round(distance),
-                    "ahead_m": round(ahead),
-                    "right_m": round(right),
+                    "position": hundredths3(position),
+                    "distance_m": hundredths(distance),
+                    "ahead_m": hundredths(ahead),
+                    "right_m": hundredths(right),
                 }),
             ))
         })
@@ -223,15 +263,6 @@ fn link_word(phase: LinkPhase) -> &'static str {
     }
 }
 
-/// Centimetres are plenty, and six more digits of float noise are not.
-fn round(value: f32) -> f32 {
-    (value * 100.0).round() / 100.0
-}
-
-fn rounded(v: Vec3) -> [f32; 3] {
-    [round(v.x), round(v.y), round(v.z)]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,18 +314,28 @@ mod tests {
             LocalPlayer,
             GlobalTransform::from(Transform::from_xyz(0.0, 1.0, 0.0).looking_to(Vec3::Z, Vec3::Y)),
         ));
+        let placed = || PeerResolve {
+            placed: true,
+            ..default()
+        };
         world.spawn((
             peer(Some("did:plc:far")),
+            placed(),
             GlobalTransform::from(Transform::from_xyz(0.0, 1.0, 20.0)),
         ));
         world.spawn((
             peer(Some("did:plc:near")),
+            placed(),
             GlobalTransform::from(Transform::from_xyz(-4.0, 1.0, 0.0)),
         ));
         world.spawn((
             peer(None),
             GlobalTransform::from(Transform::from_xyz(1.0, 1.0, 1.0)),
         ));
+        world.insert_resource(Admin {
+            did: "did:plc:far".into(),
+            handle: Some("far.test".into()),
+        });
 
         let status = snapshot(&mut world);
 
@@ -308,6 +349,52 @@ mod tests {
         assert_eq!(peers[0]["right_m"], 4.0);
         assert_eq!(peers[1]["ahead_m"], 20.0);
         assert_eq!(peers[1]["distance_m"], 20.0);
+        assert_eq!(
+            (&peers[0]["admin"], &peers[1]["admin"]),
+            (&json!(false), &json!(true)),
+            "the admin is picked out by DID"
+        );
+        assert_eq!(
+            status["admin"],
+            json!({ "did": "did:plc:far", "handle": "far.test" })
+        );
+        assert_eq!(status["chat"], json!({ "hears": "admin_only" }));
+    }
+
+    /// THE CASE THAT ASKED FOR THIS (#1421): a player whose browser tab slept
+    /// through their arrival was listed at the map's centre ten metres up -
+    /// their spawn stand-in - as if they stood there. Unplaced, they are
+    /// listed with no position, after everyone who has one.
+    #[test]
+    fn a_player_not_yet_placed_has_no_position() {
+        let mut world = World::new();
+        world.insert_resource(State::new(AppState::InGame));
+        world.spawn((
+            LocalPlayer,
+            GlobalTransform::from(Transform::from_xyz(0.0, 1.0, 0.0)),
+        ));
+        world.spawn((
+            peer(Some("did:plc:asleep")),
+            PeerResolve::default(),
+            GlobalTransform::from(Transform::from_xyz(0.0, 10.0, 0.0)),
+        ));
+        world.spawn((
+            peer(Some("did:plc:here")),
+            PeerResolve {
+                placed: true,
+                ..default()
+            },
+            GlobalTransform::from(Transform::from_xyz(30.0, 1.0, 0.0)),
+        ));
+
+        let status = snapshot(&mut world);
+
+        let peers = status["peers"].as_array().expect("peers");
+        assert_eq!(peers[0]["did"], "did:plc:here", "the placed one first");
+        assert_eq!(peers[1]["did"], "did:plc:asleep");
+        assert_eq!(peers[1]["placed"], false);
+        assert!(peers[1]["position"].is_null(), "{}", peers[1]);
+        assert!(peers[1]["distance_m"].is_null(), "{}", peers[1]);
     }
 
     /// Before the world is loaded there is no body: the snapshot says so with
@@ -323,6 +410,26 @@ mod tests {
         assert!(status["position"].is_null());
         assert!(status["account"].is_null());
         assert_eq!(status["peers"], json!([]));
+    }
+
+    /// No admin: `status` says the agent hears nobody, and why, so an agent
+    /// that expected chat knows it was never going to come.
+    #[test]
+    fn a_snapshot_without_an_admin_says_chat_is_off_and_why() {
+        let mut world = World::new();
+        world.insert_resource(State::new(AppState::InGame));
+
+        let status = snapshot(&mut world);
+
+        assert!(status["admin"].is_null());
+        assert_eq!(status["chat"]["hears"], "nobody");
+        assert!(
+            status["chat"]["why"]
+                .as_str()
+                .is_some_and(|why| why.contains("--admin")),
+            "{}",
+            status["chat"]
+        );
     }
 
     /// THE CASE THAT ASKED FOR THIS: an agent walked straight into its own
@@ -349,6 +456,7 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(State::new(AppState::InGame));
         world.insert_resource(LiveRoomRecord(record));
+        world.insert_resource(CurrentRoomDid("did:plc:nearby".into()));
         world.spawn((
             LocalPlayer,
             GlobalTransform::from(Transform::from_xyz(0.0, 0.0, 0.0).looking_to(Vec3::Z, Vec3::Y)),
@@ -370,5 +478,9 @@ mod tests {
         );
         assert_eq!(nearby[1]["kind"], "gateway");
         assert_eq!(nearby[1]["ahead_m"], 10.0);
+        assert!(
+            nearby.iter().all(|t| t["named_by"] == "did:plc:nearby"),
+            "every name says whose it is: {nearby:?}"
+        );
     }
 }

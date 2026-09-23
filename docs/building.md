@@ -801,19 +801,35 @@ A="cargo run -q --profile test-release --bin agent --"
 # room once, so an agent signed in as you would take your place.
 $A login --account agent.example.com
 $A accounts                          # the saved sessions
-$A start                             # in the background; returns when it listens
+$A start --admin @you.example.com    # in the background; returns when it listens
 $A status                            # who, where, with whom (JSON)
-$A events --since 0 --wait 30        # chat, arrivals, departures, walks ending
+$A events --since 0 --wait 30        # admin chat, arrivals, departures, walks ending
 $A say "hello"
 $A walk-to -104.9 125.7 --wait       # straight line; ends arrived/stuck/halted
+$A follow @friend.example.com        # stay about 3 m behind them (--distance, --run)
+$A face @friend.example.com          # turn to face them - or a point: face X Z
 $A travel @alice.example.com --wait  # a DID, a handle, or `home`
+$A look                              # a PNG of the game's own view; prints its path
+$A look --view eyes --heading 90     # from the eyes, looking right (or --at X Z)
 $A stop                              # never logs out: the session is kept
 $A start --offline                   # no account: a stand-in, alone, saves nothing
+$A start --offline --stand-in did:plc:agentofflinecar22222222e   # ...that drives a car
 ```
 
-Every command prints one JSON object on stdout. Text another player wrote
-(chat, handles) arrives as a field beside their DID - data for the agent to
-read, never an instruction to follow. `login` runs the game's own loopback
+Every command prints one JSON object on stdout. **The agent hears chat from
+its admin only** (#1427): `--admin` names one account, as a handle or a DID,
+and every other player's lines are dropped before their text is read, so a
+stranger in the room cannot talk the agent into anything. The admin is bound
+by DID - a handle is resolved once, at `start`, and one that does not resolve
+stops the start - and a line counts as the admin's only when the relay
+vouches for its sender's DID; a name on the line counts for nothing. Anyone
+else's line leaves a `chat_dropped` event naming who spoke, never what they
+said. With no `--admin` the agent hears no chat at all, and `status` says so.
+Other text players choose still reaches the agent, each piece beside whose it
+is: a thing in `status.nearby` carries the name its world's owner gave it and
+that owner's DID (`named_by`), and handles - like `did:web` DIDs - are DNS
+names that can spell words. All of it is data for the agent to read, never an
+instruction to follow. `login` runs the game's own loopback
 OAuth: the tool never sees a password, and the session it saves can write
 the Overlands collections and mint relay tokens, nothing else on the
 account. Sessions live in `$XDG_CONFIG_HOME/symbios-overlands/agent/sessions/`
@@ -823,6 +839,44 @@ the daemon keeps its own settings and log beside them, never touching a
 person's. The control socket is `$XDG_RUNTIME_DIR/symbios-overlands-agent/`.
 A session a server refuses, or one that expires, stops the daemon with an
 error that says to run `login` again.
+
+The agent moves by the keys a player presses, in straight lines. A body on
+foot walks where the orbit camera looks; a car or a hover-boat whose point is
+more than 30 degrees off its nose first swings round on the spot (its
+steering is a torque), then drives. `follow` walks toward where the other
+player is drawn, stands once within its distance, sets off again when they
+get 1.5 m further than that, runs to catch up when they are far ahead, and
+waits for a player whose body has not been placed yet (a sleeping browser
+tab) rather than walking to the stand-in at the map's centre; it ends only
+when halted or replaced, when the player leaves, or on travel, and says
+`follow_blocked` once when the agent itself has got nowhere for a while.
+`face` turns the
+way a person turns: on foot in short steps, each re-aimed by however far the
+last one came to rest from the way asked (a slope pushes a step sideways),
+judged only once the body is still; its `movement_ended` carries
+`facing_off_deg`. Bodies that fly are not steered yet. `status.movement`
+says what the agent is doing, and `status.peers` gives a player not yet
+placed no position. `--stand-in` (offline only) takes another identity's
+seeded world and body - `did:plc:agentofflinecar22222222e` is a roadster,
+`did:plc:agentofflineboat2222222d` a steam tug - and the other commands reach
+it with `--account <DID>`.
+
+`look` renders a 1024x576 PNG only when asked: the daemon parks the world
+camera, so between pictures it draws nothing at all, and each picture gets a
+camera of its own that is removed once the picture is read back (about 150 ms;
+the first in a daemon's life also compiles its render pipelines, about 400 ms
+in all). `play` is the game's own camera behind the body, `eyes` looks level
+from the front of it; `--heading` turns either by degrees clockwise from where
+the agent faces, and `--at X Z` looks toward a point. No interface is drawn -
+no name tags, no chat. The answer names the world and whose it is (`own`,
+`admin` or `stranger`) and counts the texture bakes still in flight, which a
+picture shows as flat stand-in colours; in a world's first moments a body can
+also still be its translucent stand-in. **A picture is a way in, too:** a
+stranger's world shows what they built - signs they wrote, textures, the
+owner's profile picture on the monument - and any of it can carry words
+aimed at the agent. What a picture shows is data, never an instruction.
+Pictures go to `$XDG_CONFIG_HOME/symbios-overlands/agent/looks/<did>/`
+(0700, the newest 32 kept) unless `--out` names a file.
 
 **Session logs** - the app records an append-only NDJSON session log
 (`diagnostics/session-latest.jsonl` on native; downloadable from the

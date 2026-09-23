@@ -1646,9 +1646,77 @@ pub(crate) mod agent {
     /// How far off the nose a point may be before a driven body steers
     /// toward it: the sine of the angle, about 5 degrees.
     pub const STEER_DEAD_ZONE: f32 = 0.08;
+    /// How far off the nose a point may be before a driven body stops and
+    /// swings round to it on the spot, rather than steering on the move
+    /// (degrees). Throttle and full lock together sent a car 90 degrees off
+    /// its point 2.7 m straight on into the gateway in front of it (#1421).
+    pub const SWING_FIRST_DEG: f32 = 30.0;
     /// The longest `agent walk-to --wait` waits for the walk to end before
     /// it gives up waiting (the walk itself carries on).
     pub const WALK_WAIT: Duration = Duration::from_secs(30 * 60);
+
+    // --- Following and facing (#1421) ---
+
+    /// How close `agent follow` keeps to the player it follows, unless told
+    /// otherwise (m): near enough to talk, far enough not to crowd.
+    pub const FOLLOW_DISTANCE_M: f32 = 3.0;
+    /// How much farther than that the player may get before the follower
+    /// sets off after them again (m). Without it a follower at the edge of
+    /// its distance stops and starts every step the player takes.
+    pub const FOLLOW_SLACK_M: f32 = 1.5;
+    /// Past the follow distance by this much, a follower on foot runs to
+    /// catch up (m): walking after someone who walks never closes the gap.
+    pub const FOLLOW_RUN_BEYOND_M: f32 = 6.0;
+    /// How far off the direction asked a `face` may leave the body (degrees).
+    /// A body on foot faces the way it moves, and on a slope the ground
+    /// pushes that sideways: one turn across a 10-degree rise ended 14
+    /// degrees short however long it walked.
+    pub const FACE_TOLERANCE_DEG: f32 = 10.0;
+    /// How long a body on foot may try to turn, its steps and its pauses
+    /// included, before the turn is called off (s). A turn is a few steps,
+    /// not a walk: an unbounded one, deflected by a wall, walked 7 m.
+    pub const FACE_STEP_SECS: f64 = 2.5;
+    /// One step of a turn on foot (s): long enough for the default walker
+    /// (turn rate 12/s) to turn nine-tenths of the way, about 0.2 m of
+    /// ground. A slope pushes a step sideways, so the next one aims past the
+    /// way asked by however far the last one came to rest from it.
+    pub const FACE_PULSE_SECS: f64 = 0.25;
+    /// How long a turn lets go and waits for the body to come to rest before
+    /// it judges where the body faces (s): a walker keeps turning toward the
+    /// way it still moves, and a swung car or boat carries its spin.
+    pub const FACE_SETTLE_SECS: f64 = 0.3;
+    /// How close the camera must look to where a walker was turned before
+    /// it steps (degrees). The walk reads the camera as the frame began, so
+    /// a step taken the frame the camera turns goes the old way.
+    pub const CAMERA_CAUGHT_UP_DEG: f32 = 5.0;
+
+    // --- Looking (#1420) ---
+
+    /// A picture's size in pixels: about what a vision model takes in whole,
+    /// 16:9 like the game's own window, and a width that is a multiple of 64
+    /// so the GPU readback has no row padding to strip.
+    pub const LOOK_SIZE: (u32, u32) = (1024, 576);
+    /// Frames the snapshot camera renders before its picture is read back.
+    /// A camera spawned where it shoots draws everything on its first frame:
+    /// measured, frame 0 and frame 3 of the same pose differed only where
+    /// something moves - fronds in the wind, clouds, water, the body's idle
+    /// (0.05% and 0.72% of the pixels, two views, 2026-09-23). The one frame
+    /// is for a material still being prepared when the camera arrives, which
+    /// the renderer queues again on the next.
+    pub const LOOK_WARMUP_FRAMES: u32 = 1;
+    /// How long a `look` may take before it is given up and its camera
+    /// removed. The first one in a daemon's life compiles the render
+    /// pipelines it needs, on the render thread, before its first frame.
+    pub const LOOK_ANSWER_TIMEOUT: Duration = Duration::from_secs(120);
+    /// Where pictures go unless `--out` says otherwise, under [`HOME_DIR`]:
+    /// one private directory per account.
+    pub const LOOKS_DIR: &str = "looks";
+    /// How many pictures that directory keeps; the oldest go first.
+    pub const LOOKS_KEPT: usize = 32;
+    /// Where the eyes are in a body, as a fraction of its height from its
+    /// feet: an adult's eye line is 93-94% of their stature, and a vehicle
+    /// sees from near its top.
+    pub const EYE_HEIGHT_FRACTION: f32 = 0.93;
 
     // --- Travel (#1419) ---
 
@@ -1662,8 +1730,12 @@ pub(crate) mod agent {
     // --- Offline mode (#1415) ---
 
     /// The identity an offline agent stands in as: a well-formed `did:plc`
-    /// no directory knows, so its world is the one seeded from it (the
-    /// loading gate reads an unknown identity as "nothing published").
+    /// no directory knows, so its world and its body are the ones seeded
+    /// from it (the loading gate reads an unknown identity as "nothing
+    /// published"). Its seeded body walks. `--stand-in` names another, and
+    /// with it another body: `did:plc:agentofflinecar22222222e` is a
+    /// roadster (a car), `did:plc:agentofflineboat2222222d` a steam tug (a
+    /// hover-boat) - found with the render tool's `--outfit` (#1421).
     pub const OFFLINE_DID: &str = "did:plc:agentofflinestandin22222";
     /// The offline agent's handle, on a name that can never resolve.
     pub const OFFLINE_HANDLE: &str = "agent.offline.invalid";

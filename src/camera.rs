@@ -274,30 +274,50 @@ fn clamp_camera_to_terrain(
     if mode == CameraGroundAvoidance::Off {
         return;
     }
+    for (cam, mut tf) in cameras.iter_mut() {
+        let clear = clear_of_terrain(cam.focus, tf.translation, &settings, &hm);
+        // Written only when it moves, as before: a write stamps the change
+        // tick whether or not the value changed.
+        if clear != tf.translation {
+            tf.translation = clear;
+        }
+    }
+}
+
+/// Where an orbit camera at `translation` around `focus` may stand, under
+/// the ground-avoidance the player chose: slid in along its focus ray until
+/// it clears the terrain, or left where it is. The one rule for the player's
+/// camera and for any view that has to stand where the player's would - the
+/// agent's third-person snapshot (#1420).
+pub(crate) fn clear_of_terrain(
+    focus: Vec3,
+    translation: Vec3,
+    settings: &crate::state::LocalSettings,
+    hm: &FinishedHeightMap,
+) -> Vec3 {
     // Sanitized here rather than trusting the prefs file: a hand-edited
     // clearance of NaN/negative would otherwise poison every clamp.
     let clearance = settings.camera_ground_clearance_m.clamp(0.0, 50.0);
-    for (cam, mut tf) in cameras.iter_mut() {
-        let focus = cam.focus;
-        let offset = tf.translation - focus;
-        let dist = offset.length();
-        if dist <= cfg::TERRAIN_CLAMP_MIN_DIST {
-            continue;
+    let offset = translation - focus;
+    let dist = offset.length();
+    if dist <= cfg::TERRAIN_CLAMP_MIN_DIST {
+        return translation;
+    }
+    let dir = offset / dist;
+    let ground = |x: f32, z: f32| hm.world_height_at(x, z);
+    let clamped = match settings.camera_ground_avoidance {
+        CameraGroundAvoidance::Off => dist,
+        CameraGroundAvoidance::CameraOnly => {
+            clamp_distance_camera_only(focus, dir, dist, clearance, ground)
         }
-        let dir = offset / dist;
-        let ground = |x: f32, z: f32| hm.world_height_at(x, z);
-        let clamped = match mode {
-            CameraGroundAvoidance::Off => unreachable!("early return above"),
-            CameraGroundAvoidance::CameraOnly => {
-                clamp_distance_camera_only(focus, dir, dist, clearance, ground)
-            }
-            CameraGroundAvoidance::FullRay => {
-                clamp_distance_along_ray(focus, dir, dist, clearance, ground)
-            }
-        };
-        if clamped < dist {
-            tf.translation = focus + dir * clamped;
+        CameraGroundAvoidance::FullRay => {
+            clamp_distance_along_ray(focus, dir, dist, clearance, ground)
         }
+    };
+    if clamped < dist {
+        focus + dir * clamped
+    } else {
+        translation
     }
 }
 
@@ -614,8 +634,9 @@ mod tests {
     #[test]
     fn every_camera_query_says_which_camera() {
         // `IsWorldCamera` contains `WorldCamera`, so the alias satisfies
-        // this by name as well as by meaning.
-        let markers = ["WorldCamera", "PreviewCamera"];
+        // this by name as well as by meaning. `LookCamera` is the agent's
+        // snapshot camera (#1420), a third `Camera3d` for a few frames.
+        let markers = ["WorldCamera", "PreviewCamera", "LookCamera"];
         let mut unmarked: Vec<String> = Vec::new();
         let mut seen = 0usize;
         for path in crate::ui::fonts::glyph_coverage_tests::rust_sources_under("src") {
