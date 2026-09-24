@@ -65,6 +65,7 @@ pub(super) fn snapshot(world: &mut World) -> Value {
             .get_resource::<LiveAvatarRecord>()
             .map(|live| locomotion_word(&live.0.locomotion)),
         "position": pose.as_ref().map(|p| hundredths3(p.position)),
+        "height_m": super::movement::height(world).map(hundredths),
         "facing": pose.as_ref().map(|p| [hundredths(p.forward.x), hundredths(p.forward.z)]),
         "movement": super::movement::describe(world),
         "peers": peers(world, pose.as_ref(), admin.as_ref()),

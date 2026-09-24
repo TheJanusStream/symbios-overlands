@@ -63,6 +63,10 @@ pub enum EventKind {
         /// asked, in degrees clockwise.
         #[serde(skip_serializing_if = "Option::is_none")]
         facing_off_deg: Option<f64>,
+        /// A body that flies only: how high its underside is above what is
+        /// below it - about nothing once it has landed.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        height_m: Option<f64>,
     },
     /// A follow has closed no distance on its player for a while: something
     /// is in the way. It keeps trying until it is halted; this is said once

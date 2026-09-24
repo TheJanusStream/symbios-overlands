@@ -197,6 +197,16 @@ pub struct LinkState {
 }
 
 impl LinkState {
+    /// A link that came up at `since_secs`, for tests elsewhere in the
+    /// network module.
+    #[cfg(test)]
+    pub(super) fn up_since(since_secs: f64) -> Self {
+        Self {
+            phase: LinkPhase::Connected,
+            since_secs,
+        }
+    }
+
     /// The current phase.
     pub fn phase(&self) -> LinkPhase {
         self.phase

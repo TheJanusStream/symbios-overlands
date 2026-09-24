@@ -159,6 +159,9 @@ pub(super) struct InboundBuffers<'w, 's> {
     /// taken as its own parameter because `handle_incoming_messages` is at
     /// Bevy's 16-parameter `IntoSystem` ceiling.
     world_digest: Res<'w, crate::world_digest::WorldDigest>,
+    /// Peers the liveness sweep removed while their connection may still
+    /// stand, so their next sign of life brings them back (#1429).
+    swept: ResMut<'w, super::lifecycle::SweptPeers>,
     /// How far each peer has resolved (#1217/#1218). A separate query rather
     /// than a fifth element of the `peers` tuple: the two touch disjoint
     /// components, so Bevy's per-component access check lets them coexist,
@@ -294,6 +297,28 @@ pub(super) fn handle_incoming_messages(
             && last_coalesced_idx.get(&(msg.sender, key)) != Some(&i)
         {
             continue;
+        }
+        // A sign of life from a peer the liveness sweep removed: their
+        // connection stood all along (a tab asleep, now awake), and nothing
+        // else would ever bring them back (#1429). They are made again as a
+        // fresh connection is, so this message - arriving before the entity
+        // does - is the last one of theirs that is dropped.
+        if matches!(
+            msg.payload,
+            OverlandsMessage::Transform { .. }
+                | OverlandsMessage::Identity { .. }
+                | OverlandsMessage::Hello { .. }
+        ) {
+            super::lifecycle::revive_swept_peer(
+                &mut commands,
+                &mut bufs.swept,
+                || peers.iter().any(|(_, peer, ..)| peer.peer_id == msg.sender),
+                msg.sender,
+                &mut sender,
+                session.as_deref(),
+                &mut session_log,
+                now,
+            );
         }
         match msg.payload {
             OverlandsMessage::Transform { position, rotation } => transform::handle(

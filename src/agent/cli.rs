@@ -41,9 +41,11 @@ pub enum Command {
     Stop(AccountArg),
     /// Say something in the room the agent is in.
     Say(SayArgs),
-    /// Walk - or drive - in a straight line to a point on the ground.
+    /// Walk - or drive - in a straight line to a point on the ground; a body
+    /// that flies flies there and lands on it.
     WalkTo(WalkToArgs),
-    /// Stop walking.
+    /// Stop moving. A body that flies comes straight down first, and the
+    /// movement ends once it is down.
     Halt(AccountArg),
     /// Travel to another player's world - or `home`.
     Travel(TravelArgs),
@@ -51,9 +53,11 @@ pub enum Command {
     /// where. Nothing is drawn while nobody asks.
     Look(LookArgs),
     /// Follow another player in this world, keeping near them until halted,
-    /// until they leave, or until the agent travels.
+    /// until they leave, or until the agent travels. A body that flies
+    /// escorts them low, and lands beside them once they stand still.
     Follow(FollowArgs),
-    /// Turn to face another player, or a point on the ground.
+    /// Turn to face another player, or a point on the ground - on the spot,
+    /// in the air or on the ground, for a body that flies.
     Face(FaceArgs),
 }
 
@@ -189,10 +193,16 @@ pub struct RunArgs {
     /// Offline only: stand in as this identity instead - its seeded world
     /// and its seeded body. A DID no directory knows keeps them seeded:
     /// `did:plc:agentofflinecar22222222e` drives a car,
-    /// `did:plc:agentofflineboat2222222d` a hover-boat. Other commands reach
-    /// it with `--account <DID>`.
+    /// `did:plc:agentofflineboat2222222d` a hover-boat, and
+    /// `did:plc:agentofflineair222222222` flies an airship. Other commands
+    /// reach it with `--account <DID>`.
     #[arg(long, value_name = "DID", requires = "offline", value_parser = room_did)]
     pub stand_in: Option<String>,
+    /// Testing only, offline: fly the default airplane in place of the
+    /// stand-in's own locomotion, its body left as it is - no seeded body
+    /// is an airplane (#1431).
+    #[arg(long, requires = "offline", hide = true)]
+    pub wear_airplane: bool,
     /// The one player whose chat the agent hears, as a handle or DID. Every
     /// other player's lines are dropped unread, so nobody else can talk the
     /// agent into anything; with no admin it hears no chat at all. A handle
@@ -479,6 +489,13 @@ mod tests {
         assert_eq!(target(&["-4.5", "12"]).unwrap(), ["-4.5", "12"]);
         assert!(target(&[]).is_err(), "whom or where");
         assert!(target(&["1", "2", "3"]).is_err());
+    }
+
+    /// Wearing the test airplane is an offline thing too.
+    #[test]
+    fn the_test_airplane_needs_offline() {
+        assert!(Cli::try_parse_from(["agent", "start", "--offline", "--wear-airplane"]).is_ok());
+        assert!(Cli::try_parse_from(["agent", "start", "--wear-airplane"]).is_err());
     }
 
     /// A stand-in is an offline thing; naming one online is a mistake.

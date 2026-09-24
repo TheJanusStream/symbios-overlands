@@ -46,8 +46,9 @@
 //!
 //! * [`peer_cache`] - DID-keyed [`PeerAvatarCache`] + the async
 //!   peer-avatar fetch task and its drainer.
-//! * [`lifecycle`] - peer connect/disconnect, stale-offer-dialog evictor,
-//!   mute-visibility sync.
+//! * [`lifecycle`] - peer connect/disconnect, the liveness sweep of peers
+//!   gone silent and their return on a sign of life (#1429),
+//!   stale-offer-dialog evictor, mute-visibility sync.
 //! * [`link`] - [`link::LinkState`], the one place the client knows whether
 //!   it is connected, and the ghost-peer sweep + narration on its edges
 //!   (#1213).
@@ -166,6 +167,7 @@ impl Plugin for NetworkPlugin {
             .init_resource::<chunk::OversizeNotices>()
             // #1213: the connection fact every UI surface reads, plus the
             // narration edge that must be cleared with it on logout.
+            .init_resource::<lifecycle::SweptPeers>()
             .init_resource::<link::LinkState>()
             .init_resource::<link::LinkNarration>()
             .insert_resource(SmootherConfigRes::from_fixed_timestep(fixed_timestep_secs))

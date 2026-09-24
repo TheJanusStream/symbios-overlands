@@ -36,6 +36,8 @@ pub struct Launch<'a> {
     pub room: Option<&'a str>,
     /// Stand in offline rather than resume a saved session.
     pub offline: bool,
+    /// Offline, fly the test airplane (#1431).
+    pub wear_airplane: bool,
     /// Whose chat it hears, already resolved; `None` is nobody's.
     pub admin: Option<&'a Admin>,
 }
@@ -96,6 +98,9 @@ fn run_args(launch: &Launch<'_>) -> Vec<String> {
         args.push("--offline".to_owned());
         if launch.did != crate::config::agent::OFFLINE_DID {
             args.extend(["--stand-in".to_owned(), launch.did.to_owned()]);
+        }
+        if launch.wear_airplane {
+            args.push("--wear-airplane".to_owned());
         }
     } else {
         args.extend(["--account".to_owned(), launch.did.to_owned()]);
@@ -183,6 +188,7 @@ mod tests {
             handle: "agent.test",
             room: None,
             offline: false,
+            wear_airplane: false,
             admin: Some(&admin),
         };
 
@@ -209,6 +215,7 @@ mod tests {
             handle: "agent.test",
             room: Some("did:plc:room"),
             offline: true,
+            wear_airplane: false,
             admin: None,
         };
         assert_eq!(
@@ -226,6 +233,7 @@ mod tests {
             handle: "agent.test",
             room: None,
             offline: true,
+            wear_airplane: false,
             admin: None,
         };
         assert_eq!(
@@ -235,6 +243,29 @@ mod tests {
                 "--offline",
                 "--stand-in",
                 "did:plc:agentofflineboat2222222d"
+            ]
+        );
+    }
+
+    /// The test airplane goes to the daemon with the stand-in it flies.
+    #[test]
+    fn the_test_airplane_is_forwarded() {
+        let launch = Launch {
+            did: "did:plc:agentofflineair222222222",
+            handle: "agent.test",
+            room: None,
+            offline: true,
+            wear_airplane: true,
+            admin: None,
+        };
+        assert_eq!(
+            run_args(&launch),
+            [
+                "run",
+                "--offline",
+                "--stand-in",
+                "did:plc:agentofflineair222222222",
+                "--wear-airplane"
             ]
         );
     }

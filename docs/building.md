@@ -814,6 +814,7 @@ $A look --view eyes --heading 90     # from the eyes, looking right (or --at X Z
 $A stop                              # never logs out: the session is kept
 $A start --offline                   # no account: a stand-in, alone, saves nothing
 $A start --offline --stand-in did:plc:agentofflinecar22222222e   # ...that drives a car
+$A start --offline --stand-in did:plc:agentofflineair222222222   # ...that flies an airship
 ```
 
 Every command prints one JSON object on stdout. **The agent hears chat from
@@ -854,12 +855,51 @@ when halted or replaced, when the player leaves, or on travel, and says
 way a person turns: on foot in short steps, each re-aimed by however far the
 last one came to rest from the way asked (a slope pushes a step sideways),
 judged only once the body is still; its `movement_ended` carries
-`facing_off_deg`. Bodies that fly are not steered yet. `status.movement`
-says what the agent is doing, and `status.peers` gives a player not yet
-placed no position. `--stand-in` (offline only) takes another identity's
-seeded world and body - `did:plc:agentofflinecar22222222e` is a roadster,
-`did:plc:agentofflineboat2222222d` a steam tug - and the other commands reach
-it with `--account <DID>`.
+`facing_off_deg`. A body that flies (every airship: a helicopter under the
+keys) flies a `walk-to` and lands on its point. It climbs, swinging its
+nose round to the point before it moves; cruises 20 m above the highest
+ground on the next 45 m of its course, and at least 5 m over whatever stands
+under it; stops short of anything standing in its way at its height - a
+landmark, a tower, a cliff - and climbs over it; stops over the point, and
+comes down on whatever is there: the ground, a roof, or water, which it
+stops on rather than sinks into. It `follow`s by escorting the player 8 m
+up, keeping its distance, lands beside them once they have stood still for
+five seconds, and takes off again when they move away; it `face`s by
+turning on the spot at whatever height it is. It never ends a movement in
+the air: halted, stuck, or left by the player it followed, it first comes
+straight down where it is (`halt` answers `landing: true`), and the
+movement ends once it is down - only another movement or travel cuts it off
+at once. A flight is `stuck` when the body has neither moved nor turned for
+six seconds, never by how far it still has to go, and its `movement_ended`
+carries `height_m`. An airplane (#1431) is flown as the game's airplane
+actually flies - its lift is straight up in proportion to its forward speed,
+so it holds its height by its throttle and turns by its rudder, its nose
+kept level (at the daemon's frame one press of A or D rolls it about 140
+degrees). On the ground it swings round to a clear run and takes off; it
+comes onto a straight final toward the point from 80 m out, glides down by
+slowing, cuts its engine at touchdown and stops within 10 m of the point;
+not lined up, or with something on the final, it goes round - out to 170 m
+and back - and after two of those it lands where it can and ends `stuck`.
+Its engine runs with no key held, so with nothing flying it the agent holds
+it cut, or it would take off on its own. It `face`s on the ground only and
+does not `follow`. `status.movement`
+says what the agent is doing (a flight's `phase` too), `status.height_m`
+how far the body could come straight down before it touched something
+(water included), and `status.peers` gives a player not yet placed no
+position. A player silent for two minutes - a tab asleep in the
+background - is `peer_left`, and `peer_joined` again on the first thing
+they send when it wakes (#1429).
+`--stand-in` (offline only) takes another identity's seeded world and body -
+`did:plc:agentofflinecar22222222e` is a roadster,
+`did:plc:agentofflineboat2222222d` a steam tug,
+`did:plc:agentofflineair222222222` a twin-envelope airship - and the other
+commands reach it with `--account <DID>`; `--room <DID>` puts it in another
+seeded world. Either DID has to be well formed (`did:plc:` and 24 of `a-z`
+and `2-7`): the directory refuses a malformed one, which the loading screen
+takes for an outage and retries for minutes. No seeded body is an airplane,
+so for testing, `start --offline --wear-airplane` (hidden from `--help`)
+flies the default airplane in place of the stand-in's own locomotion, its
+body left as it is.
 
 `look` renders a 1024x576 PNG only when asked: the daemon parks the world
 camera, so between pictures it draws nothing at all, and each picture gets a

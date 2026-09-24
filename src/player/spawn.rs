@@ -107,7 +107,8 @@ pub(super) fn spawn_local_player(
 }
 
 /// Preset-independent components of the local chassis root, shared by the
-/// live spawn path and the #670 regression test so the two can't drift.
+/// live spawn path, the #670 regression test and the test-only flight
+/// bench (`player::sim`) so the three can't drift.
 ///
 /// `TransformInterpolation` is load-bearing: Avian steps physics (and the
 /// `Position` → `Transform` writeback) entirely inside `FixedPostUpdate`
@@ -122,7 +123,7 @@ pub(super) fn spawn_local_player(
 /// outside the fixed schedules - portal teleports, the terrain-hot-load
 /// lift - are detected as teleports and snap for that timestep, which is
 /// the wanted shape.
-fn chassis_root_bundle(transform: Transform) -> impl Bundle {
+pub(super) fn chassis_root_bundle(transform: Transform) -> impl Bundle {
     (
         transform,
         Visibility::default(),

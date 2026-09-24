@@ -977,11 +977,20 @@ pub(crate) mod network {
     /// same presence line the disconnect path writes (#1224 f335).
     ///
     /// Long, because the cost of being wrong is asymmetric: a peer wrongly
-    /// swept reappears on their next packet - `handle_peer_connections`
-    /// never saw them leave - but a body removed from under a conversation
-    /// is jarring. Two minutes is well past any transport hiccup and well
-    /// short of "this room has been lying to me all session".
+    /// swept reappears on their next sign of life - the sweep remembers
+    /// them (#1429; before it did, a swept peer whose tab woke stayed
+    /// bodiless until their connection cycled) - but a body removed from
+    /// under a conversation is jarring. Two minutes is well past any
+    /// transport hiccup and well short of "this room has been lying to me
+    /// all session".
     pub const PEER_GHOST_SECS: f64 = 120.0;
+
+    /// How long a swept peer is remembered, so their next transform,
+    /// identity or hello brings them back (#1429). Their connection
+    /// usually still stands - a browser tab asleep in the background - and
+    /// the transport says nothing when it wakes. A connection the transport
+    /// does close is forgotten at once; this bounds one it never does.
+    pub const PEER_SWEPT_MEMORY_SECS: f64 = 30.0 * 60.0;
 
     /// Radius (metres) of the translucent stand-in body drawn for a
     /// chassis whose real one has not arrived yet (#1217 f328).
@@ -1690,6 +1699,206 @@ pub(crate) mod agent {
     /// a step taken the frame the camera turns goes the old way.
     pub const CAMERA_CAUGHT_UP_DEG: f32 = 5.0;
 
+    // --- Flying (#1430) ---
+
+    /// How high a flying body cruises: its underside this far above the
+    /// highest ground on the next stretch of its course, water counted as
+    /// ground (m). Over the seeded gateways, settlements and trees; a
+    /// landmark can stand taller, and a flight into one ends `stuck` as a
+    /// walk into a wall does.
+    pub const CRUISE_HEIGHT_M: f32 = 20.0;
+    /// How far along its course a flying body looks at the ground it has to
+    /// clear (m): six seconds at an airship's top speed, time to climb 30 m
+    /// before it gets there. At 30 m of look-ahead, an airship came over a
+    /// mesa's 30 m cliff 13.6 m clear of it rather than 20.
+    pub const CRUISE_LOOKAHEAD_M: f32 = 45.0;
+    /// How far apart it samples that ground (m).
+    pub const CRUISE_SAMPLE_M: f32 = 2.0;
+    /// The least a flying body keeps between its underside and whatever
+    /// stands under it - a roof, a tree - which the ground's height does not
+    /// know about (m).
+    pub const CRUISE_CLEARANCE_M: f32 = 5.0;
+    /// How near its cruising height a body taking off climbs before it sets
+    /// off (m).
+    pub const TAKE_OFF_WITHIN_M: f32 = 2.0;
+    /// How close over its point a flying body has to be to come down on it
+    /// (m).
+    pub const ARRIVE_FLYING_M: f32 = 2.0;
+    /// How slowly it has to be moving over its point to start down (m/s).
+    pub const LAND_OVER_SPEED: f32 = 1.0;
+    /// Within this of its point a flying body stops turning its nose (m): the
+    /// bearing to a point it passes over swings right round.
+    pub const NOSE_HOLD_WITHIN_M: f32 = 4.0;
+    /// Coming down onto the ground, a flying body comes down at full speed
+    /// and lets go once coasting would carry it this far under the surface
+    /// (m) - so it always gets there, and meets it at about a fifth of a
+    /// metre a second. Let down at full speed an airship meets the ground at
+    /// 5 m/s; met at half a metre a second, a hillside tipped it over.
+    pub const LAND_SINK_M: f32 = 0.2;
+    /// How near what is below it counts as on it (m).
+    pub const SURFACE_M: f32 = 0.05;
+    /// How near what is below it a body at rest counts as down on it (m).
+    pub const TOUCHDOWN_HEIGHT_M: f32 = 0.3;
+    /// Coming down onto water, how far from its surface the height a body
+    /// would coast to rest at, let go now, may be (m). Near its top speed
+    /// down a frame's key moves that height about 0.17 m; from rest, about
+    /// a metre.
+    pub const WATER_REST_M: f32 = 0.15;
+    /// How high over water a body has to be to get up to its top speed down
+    /// before it lets go to coast onto the surface (m); lower, it climbs
+    /// first. An airship coasts 6.25 m from 5 m/s, and takes about a second
+    /// and three metres to get up to that speed.
+    pub const WATER_COAST_FROM_M: f32 = 10.0;
+    /// How far a coming-down body may move in [`TOUCHDOWN_SECS`] and still
+    /// be at rest (m): a tenth of a metre a second. A descent near the
+    /// ground is let alone down to about 0.3 m/s, and a body judged at rest
+    /// while that slow is let go still moving.
+    pub const TOUCHDOWN_STILL_M: f32 = 0.03;
+    /// How long it has to have been at rest to have landed (s).
+    pub const TOUCHDOWN_SECS: f64 = 0.3;
+    /// How far from upright a body may lean and still be at rest (degrees).
+    /// Set down on a hillside, an airship meets it with its uphill edge and
+    /// tips, and its stabiliser then stands it up again - pivoting on that
+    /// edge, which lifts it a hand's breadth clear.
+    pub const TOUCHDOWN_LEAN_DEG: f32 = 2.0;
+    /// The vertical speed a flying body asks for per metre it is off the
+    /// height it wants (1/s).
+    pub const ALTITUDE_GAIN: f32 = 1.0;
+    /// How far its vertical speed may stray from the one it asks for before
+    /// it presses Space or Shift (m/s). Either key moves it about 0.7 m/s in
+    /// a daemon frame, so a narrower band would press one and then the other.
+    pub const CLIMB_BAND: f32 = 0.5;
+    /// The same for its speed over the ground, along its nose and beside it
+    /// (m/s).
+    pub const THRUST_BAND: f32 = 0.3;
+    /// How far off where it wants its nose a flying body may leave it
+    /// (degrees), once the spin it has left is counted in.
+    pub const YAW_DEAD_ZONE_DEG: f32 = 2.0;
+    /// How much of what W and S can do the approach to a point plans to
+    /// brake with, so it stops over the point rather than past it.
+    pub const APPROACH_BRAKE_SHARE: f32 = 0.5;
+    /// Where the approach plans to have stopped, short of the point (m).
+    pub const APPROACH_STOP_SHORT_M: f32 = 0.5;
+    /// Coming down, the speed over the ground a flying body asks for per
+    /// metre it is off its point (1/s), and the most it asks for (m/s).
+    pub const LAND_SLIDE_GAIN: f32 = 0.5;
+    pub const LAND_SLIDE_SPEED: f32 = 1.0;
+    /// Turning this far counts as getting somewhere, for `stuck` (degrees):
+    /// a long airship swings round more slowly than a walk is called stuck.
+    pub const PROGRESS_TURN_DEG: f32 = 10.0;
+    /// How far along its course a flying body sweeps itself for something in
+    /// the way at its own height - a landmark, a tower, a cliff - which the
+    /// ground's height does not show (m).
+    pub const OBSTACLE_SWEEP_M: f32 = 20.0;
+    /// How much further than it can stop in a thing ahead has to be before
+    /// the body stops and climbs over it (m).
+    pub const OBSTACLE_MARGIN_M: f32 = 4.0;
+
+    // --- Following in a body that flies (#1430, owner 2026-09-24) ---
+
+    /// How high a flying body escorts a player it follows: its underside
+    /// this far above the highest ground on the way to them (m) - low enough
+    /// to be with them, high enough to clear what they walk past.
+    pub const ESCORT_HEIGHT_M: f32 = 8.0;
+    /// How long a player has to stand still before a flying follower lands
+    /// beside them (s).
+    pub const LAND_BESIDE_AFTER_SECS: f64 = 5.0;
+    /// Moving less than this a player stands still (m).
+    pub const PLAYER_STILL_M: f32 = 0.5;
+    /// The least room a flying follower leaves between its side and the
+    /// player, whatever distance it was asked to keep (m) - it lands beside
+    /// them, never on them.
+    pub const ESCORT_ROOM_M: f32 = 1.5;
+
+    // --- Flying an airplane (#1431, owner 2026-09-24) ---
+    //
+    // The game's airplane lifts straight up in proportion to its forward
+    // speed and nothing else, so it holds its height by its speed; and at
+    // the daemon's frame one press of A or D rolls it about 140 degrees and
+    // one of W or S pitches it about 27, so it flies nose-level and turns by
+    // the rudder alone. See `agent::daemon::movement::wing`.
+
+    /// The slowest an airplane flies, as a share over its stall speed.
+    pub const WING_STALL_MARGIN: f32 = 1.2;
+    /// The vertical speed an airplane asks for per metre it is off its
+    /// height (1/s), and the most it asks for up and down (m/s).
+    pub const WING_CLIMB_GAIN: f32 = 0.6;
+    pub const WING_MAX_CLIMB: f32 = 3.0;
+    pub const WING_MAX_SINK: f32 = 2.0;
+    /// The forward speed it asks for over the speed that holds it level,
+    /// per m/s its vertical speed is short of the one it wants (s).
+    pub const WING_SPEED_PER_CLIMB: f32 = 1.2;
+    /// How far under the speed it asks for its forward speed may fall
+    /// before it opens the throttle to cruise, and to full at three times
+    /// as far (m/s). Inside that, the engine is cut: a frame at cruise adds
+    /// about 0.6 m/s and one at full 1.2, so the speed is held by the odd
+    /// frame of power against the drag.
+    pub const WING_SPEED_BAND: f32 = 0.2;
+    /// How far off where it wants its nose an airplane may leave it
+    /// (degrees). A frame of rudder turns it about 12.
+    pub const WING_YAW_DEAD_ZONE_DEG: f32 = 6.0;
+    /// How far past its point the nose may lead its path, so the path,
+    /// which follows the nose only over seconds, comes round sooner
+    /// (degrees).
+    pub const WING_LEAD_MAX_DEG: f32 = 40.0;
+    /// The most its nose may point off its path (degrees): its lift is its
+    /// speed along its nose, and a nose swung 140 degrees round to a point
+    /// behind it left it no lift at all.
+    pub const WING_NOSE_OFF_PATH_MAX_DEG: f32 = 45.0;
+    /// How far its nose may pitch off level before it is pitched back
+    /// (degrees). Nothing in flight pitches it, but a knock does - and
+    /// pitched up, its thrust and its lift point skyward and it climbs
+    /// without end.
+    pub const WING_PITCH_TOLERANCE_DEG: f32 = 20.0;
+    /// Its path lines up on its point when it points within this of it
+    /// (degrees).
+    pub const LINED_UP_DEG: f32 = 10.0;
+    /// And when it passes within this of the point, to one side (m).
+    pub const LINED_UP_ASIDE_M: f32 = 4.0;
+    /// On a final, something standing under the glide that the ground's
+    /// height does not show - a roof, a tree - is in the way when it stands
+    /// this far over the ground (m), and the airplane is within this of it:
+    /// a boulder is not, nor a cliff's edge its footprint straddles.
+    pub const UNDER_THE_GLIDE_M: f32 = 3.0;
+    /// How far out an airplane's final approach starts (m): lined up by
+    /// then, it comes down on its point; not, it goes round.
+    pub const FINAL_M: f32 = 80.0;
+    /// How far out it flies to come round again (m): far enough that its
+    /// path - which swings round over tens of metres - has lined up again
+    /// by the time it is back at the final's start.
+    pub const GO_ROUND_TO_M: f32 = 170.0;
+    /// How many times it comes round before it lands where it can and says
+    /// it is stuck.
+    pub const MAX_GO_ROUNDS: u32 = 2;
+    /// The final's glide: metres down per metre on.
+    pub const GLIDE_SLOPE: f32 = 0.15;
+    /// Where it aims to touch down, short of the point (m): about what it
+    /// slides, engine off, after a gentle touchdown at its approach speed.
+    /// Set down gently its lift still carries nearly all its weight, so the
+    /// ground barely brakes it: 9 m from 8.4 m/s (a heavier touchdown, 1-2).
+    pub const TOUCHDOWN_SHORT_M: f32 = 8.0;
+    /// Under this height it rounds out, coming down more slowly the lower
+    /// it is (m).
+    pub const FLARE_FROM_M: f32 = 1.0;
+    /// The sink it touches down at, rounded out (m/s).
+    pub const FLARE_SINK: f32 = 0.6;
+    /// Stopped this near its point, an airplane has arrived (m). What it
+    /// slides after touching down varies from about 4 m to 9, so its stop
+    /// cannot be promised much nearer; one run stopped 7.1 m off.
+    pub const ARRIVE_WINGED_M: f32 = 10.0;
+    /// The clear run an airplane needs on the ground to take off (m).
+    pub const TAKE_OFF_RUN_M: f32 = 25.0;
+    /// How high over the ground it sweeps its run (m): clear of the ground
+    /// it rests on, not of a kerb.
+    pub const TAKE_OFF_SWEEP_LIFT_M: f32 = 0.3;
+    /// On the ground, a run this far off its nose is swung round to before
+    /// it rolls (degrees).
+    pub const WING_SWING_FIRST_DEG: f32 = 15.0;
+    /// Landing where it can - halted, or out of tries - an airplane comes
+    /// down at this (m/s), rounding out at the bottom. At 1 m/s a halt 12 m
+    /// up glided on 185 m before it was down.
+    pub const FORCED_SINK: f32 = 2.0;
+
     // --- Looking (#1420) ---
 
     /// A picture's size in pixels: about what a vision model takes in whole,
@@ -1735,7 +1944,9 @@ pub(crate) mod agent {
     /// published"). Its seeded body walks. `--stand-in` names another, and
     /// with it another body: `did:plc:agentofflinecar22222222e` is a
     /// roadster (a car), `did:plc:agentofflineboat2222222d` a steam tug (a
-    /// hover-boat) - found with the render tool's `--outfit` (#1421).
+    /// hover-boat) and `did:plc:agentofflineair222222222` a twin-envelope
+    /// airship (a helicopter, and the slowest of them to turn) - found with
+    /// the render tool's `--outfit` (#1421, #1430).
     pub const OFFLINE_DID: &str = "did:plc:agentofflinestandin22222";
     /// The offline agent's handle, on a name that can never resolve.
     pub const OFFLINE_HANDLE: &str = "agent.offline.invalid";

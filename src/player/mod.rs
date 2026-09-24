@@ -66,6 +66,8 @@
 //!   `begin_portal_travel` / `PortalCooldown` are re-exported for the
 //!   unsaved-edits guard in [`crate::ui::unsaved_guard`], which owns the
 //!   confirm step between portal contact and the actual travel fetch.
+//! * `sim` (tests only) - a bench that flies one body under the game's own
+//!   flight systems and avian, stepped by hand (#1430).
 
 mod airplane;
 pub(crate) mod attachments;
@@ -80,6 +82,8 @@ mod portal;
 mod preset;
 mod respawn;
 mod rigged;
+#[cfg(test)]
+pub(crate) mod sim;
 mod spawn;
 pub mod visuals;
 

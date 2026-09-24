@@ -1,6 +1,7 @@
-//! Peer connect/disconnect plumbing, mute-visibility sync, and the
-//! stale-offer-dialog evictor. State-management systems that don't fit
-//! the inbound-dispatch / outbound-broadcast pair.
+//! Peer connect/disconnect plumbing, the liveness sweep of peers gone
+//! silent and the return of one who wakes (#1429), mute-visibility sync,
+//! and the stale-offer-dialog evictor. State-management systems that don't
+//! fit the inbound-dispatch / outbound-broadcast pair.
 
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
@@ -16,6 +17,109 @@ use crate::state::{
 };
 
 use super::presence::{PeerLabel, PeerResolve};
+
+/// Peers the liveness sweep removed while their connection may still stand,
+/// by when (#1429): a browser tab asleep in the background keeps its data
+/// channel open, and when it wakes the transport says nothing - no
+/// `Connected`, which is the only other place a peer entity is made. Every
+/// inbound handler only updates an entity that exists, so a swept peer's
+/// transforms and identity were dropped, and they stayed invisible to
+/// everyone who had swept them - out of the roster, no body, no target -
+/// while their chat still arrived, until their connection cycled.
+#[derive(Resource, Debug, Default)]
+pub struct SweptPeers {
+    at: std::collections::HashMap<PeerId, f64>,
+}
+
+impl SweptPeers {
+    fn remember(&mut self, peer: PeerId, now: f64) {
+        self.at.insert(peer, now);
+    }
+
+    fn forget(&mut self, peer: PeerId) {
+        self.at.remove(&peer);
+    }
+
+    /// Forget peers swept longer ago than [`config::network::PEER_SWEPT_MEMORY_SECS`].
+    fn prune(&mut self, now: f64) {
+        self.at
+            .retain(|_, swept_at| now - *swept_at < config::network::PEER_SWEPT_MEMORY_SECS);
+    }
+}
+
+/// A peer entity as it is first made: hidden at the map centre, ten metres
+/// up, until a transform sample has played out, with nothing known of who
+/// they are - shared by a fresh connection and a swept peer coming back.
+fn peer_entity(peer_id: PeerId, now: f64) -> impl Bundle {
+    (
+        Transform::from_xyz(0.0, 10.0, 0.0),
+        Visibility::Hidden,
+        RemotePeer {
+            peer_id,
+            did: None,
+            handle: None,
+            muted: false,
+            avatar: None,
+            build: None,
+            connected_at: now,
+        },
+        TransformBuffer::default(),
+        PeerResolve::default(),
+    )
+}
+
+/// What we tell a peer about ourselves the moment we meet them: our wire
+/// layout, and who we are.
+fn greeting(session: Option<&AtprotoSession>) -> Vec<OverlandsMessage> {
+    let mut messages = vec![OverlandsMessage::Hello {
+        protocol: crate::protocol::PROTOCOL_VERSION,
+        build: crate::protocol::build_id(),
+    }];
+    if let Some(session) = session {
+        messages.push(OverlandsMessage::Identity {
+            did: session.did.clone(),
+            handle: session.handle.clone(),
+        });
+    }
+    messages
+}
+
+/// Bring back a swept peer whose connection stood all along (#1429): a
+/// transform, identity or hello from `sender_id`, who was swept and has no
+/// entity (`has_entity` is asked only of a swept peer), makes them one - as a
+/// fresh connection does - and greets them, in case they swept us too.
+/// Whether it did.
+///
+/// Only a swept peer: a message racing ahead of a fresh connection's
+/// `Connected` must not make a second entity for them.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn revive_swept_peer(
+    commands: &mut Commands,
+    swept: &mut SweptPeers,
+    has_entity: impl FnOnce() -> bool,
+    sender_id: PeerId,
+    sender: &mut SendMessage<OverlandsMessage>,
+    session: Option<&AtprotoSession>,
+    session_log: &mut SessionLog,
+    now: f64,
+) -> bool {
+    if !swept.at.contains_key(&sender_id) || has_entity() {
+        return false;
+    }
+    swept.forget(sender_id);
+    commands.spawn(peer_entity(sender_id, now));
+    for message in greeting(session) {
+        sender.to(sender_id, message, ChannelKind::Reliable);
+    }
+    session_log.info(
+        now,
+        EventPayload::PeerJoined {
+            peer: sender_id.to_string(),
+        },
+    );
+    info!("Peer {sender_id} is back after the liveness sweep removed them");
+    true
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn handle_peer_connections(
@@ -34,9 +138,13 @@ pub(super) fn handle_peer_connections(
     mut notices: ResMut<super::chunk::OversizeNotices>,
     mut toasts: ResMut<crate::notify::Toasts>,
     link: Res<super::LinkState>,
+    mut swept: ResMut<SweptPeers>,
 ) {
     let elapsed = time.elapsed_secs_f64();
     for event in peer_events.drain() {
+        // The transport has news of this connection either way: a swept
+        // peer is its business again, not the liveness sweep's (#1429).
+        swept.forget(event.peer);
         match event.state {
             PeerConnectionState::Connected => {
                 session_log.info(
@@ -60,49 +168,22 @@ pub(super) fn handle_peer_connections(
                 // stays `Hidden` until a transform sample has actually
                 // played out - the spawn pose below is the map centre ten
                 // metres up, and it used to be drawn.
-                commands.spawn((
-                    Transform::from_xyz(0.0, 10.0, 0.0),
-                    Visibility::Hidden,
-                    RemotePeer {
-                        peer_id: event.peer,
-                        did: None,
-                        handle: None,
-                        muted: false,
-                        avatar: None,
-                        build: None,
-                        connected_at: elapsed,
-                    },
-                    TransformBuffer::default(),
-                    PeerResolve::default(),
-                ));
+                commands.spawn(peer_entity(event.peer, elapsed));
 
-                // Announce our wire layout to the newcomer immediately, for
-                // the reason the identity announce below gives - except that
-                // this one also matters in the failing direction: if we wait
-                // for the scheduled broadcast, a peer whose build predates
-                // #1121 and a peer whose Hello is merely in flight look
-                // identical for a whole second.
-                sender.broadcast(
-                    OverlandsMessage::Hello {
-                        protocol: crate::protocol::PROTOCOL_VERSION,
-                        build: crate::protocol::build_id(),
-                    },
-                    ChannelKind::Reliable,
-                );
-
-                // Proactively announce our identity to the newcomer.  Without
-                // this, they only learn our DID on the next scheduled identity
-                // broadcast (~1 s), during which a RoomStateUpdate from us
-                // would fail the owner-DID check and be silently dropped.
+                // Announce our wire layout to the newcomer immediately - for
+                // the reason the identity announce gives, except that this
+                // one also matters in the failing direction: if we wait for
+                // the scheduled broadcast, a peer whose build predates #1121
+                // and a peer whose Hello is merely in flight look identical
+                // for a whole second. And proactively announce our identity:
+                // without it they only learn our DID on the next scheduled
+                // identity broadcast (~1 s), during which a RoomStateUpdate
+                // from us would fail the owner-DID check and be silently
+                // dropped.
+                for message in greeting(session.as_deref()) {
+                    sender.broadcast(message, ChannelKind::Reliable);
+                }
                 if let Some(sess) = &session {
-                    sender.broadcast(
-                        OverlandsMessage::Identity {
-                            did: sess.did.clone(),
-                            handle: sess.handle.clone(),
-                        },
-                        ChannelKind::Reliable,
-                    );
-
                     // If we own this room, push our current (possibly unsaved)
                     // room state to the newcomer so live edits made before they
                     // connected are visible immediately. Without this they only
@@ -610,6 +691,189 @@ mod liveness_tests {
 }
 
 #[cfg(test)]
+mod swept_tests {
+    use super::*;
+    use bevy::ecs::message::Messages;
+    use bevy::ecs::system::RunSystemOnce;
+
+    /// A fixture `PeerId`, by the idiom `network::link`'s tests use.
+    fn peer(n: u8) -> PeerId {
+        serde_json::from_str(&format!("\"00000000-0000-0000-0000-0000000000{n:02}\""))
+            .expect("a well-formed uuid")
+    }
+
+    /// A world with the link up and the clock at `now`, holding what the
+    /// sweep and a revival read.
+    fn world_at(now: f64) -> World {
+        let mut world = World::new();
+        let mut time = Time::<()>::default();
+        time.advance_to(std::time::Duration::from_secs_f64(now));
+        world.insert_resource(time);
+        world.insert_resource(super::super::LinkState::up_since(0.0));
+        world.init_resource::<crate::state::ChatHistory>();
+        world.init_resource::<SessionLog>();
+        world.init_resource::<SweptPeers>();
+        world.init_resource::<Messages<Broadcast<OverlandsMessage>>>();
+        world.init_resource::<Messages<SendTo<OverlandsMessage>>>();
+        world
+    }
+
+    fn connect(world: &mut World, n: u8, at: f64) {
+        world.spawn(peer_entity(peer(n), at));
+    }
+
+    fn set_clock(world: &mut World, now: f64) {
+        world
+            .resource_mut::<Time>()
+            .advance_to(std::time::Duration::from_secs_f64(now));
+    }
+
+    fn sweep(world: &mut World) {
+        world
+            .run_system_once(sweep_quiet_peers)
+            .expect("the sweep runs");
+    }
+
+    /// A transform, identity or hello from peer `n`, as the dispatcher
+    /// meets it: whether it brought them back.
+    fn sign_of_life(world: &mut World, n: u8) -> bool {
+        world
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut swept: ResMut<SweptPeers>,
+                      peers: Query<&RemotePeer>,
+                      mut sender: SendMessage<OverlandsMessage>,
+                      mut session_log: ResMut<SessionLog>,
+                      time: Res<Time>| {
+                    revive_swept_peer(
+                        &mut commands,
+                        &mut swept,
+                        || peers.iter().any(|remote| remote.peer_id == peer(n)),
+                        peer(n),
+                        &mut sender,
+                        None,
+                        &mut session_log,
+                        time.elapsed_secs_f64(),
+                    )
+                },
+            )
+            .expect("the dispatcher's revival runs")
+    }
+
+    fn bodies_of(world: &mut World, n: u8) -> usize {
+        world
+            .query::<&RemotePeer>()
+            .iter(world)
+            .filter(|remote| remote.peer_id == peer(n))
+            .count()
+    }
+
+    fn hellos_to(world: &World, n: u8) -> usize {
+        let sent = world.resource::<Messages<SendTo<OverlandsMessage>>>();
+        sent.get_cursor()
+            .read(sent)
+            .filter(|message| {
+                message.target == peer(n)
+                    && matches!(message.payload, OverlandsMessage::Hello { .. })
+            })
+            .count()
+    }
+
+    /// #1429. The sequence: a player's tab sleeps in the background past
+    /// the ghost deadline and the sweep removes them - rightly, a frozen
+    /// body is a ghost - and then the tab wakes, over the same connection,
+    /// and nothing said so. They were gone for good, though their chat
+    /// arrived. Their next sign of life brings them back, once, as a fresh
+    /// connection is made: hidden until a transform plays out, nameless
+    /// until the relay's session map names them - and greeted.
+    #[test]
+    fn a_swept_peer_comes_back_on_their_next_sign_of_life() {
+        let ghost = config::network::PEER_GHOST_SECS;
+        let mut world = world_at(0.0);
+        connect(&mut world, 1, 0.0);
+        set_clock(&mut world, ghost + 1.0);
+        sweep(&mut world);
+        assert_eq!(bodies_of(&mut world, 1), 0, "a ghost is swept");
+
+        set_clock(&mut world, ghost + 300.0);
+        assert!(sign_of_life(&mut world, 1), "their tab woke");
+
+        assert_eq!(bodies_of(&mut world, 1), 1);
+        let (remote, visibility) = world
+            .query::<(&RemotePeer, &Visibility)>()
+            .single(&world)
+            .expect("one peer");
+        assert_eq!(remote.did, None, "named by the session map, as a newcomer");
+        assert_eq!(remote.connected_at, ghost + 300.0, "aged from their return");
+        assert_eq!(*visibility, Visibility::Hidden, "until a sample plays out");
+        assert_eq!(hellos_to(&world, 1), 1, "greeted, in case they swept us");
+        assert!(
+            world.resource::<SweptPeers>().at.is_empty(),
+            "forgotten once back: a later sweep is a new absence"
+        );
+
+        assert!(!sign_of_life(&mut world, 1), "back once");
+        assert_eq!(bodies_of(&mut world, 1), 1);
+    }
+
+    /// Only a peer the sweep removed: a message from anyone else - a
+    /// connection whose `Connected` it raced, or a peer still standing -
+    /// makes nobody. Nor does one remembered while they stand, which no
+    /// path does today: two bodies for one connection would be worse.
+    #[test]
+    fn only_a_swept_peer_is_brought_back() {
+        let mut world = world_at(10.0);
+        connect(&mut world, 2, 0.0);
+        connect(&mut world, 3, 0.0);
+        world.resource_mut::<SweptPeers>().remember(peer(3), 5.0);
+
+        assert!(!sign_of_life(&mut world, 1), "never seen");
+        assert!(!sign_of_life(&mut world, 2), "still here");
+        assert!(!sign_of_life(&mut world, 3), "remembered, yet still here");
+
+        assert_eq!(bodies_of(&mut world, 1), 0);
+        assert_eq!(bodies_of(&mut world, 2), 1);
+        assert_eq!(bodies_of(&mut world, 3), 1);
+        assert_eq!((1..=3).map(|n| hellos_to(&world, n)).sum::<usize>(), 0);
+    }
+
+    /// Remembered for half an hour, and forgotten when the transport has
+    /// news of them: a connection it closes or opens again is its business.
+    #[test]
+    fn a_swept_peer_is_remembered_until_the_transport_speaks_or_half_an_hour_passes() {
+        let memory = config::network::PEER_SWEPT_MEMORY_SECS;
+        let mut swept = SweptPeers::default();
+        swept.remember(peer(1), 100.0);
+        swept.remember(peer(2), 100.0);
+        swept.forget(peer(2));
+        swept.prune(100.0 + memory - 1.0);
+        assert!(swept.at.contains_key(&peer(1)));
+        assert!(!swept.at.contains_key(&peer(2)), "the transport spoke");
+        swept.prune(100.0 + memory);
+        assert!(swept.at.is_empty(), "half an hour on");
+    }
+
+    /// A quiet peer the sweep leaves standing is not remembered, and one it
+    /// swept half an hour ago is forgotten by the sweep itself.
+    #[test]
+    fn a_quiet_peer_is_not_remembered_and_an_old_absence_is_forgotten() {
+        let quiet = config::network::PEER_QUIET_SECS;
+        let mut world = world_at(0.0);
+        world.resource_mut::<SweptPeers>().remember(peer(2), 0.0);
+        set_clock(&mut world, config::network::PEER_SWEPT_MEMORY_SECS);
+        connect(
+            &mut world,
+            1,
+            config::network::PEER_SWEPT_MEMORY_SECS - quiet - 1.0,
+        );
+        sweep(&mut world);
+
+        assert_eq!(bodies_of(&mut world, 1), 1);
+        assert!(world.resource::<SweptPeers>().at.is_empty());
+    }
+}
+
+#[cfg(test)]
 mod held_offer_tests {
     use super::*;
 
@@ -703,6 +967,9 @@ pub fn liveness(last_heard: f64, now: f64) -> Liveness {
 /// on the other end is counting it: it measures OUR silence. If this
 /// machine sleeps, the virtual clock barely advances and no peer is falsely
 /// aged, which is exactly right - we were not listening.
+///
+/// A swept peer is remembered ([`SweptPeers`]), so that their next sign of
+/// life - their tab waking - brings them back (#1429).
 pub(super) fn sweep_quiet_peers(
     mut commands: Commands,
     mut peers: Query<(Entity, &RemotePeer, &mut PeerResolve)>,
@@ -710,6 +977,7 @@ pub(super) fn sweep_quiet_peers(
     link: Res<super::LinkState>,
     mut chat: ResMut<crate::state::ChatHistory>,
     mut session_log: ResMut<SessionLog>,
+    mut swept: ResMut<SweptPeers>,
 ) {
     // Our own outage is not their silence (#1213 f402), and sweeping the
     // room while the socket is down would narrate a connectivity event as
@@ -719,6 +987,7 @@ pub(super) fn sweep_quiet_peers(
         return;
     }
     let now = time.elapsed_secs_f64();
+    swept.prune(now);
     for (entity, peer, mut resolve) in peers.iter_mut() {
         let last_heard = resolve.last_sample_at.unwrap_or(peer.connected_at);
         match liveness(last_heard, now) {
@@ -748,6 +1017,7 @@ pub(super) fn sweep_quiet_peers(
                         format!("{} left the room.", label.addressed()),
                     );
                 }
+                swept.remember(peer.peer_id, now);
                 commands.entity(entity).despawn();
             }
         }

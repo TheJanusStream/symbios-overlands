@@ -74,6 +74,7 @@ pub(super) fn start_daemon(args: RunArgs) -> Result<(), String> {
         handle: &handle,
         room: args.room.as_deref(),
         offline: args.offline,
+        wear_airplane: args.wear_airplane,
         admin: admin.as_ref(),
     })?;
     print_json(&serde_json::json!({
@@ -124,5 +125,6 @@ pub(super) fn run_daemon(args: DaemonArgs) -> Result<ExitCode, String> {
         identity,
         room_did: args.room,
         admin,
+        wear_airplane: args.wear_airplane,
     })
 }

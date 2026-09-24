@@ -76,6 +76,9 @@ pub struct RunRequest {
     pub room_did: Option<String>,
     /// The one player whose chat the agent hears; `None` hears nobody.
     pub admin: Option<Admin>,
+    /// Offline, fly the test airplane in place of the stand-in's own
+    /// locomotion (#1431).
+    pub wear_airplane: bool,
 }
 
 /// Build the headless client, resume the session into it, and run until the
@@ -90,6 +93,7 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
         identity,
         room_did,
         admin,
+        wear_airplane,
     } = request;
     let room_did = room_did.unwrap_or_else(|| identity.did().to_owned());
     let events = Arc::new(control::events::EventLog::new(
@@ -124,6 +128,13 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
         }
         None => info!("No admin was named, so the agent hears no chat at all"),
     }
+    if wear_airplane {
+        info!("Testing: the stand-in flies the default airplane (#1431)");
+        app.insert_resource(WearAirplane).add_systems(
+            PreUpdate,
+            wear_the_airplane.run_if(resource_exists::<WearAirplane>),
+        );
+    }
     app.insert_resource(resume::PendingResume { identity, room_did })
         .insert_resource(serve::ControlInbox::new(inbox))
         .insert_resource(observe::EventSink(events))
@@ -136,6 +147,9 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
                 movement::steer
                     .after(bevy::input::InputSystems)
                     .run_if(resource_exists::<movement::Movement>),
+                movement::park
+                    .after(bevy::input::InputSystems)
+                    .after(movement::steer),
             ),
         )
         .add_systems(
@@ -159,6 +173,38 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
     let exit = app.run();
     drop(socket);
     Ok(exit_code(exit))
+}
+
+/// Testing only (#1431): the offline stand-in flies the default airplane.
+/// No seeded body is an airplane, and the preset exists for published
+/// records, which an offline agent has none of.
+#[derive(Resource)]
+struct WearAirplane;
+
+/// Put the default airplane on whatever body the stand-in has, as its
+/// locomotion only - its body stays - wherever it goes: the game's own
+/// hot-swap rebuilds the physics as it does for an edit in the avatar
+/// editor. The stored record changes with it, so the swap is not an unsaved
+/// edit for the travel guard to stop the agent over.
+fn wear_the_airplane(
+    live: Option<ResMut<crate::state::LiveAvatarRecord>>,
+    stored: Option<ResMut<crate::state::StoredAvatarRecord>>,
+) {
+    use crate::pds::avatar::LocomotionPreset as _;
+    use crate::pds::{AirplaneParams, LocomotionConfig};
+    for mut record in [
+        live.map(|r| r.map_unchanged(|r| &mut r.0)),
+        stored.map(|r| r.map_unchanged(|r| &mut r.0)),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        // Read first: a `&mut` taken where nothing changes still marks it
+        // changed, and a changed record is rebuilt.
+        if !matches!(record.locomotion, LocomotionConfig::Airplane(_)) {
+            record.locomotion = AirplaneParams::default().into_config();
+        }
+    }
 }
 
 /// `@handle (did)`, or the bare DID when the admin was named by one.
