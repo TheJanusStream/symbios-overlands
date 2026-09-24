@@ -62,6 +62,9 @@ pub(super) fn set(world: &mut World, pointer: &str, value: Value) -> Result<Valu
     let mut document = to_json(&live)?;
     set_part(&mut document, pointer, value.clone())?;
     let edited = from_json(&live, document)?;
+    let sent = to_json(&edited)
+        .ok()
+        .and_then(|document| document.pointer(pointer).cloned());
     let label = if pointer.is_empty() {
         "JSON set of the whole avatar".to_owned()
     } else {
@@ -76,13 +79,18 @@ pub(super) fn set(world: &mut World, pointer: &str, value: Value) -> Result<Valu
     let kept = to_json(&world.resource::<LiveAvatarRecord>().0)
         .ok()
         .and_then(|document| document.pointer(pointer).cloned());
-    Ok(json!({
+    let adjusted_at = super::json::adjustments(pointer, sent.as_ref(), kept.as_ref());
+    let mut answer = json!({
         "changed": changed,
         "pointer": pointer,
-        "adjusted": kept.as_ref() != Some(&value),
+        "adjusted": !adjusted_at.is_empty(),
         "kept": kept,
         "others_see_it": seen,
-    }))
+    });
+    if !adjusted_at.is_empty() {
+        answer["adjusted_at"] = json!(adjusted_at);
+    }
+    Ok(answer)
 }
 
 /// The avatar's three parts, each in its wire form.
@@ -234,6 +242,20 @@ mod tests {
 
             assert_eq!(set["changed"], false, "rigged {rigged}: {set}");
         }
+    }
+
+    /// A value the record leaves out is no adjustment (#1438): `gait` set
+    /// to null is the record's own default, written by leaving it out, and
+    /// was answered as `adjusted` because nothing came back to compare.
+    #[test]
+    fn a_value_the_record_leaves_out_is_not_an_adjustment() {
+        let (mut app, _) = app_in(AGENT);
+        wearing(&mut app, seeded(false));
+
+        let set = set(app.world_mut(), "/record/gait", Value::Null).expect("written");
+
+        assert_eq!(set["adjusted"], false, "{set}");
+        assert!(set.get("adjusted_at").is_none(), "{set}");
     }
 
     /// A rigged body's sculpt is edited through `body`, and others see it

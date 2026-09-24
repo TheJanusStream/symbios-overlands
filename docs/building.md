@@ -792,7 +792,9 @@ each seed's heightmap, which costs a few seconds per seed.
 **Agent client** (#1413) - a headless Overlands client an AI agent drives
 from the command line, signed in as **its own** account. To everyone else in a
 world it is a player like any other: it runs the game's own client and sends
-exactly what that client sends. Unix-only.
+exactly what that client sends. Unix-only. An agent that is to drive it
+starts at [agent/README.md](agent/README.md): how to run it well, and what
+earlier sessions learned, by topic.
 
 ```bash
 A="cargo run -q --profile test-release --bin agent --"
@@ -916,8 +918,9 @@ it cut, or it would take off on its own. It `face`s on the ground only and
 does not `follow`. `status.movement`
 says what the agent is doing (a flight's `phase` too), `status.height_m`
 how far the body could come straight down before it touched something
-(water included), and `status.peers` gives a player not yet placed no
-position. A player silent for two minutes - a tab asleep in the
+(water included), and `status.peers` gives each player where they are and
+the way they face (`facing`, as the agent's own), and a player not yet
+placed neither. A player silent for two minutes - a tab asleep in the
 background - is `peer_left`, and `peer_joined` again on the first thing
 they send when it wakes (#1429).
 `--stand-in` (offline only) takes another identity's seeded world and body -
@@ -966,7 +969,13 @@ shifts when one before it is removed. The JSON commands read and write the
 record's wire form, exactly as the Raw JSON tab does: every decimal is a
 whole number of ten-thousandths (1.5 m is `15000`), and a value with a
 decimal point is refused. Each answer shows what the world kept, which the
-sanitiser may have pulled back into range (`adjusted`). A rigged avatar
+sanitiser may have pulled back into range - `adjusted`, with `adjusted_at`
+naming each place by pointer; a value left out because it is the default
+is no adjustment. A `room set` that
+changes a generator also names, by pointer, each pair of its primitives
+drawing faces in one place where they can be seen - one plane, facing one
+way (`z_fighting`, with the area): they flicker as anyone moves, which a
+still `look` barely shows. A rigged avatar
 keeps its body and what it wears in records of their own, so `avatar get`
 shows `record`, `body` and `worn`; wearing, taking off and swapping the
 body are not JSON edits and are refused, and a sculpt reaches others only

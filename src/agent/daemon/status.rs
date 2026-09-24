@@ -98,19 +98,26 @@ pub(super) fn local_pose(world: &mut World) -> Option<Pose> {
         .query_filtered::<&GlobalTransform, With<LocalPlayer>>()
         .iter(world)
         .next()?;
-    let forward = transform.forward().as_vec3();
-    let flat = Vec3::new(forward.x, 0.0, forward.z).normalize_or(Vec3::NEG_Z);
     Some(Pose {
         position: transform.translation(),
-        forward: flat,
+        forward: flat_forward(&transform),
     })
 }
 
-/// The players in the world whose identity is known, nearest first. One
-/// whose body has not been placed yet - no movement has reached the agent
-/// from them, as from a browser tab asleep since they arrived - is listed
-/// with no position rather than at the spot it waits at, the map's centre
-/// ten metres up; and one gone quiet says so.
+/// The way a body faces on the ground: its forward, level and unit.
+fn flat_forward(transform: &GlobalTransform) -> Vec3 {
+    let forward = transform.forward().as_vec3();
+    Vec3::new(forward.x, 0.0, forward.z).normalize_or(Vec3::NEG_Z)
+}
+
+/// The players in the world whose identity is known, nearest first, each
+/// where they are and which way they face - the world direction, as the
+/// agent's own `facing` is given (#1437: building around a player meant
+/// guessing it from a picture, and the guess was wrong). One whose body has
+/// not been placed yet - no movement has reached the agent from them, as
+/// from a browser tab asleep since they arrived - is listed with neither,
+/// rather than at the spot it waits at, the map's centre ten metres up; and
+/// one gone quiet says so.
 fn peers(world: &mut World, pose: Option<&Pose>, admin: Option<&Admin>) -> Vec<Value> {
     let mut query = world.query::<(&RemotePeer, &GlobalTransform, Option<&PeerResolve>)>();
     let mut peers: Vec<(f32, Value)> = query
@@ -127,6 +134,10 @@ fn peers(world: &mut World, pose: Option<&Pose>, admin: Option<&Admin>) -> Vec<V
                 "placed": placed,
                 "quiet": resolve.is_some_and(|r| r.quiet),
                 "position": placed.then(|| hundredths3(position)),
+                "facing": placed.then(|| {
+                    let facing = flat_forward(transform);
+                    [hundredths(facing.x), hundredths(facing.z)]
+                }),
             });
             if !placed {
                 return Some((f32::INFINITY, entry));
@@ -405,6 +416,44 @@ mod tests {
         assert_eq!(peers[1]["placed"], false);
         assert!(peers[1]["position"].is_null(), "{}", peers[1]);
         assert!(peers[1]["distance_m"].is_null(), "{}", peers[1]);
+    }
+
+    /// Each placed player says which way they face, as the agent's own
+    /// `facing` does (#1437); one not yet placed has no facing to give.
+    #[test]
+    fn a_snapshot_says_which_way_each_placed_player_faces() {
+        let mut world = World::new();
+        world.insert_resource(State::new(AppState::InGame));
+        world.spawn((
+            LocalPlayer,
+            GlobalTransform::from(Transform::from_xyz(0.0, 1.0, 0.0)),
+        ));
+        world.spawn((
+            peer(Some("did:plc:east")),
+            PeerResolve {
+                placed: true,
+                ..default()
+            },
+            GlobalTransform::from(
+                Transform::from_xyz(5.0, 1.0, 0.0).looking_to(Vec3::new(1.0, -0.3, 1.0), Vec3::Y),
+            ),
+        ));
+        world.spawn((
+            peer(Some("did:plc:asleep")),
+            PeerResolve::default(),
+            GlobalTransform::from(Transform::from_xyz(0.0, 10.0, 0.0)),
+        ));
+
+        let status = snapshot(&mut world);
+
+        let peers = status["peers"].as_array().expect("peers");
+        assert_eq!(peers[0]["did"], "did:plc:east");
+        assert_eq!(
+            peers[0]["facing"],
+            json!([0.71, 0.71]),
+            "level and unit, pitch dropped"
+        );
+        assert!(peers[1]["facing"].is_null(), "{}", peers[1]);
     }
 
     /// Before the world is loaded there is no body: the snapshot says so with

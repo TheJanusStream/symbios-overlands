@@ -33,6 +33,7 @@ mod inventory;
 mod json;
 mod placements;
 mod save;
+mod zfight;
 
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;

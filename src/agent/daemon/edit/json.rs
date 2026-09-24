@@ -14,6 +14,12 @@
 //!
 //! Reading works in any world; the record of someone else's is their words
 //! and says whose (`named_by`). Writing works in the agent's own.
+//!
+//! A set that changes a generator also checks it for faces drawn twice in
+//! one place - two of its primitives sharing a plane and a facing direction
+//! where it can be seen - and names each pair by pointer (`z_fighting`):
+//! they flicker as anyone moves, which a still picture barely shows (#1436,
+//! [`super::zfight`]).
 
 use bevy::prelude::*;
 use serde_json::{Value, json};
@@ -54,23 +60,94 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
     let mut document =
         serde_json::to_value(&record).map_err(|e| format!("the record does not serialise: {e}"))?;
     set_part(&mut document, pointer, value.clone())?;
+    let before = super::settle_room(record)?;
     let edited: RoomRecord = serde_json::from_value(document)
         .map_err(|e| format!("that is not a world record: {e}; {WIRE_FORM}"))?;
+    let sent = serde_json::to_value(&edited)
+        .ok()
+        .and_then(|document| document.pointer(pointer).cloned());
     let label = if pointer.is_empty() {
         "JSON set of the whole record".to_owned()
     } else {
         format!("JSON set of {pointer}")
     };
     let changed = super::write_room(world, edited, label)?;
-    let kept = serde_json::to_value(&world.resource::<LiveRoomRecord>().0)
+    let live = &world.resource::<LiveRoomRecord>().0;
+    let kept = serde_json::to_value(live)
         .ok()
         .and_then(|document| document.pointer(pointer).cloned());
-    Ok(json!({
+    // Against the record as it was, settled as the write settled the new
+    // one: the first write of a never-saved world puts every generator on
+    // the wire's grid, and none of those is the set's to answer for.
+    let (z_fighting, found) = super::zfight::report(&before.generators, &live.generators);
+    let named = z_fighting.len();
+    let adjusted_at = adjustments(pointer, sent.as_ref(), kept.as_ref());
+    let mut answer = json!({
         "changed": changed,
         "pointer": pointer,
-        "adjusted": kept.as_ref() != Some(&value),
+        "adjusted": !adjusted_at.is_empty(),
         "kept": kept,
-    }))
+        "z_fighting": z_fighting,
+    });
+    if !adjusted_at.is_empty() {
+        answer["adjusted_at"] = json!(adjusted_at);
+    }
+    if found > named {
+        answer["z_fighting_total"] = json!(found);
+    }
+    Ok(answer)
+}
+
+/// At most this many adjusted places are named in one answer.
+const MAX_ADJUSTMENTS: usize = 16;
+
+/// Where the world kept something other than what was sent (#1438): the
+/// pointer, under `pointer`, of each value the sanitiser changed, added or
+/// took away. `sent` is what was sent as the record writes it - read in and
+/// written out again, before sanitising - so a value the record leaves out
+/// because it is the default is no adjustment: a raw comparison called one
+/// in the live garage build, where a material's default roughness was
+/// written and then, rightly, left out.
+pub(super) fn adjustments(
+    pointer: &str,
+    sent: Option<&Value>,
+    kept: Option<&Value>,
+) -> Vec<String> {
+    let mut at = Vec::new();
+    match (sent, kept) {
+        (Some(sent), Some(kept)) => differences(sent, kept, pointer, &mut at),
+        (None, None) => {}
+        _ => at.push(pointer.to_owned()),
+    }
+    at
+}
+
+fn differences(sent: &Value, kept: &Value, at: &str, out: &mut Vec<String>) {
+    if out.len() >= MAX_ADJUSTMENTS {
+        return;
+    }
+    match (sent, kept) {
+        (Value::Object(sent), Value::Object(kept)) => {
+            let mut keys: Vec<&String> = sent.keys().chain(kept.keys()).collect();
+            keys.sort();
+            keys.dedup();
+            for key in keys {
+                let path = format!("{at}/{}", key.replace('~', "~0").replace('/', "~1"));
+                match (sent.get(key), kept.get(key)) {
+                    (Some(a), Some(b)) => differences(a, b, &path, out),
+                    _ if out.len() < MAX_ADJUSTMENTS => out.push(path),
+                    _ => {}
+                }
+            }
+        }
+        (Value::Array(sent), Value::Array(kept)) if sent.len() == kept.len() => {
+            for (i, (a, b)) in sent.iter().zip(kept).enumerate() {
+                differences(a, b, &format!("{at}/{i}"), out);
+            }
+        }
+        _ if sent != kept => out.push(at.to_owned()),
+        _ => {}
+    }
 }
 
 /// The part of `document` at `pointer` (RFC 6901).
@@ -215,6 +292,106 @@ mod world_tests {
         let read = room_get(app.world_mut(), pointer).expect("read");
         assert_eq!(read["value"], json!(1_234_500));
         assert_eq!(read["unsaved"], true);
+    }
+
+    /// A header (2.5..3.5 m up) over a panel (from 1 m) whose top runs up
+    /// into the header's plane, as on the live garage's front (#1436);
+    /// `clear` stops the panel's top 2 cm under the header's foot instead.
+    fn header_and_panel(clear: bool) -> Value {
+        let panel_y = if clear { -12_600 } else { -10_000 };
+        json!({
+            "$type": "network.symbios.gen.cuboid",
+            "size": [20_000, 10_000, 1_000],
+            "solid": true,
+            "material": {},
+            "transform": { "translation": [0, 30_000, 0] },
+            "children": [{
+                "$type": "network.symbios.gen.cuboid",
+                "size": [6_000, if clear { 14_800 } else { 20_000 }, 1_000],
+                "solid": true,
+                "material": {},
+                "transform": { "translation": [5_000, panel_y, 0] },
+            }],
+        })
+    }
+
+    /// A set that writes a generator names each pair of its primitives
+    /// drawing faces in one place, by pointer into the record, with the
+    /// area; a clean one names none, and neither does a set that writes no
+    /// generator at all.
+    #[test]
+    fn a_set_names_faces_drawn_twice_in_one_place() {
+        let (mut app, _) = app_in(AGENT);
+
+        let set =
+            room_set(app.world_mut(), "/generators/shed", header_and_panel(false)).expect("set");
+        let named = set["z_fighting"].as_array().expect("a list");
+        assert_eq!(named.len(), 1, "{set}");
+        assert_eq!(named[0]["a"], "/generators/shed");
+        assert_eq!(named[0]["b"], "/generators/shed/children/0");
+        let area = named[0]["area_m2"].as_f64().expect("an area");
+        assert!(
+            (area - 0.6).abs() < 1e-3,
+            "front and back, 0.6 m x 0.5 m each: {area}"
+        );
+        assert!(
+            set.get("z_fighting_total").is_none(),
+            "all of them are named"
+        );
+
+        let set =
+            room_set(app.world_mut(), "/generators/shed", header_and_panel(true)).expect("set");
+        assert_eq!(set["changed"], true);
+        assert_eq!(set["z_fighting"], json!([]), "{set}");
+
+        let set = room_set(
+            app.world_mut(),
+            "/environment/fog_visibility",
+            json!(1_234_500),
+        )
+        .expect("set");
+        assert_eq!(set["z_fighting"], json!([]), "{set}");
+    }
+
+    /// A default the record leaves out is no adjustment (#1438): the live
+    /// garage's worklights carried `roughness` 0.5, the default, and the
+    /// answer said `adjusted` though nothing had been pulled into range.
+    #[test]
+    fn a_default_the_record_leaves_out_is_not_an_adjustment() {
+        let (mut app, _) = app_in(AGENT);
+        let lamp = json!({
+            "$type": "network.symbios.gen.cuboid",
+            "size": [1_200, 500, 12_000],
+            "solid": false,
+            "material": { "emission_strength": 60_000, "roughness": 5_000 },
+        });
+
+        let set = room_set(app.world_mut(), "/generators/lamp", lamp).expect("set");
+
+        assert_eq!(set["changed"], true);
+        assert_eq!(set["adjusted"], false, "{set}");
+        assert!(set.get("adjusted_at").is_none(), "{set}");
+    }
+
+    /// A real adjustment names where: a sphere asked for more subdivisions
+    /// than the sanitiser allows is kept at its most, and the answer points
+    /// at that one field, not the whole generator.
+    #[test]
+    fn an_adjustment_names_the_field_the_sanitiser_changed() {
+        let (mut app, _) = app_in(AGENT);
+        let ball = json!({
+            "$type": "network.symbios.gen.sphere",
+            "radius": 9_000,
+            "resolution": 24,
+            "solid": true,
+            "material": { "base_color": [4_000, 4_000, 4_200] },
+        });
+
+        let set = room_set(app.world_mut(), "/generators/ball", ball).expect("set");
+
+        assert_eq!(set["adjusted"], true, "{set}");
+        assert_eq!(set["adjusted_at"], json!(["/generators/ball/resolution"]));
+        assert_eq!(set["kept"]["resolution"], 6);
     }
 
     /// What the sanitiser pulls back into range is what the world keeps,
