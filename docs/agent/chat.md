@@ -16,13 +16,14 @@ gift, anyone arriving or leaving, a daemon restart, or a quiet spell."""
 import datetime, json, subprocess, sys, time
 
 AGENT = ["env", "BEVY_ASSET_ROOT=<repo>", "<repo>/target/test-release/agent"]
+ACCOUNT = []                             # ["--account", "<handle>"] when two sessions are saved
 ADMIN = "did:plc:<the admin's DID>"      # `A status` -> result.admin.did
 since = int(sys.argv[1])
 quiet_s = 60 * float(sys.argv[2] if len(sys.argv) > 2 else 15)
 started, seen, why, settled = time.time(), [], [], False
 
 def batch(wait):
-    out = subprocess.run(AGENT + ["events", "--since", str(since), "--wait", str(wait)],
+    out = subprocess.run(AGENT + ["events", *ACCOUNT, "--since", str(since), "--wait", str(wait)],
                          capture_output=True, text=True)
     answer = json.loads(out.stdout or "{}")
     if not answer.get("ok"):

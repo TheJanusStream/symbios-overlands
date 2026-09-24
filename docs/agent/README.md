@@ -22,8 +22,11 @@ not repeat it, it says how to use it well.
 game's own client headless - same plugins, same physics, same network - and
 a CLI talks to it over a Unix socket. To everyone in the world the agent is
 an ordinary player: no badge, no protocol difference. Every CLI command
-prints ONE JSON object: `{"ok": true, "result": {...}}` or
-`{"ok": false, "error": "..."}`. Parse `result`, never the top level.
+prints ONE JSON object. The daemon's answers are wrapped:
+`{"ok": true, "result": {...}}` or `{"ok": false, "error": "..."}` - parse
+`result`. Three print their object bare: `login`, `accounts` and `start`
+(they run without the daemon), and so does `save --wait` (the `saved` or
+`save_failed` event itself, exit code 1 on a failure; #1442).
 
 ## Setting up
 
@@ -43,6 +46,9 @@ prints ONE JSON object: `{"ok": true, "result": {...}}` or
    ```
    `start` returns in a second or two and the world is entered a second or
    two later: poll `status` until `result.state == "in_world"`.
+   With more than one session saved (`A accounts`), every command but
+   `accounts` needs `--account <handle>` after its subcommand - put it in
+   the wrapper.
    `--allow-save` only if the operator allowed saving. `XDG_RUNTIME_DIR`
    must be short (the socket path is capped at 107 bytes).
 4. Greet the admin with `A say "..."`, then arm the watcher
