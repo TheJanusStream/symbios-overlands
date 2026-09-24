@@ -198,9 +198,9 @@ pub struct LinkState {
 
 impl LinkState {
     /// A link that came up at `since_secs`, for tests elsewhere in the
-    /// network module.
+    /// crate: the network module's, and the agent client's gifts (#1423).
     #[cfg(test)]
-    pub(super) fn up_since(since_secs: f64) -> Self {
+    pub(crate) fn up_since(since_secs: f64) -> Self {
         Self {
             phase: LinkPhase::Connected,
             since_secs,

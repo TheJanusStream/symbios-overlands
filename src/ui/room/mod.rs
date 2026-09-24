@@ -49,6 +49,9 @@ pub(crate) mod generators;
 mod lsystem;
 mod material;
 mod placements;
+/// For the agent's `place` (#1422) - Unix-only like the agent.
+#[cfg(unix)]
+pub(crate) use placements::new_absolute_placement;
 mod publish;
 pub(crate) use publish::stale_result;
 mod raw;

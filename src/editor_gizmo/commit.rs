@@ -535,7 +535,11 @@ pub(crate) fn append_sibling_at_path(
 /// Water slides a seeded placement off water and then off steep ground
 /// before it snaps, and the record keeps the authored x/z, so the rebase
 /// reads the ground under the drag start (#1398).
-fn write_transform_into_placement(
+///
+/// Crate-visible because the agent's `move` (#1422) is a drag with no
+/// mouse: it writes a placement's new pose through this same rule, so a
+/// move and a drag of the same thing leave the same record.
+pub(crate) fn write_transform_into_placement(
     placement: &mut Placement,
     transform: &Transform,
     drag_start: &Transform,

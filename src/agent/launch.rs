@@ -40,6 +40,8 @@ pub struct Launch<'a> {
     pub wear_airplane: bool,
     /// Whose chat it hears, already resolved; `None` is nobody's.
     pub admin: Option<&'a Admin>,
+    /// Whether it may save its world and avatar to its account (#1422).
+    pub allow_save: bool,
 }
 
 /// Launch the daemon, and wait until it takes commands.
@@ -113,6 +115,9 @@ fn run_args(launch: &Launch<'_>) -> Vec<String> {
         if let Some(handle) = &admin.handle {
             args.extend(["--admin-handle".to_owned(), handle.clone()]);
         }
+    }
+    if launch.allow_save {
+        args.push("--allow-save".to_owned());
     }
     args
 }
@@ -190,6 +195,7 @@ mod tests {
             offline: false,
             wear_airplane: false,
             admin: Some(&admin),
+            allow_save: false,
         };
 
         let args = run_args(&launch);
@@ -217,6 +223,7 @@ mod tests {
             offline: true,
             wear_airplane: false,
             admin: None,
+            allow_save: false,
         };
         assert_eq!(
             run_args(&launch),
@@ -235,6 +242,7 @@ mod tests {
             offline: true,
             wear_airplane: false,
             admin: None,
+            allow_save: false,
         };
         assert_eq!(
             run_args(&launch),
@@ -247,6 +255,34 @@ mod tests {
         );
     }
 
+    /// Saving is the operator's to allow at `start` (#1422), and the
+    /// daemon is told - on its command line, where `run` parses it.
+    #[test]
+    fn allow_save_is_forwarded_and_parses() {
+        use clap::Parser as _;
+        let launch = Launch {
+            did: "did:plc:agent",
+            handle: "agent.test",
+            room: None,
+            offline: false,
+            wear_airplane: false,
+            admin: None,
+            allow_save: true,
+        };
+
+        let args = run_args(&launch);
+
+        assert_eq!(args, ["run", "--account", "did:plc:agent", "--allow-save"]);
+        let cli = super::super::cli::Cli::try_parse_from(
+            std::iter::once("agent".to_owned()).chain(args.iter().cloned()),
+        )
+        .expect("the daemon's command line parses");
+        let super::super::cli::Command::Run(run) = cli.command else {
+            panic!("run: {args:?}");
+        };
+        assert!(run.run.allow_save);
+    }
+
     /// The test airplane goes to the daemon with the stand-in it flies.
     #[test]
     fn the_test_airplane_is_forwarded() {
@@ -257,6 +293,7 @@ mod tests {
             offline: true,
             wear_airplane: true,
             admin: None,
+            allow_save: false,
         };
         assert_eq!(
             run_args(&launch),

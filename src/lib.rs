@@ -745,7 +745,10 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
                 ui::diagnostics::diagnostics_ui,
                 ui::chat::chat_ui,
                 ui::people::people_ui,
-                ui::people::incoming_offer_ui,
+                // Not where offers are answered by something no person
+                // sees drawn - the agent client (#1423).
+                ui::people::incoming_offer_ui
+                    .run_if(not(resource_exists::<ui::people::OffersAnsweredElsewhere>)),
                 ui::avatar::avatar_ui,
                 ui::room::room_admin_ui,
                 ui::inventory::inventory_ui,

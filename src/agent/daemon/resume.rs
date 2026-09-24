@@ -12,7 +12,6 @@ use std::sync::Arc;
 use bevy::prelude::*;
 use bevy::tasks::IoTaskPool;
 use bevy_symbios_multiuser::auth::AtprotoSession;
-use proto_blue_oauth::client::dpop_key_from_jwk;
 use proto_blue_oauth::{OAuthClient, OAuthSession};
 
 use crate::oauth::{self, OauthRefreshCtx};
@@ -92,8 +91,14 @@ async fn resume(
     sink: Arc<SessionFileSink>,
     room_did: String,
 ) -> Result<CompletedSession, String> {
-    let dpop_key =
-        dpop_key_from_jwk(&saved.dpop_jwk).map_err(|e| format!("the saved DPoP key: {e}"))?;
+    // Checked before it signs anything: a malformed key used to panic at its
+    // first proof (#1409).
+    let dpop_key = oauth::saved_dpop_key(&saved.dpop_jwk).map_err(|e| {
+        format!(
+            "the saved session's DPoP key cannot be used ({e}); sign the account in again \
+             with `agent login`"
+        )
+    })?;
     // The capped transport every other session uses (#1176); this one runs
     // for as long as the daemon does.
     let oauth_session = Arc::new(OAuthSession::with_fetch_handler(
@@ -152,6 +157,53 @@ mod tests {
     fn a_dead_refresh_token_asks_for_a_fresh_sign_in() {
         let said = refresh_refused("refresh: OAuth server error: invalid_grant - revoked");
         assert!(said.contains("agent login"), "{said}");
+    }
+
+    /// THE CASE (#1409): a saved session whose key is not a key - here a
+    /// three-byte `d`, the one that panicked at its first proof - fails the
+    /// resume with the way out, a fresh sign-in, before any server is asked
+    /// anything.
+    #[test]
+    fn a_malformed_saved_key_fails_the_resume_and_says_what_to_do() {
+        let mut dpop_jwk = proto_blue_oauth::DpopKey::generate()
+            .expect("a key")
+            .private_jwk;
+        dpop_jwk["d"] = serde_json::json!("AQAB");
+        let saved = AgentSession {
+            did: "did:plc:agent".into(),
+            handle: "agent.test".into(),
+            pds_url: "https://pds.example.invalid".into(),
+            relay_host: "relay.example.invalid".into(),
+            token_set: proto_blue_oauth::types::TokenSet {
+                issuer: "https://pds.example.invalid".into(),
+                sub: "did:plc:agent".into(),
+                scope: "atproto".into(),
+                access_token: "saved".into(),
+                refresh_token: None,
+                token_type: "DPoP".into(),
+                expires_at: None,
+                aud: None,
+            },
+            dpop_jwk,
+            server_metadata: serde_json::from_value(serde_json::json!({
+                "issuer": "https://pds.example.invalid",
+                "authorization_endpoint": "https://pds.example.invalid/authorize",
+                "token_endpoint": "https://pds.example.invalid/token",
+            }))
+            .expect("server metadata"),
+        };
+        let sink = Arc::new(SessionFileSink::new(
+            std::env::temp_dir().join("symbios-agent-never-written.json"),
+            saved.clone(),
+        ));
+        let client = crate::oauth::OauthClientRes::default().0;
+
+        let refused =
+            futures_lite::future::block_on(resume(client, saved, sink, "did:plc:room".into()))
+                .err()
+                .expect("refused");
+
+        assert!(refused.contains("agent login"), "{refused}");
     }
 
     #[test]

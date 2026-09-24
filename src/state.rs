@@ -1035,6 +1035,30 @@ impl PendingOutgoingOffers {
     }
 }
 
+/// How a gift this client offered ended (#1423): accepted or declined by its
+/// recipient, and why, or never answered before the offer lapsed here.
+/// Written where the answer lands (`network::inbound`) and
+/// where the pending sweep gives up (`network::lifecycle`), beside the
+/// sender's toasts, which say the same in words. The agent client reads it
+/// to tell its operator how a gift went.
+#[derive(Message, Clone, Debug, PartialEq, Eq)]
+pub struct OfferAnswered {
+    pub offer_id: u64,
+    /// The recipient: the DID the offer was made to, which the answer was
+    /// checked to come from.
+    pub target_did: String,
+    pub outcome: OfferOutcome,
+}
+
+/// See [`OfferAnswered`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OfferOutcome {
+    Accepted,
+    Declined(crate::protocol::DeclineReason),
+    /// No answer before `config::network::PENDING_OFFER_TIMEOUT_SECS`.
+    NoAnswer,
+}
+
 #[cfg(test)]
 mod same_owner_update_tests {
     use super::*;

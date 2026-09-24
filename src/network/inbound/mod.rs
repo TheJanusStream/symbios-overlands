@@ -130,6 +130,9 @@ pub(super) struct InboundBuffers<'w, 's> {
     /// Gift-lifecycle feedback (#843): accepted/declined responses toast
     /// to the sender the moment they land.
     toasts: ResMut<'w, crate::notify::Toasts>,
+    /// How each gift this client offered was answered (#1423), beside the
+    /// toast that says it in words.
+    answered: MessageWriter<'w, crate::state::OfferAnswered>,
     /// Busy-gate auto-declines counted while an offer dialog is up
     /// (#843); the dialog reports them when it closes.
     busy_declines: ResMut<'w, crate::state::BusyAutoDeclines>,

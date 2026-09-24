@@ -43,6 +43,9 @@
 //!   plus the `CompletedAuth` bundle.
 //! * [`util`] - shared callback plumbing (the percent-decoder both the
 //!   wasm query parser and the native listener use).
+//! * [`saved_key`] - the DPoP key rebuilt from a stored JWK, checked so a
+//!   malformed one is an error instead of a panic at its first proof
+//!   (#1409).
 //! * `wasm` - browser-side `sessionStorage` / `localStorage` plumbing
 //!   (compiled only on `wasm32`).
 //! * [`native_server`] - the `tiny_http` loopback callback listener
@@ -56,6 +59,7 @@ mod discovery;
 #[cfg(not(target_arch = "wasm32"))]
 mod native_server;
 mod refresh;
+mod saved_key;
 mod service_token;
 mod session_store;
 #[cfg(not(target_arch = "wasm32"))]
@@ -86,6 +90,7 @@ pub use refresh::{
     fetch_session_identity, oauth_get_with_nonce_retry, oauth_post_with_nonce_retry,
     oauth_post_with_refresh, refresh_is_terminal, refresh_session,
 };
+pub use saved_key::saved_dpop_key;
 pub use service_token::{
     get_relay_service_auth, poll_service_token_refresh, schedule_service_token_refresh,
 };

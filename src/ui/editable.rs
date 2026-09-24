@@ -65,7 +65,10 @@ pub enum RecordAction {
 /// `report_publish_failure` marks a failure terminal when the OAuth
 /// refresh token is gone (see [`crate::oauth::refresh_is_terminal`]) - so
 /// the row cannot claim the session expired on a save that never failed.
-fn save_refusal(
+///
+/// The agent's `save` (#1422) is refused by this same function, so a
+/// button and a command can never disagree about when a save may go.
+pub(crate) fn save_refusal(
     dirty: bool,
     can_publish: bool,
     size: &SizeReadout,
@@ -103,7 +106,8 @@ fn save_refusal(
 /// change: a Revert clicked while "Saving…" restored the PRE-save snapshot,
 /// the landing publish then pinned `stored` to what it wrote, and the row
 /// went dirty again holding the very edits the owner had just discarded.
-fn revert_refusal(dirty: bool, publishing: bool) -> Option<&'static str> {
+/// The agent's `revert` (#1422) asks it too.
+pub(crate) fn revert_refusal(dirty: bool, publishing: bool) -> Option<&'static str> {
     if publishing {
         Some("Wait for the save to finish")
     } else if !dirty {

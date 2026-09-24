@@ -132,26 +132,12 @@ pub fn handle_generator_drop(
         let Some(sess) = session.as_deref() else {
             return;
         };
-        // The wear metadata rides along (#1108): from the stash's side
-        // table for an owned item, or minted from the catalogue entry's
-        // declaration for a vanilla one - the same two sources the local
-        // Copy-to-inventory / Wear flows read.
-        let generator_opt = match source {
-            DropSource::Inventory => inventory.as_ref().and_then(|inv| {
-                inv.0
-                    .generators
-                    .get(&name)
-                    .cloned()
-                    .map(|generator| (generator, inv.0.wear.get(&name).cloned()))
-            }),
-            DropSource::Catalogue => crate::catalogue::by_slug(&name).map(|entry| {
-                let wear = entry.wear_socket().map(|socket| {
-                    crate::pds::inventory::WearMeta::for_entry(socket, entry.wear_fit())
-                });
-                (entry.build(&sess.did), wear)
-            }),
-        };
-        let Some((generator, wear)) = generator_opt else {
+        let Some((generator, wear)) = gift_contents(
+            source,
+            &name,
+            inventory.as_deref().map(|inv| &inv.0),
+            &sess.did,
+        ) else {
             warn!("Peer-gift drop: source generator '{}' not found", name);
             return;
         };
@@ -160,39 +146,21 @@ pub fn handle_generator_drop(
             // in case a non-placeable kind slipped through.
             return;
         }
-
-        let now = time.elapsed_secs_f64();
-        let offer_id = pending_offers.peek_next_id();
-        // Route through the chunker (#717): a gifted `Generator` can be a
-        // large Shape-grammar / L-system blueprint whose `generator_json`
-        // pushes the offer past the 64 KiB WebRTC message ceiling, which would
-        // otherwise fail silently and leave the recipient without the gift.
-        let outcome = chunk.broadcast(
-            &mut sender,
-            &mut session_log,
-            now,
-            OverlandsMessage::item_offer(
-                offer_id,
-                target.did.clone(),
-                name.clone(),
-                &generator,
-                wear.as_ref(),
-            ),
-        );
-        record_gift_outcome(
-            outcome,
-            offer_id,
+        send_gift_offer(
             &target.did,
             &target.label,
             &name,
-            &mut pending_offers,
-            &mut session_log,
-            &mut toasts,
-            now,
+            &generator,
+            wear.as_ref(),
+            &mut GiftSending {
+                pending_offers: &mut pending_offers,
+                session_log: &mut session_log,
+                sender: &mut sender,
+                chunk: &mut chunk,
+                toasts: &mut toasts,
+            },
+            time.elapsed_secs_f64(),
         );
-        // `sess` served its purpose as a session presence guard - silence
-        // the unused warning without sprinkling `#[allow]` across the fn.
-        let _ = sess;
         return;
     }
 
@@ -357,6 +325,90 @@ pub fn handle_generator_drop(
     // tick, driving the recompile + peer broadcast).
 }
 
+/// What a gift of `name` from `source` carries: the tree, and the wear
+/// metadata that rides along with it (#1108) - from the stash's own item
+/// and its side table, or built fresh for `did` from the catalogue entry
+/// and minted from its declaration, the same two sources the local
+/// Copy-to-inventory and Wear flows read. `None` when there is no such
+/// item. Shared by the drag and the agent client's `gift give` (#1423).
+pub(crate) fn gift_contents(
+    source: DropSource,
+    name: &str,
+    inventory: Option<&crate::pds::InventoryRecord>,
+    did: &str,
+) -> Option<(Generator, Option<crate::pds::inventory::WearMeta>)> {
+    match source {
+        DropSource::Inventory => inventory.and_then(|inv| {
+            inv.generators
+                .get(name)
+                .cloned()
+                .map(|generator| (generator, inv.wear.get(name).cloned()))
+        }),
+        DropSource::Catalogue => crate::catalogue::by_slug(name).map(|entry| {
+            let wear = entry
+                .wear_socket()
+                .map(|socket| crate::pds::inventory::WearMeta::for_entry(socket, entry.wear_fit()));
+            (entry.build(did), wear)
+        }),
+    }
+}
+
+/// What sending a gift writes to: the pending offers it joins, the log,
+/// the transport and the sender's toasts.
+pub(crate) struct GiftSending<'a, 'm, 'c> {
+    pub pending_offers: &'a mut PendingOutgoingOffers,
+    pub session_log: &'a mut SessionLog,
+    pub sender: &'a mut SendMessage<'m, OverlandsMessage>,
+    pub chunk: &'a mut crate::network::chunk::ChunkSend<'c>,
+    pub toasts: &'a mut crate::notify::Toasts,
+}
+
+/// Offer `generator` to `target_did` as `item_name`: send it and keep the
+/// offer pending until it is answered or lapses - the one path the drag and
+/// the agent client's `gift give` share (#1423). The offer's id once it has
+/// gone out; `None` when the transport refused it, which a toast says.
+///
+/// Routed through the chunker (#717): a gifted `Generator` can be a large
+/// Shape-grammar / L-system blueprint whose `generator_json` pushes the
+/// offer past the 64 KiB WebRTC message ceiling, which would otherwise fail
+/// silently and leave the recipient without the gift.
+pub(crate) fn send_gift_offer(
+    target_did: &str,
+    target_label: &str,
+    item_name: &str,
+    generator: &Generator,
+    wear: Option<&crate::pds::inventory::WearMeta>,
+    to: &mut GiftSending<'_, '_, '_>,
+    now: f64,
+) -> Option<u64> {
+    let offer_id = to.pending_offers.peek_next_id();
+    let outcome = to.chunk.broadcast(
+        to.sender,
+        to.session_log,
+        now,
+        OverlandsMessage::item_offer(
+            offer_id,
+            target_did.to_owned(),
+            item_name.to_owned(),
+            generator,
+            wear,
+        ),
+    );
+    let sent = outcome.is_sent();
+    record_gift_outcome(
+        outcome,
+        offer_id,
+        target_did,
+        target_label,
+        item_name,
+        to.pending_offers,
+        to.session_log,
+        to.toasts,
+        now,
+    );
+    sent.then_some(offer_id)
+}
+
 /// Pick a key under which to store a dropped generator in the room's
 /// `generators` map. Reuses the existing entry when its contents already
 /// match the dragged blueprint (so repeated drops of the same inventory
@@ -366,7 +418,10 @@ pub fn handle_generator_drop(
 ///
 /// Equality is checked through `serde_json::to_value` because `Generator`
 /// doesn't derive `PartialEq` - same pattern the inventory's dirty diff uses.
-fn choose_room_generator_key(
+///
+/// Crate-visible for the agent's `place` (#1422), which is a catalogue drop
+/// with no mouse and keys what it places by this same rule.
+pub(crate) fn choose_room_generator_key(
     existing: &HashMap<String, Generator>,
     inventory_name: &str,
     new_gen: &Generator,

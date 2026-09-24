@@ -380,6 +380,7 @@ pub(super) fn sweep_stale_pending_offers(
     mut session_log: ResMut<SessionLog>,
     mut toasts: ResMut<crate::notify::Toasts>,
     link: Res<super::LinkState>,
+    mut answered: MessageWriter<crate::state::OfferAnswered>,
 ) {
     let now = time.elapsed_secs_f64();
     let ttl = config::network::PENDING_OFFER_TIMEOUT_SECS;
@@ -389,7 +390,7 @@ pub(super) fn sweep_stale_pending_offers(
     }
     // Handle + item ride along for the sender's expiry toast (#843), and
     // `sent_at_secs` for the link check the wording now turns on (#1213).
-    let mut expired: Vec<(u64, String, String, f64)> = Vec::new();
+    let mut expired: Vec<(u64, String, String, f64, String)> = Vec::new();
     pending.by_id.retain(|&id, entry| {
         // Wall clock (#1216) - the recipient's dialog is counting down on
         // theirs, and two machines that slept for different lengths must
@@ -401,11 +402,17 @@ pub(super) fn sweep_stale_pending_offers(
                 entry.target_label.clone(),
                 entry.item_name.clone(),
                 entry.sent_at_secs,
+                entry.target_did.clone(),
             ));
         }
         alive
     });
-    for (offer_id, handle, item, sent_at) in expired {
+    for (offer_id, handle, item, sent_at, target_did) in expired {
+        answered.write(crate::state::OfferAnswered {
+            offer_id,
+            target_did,
+            outcome: crate::state::OfferOutcome::NoAnswer,
+        });
         // Info, not Warn: a peer not answering a gift offer within the TTL is a
         // benign, expected social outcome (AFK / implicit decline / brief hiccup)
         // - it mirrors the incoming-side `ItemOfferDialogAutoDeclinedTimeout`
@@ -1021,5 +1028,63 @@ pub(super) fn sweep_quiet_peers(
                 commands.entity(entity).despawn();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod pending_sweep_tests {
+    use super::*;
+
+    /// A gift nobody answered in time lapses with an answer of its own
+    /// (#1423): the sweep that toasts "they didn't answer" also says it,
+    /// for the offer and the player it was made to.
+    #[test]
+    fn a_lapsed_offer_is_answered_no_answer() {
+        let mut app = App::new();
+        app.init_resource::<Time>()
+            .init_resource::<PendingOutgoingOffers>()
+            .init_resource::<SessionLog>()
+            .init_resource::<crate::notify::Toasts>()
+            .init_resource::<super::super::LinkState>()
+            .add_message::<crate::state::OfferAnswered>()
+            .add_systems(Update, sweep_stale_pending_offers);
+        {
+            let mut pending = app.world_mut().resource_mut::<PendingOutgoingOffers>();
+            pending.register(
+                4,
+                "did:plc:friend".into(),
+                "@friend".into(),
+                "lantern".into(),
+                0.0,
+            );
+            pending.register(
+                5,
+                "did:plc:other".into(),
+                "@other".into(),
+                "lamp".into(),
+                0.0,
+            );
+            let lapsed = crate::state::now_epoch_secs()
+                - config::network::PENDING_OFFER_TIMEOUT_SECS as i64
+                - 5;
+            pending.by_id.get_mut(&4).expect("offer 4").sent_at_epoch = lapsed;
+        }
+
+        app.update();
+
+        let answered = app
+            .world()
+            .resource::<Messages<crate::state::OfferAnswered>>();
+        let answers: Vec<_> = answered.get_cursor().read(answered).cloned().collect();
+        assert_eq!(
+            answers,
+            [crate::state::OfferAnswered {
+                offer_id: 4,
+                target_did: "did:plc:friend".into(),
+                outcome: crate::state::OfferOutcome::NoAnswer,
+            }]
+        );
+        let pending = &app.world().resource::<PendingOutgoingOffers>().by_id;
+        assert!(!pending.contains_key(&4) && pending.contains_key(&5));
     }
 }

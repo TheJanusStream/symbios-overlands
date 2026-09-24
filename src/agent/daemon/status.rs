@@ -12,6 +12,12 @@
 //! record puts them (a placement kept out of the water is moved to dry land).
 //! A walk into one of them ends `stuck`; this is how the agent sees it coming.
 //! A thing's name is its world owner's words, so it says whose (`named_by`).
+//!
+//! `editing` says whether the world the agent stands in is its own to edit,
+//! whether it may save at all, which of its records hold unsaved edits or a
+//! save under way, and what an undo or a redo would step (#1422). `gifts`
+//! names the admin's offer waiting for an answer, if one is, and the
+//! agent's own offers still waiting for theirs (#1423).
 
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
@@ -30,16 +36,16 @@ use super::super::admin::Admin;
 use super::{hundredths, hundredths3};
 
 /// Where the agent's body is and which way it faces on the ground.
-struct Pose {
-    position: Vec3,
+pub(super) struct Pose {
+    pub(super) position: Vec3,
     /// Unit, horizontal.
-    forward: Vec3,
+    pub(super) forward: Vec3,
 }
 
 impl Pose {
     /// `point` in the agent's own frame: metres ahead and metres to the
     /// right (negative is behind, and to the left).
-    fn frame_of(&self, point: Vec3) -> (f32, f32) {
+    pub(super) fn frame_of(&self, point: Vec3) -> (f32, f32) {
         let offset = point - self.position;
         let right = self.forward.cross(Vec3::Y);
         (offset.dot(self.forward), offset.dot(right))
@@ -70,6 +76,8 @@ pub(super) fn snapshot(world: &mut World) -> Value {
         "movement": super::movement::describe(world),
         "peers": peers(world, pose.as_ref(), admin.as_ref()),
         "nearby": nearby(world, pose.as_ref()),
+        "editing": super::edit::describe(world),
+        "gifts": super::gifts::describe(world),
     })
 }
 
@@ -84,7 +92,7 @@ fn chat_heard(admin: Option<&Admin>) -> Value {
     }
 }
 
-fn local_pose(world: &mut World) -> Option<Pose> {
+pub(super) fn local_pose(world: &mut World) -> Option<Pose> {
     let transform = *world
         .query_filtered::<&GlobalTransform, With<LocalPlayer>>()
         .iter(world)
@@ -206,7 +214,7 @@ fn nearby(world: &mut World, pose: Option<&Pose>) -> Vec<Value> {
 /// A way out is looked for through the whole tree, not just its root: the
 /// seeded social gateway is a structure whose gateway zone is one of its
 /// nodes, and a catalogue building can carry a portal the same way.
-fn thing_kind(generator: &Generator) -> Option<&'static str> {
+pub(super) fn thing_kind(generator: &Generator) -> Option<&'static str> {
     match &generator.kind {
         GeneratorKind::Terrain(_)
         | GeneratorKind::Water { .. }

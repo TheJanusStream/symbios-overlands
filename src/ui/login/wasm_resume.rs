@@ -200,13 +200,21 @@ fn spawn_resume_task(
     spawn_yaw_deg: Option<f32>,
 ) {
     use proto_blue_oauth::OAuthSession;
-    use proto_blue_oauth::client::dpop_key_from_jwk;
 
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async move {
-            let dpop_key =
-                dpop_key_from_jwk(&blob.dpop_jwk).map_err(|e| format!("dpop_key_from_jwk: {e}"))?;
+            // Checked before it signs anything (#1409): a malformed key used
+            // to panic at its first proof, aborting the app with the bad
+            // session still saved to do it again on the next load. It is
+            // dropped instead, as an unreadable blob is, and the form shows.
+            let dpop_key = match crate::oauth::saved_dpop_key(&blob.dpop_jwk) {
+                Ok(key) => key,
+                Err(e) => {
+                    oauth::wasm::clear_persisted();
+                    return Err(format!("dpop_key_from_jwk: {e}"));
+                }
+            };
             // Same capped transport as the fresh-login path (#1176); a
             // resumed session is the one that runs longest.
             let oauth_session = Arc::new(OAuthSession::with_fetch_handler(

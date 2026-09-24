@@ -41,7 +41,10 @@ use clap::Parser as _;
 use cli::{Cli, Command};
 use control::protocol::Request;
 use lifecycle::{list_accounts, run_daemon, run_login, start_daemon};
-use requests::{ask, face, follow, look, travel, walk_to, watch_events};
+use requests::{
+    JsonRecord, ask, catalogue, face, follow, gift, look, move_placement, place, placements,
+    record_json, remove, save, travel, walk_to, watch_events,
+};
 
 use crate::config;
 
@@ -73,6 +76,50 @@ fn execute(command: Command) -> Result<ExitCode, String> {
         Command::Look(args) => look(args),
         Command::Follow(args) => follow(args),
         Command::Face(args) => face(args),
+        Command::Placements(args) => placements(args),
+        Command::Catalogue(args) => catalogue(args),
+        Command::Place(args) => place(args),
+        Command::Move(args) => move_placement(args),
+        Command::Remove(args) => remove(args),
+        Command::Room(args) => record_json(JsonRecord::Room, args),
+        Command::Avatar(args) => record_json(JsonRecord::Avatar, args),
+        Command::Undo(args) => ask(
+            args.account.name.as_deref(),
+            Request::Undo {
+                record: args.record,
+            },
+        ),
+        Command::Redo(args) => ask(
+            args.account.name.as_deref(),
+            Request::Redo {
+                record: args.record,
+            },
+        ),
+        Command::Revert(args) => ask(
+            args.account.name.as_deref(),
+            Request::Revert {
+                record: args.record,
+            },
+        ),
+        Command::Save(args) => save(args),
+        Command::Inventory(account) => ask(account.name.as_deref(), Request::Inventory),
+        Command::Stash(args) => ask(
+            args.account.name.as_deref(),
+            Request::Stash { what: args.what },
+        ),
+        Command::Unstash(args) => ask(
+            args.account.name.as_deref(),
+            Request::Unstash { name: args.item },
+        ),
+        Command::Wear(args) => ask(
+            args.account.name.as_deref(),
+            Request::Wear { name: args.item },
+        ),
+        Command::TakeOff(args) => ask(
+            args.account.name.as_deref(),
+            Request::TakeOff { name: args.item },
+        ),
+        Command::Gift(args) => gift(args),
     }
 }
 

@@ -315,6 +315,15 @@ pub(super) fn handle_response(
         now,
         EventPayload::ItemOfferResponseReceived { offer_id, accepted },
     );
+    bufs.answered.write(crate::state::OfferAnswered {
+        offer_id,
+        target_did: pending.target_did.clone(),
+        outcome: if accepted {
+            crate::state::OfferOutcome::Accepted
+        } else {
+            crate::state::OfferOutcome::Declined(reason)
+        },
+    });
     // The sender finally learns the outcome somewhere visible
     // (#843), and now learns WHICH outcome (#1220 f127): the
     // boolean used to render one sentence for a refusal, a

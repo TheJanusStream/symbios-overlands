@@ -1,12 +1,16 @@
-//! The commands that talk to a running agent (#1416-#1419): each sends one
-//! request over the control socket and prints the answer; `walk-to --wait`
-//! and `travel --wait` then follow the event log to the end of what they
-//! started.
+//! The commands that talk to a running agent (#1416-#1422): each sends one
+//! request over the control socket and prints the answer; `walk-to --wait`,
+//! `travel --wait` and `save --wait` then follow the event log to the end of
+//! what they started.
 
 use std::process::ExitCode;
 
-use super::cli::{EventsArgs, FaceArgs, FollowArgs, LookArgs, TravelArgs, WalkToArgs};
-use super::control::protocol::{LookSpec, Request, Response};
+use super::cli::{
+    CatalogueArgs, EventsArgs, FaceArgs, FollowArgs, GiftAction, GiftArgs, JsonAction, LookArgs,
+    MoveArgs, PlaceArgs, PlacementsArgs, RecordJsonArgs, RemoveArgs, SaveArgs, TravelArgs,
+    WalkToArgs,
+};
+use super::control::protocol::{LookSpec, Request, Response, UnsavedEdits};
 use super::{config, control, find_session, print_json, resolve_name, session_file};
 
 pub(super) fn watch_events(args: EventsArgs) -> Result<ExitCode, String> {
@@ -182,11 +186,19 @@ pub(super) fn travel(args: TravelArgs) -> Result<ExitCode, String> {
     let account = args.account.name.as_deref();
     let socket = socket_for(account)?;
     let (room_did, label) = destination(account, &args.to)?;
+    let unsaved = if args.discard_edits {
+        UnsavedEdits::Discard
+    } else if args.save_edits {
+        UnsavedEdits::Save
+    } else {
+        UnsavedEdits::Refuse
+    };
     let started = control::client::call(
         &socket,
         &Request::Travel {
             room_did: room_did.clone(),
             label,
+            unsaved,
         },
     )?;
     let Some(result) = started.result.as_ref().filter(|_| args.wait && started.ok) else {
@@ -237,4 +249,174 @@ fn destination(account: Option<&str>, to: &str) -> Result<(String, Option<String
     }
     let (did, handle) = resolve_name(to)?;
     Ok((did, handle.map(|handle| format!("@{handle}"))))
+}
+
+/// The placements in the agent's world.
+pub(super) fn placements(args: PlacementsArgs) -> Result<ExitCode, String> {
+    ask(
+        args.account.name.as_deref(),
+        Request::Placements {
+            within_m: args.within,
+        },
+    )
+}
+
+/// The catalogue, or the entries matching a search.
+pub(super) fn catalogue(args: CatalogueArgs) -> Result<ExitCode, String> {
+    ask(
+        args.account.name.as_deref(),
+        Request::Catalogue {
+            search: args.search,
+        },
+    )
+}
+
+pub(super) fn place(args: PlaceArgs) -> Result<ExitCode, String> {
+    ask(
+        args.account.name.as_deref(),
+        Request::Place {
+            slug: args.slug,
+            at: args.at.as_deref().map(|at| [at[0], at[1]]),
+            yaw_deg: args.yaw,
+        },
+    )
+}
+
+pub(super) fn move_placement(args: MoveArgs) -> Result<ExitCode, String> {
+    ask(
+        args.account.name.as_deref(),
+        Request::Move {
+            index: args.index,
+            x: args.x,
+            z: args.z,
+            yaw_deg: args.yaw,
+        },
+    )
+}
+
+pub(super) fn remove(args: RemoveArgs) -> Result<ExitCode, String> {
+    ask(
+        args.account.name.as_deref(),
+        Request::Remove { index: args.index },
+    )
+}
+
+/// The records with JSON commands.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum JsonRecord {
+    Room,
+    Avatar,
+}
+
+/// `room get|set` and `avatar get|set`. A value is JSON - given on the
+/// command line, or read from a file here - and goes to the agent as JSON,
+/// so a value that is not JSON never leaves this command.
+pub(super) fn record_json(record: JsonRecord, args: RecordJsonArgs) -> Result<ExitCode, String> {
+    match args.action {
+        JsonAction::Get(get) => {
+            let pointer = get.pointer.unwrap_or_default();
+            let request = match record {
+                JsonRecord::Room => Request::RoomGet { pointer },
+                JsonRecord::Avatar => Request::AvatarGet { pointer },
+            };
+            ask(get.account.name.as_deref(), request)
+        }
+        JsonAction::Set(set) => {
+            let text = match (set.value, set.file) {
+                (Some(value), _) => value,
+                (None, Some(path)) => std::fs::read_to_string(&path)
+                    .map_err(|e| format!("{}: {e}", path.display()))?,
+                (None, None) => return Err("set takes a value, or --file".to_owned()),
+            };
+            let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+                format!("the value is not JSON ({e}); a string needs its quotes, as in '\"text\"'")
+            })?;
+            let pointer = set.pointer;
+            let request = match record {
+                JsonRecord::Room => Request::RoomSet { pointer, value },
+                JsonRecord::Avatar => Request::AvatarSet { pointer, value },
+            };
+            ask(set.account.name.as_deref(), request)
+        }
+    }
+}
+
+/// Start a save; with `--wait`, follow the event log from the moment it
+/// started until it lands or fails, and print that.
+pub(super) fn save(args: SaveArgs) -> Result<ExitCode, String> {
+    let record = args.record.record;
+    let socket = socket_for(args.record.account.name.as_deref())?;
+    let started = control::client::call(&socket, &Request::Save { record })?;
+    let Some(result) = started.result.as_ref().filter(|_| args.wait && started.ok) else {
+        return print_response(&started);
+    };
+    let since = result["events_seq"]
+        .as_u64()
+        .ok_or("the save has no events_seq")?;
+    let ended = wait_for_event(&socket, since, config::agent::SAVE_WAIT, |event| {
+        (event["kind"] == "saved" || event["kind"] == "save_failed")
+            && event["record"] == record.word()
+    })
+    .map_err(|waited| {
+        format!(
+            "the save had not landed after {} s; it may yet, and `agent status` says",
+            waited.as_secs()
+        )
+    })?;
+    let failed = ended["kind"] == "save_failed";
+    print_json(&ended)?;
+    Ok(if failed {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    })
+}
+
+/// `gift give|accept|decline`. A gift goes to a player named by DID or by
+/// handle, looked up here; with `--wait` its answer is followed on the event
+/// log - a lapsed offer answers too, so the wait ends.
+pub(super) fn gift(args: GiftArgs) -> Result<ExitCode, String> {
+    match args.action {
+        GiftAction::Give(give) => {
+            let (to_did, _) = resolve_name(&give.player)?;
+            let socket = socket_for(give.account.name.as_deref())?;
+            let started = control::client::call(
+                &socket,
+                &Request::GiftGive {
+                    to_did,
+                    item: give.item,
+                },
+            )?;
+            let Some(result) = started.result.as_ref().filter(|_| give.wait && started.ok) else {
+                return print_response(&started);
+            };
+            let (Some(offer_id), Some(since)) =
+                (result["offered"].as_u64(), result["events_seq"].as_u64())
+            else {
+                return print_response(&started);
+            };
+            let answered = wait_for_event(&socket, since, config::agent::GIFT_WAIT, |event| {
+                event["kind"] == "gift_answered" && event["offer_id"].as_u64() == Some(offer_id)
+            })
+            .map_err(|waited| {
+                format!(
+                    "no answer to the gift after {} s; `agent events` says when it comes",
+                    waited.as_secs()
+                )
+            })?;
+            print_response(&Response::success(answered))
+        }
+        GiftAction::Accept(offer) => ask(
+            offer.account.name.as_deref(),
+            Request::GiftAccept {
+                offer_id: offer.offer_id,
+            },
+        ),
+        GiftAction::Decline(offer) => ask(
+            offer.account.name.as_deref(),
+            Request::GiftDecline {
+                offer_id: offer.offer_id,
+            },
+        ),
+    }
 }

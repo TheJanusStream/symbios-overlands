@@ -25,11 +25,14 @@ pub enum Request {
     },
     /// Stop walking.
     Halt,
-    /// Travel to the world of `room_did`, which the operator called `label`.
+    /// Travel to the world of `room_did`, which the operator called `label`,
+    /// doing `unsaved` with any unsaved edits to the agent's own world.
     Travel {
         room_did: String,
         #[serde(default)]
         label: Option<String>,
+        #[serde(default)]
+        unsaved: UnsavedEdits,
     },
     /// Take a picture of what the agent sees and write it to a PNG.
     Look(LookSpec),
@@ -49,6 +52,137 @@ pub enum Request {
         #[serde(default)]
         at: Option<[f32; 2]>,
     },
+    /// The things placed in the agent's world, by index, each where it is
+    /// drawn - within `within_m` of the agent when given (#1422).
+    Placements {
+        #[serde(default)]
+        within_m: Option<f32>,
+    },
+    /// The catalogue's entries - those matching `search`, when given.
+    Catalogue {
+        #[serde(default)]
+        search: Option<String>,
+    },
+    /// Put the catalogue entry `slug` down on the ground at `at` (x, z) - a
+    /// few metres ahead of the agent when absent - turned to `yaw_deg`.
+    Place {
+        slug: String,
+        #[serde(default)]
+        at: Option<[f32; 2]>,
+        #[serde(default)]
+        yaw_deg: Option<f32>,
+    },
+    /// Move the placement `index` to (`x`, `z`), keeping its height above
+    /// the ground, and turn it to `yaw_deg` when given.
+    Move {
+        index: usize,
+        x: f32,
+        z: f32,
+        #[serde(default)]
+        yaw_deg: Option<f32>,
+    },
+    /// Take the placement `index` out of the world.
+    Remove { index: usize },
+    /// The world's record as the JSON the World Editor's Raw JSON tab
+    /// shows, or the part of it at `pointer` (RFC 6901; empty for all).
+    RoomGet {
+        #[serde(default)]
+        pointer: String,
+    },
+    /// Replace the part of the world's record at `pointer` with `value`.
+    RoomSet {
+        pointer: String,
+        value: serde_json::Value,
+    },
+    /// The agent's avatar as JSON - its record, and the body and worn items
+    /// a rigged body keeps beside it - or the part at `pointer`.
+    AvatarGet {
+        #[serde(default)]
+        pointer: String,
+    },
+    /// Replace the part of the avatar's JSON at `pointer` with `value`.
+    AvatarSet {
+        pointer: String,
+        value: serde_json::Value,
+    },
+    /// Step back one edit of `record`, as Ctrl+Z does.
+    Undo {
+        #[serde(default)]
+        record: EditRecord,
+    },
+    /// Step forward again one edit of `record` that was undone.
+    Redo {
+        #[serde(default)]
+        record: EditRecord,
+    },
+    /// Throw `record`'s unsaved edits away: back to what was last saved.
+    Revert {
+        #[serde(default)]
+        record: EditRecord,
+    },
+    /// Save `record` to the agent's account - only when the daemon was
+    /// started with `--allow-save`.
+    Save {
+        #[serde(default)]
+        record: EditRecord,
+    },
+    /// What the agent's inventory holds (#1423).
+    Inventory,
+    /// Put `what` into the inventory: a thing in the agent's own world, by
+    /// its name, or a catalogue entry, by its slug.
+    Stash { what: String },
+    /// Take the item `name` out of the inventory.
+    Unstash { name: String },
+    /// Put the inventory item `name` on the avatar.
+    Wear { name: String },
+    /// Take the worn item `name` off the avatar.
+    TakeOff { name: String },
+    /// Offer `item` - an inventory item by its name, or a catalogue entry by
+    /// its slug - to the player `to_did`, who is in the agent's world.
+    GiftGive { to_did: String, item: String },
+    /// Accept the gift the agent was offered as `offer_id`.
+    GiftAccept { offer_id: u64 },
+    /// Decline it.
+    GiftDecline { offer_id: u64 },
+}
+
+/// Which of the agent's records an edit command is about (#1422).
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum EditRecord {
+    /// The agent's own world.
+    #[default]
+    Room,
+    /// The agent's avatar.
+    Avatar,
+    /// The agent's inventory (#1423): saved and reverted, but with no undo
+    /// history - the game keeps none for it.
+    Inventory,
+}
+
+impl EditRecord {
+    /// The record's name in answers and events.
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Room => "room",
+            Self::Avatar => "avatar",
+            Self::Inventory => "inventory",
+        }
+    }
+}
+
+/// What a trip does with unsaved edits to the agent's own world, which
+/// leaving it would lose (#1422).
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UnsavedEdits {
+    /// Do not leave: the trip is refused, and says why.
+    #[default]
+    Refuse,
+    /// Leave and lose them - the travel dialog's "Discard & travel".
+    Discard,
+    /// Save them, and leave once the save has landed - "Save & travel".
+    Save,
 }
 
 /// Which picture `look` takes.
@@ -103,6 +237,7 @@ pub enum WorldRequest {
     Travel {
         room_did: String,
         label: Option<String>,
+        unsaved: UnsavedEdits,
     },
     Look(LookSpec),
     Follow {
@@ -114,9 +249,105 @@ pub enum WorldRequest {
         did: Option<String>,
         at: Option<[f32; 2]>,
     },
+    /// An edit command (#1422).
+    Edit(EditRequest),
+    /// A gift command (#1423).
+    Gift(GiftRequest),
+}
+
+/// A request that offers a gift, or answers one (#1423).
+#[derive(Debug, Clone, PartialEq)]
+pub enum GiftRequest {
+    Give { to_did: String, item: String },
+    Accept(u64),
+    Decline(u64),
+}
+
+/// A request that reads or edits the agent's world or avatar (#1422).
+#[derive(Debug, Clone, PartialEq)]
+pub enum EditRequest {
+    Placements {
+        within_m: Option<f32>,
+    },
+    Catalogue {
+        search: Option<String>,
+    },
+    Place {
+        slug: String,
+        at: Option<[f32; 2]>,
+        yaw_deg: Option<f32>,
+    },
+    Move {
+        index: usize,
+        x: f32,
+        z: f32,
+        yaw_deg: Option<f32>,
+    },
+    Remove {
+        index: usize,
+    },
+    Get {
+        record: EditRecord,
+        pointer: String,
+    },
+    Set {
+        record: EditRecord,
+        pointer: String,
+        value: serde_json::Value,
+    },
+    Undo(EditRecord),
+    Redo(EditRecord),
+    Revert(EditRecord),
+    Save(EditRecord),
+    Inventory,
+    Stash {
+        what: String,
+    },
+    Unstash {
+        name: String,
+    },
+    Wear {
+        name: String,
+    },
+    TakeOff {
+        name: String,
+    },
+}
+
+impl EditRequest {
+    /// Whether answering this may write one of the agent's records. The
+    /// daemon answers at most one of these a frame: the undo history takes
+    /// one entry per frame a record changed in, so two edits answered in
+    /// one frame would be one step to undo.
+    pub fn writes(&self) -> bool {
+        !matches!(
+            self,
+            Self::Placements { .. }
+                | Self::Catalogue { .. }
+                | Self::Get { .. }
+                | Self::Save(_)
+                | Self::Inventory
+        )
+    }
 }
 
 impl WorldRequest {
+    /// Whether answering this may write one of the agent's records - an
+    /// edit, or a trip that throws the world's unsaved edits away first.
+    /// See [`EditRequest::writes`].
+    pub fn writes_a_record(&self) -> bool {
+        match self {
+            Self::Edit(edit) => edit.writes(),
+            // Accepting puts the gift in the inventory.
+            Self::Gift(GiftRequest::Accept(_)) => true,
+            Self::Travel {
+                unsaved: UnsavedEdits::Discard,
+                ..
+            } => true,
+            _ => false,
+        }
+    }
+
     /// How long the world may take to answer: a frame for most requests, a
     /// render for a picture.
     pub fn answer_within(&self) -> std::time::Duration {
@@ -137,9 +368,15 @@ impl Request {
             Self::Say { text } => Route::World(WorldRequest::Say(text)),
             Self::WalkTo { x, z, run } => Route::World(WorldRequest::WalkTo { x, z, run }),
             Self::Halt => Route::World(WorldRequest::Halt),
-            Self::Travel { room_did, label } => {
-                Route::World(WorldRequest::Travel { room_did, label })
-            }
+            Self::Travel {
+                room_did,
+                label,
+                unsaved,
+            } => Route::World(WorldRequest::Travel {
+                room_did,
+                label,
+                unsaved,
+            }),
             Self::Look(spec) => Route::World(WorldRequest::Look(spec)),
             Self::Follow { did, distance, run } => Route::World(WorldRequest::Follow {
                 did,
@@ -147,8 +384,63 @@ impl Request {
                 run,
             }),
             Self::Face { did, at } => Route::World(WorldRequest::Face { did, at }),
+            Self::Placements { within_m } => edit(EditRequest::Placements { within_m }),
+            Self::Catalogue { search } => edit(EditRequest::Catalogue { search }),
+            Self::Place { slug, at, yaw_deg } => edit(EditRequest::Place { slug, at, yaw_deg }),
+            Self::Move {
+                index,
+                x,
+                z,
+                yaw_deg,
+            } => edit(EditRequest::Move {
+                index,
+                x,
+                z,
+                yaw_deg,
+            }),
+            Self::Remove { index } => edit(EditRequest::Remove { index }),
+            Self::RoomGet { pointer } => edit(EditRequest::Get {
+                record: EditRecord::Room,
+                pointer,
+            }),
+            Self::RoomSet { pointer, value } => edit(EditRequest::Set {
+                record: EditRecord::Room,
+                pointer,
+                value,
+            }),
+            Self::AvatarGet { pointer } => edit(EditRequest::Get {
+                record: EditRecord::Avatar,
+                pointer,
+            }),
+            Self::AvatarSet { pointer, value } => edit(EditRequest::Set {
+                record: EditRecord::Avatar,
+                pointer,
+                value,
+            }),
+            Self::Undo { record } => edit(EditRequest::Undo(record)),
+            Self::Redo { record } => edit(EditRequest::Redo(record)),
+            Self::Revert { record } => edit(EditRequest::Revert(record)),
+            Self::Save { record } => edit(EditRequest::Save(record)),
+            Self::Inventory => edit(EditRequest::Inventory),
+            Self::Stash { what } => edit(EditRequest::Stash { what }),
+            Self::Unstash { name } => edit(EditRequest::Unstash { name }),
+            Self::Wear { name } => edit(EditRequest::Wear { name }),
+            Self::TakeOff { name } => edit(EditRequest::TakeOff { name }),
+            Self::GiftGive { to_did, item } => {
+                Route::World(WorldRequest::Gift(GiftRequest::Give { to_did, item }))
+            }
+            Self::GiftAccept { offer_id } => {
+                Route::World(WorldRequest::Gift(GiftRequest::Accept(offer_id)))
+            }
+            Self::GiftDecline { offer_id } => {
+                Route::World(WorldRequest::Gift(GiftRequest::Decline(offer_id)))
+            }
         }
     }
+}
+
+fn edit(request: EditRequest) -> Route {
+    Route::World(WorldRequest::Edit(request))
 }
 
 /// The answer to one request: `{"ok":true,"result":…}` or
@@ -236,6 +528,130 @@ mod tests {
             LOOK_ANSWER_TIMEOUT
         );
         assert_eq!(WorldRequest::Status.answer_within(), WORLD_ANSWER_TIMEOUT);
+    }
+
+    /// The edit commands' wire forms (#1422): a record defaults to the
+    /// world, and a trip to refusing over unsaved edits.
+    #[test]
+    fn edit_requests_are_flat_objects_with_their_defaults() {
+        assert_eq!(
+            serde_json::from_str::<Request>(r#"{"command":"undo"}"#).unwrap(),
+            Request::Undo {
+                record: EditRecord::Room
+            }
+        );
+        assert_eq!(
+            serde_json::from_str::<Request>(r#"{"command":"save","record":"avatar"}"#).unwrap(),
+            Request::Save {
+                record: EditRecord::Avatar
+            }
+        );
+        assert_eq!(
+            serde_json::from_str::<Request>(r#"{"command":"room_get"}"#).unwrap(),
+            Request::RoomGet {
+                pointer: String::new()
+            }
+        );
+        assert_eq!(
+            serde_json::from_str::<Request>(r#"{"command":"place","slug":"lamp","at":[1.5,-2]}"#)
+                .unwrap(),
+            Request::Place {
+                slug: "lamp".into(),
+                at: Some([1.5, -2.0]),
+                yaw_deg: None
+            }
+        );
+        assert_eq!(
+            serde_json::from_str::<Request>(r#"{"command":"travel","room_did":"did:plc:a"}"#)
+                .unwrap(),
+            Request::Travel {
+                room_did: "did:plc:a".into(),
+                label: None,
+                unsaved: UnsavedEdits::Refuse
+            }
+        );
+        assert_eq!(
+            serde_json::from_str::<Request>(r#"{"command":"save","record":"inventory"}"#).unwrap(),
+            Request::Save {
+                record: EditRecord::Inventory
+            }
+        );
+        assert!(serde_json::from_str::<Request>(r#"{"command":"save","record":"world"}"#).is_err());
+        assert_eq!(
+            serde_json::from_str::<Request>(r#"{"command":"gift_accept","offer_id":7}"#).unwrap(),
+            Request::GiftAccept { offer_id: 7 }
+        );
+    }
+
+    /// What may write a record is what ends the daemon's turn for a frame
+    /// (`serve`); reads and saves do not write one.
+    #[test]
+    fn only_what_writes_a_record_ends_a_frames_turn() {
+        let writes = |request: Request| match request.route() {
+            Route::World(world) => world.writes_a_record(),
+            Route::Events { .. } => false,
+        };
+        for writer in [
+            Request::Place {
+                slug: "lamp".into(),
+                at: None,
+                yaw_deg: None,
+            },
+            Request::Remove { index: 0 },
+            Request::RoomSet {
+                pointer: String::new(),
+                value: serde_json::json!({}),
+            },
+            Request::AvatarSet {
+                pointer: String::new(),
+                value: serde_json::json!({}),
+            },
+            Request::Undo {
+                record: EditRecord::Avatar,
+            },
+            Request::Revert {
+                record: EditRecord::Room,
+            },
+            Request::Travel {
+                room_did: "did:plc:a".into(),
+                label: None,
+                unsaved: UnsavedEdits::Discard,
+            },
+            Request::Stash {
+                what: "lamp".into(),
+            },
+            Request::Unstash {
+                name: "lamp".into(),
+            },
+            Request::Wear { name: "hat".into() },
+            Request::TakeOff { name: "hat".into() },
+            Request::GiftAccept { offer_id: 1 },
+        ] {
+            assert!(writes(writer.clone()), "{writer:?}");
+        }
+        for reader in [
+            Request::Status,
+            Request::Placements { within_m: None },
+            Request::RoomGet {
+                pointer: String::new(),
+            },
+            Request::Save {
+                record: EditRecord::Room,
+            },
+            Request::Travel {
+                room_did: "did:plc:a".into(),
+                label: None,
+                unsaved: UnsavedEdits::Save,
+            },
+            Request::Inventory,
+            Request::GiftDecline { offer_id: 1 },
+            Request::GiftGive {
+                to_did: "did:plc:a".into(),
+                item: "lamp".into(),
+            },
+        ] {
+            assert!(!writes(reader.clone()), "{reader:?}");
+        }
     }
 
     #[test]

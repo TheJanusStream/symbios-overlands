@@ -211,8 +211,9 @@ pub(super) fn anchor_xz(player_pose: Option<PlayerPose>) -> [f32; 2] {
 }
 
 /// Fresh `Absolute` at the player's feet: snapped, so Y is a surface
-/// offset and 0 lands it exactly on the ground at the anchor.
-pub(super) fn new_absolute_placement(target: String, anchor: [f32; 2]) -> Placement {
+/// offset and 0 lands it exactly on the ground at the anchor. The agent's
+/// `place` (#1422) puts a catalogue item down with this too.
+pub(crate) fn new_absolute_placement(target: String, anchor: [f32; 2]) -> Placement {
     Placement::Absolute {
         generator_ref: target,
         transform: TransformData {

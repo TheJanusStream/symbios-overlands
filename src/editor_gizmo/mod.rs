@@ -86,6 +86,11 @@ mod highlight;
 /// The subtree-bounds walk behind the selection wire box, shared with the
 /// peer nametag surface (#1226) - see [`highlight::subtree_world_bounds`].
 pub(crate) use commit::append_sibling_at_path;
+/// A placement's pose written back into its record by the drag's own rule,
+/// which the agent's `move` reuses (#1422) - its only user outside this
+/// module, and Unix-only like the agent.
+#[cfg(unix)]
+pub(crate) use commit::write_transform_into_placement;
 pub(crate) use highlight::subtree_world_bounds;
 mod sync;
 

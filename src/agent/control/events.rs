@@ -76,6 +76,44 @@ pub enum EventKind {
         position: [f64; 3],
         distance_m: f64,
     },
+    /// A save of the agent's `record` - `room` or `avatar` - landed on its
+    /// account, where every visitor now sees it (#1422).
+    Saved { record: String },
+    /// A save did not land. `terminal` when the session has expired, so no
+    /// retry can work until the account is signed in again.
+    SaveFailed {
+        record: String,
+        reason: String,
+        terminal: bool,
+    },
+    /// The agent's admin offered it a gift (#1423). It waits for `agent gift
+    /// accept|decline <offer_id>` for `answer_within_s`, then goes back to
+    /// them as unanswered. `item` is its name in the admin's words, as data.
+    GiftOffered {
+        offer_id: u64,
+        from_did: String,
+        from: String,
+        item: String,
+        item_kind: String,
+        wearable: bool,
+        answer_within_s: u64,
+    },
+    /// Someone other than the admin offered the agent a gift, and it was
+    /// declined unread (#1423): who, never what. One per offer.
+    GiftDeclined { from_did: String },
+    /// A gift offer the agent had not answered went away: its time ran
+    /// out, and it went back as unanswered - or its sender was muted.
+    GiftOfferClosed { offer_id: u64, from_did: String },
+    /// A gift the agent offered was answered - `accepted`, or `answer` says
+    /// why not: `declined`, `busy` (another offer was on their screen),
+    /// `unavailable` (their inventory could not take it), `unanswered`
+    /// (their time to answer ran out), or `no_answer` (nothing came back).
+    GiftAnswered {
+        offer_id: u64,
+        to_did: String,
+        accepted: bool,
+        answer: String,
+    },
 }
 
 /// How a movement ended.

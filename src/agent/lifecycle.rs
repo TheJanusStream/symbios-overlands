@@ -76,12 +76,14 @@ pub(super) fn start_daemon(args: RunArgs) -> Result<(), String> {
         offline: args.offline,
         wear_airplane: args.wear_airplane,
         admin: admin.as_ref(),
+        allow_save: args.allow_save,
     })?;
     print_json(&serde_json::json!({
         "did": did,
         "handle": handle,
         "offline": args.offline,
         "admin": admin.as_ref().map(Admin::to_json),
+        "allow_save": args.allow_save,
         "pid": started.pid,
         "socket": started.socket,
         "log": started.log,
@@ -126,5 +128,6 @@ pub(super) fn run_daemon(args: DaemonArgs) -> Result<ExitCode, String> {
         room_did: args.room,
         admin,
         wear_airplane: args.wear_airplane,
+        allow_save: args.allow_save,
     })
 }

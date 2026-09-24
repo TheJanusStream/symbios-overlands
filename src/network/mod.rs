@@ -170,6 +170,9 @@ impl Plugin for NetworkPlugin {
             .init_resource::<lifecycle::SweptPeers>()
             .init_resource::<link::LinkState>()
             .init_resource::<link::LinkNarration>()
+            // #1423: how each gift this client offered ended, for whoever
+            // wants it beside the toasts - the agent client.
+            .add_message::<crate::state::OfferAnswered>()
             .insert_resource(SmootherConfigRes::from_fixed_timestep(fixed_timestep_secs))
             // #1279: the link is TRACKED from `Loading`, not from `InGame`.
             // The relay answers while the world is still compiling - the

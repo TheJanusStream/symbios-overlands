@@ -21,6 +21,8 @@
 //!   takes the client back to its login screen ends the process with an
 //!   error saying so.
 
+mod edit;
+mod gifts;
 mod look;
 mod movement;
 mod observe;
@@ -79,6 +81,9 @@ pub struct RunRequest {
     /// Offline, fly the test airplane in place of the stand-in's own
     /// locomotion (#1431).
     pub wear_airplane: bool,
+    /// Whether the agent may save its world and avatar to its account
+    /// (#1422). It edits either way.
+    pub allow_save: bool,
 }
 
 /// Build the headless client, resume the session into it, and run until the
@@ -94,7 +99,12 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
         room_did,
         admin,
         wear_airplane,
+        allow_save,
     } = request;
+    let edit_profile = edit::EditProfile {
+        allow_save,
+        offline: matches!(identity, Identity::Offline { .. }),
+    };
     let room_did = room_did.unwrap_or_else(|| identity.did().to_owned());
     let events = Arc::new(control::events::EventLog::new(
         crate::config::agent::EVENT_CAPACITY,
@@ -128,6 +138,11 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
         }
         None => info!("No admin was named, so the agent hears no chat at all"),
     }
+    if edit_profile.allow_save {
+        info!("The agent may save its world and avatar to its account");
+    } else {
+        info!("The agent may edit, but not save: it was started without --allow-save");
+    }
     if wear_airplane {
         info!("Testing: the stand-in flies the default airplane (#1431)");
         app.insert_resource(WearAirplane).add_systems(
@@ -136,6 +151,11 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
         );
     }
     app.insert_resource(resume::PendingResume { identity, room_did })
+        .insert_resource(edit_profile)
+        // No offer dialog nobody could answer: the agent answers offers
+        // itself (#1423).
+        .insert_resource(gifts::OffersAnsweredElsewhere)
+        .init_resource::<gifts::OfferWatch>()
         .insert_resource(serve::ControlInbox::new(inbox))
         .insert_resource(observe::EventSink(events))
         .add_systems(Startup, resume::begin_resume)
@@ -163,8 +183,11 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
                 observe::record_chat,
                 travel::record_travel,
                 travel::withdraw_unanswered_guard,
+                edit::record_saves,
+                gifts::record_answers,
             ),
         )
+        .add_systems(PostUpdate, gifts::sort_offers)
         .add_systems(OnEnter(AppState::Login), end_if_back_at_login)
         .add_systems(
             OnEnter(AppState::InGame),

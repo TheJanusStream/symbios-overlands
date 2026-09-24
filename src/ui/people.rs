@@ -18,6 +18,7 @@
 //! auto-declined with "busy" at the network layer, see
 //! [`crate::network`].
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
@@ -703,39 +704,77 @@ pub fn people_ui(
     }
 }
 
+/// Present when something other than the offer dialog answers incoming
+/// offers (#1423): the agent client, whose window no person sees. An offer
+/// still arrives, waits and expires exactly as ever - the busy gate, the
+/// answer window's timeout and a muted sender's dismissal all run on
+/// [`IncomingOfferDialog`] - but [`incoming_offer_ui`] draws nothing: a
+/// modal nobody could answer held every movement key for as long as the
+/// offer waited.
+#[derive(Resource)]
+pub struct OffersAnsweredElsewhere;
+
+/// Everything answering an incoming offer touches (#1423). The dialog's
+/// buttons and the agent client both answer through [`Self::answer`], so
+/// an offer is answered one way whoever answers it.
+#[derive(SystemParam)]
+pub struct OfferAnswering<'w, 's> {
+    commands: Commands<'w, 's>,
+    live_inventory: Option<ResMut<'w, LiveInventoryRecord>>,
+    stored_inventory: Option<Res<'w, crate::state::StoredInventoryRecord>>,
+    session: Option<Res<'w, AtprotoSession>>,
+    refresh_ctx: Option<Res<'w, crate::oauth::OauthRefreshCtx>>,
+    peers: Query<'w, 's, &'static mut RemotePeer>,
+    writer: MessageWriter<'w, Broadcast<OverlandsMessage>>,
+    session_log: ResMut<'w, SessionLog>,
+    inventory_feedback: ResMut<'w, PublishFeedback<InventoryRecord>>,
+    // The save on accept must not write over a stash that was never read
+    // (#1199); see the accept arm.
+    inventory_recovery: Option<Res<'w, crate::state::InventoryRecordRecovery>>,
+    time: Res<'w, Time>,
+    metrics: ResMut<'w, crate::diagnostics::MetricsRegistry>,
+    busy_declines: ResMut<'w, crate::state::BusyAutoDeclines>,
+    toasts: ResMut<'w, crate::notify::Toasts>,
+    muted_dids: ResMut<'w, crate::state::MutedDids>,
+}
+
+/// How an incoming offer is answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OfferAnswer {
+    /// Take the gift into the live inventory. With `publish`, save the
+    /// stash as saved plus the gift at once, as the dialog's Accept always
+    /// does; the agent client saves only when it was allowed to.
+    Accept {
+        publish: bool,
+    },
+    Decline,
+    MuteAndDecline,
+}
+
+/// Where an accepted gift landed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AcceptedGift {
+    /// Its name in the inventory - the offered name, or that name with a
+    /// suffix when the stash already held one.
+    pub key: String,
+    /// Whether a save of the inventory was started for it.
+    pub saving: bool,
+}
+
 /// Renders the incoming-offer modal when [`IncomingOfferDialog`] is set
 /// and drives the Accept / Decline / Mute & Decline actions. On accept,
 /// the item is copied into the owner's live inventory under a
 /// collision-safe key (see [`crate::ui::inventory::store_accepted_gift`]) and a publish
 /// task is spawned immediately so the new item is on the PDS before the
 /// user closes the window - the user explicitly opted into "auto-publish
-/// on accept" for less-likely-to-lose-items behaviour.
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+/// on accept" for less-likely-to-lose-items behaviour. Not run where
+/// [`OffersAnsweredElsewhere`] stands.
 pub fn incoming_offer_ui(
-    mut commands: Commands,
     mut contexts: EguiContexts,
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     dialog: Option<Res<IncomingOfferDialog>>,
-    mut live_inventory: Option<ResMut<LiveInventoryRecord>>,
-    stored_inventory: Option<Res<crate::state::StoredInventoryRecord>>,
-    session: Option<Res<AtprotoSession>>,
-    refresh_ctx: Option<Res<crate::oauth::OauthRefreshCtx>>,
-    mut peers: Query<&mut RemotePeer>,
-    mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
-    mut session_log: ResMut<SessionLog>,
-    mut inventory_feedback: ResMut<PublishFeedback<InventoryRecord>>,
-    // The auto-publish must not write over a stash that was never read
-    // (#1199); see the accept arm.
-    inventory_recovery: Option<Res<crate::state::InventoryRecordRecovery>>,
-    // Bundled to stay under Bevy's 16-parameter ceiling (#843/#844).
-    (time, mut metrics, mut busy_declines, mut toasts, mut offer_size, mut muted_dids): (
-        Res<Time>,
-        ResMut<crate::diagnostics::MetricsRegistry>,
-        ResMut<crate::state::BusyAutoDeclines>,
-        ResMut<crate::notify::Toasts>,
-        Local<Option<(u64, Option<usize>)>>,
-        ResMut<crate::state::MutedDids>,
-    ),
+    mut answering: OfferAnswering,
+    mut offer_size: Local<Option<(u64, Option<usize>)>>,
 ) {
     let Some(dialog) = dialog else {
         return;
@@ -806,7 +845,7 @@ pub fn incoming_offer_ui(
         // Lifted out of the `if let Some(live)` (#1220 f302): a missing
         // record must produce visible text too, not a silent grey Accept.
         let cap = crate::config::state::MAX_INVENTORY_ITEMS;
-        match live_inventory.as_deref() {
+        match answering.live_inventory.as_deref() {
             Some(live) => {
                 let len = live.0.generators.len();
                 ui.label(format!("Your inventory: {len}/{cap}"));
@@ -844,7 +883,8 @@ pub fn incoming_offer_ui(
         }
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            let can_accept = live_inventory
+            let can_accept = answering
+                .live_inventory
                 .as_deref()
                 .map(|l| l.0.generators.len() < cap)
                 .unwrap_or(false);
@@ -859,7 +899,7 @@ pub fn incoming_offer_ui(
                             .color(crate::ui::theme::current(ui.ctx()).status.ok),
                     ),
                 )
-                .on_disabled_hover_text(if live_inventory.is_some() {
+                .on_disabled_hover_text(if answering.live_inventory.is_some() {
                     "Your inventory is full - free a slot with \"Make room for it\"."
                 } else {
                     "Your inventory hasn't loaded yet."
@@ -907,194 +947,226 @@ pub fn incoming_offer_ui(
         return;
     };
 
-    let now = time.elapsed_secs_f64();
-    // Held, not answered (#1220 f288): the sender hears nothing yet, and
-    // `resolve_held_offer` owns both of the hold's ends. Returns before the
-    // busy-decline note below, which belongs to a dialog that is closing for
-    // good.
-    if matches!(action, OfferAction::Hold) {
-        panels.inventory = true;
-        toasts.info(
-            format!(
-                "\"{}\" is held - free a slot and it will come back.",
-                dialog.item_name
-            ),
-            now,
-        );
-        commands.insert_resource(crate::state::HeldOffer((*dialog).clone()));
-        commands.remove_resource::<IncomingOfferDialog>();
-        return;
-    }
-    // The dialog is closing (#843): report offers the busy-gate silently
-    // turned away while the user decided, then reset for the next one.
-    if busy_declines.0 > 0 {
-        toasts.info(
-            format!(
-                "{} more offer{} arrived while you decided and {} auto-declined.",
-                busy_declines.0,
-                if busy_declines.0 == 1 { "" } else { "s" },
-                if busy_declines.0 == 1 { "was" } else { "were" },
-            ),
-            now,
-        );
-        busy_declines.0 = 0;
-    }
-    let accepted = matches!(action, OfferAction::Accept);
-    // Count the local user's offer disposition (E-4) - accept vs any decline.
-    if accepted {
-        crate::diagnostics::samplers::offer_accepted(&mut metrics);
-    } else {
-        crate::diagnostics::samplers::offer_declined(&mut metrics);
-    }
-
-    // Flip the mute flag on the sender's `RemotePeer` before we send the
-    // response so any subsequent offer this frame (unlikely but possible
-    // if the attacker double-sent) is already auto-declined as muted.
-    if matches!(action, OfferAction::MuteAndDecline) {
-        // Hoisted OUT of the peer loop (#1219 f120). This used to write the
-        // durable list from inside `for peer in peers.iter_mut()`, so a
-        // stranger who spammed a gift and disconnected - the hit-and-run case
-        // the durable list exists for - matched nothing and was never
-        // recorded, and their next visit reached the user exactly as before.
-        // The dialog's sender DID is relay-authenticated; the comment here
-        // always said it was safe to key on unconditionally, and now it is.
-        let live = peers
-            .iter_mut()
-            .find(|peer| peer.peer_id == dialog.sender_peer_id);
-        crate::network::presence::set_peer_mute(
-            live.map(Mut::into_inner),
-            Some(dialog.sender_did.as_str()),
-            true,
-            &mut muted_dids,
-            &mut session_log,
-            Some(dialog.sender_peer_id),
-            now,
-        );
-    }
-
-    if accepted {
-        if let Some(live) = live_inventory.as_mut() {
-            // The gift lands in `live`; what gets PUBLISHED is `stored` plus
-            // the gift (#1200) - the owner's other unsaved edits are theirs
-            // to save or revert, not this dialog's to commit.
-            let stored = stored_inventory
-                .as_deref()
-                .map(|s| s.0.clone())
-                .unwrap_or_default();
-            // Bind the landed key (#1220 f119). `accept_gift` renames on a
-            // collision - "lantern" becomes "lantern_2" - and discarding the
-            // key meant the one moment a gift becomes yours was the least
-            // confirmed event in the lifecycle, under a name the recipient
-            // was never shown.
-            let (key, payload) = crate::ui::inventory::accept_gift(
-                &mut live.0,
-                &stored,
-                &dialog.item_name,
-                dialog.generator.clone(),
-                dialog.wear.clone(),
-            );
-            toasts.success(
-                if key == dialog.item_name {
-                    format!("\"{key}\" is in your inventory.")
-                } else {
-                    // Say the rename rather than hide it: the recipient is
-                    // the one person who cannot find the item afterwards if
-                    // the name they were shown is not the name it has.
-                    format!(
-                        "\"{}\" is in your inventory as \"{key}\" - you already had one \
-                         by that name.",
-                        dialog.item_name
-                    )
-                },
+    let answer = match action {
+        OfferAction::Accept => OfferAnswer::Accept { publish: true },
+        OfferAction::Decline => OfferAnswer::Decline,
+        OfferAction::MuteAndDecline => OfferAnswer::MuteAndDecline,
+        // Held, not answered (#1220 f288): the sender hears nothing yet, and
+        // `resolve_held_offer` owns both of the hold's ends. Returns before
+        // the busy-decline note in `answer`, which belongs to a dialog that
+        // is closing for good.
+        OfferAction::Hold => {
+            panels.inventory = true;
+            let now = answering.time.elapsed_secs_f64();
+            answering.toasts.info(
+                format!(
+                    "\"{}\" is held - free a slot and it will come back.",
+                    dialog.item_name
+                ),
                 now,
             );
-            session_log.info(
-                now,
-                EventPayload::ItemOfferUserResponded {
-                    offer_id: dialog.offer_id,
-                    accepted: true,
-                },
-            );
+            answering
+                .commands
+                .insert_resource(crate::state::HeldOffer((*dialog).clone()));
+            answering.commands.remove_resource::<IncomingOfferDialog>();
+            return;
+        }
+    };
+    answering.answer(&dialog, answer);
+}
 
-            // Auto-publish the updated inventory immediately. The user
-            // explicitly chose "publish on accept" over "mark dirty" so
-            // accepted items are persistent even if the session ends
-            // before they click the Inventory's Publish button. The
-            // `poll_publish_inventory_tasks` system (already in the
-            // Update schedule) drains the task and flips
-            // `StoredInventoryRecord` + `PublishFeedback<InventoryRecord>`
-            // on completion, so we only kick off the I/O here.
-            //
-            // Unless the stash never loaded (#1199): then `stored` is the
-            // empty default, the diff would delete a legacy monolith the
-            // owner still has, and the banner in the Inventory window
-            // promised they would be asked first. The gift lands locally
-            // and stays dirty; the editor's own guarded Save publishes it.
-            if inventory_recovery.is_some() {
-                toasts.info(
-                    format!(
-                        "Saved \"{}\" locally - your inventory could not be loaded, so \
-                         open Inventory to save it deliberately.",
-                        dialog.item_name
-                    ),
+impl OfferAnswering<'_, '_> {
+    /// Answer `dialog`: tell its sender, and on an accept put the gift in
+    /// the live inventory - saving it at once when `publish` says to - and
+    /// say where it landed. `None` for anything but an accepted gift that
+    /// landed.
+    pub(crate) fn answer(
+        &mut self,
+        dialog: &IncomingOfferDialog,
+        answer: OfferAnswer,
+    ) -> Option<AcceptedGift> {
+        let now = self.time.elapsed_secs_f64();
+        // The dialog is closing (#843): report offers the busy-gate silently
+        // turned away while the user decided, then reset for the next one.
+        if self.busy_declines.0 > 0 {
+            let turned_away = self.busy_declines.0;
+            self.toasts.info(
+                format!(
+                    "{} more offer{} arrived while you decided and {} auto-declined.",
+                    turned_away,
+                    if turned_away == 1 { "" } else { "s" },
+                    if turned_away == 1 { "was" } else { "were" },
+                ),
+                now,
+            );
+            self.busy_declines.0 = 0;
+        }
+        let accepted = matches!(answer, OfferAnswer::Accept { .. });
+        // Count the local user's offer disposition (E-4) - accept vs any decline.
+        if accepted {
+            crate::diagnostics::samplers::offer_accepted(&mut self.metrics);
+        } else {
+            crate::diagnostics::samplers::offer_declined(&mut self.metrics);
+        }
+
+        // Flip the mute flag on the sender's `RemotePeer` before we send the
+        // response so any subsequent offer this frame (unlikely but possible
+        // if the attacker double-sent) is already auto-declined as muted.
+        if matches!(answer, OfferAnswer::MuteAndDecline) {
+            // Hoisted OUT of the peer loop (#1219 f120). This used to write the
+            // durable list from inside `for peer in peers.iter_mut()`, so a
+            // stranger who spammed a gift and disconnected - the hit-and-run case
+            // the durable list exists for - matched nothing and was never
+            // recorded, and their next visit reached the user exactly as before.
+            // The dialog's sender DID is relay-authenticated; the comment here
+            // always said it was safe to key on unconditionally, and now it is.
+            let live = self
+                .peers
+                .iter_mut()
+                .find(|peer| peer.peer_id == dialog.sender_peer_id);
+            crate::network::presence::set_peer_mute(
+                live.map(Mut::into_inner),
+                Some(dialog.sender_did.as_str()),
+                true,
+                &mut self.muted_dids,
+                &mut self.session_log,
+                Some(dialog.sender_peer_id),
+                now,
+            );
+        }
+
+        let mut landed = None;
+        if let OfferAnswer::Accept { publish } = answer {
+            if let Some(live) = self.live_inventory.as_mut() {
+                // The gift lands in `live`; what gets PUBLISHED is `stored` plus
+                // the gift (#1200) - the owner's other unsaved edits are theirs
+                // to save or revert, not this dialog's to commit.
+                let stored = self
+                    .stored_inventory
+                    .as_deref()
+                    .map(|s| s.0.clone())
+                    .unwrap_or_default();
+                // Bind the landed key (#1220 f119). `accept_gift` renames on a
+                // collision - "lantern" becomes "lantern_2" - and discarding the
+                // key meant the one moment a gift becomes yours was the least
+                // confirmed event in the lifecycle, under a name the recipient
+                // was never shown.
+                let (key, payload) = crate::ui::inventory::accept_gift(
+                    &mut live.0,
+                    &stored,
+                    &dialog.item_name,
+                    dialog.generator.clone(),
+                    dialog.wear.clone(),
+                );
+                self.toasts.success(
+                    if key == dialog.item_name {
+                        format!("\"{key}\" is in your inventory.")
+                    } else {
+                        // Say the rename rather than hide it: the recipient is
+                        // the one person who cannot find the item afterwards if
+                        // the name they were shown is not the name it has.
+                        format!(
+                            "\"{}\" is in your inventory as \"{key}\" - you already had one \
+                             by that name.",
+                            dialog.item_name
+                        )
+                    },
                     now,
                 );
-            } else if let (Some(sess), Some(refresh)) = (session.as_deref(), refresh_ctx.as_deref())
-            {
-                inventory_feedback.status = PublishStatus::Publishing { since_secs: now };
-                crate::ui::inventory::spawn_publish_inventory_task(
-                    &mut commands,
-                    sess,
-                    refresh,
-                    payload,
-                    stored,
-                    time.elapsed_secs_f64(),
+                self.session_log.info(
+                    now,
+                    EventPayload::ItemOfferUserResponded {
+                        offer_id: dialog.offer_id,
+                        accepted: true,
+                    },
+                );
+
+                // Auto-publish the updated inventory immediately. The user
+                // explicitly chose "publish on accept" over "mark dirty" so
+                // accepted items are persistent even if the session ends
+                // before they click the Inventory's Publish button. The
+                // `poll_publish_inventory_tasks` system (already in the
+                // Update schedule) drains the task and flips
+                // `StoredInventoryRecord` + `PublishFeedback<InventoryRecord>`
+                // on completion, so we only kick off the I/O here.
+                //
+                // Unless the stash never loaded (#1199): then `stored` is the
+                // empty default, the diff would delete a legacy monolith the
+                // owner still has, and the banner in the Inventory window
+                // promised they would be asked first. The gift lands locally
+                // and stays dirty; the editor's own guarded Save publishes it.
+                let mut saving = false;
+                if self.inventory_recovery.is_some() {
+                    self.toasts.info(
+                        format!(
+                            "Saved \"{}\" locally - your inventory could not be loaded, so \
+                             open Inventory to save it deliberately.",
+                            dialog.item_name
+                        ),
+                        now,
+                    );
+                } else if publish
+                    && let (Some(sess), Some(refresh)) =
+                        (self.session.as_deref(), self.refresh_ctx.as_deref())
+                {
+                    self.inventory_feedback.status = PublishStatus::Publishing { since_secs: now };
+                    crate::ui::inventory::spawn_publish_inventory_task(
+                        &mut self.commands,
+                        sess,
+                        refresh,
+                        payload,
+                        stored,
+                        now,
+                    );
+                    saving = true;
+                }
+                landed = Some(AcceptedGift { key, saving });
+            } else {
+                // Live inventory resource absent - should not happen in
+                // `AppState::InGame`, but decline rather than drop the
+                // response and leave the sender hanging. The user's response was
+                // an accept, so it records as such but at Warn severity because
+                // the item could not actually be stored.
+                warn!(
+                    "Could not store accepted offer \"{}\" from {}: inventory not loaded",
+                    dialog.item_name,
+                    dialog.sender_label.addressed()
+                );
+                self.session_log.warn(
+                    now,
+                    EventPayload::ItemOfferUserResponded {
+                        offer_id: dialog.offer_id,
+                        accepted: true,
+                    },
                 );
             }
         } else {
-            // Live inventory resource absent - should not happen in
-            // `AppState::InGame`, but decline rather than drop the
-            // response and leave the sender hanging. The user's response was
-            // an accept, so it records as such but at Warn severity because
-            // the item could not actually be stored.
-            warn!(
-                "Could not store accepted offer \"{}\" from {}: inventory not loaded",
-                dialog.item_name,
-                dialog.sender_label.addressed()
-            );
-            session_log.warn(
+            self.session_log.info(
                 now,
                 EventPayload::ItemOfferUserResponded {
                     offer_id: dialog.offer_id,
-                    accepted: true,
+                    accepted: false,
                 },
             );
         }
-    } else {
-        session_log.info(
-            now,
-            EventPayload::ItemOfferUserResponded {
-                offer_id: dialog.offer_id,
-                accepted: false,
-            },
-        );
+
+        // Fire the response back to the sender. Broadcast-with-address: the
+        // `target_did` field is the *sender's* DID so only they pick it up.
+        self.writer.write(Broadcast {
+            payload: OverlandsMessage::item_offer_response(
+                dialog.offer_id,
+                dialog.sender_did.clone(),
+                accepted,
+                // A person answered (#1220 f127) - including "Mute & Decline",
+                // which reports as a plain decline for privacy.
+                crate::protocol::DeclineReason::Declined,
+            ),
+            channel: ChannelKind::Reliable,
+        });
+
+        self.commands.remove_resource::<IncomingOfferDialog>();
+        landed
     }
-
-    // Fire the response back to the sender. Broadcast-with-address: the
-    // `target_did` field is the *sender's* DID so only they pick it up.
-    writer.write(Broadcast {
-        payload: OverlandsMessage::item_offer_response(
-            dialog.offer_id,
-            dialog.sender_did.clone(),
-            accepted,
-            // A person answered (#1220 f127) - including "Mute & Decline",
-            // which reports as a plain decline for privacy.
-            crate::protocol::DeclineReason::Declined,
-        ),
-        channel: ChannelKind::Reliable,
-    });
-
-    commands.remove_resource::<IncomingOfferDialog>();
 }
 
 #[derive(Clone, Copy)]

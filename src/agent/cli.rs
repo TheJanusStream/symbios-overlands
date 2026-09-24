@@ -8,7 +8,7 @@ use clap::{Args, Parser, Subcommand};
 
 use crate::config::login::{DEFAULT_PDS, DEFAULT_RELAY_HOST};
 
-use super::control::protocol::LookView;
+use super::control::protocol::{EditRecord, LookView};
 
 /// A headless Overlands client that an AI agent drives, signed in as its own
 /// account.
@@ -59,6 +59,230 @@ pub enum Command {
     /// Turn to face another player, or a point on the ground - on the spot,
     /// in the air or on the ground, for a body that flies.
     Face(FaceArgs),
+    /// List the things placed in the agent's own world, by index, each
+    /// where it is drawn.
+    Placements(PlacementsArgs),
+    /// List the catalogue of things that can be placed - those matching a
+    /// search, when given.
+    Catalogue(CatalogueArgs),
+    /// Put a catalogue item down in the agent's own world. Everyone there
+    /// sees it at once; it stays only once saved.
+    Place(PlaceArgs),
+    /// Move something placed in the agent's own world to another point,
+    /// keeping its height above the ground.
+    Move(MoveArgs),
+    /// Take something placed out of the agent's own world.
+    Remove(RemoveArgs),
+    /// Read or write the agent's world record as JSON, as the World
+    /// Editor's Raw JSON tab does.
+    Room(RecordJsonArgs),
+    /// Read or write the agent's avatar as JSON.
+    Avatar(RecordJsonArgs),
+    /// Undo the last edit to the world - or to the avatar.
+    Undo(RecordArg),
+    /// Redo the last edit undone.
+    Redo(RecordArg),
+    /// Throw away the unsaved edits to the world - or to the avatar - and
+    /// go back to what was last saved.
+    Revert(RecordArg),
+    /// Save the world - or the avatar, or the inventory - to the agent's
+    /// account, where everyone who visits sees it. Refused unless the agent
+    /// was started with --allow-save.
+    Save(SaveArgs),
+    /// List what the agent's inventory holds.
+    Inventory(AccountArg),
+    /// Put something into the inventory: a thing in the agent's own world,
+    /// by the name `placements` gives it, or a catalogue entry, by its slug.
+    Stash(StashArgs),
+    /// Take an item out of the inventory.
+    Unstash(ItemArgs),
+    /// Put an inventory item on the avatar.
+    Wear(ItemArgs),
+    /// Take a worn item off the avatar.
+    TakeOff(ItemArgs),
+    /// Offer a gift to another player in the agent's world, or answer one
+    /// the admin offered the agent. Anyone else's offer is declined the
+    /// moment it arrives.
+    Gift(GiftArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct StashArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// What: a thing in the agent's own world, by its name, or a catalogue
+    /// entry, by its slug.
+    pub what: String,
+}
+
+#[derive(Args, Debug)]
+pub struct ItemArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// The item, by the name `inventory` gives it.
+    pub item: String,
+}
+
+#[derive(Args, Debug)]
+pub struct GiftArgs {
+    #[command(subcommand)]
+    pub action: GiftAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum GiftAction {
+    /// Offer a player in the agent's world an inventory item, by its name,
+    /// or a catalogue entry, by its slug. A gift is a copy: the agent keeps
+    /// its own.
+    Give(GiveArgs),
+    /// Accept the admin's gift offer. Saved at once when the agent may save.
+    Accept(OfferArgs),
+    /// Decline the admin's gift offer.
+    Decline(OfferArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct GiveArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// Whom: a DID, or a handle (with or without its @).
+    pub player: String,
+    /// What: an inventory item's name, or a catalogue entry's slug.
+    pub item: String,
+    /// Wait for their answer - or for the offer to lapse - and print it.
+    #[arg(long)]
+    pub wait: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct OfferArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// The offer, by the id its `gift_offered` event gives.
+    pub offer_id: u64,
+}
+
+#[derive(Args, Debug)]
+pub struct PlacementsArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// Only those within this many metres of the agent.
+    #[arg(long, value_name = "METRES")]
+    pub within: Option<f32>,
+}
+
+#[derive(Args, Debug)]
+pub struct CatalogueArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// Words to look for in an entry's slug, name, section or description.
+    pub search: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct PlaceArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// The catalogue entry, by its slug (as `catalogue` lists them).
+    pub slug: String,
+    /// Where: a point's x and z in world metres. A few metres ahead of the
+    /// agent when absent.
+    #[arg(
+        long,
+        num_args = 2,
+        value_names = ["X", "Z"],
+        allow_negative_numbers = true
+    )]
+    pub at: Option<Vec<f32>>,
+    /// Which way it faces, in degrees clockwise seen from above: 0 faces
+    /// -Z, 90 faces +X.
+    #[arg(long, value_name = "DEGREES", allow_negative_numbers = true)]
+    pub yaw: Option<f32>,
+}
+
+#[derive(Args, Debug)]
+pub struct MoveArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// Which placement, by the index `placements` gives it.
+    pub index: usize,
+    /// The point's x, in world metres.
+    #[arg(allow_negative_numbers = true)]
+    pub x: f32,
+    /// The point's z, in world metres.
+    #[arg(allow_negative_numbers = true)]
+    pub z: f32,
+    /// Turn it to face this way too, in degrees clockwise seen from above:
+    /// 0 faces -Z, 90 faces +X.
+    #[arg(long, value_name = "DEGREES", allow_negative_numbers = true)]
+    pub yaw: Option<f32>,
+}
+
+#[derive(Args, Debug)]
+pub struct RemoveArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// Which placement, by the index `placements` gives it. The ones after
+    /// it move down one.
+    pub index: usize,
+}
+
+#[derive(Args, Debug)]
+pub struct RecordJsonArgs {
+    #[command(subcommand)]
+    pub action: JsonAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum JsonAction {
+    /// Print the record as JSON - or the part at a JSON pointer.
+    Get(JsonGetArgs),
+    /// Replace the part at a JSON pointer with a JSON value. Numbers are
+    /// written the way the record stores them: whole numbers, a decimal
+    /// scaled by 10 000 (1.5 is 15000).
+    Set(JsonSetArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct JsonGetArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// A JSON pointer, such as /environment or /placements/3; the whole
+    /// record when absent.
+    pub pointer: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct JsonSetArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// Where: a JSON pointer, such as /environment/fog_visibility; '' for
+    /// the whole record.
+    pub pointer: String,
+    /// The new value, as JSON - a string needs its quotes: '"text"'.
+    #[arg(required_unless_present = "file", conflicts_with = "file")]
+    pub value: Option<String>,
+    /// Read the new value from this file instead.
+    #[arg(long, value_name = "PATH")]
+    pub file: Option<std::path::PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct RecordArg {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// Which record: the agent's world, its avatar, or its inventory.
+    #[arg(value_enum, default_value_t = EditRecord::Room)]
+    pub record: EditRecord,
+}
+
+#[derive(Args, Debug)]
+pub struct SaveArgs {
+    #[command(flatten)]
+    pub record: RecordArg,
+    /// Wait for the save to land - saved or failed - and print how.
+    #[arg(long)]
+    pub wait: bool,
 }
 
 #[derive(Args, Debug)]
@@ -138,6 +362,14 @@ pub struct TravelArgs {
     /// Wait for the trip to end - arrived or failed - and print how.
     #[arg(long)]
     pub wait: bool,
+    /// Leave even though the agent's own world has unsaved edits, and lose
+    /// them. Without this or --save-edits, such a trip is refused.
+    #[arg(long, conflicts_with = "save_edits")]
+    pub discard_edits: bool,
+    /// Save the agent's own world's unsaved edits, and leave once the save
+    /// has landed. Needs --allow-save at start.
+    #[arg(long)]
+    pub save_edits: bool,
 }
 
 #[derive(Args, Debug)]
@@ -209,6 +441,12 @@ pub struct RunArgs {
     /// that does not resolve stops the start.
     #[arg(long, value_name = "HANDLE_OR_DID", value_parser = account_name)]
     pub admin: Option<String>,
+    /// Let the agent save its world and its avatar to its account, where
+    /// every visitor sees them. Without it the agent can still edit - what
+    /// it changes is seen by whoever is there, and gone when it stops - but
+    /// `save` is refused.
+    #[arg(long)]
+    pub allow_save: bool,
 }
 
 /// `run`: what `start` takes, and what `start` hands the daemon it launches.
@@ -489,6 +727,144 @@ mod tests {
         assert_eq!(target(&["-4.5", "12"]).unwrap(), ["-4.5", "12"]);
         assert!(target(&[]).is_err(), "whom or where");
         assert!(target(&["1", "2", "3"]).is_err());
+    }
+
+    /// The edit commands take points and turns with minus signs, a
+    /// placement by its index, and a record - the world unless the avatar
+    /// is named (#1422).
+    #[test]
+    fn edits_take_points_indices_and_a_record() {
+        let parse = |args: &[&str]| {
+            Cli::try_parse_from(std::iter::once("agent").chain(args.iter().copied()))
+                .map(|cli| cli.command)
+        };
+        let Command::Place(place) =
+            parse(&["place", "lamp_post", "--at", "-4.5", "12", "--yaw", "-90"]).unwrap()
+        else {
+            panic!("place");
+        };
+        assert_eq!(place.slug, "lamp_post");
+        assert_eq!(place.at.as_deref(), Some(&[-4.5, 12.0][..]));
+        assert_eq!(place.yaw, Some(-90.0));
+        assert!(parse(&["place", "lamp_post", "--at", "1"]).is_err());
+
+        let Command::Move(moved) = parse(&["move", "3", "-1", "-2.5"]).unwrap() else {
+            panic!("move");
+        };
+        assert_eq!(
+            (moved.index, moved.x, moved.z, moved.yaw),
+            (3, -1.0, -2.5, None)
+        );
+        assert!(
+            parse(&["remove", "-1"]).is_err(),
+            "an index is never negative"
+        );
+
+        let Command::Undo(undo) = parse(&["undo"]).unwrap() else {
+            panic!("undo");
+        };
+        assert_eq!(undo.record, EditRecord::Room);
+        let Command::Save(save) = parse(&["save", "avatar", "--wait"]).unwrap() else {
+            panic!("save");
+        };
+        assert_eq!(save.record.record, EditRecord::Avatar);
+        assert!(save.wait);
+        let Command::Revert(revert) = parse(&["revert", "inventory"]).unwrap() else {
+            panic!("revert");
+        };
+        assert_eq!(revert.record, EditRecord::Inventory);
+        assert!(parse(&["revert", "world"]).is_err());
+    }
+
+    /// The inventory's and the gifts' commands (#1423): an item by name, a
+    /// player and an item for a gift, an offer by its number.
+    #[test]
+    fn inventory_and_gifts_take_names_players_and_offers() {
+        let parse = |args: &[&str]| {
+            Cli::try_parse_from(std::iter::once("agent").chain(args.iter().copied()))
+                .map(|cli| cli.command)
+        };
+        let Command::Stash(stash) = parse(&["stash", "lighthouse"]).unwrap() else {
+            panic!("stash");
+        };
+        assert_eq!(stash.what, "lighthouse");
+        let Command::TakeOff(off) = parse(&["take-off", "Ship's Lantern"]).unwrap() else {
+            panic!("take-off");
+        };
+        assert_eq!(off.item, "Ship's Lantern");
+        assert!(parse(&["inventory"]).is_ok());
+        assert!(parse(&["wear"]).is_err(), "wear what");
+
+        let Command::Gift(gift) =
+            parse(&["gift", "give", "@friend.test", "lantern", "--wait"]).unwrap()
+        else {
+            panic!("gift");
+        };
+        let GiftAction::Give(give) = gift.action else {
+            panic!("give");
+        };
+        assert_eq!(
+            (give.player.as_str(), give.item.as_str()),
+            ("@friend.test", "lantern")
+        );
+        assert!(give.wait);
+        let Command::Gift(gift) = parse(&["gift", "accept", "7"]).unwrap() else {
+            panic!("gift");
+        };
+        assert!(matches!(gift.action, GiftAction::Accept(offer) if offer.offer_id == 7));
+        assert!(parse(&["gift", "decline", "-1"]).is_err());
+    }
+
+    /// A JSON set takes its value inline or from a file - one of them.
+    #[test]
+    fn a_json_set_takes_a_value_or_a_file() {
+        let parse = |args: &[&str]| {
+            Cli::try_parse_from(std::iter::once("agent").chain(args.iter().copied()))
+                .map(|cli| cli.command)
+        };
+        let Command::Room(room) = parse(&["room", "set", "/environment/fog", "5000"]).unwrap()
+        else {
+            panic!("room");
+        };
+        let JsonAction::Set(set) = room.action else {
+            panic!("set");
+        };
+        assert_eq!(
+            (set.pointer.as_str(), set.value.as_deref()),
+            ("/environment/fog", Some("5000"))
+        );
+        assert!(parse(&["avatar", "set", "", "--file", "a.json"]).is_ok());
+        assert!(parse(&["room", "set", "/x"]).is_err(), "no value");
+        assert!(parse(&["room", "set", "/x", "1", "--file", "a.json"]).is_err());
+        let Command::Avatar(avatar) = parse(&["avatar", "get"]).unwrap() else {
+            panic!("avatar");
+        };
+        assert!(matches!(avatar.action, JsonAction::Get(get) if get.pointer.is_none()));
+    }
+
+    /// Unsaved edits are dropped or saved on a trip - not both - and saving
+    /// at all is the operator's to allow at start.
+    #[test]
+    fn a_trip_drops_or_saves_edits_and_saving_is_allowed_at_start() {
+        let travel = |extra: &[&str]| {
+            Cli::try_parse_from(["agent", "travel", "home"].iter().chain(extra))
+                .map(|cli| cli.command)
+        };
+        assert!(travel(&["--discard-edits"]).is_ok());
+        assert!(travel(&["--save-edits"]).is_ok());
+        assert!(travel(&["--discard-edits", "--save-edits"]).is_err());
+
+        let Command::Start(start) = Cli::try_parse_from(["agent", "start", "--allow-save"])
+            .unwrap()
+            .command
+        else {
+            panic!("start");
+        };
+        assert!(start.allow_save);
+        let Command::Start(start) = Cli::try_parse_from(["agent", "start"]).unwrap().command else {
+            panic!("start");
+        };
+        assert!(!start.allow_save, "saving is off unless allowed");
     }
 
     /// Wearing the test airplane is an offline thing too.

@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use bevy::prelude::*;
-use proto_blue_oauth::{OAuthClient, OAuthServerMetadata, OAuthSession, client::dpop_key_from_jwk};
+use proto_blue_oauth::{OAuthClient, OAuthServerMetadata, OAuthSession};
 
 use super::PendingAuth;
 use super::discovery::discover_auth_server;
@@ -92,6 +92,11 @@ pub async fn complete_authorization(
     pending: &PendingAuth,
     code: &str,
 ) -> Result<CompletedAuth, String> {
+    // Checked before `callback` signs its first proof with it: the pending
+    // state crosses the redirect in browser storage, and a malformed key
+    // panicked there (#1409).
+    let dpop_key = super::saved_dpop_key(&pending.auth_state.dpop_key)
+        .map_err(|e| format!("dpop_key_from_jwk: {e}"))?;
     let token_set: proto_blue_oauth::types::TokenSet = oauth_client
         .callback(code, &pending.auth_state, &pending.server_metadata)
         .await
@@ -101,8 +106,6 @@ pub async fn complete_authorization(
     if did.is_empty() {
         return Err("callback: token response missing `sub` (DID)".to_string());
     }
-    let dpop_jwk = pending.auth_state.dpop_key.clone();
-    let dpop_key = dpop_key_from_jwk(&dpop_jwk).map_err(|e| format!("dpop_key_from_jwk: {e}"))?;
     // `with_fetch_handler`, not `new`: the session gets the same capped
     // transport as the client (#1176). A session built with `new` would
     // silently fall back to proto-blue's uncapped `ReqwestFetcher` for
@@ -131,6 +134,6 @@ pub async fn complete_authorization(
         handle,
         pds_url,
         server_metadata: pending.server_metadata.clone(),
-        dpop_jwk,
+        dpop_jwk: pending.auth_state.dpop_key.clone(),
     })
 }

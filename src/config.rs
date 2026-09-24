@@ -1617,9 +1617,12 @@ pub(crate) mod agent {
     /// How many events the daemon keeps for `agent events`. An agent that
     /// falls further behind is told how many it missed.
     pub const EVENT_CAPACITY: usize = 1000;
-    /// The longest request line the socket reads. Commands are small; this
-    /// only bounds what a misbehaving client can make the daemon buffer.
-    pub const MAX_REQUEST_BYTES: u64 = 64 * 1024;
+    /// The longest request line the socket reads. Most commands are small,
+    /// but `room set` may carry a whole world record, which a save refuses
+    /// past `pds::record_size::HARD_RECORD_CEILING_BYTES` (900 KiB) - so
+    /// the line holds that and the JSON around it. It only bounds what a
+    /// misbehaving client can make the daemon buffer.
+    pub const MAX_REQUEST_BYTES: u64 = 1024 * 1024;
     /// How long a connection has to send its request line.
     pub const REQUEST_READ_TIMEOUT: Duration = Duration::from_secs(5);
     /// How long a request for the world may wait for the daemon's frame to
@@ -1926,6 +1929,21 @@ pub(crate) mod agent {
     /// feet: an adult's eye line is 93-94% of their stature, and a vehicle
     /// sees from near its top.
     pub const EYE_HEIGHT_FRACTION: f32 = 0.93;
+
+    // --- Editing (#1422) ---
+
+    /// How far past a catalogue entry's clearance radius `agent place` with
+    /// no point puts it ahead of the agent (m): clear of the body, near
+    /// enough to see it land.
+    pub const PLACE_AHEAD_M: f32 = 2.0;
+    /// The longest `agent save --wait` waits for the save to land. A save
+    /// is given up on by the game after `PUBLISH_TASK_DEADLINE` (a minute);
+    /// this is that and a margin.
+    pub const SAVE_WAIT: Duration = Duration::from_secs(90);
+    /// The longest `agent gift give --wait` waits for an answer (#1423). An
+    /// offer nobody answers lapses after `PENDING_OFFER_TIMEOUT_SECS` (three
+    /// minutes), which answers the wait too; this is that and a margin.
+    pub const GIFT_WAIT: Duration = Duration::from_secs(200);
 
     // --- Travel (#1419) ---
 
