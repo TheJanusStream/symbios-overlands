@@ -61,3 +61,23 @@ JSON (`serde_json::from_value`) - the same form `room set` takes.
 - The gate at the end is [../../CLAUDE.md](../../CLAUDE.md)'s seven lines
   plus `cargo test --profile test-release --lib` twice - never plain
   `--release`.
+
+## Checking that tests test something
+
+Mutation-check every new rule at the end, all in one build: copy the
+touched files aside (the work-check hook refuses `git checkout`/`restore`),
+put each rule's breakage behind a guard -
+`std::env::var("AGENT_MUTANT").as_deref() == Ok("z3")` - build once, run
+each mutant's test with `AGENT_MUTANT=<id>` set (it must FAIL), then copy
+the files back and compare checksums, and grep that no guard is left.
+
+- A rule with no test surfaces here: write the test, then re-run.
+- Writing the missing tests found a real bug (a mirrored part's triangles
+  kept their reversed winding, so it was never compared) - they are worth
+  writing even when the rule "obviously" works.
+- A mutant can survive because another check does the same job for the
+  fixture: a 1 mm box prefilter made a plane-distance check untestable with
+  faces square to the axes. Give the test a fixture where only the rule
+  under test can decide - here the same case turned 30 degrees.
+- A mutant that removes only a fast path can be equivalent: break the RULE
+  (every check that enforces it), not one line.

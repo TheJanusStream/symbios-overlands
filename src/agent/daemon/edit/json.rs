@@ -237,6 +237,24 @@ mod tests {
         assert!(part(&document, "a").unwrap_err().contains("starts with /"));
     }
 
+    /// Each leaf the world kept differently is named, however deep - in an
+    /// object, in a list, a member added or taken away - with a key's `/`
+    /// and `~` escaped, and no more than sixteen of them (#1438).
+    #[test]
+    fn adjustments_name_each_leaf_that_changed() {
+        let sent = json!({ "a": { "b": 1, "gone": 2 }, "list": [1, 2, 3], "x/y~z": 5 });
+        let kept = json!({ "a": { "b": 9, "new": 3 }, "list": [1, 7, 3], "x/y~z": 6 });
+        assert_eq!(
+            adjustments("/p", Some(&sent), Some(&kept)),
+            ["/p/a/b", "/p/a/gone", "/p/a/new", "/p/list/1", "/p/x~1y~0z"]
+        );
+        assert!(adjustments("/p", Some(&sent), Some(&sent)).is_empty());
+        assert_eq!(adjustments("/p", Some(&sent), None), ["/p"]);
+        let many =
+            |v: i64| Value::Object((0..20).map(|i| (format!("k{i:02}"), json!(v))).collect());
+        assert_eq!(adjustments("", Some(&many(1)), Some(&many(2))).len(), 16);
+    }
+
     /// Replace, add a member, append two ways, and the refusals: a missing
     /// parent, an index past the end, a part of a single value.
     #[test]

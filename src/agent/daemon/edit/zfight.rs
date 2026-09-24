@@ -192,27 +192,27 @@ fn piece(node: &Generator, world: Affine3A, path: &[usize]) -> Option<Piece> {
         Some(indices) => indices.iter().collect(),
         None => (0..at.len()).collect(),
     };
-    // A mirroring transform turns every triangle's winding, so the normal
-    // it gives would point into the solid.
-    let outward = if world.matrix3.determinant() < 0.0 {
-        -1.0
-    } else {
-        1.0
-    };
+    // A mirroring transform turns every triangle's winding: turn it back, so
+    // each winds counter-clockwise round the normal pointing out of its
+    // solid - the normal and the clipping in `shared_patch` both rest on it.
+    let mirrored = world.matrix3.determinant() < 0.0;
     let tris: Vec<Tri> = order
         .chunks_exact(3)
         .filter_map(|corners| {
-            let v = [
+            let mut v = [
                 at.get(corners[0])?,
                 at.get(corners[1])?,
                 at.get(corners[2])?,
             ]
             .map(|p| *p);
+            if mirrored {
+                v.swap(1, 2);
+            }
             let cross = (v[1] - v[0]).cross(v[2] - v[0]);
             let twice_area = cross.length();
             (twice_area > f32::EPSILON).then(|| Tri {
                 v,
-                normal: cross / twice_area * outward,
+                normal: cross / twice_area,
                 min: v[0].min(v[1]).min(v[2]),
                 max: v[0].max(v[1]).max(v[2]),
             })
@@ -398,15 +398,23 @@ mod tests {
         assert!((found[0].area_m2 - 0.6).abs() < 1e-3, "{found:?}");
     }
 
-    /// Two millimetres apart is two depths, not one.
+    /// Two millimetres apart is two depths, not one - square to the axes,
+    /// and turned 30 degrees, where each face's box spans the other's and
+    /// only its distance from the plane tells them apart.
     #[test]
     fn faces_a_hair_apart_are_not_named() {
-        let found = overlaps(cuboid(
-            [2.0, 1.0, 0.1],
-            [0.0, 3.0, 0.0],
-            vec![cuboid([0.6, 2.0, 0.1], [0.5, -1.0, 0.002], vec![])],
-        ));
-        assert!(found.is_empty(), "{found:?}");
+        for turned in [false, true] {
+            let mut root = cuboid(
+                [2.0, 1.0, 0.1],
+                [0.0, 3.0, 0.0],
+                vec![cuboid([0.6, 2.0, 0.1], [0.5, -1.0, 0.002], vec![])],
+            );
+            if turned {
+                root["transform"]["rotation"] = json!([0, 2_588, 0, 9_659]);
+            }
+            let found = overlaps(root);
+            assert!(found.is_empty(), "turned {turned}: {found:?}");
+        }
     }
 
     /// Side by side, the tops share a plane and a direction but no area.
@@ -471,6 +479,63 @@ mod tests {
         assert!(buried.is_empty(), "{buried:?}");
         let standing = overlaps(pair(1.0));
         assert_eq!(standing.len(), 1, "{standing:?}");
+    }
+
+    /// A patch under 10 cm² is not named: a 2 cm cube's top in a box's top
+    /// face is 4 cm², a 5 cm cube's is 25 cm².
+    #[test]
+    fn a_patch_smaller_than_ten_square_centimetres_is_not_named() {
+        let cube_in_the_top = |edge: f32| {
+            overlaps(cuboid(
+                [1.0, 1.0, 1.0],
+                [0.0, 0.5, 0.0],
+                vec![cuboid([edge; 3], [0.0, 0.5 - edge / 2.0, 0.0], vec![])],
+            ))
+        };
+        let small = cube_in_the_top(0.02);
+        assert!(small.is_empty(), "{small:?}");
+        let named = cube_in_the_top(0.05);
+        assert_eq!(named.len(), 1, "{named:?}");
+        assert!((named[0].area_m2 - 0.0025).abs() < 1e-5, "{named:?}");
+    }
+
+    /// A mirrored child's faces face out of it as it is drawn: mirrored in
+    /// X under a box, its far end lands in the box's +X face, facing +X -
+    /// the winding alone would point that face back into the child.
+    #[test]
+    fn a_mirrored_child_faces_the_way_it_is_drawn() {
+        let mut child = cuboid([1.0, 1.0, 1.0], [0.5, 0.0, 0.0], vec![]);
+        child["transform"]["scale"] = json!([-10_000, 10_000, 10_000]);
+        let found = overlaps(cuboid([2.0, 2.0, 2.0], [0.0, 1.0, 0.0], vec![child]));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!((found[0].area_m2 - 1.0).abs() < 1e-3, "{found:?}");
+    }
+
+    /// The answer names the sixteen largest pairs by pointer - a generator's
+    /// name escaped as a JSON pointer escapes it - and counts them all; a
+    /// generator the set left as it was is not checked at all.
+    #[test]
+    fn the_report_names_the_largest_sixteen_and_counts_them_all() {
+        // Seventeen small panels, each sharing its front and back with a
+        // long slab and touching nothing else.
+        let panels = (0..17)
+            .map(|i| cuboid([0.4, 0.4, 0.1], [i as f32 - 8.0, 0.0, 0.0], vec![]))
+            .collect();
+        let slab = generator(cuboid([20.0, 1.0, 0.1], [0.0, 1.0, 0.0], panels));
+        let after = HashMap::from([("a/b~c".to_owned(), slab)]);
+
+        let (named, total) = report(&HashMap::new(), &after);
+
+        assert_eq!((named.len(), total), (16, 17));
+        assert_eq!(named[0]["a"], "/generators/a~1b~0c");
+        assert!(
+            named[0]["b"]
+                .as_str()
+                .is_some_and(|b| b.starts_with("/generators/a~1b~0c/children/")),
+            "{}",
+            named[0]
+        );
+        assert_eq!(report(&after, &after), (Vec::new(), 0), "nothing changed");
     }
 
     /// A child is placed by its parent's rotation: under a root turned a
