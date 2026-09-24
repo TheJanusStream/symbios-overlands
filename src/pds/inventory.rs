@@ -566,7 +566,9 @@ pub async fn publish_inventory_record(
     // cannot go stale (e.g. a second device already migrated).
     let legacy_present = fetch_legacy_inventory_record(client, &pds, &session.did)
         .await
-        .map_err(|e| format!("legacy inventory check failed: {e:?}"))?
+        // `Display`, whole: this is the owner's own record, and `Debug`
+        // leaves a decoder's message out (#1432).
+        .map_err(|e| format!("legacy inventory check failed: {e}"))?
         .is_some();
 
     let writes = plan_item_writes(live, stored, legacy_present)?;

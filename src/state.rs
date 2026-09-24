@@ -73,8 +73,30 @@ pub struct RemotePeer {
 pub struct PeerBuild {
     /// The peer's [`crate::protocol::PROTOCOL_VERSION`].
     pub protocol: u16,
-    /// Human-readable version+sha, for naming the two builds in a bug report.
+    /// Human-readable version+sha, for naming the two builds in a bug report
+    /// - or [`UNRECOGNISED_BUILD`] (see [`PeerBuild::announced`]).
     pub build: String,
+}
+
+/// What stands for a build string that is not in this game's shape.
+pub const UNRECOGNISED_BUILD: &str = "unrecognised build";
+
+impl PeerBuild {
+    /// What a peer's `Hello` announced, with its build string kept only in
+    /// the shape this game names its own builds in (#1432).
+    ///
+    /// Anything else is the peer's own text, and it would reach every place
+    /// the build is shown: its People row, and the warning and session-log
+    /// line a mismatch writes - files an agent reads. Checked here, where
+    /// the string arrives, so no reader downstream has to.
+    pub fn announced(protocol: u16, build: String) -> Self {
+        let build = if crate::protocol::is_build_id(&build) {
+            build
+        } else {
+            UNRECOGNISED_BUILD.to_owned()
+        };
+        Self { protocol, build }
+    }
 }
 
 /// How this peer's wire compatibility reads right now (#1121). Derived, not

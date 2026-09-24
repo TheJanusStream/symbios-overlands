@@ -43,7 +43,7 @@ use control::protocol::Request;
 use lifecycle::{list_accounts, run_daemon, run_login, start_daemon};
 use requests::{
     JsonRecord, ask, catalogue, face, follow, gift, look, move_placement, place, placements,
-    record_json, remove, save, travel, walk_to, watch_events,
+    record_json, remove, save, travel, ui, walk_to, watch_events,
 };
 
 use crate::config;
@@ -120,6 +120,7 @@ fn execute(command: Command) -> Result<ExitCode, String> {
             Request::TakeOff { name: args.item },
         ),
         Command::Gift(args) => gift(args),
+        Command::Ui(args) => ui(args),
     }
 }
 

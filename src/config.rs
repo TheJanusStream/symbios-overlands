@@ -1930,6 +1930,13 @@ pub(crate) mod agent {
     /// sees from near its top.
     pub const EYE_HEIGHT_FRACTION: f32 = 0.93;
 
+    // --- The interface (#1424) ---
+
+    /// How long an interface command may take to answer. It gives itself up
+    /// after 90 frames - three seconds at the daemon's rate - so this is for
+    /// a daemon whose frames have slowed, as a world compiling slows them.
+    pub const UI_ANSWER_TIMEOUT: Duration = Duration::from_secs(30);
+
     // --- Editing (#1422) ---
 
     /// How far past a catalogue entry's clearance radius `agent place` with

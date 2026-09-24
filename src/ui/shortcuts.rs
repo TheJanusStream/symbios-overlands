@@ -471,8 +471,9 @@ fn topmost<T: Copy>(ctx: &egui::Context, candidates: &[(egui::Id, T)]) -> Option
 }
 
 /// The title a toolbar-managed window is drawn with - which is also its
-/// egui identity, see [`window_area_id`].
-fn window_title(window: UiWindow) -> &'static str {
+/// egui identity, see [`window_area_id`]. `pub(crate)` for the agent's
+/// interface channel (#1424), which names windows as a person reads them.
+pub(crate) fn window_title(window: UiWindow) -> &'static str {
     match window {
         UiWindow::Chat => "Chat",
         UiWindow::People => "People",

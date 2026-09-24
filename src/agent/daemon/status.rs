@@ -78,6 +78,7 @@ pub(super) fn snapshot(world: &mut World) -> Value {
         "nearby": nearby(world, pose.as_ref()),
         "editing": super::edit::describe(world),
         "gifts": super::gifts::describe(world),
+        "interface": super::ui::describe(world),
     })
 }
 

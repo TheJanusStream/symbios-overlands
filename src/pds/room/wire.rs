@@ -599,7 +599,9 @@ pub async fn publish_room_record(
     let existing: std::collections::HashSet<String> =
         list_room_children(client, &pds, &session.did)
             .await
-            .map_err(|e| format!("child listing failed: {e:?}"))?
+            // `Display`, whole: the owner's own world, and `Debug` leaves a
+            // decoder's message out (#1432).
+            .map_err(|e| format!("child listing failed: {e}"))?
             .into_keys()
             .collect();
     let manifest_exists = room_self_exists(client, &pds, &session.did).await?;
@@ -640,7 +642,7 @@ pub async fn delete_room_record(
     }
     let mut children: Vec<String> = list_room_children(client, &pds, &session.did)
         .await
-        .map_err(|e| format!("child listing failed: {e:?}"))?
+        .map_err(|e| format!("child listing failed: {e}"))?
         .into_keys()
         .collect();
     children.sort();

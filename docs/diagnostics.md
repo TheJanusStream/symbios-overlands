@@ -102,6 +102,23 @@ rather than fatal, so a crashed-mid-write tail still analyzes.
   once the DID/relay are known. Together they key a run to a build + identity.
 - Periodic `MetricsSnapshot` lines (severity `Trace`) are file/analyzer-only
   telemetry and are filtered out of the in-game Event Log.
+- **No line holds another player's words** (#1144, #1432). This log is written
+  for an agent to read, and the agent client plays among strangers, so text
+  another player chose is kept as a size or a fixed stand-in:
+  - chat is kept as the line's length;
+  - a gift offer is kept as the size of its item's name;
+  - a peer's build is kept only when it is a build id (`0.8.0+48017b8`), and
+    anything else reads `unrecognised build`;
+  - a spoofed DID claim is kept only when it is written as a DID;
+  - a decoder's message, which quotes the record it failed on, is kept as its
+    size, both here and in the `warn!` lines.
+
+  What stays is identifiers: DIDs, verified handles and the labels built from
+  them, and record keys. What the visited world says about itself also stays:
+  its item names, its grammar messages, and the asset URLs its record names.
+  Those are the words #1427 already lets the agent read, with their owner
+  beside them. The `warn!` lines where messages from other players arrive
+  follow the same rule.
 
 The full set of `kind` values (several dozen - `LoadingGate*`, `RecordFetch*`,
 `ItemOffer*`, `AvatarFetch*`, `RiggedBuildCompleted`, `Portal*`,

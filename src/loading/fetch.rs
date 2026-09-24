@@ -438,10 +438,13 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                         duration_secs: elapsed - spawned_at,
                     },
                 );
+                // Its size, not its words: the room being entered is its
+                // owner's, and a decoder's message quotes it (#1432). The
+                // recovery banner below keeps the message.
                 warn!(
                     "Stored {} record could not be decoded ({}) - using DID-seeded default",
                     R::LABEL,
-                    msg
+                    crate::pds::xrpc::decode_for_log(&msg)
                 );
                 outcomes.set(R::RECORD_KIND, FetchStatus::DecodeError);
                 R::on_unrecoverable(&mut commands, RecoveryCause::Decode, msg);

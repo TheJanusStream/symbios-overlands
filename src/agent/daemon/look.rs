@@ -352,17 +352,23 @@ fn picture_path(world: &World, out: Option<PathBuf>) -> Result<(PathBuf, Option<
     if let Some(out) = out {
         return Ok((out, None));
     }
+    let dir = pictures_dir(world)?;
+    let name = format!("look-{}.png", chrono::Utc::now().timestamp_millis());
+    Ok((dir.join(name), Some(dir)))
+}
+
+/// `<config dir>/agent/looks/<did>/`: the agent's own pictures - of the
+/// world, and of the interface (#1424).
+pub(super) fn pictures_dir(world: &World) -> Result<PathBuf, String> {
     let did = world
         .get_resource::<AtprotoSession>()
         .map(|session| session.did.clone())
         .ok_or("the agent is not signed in")?;
-    let dir = crate::prefs::config_dir()
+    Ok(crate::prefs::config_dir()
         .ok_or("there is no config directory for the agent's pictures; set HOME")?
         .join(HOME_DIR)
         .join(LOOKS_DIR)
-        .join(crate::prefs::account_file_stem(&did));
-    let name = format!("look-{}.png", chrono::Utc::now().timestamp_millis());
-    Ok((dir.join(name), Some(dir)))
+        .join(crate::prefs::account_file_stem(&did)))
 }
 
 /// Every frame a picture is under way: count its camera's frames down, then
@@ -508,7 +514,7 @@ fn finish(world: &mut World, looking: Looking) {
 /// is as private as the log beside it. `own_dir` is the agent's own picture
 /// directory, kept owner-only; a path the operator chose has its missing
 /// directories made and nothing re-permissioned.
-fn save_picture(
+pub(super) fn save_picture(
     path: &Path,
     own_dir: Option<&Path>,
     rgba: &[u8],
@@ -553,7 +559,7 @@ fn encode_png(rgba: &[u8], (width, height): (u32, u32)) -> Result<Vec<u8>, Strin
 
 /// Keep the newest `keep` pictures in `dir` and remove the rest. Their names
 /// carry the time they were taken, so the oldest sort first.
-fn trim_pictures(dir: &Path, keep: usize) {
+pub(super) fn trim_pictures(dir: &Path, keep: usize) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };

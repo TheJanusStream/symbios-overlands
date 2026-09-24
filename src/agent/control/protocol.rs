@@ -144,6 +144,89 @@ pub enum Request {
     GiftAccept { offer_id: u64 },
     /// Decline it.
     GiftDecline { offer_id: u64 },
+    /// The interface (#1424): what is open, and what can be - with a
+    /// picture of it when `picture`.
+    Ui {
+        #[serde(default)]
+        picture: bool,
+    },
+    /// One window's controls and words - or the dialog the agent's click
+    /// raised - each by the path the interface commands take, with a
+    /// picture of the window when `picture`.
+    UiShow {
+        window: String,
+        #[serde(default)]
+        picture: bool,
+    },
+    /// Open a window, as its toolbar button does, and list it.
+    UiOpen { window: String },
+    /// Close a window.
+    UiClose { window: String },
+    /// Click the control at `path`.
+    UiClick { path: String },
+    /// Type `text` into the field at `path`, replacing what it holds, and
+    /// press Enter after when `enter`.
+    UiType {
+        path: String,
+        text: String,
+        #[serde(default)]
+        enter: bool,
+    },
+    /// Set the slider or number at `path` to `value`.
+    UiSet { path: String, value: f64 },
+    /// Pick `option` from the combo box or menu at `path`.
+    UiChoose { path: String, option: String },
+    /// Scroll `window`'s list by `points`: down when positive.
+    UiScroll { window: String, points: f32 },
+}
+
+/// An interface command (#1424), as the world answers it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UiRequest {
+    Summary {
+        picture: bool,
+    },
+    Show {
+        window: String,
+        picture: bool,
+    },
+    Open {
+        window: String,
+    },
+    Close {
+        window: String,
+    },
+    Click {
+        path: String,
+    },
+    Type {
+        path: String,
+        text: String,
+        enter: bool,
+    },
+    Set {
+        path: String,
+        value: f64,
+    },
+    Choose {
+        path: String,
+        option: String,
+    },
+    Scroll {
+        window: String,
+        points: f32,
+    },
+}
+
+impl UiRequest {
+    /// Whether it works a control, which may write one of the agent's
+    /// records - the way an edit may.
+    pub fn acts(&self) -> bool {
+        matches!(
+            self,
+            Self::Click { .. } | Self::Type { .. } | Self::Set { .. } | Self::Choose { .. }
+        )
+    }
 }
 
 /// Which of the agent's records an edit command is about (#1422).
@@ -253,6 +336,8 @@ pub enum WorldRequest {
     Edit(EditRequest),
     /// A gift command (#1423).
     Gift(GiftRequest),
+    /// An interface command (#1424).
+    Ui(UiRequest),
 }
 
 /// A request that offers a gift, or answers one (#1423).
@@ -340,6 +425,8 @@ impl WorldRequest {
             Self::Edit(edit) => edit.writes(),
             // Accepting puts the gift in the inventory.
             Self::Gift(GiftRequest::Accept(_)) => true,
+            // A control worked in an editor writes its record, as an edit.
+            Self::Ui(ui) => ui.acts(),
             Self::Travel {
                 unsaved: UnsavedEdits::Discard,
                 ..
@@ -351,9 +438,10 @@ impl WorldRequest {
     /// How long the world may take to answer: a frame for most requests, a
     /// render for a picture.
     pub fn answer_within(&self) -> std::time::Duration {
-        use crate::config::agent::{LOOK_ANSWER_TIMEOUT, WORLD_ANSWER_TIMEOUT};
+        use crate::config::agent::{LOOK_ANSWER_TIMEOUT, UI_ANSWER_TIMEOUT, WORLD_ANSWER_TIMEOUT};
         match self {
             Self::Look(_) => LOOK_ANSWER_TIMEOUT,
+            Self::Ui(_) => UI_ANSWER_TIMEOUT,
             _ => WORLD_ANSWER_TIMEOUT,
         }
     }
@@ -435,8 +523,21 @@ impl Request {
             Self::GiftDecline { offer_id } => {
                 Route::World(WorldRequest::Gift(GiftRequest::Decline(offer_id)))
             }
+            Self::Ui { picture } => ui(UiRequest::Summary { picture }),
+            Self::UiShow { window, picture } => ui(UiRequest::Show { window, picture }),
+            Self::UiOpen { window } => ui(UiRequest::Open { window }),
+            Self::UiClose { window } => ui(UiRequest::Close { window }),
+            Self::UiClick { path } => ui(UiRequest::Click { path }),
+            Self::UiType { path, text, enter } => ui(UiRequest::Type { path, text, enter }),
+            Self::UiSet { path, value } => ui(UiRequest::Set { path, value }),
+            Self::UiChoose { path, option } => ui(UiRequest::Choose { path, option }),
+            Self::UiScroll { window, points } => ui(UiRequest::Scroll { window, points }),
         }
     }
+}
+
+fn ui(request: UiRequest) -> Route {
+    Route::World(WorldRequest::Ui(request))
 }
 
 fn edit(request: EditRequest) -> Route {
@@ -652,6 +753,75 @@ mod tests {
         ] {
             assert!(!writes(reader.clone()), "{reader:?}");
         }
+    }
+
+    /// The interface commands' wire forms (#1424): one flat object each,
+    /// Enter off unless asked. Only the ones that work a control may write
+    /// a record, so only they end a frame's turn - and every one may wait
+    /// as long as the interface takes.
+    #[test]
+    fn interface_requests_are_flat_and_only_working_a_control_writes() {
+        assert_eq!(
+            serde_json::from_str::<Request>(r#"{"command":"ui"}"#).unwrap(),
+            Request::Ui { picture: false }
+        );
+        assert_eq!(
+            serde_json::from_str::<Request>(
+                r#"{"command":"ui_type","path":"Avatar > Search","text":"lamp"}"#
+            )
+            .unwrap(),
+            Request::UiType {
+                path: "Avatar > Search".into(),
+                text: "lamp".into(),
+                enter: false
+            }
+        );
+        let writes = |request: Request| match request.route() {
+            Route::World(world) => world.writes_a_record(),
+            Route::Events { .. } => false,
+        };
+        let path = || "Avatar > Re-roll".to_owned();
+        for acting in [
+            Request::UiClick { path: path() },
+            Request::UiType {
+                path: path(),
+                text: "x".into(),
+                enter: true,
+            },
+            Request::UiSet {
+                path: path(),
+                value: 1.0,
+            },
+            Request::UiChoose {
+                path: path(),
+                option: "Light".into(),
+            },
+        ] {
+            assert!(writes(acting.clone()), "{acting:?}");
+        }
+        for reading in [
+            Request::Ui { picture: true },
+            Request::UiShow {
+                window: "Avatar".into(),
+                picture: false,
+            },
+            Request::UiOpen {
+                window: "Avatar".into(),
+            },
+            Request::UiClose {
+                window: "Avatar".into(),
+            },
+            Request::UiScroll {
+                window: "Avatar".into(),
+                points: 200.0,
+            },
+        ] {
+            assert!(!writes(reading.clone()), "{reading:?}");
+        }
+        assert_eq!(
+            WorldRequest::Ui(UiRequest::Summary { picture: false }).answer_within(),
+            crate::config::agent::UI_ANSWER_TIMEOUT
+        );
     }
 
     #[test]

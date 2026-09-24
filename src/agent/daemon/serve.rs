@@ -8,7 +8,7 @@ use bevy::prelude::*;
 
 use super::super::control::protocol::{Response, WorldRequest};
 use super::super::control::server::Envelope;
-use super::{edit, gifts, look, movement, speech, status, travel};
+use super::{edit, gifts, look, movement, speech, status, travel, ui};
 
 /// Requests waiting for the world, handed over by the control socket.
 #[derive(Resource)]
@@ -55,9 +55,16 @@ impl ControlInbox {
 /// with nothing waiting costs one `try_recv`.
 pub(super) fn serve_requests(world: &mut World) {
     let mut pending = world.resource::<ControlInbox>().take();
-    while let Some(Envelope { request, reply }) = pending.pop_front() {
-        let writes = request.writes_a_record();
-        answer(world, request, reply);
+    while let Some(envelope) = pending.pop_front() {
+        let writes = envelope.request.writes_a_record();
+        // An interface command that works a control runs over several
+        // frames and may write a record on any of them, as an edit does:
+        // nothing else that writes one is answered until it has (#1424).
+        if writes && ui::acting(world) {
+            pending.push_front(envelope);
+            break;
+        }
+        answer(world, envelope.request, envelope.reply);
         if writes {
             break;
         }
@@ -72,6 +79,8 @@ fn answer(world: &mut World, request: WorldRequest, reply: mpsc::Sender<Response
         // A picture is answered frames later, once it has been rendered and
         // written, so it takes the reply with it.
         WorldRequest::Look(spec) => return look::begin(world, spec, reply),
+        // So is an interface command, once the passes it needs have run.
+        WorldRequest::Ui(request) => return ui::begin(world, request, reply),
         WorldRequest::Status => Response::success(status::snapshot(world)),
         WorldRequest::Stop => {
             // Stopping never waits on edits: the operator's stop is the one
@@ -252,6 +261,28 @@ mod one_edit_a_frame_tests {
             matches!(last, crate::pds::Placement::Absolute { transform, .. } if transform.translation.0[0] == 1.0),
             "one undo takes off the second edit only"
         );
+    }
+
+    /// A control being worked may write a record on any of its frames, as
+    /// an edit does (#1424): an edit that arrives meanwhile waits until the
+    /// control is done, and a status, which writes nothing, does not.
+    #[test]
+    fn an_edit_waits_while_a_control_is_worked() {
+        let (mut app, _) = app_in(AGENT);
+        let (sender, receiver) = mpsc::channel();
+        app.world_mut().insert_resource(ControlInbox::new(receiver));
+        app.add_systems(Update, serve_requests);
+        ui::working_a_control(app.world_mut());
+
+        let status = ask(&sender, WorldRequest::Status);
+        let edit = ask(&sender, place(1.0));
+        app.update();
+
+        assert!(status.try_recv().expect("the status").ok);
+        assert!(edit.try_recv().is_err(), "the edit waits for the control");
+        app.world_mut().remove_resource::<ui::UiWork>();
+        app.update();
+        assert!(edit.try_recv().expect("the edit, once it is done").ok);
     }
 }
 

@@ -104,6 +104,90 @@ pub enum Command {
     /// the admin offered the agent. Anyone else's offer is declined the
     /// moment it arrives.
     Gift(GiftArgs),
+    /// Read and work the game's own interface, window by window, as a
+    /// person does. `agent ui` alone says what is open; `agent ui show
+    /// <window>` lists a window's controls by the paths the rest take.
+    Ui(UiArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct UiArgs {
+    /// The agent's account, as a handle or DID. Needed only when more than
+    /// one session is saved.
+    #[arg(long = "account", value_name = "HANDLE_OR_DID", global = true)]
+    pub account: Option<String>,
+    /// With `agent ui` alone: a PNG of the whole interface as a person
+    /// sees it - drawn only when asked - and where it was written.
+    #[arg(long)]
+    pub picture: bool,
+    #[command(subcommand)]
+    pub action: Option<UiAction>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum UiAction {
+    /// List a window's controls and words - or the dialog the agent's
+    /// click raised, or `toasts` - each by its path.
+    Show {
+        /// The window, by its title (World Editor) or key (world_editor).
+        window: String,
+        /// Also a PNG of the window as a person sees it, and where it was
+        /// written: what the listing cannot carry - pictures, colours,
+        /// what overlaps what.
+        #[arg(long)]
+        picture: bool,
+    },
+    /// Open a window, as its toolbar button does, and list it.
+    Open {
+        /// The window, by its title (World Editor) or key (world_editor).
+        window: String,
+    },
+    /// Close a window. Every open window costs its drawing every frame.
+    Close {
+        /// The window, by its title or key.
+        window: String,
+    },
+    /// Click a button, a checkbox, a tab, a section's header, or a row of
+    /// a list.
+    Click {
+        /// The control's path, as `ui show` lists it (`Avatar > Re-roll`),
+        /// or enough of its end to name one control.
+        path: String,
+    },
+    /// Type into a text field, replacing what it holds.
+    Type {
+        /// The field's path, as `ui show` lists it.
+        path: String,
+        /// What to type.
+        text: String,
+        /// Press Enter after, as a person does to apply a field.
+        #[arg(long)]
+        enter: bool,
+    },
+    /// Set a slider or a number field.
+    Set {
+        /// The control's path, as `ui show` lists it.
+        path: String,
+        /// The value. The control holds it to its own range.
+        #[arg(allow_hyphen_values = true)]
+        value: f64,
+    },
+    /// Pick an option from a combo box or a menu.
+    Choose {
+        /// The combo box's or menu button's path, as `ui show` lists it.
+        path: String,
+        /// The option, as the list shows it.
+        option: String,
+    },
+    /// Scroll a window's list to read what is below the fold. A control
+    /// out of view needs none: working it scrolls it into view first.
+    Scroll {
+        /// The window, by its title.
+        window: String,
+        /// How far, in points: positive goes down, negative up.
+        #[arg(allow_hyphen_values = true)]
+        points: f32,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -913,5 +997,42 @@ mod tests {
         assert_eq!(relay_host(" relay.example ").unwrap(), "relay.example");
         assert!(relay_host("wss://").is_err());
         assert!(relay_host("relay.example/overlands/did").is_err());
+    }
+
+    /// `ui` alone asks what is open; its verbs take paths with spaces and
+    /// `>`s as one argument, numbers with minus signs, and `--account`
+    /// anywhere on the line (#1424).
+    #[test]
+    fn the_interface_takes_paths_numbers_and_an_account_anywhere() {
+        let ui = |args: &[&str]| {
+            let cli = Cli::try_parse_from(["agent", "ui"].iter().chain(args))?;
+            let Command::Ui(ui) = cli.command else {
+                panic!("ui");
+            };
+            Ok::<_, clap::Error>(ui)
+        };
+        assert!(ui(&[]).unwrap().action.is_none());
+        assert!(ui(&["--picture"]).unwrap().picture);
+        assert!(matches!(
+            ui(&["show", "Avatar", "--picture"]).unwrap().action,
+            Some(UiAction::Show { picture: true, .. })
+        ));
+        let typed = ui(&["type", "Avatar > Search", "lamp", "--enter"]).unwrap();
+        assert!(matches!(
+            typed.action,
+            Some(UiAction::Type { ref path, ref text, enter: true })
+                if path == "Avatar > Search" && text == "lamp"
+        ));
+        assert!(matches!(
+            ui(&["set", "Avatar > hair > width", "-0.5"]).unwrap().action,
+            Some(UiAction::Set { value, .. }) if value == -0.5
+        ));
+        assert!(matches!(
+            ui(&["scroll", "Avatar", "-200"]).unwrap().action,
+            Some(UiAction::Scroll { points, .. }) if points == -200.0
+        ));
+        let at_the_end = ui(&["show", "World Editor", "--account", "did:plc:a"]).unwrap();
+        assert_eq!(at_the_end.account.as_deref(), Some("did:plc:a"));
+        assert!(ui(&["click"]).is_err(), "a click names a control");
     }
 }

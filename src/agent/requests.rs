@@ -8,7 +8,7 @@ use std::process::ExitCode;
 use super::cli::{
     CatalogueArgs, EventsArgs, FaceArgs, FollowArgs, GiftAction, GiftArgs, JsonAction, LookArgs,
     MoveArgs, PlaceArgs, PlacementsArgs, RecordJsonArgs, RemoveArgs, SaveArgs, TravelArgs,
-    WalkToArgs,
+    UiAction, UiArgs, WalkToArgs,
 };
 use super::control::protocol::{LookSpec, Request, Response, UnsavedEdits};
 use super::{config, control, find_session, print_json, resolve_name, session_file};
@@ -419,4 +419,29 @@ pub(super) fn gift(args: GiftArgs) -> Result<ExitCode, String> {
             },
         ),
     }
+}
+
+/// `ui` and its verbs (#1424): each one request, answered once the
+/// interface has done it.
+pub(super) fn ui(args: UiArgs) -> Result<ExitCode, String> {
+    let request = match args.action {
+        None => Request::Ui {
+            picture: args.picture,
+        },
+        Some(_) if args.picture => {
+            return Err(
+                "--picture goes with `agent ui` alone, or `agent ui show <window> --picture`"
+                    .to_owned(),
+            );
+        }
+        Some(UiAction::Show { window, picture }) => Request::UiShow { window, picture },
+        Some(UiAction::Open { window }) => Request::UiOpen { window },
+        Some(UiAction::Close { window }) => Request::UiClose { window },
+        Some(UiAction::Click { path }) => Request::UiClick { path },
+        Some(UiAction::Type { path, text, enter }) => Request::UiType { path, text, enter },
+        Some(UiAction::Set { path, value }) => Request::UiSet { path, value },
+        Some(UiAction::Choose { path, option }) => Request::UiChoose { path, option },
+        Some(UiAction::Scroll { window, points }) => Request::UiScroll { window, points },
+    };
+    ask(args.account.as_deref(), request)
 }

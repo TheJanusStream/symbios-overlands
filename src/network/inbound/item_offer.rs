@@ -223,12 +223,15 @@ pub(super) fn handle(
         return;
     }
 
+    // The name's size, never the name (#1432): it is the sender's words,
+    // and this line is written before anything - the agent daemon's
+    // `sort_offers`, a person's dialog - has chosen whether to read them.
     session_log.info(
         now,
         EventPayload::ItemOfferReceived {
             offer_id,
             sender_did: sender_did.clone(),
-            item_name: item_name.clone(),
+            name_bytes: u32::try_from(item_name.len()).unwrap_or(u32::MAX),
         },
     );
     commands.insert_resource(IncomingOfferDialog {

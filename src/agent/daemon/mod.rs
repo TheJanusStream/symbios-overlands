@@ -31,6 +31,7 @@ mod serve;
 mod speech;
 mod status;
 mod travel;
+mod ui;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -179,6 +180,7 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
                 end_if_session_expired,
                 serve::serve_requests,
                 look::advance.after(serve::serve_requests),
+                ui::advance.after(serve::serve_requests),
                 observe::record_peers,
                 observe::record_chat,
                 travel::record_travel,
@@ -188,6 +190,13 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
             ),
         )
         .add_systems(PostUpdate, gifts::sort_offers)
+        .init_resource::<ui::UiRaised>()
+        .add_systems(
+            PostUpdate,
+            ui::keep_off_the_desktop
+                .after(bevy_egui::EguiPostUpdateSet::EndPass)
+                .before(bevy_egui::EguiPostUpdateSet::ProcessOutput),
+        )
         .add_systems(OnEnter(AppState::Login), end_if_back_at_login)
         .add_systems(
             OnEnter(AppState::InGame),

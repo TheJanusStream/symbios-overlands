@@ -835,6 +835,17 @@ $A wear "Ship's Lantern"             # `take-off` and `unstash` likewise, by nam
 $A save inventory                    # with --allow-save, as for the world
 $A gift give @you.example.com lantern --wait   # an inventory item or a slug
 $A gift accept 3                     # the admin's offer, by the id its event gives
+# The game's own interface (#1424) - the windows it may use, control by control:
+$A ui                                # what is open, what can be, what is not its to read
+$A ui open Avatar                    # as the toolbar button does; lists the window
+$A ui show "World Editor"            # each control by its path, as it is drawn
+$A ui click "Seed & re-roll > Re-roll"   # a button, a checkbox, a tab, a section, a row
+$A ui type "Catalogue > Search: > name / theme" lantern   # --enter presses Enter after
+$A ui set "Lighting & sky > Sun illuminance" 12000
+$A ui choose "Catalogue > Search: > combo box" "By name"
+$A ui scroll Catalogue 300           # to read below the fold (positive goes down)
+$A ui show Avatar --picture          # and a PNG of the window, drawn only when asked
+$A ui close Avatar                   # an open window costs its drawing every frame
 ```
 
 Every command prints one JSON object on stdout. **The agent hears chat from
@@ -928,7 +939,8 @@ the first in a daemon's life also compiles its render pipelines, about 400 ms
 in all). `play` is the game's own camera behind the body, `eyes` looks level
 from the front of it; `--heading` turns either by degrees clockwise from where
 the agent faces, and `--at X Z` looks toward a point. No interface is drawn -
-no name tags, no chat. The answer names the world and whose it is (`own`,
+no name tags, no chat; `ui --picture` draws that. The answer names the world
+and whose it is (`own`,
 `admin` or `stranger`) and counts the texture bakes still in flight, which a
 picture shows as flat stand-in colours; in a world's first moments a body can
 also still be its translucent stand-in. **A picture is a way in, too:** a
@@ -996,6 +1008,48 @@ list; a gift is a copy, and the answer comes back as a `gift_answered` event:
 `accepted`, or `declined`, `busy`, `unavailable`, `unanswered`, or
 `no_answer` when nothing came back in three minutes. A second offer to a
 player who has not answered the first waits for that answer.
+
+**The interface** (#1424). `ui` works the game's own windows the way a
+person does, through AccessKit - egui's account of every widget it draws,
+which is built only while a `ui` command is at work (kept on, it cost half a
+point of a core at idle). A control is named by where it is drawn: its
+window, the open section it sits in, the words to its left on its row or
+just above its group, then its own label - `Settings > Ground avoidance: >
+Off` - and never by its value, which the first edit would change. The end of
+a path is enough when it names one control, and the icons a label is
+dressed in may be left off; a name two controls share is refused with both
+paths. Each command works one control by an AccessKit request aimed at that
+control alone, after the checks a person's hand meets: one out of view is
+scrolled into view first, one under another window has that window raised
+first, and one behind a dialog, or greyed out, is refused. A tree's rows
+(the Catalogue) take no request, so a pointer selects them, once nothing
+else is drawn there. A command leaves no menu open and no field holding the
+keyboard - either would stop the agent walking.
+
+**What the agent may read and do there is settled** (#1424). Its windows are
+People, Avatar, Inventory, Catalogue, World Editor, Settings, Controls and
+the audio editor, the dialogs and menus its own clicks raise in them, and
+the toasts. Chat is not one - it holds every line anyone in the room said,
+and the agent hears its admin's only - nor Diagnostics, whose event log
+names what other players sent, nor the gateway picker, the one surface that
+shows Bluesky display names. A window the agent may not read is never read,
+not even to suggest a near miss; `ui` names it by its title and says why.
+Inside the others, a control whose work has a gate elsewhere is refused and
+says what does the work: every Save (`agent save`, `--allow-save`), Visit
+(`agent travel`), muting (whom the agent hears is its operator's choice),
+and whatever would write the operator's clipboard or open their browser -
+the daemon also drops egui's own requests to. The game's own dialogs - the
+unsaved-edits dialog before a trip, sign-in-again - are never the agent's
+to read or answer. Every answer to a command that could change a record
+says which of the world, avatar and inventory records changed (`changed`,
+bit for bit) and which were written without changing (`touched`): a panel
+drawn with nobody touching it has rewritten a record before (#1390).
+`--picture` draws the interface into a PNG beside the agent's `look`s - over
+the fog's colour rather than the world, which is `look`'s - when asked and
+at no other time. A picture is pixels, so it would show what the listing
+never reads: none is taken while Chat, Diagnostics or the gateway picker is
+open, or a dialog or menu the agent did not raise is up, and the refusal
+says how to clear it (`ui close Chat` - closing reads nothing).
 
 **Session logs** - the app records an append-only NDJSON session log
 (`diagnostics/session-latest.jsonl` on native; downloadable from the

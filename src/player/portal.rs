@@ -324,15 +324,18 @@ pub(super) fn poll_portal_travel_tasks(
             // a recovery banner the destination owner can clear by
             // re-publishing.
             Err(FetchError::Decode(msg)) => {
+                // The record is its owner's words, and a decoder's message
+                // quotes them: the logs get its size (#1432). The recovery
+                // marker keeps the message - the owner's to read.
+                let logged = crate::pds::xrpc::decode_for_log(&msg);
                 session_log.warn(
                     elapsed,
                     EventPayload::RoomRecoveryBannerRaised {
-                        reason: msg.clone(),
+                        reason: logged.clone(),
                     },
                 );
                 warn!(
-                    "Portal travel decode error ({}) - installing default + recovery marker",
-                    msg
+                    "Portal travel decode error ({logged}) - installing default + recovery marker"
                 );
                 commands.insert_resource(RoomRecordRecovery {
                     // Decode by construction - this is the `FetchError::Decode`
