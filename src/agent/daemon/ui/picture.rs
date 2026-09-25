@@ -266,7 +266,7 @@ mod tests {
         )
         .expect("crops");
         assert_eq!(size, (2, 2));
-        let reds: Vec<u8> = part.chunks_exact(4).map(|p| p[0]).collect();
+        let reds: Vec<u8> = part.as_chunks::<4>().0.iter().map(|p| p[0]).collect();
         assert_eq!(reds, [5, 6, 9, 10]);
         assert!(
             cropped(

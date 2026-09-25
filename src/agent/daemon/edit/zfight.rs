@@ -197,7 +197,9 @@ fn piece(node: &Generator, world: Affine3A, path: &[usize]) -> Option<Piece> {
     // solid - the normal and the clipping in `shared_patch` both rest on it.
     let mirrored = world.matrix3.determinant() < 0.0;
     let tris: Vec<Tri> = order
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .filter_map(|corners| {
             let mut v = [
                 at.get(corners[0])?,

@@ -542,7 +542,9 @@ fn encode_png(rgba: &[u8], (width, height): (u32, u32)) -> Result<Vec<u8>, Strin
         ));
     }
     let rgb: Vec<u8> = rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
         .collect();
     let mut png = Vec::new();
