@@ -20,7 +20,9 @@ within 3 m but keeps following until `halt`, so for "come here":
 
 Use `follow` when the task is to stay with them ("follow me", an escort);
 it runs to catch up and waits for a sleeping tab rather than walking to its
-stand-in.
+stand-in. An airship escorts 8 m up and lands beside them once they have
+stood still for five seconds: a 130 m drive was escorted live and ended
+3.5 m from the car.
 
 ## Getting somewhere
 
@@ -46,7 +48,9 @@ stand-in.
 ## Bodies that are not feet
 
 A car or hover-boat turns on the spot before it drives; an airship flies a
-`walk-to` and lands on the point, never ending in the air; an airplane takes
+`walk-to` and lands on the point, never ending in the air - it climbs over
+a building in its way instead of ending `stuck` against it, which makes it
+the quickest body for work round a build; an airplane takes
 off, lands on a straight final and cannot `follow`. The details, and the
 offline stand-ins that let you try each body, are in
 [../building.md](../building.md) under "Agent client".

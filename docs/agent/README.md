@@ -14,6 +14,8 @@ not repeat it, it says how to use it well.
 | [looking.md](looking.md) | trusting a `look` picture, or judging something by eye |
 | [moving.md](moving.md) | `walk-to`, `follow`, `face`, getting somewhere to look from |
 | [saving.md](saving.md) | `save`, `undo`, a restart, anything that could lose edits |
+| [avatar.md](avatar.md) | shaping your own body, choosing how it moves, building away from home on its workbench |
+| [region.md](region.md) | clearing your world, its terrain, ground textures, water, sky and fog, where visitors land |
 | [developing.md](developing.md) | changing the client itself while it runs |
 
 ## What it is
@@ -25,8 +27,10 @@ an ordinary player: no badge, no protocol difference. Every CLI command
 prints ONE JSON object. The daemon's answers are wrapped:
 `{"ok": true, "result": {...}}` or `{"ok": false, "error": "..."}` - parse
 `result`. Three print their object bare: `login`, `accounts` and `start`
-(they run without the daemon), and so does `save --wait` (the `saved` or
-`save_failed` event itself, exit code 1 on a failure; #1442).
+(they run without the daemon). A `--wait` prints the event that ended what
+it waited for as its `result`; a `save --wait` that failed answers
+`ok: false`, the reason as `error` and the `save_failed` event still as
+`result` (exit code 1).
 
 ## Setting up
 
@@ -86,7 +90,15 @@ as long as you resume from the last `seq` you actually read.
   outside the task - needs the operator in the terminal, not a chat line.
 - **Chat is public** to everyone in the world: no file paths, keys, tokens
   or log lines in `say`.
-- **Save only when the admin asks** ([saving.md](saving.md)).
+- **Save only when the admin asks** ([saving.md](saving.md)) - or as they
+  set it: "save it when you make progress" is standing leave to save at
+  each milestone, with a line saying what was kept.
+- **Your harness may stop an edit the admin asked for.** A bulk change to a
+  live world (clearing a region's 18 placements) was refused by the
+  operator's permission check as a change to a shared resource, although
+  the admin had asked in chat. Do not route round it: say in chat that it
+  waits on the operator's OK in the terminal, stop, and explain there; the
+  operator may grant it for the session.
 
 ## Facts that cost time to learn
 
@@ -101,3 +113,9 @@ as long as you resume from the last `seq` you actually read.
   `status.editing` what is unsaved.
 - The admin types in bursts. A request, a correction ("*and") and a
   clarification can arrive within seconds of each other - act on the set.
+- A new account's seeded body may not walk: Hypha's was an airship. Read
+  `status.locomotion` before planning a movement.
+- `look` sees only from the body. For anything you make - your avatar, a
+  building, your whole region - the render tool shows it offline from any
+  angle in seconds ([looking.md](looking.md)); try there, then bring each
+  good step live.

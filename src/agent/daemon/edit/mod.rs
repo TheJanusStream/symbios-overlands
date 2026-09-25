@@ -126,7 +126,9 @@ pub(super) fn answer(world: &mut World, request: EditRequest) -> Result<Value, S
         EditRequest::Revert(record) => revert(world, record),
         EditRequest::Save(record) => save(world, record),
         EditRequest::Inventory => inventory::list(world),
-        EditRequest::Stash { what } => inventory::stash(world, &what),
+        EditRequest::Stash { what, from_avatar } => {
+            inventory::stash(world, &what, from_avatar.as_deref())
+        }
         EditRequest::Unstash { name } => inventory::unstash(world, &name),
         EditRequest::Wear { name } => inventory::wear(world, &name),
         EditRequest::TakeOff { name } => inventory::take_off(world, &name),

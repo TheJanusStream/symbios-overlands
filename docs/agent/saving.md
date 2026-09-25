@@ -6,10 +6,11 @@
   lost when the daemon stops unless it was saved. `status.editing.unsaved`
   lists the records (`room`, `avatar`, `inventory`) holding unsaved edits.
 - **Save only when the admin asks for it in chat** ("save", "keep it"),
-  even with `--allow-save`. Then `A save --wait` (the world), `A save avatar`
-  or `A save inventory`; the answer is the `saved` event, or `save_failed`
-  with a reason. Confirm afterwards that `unsaved` is empty, and tell the
-  admin it is kept for every visitor.
+  even with `--allow-save`. Then `A save --wait` (the world),
+  `A save avatar --wait` or `A save inventory --wait`; the answer's
+  `result.kind` is `saved`, or it is `ok: false` with the reason as `error`
+  (`save_failed`). An avatar save took about 2 s live. Confirm afterwards
+  that `unsaved` is empty, and tell the admin it is kept for every visitor.
 - When you report a build, say it is unsaved ("say 'save' to keep it") so
   the admin knows a choice is theirs.
 

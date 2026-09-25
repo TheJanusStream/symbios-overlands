@@ -41,8 +41,11 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   dish), `path_cut`, `taper`, `bend`, `twist`. Read `TortureParams` in
   `src/pds/generator.rs` for the rest.
 - **Children are placed relative to their parent's centre**, turned by the
-  parent's rotation; the parent's `size` does not scale them. Work in
-  absolute positions in a script and subtract the root's position last.
+  parent's rotation; the parent's `size` does not scale them, but its
+  `transform.scale` does - a flattened root flattened a whole log into its
+  soil bed. Work in absolute positions in a script and subtract the root's
+  position last; a root with no transform (a tiny part hidden inside
+  another) keeps every child's offset a plain world-frame one.
 - **The generator's origin stands on the ground** at the placement's point:
   local y = 0 is the ground there. On dunes or a slope, sink walls about a
   metre below 0 so no gap shows under them.
@@ -58,7 +61,7 @@ local -Z) to world -Z, 90 to +X. Design a building with its door on local
 -Z and give the yaw the door should face. With `t = -yaw` in radians, a
 point `(x, z)` in the building's frame lands at
 
-```
+```text
 world_x = at_x + x * cos(t) + z * sin(t)
 world_z = at_z - x * sin(t) + z * cos(t)
 ```

@@ -20,6 +20,14 @@ client wherever a task goes badly.
 
 - `cargo build --profile test-release --bin agent` while the old daemon
   keeps playing: it runs the code it started with.
+- A fix to the command line alone (`src/agent/requests.rs`, `cli.rs`,
+  `mod.rs` - how an answer is printed, a new flag the daemon already
+  understands) is live with the build: every command is a fresh process.
+  Only a daemon-side fix needs the restart below; batch those and restart
+  once, at a pause between tasks.
+- A build started before your last edit may have read the file half-way
+  (rustc reads the sources early): after editing during a build, build
+  again before trusting the binary.
 - Before restarting, follow [saving.md](saving.md) (nothing unsaved; tell
   the admin; `stop`; `start`; greet; re-arm from `seq` 0).
 - Retry the task that failed, live, and say how it went.

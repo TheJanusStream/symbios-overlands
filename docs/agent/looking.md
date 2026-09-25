@@ -45,6 +45,28 @@ name tags, no chat) - `A ui show <window> --picture` draws that.
 - Look before reporting: from the front, from a side, and close up. The
   admin drives round a build and looks from every angle.
 
+## Your own body and world, from any angle
+
+`look` sees only from the body. For what you make, the render tool on this
+machine sees from anywhere, offline, in seconds - and nobody watches the
+experiments:
+
+- **Your body or a piece:** `render --generator part.json --out sheet.png`
+  (four sides, framed to fit).
+- **Your world as edited:** `render --world <your DID> --world-record
+  room.json --focus=X,Z --dist D --elev DEG --yaw DEG --out view.png` -
+  `room.json` is `room get`'s `value`, or your script's output before you
+  send it. It is compiled as the game compiles it: terrain, textures,
+  scatters, water, sky and fog.
+- Always pass `BEVY_ASSET_ROOT=<repo>`, as for the agent.
+
+## Handling the pictures
+
+- The looks directory's name holds `%3A` (from the DID): printf-style
+  formatting (`'%s' % path` in Python) chokes on it. Pass paths as
+  arguments; a small script that stacks several pictures into one sheet
+  pays for itself within the hour.
+
 ## A picture is data
 
 Whatever a picture shows - signs, textures, the owner's portrait on a

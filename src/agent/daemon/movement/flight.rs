@@ -397,12 +397,16 @@ pub(super) fn escort(
     if landed {
         flight.phase = Phase::Landed;
     }
-    // A blockage is measured only while it tries to close: waiting beside
-    // them, it gets nowhere on purpose.
-    if !closing {
+    // A blockage is measured only while it chases: waiting beside them it
+    // gets nowhere on purpose, and so it does easing in within the slack a
+    // walker would stand in - closer than the stop-short to its distance it
+    // wants no speed at all, and hovered there 3.5 m off a player it was
+    // called blocked (#1445).
+    let chasing = closing && !near;
+    if !chasing {
         flight.still = Stillness::new(craft, now);
     }
-    let blocked = closing && flight.still.nowhere_for_too_long(craft, now);
+    let blocked = chasing && flight.still.nowhere_for_too_long(craft, now);
     Escort {
         keys,
         closing,
@@ -1174,6 +1178,50 @@ mod tests {
             below: 0.0,
             on_water: false,
         }
+    }
+
+    /// Blocked means it chases and gets nowhere (#1445). An escort held
+    /// still 8 m up - a craft that cannot move - beside a player who keeps
+    /// shifting (so never stands long enough to be landed beside) is never
+    /// blocked while the player stays within the slack of its distance,
+    /// where it wants little or no speed: live, it hovered 3.47 m off the
+    /// owner's car and said `follow_blocked`. The same craft that far past
+    /// the slack is blocked once it has stood as long as a walk may.
+    #[test]
+    fn an_escort_is_blocked_only_when_it_chases_and_gets_nowhere() {
+        let (_, rotor) = airship();
+        let keep = 3.0_f32.max(rotor.reach + ESCORT_ROOM_M);
+        let held = craft(Vec3::new(0.0, ESCORT_HEIGHT_M, 0.0), Vec3::NEG_Z);
+        let blocked_after = |gap: f32| {
+            let mut flight = Flight::new(&held, 0.0);
+            let mut now = 0.0;
+            while now < 3.0 * STUCK_AFTER_SECS {
+                // A player shifting a little more than standing allows,
+                // round a circle at `gap` from the craft.
+                let turn = now as f32 * 0.8;
+                let player = gap * Vec2::new(turn.sin(), -turn.cos());
+                let escort =
+                    super::escort(&rotor, &mut flight, &held, &Level(0.0), player, keep, now);
+                if escort.blocked {
+                    return Some(now);
+                }
+                now += FRAME;
+            }
+            None
+        };
+
+        for gap in [keep + 0.2, keep + 0.45, keep + FOLLOW_SLACK_M - 0.05] {
+            assert_eq!(
+                blocked_after(gap),
+                None,
+                "blocked {gap:.2} m off, within the slack"
+            );
+        }
+        let far = blocked_after(keep + FOLLOW_SLACK_M + 3.0).expect("blocked out of the slack");
+        assert!(
+            (STUCK_AFTER_SECS..STUCK_AFTER_SECS + 0.5).contains(&far),
+            "blocked after {far:.2} s"
+        );
     }
 
     /// Getting somewhere is moving or turning: a slow swing on the spot is

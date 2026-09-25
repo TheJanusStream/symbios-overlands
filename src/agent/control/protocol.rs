@@ -129,8 +129,13 @@ pub enum Request {
     /// What the agent's inventory holds (#1423).
     Inventory,
     /// Put `what` into the inventory: a thing in the agent's own world, by
-    /// its name, or a catalogue entry, by its slug.
-    Stash { what: String },
+    /// its name, or a catalogue entry, by its slug - or, with `from_avatar`,
+    /// the part of the avatar's body at that JSON pointer, named `what`.
+    Stash {
+        what: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_avatar: Option<String>,
+    },
     /// Take the item `name` out of the inventory.
     Unstash { name: String },
     /// Put the inventory item `name` on the avatar.
@@ -387,6 +392,7 @@ pub enum EditRequest {
     Inventory,
     Stash {
         what: String,
+        from_avatar: Option<String>,
     },
     Unstash {
         name: String,
@@ -510,7 +516,7 @@ impl Request {
             Self::Revert { record } => edit(EditRequest::Revert(record)),
             Self::Save { record } => edit(EditRequest::Save(record)),
             Self::Inventory => edit(EditRequest::Inventory),
-            Self::Stash { what } => edit(EditRequest::Stash { what }),
+            Self::Stash { what, from_avatar } => edit(EditRequest::Stash { what, from_avatar }),
             Self::Unstash { name } => edit(EditRequest::Unstash { name }),
             Self::Wear { name } => edit(EditRequest::Wear { name }),
             Self::TakeOff { name } => edit(EditRequest::TakeOff { name }),
@@ -720,6 +726,11 @@ mod tests {
             },
             Request::Stash {
                 what: "lamp".into(),
+                from_avatar: None,
+            },
+            Request::Stash {
+                what: "bench".into(),
+                from_avatar: Some("/record/body/visuals/children/0".into()),
             },
             Request::Unstash {
                 name: "lamp".into(),
@@ -753,6 +764,27 @@ mod tests {
         ] {
             assert!(!writes(reader.clone()), "{reader:?}");
         }
+    }
+
+    /// `stash` names a part of the avatar only when asked (#1444): an older
+    /// CLI's stash still reads, and the avatar form carries its pointer.
+    #[test]
+    fn a_stash_names_a_part_of_the_avatar_only_when_asked() {
+        assert_eq!(
+            serde_json::from_str::<Request>(r#"{"command":"stash","what":"lamp"}"#).unwrap(),
+            Request::Stash {
+                what: "lamp".into(),
+                from_avatar: None,
+            }
+        );
+        assert_eq!(
+            serde_json::to_string(&Request::Stash {
+                what: "bench".into(),
+                from_avatar: Some("/record/body/visuals".into()),
+            })
+            .unwrap(),
+            r#"{"command":"stash","what":"bench","from_avatar":"/record/body/visuals"}"#
+        );
     }
 
     /// The interface commands' wire forms (#1424): one flat object each,

@@ -419,6 +419,7 @@ cargo run --bin render -- --avatar did:plc:example
 cargo run --bin render -- --prim cuboid
 cargo run --bin render -- --room 3            # whole seeded room, by seed or DID
 cargo run --bin render -- --world 3           # the seeded WORLD as the game builds it
+cargo run --bin render -- --world did:plc:x --world-record room.json   # ...or an edited record
 cargo run --bin render -- --terrain 3        # the room's GROUND: heightmap + splat
 cargo run --bin render -- --wear satchel      # a wearable, actually worn
 cargo run --bin render -- --generator /tmp/x.json  # a dumped + edited Generator
@@ -833,6 +834,7 @@ $A travel home --discard-edits       # or --save-edits; without, refused
 # Its inventory and gifts (#1423):
 $A inventory                         # what it holds, what it wears
 $A stash ships_lantern               # a catalogue entry - or a thing in its own world
+$A stash Birdhouse --from-avatar /record/body/visuals/children/0/children/0   # or a part of its body
 $A wear "Ship's Lantern"             # `take-off` and `unstash` likewise, by name
 $A save inventory                    # with --allow-save, as for the world
 $A gift give @you.example.com lantern --wait   # an inventory item or a slug
@@ -997,6 +999,14 @@ has landed). `stop` always stops, and its answer names what it discarded.
 what it wears; `stash` copies in a catalogue entry by its slug - a wearable
 one stays wearable - or a thing in the agent's own world by its name, and
 `unstash` takes an item out, though not while it is worn: `take-off` first.
+`stash NAME --from-avatar POINTER` copies in a part of the agent's own body
+under that name (#1444): a node of a generator body's tree, by its pointer
+as `avatar get /record/body/visuals` shows it, the nodes under it included.
+Where it sat on the body is dropped - its origin becomes the item's, so it
+stands on the ground where it is placed - and its turn and scale are kept.
+The avatar is the one record the agent may edit in anyone's world, so this
+is how it builds away from home: on its own body, then `stash`, then `gift
+give`.
 `wear` and `take-off` are avatar edits, steps of its undo history, saved with
 `save avatar`; the inventory itself is saved with `save inventory` and
 `revert`ed, and has no undo history, as in the game. **The agent takes gifts

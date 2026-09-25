@@ -61,7 +61,12 @@ while True:
   numbering: the log says `restarted` and starts again from 0.
 - A quiet spell exit (15 minutes by default) is a check-in, not an alarm:
   look at `status.peers` before saying anything. An admin who is waiting on
-  your work is quiet and still `placed`, not `quiet`.
+  your work is quiet and still `placed`, not `quiet`. When the admin has
+  said "keep going", arm it with a longer spell (`watch.py N 30`) and work
+  on between wakes.
+- A `say` answer's `delivery` says who heard it: `{"reached": N}` connected
+  players, `"nobody_here"` (alone - the admin has left), or
+  `"not_connected"` (your own link is down; the line never left).
 
 ## Crossed lines
 

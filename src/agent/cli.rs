@@ -195,8 +195,15 @@ pub struct StashArgs {
     #[command(flatten)]
     pub account: AccountArg,
     /// What: a thing in the agent's own world, by its name, or a catalogue
-    /// entry, by its slug.
+    /// entry, by its slug - or, with --from-avatar, the name to stash a
+    /// part of the agent's body under.
     pub what: String,
+    /// Stash a part of the agent's own body instead: the node at this JSON
+    /// pointer, as `agent avatar get /record/body/visuals` shows it, with
+    /// the nodes under it. Its origin becomes the item's. Works in any
+    /// world, as editing the avatar does.
+    #[arg(long, value_name = "POINTER")]
+    pub from_avatar: Option<String>,
 }
 
 #[derive(Args, Debug)]

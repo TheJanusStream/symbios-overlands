@@ -105,7 +105,10 @@ fn execute(command: Command) -> Result<ExitCode, String> {
         Command::Inventory(account) => ask(account.name.as_deref(), Request::Inventory),
         Command::Stash(args) => ask(
             args.account.name.as_deref(),
-            Request::Stash { what: args.what },
+            Request::Stash {
+                what: args.what,
+                from_avatar: args.from_avatar,
+            },
         ),
         Command::Unstash(args) => ask(
             args.account.name.as_deref(),

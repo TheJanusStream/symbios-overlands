@@ -363,13 +363,27 @@ pub(super) fn save(args: SaveArgs) -> Result<ExitCode, String> {
             waited.as_secs()
         )
     })?;
-    let failed = ended["kind"] == "save_failed";
-    print_json(&ended)?;
-    Ok(if failed {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    })
+    print_response(&save_ended(ended))
+}
+
+/// What `save --wait` prints once the save has ended, wrapped as every
+/// other `--wait` wraps its ending (#1442): a `saved` event as the result;
+/// a `save_failed` one as a refusal, its reason the error - and the event
+/// still the result, so `result.kind` reads the same either way. A refusal
+/// exits non-zero, as a failed save always has.
+fn save_ended(event: serde_json::Value) -> Response {
+    if event["kind"] != "save_failed" {
+        return Response::success(event);
+    }
+    let reason = event["reason"]
+        .as_str()
+        .unwrap_or("the save did not land")
+        .to_owned();
+    Response {
+        ok: false,
+        result: Some(event),
+        error: Some(reason),
+    }
 }
 
 /// `gift give|accept|decline`. A gift goes to a player named by DID or by
@@ -444,4 +458,40 @@ pub(super) fn ui(args: UiArgs) -> Result<ExitCode, String> {
         Some(UiAction::Scroll { window, points }) => Request::UiScroll { window, points },
     };
     ask(args.account.as_deref(), request)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::save_ended;
+
+    /// `save --wait` prints its ending as `walk-to --wait` and the rest do
+    /// (#1442), where it used to print the bare event: an agent reading
+    /// `result` met a missing key on this one command alone.
+    #[test]
+    fn a_saves_ending_is_wrapped_like_every_other_wait() {
+        let saved = json!({ "kind": "saved", "record": "avatar", "seq": 6, "at": 1 });
+        let failed = json!({
+            "kind": "save_failed",
+            "record": "room",
+            "reason": "the record is past its ceiling",
+            "terminal": false,
+            "seq": 7,
+            "at": 2,
+        });
+
+        let landed = serde_json::to_value(save_ended(saved.clone())).unwrap();
+        let refused = serde_json::to_value(save_ended(failed.clone())).unwrap();
+
+        assert_eq!(landed, json!({ "ok": true, "result": saved }));
+        assert_eq!(
+            refused,
+            json!({
+                "ok": false,
+                "result": failed,
+                "error": "the record is past its ceiling",
+            })
+        );
+    }
 }

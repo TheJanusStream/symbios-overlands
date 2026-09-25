@@ -24,7 +24,7 @@
 use bevy::prelude::*;
 use serde_json::{Value, json};
 
-use crate::pds::RoomRecord;
+use crate::pds::{Generator, RoomRecord};
 use crate::state::{CurrentRoomDid, LiveRoomRecord};
 
 /// How the JSON's numbers are written, for a value that would not read.
@@ -61,8 +61,8 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
         serde_json::to_value(&record).map_err(|e| format!("the record does not serialise: {e}"))?;
     set_part(&mut document, pointer, value.clone())?;
     let before = super::settle_room(record)?;
-    let edited: RoomRecord = serde_json::from_value(document)
-        .map_err(|e| format!("that is not a world record: {e}; {WIRE_FORM}"))?;
+    let edited: RoomRecord = serde_json::from_value(document.clone())
+        .map_err(|e| unreadable("a world record", &e, &document, ""))?;
     let sent = serde_json::to_value(&edited)
         .ok()
         .and_then(|document| document.pointer(pointer).cloned());
@@ -96,6 +96,55 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
         answer["z_fighting_total"] = json!(found);
     }
     Ok(answer)
+}
+
+/// Why `document` - JSON that did not read as `what` - did not: serde's
+/// `error`, and where, when a generator node in it does not read on its own
+/// (#1446). A generator's fields are flattened into a tagged enum, so
+/// serde's own error names a field and never the node it is missing from:
+/// "missing field `minor_resolution`" in a body of 41 parts left the agent
+/// to find the torus. `at` is the pointer of `document` itself.
+pub(super) fn unreadable(
+    what: &str,
+    error: &serde_json::Error,
+    document: &Value,
+    at: &str,
+) -> String {
+    match first_unreadable_node(document, at) {
+        Some((node, why)) => {
+            format!("that is not {what}: {why} in the node at {node}; {WIRE_FORM}")
+        }
+        None => format!("that is not {what}: {error}; {WIRE_FORM}"),
+    }
+}
+
+/// The first generator node in `value` - parents before their children -
+/// that does not read as a generator on its own, and why.
+fn first_unreadable_node(value: &Value, at: &str) -> Option<(String, String)> {
+    match value {
+        Value::Object(members) => {
+            let is_node = members
+                .get("$type")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind.starts_with("network.symbios.gen."));
+            if is_node {
+                let mut alone = members.clone();
+                alone.remove("children");
+                if let Err(e) = serde_json::from_value::<Generator>(Value::Object(alone)) {
+                    return Some((at.to_owned(), e.to_string()));
+                }
+            }
+            members.iter().find_map(|(key, member)| {
+                let path = format!("{at}/{}", key.replace('~', "~0").replace('/', "~1"));
+                first_unreadable_node(member, &path)
+            })
+        }
+        Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .find_map(|(i, item)| first_unreadable_node(item, &format!("{at}/{i}"))),
+        _ => None,
+    }
 }
 
 /// At most this many adjusted places are named in one answer.
@@ -310,6 +359,50 @@ mod world_tests {
         let read = room_get(app.world_mut(), pointer).expect("read");
         assert_eq!(read["value"], json!(1_234_500));
         assert_eq!(read["unsaved"], true);
+    }
+
+    /// A generator whose second child - a torus - lacks a field it needs is
+    /// refused by naming that node's pointer, not only the field (#1446):
+    /// serde alone said "missing field `minor_resolution`" of a 41-node
+    /// body, live. A node that reads is never named, parent or sibling, and
+    /// the world is left as it was.
+    #[test]
+    fn a_refused_set_names_the_node_that_would_not_read() {
+        let (mut app, _) = app_in(AGENT);
+        let torus = |minor_resolution: Option<u32>| {
+            let mut torus = json!({
+                "$type": "network.symbios.gen.torus",
+                "major_radius": 5000,
+                "minor_radius": 500,
+                "major_resolution": 24,
+                "solid": false,
+            });
+            if let Some(resolution) = minor_resolution {
+                torus["minor_resolution"] = json!(resolution);
+            }
+            torus
+        };
+        let shed = json!({
+            "$type": "network.symbios.gen.cuboid",
+            "size": [10000, 10000, 10000],
+            "solid": true,
+            "children": [torus(Some(8)), torus(None), torus(None)],
+        });
+
+        let refused = room_set(app.world_mut(), "/generators/shed", shed).expect_err("refused");
+
+        assert!(
+            refused.contains("minor_resolution")
+                && refused.contains("in the node at /generators/shed/children/1;"),
+            "{refused}"
+        );
+        assert!(
+            !app.world()
+                .resource::<LiveRoomRecord>()
+                .0
+                .generators
+                .contains_key("shed")
+        );
     }
 
     /// A header (2.5..3.5 m up) over a panel (from 1 m) whose top runs up

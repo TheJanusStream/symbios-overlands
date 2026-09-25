@@ -10,7 +10,11 @@
 //!   name `placements` gives it, as the World Editor's "Save to Inventory"
 //!   copies one; or a catalogue entry, by its slug, as the catalogue's "Copy
 //!   to inventory" does - a wearable entry keeps what it needs to be worn.
-//!   A name the stash already holds gets a suffix, as there.
+//!   A name the stash already holds gets a suffix, as there. And a part of
+//!   the agent's own body, by its JSON pointer, under a name of the agent's
+//!   choosing (#1444): the avatar is the one record the agent may edit in
+//!   anyone's world, so a thing built on its body can be stashed - and
+//!   gifted - wherever it is.
 //! * `wear` and `take-off` dress the avatar from the stash through the
 //!   avatar editor's own helpers, so each is a step of the avatar's undo
 //!   history and is saved with `agent save avatar`.
@@ -73,12 +77,32 @@ fn inventory(world: &World) -> Result<&LiveInventoryRecord, String> {
 }
 
 /// Put `what` into the inventory: a thing in the agent's own world, by its
-/// name, or a catalogue entry, by its slug.
-pub(super) fn stash(world: &mut World, what: &str) -> Result<Value, String> {
+/// name, or a catalogue entry, by its slug - or, given `from_avatar`, the
+/// part of the agent's body at that pointer, named `what`.
+pub(super) fn stash(
+    world: &mut World,
+    what: &str,
+    from_avatar: Option<&str>,
+) -> Result<Value, String> {
     super::in_world(world)?;
     let mut inventory = inventory(world)?.0.clone();
     if inventory.generators.len() >= MAX_INVENTORY_ITEMS {
         return Err(full());
+    }
+    if let Some(pointer) = from_avatar {
+        let name = what.trim();
+        if name.is_empty() {
+            return Err("a part of the body is stashed under a name: give one".to_owned());
+        }
+        // No `is_drop_placeable` gate, unlike a catalogue entry: the avatar
+        // sanitiser has already turned any terrain, water, portal or gateway
+        // node into a plain cuboid, and a kind this build cannot name never
+        // serialises far enough to be read here.
+        let generator = super::avatar::body_part(world, pointer)?;
+        let name = unique_key(&inventory.generators, name);
+        inventory.put_item(name.clone(), generator, None);
+        world.resource_mut::<LiveInventoryRecord>().0 = inventory;
+        return Ok(json!({ "stashed": name, "from": "avatar", "wearable": false }));
     }
     let own_world = super::owns_room(world);
     let from_world = own_world
@@ -264,8 +288,8 @@ mod tests {
         let (mut app, _) = app_in(AGENT);
         let (slug, name) = wearable();
 
-        let first = stash(app.world_mut(), slug).expect("stashed");
-        let second = stash(app.world_mut(), slug).expect("stashed again");
+        let first = stash(app.world_mut(), slug, None).expect("stashed");
+        let second = stash(app.world_mut(), slug, None).expect("stashed again");
 
         assert_eq!(first["stashed"], name);
         assert_eq!(
@@ -283,14 +307,14 @@ mod tests {
     #[test]
     fn only_the_agents_own_world_is_stashed_from() {
         let (mut app, _) = app_in(AGENT);
-        let own = stash(app.world_mut(), "owner_monument").expect("stashed");
+        let own = stash(app.world_mut(), "owner_monument", None).expect("stashed");
         assert_eq!(
             (own["stashed"].as_str(), own["from"].as_str()),
             (Some("owner_monument"), Some("world"))
         );
 
         let (mut visiting, _) = app_in(OTHER);
-        let theirs = stash(visiting.world_mut(), "owner_monument").expect_err("refused");
+        let theirs = stash(visiting.world_mut(), "owner_monument", None).expect_err("refused");
         assert!(theirs.contains("only the agent's own world"), "{theirs}");
         assert!(items(&visiting).is_empty());
     }
@@ -308,7 +332,7 @@ mod tests {
                     .put_item(format!("item {n}"), generator.clone(), None);
             }
         }
-        let why = stash(app.world_mut(), slug).expect_err("refused");
+        let why = stash(app.world_mut(), slug, None).expect_err("refused");
         assert!(why.contains(&format!("{MAX_INVENTORY_ITEMS} of")), "{why}");
         assert_eq!(items(&app).len(), MAX_INVENTORY_ITEMS);
     }
@@ -322,7 +346,7 @@ mod tests {
         app.world_mut().insert_resource(LiveAvatarRecord(rigged()));
         app.update();
         let (slug, name) = wearable();
-        stash(app.world_mut(), slug).expect("stashed");
+        stash(app.world_mut(), slug, None).expect("stashed");
         let worn = |app: &App| {
             app.world()
                 .resource::<LiveAvatarRecord>()
@@ -362,7 +386,7 @@ mod tests {
             .expect("a seeded vehicle");
         app.world_mut().insert_resource(LiveAvatarRecord(vehicle));
         let (slug, name) = wearable();
-        stash(app.world_mut(), slug).expect("stashed");
+        stash(app.world_mut(), slug, None).expect("stashed");
 
         let why = wear(app.world_mut(), name).expect_err("refused");
 
@@ -379,12 +403,12 @@ mod tests {
             answer(app.world_mut(), EditRequest::Undo(EditRecord::Inventory)).expect_err("refused");
         assert!(why.contains("revert inventory"), "{why}");
         let (slug, _) = wearable();
-        stash(app.world_mut(), slug).expect("stashed");
+        stash(app.world_mut(), slug, None).expect("stashed");
         assert_eq!(super::super::unsaved(app.world_mut()), ["inventory"]);
 
         answer(app.world_mut(), EditRequest::Revert(EditRecord::Inventory)).expect("reverted");
         assert!(items(&app).is_empty());
-        stash(app.world_mut(), slug).expect("stashed again");
+        stash(app.world_mut(), slug, None).expect("stashed again");
         answer(app.world_mut(), EditRequest::Save(EditRecord::Inventory)).expect("saving");
         let saving = app
             .world_mut()
@@ -418,8 +442,8 @@ mod tests {
         let (mut app, _) = app_in(AGENT);
         app.world_mut().insert_resource(LiveAvatarRecord(rigged()));
         let (slug, name) = wearable();
-        stash(app.world_mut(), slug).expect("stashed");
-        stash(app.world_mut(), "owner_monument").expect("stashed");
+        stash(app.world_mut(), slug, None).expect("stashed");
+        stash(app.world_mut(), "owner_monument", None).expect("stashed");
         wear(app.world_mut(), name).expect("worn");
 
         let listed = list(app.world_mut()).expect("listed");
@@ -432,5 +456,147 @@ mod tests {
         assert_eq!(item("owner_monument")["worn"], false);
         assert!(item("owner_monument")["wearable_on"].is_null());
         assert_eq!(listed["unsaved"], true);
+    }
+
+    /// A seeded avatar with a generator body - a vehicle, whose drawn parts
+    /// are nodes of its own tree.
+    fn vehicle() -> AvatarRecord {
+        (0..200)
+            .map(|n| AvatarRecord::default_for_did(&format!("did:plc:inventorycraft{n}")))
+            .find(|avatar| avatar.body.visuals().is_some())
+            .expect("a seeded vehicle")
+    }
+
+    /// Build a thing on the body the way the agent does - `avatar set` of
+    /// a new last child of the body's root - and give its pointer.
+    fn build_on_body(app: &mut App) -> String {
+        let built = serde_json::json!({
+            "$type": "network.symbios.gen.cuboid",
+            "size": [4000, 3000, 4000],
+            "solid": false,
+            "transform": {
+                "translation": [3000, 150, -2000],
+                "rotation": [0, 7071, 0, 7071],
+            },
+            "children": [{
+                "$type": "network.symbios.gen.sphere",
+                "radius": 1000,
+                "resolution": 2,
+                "solid": false,
+                "transform": { "translation": [0, 2500, 0] },
+            }],
+        });
+        super::super::avatar::set(app.world_mut(), "/record/body/visuals/children/-", built)
+            .expect("built on the body");
+        let children = app
+            .world()
+            .resource::<LiveAvatarRecord>()
+            .0
+            .body
+            .visuals()
+            .expect("a generator body")
+            .children
+            .len();
+        format!("/record/body/visuals/children/{}", children - 1)
+    }
+
+    /// A part of the agent's own body is stashed under the name it is
+    /// given (#1444), the nodes under it with it, standing on its own
+    /// origin: where it sat on the body is dropped, its turn is kept. The
+    /// body keeps it - a stash is a copy - and a second one gets a name of
+    /// its own.
+    #[test]
+    fn a_part_of_the_body_is_stashed_under_the_name_given() {
+        let (mut app, _) = app_in(AGENT);
+        app.world_mut().insert_resource(LiveAvatarRecord(vehicle()));
+        app.update();
+        let pointer = build_on_body(&mut app);
+        let parts_before = app.world().resource::<LiveAvatarRecord>().0.clone();
+
+        let first = stash(app.world_mut(), "Birdhouse", Some(&pointer)).expect("stashed");
+        let second = stash(app.world_mut(), "Birdhouse", Some(&pointer)).expect("again");
+
+        assert_eq!(
+            (
+                first["stashed"].as_str(),
+                first["from"].as_str(),
+                first["wearable"].as_bool()
+            ),
+            (Some("Birdhouse"), Some("avatar"), Some(false))
+        );
+        assert_ne!(second["stashed"], first["stashed"]);
+        let inventory = &app.world().resource::<LiveInventoryRecord>().0;
+        let item = &inventory.generators["Birdhouse"];
+        assert!(
+            matches!(item.kind, crate::pds::GeneratorKind::Cuboid { .. }),
+            "{:?}",
+            item.kind
+        );
+        assert_eq!(item.transform.translation.0, [0.0, 0.0, 0.0]);
+        // Its turn, in the wire form it was built with (a quarter turn).
+        assert_eq!(
+            serde_json::to_value(&item.transform).expect("serialises")["rotation"],
+            serde_json::json!([0, 7071, 0, 7071])
+        );
+        assert_eq!(item.children.len(), 1, "the nodes under it come too");
+        assert_eq!(item.children[0].transform.translation.0, [0.0, 0.25, 0.0]);
+        assert_eq!(
+            app.world().resource::<LiveAvatarRecord>().0,
+            parts_before,
+            "the body keeps what was stashed from it"
+        );
+    }
+
+    /// Only a node of the body's own tree is a part: not another piece of
+    /// the record, not a name that merely starts like the tree's, not a
+    /// value inside a node, not a node that is not there - and never
+    /// without a name. Nothing reaches the inventory from any of them.
+    #[test]
+    fn only_a_node_of_the_bodys_tree_is_stashed() {
+        let (mut app, _) = app_in(AGENT);
+        app.world_mut().insert_resource(LiveAvatarRecord(vehicle()));
+        app.update();
+        let pointer = build_on_body(&mut app);
+        let refused = |app: &mut App, name: &str, pointer: &str| {
+            stash(app.world_mut(), name, Some(pointer)).expect_err(pointer)
+        };
+
+        let elsewhere = refused(&mut app, "x", "/record/locomotion");
+        let lookalike = refused(&mut app, "x", "/record/body/visualsx");
+        let a_value = refused(&mut app, "x", &format!("{pointer}/size"));
+        let missing = refused(&mut app, "x", "/record/body/visuals/children/999");
+        let unnamed = refused(&mut app, "  ", &pointer);
+
+        assert!(
+            elsewhere.contains("not a part of the avatar's body"),
+            "{elsewhere}"
+        );
+        assert!(
+            lookalike.contains("not a part of the avatar's body"),
+            "{lookalike}"
+        );
+        assert!(
+            a_value.contains("is not a node of the body's tree"),
+            "{a_value}"
+        );
+        assert!(missing.contains("nothing is at"), "{missing}");
+        assert!(unnamed.contains("give one"), "{unnamed}");
+        assert!(items(&app).is_empty());
+    }
+
+    /// A rigged body is a sculpt, not a tree of parts: nothing to stash.
+    #[test]
+    fn a_rigged_body_has_no_parts_to_stash() {
+        let (mut app, _) = app_in(AGENT);
+        app.world_mut().insert_resource(LiveAvatarRecord(rigged()));
+        app.update();
+
+        let why = stash(app.world_mut(), "x", Some("/record/body/visuals")).expect_err("refused");
+
+        assert!(
+            why.contains("a rigged body keeps its shape in a sculpt"),
+            "{why}"
+        );
+        assert!(items(&app).is_empty());
     }
 }

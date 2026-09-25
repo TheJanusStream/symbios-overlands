@@ -347,6 +347,14 @@ struct Args {
     /// `--generator`.
     #[arg(long)]
     world: Option<String>,
+    /// With `--world`: compile this room record instead of the seeded one -
+    /// a JSON file in the record's wire form, as the World Editor's Raw
+    /// JSON tab and `agent room get` show it - sanitised as a fetched record
+    /// is. `--world` still names whose world it is. For trying an edit to a
+    /// world - its terrain, water, sky - from any angle before anyone sees
+    /// it.
+    #[arg(long, requires = "world", value_name = "PATH")]
+    world_record: Option<String>,
     /// With `--world`: open the game's own editing surfaces over it - the
     /// toolbar and the World Editor, drawn by the game's egui systems into
     /// the same frame (#1353). The editor is owner-only, so an offline
@@ -1375,6 +1383,17 @@ fn seeded_slot(spec: &str, livery: Option<usize>) -> Slot {
 /// Pinned by `tests::the_subject_precedence_is_the_one_the_docs_claim`,
 /// because this order is stated in four places and three of them had drifted
 /// (#1162).
+/// `--world-record`: a room record read from its wire-form JSON, sanitised
+/// as the game sanitises a record it fetches.
+fn read_room_record(path: &str) -> RoomRecord {
+    let json =
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read room record {path:?}: {e}"));
+    let mut record: RoomRecord =
+        serde_json::from_str(&json).unwrap_or_else(|e| panic!("parse room record {path:?}: {e}"));
+    record.sanitize();
+    record
+}
+
 fn resolve_subject(args: &Args) -> Resolved {
     if let Some(entries) = &args.lineup {
         let slots: Vec<Slot> = entries
@@ -1416,12 +1435,16 @@ fn resolve_subject(args: &Args) -> Resolved {
         return Resolved::plain(Subject::Single(Box::new(generator)), format!("gen-{label}"));
     }
     if let Some(world) = &args.world {
-        let (record, did) = match world.parse::<u64>() {
+        let (seeded, did) = match world.parse::<u64>() {
             Ok(seed) => {
                 let did = format!("did:render:{seed}");
                 (RoomRecord::default_for_seed(seed, &did), did)
             }
             Err(_) => (RoomRecord::default_for_did(world), world.clone()),
+        };
+        let record = match &args.world_record {
+            Some(path) => read_room_record(path),
+            None => seeded,
         };
         let label = format!("world-{}", world.replace([':', '/'], "_"));
         return Resolved::plain(Subject::World(Box::new(WorldSpec { record, did })), label);
@@ -1795,6 +1818,45 @@ mod tests {
     /// the framing can hand over the game's own pair, and the shot holds its
     /// angle instead of turning like a turntable. The numbers themselves are
     /// pinned against `config::camera` in `rig`.
+    /// `--world-record` compiles the record in the file instead of the
+    /// seeded one (session 873): a world's new terrain, water and sky are
+    /// tried from any angle before anyone sees them live. The file is read
+    /// as a fetched record is - sanitised: a fog of 1 m comes back as the
+    /// floor - and `--world` still names whose world it is.
+    #[test]
+    fn a_world_record_file_is_compiled_in_place_of_the_seeded_one() {
+        use crate::pds::types::Fp;
+        let mut edited = RoomRecord::default_for_seed(3, "did:render:3");
+        edited
+            .generators
+            .retain(|name, _| name.as_str() == "base_terrain");
+        edited.environment.fog_visibility = Fp(1.0);
+        let path = std::env::temp_dir().join(format!("world-record-{}.json", std::process::id()));
+        std::fs::write(&path, serde_json::to_string(&edited).expect("serialises"))
+            .expect("written");
+
+        let args = Args::parse_from([
+            "render",
+            "--world",
+            "3",
+            "--world-record",
+            path.to_str().expect("a UTF-8 path"),
+        ]);
+        let resolved = resolve_subject(&args);
+        std::fs::remove_file(&path).ok();
+
+        let Subject::World(spec) = resolved.subject else {
+            panic!("--world is a world subject");
+        };
+        assert_eq!(spec.did, "did:render:3");
+        assert_eq!(
+            spec.record.generators.keys().collect::<Vec<_>>(),
+            ["base_terrain"],
+            "the file's generators, not the seeded world's"
+        );
+        assert_eq!(spec.record.environment.fog_visibility, Fp(10.0));
+    }
+
     #[test]
     fn the_play_view_preset_leaves_the_game_numbers_to_the_framing() {
         let parse =

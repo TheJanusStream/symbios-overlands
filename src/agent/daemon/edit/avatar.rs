@@ -29,11 +29,12 @@
 use bevy::prelude::*;
 use serde_json::{Value, json};
 
-use crate::pds::AvatarRecord;
 use crate::pds::avatar::{AttachmentRecord, EngineAvatarRecord, ResolvedAttachment, ResolvedRig};
+use crate::pds::types::Fp3;
+use crate::pds::{AvatarRecord, Generator};
 use crate::state::LiveAvatarRecord;
 
-use super::json::{WIRE_FORM, part, set_part};
+use super::json::{part, set_part, unreadable};
 
 /// The avatar's JSON, or the part of it at `pointer`.
 pub(super) fn get(world: &mut World, pointer: &str) -> Result<Value, String> {
@@ -93,6 +94,43 @@ pub(super) fn set(world: &mut World, pointer: &str, value: Value) -> Result<Valu
     Ok(answer)
 }
 
+/// Where a generator body's drawn parts are in the avatar's JSON.
+pub(super) const BODY_VISUALS: &str = "/record/body/visuals";
+
+/// The part of the avatar's body at `pointer` - a node of a generator
+/// body's tree, as `avatar get` shows it - as a generator of its own, the
+/// nodes under it included (#1444). Where it sat on the body means nothing
+/// anywhere else, so its own translation is dropped: its origin becomes
+/// the generator's, which stands on the ground where it is placed. Its
+/// turn and its scale stay.
+pub(super) fn body_part(world: &World, pointer: &str) -> Result<Generator, String> {
+    let live = &world
+        .get_resource::<LiveAvatarRecord>()
+        .ok_or("the agent has no avatar record yet")?
+        .0;
+    if live.body.rigged_ref().is_some() {
+        return Err(
+            "a rigged body keeps its shape in a sculpt, not in parts; only a generator \
+             body - a vehicle's - has parts to stash"
+                .to_owned(),
+        );
+    }
+    let in_body = pointer
+        .strip_prefix(BODY_VISUALS)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'));
+    if !in_body {
+        return Err(format!(
+            "{pointer:?} is not a part of the avatar's body: a part is a node under \
+             {BODY_VISUALS}, as `agent avatar get {BODY_VISUALS}` shows it"
+        ));
+    }
+    let value = part(&to_json(live)?, pointer)?;
+    let mut generator: Generator = serde_json::from_value(value)
+        .map_err(|e| format!("{pointer} is not a node of the body's tree: {e}"))?;
+    generator.transform.translation = Fp3([0.0; 3]);
+    Ok(generator)
+}
+
 /// The avatar's three parts, each in its wire form.
 fn to_json(avatar: &AvatarRecord) -> Result<Value, String> {
     let record =
@@ -130,9 +168,9 @@ fn from_json(live: &AvatarRecord, document: Value) -> Result<AvatarRecord, Strin
     let Value::Object(mut parts) = document else {
         return Err("the avatar is an object of record, body and worn".to_owned());
     };
-    let mut record: AvatarRecord =
-        serde_json::from_value(parts.remove("record").unwrap_or_default())
-            .map_err(|e| format!("that is not an avatar record: {e}; {WIRE_FORM}"))?;
+    let record_json = parts.remove("record").unwrap_or_default();
+    let mut record: AvatarRecord = serde_json::from_value(record_json.clone())
+        .map_err(|e| unreadable("an avatar record", &e, &record_json, "/record"))?;
     match (live.body.rigged_ref(), record.body.rigged_mut()) {
         (Some(was), Some(rig)) => {
             if rig.avatar != was.avatar {
@@ -242,6 +280,30 @@ mod tests {
 
             assert_eq!(set["changed"], false, "rigged {rigged}: {set}");
         }
+    }
+
+    /// A body part that will not read is named by its pointer in the
+    /// avatar's JSON (#1446) - the live case: a torus without its
+    /// `minor_resolution`, one node of a whole new body.
+    #[test]
+    fn a_refused_set_names_the_body_part_that_would_not_read() {
+        let (mut app, _) = app_in(AGENT);
+        wearing(&mut app, seeded(false));
+        let torus = json!({
+            "$type": "network.symbios.gen.torus",
+            "major_radius": 2000,
+            "minor_radius": 350,
+            "major_resolution": 32,
+            "solid": false,
+        });
+
+        let refused =
+            set(app.world_mut(), "/record/body/visuals/children/0", torus).expect_err("refused");
+
+        assert!(
+            refused.contains("in the node at /record/body/visuals/children/0;"),
+            "{refused}"
+        );
     }
 
     /// A value the record leaves out is no adjustment (#1438): `gait` set
