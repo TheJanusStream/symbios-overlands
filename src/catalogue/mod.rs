@@ -235,6 +235,28 @@ pub fn entries_for_room(
     })
 }
 
+/// The entries a catalogue search finds, in registry order: each one whose
+/// slug, name, section and description between them hold every word of
+/// `words`, ignoring case. No words finds every entry.
+///
+/// The one matcher behind the agent client's `catalogue` listing and the
+/// render tool's `--catalogue-sizes` (#1466), so a search sizes exactly the
+/// entries it lists.
+pub fn search(words: &str) -> impl Iterator<Item = &'static dyn CatalogueEntry> {
+    let words: Vec<String> = words.split_whitespace().map(str::to_lowercase).collect();
+    ENTRIES.iter().copied().filter(move |entry| {
+        let text = format!(
+            "{} {} {} {}",
+            entry.slug(),
+            entry.name(),
+            entry.category().label(),
+            entry.description()
+        )
+        .to_lowercase();
+        words.iter().all(|word| text.contains(word))
+    })
+}
+
 /// One catalogue entry. Every implementor lives in its own file under
 /// [`items`]; the registry in [`items::ENTRIES`] is the source of
 /// truth for what ships in the build.

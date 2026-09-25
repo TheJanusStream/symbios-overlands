@@ -97,17 +97,43 @@ meant as dark brown sRGB `(0.36, 0.25, 0.13)` is written
 `((c + 0.055) / 1.055) ^ 2.4` each: `(0.107, 0.051, 0.015)`. Written as sRGB
 it bakes out light tan, and a hillside reads as sand.
 
+**Sunlit ground seen toward a low sun is mostly sheen, not texture** (#1467).
+The terrain's roughness (0.85) and reflectance are fixed in code; looking
+toward the Understory's 20-degree sun, about 85% of a sunlit patch's
+brightness was specular sheen in the sun's own colour, so five litter
+colours up to 45% darker measured the same (sunlit (122, 101, 70) each) and
+the hills stayed tan. Test a colour change in SHADE, or paint a layer pure
+green for one render: if the sunlit patch barely moves, the colour is not
+your lever. What did help: the ripple. A ForestFloor `litter_scale` is capped
+at 24 a tile (11.4 m), so its leaves are ~47 cm and its normal map draws
+them as dunes; `normal_strength` 0.8 -> 0.5 (the sanitiser's floor) with
+`leaf_thickness` 0.15 halved the ripple (a Laplacian spread 35 -> 17 live),
+and grass tufts on the open tops broke up the rest.
+
 ## Water, sky and light
 
 - The water's look is in the water child's `surface` (`deep_color`,
-  `shallow_color` with alpha, `roughness`, waves, wakes) and in
-  `/environment` (`water_normal_scale_near/far`, `water_sun_glitter`,
-  `water_shore_foam_width`, `water_scatter_color`). Still water: waves and
-  normals small, roughness low.
+  `shallow_color` with alpha, `roughness`, `reflectance` - 0.3 by default,
+  stylised glossy - waves, wakes) and in `/environment`
+  (`water_normal_scale_near/far`, `water_sun_glitter`,
+  `water_shore_foam_width`, `water_scatter_color`).
+- **The normal scales are tiling FREQUENCIES (per metre), not strengths**:
+  the ripple's strength is fixed in the shader. The Understory's pool at
+  `near` 0.35 drew 3 m ripples and read as a choppy grey sea; `near` 12,
+  `far` 1.5 made them fine enough to fade with distance, and the pool read as
+  a still mirror with a sun path (session 877). Still water: a HIGH near
+  frequency, small `wave_scale`, low roughness.
 - Mood is mostly fog: `fog_visibility` in metres, `fog_color`,
   `fog_sun_color` (the glow toward the sun) and `fog_sun_exponent`; a
   saturated fog colour turns the whole sky one flat tint. `sun_position` is
   where the light comes from (its angle above the horizon is its height).
+- **Mood is the admin's.** Dimming the Understory toward dusk (sun 9,000 ->
+  2,500 then 4,000 lux, darker fog and sky) made the glowing threads read a
+  little stronger and the woods much darker; the admin judged both steps
+  too dark and kept the original. Offer a light change live and UNSAVED,
+  one step at a time, say how to undo it, and make no other edit meanwhile
+  (a save would take the trial with it); `revert` restores the saved record
+  exactly.
 
 ## Planting: scatters
 
@@ -136,6 +162,35 @@ A forest is a few generators and a scatter placement each:
   people stand reads as forest. Ground cover wants thousands where people
   look (3000 ferns in a 210 m circle). Put the density inside the fog's
   reach and thin it beyond.
+- **Do the cover arithmetic**: count x one plant's footprint / the circle's
+  area. 1,400 half-metre grass tufts in an 85 m circle covered 1.5% of the
+  ground and did not show; the same count at 1.6x scale, spread evenly
+  (`clumping` 0.3), read as tufted heath. `clumping` 0.75 gathers plants into
+  groups and leaves bare stretches that a single view can miss entirely.
+- **Scaling a small plant up changes what it reads as**: a heather clump
+  (domed lumps with a purple Moss texture) grown to 2.4 m read as a pile of
+  cobbles from above; its fine texture did not scale with it.
+- **A scattered thing's cost is its triangles times its count**: the
+  Understory's `fern_clump` is placed 10,700 times, so a replacement must be
+  a few cards, not an L-system. Read it before bringing a change live:
+  `render --world <your DID> --world-record record.json --triangle-report`
+  (about 2 s) prints the world's total, then each generator's triangles for
+  one copy times its copies, then each placement's cost, dearest first; a
+  scatter's copies are the ones its sampler really places, which can be
+  fewer than its `count`. One generator's count is on the `subject size`
+  line of `render --generator FILE`. An icosphere of resolution n is
+  20 x (n+1)^2 triangles (80 at 1, 720 at 5), not 20 x 4^n.
+- **A scatter can place nothing and say nothing.** The report's `copies`
+  against `requested` finds it: a broadleaf stand laid over the north lake
+  placed 0 of 30 (all water, and its `above_water_band` refused the shore).
+  Check a new scatter's placed count before bringing it live.
+- **Scatters know no clearings.** A scatter skips water, steep ground, the
+  wrong splat layer and road districts - never your buildings. To build in a
+  forest, find where its trees stand: `tools/clearings.py` renders a copy of
+  the record with each scattered generator swapped for a short fat glowing
+  pole of its own colour, from straight above, with your build composed in;
+  move or turn the build until no pole is inside it. The Windthrow's first
+  site had three trees through its trunk.
 - `max_particles` is capped at 512. Small particles (under ~15 cm) do not
   show in a still `look` at any range: they are for people moving through.
 
@@ -259,8 +314,10 @@ saved record, refreshed after every save), a builder per piece writing its
 JSON with `wire.py`, an EDITS file of `pointer file` lines, `rec.py compose`
 folding them into a copy for offline renders, `views.py` for pictures from
 where people stand, and `rec.py apply` sending each edit live. A `room set
-/placements/-` APPENDS: run it once, save, pull the source again, then list
-those placements by their new index - or every re-run adds them again.
+/placements/-` APPENDS, and its answer names where it landed (`"pointer":
+"/placements/150", "appended": true`, #1470); `rec.py apply` rewrites that
+EDITS line to the index, so a re-run sets the placement instead of adding it
+again.
 Session 876 laid four landmarks, an outer forest and the paths between them
 this way in about an hour, each saved as it went.
 
@@ -283,15 +340,47 @@ What made the Understory's outer ring read, and what did not:
   plainly from the pool. Particles do not:
   at 260 m a 2 m mote is a pixel. A material has no alpha, so a spore cloud
   is opaque emissive puffs: overlapping lumps of uneven size at each level
-  read as a plume, a single twisting stack read as pancakes.
+  read as a plume, a single twisting stack read as pancakes. Space the
+  levels CLOSER than a puff's own vertical radius: the Puffball plume's
+  first 30 cream puffs sat 3-4 m apart, 1 m tall each, and read as bread
+  rolls; 75 deep-gold puffs every 1.9 m, growing and leaning downwind
+  (radius and drift both rising with the square of the height), billowed
+  over the treeline as a spore cloud (session 877). Keep the colour
+  saturated to the top and fade the emission strength instead.
+- **Surface detail belongs in a texture, not in nodes.** Lichen as disc
+  patches on the Lichen Tors read as polka dots, then as sparse spots once
+  cut to fit the record budget (200 discs, 30 KB); the `Lichen` texture
+  (rock, two species, pale rims; `coverage`, `patch_scale`,
+  `species_scale`) on the granite itself read as crusted stone at no node
+  cost. Look for a texture before modelling a pattern.
+- **A beacon toward the low sun loses.** The fog glows brightest round the
+  sun, and a violet column there washed out to a faint lilac stick (a wisp
+  over the Windthrow, SW of the landing, dropped). Put glow beacons away
+  from the sun's bearing, or skip them: a place reached by its thread is
+  still an invitation. Close up, 2-3 puffs a level read as a string of beads.
 - **One colour per place**, so they are told apart through the mist: the
   Spore Spires green (west), the Ghost Grove pale mint (north), the
-  Puffball Meadow's plume gold (east), the Great Ring's gills amber (south).
+  Puffball Meadow's plume gold (east), the Great Ring's gills amber (south),
+  the Windthrow violet (south-west), the Lichen Tors scarlet (north-west),
+  the Indigo Shallows blue (north-east lake). A thread arriving at a place
+  turns its colour for its last 25 m (`thread.py --tail-material`).
 - **The outer land needs its forest, not only landmarks.** Stands of the
   world's own trees on the ridges the main area sees (a few hundred trees,
   the lighter conifers and birches first: scatter trees are never culled by
   distance) plus a thin fill out to the edges. A glade in a stand: move the
   stand's `bounds` off it (`room set /placements/N/bounds`).
+- **Check the corners**: forest scatters are circles, so a map's corners
+  lie outside them. The Understory's two outer lakes (490 and 530 m from
+  the pool) stood in bare grass until stands of the world's own trees were
+  scattered round them (`above_water_band` keeps them off the shore).
+  Frame a view, never fill it: trees go behind and beside where people
+  stand to look, not between them and the thing to see - the first try
+  stood a conifer on the Drowned Wood's viewing shore.
+- **Join the neighbours too.** Threads only out from the pool make a star;
+  ten more between neighbouring places (Coral Glade -> Great Ring ->
+  Windthrow, Spore Spires -> Lichen Tors -> Ghost Grove, Indigo Shallows ->
+  Puffball Meadow) made a circuit of the edge a visitor can walk, each
+  thread's tail in the colour of the place it reaches.
 - **A path to each**: glowing threads from the pool's web out to every
   site, laid 5 cm above the ground sampled every 2.5 m, meandering, each
   thread its own generator placed unsnapped at its midpoint (the 100 m spine

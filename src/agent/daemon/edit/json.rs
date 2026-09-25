@@ -10,7 +10,10 @@
 //! or nothing at all for the whole record. Setting a part rebuilds the
 //! record from its JSON and writes it as every other edit is written - see
 //! [`super`] - and the answer shows what the world kept, which the
-//! sanitiser may have pulled back into range.
+//! sanitiser may have pulled back into range. An append (`/placements/-`)
+//! answers where it landed: `pointer` is the new item's own
+//! (`/placements/150`), and `appended` is `true`, a member no other set's
+//! answer has (#1470).
 //!
 //! Reading works in any world; the record of someone else's is their words
 //! and says whose (`named_by`). Writing works in the agent's own.
@@ -59,13 +62,15 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
     let record = super::room_for_edit(world)?;
     let mut document =
         serde_json::to_value(&record).map_err(|e| format!("the record does not serialise: {e}"))?;
-    set_part(&mut document, pointer, value.clone())?;
+    let appended = set_part(&mut document, pointer, value.clone())?;
+    // An append is read back, and answered, where it landed (#1470).
+    let at = appended.as_deref().unwrap_or(pointer);
     let before = super::settle_room(record)?;
     let edited: RoomRecord = serde_json::from_value(document.clone())
         .map_err(|e| unreadable::<RoomRecord>("a world record", &e, &document, ""))?;
     let sent = serde_json::to_value(&edited)
         .ok()
-        .and_then(|document| document.pointer(pointer).cloned());
+        .and_then(|document| document.pointer(at).cloned());
     let label = if pointer.is_empty() {
         "JSON set of the whole record".to_owned()
     } else {
@@ -75,21 +80,24 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
     let live = &world.resource::<LiveRoomRecord>().0;
     let kept = serde_json::to_value(live)
         .ok()
-        .and_then(|document| document.pointer(pointer).cloned());
+        .and_then(|document| document.pointer(at).cloned());
     // Against the record as it was, settled as the write settled the new
     // one: the first write of a never-saved world puts every generator on
     // the wire's grid, and none of those is the set's to answer for.
     let (z_fighting, found) = super::zfight::report(&before.generators, &live.generators);
     let named = z_fighting.len();
-    let adjusted_at = adjustments(pointer, sent.as_ref(), kept.as_ref());
+    let adjusted_at = adjustments(at, sent.as_ref(), kept.as_ref());
     let mut answer = json!({
         "changed": changed,
-        "pointer": pointer,
+        "pointer": at,
         "adjusted": !adjusted_at.is_empty(),
         "kept": kept,
         "z_fighting": z_fighting,
         "record_size": super::size::room(live),
     });
+    if appended.is_some() {
+        answer["appended"] = json!(true);
+    }
     if !adjusted_at.is_empty() {
         answer["adjusted_at"] = json!(adjusted_at);
     }
@@ -303,11 +311,20 @@ pub(super) fn part(document: &Value, pointer: &str) -> Result<Value, String> {
 /// have yet, which adds it, or - as `-`, or the index one past the end -
 /// the end of a list, which appends to it; everything before it has to
 /// exist.
-pub(super) fn set_part(document: &mut Value, pointer: &str, value: Value) -> Result<(), String> {
+///
+/// An append answers where it landed: the pointer with its last step the
+/// new item's index (`/placements/-` becomes `/placements/150`), for the
+/// set to read its value back there (#1470) - `-` names nothing to read.
+/// Any other set answers `None`: its value is at `pointer` itself.
+pub(super) fn set_part(
+    document: &mut Value,
+    pointer: &str,
+    value: Value,
+) -> Result<Option<String>, String> {
     check_pointer(pointer)?;
     let Some((parent, last)) = pointer.rsplit_once('/') else {
         *document = value;
-        return Ok(());
+        return Ok(None);
     };
     if document.pointer(parent).is_none() {
         make_elided_children(document, parent, last);
@@ -322,31 +339,38 @@ pub(super) fn set_part(document: &mut Value, pointer: &str, value: Value) -> Res
     match container {
         Value::Object(members) => {
             members.insert(key, value);
+            Ok(None)
         }
-        Value::Array(items) if key == "-" => items.push(value),
+        Value::Array(items) if key == "-" => Ok(Some(append(items, parent, value))),
         Value::Array(items) => {
             let index: usize = key
                 .parse()
                 .map_err(|_| format!("{parent} is a list, and {key:?} is not an index in it"))?;
             match index.cmp(&items.len()) {
-                std::cmp::Ordering::Less => items[index] = value,
-                std::cmp::Ordering::Equal => items.push(value),
-                std::cmp::Ordering::Greater => {
-                    return Err(format!(
-                        "{parent} holds {} items, so there is no index {index} to set",
-                        items.len()
-                    ));
+                std::cmp::Ordering::Less => {
+                    items[index] = value;
+                    Ok(None)
                 }
+                std::cmp::Ordering::Equal => Ok(Some(append(items, parent, value))),
+                std::cmp::Ordering::Greater => Err(format!(
+                    "{parent} holds {} items, so there is no index {index} to set",
+                    items.len()
+                )),
             }
         }
-        _ => {
-            return Err(format!(
-                "{} is a single value, with no parts to set",
-                if parent.is_empty() { "/" } else { parent }
-            ));
-        }
+        _ => Err(format!(
+            "{} is a single value, with no parts to set",
+            if parent.is_empty() { "/" } else { parent }
+        )),
     }
-    Ok(())
+}
+
+/// Put `value` at the end of `items`, the list at `parent`, and answer the
+/// pointer it landed at.
+fn append(items: &mut Vec<Value>, parent: &str, value: Value) -> String {
+    let landed = format!("{parent}/{}", items.len());
+    items.push(value);
+    landed
 }
 
 /// A node's `children` list is left out of the record while it is empty, so
@@ -437,6 +461,23 @@ mod tests {
 
         set_part(&mut document, "", json!([])).unwrap();
         assert_eq!(document, json!([]));
+    }
+
+    /// An append answers the pointer of what it appended (#1470) - by `-`,
+    /// by the index one past the end, and as the first child of a node
+    /// whose empty list was left out - and any other set answers `None`.
+    #[test]
+    fn an_append_answers_the_index_it_landed_at() {
+        let mut document = json!({ "a": { "b": [10, 20] }, "n": [{ "x": 1 }] });
+        let mut set = |pointer: &str| set_part(&mut document, pointer, json!(7)).unwrap();
+
+        assert_eq!(set("/a/b/-").as_deref(), Some("/a/b/2"));
+        assert_eq!(set("/a/b/3").as_deref(), Some("/a/b/3"));
+        assert_eq!(set("/n/0/children/-").as_deref(), Some("/n/0/children/0"));
+        assert_eq!(set("/n/0/children/-").as_deref(), Some("/n/0/children/1"));
+        assert_eq!(set("/a/b/0"), None);
+        assert_eq!(set("/a/new"), None);
+        assert_eq!(set(""), None);
     }
 
     /// #1458, found rehearsing the body workbench: a node's empty `children`
@@ -729,6 +770,95 @@ mod world_tests {
         assert_eq!(set["adjusted"], true, "{set}");
         assert_eq!(set["adjusted_at"], json!(["/generators/ball/resolution"]));
         assert_eq!(set["kept"]["resolution"], 6);
+    }
+
+    /// The seeded world's first placement of the `$type` `kind`, as its
+    /// JSON, and how many placements the world holds.
+    fn placement_of(app: &App, kind: &str) -> (Value, usize) {
+        let record =
+            serde_json::to_value(&app.world().resource::<LiveRoomRecord>().0).expect("serialises");
+        let placements = record["placements"].as_array().expect("a list");
+        let found = placements.iter().find(|p| p["$type"] == kind).expect(kind);
+        (found.clone(), placements.len())
+    }
+
+    /// #1470, found laying six sites live: an append to `/placements/-`
+    /// answered `kept: null` and never where it landed, so each re-run of
+    /// the script appended the placement again. It answers the new
+    /// placement's own pointer, says it appended, and keeps what the record
+    /// holds there.
+    #[test]
+    fn an_append_answers_where_it_landed() {
+        let (mut app, _) = app_in(AGENT);
+        let (placement, count) = placement_of(&app, "network.symbios.place.absolute");
+
+        let set = room_set(app.world_mut(), "/placements/-", placement.clone()).expect("set");
+
+        let landed = format!("/placements/{count}");
+        assert_eq!(set["pointer"], landed.as_str(), "{set}");
+        assert_eq!(set["appended"], true, "{set}");
+        let record =
+            serde_json::to_value(&app.world().resource::<LiveRoomRecord>().0).expect("serialises");
+        let held = record.pointer(&landed).expect("the new placement");
+        assert_eq!(&set["kept"], held, "{set}");
+        assert_eq!(set["kept"], placement, "{set}");
+        assert_eq!(set["adjusted"], false, "{set}");
+    }
+
+    /// What the sanitiser changes in an appended value is named under where
+    /// it landed (#1470): with `-` in the pointer nothing was read back, and
+    /// the change went unsaid. A scatter asked for more than the most there
+    /// can be.
+    #[test]
+    fn an_adjusted_append_is_named_where_it_landed() {
+        let (mut app, _) = app_in(AGENT);
+        let (mut scatter, count) = placement_of(&app, "network.symbios.place.scatter");
+        let most = crate::pds::limits::MAX_SCATTER_COUNT;
+        scatter["count"] = json!(most + 1);
+
+        let set = room_set(app.world_mut(), "/placements/-", scatter).expect("set");
+
+        assert_eq!(set["adjusted"], true, "{set}");
+        assert_eq!(
+            set["adjusted_at"],
+            json!([format!("/placements/{count}/count")]),
+            "{set}"
+        );
+        assert_eq!(set["kept"]["count"], most, "{set}");
+    }
+
+    /// A set that appends nothing answers as before #1470: the pointer it
+    /// was sent and no member it could not have had then, `appended`
+    /// among them - a placement replaced in place, and a field.
+    #[test]
+    fn a_set_that_appends_nothing_answers_as_before() {
+        let (mut app, _) = app_in(AGENT);
+        let (placement, _) = placement_of(&app, "network.symbios.place.absolute");
+        for (pointer, value) in [
+            ("/placements/0", placement),
+            ("/environment/fog_visibility", json!(1_234_500)),
+        ] {
+            let set = room_set(app.world_mut(), pointer, value).expect("set");
+
+            let before = [
+                "adjusted",
+                "adjusted_at",
+                "changed",
+                "kept",
+                "pointer",
+                "record_size",
+                "z_fighting",
+                "z_fighting_total",
+            ];
+            let members = set.as_object().expect("an object");
+            let new: Vec<&String> = members
+                .keys()
+                .filter(|member| !before.contains(&member.as_str()))
+                .collect();
+            assert!(new.is_empty(), "{pointer}: {new:?} in {set}");
+            assert_eq!(set["pointer"], pointer, "{set}");
+            assert!(!set["kept"].is_null(), "{pointer}: {set}");
+        }
     }
 
     /// What the sanitiser pulls back into range is what the world keeps,

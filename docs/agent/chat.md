@@ -20,7 +20,10 @@ AGENT_ACCOUNT=hypha-ai.bsky.social <repo>/docs/agent/tools/watch.py 0 30
 - Start it with the harness's background mode, NOT with `&` and its output
   thrown away - a watcher nobody hears is no watcher.
 - Resume from `NEXT`, or from a later `seq` if you read events yourself
-  meanwhile. A `seq` from before a restart is ahead of the new daemon's
+  meanwhile. `NEXT` is the last seq already read: pass it as it is, never
+  `NEXT + 1` - a `since` ahead of the log reads as a daemon restart, and the
+  watcher replays every event from 0 (session 877, twice). Its last line,
+  `RE-ARM:`, is the exact command to run next: copy it rather than compute. A `seq` from before a restart is ahead of the new daemon's
   numbering: the log says `restarted` and starts again from 0.
 - A quiet spell exit (15 minutes by default) is a check-in, not an alarm:
   look at `status.peers` before saying anything. An admin who is waiting on
@@ -46,6 +49,16 @@ it. So:
   the old version - say that the lines crossed and that the fix should cover
   it, rather than fixing it twice.
 - A correction line ("*and", "I meant...") belongs to the line before it.
+
+## "Here in front of me"
+
+The admin points by where they stand ("here in front of me is something that
+is probably supposed to look like a dead tree"). Their `status.peers[]`
+position and facing are enough: `tools/views.py DID RECORD OUT "@admin"`
+renders what their eyes see and `"@admincam"` what their screen shows (the
+camera behind them). Session 877 found a scattered dead tree that way in
+one render - 40 copies, all with floating limbs - and had the fix live in
+four minutes.
 
 ## Answering
 

@@ -55,6 +55,38 @@ would have stood 161 pairs of buildings inside each other, a landmark 17 m
 over its own gate, because the siting spaced them by the unscaled size. The
 probe became the fix's two regression tests. Numbers first, then the change.
 
+## Delegating to a sub-agent
+
+Session 877 handed four self-contained jobs to one background sub-agent at a
+time and kept playing meanwhile: a render-tool mode with its tests and
+mutants (46 min), a scattered fern iterated offline over dozens of renders
+(50 min), an agent-command fix with its tests and a helper-script change
+(41 min), a triangle report. The main session spent 5-10k tokens on each
+(brief, review, one look live) against the sub-agent's 180-410k, and built
+and saved seventeen world changes in the same hours.
+
+- **What to hand over**: work whose result fits in a few lines - a code fix
+  with its test and mutation check, a builder iterated against a brief
+  (it returns the JSON's path and ONE picture), a survey, the session-end
+  gate. Keep the live daemon, the admin and the choice of what to build.
+- **The brief is everything it knows**: the goal and how to tell it is
+  done, paths, the issue number, the gates to run, and the traps by name:
+  test-release never `--release`; no git stash/checkout (copy aside); no
+  em-dashes; commits are the owner's; no `chainlink session`/`quick` (it
+  would move the focus - comment on the given issue instead); never touch
+  the live daemon (an offline one with its own `XDG_CONFIG_HOME` and
+  `XDG_RUNTIME_DIR`, stopped and pgrep-checked).
+- **Name the files it may edit, and stay off them** until it reports. A
+  sub-agent editing a tool you are running (rec.py) changes it under you:
+  copy the tool aside and run the copy (with `PYTHONPATH` at tools/ for
+  `agentlib`).
+- **Check before bringing it live**: read the key function, re-run its
+  tests, `strings` the binary for mutant guards, then restart and retry the
+  task live yourself. Sub-agents find more than they were sent for - the
+  avatar set's sanitise order, a u16 handle overflow a 65,536-strong scatter
+  crashes - so read the whole report and file what it found.
+- **Record each delegation's cost and what it saved** on the parent issue.
+
 ## Where things live
 
 | Path | What |

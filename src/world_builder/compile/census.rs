@@ -113,7 +113,6 @@ pub(crate) struct ScatterCensus {
 /// peer's terrain pass produces for that record.
 pub(crate) fn scatter_census(record: &RoomRecord) -> ScatterCensus {
     let heightmap = FinishedHeightMap(crate::terrain::rebuild_heightmap_for_record(record));
-    let terrain_cfg = crate::pds::find_terrain_config(record);
     let water_level = super::water::room_water_level(record);
 
     let rows = record
@@ -125,31 +124,15 @@ pub(crate) fn scatter_census(record: &RoomRecord) -> ScatterCensus {
                 bounds,
                 count,
                 local_seed,
-                biome_filter,
-                avoid_urban,
                 naturalness,
                 ..
             } = p
             else {
                 return None;
             };
-            let exclusions = urban_exclusions(record, *avoid_urban);
             let run = |naturalness: &ScatterNaturalness| {
-                let filters = SampleFilters {
-                    biome_filter,
-                    terrain_cfg,
-                    water_level,
-                    urban_exclusions: &exclusions,
-                    slope_cutoff: slope_cutoff(naturalness),
-                };
-                place(
-                    bounds,
-                    *count,
-                    *local_seed,
-                    naturalness,
-                    &heightmap,
-                    &filters,
-                )
+                replay(record, &heightmap, water_level, p, naturalness)
+                    .expect("the placement is a scatter")
             };
 
             let tuned = run(naturalness);
@@ -187,6 +170,70 @@ pub(crate) fn scatter_census(record: &RoomRecord) -> ScatterCensus {
         .collect();
 
     ScatterCensus { rows }
+}
+
+/// How many instances each placement's scatter places on `heightmap`, by
+/// placement index: `Some` for a scatter, `None` for anything else. The
+/// census's own replay with each scatter's own naturalness - the `placed`
+/// column of [`scatter_census`] - without its controls and its statistics,
+/// so it is cheap enough to run on every `render --triangle-report`
+/// (#1471), which multiplies a scatter's triangles by this and not by its
+/// `count`: the sampler gives up after `count * 10` tries, and a scatter
+/// whose filters refuse most of its ground places fewer than it asks for.
+pub(crate) fn scatter_yields(
+    record: &RoomRecord,
+    heightmap: &FinishedHeightMap,
+) -> Vec<Option<u32>> {
+    let water_level = super::water::room_water_level(record);
+    record
+        .placements
+        .iter()
+        .map(|p| {
+            let Placement::Scatter { naturalness, .. } = p else {
+                return None;
+            };
+            replay(record, heightmap, water_level, p, naturalness).map(|placed| placed.len() as u32)
+        })
+        .collect()
+}
+
+/// One scatter placement's sampler, run with `naturalness` - its own, or
+/// one of the census's controls - against `heightmap`: the world XZ of
+/// every instance it places. `None` when `placement` is not a scatter.
+fn replay(
+    record: &RoomRecord,
+    heightmap: &FinishedHeightMap,
+    water_level: Option<f32>,
+    placement: &Placement,
+    naturalness: &ScatterNaturalness,
+) -> Option<Vec<(f32, f32)>> {
+    let Placement::Scatter {
+        bounds,
+        count,
+        local_seed,
+        biome_filter,
+        avoid_urban,
+        ..
+    } = placement
+    else {
+        return None;
+    };
+    let exclusions = urban_exclusions(record, *avoid_urban);
+    let filters = SampleFilters {
+        biome_filter,
+        terrain_cfg: crate::pds::find_terrain_config(record),
+        water_level,
+        urban_exclusions: &exclusions,
+        slope_cutoff: slope_cutoff(naturalness),
+    };
+    Some(place(
+        bounds,
+        *count,
+        *local_seed,
+        naturalness,
+        heightmap,
+        &filters,
+    ))
 }
 
 /// Run one scatter's sampling loop to completion, returning the world XZ of

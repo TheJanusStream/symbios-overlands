@@ -28,7 +28,7 @@ use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde_json::{Value, json};
 
-use crate::catalogue::{ENTRIES, by_slug};
+use crate::catalogue::by_slug;
 use crate::pds::inventory::is_drop_placeable;
 use crate::pds::{Fp4, Generator, GeneratorKind, Placement, RoomRecord, ScatterBounds};
 use crate::state::{CurrentRoomDid, LiveRoomRecord};
@@ -174,26 +174,11 @@ fn drawn_anchors(world: &mut World) -> HashMap<usize, Transform> {
 }
 
 /// The catalogue's entries - each one whose slug, name, section and
-/// description between them hold every word of `search`, when given.
+/// description between them hold every word of `search`, when given
+/// ([`crate::catalogue::search`], which the render tool's
+/// `--catalogue-sizes` sizes by too).
 pub(super) fn catalogue(search: Option<&str>) -> Value {
-    let words: Vec<String> = search
-        .unwrap_or_default()
-        .split_whitespace()
-        .map(str::to_lowercase)
-        .collect();
-    let entries: Vec<Value> = ENTRIES
-        .iter()
-        .filter(|entry| {
-            let text = format!(
-                "{} {} {} {}",
-                entry.slug(),
-                entry.name(),
-                entry.category().label(),
-                entry.description()
-            )
-            .to_lowercase();
-            words.iter().all(|word| text.contains(word))
-        })
+    let entries: Vec<Value> = crate::catalogue::search(search.unwrap_or_default())
         .map(|entry| {
             json!({
                 "slug": entry.slug(),
@@ -416,6 +401,7 @@ fn turned_to(rotation: Quat, yaw_deg: f32) -> Quat {
 mod tests {
     use super::super::harness::{AGENT, app_in, placeable_slug};
     use super::*;
+    use crate::catalogue::ENTRIES;
     use crate::pds::{Fp, Fp3, TransformData};
     use crate::state::LocalPlayer;
 
@@ -717,5 +703,43 @@ mod tests {
                 .any(|e| e["slug"] == slug)
         );
         assert_eq!(none["count"], 0);
+    }
+
+    /// `render --catalogue-sizes <words>` sizes what this lists for the same
+    /// words, in the same order (#1466): an agent sizes a search's hits in
+    /// one run, so a second matcher there - by name alone, say - would size
+    /// a different set than the one it is choosing from.
+    #[test]
+    fn the_render_tools_size_search_selects_this_listing() {
+        let slugs = |listing: &Value| -> Vec<String> {
+            listing["entries"]
+                .as_array()
+                .expect("entries")
+                .iter()
+                .map(|e| e["slug"].as_str().expect("a slug").to_owned())
+                .collect()
+        };
+        for words in [
+            "lantern",
+            "scrap",
+            "Rust corrugated",
+            "tree",
+            "",
+            "zzqxunlikely",
+        ] {
+            let split: Vec<String> = words.split_whitespace().map(str::to_owned).collect();
+            let sized: Vec<&str> = crate::render_tool::sizes::select(&split)
+                .iter()
+                .map(|entry| entry.slug())
+                .collect();
+            assert_eq!(sized, slugs(&catalogue(Some(words))), "{words:?}");
+        }
+        // Not vacuous: `scrap` finds entries by their descriptions, which a
+        // matcher by name would miss.
+        let by_name = ENTRIES
+            .iter()
+            .filter(|entry| entry.name().to_lowercase().contains("scrap"))
+            .count();
+        assert!(slugs(&catalogue(Some("scrap"))).len() > by_name);
     }
 }

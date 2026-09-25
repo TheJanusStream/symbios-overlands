@@ -3,8 +3,8 @@
 The agent binary and the render tool are found from this file's place in the
 repo (docs/agent/tools/ -> the repo root), built with `--profile test-release`.
 Set AGENT_ACCOUNT to the agent's handle when more than one session is saved:
-it is added at the END of every command, where `room`, `avatar` and `gift`
-take it (after their own verb).
+it is added to every command, at its end - any place would do, as
+`--account` goes anywhere on the line (#1473).
 """
 import json
 import os

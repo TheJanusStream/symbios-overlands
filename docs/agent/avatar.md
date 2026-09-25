@@ -70,7 +70,9 @@ builds - and a build made there is stashed and gifted like anything else:
    from their parent's centre, so that is half the bench's thickness up).
    An empty bench has no `children` in the record at all (an empty list is
    left out); an append makes it (#1458 - before that, the first build on
-   an empty bench was refused with "nothing is at").
+   an empty bench was refused with "nothing is at"). The answer's `pointer`
+   is where the build landed (`.../children/<n>`, #1470): the pointer step 3
+   takes.
 2. Look at it, fix it, `avatar set` again.
 3. `A stash "<name>" --from-avatar /record/body/visuals/children/<bench>/children/<n>`:
    the item stands on the build's own origin, wherever it sat on the body.

@@ -28,6 +28,12 @@ name tags, no chat) - `A ui show <window> --picture` draws that.
 - `bakes_in_flight` above 0 means textures still baking: surfaces show flat
   stand-in colours. In a world's first moments a body can still be its
   translucent stand-in.
+- `world_building: true` means the world is still being rebuilt: after an
+  edit to the terrain, the ground and every scatter respawn over a few
+  seconds, and a picture taken then shows trees missing and old textures
+  (session 877: a look right after a ground-texture edit showed a different
+  forest; the next one, seconds later, the right one). Look again once it
+  is false. Read the whole answer, not just the path.
 - **A still cannot show motion.** Z-fighting (two faces in one place)
   flickers as the viewer moves and is nearly invisible in one frame - rely on
   `room set`'s `z_fighting` list ([building.md](building.md)), not on the

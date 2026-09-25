@@ -61,11 +61,17 @@ pub(super) fn set(world: &mut World, pointer: &str, value: Value) -> Result<Valu
         .0
         .clone();
     let mut document = to_json(&live)?;
-    set_part(&mut document, pointer, value.clone())?;
-    let edited = from_json(&live, document)?;
+    let appended = set_part(&mut document, pointer, value.clone())?;
+    // An append is read back, and answered, where it landed (#1470).
+    let at = appended.as_deref().unwrap_or(pointer);
+    let mut edited = from_json(&live, document)?;
+    // What was sent, as the record writes it, is read before the sanitiser
+    // runs: read after, it was what the world kept, and an avatar's answer
+    // never named an adjustment (#1470).
     let sent = to_json(&edited)
         .ok()
-        .and_then(|document| document.pointer(pointer).cloned());
+        .and_then(|document| document.pointer(at).cloned());
+    edited.sanitize();
     let label = if pointer.is_empty() {
         "JSON set of the whole avatar".to_owned()
     } else {
@@ -79,16 +85,19 @@ pub(super) fn set(world: &mut World, pointer: &str, value: Value) -> Result<Valu
     let changed = super::write_avatar(world, edited, label)?;
     let kept = to_json(&world.resource::<LiveAvatarRecord>().0)
         .ok()
-        .and_then(|document| document.pointer(pointer).cloned());
-    let adjusted_at = super::json::adjustments(pointer, sent.as_ref(), kept.as_ref());
+        .and_then(|document| document.pointer(at).cloned());
+    let adjusted_at = super::json::adjustments(at, sent.as_ref(), kept.as_ref());
     let mut answer = json!({
         "changed": changed,
-        "pointer": pointer,
+        "pointer": at,
         "adjusted": !adjusted_at.is_empty(),
         "kept": kept,
         "others_see_it": seen,
         "record_size": super::size::avatar(&world.resource::<LiveAvatarRecord>().0),
     });
+    if appended.is_some() {
+        answer["appended"] = json!(true);
+    }
     if !adjusted_at.is_empty() {
         answer["adjusted_at"] = json!(adjusted_at);
     }
@@ -163,8 +172,8 @@ fn to_json(avatar: &AvatarRecord) -> Result<Value, String> {
 }
 
 /// The avatar `document` describes, as an edit of `live`: each part read
-/// back from its wire form and the whole sanitised - or why not, when the
-/// edit would change which records the avatar names.
+/// back from its wire form, not yet sanitised - or why not, when the edit
+/// would change which records the avatar names.
 fn from_json(live: &AvatarRecord, document: Value) -> Result<AvatarRecord, String> {
     let Value::Object(mut parts) = document else {
         return Err("the avatar is an object of record, body and worn".to_owned());
@@ -211,7 +220,6 @@ fn from_json(live: &AvatarRecord, document: Value) -> Result<AvatarRecord, Strin
             return Err("what kind of body the avatar has is not an edit of the JSON".to_owned());
         }
     }
-    record.sanitize();
     Ok(record)
 }
 
@@ -267,8 +275,9 @@ mod tests {
     }
 
     /// Read whole and written back whole, an avatar of either kind is
-    /// unchanged - nothing to rebuild, no step to undo. For a rigged body
-    /// the sculpt is part of what is read, not lost on the way back.
+    /// unchanged - nothing to rebuild, no step to undo, nothing the
+    /// sanitiser pulled back. For a rigged body the sculpt is part of what
+    /// is read, not lost on the way back.
     #[test]
     fn an_avatar_read_and_written_back_is_unchanged() {
         for rigged in [true, false] {
@@ -280,6 +289,7 @@ mod tests {
             let set = set(app.world_mut(), "", whole).expect("written");
 
             assert_eq!(set["changed"], false, "rigged {rigged}: {set}");
+            assert_eq!(set["adjusted"], false, "rigged {rigged}: {set}");
         }
     }
 
@@ -319,6 +329,95 @@ mod tests {
 
         assert_eq!(set["adjusted"], false, "{set}");
         assert!(set.get("adjusted_at").is_none(), "{set}");
+    }
+
+    /// How many children a generator body's root has: none is a list the
+    /// record leaves out.
+    fn body_children(app: &mut App) -> usize {
+        get_all(app)["record"]["body"]["visuals"]["children"]
+            .as_array()
+            .map_or(0, Vec::len)
+    }
+
+    /// An append to a generator body's children answers where it landed,
+    /// as a world's does (#1470): the new child's own pointer, `appended`,
+    /// and what the body keeps there - `kept` was null, the pointer ending
+    /// in `-`.
+    #[test]
+    fn an_append_to_the_body_answers_where_it_landed() {
+        let (mut app, _) = app_in(AGENT);
+        wearing(&mut app, seeded(false));
+        let children = body_children(&mut app);
+        let ball = json!({
+            "$type": "network.symbios.gen.sphere",
+            "radius": 1_000,
+            "resolution": 2,
+            "solid": false,
+        });
+
+        let set = set(app.world_mut(), "/record/body/visuals/children/-", ball).expect("set");
+
+        let landed = format!("/record/body/visuals/children/{children}");
+        assert_eq!(set["pointer"], landed.as_str(), "{set}");
+        assert_eq!(set["appended"], true, "{set}");
+        let held = get(app.world_mut(), &landed).expect("the new child")["value"].clone();
+        assert_eq!(set["kept"], held, "{set}");
+        assert_eq!(set["kept"]["radius"], 1_000, "{set}");
+    }
+
+    /// What the sanitiser changes in a body part appended is named under
+    /// where it landed (#1470): a sphere asked for more subdivisions than
+    /// a body may have.
+    #[test]
+    fn an_adjusted_append_to_the_body_is_named_where_it_landed() {
+        let (mut app, _) = app_in(AGENT);
+        wearing(&mut app, seeded(false));
+        let children = body_children(&mut app);
+        let ball = json!({
+            "$type": "network.symbios.gen.sphere",
+            "radius": 1_000,
+            "resolution": 24,
+            "solid": false,
+        });
+
+        let set = set(app.world_mut(), "/record/body/visuals/children/-", ball).expect("set");
+
+        assert_eq!(set["adjusted"], true, "{set}");
+        assert_eq!(
+            set["adjusted_at"],
+            json!([format!(
+                "/record/body/visuals/children/{children}/resolution"
+            )]),
+            "{set}"
+        );
+    }
+
+    /// A set that appends nothing answers as before #1470: the pointer it
+    /// was sent and no member it could not have had then, `appended`
+    /// among them.
+    #[test]
+    fn a_set_that_appends_nothing_answers_as_before() {
+        let (mut app, _) = app_in(AGENT);
+        wearing(&mut app, seeded(false));
+
+        let set = set(app.world_mut(), "/record/gait", Value::Null).expect("written");
+
+        let before = [
+            "adjusted",
+            "adjusted_at",
+            "changed",
+            "kept",
+            "others_see_it",
+            "pointer",
+            "record_size",
+        ];
+        let members = set.as_object().expect("an object");
+        let new: Vec<&String> = members
+            .keys()
+            .filter(|member| !before.contains(&member.as_str()))
+            .collect();
+        assert!(new.is_empty(), "{new:?} in {set}");
+        assert_eq!(set["pointer"], "/record/gait", "{set}");
     }
 
     /// A rigged body's sculpt is edited through `body`, and others see it

@@ -22,7 +22,8 @@
 //! * [`environment`] - [`apply_environment_state`] (its own system).
 //! * [`scatter`] - sampling helpers and the biome-rule evaluator.
 //! * [`census`] - offline replay of the sampling loop, for measuring what
-//!   a seeded room actually places (`render --scatter-census`).
+//!   a seeded room actually places (`render --scatter-census`, and the
+//!   placed counts `render --triangle-report` multiplies by).
 //! * [`dispatch`] - recursive [`spawn_generator`] +
 //!   [`dispatch::dispatch_top_level`] walker into the per-generator spawners.
 //! * [`contact_recipes`] - [`apply_contact_recipes`] system.
@@ -47,7 +48,7 @@ pub(crate) mod water;
 // through this re-export. Behavioural surface is identical to the
 // pre-refactor flat `compile.rs`.
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) use census::scatter_census;
+pub(crate) use census::{scatter_census, scatter_yields};
 pub(super) use contact_recipes::apply_contact_recipes;
 pub use dispatch::spawn_generator;
 /// The key a node's caches and grammar diagnostics are filed under (#1250

@@ -57,6 +57,8 @@ def main():
                 print(at, json.dumps(e, ensure_ascii=False))
             print("WAKE:", "; ".join(why) or "quiet")
             print(f"NEXT={since}")
+            # the exact re-arm: NEXT as it is - NEXT + 1 reads as a daemon restart and replays from 0
+            print(f"RE-ARM: {sys.argv[0]} {since} {sys.argv[2] if len(sys.argv) > 2 else 15}")
             return
 
 

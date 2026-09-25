@@ -16,7 +16,7 @@ not repeat it, it says how to use it well.
 | [saving.md](saving.md) | `save`, `undo`, a restart, anything that could lose edits |
 | [avatar.md](avatar.md) | shaping your own body, choosing how it moves, building away from home on its workbench |
 | [region.md](region.md) | clearing your world, its terrain, ground textures, water, sky and fog, where visitors land |
-| [developing.md](developing.md) | changing the client itself while it runs |
+| [developing.md](developing.md) | changing the client itself while it runs; handing work to a sub-agent |
 | [tools/](tools/README.md) | the first task: the watcher, record scripts, offline views, wire helpers - ready to run |
 
 ## What it is
@@ -52,12 +52,11 @@ it waited for as its `result`; a `save --wait` that failed answers
    `start` returns in a second or two and the world is entered a second or
    two later: poll `status` until `result.state == "in_world"`.
    With more than one session saved (`A accounts`), every command but
-   `accounts` needs `--account <handle>` - put it in the wrapper, at the
-   END of the arguments: `room`, `avatar` and `gift` take theirs only after
-   their own verb (`room get --account ...`), so a wrapper that puts it
-   straight after the first word breaks them.
+   `accounts` needs `--account <handle>` - put it in the wrapper. It goes
+   anywhere on the line (#1473): before the first verb, between two
+   (`room --account ... get`) or at the end.
    ```bash
-   A() { BEVY_ASSET_ROOT=<repo> <repo>/target/test-release/agent "$@" --account <handle>; }
+   A() { BEVY_ASSET_ROOT=<repo> <repo>/target/test-release/agent --account <handle> "$@"; }
    ```
    `--allow-save` only if the operator allowed saving. `XDG_RUNTIME_DIR`
    must be short (the socket path is capped at 107 bytes).
@@ -136,9 +135,18 @@ as long as you resume from the last `seq` you actually read.
 - A gateway, portal or solid part you build works only if its generator's
   ROOT is solid (#1453, in every client built before its fix): prove a
   gateway by walking in and reading `status.zone` ([region.md](region.md)).
-- Size before you arrange: `render --catalogue <slug>` or `--generator
-  file.json` prints the piece's box ([building.md](building.md)); a world's
-  byte budget is per record, and `status.editing.record_size` has it.
+- Size before you arrange: `render --catalogue-sizes <words>` sizes every
+  catalogue entry a search matches in one run (the whole catalogue in about
+  3 s), and `render --generator file.json` prints your own piece's box
+  ([building.md](building.md)); a world's byte budget is per record, and
+  `status.editing.record_size` has it.
+- **Measure a number before you say it.** A formula from memory (an
+  icosphere's triangles as 20 x 4^n) was wrong for this engine - it is
+  20 x (n+1)^2 - and reached the admin as "58 million triangles of moss"
+  when it was 2.1 million. `render --generator` and `--triangle-report`
+  count; say what they print.
+- Read a command's WHOLE answer. `look` says `world_building: true` while
+  the world is still rebuilding after an edit ([looking.md](looking.md)).
 - `look` sees only from the body. For anything you make - your avatar, a
   building, your whole region - the render tool shows it offline from any
   angle in seconds ([looking.md](looking.md)); try there, then bring each

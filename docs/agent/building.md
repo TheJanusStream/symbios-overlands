@@ -8,7 +8,8 @@ kept only once saved ([saving.md](saving.md)).
 - **A catalogue entry:** `A place <slug> --at X Z --yaw D`. Search with
   `A catalogue <words>` - it matches names AND descriptions, so search by
   material and mood (`corrugated`, `rust`, `scrap`, `salvage`, `plank`,
-  `marble`) as well as by the thing (`garage`). The listing has no sizes.
+  `marble`) as well as by the thing (`garage`). The listing has no sizes:
+  `render --catalogue-sizes <words>` sizes all its hits in one run (below).
 - **A building of your own:** write a generator as JSON with
   `A room set /generators/<name> '<json>'`, then `A place <name> --at X Z
   --yaw D`. `place` takes a generator already in the record by its name.
@@ -32,7 +33,7 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   everything is drawn either way.
 - Kinds used so far: `cuboid` (`size`), `cylinder` (`radius`, `height`,
   `resolution` 3..128, axis along +Y), `sphere` (`radius`, `resolution` =
-  icosphere subdivisions 0..6, about 20 x 4^n triangles), `torus`
+  icosphere subdivisions 0..6: 20 x (n+1)^2 triangles - 80 at 1, 720 at 5; `render --generator` prints the count), `torus`
   (`major_radius`, `minor_radius`; lies flat, axis +Y - a quarter turn about
   X stands it on its tread).
 - `torture` reshapes a primitive: `hollow` (the bore as a fraction of the
@@ -46,6 +47,14 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   soil bed. Work in absolute positions in a script and subtract the root's
   position last; a root with no transform (a tiny part hidden inside
   another) keeps every child's offset a plain world-frame one.
+- **A child does not follow its parent's `torture`**: taper, bend and bulge
+  reshape the parent's own mesh only. The Understory's dead tree (40 copies)
+  tapered its trunk to half width at the top and placed its limbs for the
+  untapered radius, so its top limbs floated free of the trunk - the admin
+  spotted it from the ground. Place anything "on the surface" of a deformed
+  part at the deformed radius at its height (a lathe makes that easy: its
+  radius at any height is yours to compute), and start a limb INSIDE the
+  trunk, not at its surface.
 - **The generator's origin stands on the ground** at the placement's point:
   local y = 0 is the ground there. On dunes or a slope, sink walls about a
   metre below 0 so no gap shows under them.
@@ -84,14 +93,23 @@ building's frame through it.
 - Colour is the admin's call. Keep one material per visible surface; two
   shades side by side read as a patch, and the lighter corrugated rust read
   as "too bright and yellow" next to the darker one.
+- **A texture has a shape of its own**: a `Plank` texture on a round trunk
+  read as square tiles; `Bark` on a lathe runs its furrows round it unless
+  `uv_rotation` is 90. Surface detail belongs in a texture, not in extra
+  nodes: the `Lichen` texture made lichen-crusted granite where 200 disc
+  patches read as polka dots ([region.md](region.md), "Backdrop").
 
 ## Sizes, footprints, clearances
 
-- `catalogue` gives no sizes, but the render tool does (#1448):
-  `render --catalogue <slug>` or `render --generator piece.json` prints
-  `subject size X x Y x Z m (x, y, z), from [..] to [..]` - the box its
-  meshes fill, from its origin - before it renders. Use it for every piece
-  before arranging it, then compute its box in your building's frame. A small script that says "which
+- `catalogue` gives no sizes, but the render tool does. A search's hits in
+  one run (#1466): `render --catalogue-sizes <words>` sizes exactly the
+  entries `A catalogue <words>` lists (no words: all of them, about 3 s)
+  and prints one JSON object, `entries` of `{slug, name, size, from, to}`
+  in metres from each entry's origin, and `unsized` of `{slug, why}`. One
+  piece (#1448): `render --catalogue <slug>` or `render --generator
+  piece.json` prints the same box as `subject size X x Y x Z m (x, y, z),
+  from [..] to [..]` before it renders. Size every piece before arranging
+  it, then compute its box in your building's frame. A small script that says "which
   of my walls does this cut" pays for itself: in the live garage the yard
   junk cut 13 cm through a side wall, invisible from the front.
 - Building around a person: an interior of 5.2 x 7 m held a 2 x 3 m buggy

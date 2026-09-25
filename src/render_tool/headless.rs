@@ -140,13 +140,48 @@ const SLOT_SPACING: f32 = 1000.0;
 
 /// The framing query: every mesh entity that isn't a tile camera or a live
 /// particle quad. Aliased because it appears in three signatures and the
-/// inline form trips `clippy::type_complexity`.
-type SubjectQuery<'w, 's> = Query<
+/// inline form trips `clippy::type_complexity`; `--catalogue-sizes` reads
+/// its entries' meshes through it too, so both see the same meshes.
+pub(super) type SubjectQuery<'w, 's> = Query<
     'w,
     's,
     (&'static GlobalTransform, &'static Aabb),
     (Without<TileCam>, Without<Particle>, Without<GroundPlane>),
 >;
+
+/// The meshes [`SubjectQuery`] bounds, filter for filter, as the handles
+/// whose triangles the `subject size` line and `--catalogue-sizes` count
+/// (#1471): the box and the count always read the same entities. A live
+/// particle quad is left out of both.
+pub(super) type SubjectMeshQuery<'w, 's> = Query<
+    'w,
+    's,
+    &'static Mesh3d,
+    (
+        With<Aabb>,
+        Without<TileCam>,
+        Without<Particle>,
+        Without<GroundPlane>,
+    ),
+>;
+
+/// What the framing reads beside the subject's boxes: its particle
+/// emitters, which stretch the box, and its meshes, whose triangles the
+/// `subject size` line counts (#1471). Bundled because [`drive`] is at
+/// Bevy's sixteen-parameter ceiling.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(super) struct SubjectParts<'w, 's> {
+    emitters: Query<'w, 's, &'static GlobalTransform, With<ParticleEmitterMarker>>,
+    meshes: SubjectMeshQuery<'w, 's>,
+    assets: Res<'w, Assets<Mesh>>,
+}
+
+impl SubjectParts<'_, '_> {
+    /// The triangles every subject mesh draws, one mesh an entity.
+    fn triangles(&self) -> super::triangles::Tally {
+        super::triangles::tally(self.meshes.iter(), &self.assets)
+    }
+}
 
 /// The slot-placement query: a line-up slot's chassis entity, which
 /// `--play-view` moves once its bounds have resolved. Filtered off the two
@@ -163,8 +198,8 @@ const PLAY_GAP: f32 = 1.18;
 /// Frames to wait for every lineup slot's AABB before framing falls back to a
 /// tiny placeholder bound for the missing slots (a degenerate variant - e.g.
 /// an iteration count whose derivation produced no meshes - must not hang the
-/// tool).
-const FRAME_GRACE: u32 = 300;
+/// tool). `--catalogue-sizes` lists an entry unsized after as many.
+pub(super) const FRAME_GRACE: u32 = 300;
 
 /// Frames `--terrain` waits for the splat pass before giving up. Generous
 /// because the work behind it is a heightmap job plus four texture bakes on
@@ -834,7 +869,7 @@ pub(super) fn drive(
     targets: Res<Targets>,
     job: Res<RenderJob>,
     subject: SubjectQuery,
-    emitters: Query<&GlobalTransform, With<ParticleEmitterMarker>>,
+    parts: SubjectParts,
     mut cams: Query<(&mut Transform, &TileCam)>,
     mut slots: PlaySlotQuery,
     walkers: Query<(&Transform, &Walker), Without<TileCam>>,
@@ -861,7 +896,7 @@ pub(super) fn drive(
                     &job,
                     &targets,
                     &subject,
-                    &emitters,
+                    &parts,
                     &mut cams,
                     &mut slots,
                 ),
@@ -1170,10 +1205,11 @@ fn frame_subject(
     job: &RenderJob,
     targets: &Targets,
     subject: &SubjectQuery,
-    emitters: &Query<&GlobalTransform, With<ParticleEmitterMarker>>,
+    parts: &SubjectParts,
     cams: &mut Query<(&mut Transform, &TileCam)>,
     slots: &mut PlaySlotQuery,
 ) -> bool {
+    let emitters = &parts.emitters;
     capture.waited += 1;
     if job.play.is_some() {
         return frame_play_view(capture, job, subject, slots);
@@ -1189,7 +1225,7 @@ fn frame_subject(
         // fall back to a placeholder bound and capture the empty frame.
         let measured = subject_box(subject, emitters);
         if let Some((min, max)) = measured {
-            println!("{}", describe_box(min, max));
+            println!("{}", describe_box(min, max, parts.triangles()));
         }
         let bounds = subject_bounds(subject, emitters)
             .or_else(|| (capture.waited > FRAME_GRACE).then_some((Vec3::Y * 0.5, 0.5)));
@@ -1543,13 +1579,26 @@ fn subject_bounds(
 /// The world box the subject's meshes (and particle emitters) fill, as
 /// `(min, max)` - what the turntable frames, and what `--generator` and
 /// `--catalogue` print as the subject's size (#1448).
-fn subject_box(
+pub(super) fn subject_box(
     q: &SubjectQuery,
     emitters: &Query<&GlobalTransform, With<ParticleEmitterMarker>>,
 ) -> Option<(Vec3, Vec3)> {
+    union_box(q.iter(), emitters.iter())
+}
+
+/// The world box `meshes` fill, each one's bounds carried through its
+/// transform corner by corner, stretched to take in the `emitters`'
+/// anchors - [`subject_box`]'s fold over any set of entities, so
+/// `--catalogue-sizes` measures each of its entries as the turntable
+/// measures its one (#1466). `None` when there is no mesh: an emitter alone
+/// is not a box.
+pub(super) fn union_box<'a>(
+    meshes: impl IntoIterator<Item = (&'a GlobalTransform, &'a Aabb)>,
+    emitters: impl IntoIterator<Item = &'a GlobalTransform>,
+) -> Option<(Vec3, Vec3)> {
     let (mut min, mut max) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
     let mut any = false;
-    for (gt, aabb) in q.iter() {
+    for (gt, aabb) in meshes {
         any = true;
         let c = Vec3::from(aabb.center);
         let h = Vec3::from(aabb.half_extents);
@@ -1566,7 +1615,7 @@ fn subject_box(
     if !any {
         return None;
     }
-    for gt in emitters.iter() {
+    for gt in emitters {
         let p = gt.translation();
         min = min.min(p);
         max = max.max(p);
@@ -1575,11 +1624,12 @@ fn subject_box(
 }
 
 /// One line saying how big the subject is and where it reaches, in metres
-/// from its origin - the numbers a builder arranging pieces needs (#1448).
-fn describe_box(min: Vec3, max: Vec3) -> String {
+/// from its origin - the numbers a builder arranging pieces needs (#1448) -
+/// and what it costs to draw, in triangles (#1471).
+pub(super) fn describe_box(min: Vec3, max: Vec3, triangles: super::triangles::Tally) -> String {
     let size = max - min;
     format!(
-        "subject size {:.2} x {:.2} x {:.2} m (x, y, z), from [{:.2}, {:.2}, {:.2}] to [{:.2}, {:.2}, {:.2}]",
+        "subject size {:.2} x {:.2} x {:.2} m (x, y, z), from [{:.2}, {:.2}, {:.2}] to [{:.2}, {:.2}, {:.2}], {triangles}",
         size.x, size.y, size.z, min.x, min.y, min.z, max.x, max.y, max.z
     )
 }
@@ -1740,10 +1790,14 @@ mod tests {
     /// from the subject's origin.
     #[test]
     fn the_subject_box_is_said_in_metres() {
-        let line = describe_box(Vec3::new(-1.5, -0.2, -0.75), Vec3::new(1.5, 4.6, 0.75));
+        let line = describe_box(
+            Vec3::new(-1.5, -0.2, -0.75),
+            Vec3::new(1.5, 4.6, 0.75),
+            super::super::triangles::Tally::counted(20480),
+        );
         assert_eq!(
             line,
-            "subject size 3.00 x 4.80 x 1.50 m (x, y, z), from [-1.50, -0.20, -0.75] to [1.50, 4.60, 0.75]"
+            "subject size 3.00 x 4.80 x 1.50 m (x, y, z), from [-1.50, -0.20, -0.75] to [1.50, 4.60, 0.75], 20480 triangles"
         );
     }
     use bevy::ecs::system::RunSystemOnce;
@@ -1804,6 +1858,7 @@ mod tests {
     fn a_clip_camera_is_aimed_when_the_subject_is_framed_not_when_shot() {
         let mut world = World::new();
         world.init_resource::<Capture>();
+        world.init_resource::<Assets<Mesh>>();
         world.init_resource::<bevy::ecs::message::Messages<AppExit>>();
         world.insert_resource(Clock {
             step: 0.1,

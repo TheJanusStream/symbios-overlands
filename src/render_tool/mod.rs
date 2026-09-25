@@ -88,6 +88,14 @@
 //! `--stitch` (PNG frame directories → one GIF) and the offline session-log
 //! analyzers `--analyze-session` / `--diff-sessions`. See the per-arg docs
 //! on `Args`.
+//!
+//! `--catalogue-sizes [WORDS...]` (see `sizes.rs`, #1466) is between the
+//! render modes and those: it stands up an app, with no renderer, to grow
+//! every catalogue entry a search finds through the real spawn path, and
+//! prints each one's box - the turntable's `subject size` - and its
+//! triangles as one JSON object. `--world ... --triangle-report` (see
+//! `triangles.rs`, #1471) grows a world's placed generators in the same
+//! app and prints what each placement costs to draw.
 
 use std::time::Duration;
 
@@ -108,8 +116,10 @@ mod figure;
 mod gif;
 mod headless;
 mod rig;
+pub(crate) mod sizes;
 mod terrain_report;
 mod text_tools;
+mod triangles;
 mod world;
 
 pub(crate) use headless::new_target;
@@ -147,6 +157,10 @@ const DEFAULT_FRAME: (u32, u32) = (896, 504);
 /// quoted at (#1360), and 1920 is a multiple of 64 so the readback still
 /// needs no padding.
 const PLAY_FRAME: (u32, u32) = (1920, 1080);
+/// The DID a catalogue entry is built for here: the personalisable ones
+/// stamp it where a player's own would go. `--catalogue` and
+/// `--catalogue-sizes` build with it alike, so both measure one tree.
+const TOOL_DID: &str = "did:render:tool";
 
 #[derive(Parser)]
 #[command(
@@ -297,6 +311,16 @@ struct Args {
     /// Catalogue subject: an entry slug (e.g. `villa`, `bench`, `wizard_tower`).
     #[arg(long)]
     catalogue: Option<String>,
+    /// Size many catalogue entries in one run and exit, rendering nothing
+    /// (#1466): every entry whose slug, name, section and description
+    /// between them hold all of these words - what `agent catalogue` lists
+    /// for them - or the whole catalogue with no words. Prints one JSON
+    /// object, `{"entries": [{"slug", "name", "size", "from", "to",
+    /// "triangles"}], "unsized": [{"slug", "why"}]}`: each box and count is
+    /// the one a `--catalogue` turntable prints as its `subject size` line,
+    /// the box in metres to the centimetre. See `sizes.rs`.
+    #[arg(long, num_args = 0.., value_name = "WORDS")]
+    catalogue_sizes: Option<Vec<String>>,
     /// With `--catalogue <plant-slug>`: apply that plant's named material
     /// re-skin (#910) before rendering - e.g.
     /// `--catalogue lsys_monopodial_tree --variant larch_gold`. Variants
@@ -669,6 +693,16 @@ struct Args {
     /// above with all of it on.
     #[arg(long, requires = "world")]
     terrain_report: bool,
+    /// With `--world`: print what the world costs to draw, in triangles,
+    /// and exit without rendering (#1471). One JSON object: the totals
+    /// (the placements, the terrain's ground mesh, and both), what is not
+    /// counted, each placed generator's triangles for one copy times its
+    /// copies, and each placement's cost - 1 copy for an absolute, a grid's
+    /// cells, the instances a scatter's sampler actually places - both
+    /// lists dearest first, a row a line. Reads `--world-record` when
+    /// given, as a render does. See `triangles.rs`.
+    #[arg(long, requires = "world", conflicts_with = "terrain_report")]
+    triangle_report: bool,
     /// With `--terrain-report`: a point to read, `X,Z` in world metres;
     /// repeat for more. A negative X needs the `=`: `--at=-18.6,22`.
     #[arg(long, value_name = "X,Z", requires = "terrain_report")]
@@ -784,6 +818,14 @@ pub fn run() {
         return;
     }
 
+    // `--triangle-report`: print what a world's placements cost to draw
+    // and exit - never renders (#1471).
+    if args.triangle_report {
+        let world = args.world.as_deref().expect("clap requires --world");
+        triangles::print_triangle_report(world, &report_record(&args));
+        return;
+    }
+
     // `--terrain-report`: print a world's ground as numbers (and draw its
     // plan view) and exit - the region-design tool, never renders (#1449).
     if args.terrain_report {
@@ -833,6 +875,13 @@ pub fn run() {
         return;
     }
 
+    // `--catalogue-sizes [words]`: grow every entry a catalogue search finds
+    // in one app with no renderer, print their boxes as JSON and exit (#1466).
+    if let Some(words) = &args.catalogue_sizes {
+        sizes::print_catalogue_sizes(words);
+        return;
+    }
+
     // `--dump`: serialize the subject's generator to stdout (a valid
     // `--generator` seed) and exit before standing up the render app. Supports
     // a catalogue slug, a primitive tag (with the `--cut`/`--hollow`/…
@@ -842,7 +891,7 @@ pub fn run() {
         let g = if let Some(slug) = args.catalogue.as_deref() {
             crate::catalogue::by_slug(slug)
                 .unwrap_or_else(|| panic!("unknown catalogue slug {slug:?}"))
-                .build("did:render:tool")
+                .build(TOOL_DID)
         } else if let Some(tag) = args.prim.as_deref() {
             // Same construction as resolve_subject's --prim arm, so the
             // dumped JSON is exactly what a render of the same flags spawns.
@@ -1427,14 +1476,7 @@ fn seeded_slot(spec: &str, livery: Option<usize>) -> Slot {
 /// `--terrain-report`: the world `--world` names (or the record in
 /// `--world-record`), read as numbers - and drawn from above with `--plan`.
 fn print_terrain_report(args: &Args) {
-    let world = args.world.as_deref().expect("clap requires --world");
-    let record = match &args.world_record {
-        Some(path) => read_room_record(path),
-        None => match world.parse::<u64>() {
-            Ok(seed) => RoomRecord::default_for_seed(seed, &format!("did:render:{seed}")),
-            Err(_) => RoomRecord::default_for_did(world),
-        },
-    };
+    let record = report_record(args);
     let points = args.at.iter().map(|raw| terrain_report::parse_xz(raw));
     let at = match points.collect::<Result<Vec<_>, _>>() {
         Ok(at) => at,
@@ -1474,6 +1516,19 @@ fn print_terrain_report(args: &Args) {
         "{}",
         serde_json::to_string_pretty(&report).expect("a report serialises")
     );
+}
+
+/// The record a no-render world report reads: the one in `--world-record`,
+/// or else the world `--world` names, seeded.
+fn report_record(args: &Args) -> RoomRecord {
+    let world = args.world.as_deref().expect("clap requires --world");
+    match &args.world_record {
+        Some(path) => read_room_record(path),
+        None => match world.parse::<u64>() {
+            Ok(seed) => RoomRecord::default_for_seed(seed, &format!("did:render:{seed}")),
+            Err(_) => RoomRecord::default_for_did(world),
+        },
+    }
 }
 
 /// `--world-record`: a room record read from its wire-form JSON, sanitised
@@ -1605,7 +1660,7 @@ fn resolve_subject(args: &Args) -> Resolved {
     if let Some(slug) = &args.catalogue {
         let entry = crate::catalogue::by_slug(slug)
             .unwrap_or_else(|| panic!("unknown catalogue slug {slug:?}"));
-        let mut generator = entry.build("did:render:tool");
+        let mut generator = entry.build(TOOL_DID);
         let mut label = format!("cat-{slug}");
         if let Some(variant) = &args.variant {
             if variant == "list" {

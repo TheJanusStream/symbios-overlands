@@ -4,7 +4,8 @@
 //! reads it the same way every time; progress meant for a person goes to
 //! stderr.
 
-use clap::{Args, Parser, Subcommand};
+use clap::error::ErrorKind;
+use clap::{Arg, ArgMatches, Args, FromArgMatches, Parser, Subcommand};
 
 use crate::config::login::{DEFAULT_PDS, DEFAULT_RELAY_HOST};
 
@@ -15,8 +16,71 @@ use super::control::protocol::{EditRecord, LookView};
 #[derive(Parser, Debug)]
 #[command(name = "agent", version)]
 pub struct Cli {
+    /// `--account`, declared once for every command. Each command reads it
+    /// back as its own [`AccountArg`], so nothing reads this field.
+    #[command(flatten)]
+    _account: AccountFlag,
     #[command(subcommand)]
     pub command: Command,
+}
+
+/// The id `--account` is declared and read back under.
+const ACCOUNT: &str = "account";
+
+/// The one declaration of `--account` (#1473). It is global, so it may
+/// stand anywhere on the line - before the first verb, between two, or
+/// after the last - and clap hands its value to every command down the
+/// line, each of which reads it as an [`AccountArg`].
+///
+/// It also refuses the flag where it would be ignored, wherever it stands:
+/// `accounts` lists every session, and an offline agent has no account.
+/// clap checks a command's conflicts only among the words after that
+/// command, so a `conflicts_with` on `--offline` could not see an
+/// `--account` given before `start`.
+#[derive(Debug, Clone, Copy, Default)]
+struct AccountFlag;
+
+impl Args for AccountFlag {
+    fn augment_args(cmd: clap::Command) -> clap::Command {
+        cmd.arg(
+            Arg::new(ACCOUNT)
+                .long(ACCOUNT)
+                .value_name("HANDLE_OR_DID")
+                .global(true)
+                .help(
+                    "The agent's account, as a handle or DID, anywhere on the line. \
+                     Needed only when more than one session is saved",
+                ),
+        )
+    }
+
+    fn augment_args_for_update(cmd: clap::Command) -> clap::Command {
+        Self::augment_args(cmd)
+    }
+}
+
+impl FromArgMatches for AccountFlag {
+    fn from_arg_matches(matches: &ArgMatches) -> Result<Self, clap::Error> {
+        if !matches.contains_id(ACCOUNT) {
+            return Ok(Self);
+        }
+        let refused = |why: &str| Err(clap::Error::raw(ErrorKind::ArgumentConflict, why));
+        match matches.subcommand() {
+            Some(("accounts", _)) => {
+                refused("`accounts` lists every saved session; it takes no '--account'\n")
+            }
+            Some(("start" | "run", run)) if run.get_flag("offline") => refused(
+                "the argument '--offline' cannot be used with '--account <HANDLE_OR_DID>': \
+                 an offline agent has no account\n",
+            ),
+            _ => Ok(Self),
+        }
+    }
+
+    fn update_from_arg_matches(&mut self, matches: &ArgMatches) -> Result<(), clap::Error> {
+        *self = Self::from_arg_matches(matches)?;
+        Ok(())
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -25,6 +89,10 @@ pub enum Command {
     /// session so the agent can run with nobody at the keyboard.
     Login(LoginArgs),
     /// List the saved agent sessions.
+    // All of them, so it takes no `--account`. An arg of its own under the
+    // same id stops the global one reaching it - and its help - and
+    // [`AccountFlag`] refuses the flag wherever it stands.
+    #[command(arg(Arg::new(ACCOUNT).long(ACCOUNT).hide(true)))]
     Accounts,
     /// Start the agent in the background: resume its saved session and enter
     /// a world as a player. Returns once it takes commands.
@@ -112,9 +180,8 @@ pub enum Command {
 
 #[derive(Args, Debug)]
 pub struct UiArgs {
-    /// The agent's account, as a handle or DID. Needed only when more than
-    /// one session is saved.
-    #[arg(long = "account", value_name = "HANDLE_OR_DID", global = true)]
+    /// `--account`, wherever on the line it was given.
+    #[arg(id = ACCOUNT, from_global)]
     pub account: Option<String>,
     /// With `agent ui` alone: a PNG of the whole interface as a person
     /// sees it - drawn only when asked - and where it was written.
@@ -499,12 +566,11 @@ pub struct SayArgs {
     pub text: String,
 }
 
-/// Which agent a command is for.
+/// Which agent a command is for: `--account`, wherever on the line it was
+/// given. [`AccountFlag`] declares it; this only reads it back.
 #[derive(Args, Debug)]
 pub struct AccountArg {
-    /// The agent's account, as a handle or DID. Needed only when more than
-    /// one session is saved.
-    #[arg(long = "account", value_name = "HANDLE_OR_DID")]
+    #[arg(id = ACCOUNT, from_global)]
     pub name: Option<String>,
 }
 
@@ -519,7 +585,9 @@ pub struct RunArgs {
     /// (or the --room it names). Nobody sees it and nothing it does is
     /// saved - for trying the agent out. Its identity resolves nowhere, so
     /// once it travels away it cannot travel back `home`.
-    #[arg(long, conflicts_with = "name")]
+    // Refused with `--account`, which `AccountFlag` checks wherever on the
+    // line that stands (#1473).
+    #[arg(long)]
     pub offline: bool,
     /// Offline only: stand in as this identity instead - its seeded world
     /// and its seeded body. A DID no directory knows keeps them seeded:
@@ -585,7 +653,10 @@ pub struct LoginArgs {
     /// The agent's account, as a handle or DID. Signing in as any other
     /// account is refused, so a browser still signed in as you cannot hand
     /// the agent your identity.
-    #[arg(long, value_name = "HANDLE_OR_DID")]
+    // Its own arg, under the global's id: that keeps the global off this
+    // help, which says what `--account` means here, and still hands this
+    // field one given before `login` (#1473).
+    #[arg(id = ACCOUNT, long, value_name = "HANDLE_OR_DID")]
     pub account: Option<String>,
     /// Only print the sign-in address; do not open a browser.
     #[arg(long)]
@@ -685,13 +756,157 @@ mod tests {
     }
 
     /// Offline has no account to name, so naming one is a mistake worth
-    /// saying rather than a choice silently ignored.
+    /// saying rather than a choice silently ignored - wherever on the line
+    /// it stands (#1473).
     #[test]
     fn offline_and_an_account_are_exclusive() {
         assert!(Cli::try_parse_from(["agent", "start", "--offline"]).is_ok());
-        assert!(
-            Cli::try_parse_from(["agent", "start", "--offline", "--account", "a.test"]).is_err()
-        );
+        for verb in ["start", "run"] {
+            for line in [
+                ["--account", "a.test", verb, "--offline"],
+                [verb, "--account", "a.test", "--offline"],
+                [verb, "--offline", "--account", "a.test"],
+            ] {
+                let refused = parse(&line).unwrap_err();
+                assert_eq!(refused.kind(), ErrorKind::ArgumentConflict, "{line:?}");
+            }
+        }
+    }
+
+    /// The whole line, after the program's name.
+    fn parse(line: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(std::iter::once("agent").chain(line.iter().copied()))
+    }
+
+    /// What `agent WORDS... --help` prints.
+    fn help_for(words: &[&str]) -> String {
+        let shown = parse(&[words, &["--help"]].concat()).unwrap_err();
+        assert_eq!(shown.kind(), ErrorKind::DisplayHelp, "{words:?}");
+        shown.to_string()
+    }
+
+    /// #1473: `--account` goes anywhere on a two-verb line - before the
+    /// first verb, between the two, after the second, or at the very end -
+    /// and names the same account wherever it stands.
+    #[test]
+    fn an_account_goes_anywhere_on_room_get() {
+        for line in [
+            ["--account", "a.test", "room", "get", "/x"],
+            ["room", "--account", "a.test", "get", "/x"],
+            ["room", "get", "--account", "a.test", "/x"],
+            ["room", "get", "/x", "--account", "a.test"],
+        ] {
+            let cli = parse(&line).unwrap_or_else(|e| panic!("{line:?}: {e}"));
+            let Command::Room(RecordJsonArgs {
+                action: JsonAction::Get(get),
+            }) = cli.command
+            else {
+                panic!("{line:?}: room get");
+            };
+            assert_eq!(
+                (get.account.name.as_deref(), get.pointer.as_deref()),
+                (Some("a.test"), Some("/x")),
+                "{line:?}"
+            );
+        }
+    }
+
+    /// #1473: a one-verb command takes `--account` before its verb or
+    /// after it.
+    #[test]
+    fn an_account_goes_anywhere_on_status() {
+        for line in [
+            ["--account", "did:plc:agent", "status"],
+            ["status", "--account", "did:plc:agent"],
+        ] {
+            let cli = parse(&line).unwrap_or_else(|e| panic!("{line:?}: {e}"));
+            let Command::Status(account) = cli.command else {
+                panic!("{line:?}: status");
+            };
+            assert_eq!(account.name.as_deref(), Some("did:plc:agent"), "{line:?}");
+        }
+    }
+
+    /// #1473: `gift give`, whose own words follow its verbs, takes
+    /// `--account` anywhere as well.
+    #[test]
+    fn an_account_goes_anywhere_on_gift_give() {
+        let (whom, what) = ("@friend.test", "lantern");
+        for line in [
+            ["--account", "a.test", "gift", "give", whom, what],
+            ["gift", "--account", "a.test", "give", whom, what],
+            ["gift", "give", "--account", "a.test", whom, what],
+            ["gift", "give", whom, what, "--account", "a.test"],
+        ] {
+            let cli = parse(&line).unwrap_or_else(|e| panic!("{line:?}: {e}"));
+            let Command::Gift(GiftArgs {
+                action: GiftAction::Give(give),
+            }) = cli.command
+            else {
+                panic!("{line:?}: gift give");
+            };
+            assert_eq!(
+                (
+                    give.account.name.as_deref(),
+                    give.player.as_str(),
+                    give.item.as_str()
+                ),
+                (Some("a.test"), whom, what),
+                "{line:?}"
+            );
+        }
+    }
+
+    /// `login` keeps its own `--account` - the one account it may sign in
+    /// as - and that meaning on its help, and takes it before its verb
+    /// too (#1473).
+    #[test]
+    fn login_keeps_its_own_account() {
+        for line in [
+            ["login", "--account", "a.test"],
+            ["--account", "a.test", "login"],
+        ] {
+            let cli = parse(&line).unwrap_or_else(|e| panic!("{line:?}: {e}"));
+            let Command::Login(login) = cli.command else {
+                panic!("{line:?}: login");
+            };
+            assert_eq!(login.account.as_deref(), Some("a.test"), "{line:?}");
+        }
+        let help = help_for(&["login"]);
+        assert_eq!(help.matches("--account").count(), 1, "{help}");
+        assert!(help.contains("Signing in as any other account is refused"));
+    }
+
+    /// `accounts` lists every session: an account named anywhere on its
+    /// line is refused rather than ignored, and its help offers none.
+    #[test]
+    fn accounts_takes_no_account_anywhere() {
+        assert!(parse(&["accounts"]).is_ok());
+        for line in [
+            ["--account", "a.test", "accounts"],
+            ["accounts", "--account", "a.test"],
+        ] {
+            let refused = parse(&line).unwrap_err();
+            assert_eq!(refused.kind(), ErrorKind::ArgumentConflict, "{line:?}");
+        }
+        assert!(!help_for(&["accounts"]).contains("--account"));
+    }
+
+    /// One `--account` on each help page it belongs on, the top one too.
+    #[test]
+    fn each_help_lists_the_account_once() {
+        for words in [
+            &[][..],
+            &["status"],
+            &["room"],
+            &["room", "get"],
+            &["gift", "give"],
+            &["save"],
+            &["ui", "show"],
+        ] {
+            let help = help_for(words);
+            assert_eq!(help.matches("--account").count(), 1, "{words:?}: {help}");
+        }
     }
 
     /// A point west or south of the origin has a minus sign, which clap would
