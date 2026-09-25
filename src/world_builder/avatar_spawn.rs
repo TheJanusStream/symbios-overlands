@@ -147,12 +147,12 @@ pub fn spawn_avatar_visuals_subtree(
     // transform) so the player gait-animation layer has a stable,
     // rebuild-safe handle to offset.
     let local_tf = transform_from_data(&visuals.transform);
-    if let Some(root) = spawn_generator(&mut ctx, visuals, &cache_key, &[], local_tf) {
+    if let Some(root) = spawn_generator(&mut ctx, visuals, &cache_key, &[], local_tf, Some(chassis))
+    {
         ctx.commands.entity(root).insert(super::AvatarVisualRoot {
             base_translation: local_tf.translation,
             base_rotation: local_tf.rotation,
         });
-        ctx.commands.entity(chassis).add_child(root);
     }
 }
 

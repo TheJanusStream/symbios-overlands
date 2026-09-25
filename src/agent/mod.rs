@@ -153,7 +153,63 @@ pub(super) fn resolve_name(name: &str) -> Result<(String, Option<String>), Strin
 
 /// Print one command's result as a single line of JSON.
 pub(super) fn print_json(value: &serde_json::Value) -> Result<(), String> {
+    write_json_line(&mut std::io::stdout().lock(), value)
+}
+
+/// Write `value` to `out` as one line of JSON. A reader that has gone - the
+/// far end of a pipe closed early, as `head` closes it - is no failure: the
+/// command has run, and nobody is left to read what it would say (#1451).
+/// `println!` panicked there instead.
+fn write_json_line(out: &mut impl std::io::Write, value: &serde_json::Value) -> Result<(), String> {
     let line = serde_json::to_string(value).map_err(|e| format!("encoding the result: {e}"))?;
-    println!("{line}");
-    Ok(())
+    match writeln!(out, "{line}").and_then(|()| out.flush()) {
+        Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => {
+            Err(format!("printing the result: {e}"))
+        }
+        _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{self, Write};
+
+    use serde_json::json;
+
+    use super::write_json_line;
+
+    /// A writer that refuses every write with `kind`.
+    struct Refusing(io::ErrorKind);
+
+    impl Write for Refusing {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(self.0.into())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// #1451: `agent status | head -1`, or any reader that closes before the
+    /// answer lands, made the command panic and abort (exit 134) after it
+    /// had done its work.
+    #[test]
+    fn a_reader_that_has_gone_is_no_failure() {
+        let closed = &mut Refusing(io::ErrorKind::BrokenPipe);
+        assert_eq!(write_json_line(closed, &json!({ "ok": true })), Ok(()));
+    }
+
+    #[test]
+    fn any_other_failure_to_print_is_reported() {
+        let refusing = &mut Refusing(io::ErrorKind::PermissionDenied);
+        let error = write_json_line(refusing, &json!({ "ok": true })).unwrap_err();
+        assert!(error.starts_with("printing the result: "), "{error}");
+    }
+
+    #[test]
+    fn a_result_is_one_line_of_json() {
+        let mut out = Vec::new();
+        write_json_line(&mut out, &json!({ "ok": true, "result": { "n": 1 } })).unwrap();
+        assert_eq!(out, b"{\"ok\":true,\"result\":{\"n\":1}}\n");
+    }
 }

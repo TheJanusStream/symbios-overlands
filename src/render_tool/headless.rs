@@ -1187,6 +1187,10 @@ fn frame_subject(
         // A subject that never resolves an AABB - a grammar that errored
         // or derived to nothing - would otherwise spin here forever, so
         // fall back to a placeholder bound and capture the empty frame.
+        let measured = subject_box(subject, emitters);
+        if let Some((min, max)) = measured {
+            println!("{}", describe_box(min, max));
+        }
         let bounds = subject_bounds(subject, emitters)
             .or_else(|| (capture.waited > FRAME_GRACE).then_some((Vec3::Y * 0.5, 0.5)));
         let Some((center, radius)) = bounds else {
@@ -1532,6 +1536,17 @@ fn subject_bounds(
     q: &SubjectQuery,
     emitters: &Query<&GlobalTransform, With<ParticleEmitterMarker>>,
 ) -> Option<(Vec3, f32)> {
+    subject_box(q, emitters)
+        .map(|(min, max)| ((min + max) * 0.5, ((max - min) * 0.5).length().max(0.1)))
+}
+
+/// The world box the subject's meshes (and particle emitters) fill, as
+/// `(min, max)` - what the turntable frames, and what `--generator` and
+/// `--catalogue` print as the subject's size (#1448).
+fn subject_box(
+    q: &SubjectQuery,
+    emitters: &Query<&GlobalTransform, With<ParticleEmitterMarker>>,
+) -> Option<(Vec3, Vec3)> {
     let (mut min, mut max) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
     let mut any = false;
     for (gt, aabb) in q.iter() {
@@ -1556,7 +1571,17 @@ fn subject_bounds(
         min = min.min(p);
         max = max.max(p);
     }
-    Some(((min + max) * 0.5, ((max - min) * 0.5).length().max(0.1)))
+    Some((min, max))
+}
+
+/// One line saying how big the subject is and where it reaches, in metres
+/// from its origin - the numbers a builder arranging pieces needs (#1448).
+fn describe_box(min: Vec3, max: Vec3) -> String {
+    let size = max - min;
+    format!(
+        "subject size {:.2} x {:.2} x {:.2} m (x, y, z), from [{:.2}, {:.2}, {:.2}] to [{:.2}, {:.2}, {:.2}]",
+        size.x, size.y, size.z, min.x, min.y, min.z, max.x, max.y, max.z
+    )
 }
 
 /// A readback landed: a sheet tile, or the clip frame in flight.
@@ -1709,6 +1734,18 @@ pub(crate) fn new_target((width, height): (u32, u32)) -> Image {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1448: arranging pieces needs each one's extent, and the turntable
+    /// already measures it to frame the subject - so it says it, in metres
+    /// from the subject's origin.
+    #[test]
+    fn the_subject_box_is_said_in_metres() {
+        let line = describe_box(Vec3::new(-1.5, -0.2, -0.75), Vec3::new(1.5, 4.6, 0.75));
+        assert_eq!(
+            line,
+            "subject size 3.00 x 4.80 x 1.50 m (x, y, z), from [-1.50, -0.20, -0.75] to [1.50, 4.60, 0.75]"
+        );
+    }
     use bevy::ecs::system::RunSystemOnce;
 
     /// #1360. The line-up's ground plan: the order it was typed in, centred

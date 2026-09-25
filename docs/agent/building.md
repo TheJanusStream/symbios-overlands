@@ -85,10 +85,11 @@ building's frame through it.
 
 ## Sizes, footprints, clearances
 
-- `catalogue` gives no sizes. Before arranging pieces, get each one's extent:
-  read its generator JSON (after placing it, or from
-  `src/catalogue/items/<theme>/<slug>.rs`), compose the transforms, and
-  compute its box in your building's frame. A small script that says "which
+- `catalogue` gives no sizes, but the render tool does (#1448):
+  `render --catalogue <slug>` or `render --generator piece.json` prints
+  `subject size X x Y x Z m (x, y, z), from [..] to [..]` - the box its
+  meshes fill, from its origin - before it renders. Use it for every piece
+  before arranging it, then compute its box in your building's frame. A small script that says "which
   of my walls does this cut" pays for itself: in the live garage the yard
   junk cut 13 cm through a side wall, invisible from the front.
 - Building around a person: an interior of 5.2 x 7 m held a 2 x 3 m buggy

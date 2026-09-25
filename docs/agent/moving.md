@@ -7,14 +7,12 @@ Add `--wait` to get the ending as the command's answer.
 
 ## Going to a player
 
-"Come over here" has no command of its own. `follow @handle` walks to
-within 3 m but keeps following until `halt`, so for "come here":
-
-1. Read the player's `position` from `status.peers[]` (skip anyone
-   `placed: false` - they have sent no position yet).
-2. `walk-to` the point 2 m short of them on the line from you, `--wait`.
-3. `face @handle --wait` so you end up facing them, as a person would
-   (`already_facing: true` when you are).
+"Come over here" is one command (#1456): `A walk-to @handle` walks to
+3 m short of where they stand, on the line from you (`--distance` to
+change it), then turns to face them, and waits for both - its answer has
+the `walk` and the `face` endings. Already that close, it only turns. A
+player who is not in the world, or not yet placed (a sleeping tab, never
+sent a position), is refused by name rather than walked to.
 
 30 m took 19 s on foot.
 

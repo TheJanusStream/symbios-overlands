@@ -41,7 +41,7 @@ pub(crate) mod pad;
 pub(crate) mod scatter;
 mod slope;
 mod spawn_ctx;
-mod water;
+pub(crate) mod water;
 
 // External callers (`super::compile::SpawnCtx` etc.) reach these names
 // through this re-export. Behavioural surface is identical to the

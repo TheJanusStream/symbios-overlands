@@ -101,7 +101,11 @@ it. So:
 - `status.peers[]`: `placed` false = never sent a position (a sleeping tab);
   `quiet` true = nothing heard lately. A backgrounded tab is swept after two
   minutes (`peer_left`) and returns on its first packet (`peer_joined`).
-- If the admin leaves or goes quiet, say so once and wait.
+- If the admin leaves or goes quiet, say so once and wait - or, when they
+  said to carry on without them ("don't let that stop you"), keep working
+  and save as they allowed. Lines said while they are away reach nobody
+  (`delivery: nobody_here`) and are not kept for them: write a two-line
+  summary as you go and say it when they come back (`peer_joined`).
 - A stranger arriving is `peer_joined` with another DID: carry on, mention
   it once. Their lines arrive as `chat_dropped` (who, never what) and their
   gift offers are declined unread (`gift_declined`).

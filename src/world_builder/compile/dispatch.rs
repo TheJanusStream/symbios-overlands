@@ -34,8 +34,9 @@ use super::spawn_ctx::{SpawnCtx, budget_exceeded, transform_from_data};
 /// generator by name, composes the placement-level cell transform with the
 /// named generator's own root transform, and routes the recursive walk
 /// into [`spawn_generator`] with an empty blueprint path. The returned
-/// entity is the placement's root (caller adopts it as a child of the
-/// placement anchor).
+/// entity is the placement's root, already hung under `anchor` - before its
+/// children were spawned, which is what lets avian find the anchor from
+/// every collider below it (#1453).
 ///
 /// `cell_tf` is the per-cell transform contributed by the placement (the
 /// per-grid-cell offset + yaw, the per-scatter-sample local position +
@@ -53,6 +54,7 @@ pub(crate) fn dispatch_top_level(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     generator_ref: &str,
     cell_tf: Transform,
+    anchor: Entity,
 ) -> Option<Entity> {
     // Copy the shared record reference out of `ctx` so the borrowed generator
     // is tied to the record's lifetime (`'a`), not to `ctx`. That lets the
@@ -92,7 +94,7 @@ pub(crate) fn dispatch_top_level(
     // ponds are now legitimate - each cell's local transform produces a
     // distinct entry in the registry - so the strip step has been removed.
     let root_tf = cell_tf * transform_from_data(&generator.transform);
-    let entity = spawn_generator(ctx, generator, generator_ref, &[], root_tf);
+    let entity = spawn_generator(ctx, generator, generator_ref, &[], root_tf, Some(anchor));
     if let Some(entity) = entity
         && !is_terrain_root
     {
@@ -119,12 +121,25 @@ pub(crate) fn dispatch_top_level(
 /// application is the caller's responsibility - this function deliberately
 /// does not apply traits so recursion into a generator's children doesn't
 /// double-attach `Sensor` or `collider_heightfield` components.
+///
+/// `parent` is the entity the node hangs under - the placement's anchor for
+/// a root, the parent node's entity for a child - and the node is attached
+/// to it BEFORE its own children are spawned (#1453). Avian corrects a
+/// collider's offset from its body only below a root it has marked as the
+/// ancestor of a collider, and it marks ancestors by walking up from a
+/// collider at the moment the collider gains its parent. Attached bottom-up,
+/// a collider's walk stopped at its immediate parent, so the anchor - the
+/// placement's static body - was marked only when the generator's root was
+/// itself solid: under a non-solid root every collider, a gateway's walk-in
+/// zone included, kept the offset it was given before any transform had
+/// propagated, and collided far from where it was drawn.
 pub fn spawn_generator(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     generator: &Generator,
     base_ref: &str,
     path: &[usize],
     transform: Transform,
+    parent: Option<Entity>,
 ) -> Option<Entity> {
     if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
         return None;
@@ -253,6 +268,12 @@ pub fn spawn_generator(
     // - the generator entity itself always carries PrimMarker now so the
     // gizmo can target the root with `path=[]`.
     if let Some(e) = entity {
+        // Hung under its parent before any child of its own exists, so a
+        // collider anywhere below finds the whole chain up to the anchor
+        // when it is attached (#1453).
+        if let Some(parent) = parent {
+            ctx.commands.entity(parent).add_child(e);
+        }
         // Charge the global budget here rather than at the spawn sites in
         // each variant arm: this is the one place that fires exactly once
         // per node we actually committed to the world, and the variants'
@@ -328,9 +349,14 @@ fn spawn_generator_children(
         let mut child_path = parent_path.to_vec();
         child_path.push(i);
         let child_tf = transform_from_data(&child.transform);
-        if let Some(child_entity) = spawn_generator(ctx, child, base_ref, &child_path, child_tf) {
-            ctx.commands.entity(parent_entity).add_child(child_entity);
-        }
+        spawn_generator(
+            ctx,
+            child,
+            base_ref,
+            &child_path,
+            child_tf,
+            Some(parent_entity),
+        );
     }
 }
 

@@ -19,6 +19,7 @@
 //! names the admin's offer waiting for an answer, if one is, and the
 //! agent's own offers still waiting for theirs (#1423).
 
+use avian3d::prelude::CollidingEntities;
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde_json::{Value, json};
@@ -30,7 +31,8 @@ use crate::state::{
     AppState, CurrentRoomDid, LiveAvatarRecord, LiveRoomRecord, LocalPlayer, RemotePeer,
     TravelingTo,
 };
-use crate::world_builder::PlacementMarker;
+use crate::ui::gateway::{GatewayDismissed, GatewayPicker};
+use crate::world_builder::{GatewayMarker, PlacementMarker, PlacementUnit, PortalMarker};
 
 use super::super::admin::Admin;
 use super::{hundredths, hundredths3};
@@ -76,6 +78,7 @@ pub(super) fn snapshot(world: &mut World) -> Value {
         "movement": super::movement::describe(world),
         "peers": peers(world, pose.as_ref(), admin.as_ref()),
         "nearby": nearby(world, pose.as_ref()),
+        "zone": zone(world),
         "editing": super::edit::describe(world),
         "gifts": super::gifts::describe(world),
         "interface": super::ui::describe(world),
@@ -217,6 +220,59 @@ fn nearby(world: &mut World, pose: Option<&Pose>) -> Vec<Value> {
     things.sort_by(|a, b| a.0.total_cmp(&b.0));
     things.truncate(NEARBY_MAX);
     things.into_iter().map(|(_, thing)| thing).collect()
+}
+
+/// The way out the agent's body stands in, if it stands in one (#1452): a
+/// gateway's walk-in zone or a portal's, found among what the body touches -
+/// the contacts the game's own zone watchers read - and named by the
+/// placement it belongs to. For a gateway, `picker` says what the game made
+/// of it: `open` (its list of destinations is up, which the agent never
+/// reads), `dismissed` (closed while the body still stands in it), or
+/// `not_open`. Walking into a gateway the agent built and reading `open`
+/// here is how it knows the gateway works.
+fn zone(world: &mut World) -> Value {
+    let touching: Vec<Entity> = world
+        .query_filtered::<&CollidingEntities, With<LocalPlayer>>()
+        .iter(world)
+        .flat_map(|touching| touching.iter().copied())
+        .collect();
+    let mut zones = world.query::<(
+        Has<GatewayMarker>,
+        Has<PortalMarker>,
+        Option<&PlacementUnit>,
+    )>();
+    let found = touching.iter().find_map(|&entity| {
+        let (gateway, portal, unit) = zones.get(world, entity).ok()?;
+        let kind = match (gateway, portal) {
+            (true, _) => "gateway",
+            (false, true) => "portal",
+            (false, false) => return None,
+        };
+        Some((kind, unit.map(|unit| unit.0)))
+    });
+    let Some((kind, index)) = found else {
+        return Value::Null;
+    };
+    let name = index.and_then(|index| {
+        let record = &world.get_resource::<LiveRoomRecord>()?.0;
+        match record.placements.get(index)? {
+            Placement::Absolute { generator_ref, .. }
+            | Placement::Scatter { generator_ref, .. }
+            | Placement::Grid { generator_ref, .. } => Some(generator_ref.clone()),
+            Placement::Unknown => None,
+        }
+    });
+    let mut zone = json!({ "kind": kind, "name": name });
+    if kind == "gateway" {
+        zone["picker"] = json!(if world.contains_resource::<GatewayPicker>() {
+            "open"
+        } else if world.contains_resource::<GatewayDismissed>() {
+            "dismissed"
+        } else {
+            "not_open"
+        });
+    }
+    zone
 }
 
 /// What a placed generator tree is to someone walking about - or `None` for
@@ -541,5 +597,81 @@ mod tests {
             nearby.iter().all(|t| t["named_by"] == "did:plc:nearby"),
             "every name says whose it is: {nearby:?}"
         );
+    }
+
+    /// A world with the seeded social gateway at `gateway`'s index, and the
+    /// agent's body touching `touching`.
+    fn standing_in(touching: impl FnOnce(&mut World, usize) -> Vec<Entity>) -> World {
+        let record = crate::pds::RoomRecord::default_for_did("did:plc:zones");
+        let gateway = record
+            .placements
+            .iter()
+            .position(|p| {
+                matches!(p, Placement::Absolute { generator_ref, .. } if generator_ref == "social_gateway")
+            })
+            .expect("a seeded gateway");
+        let mut world = World::new();
+        world.insert_resource(State::new(AppState::InGame));
+        world.insert_resource(LiveRoomRecord(record));
+        let touched = touching(&mut world, gateway);
+        world.spawn((
+            LocalPlayer,
+            GlobalTransform::default(),
+            CollidingEntities(touched.into_iter().collect()),
+        ));
+        world
+    }
+
+    /// THE CASE THAT ASKED FOR THIS (#1452): the admin found the agent's own
+    /// gateway did nothing, and the agent, landed in its zone, could tell
+    /// neither whether it stood in it nor whether the game had made anything
+    /// of it. It names the gateway it stands in, and what became of its list
+    /// of destinations.
+    #[test]
+    fn a_body_in_a_gateway_names_it_and_whether_its_picker_is_up() {
+        let mut world = standing_in(|world, gateway| {
+            let ground = world.spawn(PlacementUnit(0)).id();
+            let zone = world.spawn((GatewayMarker, PlacementUnit(gateway))).id();
+            vec![ground, zone]
+        });
+
+        assert_eq!(
+            snapshot(&mut world)["zone"],
+            json!({ "kind": "gateway", "name": "social_gateway", "picker": "not_open" })
+        );
+        world.insert_resource(GatewayPicker::default());
+        assert_eq!(snapshot(&mut world)["zone"]["picker"], "open");
+        world.remove_resource::<GatewayPicker>();
+        world.insert_resource(GatewayDismissed);
+        assert_eq!(snapshot(&mut world)["zone"]["picker"], "dismissed");
+    }
+
+    /// A portal is a way out too, with no picker: it takes the body away.
+    #[test]
+    fn a_body_in_a_portal_names_it() {
+        let mut world = standing_in(|world, _| {
+            let portal = PortalMarker {
+                target_did: "did:plc:elsewhere".into(),
+                target_pos: Vec3::ZERO,
+            };
+            vec![
+                world
+                    .spawn((portal, PlacementUnit(PlacementUnit::NONE)))
+                    .id(),
+            ]
+        });
+
+        assert_eq!(
+            snapshot(&mut world)["zone"],
+            json!({ "kind": "portal", "name": null })
+        );
+    }
+
+    /// Touching the ground and a wall is standing in no way out at all.
+    #[test]
+    fn a_body_touching_only_solid_things_stands_in_no_zone() {
+        let mut world = standing_in(|world, _| vec![world.spawn(PlacementUnit(0)).id()]);
+
+        assert!(snapshot(&mut world)["zone"].is_null());
     }
 }

@@ -467,12 +467,20 @@ pub struct TravelArgs {
 pub struct WalkToArgs {
     #[command(flatten)]
     pub account: AccountArg,
-    /// The point's x, in world metres (as `status` gives positions).
-    #[arg(allow_negative_numbers = true)]
-    pub x: f32,
-    /// The point's z, in world metres.
-    #[arg(allow_negative_numbers = true)]
-    pub z: f32,
+    /// Where: a point's x and z in world metres (as `status` gives
+    /// positions), or a player's DID or handle - then the agent walks to
+    /// `--distance` short of where they stand, on the line from itself, and
+    /// turns to face them, and the command waits for both (#1456).
+    #[arg(
+        num_args = 1..=2,
+        value_names = ["X_OR_PLAYER", "Z"],
+        allow_negative_numbers = true,
+        required = true
+    )]
+    pub target: Vec<String>,
+    /// With a player: how far short of them to stop, in metres.
+    #[arg(long, value_name = "METRES", default_value_t = crate::config::agent::FOLLOW_DISTANCE_M)]
+    pub distance: f32,
     /// Run rather than walk (hold Shift).
     #[arg(long)]
     pub run: bool,
@@ -695,8 +703,21 @@ mod tests {
         let Command::WalkTo(args) = cli.command else {
             panic!("walk-to");
         };
-        assert_eq!((args.x, args.z), (-12.5, -3.0));
+        assert_eq!(args.target, ["-12.5", "-3"]);
         assert!(args.wait && !args.run);
+    }
+
+    /// #1456: `walk-to` also takes a player - "come here" in one command -
+    /// with how far short of them to stop.
+    #[test]
+    fn a_walk_takes_a_player_and_a_distance() {
+        let cli = Cli::try_parse_from(["agent", "walk-to", "@friend.test", "--distance", "2.5"])
+            .expect("parses");
+        let Command::WalkTo(args) = cli.command else {
+            panic!("walk-to");
+        };
+        assert_eq!(args.target, ["@friend.test"]);
+        assert_eq!(args.distance, 2.5);
     }
 
     /// `--admin` takes a handle the way a person writes one - with its @, in

@@ -87,6 +87,7 @@ pub(super) fn set(world: &mut World, pointer: &str, value: Value) -> Result<Valu
         "adjusted": !adjusted_at.is_empty(),
         "kept": kept,
         "others_see_it": seen,
+        "record_size": super::size::avatar(&world.resource::<LiveAvatarRecord>().0),
     });
     if !adjusted_at.is_empty() {
         answer["adjusted_at"] = json!(adjusted_at);
@@ -170,7 +171,7 @@ fn from_json(live: &AvatarRecord, document: Value) -> Result<AvatarRecord, Strin
     };
     let record_json = parts.remove("record").unwrap_or_default();
     let mut record: AvatarRecord = serde_json::from_value(record_json.clone())
-        .map_err(|e| unreadable("an avatar record", &e, &record_json, "/record"))?;
+        .map_err(|e| unreadable::<AvatarRecord>("an avatar record", &e, &record_json, "/record"))?;
     match (live.body.rigged_ref(), record.body.rigged_mut()) {
         (Some(was), Some(rig)) => {
             if rig.avatar != was.avatar {

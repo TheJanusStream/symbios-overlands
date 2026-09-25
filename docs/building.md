@@ -781,14 +781,27 @@ cargo run --bin render -- --scatter-plot 3 --out /tmp/scatter.png
 # for a range, a labelled block for one seed or DID:
 cargo run --bin render -- --describe 0..32
 cargo run --bin render -- --describe 11
+# A world's ground as numbers, no render (#1449): percentiles, the water line
+# and the share it floods, the landing, where each placement stands, and at
+# each point its height, slope, downhill way and contour yaw (--footprint:
+# what a thing that wide rests on); --plan draws it from above, +X right:
+cargo run --bin render -- --world <did> --world-record room.json --terrain-report \
+    --at=-27.7,1.9 --footprint 2.5 --plan /tmp/plan.png --focus=-20,20 --span 120
+# ...or the same terrain recipe under other seeds, and a contact sheet of them:
+cargo run --bin render -- --world <did> --world-record room.json --terrain-report \
+    --seed-scan 4..20 --plan /tmp/seeds.png
+# Any single subject (--generator, --catalogue, --prim) prints its size first -
+# the box its meshes fill, from its origin (#1448):
+#   subject size 1.68 x 1.15 x 1.56 m (x, y, z), from [-0.80, 0.00, -0.78] to [0.88, 1.15, 0.78]
 # PNG frame directories (as --keep-frames writes them) → one GIF at --fps:
 cargo run --bin render -- --stitch /tmp/a-frames,/tmp/b-frames --out /tmp/ab.gif
 ```
 
 `--outfit`, `--find-part`, `--describe`, `--room-census`, `--foundation-audit`
 and `--gateway-fit` only roll records or build catalogue trees, so they return
-quickly; `--scatter-census`, `--scatter-plot` and `--settlement-drop` rebuild
-each seed's heightmap, which costs a few seconds per seed.
+quickly, and `--terrain-report` builds one heightmap (about half a second);
+`--scatter-census`, `--scatter-plot` and `--settlement-drop` rebuild each
+seed's heightmap, which costs a few seconds per seed.
 
 **Agent client** (#1413) - a headless Overlands client an AI agent drives
 from the command line, signed in as **its own** account. To everyone else in a
@@ -809,6 +822,7 @@ $A status                            # who, where, with whom (JSON)
 $A events --since 0 --wait 30        # admin chat, arrivals, departures, walks ending
 $A say "hello"
 $A walk-to -104.9 125.7 --wait       # straight line; ends arrived/stuck/halted
+$A walk-to @friend.example.com       # "come here": 3 m short of them (--distance), then face them
 $A follow @friend.example.com        # stay about 3 m behind them (--distance, --run)
 $A face @friend.example.com          # turn to face them - or a point: face X Z
 $A travel @alice.example.com --wait  # a DID, a handle, or `home`
@@ -924,7 +938,12 @@ how far the body could come straight down before it touched something
 the way they face (`facing`, as the agent's own), and a player not yet
 placed neither. A player silent for two minutes - a tab asleep in the
 background - is `peer_left`, and `peer_joined` again on the first thing
-they send when it wakes (#1429).
+they send when it wakes (#1429). `status.zone` names the gateway or portal
+the body stands in, from what the body touches - the contacts the game's own
+zone watchers read - and for a gateway whether the game has its list of
+destinations up (`picker`: `open`, `dismissed` or `not_open`; the agent never
+reads the list): walking into a gateway it built and reading `open` is how
+the agent knows it works (#1452).
 `--stand-in` (offline only) takes another identity's seeded world and body -
 `did:plc:agentofflinecar22222222e` is a roadster,
 `did:plc:agentofflineboat2222222d` a steam tug,
@@ -973,11 +992,18 @@ whole number of ten-thousandths (1.5 m is `15000`), and a value with a
 decimal point is refused. Each answer shows what the world kept, which the
 sanitiser may have pulled back into range - `adjusted`, with `adjusted_at`
 naming each place by pointer; a value left out because it is the default
-is no adjustment. A `room set` that
+is no adjustment. A set that is refused says where: the generator node
+that would not read, or the pointer of any other field (#1446, #1457), and
+a `kind` or `$type` this build does not know - read in as `Unknown`, never
+written back - is named by the value set. A `room set` that
 changes a generator also names, by pointer, each pair of its primitives
 drawing faces in one place where they can be seen - one plane, facing one
 way (`z_fighting`, with the area): they flicker as anyone moves, which a
-still `look` barely shows. A rigged avatar
+still `look` barely shows. `room set` and `avatar set` also weigh the
+record as a save would write it - a world as its manifest and one record per
+generator, the avatar as one - and name the largest with its size against
+the 100 KiB budget (`record_size`); `status.editing.record_size` has the
+room, the avatar and the inventory (#1455). A rigged avatar
 keeps its body and what it wears in records of their own, so `avatar get`
 shows `record`, `body` and `worn`; wearing, taking off and swapping the
 body are not JSON edits and are refused, and a sculpt reaches others only

@@ -33,6 +33,7 @@ mod inventory;
 mod json;
 mod placements;
 mod save;
+mod size;
 mod zfight;
 
 use bevy::prelude::*;
@@ -366,11 +367,30 @@ pub(super) fn describe(world: &mut World) -> Value {
         "why_no_save": profile.save_refused(),
         "unsaved": unsaved(world),
         "saving": saving(world),
+        "record_size": record_sizes(world),
     });
     if let (Some(answer), Value::Object(steps)) = (answer.as_object_mut(), steps(world)) {
         answer.extend(steps);
     }
     answer
+}
+
+/// Each record the agent may save, weighed as a save would write it
+/// (#1455): the world only while the agent stands in its own.
+fn record_sizes(world: &World) -> Value {
+    let mut sizes = serde_json::Map::new();
+    if owns_room(world)
+        && let Some(room) = world.get_resource::<LiveRoomRecord>()
+    {
+        sizes.insert("room".into(), size::room(&room.0));
+    }
+    if let Some(avatar) = world.get_resource::<LiveAvatarRecord>() {
+        sizes.insert("avatar".into(), size::avatar(&avatar.0));
+    }
+    if let Some(inventory) = world.get_resource::<LiveInventoryRecord>() {
+        sizes.insert("inventory".into(), size::inventory(&inventory.0));
+    }
+    Value::Object(sizes)
 }
 
 /// Undo or redo one step of `record`, through the history Ctrl+Z steps.

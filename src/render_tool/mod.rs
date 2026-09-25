@@ -108,6 +108,7 @@ mod figure;
 mod gif;
 mod headless;
 mod rig;
+mod terrain_report;
 mod text_tools;
 mod world;
 
@@ -659,6 +660,39 @@ struct Args {
     /// minute of compile says so with a green rectangle. A no-render mode.
     #[arg(long)]
     describe: Option<String>,
+    /// With `--world`: print the world's ground as numbers and exit, without
+    /// rendering (#1449) - heights over the map, the water line and the share
+    /// of the map it floods, the landing, where every placement stands, and
+    /// at each `--at` point its height, slope, downhill way and the `place
+    /// --yaw` that lays a long thing along the contour. Reads `--world-record`
+    /// when given, as a render does. `--plan PATH` also draws the ground from
+    /// above with all of it on.
+    #[arg(long, requires = "world")]
+    terrain_report: bool,
+    /// With `--terrain-report`: a point to read, `X,Z` in world metres;
+    /// repeat for more. A negative X needs the `=`: `--at=-18.6,22`.
+    #[arg(long, value_name = "X,Z", requires = "terrain_report")]
+    at: Vec<String>,
+    /// With `--terrain-report`: a footprint radius in metres - each point
+    /// also says what a thing that wide rests on there (the highest ground
+    /// under it) and how far the ground falls away beneath it.
+    #[arg(long, value_name = "METRES", requires = "terrain_report")]
+    footprint: Option<f32>,
+    /// With `--terrain-report`: draw the plan view to this PNG - the ground
+    /// from above, +X right and +Z down, the water, a grid, the landing, the
+    /// placements by index and the `--at` points. `--focus X,Z` centres it
+    /// and `--span` sets how much it covers.
+    #[arg(long, value_name = "PATH", requires = "terrain_report")]
+    plan: Option<String>,
+    /// With `--plan`: how many metres the plan spans (default the whole map).
+    #[arg(long, value_name = "METRES", requires = "plan")]
+    span: Option<f32>,
+    /// With `--terrain-report`: scan the record's terrain recipe under other
+    /// seeds instead - `N` for seeds 0..N or `A..B` - printing each seed's
+    /// heights, flooded share and landing ground; `--plan PATH` draws a
+    /// contact sheet of their plans, one tile a seed (#1449).
+    #[arg(long, value_name = "N|A..B", requires = "terrain_report")]
+    seed_scan: Option<String>,
     /// Single-camera shots: frame width in pixels (default 896, or 1920 for
     /// `--play-view`; forced to a multiple of 64 so the GPU readback needs
     /// no row padding).
@@ -747,6 +781,13 @@ pub fn run() {
             room,
             std::path::Path::new(args.out.as_deref().unwrap_or("scatter-plot.png")),
         );
+        return;
+    }
+
+    // `--terrain-report`: print a world's ground as numbers (and draw its
+    // plan view) and exit - the region-design tool, never renders (#1449).
+    if args.terrain_report {
+        print_terrain_report(&args);
         return;
     }
 
@@ -1383,6 +1424,58 @@ fn seeded_slot(spec: &str, livery: Option<usize>) -> Slot {
 /// Pinned by `tests::the_subject_precedence_is_the_one_the_docs_claim`,
 /// because this order is stated in four places and three of them had drifted
 /// (#1162).
+/// `--terrain-report`: the world `--world` names (or the record in
+/// `--world-record`), read as numbers - and drawn from above with `--plan`.
+fn print_terrain_report(args: &Args) {
+    let world = args.world.as_deref().expect("clap requires --world");
+    let record = match &args.world_record {
+        Some(path) => read_room_record(path),
+        None => match world.parse::<u64>() {
+            Ok(seed) => RoomRecord::default_for_seed(seed, &format!("did:render:{seed}")),
+            Err(_) => RoomRecord::default_for_did(world),
+        },
+    };
+    let points = args.at.iter().map(|raw| terrain_report::parse_xz(raw));
+    let at = match points.collect::<Result<Vec<_>, _>>() {
+        Ok(at) => at,
+        Err(e) => {
+            eprintln!("--at: {e}");
+            std::process::exit(2);
+        }
+    };
+    let focus = match args.focus.as_deref().map(terrain_report::parse_xz) {
+        Some(Err(e)) => {
+            eprintln!("--focus: {e} (a plan is centred on a point)");
+            std::process::exit(2);
+        }
+        focus => focus.and_then(Result::ok),
+    };
+    let seed_scan = match args
+        .seed_scan
+        .as_deref()
+        .map(terrain_report::parse_seed_range)
+    {
+        Some(Err(e)) => {
+            eprintln!("--seed-scan: {e}");
+            std::process::exit(2);
+        }
+        scan => scan.and_then(Result::ok),
+    };
+    let report = terrain_report::terrain_report(&terrain_report::Request {
+        record,
+        at,
+        footprint: args.footprint,
+        plan: args.plan.as_deref().map(std::path::Path::new),
+        focus,
+        span: args.span,
+        seed_scan,
+    });
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report).expect("a report serialises")
+    );
+}
+
 /// `--world-record`: a room record read from its wire-form JSON, sanitised
 /// as the game sanitises a record it fetches.
 fn read_room_record(path: &str) -> RoomRecord {

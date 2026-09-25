@@ -70,14 +70,101 @@ fn print_response(response: &Response) -> Result<ExitCode, String> {
 }
 
 /// Start a walk; with `--wait`, follow the event log from the moment it
-/// started until this walk's `movement_ended` arrives, and print that.
+/// started until this walk's `movement_ended` arrives, and print that. A
+/// player for a target walks to them instead (#1456).
 pub(super) fn walk_to(args: WalkToArgs) -> Result<ExitCode, String> {
-    let request = Request::WalkTo {
-        x: args.x,
-        z: args.z,
-        run: args.run,
+    let account = args.account.name.as_deref();
+    match args.target.as_slice() {
+        [x, z] => {
+            let request = Request::WalkTo {
+                x: metres(x)?,
+                z: metres(z)?,
+                run: args.run,
+            };
+            move_and_wait(account, &request, args.wait)
+        }
+        [player] => walk_to_player(account, player, args.distance, args.run),
+        _ => Err("walk-to takes a point's x and z, or a player".to_owned()),
+    }
+}
+
+fn metres(raw: &str) -> Result<f32, String> {
+    raw.trim()
+        .parse::<f32>()
+        .map_err(|_| format!("{raw:?} is not a number of metres"))
+}
+
+/// "Come here" (#1456): walk to `distance` short of where `player` stands,
+/// on the line from the agent, then turn to face them - waiting for both,
+/// since the turn can only follow the walk. Already that close, it only
+/// turns; a walk halted or cut short by another command turns no further.
+fn walk_to_player(
+    account: Option<&str>,
+    player: &str,
+    distance: f32,
+    run: bool,
+) -> Result<ExitCode, String> {
+    let (did, _) = resolve_name(player)?;
+    let socket = socket_for(account)?;
+    let answered = control::client::call(&socket, &Request::Status)?;
+    let status = match answered.result.clone() {
+        Some(status) if answered.ok => status,
+        _ => return print_response(&answered),
     };
-    move_and_wait(args.account.name.as_deref(), &request, args.wait)
+    let me = xz(&status["position"]).ok_or("the agent is not standing in a world yet")?;
+    let peer = status["peers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|peer| peer["did"] == did.as_str())
+        .ok_or_else(|| format!("{player} is not in this world"))?;
+    let them = xz(&peer["position"]).ok_or_else(|| {
+        format!(
+            "{player} has not been placed yet - no movement has reached the agent from them, \
+             as from a browser tab asleep since they arrived; `agent follow` waits for them"
+        )
+    })?;
+    let mut answer = serde_json::json!({ "to": { "did": did, "handle": peer["handle"] } });
+    if let Some([x, z]) = stand_off(me, them, distance) {
+        let walked = match run_movement(&socket, &Request::WalkTo { x, z, run })? {
+            Ok(walked) => walked,
+            Err(refused) => return print_response(&refused),
+        };
+        let cut_short = walked["outcome"] == "halted" || walked["outcome"] == "replaced";
+        answer["walk"] = walked;
+        if cut_short {
+            return print_response(&Response::success(answer));
+        }
+    }
+    let turn = Request::Face {
+        did: Some(did),
+        at: None,
+    };
+    answer["face"] = match run_movement(&socket, &turn)? {
+        Ok(faced) => faced,
+        Err(refused) => return print_response(&refused),
+    };
+    print_response(&Response::success(answer))
+}
+
+/// A position's ground-plane `[x, z]`, if it has one.
+fn xz(position: &serde_json::Value) -> Option<[f32; 2]> {
+    Some([
+        position.get(0)?.as_f64()? as f32,
+        position.get(2)?.as_f64()? as f32,
+    ])
+}
+
+/// Where to stand to be `distance` short of `them` on the line from `me` -
+/// or `None` when `me` is already that close.
+fn stand_off(me: [f32; 2], them: [f32; 2], distance: f32) -> Option<[f32; 2]> {
+    let (dx, dz) = (them[0] - me[0], them[1] - me[1]);
+    let gap = dx.hypot(dz);
+    if gap <= distance {
+        return None;
+    }
+    let k = (gap - distance) / gap;
+    Some([me[0] + dx * k, me[1] + dz * k])
 }
 
 /// Follow a player - by DID, or a handle looked up here - and with `--wait`,
@@ -95,17 +182,10 @@ pub(super) fn follow(args: FollowArgs) -> Result<ExitCode, String> {
 /// Turn toward a point (two numbers) or a player (anything else).
 pub(super) fn face(args: FaceArgs) -> Result<ExitCode, String> {
     let request = match args.target.as_slice() {
-        [x, z] => {
-            let number = |raw: &str| {
-                raw.trim()
-                    .parse::<f32>()
-                    .map_err(|_| format!("{raw:?} is not a number of metres"))
-            };
-            Request::Face {
-                did: None,
-                at: Some([number(x)?, number(z)?]),
-            }
-        }
+        [x, z] => Request::Face {
+            did: None,
+            at: Some([metres(x)?, metres(z)?]),
+        },
         [player] => Request::Face {
             did: Some(resolve_name(player)?.0),
             at: None,
@@ -121,27 +201,45 @@ pub(super) fn face(args: FaceArgs) -> Result<ExitCode, String> {
 /// wait for, and its answer is printed as it is.
 fn move_and_wait(account: Option<&str>, request: &Request, wait: bool) -> Result<ExitCode, String> {
     let socket = socket_for(account)?;
-    let started = control::client::call(&socket, request)?;
-    let Some(result) = started.result.as_ref().filter(|_| wait && started.ok) else {
-        return print_response(&started);
+    if !wait {
+        return print_response(&control::client::call(&socket, request)?);
+    }
+    match run_movement(&socket, request)? {
+        Ok(ended) => print_response(&Response::success(ended)),
+        Err(refused) => print_response(&refused),
+    }
+}
+
+/// Start a movement and follow the event log until its `movement_ended`,
+/// which it returns - or the start's own answer, for a movement that had
+/// nothing to do (a turn already facing) and so no goal to wait for. A
+/// refused start comes back as `Err`, to be printed as it is.
+fn run_movement(
+    socket: &std::path::Path,
+    request: &Request,
+) -> Result<Result<serde_json::Value, Response>, String> {
+    let started = control::client::call(socket, request)?;
+    let result = match started.result.clone() {
+        Some(result) if started.ok => result,
+        _ => return Ok(Err(started)),
     };
     let Some(goal_id) = result["goal_id"].as_u64() else {
-        return print_response(&started);
+        return Ok(Ok(result));
     };
     let since = result["events_seq"]
         .as_u64()
         .ok_or("the movement has no events_seq")?;
-    let ended = wait_for_event(&socket, since, config::agent::WALK_WAIT, |event| {
+    wait_for_event(socket, since, config::agent::WALK_WAIT, |event| {
         event["kind"] == "movement_ended" && event["goal_id"].as_u64() == Some(goal_id)
     })
+    .map(Ok)
     .map_err(|waited| {
         format!(
             "the movement had not ended after {} minutes; it goes on, and `agent halt` \
              stops it",
             waited.as_secs() / 60
         )
-    })?;
-    print_response(&Response::success(ended))
+    })
 }
 
 /// Follow the event log from `since` until an event `ends` accepts, and
@@ -464,7 +562,26 @@ pub(super) fn ui(args: UiArgs) -> Result<ExitCode, String> {
 mod tests {
     use serde_json::json;
 
-    use super::save_ended;
+    use super::{save_ended, stand_off, xz};
+
+    /// #1456: "come here" stops `distance` short of the player on the line
+    /// from the agent - not on them, and not past them - and does not move
+    /// at all when the agent is already that close.
+    #[test]
+    fn coming_to_a_player_stops_short_of_them_on_the_way() {
+        let [x, z] = stand_off([0.0, 0.0], [30.0, 40.0], 3.0).expect("50 m away");
+        assert!(
+            (x - 28.2).abs() < 1e-4 && (z - 37.6).abs() < 1e-4,
+            "({x}, {z})"
+        );
+        assert_eq!(stand_off([10.0, 10.0], [12.0, 10.0], 3.0), None, "2 m away");
+        assert_eq!(
+            xz(&json!([1.5, 9.0, -2.5])),
+            Some([1.5, -2.5]),
+            "height dropped"
+        );
+        assert_eq!(xz(&json!(null)), None, "a player not yet placed");
+    }
 
     /// `save --wait` prints its ending as `walk-to --wait` and the rest do
     /// (#1442), where it used to print the bare event: an agent reading

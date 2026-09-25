@@ -59,6 +59,12 @@ experiments:
   send it. It is compiled as the game compiles it: terrain, textures,
   scatters, water, sky and fog.
 - Always pass `BEVY_ASSET_ROOT=<repo>`, as for the agent.
+- `--focus=X,Y,Z` takes a WORLD height: the ground here is 8-14 m up, and a
+  focus at `y = 3` meant "3 m up" put the camera under the terrain. Read
+  the ground from `--terrain-report --at=X,Z` and add to it.
+- A turntable (`--generator`, `--catalogue`) frames the whole subject and
+  prints its size first; `--zoom` does not frame it closer, and a trailing
+  part (a body's threads) shrinks what matters - render a copy without it.
 
 ## Handling the pictures
 

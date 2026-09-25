@@ -19,7 +19,9 @@ client wherever a task goes badly.
 ## Bringing a fix live
 
 - `cargo build --profile test-release --bin agent` while the old daemon
-  keeps playing: it runs the code it started with.
+  keeps playing: it runs the code it started with. A change in `src/agent/`
+  builds in about 1 min 45 s; a restart (stop, start, `in_world`) takes
+  about 10 s, and the watcher dies with the old daemon - re-arm from 0.
 - A fix to the command line alone (`src/agent/requests.rs`, `cli.rs`,
   `mod.rs` - how an answer is printed, a new flag the daemon already
   understands) is live with the build: every command is a fresh process.
@@ -89,3 +91,11 @@ the files back and compare checksums, and grep that no guard is left.
   under test can decide - here the same case turned 30 degrees.
 - A mutant that removes only a fast path can be equivalent: break the RULE
   (every check that enforces it), not one line.
+- A negated guard needs its parentheses: `!std::env::var(..).as_deref() ==
+  Ok("m2")` is `(!var) == Ok(..)` and does not compile; write
+  `!(std::env::var("AGENT_MUTANT").as_deref() == Ok("m2"))`.
+- A test run with guards in relinks the binaries too. After restoring the
+  files, rebuild and check `strings target/test-release/agent | grep -c
+  AGENT_MUTANT` is 0 before the next restart of the live daemon.
+- Session 874 ran 17 mutants over 7 rules in three builds of about two
+  minutes each - cheap enough to do as each rule lands, not only at the end.

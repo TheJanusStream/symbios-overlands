@@ -636,9 +636,7 @@ fn start_unit(
         Placement::Absolute { generator_ref, .. } => {
             // One dispatch - atomic; a single blueprint stays the
             // smallest unit of work the slicer can schedule.
-            if let Some(entity) = dispatch_top_level(ctx, generator_ref, Transform::IDENTITY) {
-                ctx.commands.entity(anchor).add_child(entity);
-            }
+            dispatch_top_level(ctx, generator_ref, Transform::IDENTITY, anchor);
             UnitStart::Committed(
                 index,
                 CompiledUnit {
@@ -787,9 +785,7 @@ fn step_unit(
                 // same way.
                 let cell_tf =
                     Transform::from_xyz(local_x, final_local_y, local_z).with_rotation(rotation);
-                if let Some(entity) = dispatch_top_level(ctx, generator_ref, cell_tf) {
-                    ctx.commands.entity(cursor.anchor).add_child(entity);
-                }
+                dispatch_top_level(ctx, generator_ref, cell_tf, cursor.anchor);
             }
             StepOutcome::Done
         }
@@ -868,9 +864,7 @@ fn step_unit(
                 let cell_tf =
                     super::scatter::instance_pose(local_pos, &jitter, *random_yaw, naturalness);
 
-                if let Some(entity) = dispatch_top_level(ctx, generator_ref, cell_tf) {
-                    ctx.commands.entity(cursor.anchor).add_child(entity);
-                }
+                dispatch_top_level(ctx, generator_ref, cell_tf, cursor.anchor);
                 *spawned += 1;
             }
 
@@ -1215,6 +1209,86 @@ mod tests {
                 bits(after),
                 bits(*before),
                 "placement {i} moved from {before} to {after} when snap was turned off"
+            );
+        }
+    }
+
+    /// [`compile_app`] with avian's physics running beside the compile, one
+    /// fixed step per update, as `tests/freeze_rigid_body.rs` stands it up.
+    fn compile_app_with_physics(record: RoomRecord) -> App {
+        let mut app = compile_app(record);
+        app.add_plugins((TransformPlugin, bevy::scene::ScenePlugin));
+        app.add_plugins(PhysicsPlugins::default());
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 64.0),
+        ));
+        app.insert_resource(Time::<Fixed>::from_hz(64.0));
+        app.finish();
+        app.cleanup();
+        app
+    }
+
+    /// #1453, found live: the admin said the agent's gateway did nothing.
+    /// Under a NON-solid root, every collider kept the offset from the
+    /// placement's static body that avian gave it before any transform had
+    /// propagated, because the tree was hung together bottom-up and avian
+    /// never learnt that the anchor had colliders below it: a walk-in zone
+    /// drawn at (13, 24.6, -30) collided at (0, 2.25, 0). A solid part, a
+    /// gateway's zone and a solid part two levels down must each collide
+    /// where they are drawn - in a placement turned and moved off the origin.
+    #[test]
+    fn colliders_under_a_non_solid_root_collide_where_they_are_drawn() {
+        let tree: Generator = serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.gen.cuboid", "size": [1000, 1000, 1000], "solid": false,
+            "children": [
+                {"$type": "network.symbios.gen.cuboid", "size": [10000, 10000, 10000],
+                 "solid": true, "transform": {"translation": [0, 20000, 0]}},
+                {"$type": "network.symbios.gen.gateway", "size": [30000, 40000, 10000],
+                 "transform": {"translation": [30000, 20000, 0]}},
+                {"$type": "network.symbios.gen.cuboid", "size": [1000, 1000, 1000],
+                 "solid": false, "transform": {"translation": [0, 0, 20000]},
+                 "children": [
+                    {"$type": "network.symbios.gen.cuboid", "size": [10000, 10000, 10000],
+                     "solid": true, "transform": {"translation": [0, 10000, 0]}}
+                 ]}
+            ]
+        }))
+        .expect("wire JSON");
+        let mut record = test_record(0);
+        record.generators.insert("tree".into(), tree);
+        let turn = Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2);
+        record.placements.push(Placement::Absolute {
+            generator_ref: "tree".into(),
+            transform: TransformData {
+                translation: Fp3([10.0, 0.0, -5.0]),
+                rotation: Fp4(turn.to_array()),
+                scale: Fp3([1.0, 1.0, 1.0]),
+            },
+            snap_to_terrain: false,
+            avoid_water: false,
+            avoid_water_clearance: Fp(0.0),
+        });
+        let mut app = compile_app_with_physics(record);
+        settle(&mut app);
+        for _ in 0..4 {
+            app.update();
+        }
+
+        let colliders: Vec<(Vec3, Vec3)> = app
+            .world_mut()
+            .query_filtered::<(&Position, &GlobalTransform), (With<ColliderMarker>, Without<RigidBody>)>()
+            .iter(app.world())
+            .map(|(position, global)| (position.0, global.translation()))
+            .collect();
+        assert_eq!(
+            colliders.len(),
+            3,
+            "two solid parts and a zone: {colliders:?}"
+        );
+        for (collides_at, drawn_at) in colliders {
+            assert!(
+                collides_at.distance(drawn_at) < 1e-3,
+                "collides at {collides_at}, drawn at {drawn_at}"
             );
         }
     }

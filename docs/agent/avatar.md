@@ -33,8 +33,8 @@ climbs at idle.
 - `lathe` stations run bottom to top **in list order**, so one profile can
   go out along an underside and back over a dome (a mushroom cap); a
   station of radius 0 closes it. `torus` needs `major_resolution` and
-  `minor_resolution` - and a refused JSON's error does not say which node
-  lacked a field, so check the kinds you add first.
+  `minor_resolution`. A refused JSON names where it failed: the generator
+  node (`in the node at ...`, #1446), or any other place (`at ...`, #1457).
 - **Colours are sRGB.** A glow reads when it is deep and saturated, with
   `base_color` and `emission_color` the same (the catalogue's mushroom glow
   is `[0.28, 0.86, 0.50]` at strength about 1.4); a pale colour driven
@@ -68,6 +68,9 @@ builds - and a build made there is stashed and gifted like anything else:
 1. `A avatar set /record/body/visuals/children/<bench>/children/- '<json>'`
    - the build's root sits at the bench's top surface (children are placed
    from their parent's centre, so that is half the bench's thickness up).
+   An empty bench has no `children` in the record at all (an empty list is
+   left out); an append makes it (#1458 - before that, the first build on
+   an empty bench was refused with "nothing is at").
 2. Look at it, fix it, `avatar set` again.
 3. `A stash "<name>" --from-avatar /record/body/visuals/children/<bench>/children/<n>`:
    the item stands on the build's own origin, wherever it sat on the body.
@@ -75,6 +78,41 @@ builds - and a build made there is stashed and gifted like anything else:
 5. Take the build off the body again (`avatar set` of the bench's
    `children` without it), or it rides along everywhere.
 
-Hypha's bench is `/record/body/visuals/children/0`, a 0.75 m disc on top of
-its cap; a build's root goes at `[0, 150, 0]` (1.5 cm, the disc's half
-thickness) in the disc's frame.
+Hypha's bench is `/record/body/visuals/children/0`, a disc of 0.55 m radius
+sunk into a shallow depression at the centre of its cap and coloured like
+the cap's dark centre (session 874: a proud, lighter 0.75 m disc read as a
+lid); a build's root goes at `[0, 150, 0]` (1.5 cm, the disc's half
+thickness) in the disc's frame. Keep the bench level when the cap is not:
+a stashed build keeps the turn it had on the body.
+
+## Making a body look grown, not turned
+
+Session 874 rebuilt Hypha's cap after the admin asked for "more detail" and
+"a more natural cap". What made the difference, and what went wrong first:
+
+- **Break the symmetry a little.** A cap tilted 1 degree and scaled to a
+  0.95 oval stops reading as a turned disc. Anything that must fit the cap
+  (a depression the bench sits in) needs room for the oval and the tilt.
+- **Detail at a size that reads.** From the game's camera, 11 m back, a
+  2-4 cm scale is invisible; 10-20 cm fibrous scales (flattened spheres,
+  long axis radial, lying along the surface, crowding toward the centre)
+  read as a honey fungus. Sink a decoration by LESS than its own half
+  height - sunk by more, only slivers showed.
+- **One lathe per continuous surface.** A stem built as three colour bands
+  at equal radii showed a shading seam at every joint (it looked stacked
+  like cushions); a colour sleeve 1 cm proud read as a flower pot. One
+  lathe with a fibrous texture looked like a stem.
+- **Lathe stations run counter-clockwise in (radius, height)** - out along
+  the underside, back over the top - or the faces point inward. A hanging
+  skirt (a ring on a stem) is listed underside first.
+- **A lathe's texture runs round it**: a `Bark` texture's furrows came out
+  as horizontal rings until `uv_rotation` 90 (degrees; wire 900000) turned
+  them lengthwise.
+- **Gills deepest at the stem, rising into the flesh at the margin** - hung
+  at one depth, 88 plates showed as a picket fence under the rim.
+- **Inspection renders**: a turntable frames the whole tree, so trailing
+  threads made the mushroom tiny; render a copy without them. A negative
+  `--elev` needs the `=` (`--elev=-12`, looking up at the gills).
+- **Re-run safety**: a body script that keeps parts from the saved body
+  must find them by something they alone have (the threads' glow), not by
+  kind - the new young caps' stalks were spines too.

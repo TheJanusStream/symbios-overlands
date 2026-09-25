@@ -62,7 +62,7 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
     set_part(&mut document, pointer, value.clone())?;
     let before = super::settle_room(record)?;
     let edited: RoomRecord = serde_json::from_value(document.clone())
-        .map_err(|e| unreadable("a world record", &e, &document, ""))?;
+        .map_err(|e| unreadable::<RoomRecord>("a world record", &e, &document, ""))?;
     let sent = serde_json::to_value(&edited)
         .ok()
         .and_then(|document| document.pointer(pointer).cloned());
@@ -71,7 +71,7 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
     } else {
         format!("JSON set of {pointer}")
     };
-    let changed = super::write_room(world, edited, label)?;
+    let changed = super::write_room(world, edited, label).map_err(|e| unwritable(&e, pointer))?;
     let live = &world.resource::<LiveRoomRecord>().0;
     let kept = serde_json::to_value(live)
         .ok()
@@ -88,6 +88,7 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
         "adjusted": !adjusted_at.is_empty(),
         "kept": kept,
         "z_fighting": z_fighting,
+        "record_size": super::size::room(live),
     });
     if !adjusted_at.is_empty() {
         answer["adjusted_at"] = json!(adjusted_at);
@@ -104,18 +105,107 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
 /// serde's own error names a field and never the node it is missing from:
 /// "missing field `minor_resolution`" in a body of 41 parts left the agent
 /// to find the torus. `at` is the pointer of `document` itself.
-pub(super) fn unreadable(
+pub(super) fn unreadable<T: serde::de::DeserializeOwned>(
     what: &str,
     error: &serde_json::Error,
     document: &Value,
     at: &str,
 ) -> String {
-    match first_unreadable_node(document, at) {
-        Some((node, why)) => {
-            format!("that is not {what}: {why} in the node at {node}; {WIRE_FORM}")
-        }
+    if let Some((node, why)) = first_unreadable_node(document, at) {
+        return format!("that is not {what}: {why} in the node at {node}; {WIRE_FORM}");
+    }
+    match failing_pointer::<T>(document) {
+        Some(place) => format!("that is not {what}: {error} at {at}{place}; {WIRE_FORM}"),
         None => format!("that is not {what}: {error}; {WIRE_FORM}"),
     }
+}
+
+/// A set that read but cannot be written back (#1457): the only thing that
+/// changed is the value set at `pointer`, so the fault is in it. A `kind`
+/// or `$type` this build does not know reads in as `Unknown`, which is never
+/// written out - serde's own sentence names the enum, never the place.
+fn unwritable(error: &str, pointer: &str) -> String {
+    let place = if pointer.is_empty() {
+        "the record set".to_owned()
+    } else {
+        format!("the value set at {pointer}")
+    };
+    if error.contains("Unknown cannot be serialized") {
+        format!(
+            "{error}: {place} holds a `kind` or `$type` this build does not know, which reads in \
+             as Unknown and cannot be written out"
+        )
+    } else {
+        format!("{error} (in {place})")
+    }
+}
+
+/// Where serde gave up reading `document` as a `T`, as a JSON pointer inside
+/// it (#1457) - for a failure outside any generator node: the environment,
+/// an audio patch, the landing, an avatar's locomotion. Read from a
+/// `serde_json::Value`, serde's error names a field but never where it is;
+/// read from text it carries a line. So the document is written one member
+/// to a line, read again, and the failing line walked back to its path.
+fn failing_pointer<T: serde::de::DeserializeOwned>(document: &Value) -> Option<String> {
+    let text = serde_json::to_string_pretty(document).ok()?;
+    let error = serde_json::from_str::<T>(&text).err()?;
+    pointer_of_line(&text, error.line())
+}
+
+/// The JSON pointer of what line `target` (from 1) of pretty-printed JSON
+/// holds: the member or element on it, or - on a closing bracket, where
+/// serde reports a missing field - the object or array that line closes.
+fn pointer_of_line(text: &str, target: usize) -> Option<String> {
+    // Each open container: its path, and for an array the next index.
+    let mut open: Vec<(Vec<String>, Option<usize>)> = Vec::new();
+    for (number, line) in text.lines().enumerate() {
+        let line = line.trim();
+        let here: Vec<String> = if matches!(line, "}" | "}," | "]" | "],") {
+            let (path, _) = open.pop()?;
+            path
+        } else {
+            match open.last_mut() {
+                None => Vec::new(),
+                Some((path, Some(index))) => {
+                    let mut here = path.clone();
+                    here.push(index.to_string());
+                    *index += 1;
+                    here
+                }
+                Some((path, None)) => {
+                    let mut here = path.clone();
+                    here.push(member_key(line)?);
+                    here
+                }
+            }
+        };
+        if number + 1 == target {
+            return Some(here.iter().map(|s| format!("/{s}")).collect());
+        }
+        if line.ends_with('{') {
+            open.push((here, None));
+        } else if line.ends_with('[') {
+            open.push((here, Some(0)));
+        }
+    }
+    None
+}
+
+/// The key of a pretty-printed member line (`"key": ...`), escaped for a
+/// JSON pointer.
+fn member_key(line: &str) -> Option<String> {
+    let mut escaped = false;
+    let end = line
+        .char_indices()
+        .skip(1)
+        .find(|&(_, c)| {
+            let closes = c == '"' && !escaped;
+            escaped = c == '\\' && !escaped;
+            closes
+        })?
+        .0;
+    let key: String = serde_json::from_str(&line[..=end]).ok()?;
+    Some(key.replace('~', "~0").replace('/', "~1"))
 }
 
 /// The first generator node in `value` - parents before their children -
@@ -219,6 +309,9 @@ pub(super) fn set_part(document: &mut Value, pointer: &str, value: Value) -> Res
         *document = value;
         return Ok(());
     };
+    if document.pointer(parent).is_none() {
+        make_elided_children(document, parent, last);
+    }
     let container = document.pointer_mut(parent).ok_or_else(|| {
         format!(
             "nothing is at {}",
@@ -254,6 +347,25 @@ pub(super) fn set_part(document: &mut Value, pointer: &str, value: Value) -> Res
         }
     }
     Ok(())
+}
+
+/// A node's `children` list is left out of the record while it is empty, so
+/// the first thing added to one - the first build on an empty workbench
+/// (#1458) - found nothing to add to. An append (`-`, or index 0) under the
+/// missing `children` of a node that is there makes the list first; any
+/// other missing parent is left missing, so a misspelt name is still refused.
+fn make_elided_children(document: &mut Value, parent: &str, last: &str) {
+    let Some((node, "children")) = parent.rsplit_once('/') else {
+        return;
+    };
+    if !matches!(last, "-" | "0") {
+        return;
+    }
+    if let Some(Value::Object(members)) = document.pointer_mut(node) {
+        members
+            .entry("children")
+            .or_insert_with(|| Value::Array(Vec::new()));
+    }
 }
 
 /// A pointer is empty, for the whole document, or starts with a `/`.
@@ -325,6 +437,36 @@ mod tests {
 
         set_part(&mut document, "", json!([])).unwrap();
         assert_eq!(document, json!([]));
+    }
+
+    /// #1458, found rehearsing the body workbench: a node's empty `children`
+    /// is left out of the record, so the first build appended to an empty
+    /// bench found nothing to append to. The list is made for an append -
+    /// and only there, under a node that exists, so a misspelling is still
+    /// refused.
+    #[test]
+    fn the_first_child_of_a_node_appends_to_a_list_made_for_it() {
+        let bench = || json!({ "children": [{ "$type": "network.symbios.gen.cylinder" }] });
+        let mut document = bench();
+        set_part(&mut document, "/children/0/children/-", json!({ "n": 1 })).unwrap();
+        set_part(&mut document, "/children/0/children/-", json!({ "n": 2 })).unwrap();
+        assert_eq!(
+            document["children"][0]["children"],
+            json!([{ "n": 1 }, { "n": 2 }])
+        );
+        let mut document = bench();
+        set_part(&mut document, "/children/0/children/0", json!({ "n": 1 })).unwrap();
+        assert_eq!(document["children"][0]["children"], json!([{ "n": 1 }]));
+
+        let mut document = bench();
+        assert!(set_part(&mut document, "/children/0/childern/-", json!(1)).is_err());
+        assert!(set_part(&mut document, "/children/0/children/2", json!(1)).is_err());
+        assert!(set_part(&mut document, "/children/5/children/-", json!(1)).is_err());
+        assert_eq!(
+            document,
+            bench(),
+            "a refused set leaves the document as it was"
+        );
     }
 }
 
@@ -402,6 +544,90 @@ mod world_tests {
                 .0
                 .generators
                 .contains_key("shed")
+        );
+    }
+
+    /// #1457: outside any generator node - the environment, the landing -
+    /// a refusal still says where: serde, reading a `Value`, names a field
+    /// and never its place.
+    #[test]
+    fn a_refused_set_outside_a_node_names_the_place() {
+        let (mut app, _) = app_in(AGENT);
+
+        let fog = room_set(app.world_mut(), "/environment/fog_visibility", json!("far"))
+            .expect_err("refused");
+        let landing = room_set(
+            app.world_mut(),
+            "/default_landing",
+            json!({ "pos": [10_000], "yaw_deg": 0 }),
+        )
+        .expect_err("refused");
+
+        assert!(fog.contains(" at /environment/fog_visibility;"), "{fog}");
+        assert!(landing.contains(" at /default_landing/pos;"), "{landing}");
+    }
+
+    /// #1457, found live: an audio patch node of an unknown kind reads in as
+    /// `Unknown` and then cannot be written back, and the refusal named the
+    /// enum and nothing else. It names the value set, and why.
+    #[test]
+    fn a_set_that_cannot_be_written_back_names_the_value_set() {
+        let (mut app, _) = app_in(AGENT);
+        let mut recipe =
+            serde_json::to_value(crate::pds::audio::SovereignSequenceRecipe::default())
+                .expect("serialises");
+        recipe["instruments"] = json!([{
+            "id": "bed",
+            "patch": {
+                "graph": {
+                    "nodes": [{ "id": 0, "inputs": {}, "kind": { "kind": "NoSuchNoise" } }],
+                    "output": 0,
+                },
+                "seed": 1,
+            },
+        }]);
+        let audio = json!({ "$type": "Sequence", "recipe": recipe });
+
+        let refused =
+            room_set(app.world_mut(), "/environment/ambient_audio", audio).expect_err("refused");
+
+        assert!(
+            refused.contains("the value set at /environment/ambient_audio holds a `kind`"),
+            "{refused}"
+        );
+    }
+
+    /// Every line of pretty-printed JSON walks back to its pointer: members,
+    /// array elements, empty containers on one line, and a closing bracket
+    /// to the container it closes.
+    #[test]
+    fn each_pretty_line_has_its_pointer() {
+        let text = serde_json::to_string_pretty(&json!({
+            "a": 1,
+            "b~/c": { "d": [10, { "e": true }, []], "f": {} },
+        }))
+        .expect("prints");
+        let pointers: Vec<String> = (1..=text.lines().count())
+            .map(|line| pointer_of_line(&text, line).expect("a pointer"))
+            .collect();
+        assert_eq!(
+            pointers,
+            [
+                "",
+                "/a",
+                "/b~0~1c",
+                "/b~0~1c/d",
+                "/b~0~1c/d/0",
+                "/b~0~1c/d/1",
+                "/b~0~1c/d/1/e",
+                "/b~0~1c/d/1",
+                "/b~0~1c/d/2",
+                "/b~0~1c/d",
+                "/b~0~1c/f",
+                "/b~0~1c",
+                "",
+            ],
+            "{text}"
         );
     }
 

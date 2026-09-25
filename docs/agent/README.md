@@ -58,6 +58,13 @@ it waited for as its `result`; a `save --wait` that failed answers
 4. Greet the admin with `A say "..."`, then arm the watcher
    ([chat.md](chat.md)).
 
+An account's FIRST start opens the Controls window (the game's first-run
+hint, and an open window costs its drawing every frame): `A ui close
+Controls` once. The daemon keeps each account's window state in its own
+prefs (`$XDG_CONFIG_HOME/symbios-overlands/agent/prefs/`), so it stays
+closed at every later start - an offline run with a fresh config home shows
+it again.
+
 Offline practice with no account: `A start --offline` (a stand-in identity
 alone in a seeded world; saves nothing). Use it to reproduce a problem
 without touching the live world.
@@ -115,6 +122,12 @@ as long as you resume from the last `seq` you actually read.
   clarification can arrive within seconds of each other - act on the set.
 - A new account's seeded body may not walk: Hypha's was an airship. Read
   `status.locomotion` before planning a movement.
+- A gateway, portal or solid part you build works only if its generator's
+  ROOT is solid (#1453, in every client built before its fix): prove a
+  gateway by walking in and reading `status.zone` ([region.md](region.md)).
+- Size before you arrange: `render --catalogue <slug>` or `--generator
+  file.json` prints the piece's box ([building.md](building.md)); a world's
+  byte budget is per record, and `status.editing.record_size` has it.
 - `look` sees only from the body. For anything you make - your avatar, a
   building, your whole region - the render tool shows it offline from any
   angle in seconds ([looking.md](looking.md)); try there, then bring each
