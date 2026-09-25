@@ -65,7 +65,31 @@ set just above its floor.
 one per layer: `height_min..height_max` as a fraction of `height_scale`,
 `slope_min..slope_max` where slope is `1 - normal.y` (0 flat, about 0.29 at
 45 degrees, 1 a cliff), and `sharpness` (2 is a clean edge). Where no rule
-matches, the third layer is drawn.
+matches, the third layer is drawn. Every rule that matches is blended, by
+weight: two rules both covering the high ground draw it half and half.
+
+**A rule reaches past its band.** Its weight fades over a skirt a third of
+its half-range wide OUTSIDE the band, so a wide band has a wide skirt. The
+Understory's rock rule was written `slope 0.22..10` ("anything steeper than
+0.22"); slope never passes 1, and that band's skirt reached down to level
+ground, where rock kept 27-43% of every texel. Its rippled pattern was the
+"sand" of two sessions, and a moss retune "changed little" because 41% of
+the moss ground was rock. Capped at `slope_max` 1.0 (10000 on the wire),
+rock left gentle ground entirely and the hollow read as moss. Cap every band
+at 1.0 for slope and 1.0 for height.
+
+**Read the blend, do not guess it**: `--terrain-report --at=X,Z` prints
+each point's `layers` - every layer's share of the blend there, from the
+game's own weight map (#1461) - and `biome`, the largest, which is the
+index a scatter's `biome_filter` compares. The render's eye is a poor judge
+of a ground texture: under a low warm sun three different textures measured
+within 5% of each other, and a thumbnail hid a 41% drop in ripple. Measure
+what changed (the share, or the spread of a Laplacian over a ground patch
+in two renders of one view) before judging by eye.
+
+A scatter's `biome_filter` lists the layers it may grow on, by that largest
+share: ferns filtered to `[0, 1]` never grow where the high ground's layer 3
+is largest, which is why the Understory's plateau had none.
 
 **A procedural texture's colours are LINEAR**, unlike a material's
 `base_color` (sRGB): the generator converts them when it bakes. A litter
@@ -230,14 +254,61 @@ each intermediate before it applies (a stale middle file cost a round trip
 here). Save at each milestone the admin could want kept, and say what is
 next.
 
-Session 874's layout, which rebuilt the saved world byte for byte:
-`src/understory.json` (the saved record: `room get ""`'s value, refreshed
-after every save), one builder script per piece writing its JSON, an
-`edits.txt` of `pointer file` lines, `compose.py` folding the edits into the
-source for offline renders, and `apply.sh live` sending each edit with
-`room set`. A `room set /placements/- ` APPENDS: run it once, save, refresh
-the source, then list those placements by their new index - or every re-run
-adds them again.
+The scripts for it ship in [tools/](tools/README.md): `rec.py pull` (the
+saved record, refreshed after every save), a builder per piece writing its
+JSON with `wire.py`, an EDITS file of `pointer file` lines, `rec.py compose`
+folding them into a copy for offline renders, `views.py` for pictures from
+where people stand, and `rec.py apply` sending each edit live. A `room set
+/placements/-` APPENDS: run it once, save, pull the source again, then list
+those placements by their new index - or every re-run adds them again.
+Session 876 laid four landmarks, an outer forest and the paths between them
+this way in about an hour, each saved as it went.
+
+## Backdrop: making the far places read
+
+"The places further out still look very empty; from the main area they
+serve as backdrop and as invitations to explore" (the admin, session 876).
+What made the Understory's outer ring read, and what did not:
+
+- **Test what the main area can see before building anything.** A ring of
+  24 colour-coded 50 m mock columns (emissive, two radii, every 30 degrees)
+  composed into a copy and rendered from the pool, the landing and the Old
+  Snag's lookout showed in five minutes which directions show over the
+  treeline and which a tree wall hides (the west needed 55-60 m to clear
+  it). Broadleaf trees stand 23 m, conifers 10 m: a far thing must top them.
+- **In fog, only glow travels.** `fog_visibility` is where 5% of a thing's
+  contrast is left, so at 300 m visibility a plain shape 250 m away keeps
+  about a tenth - a faint silhouette, not a landmark - while emissive
+  geometry reads through the mist: a 30 m glowing column at 290 m showed
+  plainly from the pool. Particles do not:
+  at 260 m a 2 m mote is a pixel. A material has no alpha, so a spore cloud
+  is opaque emissive puffs: overlapping lumps of uneven size at each level
+  read as a plume, a single twisting stack read as pancakes.
+- **One colour per place**, so they are told apart through the mist: the
+  Spore Spires green (west), the Ghost Grove pale mint (north), the
+  Puffball Meadow's plume gold (east), the Great Ring's gills amber (south).
+- **The outer land needs its forest, not only landmarks.** Stands of the
+  world's own trees on the ridges the main area sees (a few hundred trees,
+  the lighter conifers and birches first: scatter trees are never culled by
+  distance) plus a thin fill out to the edges. A glade in a stand: move the
+  stand's `bounds` off it (`room set /placements/N/bounds`).
+- **A path to each**: glowing threads from the pool's web out to every
+  site, laid 5 cm above the ground sampled every 2.5 m, meandering, each
+  thread its own generator placed unsnapped at its midpoint (the 100 m spine
+  clamp). From the shore a thread winding off toward a glow over the trees
+  is the invitation.
+- **Things standing in water** (the Drowned Wood: ghost snags in the north
+  lake's shallows): a grid of `--terrain-report --at` points gives each
+  one's `under_water_m`; a snapped absolute placement stands on the lake
+  bed, and `avoid_water` false (the default for a hand placement) keeps it
+  there. The pool's own reed and lily scatters, copied with new `bounds`,
+  dress the new shore.
+- **The same thing in a line reads as fence posts** - the first ten snags
+  followed the shallow band and looked planted. Groups of two and three,
+  a lone one further out, deeper and shallower, read as grown.
+- **Check each one live from the main area** at the end: from the pool's
+  centre, `look --view eyes --at` north, east, south and west showed all
+  four sites over the treeline, as the renders had.
 
 ## Arrivals
 

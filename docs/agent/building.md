@@ -79,6 +79,8 @@ building's frame through it.
   rubber.
 - A field left out takes its default (a roughness of 0.5 is the default and
   is dropped from what the world keeps).
+- `uv_scale` is repeats per METRE of surface, whatever the part's size:
+  `0.5` lays a 2 m tile, `6` a 16 cm one.
 - Colour is the admin's call. Keep one material per visible surface; two
   shades side by side read as a patch, and the lighter corrugated rust read
   as "too bright and yellow" next to the darker one.
@@ -114,6 +116,10 @@ Two faces in one plane, facing one way, flicker as anyone moves. A still
   stops 2 cm inside the wall it butts against, never flush with its outer
   face; two bars crossing at one height get different heights, or their
   crossing is buried in a post; door jambs run up into the header.
+- A part drawn as two layers - a mushroom cap and the glowing gill layer
+  just under it - z-fights where the two profiles meet: sixteen such pairs
+  on the Ghost Tree, each a cap and its own gills (children N and N+1).
+  Keep the inner layer a clear 6% of the radius below and inside the rim.
 - The catalogue has its own (#1440 - 187 of 395 entries): not yours to fix
   unless asked, but never copy a joint from one without checking it.
 

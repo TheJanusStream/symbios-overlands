@@ -159,6 +159,53 @@ fn point(ground: &Ground<'_>, x: f32, z: f32, footprint: Option<f32>, water: Opt
 }
 
 /// The lowest ground under a disc, sampled a cell apart and round its rim.
+/// The ground textures the game blends at a point (#1461): each of the four
+/// splat layers' share of the blend - from the same mapper, rules and
+/// heightmap the ground's weight map is generated from - and the layer a
+/// scatter's `biome_filter` reads there, the largest share. Where no rule
+/// matches, the mapper paints the third layer, and so does this.
+struct Splat {
+    mapper: bevy_symbios_ground::SplatMapper,
+    textures: [&'static str; 4],
+}
+
+impl Splat {
+    fn new(record: &RoomRecord) -> Self {
+        let textures = crate::pds::find_terrain_config(record)
+            .map(|c| c.material.layers.each_ref().map(|l| l.label()))
+            .unwrap_or_else(|| {
+                crate::pds::SovereignTerrainConfig::default()
+                    .material
+                    .layers
+                    .each_ref()
+                    .map(|l| l.label())
+            });
+        Self {
+            mapper: crate::terrain::record_splat_mapper(Some(record)),
+            textures,
+        }
+    }
+
+    /// `layers` (the shares over 0.5 %, by layer) and `biome` for a point.
+    fn read(&self, ground: &Ground<'_>, x: f32, z: f32, out: &mut Value) {
+        let (cx, cz) = ground.cell(x, z);
+        let shares = self.mapper.sample_weights_at(ground.map, cx, cz);
+        out["layers"] = shares
+            .iter()
+            .enumerate()
+            .filter(|(_, share)| **share >= 0.005)
+            .map(|(layer, share)| {
+                json!({
+                    "layer": layer,
+                    "texture": self.textures[layer],
+                    "share": round2(*share),
+                })
+            })
+            .collect();
+        out["biome"] = json!(self.mapper.sample_biome_at(ground.map, cx, cz));
+    }
+}
+
 fn lowest_under(ground: &Ground<'_>, x: f32, z: f32, radius: f32) -> f32 {
     let step = ground.map.scale().max(0.25);
     let n = (radius / step).ceil() as i32;
@@ -297,6 +344,7 @@ pub(super) fn terrain_report(request: &Request<'_>) -> Value {
     let record = &request.record;
     let map = crate::terrain::rebuild_heightmap_for_record(record);
     let ground = Ground::new(&map);
+    let splat = Splat::new(record);
     let water = room_water_level(record);
     let landing_json = record.default_landing.map(|landing| {
         let (lx, lz) = (landing.pos.0[0], landing.pos.0[1]);
@@ -304,6 +352,7 @@ pub(super) fn terrain_report(request: &Request<'_>) -> Value {
         let yaw = landing.yaw_deg.0.to_radians();
         let mut at = point(&ground, lx, lz, None, water);
         at["facing"] = json!([round2(-yaw.sin()), round2(-yaw.cos())]);
+        splat.read(&ground, lx, lz, &mut at);
         at
     });
     let mut report = json!({
@@ -317,7 +366,11 @@ pub(super) fn terrain_report(request: &Request<'_>) -> Value {
         "points": request
             .at
             .iter()
-            .map(|&(x, z)| point(&ground, x, z, request.footprint, water))
+            .map(|&(x, z)| {
+                let mut at = point(&ground, x, z, request.footprint, water);
+                splat.read(&ground, x, z, &mut at);
+                at
+            })
             .collect::<Vec<_>>(),
         "placements": placements(record, &map, water),
     });
@@ -938,5 +991,113 @@ mod tests {
     fn a_point_is_two_numbers() {
         assert_eq!(parse_xz("-18.6, 22"), Ok((-18.6, 22.0)));
         assert!(parse_xz("12").is_err() && parse_xz("1,2,3").is_err() && parse_xz("a,b").is_err());
+    }
+
+    /// #1461: a point's layer shares are the ground's own weight map there -
+    /// the texel the GPU blends by, from the record's rules - and its biome
+    /// is that texel's largest channel. Read at grid nodes across a seeded
+    /// world, where a point and a texel are the same sample.
+    #[test]
+    fn a_points_layers_are_the_weight_map_the_ground_is_drawn_with() {
+        let record = RoomRecord::default_for_seed(3, "did:render:3");
+        let map = crate::terrain::rebuild_heightmap_for_record(&record);
+        let texels = crate::terrain::record_splat_mapper(Some(&record)).generate(&map);
+        let ground = Ground::new(&map);
+        let splat = Splat::new(&record);
+        let half = ground.extent * 0.5;
+        // One interior node for each layer that is largest somewhere, so
+        // every layer the world draws is read at least once.
+        let largest_at = |i: usize, j: usize| {
+            let texel = texels.data[j * texels.width + i];
+            (0..4)
+                .max_by_key(|&l| (texel[l], std::cmp::Reverse(l)))
+                .expect("four")
+        };
+        let mut nodes = std::collections::BTreeMap::new();
+        for j in (9..texels.height - 9).step_by(13) {
+            for i in (9..texels.width - 9).step_by(13) {
+                nodes.entry(largest_at(i, j)).or_insert((i, j));
+            }
+        }
+        let mut biomes = std::collections::BTreeSet::new();
+        let mut blends = 0;
+        for (i, j) in nodes.into_values() {
+            let (x, z) = (i as f32 * map.scale() - half, j as f32 * map.scale() - half);
+            let mut at = json!({});
+            splat.read(&ground, x, z, &mut at);
+            let texel = texels.data[j * texels.width + i];
+            let layers = at["layers"].as_array().expect("layers");
+            for (layer, &byte) in texel.iter().enumerate() {
+                let share = layers
+                    .iter()
+                    .find(|l| l["layer"] == layer)
+                    .map_or(0.0, |l| l["share"].as_f64().expect("a share"));
+                assert!(
+                    (share - f64::from(byte) / 255.0).abs() <= 0.0075,
+                    "layer {layer} at ({x}, {z}): {share} against the texel's {byte}/255 - {at}"
+                );
+            }
+            let largest = largest_at(i, j);
+            assert_eq!(at["biome"], largest, "the biome is the largest share: {at}");
+            biomes.insert(largest);
+            blends += usize::from(layers.len() > 1);
+        }
+        assert!(
+            biomes.len() > 1 && blends > 0,
+            "the points must reach more than one layer and a blend, or they test little: {biomes:?}, {blends}"
+        );
+    }
+
+    /// Why #1461 exists. A rule's weight fades over a skirt a third of its
+    /// half-range wide outside its band, so a rock rule written for "any slope
+    /// past 0.22" as `0.22..10` - the Understory's - reaches all the way down
+    /// to level ground and takes a share of it (there the rippled "sand"
+    /// texture of session 876). Capped at 1.0, a vertical face, it takes
+    /// none. The report reads the record's own rules, so it tells the two
+    /// apart.
+    #[test]
+    fn a_rock_band_open_to_ten_takes_a_share_of_level_ground() {
+        let mut flat = HeightMap::new(33, 33, 2.0);
+        flat.data_mut().fill(1.0);
+        let rules = |rock_slope_max: f32| {
+            let mut record = RoomRecord::default_for_seed(3, "did:render:3");
+            let cfg = record
+                .generators
+                .values_mut()
+                .find_map(|g| match &mut g.kind {
+                    GeneratorKind::Terrain(cfg) => Some(cfg),
+                    _ => None,
+                })
+                .expect("a seeded world has its terrain");
+            let rule = |h: (f32, f32), s: (f32, f32)| crate::pds::SovereignSplatRule {
+                height_min: crate::pds::Fp(h.0),
+                height_max: crate::pds::Fp(h.1),
+                slope_min: crate::pds::Fp(s.0),
+                slope_max: crate::pds::Fp(s.1),
+                sharpness: crate::pds::Fp(2.0),
+            };
+            let never = rule((2.0, 3.0), (0.0, 1.0));
+            cfg.material.rules = [
+                rule((0.0, 1.0), (0.0, 0.2)),
+                never,
+                rule((0.0, 1.0), (0.22, rock_slope_max)),
+                never,
+            ];
+            record
+        };
+        let share_of_rock = |record: &RoomRecord| {
+            let mut at = json!({});
+            Splat::new(record).read(&Ground::new(&flat), 0.0, 0.0, &mut at);
+            at["layers"]
+                .as_array()
+                .expect("layers")
+                .iter()
+                .find(|l| l["layer"] == 2)
+                .map_or(0.0, |l| l["share"].as_f64().expect("a share"))
+        };
+
+        let open = share_of_rock(&rules(10.0));
+        assert!(open > 0.4, "the open band takes {open} of level ground");
+        assert_eq!(share_of_rock(&rules(1.0)), 0.0, "capped at a vertical face");
     }
 }

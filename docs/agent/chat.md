@@ -5,53 +5,16 @@ Chat is slow, public and asynchronous: plan for lines crossing yours.
 
 ## The watcher
 
-Run this as a background process (so you are woken when it exits) and
-re-arm it after every task. It waits on the event log, gathers a follow-up
-line or two, then prints everything it saw and the cursor to resume from.
+`tools/watch.py SINCE [QUIET_MINUTES]` ([tools/](tools/README.md)) waits on
+the event log and exits when the admin speaks or offers a gift, anyone comes
+or goes, a follow is blocked, or the daemon restarted - after gathering a
+follow-up line or two, since people type in bursts. It prints every event it
+saw, a `WAKE:` line saying why, and `NEXT=<seq>` to resume from. It reads the
+admin's DID from `status`, so nothing needs editing; with two sessions saved,
+`export AGENT_ACCOUNT=<handle>` first.
 
-```python
-#!/usr/bin/env python3
-"""usage: watch.py SINCE [QUIET_MINUTES] - exits on the admin's chat or
-gift, anyone arriving or leaving, a daemon restart, or a quiet spell."""
-import datetime, json, subprocess, sys, time
-
-AGENT = ["env", "BEVY_ASSET_ROOT=<repo>", "<repo>/target/test-release/agent"]
-ACCOUNT = []                             # ["--account", "<handle>"] when two sessions are saved
-ADMIN = "did:plc:<the admin's DID>"      # `A status` -> result.admin.did
-since = int(sys.argv[1])
-quiet_s = 60 * float(sys.argv[2] if len(sys.argv) > 2 else 15)
-started, seen, why, settled = time.time(), [], [], False
-
-def batch(wait):
-    out = subprocess.run(AGENT + ["events", *ACCOUNT, "--since", str(since), "--wait", str(wait)],
-                         capture_output=True, text=True)
-    answer = json.loads(out.stdout or "{}")
-    if not answer.get("ok"):
-        print(f"WATCHER ERROR: {out.stdout} {out.stderr}\nNEXT={since}")
-        sys.exit(1)
-    return answer["result"]
-
-while True:
-    b = batch(60)
-    if b["restarted"]: why.append("the daemon restarted: resume from 0")
-    if b["missed"]: why.append(f"missed {b['missed']} events")
-    for e in b["events"]:
-        seen.append(e)
-        who = "ADMIN" if e.get("from_did", e.get("did")) == ADMIN else "stranger"
-        if e["kind"] in ("chat", "gift_offered", "peer_joined", "peer_left"):
-            why.append(f"{e['kind']} ({who})")
-    since = b["next"]
-    if why and not settled:              # people type in bursts
-        settled = True
-        more = batch(5)
-        seen += more["events"]; since = more["next"]
-    if why or time.time() - started > quiet_s:
-        for e in seen:
-            at = datetime.datetime.fromtimestamp(e["at"]).strftime("%H:%M:%S")
-            print(at, json.dumps(e, ensure_ascii=False))
-        print("WAKE:", "; ".join(why) or "quiet")
-        print(f"NEXT={since}")
-        sys.exit(0)
+```bash
+AGENT_ACCOUNT=hypha-ai.bsky.social <repo>/docs/agent/tools/watch.py 0 30
 ```
 
 - Start it with the harness's background mode, NOT with `&` and its output
@@ -106,6 +69,12 @@ it. So:
   and save as they allowed. Lines said while they are away reach nobody
   (`delivery: nobody_here`) and are not kept for them: write a two-line
   summary as you go and say it when they come back (`peer_joined`).
+- A standing "follow me for the session" ends when the admin leaves (the
+  follow's `movement_ended` says `peer_left`): start it again on their
+  `peer_joined`. Break it off only to stand somewhere that shows your work
+  better, then `walk-to @admin` (one command back, facing them) and
+  `follow` again. `halt` first: a new movement replaces the follow anyway,
+  but the halt's answer says what was stopped.
 - A stranger arriving is `peer_joined` with another DID: carry on, mention
   it once. Their lines arrive as `chat_dropped` (who, never what) and their
   gift offers are declined unread (`gift_declined`).

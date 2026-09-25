@@ -782,13 +782,30 @@ fn build_member_generator(
     // structure by the room's conflict tier (the Ruins modifier).
     // Deterministic in the member's grammar seed; calm rooms are untouched.
     crate::pds::ruin::apply_ruin(&mut member_gen, escalation, member.grammar_seed);
+    scale_about_ground(&mut member_gen, member.scale);
     Some(member_gen)
 }
 
+/// Draw a member at `scale` (#1454): an item is scaled by its root prim, not
+/// by its placement - the world compile leaves an absolute placement's scale
+/// unapplied. The root's translation scales with it, so the tree grows about
+/// the ground point the placement stands it on: a root that sits above its
+/// own foot keeps that foot on the ground.
+fn scale_about_ground(generator: &mut Generator, scale: f32) {
+    if scale == 1.0 {
+        return;
+    }
+    let t = &mut generator.transform;
+    t.scale = Fp3(t.scale.0.map(|c| c * scale));
+    t.translation = Fp3(t.translation.0.map(|c| c * scale));
+}
+
 /// A terrain-snapped, water-avoiding [`Placement::Absolute`] for a settlement
-/// member at its derived offset / yaw / scale, referencing `generator_ref`.
-/// Sunk 0.35 m below the snap so foundations bite into slopes instead of
-/// leaving daylight gaps under the downhill edge.
+/// member at its derived offset and yaw, referencing `generator_ref`. Its
+/// scale is the generator's own ([`scale_about_ground`]); the placement keeps
+/// a unit scale and carries the footprint at the size the member is drawn
+/// (`member.clearance`). Sunk 0.35 m below the snap so foundations bite into
+/// slopes instead of leaving daylight gaps under the downhill edge.
 fn member_placement(
     generator_ref: String,
     member: &crate::seeded_defaults::SettlementMember,
@@ -799,7 +816,7 @@ fn member_placement(
         transform: TransformData {
             translation: Fp3([member.offset[0], -0.35, member.offset[1]]),
             rotation: Fp4([0.0, half_yaw.sin(), 0.0, half_yaw.cos()]),
-            scale: Fp3([member.scale, member.scale, member.scale]),
+            scale: Fp3([1.0, 1.0, 1.0]),
         },
         snap_to_terrain: true,
         avoid_water: true,
@@ -1218,6 +1235,164 @@ fn apply_nightfall(luminosity: f32, env: &mut Environment) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1454: an item is scaled by its root prim, about the ground point the
+    /// placement stands it on - the root's own lift scales with it, so a root
+    /// above its foot keeps the foot on the ground. At 1.0 nothing moves, and
+    /// an identity transform stays elided on the wire.
+    #[test]
+    fn a_member_is_scaled_by_its_root_about_the_ground() {
+        let root = || -> Generator {
+            serde_json::from_value(serde_json::json!({
+                "$type": "network.symbios.gen.cuboid", "size": [20000, 20000, 20000], "solid": true,
+                "transform": {"translation": [5000, 10000, -2000], "scale": [10000, 20000, 10000]}
+            }))
+            .expect("a cuboid")
+        };
+        let mut g = root();
+        scale_about_ground(&mut g, 1.3);
+        assert_eq!(g.transform.scale.0, [1.3, 2.6, 1.3]);
+        let t = g.transform.translation.0;
+        for (got, want) in t.iter().zip([0.65, 1.3, -0.26]) {
+            assert!(
+                (got - want).abs() < 1e-5,
+                "the lift scales with the root: {t:?}"
+            );
+        }
+        let mut plain: Generator = serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.gen.cuboid", "size": [20000, 20000, 20000], "solid": true
+        }))
+        .expect("a cuboid");
+        scale_about_ground(&mut plain, 1.0);
+        assert!(
+            plain.transform.is_identity(),
+            "1.0 leaves the tree as it was"
+        );
+    }
+
+    /// #1454: a settlement member is drawn at its scale by its generator and
+    /// placed at unit scale (the world compile leaves a placement's scale
+    /// unapplied, so the seeder's scale used to be dead data), its footprint
+    /// the one it is drawn at.
+    #[test]
+    fn a_scaled_member_is_drawn_by_its_generator_and_placed_at_unit_scale() {
+        use crate::catalogue::StructureRole;
+        use crate::seeded_defaults::{SettlementMember, ThemeArchetype};
+        let entry = crate::catalogue::entries_for(
+            ThemeArchetype::AncientClassical,
+            StructureRole::Landmark,
+        )
+        .next()
+        .expect("a landmark entry");
+        let clearance = entry.footprint().clearance;
+        let member = |scale: f32| SettlementMember {
+            slug: entry.slug(),
+            offset: [40.0, -25.0],
+            yaw_rad: 0.4,
+            scale,
+            grammar_seed: 7,
+            clearance: clearance * scale,
+        };
+        let wire = |m: &SettlementMember| {
+            let (mut generators, mut placements) = (HashMap::new(), Vec::new());
+            wire_settlement_member(
+                m,
+                "landmark",
+                "did:test:1454",
+                0.5,
+                0.0,
+                &mut generators,
+                &mut placements,
+            );
+            (
+                generators.remove("landmark").expect("its generator"),
+                placements.remove(0),
+            )
+        };
+        let (plain, _) = wire(&member(1.0));
+        let (drawn, placement) = wire(&member(1.3));
+        for i in 0..3 {
+            assert!((drawn.transform.scale.0[i] - plain.transform.scale.0[i] * 1.3).abs() < 1e-5);
+            assert!(
+                (drawn.transform.translation.0[i] - plain.transform.translation.0[i] * 1.3).abs()
+                    < 1e-5
+            );
+        }
+        assert_eq!(
+            drawn.children, plain.children,
+            "only the root carries the scale"
+        );
+        let Placement::Absolute {
+            transform,
+            avoid_water_clearance,
+            ..
+        } = placement
+        else {
+            panic!("a member is placed absolutely");
+        };
+        assert_eq!(
+            transform.scale.0, [1.0; 3],
+            "the placement is not what scales it"
+        );
+        assert!(
+            (avoid_water_clearance.0 - clearance * 1.3).abs() < 1e-4,
+            "the footprint it is drawn at"
+        );
+    }
+
+    /// #1463 across seeded worlds: every settlement member, the gate and the
+    /// monument are placed at unit scale, and no two of their footprints -
+    /// each at the size it is drawn - overlap. Drawing members at their
+    /// scale with the old, unscaled spacing overlapped 161 pairs in 300
+    /// worlds, a landmark up to 17 m over its own gate.
+    #[test]
+    fn seeded_settlements_stand_clear_at_the_size_they_are_drawn() {
+        let mut pairs = 0;
+        for seed in 0..60u64 {
+            let record = build_room(seed, &format!("did:seed:{seed}"));
+            let members: Vec<(&str, f32, f32, f32)> = record
+                .placements
+                .iter()
+                .filter_map(|p| match p {
+                    Placement::Absolute {
+                        generator_ref,
+                        transform,
+                        avoid_water_clearance,
+                        ..
+                    } if generator_ref.starts_with("landmark")
+                        || generator_ref.starts_with("settlement_")
+                        || generator_ref == "social_gateway"
+                        || generator_ref == "owner_monument" =>
+                    {
+                        assert_eq!(transform.scale.0, [1.0; 3], "seed {seed}: {generator_ref}");
+                        let prop = generator_ref.starts_with("settlement_prop_");
+                        (!prop).then_some((
+                            generator_ref.as_str(),
+                            transform.translation.0[0],
+                            transform.translation.0[2],
+                            avoid_water_clearance.0,
+                        ))
+                    }
+                    _ => None,
+                })
+                .collect();
+            for (i, a) in members.iter().enumerate() {
+                for b in &members[i + 1..] {
+                    pairs += 1;
+                    let d = (a.1 - b.1).hypot(a.2 - b.2);
+                    assert!(
+                        d >= a.3 + b.3 - 1e-3,
+                        "seed {seed}: {} and {} stand {d} m apart, inside {} + {}",
+                        a.0,
+                        b.0,
+                        a.3,
+                        b.3
+                    );
+                }
+            }
+        }
+        assert!(pairs > 100, "too few pairs to say anything: {pairs}");
+    }
 
     /// A swapped signature layer must carry the room's own colours.
     ///

@@ -22,6 +22,8 @@ client wherever a task goes badly.
   keeps playing: it runs the code it started with. A change in `src/agent/`
   builds in about 1 min 45 s; a restart (stop, start, `in_world`) takes
   about 10 s, and the watcher dies with the old daemon - re-arm from 0.
+- A fix to the render tool (`src/render_tool/`) is live with its build:
+  every render is a fresh process, and the daemon never runs it.
 - A fix to the command line alone (`src/agent/requests.rs`, `cli.rs`,
   `mod.rs` - how an answer is printed, a new flag the daemon already
   understands) is live with the build: every command is a fresh process.
@@ -42,6 +44,16 @@ client wherever a task goes badly.
   fix, the test, the live retry.
 - The user-facing sentence in [../building.md](../building.md)'s "Agent
   client" section if the fix changes what a command answers.
+
+## Measure a change before making it
+
+A decided change can still have consequences nobody listed. #1454's
+decision ("an item is scaled by its root prim") looked like a two-line move
+of a number; a probe first - an `#[ignore]` test over 300 seeded worlds, run
+with `cargo nextest run ... --run-ignored only --no-capture` - showed it
+would have stood 161 pairs of buildings inside each other, a landmark 17 m
+over its own gate, because the siting spaced them by the unscaled size. The
+probe became the fix's two regression tests. Numbers first, then the change.
 
 ## Where things live
 
@@ -70,7 +82,9 @@ JSON (`serde_json::from_value`) - the same form `room set` takes.
   settled the same way.
 - The gate at the end is [../../CLAUDE.md](../../CLAUDE.md)'s seven lines
   plus `cargo test --profile test-release --lib` twice - never plain
-  `--release`.
+  `--release`. Run the wasm line early: a new `pub(crate) use` that only
+  native code reads (the render tool) is an unused import on wasm, a red
+  CI job under `-D warnings` - gate it `#[cfg(not(target_arch = "wasm32"))]`.
 
 ## Checking that tests test something
 
@@ -94,6 +108,10 @@ the files back and compare checksums, and grep that no guard is left.
 - A negated guard needs its parentheses: `!std::env::var(..).as_deref() ==
   Ok("m2")` is `(!var) == Ok(..)` and does not compile; write
   `!(std::env::var("AGENT_MUTANT").as_deref() == Ok("m2"))`.
+- A mutant can be equivalent for a plain reason: #1463's secondary spacing
+  bound (x1.10) survived every fixture because the 4-12 m gap already
+  absorbs a 10% growth. Keep code that is right by construction, and write
+  the equivalence into the issue rather than a test that pretends.
 - A test run with guards in relinks the binaries too. After restoring the
   files, rebuild and check `strings target/test-release/agent | grep -c
   AGENT_MUTANT` is 0 before the next restart of the live daemon.

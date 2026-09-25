@@ -43,6 +43,20 @@ const FALLBACK_THEME: ThemeArchetype = ThemeArchetype::AncientClassical;
 pub const MAX_SECONDARIES: usize = 3;
 /// Upper bound on scatter props in a settlement.
 pub const MAX_PROPS: usize = 6;
+/// Uniform-scale band of a secondary building (a hamlet's anchor too).
+const SECONDARY_SCALE_BAND: (f32, f32) = (0.80, 1.10);
+/// The band a prop's scale is still drawn from and then left unapplied (see
+/// [`SettlementMember::scale`]): the draw stays so that every draw after it -
+/// and so every seeded world - keeps its place in the stream.
+const PROP_SCALE_ROLL: (f32, f32) = (0.70, 1.05);
+
+/// A secondary's keep-clear radius before its scale is drawn - at the top of
+/// [`SECONDARY_SCALE_BAND`], so it is spaced for the largest it can be drawn
+/// (its scale is drawn after its position; drawing it first would move every
+/// seeded world's later draws).
+fn secondary_spacing_clearance(clearance: f32) -> f32 {
+    clearance * SECONDARY_SCALE_BAND.1
+}
 
 /// One placed structure within a settlement: which catalogue entry,
 /// where, and how it stands.
@@ -54,12 +68,20 @@ pub struct SettlementMember {
     pub offset: [f32; 2],
     /// Yaw (radians around Y).
     pub yaw_rad: f32,
-    /// Uniform scale multiplier.
+    /// Uniform scale the member is drawn at. The build puts it on the
+    /// member generator's root prim, scaled about the ground point (#1454:
+    /// an item is scaled by its root, not by its placement). Always 1.0 for
+    /// a prop: every copy of a prop slug shares one generator, so a per-copy
+    /// scale could never be drawn.
     pub scale: f32,
     /// Replacement seed for Shape-grammar entries' stochastic rules.
     pub grammar_seed: u64,
-    /// Dry-land clearance radius (m) for the compiler's water-avoidance
-    /// walk - the member's [`crate::catalogue::Footprint::clearance`].
+    /// Keep-clear radius (m) at the size the member is drawn - its
+    /// [`crate::catalogue::Footprint::clearance`] times [`Self::scale`] -
+    /// for the compiler's water-avoidance walk and for spacing everything
+    /// placed round it (the gate, the secondaries, the props). Spaced by the
+    /// unscaled radius, a 1.45x landmark stood up to 17 m over its own gate
+    /// once it was drawn at its scale (#1463).
     pub clearance: f32,
 }
 
@@ -187,13 +209,14 @@ fn place_landmark(
     let yaw_rad = offset[0].atan2(offset[1]) + range_f32(rng, -0.35, 0.35);
 
     let (scale_lo, scale_hi) = landmark_scale_band(prosperity);
+    let scale = range_f32(rng, scale_lo, scale_hi);
     SettlementMember {
         slug: entry.slug(),
         offset,
         yaw_rad,
-        scale: range_f32(rng, scale_lo, scale_hi),
+        scale,
         grammar_seed: rng.next_u64(),
-        clearance: fp.clearance,
+        clearance: fp.clearance * scale,
     }
 }
 
@@ -233,7 +256,9 @@ fn place_secondaries(
             -1.2 + 2.4 * (i as f32) / ((count - 1) as f32) + range_f32(rng, -0.25, 0.25)
         };
         let dir = base + spread;
-        let r = landmark.clearance + fp.clearance + range_f32(rng, 4.0, 12.0);
+        let r = landmark.clearance
+            + secondary_spacing_clearance(fp.clearance)
+            + range_f32(rng, 4.0, 12.0);
         let offset = [
             landmark.offset[0] + dir.sin() * r,
             landmark.offset[1] + dir.cos() * r,
@@ -242,13 +267,14 @@ fn place_secondaries(
         let yaw_rad = (landmark.offset[0] - offset[0]).atan2(landmark.offset[1] - offset[1])
             + range_f32(rng, -0.25, 0.25);
 
+        let scale = range_f32(rng, SECONDARY_SCALE_BAND.0, SECONDARY_SCALE_BAND.1);
         out.push(SettlementMember {
             slug: entry.slug(),
             offset,
             yaw_rad,
-            scale: range_f32(rng, 0.80, 1.10),
+            scale,
             grammar_seed: rng.next_u64(),
-            clearance: fp.clearance,
+            clearance: fp.clearance * scale,
         });
     }
     out
@@ -288,11 +314,13 @@ fn place_props(
             landmark.offset[1] + dir.cos() * r,
         ];
 
+        let yaw_rad = unit_f32(rng) * TAU;
+        let _unapplied = range_f32(rng, PROP_SCALE_ROLL.0, PROP_SCALE_ROLL.1);
         out.push(SettlementMember {
             slug: entry.slug(),
             offset,
-            yaw_rad: unit_f32(rng) * TAU,
-            scale: range_f32(rng, 0.70, 1.05),
+            yaw_rad,
+            scale: 1.0,
             grammar_seed: rng.next_u64(),
             clearance: fp.clearance,
         });
@@ -408,15 +436,16 @@ impl SettlementPlan {
             }
             let yaw_rad = site[0].atan2(site[1]) + range_f32(&mut rng, -0.35, 0.35);
             let (scale_lo, scale_hi) = landmark_scale_band(prosperity);
+            let scale = range_f32(&mut rng, scale_lo, scale_hi);
             return Self {
                 clusters: vec![SettlementCluster {
                     landmark: Some(SettlementMember {
                         slug: entry.slug(),
                         offset: site,
                         yaw_rad,
-                        scale: range_f32(&mut rng, scale_lo, scale_hi),
+                        scale,
                         grammar_seed: rng.next_u64(),
-                        clearance: fp.clearance,
+                        clearance: fp.clearance * scale,
                     }),
                     secondaries: Vec::new(),
                     props: Vec::new(),
@@ -597,21 +626,22 @@ fn place_cluster(
     };
     let anchor_yaw = anchor_pos[0].atan2(anchor_pos[1]) + range_f32(rng, -0.35, 0.35);
     let (scale_lo, scale_hi) = if kind == ClusterKind::Hamlet {
-        (0.80, 1.10)
+        SECONDARY_SCALE_BAND
     } else {
         landmark_scale_band(prosperity)
     };
+    let anchor_scale = range_f32(rng, scale_lo, scale_hi);
+    let anchor_clearance = anchor_fp.clearance * anchor_scale;
     let anchor_member = SettlementMember {
         slug: anchor_entry.slug(),
         offset: anchor_pos,
         yaw_rad: anchor_yaw,
-        scale: range_f32(rng, scale_lo, scale_hi),
+        scale: anchor_scale,
         grammar_seed: rng.next_u64(),
-        clearance: anchor_fp.clearance,
+        clearance: anchor_clearance,
     };
-    consumed += member_area_cost(anchor_fp.clearance);
-    placed.push((anchor_pos, anchor_fp.clearance));
-    let anchor_clearance = anchor_fp.clearance;
+    consumed += member_area_cost(anchor_clearance);
+    placed.push((anchor_pos, anchor_clearance));
     if kind == ClusterKind::Hamlet {
         cluster.secondaries.push(anchor_member);
     } else {
@@ -636,7 +666,8 @@ fn place_cluster(
         let idx = ((unit_f32(rng) * remaining.len() as f32) as usize).min(remaining.len() - 1);
         let entry = remaining.remove(idx);
         let fp = entry.footprint();
-        if consumed + member_area_cost(fp.clearance) > usable_area {
+        let spacing = secondary_spacing_clearance(fp.clearance);
+        if consumed + member_area_cost(spacing) > usable_area {
             continue;
         }
         let spread = if sec_count == 1 {
@@ -645,10 +676,9 @@ fn place_cluster(
             -1.2 + 2.4 * (i as f32) / ((sec_count - 1) as f32) + range_f32(rng, -0.25, 0.25)
         };
         let dir = base + spread;
-        let r = anchor_clearance + fp.clearance + range_f32(rng, 4.0, 12.0);
+        let r = anchor_clearance + spacing + range_f32(rng, 4.0, 12.0);
         let desired = [anchor_pos[0] + dir.sin() * r, anchor_pos[1] + dir.cos() * r];
-        let keep: Vec<([f32; 2], f32)> =
-            placed.iter().map(|&(p, c)| (p, c + fp.clearance)).collect();
+        let keep: Vec<([f32; 2], f32)> = placed.iter().map(|&(p, c)| (p, c + spacing)).collect();
         let Some(pos) = probe.snap_to_region(region, desired, &keep) else {
             continue;
         };
@@ -658,16 +688,18 @@ fn place_cluster(
         }
         let yaw_rad =
             (anchor_pos[0] - pos[0]).atan2(anchor_pos[1] - pos[1]) + range_f32(rng, -0.25, 0.25);
+        let scale = range_f32(rng, SECONDARY_SCALE_BAND.0, SECONDARY_SCALE_BAND.1);
+        let clearance = fp.clearance * scale;
         cluster.secondaries.push(SettlementMember {
             slug: entry.slug(),
             offset: pos,
             yaw_rad,
-            scale: range_f32(rng, 0.80, 1.10),
+            scale,
             grammar_seed: rng.next_u64(),
-            clearance: fp.clearance,
+            clearance,
         });
-        consumed += member_area_cost(fp.clearance);
-        placed.push((pos, fp.clearance));
+        consumed += member_area_cost(clearance);
+        placed.push((pos, clearance));
     }
 
     // Props scatter around the anchor, snapped the same way. Their
@@ -705,11 +737,13 @@ fn place_cluster(
             if snap_d > SNAP_MAX_DIST {
                 continue;
             }
+            let yaw_rad = unit_f32(rng) * TAU;
+            let _unapplied = range_f32(rng, PROP_SCALE_ROLL.0, PROP_SCALE_ROLL.1);
             cluster.props.push(SettlementMember {
                 slug: entry.slug(),
                 offset: pos,
-                yaw_rad: unit_f32(rng) * TAU,
-                scale: range_f32(rng, 0.70, 1.05),
+                yaw_rad,
+                scale: 1.0,
                 grammar_seed: rng.next_u64(),
                 clearance: fp.clearance,
             });
@@ -1398,6 +1432,86 @@ mod tests {
                 if (7..=9).contains(&x) { 2.0 } else { 30.0 }
             },
         )
+    }
+
+    /// #1463: a member's keep-clear radius is its footprint at the size it
+    /// is drawn, and what is placed round it is spaced by that. Spaced by the
+    /// unscaled radius, a 1.45x landmark stood 17 m over its own gate once
+    /// the build drew it at its scale. A prop is drawn at its authored size -
+    /// every copy of a prop slug shares one generator - so its scale is 1.
+    /// Rich rooms are forced here so landmarks roll 1.05-1.45.
+    #[test]
+    fn members_keep_clear_at_the_size_they_are_drawn() {
+        use crate::seeded_defaults::LandformArchetype::Archipelago;
+        let probe = two_plateau_probe();
+        let footprint = |slug: &str| {
+            crate::catalogue::by_slug(slug)
+                .expect("a settlement slug resolves")
+                .footprint()
+                .clearance
+        };
+        let mut grown = 0;
+        for s in 0u64..96 {
+            let mut scene = sited_scene(s, Archipelago);
+            scene.prosperity = 0.95;
+            let sited = SettlementPlan::from_scene_sited(&scene, s, &probe);
+            let flat = Settlement::from_scene(&scene, s);
+            let clusters: Vec<(
+                Option<&SettlementMember>,
+                &[SettlementMember],
+                &[SettlementMember],
+            )> = sited
+                .clusters
+                .iter()
+                .map(|c| (c.landmark.as_ref(), &c.secondaries[..], &c.props[..]))
+                .chain(std::iter::once((
+                    Some(&flat.landmark),
+                    &flat.secondaries[..],
+                    &flat.props[..],
+                )))
+                .collect();
+            for (landmark, secondaries, props) in clusters {
+                for m in landmark.into_iter().chain(secondaries) {
+                    let drawn = footprint(m.slug) * m.scale;
+                    assert!(
+                        (m.clearance - drawn).abs() < 1e-4,
+                        "seed {s}: {} keeps {} clear, drawn at {} x{}",
+                        m.slug,
+                        m.clearance,
+                        drawn,
+                        m.scale
+                    );
+                    grown += usize::from(m.scale > 1.2);
+                }
+                for p in props {
+                    assert_eq!(
+                        p.scale, 1.0,
+                        "seed {s}: prop {} is drawn at its own size",
+                        p.slug
+                    );
+                    assert_eq!(p.clearance, footprint(p.slug), "seed {s}: prop {}", p.slug);
+                }
+                let built: Vec<&SettlementMember> =
+                    landmark.into_iter().chain(secondaries).collect();
+                for (i, a) in built.iter().enumerate() {
+                    for b in &built[i + 1..] {
+                        let d = (a.offset[0] - b.offset[0]).hypot(a.offset[1] - b.offset[1]);
+                        assert!(
+                            d >= a.clearance + b.clearance - 1e-3,
+                            "seed {s}: {} and {} stand {d} m apart, inside {} + {}",
+                            a.slug,
+                            b.slug,
+                            a.clearance,
+                            b.clearance
+                        );
+                    }
+                }
+            }
+        }
+        assert!(
+            grown > 0,
+            "no member was drawn past 1.2x: the rule was never tested"
+        );
     }
 
     #[test]

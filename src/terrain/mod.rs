@@ -52,6 +52,10 @@ mod lots;
 pub mod referenced;
 mod roads;
 mod splat;
+// The render tool's terrain report reads the ground's weights with it (#1461);
+// the web build has no render tool.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use splat::record_splat_mapper;
 
 use bevy::prelude::*;
 use bevy_symbios_ground::HeightMap;

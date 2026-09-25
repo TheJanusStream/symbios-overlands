@@ -331,59 +331,7 @@ pub(super) fn apply_splat_textures(
     let hm = &hm_res.0;
     let world_extent = (hm.width() - 1) as f32 * hm.scale();
 
-    // Pull splat rules from the active record when present - this is what
-    // lets the world editor re-balance biomes without a recompile. Falls
-    // back to the canonical defaults if the record lacks a terrain gen.
-    let (rules_src, hs) = record
-        .as_ref()
-        .and_then(|r| {
-            crate::pds::find_terrain_config(&r.0).map(|c| (c.material.rules, c.height_scale.0))
-        })
-        .unwrap_or_else(|| {
-            (
-                SovereignTerrainConfig::default().material.rules,
-                tcfg::HEIGHT_SCALE,
-            )
-        });
-
-    let mapper = SplatMapper::new([
-        // R - Grass
-        SplatRule::new(
-            (
-                hs * rules_src[0].height_min.0,
-                hs * rules_src[0].height_max.0,
-            ),
-            (rules_src[0].slope_min.0, rules_src[0].slope_max.0),
-            rules_src[0].sharpness.0,
-        ),
-        // G - Dirt
-        SplatRule::new(
-            (
-                hs * rules_src[1].height_min.0,
-                hs * rules_src[1].height_max.0,
-            ),
-            (rules_src[1].slope_min.0, rules_src[1].slope_max.0),
-            rules_src[1].sharpness.0,
-        ),
-        // B - Rock
-        SplatRule::new(
-            (
-                hs * rules_src[2].height_min.0,
-                hs * rules_src[2].height_max.0,
-            ),
-            (rules_src[2].slope_min.0, rules_src[2].slope_max.0),
-            rules_src[2].sharpness.0,
-        ),
-        // A - Snow
-        SplatRule::new(
-            (
-                hs * rules_src[3].height_min.0,
-                hs * rules_src[3].height_max.0,
-            ),
-            (rules_src[3].slope_min.0, rules_src[3].slope_max.0),
-            rules_src[3].sharpness.0,
-        ),
-    ]);
+    let mapper = record_splat_mapper(record.as_ref().map(|r| &r.0));
     let weight_map = mapper.generate(hm);
 
     // CPU mirror for the avatar-world interaction classifier (#245):
@@ -576,6 +524,36 @@ pub(super) fn free_referenced_splat_sources(
         state.layer_albedo = Default::default();
         state.layer_normal = Default::default();
     }
+}
+
+/// The splat mapper the ground's weight map is generated with: the record's
+/// four rules, heights scaled from fractions of `height_scale` to metres -
+/// or the canonical defaults for a record with no terrain generator. Pulling
+/// the rules from the record is what lets the World Editor re-balance the
+/// ground without a recompile.
+///
+/// One builder for every reader of the weights: the GPU weight map, the
+/// contact classifier's CPU mirror, and the render tool's terrain report,
+/// which prints each layer's share at a point (#1461).
+pub(crate) fn record_splat_mapper(record: Option<&crate::pds::RoomRecord>) -> SplatMapper {
+    let (rules, hs) = record
+        .and_then(|r| {
+            crate::pds::find_terrain_config(r).map(|c| (c.material.rules, c.height_scale.0))
+        })
+        .unwrap_or_else(|| {
+            (
+                SovereignTerrainConfig::default().material.rules,
+                tcfg::HEIGHT_SCALE,
+            )
+        });
+    // R, G, B, A: layers 0 to 3 (the defaults' grass, dirt, rock, snow).
+    SplatMapper::new(rules.map(|r| {
+        SplatRule::new(
+            (hs * r.height_min.0, hs * r.height_max.0),
+            (r.slope_min.0, r.slope_max.0),
+            r.sharpness.0,
+        )
+    }))
 }
 
 /// Concatenate the four layer images into a single `texture_2d_array` `Image`.

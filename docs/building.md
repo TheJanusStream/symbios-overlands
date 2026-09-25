@@ -784,7 +784,9 @@ cargo run --bin render -- --describe 11
 # A world's ground as numbers, no render (#1449): percentiles, the water line
 # and the share it floods, the landing, where each placement stands, and at
 # each point its height, slope, downhill way and contour yaw (--footprint:
-# what a thing that wide rests on); --plan draws it from above, +X right:
+# what a thing that wide rests on), and which ground textures the game blends
+# there - each splat layer's share, from its own weight map, and the layer a
+# scatter's biome_filter reads (#1461); --plan draws it from above, +X right:
 cargo run --bin render -- --world <did> --world-record room.json --terrain-report \
     --at=-27.7,1.9 --footprint 2.5 --plan /tmp/plan.png --focus=-20,20 --span 120
 # ...or the same terrain recipe under other seeds, and a contact sheet of them:

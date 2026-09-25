@@ -17,6 +17,7 @@ not repeat it, it says how to use it well.
 | [avatar.md](avatar.md) | shaping your own body, choosing how it moves, building away from home on its workbench |
 | [region.md](region.md) | clearing your world, its terrain, ground textures, water, sky and fog, where visitors land |
 | [developing.md](developing.md) | changing the client itself while it runs |
+| [tools/](tools/README.md) | the first task: the watcher, record scripts, offline views, wire helpers - ready to run |
 
 ## What it is
 
@@ -51,8 +52,13 @@ it waited for as its `result`; a `save --wait` that failed answers
    `start` returns in a second or two and the world is entered a second or
    two later: poll `status` until `result.state == "in_world"`.
    With more than one session saved (`A accounts`), every command but
-   `accounts` needs `--account <handle>` after its subcommand - put it in
-   the wrapper.
+   `accounts` needs `--account <handle>` - put it in the wrapper, at the
+   END of the arguments: `room`, `avatar` and `gift` take theirs only after
+   their own verb (`room get --account ...`), so a wrapper that puts it
+   straight after the first word breaks them.
+   ```bash
+   A() { BEVY_ASSET_ROOT=<repo> <repo>/target/test-release/agent "$@" --account <handle>; }
+   ```
    `--allow-save` only if the operator allowed saving. `XDG_RUNTIME_DIR`
    must be short (the socket path is capped at 107 bytes).
 4. Greet the admin with `A say "..."`, then arm the watcher
@@ -111,6 +117,11 @@ as long as you resume from the last `seq` you actually read.
 
 - A restart (`stop` then `start`) puts the body back at the world's landing
   point and throws away unsaved edits.
+- The admin may set a standing task ("follow me for the session"): it
+  outlives their comings and goings - start it again on every
+  `peer_joined` ([chat.md](chat.md)).
+- Every session so far lost time rewriting the same helpers from these
+  pages: they ship in [tools/](tools/README.md) now - use them.
 - A person's browser tab left in the background is swept as gone after two
   minutes (`peer_left`) and comes back (`peer_joined`) the moment it wakes.
   A player at (0, 10, 0), or `placed: false`, has never sent a position:
