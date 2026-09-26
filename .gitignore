@@ -12,6 +12,7 @@ symbios-overlands-primer.sh
 symbios_overlands_primer_*
 .mcp.json
 /exports
+__pycache__/
 
 # Diagnostic-suite session logs
 /diagnostics/
