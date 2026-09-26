@@ -1,5 +1,5 @@
-//! Triangle counts (#1471): what a subject, a catalogue entry or a whole
-//! world costs to draw.
+//! Triangle and part counts (#1471, #1479): what a subject, a catalogue
+//! entry or a whole world costs to draw.
 //!
 //! A generator's size was printed and its cost was not, so a scatter could
 //! plant thousands of copies of a dense mesh and nothing said so until the
@@ -18,10 +18,20 @@
 //! are left out: they come and go with an emitter's rate, so there is no
 //! one number to give.
 //!
+//! Beside the triangles, the parts (#1479): the same entities, one part
+//! each. Most visitors play in a browser, on one thread, where every drawn
+//! entity is culled, extracted and batched every frame whatever its
+//! triangles, so a world's per-frame CPU cost is its part count. The spawn
+//! path draws a primitive on one entity, but a primitive whose faces wear
+//! several materials as a transform-only root - no part - with one render
+//! child per material, each a part; an L-system as one entity per material
+//! bucket, its prop cards baked into them. A mesh shared by many entities
+//! is a part for each, and a mesh with no CPU copy to count is still a part.
+//!
 //! # The world report
 //!
 //! `--triangle-report` grows one copy of each placed generator through the
-//! `--catalogue-sizes` app ([`super::sizes::triangles_of`]) and multiplies
+//! `--catalogue-sizes` app ([`super::sizes::tallies_of`]) and multiplies
 //! it by each placement's copies: 1 for an absolute placement, the cells of
 //! a grid, and for a scatter the instances its sampler actually places -
 //! the census's replay ([`crate::world_builder::compile::scatter_yields`]),
@@ -30,6 +40,11 @@
 //! game's own mesher from the rebuilt heightmap; a generator's water is the
 //! plane its generator spawns, counted with it. Not counted: particles, and
 //! what a road network grows (its roads and the buildings on its lots).
+//!
+//! Every row carries its parts beside its triangles - `parts_each` for one
+//! copy and `parts` for all of them - and the totals a `parts` object beside
+//! `triangles`, in which the ground is one part: the game draws it as one
+//! mesh on one entity.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -40,10 +55,14 @@ use serde_json::{Value, json};
 use crate::pds::{Generator, Placement, RoomRecord};
 use crate::terrain::FinishedHeightMap;
 
-/// Triangles counted over a set of mesh entities.
+/// Triangles and parts counted over a set of mesh entities.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct Tally {
     pub(super) triangles: u64,
+    /// The entities that draw a mesh, one part each (#1479): what a browser
+    /// culls, extracts and batches every frame, whatever their triangles. A
+    /// mesh that cannot be counted is still drawn, and still a part.
+    pub(super) parts: u64,
     /// Meshes that could not be counted: an asset that is gone, or one
     /// whose data went to the GPU with no CPU copy kept. Never one in a
     /// no-renderer app; said aloud on the turntable's line when there is.
@@ -53,9 +72,10 @@ pub(super) struct Tally {
 impl Tally {
     /// A tally with nothing left uncounted.
     #[cfg(test)]
-    pub(super) fn counted(triangles: u64) -> Self {
+    pub(super) fn counted(triangles: u64, parts: u64) -> Self {
         Self {
             triangles,
+            parts,
             unreadable: 0,
         }
     }
@@ -71,7 +91,8 @@ impl std::fmt::Display for Tally {
                 self.unreadable
             )?;
         }
-        Ok(())
+        let noun = if self.parts == 1 { "part" } else { "parts" };
+        write!(f, ", {} {noun}", self.parts)
     }
 }
 
@@ -94,14 +115,16 @@ pub(super) fn mesh_triangles(mesh: &Mesh) -> Option<u64> {
     })
 }
 
-/// The triangles `drawn` draw between them: every entity's mesh counted
-/// once for that entity, however many others share it.
+/// The triangles `drawn` draw between them, and the parts they are: every
+/// entity's mesh counted once for that entity, however many others share
+/// it, and every entity one part, whether its mesh can be counted or not.
 pub(super) fn tally<'a>(
     drawn: impl IntoIterator<Item = &'a Mesh3d>,
     assets: &Assets<Mesh>,
 ) -> Tally {
     let mut out = Tally::default();
     for mesh in drawn {
+        out.parts += 1;
         match assets.get(&mesh.0).and_then(mesh_triangles) {
             Some(triangles) => out.triangles += triangles,
             None => out.unreadable += 1,
@@ -128,7 +151,7 @@ pub(super) fn print_triangle_report(world: &str, record: &RoomRecord) {
     let (heightmap, each) = std::thread::scope(|scope| {
         let heightmap =
             scope.spawn(|| FinishedHeightMap(crate::terrain::rebuild_heightmap_for_record(record)));
-        let each = super::sizes::triangles_of(generators);
+        let each = super::sizes::tallies_of(generators);
         (
             heightmap.join().expect("the heightmap rebuild panicked"),
             each,
@@ -152,19 +175,25 @@ fn generator_ref(placement: &Placement) -> Option<&str> {
 const NOT_COUNTED: &str = "live particle quads, which come and go with an emitter's rate; \
      what a road network grows, its roads and the buildings on its lots";
 
-/// The report's fields in print order: the world, the totals, what is not
-/// counted, each placed generator's cost and each placement's, both
-/// dearest first. `each` is one copy's triangles by generator name.
+/// The parts the terrain's ground is: the game draws it as one mesh on one
+/// entity (`terrain::heightmap`'s spawn).
+const GROUND_PARTS: u64 = 1;
+
+/// The report's fields in print order: the world, the totals in triangles
+/// and in parts, what is not counted, each placed generator's cost and each
+/// placement's, both dearest first by triangles. `each` is one copy's
+/// triangles and parts by generator name.
 fn world_report(
     world: &str,
     record: &RoomRecord,
     heightmap: &FinishedHeightMap,
-    each: &HashMap<String, u64>,
+    each: &HashMap<String, Tally>,
 ) -> Vec<(&'static str, Value)> {
     let yields = crate::world_builder::compile::scatter_yields(record, heightmap);
+    // (triangles, parts, index, row)
     let mut placements = Vec::new();
     // name -> (one copy, copies, placements)
-    let mut generators: HashMap<&str, (u64, u64, u32)> = HashMap::new();
+    let mut generators: HashMap<&str, (Tally, u64, u32)> = HashMap::new();
     for (index, (placement, placed)) in record.placements.iter().zip(&yields).enumerate() {
         let (name, kind, copies) = match placement {
             Placement::Absolute { generator_ref, .. } => (generator_ref, "absolute", 1),
@@ -183,14 +212,18 @@ fn world_report(
             Placement::Unknown => continue,
         };
         let one = each.get(name.as_str()).copied();
-        let triangles = one.unwrap_or(0) * copies;
+        let copy = one.unwrap_or_default();
+        let triangles = copy.triangles * copies;
+        let parts = copy.parts * copies;
         let mut row = json!({
             "index": index,
             "generator": name,
             "kind": kind,
             "copies": copies,
-            "triangles_each": one.unwrap_or(0),
+            "triangles_each": copy.triangles,
             "triangles": triangles,
+            "parts_each": copy.parts,
+            "parts": parts,
         });
         if let Placement::Scatter { count, .. } = placement {
             row["requested"] = json!(count);
@@ -205,19 +238,21 @@ fn world_report(
                 row["why"] = json!("no generator by this name: the compile skips it");
             }
         }
-        placements.push((triangles, index, row));
+        placements.push((triangles, parts, index, row));
     }
-    placements.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    placements.sort_by(|a, b| b.0.cmp(&a.0).then(a.2.cmp(&b.2)));
     let mut generators: Vec<(u64, &str, Value)> = generators
         .into_iter()
         .map(|(name, (one, copies, used))| {
-            let triangles = one * copies;
+            let triangles = one.triangles * copies;
             let row = json!({
                 "generator": name,
-                "triangles_each": one,
+                "triangles_each": one.triangles,
                 "copies": copies,
                 "placements": used,
                 "triangles": triangles,
+                "parts_each": one.parts,
+                "parts": one.parts * copies,
             });
             (triangles, name, row)
         })
@@ -225,6 +260,7 @@ fn world_report(
     generators.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(b.1)));
 
     let planted: u64 = placements.iter().map(|p| p.0).sum();
+    let planted_parts: u64 = placements.iter().map(|p| p.1).sum();
     let ground = ground_triangles(heightmap);
     vec![
         ("world", json!(world)),
@@ -236,6 +272,14 @@ fn world_report(
                 "ground": ground,
             }),
         ),
+        (
+            "parts",
+            json!({
+                "total": planted_parts + GROUND_PARTS,
+                "placements": planted_parts,
+                "ground": GROUND_PARTS,
+            }),
+        ),
         ("not_counted", json!(NOT_COUNTED)),
         (
             "generators",
@@ -243,7 +287,7 @@ fn world_report(
         ),
         (
             "placements",
-            Value::Array(placements.into_iter().map(|p| p.2).collect()),
+            Value::Array(placements.into_iter().map(|p| p.3).collect()),
         ),
     ]
 }
@@ -361,10 +405,15 @@ mod tests {
         }
     }
 
-    fn each() -> HashMap<String, u64> {
-        [("rock".to_string(), 12), ("lump".to_string(), 80)]
-            .into_iter()
-            .collect()
+    /// One copy of each: a rock of 12 triangles on one part, a lump of 80
+    /// on three.
+    fn each() -> HashMap<String, Tally> {
+        [
+            ("rock".to_string(), Tally::counted(12, 1)),
+            ("lump".to_string(), Tally::counted(80, 3)),
+        ]
+        .into_iter()
+        .collect()
     }
 
     fn field<'a>(report: &'a [(&str, Value)], key: &str) -> &'a Value {
@@ -404,20 +453,115 @@ mod tests {
         assert_eq!(strip["requested"], 100, "{strip}");
         assert_eq!(strip["copies"], placed, "{strip}");
         assert_eq!(strip["triangles"], u64::from(placed) * 80, "{strip}");
+        assert_eq!(strip["parts"], u64::from(placed) * 3, "{strip}");
 
         let open = placement(&report, 3);
         assert_eq!(open["copies"], 10, "{open}");
         assert_eq!(open["triangles"], 800, "{open}");
+        assert_eq!(open["parts"], 30, "{open}");
         // An absolute is one copy, a grid its cells.
         assert_eq!(placement(&report, 0)["triangles"], 12);
+        assert_eq!(placement(&report, 0)["parts"], 1);
         assert_eq!(placement(&report, 2)["copies"], 6);
         assert_eq!(placement(&report, 2)["triangles"], 72);
+        assert_eq!(placement(&report, 2)["parts"], 6);
     }
 
-    /// The printed report is one JSON object: the world, the totals - which
-    /// add up - what is not counted, and two lists sorted dearest first,
-    /// each row on a line of its own with the fields it promises. A
-    /// generator the record lacks costs 0 and says why.
+    /// THE CASE (#1479): a world's parts are each generator's parts for one
+    /// copy - grown through the spawn path, as the report grows them - times
+    /// its copies, and the ground one more. A generator of two primitives
+    /// scattered k times is 2 parts a copy and 2k in all, a one-primitive
+    /// rock standing once and in a grid of 6 is 7, and the totals add up.
+    #[test]
+    fn a_world_counts_the_parts_its_copies_draw_and_the_ground_as_one() {
+        let mut pair = Generator::default_cuboid();
+        pair.children = vec![Generator::default_cuboid()];
+        let each: HashMap<String, Tally> = super::super::sizes::tallies_staged(vec![
+            ("pair".to_string(), pair),
+            ("rock".to_string(), Generator::default_cuboid()),
+        ])
+        .into_iter()
+        .collect();
+        assert_eq!(each["pair"], Tally::counted(24, 2), "{each:?}");
+        assert_eq!(each["rock"], Tally::counted(12, 1), "{each:?}");
+
+        let mut record = fixture();
+        record
+            .generators
+            .insert("pair".to_string(), Generator::default_cuboid());
+        record.placements[1] = scatter("pair", 10, None);
+        record.placements[3] = Placement::Unknown;
+        let map = ramp();
+        let report = world_report("did:test", &record, &map, &each);
+
+        let k = crate::world_builder::compile::scatter_yields(&record, &map)[1]
+            .expect("placement 1 is a scatter");
+        assert!(
+            k > 1,
+            "the scatter must place copies, or this checks nothing"
+        );
+        let scattered = placement(&report, 1);
+        assert_eq!(scattered["copies"], k, "{scattered}");
+        assert_eq!(scattered["parts_each"], 2, "{scattered}");
+        assert_eq!(scattered["parts"], 2 * u64::from(k), "{scattered}");
+
+        let generators = field(&report, "generators").as_array().expect("a list");
+        let row = |name: &str| {
+            generators
+                .iter()
+                .find(|row| row["generator"] == name)
+                .unwrap_or_else(|| panic!("no {name} row"))
+        };
+        assert_eq!(row("pair")["parts_each"], 2);
+        assert_eq!(row("pair")["parts"], 2 * u64::from(k));
+        assert_eq!(row("rock")["copies"], 7);
+        assert_eq!(row("rock")["parts_each"], 1);
+        assert_eq!(row("rock")["parts"], 7);
+        assert_eq!(placement(&report, 4)["parts"], 0, "the missing generator");
+
+        let planted = 2 * u64::from(k) + 7;
+        assert_eq!(
+            *field(&report, "parts"),
+            json!({"total": planted + 1, "placements": planted, "ground": 1})
+        );
+    }
+
+    /// Every entity that draws a mesh is one part (#1479): a mesh two
+    /// entities share is two parts, and a mesh with no CPU copy left to
+    /// count is still drawn, so still a part. The line says the parts after
+    /// the triangles, and one part in the singular.
+    #[test]
+    fn every_drawing_entity_is_a_part_whether_or_not_its_mesh_can_be_read() {
+        let mut assets = Assets::<Mesh>::default();
+        let cube = assets.add(Cuboid::default());
+        let gone = assets.add(Cuboid::default());
+        assets.remove(&gone);
+        let drawn = [Mesh3d(cube.clone()), Mesh3d(cube), Mesh3d(gone)];
+
+        let got = tally(&drawn, &assets);
+        assert_eq!(
+            got,
+            Tally {
+                triangles: 24,
+                parts: 3,
+                unreadable: 1
+            }
+        );
+        assert_eq!(
+            got.to_string(),
+            "24 triangles (and 1 meshes with no CPU copy to count), 3 parts"
+        );
+        assert_eq!(
+            tally(&drawn[..1], &assets).to_string(),
+            "12 triangles, 1 part"
+        );
+    }
+
+    /// The printed report is one JSON object: the world, the totals in
+    /// triangles and beside them in parts - which add up - what is not
+    /// counted, and two lists sorted dearest first, each row on a line of
+    /// its own with the fields it promises. A generator the record lacks
+    /// costs 0 and says why.
     #[test]
     fn the_triangle_report_is_one_object_with_sorted_rows_a_line_each() {
         let (record, map) = (fixture(), ramp());
@@ -430,6 +574,7 @@ mod tests {
             [
                 "generators",
                 "not_counted",
+                "parts",
                 "placements",
                 "triangles",
                 "world"
@@ -437,6 +582,24 @@ mod tests {
             "{printed}"
         );
         assert_eq!(report["world"], "did:test");
+        // The parts are printed on the line after the triangles.
+        let starts: Vec<&str> = printed
+            .lines()
+            .filter_map(|line| line.strip_prefix("  \""))
+            .filter_map(|line| line.split('"').next())
+            .collect();
+        assert_eq!(
+            starts,
+            [
+                "world",
+                "triangles",
+                "parts",
+                "not_counted",
+                "generators",
+                "placements"
+            ],
+            "{printed}"
+        );
 
         let rows = |key: &str| report[key].as_array().expect("a list").clone();
         let (placements, generators) = (rows("placements"), rows("generators"));
@@ -471,6 +634,8 @@ mod tests {
                 "generator",
                 "index",
                 "kind",
+                "parts",
+                "parts_each",
                 "requested",
                 "triangles",
                 "triangles_each"
@@ -484,12 +649,15 @@ mod tests {
                 "generator",
                 "index",
                 "kind",
+                "parts",
+                "parts_each",
                 "triangles",
                 "triangles_each"
             ]
         );
         let gone = placements.iter().find(|r| r["index"] == 4).expect("row 4");
         assert_eq!(gone["triangles"], 0);
+        assert_eq!(gone["parts"], 0);
         assert!(
             gone["why"]
                 .as_str()
@@ -500,6 +668,8 @@ mod tests {
             [
                 "copies",
                 "generator",
+                "parts",
+                "parts_each",
                 "placements",
                 "triangles",
                 "triangles_each"
@@ -514,6 +684,14 @@ mod tests {
         // A 3 x 3 map is 2 x 2 quads of two triangles each.
         assert_eq!(totals["ground"], 8);
         assert_eq!(totals["total"], planted + 8);
+
+        let parts = |row: &Value| row["parts"].as_u64().expect("a count");
+        let drawn: u64 = placements.iter().map(parts).sum();
+        assert_eq!(generators.iter().map(parts).sum::<u64>(), drawn);
+        let totals = &report["parts"];
+        assert_eq!(totals["placements"], drawn);
+        assert_eq!(totals["ground"], 1, "the ground is one mesh on one entity");
+        assert_eq!(totals["total"], drawn + 1);
     }
 
     /// A mesh with indices draws its indices / 3; one without, its vertices

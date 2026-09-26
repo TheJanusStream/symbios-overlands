@@ -32,10 +32,26 @@ pub(crate) mod lighting {
     pub const LIGHT_POS: [f32; 3] = [50.0, 40.0, 50.0];
     /// Sun colour (warm daylight, sRGB).
     pub const SUN_COLOR: [f32; 3] = [0.98, 0.95, 0.82];
-    /// Cascade shadow: near-plane distance of the first cascade (m).
+    /// Cascade shadow: far bound of the first cascade (m), with the chase
+    /// camera at rest ([`super::camera::ORBIT_RADIUS`]). Zoomed out, the
+    /// bound moves with the camera's distance to the player - see
+    /// [`crate::shadow_reach::reach`] (#1475).
     pub const CASCADE_FIRST_FAR: f32 = 15.0;
-    /// Cascade shadow: maximum shadow-casting distance (m).
+    /// Cascade shadow: maximum shadow-casting distance (m), with the chase
+    /// camera at rest. Zoomed out it reaches as far past the player as it
+    /// does here, up to the room's fog (#1475).
     pub const CASCADE_MAX_DIST: f32 = 200.0;
+    /// Cascade shadow: the largest share of the shadow reach the first
+    /// cascade may take once the zoom has pushed it out (#1475). Past half,
+    /// the other three cascades are squeezed into a sliver at the far end;
+    /// and uncapped, a camera zoomed out in thick fog would put the first
+    /// bound past the last. Bevy's builder does not refuse that pair: it
+    /// splits it backwards, falling from the first bound to the maximum, and
+    /// the first cascade then shades every depth out to its own bound - past
+    /// the fog - with the second sampled only in its blend band and the last
+    /// two never. The cap keeps the split rising; it is not what stops a
+    /// panic.
+    pub const CASCADE_FIRST_SHARE_MAX: f32 = 0.5;
 
     /// Sky-box colour (unlit grey, tinted by fog). sRGB hex ≈ #888888.
     pub const SKY_COLOR: [f32; 3] = [0.533, 0.533, 0.533];
@@ -290,6 +306,65 @@ pub(crate) mod camera {
         /// Exponent controlling how tightly the sun glow concentrates.
         pub const DIRECTIONAL_LIGHT_EXPONENT: f32 = 30.0;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Ground-cover draw distance (world_builder/draw_distance.rs, #1480)
+// ---------------------------------------------------------------------------
+pub(crate) mod draw_distance {
+    /// The player's ground-cover draw distance out of the box (m from the
+    /// camera): past it, scattered and gridded copies up to
+    /// [`SMALL_MAX_M`] are not drawn. A plant that size is a few pixels
+    /// there, and the Understory's fog (300 m) still hides the next half of
+    /// the way.
+    pub const DEFAULT_M: f32 = 150.0;
+    /// The Settings slider's near end (m). Below it the pop-in would be at
+    /// the player's feet at the widest zoom.
+    pub const MIN_M: f32 = 50.0;
+    /// The slider's last distance before Unlimited (m).
+    pub const MAX_M: f32 = 400.0;
+    /// The slider's step and the grid every cut lands on (m). The grid is
+    /// what bounds how many distinct ranges the feature can ever make - see
+    /// [`WEBGL2_RANGE_SLOTS`].
+    pub const STEP_M: f32 = 25.0;
+    /// The slider's far end, shown as "Unlimited": a setting at or past it
+    /// cuts nothing, and ground cover is drawn out to the fog as it always
+    /// was. A finite number rather than infinity because the prefs file is
+    /// JSON, which has no infinity.
+    pub const UNLIMITED_M: f32 = MAX_M + STEP_M;
+    /// A copy whose drawn box is at most this big (its largest side, m) is
+    /// ground cover: cut at the setting.
+    pub const SMALL_MAX_M: f32 = 2.0;
+    /// A copy up to this big (m) is cut at the setting times
+    /// `MEDIUM_MAX_M / SMALL_MAX_M`, where a copy of the class's largest size
+    /// is as big on screen as the largest ground cover at its cut. Anything
+    /// bigger - trees, rocks, buildings - is never cut.
+    pub const MEDIUM_MAX_M: f32 = 4.0;
+    /// Bevy 0.19.1's visibility-range table on WebGL2 (#1358): a uniform
+    /// buffer of exactly this many entries (`bevy_render`'s
+    /// `VISIBILITY_RANGE_UNIFORM_BUFFER_SIZE`, private), filled with every
+    /// distinct `VisibilityRange` the app has EVER used - slots are never
+    /// reused. On WebGL2, which has no GPU preprocessing, only the crossfade
+    /// (dither) shader reads it, and a zero-margin range never compiles that
+    /// shader, so overflowing it is not known to break anything; native GPU
+    /// culling reads the table too (`mesh_preprocess.wgsl`), but as an
+    /// unsized storage buffer. The feature still stays well inside the
+    /// WebGL2 size by construction.
+    pub const WEBGL2_RANGE_SLOTS: usize = 64;
+
+    // The slider's stops are the grid: its ends and its default sit on it,
+    // the default between the ends, and no cut can land at zero.
+    const _: () = assert!(STEP_M > 0.0 && MIN_M >= STEP_M);
+    const _: () = assert!(MIN_M < DEFAULT_M && DEFAULT_M < MAX_M);
+    const _: () = assert!(MIN_M % STEP_M == 0.0 && MAX_M % STEP_M == 0.0);
+    const _: () = assert!(DEFAULT_M % STEP_M == 0.0);
+    const _: () = assert!(SMALL_MAX_M > 0.0 && SMALL_MAX_M < MEDIUM_MAX_M);
+    // Every cut lands on the grid between one step and the medium class's
+    // cut at the last distance, so that is how many distinct ranges there
+    // can ever be: half the WebGL2 table at most
+    // (`draw_distance::tests::ranges_stay_webgl2_safe`).
+    const _: () =
+        assert!((MAX_M * (MEDIUM_MAX_M / SMALL_MAX_M) / STEP_M) as usize <= WEBGL2_RANGE_SLOTS / 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -1614,6 +1689,12 @@ pub(crate) mod agent {
     /// accounts and worlds the agent met. (Chat text stays out of it, as it
     /// stays out of the game's own session log, #1144.)
     pub const LOG_DIR: &str = "logs";
+    /// The game's own session log (the diagnostics sink and its crash file),
+    /// under [`HOME_DIR`], one directory per account. The game's default is
+    /// `diagnostics/` under the working directory, so a daemon started from
+    /// anywhere but the repo root left megabytes an hour there, outside the
+    /// root's ignore rule (#1476). Private, like [`LOG_DIR`].
+    pub const DIAGNOSTICS_DIR: &str = "diagnostics";
     /// How many events the daemon keeps for `agent events`. An agent that
     /// falls further behind is told how many it missed.
     pub const EVENT_CAPACITY: usize = 1000;
@@ -2497,9 +2578,31 @@ const _: () =
 const _: () =
     assert!(terrain::water::DEFAULT_NORMAL_SCALE_FAR < terrain::water::DEFAULT_NORMAL_SCALE_NEAR);
 
-// A shadow cascade set whose first split sits beyond its own maximum
-// distance draws no shadows at all.
+// A shadow cascade set whose first split sits at or beyond its own maximum
+// distance still draws shadows - Bevy's builder does not check the pair -
+// but its split comes out flat or backwards, so the first cascade shades
+// every depth out to its own bound and the others go all but unused
+// (`shadow_reach::tests::an_inverted_pair_is_split_backwards_not_refused`).
+// `shadow_reach::reach` keeps the zoomed cuts rising too -
+// `the_first_cascade_always_ends_inside_the_reach` - so this holds the rest
+// pair it starts from, and the three below hold the premises the zoom rule
+// is built on (#1475).
 const _: () = assert!(lighting::CASCADE_FIRST_FAR < lighting::CASCADE_MAX_DIST);
+// "At rest the cuts are what they always were": the first-cascade share cap
+// must not bind at the rest zoom, or the default view's first cascade moves.
+const _: () = assert!(
+    lighting::CASCADE_FIRST_FAR < lighting::CASCADE_MAX_DIST * lighting::CASCADE_FIRST_SHARE_MAX
+);
+// A share of 1 or more lets the first cascade reach the last bound, which
+// splits flat or backwards (above). 0 or less puts it at or behind the camera, and
+// that Bevy's builder does refuse: with more than one cascade it asserts the
+// first bound lies past its 0.1 m near bound, and the panic aborts the
+// client.
+const _: () =
+    assert!(lighting::CASCADE_FIRST_SHARE_MAX > 0.0 && lighting::CASCADE_FIRST_SHARE_MAX < 1.0);
+// The zoom rule reaches `CASCADE_MAX_DIST - ORBIT_RADIUS` past the player:
+// the rest reach has to end beyond the rest camera's own focus.
+const _: () = assert!(lighting::CASCADE_MAX_DIST > camera::ORBIT_RADIUS);
 
 // The splat albedo fade (#1320) ramps between its two distances, and
 // splat.wgsl switches it off when they are equal or inverted, which quietly

@@ -5,6 +5,12 @@
   rec.py compose SRC.json EDITS OUT.json   fold the edits into a copy, for offline renders
   rec.py apply room|avatar EDITS           send each edit live with `set --file`, one summary
                                            line per answer (adjusted_at, z_fighting, record_size)
+  rec.py save room|avatar OUT.json [--log LOG "NOTE"]
+                                           save, wait for it to land, pull the saved record to
+                                           OUT.json (the new source to build on) and, with --log,
+                                           append "- HH:MM (seq N) NOTE" to LOG - the time is the
+                                           save event's own, never a guess (session 878 logged
+                                           guessed times three hours off)
 
 EDITS holds one `POINTER FILE` per line (the file holds the value as JSON,
 relative to the EDITS file's folder); `#` starts a comment. A pointer ending
@@ -14,6 +20,7 @@ so, so a re-run sets it instead of appending a second copy; the rest of the
 file is left as it was. A daemon older than #1470 does not say where; `apply`
 then warns and leaves the line alone.
 """
+import datetime
 import json
 import os
 import sys
@@ -108,6 +115,32 @@ def main():
                 else:
                     print(f"   WARNING: the answer does not say where {ptr} landed (a daemon "
                           f"older than #1470?); a re-run appends it again")
+    elif cmd == "save":
+        args = sys.argv[2:]
+        log = note = None
+        if "--log" in args:
+            i = args.index("--log")
+            if len(args) < i + 3:
+                sys.exit("--log takes a LOG file and a NOTE")
+            log, note = args[i + 1], args[i + 2]
+            del args[i:i + 3]
+        if len(args) != 2:
+            sys.exit(__doc__)
+        record, out = args
+        answer = agentlib.agent("save", record, "--wait")
+        if not answer.get("ok"):
+            # A failed save answers ok: false with the save_failed event as its result.
+            sys.exit(f"save {record} FAILED: {answer.get('error')} - nothing pulled, nothing logged")
+        event = answer["result"]
+        when = datetime.datetime.fromtimestamp(event["at"]).strftime("%H:%M")
+        value = agentlib.result(agentlib.agent(record, "get", ""), f"{record} get")["value"]
+        json.dump(value, open(out, "w"), indent=1)
+        print(f"saved {record} at {when} (seq {event.get('seq')}); pulled -> {out} "
+              f"({os.path.getsize(out)} bytes)")
+        if log:
+            with open(log, "a") as fh:
+                fh.write(f"- {when} (seq {event.get('seq')}) {note}\n")
+            print(f"logged to {log}")
     else:
         sys.exit(__doc__)
 

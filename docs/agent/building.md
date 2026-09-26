@@ -17,6 +17,11 @@ kept only once saved ([saving.md](saving.md)).
   every copy, and a catalogue entry placed twice is one generator.
 
 An unplaced generator is kept but drawn nowhere: a safe place to try JSON.
+
+A `sign` generator shows an IMAGE (a URL, an uploaded blob or a profile
+picture), never text: there is no way to write words into a world, so a
+welcome or a direction has to be said by the place itself - a glowing
+thread to follow, a landmark in view.
 `A undo` takes it out again.
 
 ## The JSON
@@ -55,6 +60,36 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   part at the deformed radius at its height (a lathe makes that easy: its
   radius at any height is yours to compute), and start a limb INSIDE the
   trunk, not at its surface.
+- **An organic shape from many overlapping primitives wants a BlobGroup**
+  (the admin's tip, session 878): one mesh from up to 16 soft shapes melted
+  together, so the creases where spheres meet disappear.
+  `{"$type": "network.symbios.gen.blob_group", "resolution": 12, "solid":
+  false, "material": {...}, "elements": [{"shape": {"$type":
+  "network.symbios.blob.ellipsoid"}, "position": [x, y, z], "rotation": [0,
+  0, 0, 10000], "radii": [rx, ry, rz], "subtract": false, "blend": b}]}` -
+  the shape is a `$type` object (`sphere`, `ellipsoid`, `capsule`, `box`,
+  `cylinder`, `cone`, `torus`), `blend` is how far from contact an element
+  starts melting in (metres x 10 000), `subtract` carves. Caps: 16 elements,
+  `resolution` 8-48 cells along the longest axis. Its triangles grow with
+  the grid, not the element count: a moss cushion of 6 ellipsoids was 512
+  triangles at 12 cells, 888 at 16, 1,972 at 24 (the six separate spheres
+  it replaced: 492) - measure with `render --generator` before scattering
+  it thousands of times. Two kept: the Understory's moss cushions (six
+  domed ellipsoids: soft mats, not a pile of pebbles; grid 12 at first,
+  then 10 - 348 triangles, indistinguishable in world views, 555k fewer
+  over 3,083 copies; grid 8 broke each mat into small lumps) and the
+  Puffball plume (75 spheres regrouped as 8 blobs of 9-10 by height, each
+  its own colour step; `blend` 0.55 of each puff's radius melted a string of
+  beads into one rising column). The admin's next step was better still:
+  drop the puffs that add nothing inside the mass and fit ONE blob - 16
+  ellipsoids, one per height band (bands growing with height, as the column
+  widens), each sized to the puffs in its band. Fitted straight up the
+  middle it came out a smooth horn; each nudged sideways by a quarter of its
+  radius round a 137.5-degree spiral, sizes varied +-15%, `blend` 0.38 of
+  its radius, it billows and twists like rising spores - 1 part instead of
+  8, the meadow 68k -> 27k triangles. Two blobs of 16 showed a lump where
+  they met. A 41 m blob at the 48-cell cap has 0.85 m cells, so its thin
+  base stays a wisp.
 - **The generator's origin stands on the ground** at the placement's point:
   local y = 0 is the ground there. On dunes or a slope, sink walls about a
   metre below 0 so no gap shows under them.
@@ -112,6 +147,20 @@ building's frame through it.
   it, then compute its box in your building's frame. A small script that says "which
   of my walls does this cut" pays for itself: in the live garage the yard
   junk cut 13 cm through a side wall, invisible from the front.
+- **Find what floats before a visitor does** (#1477): `render --world <DID>
+  --world-record room.json --floating-report` (under a second) meshes every
+  part of every placed generator and names, by pointer, each part that
+  touches nothing that holds it (class `a`: a limb off a tapered trunk, a
+  lantern past a shelf's edge) and each part meant to rest on the ground
+  that hangs over it where the real ground falls away (class `b`: small
+  puffballs 2 m up on a meadow's downhill side, a 12 m root lying level over
+  a slope). Session 878's sweeps of the Understory found 34 real rows
+  the eye had missed across five sessions - the admin had found three by
+  walking round. Run it after every build that spreads over ground, and fix
+  a class-b part by laying it on `--terrain-report` heights, not by
+  guessing. It cannot see a part whose own mesh splits into islands (a
+  BlobGroup whose elements do not overlap), and a stacked stone's overhang
+  reads as class b: judge those by eye.
 - Building around a person: an interior of 5.2 x 7 m held a 2 x 3 m buggy
   with room to drive out. `status.peers[].facing` says which way they face -
   do not guess it from a picture (the live guess was wrong).

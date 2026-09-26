@@ -117,6 +117,19 @@ and grass tufts on the open tops broke up the rest.
   stylised glossy - waves, wakes) and in `/environment`
   (`water_normal_scale_near/far`, `water_sun_glitter`,
   `water_shore_foam_width`, `water_scatter_color`).
+- **Shallows read as mud.** The shallow colour's alpha lets the lake bed
+  show through where the water is under a metre deep, so a brown
+  `shallow_color` draws every shallow margin as a mud flat - the Understory's
+  pool "shore" of bare brown was lake bed under 0.3-0.9 m of water (read it
+  with `ground.py`: `UNDER 0.5`). Plant what grows there instead: a second
+  reed scatter banded to the waterline (`above_water_band` -0.9..+0.2 m,
+  2,800 reeds at 4 triangles each, `clumping` 0.55) turned the flats into a
+  reed margin. The pool's first reed scatter, banded -0.6..+3.5 m, had
+  spread its 120 reeds up the whole bank instead.
+- **The water mirrors no trees.** Its shader reflects the sky's light and
+  the fog, never the scene (no screen-space reflections), so still water
+  under a grey sky is a grey sheet whatever its settings. Do not tune it
+  hoping for reflections; dress its margin.
 - **The normal scales are tiling FREQUENCIES (per metre), not strengths**:
   the ripple's strength is fixed in the shader. The Understory's pool at
   `near` 0.35 drew 3 m ripples and read as a choppy grey sea; `near` 12,
@@ -148,6 +161,38 @@ A forest is a few generators and a scatter placement each:
   it in `/generators` under your own name (a root `transform.scale` makes
   old giants) and scatter it. `render --catalogue <slug>` shows it, framed
   to fit, so the pictures do not compare sizes.
+- **A borrowed species may not survive a close look.** The catalogue's
+  Monopodial Conifer, the Understory's commonest tree (900 copies), read up
+  close as a weeping tangle of flat combed planks; the admin said so from
+  the ground (session 878). Re-authored offline by a designer, an
+  independent critic and a refiner (one sub-agent at a time), it became a
+  conical tiered spruce at 3,788 triangles and the admin's verdict was
+  "much better". What made the difference, for the next tree: grow whorls
+  by AGE (each step adds a trunk section and a whorl; older branches
+  lengthen and sink toward level, so the cone comes free); ROLL every
+  needle card at least 45 degrees off level (level cards flare white toward
+  a low sun - there is no reflectance setting to stop it); put trunk-fill
+  cards at every whorl (else the trunk shows through the crown); vary
+  branch lengths 0.76-1.15 and add a rare 3-branch whorl (all copies share
+  one mesh, so the variety must be inside it). Engine limits met: a rule
+  may produce at most 128 symbols (`TooLarge`, no line number); the
+  Needle texture's `pair_count` caps at 24; `variant_rows`/`variant_cols`
+  tile the WHOLE atlas across one card; thin needles fade with distance as
+  mipmaps average their alpha, so make them wide and dense; `base_color`
+  multiplies the texture, so a dark tint on dark texture colours goes near
+  black. The pale birch (269 copies, a leafy stick) went the same way next,
+  to a silver birch at 4,316 triangles: a `Lichen` texture squashed 3:1
+  along the trunk makes birch lenticels (the `Bark` and `Marble` textures
+  gave grey mottle), and vertex-colour rings give the black foot and dark
+  bands that still read when the texture has blurred to grey at 15 m. Leaf
+  size is bounded from below by distance: smaller leaves (tried 12 at 0.24
+  m and more) left birches 55 m away as bare white skeletons, because the
+  mipmaps average thin leaves into transparency. More engine facts: after
+  `$`, `^` pitches down and `&` up; a 2-argument colour symbol does nothing
+  (the 4-argument form can be aged by a growth rule); a Twig texture's
+  stems curl unless `stem_curve` is 0. Both builders are kept, with every
+  variant they rejected, in [examples/trees/](examples/trees/README.md):
+  start the next tree from one of them.
 - **Borrow the habitat settings** from the seeder,
   `src/seeded_defaults/room/groundcover.rs` and `scatters.rs`: reeds wade
   (`water: Both`, `above_water_band [-0.6, 3.5]`), lily pads float
@@ -184,6 +229,60 @@ A forest is a few generators and a scatter placement each:
   against `requested` finds it: a broadleaf stand laid over the north lake
   placed 0 of 30 (all water, and its `above_water_band` refused the shore).
   Check a new scatter's placed count before bringing it live.
+- **`count` is how many points a scatter draws, not how many it keeps.**
+  Every filter - water, band, slope, biome - drops points, and a narrow band
+  drops most: moss hugging the waterline (`above_water_band` 0.03..0.9 m)
+  kept 49 of 260, and widening the band to 1.2 m kept 871 of 1,300. Raise
+  the count until the report's `copies` is what you meant.
+- **Most visitors play in a browser, and a browser pays per PART** (the
+  admin, session 878: "optimized for both clients... most visitors will be
+  using WASM"). Every primitive of every placed copy spawns as its own
+  entity (a primitive with several materials, one per material), and the
+  browser's single thread culls, extracts and batches each one every frame
+  - so a scatter's cost is copies x primitives, not only triangles. A moss
+  cushion of a root cube and six spheres was 7 parts x 3,083; as one
+  BlobGroup it is 1. A grass or reed tuft of two crossed cards was 2 parts;
+  as one lathe cylinder with a 1 x 3 atlas of tufts wrapped once round it
+  (the fern's recipe: `variant_rows` 1, `variant_cols` 3, `uv_scale` 15915
+  on a local radius of 0.1 m, `taper` negative to flare) it is 1 part, 36
+  triangles, and reads fuller. The Understory went from about 48,700 parts
+  (estimated from the record's structure at the session's start) to 38,579
+  measured (`--triangle-report` counts `parts` since #1479) while gaining
+  reed beds, heath and fans - and ground cover is still about 78% of them:
+  heath 10,800, ferns 10,700, moss 3,083, reeds 3,064, rosettes 2,140.
+  Prefer one primitive with a texture over several primitives, and read
+  `parts` beside `triangles` before planting thousands of anything.
+- **Small scattered things are no longer drawn far away** (#1480, the
+  admin's decision): a scattered or gridded copy up to 2 m (by its own
+  size, jitter included) is cut at the player's Settings > Draw distance >
+  Ground cover (150 m by default, 50-400 m or Unlimited), up to 4 m at twice
+  that, anything bigger never; every cut stops at the room's fog. Measured
+  on the Understory, it cut the parts drawn each frame by 40-46% at the
+  landing, the pool and the Coral Glade. So ground cover far from where
+  people stand now costs little, and cover where they stand costs as much
+  as ever: plant the thousands where people walk, not across the whole map.
+  A render tool `--world` picture shows what a default-settings visitor
+  sees - an aerial shot from 200 m up shows no ground cover near its focus.
+- **Swaying plants had a ceiling that crashed clients** (#1472, fixed in
+  session 878): every swaying card (grass, reeds, ferns, leaves) took its own
+  strong handle on its shared wind material, the game counted those in 16
+  bits, and at 65,536 the client aborted ('attempt to add with overflow' in
+  bevy_asset) - the agent's daemon included. It counted CARDS, not copies:
+  the heath tuft was two crossed planes, so a whole-land heath of 30,000
+  crashed the offline render at half the expected count. Clients built
+  since the fix take one handle per material per frame; a visitor on an
+  older build still has the ceiling, so keep copies x cards of one swaying
+  generator under 65,535 until everyone has the fix, and render a big
+  scatter offline before bringing it live - the render tool panics just as
+  a client would.
+- **A tree's cost is mostly its branch cylinders.** An L-system's
+  `mesh_resolution` is the number of sides every branch and twig gets; at
+  the catalogue's 8, a broadleaf is 9,578 triangles, at 5 it is 6,176
+  (conifer 5,100 -> 3,570, birch 5,166 -> 3,888, bush 3,958 -> 3,070). The
+  Understory's four species at 5 took the world from 19.2M to 15.1M
+  triangles (session 878), and renders from 3.5 m to the horizon showed no
+  difference - the leaves and the bark texture carry the look. Try 5 before
+  cutting a forest's count.
 - **Scatters know no clearings.** A scatter skips water, steep ground, the
   wrong splat layer and road districts - never your buildings. To build in a
   forest, find where its trees stand: `tools/clearings.py` renders a copy of
@@ -199,6 +298,21 @@ A forest is a few generators and a scatter placement each:
 - An absolute placement snaps to the ground (`snap_to_terrain` is true by
   default, and `translation` y is then a lift above it); set it false for a
   world height - an emitter floating over a pool.
+- **A spread-out piece is snapped at its origin only.** Everything else in
+  it stands at the height you wrote in its own frame, so where the real
+  ground falls away, its outer parts float. The Puffball Meadow's small
+  puffballs and earthstars, up to 24 m from its centre at one authored
+  height, floated up to 2.1 m on its downhill side; the admin saw it from
+  the ground (session 878). Author a piece wider than a few metres on the
+  real ground: read `--terrain-report --at` under every part that should
+  touch it (one call takes them all) and add `ground - ground at the
+  origin` to its height - or sink it by the drop, or split the piece into
+  placements that each snap.
+- **A face turned from the sun is lit by ambient light alone**, so its
+  colour hardly shows: a root plate's soil lightened five times in linear
+  colour still read nearly black from the shaded side (the Windthrow, seen
+  from the pool, faces away from the low WSW sun). Glow is what reads
+  there - its violet veins did.
 - A long thing on a slope lies along the contour or one end floats: with
   the gradient `(dx, dz)`, the clockwise yaw that lays local +X along the
   contour is `atan2(dz, dx) + 90` degrees.
@@ -381,6 +495,20 @@ What made the Understory's outer ring read, and what did not:
   Windthrow, Spore Spires -> Lichen Tors -> Ghost Grove, Indigo Shallows ->
   Puffball Meadow) made a circuit of the edge a visitor can walk, each
   thread's tail in the colour of the place it reaches.
+- **Where a thread arrives, let it fan out.** A thread that simply stops at
+  a place tells nothing; forked into a fan of finer filaments in the
+  place's colour, spreading under its fruit bodies, it says the network
+  fruits where it reaches new ground (session 878, all nine places,
+  `tools/fan.py`, about 4-6k triangles a place). The Great Ring's amber fan
+  also filled its dark, empty centre. A fan toward a lake stops at the
+  shore - the Drowned Wood's is a short cord.
+- **Judge an approach from the thread visitors walk, not from a straight
+  line.** A first review from 35-45 m out on the line from the pool called
+  three places hidden; walked back 40 m along each place's own arriving
+  thread, two of the three were in plain view - the viewpoint had stood
+  inside a stand. The third was real: the Coral Glade's thread ran through
+  its own north conifer stand, and moving that stand's `bounds` 37 m east
+  opened the glade from 40 m out.
 - **A path to each**: glowing threads from the pool's web out to every
   site, laid 5 cm above the ground sampled every 2.5 m, meandering, each
   thread its own generator placed unsnapped at its midpoint (the 100 m spine
@@ -406,3 +534,15 @@ What made the Understory's outer ring read, and what did not:
 to face a point `(dx, dz)` away, `yaw_deg = atan2(-dx, -dz)` in degrees.
 A body already standing when the ground changes stays where it was: after
 reshaping, `walk-to` the landing again.
+
+**Judge the arrival from the camera, not from eye height.** A new visitor's
+first picture comes from the game's camera, about 11 m behind them and
+5-6 m above the ground, and the camera avoids only the terrain - never a
+building. The Understory's gateway stood 7 m behind the landing, so every
+arrival looked through its pillars and translucent veil, and a taller body's
+camera sat under its caps; five sessions of reviews from eye height missed
+it (session 878). `tools/views.py ... "@landingcam"` renders that first
+picture from the record. Keep a gateway (or anything tall) either more than
+about 13 m behind the landing, so the camera sits in front of it, or off
+the line behind it - moved 8 m back along the same line, the gate still
+faces the landing, and walking in still read `picker: open`.

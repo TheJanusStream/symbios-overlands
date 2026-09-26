@@ -65,6 +65,10 @@ experiments:
   send it. It is compiled as the game compiles it: terrain, textures,
   scatters, water, sky and fog.
 - Always pass `BEVY_ASSET_ROOT=<repo>`, as for the agent.
+- It draws what a visitor with default settings sees, and that includes
+  the ground-cover draw distance (#1480): ferns, grass, moss and reeds more
+  than 150 m from the camera are not drawn. Judge ground cover from where
+  people stand (views.py), never from a far aerial shot.
 - `--focus=X,Y,Z` takes a WORLD height: the ground here is 8-14 m up, and a
   focus at `y = 3` meant "3 m up" put the camera under the terrain. Read
   the ground from `--terrain-report --at=X,Z` and add to it.

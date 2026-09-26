@@ -14,6 +14,7 @@ use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
 use crate::water::{WaterMaterial, WaterSurfaces};
 
 use super::super::audio_resolver::BlobAudioCache;
+use super::super::draw_distance::{CopyRecorder, DrawDistanceCuts};
 use super::super::image_cache::BlobImageCache;
 use super::super::lsystem::{LSystemMaterialCache, LSystemMeshCache};
 use super::super::shape::{ShapeMaterialCache, ShapeMeshCache};
@@ -86,6 +87,11 @@ pub struct GeneratorCaches<'w> {
     /// world without the app's resources, and a digest nobody exchanges is
     /// not worth requiring them to insert.
     pub(crate) digest: Option<ResMut<'w, crate::world_digest::WorldDigest>>,
+    /// The ground-cover draw-distance cuts in force (#1480), which a
+    /// finished scattered copy is stamped with - see
+    /// [`draw_distance`](super::super::draw_distance). `Option` for the
+    /// embedders `metrics` names: without the resource nothing is cut.
+    pub(crate) draw_cuts: Option<Res<'w, DrawDistanceCuts>>,
 }
 
 /// Hard ceiling on the number of `spawn_generator` calls a single
@@ -272,9 +278,36 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// marker. Implies `avatar_mode`; never combined with
     /// `local_avatar_mode` (a prop is not a visuals-tree node).
     pub(crate) attachment_rkey: Option<String>,
+    /// The scattered or gridded copy being spawned, if any (#1480): every
+    /// spawner reports the entities that draw a mesh through
+    /// [`Self::note_part`], and the compile stamps them with their size
+    /// class's draw distance when the copy is done. Outside a copy - an
+    /// absolute placement, an avatar - it records nothing.
+    pub(crate) copy: &'a mut CopyRecorder,
+    /// The draw-distance cuts in force, which [`Self::end_copy`] stamps.
+    pub(crate) draw_cuts: DrawDistanceCuts,
 }
 
 impl SpawnCtx<'_, '_, '_, '_, '_> {
+    /// Start spawning one copy of `generator_ref` at `cell_tf` in its
+    /// placement's anchor (#1480).
+    pub(crate) fn begin_copy(&mut self, generator_ref: &str, cell_tf: &Transform) {
+        self.copy.begin_copy(generator_ref, cell_tf);
+    }
+
+    /// `entity` draws `mesh`, at `local` under the node being spawned
+    /// (#1480). Called by every spawner right after it spawns a `Mesh3d`.
+    pub(crate) fn note_part(&mut self, entity: Entity, mesh: &Handle<Mesh>, local: &Transform) {
+        self.copy.note(entity, mesh, local, self.meshes);
+    }
+
+    /// The copy [`Self::begin_copy`] started is spawned: stamp its parts
+    /// (#1480).
+    pub(crate) fn end_copy(&mut self, generator_ref: &str) {
+        self.copy
+            .end_copy(generator_ref, self.commands, &self.draw_cuts);
+    }
+
     /// Record a grammar compile outcome into
     /// [`crate::world_builder::grammar_diag::GrammarDiagnostics`] (#829),
     /// keyed so the editors can look it up: room compiles use the

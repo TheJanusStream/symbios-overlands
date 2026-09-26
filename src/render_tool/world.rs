@@ -254,6 +254,8 @@ pub(super) fn register(app: &mut App, spec: &WorldSpec, walker: Option<WalkerSpe
     crate::terrain::register_headless_roads(app);
     crate::world_builder::register_headless_compile(app);
     crate::register_headless_atmosphere(app);
+    // The game's zoom-following shadow reach, fed from the rig (#1475).
+    crate::shadow_reach::register(app, super::headless::follow_rig_zoom);
     app.init_resource::<LocalSettings>()
         .init_resource::<crate::diagnostics::MetricsRegistry>()
         .insert_resource(LiveRoomRecord(spec.record.clone()))

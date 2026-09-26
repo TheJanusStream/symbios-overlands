@@ -9,6 +9,8 @@
 //! texture bake still reaches foliage through the extended material, and that
 //! the links map does not pin assets for the life of the session.
 
+use std::collections::HashSet;
+
 use bevy::prelude::*;
 use symbios_overlands::wind::{
     VegetationWind, VegetationWindMaterial, WindMaterialLinks, WindSway, apply_wind_state,
@@ -386,5 +388,74 @@ fn foliage_despawned_before_the_swap_lands_does_not_abort_the_client() {
             .get::<MeshMaterial3d<StandardMaterial>>(survivor)
             .is_none(),
         "and must have given up its plain material"
+    );
+}
+
+/// THE CASE (#1472): a heath of 30,000 two-card tufts (32,800 with the ones
+/// already there) aborted the offline render with 'attempt to add with
+/// overflow' in bevy_asset. Every swaying card took its own strong handle on
+/// the one wind material its source shares, and the asset store counts
+/// those duplicates in a u16 - so 65,536 cards on one source material, from
+/// any world anyone visits, aborted a client (and wrapped silently in
+/// release builds). A scatter of that size is legal: the sanitiser allows
+/// 100,000 copies. One frame, 70,000 cards, one material - and nothing may
+/// panic.
+#[test]
+fn more_cards_on_one_material_than_a_u16_counts_do_not_abort_the_client() {
+    let mut app = wind_app();
+    let (_source, entities) = spawn_marked(&mut app, WindSway::Card, 70_000);
+
+    app.update();
+
+    let world = app.world();
+    let first = world
+        .get::<MeshMaterial3d<VegetationWindMaterial>>(entities[0])
+        .expect("converted")
+        .0
+        .id();
+    assert!(
+        entities.iter().all(|&e| world
+            .get::<MeshMaterial3d<VegetationWindMaterial>>(e)
+            .is_some_and(|m| m.0.id() == first)),
+        "every card is converted, onto the one shared wind material"
+    );
+    assert_eq!(world.resource::<Assets<VegetationWindMaterial>>().len(), 1);
+}
+
+/// The same scatter spread over frames, as a big world streams its spawns in:
+/// a card converted in a later frame must still land on the material the
+/// first frame made, and the frames' batches must not add up to an overflow
+/// either (#1472).
+#[test]
+fn a_scatter_converted_over_many_frames_keeps_one_material_and_never_overflows() {
+    let mut app = wind_app();
+    let (source, mut entities) = spawn_marked(&mut app, WindSway::Card, 1);
+    app.update();
+    for _ in 0..8 {
+        for _ in 0..9_000 {
+            let e = app
+                .world_mut()
+                .spawn((MeshMaterial3d(source.clone()), WindSway::Card))
+                .id();
+            entities.push(e);
+        }
+        app.update();
+    }
+
+    let world = app.world();
+    let ids: HashSet<_> = entities
+        .iter()
+        .map(|&e| {
+            world
+                .get::<MeshMaterial3d<VegetationWindMaterial>>(e)
+                .expect("converted")
+                .0
+                .id()
+        })
+        .collect();
+    assert_eq!(
+        ids.len(),
+        1,
+        "72,001 cards over nine frames share one material"
     );
 }

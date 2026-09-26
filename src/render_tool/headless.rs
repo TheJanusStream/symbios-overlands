@@ -29,6 +29,7 @@ use std::time::Duration;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::RenderTarget;
 use bevy::camera::primitives::Aabb;
+use bevy::camera::visibility::VisibleEntities;
 use bevy::ecs::message::MessageWriter;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
@@ -39,6 +40,7 @@ use bevy::time::Virtual;
 use bevy_symbios_avatar::{AvatarBody as BuiltBody, AvatarJoints, AvatarPose, spawn_avatar};
 use symbios_avatar::{Ground, Pose, Speed, Walk};
 
+use crate::camera::IsWorldCamera;
 use crate::pds::avatar::wardrobe::engine_default_for_seed;
 use crate::pds::avatar::{AttachmentRecord, ResolvedAttachment};
 use crate::pds::{Environment, Generator, Placement, RoomRecord, TransformData};
@@ -150,9 +152,9 @@ pub(super) type SubjectQuery<'w, 's> = Query<
 >;
 
 /// The meshes [`SubjectQuery`] bounds, filter for filter, as the handles
-/// whose triangles the `subject size` line and `--catalogue-sizes` count
-/// (#1471): the box and the count always read the same entities. A live
-/// particle quad is left out of both.
+/// whose triangles and parts the `subject size` line and `--catalogue-sizes`
+/// count (#1471, #1479): the box and the counts always read the same
+/// entities. A live particle quad is left out of all of them.
 pub(super) type SubjectMeshQuery<'w, 's> = Query<
     'w,
     's,
@@ -166,9 +168,9 @@ pub(super) type SubjectMeshQuery<'w, 's> = Query<
 >;
 
 /// What the framing reads beside the subject's boxes: its particle
-/// emitters, which stretch the box, and its meshes, whose triangles the
-/// `subject size` line counts (#1471). Bundled because [`drive`] is at
-/// Bevy's sixteen-parameter ceiling.
+/// emitters, which stretch the box, and its meshes, whose triangles and
+/// parts the `subject size` line counts (#1471, #1479). Bundled because
+/// [`drive`] is at Bevy's sixteen-parameter ceiling.
 #[derive(bevy::ecs::system::SystemParam)]
 pub(super) struct SubjectParts<'w, 's> {
     emitters: Query<'w, 's, &'static GlobalTransform, With<ParticleEmitterMarker>>,
@@ -177,8 +179,9 @@ pub(super) struct SubjectParts<'w, 's> {
 }
 
 impl SubjectParts<'_, '_> {
-    /// The triangles every subject mesh draws, one mesh an entity.
-    fn triangles(&self) -> super::triangles::Tally {
+    /// The triangles every subject mesh draws, one mesh an entity, and the
+    /// parts those entities are.
+    fn tally(&self) -> super::triangles::Tally {
         super::triangles::tally(self.meshes.iter(), &self.assets)
     }
 }
@@ -482,6 +485,9 @@ pub(super) struct Capture {
     since: Instant,
     last_log: Instant,
     framing: Option<Framing>,
+    /// The point [`aim_rig`] last aimed the rig camera at - what
+    /// [`follow_rig_zoom`] measures the game's shadow reach to (#1475).
+    look: Option<Vec3>,
     tile_of: HashMap<Entity, usize>,
     results: Vec<Option<Vec<u8>>>,
     frames: Vec<Vec<u8>>,
@@ -495,6 +501,7 @@ impl Default for Capture {
             since: Instant::now(),
             last_log: Instant::now(),
             framing: None,
+            look: None,
             tile_of: HashMap::new(),
             results: Vec::new(),
             frames: Vec::new(),
@@ -920,7 +927,7 @@ pub(super) fn drive(
                 if job.single_camera() {
                     let walker = lead_walker(&walkers);
                     aim_rig(
-                        &capture,
+                        &mut capture,
                         &job,
                         &mut cams,
                         walker,
@@ -943,7 +950,7 @@ pub(super) fn drive(
                     if job.single_camera() {
                         let walker = lead_walker(&walkers);
                         aim_rig(
-                            &capture,
+                            &mut capture,
                             &job,
                             &mut cams,
                             walker,
@@ -996,7 +1003,7 @@ pub(super) fn drive(
             let walker = lead_walker(&walkers);
             if job.single_camera() {
                 aim_rig(
-                    &capture,
+                    &mut capture,
                     &job,
                     &mut cams,
                     walker,
@@ -1071,7 +1078,7 @@ pub(super) fn drive(
             ClipStep::Shoot => {
                 let walker = lead_walker(&walkers);
                 aim_rig(
-                    &capture,
+                    &mut capture,
                     &job,
                     &mut cams,
                     walker,
@@ -1225,7 +1232,7 @@ fn frame_subject(
         // fall back to a placeholder bound and capture the empty frame.
         let measured = subject_box(subject, emitters);
         if let Some((min, max)) = measured {
-            println!("{}", describe_box(min, max, parts.triangles()));
+            println!("{}", describe_box(min, max, parts.tally()));
         }
         let bounds = subject_bounds(subject, emitters)
             .or_else(|| (capture.waited > FRAME_GRACE).then_some((Vec3::Y * 0.5, 0.5)));
@@ -1417,7 +1424,7 @@ fn frame_play_view(
 /// with the yaw measured from behind, everything else orbits the framed
 /// point.
 fn aim_rig(
-    capture: &Capture,
+    capture: &mut Capture,
     job: &RenderJob,
     cams: &mut Query<(&mut Transform, &TileCam)>,
     walker: Option<(Vec3, Vec3)>,
@@ -1450,6 +1457,30 @@ fn aim_rig(
     for (mut transform, _) in cams.iter_mut() {
         *transform = Transform::from_translation(pos).looking_at(look, Vec3::Y);
     }
+    capture.look = Some(look);
+}
+
+/// The game's zoom-following sun shadows (#1475), for the rig camera.
+///
+/// The game measures its orbit camera's distance to the orbit's focus
+/// (`shadow_reach::follow_orbit_zoom`); the rig camera has no orbit
+/// controller, so this measures from where the camera stands to the point
+/// [`aim_rig`] aimed it at - the same distance, fed to the same rule, so a
+/// far `--world` shot carries the shadows the game would draw there.
+pub(super) fn follow_rig_zoom(
+    capture: Res<Capture>,
+    cameras: Query<&Transform, IsWorldCamera>,
+    record: Option<Res<LiveRoomRecord>>,
+    mut suns: crate::shadow_reach::SunCascades,
+) {
+    let (Some(look), Ok(camera)) = (capture.look, cameras.single()) else {
+        return;
+    };
+    crate::shadow_reach::follow(
+        camera.translation.distance(look),
+        record.as_deref(),
+        &mut suns,
+    );
 }
 
 /// Write the clip: the GIF, and the PNG frames beside it on request, both at
@@ -1625,30 +1656,62 @@ pub(super) fn union_box<'a>(
 
 /// One line saying how big the subject is and where it reaches, in metres
 /// from its origin - the numbers a builder arranging pieces needs (#1448) -
-/// and what it costs to draw, in triangles (#1471).
-pub(super) fn describe_box(min: Vec3, max: Vec3, triangles: super::triangles::Tally) -> String {
+/// and what it costs to draw, in triangles (#1471) and in parts, the drawn
+/// entities a browser pays for every frame (#1479).
+pub(super) fn describe_box(min: Vec3, max: Vec3, tally: super::triangles::Tally) -> String {
     let size = max - min;
     format!(
-        "subject size {:.2} x {:.2} x {:.2} m (x, y, z), from [{:.2}, {:.2}, {:.2}] to [{:.2}, {:.2}, {:.2}], {triangles}",
+        "subject size {:.2} x {:.2} x {:.2} m (x, y, z), from [{:.2}, {:.2}, {:.2}] to [{:.2}, {:.2}, {:.2}], {tally}",
         size.x, size.y, size.z, min.x, min.y, min.z, max.x, max.y, max.z
     )
 }
 
+/// The parts a `--world` shot drew (#1480): the mesh entities that passed
+/// visibility for the camera, those that passed it for any view - the sun's
+/// shadow cascades draw casters the camera cannot see, and every one of
+/// them is extracted and batched too - and all there are. What a browser
+/// pays for per frame is the second number, not the triangles.
+pub(super) fn drawn_parts(
+    cameras: &Query<&VisibleEntities, With<TileCam>>,
+    parts: &Query<&ViewVisibility, With<Mesh3d>>,
+) -> String {
+    let in_view: usize = cameras
+        .iter()
+        .map(|seen| seen.len(std::any::TypeId::of::<Mesh3d>()))
+        .sum();
+    let any = parts.iter().filter(|v| v.get()).count();
+    format!(
+        "drawn parts {in_view} in the camera's view, {any} in any view (shadow casters too), \
+         of {} parts",
+        parts.iter().count()
+    )
+}
+
 /// A readback landed: a sheet tile, or the clip frame in flight.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn on_capture(
     trigger: On<ReadbackComplete>,
     mut commands: Commands,
     job: Res<RenderJob>,
     mut capture: ResMut<Capture>,
     mut exit: MessageWriter<AppExit>,
+    cameras: Query<&VisibleEntities, With<TileCam>>,
+    parts: Query<&ViewVisibility, With<Mesh3d>>,
 ) {
     let event = trigger.event();
+    // A world shot says what it drew (#1480): the camera does not move
+    // between the shutter and this landing, so the visibility read here is
+    // the captured frame's.
+    let world = matches!(job.subject, Subject::World(_));
     match capture.phase {
         Phase::Clip {
             next,
             pending: Some(e),
             ..
         } if e == event.entity => {
+            if world {
+                println!("frame {next}: {}", drawn_parts(&cameras, &parts));
+            }
             capture.frames.push(event.data.clone());
             commands.entity(e).despawn();
             // The drive loop arms the next frame once the scene is quiet.
@@ -1668,6 +1731,9 @@ pub(super) fn on_capture(
             capture.results[tile] = Some(event.data.clone());
             if capture.results.iter().any(|r| r.is_none()) {
                 return;
+            }
+            if world {
+                println!("{}", drawn_parts(&cameras, &parts));
             }
             let saved = shrink_still(&capture.results, &job)
                 .and_then(|(results, tile)| save_contact_sheet(&results, tile, &job.out));
@@ -1793,11 +1859,11 @@ mod tests {
         let line = describe_box(
             Vec3::new(-1.5, -0.2, -0.75),
             Vec3::new(1.5, 4.6, 0.75),
-            super::super::triangles::Tally::counted(20480),
+            super::super::triangles::Tally::counted(20480, 3),
         );
         assert_eq!(
             line,
-            "subject size 3.00 x 4.80 x 1.50 m (x, y, z), from [-1.50, -0.20, -0.75] to [1.50, 4.60, 0.75], 20480 triangles"
+            "subject size 3.00 x 4.80 x 1.50 m (x, y, z), from [-1.50, -0.20, -0.75] to [1.50, 4.60, 0.75], 20480 triangles, 3 parts"
         );
     }
     use bevy::ecs::system::RunSystemOnce;
@@ -1922,12 +1988,58 @@ mod tests {
         // subject's centre, at the framed distance.
         let framing = capture.framing.as_ref().expect("framing recorded");
         assert!(at.z < framing.focus.z, "{at} vs {}", framing.focus);
+        // #1475: and the point it was aimed at is kept, for the shadow reach.
+        assert_eq!(
+            capture.look,
+            Some(framing.focus),
+            "no lift: it looks at the focus"
+        );
         assert!(
             ((at - framing.focus).length() - framing.auto_dist).abs() < 1e-2,
             "{at} is not {} m from {}",
             framing.auto_dist,
             framing.focus
         );
+    }
+
+    /// #1475: the rig camera gets the game's zoom-following shadow reach,
+    /// measured from where it stands to the point it was aimed at - the
+    /// shot `--world ... --dist 190` has to show what the game would.
+    #[test]
+    fn the_rig_camera_cuts_the_sun_as_the_game_would_at_its_distance() {
+        use crate::shadow_reach::{REST, cascades, reach};
+        let look = Vec3::new(6.0, 20.0, 77.0);
+        let mut world = World::new();
+        world.insert_resource(Capture {
+            look: Some(look),
+            ..default()
+        });
+        let sun = world
+            .spawn((DirectionalLight::default(), cascades(REST)))
+            .id();
+        let offset = Vec3::new(-0.3, 0.5, -0.8).normalize() * 190.0;
+        world.spawn((
+            Camera3d::default(),
+            crate::camera::WorldCamera,
+            Transform::from_translation(look + offset).looking_at(look, Vec3::Y),
+        ));
+
+        world
+            .run_system_once(follow_rig_zoom)
+            .expect("the feeder runs headless");
+
+        let got = world.get::<bevy::light::CascadeShadowConfig>(sun).unwrap();
+        let want = cascades(reach(190.0, crate::config::camera::fog::VISIBILITY));
+        assert_eq!(got.bounds.len(), want.bounds.len());
+        for (g, w) in got.bounds.iter().zip(&want.bounds) {
+            assert!(
+                (g - w).abs() < 1e-3 * w,
+                "{:?} vs {:?}",
+                got.bounds,
+                want.bounds
+            );
+        }
+        assert!(got.bounds[0] > 100.0, "the first cut left the air: {got:?}");
     }
 
     #[test]

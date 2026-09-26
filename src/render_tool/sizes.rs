@@ -18,10 +18,11 @@
 //! in the main world, where the turntable reads them too - and it runs on a
 //! machine with no GPU.
 //!
-//! Each row also carries the entry's triangles (#1471), counted over the
-//! same meshes the box folds ([`super::triangles`]), and the world report
-//! `--triangle-report` grows a world's generators through this same app to
-//! count one copy of each ([`triangles_of`]).
+//! Each row also carries the entry's triangles (#1471) and its parts, the
+//! entities that draw them (#1479), counted over the same meshes the box
+//! folds ([`super::triangles`]), and the world report `--triangle-report`
+//! grows a world's generators through this same app to count one copy of
+//! each ([`tallies_of`]).
 
 use bevy::app::PluginsState;
 use bevy::log::LogPlugin;
@@ -38,7 +39,7 @@ use crate::world_builder::particles::ParticleEmitterMarker;
 
 use super::TOOL_DID;
 use super::headless::{FRAME_GRACE, SubjectMeshQuery, SubjectQuery, union_box};
-use super::triangles::tally;
+use super::triangles::{Tally, tally};
 
 /// Frames every box must hold still, once every entry has drawn, before the
 /// boxes are read. The spawn path meshes in the frame it spawns, so the boxes
@@ -63,25 +64,36 @@ pub(super) fn print_catalogue_sizes(words: &[String]) {
     println!("{}", run_to_report(&mut app));
 }
 
-/// The triangles one copy of each named generator draws, grown together
-/// through the same app and the same spawn path as `--catalogue-sizes`, in
-/// the order given - what `--triangle-report` multiplies by each
-/// placement's copies (#1471). A generator that draws no mesh (a particle
-/// emitter alone) counts 0.
-pub(super) fn triangles_of(generators: Vec<(String, Generator)>) -> Vec<(String, u64)> {
+/// The triangles and parts one copy of each named generator draws, grown
+/// together through the same app and the same spawn path as
+/// `--catalogue-sizes`, in the order given - what `--triangle-report`
+/// multiplies by each placement's copies (#1471, #1479). A generator that
+/// draws no mesh (a particle emitter alone) counts 0 of each.
+pub(super) fn tallies_of(generators: Vec<(String, Generator)>) -> Vec<(String, Tally)> {
+    tallies_in(sizing_app(), generators)
+}
+
+/// [`tallies_of`] in the tests' stage, which runs the same spawn path
+/// without the rest of `DefaultPlugins`.
+#[cfg(test)]
+pub(super) fn tallies_staged(generators: Vec<(String, Generator)>) -> Vec<(String, Tally)> {
+    tallies_in(tests::stage_app(), generators)
+}
+
+/// [`tallies_of`] in `app`.
+fn tallies_in(mut app: App, generators: Vec<(String, Generator)>) -> Vec<(String, Tally)> {
     let job = SizeJob::new(
         generators
             .into_iter()
             .map(|(name, generator)| (name.clone(), name, generator)),
     );
-    let mut app = sizing_app();
     add_sizing(&mut app, job);
     run_to_end(&mut app);
     let job = app.world().resource::<SizeJob>();
     job.entries
         .iter()
-        .zip(&job.triangles)
-        .map(|(entry, triangles)| (entry.slug.clone(), *triangles))
+        .zip(&job.tallies)
+        .map(|(entry, tally)| (entry.slug.clone(), *tally))
         .collect()
 }
 
@@ -137,8 +149,9 @@ struct SizeJob {
     frames: u32,
     /// Every entry's box the last frame, by slot.
     boxes: Vec<Option<(Vec3, Vec3)>>,
-    /// Every entry's triangles the last frame, by slot (#1471).
-    triangles: Vec<u64>,
+    /// Every entry's triangles and parts the last frame, by slot (#1471,
+    /// #1479).
+    tallies: Vec<Tally>,
     /// Frames the boxes and the counts have held still.
     quiet: u32,
     /// The boxes and counts are final.
@@ -160,7 +173,7 @@ impl SizeJob {
             .collect();
         Self {
             boxes: vec![None; entries.len()],
-            triangles: vec![0; entries.len()],
+            tallies: vec![Tally::default(); entries.len()],
             entries,
             frames: 0,
             quiet: 0,
@@ -227,7 +240,8 @@ fn spawn_entries(
     }
 }
 
-/// Each root's box and triangles, from the meshes and emitters under it.
+/// Each root's box, triangles and parts, from the meshes and emitters
+/// under it.
 /// Once every entry has a box and neither boxes nor counts have changed for
 /// [`SETTLE`] frames - or the turntable's own grace for a subject that
 /// never draws has run out - they are final.
@@ -246,21 +260,20 @@ fn measure(
     }
     job.frames += 1;
     let mut boxes = vec![None; job.entries.len()];
-    let mut triangles = vec![0; job.entries.len()];
+    let mut tallies = vec![Tally::default(); job.entries.len()];
     for (root, slot) in &roots {
         let under: Vec<Entity> = children.iter_descendants(root).collect();
         boxes[slot.0] = union_box(
             under.iter().filter_map(|&e| meshes.get(e).ok()),
             under.iter().filter_map(|&e| emitters.get(e).ok()),
         );
-        triangles[slot.0] =
-            tally(under.iter().filter_map(|&e| drawn.get(e).ok()), &assets).triangles;
+        tallies[slot.0] = tally(under.iter().filter_map(|&e| drawn.get(e).ok()), &assets);
     }
-    if boxes == job.boxes && triangles == job.triangles {
+    if boxes == job.boxes && tallies == job.tallies {
         job.quiet += 1;
     } else {
         job.boxes = boxes;
-        job.triangles = triangles;
+        job.tallies = tallies;
         job.quiet = 0;
     }
     let all_drawn = job.boxes.iter().all(Option::is_some);
@@ -274,9 +287,9 @@ fn measure(
 fn report(job: &SizeJob) -> Value {
     let mut entries = Vec::new();
     let mut undrawn = Vec::new();
-    for ((entry, drawn), triangles) in job.entries.iter().zip(&job.boxes).zip(&job.triangles) {
+    for ((entry, drawn), tally) in job.entries.iter().zip(&job.boxes).zip(&job.tallies) {
         match drawn {
-            Some((min, max)) => entries.push(row(&entry.slug, &entry.name, *min, *max, *triangles)),
+            Some((min, max)) => entries.push(row(&entry.slug, &entry.name, *min, *max, *tally)),
             None => undrawn.push(json!({
                 "slug": entry.slug,
                 "why": format!(
@@ -290,16 +303,17 @@ fn report(job: &SizeJob) -> Value {
     json!({ "entries": entries, "unsized": undrawn })
 }
 
-/// One entry's box - its size and its corners, from its origin - and the
-/// triangles its meshes draw.
-fn row(slug: &str, name: &str, min: Vec3, max: Vec3, triangles: u64) -> Value {
+/// One entry's box - its size and its corners, from its origin - the
+/// triangles its meshes draw, and the parts that draw them.
+fn row(slug: &str, name: &str, min: Vec3, max: Vec3, tally: Tally) -> Value {
     json!({
         "slug": slug,
         "name": name,
         "size": centimetres3(max - min),
         "from": centimetres3(min),
         "to": centimetres3(max),
-        "triangles": triangles,
+        "triangles": tally.triangles,
+        "parts": tally.parts,
     })
 }
 
@@ -328,10 +342,16 @@ mod tests {
 
     /// The spawn path, transform propagation and mesh bounds: what the
     /// sizing reads in the tool's app, without the rest of `DefaultPlugins`.
-    fn stage(job: SizeJob) -> App {
+    pub(super) fn stage_app() -> App {
         let mut app = crate::player::visuals::spawn_path_app();
         app.add_plugins(bevy::transform::TransformPlugin);
         app.add_systems(PostUpdate, bevy::camera::visibility::calculate_bounds);
+        app
+    }
+
+    /// [`stage_app`] with `job` to size.
+    fn stage(job: SizeJob) -> App {
+        let mut app = stage_app();
         add_sizing(&mut app, job);
         app
     }
@@ -364,10 +384,10 @@ mod tests {
 
     /// The box the turntable would print for `alone`, the only entry in its
     /// world, the box of its meshes without its emitters, and the triangles
-    /// the turntable would print beside the box.
+    /// and parts the turntable would print beside the box.
     fn turntable_box(
         alone: (&'static str, &'static str, Generator),
-    ) -> ((Vec3, Vec3), (Vec3, Vec3), u64) {
+    ) -> ((Vec3, Vec3), (Vec3, Vec3), Tally) {
         let mut app = stage(SizeJob::new([alone]));
         run_to_report(&mut app);
         app.world_mut()
@@ -380,7 +400,7 @@ mod tests {
                         super::super::headless::subject_box(&meshes, &emitters)
                             .expect("it drew alone"),
                         union_box(meshes.iter(), []).expect("it drew alone"),
-                        tally(drawn.iter(), &assets).triangles,
+                        tally(drawn.iter(), &assets),
                     )
                 },
             )
@@ -391,7 +411,7 @@ mod tests {
     /// the origin, get the box the turntable gives each one alone - a tree
     /// grown from its grammar, a ground-cover card, and a fire whose flame
     /// sits clear of its meshes, whose box must reach the flame - and the
-    /// triangles it counts for each alone (#1471).
+    /// triangles and parts it counts for each alone (#1471, #1479).
     #[test]
     fn entries_sized_together_get_the_box_each_gets_alone() {
         let cases = || [entry("lsys_palm"), entry("gc_grass_tuft"), lifted_fire()];
@@ -402,9 +422,10 @@ mod tests {
         assert_eq!(sized.len(), 3, "{together}");
         for (case, got) in cases().into_iter().zip(&sized) {
             let (slug, name) = (case.0, case.1);
-            let ((min, max), meshes_only, triangles) = turntable_box(case);
-            assert!(triangles > 0, "{slug} drew no triangles alone");
-            assert_eq!(*got, row(slug, name, min, max, triangles), "{slug}");
+            let ((min, max), meshes_only, tally) = turntable_box(case);
+            assert!(tally.triangles > 0, "{slug} drew no triangles alone");
+            assert!(tally.parts > 0, "{slug} drew no parts alone");
+            assert_eq!(*got, row(slug, name, min, max, tally), "{slug}");
             if slug == "signal_fire" {
                 assert!(
                     max.y > meshes_only.1.y + 1.0,
@@ -464,6 +485,7 @@ mod tests {
         assert_eq!(late["slug"], "late");
         assert_eq!(late["size"], json!([1.0, 5.5, 3.0]), "{report}");
         assert_eq!(late["triangles"], 24, "both late cuboids: {report}");
+        assert_eq!(late["parts"], 2, "both late cuboids: {report}");
     }
 
     /// An icosphere of resolution `n`, through the primitive spawn path.
@@ -476,14 +498,24 @@ mod tests {
         Generator::from_kind(kind)
     }
 
-    /// The count one entry's row carries, by slug.
-    fn triangles_in(report: &Value, slug: &str) -> u64 {
+    /// The count one entry's row carries under `key`, by slug.
+    fn count_in(report: &Value, slug: &str, key: &str) -> u64 {
         rows(report, "entries")
             .iter()
             .find(|row| row["slug"] == slug)
-            .unwrap_or_else(|| panic!("no row for {slug}: {report}"))["triangles"]
+            .unwrap_or_else(|| panic!("no row for {slug}: {report}"))[key]
             .as_u64()
-            .expect("a count")
+            .unwrap_or_else(|| panic!("no {key} count for {slug}: {report}"))
+    }
+
+    /// The triangles one entry's row carries, by slug.
+    fn triangles_in(report: &Value, slug: &str) -> u64 {
+        count_in(report, slug, "triangles")
+    }
+
+    /// The parts one entry's row carries, by slug (#1479).
+    fn parts_in(report: &Value, slug: &str) -> u64 {
+        count_in(report, slug, "parts")
     }
 
     /// THE CASE (#1471): a row counts the triangles its meshes hold. A
@@ -511,7 +543,7 @@ mod tests {
 
     /// A mesh many entities draw counts once for each of them: three equal
     /// spheres under a cuboid share one mesh from the primitive cache, and
-    /// cost three spheres.
+    /// cost three spheres, and three parts beside the cuboid's one (#1479).
     #[test]
     fn a_mesh_shared_by_many_entities_counts_once_for_each() {
         let mut lumps = Generator::default_cuboid();
@@ -534,6 +566,49 @@ mod tests {
             "the three spheres must share one mesh, or this case checks nothing: {handles:?}"
         );
         assert_eq!(triangles_in(&report, "lumps"), 12 + 3 * 180, "{report}");
+        assert_eq!(parts_in(&report, "lumps"), 1 + 3, "{report}");
+    }
+
+    /// A cuboid with its +Z side painted another colour: two materials on
+    /// one primitive.
+    fn painted_cuboid() -> Generator {
+        use crate::pds::generator::{FaceKey, FaceOverride};
+        let mut kind = GeneratorKind::default_cuboid();
+        let base = kind.material().expect("a cuboid has a material").clone();
+        kind.faces_mut()
+            .expect("a cuboid is a primitive")
+            .push(FaceOverride {
+                face: FaceKey::SidePz,
+                material: crate::pds::texture::SovereignMaterialSettings {
+                    base_color: crate::pds::Fp3([0.9, 0.1, 0.1]),
+                    ..base
+                },
+                uv_mapping: None,
+            });
+        Generator::from_kind(kind)
+    }
+
+    /// THE CASE (#1479): a part is an entity the spawn path draws a mesh
+    /// on, not a node of the record. A cuboid is one part. A cuboid with a
+    /// sphere under it is two primitives, two parts. A cuboid whose faces
+    /// wear two materials is one node but two parts: the spawn path gives it
+    /// a root with no mesh and a render child per material - and its
+    /// triangles are still the cuboid's 12.
+    #[test]
+    fn a_part_is_each_entity_that_draws_one_primitive_or_one_material() {
+        let mut pair = Generator::default_cuboid();
+        pair.children = vec![icosphere(1)];
+        let report = run_to_report(&mut stage(SizeJob::new([
+            ("cuboid", "Cuboid", Generator::default_cuboid()),
+            ("pair", "Pair", pair),
+            ("painted", "Painted", painted_cuboid()),
+        ])));
+
+        assert_eq!(parts_in(&report, "cuboid"), 1, "{report}");
+        assert_eq!(parts_in(&report, "pair"), 2, "{report}");
+        assert_eq!(triangles_in(&report, "pair"), 12 + 80, "{report}");
+        assert_eq!(parts_in(&report, "painted"), 2, "{report}");
+        assert_eq!(triangles_in(&report, "painted"), 12, "{report}");
     }
 
     /// A live particle quad is not counted, where any other mesh that
@@ -580,11 +655,13 @@ mod tests {
 
         assert_eq!(triangles_in(&report, "stone"), 24, "{report}");
         assert_eq!(triangles_in(&report, "sparks"), 12, "{report}");
+        assert_eq!(parts_in(&report, "stone"), 2, "{report}");
+        assert_eq!(parts_in(&report, "sparks"), 1, "{report}");
     }
 
     /// An entry that draws nothing does not fail the run: it is listed
     /// under `unsized` with why, and the rest are still sized. The report
-    /// holds those two lists and nothing else, and a row its six fields.
+    /// holds those two lists and nothing else, and a row its seven fields.
     #[test]
     fn an_entry_that_draws_nothing_is_listed_unsized_and_the_rest_are_sized() {
         let nothing = Generator::from_kind(GeneratorKind::Unknown);
@@ -609,7 +686,7 @@ mod tests {
         let fields: Vec<&String> = sized[0].as_object().expect("a row").keys().collect();
         assert_eq!(
             fields,
-            ["from", "name", "size", "slug", "to", "triangles"],
+            ["from", "name", "parts", "size", "slug", "to", "triangles"],
             "{report}"
         );
         assert_eq!(sized[0]["slug"], "gc_grass_tuft");
@@ -639,24 +716,25 @@ mod tests {
     }
 
     /// A row carries the numbers the turntable's `subject size` line prints
-    /// for the same box and count - 0.125 included, which the line prints
+    /// for the same box and counts - 0.125 included, which the line prints
     /// as 0.12 and rounding by hand makes 0.13 - and never a `-0.0`.
     #[test]
     fn a_size_row_says_what_the_turntable_line_says() {
         let (min, max) = (Vec3::new(-1.5, -0.001, -0.125), Vec3::new(1.5, 4.6, 0.75));
-        let triangles = super::super::triangles::Tally::counted(1_452);
-        let line = super::super::headless::describe_box(min, max, triangles);
+        let tally = Tally::counted(1_452, 7);
+        let line = super::super::headless::describe_box(min, max, tally);
         let printed: Vec<f64> = line
             .split(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-'))
             .filter_map(|word| word.parse().ok())
             .collect();
 
-        let got = row("x", "X", min, max, triangles.triangles);
+        let got = row("x", "X", min, max, tally);
         let carried: Vec<f64> = ["size", "from", "to"]
             .iter()
             .flat_map(|key| (0..3).map(move |i| (*key, i)))
             .map(|(key, i)| got[key][i].as_f64().expect("a number"))
             .chain(got["triangles"].as_f64())
+            .chain(got["parts"].as_f64())
             .collect();
 
         assert_eq!(carried, printed, "{line}");

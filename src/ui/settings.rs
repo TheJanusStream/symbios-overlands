@@ -163,6 +163,30 @@ pub fn settings_ui(
 
             ui.add_space(8.0);
             ui.separator();
+            // #1480: every drawn part costs a browser CPU each frame, and
+            // ground cover is most of a planted world's parts. The slider's
+            // far end is Unlimited - drawn to the fog, as before - and its
+            // stops are the grid the cuts land on, which is what keeps the
+            // number of distinct ranges small enough for WebGL2 (see
+            // `world_builder::draw_distance`).
+            ui.strong("Draw distance");
+            ui.horizontal(|ui| {
+                ui.label("Ground cover:");
+                dirty |= ui
+                    .add(ground_cover_slider(&mut s.ground_cover_draw_distance_m))
+                    .on_hover_text(
+                        "Grass, ferns, moss and other plants under about 2 m are not \
+                         drawn past this distance from the camera, and things up to \
+                         4 m not past twice it: they pop in as you come closer. Lower \
+                         keeps the game faster, most of all in a web browser; \
+                         Unlimited draws them all the way out to the fog. Trees and \
+                         buildings are always drawn.",
+                    )
+                    .changed();
+            });
+
+            ui.add_space(8.0);
+            ui.separator();
             ui.strong("Network");
             // Outcome-first, like the Camera options above it (#1224
             // f334). Three of the four content words in the old text -
@@ -390,6 +414,29 @@ pub fn settings_ui(
     }
 }
 
+/// The ground-cover draw distance's slider (#1480): the grid's stops from
+/// the near end to Unlimited, shown in metres or as "Unlimited".
+///
+/// Built by `ui::num`, so it clamps and snaps only what is dragged or typed:
+/// a hand-edited prefs value off the grid or past the ends is shown as it
+/// is, never rewritten by opening Settings, and `world_builder::draw_distance`
+/// snaps it on the way in instead.
+fn ground_cover_slider(metres: &mut f32) -> egui::Slider<'_> {
+    use crate::config::draw_distance::{MIN_M, STEP_M, UNLIMITED_M};
+    crate::ui::num::slider(metres, MIN_M..=UNLIMITED_M)
+        .step_by(f64::from(STEP_M))
+        .custom_formatter(|value, _| distance_label(value))
+}
+
+/// How the slider shows `metres`.
+fn distance_label(metres: f64) -> String {
+    if metres >= f64::from(crate::config::draw_distance::UNLIMITED_M) {
+        "Unlimited".to_string()
+    } else {
+        format!("{metres:.0} m")
+    }
+}
+
 /// The mute list, and the only way to leave it (#1223 f292).
 ///
 /// `MutedDids` is durable and was reachable from exactly two places, both of
@@ -466,4 +513,41 @@ fn muted_people_section(
             }
         });
     unmute
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy_egui::egui;
+
+    use super::*;
+    use crate::config::draw_distance::{DEFAULT_M, MAX_M, UNLIMITED_M};
+
+    /// Draw the slider once over `value`, with no input at all.
+    fn show(value: f32) -> (f32, bool) {
+        let ctx = egui::Context::default();
+        let mut shown = value;
+        let mut changed = false;
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            changed = ui.add(ground_cover_slider(&mut shown)).changed();
+        });
+        (shown, changed)
+    }
+
+    /// Opening Settings edits nothing: not the default, not a prefs value
+    /// off the grid, not one past either end (#1390's rule, #1480's slider).
+    #[test]
+    fn the_ground_cover_slider_does_not_edit_what_it_shows() {
+        for value in [DEFAULT_M, 137.3, 10.0, 5_000.0, UNLIMITED_M] {
+            let (shown, changed) = show(value);
+            assert_eq!(shown.to_bits(), value.to_bits(), "{value} was rewritten");
+            assert!(!changed, "{value} reported a change");
+        }
+    }
+
+    #[test]
+    fn the_far_end_reads_unlimited() {
+        assert_eq!(distance_label(f64::from(UNLIMITED_M)), "Unlimited");
+        assert_eq!(distance_label(f64::from(MAX_M)), "400 m");
+        assert_eq!(distance_label(f64::from(DEFAULT_M)), "150 m");
+    }
 }

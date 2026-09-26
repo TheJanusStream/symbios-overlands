@@ -62,14 +62,17 @@ pub(super) fn spawn_sign_entity(
     );
 
     let mut cmd = ctx.commands.spawn((
-        Mesh3d(mesh_handle),
+        Mesh3d(mesh_handle.clone()),
         MeshMaterial3d(material_handle),
         transform,
     ));
     if !ctx.avatar_mode {
         cmd.insert((super::RoomEntity, super::PlacementUnit(ctx.placement_index)));
     }
-    cmd.id()
+    let sign = cmd.id();
+    // A scattered sign takes its copy's draw distance (#1480).
+    ctx.note_part(sign, &mesh_handle, &Transform::IDENTITY);
+    sign
 }
 
 /// Build the textured-plane mesh for a Sign: a 4-vertex quad lying in the

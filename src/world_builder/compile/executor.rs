@@ -152,6 +152,12 @@ pub(crate) fn compile_room_record(
             avatar_mode: false,
             local_avatar_mode: false,
             attachment_rkey: None,
+            copy: &mut job.copy,
+            draw_cuts: generator_caches
+                .draw_cuts
+                .as_deref()
+                .copied()
+                .unwrap_or_default(),
         };
 
         loop {
@@ -785,7 +791,10 @@ fn step_unit(
                 // same way.
                 let cell_tf =
                     Transform::from_xyz(local_x, final_local_y, local_z).with_rotation(rotation);
+                // A cell is a copy, and a small one is cut by distance (#1480).
+                ctx.begin_copy(generator_ref, &cell_tf);
                 dispatch_top_level(ctx, generator_ref, cell_tf, cursor.anchor);
+                ctx.end_copy(generator_ref);
             }
             StepOutcome::Done
         }
@@ -864,7 +873,10 @@ fn step_unit(
                 let cell_tf =
                     super::scatter::instance_pose(local_pos, &jitter, *random_yaw, naturalness);
 
+                // A small scattered copy is cut by distance (#1480).
+                ctx.begin_copy(generator_ref, &cell_tf);
                 dispatch_top_level(ctx, generator_ref, cell_tf, cursor.anchor);
+                ctx.end_copy(generator_ref);
                 *spawned += 1;
             }
 

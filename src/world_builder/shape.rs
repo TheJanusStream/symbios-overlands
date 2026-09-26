@@ -448,6 +448,8 @@ pub(super) fn spawn_shape_entity(
             ))
             .id();
         ctx.commands.entity(parent).add_child(child);
+        // A scattered copy's terminal takes its draw distance (#1480).
+        ctx.note_part(child, &instance.mesh, &instance.transform);
         *ctx.entities_spawned = ctx.entities_spawned.saturating_add(1);
     }
 

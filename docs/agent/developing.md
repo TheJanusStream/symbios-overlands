@@ -86,6 +86,29 @@ and saved seventeen world changes in the same hours.
   avatar set's sanitise order, a u16 handle overflow a 65,536-strong scatter
   crashes - so read the whole report and file what it found.
 - **Record each delegation's cost and what it saved** on the parent issue.
+- **Give it a second pair of eyes.** Session 878 ran each delegation as a
+  short pipeline, still one agent at a time: a builder, then an independent
+  critic briefed to find what is wrong (not to confirm), then a fixer only
+  if the critic found something. In six such pipelines the critic found
+  real defects five times, each of which its builder had reported as done
+  with every gate green: comments claiming a Bevy panic that cannot happen
+  (the shadow fix); long parts over falling ground passing a
+  least-clearance rule, and water counted as ground at every placement
+  (the floating report); per-copy scale jitter ignored, so jittered plants
+  were culled as small, and a cut line sweeping the login screen (the
+  culling); and five visual faults each on the spruce and the birch that
+  the designers' own pictures showed - glare on level cards, cards hanging
+  as planks, the wrong tree's leaves up close, bark marks gone past 5 m.
+  Only the parts count came back SOUND. A pipeline cost 0.5-1M sub-agent
+  tokens and 50-145 minutes; the main session spent 5-12k on each brief
+  and its own check. Brief the critic with the builder's report AND the
+  original brief, tell it to break the two most important rules itself,
+  and let it write nothing but its verdict.
+- **Small fixes need no sub-agent.** With the one slot taken by a long
+  visual job, two small fixes (#1476, #1472: a directory rule and a
+  per-frame handle cache, each with a failing test and a mutant) took the
+  main session about 20 minutes together, restart included - quicker than
+  briefing them.
 
 ## Where things live
 
@@ -109,6 +132,11 @@ JSON (`serde_json::from_value`) - the same form `room set` takes.
 
 - `pgrep -x agent` matches an unrelated system process: match the full
   binary path (`target/test-release/agent run`).
+- `pgrep -f PATTERN` and `pkill -f PATTERN` inside a compound shell line
+  match that shell's own command line, which contains the pattern: a
+  `while pgrep -f X` wait never ended, and a `pkill -f` killed the command
+  running it (session 878, twice). Anchor the pattern (`^/full/path/...`)
+  or wait on a file the job writes instead.
 - The first write of a never-saved world re-quantises every generator onto
   the wire's grid, so "what changed" must compare against the old record
   settled the same way.

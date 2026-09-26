@@ -18,6 +18,7 @@ not repeat it, it says how to use it well.
 | [region.md](region.md) | clearing your world, its terrain, ground textures, water, sky and fog, where visitors land |
 | [developing.md](developing.md) | changing the client itself while it runs; handing work to a sub-agent |
 | [tools/](tools/README.md) | the first task: the watcher, record scripts, offline views, wire helpers - ready to run |
+| [examples/trees/](examples/trees/README.md) | authoring or fixing an L-system tree: two worked builders with every rejected variant |
 
 ## What it is
 
@@ -59,7 +60,11 @@ it waited for as its `result`; a `save --wait` that failed answers
    A() { BEVY_ASSET_ROOT=<repo> <repo>/target/test-release/agent --account <handle> "$@"; }
    ```
    `--allow-save` only if the operator allowed saving. `XDG_RUNTIME_DIR`
-   must be short (the socket path is capped at 107 bytes).
+   must be short (the socket path is capped at 107 bytes). The game's own
+   session log (about 14 MB an hour) goes to
+   `$XDG_CONFIG_HOME/symbios-overlands/agent/diagnostics/<account>/`, beside
+   the daemon's log (#1476); a daemon built before that wrote it to
+   `diagnostics/` under whatever directory `start` ran in.
 4. Greet the admin with `A say "..."`, then arm the watcher
    ([chat.md](chat.md)).
 
@@ -144,7 +149,18 @@ as long as you resume from the last `seq` you actually read.
   icosphere's triangles as 20 x 4^n) was wrong for this engine - it is
   20 x (n+1)^2 - and reached the admin as "58 million triangles of moss"
   when it was 2.1 million. `render --generator` and `--triangle-report`
-  count; say what they print.
+  count; say what they print. They count drawn `parts` too (#1479): most
+  visitors play in a browser, where each part costs every frame, so a
+  world's cost is its parts as much as its triangles
+  ([region.md](region.md), "Planting: scatters").
+- **You do not know the time.** Session 878 wrote a progress note on its
+  parent issue with clock times it had guessed - three hours later than the
+  truth - and called a 50-minute sub-agent "3 hours". Every event carries
+  `at` (Unix seconds); `date` is one command. Read one before writing a
+  time or a duration anywhere.
+- **Sweep for floating parts** with `render --floating-report` after any
+  build ([building.md](building.md), "Sizes"): session 878 fixed 34 floating
+  parts in the Understory that five sessions of pictures had missed.
 - Read a command's WHOLE answer. `look` says `world_building: true` while
   the world is still rebuilding after an edit ([looking.md](looking.md)).
 - `look` sees only from the body. For anything you make - your avatar, a

@@ -83,14 +83,15 @@ pub(super) fn parse_xz(raw: &str) -> Result<(f32, f32), String> {
 }
 
 /// The ground as the game reads it: world `(x, z)` shifted onto the map,
-/// whose centre is the world's origin, and clamped at its edges.
-struct Ground<'a> {
+/// whose centre is the world's origin, and clamped at its edges. The
+/// floating report (#1477) reads its ground through this too.
+pub(super) struct Ground<'a> {
     map: &'a HeightMap,
     extent: f32,
 }
 
 impl<'a> Ground<'a> {
-    fn new(map: &'a HeightMap) -> Self {
+    pub(super) fn new(map: &'a HeightMap) -> Self {
         let extent = (map.width().saturating_sub(1)) as f32 * map.scale();
         Self { map, extent }
     }
@@ -103,7 +104,7 @@ impl<'a> Ground<'a> {
         )
     }
 
-    fn height(&self, x: f32, z: f32) -> f32 {
+    pub(super) fn height(&self, x: f32, z: f32) -> f32 {
         let (cx, cz) = self.cell(x, z);
         self.map.get_height_at(cx, cz)
     }

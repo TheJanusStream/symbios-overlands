@@ -120,6 +120,20 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
     // Before the builder: `PrefsPlugin` only initialises its store, so this
     // one stands, and the agent's settings never land in a person's files.
     app.insert_resource(crate::prefs::PrefsStore::Dir(prefs_dir));
+    // Before the builder too: `DiagnosticsPlugin` reads it in its `build`.
+    if let Some(dir) = diagnostics_dir(crate::prefs::config_dir(), identity.did(), |key| {
+        std::env::var(key).ok()
+    }) {
+        match super::private_fs::ensure_private_dir(&dir) {
+            Ok(()) => {
+                app.insert_resource(crate::diagnostics::plugin::DiagDirOverride(Some(dir)));
+            }
+            Err(e) => warn!(
+                "The game's session log stays in the working directory: {}: {e}",
+                dir.display()
+            ),
+        }
+    }
     crate::build_client_app(
         &mut app,
         crate::boot_params::BootParams::default(),
@@ -265,6 +279,30 @@ fn agent_prefs_dir() -> Result<PathBuf, String> {
     Ok(config.join(HOME_DIR).join(PREFS_DIR))
 }
 
+/// Where the game's session log goes for the daemon of `did` (#1476):
+/// `<config dir>/agent/diagnostics/<account>/`, beside its own log, rather
+/// than the game's default of `diagnostics/` under whatever directory
+/// `agent start` happened to run in. An operator who set `SYMBIOS_DIAG=0`
+/// (no log) or `SYMBIOS_DIAG_DIR` (a log directory of their own) keeps that:
+/// `None`, and the game's own resolution decides. `env` reads a variable.
+fn diagnostics_dir(
+    config_dir: Option<PathBuf>,
+    did: &str,
+    env: impl Fn(&str) -> Option<String>,
+) -> Option<PathBuf> {
+    use crate::config::agent::{DIAGNOSTICS_DIR, HOME_DIR};
+    use crate::config::diagnostics::{DIR_ENV, DISABLE_ENV};
+    if env(DISABLE_ENV).as_deref() == Some("0") || env(DIR_ENV).is_some() {
+        return None;
+    }
+    Some(
+        config_dir?
+            .join(HOME_DIR)
+            .join(DIAGNOSTICS_DIR)
+            .join(crate::prefs::account_file_stem(did)),
+    )
+}
+
 /// The primary window the UI and the gizmo read, as the render tool's
 /// editor host spawns one: a size and a scale factor, with no winit behind
 /// it and no surface, so nothing is ever drawn to it.
@@ -396,6 +434,56 @@ mod tests {
         assert_eq!(
             serde_json::json!(hundredths3(Vec3::new(4.73, -104.9, 18.004))).to_string(),
             "[4.73,-104.9,18.0]"
+        );
+    }
+
+    /// THE CASE (#1476): started from docs/agent/tools/, the daemon wrote
+    /// the game's session log - 8 MB in its first 35 minutes - into
+    /// docs/agent/tools/diagnostics/, where no ignore rule covers it. The
+    /// log's place must not depend on the working directory, and an
+    /// operator's own setting must still win.
+    #[test]
+    fn the_session_log_goes_beside_the_daemon_s_own_log_not_into_the_working_directory() {
+        let did = "did:plc:ghkcajvgtvvfxavllty3pr57";
+        let config = PathBuf::from("/home/someone/.config/symbios-overlands");
+        let no_env = |_: &str| None;
+
+        let dir = diagnostics_dir(Some(config.clone()), did, no_env).expect("a directory");
+        assert_eq!(
+            dir,
+            config
+                .join(crate::config::agent::HOME_DIR)
+                .join(crate::config::agent::DIAGNOSTICS_DIR)
+                .join(crate::prefs::account_file_stem(did)),
+            "beside logs/ under the agent's own config directory"
+        );
+        assert!(dir.is_absolute(), "never relative to where `start` ran");
+
+        let off =
+            |key: &str| (key == crate::config::diagnostics::DISABLE_ENV).then(|| "0".to_owned());
+        assert_eq!(
+            diagnostics_dir(Some(config.clone()), did, off),
+            None,
+            "SYMBIOS_DIAG=0 still turns the log off"
+        );
+        let own = |key: &str| {
+            (key == crate::config::diagnostics::DIR_ENV).then(|| "/var/tmp/x".to_owned())
+        };
+        assert_eq!(
+            diagnostics_dir(Some(config.clone()), did, own),
+            None,
+            "an operator's SYMBIOS_DIAG_DIR is left for the game to honour"
+        );
+        let on =
+            |key: &str| (key == crate::config::diagnostics::DISABLE_ENV).then(|| "1".to_owned());
+        assert!(
+            diagnostics_dir(Some(config), did, on).is_some(),
+            "only 0 turns it off"
+        );
+        assert_eq!(
+            diagnostics_dir(None, did, no_env),
+            None,
+            "no config directory: the game decides"
         );
     }
 }

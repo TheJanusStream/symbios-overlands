@@ -138,8 +138,15 @@ def main():
                        "points": [{"position": [int(round(c * 10000)) for c in p],
                                    "radius": int(round(radius * 10000))} for p in pts[i:end + 1]]})
         i = end
+    # The 2 cm root stands at the thread's lowest ground, which floats wherever
+    # the ground under the origin is lower (session 878's floating report found
+    # one): hide it 0.2 m down and lift its spines back by as much.
+    root_drop = 2000
+    for s in spines:
+        for p in s["points"]:
+            p["position"][1] += root_drop
     gen = {"$type": "network.symbios.gen.cuboid", "size": [200, 200, 200], "solid": False,
-           "material": mat, "children": spines}
+           "material": mat, "transform": {"translation": [0, -root_drop, 0]}, "children": spines}
     place = {"$type": "network.symbios.place.absolute", "avoid_water_clearance": 0, "generator_ref": name,
              "snap_to_terrain": False,
              "transform": {"translation": [int(round(ox * 10000)), int(round(oy * 10000)), int(round(oz * 10000))]}}

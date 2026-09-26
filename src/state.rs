@@ -698,6 +698,20 @@ pub struct LocalSettings {
     /// visitor understanding why. The point is that the choice exists and is
     /// stated.
     pub load_external_assets: bool,
+    /// How far from the camera small scattered things - grass, ferns, moss,
+    /// reeds, anything up to [`crate::config::draw_distance::SMALL_MAX_M`] -
+    /// are still drawn, in metres (#1480); things up to twice that size are
+    /// drawn twice as far, and trees and buildings always. Every drawn part
+    /// costs a browser CPU each frame whatever its size on screen, and ground
+    /// cover is most of a planted world's parts.
+    ///
+    /// [`crate::config::draw_distance::UNLIMITED_M`] or more is Unlimited: no
+    /// cut, drawn out to the fog as before. Old prefs files take
+    /// [`crate::config::draw_distance::DEFAULT_M`] through the struct-level
+    /// `serde(default)`. Snapped onto the slider's grid and clamped to its
+    /// ends on the way in, by `world_builder::draw_distance`, so a hand-edited
+    /// file can neither cut at the player's feet nor mint a range per value.
+    pub ground_cover_draw_distance_m: f32,
 }
 
 /// How much of a room's authored contact effects a visitor accepts
@@ -772,6 +786,7 @@ impl Default for LocalSettings {
             show_peer_nametags: true,
             ui_scale: 1.0,
             load_external_assets: true,
+            ground_cover_draw_distance_m: crate::config::draw_distance::DEFAULT_M,
         }
     }
 }

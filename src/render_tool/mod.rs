@@ -95,7 +95,9 @@
 //! prints each one's box - the turntable's `subject size` - and its
 //! triangles as one JSON object. `--world ... --triangle-report` (see
 //! `triangles.rs`, #1471) grows a world's placed generators in the same
-//! app and prints what each placement costs to draw.
+//! app and prints what each placement costs to draw. `--world ...
+//! --floating-report` (see `floating/mod.rs`, #1477) needs no app: it meshes
+//! each placed generator's primitives and names every part that floats.
 
 use std::time::Duration;
 
@@ -113,6 +115,7 @@ use crate::pds::{Generator, GeneratorKind, RoomRecord};
 
 mod editor;
 mod figure;
+mod floating;
 mod gif;
 mod headless;
 mod rig;
@@ -703,6 +706,16 @@ struct Args {
     /// given, as a render does. See `triangles.rs`.
     #[arg(long, requires = "world", conflicts_with = "terrain_report")]
     triangle_report: bool,
+    /// With `--world`: name every part of a placed generator that floats,
+    /// and exit without rendering (#1477). One JSON object, a row a line:
+    /// each floating part by its JSON pointer into the record, its class -
+    /// `a`, free of its generator (it touches nothing the generator stands
+    /// by), or `b`, over falling ground (it rests on the generator's ground
+    /// plane, and where the game stands an absolute placement the real
+    /// ground under it is lower) - the gap in metres and where it is. Reads
+    /// `--world-record` when given, as a render does. See `floating/mod.rs`.
+    #[arg(long, requires = "world", conflicts_with_all = ["terrain_report", "triangle_report"])]
+    floating_report: bool,
     /// With `--terrain-report`: a point to read, `X,Z` in world metres;
     /// repeat for more. A negative X needs the `=`: `--at=-18.6,22`.
     #[arg(long, value_name = "X,Z", requires = "terrain_report")]
@@ -823,6 +836,14 @@ pub fn run() {
     if args.triangle_report {
         let world = args.world.as_deref().expect("clap requires --world");
         triangles::print_triangle_report(world, &report_record(&args));
+        return;
+    }
+
+    // `--floating-report`: name every part of a world that floats and exit
+    // - never renders (#1477).
+    if args.floating_report {
+        let world = args.world.as_deref().expect("clap requires --world");
+        floating::print_floating_report(world, &report_record(&args));
         return;
     }
 

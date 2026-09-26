@@ -444,7 +444,10 @@ for all of it to *settle* (a compile pass landed, none running, the splat
 applied, no road re-mesh or lot re-derive pending, no procedural texture
 bake still in flight, and that answer held for forty frames) before
 shooting. The camera is the game's: fog, bloom, the
-depth prepass shore foam reads, cascaded shadows, MSAA. Framing is a rig
+depth prepass shore foam reads, cascaded shadows, MSAA. Its settings are a
+default visitor's, so small scattered copies past the Settings window's
+ground-cover draw distance (150 m from the camera, #1480) are not drawn, and
+every `--world` shot prints the parts it drew. Framing is a rig
 rather than a tile set:
 
 ```bash
@@ -793,19 +796,33 @@ cargo run --bin render -- --world <did> --world-record room.json --terrain-repor
 cargo run --bin render -- --world <did> --world-record room.json --terrain-report \
     --seed-scan 4..20 --plan /tmp/seeds.png
 # Any single subject (--generator, --catalogue, --prim) prints its size first -
-# the box its meshes fill, from its origin (#1448) - and the triangles those
-# meshes draw, particles left out (#1471):
-#   subject size 1.68 x 1.15 x 1.56 m (x, y, z), from [-0.80, 0.00, -0.78] to [0.88, 1.15, 0.78], 8656 triangles
+# the box its meshes fill, from its origin (#1448) - the triangles those
+# meshes draw, particles left out (#1471), and the parts that draw them: each
+# entity with a mesh, one per primitive and one per material on a primitive
+# of several, which a browser culls and batches every frame (#1479):
+#   subject size 1.68 x 1.15 x 1.56 m (x, y, z), from [-0.80, 0.00, -0.78] to [0.88, 1.15, 0.78], 8656 triangles, 13 parts
 # ...and every catalogue entry the words find, as `agent catalogue` matches
 # them, in ONE run with no renderer: one JSON object, each entry's same box
-# and its `triangles` (`entries`, and `unsized` with why); no words sizes all
-# ~395 in ~3 s (#1466):
+# and its `triangles` and `parts` (`entries`, and `unsized` with why); no
+# words sizes all ~395 in ~3 s (#1466):
 cargo run --bin render -- --catalogue-sizes rust scrap
 # What a world costs to draw, no render (#1471): one JSON object, the total
 # (placements plus the ground mesh), each placed generator's triangles for one
 # copy times its copies, and each placement's cost - a scatter's copies are the
-# ones its sampler really places - dearest first, a row a line; ~2 s:
+# ones its sampler really places - dearest first, a row a line; ~2 s. Parts
+# ride beside every count (`parts_each`, `parts`, and a `parts` total with the
+# ground as one): in a browser each part costs CPU every frame (#1479):
 cargo run --bin render -- --world <did> --world-record room.json --triangle-report
+# Every part of a world that floats, no render (#1477): one JSON object, a row
+# a line, each floating part by its JSON pointer into the record, with its gap
+# in metres and where it stands. Class a is free of its generator - it touches
+# nothing of the body the generator stands by, as a limb set off a tapered
+# trunk; class b is over falling ground - it rests on its generator's ground
+# (its ground plane, or the real ground at one of its placements), but where
+# the game stands an absolute placement some point of its underside is more
+# than 15 cm over the real ground, water or part under it. What touches what
+# comes from the real meshes, so a cap resting on its stem is not named; ~1 s:
+cargo run --bin render -- --world <did> --world-record room.json --floating-report
 # PNG frame directories (as --keep-frames writes them) → one GIF at --fps:
 cargo run --bin render -- --stitch /tmp/a-frames,/tmp/b-frames --out /tmp/ab.gif
 ```
@@ -813,7 +830,8 @@ cargo run --bin render -- --stitch /tmp/a-frames,/tmp/b-frames --out /tmp/ab.gif
 `--outfit`, `--find-part`, `--describe`, `--room-census`, `--foundation-audit`
 and `--gateway-fit` only roll records or build catalogue trees, so they return
 quickly, and `--terrain-report` builds one heightmap (about half a second;
-`--triangle-report` builds one beside its no-renderer app, about 2 s in all);
+`--triangle-report` builds one beside its no-renderer app, about 2 s in all,
+and `--floating-report` beside meshing every placed generator, about 1 s);
 `--scatter-census`, `--scatter-plot` and `--settlement-drop` rebuild each
 seed's heightmap, which costs a few seconds per seed.
 
@@ -900,7 +918,9 @@ account. Sessions live in `$XDG_CONFIG_HOME/symbios-overlands/agent/sessions/`
 (0700, files 0600 - a file anyone else can read is refused, as ssh refuses a
 key), each rotated refresh token is written there the moment it lands, and
 the daemon keeps its own settings and log beside them, never touching a
-person's. The control socket is `$XDG_RUNTIME_DIR/symbios-overlands-agent/`.
+person's - and the game's session log too, in `agent/diagnostics/` (#1476;
+`SYMBIOS_DIAG=0` or `SYMBIOS_DIAG_DIR` still decide), wherever `start` was
+run from. The control socket is `$XDG_RUNTIME_DIR/symbios-overlands-agent/`.
 A session a server refuses, or one that expires, stops the daemon with an
 error that says to run `login` again.
 

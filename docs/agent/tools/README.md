@@ -13,11 +13,14 @@ built with `--profile test-release`. With more than one session saved,
 | `watch.py SINCE [QUIET_MINUTES]` | the admin's channel ([../chat.md](../chat.md)): waits, then prints every event, a `WAKE:` line, `NEXT=<seq>` and a `RE-ARM:` line - the exact command to run next (NEXT as it is, never NEXT + 1); reads the admin's DID from `status` |
 | `rec.py pull room\|avatar OUT.json` | the saved record as the source to build on |
 | `rec.py compose SRC.json EDITS OUT.json` | the edits folded into a copy, for offline renders |
+| `rec.py save room\|avatar OUT.json [--log LOG "NOTE"]` | save, wait, pull the saved record as the new source and, with `--log`, append `- HH:MM (seq N) NOTE` with the save event's OWN time; a refused save exits 1 and pulls and logs nothing |
 | `rec.py apply room\|avatar EDITS` | each edit sent live, one line per answer: `adjusted_at`, `z_fighting`, `record_size`; a `/-` line is rewritten to where it landed |
-| `views.py DID RECORD.json OUT.png "LABEL X Y Z LOOK [DOWN]" ...` | offline pictures from where a person stands, looking a compass way (Y as `~` = the ground there + 1.7 m, `~3` = + 3 m; DOWN tilts below level: 40 sees your feet, negative looks up; a spec `@admin` or `@admincam` sees what the admin sees, from the live `status`); tiled and labelled |
+| `views.py DID RECORD.json OUT.png "LABEL X Y Z LOOK [DOWN]" ...` | offline pictures from where a person stands, looking a compass way (Y as `~` = the ground there + 1.7 m, `~3` = + 3 m; DOWN tilts below level: 40 sees your feet, negative looks up; a spec `@admin` or `@admincam` sees what the admin sees, from the live `status`; `@landing` and `@landingcam` what an arriving visitor's eyes and screen show, from the record's `default_landing`); tiled and labelled |
 | `stack.py OUT.png PICTURE...` | pictures stacked, for before and after |
+| `compare.py DID SRC.json EDITS OUT.png "SPEC" ...` | before and after in one command: EDITS composed into a copy of SRC, each views.py SPEC rendered from both, one row per spec (source left, edited right) |
 | `ground.py DID RECORD.json X,Z ... [--footprint R]` | the ground at each point, one line each: height, above or under the water, slope, downhill, contour yaw, splat layer shares by index |
 | `thread.py DID RECORD.json NAME OUT_DIR "X,Z X,Z ..."` | a glowing thread laid on the real ground through waypoints: smoothed, sampled every 2.5 m, cut into 16-point spines, placed unsnapped at its middle (refuses past the 100 m clamp); `--tail-material`/`--tail-m` turn its last metres another colour |
+| `fan.py DID RECORD.json NAME OUT_DIR CX,CZ [--colour R,G,B]` | where glowing threads reach a place, each forks into a fan of finer filaments toward and past its centre, on the real ground, stopping at the shore; one arrival per thread (a place's own spines lying wholly inside `--within` are not arrivals); warns past half the record budget |
 | `clearings.py DID RECORD.json OUT.png X,Z [--dist D] [--only gen,...]` | where scattered things stand: each scattered generator swapped for a glowing pole of its own colour, seen from straight above - compose your build in and check no pole is inside it |
 | `wire.py` | import it in a builder: metres to the wire's units, quaternions, `lathe` / `spine` / `sphere` / `mat` / `solid_root` |
 
@@ -39,7 +42,8 @@ $T/rec.py pull room src/room.json                 # after every save, too
 python3 builders/piece.py                         # your builder: writes gen/piece.json, place/piece.json
 $T/rec.py compose src/room.json edits.txt try.json
 $T/views.py <your DID> try.json look.png "pool 6 12 77 270" "close -210 34 58 262"
-$T/rec.py apply room edits.txt                    # then look live, then save
+$T/rec.py apply room edits.txt                    # then look live, then:
+$T/rec.py save room src/room.json --log log.md "what was kept"   # save, re-pull, timed log line
 ```
 
 Session 876 built four landmarks, an outer forest and their paths this way

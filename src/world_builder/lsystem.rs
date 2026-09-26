@@ -689,6 +689,8 @@ pub(super) fn spawn_lsystem_entity(
         }
         let child = child_cmd.id();
         ctx.commands.entity(parent).add_child(child);
+        // A scattered plant's bucket takes its copy's draw distance (#1480).
+        ctx.note_part(child, mesh_handle, &Transform::IDENTITY);
         *ctx.entities_spawned = ctx.entities_spawned.saturating_add(1);
     }
 

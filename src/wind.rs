@@ -269,17 +269,31 @@ pub fn attach_wind_materials(
     mut links: ResMut<WindMaterialLinks>,
     wind: Res<VegetationWind>,
 ) {
+    // One strong handle per link per run, CLONED for every further entity
+    // (#1472). `get_strong_handle` bumps a per-asset duplicate counter that
+    // `bevy_asset` keeps in a u16, and a handle fetched per entity sent a
+    // scatter of 65,536 swaying cards on one source material - a legal world
+    // (the sanitiser allows 100,000 copies, and a two-card tuft is two
+    // entities) - into 'attempt to add with overflow': an aborted client, or
+    // a silently wrapped count in a release build. A `Handle` clone is an
+    // `Arc` clone and counts nothing.
+    let mut this_run: HashMap<
+        (AssetId<StandardMaterial>, WindSway),
+        Handle<VegetationWindMaterial>,
+    > = HashMap::new();
     for (entity, source, &profile) in pending.iter() {
         let source_id = source.0.id();
         let key = (source_id, profile);
 
         // A live link is reused; one whose material has since been dropped
         // resolves to `None` and is rebuilt below.
-        let existing = links
-            .links
-            .get(&key)
-            .copied()
-            .and_then(|id| wind_materials.get_strong_handle(id));
+        let existing = this_run.get(&key).cloned().or_else(|| {
+            links
+                .links
+                .get(&key)
+                .copied()
+                .and_then(|id| wind_materials.get_strong_handle(id))
+        });
 
         let handle = match existing {
             Some(handle) => handle,
@@ -305,6 +319,7 @@ pub fn attach_wind_materials(
                 handle
             }
         };
+        this_run.entry(key).or_insert_with(|| handle.clone());
 
         // `try_*`, because the entity can be despawned between this query
         // and the command queue being applied (#1410). A record update from
@@ -323,9 +338,7 @@ pub fn attach_wind_materials(
     }
 
     if links.links.len() > MAX_LINKS {
-        links
-            .links
-            .retain(|_, id| wind_materials.get_strong_handle(*id).is_some());
+        links.links.retain(|_, id| wind_materials.contains(*id));
     }
 }
 

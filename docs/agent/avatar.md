@@ -115,6 +115,15 @@ Session 874 rebuilt Hypha's cap after the admin asked for "more detail" and
 - **Inspection renders**: a turntable frames the whole tree, so trailing
   threads made the mushroom tiny; render a copy without them. A negative
   `--elev` needs the `=` (`--elev=-12`, looking up at the gills).
+- **Give the body something that is its own.** Reviewed from the game's
+  camera, Hypha read as a plain mushroom set down on the ground. A honey
+  fungus's rhizomorphs are the part that really glows (foxfire), so session
+  878 gave it seven glowing root cords from the stem's flared base, each
+  forking twice, lying a hair above the collider's bottom plane (-half_y):
+  landed, they spread on the ground like the network under it; flying, they
+  hang as its roots. 56 spines, +6.7k triangles, the record 42 -> 65 KB.
+  Anything that lies at the base must stay above -half_y by its own radius,
+  or it cuts the ground when landed.
 - **Re-run safety**: a body script that keeps parts from the saved body
   must find them by something they alone have (the threads' glow), not by
   kind - the new young caps' stalks were spines too.

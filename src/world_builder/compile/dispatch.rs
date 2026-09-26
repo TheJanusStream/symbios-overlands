@@ -141,6 +141,24 @@ pub fn spawn_generator(
     transform: Transform,
     parent: Option<Entity>,
 ) -> Option<Entity> {
+    // The copy recorder follows the walk down and back up, so a part's
+    // box lands in the copy's frame however deep it hangs (#1480). Around
+    // the whole node rather than inside it: the node's arms return early.
+    let saved = ctx.copy.enter_node(&transform);
+    let entity = spawn_node(ctx, generator, base_ref, path, transform, parent);
+    ctx.copy.leave_node(saved);
+    entity
+}
+
+/// [`spawn_generator`]'s body: one node and, below it, its children.
+fn spawn_node(
+    ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
+    generator: &Generator,
+    base_ref: &str,
+    path: &[usize],
+    transform: Transform,
+    parent: Option<Entity>,
+) -> Option<Entity> {
     if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
         return None;
     }
@@ -486,6 +504,8 @@ fn spawn_primitive_entity(
     // same shape the Shape grammar spawns its terminals in.
     let single = drawn.len() == 1;
     let mut cmd = ctx.commands.spawn(transform);
+    // The one mesh a whole prim draws, on the prim's own entity (#1480).
+    let mut own_part = None;
     if single {
         let (group, material, sways) = &drawn[0];
         cmd.insert((
@@ -495,6 +515,7 @@ fn spawn_primitive_entity(
                 faces: group.faces.clone(),
             },
         ));
+        own_part = Some(group.mesh.clone());
         // Ground-cover cards (#916). A prim's origin is its own centre
         // rather than its base - a standing card is a `Plane` rotated
         // upright about its middle - which is what `WindSway::Card`'s
@@ -519,6 +540,9 @@ fn spawn_primitive_entity(
         cmd.insert(collider);
     }
     let root = cmd.id();
+    if let Some(mesh) = own_part {
+        ctx.note_part(root, &mesh, &Transform::IDENTITY);
+    }
 
     if !single {
         // NB: no `RoomEntity` / `PlacementUnit` on the render children - the
@@ -553,6 +577,11 @@ fn spawn_primitive_entity(
                 child.id()
             })
             .collect();
+        // Each render child draws, so each one takes the copy's range: a
+        // `VisibilityRange` does not propagate (#1480).
+        for (child, (group, _, _)) in children.iter().zip(&drawn) {
+            ctx.note_part(*child, &group.mesh, &Transform::IDENTITY);
+        }
         ctx.commands.entity(root).add_children(&children);
     }
     root

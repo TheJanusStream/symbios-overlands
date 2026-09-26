@@ -56,7 +56,7 @@
 #![deny(unsafe_code)]
 
 use avian3d::PhysicsPlugins;
-use bevy::light::{CascadeShadowConfigBuilder, GlobalAmbientLight, NotShadowCaster};
+use bevy::light::{GlobalAmbientLight, NotShadowCaster};
 use bevy::log::LogPlugin;
 #[cfg(not(target_arch = "wasm32"))]
 use bevy::pbr::wireframe::WireframePlugin;
@@ -91,6 +91,7 @@ pub mod player;
 pub mod prefs;
 pub mod protocol;
 pub mod seeded_defaults;
+pub mod shadow_reach;
 pub mod social;
 pub mod splat;
 pub mod state;
@@ -923,6 +924,8 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
             Update,
             (clouds::track_cloud_layer_to_camera, track_skybox_to_camera),
         );
+    // The sun's shadow cascades follow the orbit zoom (#1475).
+    shadow_reach::register(app, shadow_reach::follow_orbit_zoom);
 }
 
 /// Register the game's atmosphere - sun + cascaded shadows, global ambient,
@@ -937,6 +940,11 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
 /// `terrain::register_headless_terrain` carry. Native-only under the render
 /// tool's own cfg (#1321): the wasm build never has a caller for it, and CI's
 /// wasm check denies warnings.
+///
+/// The one piece it leaves to its caller is the game's zoom-following shadow
+/// reach (#1475): [`shadow_reach::follow_orbit_zoom`] measures an orbit
+/// camera, and the render tool's rig camera has none, so `--world` registers
+/// its own feeder of the same rule.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn register_headless_atmosphere(app: &mut App) {
     app.add_plugins(MaterialPlugin::<clouds::CloudMaterial>::default())
@@ -959,12 +967,9 @@ fn setup_lighting(
     // `RoomRecord` as soon as the recipe is compiled on InGame entry.
     let sc = config::lighting::SUN_COLOR;
 
-    let cascade_shadow_config = CascadeShadowConfigBuilder {
-        first_cascade_far_bound: config::lighting::CASCADE_FIRST_FAR,
-        maximum_distance: config::lighting::CASCADE_MAX_DIST,
-        ..default()
-    }
-    .build();
+    // The chase camera's rest zoom; `shadow_reach::follow_orbit_zoom`
+    // re-cuts the cascades as the camera zooms (#1475).
+    let cascade_shadow_config = shadow_reach::cascades(shadow_reach::REST);
 
     commands.spawn((
         DirectionalLight {

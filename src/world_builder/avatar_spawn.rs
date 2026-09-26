@@ -138,6 +138,10 @@ pub fn spawn_avatar_visuals_subtree(
         avatar_mode: true,
         local_avatar_mode: is_local,
         attachment_rkey: attachment.map(str::to_string),
+        // An avatar is no scattered copy: nothing here is cut by distance
+        // (#1480), and this recorder never starts one.
+        copy: &mut Default::default(),
+        draw_cuts: Default::default(),
     };
 
     // The visuals root carries its own transform - which the spawner

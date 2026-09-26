@@ -148,6 +148,10 @@ pub(super) struct ActiveJob {
     /// generator each frame (#673); a replan recomputes it, and the record
     /// cannot change between plans without triggering one.
     pub(super) room_water_y: Option<f32>,
+    /// The scattered copy being spawned and each generator's size class,
+    /// measured on its first copy this job (#1480) - see
+    /// [`CopyRecorder`](super::super::draw_distance::CopyRecorder).
+    pub(super) copy: super::super::draw_distance::CopyRecorder,
     // --- telemetry (#351) ---
     pub(super) work: Duration,
     pub(super) frames: u32,
@@ -166,6 +170,7 @@ impl ActiveJob {
             skipped_units: 0,
             skipped_from: None,
             room_water_y,
+            copy: Default::default(),
             work: Duration::ZERO,
             frames: 0,
             units_built: 0,

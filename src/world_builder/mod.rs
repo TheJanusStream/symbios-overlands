@@ -79,12 +79,16 @@
 //! * [`grammar_diag`] - per-generator grammar compile status, so a parse or
 //!   derivation failure surfaces in the editor instead of a `warn!` nobody
 //!   reads.
+//! * [`draw_distance`] - the player's ground-cover draw distance (#1480):
+//!   small scattered copies sized once per generator and cut by distance
+//!   with a zero-margin `VisibilityRange`, kept on the setting and the fog.
 
 pub mod asset_failure;
 pub mod audio_resolver;
 pub mod avatar_spawn;
 pub(crate) mod blob_fetch;
 pub(crate) mod compile;
+pub(crate) mod draw_distance;
 mod gateway;
 mod generator_cache;
 pub mod grammar_diag;
@@ -220,6 +224,9 @@ pub(crate) fn register_headless_compile(app: &mut App) {
                 surface_bake::poll_surface_bakes,
             ),
         );
+    // A `--world` render culls ground cover as a default-settings visitor's
+    // game does (#1480): the tool's `LocalSettings` are the defaults.
+    draw_distance::register(app);
 }
 
 /// Marks an in-scene portal cube and carries the destination coordinates the
@@ -581,6 +588,9 @@ impl Plugin for WorldBuilderPlugin {
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );
+        // The player's ground-cover draw distance (#1480), kept on every
+        // scattered small copy the compile stamps.
+        draw_distance::register(app);
     }
 }
 

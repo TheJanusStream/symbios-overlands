@@ -30,6 +30,12 @@ stood still for five seconds: a 130 m drive was escorted live and ended
   `portal` or `gateway`): they lead to other worlds. The landing point sits
   right in front of the world's social gateway.
 - Step out of anything you are about to build on.
+- **A flying walk-to lands on whatever is at the point**, a landmark's top
+  included: asked for a spot 11 m from the Spore Spires' centre, the airship
+  came down on the spire cluster and its eye-level `look` saw only the tops
+  of the stalks (session 878). To look AT a landmark, pick open ground
+  beside it - `--terrain-report --at` says what is there - and check
+  `status.position`'s height after landing.
 - A restart puts the body back at the landing point: walk back before
   looking at what you built.
 
