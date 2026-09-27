@@ -179,10 +179,80 @@ pub(super) fn unstash(world: &mut World, name: &str) -> Result<Value, String> {
 }
 
 fn no_such(inventory: &InventoryRecord, name: &str) -> String {
-    format!(
-        "the inventory has nothing called {name:?} ({} items); `agent inventory` lists them",
-        inventory.generators.len()
-    )
+    // Items go by name, not by slug: `stash satchel` answers that it stashed
+    // "Traveler's Satchel", and `wear satchel` found nothing (#1484). A slug
+    // is named back as the items it was stashed as.
+    let stashed_as = by_slug(name).map(|entry| {
+        let mut names: Vec<&String> = inventory
+            .generators
+            .keys()
+            .filter(|item| stashed_from(item, entry.name()))
+            .collect();
+        names.sort();
+        names
+    });
+    match stashed_as {
+        Some(names) if !names.is_empty() => format!(
+            "the inventory has nothing called {name:?}: items go by name, and the catalogue's \
+             {name} was stashed as {} - `agent inventory` lists them",
+            names
+                .iter()
+                .take(4)
+                .map(|n| format!("{n:?}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        _ => format!(
+            "the inventory has nothing called {name:?} ({} items); `agent inventory` lists them",
+            inventory.generators.len()
+        ),
+    }
+}
+
+/// Whether `item` is a name a catalogue entry called `entry` is stashed
+/// under: the name itself, or the name and the `_N` a further copy takes.
+/// Not every name that starts the same - "Banner Pole" was named back as
+/// what the catalogue's "Banner" was stashed as (the session 879 review).
+fn stashed_from(item: &str, entry: &str) -> bool {
+    item == entry
+        || item
+            .strip_prefix(entry)
+            .and_then(|rest| rest.strip_prefix('_'))
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Why nothing called `name` is worn: a catalogue slug is named back as the
+/// worn items it was stashed as, as `no_such` does for the inventory
+/// (#1484: `take-off satchel` said only that nothing was called "satchel").
+fn not_worn(rig: &crate::pds::avatar::RiggedBody, name: &str) -> String {
+    let worn_as: Vec<String> = by_slug(name)
+        .map(|entry| {
+            let mut sources: Vec<String> = rig
+                .resolved
+                .iter()
+                .flat_map(|resolved| &resolved.attachments)
+                .filter_map(|worn| worn.record.source.clone())
+                .filter(|source| stashed_from(source, entry.name()))
+                .collect();
+            sources.sort();
+            sources.dedup();
+            sources
+        })
+        .unwrap_or_default();
+    if worn_as.is_empty() {
+        format!("the avatar is not wearing anything called {name:?}")
+    } else {
+        format!(
+            "the avatar is not wearing anything called {name:?}: worn items go by the name they \
+             were stashed as, and the catalogue's {name} is worn as {}",
+            worn_as
+                .iter()
+                .take(4)
+                .map(|n| format!("{n:?}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
 }
 
 /// Put the inventory item `name` on the avatar: a step of its undo history.
@@ -222,9 +292,7 @@ pub(super) fn take_off(world: &mut World, name: &str) -> Result<Value, String> {
     let rig = avatar.body.rigged_mut().ok_or("vehicles wear nothing")?;
     let detached = worn_rkeys_from(rig, name);
     if take_off_source(rig, name) == 0 {
-        return Err(format!(
-            "the avatar is not wearing anything called {name:?}"
-        ));
+        return Err(not_worn(rig, name));
     }
     super::write_avatar(world, avatar, format!("take off {name}"))?;
     // A gizmo aimed at what came off lets go of it, as when the Inventory
@@ -302,6 +370,24 @@ mod tests {
         assert!(inventory.is_wearable(name));
     }
 
+    /// #1484, met dressing Reeve live: `stash satchel` answered that it
+    /// stashed "Traveler's Satchel", and `wear satchel` then said only that
+    /// nothing was called "satchel". A slug is named back as what it was
+    /// stashed as.
+    #[test]
+    fn a_slug_is_named_back_as_what_it_was_stashed_as() {
+        let (mut app, _) = app_in(AGENT);
+        let (slug, name) = wearable();
+        stash(app.world_mut(), slug, None).expect("stashed");
+
+        let why = wear(app.world_mut(), slug).expect_err("refused");
+
+        assert!(why.contains(&format!("stashed as {name:?}")), "{why}");
+        assert!(!why.contains("  "), "{why}");
+        let plain = wear(app.world_mut(), "no such thing").expect_err("refused");
+        assert!(plain.contains("(1 items)"), "{plain}");
+    }
+
     /// A thing in the agent's own world is stashed by the name `placements`
     /// gives it; in someone else's world their things stay theirs.
     #[test]
@@ -374,6 +460,33 @@ mod tests {
         app.update();
         assert!(worn(&app), "the taking off undone");
         assert!(take_off(app.world_mut(), "nothing worn").is_err());
+
+        // #1484's take-off half (the session 879 review): with the item
+        // worn again by the undo, its slug names what it is worn as
+        let why = take_off(app.world_mut(), slug).expect_err("refused");
+        assert!(why.contains(&format!("worn as {name:?}")), "{why}");
+        assert!(!why.contains("  "), "{why}");
+    }
+
+    /// The session 879 review: stashed names were matched by what they
+    /// start with, so the catalogue's "Banner" was named back as stashed as
+    /// "Banner Pole". Only the name itself and its `_N` copies count.
+    #[test]
+    fn a_slug_is_not_named_back_as_another_entry_that_starts_the_same() {
+        let (mut app, _) = app_in(AGENT);
+        let pole = by_slug("banner_pole").expect("an entry").name();
+        let banner = by_slug("banner").expect("an entry").name();
+        assert!(
+            pole.starts_with(banner),
+            "the premise: {pole:?} starts with {banner:?}"
+        );
+        stash(app.world_mut(), "banner_pole", None).expect("stashed");
+
+        let why = unstash(app.world_mut(), "banner").expect_err("refused");
+
+        assert!(!why.contains("stashed as"), "{why}");
+        assert!(stashed_from(&format!("{banner}_2"), banner));
+        assert!(!stashed_from(&format!("{banner}_x"), banner));
     }
 
     /// A vehicle wears nothing, and says so rather than doing nothing.

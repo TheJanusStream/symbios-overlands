@@ -171,11 +171,13 @@ pub(super) fn handle_world_digest(
 }
 
 /// A peer saved their avatar: drop the resolution behind their unchanged
-/// reference list so it is fetched afresh (#1122).
+/// reference list so it is fetched afresh (#1122), in the live record and in
+/// the copy a reconnect installs (#1485).
 pub(super) fn handle_records_published(
     sender: PeerId,
     commands: &mut Commands,
     peers: &mut Query<PeerParts>,
+    avatar_cache: &mut PeerAvatarCache,
 ) {
     // The sender saved their rigged body (#1122). Same rkeys,
     // new bytes behind them - so drop the resolution we are
@@ -212,6 +214,12 @@ pub(super) fn handle_records_published(
             .is_some_and(|rig| rig.resolved.is_some());
         if carrying && let Some(record) = peer.avatar.as_mut() {
             forget_rig_resolution(record);
+        }
+        // The cache too (#1485), whatever the live record carries: its
+        // entry came from the preview before this notice, and the next
+        // reconnect installs it without a fetch.
+        if let Some(did) = peer.did.as_deref() {
+            avatar_cache.forget_resolution(did);
         }
         // `try_remove` (#1411): the peer whose record this is can be
         // despawned by `network::lifecycle` in the same frame its last

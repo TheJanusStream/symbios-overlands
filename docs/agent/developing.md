@@ -103,7 +103,36 @@ and saved seventeen world changes in the same hours.
   tokens and 50-145 minutes; the main session spent 5-12k on each brief
   and its own check. Brief the critic with the builder's report AND the
   original brief, tell it to break the two most important rules itself,
-  and let it write nothing but its verdict.
+  and let it write nothing but its verdict. Session 879's oak and apple
+  made it six in seven: the critic found oak limbs leaving the trunk as
+  sawn-off stubs, a khaki crown in the world's own light, smooth bark and
+  apples drawn as split discs, all in pictures the builder had judged; the
+  fixer then found the Twig texture caps leaves at 8 (the oak's 11 were
+  always drawn as 8). 1.38M sub-agent tokens, 2 h 38 min.
+- **Check every tool the brief names is safe where the sub-agent sits.**
+  The tree brief pointed the builder at `views.py @landingcam`, which then
+  looked the admin up through the live daemon for any `@` spec, so a
+  sub-agent told never to run the agent binary ran it once (it refused:
+  two sessions saved, no `--account`). Fixed in views.py; before briefing,
+  run each named tool once the way the sub-agent will, or name only
+  offline ones.
+- **Review what shipped before closing it.** Session 879 ended with a
+  review workflow over its seven code changes: one reviewer per group of
+  changes, then an independent verifier per finding told to refute it.
+  28 findings, 24 confirmed, in 19 minutes and 1.45M sub-agent tokens. Every
+  group had at least one real fault that its own tests and mutants had
+  passed, and the worst were the fix missing its own case one step over:
+  `ignored_at` (#1483) named a misspelt key but not one inside an object
+  that reads back as its default, the very silence it was for; #1484 fixed
+  `wear satchel` and left `take-off satchel` answering as before; `render
+  --rigged` called the fetched sculpt's own `$type` a misspelt key on every
+  avatar from the PDS. A fix's test pins the case that exposed it - ask of
+  each fix which sibling (the other verb, the default-valued parent, the
+  record as fetched rather than as written) it has not seen.
+- **When a finding is a pattern, grep for its siblings.** The tools
+  fixer->verifier pass (301k tokens, 17 min) fixed hedge.py's part count,
+  which left out its root, and the verifier found fence.py printing the same
+  undercount and region.md repeating it as a fact.
 - **Small fixes need no sub-agent.** With the one slot taken by a long
   visual job, two small fixes (#1476, #1472: a directory rule and a
   per-frame handle cache, each with a failing test and a mutant) took the
@@ -135,8 +164,13 @@ JSON (`serde_json::from_value`) - the same form `room set` takes.
 - `pgrep -f PATTERN` and `pkill -f PATTERN` inside a compound shell line
   match that shell's own command line, which contains the pattern: a
   `while pgrep -f X` wait never ended, and a `pkill -f` killed the command
-  running it (session 878, twice). Anchor the pattern (`^/full/path/...`)
-  or wait on a file the job writes instead.
+  running it (session 878, twice; 879 stopped its own gate script that
+  way). Anchor the pattern (`^/full/path/...`), wait on a file the job
+  writes instead, or `pgrep -fa` first and `kill` the PIDs.
+- With no em-dashes, an aside is set off by ` - `, and a wrapped line that
+  starts with `- ` in a `///` or `//!` comment is a Markdown list item:
+  clippy's `doc_lazy_continuation` fails the gate on the line after it.
+  Rewrap so the dash is not first on a line.
 - The first write of a never-saved world re-quantises every generator onto
   the wire's grid, so "what changed" must compare against the old record
   settled the same way.

@@ -4,13 +4,19 @@
   rec.py pull room|avatar OUT.json         `get ""`'s value, the saved source to build on
   rec.py compose SRC.json EDITS OUT.json   fold the edits into a copy, for offline renders
   rec.py apply room|avatar EDITS           send each edit live with `set --file`, one summary
-                                           line per answer (adjusted_at, z_fighting, record_size)
-  rec.py save room|avatar OUT.json [--log LOG "NOTE"]
+                                           line per answer (adjusted_at, ignored_at, z_fighting,
+                                           record_size) and a WARNING line naming each key the
+                                           record does not have (ignored_at, #1483: dropped)
+  rec.py save room|avatar OUT.json [--log LOG "NOTE"] [--hold POINTER]
                                            save, wait for it to land, pull the saved record to
                                            OUT.json (the new source to build on) and, with --log,
                                            append "- HH:MM (seq N) NOTE" to LOG - the time is the
                                            save event's own, never a guess (session 878 logged
-                                           guessed times three hours off)
+                                           guessed times three hours off). --hold keeps a live
+                                           trial (a mood change the admin has not judged) out of
+                                           the save: the part at POINTER is set back to its value
+                                           in OUT.json (the last save you pulled), the rest saved,
+                                           then the trial set again, live and unsaved
 
 EDITS holds one `POINTER FILE` per line (the file holds the value as JSON,
 relative to the EDITS file's folder); `#` starts a comment. A pointer ending
@@ -81,6 +87,17 @@ def set_ptr(doc, ptr, value):
     return doc
 
 
+def set_file(record, ptr, value, what):
+    """One `set --file`: a value as large as an audio recipe is past what an argument may hold."""
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+        json.dump(value, fh)
+    try:
+        return agentlib.result(agentlib.agent(record, "set", ptr, "--file", fh.name), what)
+    finally:
+        os.unlink(fh.name)
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "pull":
@@ -103,8 +120,15 @@ def main():
             size = r.get("record_size") or {}
             landed = r.get("pointer") or ptr
             at = f" -> {landed}" if landed != ptr else ""
-            print(f"ok {ptr}{at}: adjusted_at={r.get('adjusted_at') or []} z_fighting={len(zf)} "
-                  f"largest={size.get('largest')} {size.get('bytes')}/{size.get('budget_bytes')}")
+            ignored = r.get("ignored_at") or []
+            print(f"ok {ptr}{at}: adjusted_at={r.get('adjusted_at') or []} ignored_at={ignored} "
+                  f"z_fighting={len(zf)} largest={size.get('largest')} "
+                  f"{size.get('bytes')}/{size.get('budget_bytes')}")
+            if ignored:
+                # a key the record has no field for was dropped without a word (#1483): a guessed
+                # texture field name left the default in place
+                print(f"   WARNING: {len(ignored)} key(s) the record does not have, dropped: "
+                      f"{', '.join(ignored)}")
             for pair in zf[:8]:
                 print("   zf", json.dumps(pair))
             if ptr.endswith("/-"):
@@ -124,16 +148,41 @@ def main():
                 sys.exit("--log takes a LOG file and a NOTE")
             log, note = args[i + 1], args[i + 2]
             del args[i:i + 3]
+        hold = None
+        if "--hold" in args:
+            i = args.index("--hold")
+            if len(args) < i + 2:
+                sys.exit("--hold takes a POINTER")
+            hold = args[i + 1]
+            del args[i:i + 2]
         if len(args) != 2:
             sys.exit(__doc__)
         record, out = args
+        trial = None
+        if hold is not None:
+            trial = agentlib.result(agentlib.agent(record, "get", hold), f"{record} get {hold}")["value"]
+            saved = json.load(open(out))
+            for tok in [t.replace("~1", "/").replace("~0", "~") for t in hold.split("/")[1:]]:
+                saved = saved[int(tok)] if isinstance(saved, list) else saved[tok]
+            if saved == trial:
+                print(f"--hold {hold}: the live value is the saved one; nothing held")
+                trial = None
+            else:
+                set_file(record, hold, saved, f"set {hold} back")
         answer = agentlib.agent("save", record, "--wait")
+        if trial is not None:
+            # the trial goes back live whatever the save did: it is the admin's to judge
+            set_file(record, hold, trial, f"set {hold} again")
+            print(f"held {hold} out of the save; the trial is live again, unsaved")
         if not answer.get("ok"):
             # A failed save answers ok: false with the save_failed event as its result.
             sys.exit(f"save {record} FAILED: {answer.get('error')} - nothing pulled, nothing logged")
         event = answer["result"]
         when = datetime.datetime.fromtimestamp(event["at"]).strftime("%H:%M")
         value = agentlib.result(agentlib.agent(record, "get", ""), f"{record} get")["value"]
+        if trial is not None:
+            # the live record holds the trial again; OUT is the SAVED record, so it takes the value saved
+            value = set_ptr(value, hold, saved)
         json.dump(value, open(out, "w"), indent=1)
         print(f"saved {record} at {when} (seq {event.get('seq')}); pulled -> {out} "
               f"({os.path.getsize(out)} bytes)")

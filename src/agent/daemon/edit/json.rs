@@ -68,6 +68,10 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
     let before = super::settle_room(record)?;
     let edited: RoomRecord = serde_json::from_value(document.clone())
         .map_err(|e| unreadable::<RoomRecord>("a world record", &e, &document, ""))?;
+    let ignored_at = ignored_keys(&document, at, |document| {
+        let read: RoomRecord = serde_json::from_value(document.clone()).ok()?;
+        serde_json::to_value(&read).ok()
+    });
     let sent = serde_json::to_value(&edited)
         .ok()
         .and_then(|document| document.pointer(at).cloned());
@@ -100,6 +104,9 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
     }
     if !adjusted_at.is_empty() {
         answer["adjusted_at"] = json!(adjusted_at);
+    }
+    if !ignored_at.is_empty() {
+        answer["ignored_at"] = json!(ignored_at);
     }
     if found > named {
         answer["z_fighting_total"] = json!(found);
@@ -293,6 +300,162 @@ fn differences(sent: &Value, kept: &Value, at: &str, out: &mut Vec<String>) {
             }
         }
         _ if sent != kept => out.push(at.to_owned()),
+        _ => {}
+    }
+}
+
+/// Each key a set sent that the record does not have (#1483), by pointer. A
+/// key serde does not know is read in as nothing, so a misspelled field - a
+/// `Moss` texture's `color_base` for its `color_deep` - vanished without a
+/// word: the answer said `adjusted: false` and the yew kept the default
+/// green. A key the record writes back without is either that or a default
+/// it leaves out (#1438), and the two are told apart by trying: the key is
+/// given another value and the document read again. A field the record has
+/// changes what it writes (or refuses to read); a key it does not have
+/// changes nothing. One trial per kind of key: list indices are folded and
+/// the `$type` of every tagged object on the way is kept (a scatter's
+/// `random_yaw` left out at its default is a field; an absolute placement's
+/// is not), so a hundred placements each sending a default cost one.
+/// Inside an object the record left out whole - a transform or material at
+/// its default - each key is tried as well: the object itself is a field,
+/// a misspelled key in it was dropped with it (the session 879 review).
+///
+/// `document` is the whole record as sent, the value set at `at`;
+/// `read_back` reads a document as the record and writes it out again, or
+/// says it does not read.
+pub(super) fn ignored_keys(
+    document: &Value,
+    at: &str,
+    read_back: impl Fn(&Value) -> Option<Value>,
+) -> Vec<String> {
+    let (Some(sent), Some(written)) = (document.pointer(at), read_back(document)) else {
+        return Vec::new();
+    };
+    let mut vanished = Vec::new();
+    match written.pointer(at) {
+        // the key set is itself gone: a field set on its own (`/body/composites/x`)
+        None if !at.is_empty() => {
+            vanished.push(at.to_owned());
+            inner_keys(sent, at, &mut vanished);
+        }
+        kept => missing_keys(sent, kept, at, &mut vanished),
+    }
+    let mut tried: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    let mut ignored: Vec<String> = Vec::new();
+    for path in vanished {
+        // a key under one already named went with it: name the outermost only
+        if ignored.iter().any(|outer| {
+            path.strip_prefix(outer.as_str())
+                .is_some_and(|r| r.starts_with('/'))
+        }) {
+            continue;
+        }
+        let pattern = fold(document, &path);
+        // a trial reads the whole record again: at most MAX_TRIALS kinds of key are tried
+        if ignored.len() >= MAX_ADJUSTMENTS
+            || (tried.len() >= MAX_TRIALS && !tried.contains_key(&pattern))
+        {
+            break;
+        }
+        let unknown = *tried.entry(pattern).or_insert_with(|| {
+            // The key is given a value no field of the record takes (the
+            // render tool's `--rigged` probe, #1482): a field of the record
+            // then refuses to read or writes something else; a key the
+            // record does not have changes nothing.
+            let mut probe = document.clone();
+            let Some(slot) = probe.pointer_mut(&path) else {
+                return false;
+            };
+            *slot = Value::String("\u{1}not a value any field takes".to_owned());
+            read_back(&probe).is_some_and(|again| again == written)
+        });
+        if unknown {
+            ignored.push(path);
+        }
+    }
+    ignored
+}
+
+/// At most this many kinds of dropped key are tried in one answer.
+const MAX_TRIALS: usize = 24;
+
+/// The kind of key at `path`: its list indices folded to `#`, and the
+/// `$type` of every tagged object on the way to it kept - the same key on
+/// two variants of a union (a scatter's and an absolute placement's
+/// `random_yaw`, a `Needle` and a `Moss` texture's `color_base`) is two
+/// kinds, since one variant may have the field and the other not.
+fn fold(document: &Value, path: &str) -> String {
+    let mut kind = String::new();
+    let mut here = Some(document);
+    for (i, segment) in path.split('/').enumerate() {
+        if i > 0 {
+            kind.push('/');
+            let raw = segment.replace("~1", "/").replace("~0", "~");
+            here = here.and_then(|value| match value {
+                Value::Object(map) => map.get(&raw),
+                Value::Array(list) => raw.parse::<usize>().ok().and_then(|n| list.get(n)),
+                _ => None,
+            });
+            if !segment.is_empty() && segment.bytes().all(|b| b.is_ascii_digit()) {
+                kind.push('#');
+            } else {
+                kind.push_str(segment);
+            }
+        }
+        if let Some(tag) = here
+            .and_then(|value| value.get("$type"))
+            .and_then(Value::as_str)
+        {
+            kind.push('<');
+            kind.push_str(tag);
+            kind.push('>');
+        }
+    }
+    kind
+}
+
+/// Each key of `sent` with nothing at the same place in `kept`, by pointer
+/// under `at`: lists are walked item by item when both have the same length.
+fn missing_keys(sent: &Value, kept: Option<&Value>, at: &str, out: &mut Vec<String>) {
+    match (sent, kept) {
+        (Value::Object(sent), Some(Value::Object(kept))) => {
+            for (key, value) in sent {
+                let path = format!("{at}/{}", key.replace('~', "~0").replace('/', "~1"));
+                match kept.get(key) {
+                    Some(kept) => missing_keys(value, Some(kept), &path, out),
+                    None => {
+                        out.push(path.clone());
+                        inner_keys(value, &path, out);
+                    }
+                }
+            }
+        }
+        (Value::Array(sent), Some(Value::Array(kept))) if sent.len() == kept.len() => {
+            for (i, (a, b)) in sent.iter().zip(kept).enumerate() {
+                missing_keys(a, Some(b), &format!("{at}/{i}"), out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Every key inside `value`, by pointer under `at`: an object the record
+/// left out whole (a transform or material at its default) took any
+/// misspelled key in it along.
+fn inner_keys(value: &Value, at: &str, out: &mut Vec<String>) {
+    match value {
+        Value::Object(map) => {
+            for (key, inner) in map {
+                let path = format!("{at}/{}", key.replace('~', "~0").replace('/', "~1"));
+                out.push(path.clone());
+                inner_keys(inner, &path, out);
+            }
+        }
+        Value::Array(list) => {
+            for (i, item) in list.iter().enumerate() {
+                inner_keys(item, &format!("{at}/{i}"), out);
+            }
+        }
         _ => {}
     }
 }
@@ -770,6 +933,170 @@ mod world_tests {
         assert_eq!(set["adjusted"], true, "{set}");
         assert_eq!(set["adjusted_at"], json!(["/generators/ball/resolution"]));
         assert_eq!(set["kept"]["resolution"], 6);
+    }
+
+    /// #1483, met building a yew live: a `Moss` texture's colours are
+    /// `color_deep`, `color_tip` and `color_dry`; a guessed `color_base` was
+    /// read in as nothing, the answer said nothing, and the yew kept the
+    /// default green. The answer names the key where it was sent.
+    #[test]
+    fn a_key_the_record_does_not_have_is_named() {
+        let (mut app, _) = app_in(AGENT);
+        let yew = json!({
+            "$type": "network.symbios.gen.cuboid",
+            "size": [10_000, 10_000, 10_000],
+            "solid": false,
+            "material": {
+                "base_color": [10_000, 10_000, 10_000],
+                "texture": { "$type": "Moss", "color_base": [1_000, 2_000, 1_000], "seed": 3 },
+            },
+        });
+
+        let set = room_set(app.world_mut(), "/generators/yew", yew).expect("set");
+
+        assert_eq!(
+            set["ignored_at"],
+            json!(["/generators/yew/material/texture/color_base"]),
+            "{set}"
+        );
+        assert_eq!(set["adjusted"], false, "{set}");
+    }
+
+    /// A default the record leaves out is not a key it does not have
+    /// (#1483 beside #1438): a material's default roughness names nothing,
+    /// beside sixteen blob elements (whose fields are all written).
+    #[test]
+    fn a_default_left_out_is_not_a_key_the_record_does_not_have() {
+        let (mut app, _) = app_in(AGENT);
+        let elements: Vec<Value> = (0..16)
+            .map(|i| {
+                json!({
+                    "shape": { "$type": "network.symbios.blob.ellipsoid" },
+                    "position": [i * 1_000, 0, 0],
+                    "rotation": [0, 0, 0, 10_000],
+                    "radii": [2_000, 2_000, 2_000],
+                    "subtract": false,
+                    "blend": 500,
+                })
+            })
+            .collect();
+        let moss = json!({
+            "$type": "network.symbios.gen.blob_group",
+            "resolution": 12,
+            "solid": false,
+            "material": { "base_color": [5_000, 5_000, 5_000], "roughness": 5_000 },
+            "elements": elements,
+        });
+
+        let set = room_set(app.world_mut(), "/generators/moss", moss.clone()).expect("set");
+
+        assert!(set.get("ignored_at").is_none(), "{set}");
+
+        // ...and a misspelled key in one element of the list is named there
+        let mut typo = moss;
+        typo["elements"][3]["blendd"] = json!(900);
+        let set = room_set(app.world_mut(), "/generators/moss", typo).expect("set");
+        assert_eq!(
+            set["ignored_at"],
+            json!(["/generators/moss/elements/3/blendd"]),
+            "{set}"
+        );
+    }
+
+    /// The session 879 review: an object the record leaves out whole (a
+    /// transform at identity, a material at its defaults) took a misspelled
+    /// key in it along unnamed - the object itself is a field, so trying it
+    /// said so, and nothing looked inside. Each key inside is tried too, and
+    /// only the outermost key the record does not have is named.
+    #[test]
+    fn a_misspelled_key_inside_a_default_left_out_is_named() {
+        let (mut app, _) = app_in(AGENT);
+        let plain = json!({
+            "$type": "network.symbios.gen.cuboid",
+            "size": [10_000, 10_000, 10_000],
+            "solid": false,
+        });
+        room_set(app.world_mut(), "/generators/box", plain.clone()).expect("set");
+
+        // the transform set on its own: `position` for `translation`
+        let set = room_set(
+            app.world_mut(),
+            "/generators/box/transform",
+            json!({ "position": [0, 20_000, 0] }),
+        )
+        .expect("set");
+        assert_eq!(
+            set["ignored_at"],
+            json!(["/generators/box/transform/position"]),
+            "{set}"
+        );
+
+        // a whole node: an identity transform and a default material, each with a slip
+        let mut node = plain.clone();
+        node["transform"] = json!({ "translation": [0, 0, 0], "positon": [0, 5_000, 0] });
+        node["material"] = json!({ "base_colour": [2_000, 3_000, 4_000] });
+        let set = room_set(app.world_mut(), "/generators/box", node).expect("set");
+        assert_eq!(
+            set["ignored_at"],
+            json!([
+                "/generators/box/material/base_colour",
+                "/generators/box/transform/positon"
+            ]),
+            "{set}"
+        );
+
+        // non-vacuity: the same objects spelled right name nothing
+        let mut right = plain;
+        right["transform"] = json!({ "translation": [0, 0, 0] });
+        right["material"] = json!({ "base_color": [10_000, 10_000, 10_000] });
+        let set = room_set(app.world_mut(), "/generators/box", right).expect("set");
+        assert!(set.get("ignored_at").is_none(), "{set}");
+    }
+
+    /// The session 879 review: the same key on two variants of a union was
+    /// one kind, tried once - a scatter leaves `random_yaw` out at its
+    /// default (a field), an absolute placement does not have one - so the
+    /// first placement's verdict stood for both. In either order, only the
+    /// absolute placement's key is named.
+    #[test]
+    fn a_key_one_variant_has_and_another_does_not_is_tried_per_variant() {
+        let (mut app, _) = app_in(AGENT);
+        let (mut absolute, _) = placement_of(&app, "network.symbios.place.absolute");
+        let (mut scatter, _) = placement_of(&app, "network.symbios.place.scatter");
+        absolute["random_yaw"] = json!(true);
+        scatter["random_yaw"] = json!(true);
+
+        let set =
+            room_set(app.world_mut(), "/placements", json!([absolute, scatter])).expect("set");
+        assert_eq!(
+            set["ignored_at"],
+            json!(["/placements/0/random_yaw"]),
+            "{set}"
+        );
+
+        let set =
+            room_set(app.world_mut(), "/placements", json!([scatter, absolute])).expect("set");
+        assert_eq!(
+            set["ignored_at"],
+            json!(["/placements/1/random_yaw"]),
+            "{set}"
+        );
+    }
+
+    /// A misspelled field of a placement is named where it landed.
+    #[test]
+    fn a_misspelled_placement_field_is_named() {
+        let (mut app, _) = app_in(AGENT);
+        let (mut placement, count) = placement_of(&app, "network.symbios.place.absolute");
+        placement["snap_to_terain"] = json!(false);
+
+        let set = room_set(app.world_mut(), "/placements/-", placement).expect("set");
+
+        assert_eq!(
+            set["ignored_at"],
+            json!([format!("/placements/{count}/snap_to_terain")]),
+            "{set}"
+        );
     }
 
     /// The seeded world's first placement of the `$type` `kind`, as its

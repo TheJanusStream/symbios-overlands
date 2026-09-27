@@ -134,6 +134,105 @@ building's frame through it.
   nodes: the `Lichen` texture made lichen-crusted granite where 200 disc
   patches read as polka dots ([region.md](region.md), "Backdrop").
 
+## A building in few parts
+
+Session 879 built a village of about 1300 (eight houses, a church, a manor
+court, a post mill) in about 13 parts a house, because a browser pays per
+part ([region.md](region.md), "Planting: scatters"). What did it:
+
+- **A whole roof is one cuboid.** A `torture` `taper` of `[0.99, 0]` pulls
+  the top of a cuboid to a ridge along its local Z: a gable roof. A second
+  taper, `[0.99, hip]` with `hip = 1 - ridge length / roof length`, shortens
+  the ridge: a hipped roof, the thatched cottage's shape. The sanitiser keeps
+  a taper at most 0.99 (a 1 % ridge, invisible) - write 0.99, or every set
+  answers `adjusted_at`. A gable wall under a gable roof is the same shape in
+  the wall's material, 2 cm inside the roof.
+- **A thatch reads thick at the eave** with a band under the roof: a flat
+  cuboid 0.3 m deep, 1 cm inside the roof's bottom edge, in the same thatch
+  (the tapered sides alone come to a knife edge).
+- **A texture can draw the structure.** Timber framing: a `Brick` texture in
+  stack bond (`row_offset` 0), a wide `mortar_size` (0.13) in dark oak and
+  daub-coloured bricks - posts, rails and panels on ONE wall part. Its
+  `aspect_ratio` runs the other way from its name: a tile draws `scale` rows
+  and `round(scale x aspect_ratio)` columns (at least one), and a tile is
+  square in metres, so unturned (`uv_rotation` 0) under 1 is FEWER columns
+  than rows - panels wider than tall (`scale` 4, `aspect_ratio` 0.5: 4 rows,
+  2 columns, each panel twice as wide as it is tall) - and over 1 gives the
+  tall panels of close studding (2.0: 4 rows, 8 columns). Flint rubble:
+  `Cobblestone` with dark `color_stone`, pale `color_mud` (the lime mortar)
+  and a wide `gap_width` (0.22), about 10 cm stones (`scale` 8 at
+  `uv_scale` 1.3).
+  Furrows, woven wattle: a `Thatch` texture's parallel straws in soil or
+  hazel colours, `layer_count` 2 (its minimum) with `layer_shadow` 0 to lose
+  the courses. On a spine the straws run ACROSS its length; `uv_rotation` 90
+  turns them along it. On a roof, `uv_rotation` 90 runs the straws down the
+  slope (unturned they read as planks) - and turns the texture's shadowed
+  courses down the slope with them: at `density` 18, `layer_count` 10,
+  `layer_shadow` 0.7 every Ashmere roof read as corrugated metal from the
+  street. Four variants tried on the real houses (session 879): `density`
+  9, `anisotropy` 12, `warp_strength` 0.35, `layer_count` 4, `layer_shadow`
+  0.15, `normal_strength` 4.5 at `uv_scale` 0.9 reads as straw; courses
+  left across the slope (`uv_rotation` 0) read as wooden shingles.
+- **Borrow a texture's field names from upstream**, not from memory: the
+  `Moss` colours are `color_deep`, `color_tip`, `color_dry` - a guessed
+  `color_base` was dropped without a word and the yew kept the default green;
+  since #1483 `room set` and `avatar set` answer `ignored_at` with each such
+  key's pointer. The mirrors are generated from
+  `symbios-texture` (`~/.cargo/registry/src/*/symbios-texture-*/src/<name>.rs`).
+- **A small free-standing thing shows its root.** The 5 cm solid root
+  `wire.solid_root` makes is hidden inside a building's walls, but under an
+  animal it drew as a coloured dot at its feet. A thing with no solid part
+  needs no solid root: give it a 1 cm one in the ground's colour.
+- **A wall that is not `solid` is walked through.** Every part is drawn
+  whether or not it is solid; only a solid one collides. Ashmere's first
+  builds were all `solid: false`, and a visitor walked straight through the
+  houses, the church and the barn. Make the walls, plinths and towers solid
+  (roofs, hedges and small props can stay drawn only), keep the generator's
+  root solid ([region.md](region.md), "a gateway must be proven"), and prove
+  it by walking at a wall: `walk-to` through it ends `stuck` a body's radius
+  short of its face. A solid fence (`tools/fence.py --solid`) keeps people to
+  a street and its gates.
+- **Animals are built by their joints.** A body of ellipsoids on four
+  straight capsules read as a sheep from far off, and the admin's verdict
+  was "the animals should be improved significantly". What made them read
+  up close (session 879): each leg a chain of truncated `cone` elements
+  from joint to joint (shoulder, elbow, knee, fetlock, hoof; hip, stifle,
+  hock), each cone narrower at its lower end, so the knee and the hock are
+  where two cones meet at an angle - the cow's hind leg zig-zags as a real
+  one does; hooves a dark cone of their own; a head built in its own frame
+  (poll to muzzle) so one head can hang grazing, alert or lying; horns,
+  ears and a tail as small chains; bony hips and pins on a straight back
+  line for cattle. Poses are separate generators (graze, head up, lie:
+  belly spread on the ground, legs folded, one hind leg out), several
+  scatters over one pasture. A scatter's copies do not avoid another
+  scatter's, and a small circle bunches them body into body: set a few
+  resting ones by hand, outside the grazing circle.
+- **A BlobGroup keeps 16 elements; the rest are dropped.** A whole cow in
+  one group was 34 elements: the world kept the body and drew no legs, no
+  head, and said so only as `adjusted_at` naming `/generators/cow/elements`
+  (a whole list named there means it was cut). Group by place and colour,
+  16 or fewer each: body; legs and tail (three cones a leg - a small box, so
+  fine cells: in a whole cow's 4 cm cells a 9 cm cannon came out a post);
+  head and neck; the dark (hooves, nose, eyes); horn - 5 parts, 7-8k
+  triangles a cow. A Norfolk Horn sheep is fleece, black (head and two cones
+  a leg) and horn: 3 parts, 3,700 triangles. Make the builder refuse a
+  group past 16 (an `assert`), and read each group's triangles on its own:
+  a horn group's small box at 36 cells was 2,300 triangles, at 18 it is 400
+  and reads the same. `render --generator` now draws the file as a record
+  keeps it and names the cut (#1486); before, its sheets showed the whole
+  cow.
+- **Folk at their work, built the same way**, read as people from 15 m and
+  give a place its life: a shepherd leaning on his crook at the flock's edge,
+  a woman with a bucket at the well, the ploughman at the handles and a boy
+  with a goad by the lead oxen, the smith at the anvil, a steward at a table.
+  Four groups a figure: clothes (a cone skirt from waist to hem - knee for a
+  cote, ankle for a kirtle - a chest, shoulders, sleeves as two cones an
+  arm), skin (face, neck, hands), legs and shoes, a hood with its cape or a
+  headcloth; what they hold is a fifth (a thin staff as a plain `cylinder`:
+  a 4 cm blob cone broke up on a 1.7 m group's cells). Stand each where its
+  work is and turned to it, and the scene explains itself; about 8k
+  triangles and 5 parts a figure.
+
 ## Sizes, footprints, clearances
 
 - `catalogue` gives no sizes, but the render tool does. A search's hits in
@@ -178,6 +277,11 @@ Two faces in one plane, facing one way, flicker as anyone moves. A still
   inside a third primitive, and patches below the generator's origin. After
   writing a generator, an empty list is the all-clear; fix every entry
   before calling a build done.
+- **Ends flush in one plane z-fight too**, however small: a gate's bars ending
+  exactly at its stile's outer face (5 x 54 cm2), a sail's cloth ending where
+  its whip and hemlath end, a bench's legs as deep as its top, an ox-house's
+  side walls ending flush with its back wall. End one part 2-4 cm inside the
+  other; `z_fighting` names each pair.
 - Joints that avoid it: panels beside a door stop at the door's height and
   the header sits ON them; wall tops run 3 cm INTO an 8 cm roof; a wall's end
   stops 2 cm inside the wall it butts against, never flush with its outer

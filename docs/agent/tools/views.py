@@ -4,7 +4,9 @@
 Offline pictures of a world record from where a person would stand: one render
 per view, the camera AT world (X, Y, Z) looking toward compass LOOK in degrees
 (0 north = -Z, 90 east = +X, 180 south, 270 west), tiled two wide, each
-labelled. Y is a WORLD height - or `~` for the ground there plus 1.7 m (eye
+labelled. LOOK may instead be a point `TX,TZ` to look at: the bearing is worked out for
+you (session 879 pointed five views the wrong way working it by hand - +Z is SOUTH). Y is a
+WORLD height - or `~` for the ground there plus 1.7 m (eye
 height), `~2.5` for the ground plus 2.5 m, read in one terrain report. LABEL has no
 spaces. A spec "@admin [DOWN]" sees from where the admin stands, the way they
 face; "@admincam [DOWN]" from the game's camera behind them - read from the
@@ -35,7 +37,7 @@ def main():
         sys.exit(__doc__)
     did, record, out, specs = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
     parsed = [spec.split() for spec in specs]
-    if any(f[0].startswith("@") for f in parsed):
+    if any(f[0] in ("@admin", "@admincam") for f in parsed):   # not @landing: it needs no admin
         # "@admin [DOWN]": where the admin stands, eyes 1.6 m up, looking the way they face;
         # "@admincam [DOWN]": the game's own camera behind them (11 m back, 4.7 m up)
         status = agentlib.result(agentlib.agent("status"), "status")
@@ -77,6 +79,11 @@ def main():
         points = json.loads(rep[rep.find("{"):])["points"]
         for f, p in zip(on_ground, points):
             f[2] = f"{p['ground_m'] + float(f[2][1:] or 1.7):.2f}"
+    for f in parsed:
+        if "," in f[4]:
+            # "TX,TZ": look at that point - compass 0 is -Z, 90 is +X
+            tx, tz = (float(v) for v in f[4].split(","))
+            f[4] = f"{math.degrees(math.atan2(tx - float(f[1]), -(tz - float(f[3])))) % 360:.1f}"
     tiles = []
     with tempfile.TemporaryDirectory() as tmp:
         for i, fields in enumerate(parsed):

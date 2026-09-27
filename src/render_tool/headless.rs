@@ -31,13 +31,16 @@ use bevy::camera::RenderTarget;
 use bevy::camera::primitives::Aabb;
 use bevy::camera::visibility::VisibleEntities;
 use bevy::ecs::message::MessageWriter;
+use bevy::mesh::skinning::SkinnedMesh;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bevy::render::gpu_readback::{Readback, ReadbackComplete};
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 use bevy::time::Virtual;
 
-use bevy_symbios_avatar::{AvatarBody as BuiltBody, AvatarJoints, AvatarPose, spawn_avatar};
+use bevy_symbios_avatar::{
+    AvatarBody as BuiltBody, AvatarJoints, AvatarPose, HairTier, spawn_avatar,
+};
 use symbios_avatar::{Ground, Pose, Speed, Walk};
 
 use crate::camera::IsWorldCamera;
@@ -51,6 +54,7 @@ use crate::terrain::FinishedHeightMap;
 use crate::world_builder::particles::{Particle, ParticleEmitterMarker};
 
 use super::rig::{CameraRig, Focus, delay_cs, half_fov_x, play_elev_deg, progress, px_per_metre};
+use super::rigged::{FileBody, HeadFrame, RiggedFraming, spawn_standing};
 use super::world::{
     ShutterGate, Walker, WorldReadiness, WorldSpec, resolve_focus, spawn_world_camera,
 };
@@ -87,7 +91,21 @@ pub(super) enum Subject {
         /// game would.
         fit: Option<crate::catalogue::WearFit>,
     },
+    /// `--rigged` (#1482): a rigged body read from a file, built and dressed
+    /// as the game builds and dresses it, and stood in the studio. Four
+    /// full-body views over three head close-ups. The body itself is built
+    /// before the app stands up and waits in a [`FileBody`]; `framing` is
+    /// where the cameras look, filled in by that build.
+    Rigged {
+        avatar: Box<super::rigged::RiggedAvatar>,
+        framing: Option<RiggedFraming>,
+    },
 }
+
+/// Tiles in a `--rigged` sheet: a row of the four [`ANGLES`] on the whole
+/// body, then the first three of them - front, three-quarter, side - on the
+/// head.
+pub(super) const RIGGED_TILES: usize = ANGLES.len() + 3;
 
 /// The pose set every `--wear` body is sheeted in: the rest stance, and two
 /// opposite extremes of a walk cycle - where a hip or hand item meets the
@@ -135,6 +153,11 @@ impl WearPose {
 #[derive(Component)]
 pub(super) struct PendingWear(pub(super) Vec<ResolvedAttachment>);
 
+/// A worn prop's own entity, the socket it hangs at: what a `--rigged`
+/// sheet's head close-ups look for to hold what the head wears (#1482).
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct WornAt(pub(super) symbios_avatar::Socket);
+
 /// World-space X distance between `Lineup` slots. Far enough apart that no
 /// subject can bleed into a neighbouring slot's tiles, and the slot of a mesh
 /// resolves from its world position alone (`round(x / SLOT_SPACING)`).
@@ -176,13 +199,85 @@ pub(super) struct SubjectParts<'w, 's> {
     emitters: Query<'w, 's, &'static GlobalTransform, With<ParticleEmitterMarker>>,
     meshes: SubjectMeshQuery<'w, 's>,
     assets: Res<'w, Assets<Mesh>>,
+    /// A rigged body's two hair tiers (#1482): only one of them is drawn at
+    /// a time, so the far one is left out of what the body costs up close.
+    hair: Query<'w, 's, (&'static Mesh3d, &'static HairTier), With<Aabb>>,
+    /// Bodies whose worn items are not on yet: a rigged sheet's box waits
+    /// for them.
+    undressed: Query<'w, 's, (), With<PendingWear>>,
+    /// The subject's meshes that are not skinned - a rigged body's worn
+    /// items - whose boxes follow the pose, unlike a skinned mesh's.
+    unskinned: UnskinnedQuery<'w, 's>,
+    /// Worn props by the socket each hangs at, and the hierarchy under
+    /// them: which of the worn items' boxes the head wears.
+    worn: Query<'w, 's, (Entity, &'static WornAt)>,
+    children: Query<'w, 's, &'static Children>,
 }
+
+/// [`SubjectQuery`] without the skinned meshes: a rigged body's worn items,
+/// whose boxes follow the pose (#1482). Bevy bounds a skinned mesh by its
+/// bind pose, so a rigged body's own box is computed from the engine's posed
+/// meshes instead.
+type UnskinnedQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static GlobalTransform, &'static Aabb),
+    (
+        Without<SkinnedMesh>,
+        Without<TileCam>,
+        Without<Particle>,
+        Without<GroundPlane>,
+    ),
+>;
 
 impl SubjectParts<'_, '_> {
     /// The triangles every subject mesh draws, one mesh an entity, and the
     /// parts those entities are.
     fn tally(&self) -> super::triangles::Tally {
         super::triangles::tally(self.meshes.iter(), &self.assets)
+    }
+
+    /// The far hair tier's triangles and parts: drawn in place of the near
+    /// hair past the switch, never beside it.
+    fn far_hair(&self) -> super::triangles::Tally {
+        let far = self
+            .hair
+            .iter()
+            .filter(|(_, tier)| **tier == HairTier::Far)
+            .map(|(mesh, _)| mesh);
+        super::triangles::tally(far, &self.assets)
+    }
+
+    /// The box of everything worn at the head's sockets - a hat at the
+    /// crown, glasses at the face - which a `--rigged` sheet's head
+    /// close-ups hold as well as the head; `None` when the head wears
+    /// nothing drawn.
+    fn head_worn_box(&self) -> Option<(Vec3, Vec3)> {
+        let mut boxes = Vec::new();
+        for (prop, at) in &self.worn {
+            if !HEAD_SOCKETS.contains(&at.0) {
+                continue;
+            }
+            let mut open = vec![prop];
+            while let Some(entity) = open.pop() {
+                boxes.extend(self.unskinned.get(entity));
+                if let Ok(children) = self.children.get(entity) {
+                    open.extend(children.iter());
+                }
+            }
+        }
+        union_box(boxes, [])
+    }
+
+    /// [`Self::tally`] without the far hair tier: what a body costs where
+    /// its near hair is drawn, which is every studio tile.
+    fn tally_up_close(&self) -> super::triangles::Tally {
+        let (all, far) = (self.tally(), self.far_hair());
+        super::triangles::Tally {
+            triangles: all.triangles.saturating_sub(far.triangles),
+            parts: all.parts.saturating_sub(far.parts),
+            unreadable: all.unreadable.saturating_sub(far.unreadable),
+        }
     }
 }
 
@@ -519,6 +614,7 @@ pub(super) fn setup(
     mut bindposes: ResMut<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
     job: Res<RenderJob>,
     editor: Option<Res<super::editor::EditorHost>>,
+    file_body: Option<Res<FileBody>>,
 ) {
     // Lighting / clear colour: neutral studio for a single subject, the room's
     // own atmosphere for a room. A world gets the game's atmosphere from
@@ -530,13 +626,17 @@ pub(super) fn setup(
             env.ambient_brightness.0.max(80.0)
         }
         Subject::World(_) => 0.0,
-        Subject::Single(_) | Subject::Lineup(_) | Subject::Wear { .. } => 600.0,
+        Subject::Single(_) | Subject::Lineup(_) | Subject::Wear { .. } | Subject::Rigged { .. } => {
+            600.0
+        }
     };
 
     // One off-screen target per camera: the rig camera alone, or a row of
     // the four angles per lineup slot (a single subject is one slot).
     let cameras = if job.single_camera() {
         1
+    } else if matches!(job.subject, Subject::Rigged { .. }) {
+        RIGGED_TILES
     } else {
         let rows = match &job.subject {
             Subject::Lineup(variants) => variants.len(),
@@ -665,6 +765,21 @@ pub(super) fn setup(
                 );
             }
         }
+        Subject::Rigged { .. } => {
+            spawn_sun(&mut commands, false);
+            let built = file_body
+                .as_ref()
+                .and_then(|body| body.take())
+                .expect("a --rigged body is built before the app stands up");
+            spawn_standing(
+                &mut commands,
+                built,
+                &mut meshes,
+                &mut materials,
+                &mut images,
+                &mut bindposes,
+            );
+        }
         Subject::Terrain { record, .. } => {
             // No `spawn_ground`: the terrain systems build the real one. The
             // sun matters more here than in any other mode - a grazing light
@@ -707,9 +822,11 @@ pub(super) fn dress_wear_bodies(
             let Some(&carrier) = joints.0.get(joint) else {
                 continue;
             };
-            let prop = commands
-                .spawn((transform, Visibility::default(), ChildOf(carrier)))
-                .id();
+            let mut prop = commands.spawn((transform, Visibility::default(), ChildOf(carrier)));
+            if let Some(socket) = attachment.record.socket() {
+                prop.insert(WornAt(socket));
+            }
+            let prop = prop.id();
             spawn_visual_tree(
                 &mut commands,
                 prop,
@@ -898,6 +1015,9 @@ pub(super) fn drive(
                     terrain_ready.is_some(),
                     &mut cams,
                 ),
+                Subject::Rigged { framing, .. } => {
+                    frame_rigged(&mut capture, &job, *framing, &parts, &mut cams)
+                }
                 _ => frame_subject(
                     &mut capture,
                     &job,
@@ -1268,6 +1388,158 @@ fn frame_subject(
         let a = ANGLES[cam.0 % ANGLES.len()].to_radians();
         let pos = center + cam_offset(a, dist, max_radius, job.elev);
         *transform = Transform::from_translation(pos).looking_at(center, Vec3::Y);
+    }
+    true
+}
+
+/// Frames a rigged body settles for after its last worn item goes on, so
+/// the props' boxes (computed a frame after they spawn) are in the size line.
+const RIGGED_SETTLE: u32 = 3;
+
+/// The sockets on the head: what is worn at them is framed in the head
+/// close-ups beside the head itself.
+const HEAD_SOCKETS: [symbios_avatar::Socket; 2] =
+    [symbios_avatar::Socket::Crown, symbios_avatar::Socket::Face];
+
+/// The fixed stage a `--rigged` sheet's full-body views frame, metres: this
+/// tall from the floor and this wide and deep either side of the body's
+/// middle. Every body that fits is drawn at the one scale, so an edit to its
+/// stature shows as stature - a body framed on itself fills the tile at any
+/// height, and a 0.5 m sculpt drew as tall as a 3 m one. A body, or what it
+/// wears, past the stage grows it.
+const RIGGED_STAGE_HEIGHT: f32 = 2.2;
+const RIGGED_STAGE_HALF_WIDTH: f32 = 0.45;
+
+/// The box a `--rigged` sheet's full-body views frame for a dressed body
+/// standing in `(min, max)`: the fixed stage, on the floor under the body's
+/// middle, grown by whatever of the body it does not hold.
+pub(super) fn rigged_stage((min, max): (Vec3, Vec3)) -> (Vec3, Vec3) {
+    let middle = (min + max) * 0.5;
+    let floor = min.y.min(0.0);
+    let stage_min = Vec3::new(
+        middle.x - RIGGED_STAGE_HALF_WIDTH,
+        floor,
+        middle.z - RIGGED_STAGE_HALF_WIDTH,
+    );
+    let stage_max = Vec3::new(
+        middle.x + RIGGED_STAGE_HALF_WIDTH,
+        floor + RIGGED_STAGE_HEIGHT,
+        middle.z + RIGGED_STAGE_HALF_WIDTH,
+    );
+    (stage_min.min(min), stage_max.max(max))
+}
+
+/// What a `--rigged` sheet's head close-ups frame: the rig's `head`, grown to
+/// hold `worn` - the box of what is worn at the head's sockets
+/// ([`SubjectParts::head_worn_box`]) - or, for a body plan with no head, the
+/// top of the dressed `body`'s box.
+pub(super) fn rigged_head(
+    head: Option<HeadFrame>,
+    (min, max): (Vec3, Vec3),
+    worn: Option<(Vec3, Vec3)>,
+) -> HeadFrame {
+    let head = head.unwrap_or(HeadFrame {
+        centre: Vec3::new(
+            (min.x + max.x) * 0.5,
+            max.y - (max.y - min.y) * 0.12,
+            (min.z + max.z) * 0.5,
+        ),
+        radius: (max.y - min.y) * 0.12,
+    });
+    match worn {
+        Some(worn) => head.grown_by(worn),
+        None => head,
+    }
+}
+
+/// Where tile `tile` of a `--rigged` sheet stands, looking where it looks:
+/// the first [`ANGLES`] tiles on the whole `stage` ([`rigged_stage`]), the
+/// rest on the `head`, each at its angle and `elev` (`--elev`).
+pub(super) fn rigged_camera(
+    tile: usize,
+    stage: (Vec3, Vec3),
+    head: HeadFrame,
+    elev: Option<f32>,
+) -> Transform {
+    let (look, dist, radius) = if tile < ANGLES.len() {
+        // Framed on the stage's own extent rather than on the sphere round
+        // it, which left a standing body a third of the tile: the tallest
+        // half-extent across the frame, and the deepest in front of it.
+        let (centre, _) = centre_radius(stage);
+        let half = (stage.1 - stage.0) * 0.5;
+        let across = half.max_element();
+        (
+            centre,
+            across / (FOV * 0.5).tan() * 1.1 + half.x.max(half.z),
+            across,
+        )
+    } else {
+        (
+            head.centre,
+            head.radius / (FOV * 0.5).tan() + head.radius * 0.5,
+            head.radius,
+        )
+    };
+    let yaw = ANGLES[tile % ANGLES.len()].to_radians();
+    Transform::from_translation(look + cam_offset(yaw, dist, radius, elev))
+        .looking_at(look, Vec3::Y)
+}
+
+/// `--rigged` (#1482): the top row on the whole dressed body, stood on a
+/// fixed stage so its stature shows ([`rigged_stage`]); the bottom row on
+/// the head the rig itself locates ([`super::rigged::head_frame`]), grown to
+/// hold what is worn at the head's sockets, so a tall body and a short one
+/// both fill their close-ups and a hat is not cut off. The body's box is its
+/// standing pose's, computed from the engine's own posed meshes (Bevy bounds
+/// a skinned mesh by its bind pose, arms out), grown by the worn items'
+/// boxes once they are on. Then it prints the `subject size` line - the far
+/// hair tier left out, since it is drawn in place of the near hair and never
+/// beside it - and what the far tier costs on a line of its own.
+fn frame_rigged(
+    capture: &mut Capture,
+    job: &RenderJob,
+    framing: Option<RiggedFraming>,
+    parts: &SubjectParts,
+    cams: &mut Query<(&mut Transform, &TileCam)>,
+) -> bool {
+    if !parts.undressed.is_empty() {
+        return false;
+    }
+    capture.waited += 1;
+    if capture.waited < RIGGED_SETTLE {
+        return false;
+    }
+    let Some(framing) = framing else {
+        unreachable!("a --rigged subject's framing is filled in when its body is built");
+    };
+    let (min, max) = match union_box(parts.unskinned.iter(), parts.emitters.iter()) {
+        Some((min, max)) => (framing.body.0.min(min), framing.body.1.max(max)),
+        None => framing.body,
+    };
+    println!("{}", describe_box(min, max, parts.tally_up_close()));
+    let far = parts.far_hair();
+    if far.parts > 0 {
+        println!(
+            "far hair tier: {far}, drawn in place of the near hair past {} m",
+            crate::config::camera::HAIR_SWITCH
+        );
+    }
+    let stage = rigged_stage((min, max));
+    let size = stage.1 - stage.0;
+    println!(
+        "full-body views: one scale for every body, a stage {:.2} m tall and {:.2} m wide from \
+         the floor{}",
+        size.y,
+        size.x,
+        if size.y > RIGGED_STAGE_HEIGHT + 1e-3 || size.x > 2.0 * RIGGED_STAGE_HALF_WIDTH + 1e-3 {
+            " (grown to hold this one)"
+        } else {
+            ""
+        }
+    );
+    let head = rigged_head(framing.head, (min, max), parts.head_worn_box());
+    for (mut transform, cam) in cams.iter_mut() {
+        *transform = rigged_camera(cam.0, stage, head, job.elev);
     }
     true
 }
@@ -1697,6 +1969,7 @@ pub(super) fn on_capture(
     mut exit: MessageWriter<AppExit>,
     cameras: Query<&VisibleEntities, With<TileCam>>,
     parts: Query<&ViewVisibility, With<Mesh3d>>,
+    clear: Res<ClearColor>,
 ) {
     let event = trigger.event();
     // A world shot says what it drew (#1480): the camera does not move
@@ -1735,8 +2008,9 @@ pub(super) fn on_capture(
             if world {
                 println!("{}", drawn_parts(&cameras, &parts));
             }
+            let fill = clear.0.to_srgba().to_u8_array();
             let saved = shrink_still(&capture.results, &job)
-                .and_then(|(results, tile)| save_contact_sheet(&results, tile, &job.out));
+                .and_then(|(results, tile)| save_contact_sheet(&results, tile, &job.out, fill));
             match saved {
                 Ok(()) => {
                     info!("wrote {} ({} tiles)", job.out, capture.results.len());
@@ -1776,18 +2050,21 @@ fn shrink_still(results: &[Option<Vec<u8>>], job: &RenderJob) -> Result<Tiles, S
 
 /// Tile the RGBA captures into one PNG: `ANGLES.len()` columns per row, one
 /// row per lineup slot (a single subject is one row - the original horizontal
-/// strip; a single camera is one tile).
+/// strip; a single camera is one tile). A last row the tiles do not fill - a
+/// `--rigged` sheet's three head close-ups - is finished in `fill`, the
+/// backdrop's colour.
 fn save_contact_sheet(
     results: &[Option<Vec<u8>>],
     (tw, th): (u32, u32),
     path: &str,
+    fill: [u8; 4],
 ) -> Result<(), String> {
     let (tw_us, th_us) = (tw as usize, th as usize);
     let cols = ANGLES.len().min(results.len()).max(1);
     let rows = results.len().div_ceil(cols);
     let sheet_w = tw * cols as u32;
     let stride = sheet_w as usize * 4;
-    let mut sheet = vec![0u8; stride * th_us * rows];
+    let mut sheet = fill.repeat(stride / 4 * th_us * rows);
     for (i, captured) in results.iter().enumerate() {
         let data = captured.as_ref().ok_or("missing tile")?;
         if data.len() < tw_us * th_us * 4 {
@@ -1850,6 +2127,117 @@ pub(crate) fn new_target((width, height): (u32, u32)) -> Image {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1482: a rigged body's two hair tiers are never drawn together, so
+    /// what the body costs up close leaves the far one out - and nothing
+    /// else.
+    #[test]
+    fn a_rigged_bodys_cost_up_close_leaves_out_its_far_hair() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        world.init_resource::<Assets<Mesh>>();
+        let (cube, ball) = {
+            let mut meshes = world.resource_mut::<Assets<Mesh>>();
+            (
+                meshes.add(Mesh::from(Cuboid::default())),
+                meshes.add(Mesh::from(Sphere::default())),
+            )
+        };
+        let aabb = Aabb::from_min_max(Vec3::splat(-0.5), Vec3::splat(0.5));
+        world.spawn((Mesh3d(cube.clone()), aabb));
+        world.spawn((Mesh3d(ball.clone()), aabb, HairTier::Near));
+        world.spawn((Mesh3d(ball), aabb, HairTier::Far));
+        let (all, close, far) = world
+            .run_system_once(|parts: SubjectParts| {
+                (parts.tally(), parts.tally_up_close(), parts.far_hair())
+            })
+            .expect("the param builds");
+        assert_eq!(all.parts, 3);
+        assert_eq!(far.parts, 1);
+        assert_eq!(close.parts, 2, "the far tier alone is left out");
+        assert_eq!(close.triangles, all.triangles - far.triangles);
+        assert!(
+            far.triangles > 12,
+            "a sphere, not the cube: {}",
+            far.triangles
+        );
+    }
+
+    /// #1482 (critic minor 2): the head close-ups hold what is worn at the
+    /// head's sockets - a hat taller than the hair room - and only that: an
+    /// item at the hip is not pulled into the close-up.
+    #[test]
+    fn the_head_close_ups_hold_what_the_head_wears() {
+        use bevy::ecs::system::RunSystemOnce;
+        use symbios_avatar::Socket;
+        let mut world = World::new();
+        world.init_resource::<Assets<Mesh>>();
+        let aabb = Aabb::from_min_max(Vec3::splat(-0.1), Vec3::splat(0.1));
+        let mut worn = |socket: Socket, at: Vec3| {
+            let prop = world.spawn((WornAt(socket), Transform::default())).id();
+            // A part one level below the prop, as the spawn path hangs it.
+            let part = world.spawn(ChildOf(prop)).id();
+            world.spawn((
+                ChildOf(part),
+                Mesh3d::default(),
+                aabb,
+                GlobalTransform::from_translation(at),
+            ));
+        };
+        let hat = Vec3::new(0.0, 2.25, 0.0);
+        worn(Socket::Crown, hat);
+        worn(Socket::LeftHip, Vec3::new(0.3, 0.9, 0.0));
+        let boxed = world
+            .run_system_once(|parts: SubjectParts| parts.head_worn_box())
+            .expect("the param builds")
+            .expect("the hat is worn at the head");
+        assert!(
+            (boxed.1 - (hat + Vec3::splat(0.1))).length() < 1e-4
+                && (boxed.0 - (hat - Vec3::splat(0.1))).length() < 1e-4,
+            "the hat's box alone, not the hip's: {boxed:?}"
+        );
+        let skull = HeadFrame {
+            centre: Vec3::new(0.0, 1.75, 0.0),
+            radius: 0.2,
+        };
+        let body = (Vec3::new(-0.4, 0.0, -0.2), Vec3::new(0.4, 1.9, 0.2));
+        let head = rigged_head(Some(skull), body, Some(boxed));
+        for corner in [boxed.0, boxed.1, Vec3::new(0.1, 2.35, -0.1)] {
+            assert!(
+                corner.distance(head.centre) <= head.radius + 1e-5,
+                "{corner} is out of the close-up {head:?}"
+            );
+        }
+        assert!(
+            head.radius + 1e-5 >= skull.radius + head.centre.distance(skull.centre),
+            "and the head is still in it: {head:?}"
+        );
+        assert_eq!(rigged_head(Some(skull), body, None), skull);
+    }
+
+    /// #1482: a `--rigged` sheet is seven tiles on a four-wide grid; the
+    /// cell they leave is the backdrop, not a transparent hole.
+    #[test]
+    fn a_sheet_row_the_tiles_do_not_fill_is_finished_in_the_backdrop() {
+        let side = 64usize;
+        let red = [200u8, 30, 30, 255];
+        let tiles: Vec<Option<Vec<u8>>> = (0..RIGGED_TILES)
+            .map(|_| Some(red.repeat(side * side)))
+            .collect();
+        let path = std::env::temp_dir().join(format!("rigged-sheet-{}.png", std::process::id()));
+        let path_str = path.to_str().expect("UTF-8");
+        let fill = [0x85, 0x92, 0xb3, 255];
+        save_contact_sheet(&tiles, (side as u32, side as u32), path_str, fill).expect("saved");
+        let sheet = image::open(&path).expect("reads back").to_rgba8();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(sheet.dimensions(), (4 * side as u32, 2 * side as u32));
+        assert_eq!(sheet.get_pixel(10, 10).0, red, "a tile is its tile");
+        assert_eq!(
+            sheet.get_pixel(3 * side as u32 + 10, side as u32 + 10).0,
+            fill,
+            "the cell no tile fills is the backdrop"
+        );
+    }
 
     /// #1448: arranging pieces needs each one's extent, and the turntable
     /// already measures it to frame the subject - so it says it, in metres

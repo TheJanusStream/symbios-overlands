@@ -422,15 +422,40 @@ cargo run --bin render -- --world 3           # the seeded WORLD as the game bui
 cargo run --bin render -- --world did:plc:x --world-record room.json   # ...or an edited record
 cargo run --bin render -- --terrain 3        # the room's GROUND: heightmap + splat
 cargo run --bin render -- --wear satchel      # a wearable, actually worn
-cargo run --bin render -- --generator /tmp/x.json  # a dumped + edited Generator
+cargo run --bin render -- --rigged avatar.json # a rigged body from its record, dressed
+cargo run --bin render -- --generator /tmp/x.json  # a dumped + edited Generator,
+#                                              # drawn as a room record keeps it
 cargo run --bin render -- --play-view --lineup 12,40,7 --reference-figure
 #                                              # several subjects at the
 #                                              # chase camera's own range
 ```
 
+A `--generator` file is sanitised as a room record's generator is before it
+is drawn (a body's with `--body`, below) (#1486): the sanitiser keeps a
+`BlobGroup`'s first 16 elements, and a 34-element animal drew whole here
+while the world drew it without legs. Each place the file is not drawn as
+written is printed before its size, one line a place - a list cut short as
+one line (`/elements: 40 items, a record keeps 16 - /elements/16..39 are
+dropped and not drawn`), a value pulled into range with what is drawn, a
+key this build does not read. A value an open union reads as its stand-in
+(a prop mapping `"Needle"`, which is a texture and not a prop shape; a blob
+shape from a newer engine) cannot be written back, so the file is drawn as
+the stand-in with one line naming it, and `agent room set` refuses to save
+it (#1487 - the first cut of #1486 panicked on such a file). A body's
+visuals are held to tighter limits than a room piece (16 m parts, a scale
+product of 4, no terrain, water or portal): `--body` keeps a `--generator`
+file as a body is kept, and a `--lineup` file entry - a vehicle prototype
+beside the seeded fleet - always is. The notes list a misspelt key first,
+then a list cut short or reshaped (a duplicate face dropped from the middle
+is one line for the list, not a tail cut), then clamped values. A value held
+to a bound that is also its default is left out of the record as every
+default is, so it reads `is not kept - drawn at its default`, not dropped.
+Past 24 notes the last line says how many more, and the header counts them
+all.
+
 When more than one subject is given the highest-precedence one wins:
-`--lineup` > `--generator` > `--world` > `--terrain` > `--room` > `--prim` >
-`--wear` > `--catalogue` > `--avatar`,
+`--lineup` > `--generator` > `--rigged` > `--world` > `--terrain` > `--room` >
+`--prim` > `--wear` > `--catalogue` > `--avatar`,
 with the no-render modes below running ahead of all of them. That order is
 asserted by `render_tool`'s own tests, so it is checkable rather than a claim.
 
@@ -517,7 +542,7 @@ clip whose sheet or later frames look right is this, not a missing asset.
 `--walker <seed,...>` (with `--world`) rolls each seed's default body and
 walks them from the record's landing toward the origin (`--walk-from x,z` /
 `--walk-to x,z` override the line, `--walker-pace` the speed,
-`--walker-wear satchel,circlet` dresses every body, and `--walker-outfit
+`--walker-wear satchel,circlet` dresses every seeded body, and `--walker-outfit
 #top,#trousers[,sleeve,leg]` - the two garments' colours in hex and
 optionally their lengths as shares of the limb, 0.5 being the elbow or the
 knee, the flag repeated once per body in seed order - holds their clothes
@@ -530,6 +555,15 @@ driven by the same `Drive` / `AvatarDriver` pair the game hangs a local
 player on, on the real heightmap, and they start walking `--walker-lead`
 seconds (default 1.5) before the first captured frame so a clip opens
 mid-stride.
+
+`--walker-avatar FILE` (with `--world`, #1482) makes the lead walker - the
+one `--focus walker` follows - the rigged body in a `--rigged` file instead
+of a seeded one, built, hung and dressed as the game does it, so an agent's
+own person walks its world at true scale beside its buildings. `--walker`
+seeds still walk beside it, and without them it walks alone. It wears what
+its file says; `--walker-wear` and `--walker-outfit` dress the seeded bodies
+only. The file's body is built before the world compiles, so a body the
+engine cannot build is said in a second.
 
 `--editor` (#1353, with `--world`) draws the game's own editing surfaces
 into the same frame as the world: the toolbar, the World Editor, the
@@ -642,12 +676,43 @@ socket>` overrides the entry's own `wear_socket()`, which is also how you sheet
 an entry that has no wear socket at all - without it such a slug is refused by
 name. Sheets are labelled `wear-<slug>-<socket>`.
 
+`--rigged FILE` (#1482) draws one rigged person from its record: the file
+`agent avatar get ""` prints, or its `value` alone as `rec.py pull avatar`
+writes it, `{record, body, worn}`. The body is built by the game's own job
+(the full atlas and the far hair tier), hung under its chassis by the game's
+own root transform, dressed from the record through the game's own seating
+(each worn item at its socket and offset, a fitted band sized to the head),
+and stood as the game stands a player who is not moving: the rest pose with
+the arms hung, without the idle's breath and sway, so two sheets of one
+record are the same picture. The sheet is four full-body views over three
+head close-ups (front, three-quarter, side). The full-body views draw every
+body at one scale, on a fixed stage 2.2 m tall from the floor that grows only
+for a body or a worn item past it, so an edit to stature shows as stature:
+a short body stands short in its tile. The close-ups are framed on the rig's
+own head and on what is worn at the crown and face, so a short body and a
+tall one both fill them and a hat is not cut off. It prints the `subject
+size` line (the body's standing box, since Bevy bounds a skinned mesh by its
+A-shaped bind pose), the far hair tier's cost and the stage on lines of their
+own, and one line per worn item: where it hangs, or why it is not drawn,
+including an item whose part is of a kind this build does not know. A
+malformed file is refused with the JSON pointer of what is wrong, and exits 2
+rather than panicking. What reads but is not drawn as written is drawn as the
+game draws it and named, one line a pointer: a misspelt key the reader skips
+(and the real key's default, when it replaced it), a value that does not
+read, a value the sanitiser pulls into range, a hair style, body plan,
+garment surface or locomotion this build does not know. The game says
+nothing about any of these, so the sheet is where they show. `--frames`,
+`--play-view`, `--ages`, `--reference-figure` and the walker flags are
+refused beside `--rigged` before the file is read. Sheets are labelled
+`rigged-<file stem>`.
+
 `--avatar` draws `Generator` trees, so it covers the *vehicle* seeds only -
 boat, airship and skiff. A humanoid seed rolls a rigged
 `symbios-avatar` body with no tree to walk, and the tool refuses it by name
-rather than rendering an empty sheet; the sibling `bevy_symbios_avatar`
-viewer's own `--shot` capture is that body's instrument. `--family-seeds` will
-find you a vehicle seed to render.
+rather than rendering an empty sheet; a rigged body is drawn from its record
+with `--rigged` instead, and the sibling `bevy_symbios_avatar` viewer's own
+`--shot` capture is the engine's instrument. `--family-seeds` will find you a
+vehicle seed to render.
 
 `--play-view` is the *play-distance* instrument (#1360), and the frame a
 vehicle design is accepted on. Every earlier pass at the seeded craft was
@@ -715,8 +780,8 @@ sheet's three-quarter angle), `--dist`, `--elev`, `--zoom`, `--lift`,
 `--width`/`--height` and `--frames` all still apply, so the same flag also
 gives the tool its most convenient studio.
 
-A single subject - a catalogue entry, a primitive, a generator, a wearable -
-stands in a neutral studio whose backdrop `--backdrop #rrggbb` recolours
+A single subject - a catalogue entry, a primitive, a generator, a wearable, a
+`--rigged` body - stands in a neutral studio whose backdrop `--backdrop #rrggbb` recolours
 (default the blue-grey `#8592b3`); a world and a room paint their own sky
 and ignore it.
 
@@ -795,7 +860,7 @@ cargo run --bin render -- --world <did> --world-record room.json --terrain-repor
 # ...or the same terrain recipe under other seeds, and a contact sheet of them:
 cargo run --bin render -- --world <did> --world-record room.json --terrain-report \
     --seed-scan 4..20 --plan /tmp/seeds.png
-# Any single subject (--generator, --catalogue, --prim) prints its size first -
+# Any single subject (--generator, --catalogue, --prim, --rigged) prints its size first -
 # the box its meshes fill, from its origin (#1448) - the triangles those
 # meshes draw, particles left out (#1471), and the parts that draw them: each
 # entity with a mesh, one per primitive and one per material on a primitive
@@ -1029,7 +1094,15 @@ whole number of ten-thousandths (1.5 m is `15000`), and a value with a
 decimal point is refused. Each answer shows what the world kept, which the
 sanitiser may have pulled back into range - `adjusted`, with `adjusted_at`
 naming each place by pointer; a value left out because it is the default
-is no adjustment. An append (a pointer ending `/-`) answers where it
+is no adjustment. A key the record does not have - a misspelled field, a
+texture colour under another texture's name - is read in as nothing, and
+the answer names each one by pointer as `ignored_at` (#1483), told apart from
+a default the record leaves out by giving the key a value no field takes and
+reading the record again. That includes each key inside an object the
+record leaves out whole because it read as its default (a `transform` sent
+as `{"position": ...}` is the identity, and `position` is named), and a key
+in a list of tagged items is tried against each item's own `$type`, since
+one variant's field is another's misspelling. An append (a pointer ending `/-`) answers where it
 landed: `pointer` is the new item's own (`/placements/150`) and `appended`
 is `true`, a member no other set's answer has (#1470). A set that is
 refused says where: the generator node
@@ -1065,6 +1138,10 @@ has landed). `stop` always stops, and its answer names what it discarded.
 what it wears; `stash` copies in a catalogue entry by its slug - a wearable
 one stays wearable - or a thing in the agent's own world by its name, and
 `unstash` takes an item out, though not while it is worn: `take-off` first.
+A stashed item is named anew (`Traveler's Satchel`, then `_1`, `_2`), so
+`wear`, `take-off` and `unstash` take that name; given the catalogue slug
+instead (`satchel`), they refuse and name back what it was stashed or worn
+as (#1484).
 `stash NAME --from-avatar POINTER` copies in a part of the agent's own body
 under that name (#1444): a node of a generator body's tree, by its pointer
 as `avatar get /record/body/visuals` shows it, the nodes under it included.

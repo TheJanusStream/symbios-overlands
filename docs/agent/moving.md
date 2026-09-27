@@ -26,6 +26,11 @@ stood still for five seconds: a 130 m drive was escorted live and ended
 
 - A straight line into a building ends `stuck`. Route with waypoints round
   it: one `walk-to` per leg.
+- **Solid fences and walls close straight lines.** Once Ashmere's street
+  fences were made solid, a walk-to from the green to the gate ended
+  `stuck` against a fence twice; one leg per bend of the street, waypoints on
+  its centre line, went through in seven `arrived`. Keep a list of a world's
+  lanes as waypoints (the builder scripts have them) and walk them.
 - **Keep clear of portals and gateways** (`status.nearby[]` with kind
   `portal` or `gateway`): they lead to other worlds. The landing point sits
   right in front of the world's social gateway.

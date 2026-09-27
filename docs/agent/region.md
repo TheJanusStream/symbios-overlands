@@ -29,6 +29,15 @@ The water is **one flat plane**: the water child's `transform.translation`
 y. Everything below it floods, so a pool is the deepest hollow under a level
 set just above its floor.
 
+**A seeded world's land may be the wrong kind entirely.** Reeve's (session
+879) was a 69 m rough `DiamondSquare` mountain; an English lowland manor
+wanted soft hills. `FbmNoise`, `height_scale` 30 m, `base_frequency` 2.2,
+`octaves` 5, `persistence` 0.42, 60,000 erosion drops gave rolling
+lowland; a seed scan of 24 seeds (6 s) found one with a mere below a gentle
+ridge, and dropping the water from 6 to 5.2 m shrank the mere to a lake with
+an outflow. FBM makes blobby lakes, never a river: plan water mills and
+streams out ([the water is one flat plane](#the-land-is-a-recipe-not-a-sculpt)).
+
 ## Seeing it before anyone does
 
 - **Numbers in half a second**: `render --world <your DID> --world-record
@@ -136,6 +145,9 @@ and grass tufts on the open tops broke up the rest.
   `far` 1.5 made them fine enough to fade with distance, and the pool read as
   a still mirror with a sun path (session 877). Still water: a HIGH near
   frequency, small `wave_scale`, low roughness.
+- **The haze's tint is its `fog_extinction` and `fog_inscattering` colours**,
+  not only `fog_color`: a seeded world's green pair kept Ashmere's sky and
+  distance teal after `fog_color` was set blue-grey. Set all three.
 - Mood is mostly fog: `fog_visibility` in metres, `fog_color`,
   `fog_sun_color` (the glow toward the sun) and `fog_sun_exponent`; a
   saturated fog colour turns the whole sky one flat tint. `sun_position` is
@@ -146,7 +158,16 @@ and grass tufts on the open tops broke up the rest.
   too dark and kept the original. Offer a light change live and UNSAVED,
   one step at a time, say how to undo it, and make no other edit meanwhile
   (a save would take the trial with it); `revert` restores the saved record
-  exactly.
+  exactly. Ask before applying one when you are saving as you go: a trial
+  holds every other save until the admin answers. Ashmere's was offered in
+  chat, applied on "Sure, go ahead", kept on "keep it" a minute later (a
+  Michaelmas evening: the sun at 14 degrees WSW, warm, a 1,000 m haze) - then
+  written into the land builder too, so a re-run of it cannot revert the
+  light. When the admin goes quiet with a trial live and other work needs
+  saving, set the trial's field back to its saved value, save, and set the
+  trial again: the rest is kept and the trial stays theirs to judge
+  (session 879 held a sound trial that way). `tools/rec.py save room OUT
+  --hold /environment/ambient_audio` does all three.
 
 ## Planting: scatters
 
@@ -229,11 +250,15 @@ A forest is a few generators and a scatter placement each:
   against `requested` finds it: a broadleaf stand laid over the north lake
   placed 0 of 30 (all water, and its `above_water_band` refused the shore).
   Check a new scatter's placed count before bringing it live.
-- **`count` is how many points a scatter draws, not how many it keeps.**
-  Every filter - water, band, slope, biome - drops points, and a narrow band
-  drops most: moss hugging the waterline (`above_water_band` 0.03..0.9 m)
-  kept 49 of 260, and widening the band to 1.2 m kept 871 of 1,300. Raise
-  the count until the report's `copies` is what you meant.
+- **A scatter keeps drawing until it has `count`**, and gives up after
+  `count` x 10 tries (`world_builder/compile/census.rs`, `scatter_yields`).
+  So a filter costs copies only when it refuses more than about nine points
+  in ten: moss hugging the waterline (`above_water_band` 0.03..0.9 m) kept 49
+  of 260 because the band refused almost the whole circle; widened to 1.2 m it
+  kept 871 of 1,300. Short of that, every copy asked for is placed - Ashmere's
+  reeds, banded -0.55..+0.25 m round a mere with a wide shallow margin, placed
+  all 2,600 asked for, far out into the shallows; 900 made a reed bed. Read
+  the report's `copies` against `requested` either way.
 - **Most visitors play in a browser, and a browser pays per PART** (the
   admin, session 878: "optimized for both clients... most visitors will be
   using WASM"). Every primitive of every placed copy spawns as its own
@@ -245,7 +270,16 @@ A forest is a few generators and a scatter placement each:
   as one lathe cylinder with a 1 x 3 atlas of tufts wrapped once round it
   (the fern's recipe: `variant_rows` 1, `variant_cols` 3, `uv_scale` 15915
   on a local radius of 0.1 m, `taper` negative to flare) it is 1 part, 36
-  triangles, and reads fuller. The Understory went from about 48,700 parts
+  triangles, and reads fuller. Spelled out (session 879, Ashmere's reeds,
+  grass and tussocks, parts 8,765 -> 5,415 with the same look): a `lathe`
+  of two stations `{radius 0.1, height 0}` and `{radius 0.1, height 0.628}`
+  (the height equal to the circumference, so the card spans it once),
+  `resolution` 3 and `smooth` false - three flat faces, one atlas cell
+  each, 12 triangles (smooth, or more sides, was 42-84 a tuft: 280k over
+  3,350 tufts) - the card's own texture with `variant_rows` 1 and
+  `variant_cols` 3 added, `uv_scale` 15915, `torture.taper` [-0.6, -0.6],
+  and `transform.scale` [width / 0.2, height / 0.628, width / 0.2]; a reed
+  ring wider than about half the card's width falls apart into sub-clumps. The Understory went from about 48,700 parts
   (estimated from the record's structure at the session's start) to 38,579
   measured (`--triangle-report` counts `parts` since #1479) while gaining
   reed beds, heath and fans - and ground cover is still about 78% of them:
@@ -348,6 +382,38 @@ the loop is `duration_beats` long. A refused set names where (#1457): a
 field that does not read ends `... at /environment/ambient_audio/...`, and a
 node `kind` this build does not know - which reads in as `Unknown` and cannot
 be written back - is named by the value you set.
+
+- **A seeded world's sound may not suit the place.** Reeve's came with a
+  fiddle theme, a bass line and a humming "siren" drone; a manor of 1300 kept
+  the wind bed and gusts and got a church bell and rooks instead. A bell is
+  its strike partials as `Sine` nodes (hum 0.5, prime 1, tierce 1.19, quint
+  1.5, nominal 2 times the note, falling amplitudes) summed into one `Gain`
+  whose `gain` input is an `Adsr` (attack 4 ms, decay about 4.5 s, sustain
+  0) driven by a `Gate`, then a `Reverb`; each stroke is an event a fraction
+  of a beat long. A rook's caw is a `Sawtooth` plus a little `WhiteNoise`
+  through a `BiquadBandpass` near 1.1 kHz under a quick envelope, events in
+  twos and threes. The agent cannot hear: a new sound is a mood change, so
+  offer it live and unsaved and let the admin's ears decide. Ashmere's bell
+  (nine strokes once a 340 s loop) was "pretty annoying over time" and went;
+  the loop repeats for as long as anyone stays, so a sound people notice once
+  is one they hear every few minutes. Keep punctuation sparse, soft and
+  varied (the rooks: short, quiet, at uneven times). The seeded wind was
+  "uncomfortably loud and violent" too (a high-passed hiss at volume 0.5 with
+  gusts): a breeze is `PinkNoise` through a `BiquadLowpass` near 380 Hz whose
+  cutoff and gain breathe on slow `Lfo`s (0.05-0.07 Hz), at volume 0.16.
+  The admin then asked for "a few animal sounds ... not in a pattern ...
+  just single calls": a few events a loop at uneven times, as one-off
+  calls. Oscillators take a `freq` input and filters a `cutoff_hz` /
+  `center_hz` one (`input_ports` in bevy_symbios_audio's `ui/graph.rs`), so
+  a moo is a `Sawtooth` near 112 Hz under a low-pass whose cutoff a second,
+  slower `Adsr` opens (+480 Hz: "mmm-ooo") while lifting the pitch a little
+  (+14 Hz), and a bleat a `Sawtooth` near 330 Hz with a 7.5 Hz `Lfo` on its
+  `freq` (+16 Hz) and on a tremolo `Gain`, through a band near 950 Hz.
+- **Borrow a catalogue item's sound** as you borrow its material: any node
+  may carry `audio`, played from where the node is; the medieval
+  `blacksmith`'s glowing forge part carries a fire's crackle over a low roar
+  (`render --dump --catalogue blacksmith`, the node with an `audio` key), and
+  copied onto a smithy's coals it needs no authoring.
 
 ## The record's budget
 
@@ -527,6 +593,90 @@ What made the Understory's outer ring read, and what did not:
   centre, `look --view eyes --at` north, east, south and west showed all
   four sites over the treeline, as the renders had.
 
+## Lanes, hedges, fields, smoke
+
+- **A lane is a flattened thread** (`tools/thread.py --flat`): a spine squashed
+  in height is a wide, low lens on the ground. Set it so only its top arc
+  breaks the grass - a 4 m radius flattened to 0.08 with its top 4 cm up
+  shows a 3.9 m lane whose edge rises 4 cm over a metre. A narrower, higher
+  lens (2.3 m, flat 0.05) drew a dark lip along each edge wherever the ground
+  fell away sideways. A lens shows few of its sides: give it 24-28.
+- **A hedge is BlobGroups along the ground** (`tools/hedge.py`): the hawthorn
+  hedge on three sides of a 90 x 75 m manor court is three hedges of 12
+  BlobGroups, 15 parts with their roots. A 1.7 m oak paling there
+  read as a dark fortress wall in shade; the hedge read as countryside.
+- **Open-field strips (ridge and furrow)** are flattened threads side by side:
+  8.6 m ridges on a 9.4 m pitch leave a furrow of grass between them; each
+  follows the reversed-S an ox team's turn left in real selions; the last two
+  samples at each end shrink the radius so the ridge narrows and dives into
+  the headland (cut square, their ends read as planks). Stubble is a pale
+  `Ground` texture; fresh ploughing a `Thatch` texture in soil colours
+  ([building.md](building.md), "A building in few parts"). Twenty selions in
+  two furlongs were 40 parts and 26k triangles, and from the arrival camera
+  the strips on the slope beyond the village read at once as a medieval field.
+- **A fence on falling ground** is `tools/fence.py`: wattle panels (a
+  `Thatch` texture in hazel colours) each tilted to the ground between its
+  ends, stakes at the joints, `gap` in the waypoints for a gate; 6 m panels
+  made the street's two frontage fences 68 parts. A hurdle fence 1.15 m high
+  encloses a toft without hiding it; the same idea in a 1.7 m oak paling round
+  a whole court read as a stockade.
+- **A single flat blob over sloping ground is a terrace**: a trodden-earth
+  yard as one wide flattened BlobGroup stood proud on the downhill side with a
+  shadowed edge. Anything wide and flat must follow the ground piece by piece
+  (thread.py, hedge.py, fence.py do) or be left out.
+- **Join two lanes by overlapping them**, each tapered where the other takes
+  over (`thread.py --taper-start/--taper-end`) and one 1.5 cm higher: end to
+  end, their square end caps drew a crease across the street.
+- **Smoke from a hearth** is a `particles` node on the roof: a narrow upward
+  `cone` emitter (a `sphere` one sprays puffs outward and down), `Puff`
+  texture, big pale puffs (1.1 -> 4.8 m, alpha 0.26 fading to 0) rising
+  slowly (speed 0.12-0.3, `gravity_multiplier` -0.035) for 8-12 s at 3-5 a
+  second. Small, dark, fast puffs drew thin streaks shooting straight up.
+
+## Filling the land round a village
+
+Session 879's village and its fields filled the middle 300 m of a world about
+970 m square; the admin: "there is still a lot of empty space". What worked:
+
+- **Find the empty ground from straight above**: an aerial `--world` shot
+  from 700 m is all fog; `tools/clearings.py DID RECORD OUT.png X,Z --dist
+  600` pushes the fog out and looks straight down. Two tiles (north and south
+  halves) showed the village, its fields and bare grass everywhere else.
+- **Fill it with what the place's own economy put there**, each a small
+  set of pieces that reads at a glance: for an English manor of 1300, a
+  rabbit warren (a flint lodge, long turf pillow mounds, coneys), a turbary on
+  the fen (strips of cut-over peat, turves drying in small piles and long
+  stacks, the cutter's cot), the lord's deer park (a pale on a bank, a gate, a
+  lodge, fallow deer), a wood with a charcoal burner, worts beds in the
+  crofts, horses. A far piece earns its place by its silhouette from where
+  people stand: a tall flint lodge on a rise reads from the road at 250 m.
+- **A long enclosure goes in arcs**: `fence.py` and `hedge.py` refuse a
+  generator reaching past 100 m from its middle, so a 720 m oval park pale is
+  five arcs, a bank (`hedge.py` with a turf-coloured `Ground` material, 0.55 m
+  high, 3 m wide) under each. Size a gate's gap along the line the pale runs
+  at that point: on an oval of half-axes A (x) and B (z), the south point's gap
+  is `asin(half_gap / A)` of arc - dividing by B made it 7.9 m, not 5.4.
+- **Lay small flat things ON the ground**: a level 4 m garden bed on a 4 degree
+  croft stood 0.4 m proud at its downhill end like a board. `ground.py ...
+  --lay YAW` prints the wire rotation that tips a thing's local Y to the
+  ground's normal, turned YAW degrees clockwise seen from above as `place
+  --yaw` turns it (90 faces local -Z to +X; on level ground it is `place
+  --yaw YAW`'s rotation) - and as its printed `contour_yaw` counts, so
+  `--lay` at that yaw runs local +X along the contour. Dark still water on
+  a flat cuboid mirrored the low sun and lay on the grass like pale metal at
+  any roughness under 0.5 - a peat cutting drawn as matte dark peat read
+  true.
+- **Scatters do not avoid each other, or your buildings**: a second pose of a
+  beast in its own scatter over the same pasture can stand inside the first;
+  give each its own ground, or place the few by hand, and check a hand-placed
+  spot against the record's placements before rendering (`tools/near.py`: a
+  horse set by eye stood inside a cottage 2.8 m off). `views.py` takes a point to look at (`TX,TZ` for
+  LOOK): +Z is SOUTH, and five views by a hand-worked bearing looked away.
+- **Pick things the primitives can draw**: a bean row of blobs was a green
+  caterpillar however lumpy; late September gave the truer answer anyway (the
+  beans are in, the bed is dug). A `LogEnd` texture is a card, clear outside
+  each log's end: on a box it drew floating discs - a woodpile is capsules.
+
 ## Arrivals
 
 `default_landing` is `{pos: [x, z], yaw_deg}`. Its yaw turns
@@ -542,7 +692,17 @@ building. The Understory's gateway stood 7 m behind the landing, so every
 arrival looked through its pillars and translucent veil, and a taller body's
 camera sat under its caps; five sessions of reviews from eye height missed
 it (session 878). `tools/views.py ... "@landingcam"` renders that first
-picture from the record. Keep a gateway (or anything tall) either more than
+picture from the record.
+
+**Mock the massing before building.** Before anything was authored, plain
+boxes where each building would stand (a church, cottages, a hall, a barn, a
+mill), composed into a copy and rendered `@landingcam`, showed in minutes that
+Ashmere's planned landing - on a flat plateau 40 m back from its brow - saw
+flat grass, a looming church and a sliver of the mere: a brow hides the whole
+slope below it. At the brow the same camera looked down the street to the
+mere. Turning the landing's yaw 12 degrees then brought the mill on the far
+hill fully into the frame; the horizon sits near the top of the arrival
+frame, so a far landmark shows there or not at all. Keep a gateway (or anything tall) either more than
 about 13 m behind the landing, so the camera sits in front of it, or off
 the line behind it - moved 8 m back along the same line, the gate still
 faces the landing, and walking in still read `picker: open`.

@@ -376,9 +376,12 @@ pub(super) fn handle_incoming_messages(
                 &mut bufs,
                 now,
             ),
-            OverlandsMessage::AvatarRecordsPublished => {
-                record_updates::handle_records_published(msg.sender, &mut commands, &mut peers)
-            }
+            OverlandsMessage::AvatarRecordsPublished => record_updates::handle_records_published(
+                msg.sender,
+                &mut commands,
+                &mut peers,
+                &mut avatar_cache,
+            ),
             OverlandsMessage::RoomStateUpdate { record_json } => record_updates::handle_room_state(
                 msg.sender,
                 record_json,
@@ -561,5 +564,114 @@ mod tests {
                 "{changed:?} names different records and must be fetched afresh"
             );
         }
+    }
+
+    /// #1485, seen live: an owner re-fitted what they wear and saved. The
+    /// preview broadcast before the publish notice named the same records,
+    /// so it reached the cache with the pre-save resolution carried in; the
+    /// notice made the live peer re-fetch, and the room saw the new body.
+    /// Then the owner reconnected - a new peer id, the same DID - and the
+    /// adoption installed the cached record, still resolved, which nothing
+    /// fetches again: everyone was back on the old body until they logged
+    /// out.
+    #[test]
+    fn a_publish_notice_reaches_the_copy_a_reconnect_installs() {
+        use bevy::ecs::system::RunSystemOnce;
+
+        const OWNER: &str = "did:plc:savedthenreconnected";
+        const BYSTANDER: &str = "did:plc:savednothingatall";
+        let id = |n: u8| -> PeerId {
+            serde_json::from_str(&format!("\"00000000-0000-0000-0000-0000000000{n:02}\""))
+                .expect("a well-formed uuid")
+        };
+        let peer = |n: u8, did: &str, avatar: Option<AvatarRecord>| RemotePeer {
+            peer_id: id(n),
+            did: Some(did.to_owned()),
+            handle: None,
+            muted: false,
+            avatar,
+            build: None,
+            connected_at: 0.0,
+        };
+        let worn = || resolved_record("3jzfcijpj2z2a", &["att-1"]);
+
+        let mut world = World::new();
+        world.init_resource::<crate::state::MutedDids>();
+        let mut cache = PeerAvatarCache::default();
+        cache.insert(OWNER.to_owned(), worn());
+        cache.insert(BYSTANDER.to_owned(), worn());
+        world.insert_resource(cache);
+        world.spawn((
+            peer(1, OWNER, Some(worn())),
+            Transform::default(),
+            TransformBuffer::default(),
+        ));
+
+        world
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut peers: Query<PeerParts>,
+                      mut cache: ResMut<PeerAvatarCache>| {
+                    record_updates::handle_records_published(
+                        id(1),
+                        &mut commands,
+                        &mut peers,
+                        &mut cache,
+                    );
+                },
+            )
+            .expect("the notice is handled");
+
+        // The owner leaves and comes back under a new peer id.
+        let returned = world
+            .spawn(RemotePeer {
+                did: None,
+                ..peer(2, OWNER, None)
+            })
+            .id();
+        world
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut peers: Query<&mut RemotePeer>,
+                      mut muted: ResMut<crate::state::MutedDids>,
+                      mut cache: ResMut<PeerAvatarCache>| {
+                    let mut peer = peers.get_mut(returned).expect("the returning peer");
+                    crate::network::presence::adopt_peer_did(
+                        &mut commands,
+                        returned,
+                        &mut peer,
+                        id(2),
+                        OWNER,
+                        &mut muted,
+                        &mut cache,
+                        1.0,
+                    );
+                },
+            )
+            .expect("the reconnect is adopted");
+
+        let installed = world
+            .get::<RemotePeer>(returned)
+            .and_then(|peer| peer.avatar.as_ref())
+            .and_then(|record| record.body.rigged_ref())
+            .expect("the reconnect installs the cached outfit");
+        assert!(
+            installed.resolved.is_none(),
+            "a saved body must be fetched afresh after a reconnect, not restored from memory"
+        );
+        assert_eq!(
+            installed.attachments,
+            vec![String::from("att-1")],
+            "only the fetched copy goes - the references still say what to fetch"
+        );
+        // Non-vacuity: the notice is one owner's news, not a cache flush.
+        assert!(
+            world
+                .resource::<PeerAvatarCache>()
+                .get(BYSTANDER)
+                .and_then(|record| record.body.rigged_ref())
+                .is_some_and(|rig| rig.resolved.is_some()),
+            "someone who saved nothing keeps their resolution"
+        );
     }
 }

@@ -12,7 +12,9 @@ import subprocess
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
 AGENT = os.path.join(REPO, "target", "test-release", "agent")
-RENDER = os.path.join(REPO, "target", "test-release", "render")
+# AGENT_RENDER points the tools at a copy of the render tool: a sub-agent rebuilding it (with
+# mutant guards, or half-way through a link) must not change the binary a session is using.
+RENDER = os.environ.get("AGENT_RENDER") or os.path.join(REPO, "target", "test-release", "render")
 ENV = dict(os.environ, BEVY_ASSET_ROOT=REPO)
 
 

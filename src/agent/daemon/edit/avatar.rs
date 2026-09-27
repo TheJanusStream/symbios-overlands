@@ -64,6 +64,10 @@ pub(super) fn set(world: &mut World, pointer: &str, value: Value) -> Result<Valu
     let appended = set_part(&mut document, pointer, value.clone())?;
     // An append is read back, and answered, where it landed (#1470).
     let at = appended.as_deref().unwrap_or(pointer);
+    let ignored_at = super::json::ignored_keys(&document, at, |document| {
+        let read = from_json(&live, document.clone()).ok()?;
+        to_json(&read).ok()
+    });
     let mut edited = from_json(&live, document)?;
     // What was sent, as the record writes it, is read before the sanitiser
     // runs: read after, it was what the world kept, and an avatar's answer
@@ -100,6 +104,9 @@ pub(super) fn set(world: &mut World, pointer: &str, value: Value) -> Result<Valu
     }
     if !adjusted_at.is_empty() {
         answer["adjusted_at"] = json!(adjusted_at);
+    }
+    if !ignored_at.is_empty() {
+        answer["ignored_at"] = json!(ignored_at);
     }
     Ok(answer)
 }
@@ -315,6 +322,25 @@ mod tests {
             refused.contains("in the node at /record/body/visuals/children/0;"),
             "{refused}"
         );
+    }
+
+    /// #1483 in the avatar: a key the sculpt does not have, set on its own,
+    /// is named; a real one set to what it holds is not.
+    #[test]
+    fn a_key_the_avatar_does_not_have_is_named() {
+        let (mut app, _) = app_in(AGENT);
+        wearing(&mut app, seeded(true));
+
+        let answer = set(app.world_mut(), "/body/composites/wisdom", json!(900)).expect("set");
+        assert_eq!(
+            answer["ignored_at"],
+            json!(["/body/composites/wisdom"]),
+            "{answer}"
+        );
+
+        let age = get(app.world_mut(), "/body/composites/age").expect("get")["value"].clone();
+        let answer = set(app.world_mut(), "/body/composites/age", age).expect("set");
+        assert!(answer.get("ignored_at").is_none(), "{answer}");
     }
 
     /// A value the record leaves out is no adjustment (#1438): `gait` set

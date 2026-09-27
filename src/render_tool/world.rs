@@ -25,8 +25,10 @@
 //! by the same `Drive` / `AvatarDriver` pair the game hangs a local player
 //! on, so what the clip shows is the engine's own gait on the real ground.
 //! The first seed is the lead the rig follows; the rest walk beside it.
-
-use std::f32::consts::PI;
+//! `--walker-avatar FILE` (#1482) puts a rigged body read from a file at the
+//! head of the group instead - the agent's own person, built and dressed as
+//! the game builds and dresses it (`rigged.rs`), walking its world at true
+//! scale beside its buildings - and any seeds walk beside that.
 
 use bevy::camera::RenderTarget;
 use bevy::core_pipeline::prepass::DepthPrepass;
@@ -46,6 +48,8 @@ use crate::world_builder::compile::CompileJob;
 
 use super::headless::{ClipTiming, Clock, PendingWear, TileCam};
 use super::rig::Focus;
+use super::rigged::FileBody;
+use crate::player::visuals::rigged_root_transform;
 
 /// The world subject: the record the pipeline compiles, and the DID it is
 /// filed under (what the room's own portal faces skip fetching).
@@ -59,8 +63,12 @@ pub(super) struct WorldSpec {
 pub(super) struct WalkerSpec {
     /// The seeds the bodies are rolled from - the same derivation a fresh
     /// account's default look takes. The first is the lead the rig
-    /// follows; the rest walk beside it (see [`companion_offset`]).
+    /// follows, unless a file body leads; the rest walk beside it (see
+    /// [`companion_offset`]).
     pub(super) seeds: Vec<u64>,
+    /// `--walker-avatar` (#1482): the file whose rigged body leads the group,
+    /// built before the app stood up and waiting in a [`FileBody`].
+    pub(super) avatar: Option<String>,
     /// Walking pace in metres per second.
     pub(super) pace: f32,
     /// Where the walk starts, `x,z`; the record's default landing when
@@ -81,6 +89,35 @@ pub(super) struct WalkerSpec {
     /// `--walker-spread`: metres between neighbouring bodies across the
     /// line of walk.
     pub(super) spread: f32,
+}
+
+/// One body of a `--walker` group, in walking order - see
+/// [`WalkerSpec::bodies`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WalkerBody {
+    /// `--walker-avatar`'s rigged body, dressed as its file says.
+    File,
+    /// A `--walker` seed, and its place among the seeds - what
+    /// `--walker-outfit` counts by.
+    Seed { seed: u64, nth: usize },
+}
+
+impl WalkerSpec {
+    /// The bodies that walk, the lead first: `--walker-avatar`'s when there
+    /// is one - the body `--focus walker` follows is the agent's own - then
+    /// every seed in the order given.
+    pub(super) fn bodies(&self) -> Vec<WalkerBody> {
+        self.avatar
+            .iter()
+            .map(|_| WalkerBody::File)
+            .chain(
+                self.seeds
+                    .iter()
+                    .enumerate()
+                    .map(|(nth, &seed)| WalkerBody::Seed { seed, nth }),
+            )
+            .collect()
+    }
 }
 
 /// One `--walker-outfit`: the top's and the trousers' sRGB colours, and
@@ -385,7 +422,7 @@ pub(super) fn companion_offset(index: usize, spread: f32) -> (f32, f32) {
 fn walker_starts(spec: &WalkerSpec, record: &RoomRecord) -> Vec<(Vec2, Vec2)> {
     let (from, dir) = walker_path(spec, record);
     let right = Vec2::new(-dir.y, dir.x);
-    (0..spec.seeds.len())
+    (0..spec.bodies().len())
         .map(|i| {
             let (across, along) = companion_offset(i, spec.spread);
             (from + right * across + dir * along, dir)
@@ -405,6 +442,7 @@ pub(super) fn spawn_walker(
     record: Res<LiveRoomRecord>,
     heightmap: Res<FinishedHeightMap>,
     existing: Query<(), With<Walker>>,
+    file_body: Option<Res<FileBody>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
@@ -413,18 +451,33 @@ pub(super) fn spawn_walker(
     if !existing.is_empty() {
         return;
     }
-    for (i, ((from2, dir2), &seed)) in walker_starts(&spec, &record.0)
+    for (i, ((from2, dir2), body)) in walker_starts(&spec, &record.0)
         .into_iter()
-        .zip(&spec.seeds)
+        .zip(spec.bodies())
         .enumerate()
     {
+        let dressed = match body {
+            WalkerBody::File => {
+                let Some(built) = file_body.as_ref().and_then(|f| f.take()) else {
+                    error!("--walker-avatar: the file's body was not built; it does not walk");
+                    continue;
+                };
+                Dressed {
+                    name: format!("--walker-avatar {}", spec.avatar.as_deref().unwrap_or("?")),
+                    idle_seed: built.idle_seed,
+                    avatar: built.avatar,
+                    worn: built.worn,
+                }
+            }
+            WalkerBody::Seed { seed, nth } => seeded_walker(&spec, i, seed, nth),
+        };
         spawn_one_walker(
             &mut commands,
             &spec,
             &timing,
             &heightmap,
             i,
-            seed,
+            dressed,
             from2,
             dir2,
             &mut meshes,
@@ -435,35 +488,26 @@ pub(super) fn spawn_walker(
     }
 }
 
-/// One body of the group: rolled from `seed`, dressed by the spec, started
-/// at `from2` heading `dir2`, the lead if it is the first.
-#[allow(clippy::too_many_arguments)]
-fn spawn_one_walker(
-    commands: &mut Commands,
-    spec: &WalkerSpec,
-    timing: &ClipTiming,
-    heightmap: &FinishedHeightMap,
-    index: usize,
-    seed: u64,
-    from2: Vec2,
-    dir2: Vec2,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    images: &mut Assets<Image>,
-    bindposes: &mut Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
-) {
-    let from = Vec3::new(
-        from2.x,
-        heightmap.world_height_at(from2.x, from2.y),
-        from2.y,
-    );
-    let dir = Vec3::new(dir2.x, 0.0, dir2.y);
+/// A walker's body, built, and what it wears.
+struct Dressed {
+    /// How the log names it.
+    name: String,
+    /// What its idle and blinks are seeded with.
+    idle_seed: u64,
+    avatar: symbios_avatar::Avatar,
+    worn: Vec<ResolvedAttachment>,
+}
+
+/// The body one `--walker` seed rolls, in its `--walker-outfit` (counted
+/// among the seeds, `nth`), dressed in every `--walker-wear` item; `index`
+/// is its place in the whole group, which names its worn items.
+fn seeded_walker(spec: &WalkerSpec, index: usize, seed: u64, nth: usize) -> Dressed {
     // With the far tier, because a walker is the one subject this tool draws
     // at a distance: `--dist` past `HairLod::switch` is exactly the shot the
     // switch exists for, and a body built without one draws its near hair at
     // every distance and shows nothing (#1358).
     let avatar = symbios_avatar::Avatar::build_with(
-        &walker_record(seed, spec.outfits.get(index).copied()),
+        &walker_record(seed, spec.outfits.get(nth).copied()),
         &symbios_avatar::AvatarConfig {
             far_hair: true,
             ..symbios_avatar::AvatarConfig::default()
@@ -493,29 +537,68 @@ fn spawn_one_walker(
             }
         })
         .collect();
+    Dressed {
+        name: seed.to_string(),
+        idle_seed: seed,
+        avatar,
+        worn,
+    }
+}
 
+/// One body of the group, started at `from2` heading `dir2`, the lead if it
+/// is the first.
+#[allow(clippy::too_many_arguments)]
+fn spawn_one_walker(
+    commands: &mut Commands,
+    spec: &WalkerSpec,
+    timing: &ClipTiming,
+    heightmap: &FinishedHeightMap,
+    index: usize,
+    body: Dressed,
+    from2: Vec2,
+    dir2: Vec2,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
+    bindposes: &mut Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
+) {
+    let from = Vec3::new(
+        from2.x,
+        heightmap.world_height_at(from2.x, from2.y),
+        from2.y,
+    );
+    let dir = Vec3::new(dir2.x, 0.0, dir2.y);
     let chassis = commands
         .spawn((
             Transform::from_translation(from).looking_to(dir, Vec3::Y),
             Visibility::default(),
         ))
         .id();
-    // The game's facing bridge (`player::rigged::rigged_root_transform`):
+    // The game's facing bridge (`player::visuals::rigged_root_transform`):
     // engine bodies face `+Z`, the chassis is aimed with `looking_to`, whose
-    // `-Z` faces the travel, so the root turns half round between them.
+    // `-Z` faces the travel, so the root turns half round between them. No
+    // drop: this chassis rides the ground itself rather than a capsule's
+    // centre, so the root's offset is zero.
     let mut root = commands.spawn((
-        Transform::from_rotation(Quat::from_rotation_y(PI)),
+        rigged_root_transform(0.0),
         Visibility::default(),
-        AvatarDriver::seeded(seed),
+        AvatarDriver::seeded(body.idle_seed),
         Drive::default(),
         ChildOf(chassis),
     ));
-    if !worn.is_empty() {
-        root.insert(PendingWear(worn));
+    if !body.worn.is_empty() {
+        root.insert(PendingWear(body.worn));
     }
     let root = root.id();
     spawn_avatar(
-        commands, root, avatar, 0.0, meshes, materials, images, bindposes,
+        commands,
+        root,
+        body.avatar,
+        0.0,
+        meshes,
+        materials,
+        images,
+        bindposes,
     );
     commands.entity(chassis).insert(Walker {
         from,
@@ -527,7 +610,7 @@ fn spawn_one_walker(
     });
     info!(
         "walker {}: from ({:.1}, {:.1}) heading ({:.2}, {:.2}) at {:.2} m/s, walking from t={:.2}s",
-        seed,
+        body.name,
         from.x,
         from.z,
         dir.x,
@@ -579,6 +662,7 @@ mod tests {
     fn spec() -> WalkerSpec {
         WalkerSpec {
             seeds: vec![3],
+            avatar: None,
             pace: 1.4,
             from: None,
             to: None,
@@ -614,6 +698,38 @@ mod tests {
         assert!((starts[2].0 - expect2).length() < 1e-5, "{:?}", starts[2].0);
         assert_eq!(companion_offset(3, 1.6), (3.2, -1.5));
         assert_eq!(companion_offset(4, 1.6), (-3.2, -2.0));
+    }
+
+    /// #1482: `--walker-avatar`'s body leads - it is the one `--focus walker`
+    /// follows - and the seeds walk beside it, each still counted among the
+    /// seeds for its `--walker-outfit`; without seeds it walks alone.
+    #[test]
+    fn the_file_body_leads_the_walkers() {
+        let record = RoomRecord::default_for_seed(3, "did:render:3");
+        let mut s = spec();
+        s.seeds = vec![3, 7];
+        s.avatar = Some("avatar.json".to_owned());
+        assert_eq!(
+            s.bodies(),
+            [
+                WalkerBody::File,
+                WalkerBody::Seed { seed: 3, nth: 0 },
+                WalkerBody::Seed { seed: 7, nth: 1 },
+            ]
+        );
+        s.from = Some([0.0, 0.0]);
+        s.to = Some([0.0, -10.0]);
+        let starts = walker_starts(&s, &record);
+        assert_eq!(starts.len(), 3, "one start per body, the file's included");
+        assert!(
+            starts[0].0.length() < 1e-6,
+            "the file's body is the lead, on the line"
+        );
+        s.seeds.clear();
+        assert_eq!(s.bodies(), [WalkerBody::File]);
+        s.avatar = None;
+        s.seeds = vec![5];
+        assert_eq!(s.bodies(), [WalkerBody::Seed { seed: 5, nth: 0 }]);
     }
 
     /// Since engine 0.10 a seed rolls its own outfit (#358), so two seeds

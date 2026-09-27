@@ -160,7 +160,10 @@ impl AttachmentsApplied {
 ///     until the resolution lands.
 ///   - `Some(&[])` - a generator body, which wears no rig attachments at
 ///     all. Genuinely empty, so anything standing comes off.
-fn dressed_by(record: &crate::pds::AvatarRecord) -> Option<&[ResolvedAttachment]> {
+///
+/// The render tool's `--rigged` sheet dresses from this too (#1482), so it
+/// wears what the game would.
+pub(crate) fn dressed_by(record: &crate::pds::AvatarRecord) -> Option<&[ResolvedAttachment]> {
     match record.body.rigged_ref() {
         Some(rig) => rig
             .resolved

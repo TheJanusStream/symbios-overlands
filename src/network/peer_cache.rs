@@ -32,10 +32,18 @@ use super::presence::{FetchState, PeerResolve, RetryBackoff};
 /// promotes it to the back of the FIFO so live peers in a steady-state
 /// room are not evicted by churn from short-lived joiners.
 ///
-/// The cache is invalidated through the same channels that would invalidate
-/// a stale in-memory copy: an inbound `AvatarStateUpdate` from the owner
-/// overwrites it, and [`crate::state::AppState::InGame`] exit (`logout`)
-/// wipes the whole map so a new login can't see a previous user's peers.
+/// What keeps an entry current: an inbound `AvatarStateUpdate` from the
+/// owner replaces it - carrying the rigged body's fetched records along
+/// when the references are unchanged, as the live copy does (#1113); an
+/// `AvatarRecordsPublished` notice drops those fetched records, so a
+/// reconnect after a save fetches them afresh ([`Self::forget_resolution`],
+/// #1485); and [`crate::state::AppState::InGame`] exit (`logout`) wipes the
+/// whole map so a new login can't see a previous user's peers. A save this
+/// client never heard about - the owner saved while it was in another room,
+/// or its link was down - is not seen by any of these, and the entry keeps
+/// the old records until the owner changes what it wears (#1489); a fetch
+/// already running when a notice lands can put pre-save records back
+/// (#1490).
 #[derive(Resource, Default)]
 pub struct PeerAvatarCache {
     by_did: std::collections::HashMap<String, AvatarRecord>,
@@ -62,6 +70,25 @@ impl PeerAvatarCache {
         }
         self.order.push_back(did.clone());
         self.by_did.insert(did, record);
+    }
+
+    /// Drop the fetched copy of `did`'s body and worn records, keeping the
+    /// references that say what to fetch (#1485).
+    ///
+    /// A publish notice makes the live peer re-fetch, but the entry here was
+    /// written by the preview broadcast just before it, with the pre-save
+    /// resolution carried in because the references had not changed. A
+    /// reconnect - a new peer id, the same DID - installs the entry as it
+    /// stands, and a resolved rig is never fetched again: the owner's save
+    /// reached the room, then reverted for everyone on their next reconnect.
+    pub(super) fn forget_resolution(&mut self, did: &str) {
+        if let Some(rig) = self
+            .by_did
+            .get_mut(did)
+            .and_then(|record| record.body.rigged_mut())
+        {
+            rig.resolved = None;
+        }
     }
 
     pub fn clear(&mut self) {

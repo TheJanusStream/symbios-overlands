@@ -3,7 +3,11 @@ use bevy::prelude::*;
 use bevy_symbios_avatar::{AvatarDriver, Drive, spawn_avatar};
 use symbios_avatar::Avatar;
 
-use crate::interaction::locomotion::locomotion_total_height;
+// The three questions a rigged body is built and hung by live beside the
+// avatar spawn path (#1482), so the render tool's `--rigged` asks them the
+// same way; `rigged_root_transform` is re-exported for this module's tests.
+pub(super) use crate::player::visuals::rigged_root_transform;
+use crate::player::visuals::{rigged_build_job, rigged_root_offset, settled_atlas};
 use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 
 use super::{
@@ -81,167 +85,157 @@ pub(in crate::player) fn kick_rigged_builds(
         .iter()
         .map(|(_, child_of)| child_of.parent())
         .collect();
-    let full_atlas = symbios_avatar::AvatarConfig::default().atlas;
+    let full_atlas = settled_atlas();
 
-    let mut visit = |chassis: Entity,
-                     record: Option<&crate::pds::AvatarRecord>,
-                     source_changed: bool| {
-        // The gate that makes standing still free (#1135).
-        //
-        // Everything below this - a full `AvatarRecord` deep-equality against
-        // the body that is standing, per body, every frame - used to run for
-        // thousands of consecutive frames to conclude "unchanged". It can be
-        // skipped only when nothing that feeds it can have moved, and that is
-        // three conditions, not one:
-        //
-        //   * the record this chassis draws from has not changed since the
-        //     last look. A bare `Changed<>` gate would stop here and be
-        //     WRONG, because the record can change while a build is in flight
-        //     - the change is noticed, no build is kicked (one at a time per
-        //     chassis), and it is the NEXT frame's mismatch that kicks the
-        //     newer one. `RiggedSteady` is therefore a latch, not a tick: set
-        //     only once the chassis is genuinely reconciled, and cleared by
-        //     any change, so a change noticed mid-flight stays noticed.
-        //   * the standing body was built at the FULL atlas. This is what
-        //     keeps the settle ladder (#1059) working: a draft-atlas body is
-        //     owed a full-atlas rebuild on a TIMER with no record change
-        //     behind it, so while one is owed the answer really can change
-        //     with nothing but the clock, and the ladder has to keep being
-        //     re-evaluated. At the full atlas there is no rung above.
-        //   * a root is actually standing, and no build is in flight.
-        //
-        // A FAILED build is reconciled too (#1255). The stamp below always
-        // claimed this - "re-kicking the same doomed record every frame
-        // would burn a core" - but only delivered it for a chassis that
-        // already had a body standing, because both this gate and the latch
-        // further down also require a root. A build that fails installs no
-        // root, so the one case the comment names, a doomed record with
-        // nothing standing, re-dispatched the same build every frame for
-        // the rest of the session.
-        //
-        // `RiggedBuildFailed` is deliberately NOT cleared here. It is only
-        // ever read beside `RiggedApplied.record`, so a record that really
-        // changed invalidates it through the value compare below - while a
-        // `source_changed` that turns out to touch nothing (the resource is
-        // shared by every local surface) leaves the chassis reconciled
-        // instead of re-dispatching the doomed build one more time.
-        if source_changed {
-            // `try_*` at every command in this system that addresses a
-            // chassis (#1411): the query gathers peers as well as the local
-            // player, and `network::lifecycle` despawns a peer the frame
-            // its transport drops - unordered against this one, so an
-            // ordinary insert can land on an entity that is already gone
-            // and abort the client (#1410).
-            commands.entity(chassis).try_remove::<RiggedSteady>();
-        } else if steady.contains(chassis)
-            && !building.contains(chassis)
-            && (failed.contains(chassis)
-                || (chassis_with_root.contains(&chassis)
-                    && applied.get(chassis).is_ok_and(|b| b.atlas >= full_atlas)))
-        {
-            return;
-        }
-
-        let rigged = record.and_then(|r| r.body.rigged_ref());
-        // Rigged but unresolved is a WAIT, not a teardown: a live-preview
-        // broadcast arrives with its references unresolved (`resolved` never
-        // rides the wire), and tearing the standing body down while
-        // `network::peer_cache` re-resolves would blink every rigged peer
-        // out on every preview. The body that is up stays up.
-        if rigged.is_some_and(|rig| rig.resolved.is_none()) {
-            return;
-        }
-        let resolved = rigged.and_then(|rig| rig.resolved.as_ref());
-        match resolved {
-            Some(resolved) => {
-                let has_root = chassis_with_root.contains(&chassis);
-                let built = applied.get(chassis).ok();
-                // Compared on the build identity, not the whole record
-                // (#1257 f110): a name, a seed number or a lock toggle
-                // changes the record and not the body.
-                let same_record = built.is_some_and(|built| {
-                    build_identity(&built.record) == build_identity(&resolved.body)
-                });
-                // The draft/settle ladder (#1059): while a record is moving -
-                // an editor slider mid-drag, a stream of peer previews - a
-                // build is only worth the draft atlas, because the next edit
-                // obsoletes it; once it has been still for SETTLE_SECS the
-                // full-atlas build is owed, even though nothing changed.
-                if !same_record {
-                    commands
-                        .entity(chassis)
-                        .try_insert(RiggedSettle { changed_at: now });
-                }
-                let settled = settle
-                    .get(chassis)
-                    .ok()
-                    .is_none_or(|s| now - s.changed_at >= SETTLE_SECS);
-                let atlas = if settled { full_atlas } else { DRAFT_ATLAS };
-                let atlas_owed = built.is_some_and(|built| built.atlas < atlas);
-                // A record whose last build FAILED is reconciled: there is
-                // nothing left to try (#1255). The atlas ladder is skipped
-                // for it deliberately - a draft failure is not a texture
-                // problem, so re-running it at the full atlas only spends a
-                // second build to fail identically.
-                let doomed = same_record && failed.contains(chassis);
-                if doomed || (same_record && has_root && !atlas_owed) {
-                    // Reconciled: latch it so the compare above is skipped
-                    // until something clears the latch.
-                    commands.entity(chassis).try_insert(RiggedSteady);
-                    return;
-                }
-                // One in flight per chassis: a stale target lands, and the
-                // next frame's mismatch kicks the newer one.
-                if building.contains(chassis) {
-                    return;
-                }
-                let target = resolved.body.clone();
-                let offset = record.map_or(0.0, |r| locomotion_total_height(&r.locomotion) / 2.0);
-                // Through the platform-routed offload (#1061), not the compute
-                // pool directly: on wasm that pool runs on the main thread, so
-                // every body would be a dropped frame or several. Native still
-                // lands on `AsyncComputeTaskPool` inside `offload`.
-                // Every body this file installs is drawn by the chase camera,
-                // which orbits from 2 m to 200 m (`cfg::camera`), so every one
-                // of them crosses the hair switch - the owner's own included,
-                // whose resting 12 m orbit already sits 12.38 m from its root.
-                // Asking for the far tier here is therefore not a peer-only
-                // optimisation: it is what keeps a zoomed-out owner and the
-                // peers beside them drawing the same thing (#1358).
-                let task = crate::offload::offload(crate::offload::GenJob::AvatarBuild {
-                    record: Box::new(target.clone()),
-                    atlas,
-                    far_hair: true,
-                });
-                commands.entity(chassis).try_insert(RiggedBuild {
-                    target,
-                    atlas,
-                    offset,
-                    kicked_at: now as f64,
-                    announced: false,
-                    task,
-                });
+    let mut visit =
+        |chassis: Entity, record: Option<&crate::pds::AvatarRecord>, source_changed: bool| {
+            // The gate that makes standing still free (#1135).
+            //
+            // Everything below this - a full `AvatarRecord` deep-equality against
+            // the body that is standing, per body, every frame - used to run for
+            // thousands of consecutive frames to conclude "unchanged". It can be
+            // skipped only when nothing that feeds it can have moved, and that is
+            // three conditions, not one:
+            //
+            //   * the record this chassis draws from has not changed since the
+            //     last look. A bare `Changed<>` gate would stop here and be
+            //     WRONG, because the record can change while a build is in flight
+            //     - the change is noticed, no build is kicked (one at a time per
+            //     chassis), and it is the NEXT frame's mismatch that kicks the
+            //     newer one. `RiggedSteady` is therefore a latch, not a tick: set
+            //     only once the chassis is genuinely reconciled, and cleared by
+            //     any change, so a change noticed mid-flight stays noticed.
+            //   * the standing body was built at the FULL atlas. This is what
+            //     keeps the settle ladder (#1059) working: a draft-atlas body is
+            //     owed a full-atlas rebuild on a TIMER with no record change
+            //     behind it, so while one is owed the answer really can change
+            //     with nothing but the clock, and the ladder has to keep being
+            //     re-evaluated. At the full atlas there is no rung above.
+            //   * a root is actually standing, and no build is in flight.
+            //
+            // A FAILED build is reconciled too (#1255). The stamp below always
+            // claimed this - "re-kicking the same doomed record every frame
+            // would burn a core" - but only delivered it for a chassis that
+            // already had a body standing, because both this gate and the latch
+            // further down also require a root. A build that fails installs no
+            // root, so the one case the comment names, a doomed record with
+            // nothing standing, re-dispatched the same build every frame for
+            // the rest of the session.
+            //
+            // `RiggedBuildFailed` is deliberately NOT cleared here. It is only
+            // ever read beside `RiggedApplied.record`, so a record that really
+            // changed invalidates it through the value compare below - while a
+            // `source_changed` that turns out to touch nothing (the resource is
+            // shared by every local surface) leaves the chassis reconciled
+            // instead of re-dispatching the doomed build one more time.
+            if source_changed {
+                // `try_*` at every command in this system that addresses a
+                // chassis (#1411): the query gathers peers as well as the local
+                // player, and `network::lifecycle` despawns a peer the frame
+                // its transport drops - unordered against this one, so an
+                // ordinary insert can land on an entity that is already gone
+                // and abort the client (#1410).
+                commands.entity(chassis).try_remove::<RiggedSteady>();
+            } else if steady.contains(chassis)
+                && !building.contains(chassis)
+                && (failed.contains(chassis)
+                    || (chassis_with_root.contains(&chassis)
+                        && applied.get(chassis).is_ok_and(|b| b.atlas >= full_atlas)))
+            {
+                return;
             }
-            None => {
-                // Not rigged (or not resolved): the generator path owns this
-                // chassis. Drop any rigged residue so switching back later
-                // rebuilds from scratch.
-                if applied.contains(chassis) || building.contains(chassis) {
-                    commands.entity(chassis).try_remove::<(
-                        RiggedApplied,
-                        RiggedBuild,
-                        RiggedSteady,
-                        RiggedSettle,
-                    )>();
-                    for (root, child_of) in &roots {
-                        if child_of.parent() == chassis {
-                            commands.entity(root).despawn();
+
+            let rigged = record.and_then(|r| r.body.rigged_ref());
+            // Rigged but unresolved is a WAIT, not a teardown: a live-preview
+            // broadcast arrives with its references unresolved (`resolved` never
+            // rides the wire), and tearing the standing body down while
+            // `network::peer_cache` re-resolves would blink every rigged peer
+            // out on every preview. The body that is up stays up.
+            if rigged.is_some_and(|rig| rig.resolved.is_none()) {
+                return;
+            }
+            let resolved = rigged.and_then(|rig| rig.resolved.as_ref());
+            match resolved {
+                Some(resolved) => {
+                    let has_root = chassis_with_root.contains(&chassis);
+                    let built = applied.get(chassis).ok();
+                    // Compared on the build identity, not the whole record
+                    // (#1257 f110): a name, a seed number or a lock toggle
+                    // changes the record and not the body.
+                    let same_record = built.is_some_and(|built| {
+                        build_identity(&built.record) == build_identity(&resolved.body)
+                    });
+                    // The draft/settle ladder (#1059): while a record is moving -
+                    // an editor slider mid-drag, a stream of peer previews - a
+                    // build is only worth the draft atlas, because the next edit
+                    // obsoletes it; once it has been still for SETTLE_SECS the
+                    // full-atlas build is owed, even though nothing changed.
+                    if !same_record {
+                        commands
+                            .entity(chassis)
+                            .try_insert(RiggedSettle { changed_at: now });
+                    }
+                    let settled = settle
+                        .get(chassis)
+                        .ok()
+                        .is_none_or(|s| now - s.changed_at >= SETTLE_SECS);
+                    let atlas = if settled { full_atlas } else { DRAFT_ATLAS };
+                    let atlas_owed = built.is_some_and(|built| built.atlas < atlas);
+                    // A record whose last build FAILED is reconciled: there is
+                    // nothing left to try (#1255). The atlas ladder is skipped
+                    // for it deliberately - a draft failure is not a texture
+                    // problem, so re-running it at the full atlas only spends a
+                    // second build to fail identically.
+                    let doomed = same_record && failed.contains(chassis);
+                    if doomed || (same_record && has_root && !atlas_owed) {
+                        // Reconciled: latch it so the compare above is skipped
+                        // until something clears the latch.
+                        commands.entity(chassis).try_insert(RiggedSteady);
+                        return;
+                    }
+                    // One in flight per chassis: a stale target lands, and the
+                    // next frame's mismatch kicks the newer one.
+                    if building.contains(chassis) {
+                        return;
+                    }
+                    let target = resolved.body.clone();
+                    let offset = record.map_or(0.0, rigged_root_offset);
+                    // Through the platform-routed offload (#1061), not the compute
+                    // pool directly: on wasm that pool runs on the main thread, so
+                    // every body would be a dropped frame or several. Native still
+                    // lands on `AsyncComputeTaskPool` inside `offload`. The job
+                    // itself - the far hair tier included - is
+                    // `rigged_build_job`'s, which says why.
+                    let task = crate::offload::offload(rigged_build_job(&target, atlas));
+                    commands.entity(chassis).try_insert(RiggedBuild {
+                        target,
+                        atlas,
+                        offset,
+                        kicked_at: now as f64,
+                        announced: false,
+                        task,
+                    });
+                }
+                None => {
+                    // Not rigged (or not resolved): the generator path owns this
+                    // chassis. Drop any rigged residue so switching back later
+                    // rebuilds from scratch.
+                    if applied.contains(chassis) || building.contains(chassis) {
+                        commands.entity(chassis).try_remove::<(
+                            RiggedApplied,
+                            RiggedBuild,
+                            RiggedSteady,
+                            RiggedSettle,
+                        )>();
+                        for (root, child_of) in &roots {
+                            if child_of.parent() == chassis {
+                                commands.entity(root).despawn();
+                            }
                         }
                     }
                 }
             }
-        }
-    };
+        };
 
     if let Some(live) = live.as_ref() {
         let changed = live.is_changed();
@@ -408,31 +402,4 @@ pub(in crate::player) fn install_built_body(
     spawn_avatar(
         commands, root, avatar, 0.0, meshes, materials, images, bindposes,
     );
-}
-
-/// Where the skinned body hangs relative to its chassis (#1066).
-///
-/// Two corrections, both of them convention mismatches rather than tuning:
-///
-/// * **Height** - the engine's ground plane is `y = 0`, so the body drops by
-///   half the collider so its feet meet the chassis capsule's bottom.
-/// * **Facing** - a half turn about Y. `symbios_avatar::rig::landmark::FORWARD`
-///   is `+Z`, the glTF/VRM convention the engine shares; Bevy's forward is
-///   `-Z`, and the chassis is steered by
-///   `Transform::looking_to(movement_direction, Y)`, which aims *its* `-Z`
-///   down the direction of travel. Hanging the body off that with no rotation
-///   pointed the engine's `+Z` face directly away from where the avatar was
-///   going - walking correctly, moonwalking visibly. The half turn is applied
-///   here, on the one entity that bridges the two conventions, rather than by
-///   re-aiming the chassis (which the camera, the vehicles and the locomotion
-///   drive all share) or by rotating the clips (which are authored in the
-///   engine's frame and are consistent with the body).
-///
-/// Everything below this entity inherits the turn together - geometry, rig,
-/// clips, and the socket anchors that
-/// [`crate::player::attachments::LocalAttachment::rest_frame`] reconstructs an
-/// offset against - so worn props stay put relative to the body they are on.
-pub(super) fn rigged_root_transform(offset: f32) -> Transform {
-    Transform::from_xyz(0.0, -offset, 0.0)
-        .with_rotation(Quat::from_rotation_y(std::f32::consts::PI))
 }

@@ -3405,3 +3405,100 @@ mod hair_tiers {
         );
     }
 }
+
+/// #1482: the render tool's `--rigged` body is the one the game stands under
+/// a chassis for the same record - the game given the record itself, the tool
+/// given it as the JSON `agent avatar get ""` writes, read and built its own
+/// way.
+///
+/// The sculpt is one no seed rolls - taller and broader than seed 11's own -
+/// so a tool that drew a seeded or a default body, or dropped a sculpt axis
+/// on the way in, is caught by the rig and the meshes; one that built at
+/// another atlas or without the far hair tier, by the budget and the far
+/// tier; one that hung the body at another height under its chassis, by the
+/// root.
+#[test]
+fn the_render_tools_rigged_body_is_the_one_the_game_builds() {
+    use crate::render_tool::rigged;
+    bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default);
+    let mut record = rigged::tests::person(11, Vec::new());
+    let sculpt = record
+        .body
+        .rigged_mut()
+        .and_then(|rig| rig.resolved.as_mut())
+        .map(|resolved| &mut resolved.body.archetype);
+    let Some(symbios_avatar::Archetype::Humanoid(body)) = sculpt else {
+        panic!("seed 11 rolls a humanoid");
+    };
+    assert!(
+        (body.height - 2.05).abs() > 0.05,
+        "the sculpt must differ from the seed's"
+    );
+    body.height = 2.05;
+    body.shoulder_width = 0.6;
+    record.sanitize();
+    let file = rigged::tests::document(&record).to_string();
+    let avatar = rigged::parse_rigged(&file).expect("the file reads");
+    let tool = rigged::build_rigged(&avatar).expect("the tool builds it");
+
+    let mut app = test_app();
+    app.insert_resource(LiveAvatarRecord(record));
+    let chassis = app
+        .world_mut()
+        .spawn((
+            LocalPlayer,
+            Transform::default(),
+            GlobalTransform::default(),
+        ))
+        .id();
+    app.world_mut()
+        .run_system_once(kick_rigged_builds)
+        .expect("runs");
+    assert!(
+        app.world().get::<RiggedBuild>(chassis).is_some(),
+        "the game kicked a build for the record"
+    );
+    land_until_settled(&mut app, chassis);
+    app.update();
+    let mut roots = app
+        .world_mut()
+        .query_filtered::<(&Transform, &ChildOf, &BuiltBody), With<RiggedRoot>>();
+    let (root, game) = roots
+        .iter(app.world())
+        .find(|(_, child_of, _)| child_of.parent() == chassis)
+        .map(|(root, _, body)| (*root, &body.avatar))
+        .expect("the game stood a body under the chassis");
+
+    assert_eq!(
+        tool.avatar.budget, game.budget,
+        "draws, triangles, joints and texture bytes: the same job at the same atlas"
+    );
+    assert_eq!(
+        tool.avatar
+            .far_hair
+            .as_ref()
+            .map(|m| m.mesh.positions.len()),
+        game.far_hair.as_ref().map(|m| m.mesh.positions.len()),
+        "the far hair tier, grown or not, as the game grows it"
+    );
+    let joints = |a: &symbios_avatar::Avatar| -> Vec<Vec3> {
+        a.rig.joints.iter().map(|j| j.position).collect()
+    };
+    assert_eq!(joints(&tool.avatar), joints(game), "the same skeleton");
+    let meshes = |a: &symbios_avatar::Avatar| -> Vec<(Vec<Vec3>, Vec<Vec3>)> {
+        a.meshes
+            .iter()
+            .map(|m| (m.mesh.positions.clone(), m.mesh.colours.clone()))
+            .collect()
+    };
+    assert!(
+        meshes(&tool.avatar) == meshes(game),
+        "the same meshes, vertex for vertex and colour for colour"
+    );
+    assert!(
+        (root.translation.y + tool.offset).abs() < 1e-6,
+        "the game hangs the body {} below its chassis; the tool stands it {} above the feet",
+        -root.translation.y,
+        tool.offset
+    );
+}

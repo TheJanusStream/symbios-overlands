@@ -58,7 +58,9 @@ machine sees from anywhere, offline, in seconds - and nobody watches the
 experiments:
 
 - **Your body or a piece:** `render --generator part.json --out sheet.png`
-  (four sides, framed to fit).
+  (four sides, framed to fit). Add `--body` for your body's visuals: the file
+  is then held to a body's limits, not a room piece's, and the header names
+  every place it is not drawn as written.
 - **Your world as edited:** `render --world <your DID> --world-record
   room.json --focus=X,Z --dist D --elev DEG --yaw DEG --out view.png` -
   `room.json` is `room get`'s `value`, or your script's output before you

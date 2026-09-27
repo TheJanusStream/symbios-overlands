@@ -49,7 +49,7 @@ Render the tree offline instead, from four sides, in about 20 seconds:
 
 ```bash
 BEVY_ASSET_ROOT=<repo> <repo>/target/test-release/render \
-    --generator visuals.json --out sheet.png
+    --generator visuals.json --body --out sheet.png
 ```
 
 where `visuals.json` is the tree as `avatar set /record/body/visuals`
@@ -58,6 +58,101 @@ takes it. Then `A avatar set /record/body/visuals --file visuals.json` and
 steps of the avatar's undo), and `look` once to see it in the world.
 Write the body as a script that prints the JSON from named dimensions, as a
 building is.
+
+A **rigged** person is seen the same way, from its whole avatar rather than a
+tree (#1482). Pull it, edit the copy, and render the copy:
+
+```bash
+python3 <repo>/docs/agent/tools/rec.py pull avatar avatar.json
+BEVY_ASSET_ROOT=<repo> <repo>/target/test-release/render \
+    --rigged avatar.json --out person.png
+```
+
+The file is `{record, body, worn}` (the whole `agent avatar get ""` answer
+reads too). The sheet is the body built, hung and dressed exactly as the game
+does it, standing with its arms at its sides: four full-body views over three
+head close-ups. The full-body views are at one fixed scale, so a taller or
+shorter sculpt stands taller or shorter in its tile. It prints the body's size
+and one line per worn item, where it hangs or why it is not drawn; a malformed
+file is refused with the JSON pointer of what is wrong. Read the lines above
+the size line too: anything in the file that is not drawn as written (a
+misspelt key, a hair style name this build does not know, a value pulled into
+range) is named there by its pointer, and the game would draw it the same way
+without a word. Edit a sculpt axis in the copy (under `/body`, the same
+pointers `avatar set /body/...` takes), render again, and bring the edit live
+only once the sheet shows what was meant and names nothing. For scale, walk
+it through its world beside its buildings, in the world's saved record
+(`rec.py pull room room.json`):
+
+```bash
+BEVY_ASSET_ROOT=<repo> <repo>/target/test-release/render --world <did> \
+    --world-record room.json --walker-avatar avatar.json --focus walker \
+    --dist 9 --elev 12 --yaw 150 --out walk.png
+```
+
+`--focus walker` follows the file's body; `--yaw 150` looks at its face, and
+`--walker <seed>` adds a seeded person beside it for comparison.
+
+## Dressing a rigged person
+
+Session 879 made Reeve, a rigged reeve of about 1300, and the admin
+judged him three times: "look at it from various angles ... while walking
+and running", then "both side views: the centre part looks completely
+wrong and the offsets need tuning".
+
+- **A seeded account may be a vehicle.** The Avatar window's Body tab has
+  "Wear a rigged body" (`ui click "Avatar > Wear a rigged body"`);
+  `status.locomotion` then reads `humanoid`.
+- **The sculpt** is `avatar set /body/...`. Wire scale: 1000 = 1.0 on the
+  axes (-1..1, explorable to +-3), height in millimetres, age in whole
+  years; read symbios-avatar's `plan/*.rs` for the ranges, not memory.
+  Hair is per region (scalp, brows, chin, flanks, moustache): a style, a
+  cut, root and tip colours, and a skin layer (stubble); a chin and flank
+  skin density of 0.8/0.7 darkened the whole lower face, 0.52/0.26 read as
+  a close shave.
+- **The engine dresses a body in a top and trousers only.** Anything else
+  is a worn item, and a worn item's own record is editable: stash a
+  catalogue wearable (each stash is named anew - `Traveler's Satchel_1`,
+  `_2`; `wear`, `take-off` and `unstash` given the slug name it back since
+  #1484), `wear` it by that name,
+  then `avatar set /worn/N/item/item` (your generator) and
+  `/worn/N/item/socket`. Save the inventory too, so every worn item's
+  source exists.
+- **Measure the socket frames before authoring; do not assume them.** Hang
+  a ruled marker (a bar with a coloured ball each 10 cm along X, Y and Z)
+  on each socket and render once. Reeve's, measured so: `hips` and `waist`
+  sit at the body's FRONT, a buckle's place, the body's middle about 9 cm
+  behind them - and `waist` rides well above the girdle (a sword hung there
+  had its hilt at his chest); the leg roots (`left-hip`, `right-hip`) sit
+  OUTSIDE each hip, about 17 cm from the middle, +Y up, +Z outward, +X
+  backward on the left leg and forward on the right; `neck` is about 6 cm
+  behind the nape at jaw height, the neck's middle 12 cm in front of it;
+  the foot sockets are about 5 cm past the toe tips, +Z forward;
+  `right-hand` has +Y back up the forearm, +Z forward. Guessed frames put
+  the shoes in front of the feet and the hood on his back like a pack.
+- **A worn item is rigid on its joint, and a leg root swings with the
+  thigh.** Judge every worn thing walking AND running from four sides:
+  `render --world DID --world-record R --walker-avatar FILE --walker-pace
+  1.4` (5.0 runs) `--walk-from X,Z --walk-to X,Z --focus walker --dist 4.5
+  --elev 8 --yaw 0|90|150|270`. One long rigid skirt on the pelvis was
+  pierced by the legs at a walk and left behind at a run; a sword on a leg
+  root swung out with the thigh. Hang what must not swing from the hips;
+  give what follows a leg to that leg's root. A long skirt becomes a riding
+  surcoat: a short yoke on the hips and a half-skirt on each leg root (a
+  lathe with `path_cut` [0, 0.5], its axis set back to the body's middle).
+  Keep the halves to the knee: at a run a panel turns with its thigh, and a
+  mid-calf one jutted 0.6 m forward like a board.
+- **A body is shallower than it is wide**: a round skirt, girdle or cape
+  stands off it front and back - scale them 0.62-0.76 in Z. A single-walled
+  lathe shows its lit outer faces from inside as a pale lampshade; give a
+  skirt two walls (down the inside, across the hem, up the outside) so the
+  inside is a dark lining.
+- **An item's root shows where its socket is outside the body.** A carrier's
+  1 cm root cube at the neck socket sat beside the jaw in every close-up:
+  move the root into the body and shift its children back by as much.
+- **Save the avatar after every accepted change** (`rec.py save avatar`).
+  Unsaved avatar edits live only in the running daemon: a restart put Reeve
+  back in his old clothes in front of the admin.
 
 ## A workbench on the body
 

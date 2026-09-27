@@ -35,11 +35,22 @@
 //! cargo run --bin render -- --catalogue lsys_palm --ages 2,3,4,5
 //! #                                             # age-progression grid (#908)
 //! cargo run --bin render -- --wear satchel      # a wearable, worn (#1088)
+//! cargo run --bin render -- --rigged avatar.json # a rigged body from its
+//! #                                             # record, dressed (#1482)
+//! cargo run --bin render -- --world 3 --walker-avatar avatar.json --focus walker
+//! #                                             # ...walking its world
 //! cargo run --bin render -- --stitch a-frames,b-frames --out ab.gif
 //! #                                             # PNG frame dirs → one GIF
 //! # → /tmp/avatar-render/<label>.png  (front / ¾ / side / back tiles;
 //! #   with --ages one such row per iteration count), or <label>.gif
 //! ```
+//!
+//! `--rigged FILE` (see `rigged.rs`, #1482) draws a rigged body from its
+//! record - what `agent avatar get ""` answers, or `rec.py pull avatar`'s
+//! file - built, hung and dressed through the game's own path: four
+//! full-body views over three head close-ups framed on the rig's own head.
+//! `--walker-avatar FILE` makes the same body the lead `--walker` of a
+//! `--world`.
 //!
 //! `--wear <slug>` is the attachments instrument (#1088): it dresses seeded
 //! rigged bodies in a catalogue wearable and sheets one body per row, so a
@@ -74,9 +85,9 @@
 //! 1.75 m mannequin as the ruler.
 //!
 //! Subject precedence, when more than one is given: `--lineup` >
-//! `--generator` > `--world` > `--terrain` > `--room` > `--prim` > `--wear` >
-//! `--catalogue` > `--avatar`, with the no-render modes ahead of all of
-//! them.
+//! `--generator` > `--rigged` > `--world` > `--terrain` > `--room` >
+//! `--prim` > `--wear` > `--catalogue` > `--avatar`, with the no-render modes
+//! ahead of all of them.
 //!
 //! The same binary also hosts fifteen no-render modes that short-circuit
 //! before any render app stands up: the avatar surveys (`--family-seeds`,
@@ -116,9 +127,11 @@ use crate::pds::{Generator, GeneratorKind, RoomRecord};
 mod editor;
 mod figure;
 mod floating;
+mod generator_file;
 mod gif;
 mod headless;
 mod rig;
+pub(crate) mod rigged;
 pub(crate) mod sizes;
 mod terrain_report;
 mod text_tools;
@@ -311,6 +324,21 @@ struct Args {
     /// `wear_socket` - the tool for "what would this look like elsewhere".
     #[arg(long)]
     wear_socket: Option<String>,
+    /// Rigged-body subject (#1482): a file holding an avatar whose body is a
+    /// rigged person - what `agent avatar get ""` answers, or its `value`
+    /// alone as `rec.py pull avatar` writes it, `{record, body, worn}`. The
+    /// body is built as the game builds that record's body (its own job, the
+    /// full atlas, the far hair tier), hung as the game hangs it, dressed in
+    /// every worn item at its socket and offset, and stood as the game
+    /// stands a player who is not moving (the rest pose, arms hung at its
+    /// sides); the sheet is four full-body views at one fixed scale over
+    /// three head close-ups framed on the rig's own head. A malformed file
+    /// is refused with the key that is wrong; what reads but is not drawn as
+    /// written (a misspelt key, an unknown style name, a value out of range)
+    /// and a worn item that cannot be drawn are named. Not with `--frames`,
+    /// `--play-view`, `--ages`, `--reference-figure` or the walker flags.
+    #[arg(long, value_name = "FILE")]
+    rigged: Option<String>,
     /// Catalogue subject: an entry slug (e.g. `villa`, `bench`, `wizard_tower`).
     #[arg(long)]
     catalogue: Option<String>,
@@ -337,11 +365,17 @@ struct Args {
     /// iterate on an L-system grammar (or any generator) without recompiling
     /// the crate: `--dump` a catalogue entry to seed the JSON, edit the
     /// grammar / scalars, re-render. Highest precedence among the render
-    /// subjects (`--generator` > `--world` > `--terrain` > `--room` > `--prim`
-    /// then `--wear` > `--catalogue` > `--avatar`); the no-render modes still
-    /// run first.
+    /// subjects but `--lineup` (`--generator` > `--rigged` > `--world` >
+    /// `--terrain` > `--room` > `--prim` then `--wear` > `--catalogue` >
+    /// `--avatar`); the no-render modes still run first.
     #[arg(long)]
     generator: Option<String>,
+    /// With `--generator`: keep the file as an avatar body's visuals are
+    /// kept - 16 m parts, a scale product of 4, no terrain, water or portal
+    /// (`sanitize_avatar_visuals`) - rather than as a room piece. A
+    /// `--lineup` file entry is always kept as a body.
+    #[arg(long)]
+    body: bool,
     /// With `--catalogue <slug>`, `--prim <tag>` (overrides applied), or
     /// `--avatar <seed|did>`: print that subject's built [`Generator`] as
     /// pretty JSON to stdout and exit (a valid seed file for `--generator`,
@@ -428,11 +462,20 @@ struct Args {
     /// With `--world`: rigged seeded bodies (u64 seeds, comma-separated or
     /// the flag repeated) walking across the world - from the gateway
     /// forecourt toward the spawn by default - on the engine's own gait.
-    /// The first is the body `--focus walker` follows; the rest walk beside
-    /// it, `--walker-spread` apart, so a clip can show a world with people
-    /// in it (#1352).
+    /// The first is the body `--focus walker` follows (unless
+    /// `--walker-avatar` leads); the rest walk beside it, `--walker-spread`
+    /// apart, so a clip can show a world with people in it (#1352).
     #[arg(long, value_delimiter = ',', action = clap::ArgAction::Append)]
     walker: Vec<u64>,
+    /// With `--world`: the first walker - the one `--focus walker` follows -
+    /// is the rigged body in this file (what `--rigged` reads), built and
+    /// dressed as the game builds and dresses it, instead of a seeded one
+    /// (#1482): an agent's own person walking its world at true scale
+    /// beside its buildings. `--walker` seeds still walk beside it, and it
+    /// walks alone without them. It wears what its file says; `--walker-wear`
+    /// and `--walker-outfit` dress the seeded bodies only.
+    #[arg(long, value_name = "FILE", requires = "world")]
+    walker_avatar: Option<String>,
     /// With `--walker`: walking pace, metres per second (default 1.4).
     #[arg(long, default_value_t = 1.4)]
     walker_pace: f32,
@@ -444,7 +487,7 @@ struct Args {
     /// origin). The body keeps walking along the line through both points.
     #[arg(long)]
     walk_to: Option<String>,
-    /// With `--walker`: catalogue wearables to dress the body in, a
+    /// With `--walker`: catalogue wearables to dress the seeded bodies in, a
     /// comma-separated list of slugs (each must have a `wear_socket`).
     #[arg(long)]
     walker_wear: Option<String>,
@@ -940,10 +983,14 @@ pub fn run() {
     }
 
     let Resolved {
-        subject,
+        mut subject,
         label,
         ride,
     } = resolve_subject(&args);
+    // `--rigged` / `--walker-avatar` (#1482): the file's body is built now,
+    // before any app stands up, so a body the engine cannot build is said in
+    // a second rather than after a minute of world compile.
+    let file_body = build_file_body(&args, &mut subject);
     let (subject, label) = match &args.ages {
         Some(ages) => age_sweep(subject, &label, ages),
         None => (subject, label),
@@ -959,13 +1006,13 @@ pub fn run() {
     assert!(
         frames == 1 || one_camera_subject,
         "--frames needs a single-camera subject (--world, a --play-view line-up, or a \
-         --generator/--prim/--catalogue/--avatar/--room turntable); --terrain, --wear \
-         and --ages sheets have no one camera to move"
+         --generator/--prim/--catalogue/--avatar/--room turntable); --terrain, --wear, \
+         --rigged and --ages sheets have no one camera to move"
     );
     assert!(
         !args.play_view || matches!(subject, Subject::Single(_) | Subject::Lineup(_)),
         "--play-view frames a subject at the chase camera's range; --world, --terrain, \
-         --room and --wear are not subjects it can stand on a ground plane"
+         --room, --wear and --rigged are not subjects it can stand on a ground plane"
     );
     assert!(
         args.ride_height.is_none() || args.play_view,
@@ -973,8 +1020,9 @@ pub fn run() {
          stands a subject on the ground"
     );
     let rig = build_rig(&args, is_world);
-    let walker = (!args.walker.is_empty()).then(|| WalkerSpec {
+    let walker = (!args.walker.is_empty() || args.walker_avatar.is_some()).then(|| WalkerSpec {
         seeds: args.walker.clone(),
+        avatar: args.walker_avatar.clone(),
         pace: args.walker_pace,
         from: args.walk_from.as_deref().map(parse_xz),
         to: args.walk_to.as_deref().map(parse_xz),
@@ -993,7 +1041,7 @@ pub fn run() {
     });
     assert!(
         walker.is_none() || is_world,
-        "--walker needs --world: the body walks the compiled terrain"
+        "--walker and --walker-avatar need --world: the body walks the compiled terrain"
     );
     let single_camera = is_world || frames > 1 || args.play_view;
     let frame = if args.play_view {
@@ -1128,7 +1176,7 @@ pub fn run() {
             editor::register(&mut app, &spec.record, &spec.did, opening, script);
         }
     }
-    // Rigged bodies for `--wear` (#1088) and `--walker`: the engine's
+    // Rigged bodies for `--wear` (#1088), `--walker` and `--rigged` (#1482): the engine's
     // spawn/pose/drive plugin (stateless, no game dependencies) and the
     // one-shot dressing system that parents worn props once the joints exist.
     app.add_plugins(bevy_symbios_avatar::AvatarPlugin);
@@ -1143,6 +1191,9 @@ pub fn run() {
         margin: crate::config::camera::HAIR_MARGIN,
     });
     app.add_systems(Update, headless::dress_wear_bodies);
+    if let Some(body) = file_body {
+        app.insert_resource(rigged::FileBody::new(body));
+    }
     let [br, bg, bb] = args
         .backdrop
         .as_deref()
@@ -1212,6 +1263,26 @@ pub fn run() {
         )
         .add_observer(headless::on_capture)
         .run();
+}
+
+/// The body `--rigged` or `--walker-avatar` names, built as the game builds
+/// it, with what it wears said aloud - or, for a body the engine cannot
+/// build, why, and exit. `--rigged`'s head close-ups learn where the head is
+/// here, and its full-body views the box it stands in. `--walker-avatar` is
+/// read only for a world, the one subject it walks in.
+fn build_file_body(args: &Args, subject: &mut Subject) -> Option<rigged::RiggedBuilt> {
+    if let Subject::Rigged { avatar, framing } = subject {
+        let path = args.rigged.as_deref().unwrap_or("?");
+        let built = rigged::build_or_exit("--rigged", path, avatar);
+        *framing = Some(built.studio_framing());
+        return Some(built);
+    }
+    let path = args.walker_avatar.as_deref()?;
+    if !matches!(subject, Subject::World(_)) {
+        return None;
+    }
+    let avatar = rigged::read_or_exit("--walker-avatar", path);
+    Some(rigged::build_or_exit("--walker-avatar", path, &avatar))
 }
 
 /// The camera rig from the `--focus` / `--dist` / `--elev` / `--yaw` /
@@ -1429,6 +1500,26 @@ struct Slot {
     label: String,
 }
 
+/// A `--generator` file (or a `--lineup` entry that is one) as its record
+/// keeps it (#1486), naming each place it is not drawn as written: the world
+/// sanitises a record's generators and says nothing, so the sheet says it.
+fn read_generator_saying(path: &str, kept_as: generator_file::KeptAs) -> Generator {
+    let kept = generator_file::read_generator(path, kept_as);
+    if !kept.notes.is_empty() {
+        println!(
+            "generator {path}: {} place(s) are not drawn as written - {} keeps it this way \
+             (`{}` answers a key it does not read as ignored_at, the rest as adjusted_at):",
+            kept.places,
+            kept_as.record(),
+            kept_as.set_command()
+        );
+        for line in &kept.notes {
+            println!("    {line}");
+        }
+    }
+    kept.generator
+}
+
 /// Resolve a `--lineup` entry: a `u64` seed or a DID resolves to that seeded
 /// avatar through [`seeded_slot`], and a path to a readable file is a
 /// `--generator` JSON, which carries no locomotion record at all and so has
@@ -1442,10 +1533,8 @@ fn lineup_slot(spec: &str, livery: Option<usize>) -> Slot {
     if spec.parse::<u64>().is_err() {
         let path = std::path::Path::new(spec);
         if path.is_file() {
-            let json = std::fs::read_to_string(path)
-                .unwrap_or_else(|e| panic!("read generator {spec:?}: {e}"));
-            let generator: Generator = serde_json::from_str(&json)
-                .unwrap_or_else(|e| panic!("parse generator {spec:?}: {e}"));
+            // a lineup stands prototypes beside the seeded fleet: bodies
+            let generator = read_generator_saying(spec, generator_file::KeptAs::Body);
             let label = path
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -1489,8 +1578,9 @@ fn seeded_slot(spec: &str, livery: Option<usize>) -> Slot {
 
 /// Build the subject + a filename label from the CLI args.
 ///
-/// Precedence: `--lineup` → `--generator` → `--world` → `--terrain` →
-/// `--room` → `--prim` → `--wear` → `--catalogue` → `--avatar` → seed 7.
+/// Precedence: `--lineup` → `--generator` → `--rigged` → `--world` →
+/// `--terrain` → `--room` → `--prim` → `--wear` → `--catalogue` → `--avatar`
+/// → seed 7.
 /// Pinned by `tests::the_subject_precedence_is_the_one_the_docs_claim`,
 /// because this order is stated in four places and three of them had drifted
 /// (#1162).
@@ -1592,16 +1682,37 @@ fn resolve_subject(args: &Args) -> Resolved {
         };
     }
     if let Some(path) = &args.generator {
-        let json = std::fs::read_to_string(path)
-            .unwrap_or_else(|e| panic!("read generator {path:?}: {e}"));
-        let generator: Generator =
-            serde_json::from_str(&json).unwrap_or_else(|e| panic!("parse generator {path:?}: {e}"));
+        let kept_as = if args.body {
+            generator_file::KeptAs::Body
+        } else {
+            generator_file::KeptAs::Room
+        };
+        let generator = read_generator_saying(path, kept_as);
         let label = std::path::Path::new(path)
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("generator")
             .to_string();
         return Resolved::plain(Subject::Single(Box::new(generator)), format!("gen-{label}"));
+    }
+    if let Some(path) = &args.rigged {
+        if let Some(why) = rigged_refusal(args) {
+            eprintln!("--rigged {path}: {why}");
+            std::process::exit(2);
+        }
+        let avatar = rigged::read_or_exit("--rigged", path);
+        let label = std::path::Path::new(path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("avatar")
+            .to_string();
+        return Resolved::plain(
+            Subject::Rigged {
+                avatar: Box::new(avatar),
+                framing: None,
+            },
+            format!("rigged-{label}"),
+        );
     }
     if let Some(world) = &args.world {
         let (seeded, did) = match world.parse::<u64>() {
@@ -1729,6 +1840,43 @@ fn resolve_subject(args: &Args) -> Resolved {
     }
 }
 
+/// What `--rigged` cannot be given with, and why (#1482) - said before its
+/// file is read or its body built, and by name: `--rigged` outranks
+/// `--world`, so a walker flag beside both would otherwise be refused as if
+/// no `--world` had been given.
+fn rigged_refusal(args: &Args) -> Option<&'static str> {
+    if args.frames > 1 {
+        return Some(
+            "--frames: a --rigged sheet is seven fixed tiles, with no one camera to move; \
+             for a clip, walk the body in its world with --world N --walker-avatar FILE",
+        );
+    }
+    if args.play_view {
+        return Some(
+            "--play-view stands a generator subject at the chase camera's range; a rigged \
+             body is seen at play range walking its world, --world N --walker-avatar FILE",
+        );
+    }
+    if args.ages.is_some() {
+        return Some("--ages ages a generator's tree, and a rigged body has none");
+    }
+    if args.reference_figure {
+        return Some(
+            "--reference-figure: the full-body views already draw every body at one scale, \
+             on a fixed stage 2.2 m tall whose size the sheet prints; to see the body beside \
+             people and buildings, walk it in its world with --world N --walker-avatar FILE",
+        );
+    }
+    if !args.walker.is_empty() || args.walker_avatar.is_some() {
+        return Some(
+            "--walker and --walker-avatar walk bodies in a --world, and --rigged draws a sheet \
+             of its own, which outranks --world: drop --rigged to walk the file's body, \
+             --world N --walker-avatar FILE",
+        );
+    }
+    None
+}
+
 /// The generator tree behind a seeded avatar, or a clear refusal.
 ///
 /// This tool draws `Generator` geometry through the real spawn path; a
@@ -1757,8 +1905,8 @@ fn age_sweep(subject: Subject, label: &str, ages: &str) -> (Subject, String) {
         panic!(
             "--ages needs a single-generator subject \
              (--generator/--prim/--catalogue/--avatar); --room, --world, \
-             --terrain and --wear resolve to whole scenes and have no single \
-             tree to age"
+             --terrain, --wear and --rigged resolve to whole scenes or bodies \
+             and have no single tree to age"
         );
     };
     let ages: Vec<u32> = ages
@@ -1980,6 +2128,73 @@ mod tests {
             "seed-40-figure",
             "--reference-figure alone makes a two-slot line-up of the subject and the ruler"
         );
+        // `--rigged` (#1482) sits with the other file a builder wrote,
+        // under `--generator` and over `--world`.
+        let person = rigged::tests::document(&rigged::tests::person(3, Vec::new()));
+        let dir = std::env::temp_dir().join(format!("rigged-precedence-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a scratch dir");
+        let file = dir.join("reeve.json");
+        std::fs::write(&file, person.to_string()).expect("written");
+        let generator = dir.join("g.json");
+        std::fs::write(
+            &generator,
+            serde_json::to_string(&figure::reference_figure()).expect("serialises"),
+        )
+        .expect("written");
+        let (file, generator) = (
+            file.to_str().expect("UTF-8"),
+            generator.to_str().expect("UTF-8"),
+        );
+        assert_eq!(label_for(&["--rigged", file]), "rigged-reeve");
+        assert_eq!(
+            label_for(&["--rigged", file, "--world", "3", "--catalogue", "villa"]),
+            "rigged-reeve",
+            "--rigged outranks --world"
+        );
+        assert_eq!(
+            label_for(&["--generator", generator, "--rigged", file]),
+            "gen-g",
+            "--generator outranks --rigged"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// #1482 (critic minors 7 and 8): what `--rigged` cannot be given with
+    /// is refused by name before its file is read - a walker flag beside
+    /// `--rigged` and `--world` is not told `--world` is missing - and
+    /// `--rigged` alone, or under a subject that outranks it, is not.
+    #[test]
+    fn what_rigged_cannot_be_given_with_is_refused_by_name() {
+        let args = |argv: &[&str]| {
+            Args::parse_from(
+                ["render", "--rigged", "reeve.json"]
+                    .into_iter()
+                    .chain(argv.iter().copied()),
+            )
+        };
+        for (argv, names) in [
+            (&["--frames", "12"][..], "--frames"),
+            (&["--play-view"][..], "--play-view"),
+            (&["--ages", "2,3"][..], "--ages"),
+            (&["--reference-figure"][..], "--reference-figure"),
+            (&["--world", "3", "--walker", "7"][..], "--walker"),
+            (
+                &["--world", "3", "--walker-avatar", "reeve.json"][..],
+                "--walker-avatar",
+            ),
+        ] {
+            let why = rigged_refusal(&args(argv)).unwrap_or_else(|| panic!("{argv:?} refused"));
+            assert!(why.contains(names), "{argv:?}: {why}");
+            assert!(
+                !why.contains("need --world"),
+                "{argv:?} is not told --world is missing: {why}"
+            );
+        }
+        assert_eq!(rigged_refusal(&args(&[])), None);
+        assert_eq!(
+            rigged_refusal(&args(&["--frames", "1", "--size", "256"])),
+            None
+        );
     }
 
     /// #1360. `--play-view` is a preset, so the only thing worth pinning
@@ -2114,6 +2329,45 @@ mod tests {
             lineup_slot(&vehicle, None).label,
             vehicle.replace([':', '/'], "_")
         );
+    }
+
+    /// #1486, where the bug lived (the session 879 review: no test read a
+    /// file through a caller, so parsing it raw again passed them all): a
+    /// line-up file entry is drawn as a body keeps it - 16 of 20 blob
+    /// elements - and a scale a room would allow is bounded as a body's.
+    #[test]
+    fn a_lineup_file_entry_is_drawn_as_a_body_keeps_it() {
+        let dir = std::env::temp_dir().join(format!("lineup-kept-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a scratch dir");
+        let path = dir.join("prototype.json");
+        let element = serde_json::json!({
+            "shape": { "$type": "network.symbios.blob.sphere" },
+            "position": [0, 0, 0],
+            "rotation": [0, 0, 0, 10000],
+            "radii": [1000, 1000, 1000],
+            "subtract": false,
+            "blend": 500
+        });
+        let file = serde_json::json!({
+            "$type": "network.symbios.gen.blob_group",
+            "resolution": 16,
+            "solid": false,
+            "transform": { "scale": [50000, 50000, 50000] },
+            "elements": vec![element; 20],
+        });
+        std::fs::write(&path, file.to_string()).expect("written");
+
+        let slot = lineup_slot(path.to_str().expect("utf-8"), None);
+
+        let GeneratorKind::BlobGroup { elements, .. } = &slot.generator.kind else {
+            panic!("still a blob group");
+        };
+        assert_eq!(elements.len(), 16, "the record keeps 16");
+        assert!(
+            slot.generator.transform.scale.0[0] <= 4.0 + 1e-3,
+            "a body's scale product"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

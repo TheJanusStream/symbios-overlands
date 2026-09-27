@@ -20,6 +20,27 @@ options:
   --tail-m M          turning the colour of the place it arrives at)
   --lift M            height above the ground (default 0.05)
   --step M            sample spacing (default 2.5)
+  --flat F            squash each spine's height by F (0 < F < 1): a lane or path, wide and low - its
+                      half width is --radius and its thickness 2 x radius x F; --lift is then the
+                      height of its TOP above the ground (a 5 m lane: --radius 2.5 --flat 0.06) on
+                      LEVEL ground. On a grade g along it (0.1 for 10%) the rings lean with the
+                      squashed curve and the lane is 2 x radius x sqrt(F^2 + g^2) thick, its top
+                      about radius x (sqrt(F^2 + g^2) - F) higher: 0.14 m more at a 10% grade with
+                      those numbers, 0.18 m up for --lift 0.04
+  --resolution N      sides of each spine (default 6)
+  --solid             the thread collides, so feet stand on a lane instead of sinking into it. A solid
+                      spine collides as the CONVEX HULL of its points, which bridges any dip between its
+                      ends; use it with a short --segment so each hull hugs the ground
+  --segment N         points per spine (default 16, the cap): with --solid, 4-5 (10 m at a 2.5 m step)
+  --collider N        keep the drawn spines long and NOT solid, and add under them a solid copy cut into
+                      spines of N points, 2.5 cm lower and 6% narrower, so it never shows: feet stand on the
+                      lane with no seam across it every N points (the joints of solid --segment spines
+                      drew a faint arc across a lane). Costs one part per N points.
+  --taper-start, --taper-end
+                      the first (last) two samples shrink to 0.3 and 0.75 of the radius, so a flat lane
+                      narrows and dives into the ground instead of ending in a square cut; two lanes
+                      that overlap to join blend if one is set 1-2 cm higher (--lift), or their tops
+                      share a plane and z-fight
 """
 import json
 import math
@@ -31,6 +52,7 @@ import agentlib
 GLOW = {"base_color": [5500, 9500, 6500], "emission_color": [2800, 8600, 5000], "emission_strength": 11000}
 MAX_POINTS = 16
 CLAMP_M = 95.0  # under MAX_PRIM_DIM_M (100 m) with room for the lift
+POINT_CLAMP_M = 100.0  # the sanitiser clamps each spine point coordinate to +-100 m (primitive.rs)
 
 
 def catmull_rom(pts, per_seg=20):
@@ -93,6 +115,20 @@ def main():
     tail_m = option(args, "--tail-m", 0.0, float)
     lift = option(args, "--lift", 0.05, float)
     step = option(args, "--step", 2.5, float)
+    flat = option(args, "--flat", None, float)
+    resolution = option(args, "--resolution", 6, int)
+    segment = max(2, min(MAX_POINTS, option(args, "--segment", MAX_POINTS, int)))
+    solid = "--solid" in args
+    if solid:
+        args.remove("--solid")
+    collider = option(args, "--collider", None, int)
+    taper_start = "--taper-start" in args
+    taper_end = "--taper-end" in args
+    for flag in ("--taper-start", "--taper-end"):
+        if flag in args:
+            args.remove(flag)
+    if flat is not None and not 0 < flat < 1:
+        sys.exit("--flat takes a factor between 0 and 1")
     if len(args) != 5:
         sys.exit(__doc__)
     did, record, name, out_dir, spec = args
@@ -103,21 +139,32 @@ def main():
     tail = json.load(open(tail_material)) if tail_material else None
 
     xz = resample(catmull_rom(way), step)
-    heights, water = ground(did, record, xz)
+    xs, zs = [p[0] for p in xz], [p[1] for p in xz]
+    ox, oz = (min(xs) + max(xs)) / 2, (min(zs) + max(zs)) / 2
+    # the ground at the origin too, where the hidden root goes (a bent path's middle is off the path)
+    heights, water = ground(did, record, xz + [(ox, oz)])
+    origin_ground = heights.pop()
     wet = [(round(x, 1), round(z, 1)) for (x, z), h in zip(xz, heights) if h < water]
     if wet:
         print(f"warning: {len(wet)} samples are under the water ({water} m), e.g. {wet[:4]}")
 
-    xs, zs = [p[0] for p in xz], [p[1] for p in xz]
-    ox, oz = (min(xs) + max(xs)) / 2, (min(zs) + max(zs)) / 2
-    oy = min(heights)
+    # a flat spine's points are divided by --flat in its own frame, so its heights are measured from
+    # their middle to keep them inside the 100 m clamp
+    oy = (min(heights) + max(heights)) / 2 if flat else min(heights)
     far = max(math.hypot(x - ox, z - oz) for x, z in xz)
     if far > CLAMP_M:
         sys.exit(f"the thread reaches {far:.1f} m from its middle ({ox:.1f}, {oz:.1f}): past the 100 m "
                  f"spine clamp - split it into two threads")
 
+    if flat:
+        reach = max(math.sqrt((x - ox) ** 2 + (z - oz) ** 2 + ((h - oy) / flat) ** 2)
+                    for (x, z), h in zip(xz, heights))
+        if reach > CLAMP_M:
+            sys.exit(f"flattened by {flat}, the lane's points reach {reach:.0f} m in its own frame (heights "
+                     f"x {1 / flat:.0f}): past the 100 m clamp - split it, or flatten less (--flat {min(0.9, flat * reach / CLAMP_M * 1.05):.2f})")
     length = sum(math.dist(a, b) for a, b in zip(xz, xz[1:]))
-    pts = [[x - ox, h + lift - oy, z - oz] for (x, z), h in zip(xz, heights)]
+    centre = lift - radius * flat if flat else lift   # a flat spine's TOP sits at the lift
+    pts = [[x - ox, h + centre - oy, z - oz] for (x, z), h in zip(xz, heights)]
     # where the tail starts, by distance along the thread
     run, tail_from = 0.0, len(pts)
     if tail and tail_m > 0:
@@ -126,26 +173,79 @@ def main():
             if length - run <= tail_m:
                 tail_from = i
                 break
+    radii = [radius] * len(pts)
+    for e, f in ((0, 0.3), (1, 0.75)):
+        if taper_start and e < len(radii):
+            radii[e] = radius * f
+        if taper_end and e < len(radii):
+            radii[-1 - e] = radius * f
     spines = []
     i = 0
     while i < len(pts) - 1:
         m = tail if i >= tail_from else mat
-        end = min(i + MAX_POINTS - 1, len(pts) - 1)
+        end = min(i + segment - 1, len(pts) - 1)
         if i < tail_from < end:
             end = tail_from  # the colour changes at a spine's joint
-        spines.append({"$type": "network.symbios.gen.spine", "material": m, "solid": False,
-                       "resolution": 6, "samples_per_segment": 3,
+        spines.append({"$type": "network.symbios.gen.spine", "material": m, "solid": solid,
+                       "resolution": resolution, "samples_per_segment": 3,
                        "points": [{"position": [int(round(c * 10000)) for c in p],
-                                   "radius": int(round(radius * 10000))} for p in pts[i:end + 1]]})
+                                   "radius": int(round(r * 10000))} for p, r in zip(pts[i:end + 1], radii[i:end + 1])]})
         i = end
-    # The 2 cm root stands at the thread's lowest ground, which floats wherever
-    # the ground under the origin is lower (session 878's floating report found
-    # one): hide it 0.2 m down and lift its spines back by as much.
-    root_drop = 2000
+    if collider:
+        # a solid copy under the drawn lane: short spines (each collides as the convex hull of its points,
+        # which must hug the ground), 1.5 cm lower and 3% narrower so the drawn lane covers it
+        drop = 0.025   # metres; the loop below scales every spine point into the flattened frame
+        # one station short of each end: an end cap in the drawn cap's plane z-fought (2 m2 on a lane end)
+        # ...and never ending where a drawn spine ends: two caps in one station's plane z-fight too
+        drawn_ends = set(range(0, len(pts), segment - 1)) | {len(pts) - 1}
+        i, last = 1, len(pts) - 2
+        while i < last:
+            end = min(i + max(2, collider) - 1, last)
+            while end in drawn_ends and end - 1 > i:
+                end -= 1
+            spines.append({"$type": "network.symbios.gen.spine", "material": mat, "solid": True,
+                           "resolution": min(resolution, 12), "samples_per_segment": 2,
+                           "points": [{"position": [int(round(p[0] * 10000)), int(round((p[1] - drop) * 10000)),
+                                                    int(round(p[2] * 10000))],
+                                       "radius": int(round(r * 0.94 * 10000))}
+                                      for p, r in zip(pts[i:end + 1], radii[i:end + 1])]})
+            i = end
+        solid = True
+    # The 2 cm root is hidden 0.2 m under the ground at the origin, and the
+    # spines lifted back by as much: at the origin's own height it floated wherever the ground there
+    # is lower (session 878's floating report found one at the lowest ground; session 879's at a flat
+    # lane's middle height).
+    root_drop = int(round((oy - origin_ground + 0.2) * 10000))
     for s in spines:
         for p in s["points"]:
             p["position"][1] += root_drop
-    gen = {"$type": "network.symbios.gen.cuboid", "size": [200, 200, 200], "solid": False,
+            if flat:
+                # the spine is scaled by flat in y, so its points are written divided by it
+                p["position"][1] = int(round(p["position"][1] / flat))
+        if flat:
+            s["transform"] = {"scale": [10000, int(round(flat * 10000)), 10000]}
+    # The reach check above measures from the heights' middle; the points are written from the hidden
+    # root at the ground under the origin, divided by --flat. On a bent lane that ground can be a knoll
+    # off the lane: a review of #1488 wrote every point of one past the clamp, which moves them and
+    # floats the lane. So the values written are checked.
+    worst = max(abs(c) / 10000 for s in spines for p in s["points"] for c in p["position"])
+    if worst > POINT_CLAMP_M:
+        if not flat:
+            sys.exit(f"the thread's points are written up to {worst:.0f} m from its hidden root (under the "
+                     f"ground at ({ox:.1f}, {oz:.1f}), {origin_ground:.1f} m): past the 100 m clamp - split it")
+        drops = (0.0, 0.025) if collider else (0.0,)
+
+        def written(f):
+            # the largest height written flattened by f, as the loop above writes it
+            return max(abs(h + lift - radius * f - origin_ground + 0.2 - d) / f for h in heights for d in drops)
+        less = next((k / 100 for k in range(int(flat * 100) + 1, 91) if written(k / 100) <= CLAMP_M), None)
+        hint = f"flatten less (--flat {less:.2f})" if less else "flatten less"
+        sys.exit(f"flattened by {flat}, the lane's points are written up to {worst:.0f} m from its hidden root "
+                 f"(heights x {1 / flat:.0f}, from the ground at ({ox:.1f}, {oz:.1f}), {origin_ground:.1f} m, "
+                 f"under its origin): past the 100 m clamp - split it, or {hint}")
+    # a solid part needs a solid root: under a non-solid one every collider sat at its offset from the
+    # world's origin (#1453)
+    gen = {"$type": "network.symbios.gen.cuboid", "size": [200, 200, 200], "solid": solid,
            "material": mat, "transform": {"translation": [0, -root_drop, 0]}, "children": spines}
     place = {"$type": "network.symbios.place.absolute", "avoid_water_clearance": 0, "generator_ref": name,
              "snap_to_terrain": False,

@@ -18,7 +18,11 @@ AGENT_ACCOUNT=hypha-ai.bsky.social <repo>/docs/agent/tools/watch.py 0 30
 ```
 
 - Start it with the harness's background mode, NOT with `&` and its output
-  thrown away - a watcher nobody hears is no watcher.
+  thrown away - a watcher nobody hears is no watcher. Session 879 re-armed one
+  with `nohup ... &` by slip: it ran, and would never have woken the session.
+  To find and stop a stray, `pgrep -af tools/watch.py` and kill it by pid: its
+  command line starts with the interpreter's full path, so a pattern anchored
+  on `^python3` matches nothing.
 - Resume from `NEXT`, or from a later `seq` if you read events yourself
   meanwhile. `NEXT` is the last seq already read: pass it as it is, never
   `NEXT + 1` - a `since` ahead of the log reads as a daemon restart, and the
@@ -68,6 +72,10 @@ four minutes.
   operator's terminal: say "details in the terminal".
 - Say what you did, how it went (well, or what failed and why), and what is
   left or unsaved. "It's live but unsaved - say 'save' to keep it."
+- Say a change is live only after its answer said so. Session 879 chained a
+  builder, an `apply` and a `say` with `;` - the builder failed, nothing
+  was applied, and the line told the admin the change was in. Chain with
+  `&&` (or `set -e`), and correct a wrong line at once.
 - For a task that will take minutes, say what you are about to do first
   ("On it: ..."). Silence reads as nothing happening.
 - Everything said is public. No paths, keys, log lines.

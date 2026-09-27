@@ -32,7 +32,10 @@ the body back at the landing point. Before one:
    those edits, or you can rebuild them from your scripts.
 2. Tell the admin in chat ("restarting for a fix, back in ~10 s"): to them
    the agent vanishes and reappears.
-3. `stop`'s answer lists what it `discarded`: it should be `[]`.
+3. `stop`'s answer lists what it `discarded`: it should be `[]`. It answers
+   `stopping: true` before the daemon has exited: a `start` straight after
+   it is refused as "already running" (session 879). Poll `status` until it
+   says no agent is running, then start.
 4. After `start`, poll `status` until `in_world`, greet the admin, and
    re-arm the watcher from `seq` 0 - the new daemon numbers events afresh.
 

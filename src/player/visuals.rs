@@ -154,6 +154,76 @@ pub fn spawn_attachment_tree(
     );
 }
 
+// --- The rigged half (#1482) ----------------------------------------------
+//
+// A rigged body is not spawned by this module - `player::rigged` builds it
+// off the main thread and `player::attachments` dresses it - but the three
+// questions it is built and hung by live here, beside the generator walk,
+// because this module is the avatar spawn path the render tool reaches: its
+// `--rigged` sheet and `--walker-avatar` walker ask them exactly as
+// `rigged::build::kick_rigged_builds` does, so the body a sheet shows is the
+// body the game stands under a chassis.
+
+/// The skin atlas a rigged body is built at once its record has settled:
+/// the engine's full size, the rung above the editor's draft
+/// (`rigged`'s settle ladder, #1059).
+pub(crate) fn settled_atlas() -> u32 {
+    symbios_avatar::AvatarConfig::default().atlas
+}
+
+/// The job that builds a rigged body's engine record at `atlas`.
+///
+/// With the far hair tier. Every body the game installs is drawn by the
+/// chase camera, which orbits from 2 m to 200 m (`cfg::camera`), so every
+/// one of them crosses the hair switch - the owner's own included, whose
+/// resting 12 m orbit already sits 12.38 m from its root. Asking for the far
+/// tier is therefore not a peer-only optimisation: it is what keeps a
+/// zoomed-out owner and the peers beside them drawing the same thing (#1358).
+pub(crate) fn rigged_build_job(
+    body: &crate::pds::avatar::EngineAvatarRecord,
+    atlas: u32,
+) -> crate::offload::GenJob {
+    crate::offload::GenJob::AvatarBuild {
+        record: Box::new(body.clone()),
+        atlas,
+        far_hair: true,
+    }
+}
+
+/// How far below its chassis's centre a rigged body's ground plane (its
+/// feet, `y = 0` in the engine) hangs: half the collider the record's
+/// locomotion gives it, so the feet meet the capsule's bottom.
+pub(crate) fn rigged_root_offset(record: &crate::pds::AvatarRecord) -> f32 {
+    crate::interaction::locomotion::locomotion_total_height(&record.locomotion) / 2.0
+}
+
+/// Where the skinned body hangs relative to its chassis (#1066).
+///
+/// Two corrections, both of them convention mismatches rather than tuning:
+///
+/// * **Height** - the engine's ground plane is `y = 0`, so the body drops by
+///   half the collider so its feet meet the chassis capsule's bottom.
+/// * **Facing** - a half turn about Y. `symbios_avatar::rig::landmark::FORWARD`
+///   is `+Z`, the glTF/VRM convention the engine shares; Bevy's forward is
+///   `-Z`, and the chassis is steered by
+///   `Transform::looking_to(movement_direction, Y)`, which aims *its* `-Z`
+///   down the direction of travel. Hanging the body off that with no rotation
+///   pointed the engine's `+Z` face directly away from where the avatar was
+///   going - walking correctly, moonwalking visibly. The half turn is applied
+///   here, on the one entity that bridges the two conventions, rather than by
+///   re-aiming the chassis (which the camera, the vehicles and the locomotion
+///   drive all share) or by rotating the clips (which are authored in the
+///   engine's frame and are consistent with the body).
+///
+/// Everything below this entity inherits the turn together - geometry, rig,
+/// clips, and the socket anchors that
+/// [`crate::player::attachments::LocalAttachment::rest_frame`] reconstructs an
+/// offset against - so worn props stay put relative to the body they are on.
+pub(crate) fn rigged_root_transform(offset: f32) -> Transform {
+    Transform::from_xyz(0.0, -offset, 0.0)
+        .with_rotation(Quat::from_rotation_y(std::f32::consts::PI))
+}
+
 /// An app holding every asset store and cache [`AvatarSpawnDeps`] fans out
 /// to, and nothing else - the stage a test needs to run the real spawn path.
 ///
