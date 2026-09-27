@@ -392,9 +392,7 @@ pub(super) fn apply_splat_textures(
     let wm_handle = images.add(wm_image);
 
     if let Some(mut mat) = materials.get_mut(&splat_mat.0) {
-        mat.base.base_color = Color::WHITE;
-        mat.base.perceptual_roughness = tcfg::splat::MATERIAL_ROUGHNESS;
-        mat.base.metallic = tcfg::splat::MATERIAL_METALLIC;
+        textured_surface(&mut mat.base);
         mat.extension.weight_map = wm_handle;
         mat.extension.albedo_array = albedo_array;
         mat.extension.normal_array = normal_array;
@@ -462,15 +460,31 @@ pub(super) fn apply_splat_textures(
     state.applied = true;
 }
 
-/// Free the four per-layer source images of a *Referenced* room once every layer
-/// fetch has resolved (#642). `apply_splat_textures` drops them the same frame
-/// for procedural rooms, but deliberately skips the free while any Referenced
-/// layer is configured - a late blob fetch flips `state.applied = false` and
-/// needs all four sources to rebuild the arrays. Once no `PendingSplatLayerFetch`
-/// entity remains, no rebuild can be re-triggered (the sole trigger is a
-/// resolving fetch), so the retained ~11 MiB of MAIN_WORLD CPU bytes is pure
-/// dead weight and is released here. Self-guarded (a no-op for procedural rooms,
-/// whose slots are already `None`) and idempotent.
+/// The ground's surface once its splat textures land: a white base colour
+/// (the shader draws the layer blend in its place), rough, not metallic,
+/// and less reflective than `StandardMaterial`'s default, whose sheen
+/// toward a low sun read as tan sand on every hill (#1467).
+fn textured_surface(base: &mut StandardMaterial) {
+    base.base_color = Color::WHITE;
+    base.perceptual_roughness = tcfg::splat::MATERIAL_ROUGHNESS;
+    base.metallic = tcfg::splat::MATERIAL_METALLIC;
+    base.reflectance = tcfg::splat::MATERIAL_REFLECTANCE;
+}
+
+/// The ground's flat placeholder until its splat textures land - on first
+/// load, through every terrain regeneration, and for good if a layer's bake
+/// fails - at the textured ground's reflectance, so the sheen of #1467 does
+/// not come back in between.
+pub(super) fn placeholder_surface() -> StandardMaterial {
+    let pc = tcfg::splat::PLACEHOLDER_COLOR;
+    StandardMaterial {
+        base_color: Color::srgb(pc[0], pc[1], pc[2]),
+        perceptual_roughness: tcfg::splat::PLACEHOLDER_ROUGHNESS,
+        reflectance: tcfg::splat::MATERIAL_REFLECTANCE,
+        ..default()
+    }
+}
+
 /// Keep the damp-ground datum in step with an edited water level (#913).
 ///
 /// [`apply_splat_textures`] sets `water_y` when the splat textures land,
@@ -516,6 +530,15 @@ pub(super) fn sync_moisture_water_level(
     }
 }
 
+/// Free the four per-layer source images of a *Referenced* room once every layer
+/// fetch has resolved (#642). `apply_splat_textures` drops them the same frame
+/// for procedural rooms, but deliberately skips the free while any Referenced
+/// layer is configured - a late blob fetch flips `state.applied = false` and
+/// needs all four sources to rebuild the arrays. Once no `PendingSplatLayerFetch`
+/// entity remains, no rebuild can be re-triggered (the sole trigger is a
+/// resolving fetch), so the retained ~11 MiB of MAIN_WORLD CPU bytes is pure
+/// dead weight and is released here. Self-guarded (a no-op for procedural rooms,
+/// whose slots are already `None`) and idempotent.
 pub(super) fn free_referenced_splat_sources(
     mut state: ResMut<TerrainSplatState>,
     pending: Query<(), With<super::referenced::PendingSplatLayerFetch>>,
@@ -612,4 +635,33 @@ fn build_texture_array(
     });
 
     Some(array_img)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #1467: seen toward a low sun, the ground's default reflectance put a
+    /// sheen on every hill that read as tan sand, whatever its texture.
+    #[test]
+    fn the_textured_ground_reflects_less_than_the_default() {
+        let mut base = StandardMaterial::default();
+        textured_surface(&mut base);
+        assert_eq!(base.reflectance, tcfg::splat::MATERIAL_REFLECTANCE);
+        assert!(
+            base.reflectance < StandardMaterial::default().reflectance,
+            "the textured ground keeps less sheen than the default material"
+        );
+        assert_eq!(base.perceptual_roughness, tcfg::splat::MATERIAL_ROUGHNESS);
+    }
+
+    /// #1467's review: the placeholder the ground wears until its textures
+    /// land - through every terrain regeneration - kept the old sheen.
+    #[test]
+    fn the_placeholder_ground_reflects_as_the_textured_ground_does() {
+        assert_eq!(
+            placeholder_surface().reflectance,
+            tcfg::splat::MATERIAL_REFLECTANCE
+        );
+    }
 }

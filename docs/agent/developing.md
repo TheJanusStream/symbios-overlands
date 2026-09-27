@@ -159,6 +159,13 @@ JSON (`serde_json::from_value`) - the same form `room set` takes.
 
 ## Traps
 
+- A new strict check can break a tool that round-trips records:
+  `render --generator` writing a read value back to diff it panicked on an
+  open-union stand-in (#1487). Test the unknown-variant path of anything
+  that reads and writes records.
+- A value clamped onto a bound that is also its default is left out of the
+  written record like every default, so a diff reads it as dropped (session
+  879's review, m12).
 - `pgrep -x agent` matches an unrelated system process: match the full
   binary path (`target/test-release/agent run`).
 - `pgrep -f PATTERN` and `pkill -f PATTERN` inside a compound shell line

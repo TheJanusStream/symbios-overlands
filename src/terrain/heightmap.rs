@@ -223,13 +223,8 @@ pub(super) fn spawn_terrain_mesh(
     ));
 
     // Material starts disabled (flat colour) until the texture tasks finish.
-    let pc = tcfg::splat::PLACEHOLDER_COLOR;
     let mat_handle = materials.add(bevy::pbr::ExtendedMaterial {
-        base: StandardMaterial {
-            base_color: Color::srgb(pc[0], pc[1], pc[2]),
-            perceptual_roughness: tcfg::splat::PLACEHOLDER_ROUGHNESS,
-            ..default()
-        },
+        base: super::splat::placeholder_surface(),
         extension: SplatExtension {
             albedo_array: albedo_placeholder,
             normal_array: normal_placeholder,

@@ -1,11 +1,13 @@
 # Your own body
 
-The avatar is the one record the agent may edit in any world, and everyone
-sees its edits at once. Two kinds of body: a **rigged** person (a sculpt and
-worn items, kept in records of their own) and a **generator** body - every
-vehicle: a car, a hover-boat, an airship, an airplane - whose whole shape is
-one generator tree at `/record/body/visuals`, the same JSON as a building's
-([building.md](building.md)).
+The avatar is the one record the agent may edit in any world. Two kinds of
+body: a **rigged** person (a sculpt and worn items, kept in records of their
+own) and a **generator** body - every vehicle: a car, a hover-boat, an
+airship, an airplane - whose whole shape is one generator tree at
+`/record/body/visuals`, the same JSON as a building's
+([building.md](building.md)). Everyone sees a generator body's edits at
+once; other clients fetch a rigged body's sculpt and worn items from your
+PDS, so they see a change to those only after `A save avatar --wait`.
 
 ## Choosing how it moves
 
@@ -151,8 +153,10 @@ wrong and the offsets need tuning".
   1 cm root cube at the neck socket sat beside the jaw in every close-up:
   move the root into the body and shift its children back by as much.
 - **Save the avatar after every accepted change** (`rec.py save avatar`).
-  Unsaved avatar edits live only in the running daemon: a restart put Reeve
-  back in his old clothes in front of the admin.
+  Unsaved avatar edits live only in the running daemon, and other players
+  see a rigged body's changes only once saved. (The old clothes the admin
+  saw after a restart in session 879 were a stale copy in his own client,
+  #1485, since fixed: Reeve's change had been saved.)
 
 ## A workbench on the body
 

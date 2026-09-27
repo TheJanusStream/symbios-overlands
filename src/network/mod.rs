@@ -207,6 +207,8 @@ impl Plugin for NetworkPlugin {
                     presence::adopt_peer_sessions,
                     presence::dress_peer_placeholders,
                     inbound::handle_incoming_messages,
+                    // After both adoption paths above (#1489).
+                    peer_cache::spawn_cached_avatar_refreshes,
                     peer_cache::poll_peer_avatar_fetches,
                     presence::retry_peer_avatar_fetches,
                     peer_cache::spawn_peer_rig_resolutions,
@@ -240,7 +242,11 @@ impl Plugin for NetworkPlugin {
             // next login (no socket yet) reads as an outage (#1213).
             .add_systems(
                 OnExit(AppState::InGame),
-                (link::reset_link_state, presence::reset_mute_audio),
+                (
+                    link::reset_link_state,
+                    presence::reset_mute_audio,
+                    peer_cache::drop_inflight_peer_fetches,
+                ),
             )
             // Network broadcast is tied to a fixed tick so the outbound rate
             // is independent of rendering FPS - otherwise a 144 Hz monitor

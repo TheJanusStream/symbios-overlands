@@ -5,11 +5,13 @@ Ready to run, so a session starts working instead of rewriting them (session
 lived in a scratchpad that is gone at the session's end). Python 3 with
 Pillow; they find the repo from their own place in it and use the binaries
 built with `--profile test-release`. With more than one session saved,
-`export AGENT_ACCOUNT=<the agent's handle>` first: each script adds
+start each call with `AGENT_ACCOUNT=<the agent's handle>`: each script adds
 `--account` to every command it runs (the flag goes anywhere on the line).
-While a sub-agent works on the render tool, copy the binary aside and
-`export AGENT_RENDER=<the copy>`: the scripts then use it, and a rebuild (with
-mutant guards in, or half-linked) does not change the tool under you.
+While a sub-agent works on the render tool, copy the binary aside and start
+each call with `AGENT_RENDER=<the copy>` as well: the scripts then use it,
+and a rebuild (with mutant guards in, or half-linked) does not change the
+tool under you. Do not `export` either where each command runs in a fresh
+shell ([../session.md](../session.md#starting)).
 
 | Script | What it does |
 |---|---|
@@ -22,7 +24,7 @@ mutant guards in, or half-linked) does not change the tool under you.
 | `stack.py OUT.png PICTURE...` | pictures stacked, for before and after |
 | `compare.py DID SRC.json EDITS OUT.png "SPEC" ...` | before and after in one command: EDITS composed into a copy of SRC, each views.py SPEC rendered from both, one row per spec (source left, edited right) |
 | `ground.py DID RECORD.json X,Z ... [--footprint R] [--lay YAW]` | the ground at each point, one line each: height, above or under the water, slope, downhill, contour yaw, splat layer shares by index; `--lay YAW` adds the wire `rotation` that lays a flat thing (a bed, a pool) on the ground there turned YAW degrees clockwise seen from above, as `place --yaw` and the printed contour yaw count it (90 faces local -Z to +X; on level ground exactly `place --yaw YAW`; at the contour yaw its local +X runs along the contour) - a level one on a slope stands proud downhill |
-| `thread.py DID RECORD.json NAME OUT_DIR "X,Z X,Z ..."` | a glowing thread laid on the real ground through waypoints: smoothed, sampled every 2.5 m, cut into 16-point spines, placed unsnapped at its middle (refuses past the 100 m clamp); `--tail-material`/`--tail-m` turn its last metres another colour; `--flat F` squashes it into a lane or path (half width `--radius`, its TOP `--lift` over LEVEL ground - on a grade g along it the top stands about `radius x (sqrt(F^2 + g^2) - F)` higher, 0.14 m at 10% for `--radius 2.5 --flat 0.06`; refuses when a point it writes, divided by F from its hidden root, passes the clamp and says how far to flatten instead), `--resolution` its sides, `--taper-start`/`--taper-end` narrow its ends into the ground (to join lanes by overlapping, or fade one out); its hidden root goes under the ground at its origin |
+| `thread.py DID RECORD.json NAME OUT_DIR "X,Z X,Z ..."` | a glowing thread laid on the real ground through waypoints: smoothed, sampled every 2.5 m, cut into 16-point spines, placed unsnapped at its middle (refuses past the 100 m clamp); `--tail-material`/`--tail-m` turn its last metres another colour; `--flat F` squashes it into a lane or path (half width `--radius`, its TOP `--lift` over LEVEL ground - on a grade g along it the top stands about `radius x (sqrt(F^2 + g^2) - F)` higher, 0.14 m at 10% for `--radius 2.5 --flat 0.06`; refuses when a point it writes, divided by F from its hidden root, passes the clamp and says how far to flatten instead), `--resolution` its sides, `--taper-start`/`--taper-end` narrow its ends into the ground (to join lanes by overlapping, or fade one out); `--solid` makes the drawn spines collide (with a short `--segment`, 4-5 points, so each hull hugs the ground), and `--collider N` instead keeps the drawn lane long and not solid and adds a hidden solid copy under it, one part per N points (Ashmere's lanes use `--collider 5`); its hidden root goes under the ground at its origin |
 | `fence.py DID RECORD.json NAME OUT_DIR "X,Z X,Z ... gap X,Z ..."` | a fence on the real ground: panels (`--panel` m, default 3) each one cuboid tilted to the ground between its ends and sunk `--sink`, alternate panels 1.2 cm thicker and 1.5 cm taller so neighbours never share a face, `--stakes` at the joints, `gap` ends a run (a gate); wattle hurdles by default, any `--material` |
 | `hedge.py DID RECORD.json NAME OUT_DIR "X,Z X,Z ..."` | a hedgerow (or any low green run) on the real ground: one soft ellipsoid every `--step` m, long along the run, sunk into the ground, gathered 16 to a BlobGroup (one drawn part per ~28 m at the default step, plus its hidden root, drawn too: a 30 m hedge is three parts), sizes jittered; `--height`, `--width`, `--material`, `--smooth` |
 | `fan.py DID RECORD.json NAME OUT_DIR CX,CZ [--colour R,G,B]` | where glowing threads reach a place, each forks into a fan of finer filaments toward and past its centre, on the real ground, stopping at the shore; one arrival per thread (a place's own spines lying wholly inside `--within` are not arrivals); warns past half the record budget |

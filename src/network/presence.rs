@@ -687,15 +687,20 @@ pub(super) fn adopt_peer_did(
     } else if peer.muted && !muted_dids.0.contains(did) {
         muted_dids.set(did, true);
     }
-    // Install from cache synchronously when we've fetched this DID before in
-    // the same session; otherwise kick the async PDS fetch. Skipping the
-    // network round trip matters most for portal hops, which bring a cluster
-    // of familiar peers in at once and would otherwise saturate the
-    // IoTaskPool with duplicate DID-document resolves.
+    // A peer this client has met before in the session stands at once in the
+    // record it remembers, so a portal hop's cluster of familiar faces does
+    // not wait on the network; the same fetch a first meeting starts then
+    // refreshes it (`spawn_cached_avatar_refreshes`, #1489). The remembered
+    // record can predate a save this client never heard about - it was in
+    // another room or its link was down, or the notice came before this DID
+    // was adopted - and nothing else would ever fetch it again.
     if let Some(cached) = avatar_cache.get(did) {
         peer.avatar = Some(cached.clone());
+        commands
+            .entity(entity)
+            .try_insert(super::peer_cache::RefreshCachedAvatar::default());
     } else {
-        super::peer_cache::spawn_peer_avatar_fetch(commands, peer_id, did.to_owned(), now);
+        super::peer_cache::spawn_peer_avatar_fetch(commands, peer_id, did.to_owned(), now, None);
     }
     true
 }
@@ -800,7 +805,7 @@ pub(super) fn retry_peer_avatar_fetches(
         let Some(did) = peer.did.clone() else {
             continue;
         };
-        super::peer_cache::spawn_peer_avatar_fetch(&mut commands, peer.peer_id, did, now);
+        super::peer_cache::spawn_peer_avatar_fetch(&mut commands, peer.peer_id, did, now, None);
         // The state is deliberately NOT reset to `Pending`: the standing body
         // is still the stand-in, and `poll_peer_avatar_fetches` reads the
         // failed state to decide it may overwrite it. The backoff carries

@@ -609,6 +609,17 @@ pub(crate) mod terrain {
         pub const PLACEHOLDER_ROUGHNESS: f32 = 0.9;
         /// Perceptual roughness once real splat textures are applied.
         pub const MATERIAL_ROUGHNESS: f32 = 0.85;
+        /// Specular reflectance of the ground, textured and placeholder
+        /// alike (#1467). `StandardMaterial`'s 0.5 (F0 0.04) put a sheen on the
+        /// ground seen toward a low sun that swamped its albedo: every hill
+        /// read as tan sand whatever its texture. Measured in the
+        /// Understory with the sun 20 degrees up, mean sRGB, sunlit ground
+        /// read (102, 84, 58) at 0.5, (74, 59, 38) at 0.25 and (40, 31, 16)
+        /// at 0.10, and shaded ground (30, 28, 24), (18, 16, 10) and (14,
+        /// 12, 6): the environment's specular goes with the reflectance,
+        /// so shade darkens too, too far at 0.10. 0.25, the middle step, is
+        /// the owner's choice (2026-09-27); the placeholder wears it too.
+        pub const MATERIAL_REFLECTANCE: f32 = 0.25;
         /// PBR metallic factor once real splat textures are applied.
         pub const MATERIAL_METALLIC: f32 = 0.0;
         /// Blend sharpness for triplanar axis transitions.
@@ -1019,6 +1030,17 @@ pub(crate) mod network {
     /// unreachable peers costs nothing, short enough that a PDS coming back
     /// up is picked up while the visitor is still in the room.
     pub const PEER_FETCH_RETRY_MAX_SECS: f64 = 60.0;
+    /// The fewest seconds between the starts of two refreshes of one DID's
+    /// remembered avatar (#1489), a re-run after a save notice included: a
+    /// peer whose link flaps, or who sends notices at will, is fetched once
+    /// a window, not once a reconnect or a notice. A refresh inside the
+    /// window waits for its end and is not dropped; a retry after a failed
+    /// attempt keeps its own doubling wait.
+    pub const PEER_AVATAR_REFRESH_MIN_SECS: f64 = 10.0;
+    /// Refreshes of remembered avatars running at once (#1489). A hop into a
+    /// room of familiar faces takes them a few at a time: a fetch holds an
+    /// IO thread while it runs.
+    pub const PEER_AVATAR_REFRESHES_IN_FLIGHT: usize = 2;
 
     /// The public web profile for a DID (#1223 f291).
     ///

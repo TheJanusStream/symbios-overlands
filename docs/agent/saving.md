@@ -2,11 +2,16 @@
 
 ## What is live and what is kept
 
-- Every edit is live for everyone in the world the moment it is made, and
-  lost when the daemon stops unless it was saved. `status.editing.unsaved`
-  lists the records (`room`, `avatar`, `inventory`) holding unsaved edits.
+- An edit to the world or to a generator body is live for everyone in the
+  world the moment it is made. A rigged body's sculpt and worn items are
+  records of their own that other clients fetch from your PDS, so they see
+  a change to those only after a save. Every edit is lost when the daemon
+  stops unless it was saved. `status.editing.unsaved` lists the records
+  (`room`, `avatar`, `inventory`) holding unsaved edits.
 - **Save only when the admin asks for it in chat** ("save", "keep it"),
-  even with `--allow-save`. Then `A save --wait` (the world),
+  even with `--allow-save` - unless the session's mode gives standing leave
+  ([session.md](session.md#saving): self-guided and visit do; mood never).
+  Then `A save --wait` (the world),
   `A save avatar --wait` or `A save inventory --wait`; the answer's
   `result.kind` is `saved`, or it is `ok: false` with the reason as `error`
   (`save_failed`). An avatar save took about 2 s live. Confirm afterwards

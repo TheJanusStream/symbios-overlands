@@ -106,14 +106,20 @@ meant as dark brown sRGB `(0.36, 0.25, 0.13)` is written
 `((c + 0.055) / 1.055) ^ 2.4` each: `(0.107, 0.051, 0.015)`. Written as sRGB
 it bakes out light tan, and a hillside reads as sand.
 
-**Sunlit ground seen toward a low sun is mostly sheen, not texture** (#1467).
-The terrain's roughness (0.85) and reflectance are fixed in code; looking
-toward the Understory's 20-degree sun, about 85% of a sunlit patch's
-brightness was specular sheen in the sun's own colour, so five litter
-colours up to 45% darker measured the same (sunlit (122, 101, 70) each) and
-the hills stayed tan. Test a colour change in SHADE, or paint a layer pure
-green for one render: if the sunlit patch barely moves, the colour is not
-your lever. What did help: the ripple. A ForestFloor `litter_scale` is capped
+**Sunlit ground seen toward a low sun is partly sheen, not texture** (#1467).
+The terrain's roughness (0.85) and reflectance are fixed in code. At the
+default reflectance of 0.5, looking toward the Understory's 20-degree sun,
+about 85% of a sunlit patch's brightness was specular sheen in the sun's
+own colour, so five litter colours up to 45% darker measured the same
+(sunlit (122, 101, 70) each; (102, 84, 58) after the ripple fix below) and
+the hills stayed tan. Since 2026-09-27 the terrain's reflectance is 0.25 in
+every world (the owner's choice, `MATERIAL_REFLECTANCE` in `src/config.rs`):
+that sunlit patch reads (74, 59, 38), browner, and shade darkens too, from
+(30, 28, 24) to (18, 16, 10), because the environment's specular goes with
+the reflectance - shade readings from before that date do not compare. A low
+sun still puts some sheen on the ground. Test a colour change in SHADE, or
+paint a layer pure green for one render: if the sunlit patch barely moves,
+the colour is not your lever. What did help: the ripple. A ForestFloor `litter_scale` is capped
 at 24 a tile (11.4 m), so its leaves are ~47 cm and its normal map draws
 them as dunes; `normal_strength` 0.8 -> 0.5 (the sanitiser's floor) with
 `leaf_thickness` 0.15 halved the ripple (a Laplacian spread 35 -> 17 live),
@@ -378,7 +384,14 @@ A forest is a few generators and a scatter placement each:
 (each an `id` and a `patch` whose `graph` holds `nodes` and `output`) and
 `tracks` of `events` (`instrument_id`, `time_beats`, `gate_beats`,
 `pitch_multiplier`, `volume`); at the seeded 60 bpm a beat is a second, and
-the loop is `duration_beats` long. A refused set names where (#1457): a
+the loop is `duration_beats` long. **Beats are decimals on the wire, x10,000
+like every other**: the seeded recipe's `duration_beats` of 340000 is a
+34-beat loop - 34 s - not 340. The bake stops at the loop's end plus its
+`loop_crossfade_beats` tail, and an event that starts later never sounds:
+Ashmere's builder took the seed's 340000 for 340 s and set its animal calls
+at 37-323 beats, so only one rook call ever played (found 2026-09-27).
+Check every event's `time_beats` against `duration_beats` before a set. A
+refused set names where (#1457): a
 field that does not read ends `... at /environment/ambient_audio/...`, and a
 node `kind` this build does not know - which reads in as `Unknown` and cannot
 be written back - is named by the value you set.
@@ -394,7 +407,8 @@ be written back - is named by the value you set.
   through a `BiquadBandpass` near 1.1 kHz under a quick envelope, events in
   twos and threes. The agent cannot hear: a new sound is a mood change, so
   offer it live and unsaved and let the admin's ears decide. Ashmere's bell
-  (nine strokes once a 340 s loop) was "pretty annoying over time" and went;
+  (nine strokes meant once in 340 s; in the 34-beat loop, eight of them every
+  34 s) was "pretty annoying over time" and went;
   the loop repeats for as long as anyone stays, so a sound people notice once
   is one they hear every few minutes. Keep punctuation sparse, soft and
   varied (the rooks: short, quiet, at uneven times). The seeded wind was

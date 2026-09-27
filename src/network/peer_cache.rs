@@ -1,7 +1,7 @@
 //! DID-keyed avatar cache + the async PDS-fetch task that populates it.
-//! Decouples a cluster of peers landing in a room (e.g. portal hop)
-//! from the IoTaskPool: a returning peer's record loads from memory
-//! without any network I/O.
+//! A returning peer - a portal hop's cluster of familiar faces - stands at
+//! once in the record this client remembers, and is refreshed from their
+//! PDS in the background (#1489).
 
 use bevy::prelude::*;
 use bevy_symbios_multiuser::prelude::*;
@@ -20,9 +20,10 @@ use super::presence::{FetchState, PeerResolve, RetryBackoff};
 /// unconditional HTTPS round trip against that peer's PDS (DID document
 /// resolve → `getRecord`). When a portal hop brings a cluster of familiar
 /// peers into a room at once, the IoTaskPool gets saturated and avatars
-/// flicker in over several seconds. Caching here lets a returning peer's
-/// record load from memory without any network I/O, and keeps subsequent
-/// reconnects of the same DID within a session essentially free.
+/// flicker in over several seconds. Caching here lets a returning peer
+/// stand at once in the record this client remembers; the fetch that
+/// refreshes it runs behind ([`RefreshCachedAvatar`], #1489), and its DID
+/// hop is itself cached (#1126).
 ///
 /// The cache is FIFO-bounded at
 /// [`config::network::MAX_PEER_AVATAR_CACHE_ENTRIES`]: a busy hub-room or
@@ -34,20 +35,27 @@ use super::presence::{FetchState, PeerResolve, RetryBackoff};
 ///
 /// What keeps an entry current: an inbound `AvatarStateUpdate` from the
 /// owner replaces it - carrying the rigged body's fetched records along
-/// when the references are unchanged, as the live copy does (#1113); an
-/// `AvatarRecordsPublished` notice drops those fetched records, so a
-/// reconnect after a save fetches them afresh ([`Self::forget_resolution`],
-/// #1485); and [`crate::state::AppState::InGame`] exit (`logout`) wipes the
-/// whole map so a new login can't see a previous user's peers. A save this
-/// client never heard about - the owner saved while it was in another room,
-/// or its link was down - is not seen by any of these, and the entry keeps
-/// the old records until the owner changes what it wears (#1489); a fetch
-/// already running when a notice lands can put pre-save records back
+/// when the references are unchanged, as the live copy does (#1113); a
+/// record a fetch brings replaces it, and so does the live copy a refresh
+/// has brought up to date ([`RefreshCachedAvatar`]); an outfit that
+/// resolves is written into it ([`Self::learn_resolution`]); and
+/// [`crate::state::AppState::InGame`] exit (`logout`) wipes the whole map
+/// so a new login can't see a previous user's peers. An entry can still be
+/// older than a save this client never heard about - the owner saved while
+/// it was in another room, or its link was down, or the notice came before
+/// the DID was adopted - which is why every adoption from it is refreshed
+/// (#1485, #1489). A first meeting's fetch, or a rig resolution, already
+/// running when a notice lands can still put pre-save records back - and
+/// the resolution into this cache too, through [`Self::learn_resolution`]
 /// (#1490).
 #[derive(Resource, Default)]
 pub struct PeerAvatarCache {
     by_did: std::collections::HashMap<String, AvatarRecord>,
     order: std::collections::VecDeque<String>,
+    /// When each DID's last refresh was started (#1489), for
+    /// [`Self::claim_refresh`]. Pruned with the entry it belongs to, and at
+    /// logout.
+    refreshed_at: std::collections::HashMap<String, f64>,
 }
 
 impl PeerAvatarCache {
@@ -63,6 +71,7 @@ impl PeerAvatarCache {
                 match self.order.pop_front() {
                     Some(oldest) => {
                         self.by_did.remove(&oldest);
+                        self.refreshed_at.remove(&oldest);
                     }
                     None => break,
                 }
@@ -72,28 +81,46 @@ impl PeerAvatarCache {
         self.by_did.insert(did, record);
     }
 
-    /// Drop the fetched copy of `did`'s body and worn records, keeping the
-    /// references that say what to fetch (#1485).
-    ///
-    /// A publish notice makes the live peer re-fetch, but the entry here was
-    /// written by the preview broadcast just before it, with the pre-save
-    /// resolution carried in because the references had not changed. A
-    /// reconnect - a new peer id, the same DID - installs the entry as it
-    /// stands, and a resolved rig is never fetched again: the owner's save
-    /// reached the room, then reverted for everyone on their next reconnect.
-    pub(super) fn forget_resolution(&mut self, did: &str) {
+    /// Claim `did`'s refresh at `now` - at most one per
+    /// [`config::network::PEER_AVATAR_REFRESH_MIN_SECS`], so a peer whose
+    /// link flaps is fetched once, not once per reconnect (#1489) - or learn
+    /// when the next claim can be had: a refresh is delayed, never dropped.
+    pub(super) fn claim_refresh(&mut self, did: &str, now: f64) -> Result<(), f64> {
+        if let Some(at) = self.refreshed_at.get(did) {
+            let available_at = at + config::network::PEER_AVATAR_REFRESH_MIN_SECS;
+            if now < available_at {
+                return Err(available_at);
+            }
+        }
+        self.refreshed_at.insert(did.to_owned(), now);
+        Ok(())
+    }
+
+    /// Write a rig resolution that landed for `did` into its entry, when the
+    /// entry names the same records (#1489): the next meeting then stands at
+    /// once in the outfit this client last drew, not an older one.
+    pub(super) fn learn_resolution(
+        &mut self,
+        did: &str,
+        avatar_rkey: &str,
+        attachment_rkeys: &[String],
+        resolved: &crate::pds::avatar::ResolvedRig,
+    ) {
         if let Some(rig) = self
             .by_did
             .get_mut(did)
             .and_then(|record| record.body.rigged_mut())
+            && rig.avatar == avatar_rkey
+            && rig.attachments == attachment_rkeys
         {
-            rig.resolved = None;
+            rig.resolved = Some(resolved.clone());
         }
     }
 
     pub fn clear(&mut self) {
         self.by_did.clear();
         self.order.clear();
+        self.refreshed_at.clear();
     }
 }
 
@@ -101,7 +128,8 @@ impl PeerAvatarCache {
 /// the [`poll_peer_avatar_fetches`] system can drain it without a dedicated
 /// resource. The `peer_id` field identifies which remote peer the result
 /// belongs to - the peer's ECS entity may have despawned by the time the
-/// task completes (late disconnect), so the poller has to look it up.
+/// task completes (late disconnect), so the poller has to look it up. A
+/// refresh names the entity it was started for instead ([`Self::refresh_of`]).
 #[derive(Component)]
 pub(super) struct PeerAvatarFetchTask {
     pub(super) peer_id: PeerId,
@@ -110,6 +138,114 @@ pub(super) struct PeerAvatarFetchTask {
     /// Session-relative seconds when the fetch was dispatched, so the poller can
     /// record its spawn→resolve latency (E-4).
     pub(super) spawned_at: f64,
+    /// For the refresh of a record remembered at adoption (#1489), the peer
+    /// entity it was started for: its answer lands there or nowhere - never
+    /// on a later entity that happens to reuse the peer id.
+    pub(super) refresh_of: Option<Entity>,
+}
+
+/// A peer installed from [`PeerAvatarCache`] when their DID was adopted, and
+/// refreshed from their PDS (#1489): the remembered record stands until the
+/// saved one lands, in [`poll_peer_avatar_fetches`].
+#[derive(Component, Default)]
+pub(super) struct RefreshCachedAvatar {
+    /// Whether [`spawn_cached_avatar_refreshes`] has started the current
+    /// attempt.
+    pub(super) spawned: bool,
+    /// Whether this refresh holds its DID's claim
+    /// ([`PeerAvatarCache::claim_refresh`]); a retry or a re-run does not
+    /// ask again.
+    pub(super) claimed: bool,
+    /// Session seconds before which no attempt starts: the end of the claim
+    /// window, or of the wait after a failed attempt.
+    pub(super) not_before: f64,
+    /// The doubling wait after failed attempts - the one a first meeting's
+    /// retries use, with no cap on their number.
+    pub(super) backoff: Option<RetryBackoff>,
+}
+
+/// When this peer's last save notice arrived (#1489): a refresh started
+/// before it can carry the records from before that save, so it runs again.
+#[derive(Component)]
+pub(super) struct AvatarPublishedAt(pub(super) f64);
+
+/// What [`spawn_peer_rig_resolutions`] reads of a peer.
+type RigResolvePeer = (
+    Entity,
+    &'static RemotePeer,
+    Option<&'static PeerRigResolveBackoff>,
+    Option<&'static PeerRigResolveFloor>,
+    Option<&'static RefreshCachedAvatar>,
+    Option<&'static PeerResolve>,
+);
+
+/// What [`poll_peer_avatar_fetches`] reads and writes of a peer.
+type AvatarFetchPeer = (
+    Entity,
+    &'static mut RemotePeer,
+    &'static mut PeerResolve,
+    Option<&'static mut RefreshCachedAvatar>,
+    Option<&'static AvatarPublishedAt>,
+);
+
+/// Start the refresh of each peer installed from the cache (#1489). Here, not
+/// in `adopt_peer_did`, so adopting a familiar peer does no I/O itself. A
+/// muted peer is not fetched for (#1219 f287): its refresh waits for the
+/// unmute. A DID refreshed moments ago waits out the rest of its window
+/// ([`PeerAvatarCache::claim_refresh`]) - delayed, never dropped - and a
+/// retry after a failure waits out its backoff.
+pub(super) fn spawn_cached_avatar_refreshes(
+    mut commands: Commands,
+    mut peers: Query<(Entity, &RemotePeer, &mut RefreshCachedAvatar)>,
+    tasks: Query<&PeerAvatarFetchTask>,
+    mut avatar_cache: ResMut<PeerAvatarCache>,
+    time: Res<Time>,
+) {
+    let now = time.elapsed_secs_f64();
+    // A hop into a room of familiar faces refreshes them a few at a time: a
+    // fetch holds an IO thread while it runs, and the room's own loads
+    // queue behind them.
+    let mut in_flight = tasks
+        .iter()
+        .filter(|task| task.refresh_of.is_some())
+        .count();
+    for (entity, peer, mut refresh) in &mut peers {
+        if refresh.spawned
+            || peer.muted
+            || now < refresh.not_before
+            || in_flight >= config::network::PEER_AVATAR_REFRESHES_IN_FLIGHT
+        {
+            continue;
+        }
+        let Some(did) = peer.did.clone() else {
+            continue;
+        };
+        if !refresh.claimed {
+            match avatar_cache.claim_refresh(&did, now) {
+                Ok(()) => refresh.claimed = true,
+                Err(available_at) => {
+                    refresh.not_before = available_at;
+                    continue;
+                }
+            }
+        }
+        spawn_peer_avatar_fetch(&mut commands, peer.peer_id, did, now, Some(entity));
+        refresh.spawned = true;
+        in_flight += 1;
+    }
+}
+
+/// Drop the peer fetches still in flight when a session ends (#1489's
+/// review): the cache is wiped at logout, and a fetch landing afterwards
+/// would put the last session's peers into the next one's.
+pub(super) fn drop_inflight_peer_fetches(
+    mut commands: Commands,
+    avatar_fetches: Query<Entity, With<PeerAvatarFetchTask>>,
+    rig_fetches: Query<Entity, With<PeerRigResolveTask>>,
+) {
+    for entity in avatar_fetches.iter().chain(rig_fetches.iter()) {
+        commands.entity(entity).despawn();
+    }
 }
 
 pub(super) fn spawn_peer_avatar_fetch(
@@ -117,6 +253,7 @@ pub(super) fn spawn_peer_avatar_fetch(
     peer_id: PeerId,
     did: String,
     spawned_at: f64,
+    refresh_of: Option<Entity>,
 ) {
     // `IoTaskPool` is the correct home for blocking HTTP calls - the
     // `AsyncComputeTaskPool` is sized to the CPU-core count and must not be
@@ -141,6 +278,7 @@ pub(super) fn spawn_peer_avatar_fetch(
         did,
         task,
         spawned_at,
+        refresh_of,
     });
 }
 
@@ -260,17 +398,12 @@ fn rig_is_fully_resolved(rig: &crate::pds::avatar::RiggedBody) -> bool {
 /// Start a resolution for every peer whose record is rigged but unresolved.
 pub(super) fn spawn_peer_rig_resolutions(
     mut commands: Commands,
-    peers: Query<(
-        Entity,
-        &RemotePeer,
-        Option<&PeerRigResolveBackoff>,
-        Option<&PeerRigResolveFloor>,
-    )>,
+    peers: Query<RigResolvePeer>,
     inflight: Query<&PeerRigResolveTask>,
     time: Res<Time>,
 ) {
     let now = time.elapsed_secs_f64();
-    for (peer_entity, peer, backoff, floor) in &peers {
+    for (peer_entity, peer, backoff, floor, refresh, resolve) in &peers {
         // A muted peer gets none of this (#1219 f287). The fan-out is N+2
         // records per attempt - a DID document, a wardrobe record and up to
         // sixteen attachments, to hosts of THEIR choosing, on the shared
@@ -279,6 +412,15 @@ pub(super) fn spawn_peer_rig_resolutions(
         // unmute: this system runs every frame and `resolved` never rides
         // the wire, so nothing has to be remembered.
         if peer.muted {
+            continue;
+        }
+        // A refresh in flight is fetching the saved record's outfit
+        // (#1489), which is what this would fetch for the remembered one -
+        // unless a live update has landed since, whose record the refresh
+        // will not replace. Between a refresh's attempts, this takes over.
+        let live_update =
+            resolve.is_some_and(|resolve| matches!(resolve.avatar, FetchState::Landed));
+        if refresh.is_some_and(|refresh| refresh.spawned) && !live_update {
             continue;
         }
         let Some(did) = peer.did.clone() else {
@@ -388,6 +530,7 @@ pub(super) fn poll_peer_rig_resolutions(
     time: Res<Time>,
     mut session_log: ResMut<SessionLog>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+    mut avatar_cache: ResMut<PeerAvatarCache>,
 ) {
     let now = time.elapsed_secs_f64();
     for (entity, mut task) in tasks.iter_mut() {
@@ -433,7 +576,18 @@ pub(super) fn poll_peer_rig_resolutions(
         // disagreement. The module's own comment named the consequence
         // ("why is Bob a bare chassis for me but not for Alice") without
         // giving anyone a way to answer it.
-        if let Ok((_, mut resolve, _)) = peers.get_mut(task.peer_entity) {
+        // Only for the references still standing: a resolve of references
+        // the peer has since changed - a refresh swapped the record in
+        // (#1489) - says nothing about what they wear now.
+        if let Ok((peer, mut resolve, _)) = peers.get_mut(task.peer_entity)
+            && peer
+                .avatar
+                .as_ref()
+                .and_then(|record| record.body.rigged_ref())
+                .is_some_and(|rig| {
+                    rig.avatar == task.avatar_rkey && rig.attachments == task.attachment_rkeys
+                })
+        {
             PeerResolve::record_outfit(&mut resolve, requested, installed);
         }
         for (rkey, reason) in &report.skipped {
@@ -493,6 +647,13 @@ pub(super) fn poll_peer_rig_resolutions(
         // per-frame fan-out.
         let backoff =
             (!complete).then(|| PeerRigResolveBackoff::after_failure(previous_backoff, rig, now));
+        // The next meeting stands at once in this outfit (#1489).
+        avatar_cache.learn_resolution(
+            &task.did,
+            &task.avatar_rkey,
+            &task.attachment_rkeys,
+            &resolved,
+        );
         rig.resolved = Some(resolved);
         match backoff {
             // Resolved in full: any wait recorded for these references is
@@ -510,14 +671,16 @@ pub(super) fn poll_peer_rig_resolutions(
 }
 
 /// Drain completed peer-avatar fetch tasks and install the fetched record
-/// onto the matching `RemotePeer`. A 404 means the peer has never published
-/// an avatar, in which case we synthesise the deterministic default keyed
-/// off their DID so their vessel is still distinguishable from other
-/// "unpublished" peers.
+/// onto the matching `RemotePeer`. For a first meeting, a 404 means the peer
+/// has never published an avatar, in which case we synthesise the
+/// deterministic default keyed off their DID so their vessel is still
+/// distinguishable from other "unpublished" peers. The refresh of a record
+/// remembered at adoption (#1489) synthesises nothing: the remembered
+/// record stands until the saved one lands.
 pub(super) fn poll_peer_avatar_fetches(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut PeerAvatarFetchTask)>,
-    mut peers: Query<(&mut RemotePeer, &mut PeerResolve)>,
+    mut peers: Query<AvatarFetchPeer>,
     mut session_log: ResMut<SessionLog>,
     mut avatar_cache: ResMut<PeerAvatarCache>,
     time: Res<Time>,
@@ -532,11 +695,10 @@ pub(super) fn poll_peer_avatar_fetches(
         };
         let peer_id = task.peer_id;
         let did = task.did.clone();
+        let spawned_at = task.spawned_at;
+        let refresh_of = task.refresh_of;
         // Record the fetch's spawn→resolve latency (E-4) before the task despawns.
-        crate::diagnostics::samplers::avatar_fetch_latency_secs(
-            &mut metrics,
-            elapsed - task.spawned_at,
-        );
+        crate::diagnostics::samplers::avatar_fetch_latency_secs(&mut metrics, elapsed - spawned_at);
         commands.entity(entity).despawn();
 
         // Only a true 2xx-with-payload is cached: a 404 or transient
@@ -555,10 +717,17 @@ pub(super) fn poll_peer_avatar_fetches(
                 // A 404 resolved to the DID-seeded default - still a successful
                 // fetch (the peer simply hasn't published an avatar).
                 crate::diagnostics::samplers::avatar_fetch_succeeded(&mut metrics);
-                info!(
-                    "Peer {} ({}) has no avatar record - synthesising default",
-                    peer_id, did
-                );
+                if refresh_of.is_some() {
+                    info!(
+                        "Peer {} ({}) refresh found no avatar record - the remembered one stands",
+                        peer_id, did
+                    );
+                } else {
+                    info!(
+                        "Peer {} ({}) has no avatar record - synthesising default",
+                        peer_id, did
+                    );
+                }
                 (
                     AvatarRecord::default_for_did(&did),
                     false,
@@ -575,10 +744,7 @@ pub(super) fn poll_peer_avatar_fetches(
                         error: format!("{err:?}"),
                     },
                 );
-                warn!(
-                    "Avatar fetch failed for {} ({}): {:?} - falling back to default",
-                    peer_id, did, err
-                );
+                warn!("Avatar fetch failed for {} ({}): {:?}", peer_id, did, err);
                 // The two "no record" outcomes are NOT the same fact (#1217
                 // f323). A 404 above is a finished question - this person has
                 // not published an avatar - and the DID-seeded default IS
@@ -589,8 +755,8 @@ pub(super) fn poll_peer_avatar_fetches(
                 // the whole session, with nothing said to anybody.
                 let previous = peers
                     .iter()
-                    .find(|(p, _)| p.peer_id == peer_id)
-                    .and_then(|(_, resolve)| resolve.avatar.backoff().copied());
+                    .find(|(_, p, _, _, _)| p.peer_id == peer_id)
+                    .and_then(|(_, _, resolve, _, _)| resolve.avatar.backoff().copied());
                 (
                     AvatarRecord::default_for_did(&did),
                     false,
@@ -599,6 +765,140 @@ pub(super) fn poll_peer_avatar_fetches(
             }
         };
         record.sanitize();
+
+        if let Some(target) = refresh_of {
+            // The refresh of a record remembered at adoption (#1489). It
+            // lands on the entity it was started for, still wearing the
+            // identity it was started for, or nowhere: a peer who has left
+            // takes its answer with them, and the next meeting refreshes
+            // again.
+            let Ok((_, mut peer, mut resolve, Some(mut refresh), published)) =
+                peers.get_mut(target)
+            else {
+                continue;
+            };
+            if peer.did.as_deref() != Some(did.as_str()) {
+                continue;
+            }
+            if published.is_some_and(|at| at.0 > spawned_at) {
+                // Started before this peer's last save notice, so its
+                // records may be the ones from before that save: run it
+                // again - under a fresh claim, so a peer who sends notices
+                // at will cannot make this client fetch at will.
+                refresh.spawned = false;
+                refresh.claimed = false;
+                refresh.not_before = elapsed;
+                continue;
+            }
+            // After a few failures the wait tops out, and what came back is
+            // taken as the answer: a short outfit is installed and its
+            // missing items left to the rig resolver's own backoff (#1122),
+            // and "no record" leaves the remembered one standing - a first
+            // meeting's settled answers, reached a little later.
+            let settled = refresh
+                .backoff
+                .is_some_and(|b| b.wait_secs >= config::network::PEER_FETCH_RETRY_MAX_SECS);
+            // An outfit that came back without its body, or with fewer of
+            // the standing references' items than the standing outfit
+            // resolves - a wardrobe or attachment record that failed to
+            // fetch - is no better than no answer until then.
+            let short = cacheable
+                && record
+                    .body
+                    .rigged_ref()
+                    .is_some_and(|fresh| match &fresh.resolved {
+                        None => true,
+                        Some(resolved) => peer
+                            .avatar
+                            .as_ref()
+                            .and_then(|standing| standing.body.rigged_ref())
+                            .is_some_and(|standing| {
+                                standing.avatar == fresh.avatar
+                                    && standing.attachments == fresh.attachments
+                                    && standing.resolved.as_ref().is_some_and(|held| {
+                                        resolved.attachments.len() < held.attachments.len()
+                                    })
+                            }),
+                    });
+            if (!cacheable || short) && !settled {
+                // A transport failure, a "no record" a failed wardrobe fetch
+                // also reads as, or a short outfit. The remembered avatar
+                // stands and the state is left as it was - `Failed` means a
+                // generated stand-in (#1217 f323) - and the refresh tries
+                // again on a first meeting's doubling wait.
+                let backoff = RetryBackoff::after_failure(refresh.backoff.as_ref(), elapsed);
+                refresh.spawned = false;
+                refresh.not_before = backoff.failed_at + backoff.wait_secs;
+                refresh.backoff = Some(backoff);
+                continue;
+            }
+            if !cacheable {
+                if matches!(outcome, FetchState::Landed) {
+                    // "No record", settled: the remembered one stands.
+                    commands.entity(target).try_remove::<RefreshCachedAvatar>();
+                } else {
+                    // A transport failure keeps its doubling wait, as a
+                    // first meeting's retry does, for as long as the peer
+                    // stays.
+                    let backoff = RetryBackoff::after_failure(refresh.backoff.as_ref(), elapsed);
+                    refresh.spawned = false;
+                    refresh.not_before = backoff.failed_at + backoff.wait_secs;
+                    refresh.backoff = Some(backoff);
+                }
+                continue;
+            }
+            if matches!(resolve.avatar, FetchState::Landed) {
+                // A live update came first. Its references are newer than
+                // both, but the resolution it carried came from the
+                // remembered record - `resolved` never rides the wire - so it
+                // may be the one from before the save. Where the references
+                // match, the fetched outfit replaces it.
+                let fresh = record.body.rigged_ref();
+                let stale = peer
+                    .avatar
+                    .as_ref()
+                    .and_then(|live| live.body.rigged_ref())
+                    .zip(fresh)
+                    .is_some_and(|(live, fresh)| {
+                        live.avatar == fresh.avatar
+                            && live.attachments == fresh.attachments
+                            && live.resolved != fresh.resolved
+                    });
+                if stale
+                    && let Some(rig) = peer.avatar.as_mut().and_then(|live| live.body.rigged_mut())
+                {
+                    rig.resolved = fresh.and_then(|fresh| fresh.resolved.clone());
+                }
+                if let Some(live) = peer.avatar.clone() {
+                    avatar_cache.insert(did, live);
+                }
+            } else {
+                // The saved record replaces the remembered one.
+                if peer.avatar.as_ref() != Some(&record) {
+                    peer.avatar = Some(record.clone());
+                }
+                resolve.avatar = FetchState::Landed;
+                avatar_cache.insert(did, record);
+            }
+            // What stands now says what the roster's outfit chip says: a
+            // chip left by an earlier short resolve would otherwise stay.
+            let (requested, installed) = peer
+                .avatar
+                .as_ref()
+                .and_then(|standing| standing.body.rigged_ref())
+                .map_or((0, 0), |rig| {
+                    (
+                        rig.attachments.len() as u32,
+                        rig.resolved
+                            .as_ref()
+                            .map_or(0, |resolved| resolved.attachments.len() as u32),
+                    )
+                });
+            PeerResolve::record_outfit(&mut resolve, requested, installed);
+            commands.entity(target).try_remove::<RefreshCachedAvatar>();
+            continue;
+        }
+
         if cacheable {
             avatar_cache.insert(did.clone(), record.clone());
         }
@@ -613,18 +913,31 @@ pub(super) fn poll_peer_avatar_fetches(
         // overwriting it here would permanently fracture visual state -
         // this client would see the old PDS record while every other peer
         // in the room sees the live preview.
-        if let Some((mut peer, mut resolve)) = peers.iter_mut().find(|(p, _)| p.peer_id == peer_id)
+        if let Some((_, mut peer, mut resolve, refresh, _)) = peers
+            .iter_mut()
+            .find(|(_, p, _, _, _)| p.peer_id == peer_id && p.did.as_deref() == Some(did.as_str()))
         {
+            // A peer being refreshed is its refresh's to settle (#1489):
+            // this is a first meeting's fetch that outlived an earlier
+            // entity with the same peer id.
+            if refresh.is_some() {
+                continue;
+            }
             // A stand-in installed by an earlier FAILED attempt may be
             // replaced - that is the whole point of the retry (#1217 f323).
             // A live preview may not: `AvatarStateUpdate` sets `avatar` to
             // `Landed`, so the state read here distinguishes "nothing real
-            // is standing" from "something newer already arrived".
+            // is standing" from "something newer already arrived". And a
+            // failed attempt changes nothing under a real record already
+            // standing: marking it `Failed` called it a stand-in, and the
+            // retry that followed put one over it (#1489's third review).
             let stand_in = resolve.avatar.is_failed();
             if peer.avatar.is_none() || stand_in {
                 peer.avatar = Some(record);
+                resolve.avatar = outcome;
+            } else if matches!(outcome, FetchState::Landed) {
+                resolve.avatar = outcome;
             }
-            resolve.avatar = outcome;
         }
     }
 }
@@ -825,6 +1138,913 @@ mod tests {
         assert_eq!(
             fresh.wait_secs,
             config::network::RIG_RESOLVE_RETRY_BASE_SECS
+        );
+    }
+
+    fn peer_id(n: u8) -> PeerId {
+        serde_json::from_str(&format!("\"00000000-0000-0000-0000-0000000000{n:02}\""))
+            .expect("a well-formed uuid")
+    }
+
+    /// A DID no directory is asked about: `did:key` has no document, so a
+    /// fetch for it fails at once, with no network (#1489's tests).
+    fn key_did(n: u8) -> String {
+        format!("did:key:z6MkrememberedPeer{n:02}")
+    }
+
+    fn outfit(seed: &str) -> crate::pds::avatar::ResolvedRig {
+        crate::pds::avatar::ResolvedRig {
+            body: crate::pds::avatar::wardrobe::engine_default_for_did(seed),
+            attachments: Vec::new(),
+        }
+    }
+
+    /// `rkey` worn, resolved to `seed`'s body.
+    fn wearing(rkey: &str, seed: &str) -> AvatarRecord {
+        let mut record = AvatarRecord::wearing(rkey);
+        if let Some(rig) = record.body.rigged_mut() {
+            rig.resolved = Some(outfit(seed));
+        }
+        record
+    }
+
+    fn remembered_peer(n: u8, avatar: AvatarRecord) -> RemotePeer {
+        RemotePeer {
+            peer_id: peer_id(n),
+            did: Some(key_did(n)),
+            handle: None,
+            muted: false,
+            avatar: Some(avatar),
+            build: None,
+            connected_at: 0.0,
+        }
+    }
+
+    fn in_flight() -> RefreshCachedAvatar {
+        RefreshCachedAvatar {
+            spawned: true,
+            claimed: true,
+            ..Default::default()
+        }
+    }
+
+    fn live() -> PeerResolve {
+        PeerResolve {
+            avatar: FetchState::Landed,
+            ..Default::default()
+        }
+    }
+
+    /// A task already finished when it is handed over (#1295's pattern):
+    /// spawned on a one-thread pool of this module's own and waited for
+    /// against the clock, so what is tested is what the pollers do with an
+    /// answer, not whether the shared pool got round to producing one.
+    fn finished<T: Send + 'static>(value: T) -> bevy::tasks::Task<T> {
+        static POOL: std::sync::OnceLock<bevy::tasks::TaskPool> = std::sync::OnceLock::new();
+        let pool = POOL.get_or_init(|| {
+            bevy::tasks::TaskPoolBuilder::new()
+                .num_threads(1)
+                .thread_name("peer-cache-test".into())
+                .build()
+        });
+        let task = pool.spawn(async move { value });
+        let give_up_at = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !task.is_finished() {
+            assert!(
+                std::time::Instant::now() < give_up_at,
+                "a trivial task never ran"
+            );
+            std::thread::yield_now();
+        }
+        task
+    }
+
+    /// The resources the pollers read, and no systems.
+    fn bare_app() -> App {
+        let mut app = App::new();
+        app.add_plugins((bevy::app::TaskPoolPlugin::default(), bevy::time::TimePlugin));
+        app.init_resource::<SessionLog>()
+            .init_resource::<PeerAvatarCache>()
+            .init_resource::<crate::diagnostics::MetricsRegistry>();
+        app
+    }
+
+    fn refresh_app() -> App {
+        let mut app = bare_app();
+        app.add_systems(Update, poll_peer_avatar_fetches);
+        app
+    }
+
+    /// Peer `n`'s fetch, started at 1 s and already answered; a refresh of
+    /// `refresh_of` when given.
+    fn answer(
+        app: &mut App,
+        n: u8,
+        result: Result<Option<AvatarRecord>, pds::FetchError>,
+        refresh_of: Option<Entity>,
+    ) {
+        app.world_mut().spawn(PeerAvatarFetchTask {
+            peer_id: peer_id(n),
+            did: key_did(n),
+            task: finished(result),
+            spawned_at: 1.0,
+            refresh_of,
+        });
+    }
+
+    fn offline() -> Result<Option<AvatarRecord>, pds::FetchError> {
+        Err(pds::FetchError::Network(String::from("offline")))
+    }
+
+    fn standing(app: &App, entity: Entity) -> AvatarRecord {
+        app.world()
+            .get::<RemotePeer>(entity)
+            .and_then(|peer| peer.avatar.clone())
+            .expect("a record stands")
+    }
+
+    fn rig_of(record: &AvatarRecord) -> &crate::pds::avatar::RiggedBody {
+        record.body.rigged_ref().expect("a rigged body")
+    }
+
+    fn remembered(app: &App, n: u8) -> Option<AvatarRecord> {
+        app.world()
+            .resource::<PeerAvatarCache>()
+            .get(&key_did(n))
+            .cloned()
+    }
+
+    /// #1489: the refresh of a record remembered at adoption swaps in the
+    /// saved record - a switched body here - and remembers it for the next
+    /// meeting.
+    #[test]
+    fn a_refresh_replaces_the_remembered_record_and_remembers_the_saved_one() {
+        let mut app = refresh_app();
+        let peer = app
+            .world_mut()
+            .spawn((
+                remembered_peer(1, wearing("3jzfcijpj2z2a", "old")),
+                PeerResolve::default(),
+                in_flight(),
+            ))
+            .id();
+        answer(
+            &mut app,
+            1,
+            Ok(Some(wearing("3jzfcijpj2z2b", "saved"))),
+            Some(peer),
+        );
+        app.update();
+
+        assert_eq!(rig_of(&standing(&app, peer)).avatar, "3jzfcijpj2z2b");
+        assert!(app.world().get::<RefreshCachedAvatar>(peer).is_none());
+        assert_eq!(
+            remembered(&app, 1).map(|record| rig_of(&record).avatar.clone()),
+            Some(String::from("3jzfcijpj2z2b"))
+        );
+    }
+
+    /// #1489's second and third reviews: a live update that came first
+    /// keeps its references - they are newer than both - but the outfit it
+    /// carried came from the remembered record, maybe from before the save.
+    /// Where the references match, a complete fetched outfit replaces it
+    /// and the cache learns it; where they differ, the live update stands;
+    /// an outfit that came back short is a failed attempt, tried again.
+    #[test]
+    fn a_live_update_keeps_its_references_and_takes_the_fresh_outfit() {
+        let mut app = refresh_app();
+        let spawn = |app: &mut App, n: u8, rkey: &str| {
+            app.world_mut()
+                .spawn((
+                    remembered_peer(n, wearing(rkey, "before")),
+                    live(),
+                    in_flight(),
+                ))
+                .id()
+        };
+        let same = spawn(&mut app, 1, "3jzfcijpj2z2a");
+        let moved_on = spawn(&mut app, 2, "3jzfcijpj2z2c");
+        let short = spawn(&mut app, 3, "3jzfcijpj2z2a");
+        answer(
+            &mut app,
+            1,
+            Ok(Some(wearing("3jzfcijpj2z2a", "after"))),
+            Some(same),
+        );
+        answer(
+            &mut app,
+            2,
+            Ok(Some(wearing("3jzfcijpj2z2a", "after"))),
+            Some(moved_on),
+        );
+        answer(
+            &mut app,
+            3,
+            Ok(Some(AvatarRecord::wearing("3jzfcijpj2z2a"))),
+            Some(short),
+        );
+        app.update();
+
+        let fresh = standing(&app, same);
+        assert_eq!(rig_of(&fresh).avatar, "3jzfcijpj2z2a");
+        assert_eq!(rig_of(&fresh).resolved, Some(outfit("after")));
+        assert_eq!(
+            remembered(&app, 1).and_then(|record| rig_of(&record).resolved.clone()),
+            Some(outfit("after")),
+            "and the next meeting stands in it"
+        );
+        let untouched = standing(&app, moved_on);
+        assert_eq!(rig_of(&untouched).avatar, "3jzfcijpj2z2c");
+        assert_eq!(rig_of(&untouched).resolved, Some(outfit("before")));
+        assert_eq!(
+            rig_of(&standing(&app, short)).resolved,
+            Some(outfit("before")),
+            "a short outfit takes nothing off"
+        );
+        assert!(
+            app.world()
+                .get::<RefreshCachedAvatar>(short)
+                .is_some_and(|refresh| !refresh.spawned),
+            "and is tried again"
+        );
+    }
+
+    /// #1489's reviews: a refresh that brings no record - a transport
+    /// failure, or a "no record" a failed wardrobe fetch also reads as -
+    /// leaves the remembered body standing, never calls it a stand-in
+    /// (#1217 f323), and tries again on a first meeting's doubling wait,
+    /// however many times it has failed.
+    #[test]
+    fn a_failed_refresh_keeps_the_remembered_body_and_tries_again() {
+        let mut app = refresh_app();
+        let mut long_outage = None;
+        for _ in 0..10 {
+            long_outage = Some(RetryBackoff::after_failure(long_outage.as_ref(), 0.0));
+        }
+        let spawn = |app: &mut App, n: u8, backoff: Option<RetryBackoff>| {
+            app.world_mut()
+                .spawn((
+                    remembered_peer(n, wearing("3jzfcijpj2z2a", "kept")),
+                    PeerResolve::default(),
+                    RefreshCachedAvatar {
+                        backoff,
+                        ..in_flight()
+                    },
+                ))
+                .id()
+        };
+        let failed = spawn(&mut app, 1, None);
+        let empty = spawn(&mut app, 2, None);
+        let still_down = spawn(&mut app, 3, long_outage);
+        let settled_empty = spawn(&mut app, 4, long_outage);
+        let twice = spawn(&mut app, 5, Some(RetryBackoff::after_failure(None, 0.0)));
+        answer(&mut app, 1, offline(), Some(failed));
+        answer(&mut app, 5, offline(), Some(twice));
+        answer(&mut app, 2, Ok(None), Some(empty));
+        answer(&mut app, 3, offline(), Some(still_down));
+        answer(&mut app, 4, Ok(None), Some(settled_empty));
+        app.update();
+
+        for peer in [failed, empty, still_down, settled_empty] {
+            assert_eq!(
+                rig_of(&standing(&app, peer)).resolved,
+                Some(outfit("kept")),
+                "the remembered body stands"
+            );
+            assert!(
+                !app.world()
+                    .get::<PeerResolve>(peer)
+                    .is_some_and(|resolve| resolve.avatar.is_failed()),
+                "and is not called a stand-in"
+            );
+        }
+        for peer in [failed, empty, still_down] {
+            let refresh = app
+                .world()
+                .get::<RefreshCachedAvatar>(peer)
+                .expect("the refresh stays due, however long the outage");
+            assert!(!refresh.spawned, "for another attempt");
+            assert!(
+                refresh.backoff.is_some() && refresh.not_before > 0.0,
+                "after its wait"
+            );
+        }
+        let wait = |peer: Entity| {
+            app.world()
+                .get::<RefreshCachedAvatar>(peer)
+                .and_then(|refresh| refresh.backoff)
+                .expect("a backoff")
+        };
+        assert_eq!(
+            wait(failed).wait_secs,
+            config::network::PEER_FETCH_RETRY_BASE_SECS
+        );
+        assert_eq!(
+            wait(twice).wait_secs,
+            2.0 * config::network::PEER_FETCH_RETRY_BASE_SECS,
+            "each failure doubles the wait"
+        );
+        assert_eq!(wait(still_down).attempts, 11, "the doubling goes on");
+        assert_eq!(
+            wait(still_down).wait_secs,
+            config::network::PEER_FETCH_RETRY_MAX_SECS,
+            "up to its ceiling, however long the outage"
+        );
+        assert!(
+            app.world()
+                .get::<RefreshCachedAvatar>(settled_empty)
+                .is_none(),
+            "once the wait tops out, \"no record\" is settled and the remembered one stays"
+        );
+    }
+
+    /// #1489's reviews: a refresh that started before the owner's save
+    /// notice may bring the records from before that save. It is neither
+    /// installed nor remembered, and runs again at once under the claim it
+    /// holds. A notice that came before the refresh started does not count.
+    #[test]
+    fn a_refresh_started_before_a_save_notice_runs_again() {
+        let mut app = refresh_app();
+        let spawn = |app: &mut App, n: u8, notice_at: f64| {
+            app.world_mut()
+                .spawn((
+                    remembered_peer(n, wearing("3jzfcijpj2z2a", "remembered")),
+                    PeerResolve::default(),
+                    in_flight(),
+                    AvatarPublishedAt(notice_at),
+                ))
+                .id()
+        };
+        let overtaken = spawn(&mut app, 1, 2.0);
+        let after_notice = spawn(&mut app, 2, 1.0);
+        answer(
+            &mut app,
+            1,
+            Ok(Some(wearing("3jzfcijpj2z2b", "pre-save"))),
+            Some(overtaken),
+        );
+        answer(
+            &mut app,
+            2,
+            Ok(Some(wearing("3jzfcijpj2z2b", "saved"))),
+            Some(after_notice),
+        );
+        app.update();
+
+        assert_eq!(rig_of(&standing(&app, overtaken)).avatar, "3jzfcijpj2z2a");
+        assert!(remembered(&app, 1).is_none(), "nor remembered");
+        let rerun = app
+            .world()
+            .get::<RefreshCachedAvatar>(overtaken)
+            .expect("the refresh runs again");
+        assert!(
+            !rerun.spawned && !rerun.claimed,
+            "under a fresh claim, so notices sent at will cannot make it fetch at will"
+        );
+        assert_eq!(
+            rig_of(&standing(&app, after_notice)).avatar,
+            "3jzfcijpj2z2b",
+            "a refresh started after the notice is the saved record"
+        );
+    }
+
+    /// #1489's third review: a refresh lands on the entity it was started
+    /// for, or nowhere. The peer left, and this client hopped out and back:
+    /// the later entity with the same peer id is not the refresh's to touch,
+    /// with a failure (which marked the real body `Failed`, and a retry then
+    /// put a stand-in over it) or with an answer.
+    #[test]
+    fn a_refresh_for_a_peer_who_left_lands_nowhere() {
+        let mut app = refresh_app();
+        let gone = app.world_mut().spawn_empty().id();
+        app.world_mut().despawn(gone);
+        let returned = app
+            .world_mut()
+            .spawn((
+                remembered_peer(1, wearing("3jzfcijpj2z2a", "remembered")),
+                PeerResolve::default(),
+                in_flight(),
+            ))
+            .id();
+        answer(&mut app, 1, offline(), Some(gone));
+        answer(
+            &mut app,
+            1,
+            Ok(Some(wearing("3jzfcijpj2z2b", "elsewhere"))),
+            Some(gone),
+        );
+        app.update();
+
+        assert_eq!(rig_of(&standing(&app, returned)).avatar, "3jzfcijpj2z2a");
+        assert!(
+            !app.world()
+                .get::<PeerResolve>(returned)
+                .is_some_and(|resolve| resolve.avatar.is_failed())
+        );
+        assert!(remembered(&app, 1).is_none());
+        assert!(
+            app.world()
+                .get::<RefreshCachedAvatar>(returned)
+                .is_some_and(|refresh| refresh.spawned && refresh.backoff.is_none()),
+            "and the returned entity's own refresh is left to land"
+        );
+    }
+
+    /// #1489's third review: a first meeting's fetch that fails under a real
+    /// record already standing - a live preview - changes nothing. Marking
+    /// it `Failed` called it a stand-in, and the retry put one over it.
+    #[test]
+    fn a_failed_first_meeting_fetch_leaves_a_real_record_standing() {
+        let mut app = refresh_app();
+        let peer = app
+            .world_mut()
+            .spawn((
+                remembered_peer(1, wearing("3jzfcijpj2z2a", "preview")),
+                live(),
+            ))
+            .id();
+        answer(&mut app, 1, offline(), None);
+        app.update();
+
+        assert_eq!(
+            rig_of(&standing(&app, peer)).resolved,
+            Some(outfit("preview"))
+        );
+        assert!(
+            app.world()
+                .get::<PeerResolve>(peer)
+                .is_some_and(|resolve| matches!(resolve.avatar, FetchState::Landed)),
+            "still the live preview's, not a stand-in's"
+        );
+    }
+
+    /// #1489's third review: a first meeting's fetch that outlived an earlier
+    /// entity with the same peer id leaves a peer being refreshed to its
+    /// own refresh - nothing installed, the state untouched.
+    #[test]
+    fn a_first_meeting_fetch_leaves_a_refreshing_peer_to_its_refresh() {
+        let mut app = refresh_app();
+        let peer = app
+            .world_mut()
+            .spawn((
+                remembered_peer(1, wearing("3jzfcijpj2z2a", "remembered")),
+                PeerResolve::default(),
+                in_flight(),
+            ))
+            .id();
+        answer(
+            &mut app,
+            1,
+            Ok(Some(wearing("3jzfcijpj2z2b", "stale fetch"))),
+            None,
+        );
+        app.update();
+
+        assert_eq!(rig_of(&standing(&app, peer)).avatar, "3jzfcijpj2z2a");
+        assert!(
+            app.world()
+                .get::<PeerResolve>(peer)
+                .is_some_and(|resolve| matches!(resolve.avatar, FetchState::Pending))
+        );
+        assert!(app.world().get::<RefreshCachedAvatar>(peer).is_some());
+    }
+
+    /// #1489's third review: a DID refreshed moments ago waits out the rest
+    /// of its window - the refresh is delayed, not dropped.
+    #[test]
+    fn a_refresh_claim_is_delayed_not_refused() {
+        let mut cache = PeerAvatarCache::default();
+        let window = config::network::PEER_AVATAR_REFRESH_MIN_SECS;
+        assert_eq!(cache.claim_refresh("did:key:a", 0.0), Ok(()));
+        assert_eq!(cache.claim_refresh("did:key:a", 1.0), Err(window));
+        assert_eq!(cache.claim_refresh("did:key:b", 1.0), Ok(()), "per DID");
+        assert_eq!(cache.claim_refresh("did:key:a", window), Ok(()));
+    }
+
+    /// #1489: a peer installed from the cache is refreshed once - not once
+    /// a frame - a muted one waits for the unmute (#1219 f287), one inside
+    /// its DID's claim window waits for its end, and a retry still waiting
+    /// does not start. One peer here can start, so the in-flight cap never
+    /// decides. The fetch spawned here is for a `did:key`, which fails with
+    /// no network.
+    #[test]
+    fn a_remembered_peer_is_refreshed_once_and_a_muted_one_waits() {
+        // No poller: a `did:key` fetch fails at once and would be taken
+        // before the count.
+        let mut app = bare_app();
+        app.add_systems(Update, spawn_cached_avatar_refreshes);
+        let spawn = |app: &mut App, n: u8, muted: bool, refresh: RefreshCachedAvatar| {
+            let mut peer = remembered_peer(n, wearing("3jzfcijpj2z2a", "kept"));
+            peer.muted = muted;
+            app.world_mut().spawn((peer, refresh)).id()
+        };
+        let familiar = spawn(&mut app, 1, false, RefreshCachedAvatar::default());
+        let muted = spawn(&mut app, 2, true, RefreshCachedAvatar::default());
+        let windowed = spawn(&mut app, 3, false, RefreshCachedAvatar::default());
+        let waiting = spawn(
+            &mut app,
+            5,
+            false,
+            RefreshCachedAvatar {
+                claimed: true,
+                not_before: 1.0e9,
+                ..Default::default()
+            },
+        );
+        {
+            let mut cache = app.world_mut().resource_mut::<PeerAvatarCache>();
+            assert_eq!(cache.claim_refresh(&key_did(3), 0.0), Ok(()));
+        }
+
+        for _ in 0..3 {
+            app.update();
+        }
+
+        let mut tasks = app.world_mut().query::<&PeerAvatarFetchTask>();
+        let mut fetched: Vec<(PeerId, Option<Entity>)> = tasks
+            .iter(app.world())
+            .map(|task| (task.peer_id, task.refresh_of))
+            .collect();
+        fetched.sort_by_key(|(id, _)| id.to_string());
+        assert_eq!(
+            fetched,
+            vec![(peer_id(1), Some(familiar))],
+            "one fetch, for the familiar peer, aimed at its entity"
+        );
+        let refresh = |entity: Entity| {
+            app.world()
+                .get::<RefreshCachedAvatar>(entity)
+                .expect("the refresh stays")
+        };
+        assert!(!refresh(muted).spawned, "the muted peer's refresh waits");
+        assert!(
+            !refresh(windowed).spawned
+                && refresh(windowed).not_before == config::network::PEER_AVATAR_REFRESH_MIN_SECS,
+            "inside the window the refresh waits for its end"
+        );
+        assert!(!refresh(waiting).spawned, "a retry waits out its backoff");
+    }
+
+    /// #1489's fourth review: a retry after a failed attempt holds the claim
+    /// its refresh won, so it starts inside its DID's claim window.
+    #[test]
+    fn a_retry_needs_no_new_claim() {
+        let mut app = bare_app();
+        app.add_systems(Update, spawn_cached_avatar_refreshes);
+        let retry = app
+            .world_mut()
+            .spawn((
+                remembered_peer(1, wearing("3jzfcijpj2z2a", "kept")),
+                RefreshCachedAvatar {
+                    claimed: true,
+                    ..Default::default()
+                },
+            ))
+            .id();
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<PeerAvatarCache>()
+                .claim_refresh(&key_did(1), 0.0),
+            Ok(())
+        );
+        app.update();
+
+        let mut tasks = app.world_mut().query::<&PeerAvatarFetchTask>();
+        let fetched: Vec<Option<Entity>> = tasks
+            .iter(app.world())
+            .map(|task| task.refresh_of)
+            .collect();
+        assert_eq!(fetched, vec![Some(retry)]);
+    }
+
+    /// #1489's reviews: while a refresh fetches the outfit the standing
+    /// record names, the rig resolver does not fetch it a second time; once
+    /// a live update has changed the record, or while the refresh waits
+    /// between attempts, the resolver does its own work. The resolutions
+    /// spawned here are for `did:key`s, which fail with no network.
+    #[test]
+    fn the_resolver_steps_aside_only_while_a_refresh_fetches_the_same_outfit() {
+        let mut app = App::new();
+        app.add_plugins((bevy::app::TaskPoolPlugin::default(), bevy::time::TimePlugin));
+        app.add_systems(Update, spawn_peer_rig_resolutions);
+        let spawn = |app: &mut App, n: u8, resolve: PeerResolve, refresh: RefreshCachedAvatar| {
+            app.world_mut()
+                .spawn((
+                    remembered_peer(n, AvatarRecord::wearing("3jzfcijpj2z2a")),
+                    resolve,
+                    refresh,
+                ))
+                .id()
+        };
+        spawn(&mut app, 1, PeerResolve::default(), in_flight());
+        spawn(&mut app, 2, live(), in_flight());
+        spawn(
+            &mut app,
+            3,
+            PeerResolve::default(),
+            RefreshCachedAvatar::default(),
+        );
+
+        app.update();
+
+        let mut tasks = app.world_mut().query::<&PeerRigResolveTask>();
+        let mut resolving: Vec<String> = tasks
+            .iter(app.world())
+            .map(|task| task.peer_id.to_string())
+            .collect();
+        resolving.sort();
+        assert_eq!(
+            resolving,
+            vec![peer_id(2).to_string(), peer_id(3).to_string()]
+        );
+    }
+
+    /// #1489's reviews: the cache never learned a resolution, so the next
+    /// meeting stood in an older outfit, or bare. A resolution that lands
+    /// is written through - but only into an entry that names the same
+    /// records.
+    #[test]
+    fn a_landed_outfit_is_remembered_for_the_next_meeting() {
+        let mut app = bare_app();
+        app.add_systems(Update, poll_peer_rig_resolutions);
+        let mut cache = PeerAvatarCache::default();
+        cache.insert(key_did(1), AvatarRecord::wearing("3jzfcijpj2z2a"));
+        cache.insert(key_did(2), AvatarRecord::wearing("3jzfcijpj2z2z"));
+        app.insert_resource(cache);
+        for (n, rkey) in [(1, "3jzfcijpj2z2a"), (2, "3jzfcijpj2z2b")] {
+            let peer = app
+                .world_mut()
+                .spawn((
+                    remembered_peer(n, AvatarRecord::wearing(rkey)),
+                    PeerResolve::default(),
+                ))
+                .id();
+            app.world_mut().spawn(PeerRigResolveTask {
+                peer_id: peer_id(n),
+                peer_entity: peer,
+                did: key_did(n),
+                avatar_rkey: String::from(rkey),
+                attachment_rkeys: Vec::new(),
+                task: finished((
+                    Some(outfit("landed")),
+                    crate::pds::avatar::wardrobe::ResolveReport::default(),
+                )),
+            });
+        }
+        app.update();
+
+        assert_eq!(
+            remembered(&app, 1).and_then(|record| rig_of(&record).resolved.clone()),
+            Some(outfit("landed"))
+        );
+        assert!(
+            remembered(&app, 2).is_some_and(|record| rig_of(&record).resolved.is_none()),
+            "an entry naming other records is left alone"
+        );
+    }
+
+    /// #1489's second review: the cache is wiped at logout, but a fetch
+    /// still in flight - an avatar record or an outfit - would land in the
+    /// next session's.
+    #[test]
+    fn a_logout_drops_the_fetches_still_in_flight() {
+        // No poller, which would take the finished task itself.
+        let mut app = bare_app();
+        app.add_systems(Update, drop_inflight_peer_fetches);
+        let peer = app.world_mut().spawn_empty().id();
+        answer(&mut app, 1, Ok(None), None);
+        app.world_mut().spawn(PeerRigResolveTask {
+            peer_id: peer_id(1),
+            peer_entity: peer,
+            did: key_did(1),
+            avatar_rkey: String::from("3jzfcijpj2z2a"),
+            attachment_rkeys: Vec::new(),
+            task: finished((None, crate::pds::avatar::wardrobe::ResolveReport::default())),
+        });
+        app.update();
+
+        let mut avatar = app.world_mut().query::<&PeerAvatarFetchTask>();
+        assert_eq!(avatar.iter(app.world()).count(), 0);
+        let mut rig = app.world_mut().query::<&PeerRigResolveTask>();
+        assert_eq!(rig.iter(app.world()).count(), 0);
+    }
+
+    fn worn(rkey: &str) -> crate::pds::avatar::ResolvedAttachment {
+        crate::pds::avatar::ResolvedAttachment {
+            rkey: String::from(rkey),
+            record: crate::pds::avatar::wardrobe::AttachmentRecord {
+                lex_type: crate::pds::AVATAR_ATTACHMENT_COLLECTION.into(),
+                item: serde_json::from_value(serde_json::json!({
+                    "$type": "network.symbios.gen.cuboid",
+                    "size": [1000, 1000, 1000],
+                    "solid": false
+                }))
+                .expect("a cuboid"),
+                socket: String::from("head"),
+                offset: Default::default(),
+                fit_band_mm: 0,
+                source: None,
+            },
+        }
+    }
+
+    /// `rkey` worn with `att-1`, resolved to `seed` with that item fetched
+    /// or not.
+    fn wearing_one(rkey: &str, seed: &str, fetched: bool) -> AvatarRecord {
+        let mut record = wearing(rkey, seed);
+        if let Some(rig) = record.body.rigged_mut() {
+            rig.attachments = vec![String::from("att-1")];
+            if fetched && let Some(resolved) = rig.resolved.as_mut() {
+                resolved.attachments = vec![worn("att-1")];
+            }
+        }
+        record
+    }
+
+    /// #1489's fourth review: an outfit that comes back without its body,
+    /// or with fewer items than the standing one resolves under the same
+    /// references, waits for another attempt - until the wait tops out,
+    /// when it is taken, and the missing items are the rig resolver's.
+    #[test]
+    fn a_short_outfit_waits_until_the_wait_tops_out() {
+        let mut app = refresh_app();
+        let mut topped_out = None;
+        for _ in 0..10 {
+            topped_out = Some(RetryBackoff::after_failure(topped_out.as_ref(), 0.0));
+        }
+        let spawn = |app: &mut App, n: u8, backoff: Option<RetryBackoff>| {
+            app.world_mut()
+                .spawn((
+                    remembered_peer(n, wearing_one("3jzfcijpj2z2a", "held", true)),
+                    PeerResolve::default(),
+                    RefreshCachedAvatar {
+                        backoff,
+                        ..in_flight()
+                    },
+                ))
+                .id()
+        };
+        let fewer = spawn(&mut app, 1, None);
+        let bodiless = spawn(&mut app, 2, None);
+        let taken = spawn(&mut app, 3, topped_out);
+        answer(
+            &mut app,
+            1,
+            Ok(Some(wearing_one("3jzfcijpj2z2a", "fetched", false))),
+            Some(fewer),
+        );
+        answer(
+            &mut app,
+            2,
+            Ok(Some(AvatarRecord::wearing("3jzfcijpj2z2b"))),
+            Some(bodiless),
+        );
+        answer(
+            &mut app,
+            3,
+            Ok(Some(wearing_one("3jzfcijpj2z2a", "fetched", false))),
+            Some(taken),
+        );
+        app.update();
+
+        for peer in [fewer, bodiless] {
+            assert_eq!(
+                rig_of(&standing(&app, peer)).resolved,
+                wearing_one("3jzfcijpj2z2a", "held", true)
+                    .body
+                    .rigged_ref()
+                    .and_then(|rig| rig.resolved.clone()),
+                "the fuller outfit stands"
+            );
+            assert!(app.world().get::<RefreshCachedAvatar>(peer).is_some());
+        }
+        assert_eq!(
+            rig_of(&standing(&app, taken))
+                .resolved
+                .as_ref()
+                .map(|resolved| resolved.body.clone()),
+            Some(outfit("fetched").body),
+            "once the wait tops out the answer is taken"
+        );
+        assert!(app.world().get::<RefreshCachedAvatar>(taken).is_none());
+    }
+
+    /// #1489's fourth review: a refresh lands only on the identity it was
+    /// started for. An entity that has adopted another DID since is not its
+    /// to touch; nor is a first meeting's fetch installed on an entity
+    /// whose DID is not adopted yet.
+    #[test]
+    fn a_fetch_lands_only_on_the_identity_it_was_for() {
+        let mut app = refresh_app();
+        let mut other = remembered_peer(1, wearing("3jzfcijpj2z2a", "someone else"));
+        other.did = Some(key_did(9));
+        let changed = app
+            .world_mut()
+            .spawn((other, PeerResolve::default(), in_flight()))
+            .id();
+        let mut unknown = remembered_peer(2, wearing("3jzfcijpj2z2a", "unused"));
+        unknown.did = None;
+        unknown.avatar = None;
+        let unadopted = app
+            .world_mut()
+            .spawn((unknown, PeerResolve::default()))
+            .id();
+        answer(
+            &mut app,
+            1,
+            Ok(Some(wearing("3jzfcijpj2z2b", "first identity"))),
+            Some(changed),
+        );
+        answer(
+            &mut app,
+            2,
+            Ok(Some(wearing("3jzfcijpj2z2b", "early"))),
+            None,
+        );
+        app.update();
+
+        assert_eq!(rig_of(&standing(&app, changed)).avatar, "3jzfcijpj2z2a");
+        assert!(
+            app.world()
+                .get::<RefreshCachedAvatar>(changed)
+                .is_some_and(|refresh| refresh.spawned),
+            "its own refresh is left to land"
+        );
+        assert!(
+            app.world()
+                .get::<RemotePeer>(unadopted)
+                .is_some_and(|peer| peer.avatar.is_none())
+        );
+    }
+
+    /// #1489's fourth review: the roster's outfit chip follows what the
+    /// refresh stood up; and a rig resolve for references the peer no
+    /// longer wears says nothing about the outfit they do.
+    #[test]
+    fn the_outfit_chip_follows_what_stands() {
+        let mut app = refresh_app();
+        app.add_systems(Update, poll_peer_rig_resolutions);
+        let refreshed = app
+            .world_mut()
+            .spawn((
+                remembered_peer(1, wearing_one("3jzfcijpj2z2a", "short", false)),
+                PeerResolve {
+                    outfit_missing: 1,
+                    ..Default::default()
+                },
+                in_flight(),
+            ))
+            .id();
+        answer(
+            &mut app,
+            1,
+            Ok(Some(wearing_one("3jzfcijpj2z2a", "complete", true))),
+            Some(refreshed),
+        );
+        let moved_on = app
+            .world_mut()
+            .spawn((
+                remembered_peer(2, wearing("3jzfcijpj2z2b", "worn now")),
+                PeerResolve::default(),
+            ))
+            .id();
+        app.world_mut().spawn(PeerRigResolveTask {
+            peer_id: peer_id(2),
+            peer_entity: moved_on,
+            did: key_did(2),
+            avatar_rkey: String::from("3jzfcijpj2z2a"),
+            attachment_rkeys: vec![String::from("att-1"), String::from("att-2")],
+            task: finished((None, crate::pds::avatar::wardrobe::ResolveReport::default())),
+        });
+        app.update();
+
+        let missing = |peer: Entity| {
+            app.world()
+                .get::<PeerResolve>(peer)
+                .map(|resolve| resolve.outfit_missing)
+        };
+        assert_eq!(missing(refreshed), Some(0));
+        assert_eq!(missing(moved_on), Some(0));
+    }
+
+    /// #1489's fourth review: a hop into a room of familiar faces refreshes
+    /// them a few at a time - a fetch holds an IO thread while it runs.
+    #[test]
+    fn refreshes_run_a_few_at_a_time() {
+        let mut app = bare_app();
+        app.add_systems(Update, spawn_cached_avatar_refreshes);
+        for n in 1..=5 {
+            app.world_mut().spawn((
+                remembered_peer(n, wearing("3jzfcijpj2z2a", "kept")),
+                RefreshCachedAvatar::default(),
+            ));
+        }
+        app.update();
+
+        let mut tasks = app.world_mut().query::<&PeerAvatarFetchTask>();
+        assert_eq!(
+            tasks.iter(app.world()).count(),
+            config::network::PEER_AVATAR_REFRESHES_IN_FLIGHT
         );
     }
 }

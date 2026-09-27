@@ -9,6 +9,8 @@ not repeat it, it says how to use it well.
 
 | Topic | Read it before |
 |---|---|
+| [session.md](session.md) | a live session with the owner: starting from a short prompt, the modes, saving, "session over" |
+| [accounts/](accounts/README.md) | playing one of the agent's accounts: who it is, its body and region, where its work is kept |
 | [chat.md](chat.md) | the first task: the event watcher, crossed lines, how to answer |
 | [building.md](building.md) | any `place`, `move`, `room set`: frames, sizes, JSON, z-fighting |
 | [looking.md](looking.md) | trusting a `look` picture, or judging something by eye |
@@ -35,6 +37,10 @@ it waited for as its `result`; a `save --wait` that failed answers
 `result` (exit code 1).
 
 ## Setting up
+
+A live session with the owner runs these steps as [session.md](session.md)
+says, for the account its prompt names; where shell state does not survive
+between commands, a wrapper script stands in for the `A()` function below.
 
 1. Build: `cargo build --profile test-release --bin agent`. **Never** plain
    `--release` (fat LTO: ~10 minutes and 8 GB per link). A first build is
@@ -65,8 +71,9 @@ it waited for as its `result`; a `save --wait` that failed answers
    `$XDG_CONFIG_HOME/symbios-overlands/agent/diagnostics/<account>/`, beside
    the daemon's log (#1476); a daemon built before that wrote it to
    `diagnostics/` under whatever directory `start` ran in.
-4. Greet the admin with `A say "..."`, then arm the watcher
-   ([chat.md](chat.md)).
+4. Arm the watcher ([chat.md](chat.md)), then greet the admin with
+   `A say "..."` if `status.peers` shows them (a live session:
+   [session.md](session.md#starting), steps 7-9).
 
 An account's FIRST start opens the Controls window (the game's first-run
 hint, and an open window costs its drawing every frame): `A ui close

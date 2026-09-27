@@ -10,11 +10,13 @@ the event log and exits when the admin speaks or offers a gift, anyone comes
 or goes, a follow is blocked, or the daemon restarted - after gathering a
 follow-up line or two, since people type in bursts. It prints every event it
 saw, a `WAKE:` line saying why, and `NEXT=<seq>` to resume from. It reads the
-admin's DID from `status`, so nothing needs editing; with two sessions saved,
-`export AGENT_ACCOUNT=<handle>` first.
+admin's DID from `status`, so nothing needs editing; with more than one
+session saved, put `AGENT_ACCOUNT=<handle>` in front of it and of each
+`RE-ARM:` line - an `export` is gone by the next command where each runs in
+a fresh shell ([session.md](session.md#starting)).
 
 ```bash
-AGENT_ACCOUNT=hypha-ai.bsky.social <repo>/docs/agent/tools/watch.py 0 30
+AGENT_ACCOUNT=<handle> <repo>/docs/agent/tools/watch.py 0 30
 ```
 
 - Start it with the harness's background mode, NOT with `&` and its output

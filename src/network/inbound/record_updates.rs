@@ -117,9 +117,9 @@ pub(super) fn handle_avatar_state(
         // the resolution is *of*, so an unchanged reference set
         // means the fetched records are unchanged too.
         carry_resolution(peer.avatar.as_ref(), &mut new_record);
-        // Refresh the cache so a future Identity from this DID
-        // (e.g. reconnect within the session) restores the
-        // live-preview state instead of the stale PDS record.
+        // Keep the cache current, so the next meeting with this DID
+        // (a reconnect, a portal hop) stands at once in this state;
+        // the refresh that follows it fetches what was saved (#1489).
         avatar_cache.insert(peer_did, new_record.clone());
         peer.avatar = Some(new_record);
         break;
@@ -171,13 +171,14 @@ pub(super) fn handle_world_digest(
 }
 
 /// A peer saved their avatar: drop the resolution behind their unchanged
-/// reference list so it is fetched afresh (#1122), in the live record and in
-/// the copy a reconnect installs (#1485).
+/// reference list so it is fetched afresh (#1122). A client that meets them
+/// again later - a reconnect of theirs, a portal hop of its own - refreshes
+/// the record it remembers anyway (#1489).
 pub(super) fn handle_records_published(
     sender: PeerId,
     commands: &mut Commands,
     peers: &mut Query<PeerParts>,
-    avatar_cache: &mut PeerAvatarCache,
+    now: f64,
 ) {
     // The sender saved their rigged body (#1122). Same rkeys,
     // new bytes behind them - so drop the resolution we are
@@ -215,18 +216,15 @@ pub(super) fn handle_records_published(
         if carrying && let Some(record) = peer.avatar.as_mut() {
             forget_rig_resolution(record);
         }
-        // The cache too (#1485), whatever the live record carries: its
-        // entry came from the preview before this notice, and the next
-        // reconnect installs it without a fetch.
-        if let Some(did) = peer.did.as_deref() {
-            avatar_cache.forget_resolution(did);
-        }
         // `try_remove` (#1411): the peer whose record this is can be
         // despawned by `network::lifecycle` in the same frame its last
-        // message is handled.
+        // message is handled. A refresh already fetching this peer's
+        // records may bring the ones from before this save (#1489): the
+        // notice's time marks it stale.
         commands
             .entity(peer_entity)
-            .try_remove::<crate::network::peer_cache::PeerRigResolveBackoff>();
+            .try_remove::<crate::network::peer_cache::PeerRigResolveBackoff>()
+            .try_insert(crate::network::peer_cache::AvatarPublishedAt(now));
         break;
     }
 }
