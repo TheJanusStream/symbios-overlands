@@ -5,10 +5,13 @@
   rec.py compose SRC.json EDITS OUT.json   fold the edits into a copy, for offline renders
   rec.py apply room|avatar EDITS           send each edit live with `set --file`, one summary
                                            line per answer (adjusted_at, ignored_at, z_fighting,
-                                           record_size) and a WARNING line naming each key the
-                                           record does not have (ignored_at, #1483: dropped);
+                                           record_size), a WARNING line naming each key the
+                                           record does not have (ignored_at, #1483: dropped) and
+                                           one naming what the z-fighting check ran out of time
+                                           in (z_fighting_unchecked, #1503: it stops at 3 s);
                                            exits 3 after a CHECK line when any answer was adjusted,
-                                           ignored a key or z-fights, so `apply && save` stops there
+                                           ignored a key, z-fights or left z-fighting unchecked,
+                                           so `apply && save` stops there
   rec.py save room|avatar OUT.json [--log LOG "NOTE"] [--hold POINTER]
                                            save, wait for it to land, pull the saved record to
                                            OUT.json (the new source to build on) and, with --log,
@@ -117,7 +120,7 @@ def main():
     elif cmd == "apply":
         record, ed = sys.argv[2], sys.argv[3]
         # the labels are the CHECK line's words: an answer naming dropped keys was still written
-        flagged = {"adjusted": 0, "ignored a key": 0, "z-fight": 0}
+        flagged = {"adjusted": 0, "ignored a key": 0, "z-fight": 0, "left z-fighting unchecked": 0}
         for ptr, f, n in edits(ed):
             r = agentlib.result(agentlib.agent(record, "set", ptr, "--file", f), f"set {ptr}")
             zf = r.get("z_fighting") or []
@@ -128,6 +131,10 @@ def main():
             flagged["adjusted"] += bool(r.get("adjusted_at"))
             flagged["ignored a key"] += bool(ignored)
             flagged["z-fight"] += bool(zf)
+            # the check stops at 3 s and names what it did not finish (#1503): a big grammar reads
+            # z_fighting=0 there without having been looked at
+            unchecked = r.get("z_fighting_unchecked") or []
+            flagged["left z-fighting unchecked"] += bool(unchecked)
             print(f"ok {ptr}{at}: adjusted_at={r.get('adjusted_at') or []} ignored_at={ignored} "
                   f"z_fighting={len(zf)} largest={size.get('largest')} "
                   f"{size.get('bytes')}/{size.get('budget_bytes')}")
@@ -138,6 +145,9 @@ def main():
                       f"{', '.join(ignored)}")
             for pair in zf[:8]:
                 print("   zf", json.dumps(pair))
+            if unchecked:
+                print(f"   WARNING: z-fighting not checked in time for: {', '.join(unchecked)} - set one "
+                      f"generator at a time, or split a grammar too big to finish")
             if ptr.endswith("/-"):
                 if r.get("appended") and not landed.endswith("/-"):
                     # Written at once: a later edit that fails exits, and this append is live.

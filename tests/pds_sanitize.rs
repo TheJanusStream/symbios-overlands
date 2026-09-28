@@ -181,6 +181,7 @@ fn placements_over_cap_are_trimmed() {
             snap_to_terrain: false,
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
+            seed: None,
         });
     }
     r.sanitize();
@@ -1186,6 +1187,7 @@ fn room_generator_keys_are_cut_and_placements_follow() {
         snap_to_terrain: true,
         avoid_water: false,
         avoid_water_clearance: Fp(0.0),
+        seed: None,
     });
     r.traits.insert(long.clone(), vec!["sensor".to_owned()]);
     r.sanitize();

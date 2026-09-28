@@ -22,9 +22,22 @@ pub fn call(path: &Path, request: &Request) -> Result<Response, String> {
         .map_err(|e| format!("the connection: {e}"))?;
     let mut line = serde_json::to_vec(request).map_err(|e| format!("encoding: {e}"))?;
     line.push(b'\n');
-    stream
-        .write_all(&line)
-        .map_err(|e| format!("sending the request: {e}"))?;
+    if let Err(e) = stream.write_all(&line) {
+        // The daemon stops reading a request past its bound and answers why
+        // before it hangs up, so a send cut short may still have an answer
+        // waiting: read it rather than report the bare broken pipe (#1511).
+        return match e.kind() {
+            io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset => {
+                read_answer(stream).map_err(|_| format!("sending the request: {e}"))
+            }
+            _ => Err(format!("sending the request: {e}")),
+        };
+    }
+    read_answer(stream)
+}
+
+/// The daemon's one answer on `stream`.
+fn read_answer(stream: UnixStream) -> Result<Response, String> {
     let mut answer = String::new();
     BufReader::new(stream)
         .read_line(&mut answer)
@@ -65,6 +78,42 @@ mod tests {
         let path = std::env::temp_dir().join(format!("sa-none-{}.sock", std::process::id()));
         let err = call(&path, &Request::Status).expect_err("nobody is listening");
         assert!(err.contains("agent start"), "{err}");
+    }
+
+    /// A daemon that stops reading a request past its bound answers why and
+    /// hangs up while the send is still going: the CLI reads that answer
+    /// instead of reporting "Broken pipe" (#1511).
+    #[test]
+    fn a_request_refused_mid_send_is_answered_with_the_daemons_reason() {
+        let dir = std::env::temp_dir().join(format!("sa-cut-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let path = dir.join("agent.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&path).expect("bound");
+        // the stand-in reads a little, answers why it stopped, and hangs up
+        // with the rest unread - as the daemon does past MAX_REQUEST_BYTES
+        let daemon = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("a connection");
+            let mut first = [0_u8; 16];
+            let _ = io::Read::read(&mut stream, &mut first);
+            let mut line =
+                serde_json::to_vec(&Response::failure("the request is too long")).expect("encoded");
+            line.push(b'\n');
+            stream.write_all(&line).expect("answered");
+        });
+        // far past what the socket buffers, so the send is still going when
+        // the stand-in hangs up
+        let request = Request::RoomSet {
+            pointer: "/generators".into(),
+            value: serde_json::Value::String("a".repeat(8 << 20)),
+        };
+
+        let response = call(&path, &request).expect("the refusal, read");
+
+        daemon.join().expect("the stand-in finished");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!response.ok);
+        assert_eq!(response.error.as_deref(), Some("the request is too long"));
     }
 
     #[test]

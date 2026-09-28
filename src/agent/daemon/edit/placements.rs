@@ -572,6 +572,7 @@ mod tests {
             snap_to_terrain: on_ground,
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
+            seed: None,
         }
     }
 

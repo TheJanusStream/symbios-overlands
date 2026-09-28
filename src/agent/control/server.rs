@@ -150,24 +150,29 @@ fn ask_the_world(request: WorldRequest, requests: &mpsc::Sender<Envelope>) -> Re
 }
 
 /// Read one request line, bounded in size and in time.
+///
+/// Read as bytes, and held to the bound before it is read as text: a line
+/// cut at the bound can end inside a character, and read as text it would
+/// be refused for that instead of for its length (#1511).
 fn read_request(stream: &UnixStream) -> Result<Request, String> {
     stream
         .set_read_timeout(Some(REQUEST_READ_TIMEOUT))
         .map_err(|e| format!("the connection: {e}"))?;
-    let mut line = String::new();
+    let mut line = Vec::new();
     BufReader::new(stream.take(MAX_REQUEST_BYTES))
-        .read_line(&mut line)
+        .read_until(b'\n', &mut line)
         .map_err(|e| match e.kind() {
             io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => {
                 "no request arrived in time".to_owned()
             }
             _ => format!("reading the request: {e}"),
         })?;
-    if !line.ends_with('\n') && line.len() as u64 >= MAX_REQUEST_BYTES {
+    if line.last() != Some(&b'\n') && line.len() as u64 >= MAX_REQUEST_BYTES {
         return Err(format!(
             "the request is longer than {MAX_REQUEST_BYTES} bytes"
         ));
     }
+    let line = String::from_utf8(line).map_err(|e| format!("the request is not UTF-8: {e}"))?;
     serde_json::from_str(line.trim()).map_err(|e| format!("not a request this agent knows: {e}"))
 }
 
@@ -244,6 +249,98 @@ mod tests {
         let result = response.result.expect("a batch");
         assert_eq!(result["events"][0]["kind"], "entered_world");
         assert_eq!(result["next"], 1);
+    }
+
+    /// A `room set` of a whole world's generators - Ashmere's were 1.5 MB in
+    /// session 885 - is read whole and reaches the daemon (#1511): the line
+    /// was cut at 1 MiB, and the set refused.
+    #[test]
+    fn a_room_set_past_a_mebibyte_reaches_the_daemon_whole() {
+        let path = socket("large");
+        let (requests, inbox) = mpsc::channel::<Envelope>();
+        let _socket =
+            listen(&path, requests, Arc::new(EventLog::new(4, "t".into()))).expect("listening");
+        let value = "a".repeat(3 << 20);
+        let daemon = thread::spawn(move || {
+            let Ok(envelope) = inbox.recv_timeout(Duration::from_secs(20)) else {
+                return 0;
+            };
+            let WorldRequest::Edit(super::super::protocol::EditRequest::Set { value, .. }) =
+                &envelope.request
+            else {
+                panic!("not a set: {:?}", envelope.request);
+            };
+            let got = value.as_str().map_or(0, str::len);
+            envelope
+                .reply
+                .send(Response::success(serde_json::json!({"set": true})))
+                .expect("replied");
+            got
+        });
+
+        let line = format!(
+            "{{\"command\":\"room_set\",\"pointer\":\"/generators\",\"value\":\"{value}\"}}\n"
+        );
+        let response = call(&path, &line);
+
+        assert!(response.ok, "{response:?}");
+        assert_eq!(daemon.join().expect("the daemon side finished"), 3 << 20);
+    }
+
+    /// A request past the bound is refused for its length, through the
+    /// real daemon's socket and the real client (#1511): the daemon reads
+    /// up to the bound, answers why and hangs up with the rest unsent, and
+    /// the client reads that answer rather than report the broken pipe.
+    #[test]
+    fn a_request_past_the_bound_is_refused_with_the_bound() {
+        let path = socket("bound");
+        let (requests, _inbox) = mpsc::channel::<Envelope>();
+        let _socket =
+            listen(&path, requests, Arc::new(EventLog::new(4, "t".into()))).expect("listening");
+        let request = Request::RoomSet {
+            pointer: "/generators".into(),
+            value: serde_json::Value::String("a".repeat(MAX_REQUEST_BYTES as usize + (4 << 20))),
+        };
+
+        let response = super::super::client::call(&path, &request).expect("the refusal, read");
+
+        assert!(!response.ok);
+        assert_eq!(
+            response.error.as_deref(),
+            Some(format!("the request is longer than {MAX_REQUEST_BYTES} bytes").as_str())
+        );
+    }
+
+    /// A request cut at the bound in the middle of a character is refused
+    /// for its length too, not as text that is not UTF-8 (#1511): a JSON
+    /// string carries a non-ASCII character as its bytes, and nothing puts
+    /// the bound between two characters.
+    #[test]
+    fn a_request_cut_inside_a_character_is_refused_as_too_long() {
+        let path = socket("midchar");
+        let (requests, _inbox) = mpsc::channel::<Envelope>();
+        let _socket =
+            listen(&path, requests, Arc::new(EventLog::new(4, "t".into()))).expect("listening");
+        let head = "{\"command\":\"room_set\",\"pointer\":\"/generators\",\"value\":\"";
+        // The first of U+00E9's two bytes is the last byte the daemon reads.
+        let lead = MAX_REQUEST_BYTES as usize - head.len() - 1;
+        let line = format!("{head}{}\u{e9}\"}}\n", "a".repeat(lead));
+        assert_eq!(line.as_bytes()[MAX_REQUEST_BYTES as usize - 1], 0xc3);
+
+        let mut stream = UnixStream::connect(&path).expect("connected");
+        // INTENTIONAL: the daemon may hang up before the last bytes are sent.
+        let _ = stream.write_all(line.as_bytes());
+        let mut answer = String::new();
+        BufReader::new(stream)
+            .read_line(&mut answer)
+            .expect("answered");
+        let response: Response = serde_json::from_str(&answer).expect("a response");
+
+        assert!(!response.ok);
+        assert_eq!(
+            response.error.as_deref(),
+            Some(format!("the request is longer than {MAX_REQUEST_BYTES} bytes").as_str())
+        );
     }
 
     #[test]

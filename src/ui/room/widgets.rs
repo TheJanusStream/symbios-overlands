@@ -895,6 +895,96 @@ pub(super) fn text_draft_row(
     outcome
 }
 
+/// The width of a text field that shows any `u64` whole (#1505): twenty of
+/// the widest digit in the font a [`egui::TextEdit`] draws with - `u64::MAX`
+/// has twenty - and the field's margins. A seed is typed and read as the
+/// whole number it is, and nearly half of all seeds have twenty digits: at
+/// 150 points the last of them was cut off, so the field showed another
+/// number than the one it held.
+pub(super) fn u64_field_width(ui: &egui::Ui) -> f32 {
+    /// The most digits a `u64` has.
+    const DIGITS: usize = 20;
+    /// A `TextEdit`'s margin on either side of its text (its default,
+    /// `Margin::symmetric(4, 2)`), and room past the text's end for the
+    /// cursor.
+    const MARGIN: f32 = 4.0;
+    const CURSOR: f32 = 2.0;
+    let font = egui::FontSelection::default().resolve(ui.style());
+    let widest = ui.fonts_mut(|fonts| {
+        ('0'..='9')
+            .map(|digit| {
+                fonts
+                    .layout_no_wrap(
+                        digit.to_string().repeat(DIGITS),
+                        font.clone(),
+                        egui::Color32::PLACEHOLDER,
+                    )
+                    .size()
+                    .x
+            })
+            .fold(0.0, f32::max)
+    });
+    (widest + 2.0 * MARGIN + CURSOR).ceil()
+}
+
+/// Where a text field and the text in it are drawn, for a test that a
+/// field shows what it holds whole (#1505).
+#[cfg(test)]
+pub(super) mod text_probe {
+    use bevy_egui::egui;
+
+    /// The bounds of the text field that holds `text`, and of the text as
+    /// it is laid out in it, drawn by `draw` in the app's own fonts - as
+    /// AccessKit tells a screen reader. The painter clips the text to the
+    /// field, less the field's margin.
+    pub(in crate::ui::room) fn drawn(
+        text: &str,
+        draw: impl Fn(&mut egui::Ui),
+    ) -> (egui::accesskit::Rect, egui::accesskit::Rect) {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        ctx.set_fonts(crate::ui::fonts::build_font_definitions(None));
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 1200.0));
+        let mut drawn = None;
+        // Fonts set before a pass land at the next, so the second is read.
+        for _ in 0..2 {
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                &draw,
+            );
+            let update = output
+                .platform_output
+                .accesskit_update
+                .expect("AccessKit is on");
+            let bounds = |role| {
+                update
+                    .nodes
+                    .iter()
+                    .find(|(_, node)| node.role() == role && node.value() == Some(text))
+                    .and_then(|(_, node)| node.bounds())
+            };
+            drawn = bounds(egui::accesskit::Role::TextInput)
+                .zip(bounds(egui::accesskit::Role::TextRun));
+        }
+        drawn.unwrap_or_else(|| panic!("no text field holding {text}"))
+    }
+
+    /// Whether the text drawn at `text` in the field at `field` is shown
+    /// whole: its right end no nearer the field's right edge than its left
+    /// end is to the field's left - the margin the painter keeps clear on
+    /// either side - less the point the painter's clip is widened by.
+    pub(in crate::ui::room) fn shown_whole(
+        field: egui::accesskit::Rect,
+        text: egui::accesskit::Rect,
+    ) -> bool {
+        let margin = text.x0 - field.x0;
+        margin > 0.0 && text.x1 <= field.x1 - margin + 1.0
+    }
+}
+
 #[cfg(test)]
 mod colour_space_tests {
     use bevy_egui::egui;
@@ -1111,6 +1201,23 @@ mod draft_tests {
             assert!(out.committed.is_none(), "a refused draft never commits");
         });
         assert_eq!(refused_text, "", "the draft is kept so it can be corrected");
+    }
+
+    /// #1505: a draft row as wide as [`u64_field_width`] - a particle
+    /// system's seed is one - shows the largest `u64` to its last digit, in
+    /// the app's own fonts; at the 150 points it had, the last was cut off.
+    #[test]
+    fn a_u64_draft_row_shows_the_largest_seed_whole() {
+        use super::text_probe::{drawn, shown_whole};
+        let widest = u64::MAX.to_string();
+        let (field, text) = drawn(&widest, |ui| {
+            let width = u64_field_width(ui);
+            text_draft_row(ui, "seed", &widest, width, "", |_| None);
+        });
+        assert!(
+            shown_whole(field, text),
+            "the text {text:?} runs past its field {field:?}"
+        );
     }
 }
 

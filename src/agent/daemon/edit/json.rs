@@ -19,10 +19,17 @@
 //! and says whose (`named_by`). Writing works in the agent's own.
 //!
 //! A set that changes a generator also checks it for faces drawn twice in
-//! one place - two of its primitives sharing a plane and a facing direction
-//! where it can be seen - and names each pair by pointer (`z_fighting`):
-//! they flicker as anyone moves, which a still picture barely shows (#1436,
-//! [`super::zfight`]).
+//! one place - two of its primitives, or of the terminals its shape
+//! grammars derive (#1503), sharing a plane and a facing direction where it
+//! can be seen - and names each pair by pointer (`z_fighting`), a terminal
+//! also by which of its node's terminals it is: they flicker as anyone
+//! moves, which a still picture barely shows (#1436, [`super::zfight`]).
+//! So does a set that gives an absolute placement a grammar seed, or a new
+//! one (#1505): its generator is checked as that seed draws it, each pair
+//! the generator does not draw itself is named, and each also names the
+//! placement (`placement`). The check stops after a
+//! few seconds, well before the agent stops waiting for the answer, and
+//! lists each generator it did not finish (`z_fighting_unchecked`).
 
 use bevy::prelude::*;
 use serde_json::{Value, json};
@@ -88,17 +95,16 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
     // Against the record as it was, settled as the write settled the new
     // one: the first write of a never-saved world puts every generator on
     // the wire's grid, and none of those is the set's to answer for.
-    let (z_fighting, found) = super::zfight::report(&before.generators, &live.generators);
-    let named = z_fighting.len();
+    let z_fighting = super::zfight::report(&before, live);
     let adjusted_at = adjustments(at, sent.as_ref(), kept.as_ref());
     let mut answer = json!({
         "changed": changed,
         "pointer": at,
         "adjusted": !adjusted_at.is_empty(),
         "kept": kept,
-        "z_fighting": z_fighting,
         "record_size": super::size::room(live),
     });
+    z_fighting.answer(&mut answer);
     if appended.is_some() {
         answer["appended"] = json!(true);
     }
@@ -107,9 +113,6 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
     }
     if !ignored_at.is_empty() {
         answer["ignored_at"] = json!(ignored_at);
-    }
-    if found > named {
-        answer["z_fighting_total"] = json!(found);
     }
     Ok(answer)
 }
@@ -1201,5 +1204,37 @@ mod world_tests {
         assert_eq!(set["adjusted"], true, "{set}");
         assert_ne!(set["kept"], sent);
         assert_eq!(set["kept"], fog(&app));
+    }
+
+    /// #1505: a set that gives an absolute placement a grammar seed checks
+    /// its generator as that seed draws it, through the write and the
+    /// settling a set goes through. A house whose own seed leaves its panel
+    /// beside its post names nothing, set on its own or placed with no
+    /// seed; given a seed that pushes the panel into the post, by the
+    /// placement's own member, the seed is kept as the quoted decimal it
+    /// was sent as, and the pair is named with the placement's pointer.
+    #[test]
+    fn a_set_names_what_a_placement_s_grammar_seed_draws_twice() {
+        let (mut app, _) = app_in(AGENT);
+        let (beside, pushed) = super::super::zfight::coin_seeds();
+        let house = super::super::zfight::coin_house(beside);
+        let set = room_set(app.world_mut(), "/generators/house", house).expect("set");
+        assert_eq!(set["z_fighting"], json!([]), "{set}");
+
+        let placement = json!({
+            "$type": "network.symbios.place.absolute",
+            "generator_ref": "house",
+        });
+        let set = room_set(app.world_mut(), "/placements/-", placement).expect("set");
+        assert_eq!(set["z_fighting"], json!([]), "{set}");
+        let at = set["pointer"].as_str().expect("where it landed").to_owned();
+
+        let seed = json!(pushed.to_string());
+        let set = room_set(app.world_mut(), &format!("{at}/seed"), seed.clone()).expect("set");
+        assert_eq!(set["kept"], seed, "{set}");
+        let named = set["z_fighting"].as_array().expect("a list");
+        assert_eq!(named.len(), 1, "{set}");
+        assert_eq!(named[0]["placement"], at.as_str(), "{set}");
+        assert_eq!(named[0]["a"], "/generators/house", "{set}");
     }
 }

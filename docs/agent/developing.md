@@ -34,6 +34,15 @@ client wherever a task goes badly.
   again before trusting the binary.
 - Before restarting, follow [saving.md](saving.md) (nothing unsaved; tell
   the admin; `stop`; `start`; greet; re-arm from `seq` 0).
+- **A daemon-side check can run before any restart**: copy the new binary
+  aside and start it as an OFFLINE daemon with its own `XDG_CONFIG_HOME`
+  (its stand-in's socket is named for its own DID, so it runs beside the
+  live daemon), then `room set` the live world's generators into its
+  seeded world as unplaced ones (`/generators/check_<name>`) and read the
+  answers. Session 885 checked all 23 of Ashmere's grammar buildings with
+  #1503's new z_fighting that way while its critic was still at work,
+  found 52 pairs, fixed the grammars and saved - the live daemon never
+  restarted. Stop it after, and `pgrep -fa` by its full path.
 - Retry the task that failed, live, and say how it went.
 
 ## What each fix needs
@@ -64,6 +73,16 @@ mutants (46 min), a scattered fern iterated offline over dozens of renders
 (41 min), a triangle report. The main session spent 5-10k tokens on each
 (brief, review, one look live) against the sub-agent's 180-410k, and built
 and saved seventeen world changes in the same hours.
+
+**Since 2026-09-28 the pipeline is lean, the owner's decision** after
+session 885 checked the same work up to four times: builder -> critic, no
+automatic fixer; the critic reads and breaks the riskiest rules itself but
+re-runs no gate and copies no repository; sub-agents run at effort `high`
+(`medium` for mechanical work), with fmt, clippy and their targeted tests;
+the seven-line gate runs once, at the end, in the main session; the end
+review covers only code no critic has seen, with one reviewer; mutation
+checks only for rules that protect data or security. The rules are in
+[session.md](session.md#delegating); the history below is why.
 
 - **What to hand over**: work whose result fits in a few lines - a code fix
   with its test and mutation check, a builder iterated against a brief
@@ -124,7 +143,13 @@ and saved seventeen world changes in the same hours.
   lying beasts floating and cell sizes misstated; and the
   fixer, fixing those, found a see-through hole in the grazing cow's neck
   (13 inward-facing triangles, found by porting the blob mesher to count
-  them). 1.67M sub-agent tokens, 2 h 45 min.
+  them). 1.67M sub-agent tokens, 2 h 45 min. Session 885's two pipelines
+  (#1503 1.23M tokens, 3 h 27 min; #1505 1.46M, 3 h 24 min) made it ten in
+  eleven - the critics found sliver false pairs, a 23 s all-pairs loop,
+  lockstep smoke and an untested nested grammar - but each critic re-ran
+  the whole gate in its own copy of the repository, and each fixer ran it
+  again: since 2026-09-28 the critic reads and tests, and the main session
+  decides on a fix round.
 - **Check every tool the brief names is safe where the sub-agent sits.**
   The tree brief pointed the builder at `views.py @landingcam`, which then
   looked the admin up through the live daemon for any `@` spec, so a
@@ -152,6 +177,14 @@ and saved seventeen world changes in the same hours.
   seen the ruts sit badly and blamed a steep brow, because the fixing
   script printed its largest correction unsigned: the "6.5 cm proud" it
   reported was a buried point raised. Print a correction with its sign.
+  Session 885's review was the one that cost too much: 25 agents, 4.05M
+  sub-agent tokens and 41 minutes over two delegations that had already
+  had their critics, each verifier re-proving one finding with standalone
+  copies and benchmarks; it found 20 real faults, 3 of them medium, and its
+  fix round then ran builder, critic and fixer again. Since 2026-09-28 the
+  end review covers only code no critic has seen, with one reviewer and no
+  verifier per finding: the main session reads each finding before acting,
+  fixes medium and worse, and files the rest.
 - **When a finding is a pattern, grep for its siblings.** The tools
   fixer->verifier pass (301k tokens, 17 min) fixed hedge.py's part count,
   which left out its root, and the verifier found fence.py printing the same
@@ -212,7 +245,11 @@ JSON (`serde_json::from_value`) - the same form `room set` takes.
 
 ## Checking that tests test something
 
-Mutation-check every new rule at the end, all in one build: copy the
+Every fix gets a test that fails without it: undo the fix, watch the test
+fail, restore. Since 2026-09-28 (the owner's lean pipeline) a mutation
+check is only for a rule that protects data or security - the record's
+format, the sanitiser, a cache, a bound. Mutation-check those at the end,
+all in one build: copy the
 touched files aside (the work-check hook refuses `git checkout`/`restore`),
 put each rule's breakage behind a guard -
 `std::env::var("AGENT_MUTANT").as_deref() == Ok("z3")` - build once, run

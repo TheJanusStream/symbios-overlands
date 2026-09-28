@@ -876,7 +876,11 @@ cargo run --bin render -- --catalogue-sizes rust scrap
 # copy times its copies, and each placement's cost - a scatter's copies are the
 # ones its sampler really places - dearest first, a row a line; ~2 s. Parts
 # ride beside every count (`parts_each`, `parts`, and a `parts` total with the
-# ground as one): in a browser each part costs CPU every frame (#1479):
+# ground as one): in a browser each part costs CPU every frame (#1479). An
+# absolute placement with a grammar seed of its own costs what its generator
+# draws with that seed, and its row says the seed (`seed`); a generator's row
+# counts such placements (`seeded`), and its `triangles_each` stays one copy
+# as the generator draws itself (#1505):
 cargo run --bin render -- --world <did> --world-record room.json --triangle-report
 # Every part of a world that floats, no render (#1477): one JSON object, a row
 # a line, each floating part by its JSON pointer into the record, with its gap
@@ -1088,8 +1092,32 @@ was last saved) work on either record, and `status.editing` says what is
 unsaved and what an undo would step. `place` is a catalogue drop - the same
 entry placed twice shares one generator - set on the ground at its point;
 `placements` names each thing by the index `move` and `remove` take, which
-shifts when one before it is removed. The JSON commands read and write the
-record's wire form, exactly as the Raw JSON tab does: every decimal is a
+shifts when one before it is removed. An absolute placement may carry a
+grammar seed of its own (#1505), `seed`, a quoted decimal like a Shape
+node's own: every shape grammar in the tree it places then derives with it
+in place of its own seed, so one generator stands in a street many times and
+each copy draws its own variety - `room set /placements/12/seed '"7"'`, or
+the Placements tab's Grammar seed, which switched on starts from the own
+seed of the item's first grammar and says, for an item whose grammars have
+seeds of their own that differ, how many of them switching it on redraws. It
+replaces the seed rather than mixing with it, so a placement whose seed is
+its grammar's own draws exactly what one with none draws, and nothing else
+in the tree reads it: an L-system or a particle system keeps its own seed,
+so every copy of one generator grows the same plant and emits the same
+particles, puffing in step - houses moved onto one generator this way keep
+each house as it was, but not each chimney's smoke. A seed with which a
+grammar draws nothing leaves that copy without it, and the grammar's status
+in the Items tab names the placement and the seed for as long as a placement
+draws it so: given a seed that draws, pointed at another item or removed,
+the placement takes the error with it, and an item no placement places
+shows no status at all. A world remembers 1,024 such seeds, a grammar's
+seed counted once however many copies draw with it; past that, one is named
+only while its copy is the one built last. Left out, which is how every
+record written before it reads, each grammar draws with its own seed, as it
+does under a scatter or a grid, which have none. A client built before the
+field ignores it and draws every copy with the generator's own seed. The
+JSON commands read and write the record's wire form, exactly as the Raw
+JSON tab does: every decimal is a
 whole number of ten-thousandths (1.5 m is `15000`), and a value with a
 decimal point is refused. Each answer shows what the world kept, which the
 sanitiser may have pulled back into range - `adjusted`, with `adjusted_at`
@@ -1109,12 +1137,38 @@ refused says where: the generator node
 that would not read, or the pointer of any other field (#1446, #1457), and
 a `kind` or `$type` this build does not know - read in as `Unknown`, never
 written back - is named by the value set. A `room set` that
-changes a generator also names, by pointer, each pair of its primitives
+changes a generator also names, by pointer, each pair of its parts
 drawing faces in one place where they can be seen - one plane, facing one
 way (`z_fighting`, with the area): they flicker as anyone moves, which a
-still `look` barely shows. `room set` and `avatar set` also weigh the
-record as a save would write it - a world as its manifest and one record per
-generator, the avatar as one - and name the largest with its size against
+still `look` barely shows. A part is a primitive or a terminal one of its
+shape grammars derives, placed as the world draws it (#1503); a terminal
+is named by its Shape node's pointer and, beside it, `a_terminal` or
+`b_terminal`: its `index` in derivation order, its `mesh` id (the string of
+its rule's `I("...")`) and its `material` slot (the string of `Mat("...")`,
+or null). Where a terminal is one of a pair, a strip of shared face
+narrower than 2 mm is not named: the mesher draws a face a grammar splits
+off flat as a slab 1 mm thick, and two meeting at a corner share a strip
+that thin. How wide it is is judged over the whole stretch of face the pair
+shares there, so a round cap flush with a terminal's face is named over its
+whole disc, and two caps in one face each over their own, though the mesher
+draws a cap as slivers that thin. A set that gives an
+absolute placement a grammar seed, or a new one, also checks its generator
+as that seed draws it, even where another placement drew that seed before -
+so does a set that changes a generator such a placement draws - and names
+each pair found there that the generator does not draw itself, with the
+placement's pointer as well (`"placement": "/placements/12"`): a pair of
+primitives, or of terminals a grammar places alike whatever its seed, is the
+generator's,
+named when it is set, unless the seed uncovers it by moving a terminal that
+buried it. A seed that draws the tree as its generator does (the grammar's
+own, or a tree with no grammar) is not checked again. The check stops after
+3 s, well inside the 10 s the agent waits for an answer - though it derives
+a grammar whole before it looks at the time again, which symbios-shape stops
+at 100 000 terminals - and lists each generator it did not finish by pointer
+(`z_fighting_unchecked`), a seeded placement by its own. `room set` and
+`avatar set` also weigh the record as a save would write it - a world as
+its manifest and one record per generator, the avatar as one - and name the
+largest with its size against
 the 100 KiB budget (`record_size`); `status.editing.record_size` has the
 room, the avatar and the inventory (#1455). A rigged avatar
 keeps its body and what it wears in records of their own, so `avatar get`

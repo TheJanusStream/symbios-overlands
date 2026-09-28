@@ -266,6 +266,7 @@ fn placements(record: &RoomRecord, map: &HeightMap, water: Option<f32>) -> Vec<V
                 snap_to_terrain,
                 avoid_water,
                 avoid_water_clearance,
+                ..
             } if !is_ground(generator_ref) => {
                 let [rx, ry, rz] = transform.translation.0;
                 let stands = if *snap_to_terrain {
@@ -733,6 +734,7 @@ mod plan {
                     snap_to_terrain,
                     avoid_water,
                     avoid_water_clearance,
+                    ..
                 } => {
                     let Some(generator) = record.generators.get(generator_ref) else {
                         continue;

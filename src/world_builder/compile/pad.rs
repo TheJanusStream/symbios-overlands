@@ -368,6 +368,7 @@ mod tests {
             snap_to_terrain: true,
             avoid_water: true,
             avoid_water_clearance: Fp(8.0),
+            seed: None,
         };
         assert_eq!(snap_footprint_radius(&seeded), Some(8.0));
 
@@ -381,6 +382,7 @@ mod tests {
             snap_to_terrain: true,
             avoid_water: true,
             avoid_water_clearance: Fp(8.0),
+            seed: None,
         };
         assert_eq!(snap_footprint_radius(&scaled), Some(12.0));
 
@@ -391,6 +393,7 @@ mod tests {
             snap_to_terrain: true,
             avoid_water: false,
             avoid_water_clearance: Fp(8.0),
+            seed: None,
         };
         assert_eq!(snap_footprint_radius(&hand), None);
     }

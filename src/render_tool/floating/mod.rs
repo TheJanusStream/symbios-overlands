@@ -181,6 +181,7 @@ fn uses_of<'a>(
                 snap_to_terrain,
                 avoid_water,
                 avoid_water_clearance,
+                ..
             } => {
                 let used = uses.entry(generator_ref).or_default();
                 // As the executor stands it: the placement's rotation and no

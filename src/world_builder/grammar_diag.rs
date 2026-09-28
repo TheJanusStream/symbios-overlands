@@ -14,7 +14,11 @@
 //! key; REMOTE peers' grammars are deliberately not recorded (a
 //! neighbour's broken tree is not the local editor's business). Entries
 //! self-heal - every recompile overwrites its key, and a room's arrival
-//! compile rewrites all of them - and logout resets the resource.
+//! compile rewrites all of them - a generator no placement places any
+//! more loses its entries at the plan that finds it so, one a placement
+//! was pointed away from has the entries of its nodes that draw nothing
+//! with some seed rewritten at that plan (#1505), and logout resets the
+//! resource.
 
 use std::collections::HashMap;
 
@@ -43,5 +47,28 @@ pub struct GrammarDiagnostics {
 impl GrammarDiagnostics {
     pub fn get(&self, generator: &str) -> Option<&GrammarStatus> {
         self.by_generator.get(generator)
+    }
+
+    /// File `error` - or Ok, where there is none - as the status of the
+    /// node keyed `key`, in place of any before it.
+    pub(crate) fn record(&mut self, key: String, error: Option<String>) {
+        let status = match error {
+            None => GrammarStatus::Ok,
+            Some(message) => GrammarStatus::Error { message },
+        };
+        self.by_generator.insert(key, status);
+    }
+
+    /// Forget every status filed under the generators `roots` - each
+    /// root's own and every node's below it (#1505): nothing of them is
+    /// drawn, so there is no compile of them to report, and a status of
+    /// one that names a placement's seed would name what no longer draws
+    /// it.
+    pub(crate) fn forget_generators(&mut self, roots: &[String]) {
+        self.by_generator.retain(|key, _| {
+            !roots
+                .iter()
+                .any(|root| crate::world_builder::compile::is_node_of(key, root))
+        });
     }
 }

@@ -28,10 +28,11 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind, max_dim: f32) {
             radius, resolution, ..
         } => {
             *radius = Fp(c_dim(radius.0));
-            // Ico subdivision count is exponential in triangles (~20·4ⁿ), so
-            // cap it low: ico 6 is ~82k tris (already far past any shipped
-            // content, which tops out at ico 4 ≈ 5k), while the old cap of 10
-            // would be ~20M tris per sphere - a single-record perf cliff.
+            // Bevy meshes the sphere as an icosphere whose 20 faces are each
+            // split into n + 1 along every edge (hexasphere), so resolution
+            // n is 20 * (n + 1)^2 triangles - quadratic, not exponential:
+            // 980 at this cap of 6, the most the editor's "Ico Res" offers
+            // (the count the agent's z-fighting tests pin, #1503).
             *resolution = (*resolution).clamp(0, 6);
         }
         GeneratorKind::Cylinder {

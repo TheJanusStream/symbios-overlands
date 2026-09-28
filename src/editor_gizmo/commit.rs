@@ -729,6 +729,7 @@ mod tests {
             snap_to_terrain: true,
             avoid_water: true,
             avoid_water_clearance: Fp(8.0),
+            seed: None,
         };
         let radius = snap_footprint_radius(&landmark());
         // The anchor the compile spawns at (x, z): its own ground reading

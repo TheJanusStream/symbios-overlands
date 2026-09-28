@@ -804,6 +804,7 @@ mod ecs_tests {
                     snap_to_terrain: false,
                     avoid_water: false,
                     avoid_water_clearance: Fp(0.0),
+                    seed: None,
                 },
                 Placement::Grid {
                     generator_ref: "tuft".to_string(),

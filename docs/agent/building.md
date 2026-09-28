@@ -250,6 +250,114 @@ part ([region.md](region.md), "Planting: scatters"). What did it:
   work is and turned to it, and the scene explains itself; about 8k
   triangles and 5 parts a figure.
 
+## Buildings by shape grammar
+
+A `network.symbios.gen.shape` node derives a building from a CGA shape
+grammar (the `symbios-shape` crate: its README under
+`~/.cargo/registry/src/*/symbios-shape-0.4.1/` lists every op, and
+`src/world_builder/shape.rs` is how the world draws one). Session 885 raised
+Ashmere's sixteen peasant houses from one grammar and its farm buildings from
+a second (`exports/reeve/b/sg_house.py`, `sg_farm.py`, and `sg_village.py`,
+`sg_crofts.py`, `sg_farmstead.py` placing them): read those first, they carry
+every trap below in their comments.
+
+**Use one where many buildings share a kind and differ in size and
+detail**, the owner's rule (2026-09-28): "Not all building need to be replaced with
+shape grammers ultimately. Only those were it turns out to make sense.
+Ideally a shape grammar will be able to be used with a variety of footprints
+and has variation built into the rules." A street of houses, a farm's sheds:
+yes. A one-off (a round-towered church, a barn whose wagon porch needs the
+main eave cut) is quicker and better by hand.
+
+- **The builder gives a footprint and a seed; the grammar decides the rest.**
+  Size-driven choices with `when(scope.x < 8.6)` (a cot is mud-walled),
+  chance with weighted variants (`70% A | 30% B`), and a choice the whole
+  building must agree on with `Pick("key") { ... }`. A Pick is drawn from the
+  seed and the key alone, so every Pick of one key must carry the SAME weight
+  list: the house grammar picks its roof in `RoofSlot` and again in the end
+  walls (a gable end's skin runs up to the eave line, a hip end's stops
+  short), and a different list there would disagree. A first version that let
+  the builder choose the roof, thatch and frame per house was the wrong way
+  round.
+- **Each terminal is a part**, drawn every frame: a framed house came to 58-69
+  parts, a mud cot 26-41, a byre or a shed 19-36, where the hand-built cottage
+  was 14. Triangles cost little (a house 280-790). `render --generator` prints
+  both; `--triangle-report` counts grammar terminals as it counts primitives.
+- **One generator per footprint, the seed on the placement.** A grammar
+  generator is about 10 KB, 6 KB of it the grammar text. An absolute
+  placement's `seed` (#1505, the owner's yes, 2026-09-28; a decimal string,
+  as on the node) replaces the seed of every Shape node in its generator, so
+  the buildings of one size share one generator and each draws its own. The
+  footprint stays on the generator (another size is another generator), and
+  scatter and grid placements draw the node's own seed. Session 885 moved
+  Ashmere's fifteen houses onto five this way (`b/sg_share.py`, 98 KB less),
+  and met three traps. The placement's seed reaches only the grammar: a
+  particle emitter in the generator (the hearth smoke) keeps its own seed, so
+  every house of a size smoked in step until each emitter became a generator
+  of its own, placed with its house (`smk_<n>`) - moving a house in the
+  editor now leaves its smoke behind. A client or daemon without #1505 draws
+  every copy as the generator's own seed draws it and drops the placements'
+  seeds on a save: give the shared generator its first building's seed, so
+  an old client draws at least one of them right. And to prove such a move
+  changes nothing, read the per-placement rows of `render --triangle-report`
+  (they honour the seed) and diff the trees with the seeds set aside: two
+  renders of one record differ by themselves (a control pair of `views.py`
+  sheets differed in 696,547 pixels), and a saved record leaves out every
+  field at its default
+  (a Stucco texture's seed 13, a Plank's count 5), so compare what the
+  sanitiser keeps, not what a builder wrote.
+- **A Shape node has no collider** (#1506 proposes one). Lay a solid
+  primitive core from the builder - the whole footprint for a closed
+  building, the back part of an open shed - and hide it: the grammar lays a
+  skin 1 cm proud of each face, the walls a visitor sees, in the material the
+  seed chose. A walk into a cot stopped 0.28 m from its wall.
+- **Two passes over one face.** `Comp(Faces)` hands each face out once; for a
+  second pass (a step under each door, the skins under the frame), split a
+  zero-height row off a band (`Split(Y) { ~1: Plinth | 0.001: StepRow }`),
+  `Comp` that row's faces and `Size` them back to full height. Repeat the same
+  splits in both passes so the bays line up: `Repeat` lays
+  floor(length / tile) copies and stretches them, and an index for the door
+  (the second bay, the first when there is only one) must hold for any count.
+- **Proud timber pierces the roof at the eave.** A roof springs at the eave
+  line and falls outward, so a post 4 cm proud of the wall reaching the eave
+  line pokes through the thatch (small dark marks along the slope). Stop the
+  frame a tuck under it (0.10 m), and a 1 cm proud skin 3 cm under it.
+- **Skins meet other faces in hidden planes**: #1503's check named 52 pairs in
+  the first houses - skins' undersides in the plane of the sills' and posts'
+  at the plinth top, and under a hip the long and end skins' tops in one plane
+  over each corner. Start a skin 5 mm over the band's foot and stop a hip's
+  end skins 6 mm short of the long ones.
+- **A hip roof's panels are flat, two-sided faces** (triangle and trapezoid
+  profiles; `Extrude` does not thicken them). The eave's thickness comes from
+  `fascia=`. A gable's slopes are rectangles and can be extruded into slabs
+  (`Extrude(0.25)`): verge and eave then show the thatch's thickness, and the
+  slabs meet 0.25 / cos(pitch) over the apex, so raise the ridge to cover them.
+- **A grammar has no trigonometry.** `Roof(..., height=h)` takes the rise
+  itself; derive it from the footprint (0.72 of the width, about 55 degrees)
+  so the builder can compute it too - it needs the ridge's height for the
+  smoke. A particle emitter a metre inside the roof drew a hard grey patch
+  where each puff's billboard was cut by the thatch: emit at the ridge's top.
+- **Parser rules that cost a render each**: `else:` is refused once the
+  weights already sum to 100%; a `Pick` choice is a rule call, never a
+  sequence of ops (name a rule for it); keep split slots to rule calls too.
+- **What a box grammar cannot do**: cut one roof where another meets it. A
+  barn's wagon porch needs the main roof's eave interrupted where the porch
+  passes; a grammar can only lay the porch's roof into the main roof and leave
+  the eave running across the porch's mouth at head height.
+- **Check a site by its footprint, not its centre**: `near.py --box L,W,YAW`
+  ([tools/](tools/README.md)) found a cart lodge's end 3.3 m inside an apple
+  garth that the point reading passed.
+- **A helper can drift from the record.** `common.hearthlit()` still returned
+  the hearth glow session 883 had dimmed in the record, and every grammar
+  house's windows glowed orange - diff a helper's output against the record
+  before building on it.
+
+The loop: a survey sheet of seeds or footprints first (`render --lineup
+a.json,b.json,...` - a row a building, four sides each), then the village
+composed into a copy of the record and seen from where visitors stand
+(`compare.py`, `views.py`), then apply, read `z_fighting` (and
+`z_fighting_unchecked`), look live, walk into one, save.
+
 ## Sizes, footprints, clearances
 
 - `catalogue` gives no sizes, but the render tool does. A search's hits in
@@ -288,12 +396,45 @@ part ([region.md](region.md), "Planting: scatters"). What did it:
 Two faces in one plane, facing one way, flicker as anyone moves. A still
 `look` barely shows it; the admin sees it at once.
 
-- `room set` answers `z_fighting`: each pair of primitives drawing faces in
-  one place, by pointer, with the visible area, largest first. It leaves out
-  faces that face each other (pressed between two solids), patches buried
-  inside a third primitive, and patches below the generator's origin. After
-  writing a generator, an empty list is the all-clear; fix every entry
-  before calling a build done.
+- `room set` answers `z_fighting`: each pair of parts drawing faces in one
+  place, by pointer, with the visible area, largest first. A part is a
+  primitive or a terminal of a shape grammar. It leaves out faces that face
+  each other (pressed between two solids), patches buried inside a third
+  part, and patches below the generator's origin. After writing a
+  generator, an empty list is the all-clear; fix every entry before calling
+  a build done.
+- **Shape-grammar terminals are checked too** (#1503): every terminal a
+  grammar derives, placed as the world draws it, against the grammar's
+  other terminals and the generator's primitives. A terminal is named by its
+  Shape node's pointer and, beside it, `a_terminal` or `b_terminal`:
+  `{"index": 12, "mesh": "Post", "material": "Oak"}`. `mesh` is the string in
+  its rule's `I("...")` and `material` its `Mat("...")` slot (null without
+  one): search the grammar for `I("Post")` to find the rule. `index` counts
+  the node's terminals in derivation order from 0 and tells two with one
+  mesh id apart. A grammar that does not parse or derive draws nothing, nor
+  anything hung below its node, and none of it is checked.
+- Where a terminal is one of the pair, a strip narrower than 2 mm is left
+  out too. The mesher draws a face the grammar splits off flat - a wall of
+  `Comp(Faces)`, a roof's slope - as a slab 1 mm thick, and two such slabs
+  meeting at a corner share a strip that thin, which nobody sees. Two slabs
+  in one plane are still named, and the width is judged over the whole
+  stretch of face the pair shares: a round cap flush with a terminal's face,
+  which the mesher draws as slivers under 2 mm, is named over its disc.
+- **The check stops after 3 s**, as a grammar can derive 100 000 terminals
+  (it derives a grammar whole before it looks at the time again).
+  A generator it did not finish is listed by pointer in
+  `z_fighting_unchecked`, and what `z_fighting` names of it is some of its
+  pairs, not all: an empty list is not the all-clear there. Set one
+  generator at a time, and split a grammar too big to finish into
+  generators of its own.
+- **A placement's grammar seed is checked as it draws** (#1505): a set that
+  gives an absolute placement a grammar seed, or a new one - even one
+  another placement already draws - checks its generator as that seed draws
+  it, and names each pair only the seed draws with `"placement":
+  "/placements/12"` beside it. A seed that draws what its generator draws
+  (the grammar's own, or a tree with no grammar) is not checked again, and
+  a seeded placement the check did not finish is listed in
+  `z_fighting_unchecked` by its own pointer.
 - **Ends flush in one plane z-fight too**, however small: a gate's bars ending
   exactly at its stile's outer face (5 x 54 cm2), a sail's cloth ending where
   its whip and hemlath end, a bench's legs as deep as its top, an ox-house's
@@ -308,8 +449,9 @@ Two faces in one plane, facing one way, flicker as anyone moves. A still
   just under it - z-fights where the two profiles meet: sixteen such pairs
   on the Ghost Tree, each a cap and its own gills (children N and N+1).
   Keep the inner layer a clear 6% of the radius below and inside the rim.
-- The catalogue has its own (#1440 - 187 of 395 entries): not yours to fix
-  unless asked, but never copy a joint from one without checking it.
+- The catalogue has its own (#1440 - 196 of 401 entries, 9 of them among
+  the 10 built by grammar): not yours to fix unless asked, but never copy a
+  joint from one without checking it.
 
 ## The sanitiser
 

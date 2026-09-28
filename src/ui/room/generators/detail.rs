@@ -557,10 +557,13 @@ fn draw_road_editor(
             }
             let parse_ok = st.text.trim().parse::<u64>().is_ok();
             let refused = (!parse_ok).then(|| crate::ui::theme::current(ui.ctx()).status.error);
+            // As wide as any seed, since a re-roll draws one from the whole
+            // `u64` range (#1505).
+            let width = super::super::widgets::u64_field_width(ui);
             let resp = crate::ui::affordances::text_edit(
                 ui,
                 egui::TextEdit::singleline(&mut st.text)
-                    .desired_width(150.0)
+                    .desired_width(width)
                     .text_color_opt(refused),
             )
             .on_hover_text(
@@ -1484,5 +1487,38 @@ mod lot_clamp_tests {
         assert!(lines[2].0.contains("3 furniture spots"), "{}", lines[2].0);
         assert!(lines[2].0.contains("per district"), "{}", lines[2].0);
         assert!(lines[3].0.contains("item limit"), "{}", lines[3].0);
+    }
+}
+
+#[cfg(test)]
+mod seed_field_tests {
+    use super::draw_road_editor;
+    use crate::ui::room::widgets::text_probe::{drawn, shown_whole};
+
+    /// #1505: the road network's layout seed is shown to its last digit,
+    /// as a placement's grammar seed is. A re-roll draws the seed from the
+    /// whole `u64` range, nearly half of which has twenty digits, and at
+    /// 150 points the field cut the last of them off.
+    #[test]
+    fn a_twenty_digit_layout_seed_is_shown_whole() {
+        let widest = u64::MAX;
+        let (field, text) = drawn(&widest.to_string(), |ui| {
+            let mut config = crate::pds::generator::RoadConfig {
+                seed: widest,
+                ..Default::default()
+            };
+            let mut labels = crate::ui::undo::PendingUndoLabels::default();
+            draw_road_editor(
+                ui,
+                &mut config,
+                &mut false,
+                &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
+                None,
+            );
+        });
+        assert!(
+            shown_whole(field, text),
+            "the text {text:?} runs past its field {field:?}"
+        );
     }
 }

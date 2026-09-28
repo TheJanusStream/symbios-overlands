@@ -472,7 +472,8 @@ reload a world its owner saved (#1499). The per-record gauge stays green all
 the while. Ashmere was past it before session 883 began (1.2 MiB, refused
 at the owner's first join) and ended it at 1.36 MiB: the owner heard a new
 sound only after a save and a trip through the gate, and asked "Maybe you
-need to save, for me to hear it". The agent's
+need to save, for me to hear it". Session 885's grammar buildings took it to
+1.60 MiB, and the two cuts below brought it back to 1.45 MiB. The agent's
 answers do not say so yet (#1500); its daemon log does (`Refusing to send
 RoomStateUpdate`). Weigh the world with `json.dumps(record,
 separators=(',', ':'))` on a pulled record, and past 900 KiB show the owner
@@ -491,6 +492,17 @@ Still worth knowing:
 - An absolute placement's `transform.scale` does NOTHING (#1454): put a
   scale in the generator's own `transform` (its children inherit it), or in
   a node inside it.
+- **A generator nothing places still weighs**: a save keeps every
+  generator, placed or not. Strike them out with ONE `room set /generators
+  FILE`, FILE the pulled record's whole `generators` map without them (grep
+  the record for each name first: no placement's `generator_ref` may name
+  it). Ashmere's ten unplaced cottage generators were 58 KB (session 885).
+  A whole-map set of Ashmere is past 1 MiB, which the control socket
+  refused with a bare "Broken pipe" until #1511 (16 MiB since).
+- **Buildings of one size can share one generator**, each placement
+  carrying its own grammar seed (#1505; [building.md](building.md),
+  "Buildings by shape grammar"): Ashmere's fifteen grammar houses on five
+  generators saved 98 KB.
 
 ## A landmark from the world's own species
 
@@ -719,6 +731,13 @@ Session 879's village and its fields filled the middle 300 m of a world about
   lodge, fallow deer), a wood with a charcoal burner, worts beds in the
   crofts, horses. A far piece earns its place by its silhouette from where
   people stand: a tall flint lodge on a rise reads from the road at 250 m.
+- **Buildings of a kind come from a grammar** once one exists
+  ([building.md](building.md), "Buildings by shape grammar"): a holding
+  along a road or a byre in a toft is a footprint and a seed per building.
+  Session 885 set Ashmere's tofts five outbuildings and the road west a
+  tenant's holding (house, byre, cart lodge round a yard) that way in
+  minutes each; the time went on siting them - `near.py --box` against the
+  apple garths, the pig scatter and the hedge lines.
 - **A long enclosure goes in arcs**: `fence.py` and `hedge.py` refuse a
   generator reaching past 100 m from its middle, so a 720 m oval park pale is
   five arcs, a bank (`hedge.py` with a turf-coloured `Ground` material, 0.55 m

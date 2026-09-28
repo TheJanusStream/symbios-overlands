@@ -20,6 +20,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rec  # noqa: E402
+import near  # noqa: E402
 import thread  # noqa: E402
 
 # bevy_math's cardinal spline at tension 0.5 (CubicCardinalSpline::new_catmull_rom), mirrored ends
@@ -203,6 +204,159 @@ class Apply(unittest.TestCase):
         check = [line for line in out.getvalue().splitlines() if line.startswith("CHECK:")]
         self.assertEqual(check, ["CHECK: 1 edit(s) ignored a key - read the lines above, then save (or fix) on "
                                  "purpose"])
+
+
+    def test_a_grammar_left_unchecked_for_z_fighting_stops_the_chain(self):
+        # past 3 s the daemon's check names what it did not finish (#1503): z_fighting=0 there is
+        # not an all-clear, so the apply must not read as clean
+        answer = {"ok": True, "result": {"changed": True, "adjusted_at": [], "z_fighting": [],
+                                         "z_fighting_unchecked": ["/generators/town"], "ignored_at": [],
+                                         "record_size": {"largest": "room", "bytes": 1, "budget_bytes": 2}}}
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "town.json"), "w") as fh:
+                json.dump({}, fh)
+            edits = os.path.join(d, "EDITS")
+            with open(edits, "w") as fh:
+                fh.write("/generators/town town.json\n")
+            out = io.StringIO()
+            with mock.patch.object(rec.agentlib, "agent", lambda *args: answer), \
+                    mock.patch.object(sys, "argv", ["rec.py", "apply", "room", edits]), \
+                    contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as stopped:
+                rec.main()
+        self.assertEqual(stopped.exception.code, 3)
+        text = out.getvalue()
+        self.assertIn("z-fighting not checked in time for: /generators/town", text)
+        self.assertIn("CHECK: 1 edit(s) left z-fighting unchecked", text)
+
+    def test_the_usage_names_every_reason_apply_stops(self):
+        # the usage text is what rec.py prints for a bad call: it listed three reasons to exit 3 after
+        # the check's time limit (#1503) made a fourth (session 885's review)
+        answer = {"ok": True, "result": {"changed": True, "adjusted_at": ["/generators/a/x"],
+                                         "z_fighting": [{"a": "/generators/a", "b": "/generators/b"}],
+                                         "z_fighting_unchecked": ["/generators/a"],
+                                         "ignored_at": ["/generators/a/y"],
+                                         "record_size": {"largest": "room", "bytes": 1, "budget_bytes": 2}}}
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "a.json"), "w") as fh:
+                json.dump({}, fh)
+            edits = os.path.join(d, "EDITS")
+            with open(edits, "w") as fh:
+                fh.write("/generators/a a.json\n")
+            out = io.StringIO()
+            with mock.patch.object(rec.agentlib, "agent", lambda *args: answer), \
+                    mock.patch.object(sys, "argv", ["rec.py", "apply", "room", edits]), \
+                    contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+                rec.main()
+        [check] = [line for line in out.getvalue().splitlines() if line.startswith("CHECK:")]
+        labels = [part.split(" edit(s) ", 1)[1] for part in check[len("CHECK: "):].split(" - ")[0].split(", ")]
+        self.assertEqual(len(labels), 4, check)
+        usage = " ".join(rec.__doc__.split())
+        for label in labels:
+            self.assertIn(label, usage)
+
+class Near(unittest.TestCase):
+    """near.py's footprint reading (--box), session 885."""
+
+    RECORD = {"placements": [
+        {"$type": "network.symbios.place.absolute", "generator_ref": "post",
+         "transform": {"translation": [100000, 0, 30000]}},
+        {"$type": "network.symbios.place.scatter", "generator_ref": "apple",
+         "bounds": {"type": "circle", "center": [120000, 0], "radius": 70000}},
+    ]}
+
+    def distance(self, name, box, within=20.0):
+        return {s.split(" #")[0]: (d, s) for d, s in near.near(self.RECORD, 0.0, 0.0, within, box)}.get(name)
+
+    def test_a_box_measures_from_its_edge_turned_as_place_yaw_counts(self):
+        # 16 x 4 m round (0, 0), the post at (10, 3): past its east end by 2 m and off its axis by 1 m
+        self.assertAlmostEqual(self.distance("post", (16.0, 4.0, 0.0))[0], math.hypot(2.0, 1.0))
+        # place --yaw 90 turns the long side north-south: the post is 10 - 4/2 = 8 m off its side
+        self.assertAlmostEqual(self.distance("post", (16.0, 4.0, 90.0))[0], 8.0)
+        # clockwise seen from above turns the box's east end toward +Z (south), toward the post 16.7
+        # degrees south of east: at 30 it lies near the axis, 2.2 m past the end; at -30 it is 5.6 m
+        # off the side - which way the box turns decides it
+        self.assertLess(self.distance("post", (16.0, 4.0, 30.0))[0], 2.5)
+        self.assertGreater(self.distance("post", (16.0, 4.0, -30.0))[0], 5.0)
+
+    def test_a_scatter_reaching_into_a_box_says_how_far(self):
+        d, text = self.distance("apple", (16.0, 4.0, 0.0))
+        self.assertAlmostEqual(d, 4.0)
+        self.assertIn("reaches 3.0 m in", text)
+        # measured from the box's centre alone the garth is 12 m off: the point reading's blind spot
+        self.assertNotIn("reaches", self.distance("apple", None)[1])
+
+    def test_a_scatter_is_listed_by_its_reach_from_a_box_but_its_centre_from_a_point(self):
+        # the apple garth's edge is 4 - 7 < 0 m from the box, so a 1 m search lists it; a point search
+        # from (0, 0) keeps the old rule, its centre 12 m away, outside 8 m
+        self.assertIsNotNone(self.distance("apple", (16.0, 4.0, 0.0), within=1.0))
+        self.assertIsNone(self.distance("apple", None, within=8.0))
+
+    def test_a_thing_inside_a_box_is_0_m_off(self):
+        # a 24 x 8 box round (0, 0) holds the post at (10, 3): 0 m, not the 1 m to its nearest side -
+        # the horse set inside a cottage (session 879) is what the reading is for
+        self.assertEqual(self.distance("post", (24.0, 8.0, 0.0))[0], 0.0)
+
+    def test_only_a_reach_that_comes_in_is_named_and_the_edge_decides_the_listing(self):
+        # the post 2.2 m off the 16 x 4 box reaches nothing in, so it says nothing
+        self.assertNotIn("reaches", self.distance("post", (16.0, 4.0, 0.0))[1])
+        # a 2 x 2 box: the garth's centre is 11 m off its edge, so its 7 m circle stops 4 m short
+        box = (2.0, 2.0, 0.0)
+        self.assertNotIn("reaches", self.distance("apple", box)[1])
+        self.assertIsNotNone(self.distance("apple", box, within=4.5))
+        self.assertIsNone(self.distance("apple", box, within=3.5))
+        # without a box nothing reaches in: the note is the footprint reading's
+        self.assertNotIn("reaches", near.near(self.RECORD, 12.0, 0.0, 8.0, None)[0][1])
+
+
+class NearRect(unittest.TestCase):
+    """near.py --box reads a rect scatter as the rectangle it is, turned by its `rotation` as the
+    world's sampler turns it (session 885's review: read as the circle through its corners, a field 5 m
+    clear 'reached 21.3 m in')."""
+
+    # a 60 x 8 m field (half sizes 30 x 4) whose south edge is at z = -8
+    FIELD = {"$type": "network.symbios.place.scatter", "generator_ref": "wheat",
+             "bounds": {"type": "rect", "center": [0, -120000], "extents": [300000, 40000], "rotation": 0}}
+
+    def record(self, rotation=0, center=None, extents=None):
+        field = json.loads(json.dumps(self.FIELD))
+        field["bounds"]["rotation"] = rotation
+        if center:
+            field["bounds"]["center"] = center
+        if extents:
+            field["bounds"]["extents"] = extents
+        return {"placements": [field]}
+
+    def test_a_field_clear_of_a_box_is_listed_by_its_gap(self):
+        # the 10 x 6 box round (0, 0) ends at z = -3: the field is 5 m clear
+        box = (10.0, 6.0, 0.0)
+        self.assertEqual(near.near(self.record(), 0.0, 0.0, 4.9, box), [])
+        [(_, text)] = near.near(self.record(), 0.0, 0.0, 5.1, box)
+        self.assertNotIn("reaches", text)
+
+    def test_a_field_turned_through_a_box_says_how_far_in(self):
+        # a quarter turn (pi/2 on the wire) runs it north-south through the box: x in [-4, 4] against
+        # the box's [-5, 5], so the least move that parts them is 4 + 5 = 9 m
+        [(_, text)] = near.near(self.record(15708), 0.0, 0.0, 0.0, (10.0, 6.0, 0.0))
+        self.assertIn("reaches 9.0 m in", text)
+
+    def test_a_strip_beside_the_boxs_end_is_its_true_gap(self):
+        # a 1 x 40 m strip at (8, -8) spans x 7.5 to 8.5; the box's east end is at x = 5: 2.5 m clear,
+        # though its corners' circle would reach 20 m in
+        strip = self.record(center=[80000, -80000], extents=[5000, 200000])
+        self.assertEqual(near.near(strip, 0.0, 0.0, 2.4, (10.0, 6.0, 0.0)), [])
+        self.assertEqual(len(near.near(strip, 0.0, 0.0, 2.6, (10.0, 6.0, 0.0))), 1)
+
+    def test_a_turned_field_is_turned_as_the_world_scatters_it(self):
+        # the box turned 30 degrees clockwise, the field turned the same 30 (0.5236 rad) with its
+        # centre 12 m along the box's own +Z: side by side, 12 - 4 - 3 = 5 m clear
+        t = math.radians(30)
+        center = [round(-12 * math.sin(t) * 1e4), round(12 * math.cos(t) * 1e4)]
+        box = (10.0, 6.0, 30.0)
+        self.assertEqual(near.near(self.record(5236, center), 0.0, 0.0, 4.9, box), [])
+        self.assertEqual(len(near.near(self.record(5236, center), 0.0, 0.0, 5.1, box)), 1)
+        # turned the other way its long side swings into the box: the sign of the turn decides it
+        [(_, text)] = near.near(self.record(-5236, center), 0.0, 0.0, 0.0, box)
+        self.assertIn("reaches", text)
 
 
 if __name__ == "__main__":

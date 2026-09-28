@@ -223,6 +223,7 @@ pub(crate) fn new_absolute_placement(target: String, anchor: [f32; 2]) -> Placem
         snap_to_terrain: true,
         avoid_water: false,
         avoid_water_clearance: Fp(0.0),
+        seed: None,
     }
 }
 
@@ -626,8 +627,14 @@ pub(super) fn draw_placements_tab(
                     return;
                 };
                 // Read before the placement is borrowed out of the record:
-                // un-snapping walks a seeded anchor against it (#1399).
+                // un-snapping walks a seeded anchor against it (#1399), and
+                // the Grammar seed control shows the item's own (#1505).
                 let room_water_y = crate::world_builder::compile::room_water_level(record);
+                let own_seeds = record
+                    .placements
+                    .get(idx)
+                    .map(|p| own_grammar_seeds(record, placement_target(p)))
+                    .unwrap_or_default();
                 let Some(p) = record.placements.get_mut(idx) else {
                     return;
                 };
@@ -640,12 +647,169 @@ pub(super) fn draw_placements_tab(
                     &eligible_names,
                     heightmap,
                     room_water_y,
+                    &own_seeds,
                     dirty,
                 );
             });
     });
 }
 
+/// The seed each shape grammar of the item named `target` derives with on
+/// its own (#1505), one per grammar, in the order the tree lists them: what
+/// an absolute placement with no Grammar seed draws them with. Empty when
+/// the item has no shape grammar, or no longer exists.
+fn own_grammar_seeds(record: &RoomRecord, target: &str) -> Vec<u64> {
+    fn walk(node: &crate::pds::Generator, out: &mut Vec<u64>) {
+        if let GeneratorKind::Shape { seed, .. } = &node.kind {
+            out.push(*seed);
+        }
+        for child in &node.children {
+            walk(child, out);
+        }
+    }
+    let mut out = Vec::new();
+    if let Some(root) = record.generators.get(target) {
+        walk(root, &mut out);
+    }
+    out
+}
+
+/// Why the Grammar seed control has nothing to vary - painted beside it and
+/// given as the disabled checkbox's reason, one string so the two cannot
+/// drift.
+const NO_GRAMMAR: &str = "this item has no shape grammar, so a seed changes nothing";
+
+/// The Grammar seed control of an absolute placement (#1505): off, every
+/// shape grammar in the placed item derives with its own seed; on, all of
+/// them derive with the number beside it instead, so one item placed down a
+/// street draws each copy differently. Switched on, it starts from the own
+/// seed of the item's first grammar (`own` holds one per grammar). Where
+/// the item's grammars share one seed of their own - one grammar, as most
+/// items have - that draws exactly what off draws, so the switch itself
+/// moves nothing and the number is then the one to change. Where their own
+/// seeds differ, no one seed draws what off draws, and the label beside the
+/// switch says so while it is off: how many of the grammars switching it on
+/// redraws. It writes the record through the panel's `dirty` flag, the path
+/// every other control here takes, so the undo history captures it.
+///
+/// The number is a text field read as a whole `u64`, as the road network's
+/// layout seed is, not a drag number: egui drags and shows a number as an
+/// `f64`, which holds a whole number exactly only up to 2^53, so a seed
+/// past that was shown as another and rewritten by a click in and out -
+/// with no change reported, so nothing recompiled or took an undo step.
+fn draw_grammar_seed(ui: &mut egui::Ui, seed: &mut Option<u64>, own: &[u64], dirty: &mut bool) {
+    let weak = crate::ui::theme::current(ui.ctx()).text_weak;
+    ui.horizontal(|ui| {
+        let mut on = seed.is_some();
+        // A seed an item with no grammar carries can still be switched off.
+        let usable = !own.is_empty() || on;
+        let toggle = ui
+            .add_enabled(usable, egui::Checkbox::new(&mut on, "Grammar seed"))
+            .on_hover_text(
+                "Draw every shape grammar in this item with this seed instead \
+                 of its own, so the same item placed many times gives each \
+                 copy its own variety. Off, each grammar draws with its own \
+                 seed. Only single placements have one.",
+            )
+            .on_disabled_hover_text(NO_GRAMMAR);
+        if toggle.changed() {
+            *seed = on.then(|| own.first().copied().unwrap_or_default());
+            *dirty = true;
+        }
+        match seed {
+            Some(value) => {
+                if grammar_seed_number(ui, value) {
+                    *dirty = true;
+                }
+            }
+            None => {
+                ui.label(
+                    egui::RichText::new(grammar_seed_off(own))
+                        .small()
+                        .color(weak),
+                );
+            }
+        }
+    });
+    if seed.is_some() && own.is_empty() {
+        ui.label(egui::RichText::new(NO_GRAMMAR).small().color(weak));
+    }
+}
+
+/// The Grammar seed's number (#1505): a text field holding `value` as a
+/// whole `u64`, on the pattern of the road network's layout seed, and wide
+/// enough to show any `u64` whole. What is typed is written when the field
+/// lets go of the keyboard - Enter, Tab or a click elsewhere - if it reads
+/// as a `u64` other than `value`; a text that does not read is shown in the
+/// error colour and written nowhere. Whether it wrote `value`.
+fn grammar_seed_number(ui: &mut egui::Ui, value: &mut u64) -> bool {
+    /// The field's text, kept between frames while it is typed into, and
+    /// the seed it was last read from: a seed changed underneath it - an
+    /// undo, another placement selected, a peer's edit - replaces it.
+    #[derive(Clone)]
+    struct SeedText {
+        text: String,
+        synced_to: u64,
+    }
+    let id = ui.id().with("grammar_seed");
+    let mut state = ui
+        .data_mut(|d| d.get_temp::<SeedText>(id))
+        .unwrap_or(SeedText {
+            text: value.to_string(),
+            synced_to: *value,
+        });
+    if state.synced_to != *value {
+        state.text = value.to_string();
+        state.synced_to = *value;
+    }
+    let refused = state
+        .text
+        .trim()
+        .parse::<u64>()
+        .is_err()
+        .then(|| crate::ui::theme::current(ui.ctx()).status.error);
+    let width = super::widgets::u64_field_width(ui);
+    let response = crate::ui::affordances::text_edit(
+        ui,
+        egui::TextEdit::singleline(&mut state.text)
+            .desired_width(width)
+            .text_color_opt(refused),
+    )
+    .on_hover_text(
+        "The seed every shape grammar in this item derives with. Type a whole \
+         number and press Enter to apply it.",
+    );
+    let mut wrote = false;
+    if response.lost_focus()
+        && let Ok(typed) = state.text.trim().parse::<u64>()
+        && typed != *value
+    {
+        *value = typed;
+        state.synced_to = typed;
+        wrote = true;
+    }
+    ui.data_mut(|d| d.insert_temp(id, state));
+    wrote
+}
+
+/// What the Grammar seed control says while it is off, for an item whose
+/// grammars' own seeds are `own` (#1505): the seed they draw with, or, where
+/// they differ, how many of them switching it on - which starts from the
+/// first one's - redraws.
+fn grammar_seed_off(own: &[u64]) -> String {
+    let [first, rest @ ..] = own else {
+        return NO_GRAMMAR.to_string();
+    };
+    match rest.iter().filter(|seed| *seed != first).count() {
+        0 => format!("off: the item's own, {first}"),
+        redrawn => format!(
+            "off: each of its {} grammars its own; on redraws {redrawn} of them",
+            own.len()
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn draw_placement_detail(
     ui: &mut egui::Ui,
     placement: &mut Placement,
@@ -655,6 +819,9 @@ fn draw_placement_detail(
     // The room's water line, which the compile walks a seeded anchor
     // against (`room_water_level`).
     room_water_y: Option<f32>,
+    // The seeds the placed item's shape grammars derive with on their own
+    // (`own_grammar_seeds`), for the Grammar seed control (#1505).
+    own_seeds: &[u64],
     dirty: &mut bool,
 ) {
     match placement {
@@ -664,8 +831,10 @@ fn draw_placement_detail(
             snap_to_terrain,
             avoid_water,
             avoid_water_clearance,
+            seed,
         } => {
             generator_combo(ui, "Item", generator_ref, all_names, dirty);
+            draw_grammar_seed(ui, seed, own_seeds, dirty);
             if snap_toggle(
                 ui,
                 snap_to_terrain,
@@ -1345,6 +1514,7 @@ mod tests {
                 snap_to_terrain: false,
                 avoid_water: false,
                 avoid_water_clearance: 0.0.into(),
+                seed: None,
             })
             .collect();
         let total = record.placements.len();
@@ -1531,6 +1701,7 @@ mod tests {
                     &names,
                     Some(hm),
                     room_water_y,
+                    &[],
                     &mut dirty,
                 );
             });
@@ -1581,6 +1752,7 @@ mod tests {
             snap_to_terrain: true,
             avoid_water: true,
             avoid_water_clearance: Fp(3.0),
+            seed: None,
         };
         let snapped_off = |mut placement: Placement| {
             assert!(
@@ -1628,5 +1800,357 @@ mod tests {
             bits(drawn.to_array()),
             "a walked placement un-snaps where it was drawn, {drawn}, not at {after:?}"
         );
+    }
+
+    /// Draw `placement`'s detail panel three frames for an item whose shape
+    /// grammars' own seeds are `own`, pressing and releasing on "Grammar
+    /// seed" when `click` - the way a person does - and say whether the
+    /// panel marked the record dirty.
+    fn grammar_seed_panel(placement: &mut Placement, own: &[u64], click: bool) -> bool {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let names = vec!["house".to_string()];
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let mut dirty = false;
+        let mut checkbox = None;
+        for frame in 0..3 {
+            let events = match (frame, checkbox, click) {
+                (1, Some(at), true) => vec![egui::Event::PointerMoved(at), button(at, true)],
+                (2, Some(at), true) => vec![button(at, false)],
+                _ => Vec::new(),
+            };
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            };
+            let output = ctx.run_ui(input, |ui| {
+                draw_placement_detail(ui, placement, &names, &names, None, None, own, &mut dirty);
+            });
+            if frame == 0 {
+                checkbox = output
+                    .platform_output
+                    .accesskit_update
+                    .iter()
+                    .flat_map(|update| &update.nodes)
+                    .find(|(_, node)| {
+                        node.role() == egui::accesskit::Role::CheckBox
+                            && node.label() == Some("Grammar seed")
+                    })
+                    .and_then(|(_, node)| node.bounds())
+                    .map(|b| {
+                        egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
+                    });
+            }
+        }
+        assert!(
+            checkbox.is_some(),
+            "the panel drew no Grammar seed checkbox"
+        );
+        dirty
+    }
+
+    /// #1505: an absolute placement's Grammar seed. Drawn and left alone it
+    /// writes nothing, off or on; switched on, it starts from the own seed
+    /// of the item's first grammar - for an item whose grammars' own seeds
+    /// differ, as here, that redraws the others, which the label says while
+    /// it is off (`the_grammar_seed_says_what_switching_it_on_redraws`) - and
+    /// writes the record through the panel's dirty flag, the path the undo
+    /// history captures; switched off, the seed goes. For an item with no
+    /// shape grammar the switch is greyed out and a click writes nothing,
+    /// though one already on can still be switched off.
+    #[test]
+    fn the_grammar_seed_switch_starts_from_the_item_s_own_seed() {
+        let mut placement = new_absolute_placement("house".into(), [0.0, 0.0]);
+        let own = [42, 7];
+        assert!(
+            !grammar_seed_panel(&mut placement, &own, false),
+            "left alone"
+        );
+        assert_eq!(placement.shape_seed(), None);
+
+        assert!(
+            grammar_seed_panel(&mut placement, &own, true),
+            "a switch is an edit"
+        );
+        assert_eq!(placement.shape_seed(), Some(42), "the first grammar's own");
+        assert!(
+            !grammar_seed_panel(&mut placement, &own, false),
+            "left alone, on"
+        );
+        assert_eq!(placement.shape_seed(), Some(42));
+
+        assert!(grammar_seed_panel(&mut placement, &own, true));
+        assert_eq!(placement.shape_seed(), None, "switched off");
+
+        assert!(!grammar_seed_panel(&mut placement, &[], true), "greyed out");
+        assert_eq!(placement.shape_seed(), None);
+        let Placement::Absolute { seed, .. } = &mut placement else {
+            panic!("new_absolute_placement is absolute");
+        };
+        *seed = Some(5);
+        assert!(
+            grammar_seed_panel(&mut placement, &[], true),
+            "on can go off"
+        );
+        assert_eq!(placement.shape_seed(), None);
+    }
+
+    /// A pointer event of the primary button at `pos`.
+    fn button(pos: egui::Pos2, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    /// A key going down or up.
+    fn key(key: egui::Key, pressed: bool, modifiers: egui::Modifiers) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers,
+        }
+    }
+
+    /// What the Grammar seed control's number did, drawn alone.
+    struct SeedNumber {
+        /// The text the field shows after the last frame.
+        shown: Option<String>,
+        /// Whether the field held the keyboard at any frame.
+        focused: bool,
+        /// Whether the control marked the record dirty.
+        dirty: bool,
+    }
+
+    /// Draw the Grammar seed control alone for `frames` frames, for an
+    /// item whose grammars' own seeds are `own`, giving each frame the
+    /// input `input` makes of the frame's number and the centre of the
+    /// number's field - found on the first frame through AccessKit, as a
+    /// person finds it by eye.
+    fn seed_number(
+        seed: &mut Option<u64>,
+        own: &[u64],
+        frames: usize,
+        input: impl Fn(usize, egui::Pos2) -> Vec<egui::Event>,
+    ) -> SeedNumber {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut drew = SeedNumber {
+            shown: None,
+            focused: false,
+            dirty: false,
+        };
+        let mut field = None;
+        for frame in 0..frames {
+            let events = field.map(|at| input(frame, at)).unwrap_or_default();
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ui| draw_grammar_seed(ui, seed, own, &mut drew.dirty),
+            );
+            let Some(update) = output.platform_output.accesskit_update.as_ref() else {
+                continue;
+            };
+            let Some((id, node)) = update
+                .nodes
+                .iter()
+                .find(|(_, node)| node.role() == egui::accesskit::Role::TextInput)
+            else {
+                continue;
+            };
+            if field.is_none() {
+                field = node.bounds().map(|b| {
+                    egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
+                });
+            }
+            drew.shown = node.value().map(str::to_owned);
+            drew.focused |= update.focus == *id;
+        }
+        assert!(field.is_some(), "no number beside the switch");
+        drew
+    }
+
+    /// #1505: the Grammar seed's number is an edit like any other - typed
+    /// over and applied with Enter, it writes the placement's seed and
+    /// marks the record dirty, the path the recompile, the broadcast and
+    /// the undo history all ride.
+    #[test]
+    fn a_grammar_seed_number_edit_marks_the_record_dirty() {
+        let mut seed = Some(42_u64);
+        let typed = seed_number(&mut seed, &[42], 6, |frame, field| match frame {
+            1 => vec![egui::Event::PointerMoved(field), button(field, true)],
+            2 => vec![button(field, false)],
+            3 => vec![
+                key(egui::Key::A, true, egui::Modifiers::COMMAND),
+                key(egui::Key::A, false, egui::Modifiers::COMMAND),
+                egui::Event::Text("7".to_owned()),
+                key(egui::Key::Enter, true, egui::Modifiers::NONE),
+                key(egui::Key::Enter, false, egui::Modifiers::NONE),
+            ],
+            _ => Vec::new(),
+        });
+        assert!(
+            typed.focused,
+            "fixture: the click gave the field the keyboard"
+        );
+        assert_eq!(seed, Some(7));
+        assert!(typed.dirty, "a number edit is an edit");
+        assert_eq!(typed.shown.as_deref(), Some("7"));
+    }
+
+    /// #1505: a seed is shown and kept as the whole 64-bit number it is.
+    /// 2^53 + 1 is the first a drag number, which carries its value as an
+    /// `f64`, cannot hold: it showed 2^53, and a click in and out wrote
+    /// that into the record while saying nothing had changed. Clicked into
+    /// and away from, the number is shown and kept to the last digit, and
+    /// nothing is marked dirty.
+    #[test]
+    fn a_64_bit_grammar_seed_survives_a_click_in_and_out() {
+        let exact = (1_u64 << 53) + 1;
+        let mut seed = Some(exact);
+        let empty = egui::pos2(700.0, 500.0);
+        let clicked = seed_number(&mut seed, &[exact], 7, |frame, field| match frame {
+            1 => vec![egui::Event::PointerMoved(field), button(field, true)],
+            2 => vec![button(field, false)],
+            4 => vec![egui::Event::PointerMoved(empty), button(empty, true)],
+            5 => vec![button(empty, false)],
+            _ => Vec::new(),
+        });
+        assert!(
+            clicked.focused,
+            "fixture: the click gave the field the keyboard"
+        );
+        assert_eq!(seed, Some(exact));
+        assert!(!clicked.dirty, "a click in and out is no edit");
+        assert_eq!(clicked.shown, Some(exact.to_string()));
+    }
+
+    /// #1505: a grammar seed is shown to its last digit, however many it
+    /// has: the field is as wide as the twenty digits of the largest `u64`
+    /// in the font it is drawn in. At 150 points it cut the last digit off
+    /// every seed from 10^19 up, nearly half of all seeds, so the field
+    /// showed another number than the one it held, which could be neither
+    /// read nor copied off it.
+    #[test]
+    fn a_twenty_digit_grammar_seed_is_shown_whole() {
+        use super::super::widgets::text_probe::{drawn, shown_whole};
+        let widest = u64::MAX;
+        let (field, text) = drawn(&widest.to_string(), |ui| {
+            draw_grammar_seed(ui, &mut Some(widest), &[widest], &mut false);
+        });
+        assert!(
+            shown_whole(field, text),
+            "the text {text:?} runs past its field {field:?}"
+        );
+    }
+
+    /// The seed each of the item's grammars draws with on its own, one per
+    /// grammar, in tree order however deep it hangs - the root too; none
+    /// for an item with no grammar or no item at all.
+    #[test]
+    fn an_item_s_own_grammar_seeds_are_read_from_its_tree() {
+        let shape = |seed: u64| -> crate::pds::Generator {
+            serde_json::from_value(serde_json::json!({
+                "$type": "network.symbios.gen.shape",
+                "grammar_source": "Lot --> I(\"Box\")",
+                "root_rule": "Lot",
+                "footprint": [10_000, 0, 10_000],
+                "seed": seed.to_string(),
+            }))
+            .expect("a Shape node")
+        };
+        let mut wing = crate::pds::Generator::default_cuboid();
+        wing.children = vec![shape(3)];
+        let mut house = crate::pds::Generator::default_cuboid();
+        house.children = vec![shape(9), wing, shape(9)];
+        let mut tower = shape(5);
+        tower.children = vec![shape(6)];
+        let mut record = RoomRecord::default_for_did("did:plc:seeds");
+        record.generators.insert("house".into(), house);
+        record.generators.insert("tower".into(), tower);
+        record
+            .generators
+            .insert("box".into(), crate::pds::Generator::default_cuboid());
+        assert_eq!(own_grammar_seeds(&record, "house"), [9, 3, 9]);
+        assert_eq!(own_grammar_seeds(&record, "tower"), [5, 6]);
+        assert!(own_grammar_seeds(&record, "box").is_empty());
+        assert!(own_grammar_seeds(&record, "missing").is_empty());
+    }
+
+    /// The text of every label the detail panel paints for `placement`,
+    /// drawn once, for an item whose grammars' own seeds are `own`.
+    fn grammar_seed_labels(mut placement: Placement, own: &[u64]) -> Vec<String> {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let names = vec!["house".to_string()];
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 600.0),
+            )),
+            ..Default::default()
+        };
+        let mut dirty = false;
+        let output = ctx.run_ui(input, |ui| {
+            let placement = &mut placement;
+            draw_placement_detail(ui, placement, &names, &names, None, None, own, &mut dirty);
+        });
+        assert!(!dirty, "drawn, the panel writes nothing");
+        output
+            .platform_output
+            .accesskit_update
+            .iter()
+            .flat_map(|update| &update.nodes)
+            .filter(|(_, node)| node.role() == egui::accesskit::Role::Label)
+            .filter_map(|(_, node)| node.value().map(str::to_owned))
+            .collect()
+    }
+
+    /// #1505: what the Grammar seed control says while it is off. Where the
+    /// item's grammars share one seed of their own it names that seed, and
+    /// switching on - which starts from it - moves nothing; where their own
+    /// seeds differ no one seed draws what off draws, and it says how many
+    /// of them switching on redraws: each whose own seed is not the first
+    /// grammar's.
+    #[test]
+    fn the_grammar_seed_says_what_switching_it_on_redraws() {
+        let placement = new_absolute_placement("house".into(), [0.0, 0.0]);
+        let says = |own: &[u64], text: &str| {
+            let labels = grammar_seed_labels(placement.clone(), own);
+            assert!(
+                labels.iter().any(|label| label == text),
+                "{own:?}: {text:?} not among {labels:?}"
+            );
+        };
+        says(&[42], "off: the item's own, 42");
+        says(&[42, 42], "off: the item's own, 42");
+        says(
+            &[42, 7],
+            "off: each of its 2 grammars its own; on redraws 1 of them",
+        );
+        says(
+            &[42, 7, 42],
+            "off: each of its 3 grammars its own; on redraws 1 of them",
+        );
+        says(
+            &[42, 7, 9],
+            "off: each of its 3 grammars its own; on redraws 2 of them",
+        );
+        says(&[], NO_GRAMMAR);
     }
 }

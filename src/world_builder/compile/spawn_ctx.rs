@@ -186,8 +186,9 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// caller can GC stale shape material handles.
     pub(crate) shape_material_touched: &'a mut HashSet<(String, String)>,
     /// Shape grammar geometry cache - derives once per
-    /// `(generator_ref, geometry_hash)` pair and shares the per-terminal
-    /// `Handle<Mesh>` list across every scatter/grid spawn.
+    /// `(generator_ref, seed, geometry_hash)` and shares the per-terminal
+    /// `Handle<Mesh>` list across every scatter/grid spawn; the seed is the
+    /// node's own or its absolute placement's (#1505).
     pub(crate) shape_mesh_cache: &'a mut ShapeMeshCache,
     /// Content-addressed primitive mesh / material dedup - see
     /// [`prim_cache`](super::super::prim_cache).
@@ -204,9 +205,10 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// individual `Handle<Mesh>` by `(profile, size)` across every generator
     /// in the world.
     pub(crate) upstream_shape_mesh_cache: &'a mut UpstreamShapeMeshCache,
-    /// `generator_ref` keys touched this compile pass so the caller can GC
-    /// shape meshes belonging to generators removed from the record.
-    pub(crate) shape_mesh_touched: &'a mut HashSet<String>,
+    /// `(generator_ref, seed)` keys touched this compile pass so the caller
+    /// can GC shape meshes belonging to generators removed from the record,
+    /// and the variants of a generator no placement draws any more (#1505).
+    pub(crate) shape_mesh_touched: &'a mut HashSet<(String, u64)>,
     /// Cross-generator procedural-texture dedup - see
     /// [`GeneratorCaches::texture`]. Unlike the per-generator material
     /// caches above it also covers primitives, which have no
@@ -289,6 +291,22 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
 }
 
 impl SpawnCtx<'_, '_, '_, '_, '_> {
+    /// The seed every Shape node of the tree being spawned derives with in
+    /// place of its own (#1505): the seed of the absolute placement the room
+    /// compile is building, when it names one. Read from the record at the
+    /// unit's index rather than carried beside it, so it cannot outlive the
+    /// unit it belongs to: a scatter or grid unit, and an avatar (which no
+    /// placement owns), have none.
+    pub(crate) fn placement_shape_seed(&self) -> Option<u64> {
+        if self.avatar_mode {
+            return None;
+        }
+        self.record
+            .placements
+            .get(self.placement_index)
+            .and_then(crate::pds::Placement::shape_seed)
+    }
+
     /// Start spawning one copy of `generator_ref` at `cell_tf` in its
     /// placement's anchor (#1480).
     pub(crate) fn begin_copy(&mut self, generator_ref: &str, cell_tf: &Transform) {
@@ -337,15 +355,11 @@ impl SpawnCtx<'_, '_, '_, '_, '_> {
         } else {
             return;
         };
-        let status = match error {
-            None => crate::world_builder::grammar_diag::GrammarStatus::Ok,
-            Some(message) => crate::world_builder::grammar_diag::GrammarStatus::Error { message },
-        };
         self.commands.queue(move |world: &mut World| {
             if let Some(mut diag) =
                 world.get_resource_mut::<crate::world_builder::grammar_diag::GrammarDiagnostics>()
             {
-                diag.by_generator.insert(key, status);
+                diag.record(key, error);
             }
         });
     }

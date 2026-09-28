@@ -185,6 +185,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
         snap_to_terrain: false,
         avoid_water: false,
         avoid_water_clearance: Fp(0.0),
+        seed: None,
     }];
 
     // Seeded tree scatters: one named generator per scatter (so
@@ -509,6 +510,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
         snap_to_terrain: true,
         avoid_water: false,
         avoid_water_clearance: Fp(0.0),
+        seed: None,
     });
 
     // Seeded settlement, sited on the terrain (#905): the plan places
@@ -626,6 +628,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
             snap_to_terrain: true,
             avoid_water: true,
             avoid_water_clearance: Fp(gate_clearance),
+            seed: None,
         });
         default_landing = Some(DefaultLanding {
             pos: Fp2(spot.landing),
@@ -679,6 +682,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
                 snap_to_terrain: true,
                 avoid_water: true,
                 avoid_water_clearance: Fp(clearance),
+                seed: None,
             });
         }
     }
@@ -827,6 +831,7 @@ fn member_placement(
         snap_to_terrain: true,
         avoid_water: true,
         avoid_water_clearance: Fp(member.clearance),
+        seed: None,
     }
 }
 

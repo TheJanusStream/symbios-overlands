@@ -74,6 +74,28 @@ pub mod u64_as_string {
     }
 }
 
+/// [`u64_as_string`] for an optional seed: `Some` is the same quoted decimal,
+/// and `None` is meant to be left off the wire altogether - pair it with
+/// `#[serde(default, skip_serializing_if = "Option::is_none")]`, so a record
+/// that never set the field keeps the bytes it had before the field existed
+/// (#1505). A `null` read back is `None`.
+pub mod option_u64_as_string {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(value: &Option<u64>, s: S) -> Result<S::Ok, S::Error> {
+        match value {
+            Some(value) => super::u64_as_string::serialize(value, s),
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<u64>, D::Error> {
+        Option::<String>::deserialize(d)?
+            .map(|s| s.parse::<u64>().map_err(serde::de::Error::custom))
+            .transpose()
+    }
+}
+
 /// Fixed-point `f32` wrapper - (de)serialises as `i32` scaled by 10_000.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Fp(pub f32);

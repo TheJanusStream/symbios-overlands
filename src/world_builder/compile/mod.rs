@@ -53,8 +53,9 @@ pub(super) use contact_recipes::apply_contact_recipes;
 pub use dispatch::spawn_generator;
 /// The key a node's caches and grammar diagnostics are filed under (#1250
 /// f84) - re-exported so the editor can ask about the SELECTED node rather
-/// than its root.
-pub(crate) use dispatch::synthetic_cache_key;
+/// than its root - and the same key read the other way, for what is filed
+/// under a whole generator (#1505).
+pub(crate) use dispatch::{is_node_of, synthetic_cache_key};
 /// The cheap-lane repaint signal (#1249 f59) - stamped by the World Editor
 /// every frame a widget changes, so the atmosphere follows a drag while the
 /// broadcast and the recompile keep waiting for the pause.

@@ -295,6 +295,12 @@ mode:
   in UTC, two hours behind. Write dates as YYYY-MM-DD.
 - **The session number is chainlink's**; "live session N" is the owner's
   series. Name both on the parent and in the page's History.
+- **What you told the owner in chat binds the plan.** Before a step one of
+  your own chat lines ordered or held back, re-read your lines since the
+  owner's last instruction: a context summary keeps the plan and can drop
+  the promise. Session 885 moved Ashmere onto a record form the owner's
+  client could not draw yet, against its own line of 14:40 ("I will change
+  the record only once you have the build").
 - **Fix what gets in your way** - the client, the game (session 874's dead
   gateway was a world-builder bug, #1453), a tool, a docs/agent/ tip -
   when it slows you or you write the same helper twice: part of the job.
@@ -325,26 +331,41 @@ round it: say in chat that it waits on the terminal, and ask there.
 and what it has cost and found. The essentials:
 
 - One delegation at a time, in the background, as a workflow (load the
-  workflow-authoring skill before the first): a builder; an independent
-  critic briefed to find what is wrong, which breaks the two most important
-  rules itself and reads the pictures; a fixer only if the critic found
-  real defects. The main session keeps the live daemon (one daemon, one
+  workflow-authoring skill before the first): a builder, then an
+  independent critic briefed to find what is wrong. The critic reads the
+  change, breaks the one or two most important rules itself and reads the
+  pictures; it does not re-run the gate or copy the repository. No
+  automatic fixer: the main session reads the critic's defects and makes a
+  small fix itself, runs a fix round only for one worth it, and files the
+  low ones. The main session keeps the live daemon (one daemon, one
   driver), talking to the owner, choosing what to build and the last look.
+- **Lean, the owner's decision (2026-09-28)**: session 885 checked the same
+  work up to four times (builder, critic, fixer, the main session's gate)
+  and spent 8.2M sub-agent tokens: 6.7M on two delegations and an end
+  review, then 1.48M on the review's own builder -> critic -> fixer round. Give each `agent()` call
+  `effort: 'high'` (`'medium'` for mechanical work) rather than letting it
+  inherit the session's; a sub-agent runs fmt, clippy and its own targeted
+  tests, and `cargo test --profile test-release --lib` only when it touches
+  process-global state. Say so in the brief: CLAUDE.md tells every agent
+  to run all seven gate lines, and the brief overrides it - the main
+  session runs them once, at the end.
 - The brief is all it knows: the goal and how to tell it is done, paths,
-  the issue number, the gates, the files it may edit (stay off them until
-  it reports), and the traps by name, as developing.md lists them; it may
-  run only `chainlink show`, and `chainlink comment` on its own issue. Name
-  only offline views: `views.py`'s `@admin` and `@admincam` ask the live
-  daemon.
+  the issue number, the checks above, the files it may edit (stay off them
+  until it reports), and the traps by name, as developing.md lists them; it
+  may run only `chainlink show`, and `chainlink comment` on its own issue.
+  Name only offline views: `views.py`'s `@admin` and `@admincam` ask the
+  live daemon.
 - Check its work before bringing it live: read the key function, re-run its
   tests, `strings` the binaries for `AGENT_MUTANT`. Note on the parent what
   each delegation cost and what it saved.
 
 ## Fixes
 
-- Each fix gets a test that fails without it, mutation-checked as it lands
-  ([developing.md](developing.md), "Checking that tests test something"),
-  and a sub-issue: what exposed it, the cause, the fix, the live retry.
+- Each fix gets a test that fails without it (undo the fix, watch the test
+  fail, restore) and a sub-issue: what exposed it, the cause, the fix, the
+  live retry. A mutation check ([developing.md](developing.md), "Checking
+  that tests test something") only for a rule that protects data or
+  security: the record's format, the sanitiser, a cache, a bound.
 - A command-line or render-tool fix is live with its build. A daemon-side
   fix needs a restart: batch them, and restart only while the owner is away
   or with their OK in chat, with nothing unsaved; then re-arm the watcher
@@ -359,13 +380,16 @@ When the owner says "session over", in chat or in the terminal:
 1. Say goodbye in chat. Save or undo every live change except a mood trial
    the owner has not approved, then stop the agent: its `discarded` should
    hold nothing else. Let a running delegation finish, or stop it.
-2. If code changed: a review workflow (a reviewer per group of changes, then
-   a verifier per finding told to refute it); fix what is confirmed, each
-   with a test that fails without it, or file it. After the last source
-   change, the seven-line gate from [../../CLAUDE.md](../../CLAUDE.md) and
-   `cargo test --profile test-release --lib` twice (a delegated gate run
-   counts if no source changed after it); mutation-check any new rule not
-   yet checked.
+2. If code changed that no critic has seen (the main session's own fixes):
+   one reviewer over it, no verifier per finding - read each finding
+   yourself before acting on it. Fix what is medium or worse, each with a
+   test that fails without it; file the low ones. Delegated work had its
+   critic and is not reviewed again. After the last source change, the
+   seven-line gate from [../../CLAUDE.md](../../CLAUDE.md), once (a
+   delegate's full gate run counts if no source changed after it), and
+   `cargo test --profile test-release --lib`, CI's one-process run (twice
+   if the session touched process-global state); mutation-check a new rule
+   that protects data or security and was not checked yet.
 3. Close the shipped sub-issues with `chainlink close --no-changelog <id>`
    and write each CHANGELOG.md bullet yourself, as what shipped, under the
    right heading. World content gets no bullet. Leave the parent open.

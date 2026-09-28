@@ -313,6 +313,7 @@ pub fn handle_generator_drop(
         avoid_water: false,
         avoid_water_clearance: crate::pds::Fp(0.0),
         snap_to_terrain: false,
+        seed: None,
     });
     undo_labels.set_room(format!("drop of {gen_key}"));
     info!(

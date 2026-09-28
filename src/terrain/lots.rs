@@ -413,6 +413,7 @@ fn inject_lot_buildings(
             snap_to_terrain: true,
             avoid_water: true,
             avoid_water_clearance: Fp(fp.clearance),
+            seed: None,
         });
         placed += 1;
     }
@@ -497,6 +498,7 @@ fn inject_street_furniture(
             snap_to_terrain: true,
             avoid_water: true,
             avoid_water_clearance: Fp(entry.footprint().clearance),
+            seed: None,
         });
         placed += 1;
     }
@@ -915,6 +917,7 @@ mod tests {
                 snap_to_terrain: false,
                 avoid_water: false,
                 avoid_water_clearance: Fp(0.0),
+                seed: None,
             });
         }
         let lots: Vec<BuildingLot> = (0..20)

@@ -41,6 +41,7 @@ use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
 use crate::water::{WaterMaterial, WaterPlane, WaterSurfaces};
 
 use super::super::image_cache::BlobImageCache;
+use super::super::shape::ShapeMeshCache;
 use super::super::{PlacementMarker, PlacementUnit, RoomEntity};
 
 use super::dispatch::dispatch_top_level;
@@ -92,6 +93,7 @@ pub(crate) fn compile_room_record(
             &mut generator_caches.world,
             &mut generator_caches.job,
             &mut water_surfaces,
+            &mut generator_caches.shape_mesh,
         );
         if generator_caches.job.0.is_none() {
             // Nothing to (re)build - an environment / effects / metadata
@@ -242,10 +244,8 @@ pub(crate) fn compile_room_record(
             .shape_material
             .entries
             .retain(|k, _| job.touched.shape_material.contains(k));
-        generator_caches
-            .shape_mesh
-            .entries
-            .retain(|k, _| job.touched.shape_mesh.contains(k));
+        // Its builds and its remembered failures alike (#1505).
+        generator_caches.shape_mesh.retain(&job.touched.shape_mesh);
         // The content-addressed primitive caches (#918). Without this they
         // survived every rebuild and were bounded only by a 4096-entry
         // wholesale clear or logout, so each region re-roll permanently
@@ -350,6 +350,15 @@ pub(crate) fn compile_room_record(
 
 /// Diff the record against [`CompiledWorld`] and (re)build the job
 /// queue. See the module docs for the full / incremental split.
+///
+/// A Shape node's grammar status names the placement and seed of a copy
+/// that draws nothing, and a copy of the node writes it as it is built
+/// (#1505). So where an incremental plan finds a placement pointed at
+/// another generator, the statuses of the one it placed before are written
+/// anew from the placements as they are, without building a copy of it
+/// ([`ShapeMeshCache::statuses_under`]); and the statuses of a generator no
+/// placement places any more are forgotten, whatever the plan.
+#[allow(clippy::too_many_arguments)]
 fn plan_job(
     commands: &mut Commands,
     existing: &Query<(Entity, Option<&PlacementUnit>), With<RoomEntity>>,
@@ -358,7 +367,19 @@ fn plan_job(
     world: &mut CompiledWorld,
     job: &mut CompileJob,
     water_surfaces: &mut WaterSurfaces,
+    shape_mesh: &mut ShapeMeshCache,
 ) {
+    // What each generator is drawn with is read from the placements anew.
+    shape_mesh.placements_changed();
+    let placed_before = std::mem::take(&mut world.placed);
+    let placed_now: Vec<Option<String>> = record
+        .placements
+        .iter()
+        .map(|placement| job::placement_generator_ref(placement).map(str::to_owned))
+        .collect();
+    let placed: std::collections::HashSet<&str> =
+        placed_now.iter().flatten().map(String::as_str).collect();
+
     // Indices whose spawned entities must be retired this plan. Filled
     // by the cursor abort + the diff below, then swept in one flat pass
     // over the `PlacementUnit` markers - anchor-recursive despawn alone
@@ -455,6 +476,41 @@ fn plan_job(
             queue.push_back(QueuedUnit { index, fingerprint });
         }
 
+        // A placement pointed at another generator (#1505) is rebuilt as
+        // the new one alone, and the generator it placed before keeps the
+        // statuses its copies wrote - which may name that placement's seed
+        // as one that draws nothing. Where the generator is still placed,
+        // each of its Shape nodes the cache remembers to draw nothing with
+        // some seed is given, here, the status a copy of it that draws
+        // would write with the placements as they are - without building
+        // one, since its first copy left may be a scatter of thousands.
+        // Queued, so a status a unit built after this plan writes comes
+        // after it. (A generator placed no more loses its statuses below.)
+        let mut rewritten: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        let mut statuses = Vec::new();
+        for (index, now) in placed_now.iter().enumerate() {
+            let Some(Some(was)) = placed_before.get(index) else {
+                continue;
+            };
+            if now.as_deref() != Some(was.as_str())
+                && placed.contains(was.as_str())
+                && rewritten.insert(was.as_str())
+            {
+                statuses.extend(shape_mesh.statuses_under(record, was));
+            }
+        }
+        if !statuses.is_empty() {
+            commands.queue(move |ecs: &mut World| {
+                if let Some(mut diagnostics) =
+                    ecs.get_resource_mut::<super::super::grammar_diag::GrammarDiagnostics>()
+                {
+                    for (node, error) in statuses {
+                        diagnostics.record(node, error);
+                    }
+                }
+            });
+        }
+
         // One flat ownership sweep for every retired unit. `try_despawn`
         // tolerates the overlap with the recursive anchor despawns
         // above (and with double-marked descendants).
@@ -466,6 +522,28 @@ fn plan_job(
             }
         }
     }
+
+    // A generator no placement places any more draws nothing, and no copy
+    // of it will write its statuses again: they go (#1505). Queued, so they
+    // go before any status a unit built after this plan records.
+    let mut unplaced: Vec<String> = placed_before
+        .iter()
+        .flatten()
+        .filter(|was| !placed.contains(was.as_str()))
+        .cloned()
+        .collect();
+    unplaced.sort_unstable();
+    unplaced.dedup();
+    if !unplaced.is_empty() {
+        commands.queue(move |ecs: &mut World| {
+            if let Some(mut statuses) =
+                ecs.get_resource_mut::<super::super::grammar_diag::GrammarDiagnostics>()
+            {
+                statuses.forget_generators(&unplaced);
+            }
+        });
+    }
+    world.placed = placed_now;
 
     match job.0.as_mut() {
         // Replan of an in-flight job: the fresh diff already covers
@@ -905,6 +983,7 @@ mod tests {
     //! appended, and must still rebuild wholesale when one is removed".
 
     use std::collections::HashMap;
+    use std::sync::Arc;
 
     use super::*;
     use crate::pds::{Environment, Fp, Fp3, Fp4, Generator, GeneratorKind, TransformData};
@@ -920,6 +999,7 @@ mod tests {
             snap_to_terrain: false,
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
+            seed: None,
         }
     }
 
@@ -982,6 +1062,16 @@ mod tests {
             }
         }
         panic!("compile job did not settle within 64 frames");
+    }
+
+    /// The Shape geometry cache the compile keeps.
+    fn shape_cache(app: &App) -> &ShapeMeshCache {
+        app.world().resource::<ShapeMeshCache>()
+    }
+
+    /// How many variants that draw nothing the Shape cache remembers.
+    fn remembered_failures(app: &App) -> usize {
+        shape_cache(app).failures.values().map(HashMap::len).sum()
     }
 
     fn unit_anchors(app: &App) -> Vec<Option<Entity>> {
@@ -1134,6 +1224,7 @@ mod tests {
             snap_to_terrain: true,
             avoid_water,
             avoid_water_clearance: Fp(3.0),
+            seed: None,
         };
         let mut record = test_record(0);
         // The seeded layout: the room's water is a child of its terrain,
@@ -1279,6 +1370,7 @@ mod tests {
             snap_to_terrain: false,
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
+            seed: None,
         });
         let mut app = compile_app_with_physics(record);
         settle(&mut app);
@@ -1303,5 +1395,922 @@ mod tests {
                 "collides at {collides_at}, drawn at {drawn_at}"
             );
         }
+    }
+
+    /// The node seed of [`tower`]'s grammar.
+    const OWN_SEED: u64 = 1;
+
+    /// A grammar whose height its seed draws (#1505): `Extrude(rand(2, 9))`
+    /// on a 2 m square, so two seeds draw two towers. `seed` is the node's
+    /// own.
+    fn tower(seed: u64) -> Generator {
+        serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.gen.shape",
+            "grammar_source": "Lot --> Extrude(rand(2, 9)) I(\"Block\")",
+            "root_rule": "Lot",
+            "footprint": [20_000, 0, 20_000],
+            "seed": seed.to_string(),
+        }))
+        .expect("a Shape node")
+    }
+
+    /// An unsnapped absolute placement of `name` 10 m along per `slot`, with
+    /// `seed` or none.
+    fn placed(name: &str, slot: usize, seed: Option<u64>) -> Placement {
+        Placement::Absolute {
+            generator_ref: name.to_string(),
+            transform: TransformData {
+                translation: Fp3([slot as f32 * 10.0, 0.0, 0.0]),
+                rotation: Fp4([0.0, 0.0, 0.0, 1.0]),
+                scale: Fp3([1.0, 1.0, 1.0]),
+            },
+            snap_to_terrain: false,
+            avoid_water: false,
+            avoid_water_clearance: Fp(0.0),
+            seed,
+        }
+    }
+
+    /// A room of `tower(OWN_SEED)` placed once per entry of `seeds`.
+    fn towers(seeds: &[Option<u64>]) -> RoomRecord {
+        let mut record = test_record(0);
+        record
+            .generators
+            .insert("tower".to_string(), tower(OWN_SEED));
+        record.placements = seeds
+            .iter()
+            .enumerate()
+            .map(|(slot, seed)| placed("tower", slot, *seed))
+            .collect();
+        record
+    }
+
+    /// What each unit draws: every entity under its anchor with a mesh, as
+    /// the bits of its transform under its parent and its mesh, in spawn
+    /// order.
+    fn drawn(app: &App) -> Vec<Vec<([u32; 10], AssetId<Mesh>)>> {
+        let world = app.world();
+        unit_anchors(app)
+            .into_iter()
+            .map(|anchor| {
+                let mut parts = Vec::new();
+                let mut todo = vec![anchor.expect("every unit spawns an anchor")];
+                while let Some(entity) = todo.pop() {
+                    if let (Some(tf), Some(mesh)) =
+                        (world.get::<Transform>(entity), world.get::<Mesh3d>(entity))
+                    {
+                        let bits = [
+                            tf.translation.to_array(),
+                            tf.scale.to_array(),
+                            [tf.rotation.x, tf.rotation.y, tf.rotation.z],
+                        ]
+                        .concat()
+                        .into_iter()
+                        .chain([tf.rotation.w])
+                        .map(f32::to_bits)
+                        .collect::<Vec<u32>>();
+                        parts.push((bits.try_into().expect("ten floats"), mesh.id()));
+                    }
+                    if let Some(children) = world.get::<Children>(entity) {
+                        todo.extend(children.iter().rev());
+                    }
+                }
+                parts
+            })
+            .collect()
+    }
+
+    /// #1505: a placement's seed replaces its Shape node's own - not mixed
+    /// with it. Two placements of one generator with two seeds draw two
+    /// towers, a placement whose seed is the node's own draws, to the bit,
+    /// what an unseeded one draws, and a seeded placement draws what the
+    /// same tree with that seed written into it draws unseeded - the tree
+    /// the agent's z-fighting check and the render tool read
+    /// (`Generator::with_shape_seed`).
+    #[test]
+    fn a_placement_s_seed_replaces_its_shape_nodes_seed() {
+        let mut record = towers(&[None, Some(OWN_SEED), Some(7), Some(8)]);
+        record
+            .generators
+            .insert("tower_7".to_string(), tower(OWN_SEED).with_shape_seed(7));
+        record.placements.push(placed("tower_7", 4, None));
+        let mut app = compile_app(record);
+        settle(&mut app);
+        let drawn = drawn(&app);
+
+        assert_eq!(drawn[0].len(), 1, "one block a tower: {:?}", drawn[0]);
+        assert_eq!(drawn[1], drawn[0], "its own seed draws what no seed draws");
+        assert_ne!(drawn[2], drawn[0], "seed 7 draws another tower");
+        assert_ne!(drawn[3], drawn[2], "and seed 8 a third");
+        assert_eq!(
+            drawn[4], drawn[2],
+            "the tree with 7 written into it draws what the placement's 7 draws"
+        );
+    }
+
+    /// #1505: the geometry cache keeps one entry per node and seed. Three
+    /// seeds and the node's own each keep theirs across a second compile
+    /// (a full one: a placement removed) - the same derivation, not a
+    /// re-derived copy - and the variant no placement draws any more is
+    /// dropped by that compile's cache GC.
+    #[test]
+    fn each_seed_keeps_its_own_geometry_and_a_dropped_one_goes() {
+        let mut app = compile_app(towers(&[Some(3), Some(4), Some(5), None]));
+        settle(&mut app);
+        let cached = |app: &App| -> Vec<((String, u64), usize)> {
+            let mut entries: Vec<((String, u64), usize)> = shape_cache(app)
+                .builds
+                .iter()
+                .flat_map(|(node, seeds)| {
+                    seeds.iter().map(|(seed, built)| {
+                        (
+                            (node.clone(), *seed),
+                            Arc::as_ptr(&built.value).cast::<()>() as usize,
+                        )
+                    })
+                })
+                .collect();
+            entries.sort();
+            entries
+        };
+        let first = cached(&app);
+        let key = |seed: u64| ("tower".to_string(), seed);
+        assert_eq!(
+            first.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>(),
+            [key(OWN_SEED), key(3), key(4), key(5)],
+            "one entry per seed drawn"
+        );
+
+        // Placement 2 (seed 5) removed: a shrink, so a full rebuild and GC.
+        app.world_mut()
+            .resource_mut::<LiveRoomRecord>()
+            .0
+            .placements
+            .remove(2);
+        settle(&mut app);
+        let kept: Vec<((String, u64), usize)> =
+            first.into_iter().filter(|(k, _)| *k != key(5)).collect();
+        assert_eq!(
+            cached(&app),
+            kept,
+            "the live variants kept their derivations, and seed 5's went"
+        );
+    }
+
+    /// #1505: a seed change rebuilds the placement it is on, and no other -
+    /// the per-placement fingerprint hashes the placement's JSON, the seed
+    /// among it - and the rebuilt one draws the new seed; taking the seed
+    /// off draws the node's own again.
+    #[test]
+    fn a_seed_change_rebuilds_its_placement_alone() {
+        // The last tower is unseeded: what the node's own seed draws.
+        let mut app = compile_settled(towers(&[Some(3), Some(4), Some(5), None]));
+        let (anchors, before) = (unit_anchors(&app), drawn(&app));
+
+        let reseed = |app: &mut App, seed: Option<u64>| {
+            let mut record = app.world_mut().resource_mut::<LiveRoomRecord>();
+            let Placement::Absolute { seed: at, .. } = &mut record.0.placements[1] else {
+                panic!("towers are placed absolutely");
+            };
+            *at = seed;
+        };
+        reseed(&mut app, Some(9));
+        settle(&mut app);
+        let (after, now) = (unit_anchors(&app), drawn(&app));
+        for unit in [0, 2, 3] {
+            assert_eq!(after[unit], anchors[unit], "unit {unit} untouched");
+            assert_eq!(now[unit], before[unit], "unit {unit} draws as it did");
+        }
+        assert_ne!(after[1], anchors[1], "unit 1 rebuilt");
+        assert_ne!(now[1], before[1], "unit 1 draws seed 9");
+
+        reseed(&mut app, None);
+        settle(&mut app);
+        assert_ne!(unit_anchors(&app)[1], after[1], "unit 1 rebuilt again");
+        assert_eq!(
+            drawn(&app)[1],
+            before[3],
+            "unseeded, it draws the node's own seed"
+        );
+    }
+
+    /// [`compile_app`] for `record`, settled.
+    fn compile_settled(record: RoomRecord) -> App {
+        let mut app = compile_app(record);
+        settle(&mut app);
+        app
+    }
+
+    /// #1505: the seed is for shape grammars and nothing else. A tree of a
+    /// stochastic L-system under a box, placed with a seed and without,
+    /// draws the same meshes in the same places - though the L-system with
+    /// that seed written into its own draws another shrub, so a seed that
+    /// reached it would show.
+    #[test]
+    fn a_seed_on_a_tree_with_no_grammar_draws_it_as_before() {
+        let mut shrub = crate::catalogue::by_slug("lsys_dead_shrub")
+            .expect("a stochastic L-system in the catalogue")
+            .build("");
+        // Plain materials: the meshes are what is compared.
+        if let GeneratorKind::LSystem { materials, .. } = &mut shrub.kind {
+            materials.clear();
+        }
+        let mut tree = Generator::default_cuboid();
+        tree.children.push(shrub.clone());
+        let mut reseeded = tree.clone();
+        if let GeneratorKind::LSystem { seed, .. } = &mut reseeded.children[0].kind {
+            *seed = 99;
+        }
+        let mut record = test_record(0);
+        record.generators.insert("shrub".to_string(), tree);
+        record.generators.insert("shrub_99".to_string(), reseeded);
+        record.placements = vec![
+            placed("shrub", 0, None),
+            placed("shrub", 1, Some(99)),
+            placed("shrub_99", 2, None),
+        ];
+        let app = compile_settled(record);
+        let drawn = drawn(&app);
+        assert!(drawn[0].len() >= 2, "a box and a shrub: {:?}", drawn[0]);
+        assert_ne!(
+            drawn[2], drawn[0],
+            "fixture: the L-system's own seed changes what it draws"
+        );
+        assert_eq!(drawn[1], drawn[0], "a placement's seed leaves it alone");
+    }
+
+    /// #1505: a placement's seed reaches every Shape node of the tree it
+    /// plants, however deep - not the root alone. Every Ashmere house is a
+    /// grammar under a primitive; here a box holds one tower and a second
+    /// box, which holds another. Placed with the towers' own seed it draws
+    /// what it draws with none; placed with 7, what the tree with 7 written
+    /// into both towers draws.
+    #[test]
+    fn a_placement_s_seed_reaches_every_grammar_under_a_primitive() {
+        let mut upper = Generator::default_cuboid();
+        upper.transform.translation = Fp3([0.0, 3.0, 0.0]);
+        upper.children.push(tower(OWN_SEED));
+        let mut house = Generator::default_cuboid();
+        house.children = vec![tower(OWN_SEED), upper];
+        let mut record = test_record(0);
+        record
+            .generators
+            .insert("house_7".to_string(), house.with_shape_seed(7));
+        record.generators.insert("house".to_string(), house);
+        record.placements = vec![
+            placed("house", 0, None),
+            placed("house", 1, Some(OWN_SEED)),
+            placed("house", 2, Some(7)),
+            placed("house_7", 3, None),
+        ];
+        let drawn = drawn(&compile_settled(record));
+
+        assert_eq!(drawn[0].len(), 4, "two boxes, two towers: {:?}", drawn[0]);
+        assert_eq!(drawn[1], drawn[0], "their own seed draws what none draws");
+        assert_ne!(drawn[2], drawn[0], "fixture: 7 draws other towers");
+        assert_eq!(
+            drawn[2], drawn[3],
+            "7 reaches both towers, the one in the second box too"
+        );
+    }
+
+    /// #1505: a placement's seed is for shape grammars alone. A particle
+    /// system in the tree keeps its own seed, so every copy of one
+    /// generator emits the same stream - houses moved onto one shared
+    /// generator keep their houses but share one chimney's smoke, which
+    /// docs/building.md says. A box with a grammar and an emitter of seed
+    /// 42, placed with no seed, with 7 and with 42: each emitter's RNG
+    /// starts from 42.
+    #[test]
+    fn a_placement_s_seed_leaves_a_particle_system_its_own() {
+        let mut smoke = Generator::from_kind(GeneratorKind::default_particles());
+        let GeneratorKind::ParticleSystem(params) = &mut smoke.kind else {
+            panic!("default_particles is a particle system");
+        };
+        params.seed = 42;
+        let mut house = Generator::default_cuboid();
+        house.children = vec![tower(OWN_SEED), smoke];
+        let mut record = test_record(0);
+        record.generators.insert("house".to_string(), house);
+        record.placements = vec![
+            placed("house", 0, None),
+            placed("house", 1, Some(7)),
+            placed("house", 2, Some(42)),
+        ];
+        let app = compile_settled(record);
+        let world = app.world();
+        let seeds: Vec<Vec<[u8; 32]>> = unit_anchors(&app)
+            .into_iter()
+            .map(|anchor| {
+                let mut seeds = Vec::new();
+                let mut todo = vec![anchor.expect("every unit spawns an anchor")];
+                while let Some(entity) = todo.pop() {
+                    if let Some(state) =
+                        world.get::<crate::world_builder::particles::EmitterState>(entity)
+                    {
+                        seeds.push(state.rng.get_seed());
+                    }
+                    if let Some(children) = world.get::<Children>(entity) {
+                        todo.extend(children.iter());
+                    }
+                }
+                seeds
+            })
+            .collect();
+        let own = ChaCha8Rng::seed_from_u64(42).get_seed();
+        assert_eq!(seeds, vec![vec![own]; 3]);
+        assert_ne!(
+            drawn(&app)[1],
+            drawn(&app)[0],
+            "fixture: the placement's 7 reached the grammar"
+        );
+    }
+
+    /// A grammar that tosses a coin by its seed (#1505): a 2 m block, or
+    /// nothing - and a derivation that draws nothing is a grammar error.
+    /// `seed` is the node's own.
+    fn coin_hut(seed: u64) -> Generator {
+        serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.gen.shape",
+            "grammar_source": "Lot --> 50% Solid | 50% Void\n\
+                               Solid --> Extrude(2) I(\"Block\")\n\
+                               Void --> NIL",
+            "root_rule": "Lot",
+            "footprint": [20_000, 0, 20_000],
+            "seed": seed.to_string(),
+        }))
+        .expect("a Shape node")
+    }
+
+    /// Seeds for [`coin_hut`]: two that draw its block, and one that draws
+    /// nothing - found by deriving, so that a change in how the grammar
+    /// engine tosses its coins moves the seeds, not the test.
+    fn hut_seeds() -> ([u64; 2], u64) {
+        let draws = |seed: u64| {
+            coin_hut(seed)
+                .kind
+                .shape_def()
+                .expect("a Shape node")
+                .derive()
+                .is_ok()
+        };
+        let mut good = (1..64).filter(|&seed| draws(seed));
+        let good = [
+            good.next().expect("a seed that draws"),
+            good.next().expect("a second"),
+        ];
+        let bad = (1..64)
+            .find(|&seed| !draws(seed))
+            .expect("a seed that draws nothing");
+        (good, bad)
+    }
+
+    /// #1505: a Shape node drawn with several seeds shows an error as long
+    /// as the world draws it with a seed that fails - whichever copy
+    /// compiled last, and after a compile that rebuilt only a copy that
+    /// draws. A hut whose own seed draws its block, placed with no seed and
+    /// with a seed that draws nothing: the node's grammar status names the
+    /// failing placement and seed, in either order and after the unseeded
+    /// copy alone is moved (a cache hit); it clears once that placement's
+    /// seed draws, and once the grammar is fixed for the failing seed.
+    #[test]
+    fn a_failing_seed_keeps_its_grammar_error_showing() {
+        use crate::world_builder::grammar_diag::{GrammarDiagnostics, GrammarStatus};
+        let ([own, other], bad) = hut_seeds();
+        let compiled = |seeds: [Option<u64>; 2]| {
+            let mut record = test_record(0);
+            record.generators.insert("hut".to_string(), coin_hut(own));
+            record.placements = seeds
+                .iter()
+                .enumerate()
+                .map(|(slot, seed)| placed("hut", slot, *seed))
+                .collect();
+            let mut app = compile_app(record);
+            app.init_resource::<GrammarDiagnostics>();
+            settle(&mut app);
+            app
+        };
+        let status = |app: &App| {
+            app.world()
+                .resource::<GrammarDiagnostics>()
+                .get("hut")
+                .cloned()
+        };
+        let failing = |at: usize| {
+            Some(GrammarStatus::Error {
+                message: format!(
+                    "with placement #{at}'s seed {bad}: \
+                     grammar produced no geometry (no terminal shapes)"
+                ),
+            })
+        };
+        let edit = |app: &mut App, change: &dyn Fn(&mut RoomRecord)| {
+            change(&mut app.world_mut().resource_mut::<LiveRoomRecord>().0);
+            settle(app);
+        };
+
+        for (seeds, at) in [([Some(bad), None], 0), ([None, Some(bad)], 1)] {
+            let app = compiled(seeds);
+            let drawn = drawn(&app);
+            assert_eq!(
+                (drawn[at].len(), drawn[1 - at].len()),
+                (0, 1),
+                "fixture: {seeds:?} draw nothing and a block"
+            );
+            assert_eq!(status(&app), failing(at), "{seeds:?}");
+        }
+
+        let mut app = compiled([Some(bad), None]);
+        let anchors = unit_anchors(&app);
+        edit(&mut app, &|record| {
+            let Placement::Absolute { transform, .. } = &mut record.placements[1] else {
+                panic!("huts are placed absolutely");
+            };
+            transform.translation.0[2] += 5.0;
+        });
+        let moved = unit_anchors(&app);
+        assert_eq!(moved[0], anchors[0], "fixture: the failing copy is kept");
+        assert_ne!(moved[1], anchors[1], "fixture: the unseeded one rebuilt");
+        assert_eq!(status(&app), failing(0), "a rebuilt copy that draws");
+
+        edit(&mut app, &|record| {
+            let Placement::Absolute { seed, .. } = &mut record.placements[0] else {
+                panic!("huts are placed absolutely");
+            };
+            *seed = Some(other);
+        });
+        assert_eq!(status(&app), Some(GrammarStatus::Ok), "reseeded to draw");
+        // What no placement draws any more is forgotten when the node is
+        // next derived - here with the placement's new seed - a dead build
+        // too, not kept until a full compile.
+        let failed = |app: &App| {
+            shape_cache(app)
+                .failures
+                .get("hut")
+                .is_some_and(|seeds| seeds.contains_key(&bad))
+        };
+        assert!(!failed(&app), "forgotten at the reseed");
+        // And a full compile's GC drops one that no copy derived since: the
+        // failing placement removed, the copy left hits the cache.
+        let mut app = compiled([Some(bad), None]);
+        assert!(failed(&app), "fixture: remembered while drawn");
+        edit(&mut app, &|record| {
+            record.placements.remove(0);
+        });
+        assert!(!failed(&app), "dropped by a full compile's GC");
+        assert_eq!(status(&app), Some(GrammarStatus::Ok), "the copy left draws");
+
+        let mut app = compiled([Some(bad), None]);
+        edit(&mut app, &|record| {
+            let GeneratorKind::Shape { grammar_source, .. } =
+                &mut record.generators.get_mut("hut").expect("the hut").kind
+            else {
+                panic!("the hut is a Shape node");
+            };
+            *grammar_source = "Lot --> Extrude(2) I(\"Block\")".to_string();
+        });
+        assert_eq!(drawn(&app)[0].len(), 1, "fixed, the failing seed draws");
+        assert_eq!(status(&app), Some(GrammarStatus::Ok), "fixed");
+    }
+
+    /// Point placement `at` of the live record at the test record's box,
+    /// as the Placements tab's Item combo does, and settle.
+    fn retarget(app: &mut App, at: usize) {
+        {
+            let mut live = app.world_mut().resource_mut::<LiveRoomRecord>();
+            let Placement::Absolute { generator_ref, .. } = &mut live.0.placements[at] else {
+                panic!("placed absolutely");
+            };
+            *generator_ref = "box".to_string();
+        }
+        settle(app);
+    }
+
+    /// Give placement `at` of the live record `seed`, and settle.
+    fn reseed(app: &mut App, at: usize, seed: Option<u64>) {
+        {
+            let mut live = app.world_mut().resource_mut::<LiveRoomRecord>();
+            let Placement::Absolute { seed: given, .. } = &mut live.0.placements[at] else {
+                panic!("placed absolutely");
+            };
+            *given = seed;
+        }
+        settle(app);
+    }
+
+    /// A room of [`coin_hut`] with its own seed `own` as "hut", placed
+    /// once per entry of `seeds`, beside the test record's "box"; compiled,
+    /// with the grammar statuses kept.
+    fn huts(own: u64, seeds: &[Option<u64>]) -> App {
+        let mut record = test_record(0);
+        record.generators.insert("hut".to_string(), coin_hut(own));
+        record.placements = seeds
+            .iter()
+            .enumerate()
+            .map(|(slot, seed)| placed("hut", slot, *seed))
+            .collect();
+        let mut app = compile_app(record);
+        app.init_resource::<crate::world_builder::grammar_diag::GrammarDiagnostics>();
+        settle(&mut app);
+        app
+    }
+
+    /// The grammar status of the node filed under `key`.
+    fn status_of(
+        app: &App,
+        key: &str,
+    ) -> Option<crate::world_builder::grammar_diag::GrammarStatus> {
+        app.world()
+            .resource::<crate::world_builder::grammar_diag::GrammarDiagnostics>()
+            .get(key)
+            .cloned()
+    }
+
+    /// The status of a hut drawn with `seed` by placement `at`, which draws
+    /// nothing.
+    fn drew_nothing(
+        at: usize,
+        seed: u64,
+    ) -> Option<crate::world_builder::grammar_diag::GrammarStatus> {
+        Some(crate::world_builder::grammar_diag::GrammarStatus::Error {
+            message: format!(
+                "with placement #{at}'s seed {seed}: \
+                 grammar produced no geometry (no terminal shapes)"
+            ),
+        })
+    }
+
+    /// A seed with which [`coin_hut`] draws nothing, other than `not`.
+    fn another_seed_drawing_nothing(not: u64) -> u64 {
+        (1..256)
+            .find(|&seed| {
+                seed != not
+                    && coin_hut(seed)
+                        .kind
+                        .shape_def()
+                        .expect("a Shape node")
+                        .derive()
+                        .is_err()
+            })
+            .expect("a second seed that draws nothing")
+    }
+
+    /// #1505: a placement that drew the hut with a seed that draws nothing,
+    /// pointed at another item, takes its error with it. The edit rebuilds
+    /// that unit, as the box, and writes the hut's status anew from the
+    /// placements as they are - where they are planned, not by building the
+    /// hut's copy left again: Ok, since no placement draws the hut with a
+    /// failing seed any more. The hut left was moved first, so its copy,
+    /// built again by a compile that does not end in a GC, read the failing
+    /// seed last: what it read must not outlive the placements it read.
+    #[test]
+    fn a_retargeted_failing_placement_leaves_no_error_behind() {
+        let ([own, _], bad) = hut_seeds();
+        let mut app = huts(own, &[Some(bad), None]);
+        {
+            let mut live = app.world_mut().resource_mut::<LiveRoomRecord>();
+            let Placement::Absolute { transform, .. } = &mut live.0.placements[1] else {
+                panic!("placed absolutely");
+            };
+            transform.translation.0[2] += 5.0;
+        }
+        settle(&mut app);
+        assert_eq!(status_of(&app, "hut"), drew_nothing(0, bad), "fixture");
+        let anchors = unit_anchors(&app);
+        retarget(&mut app, 0);
+        let now = unit_anchors(&app);
+        assert_ne!(now[0], anchors[0], "unit 0 rebuilt as the box");
+        assert_eq!(now[1], anchors[1], "the hut left is not built again");
+        assert_eq!(
+            status_of(&app, "hut"),
+            Some(crate::world_builder::grammar_diag::GrammarStatus::Ok)
+        );
+    }
+
+    /// #1505: of two placements drawing the hut with seeds that draw
+    /// nothing, the one the status names - the copy compiled last - is
+    /// pointed at the box: the status names the other, which still draws
+    /// the hut so.
+    #[test]
+    fn a_retargeted_failing_placement_leaves_the_error_still_drawn() {
+        let ([own, _], bad) = hut_seeds();
+        let worse = another_seed_drawing_nothing(bad);
+        let mut app = huts(own, &[Some(bad), Some(worse)]);
+        assert_eq!(status_of(&app, "hut"), drew_nothing(1, worse), "fixture");
+        retarget(&mut app, 1);
+        assert_eq!(status_of(&app, "hut"), drew_nothing(0, bad));
+    }
+
+    /// #1505: a generator no placement places draws nothing, and has no
+    /// status to show - not the error naming the seed of the placement that
+    /// left it. The hut's only placement pointed at the box, and a yard's
+    /// only placement removed: neither the hut's own status nor the one of
+    /// the grammar under the yard's box is left.
+    #[test]
+    fn a_generator_no_placement_places_keeps_no_status() {
+        let ([own, _], bad) = hut_seeds();
+        let mut app = huts(own, &[Some(bad)]);
+        assert_eq!(status_of(&app, "hut"), drew_nothing(0, bad), "fixture");
+        retarget(&mut app, 0);
+        assert_eq!(status_of(&app, "hut"), None, "pointed at the box");
+
+        let mut yard = Generator::default_cuboid();
+        yard.children.push(coin_hut(own));
+        let mut record = test_record(1);
+        record.generators.insert("yard".to_string(), yard);
+        record.placements.push(placed("yard", 1, Some(bad)));
+        let mut app = compile_app(record);
+        app.init_resource::<crate::world_builder::grammar_diag::GrammarDiagnostics>();
+        settle(&mut app);
+        assert_eq!(status_of(&app, "yard/0"), drew_nothing(1, bad), "fixture");
+        app.world_mut()
+            .resource_mut::<LiveRoomRecord>()
+            .0
+            .placements
+            .remove(1);
+        settle(&mut app);
+        assert_eq!(status_of(&app, "yard/0"), None, "removed");
+    }
+
+    /// #1505: pointing a placement at another item rebuilds only that unit
+    /// where the generator it placed before draws with every seed: the
+    /// other copy of it is not built again, so it does not blink.
+    #[test]
+    fn a_retarget_off_a_generator_that_draws_rebuilds_nothing_else() {
+        let mut app = compile_settled(towers(&[Some(3), None]));
+        let anchors = unit_anchors(&app);
+        retarget(&mut app, 0);
+        let now = unit_anchors(&app);
+        assert_ne!(now[0], anchors[0], "unit 0 rebuilt as the box");
+        assert_eq!(now[1], anchors[1], "the tower left is not built again");
+    }
+
+    /// #1505: nor where the generator it placed before draws nothing with
+    /// the seed that placement gave it. Its statuses are written anew where
+    /// the placements are planned, from what the cache remembers, so no
+    /// copy of it is built again to write them - here a scatter of the hut,
+    /// its first copy left, which would blink out and fill back in over
+    /// many frames to rewrite one line.
+    #[test]
+    fn a_retarget_off_a_failing_generator_builds_no_copy_left_again() {
+        use crate::world_builder::grammar_diag::GrammarStatus;
+        let ([own, _], bad) = hut_seeds();
+        let mut record = test_record(0);
+        record.generators.insert("hut".to_string(), coin_hut(own));
+        record.placements = vec![scattered("hut", 500), placed("hut", 1, Some(bad))];
+        let mut app = compile_app(record);
+        app.init_resource::<crate::world_builder::grammar_diag::GrammarDiagnostics>();
+        settle(&mut app);
+        assert_eq!(status_of(&app, "hut"), drew_nothing(1, bad), "fixture");
+        let anchors = unit_anchors(&app);
+        retarget(&mut app, 1);
+        let now = unit_anchors(&app);
+        assert_ne!(now[1], anchors[1], "fixture: unit 1 rebuilt as the box");
+        assert_eq!(now[0], anchors[0], "the scatter left is not built again");
+        assert_eq!(status_of(&app, "hut"), Some(GrammarStatus::Ok));
+    }
+
+    /// #1505: a placement's seed changed through many values - a person
+    /// trying one variant after another - leaves no trail of them in the
+    /// cache. Each change is an incremental compile, which runs no GC; the
+    /// variant no placement draws any more is forgotten when the node is
+    /// next derived.
+    #[test]
+    fn a_seed_changed_through_many_values_keeps_no_trail() {
+        let mut app = compile_settled(towers(&[Some(3), None]));
+        let unseeded = unit_anchors(&app)[1];
+        for seed in 10..20 {
+            reseed(&mut app, 0, Some(seed));
+        }
+        assert_eq!(
+            unit_anchors(&app)[1],
+            unseeded,
+            "fixture: incremental compiles alone"
+        );
+        let mut held: Vec<(String, u64)> = shape_cache(&app)
+            .builds
+            .iter()
+            .flat_map(|(node, seeds)| seeds.keys().map(move |seed| (node.clone(), *seed)))
+            .collect();
+        held.sort();
+        let key = |seed: u64| ("tower".to_string(), seed);
+        assert_eq!(held, [key(OWN_SEED), key(19)]);
+    }
+
+    /// A box holding `grammars` Shape nodes whose grammar draws nothing
+    /// whatever its seed (#1505).
+    fn barren(grammars: usize) -> Generator {
+        let nothing: Generator = serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.gen.shape",
+            "grammar_source": "Lot --> NIL",
+            "root_rule": "Lot",
+            "footprint": [20_000, 0, 20_000],
+            "seed": "1",
+        }))
+        .expect("a Shape node");
+        let mut root = Generator::default_cuboid();
+        root.children = vec![nothing; grammars];
+        root
+    }
+
+    /// #1505: a copy that draws nothing spawns nothing, so the room's
+    /// entity budget does not bound what the cache remembers of such
+    /// copies: 33 grammars that draw nothing, placed 32 times with 32
+    /// seeds, are 1056 variants, of which the cache remembers
+    /// `MAX_REMEMBERED_FAILURES` - and the status still shows the error.
+    #[test]
+    fn a_compile_remembers_so_many_failures_and_no_more() {
+        use crate::world_builder::shape::MAX_REMEMBERED_FAILURES;
+        let mut record = test_record(0);
+        record.generators.insert("g".to_string(), barren(33));
+        record.placements = (1..=32)
+            .map(|seed| placed("g", seed, Some(seed as u64)))
+            .collect();
+        let mut app = compile_app(record);
+        app.init_resource::<crate::world_builder::grammar_diag::GrammarDiagnostics>();
+        settle(&mut app);
+        assert_eq!(remembered_failures(&app), MAX_REMEMBERED_FAILURES);
+        assert!(
+            matches!(
+                status_of(&app, "g/0"),
+                Some(crate::world_builder::grammar_diag::GrammarStatus::Error { .. })
+            ),
+            "{:?}",
+            status_of(&app, "g/0")
+        );
+    }
+
+    /// #1505: the compile's touch-set holds only the variants the cache
+    /// holds, so it is bounded as the cache is, and not by the number of
+    /// copies that draw nothing: one unit of more grammars that draw
+    /// nothing than the cache remembers, with a scatter after it that keeps
+    /// the job running past the first frame, leaves no more touched than
+    /// remembered.
+    #[test]
+    fn the_touch_set_holds_only_what_the_cache_holds() {
+        use crate::world_builder::shape::MAX_REMEMBERED_FAILURES;
+        let mut record = test_record(0);
+        record
+            .generators
+            .insert("g".to_string(), barren(MAX_REMEMBERED_FAILURES + 76));
+        record.placements = vec![
+            placed("g", 0, Some(7)),
+            Placement::Scatter {
+                generator_ref: "box".to_string(),
+                bounds: ScatterBounds::Circle {
+                    center: crate::pds::Fp2([0.0, 0.0]),
+                    radius: Fp(50.0),
+                },
+                count: 100_000,
+                local_seed: 7,
+                biome_filter: Default::default(),
+                snap_to_terrain: false,
+                random_yaw: false,
+                avoid_urban: false,
+                float_on_water: false,
+                naturalness: Default::default(),
+            },
+        ];
+        let mut app = compile_app(record);
+        app.update();
+        assert_eq!(
+            remembered_failures(&app),
+            MAX_REMEMBERED_FAILURES,
+            "fixture: more drew nothing than are remembered"
+        );
+        let job = app.world().resource::<CompileJob>();
+        let active = job
+            .0
+            .as_ref()
+            .expect("fixture: the scatter keeps the job running");
+        assert!(
+            active.touched.shape_mesh.len() <= MAX_REMEMBERED_FAILURES,
+            "{} touched",
+            active.touched.shape_mesh.len()
+        );
+    }
+
+    /// #1505: a Shape node that never drew nothing writes its status without
+    /// a look at any other node's failures - which a world of seeded copies
+    /// can hold a thousand of - where it used to go through them all for
+    /// every copy it drew. A hut whose seed draws nothing is its own to
+    /// look at.
+    #[test]
+    fn a_node_that_never_failed_looks_at_no_failure() {
+        let ([own, _], bad) = hut_seeds();
+        let mut record = towers(&[Some(3), None, Some(4)]);
+        record.generators.insert("hut".to_string(), coin_hut(own));
+        record.placements.push(placed("hut", 3, Some(bad)));
+        record.placements.push(placed("hut", 4, None));
+        let mut app = compile_app(record);
+        {
+            let mut cache = app.world_mut().resource_mut::<ShapeMeshCache>();
+            for node in 0..1000 {
+                let failed = Err("grammar produced no geometry (no terminal shapes)".to_owned());
+                assert!(cache.remember((format!("dead/{node}"), 1), 1, &failed));
+            }
+        }
+        settle(&mut app);
+        // The hut's copy that draws has its own one failure in view; the
+        // towers, none.
+        assert_eq!(shape_cache(&app).failures_in_view, 1);
+    }
+
+    /// Seeds with which [`coin_hut`] draws its block, `n` of them.
+    fn seeds_that_draw(n: usize) -> Vec<u64> {
+        let seeds: Vec<u64> = (1..1024)
+            .filter(|&seed| {
+                coin_hut(seed)
+                    .kind
+                    .shape_def()
+                    .expect("a Shape node")
+                    .derive()
+                    .is_ok()
+            })
+            .take(n)
+            .collect();
+        assert_eq!(seeds.len(), n, "fixture: {n} seeds that draw");
+        seeds
+    }
+
+    /// A scatter of `count` copies of `name` round the origin.
+    fn scattered(name: &str, count: u32) -> Placement {
+        Placement::Scatter {
+            generator_ref: name.to_string(),
+            bounds: ScatterBounds::Circle {
+                center: crate::pds::Fp2([0.0, 0.0]),
+                radius: Fp(50.0),
+            },
+            count,
+            local_seed: 7,
+            biome_filter: Default::default(),
+            snap_to_terrain: false,
+            random_yaw: false,
+            avoid_urban: false,
+            float_on_water: false,
+            naturalness: Default::default(),
+        }
+    }
+
+    /// #1505: nor does a node that did draw nothing with some seed go
+    /// through the placements for every copy of it that draws. A scatter of
+    /// 500 huts after ten copies placed with seeds that draw and one with a
+    /// seed that draws nothing reads the placements to find that seed once,
+    /// not once for each of its copies - at a thousand placements, that
+    /// made a scatter of 100 000 take six times as long to build as with no
+    /// seed failing. Every copy still writes the error.
+    #[test]
+    fn a_scatter_of_a_node_that_fails_reads_the_placements_once() {
+        let ([own, _], bad) = hut_seeds();
+        let mut record = test_record(0);
+        record.generators.insert("hut".to_string(), coin_hut(own));
+        record.placements = seeds_that_draw(10)
+            .into_iter()
+            .enumerate()
+            .map(|(slot, seed)| placed("hut", slot, Some(seed)))
+            .collect();
+        record.placements.push(placed("hut", 10, Some(bad)));
+        record.placements.push(scattered("hut", 500));
+        let placements = record.placements.len();
+        let mut app = compile_app(record);
+        app.init_resource::<crate::world_builder::grammar_diag::GrammarDiagnostics>();
+        settle(&mut app);
+        assert_eq!(status_of(&app, "hut"), drew_nothing(10, bad));
+        let read = shape_cache(&app).placements_in_view;
+        assert!(
+            read <= placements,
+            "{read} placements read, of {placements}"
+        );
+    }
+
+    /// #1505: what a node's copies read of its failing seeds is read again
+    /// once a failure is remembered. An edit that leaves the hut's grammar
+    /// drawing as it did - a comment added - builds its copies again in
+    /// order: the first reads no failure a seed of it still draws (the one
+    /// remembered is of the grammar before the edit), and the one after the
+    /// copy that fails must read the failure that copy has just left, and
+    /// name it.
+    #[test]
+    fn a_failure_remembered_is_read_by_the_copies_after_it() {
+        let ([own, other], bad) = hut_seeds();
+        let mut app = huts(own, &[Some(own), Some(bad), Some(other)]);
+        assert_eq!(status_of(&app, "hut"), drew_nothing(1, bad), "fixture");
+        {
+            let mut live = app.world_mut().resource_mut::<LiveRoomRecord>();
+            let GeneratorKind::Shape { grammar_source, .. } =
+                &mut live.0.generators.get_mut("hut").expect("the hut").kind
+            else {
+                panic!("the hut is a Shape node");
+            };
+            grammar_source.insert_str(0, "// the same grammar, edited\n");
+        }
+        let anchors = unit_anchors(&app);
+        settle(&mut app);
+        let now = unit_anchors(&app);
+        assert!(
+            (0..3).all(|at| now[at] != anchors[at]),
+            "fixture: every copy built again"
+        );
+        assert_eq!(status_of(&app, "hut"), drew_nothing(1, bad));
     }
 }

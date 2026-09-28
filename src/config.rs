@@ -1721,12 +1721,19 @@ pub(crate) mod agent {
     /// falls further behind is told how many it missed.
     pub const EVENT_CAPACITY: usize = 1000;
     /// The longest request line the socket reads. Most commands are small,
-    /// but `room set` may carry a whole world record, which a save refuses
-    /// past `pds::record_size::HARD_RECORD_CEILING_BYTES` (900 KiB) - so
-    /// the line holds that and the JSON around it. It only bounds what a
-    /// misbehaving client can make the daemon buffer.
-    pub const MAX_REQUEST_BYTES: u64 = 1024 * 1024;
-    /// How long a connection has to send its request line.
+    /// but `room set` may carry a whole part of a world at once - every
+    /// generator, to drop the ones nothing places (there is no delete) - and
+    /// that is many records, each under
+    /// `pds::record_size::HARD_RECORD_CEILING_BYTES`, not one: Ashmere's
+    /// generators were 1.5 MB in session 885, past the 1 MiB this was. The
+    /// socket is the owner's alone, so this only bounds what a misbehaving
+    /// client can make the daemon buffer.
+    pub const MAX_REQUEST_BYTES: u64 = 16 * 1024 * 1024;
+    /// How long a connection may go quiet while it sends its request line.
+    /// It bounds each read, not the whole line: a client that stalls, or
+    /// sends nothing, is cut off once it has been quiet this long, and one
+    /// that keeps sending is bounded by [`MAX_REQUEST_BYTES`] alone (the
+    /// socket is the owner's, #1416).
     pub const REQUEST_READ_TIMEOUT: Duration = Duration::from_secs(5);
     /// How long a request for the world may wait for the daemon's frame to
     /// answer it. A healthy daemon answers within a frame; this is for one

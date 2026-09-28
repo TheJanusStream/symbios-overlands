@@ -1095,6 +1095,7 @@ mod mode_tests {
             snap_to_terrain: true,
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
+            seed: None,
         }
     }
 

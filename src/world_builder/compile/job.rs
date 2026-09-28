@@ -65,6 +65,10 @@ pub(super) struct CompiledUnit {
 #[derive(Resource, Default)]
 pub struct CompiledWorld {
     pub(super) units: Vec<CompiledUnit>,
+    /// The generator each placement placed when the world was last
+    /// planned, by index (#1505): what a placement pointed at another
+    /// generator placed before, and which generators the room placed.
+    pub(super) placed: Vec<Option<String>>,
 }
 
 /// The in-flight sliced compile job, if any. At most one exists; a
@@ -112,7 +116,8 @@ pub(super) struct TouchSets {
     pub(super) lsystem_material: HashSet<(String, u16)>,
     pub(super) lsystem_mesh: HashSet<String>,
     pub(super) shape_material: HashSet<(String, String)>,
-    pub(super) shape_mesh: HashSet<String>,
+    /// `(node key, seed)`: one per variant of a Shape node drawn (#1505).
+    pub(super) shape_mesh: HashSet<(String, u64)>,
     /// Content-hash keys of the primitive caches (#919). Unlike the sets
     /// above these are not generator refs - the prim caches are keyed by
     /// content so one entry can serve many generators - but the GC

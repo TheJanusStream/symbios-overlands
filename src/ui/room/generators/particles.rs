@@ -212,12 +212,14 @@ pub(super) fn draw_generator_particles(
                 // frame), and every digit that did parse committed a
                 // partial number and armed an emitter rebuild. The road
                 // "Layout seed" row one file away already worked this way;
-                // now they share the implementation.
+                // now they share the implementation. As wide as any seed
+                // (#1505).
+                let width = crate::ui::room::widgets::u64_field_width(ui);
                 let out = crate::ui::room::widgets::text_draft_row(
                     ui,
                     ("particle_seed", salt),
                     &seed.to_string(),
-                    150.0,
+                    width,
                     "Emitter seed - press Enter (or click away) to apply. The \
                      same seed reproduces the same particles.",
                     |draft| {

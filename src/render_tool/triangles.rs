@@ -41,6 +41,15 @@
 //! plane its generator spawns, counted with it. Not counted: particles, and
 //! what a road network grows (its roads and the buildings on its lots).
 //!
+//! An absolute placement with a grammar seed of its own (#1505) draws its
+//! generator's shape grammars with that seed, which may choose other rules
+//! and so other triangles: one copy is grown as each such seed draws the
+//! tree ([`Generator::with_shape_seed`]) and counted for the placements it
+//! names, whose rows say the seed (`seed`). A generator's row then sums
+//! what its copies draw, each as it is drawn, beside `triangles_each` and
+//! `parts_each` for one copy as the generator draws itself, and counts the
+//! placements that draw it with a seed of their own (`seeded`).
+//!
 //! Every row carries its parts beside its triangles - `parts_each` for one
 //! copy and `parts` for all of them - and the totals a `parts` object beside
 //! `triangles`, in which the ground is one part: the game draws it as one
@@ -136,29 +145,67 @@ pub(super) fn tally<'a>(
 /// `--triangle-report`: what `world`'s placements cost to draw, printed as
 /// one JSON object, one row a line.
 pub(super) fn print_triangle_report(world: &str, record: &RoomRecord) {
-    let placed: BTreeSet<&str> = record
-        .placements
+    let copies = copies_to_grow(record);
+    let labels: Vec<(String, Generator)> = copies
         .iter()
-        .filter_map(generator_ref)
-        .filter(|name| record.generators.contains_key(*name))
-        .collect();
-    let generators: Vec<(String, Generator)> = placed
-        .into_iter()
-        .map(|name| (name.to_string(), record.generators[name].clone()))
+        .map(|((name, seed), tree)| match seed {
+            Some(seed) => (format!("{name} (seed {seed})"), tree.clone()),
+            None => (name.clone(), tree.clone()),
+        })
         .collect();
     // The heightmap job and the spawn app are the two slow halves, and
     // neither reads the other: the map is rebuilt beside the app.
-    let (heightmap, each) = std::thread::scope(|scope| {
+    let (heightmap, tallies) = std::thread::scope(|scope| {
         let heightmap =
             scope.spawn(|| FinishedHeightMap(crate::terrain::rebuild_heightmap_for_record(record)));
-        let each = super::sizes::tallies_of(generators);
+        let tallies = super::sizes::tallies_of(labels);
         (
             heightmap.join().expect("the heightmap rebuild panicked"),
-            each,
+            tallies,
         )
     });
-    let report = world_report(world, record, &heightmap, &each.into_iter().collect());
+    // The tallies come back in the order the copies were given.
+    let (mut each, mut seeded) = (HashMap::new(), HashMap::new());
+    for (((name, seed), _), (_, tally)) in copies.into_iter().zip(tallies) {
+        match seed {
+            Some(seed) => seeded.insert((name, seed), tally),
+            None => each.insert(name, tally),
+        };
+    }
+    let report = world_report(world, record, &heightmap, &each, &seeded);
     println!("{}", one_row_a_line(&report));
+}
+
+/// The copies `--triangle-report` grows: each placed generator as it draws
+/// itself, `(name, None)`, and as each grammar seed an absolute placement of
+/// it names draws it (#1505), `(name, Some(seed))` - the tree with that seed
+/// written into its Shape nodes, as the compile draws that placement. Each
+/// once, in name order.
+fn copies_to_grow(record: &RoomRecord) -> Vec<((String, Option<u64>), Generator)> {
+    let mut grown: BTreeSet<(&str, Option<u64>)> = BTreeSet::new();
+    for placement in &record.placements {
+        let Some(name) = generator_ref(placement) else {
+            continue;
+        };
+        if !record.generators.contains_key(name) {
+            continue;
+        }
+        grown.insert((name, None));
+        if let Some(seed) = placement.shape_seed() {
+            grown.insert((name, Some(seed)));
+        }
+    }
+    grown
+        .into_iter()
+        .map(|(name, seed)| {
+            let generator = &record.generators[name];
+            let tree = match seed {
+                Some(seed) => generator.with_shape_seed(seed),
+                None => generator.clone(),
+            };
+            ((name.to_string(), seed), tree)
+        })
+        .collect()
 }
 
 /// The generator a placement plants, if it plants one.
@@ -179,21 +226,36 @@ const NOT_COUNTED: &str = "live particle quads, which come and go with an emitte
 /// entity (`terrain::heightmap`'s spawn).
 const GROUND_PARTS: u64 = 1;
 
+/// One generator's cost, summed over its placements (#1505): one copy as
+/// it draws itself, and what all its copies draw, each as it is drawn.
+#[derive(Default)]
+struct Planted {
+    own: Tally,
+    copies: u64,
+    placements: u32,
+    triangles: u64,
+    parts: u64,
+    /// Its placements that draw it with a grammar seed of their own.
+    seeded: u32,
+}
+
 /// The report's fields in print order: the world, the totals in triangles
 /// and in parts, what is not counted, each placed generator's cost and each
 /// placement's, both dearest first by triangles. `each` is one copy's
-/// triangles and parts by generator name.
+/// triangles and parts by generator name, as the generator draws itself;
+/// `seeded`, one copy's as an absolute placement's grammar seed draws it,
+/// by name and seed (#1505).
 fn world_report(
     world: &str,
     record: &RoomRecord,
     heightmap: &FinishedHeightMap,
     each: &HashMap<String, Tally>,
+    seeded: &HashMap<(String, u64), Tally>,
 ) -> Vec<(&'static str, Value)> {
     let yields = crate::world_builder::compile::scatter_yields(record, heightmap);
     // (triangles, parts, index, row)
     let mut placements = Vec::new();
-    // name -> (one copy, copies, placements)
-    let mut generators: HashMap<&str, (Tally, u64, u32)> = HashMap::new();
+    let mut generators: HashMap<&str, Planted> = HashMap::new();
     for (index, (placement, placed)) in record.placements.iter().zip(&yields).enumerate() {
         let (name, kind, copies) = match placement {
             Placement::Absolute { generator_ref, .. } => (generator_ref, "absolute", 1),
@@ -211,7 +273,12 @@ fn world_report(
             }
             Placement::Unknown => continue,
         };
-        let one = each.get(name.as_str()).copied();
+        let own = each.get(name.as_str()).copied();
+        // A grammar seed draws its own copy (#1505), when one was grown.
+        let seed = placement.shape_seed();
+        let one = seed
+            .and_then(|seed| seeded.get(&(name.clone(), seed)).copied())
+            .or(own);
         let copy = one.unwrap_or_default();
         let triangles = copy.triangles * copies;
         let parts = copy.parts * copies;
@@ -228,11 +295,20 @@ fn world_report(
         if let Placement::Scatter { count, .. } = placement {
             row["requested"] = json!(count);
         }
-        match one {
-            Some(one) => {
-                let entry = generators.entry(name).or_insert((one, 0, 0));
-                entry.1 += copies;
-                entry.2 += 1;
+        if let Some(seed) = seed {
+            row["seed"] = json!(seed.to_string());
+        }
+        match own {
+            Some(own) => {
+                let planted = generators.entry(name).or_insert_with(|| Planted {
+                    own,
+                    ..Planted::default()
+                });
+                planted.copies += copies;
+                planted.placements += 1;
+                planted.triangles += triangles;
+                planted.parts += parts;
+                planted.seeded += u32::from(seed.is_some());
             }
             None => {
                 row["why"] = json!("no generator by this name: the compile skips it");
@@ -243,18 +319,20 @@ fn world_report(
     placements.sort_by(|a, b| b.0.cmp(&a.0).then(a.2.cmp(&b.2)));
     let mut generators: Vec<(u64, &str, Value)> = generators
         .into_iter()
-        .map(|(name, (one, copies, used))| {
-            let triangles = one.triangles * copies;
-            let row = json!({
+        .map(|(name, planted)| {
+            let mut row = json!({
                 "generator": name,
-                "triangles_each": one.triangles,
-                "copies": copies,
-                "placements": used,
-                "triangles": triangles,
-                "parts_each": one.parts,
-                "parts": one.parts * copies,
+                "triangles_each": planted.own.triangles,
+                "copies": planted.copies,
+                "placements": planted.placements,
+                "triangles": planted.triangles,
+                "parts_each": planted.own.parts,
+                "parts": planted.parts,
             });
-            (triangles, name, row)
+            if planted.seeded > 0 {
+                row["seeded"] = json!(planted.seeded);
+            }
+            (planted.triangles, name, row)
         })
         .collect();
     generators.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(b.1)));
@@ -374,6 +452,7 @@ mod tests {
             snap_to_terrain: true,
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
+            seed: None,
         };
         RoomRecord {
             lex_type: "network.symbios.room".to_string(),
@@ -441,7 +520,7 @@ mod tests {
     #[test]
     fn a_scatter_costs_what_its_sampler_places_not_what_it_asks_for() {
         let (record, map) = (fixture(), ramp());
-        let report = world_report("did:test", &record, &map, &each());
+        let report = world_report("did:test", &record, &map, &each(), &HashMap::new());
 
         let placed = crate::world_builder::compile::scatter_yields(&record, &map)[1]
             .expect("placement 1 is a scatter");
@@ -492,7 +571,7 @@ mod tests {
         record.placements[1] = scatter("pair", 10, None);
         record.placements[3] = Placement::Unknown;
         let map = ramp();
-        let report = world_report("did:test", &record, &map, &each);
+        let report = world_report("did:test", &record, &map, &each, &HashMap::new());
 
         let k = crate::world_builder::compile::scatter_yields(&record, &map)[1]
             .expect("placement 1 is a scatter");
@@ -565,7 +644,13 @@ mod tests {
     #[test]
     fn the_triangle_report_is_one_object_with_sorted_rows_a_line_each() {
         let (record, map) = (fixture(), ramp());
-        let printed = one_row_a_line(&world_report("did:test", &record, &map, &each()));
+        let printed = one_row_a_line(&world_report(
+            "did:test",
+            &record,
+            &map,
+            &each(),
+            &HashMap::new(),
+        ));
         let report: Value = serde_json::from_str(&printed).expect("the report is JSON");
 
         let keys: Vec<&String> = report.as_object().expect("an object").keys().collect();
@@ -692,6 +777,116 @@ mod tests {
         assert_eq!(totals["placements"], drawn);
         assert_eq!(totals["ground"], 1, "the ground is one mesh on one entity");
         assert_eq!(totals["total"], drawn + 1);
+    }
+
+    /// #1505: an absolute placement with a grammar seed of its own costs
+    /// what its seed draws, and its row says the seed; its generator's row
+    /// sums what each copy draws beside one copy as the generator draws
+    /// itself, and counts the seeded placement.
+    #[test]
+    fn a_seeded_placement_costs_what_its_seed_draws() {
+        let (mut record, map) = (fixture(), ramp());
+        let Placement::Absolute { seed, .. } = &mut record.placements[0] else {
+            panic!("placement 0 is absolute");
+        };
+        *seed = Some(7);
+        let seeded = HashMap::from([(("rock".to_string(), 7), Tally::counted(36, 3))]);
+        let report = world_report("did:test", &record, &map, &each(), &seeded);
+
+        let rock = placement(&report, 0);
+        assert_eq!(rock["seed"], "7", "{rock}");
+        assert_eq!(rock["triangles"], 36, "{rock}");
+        assert_eq!(rock["parts"], 3, "{rock}");
+        assert!(
+            placement(&report, 2).get("seed").is_none(),
+            "a grid has no grammar seed"
+        );
+        let generators = field(&report, "generators").as_array().expect("a list");
+        let row = generators
+            .iter()
+            .find(|row| row["generator"] == "rock")
+            .expect("a rock row");
+        assert_eq!(row["triangles_each"], 12, "{row}");
+        assert_eq!(row["copies"], 7, "{row}");
+        assert_eq!(row["triangles"], 36 + 6 * 12, "{row}");
+        assert_eq!(row["parts"], 3 + 6, "{row}");
+        assert_eq!(row["seeded"], 1, "{row}");
+    }
+
+    /// #1505: the copy a seeded placement is counted by is grown with its
+    /// seed written into the tree's grammar, as the compile draws it - here
+    /// a grammar whose seed draws one block or two - and each copy is grown
+    /// once, however many placements draw it.
+    #[test]
+    fn a_seeded_copy_is_grown_as_its_seed_draws_it() {
+        let grammar = [
+            "Lot --> Extrude(1) Split(X) { ~1: Block | ~1: Right }",
+            "Right --> 50% Block | 50% Gap",
+            "Block --> I(\"Block\")",
+            "Gap --> NIL",
+        ]
+        .join("\n");
+        let hut = |seed: u64| -> Generator {
+            serde_json::from_value(json!({
+                "$type": "network.symbios.gen.shape",
+                "grammar_source": grammar,
+                "root_rule": "Lot",
+                "footprint": [20_000, 0, 10_000],
+                "seed": seed.to_string(),
+            }))
+            .expect("a Shape node")
+        };
+        let grown = super::super::sizes::tallies_staged(
+            (1..16u64)
+                .map(|seed| (seed.to_string(), hut(seed)))
+                .collect(),
+        );
+        let parts_of = |parts: u64| {
+            grown
+                .iter()
+                .find(|(_, tally)| tally.parts == parts)
+                .map(|(seed, _)| seed.parse::<u64>().expect("a seed"))
+                .unwrap_or_else(|| panic!("no seed draws {parts} blocks: {grown:?}"))
+        };
+        let (one, two) = (parts_of(1), parts_of(2));
+
+        let mut record = fixture();
+        record.generators.insert("hut".to_string(), hut(one));
+        let at = |seed| Placement::Absolute {
+            generator_ref: "hut".into(),
+            transform: TransformData::default(),
+            snap_to_terrain: true,
+            avoid_water: false,
+            avoid_water_clearance: Fp(0.0),
+            seed,
+        };
+        record.placements = vec![at(None), at(Some(two)), at(Some(two))];
+        let copies = copies_to_grow(&record);
+        assert_eq!(
+            copies
+                .iter()
+                .map(|(key, _)| key.clone())
+                .collect::<Vec<_>>(),
+            [("hut".to_string(), None), ("hut".to_string(), Some(two))],
+            "each copy once"
+        );
+        let tallies = super::super::sizes::tallies_staged(
+            copies
+                .iter()
+                .map(|((name, _), tree)| (name.clone(), tree.clone()))
+                .collect(),
+        );
+        let (mut each, mut seeded) = (HashMap::new(), HashMap::new());
+        for (((name, seed), _), (_, tally)) in copies.into_iter().zip(tallies) {
+            match seed {
+                Some(seed) => seeded.insert((name, seed), tally),
+                None => each.insert(name, tally),
+            };
+        }
+        let report = world_report("did:test", &record, &ramp(), &each, &seeded);
+        assert_eq!(placement(&report, 0)["parts"], 1);
+        assert_eq!(placement(&report, 1)["parts"], 2);
+        assert_eq!(placement(&report, 2)["parts"], 2);
     }
 
     /// A mesh with indices draws its indices / 3; one without, its vertices

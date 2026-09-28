@@ -20,7 +20,7 @@ use super::terrain::SovereignTerrainConfig;
 use super::texture::SovereignMaterialSettings;
 use super::types::{
     BiomeFilter, Fp, Fp2, Fp3, Fp4, ScatterBounds, ScatterNaturalness, TransformData, default_true,
-    is_false, is_true, map_u16_as_string, sorted_string_map, u64_as_string,
+    is_false, is_true, map_u16_as_string, option_u64_as_string, sorted_string_map, u64_as_string,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -2495,6 +2495,29 @@ pub enum Placement {
         /// checks the centre only.
         #[serde(default)]
         avoid_water_clearance: Fp,
+        /// The seed every [`GeneratorKind::Shape`] node in the placed tree
+        /// derives with, in place of its own (#1505), so that one generator
+        /// can stand in a street many times and each copy draw its own
+        /// variety instead of each needing a copy of the grammar. It
+        /// replaces the node's seed rather than mixing with it: a placement
+        /// whose seed is the node's own draws exactly what an unseeded one
+        /// draws. Nothing else in the tree reads it - an L-system, a
+        /// particle system, the terrain keep their own seeds - so every
+        /// copy of one generator grows the same plant and emits the same
+        /// particle stream, in step: houses moved onto one generator keep
+        /// their grammars' variety, not their chimneys' own smoke.
+        ///
+        /// A quoted decimal on the wire, like the Shape node's own `seed`,
+        /// and left out when `None`, so a record that never set it keeps
+        /// its bytes. A client built before it existed ignores the key and
+        /// draws every copy with the generator's own seed. Absolute
+        /// placements only: a scatter or a grid draws every copy alike.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "option_u64_as_string"
+        )]
+        seed: Option<u64>,
     },
 
     #[serde(rename = "network.symbios.place.scatter")]
@@ -2562,6 +2585,308 @@ pub enum Placement {
 
     #[serde(other, skip_serializing)]
     Unknown,
+}
+
+impl Placement {
+    /// The seed every [`GeneratorKind::Shape`] node of the tree this
+    /// placement plants derives with in place of its own (#1505): an
+    /// absolute placement's `seed`, when it names one. Scatter and grid
+    /// placements have none, and draw each Shape node with its own.
+    pub fn shape_seed(&self) -> Option<u64> {
+        match self {
+            Placement::Absolute { seed, .. } => *seed,
+            _ => None,
+        }
+    }
+}
+
+impl Generator {
+    /// This tree as an absolute placement with `seed` draws it (#1505): a
+    /// copy with every [`GeneratorKind::Shape`] node's seed replaced by
+    /// `seed`, and nothing else changed - an L-system, a particle system or
+    /// the terrain keep their own. For the readers that take a tree rather
+    /// than a placement (the agent's z-fighting check, the render tool's
+    /// triangle count), so that what they read is what the world draws. The
+    /// room compile does not copy the tree: it hands the placement's seed
+    /// to the Shape spawner.
+    pub fn with_shape_seed(&self, seed: u64) -> Generator {
+        fn reseed(node: &mut Generator, seed: u64) {
+            if let GeneratorKind::Shape { seed: own, .. } = &mut node.kind {
+                *own = seed;
+            }
+            for child in &mut node.children {
+                reseed(child, seed);
+            }
+        }
+        let mut copy = self.clone();
+        reseed(&mut copy, seed);
+        copy
+    }
+}
+
+#[cfg(test)]
+mod placement_seed_wire_tests {
+    //! Wire-format guards for an absolute placement's grammar seed (#1505).
+    //! Every published room predates the field, so it rests on three
+    //! things: a record that never set it keeps its bytes, a set one reads
+    //! back as it was written, and a client built before it existed can
+    //! still read a record that carries it.
+    use super::*;
+
+    /// `Placement` exactly as it was before #1505, attribute for attribute:
+    /// what a client built before the field existed decodes a record with.
+    mod before_1505 {
+        use crate::pds::types::{
+            BiomeFilter, Fp, Fp3, ScatterBounds, ScatterNaturalness, TransformData, default_true,
+            is_false, is_true, u64_as_string,
+        };
+        use serde::{Deserialize, Serialize};
+
+        #[derive(Serialize, Deserialize, Clone, Debug)]
+        #[serde(tag = "$type")]
+        pub(super) enum Placement {
+            #[serde(rename = "network.symbios.place.absolute")]
+            Absolute {
+                generator_ref: String,
+                #[serde(default, skip_serializing_if = "TransformData::is_identity")]
+                transform: TransformData,
+                #[serde(default = "default_true", skip_serializing_if = "is_true")]
+                snap_to_terrain: bool,
+                #[serde(default, skip_serializing_if = "is_false")]
+                avoid_water: bool,
+                #[serde(default)]
+                avoid_water_clearance: Fp,
+            },
+            #[serde(rename = "network.symbios.place.scatter")]
+            Scatter {
+                generator_ref: String,
+                bounds: ScatterBounds,
+                count: u32,
+                #[serde(with = "u64_as_string")]
+                local_seed: u64,
+                #[serde(default, skip_serializing_if = "BiomeFilter::is_noop")]
+                biome_filter: BiomeFilter,
+                #[serde(default = "default_true", skip_serializing_if = "is_true")]
+                snap_to_terrain: bool,
+                #[serde(default = "default_true", skip_serializing_if = "is_true")]
+                random_yaw: bool,
+                #[serde(default, skip_serializing_if = "is_false")]
+                avoid_urban: bool,
+                #[serde(default, skip_serializing_if = "is_false")]
+                float_on_water: bool,
+                #[serde(default, skip_serializing_if = "ScatterNaturalness::is_noop")]
+                naturalness: ScatterNaturalness,
+            },
+            #[serde(rename = "network.symbios.place.grid")]
+            Grid {
+                generator_ref: String,
+                #[serde(default, skip_serializing_if = "TransformData::is_identity")]
+                transform: TransformData,
+                counts: [u32; 3],
+                gaps: Fp3,
+                #[serde(default = "default_true", skip_serializing_if = "is_true")]
+                snap_to_terrain: bool,
+                #[serde(default, skip_serializing_if = "is_false")]
+                random_yaw: bool,
+            },
+            #[serde(other, skip_serializing)]
+            Unknown,
+        }
+    }
+
+    fn house(seed: Option<u64>) -> Placement {
+        Placement::Absolute {
+            generator_ref: "house".into(),
+            transform: TransformData {
+                translation: Fp3([12.5, 0.0, -3.0]),
+                ..Default::default()
+            },
+            snap_to_terrain: true,
+            avoid_water: false,
+            avoid_water_clearance: Fp(0.0),
+            seed,
+        }
+    }
+
+    /// An absolute `placement` as the type before the field held it: the
+    /// same values, field for field, and the seed left behind.
+    fn as_before(placement: &Placement) -> Option<before_1505::Placement> {
+        let Placement::Absolute {
+            generator_ref,
+            transform,
+            snap_to_terrain,
+            avoid_water,
+            avoid_water_clearance,
+            seed: _,
+        } = placement.clone()
+        else {
+            return None;
+        };
+        Some(before_1505::Placement::Absolute {
+            generator_ref,
+            transform,
+            snap_to_terrain,
+            avoid_water,
+            avoid_water_clearance,
+        })
+    }
+
+    /// Unset, the key is not written and the bytes are the ones the record
+    /// had before the field existed - checked against a literal, and for
+    /// every absolute placement of twelve seeded rooms against what the
+    /// placement type as it was before writes for the same values.
+    #[test]
+    fn an_unseeded_placement_keeps_the_bytes_it_had() {
+        assert_eq!(
+            serde_json::to_string(&house(None)).expect("serialises"),
+            r#"{"$type":"network.symbios.place.absolute","generator_ref":"house","transform":{"translation":[125000,0,-30000]},"avoid_water_clearance":0}"#
+        );
+        let mut absolute = 0;
+        for seed in 1..=12u64 {
+            let room = crate::pds::RoomRecord::default_for_seed(seed, "did:plc:corpus");
+            for placement in &room.placements {
+                let Some(before) = as_before(placement) else {
+                    continue;
+                };
+                absolute += 1;
+                assert_eq!(
+                    serde_json::to_string(placement).expect("serialises"),
+                    serde_json::to_string(&before).expect("serialises"),
+                    "seed {seed}: a placement's bytes moved"
+                );
+            }
+        }
+        assert!(
+            absolute > 12,
+            "the corpus holds absolute placements: {absolute}"
+        );
+    }
+
+    /// Set, it is written as a quoted decimal after the fields that were
+    /// there before, and reads back as it was - the largest seed too, which
+    /// a JSON number could not carry exactly.
+    #[test]
+    fn a_seed_is_written_as_a_quoted_decimal_and_reads_back() {
+        let wire = serde_json::to_value(house(Some(123))).expect("serialises");
+        assert_eq!(wire["seed"], serde_json::json!("123"));
+        assert_eq!(
+            serde_json::to_string(&house(Some(123))).expect("serialises"),
+            r#"{"$type":"network.symbios.place.absolute","generator_ref":"house","transform":{"translation":[125000,0,-30000]},"avoid_water_clearance":0,"seed":"123"}"#
+        );
+        for seed in [None, Some(0), Some(123), Some(u64::MAX)] {
+            let back: Placement =
+                serde_json::from_value(serde_json::to_value(house(seed)).expect("serialises"))
+                    .expect("reads back");
+            assert_eq!(back.shape_seed(), seed);
+        }
+        // A seed written by hand as null is no seed; as a number, refused -
+        // a number past 2^53 would not survive the PDS's float hop.
+        let mut null = wire.clone();
+        null["seed"] = serde_json::Value::Null;
+        let read: Placement = serde_json::from_value(null).expect("null reads");
+        assert_eq!(read.shape_seed(), None);
+        let mut number = wire;
+        number["seed"] = serde_json::json!(123);
+        assert!(serde_json::from_value::<Placement>(number).is_err());
+    }
+
+    /// A client built before the field existed reads a seeded placement -
+    /// the key is ignored, so it draws the generator's own seed - rather
+    /// than refusing the record.
+    #[test]
+    fn a_client_before_the_field_ignores_it() {
+        let wire = serde_json::to_value(house(Some(u64::MAX))).expect("serialises");
+        let before: before_1505::Placement =
+            serde_json::from_value(wire).expect("the placement type before reads it");
+        let before_1505::Placement::Absolute {
+            generator_ref,
+            transform,
+            ..
+        } = &before
+        else {
+            panic!("read as another variant: {before:?}");
+        };
+        assert_eq!(generator_ref, "house");
+        assert_eq!(transform.translation.0, [12.5, 0.0, -3.0]);
+        let written = serde_json::to_value(&before).expect("serialises");
+        assert!(written.get("seed").is_none(), "{written}");
+    }
+
+    /// Scatter and grid placements carry no grammar seed.
+    #[test]
+    fn only_an_absolute_placement_has_a_grammar_seed() {
+        let grid: Placement = serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.place.grid",
+            "generator_ref": "house",
+            "counts": [2, 1, 2],
+            "gaps": [10000, 10000, 10000],
+            "seed": "7",
+        }))
+        .expect("a grid reads");
+        assert_eq!(grid.shape_seed(), None);
+        let written = serde_json::to_value(&grid).expect("serialises");
+        assert!(written.get("seed").is_none(), "{written}");
+    }
+
+    /// Every Shape node in the tree takes the seed, however deep, and
+    /// nothing else in it changes - an L-system's seed included.
+    #[test]
+    fn with_shape_seed_reseeds_every_shape_node_and_nothing_else() {
+        let shape = |seed: &str| -> Generator {
+            serde_json::from_value(serde_json::json!({
+                "$type": "network.symbios.gen.shape",
+                "grammar_source": "Lot --> I(\"Box\")",
+                "root_rule": "Lot",
+                "footprint": [10000, 0, 10000],
+                "seed": seed,
+            }))
+            .expect("a Shape node")
+        };
+        let mut tree = shape("1");
+        let mut post = Generator::default_cuboid();
+        post.children.push(shape("2"));
+        tree.children.push(post);
+        tree.children.push(
+            crate::catalogue::by_slug("lsys_dead_shrub")
+                .expect("a stochastic L-system in the catalogue")
+                .build(""),
+        );
+        let GeneratorKind::LSystem { seed: shrub, .. } = tree.children[1].kind else {
+            panic!("the shrub is an L-system");
+        };
+        let reseeded = tree.with_shape_seed(99);
+        let seeds = |g: &Generator| {
+            let mut out = Vec::new();
+            fn walk(g: &Generator, out: &mut Vec<(&'static str, u64)>) {
+                match &g.kind {
+                    GeneratorKind::Shape { seed, .. } => out.push(("shape", *seed)),
+                    GeneratorKind::LSystem { seed, .. } => out.push(("lsystem", *seed)),
+                    _ => {}
+                }
+                for child in &g.children {
+                    walk(child, out);
+                }
+            }
+            walk(g, &mut out);
+            out
+        };
+        assert_ne!(
+            shrub, 99,
+            "the fixture's L-system seed differs from the new one"
+        );
+        assert_eq!(
+            seeds(&reseeded),
+            [("shape", 99), ("shape", 99), ("lsystem", shrub)]
+        );
+        let mut back = reseeded.clone();
+        if let GeneratorKind::Shape { seed, .. } = &mut back.kind {
+            *seed = 1;
+        }
+        if let GeneratorKind::Shape { seed, .. } = &mut back.children[0].children[0].kind {
+            *seed = 2;
+        }
+        assert_eq!(back, tree, "nothing but the Shape seeds changed");
+    }
 }
 
 #[cfg(test)]

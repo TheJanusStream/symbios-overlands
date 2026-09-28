@@ -395,6 +395,14 @@ pub(crate) fn synthetic_cache_key(base_ref: &str, path: &[usize]) -> String {
     }
 }
 
+/// Whether `key` is the key of a node of the generator `base_ref`: its
+/// root's own, or one below it - [`synthetic_cache_key`] read the other
+/// way (#1505).
+pub(crate) fn is_node_of(key: &str, base_ref: &str) -> bool {
+    key.strip_prefix(base_ref)
+        .is_some_and(|below| below.is_empty() || below.starts_with('/'))
+}
+
 /// Spawn a parametric primitive entity: build its mesh (with vertex torture
 /// when configured), pair it with a PBR material handle, and attach the
 /// matching collider if the node is solid. Always carries `RoomEntity` so
