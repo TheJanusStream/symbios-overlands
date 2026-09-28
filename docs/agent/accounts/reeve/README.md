@@ -15,7 +15,8 @@ share one generator a size, each carrying its own grammar seed on its
 placement (#1505). Where things stand at 19:50 on 2026-09-28: everything
 saved; the owner came in at 19:48, after the houses moved onto shared
 generators, and said "Great. Session over" at 19:49; the session's code
-(#1503, #1504, #1505, #1511) uncommitted, the owner's to commit. Times on
+(#1503, #1504, #1505, #1511) committed and deployed by the owner on
+2026-09-29, who tested it in the app: "Looks good to me". Times on
 this page are local (CEST).
 
 ## Start here
@@ -34,13 +35,11 @@ session.
 | Default mode | visit ([session.md](../../session.md#visit)): the owner's plan of 2026-09-27 - meet Reeve in Ashmere, inspect the avatar and region, give hints |
 | Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)); apply `edits_clear_ONCE.txt` again - it replaces every generator and placement with the bare terrain |
 
-- **Ashmere leans on #1505**: each grammar house's placement carries its
-  grammar seed. A client built without #1505 (the deployed web client,
-  until the owner commits and deploys it) draws each size's houses alike,
-  and an agent built without it drops the seeds on its next save: never
-  save Ashmere from one. Ask the owner first whether their client drew the
-  fifteen houses apart - they came in at 19:48 on 2026-09-28, after the
-  move, and ended the session without saying.
+- **Ashmere leans on #1505** (deployed 2026-09-29, the owner's "Looks good
+  to me" in the app): each grammar house's placement carries its grammar
+  seed. A client built without #1505 draws each size's houses alike, and
+  an agent built without it drops the seeds on its next save: never save
+  Ashmere from one.
 - **Ashmere is past the live-update ceiling** (1.45 MiB of compact JSON
   against 900 KiB, #1499): no live edit reaches the owner. Show a change by
   saving it, then asking them to step out through the gate and back - a
@@ -394,6 +393,8 @@ From session 879's prompt (2026-09-26, #1481), unless dated otherwise:
   (done 16:04: the hand-built cottages are gone from the record but for
   the next parish's three; `b/cottage.py` and `b/village.py` can build
   them again).
+- **Colliders for grammar buildings** (2026-09-29, #1506): "Yes, I want
+  colliders for grammar buildings" - approved, not yet built.
 
 ## Working material
 
@@ -585,9 +586,6 @@ binaries and pictures.
 
 ## Open threads
 
-- **#1505 waits on the owner's commit and deploy** ([Start here](#start-here)):
-  until then a visitor on the web client sees five house designs for
-  fifteen houses. Ask whether their own client drew them apart.
 - **#1499, the owner's decision**: Ashmere's record (1.45 MiB of compact
   JSON at session 885's end) is past the 900 KiB live-update ceiling, so
   no live room edit reaches a visitor, and one already there sees a save
@@ -595,9 +593,9 @@ binaries and pictures.
   visitors re-fetch a saved room (as #1489 does for avatars), a larger
   ceiling, or deltas. **#1500**: the agent should say when a broadcast
   was refused.
-- **Filed in session 885 and open**: #1506, the owner's decision - colliders
-  for grammar terminals (each grammar building carries a hidden solid core
-  today); #1507, `room set` says nothing when a changed Shape node's
+- **Filed in session 885 and open**: #1506, colliders for grammar
+  terminals - APPROVED by the owner on 2026-09-29, to build (the grammar
+  buildings can then drop their hidden solid cores); #1507, `room set` says nothing when a changed Shape node's
   grammar fails to parse or derive; #1508, `render --floating-report`
   skips grammar terminals; #1510, the z-fighting check's point-in-solid
   test takes every primitive for closed. From the end review: #1512 (the
@@ -624,8 +622,8 @@ binaries and pictures.
   animals should also be improved significantly" (00:13 on 2026-09-27).
   They plan to work on the seeded regions soon (22:30).
 - **Next**, ranked at session 885's end:
-  1. Ask the owner whether their client drew the fifteen houses apart,
-     before anything saves the room.
+  1. #1506, colliders for grammar terminals (approved 2026-09-29), then
+     the grammar buildings' hidden solid cores taken out.
   2. The other beasts as the sheep and cattle were remade: pigs, geese,
      hens, deer, horses, the oxen, the coneys.
   3. The empty land that remains.
