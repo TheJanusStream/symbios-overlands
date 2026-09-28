@@ -2713,13 +2713,18 @@ fn selecting_a_part_holds_the_pose_as_it_stands() {
 
 // --- #1255: a failed build, and a body that is not standing ---------------
 
-/// How long a doomed build may take to be *scheduled*, and how long the
-/// landing loop waits for a build to come off a chassis. A budget in
-/// seconds, not passes - see [`land_until_settled`] for why the unit matters.
-const SETTLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+/// How long the handover pool may take to *schedule* one of [`finished`]'s
+/// futures. A budget in seconds, not passes (#1295): the old landing loop's
+/// bound was 2,000 passes with a `yield_now` between them, which reads as
+/// generous and was about ten milliseconds. An iteration count is a time
+/// budget whose unit is "how fast this machine spins the loop", so it shrinks
+/// on exactly the machine that needs it, and `yield_now` only lends the core
+/// to the worker on a machine with no spare core to lend.
+const HANDOVER_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// The pool the doomed futures run on: one thread, owned by this module,
-/// idle except for these.
+/// The pool [`finished`] hands its tasks over from: one thread, owned by this
+/// module, running nothing but those futures - each of which only returns a
+/// result its caller already has.
 ///
 /// Deliberately NOT the global `AsyncComputeTaskPool` (#1295). Under one
 /// `cargo test` process - CI's shape, and the second gate in CLAUDE.md - that
@@ -2727,21 +2732,41 @@ const SETTLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 /// Bevy's default policy sizes it at a quarter of the cores clamped to
 /// `1..=4`: **one worker** on a four-vCPU runner, four on this machine. A
 /// trivial future queued behind two real builds on a runner that runs the
-/// suite 28x slower waits tens of seconds, and the old landing loop's 2,000
-/// passes with a `yield_now` between them spanned about ten milliseconds. It
-/// passed on every machine that had an idle worker and failed on the one that
-/// had none - which nextest can never show, because it gives each test its
-/// own process and therefore its own pool. Reproduced here in 0.01 s by
-/// parking one two-second job ahead of the doomed future on a one-worker
-/// pool.
-fn doomed_pool() -> &'static bevy::tasks::TaskPool {
+/// suite 28x slower waits tens of seconds. It passed on every machine that
+/// had an idle worker and failed on the one that had none - which nextest can
+/// never show, because it gives each test its own process and therefore its
+/// own pool. Reproduced here in 0.01 s by parking one two-second job ahead of
+/// a doomed future on a one-worker pool.
+fn handover_pool() -> &'static bevy::tasks::TaskPool {
     static POOL: std::sync::OnceLock<bevy::tasks::TaskPool> = std::sync::OnceLock::new();
     POOL.get_or_init(|| {
         bevy::tasks::TaskPoolBuilder::new()
             .num_threads(1)
-            .thread_name("doomed-build".into())
+            .thread_name("rigged-handover".into())
             .build()
     })
+}
+
+/// A build task that has already finished with `result`.
+///
+/// Handed over **finished**: the thing under test is what `land_rigged_builds`
+/// does with a result, not whether an executor got round to producing one, so
+/// the wait for the worker lives here, against its own idle pool, bounded by
+/// the clock (the same shape as `ui::editable`'s `give_up_at` wait, and as
+/// `network::peer_cache`'s tests' own `finished`). A real body is built by the
+/// caller, on its own thread, before it gets here: the pool only ever hands a
+/// result back, so no doomed future can queue behind a build on it.
+fn finished(result: crate::offload::GenResult) -> bevy::tasks::Task<crate::offload::GenResult> {
+    let task = handover_pool().spawn(async move { result });
+    let give_up_at = std::time::Instant::now() + HANDOVER_BUDGET;
+    while !task.is_finished() {
+        assert!(
+            std::time::Instant::now() < give_up_at,
+            "a finished build's future never ran on its own idle thread within {HANDOVER_BUDGET:?}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    task
 }
 
 /// A [`RiggedBuild`] whose task has already decided it will produce nothing.
@@ -2749,57 +2774,46 @@ fn doomed_pool() -> &'static bevy::tasks::TaskPool {
 /// The engine's one documented failure - limbs overlapping at a joint -
 /// arrives as `GenResult::Avatar(None)`, so a resolved future carrying that
 /// is the whole of the doomed case; nothing here needs a real mesher.
-///
-/// Handed over **finished**: the thing under test is what `land_rigged_builds`
-/// does with a result, not whether an executor got round to producing one, so
-/// the wait for the worker lives here, against its own idle pool, bounded by
-/// the clock (the same shape as `ui::editable`'s `give_up_at` wait).
 fn doomed_build(target: crate::pds::avatar::wardrobe::EngineAvatarRecord) -> RiggedBuild {
-    let task = doomed_pool().spawn(async { crate::offload::GenResult::Avatar(None) });
-    let give_up_at = std::time::Instant::now() + SETTLE_BUDGET;
-    while !task.is_finished() {
-        assert!(
-            std::time::Instant::now() < give_up_at,
-            "the doomed future never ran on its own idle thread within {SETTLE_BUDGET:?}"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
     RiggedBuild {
         target,
         atlas: symbios_avatar::AvatarConfig::default().atlas,
         offset: 0.0,
         kicked_at: 0.0,
         announced: false,
-        task,
+        task: finished(crate::offload::GenResult::Avatar(None)),
     }
 }
 
-/// Run `land_rigged_builds` until it has taken the build off the chassis.
+/// Land a build whose task has already finished: one `land_rigged_builds`
+/// pass, which is all a finished task ever needs.
 ///
-/// Bounded by the **clock**, not by a pass count (#1295). The previous bound
-/// was 2,000 passes with a `yield_now` between them, which reads as generous
-/// and was about ten milliseconds: an iteration count is a time budget whose
-/// unit is "how fast this machine spins the loop", so it shrinks on exactly
-/// the machine that needs it, and `yield_now` only lends the core to the
-/// worker on a machine with no spare core to lend. With [`doomed_build`]
-/// handing over a finished task this returns on the first pass; the budget
-/// is for any caller landing a task still in flight, and it fails a genuine
-/// hang instead of hanging the suite.
-fn land_until_settled(app: &mut App, chassis: Entity) {
-    let give_up_at = std::time::Instant::now() + SETTLE_BUDGET;
-    loop {
-        app.world_mut()
-            .run_system_once(land_rigged_builds)
-            .expect("runs");
-        if app.world().get::<RiggedBuild>(chassis).is_none() {
-            return;
-        }
-        assert!(
-            std::time::Instant::now() < give_up_at,
-            "the build never landed within {SETTLE_BUDGET:?}"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
+/// The finish is asserted rather than waited for (#1501). This helper used to
+/// loop for up to 30 s "for any caller landing a task still in flight", and
+/// the one caller that took up the offer - the render tool's parity test -
+/// waited that long for a real full-atlas build on the shared
+/// `AsyncComputeTaskPool`. Unoptimised, as CI's bare `cargo test` compiles
+/// it, one such build is about 12 s here on an idle machine, and the runner
+/// queues it on its one shared worker behind the neighbouring tests' builds:
+/// green on every machine but that one. A task still in flight now fails
+/// here on the first run anywhere; build the result on the test's thread and
+/// hand it over through [`finished`].
+fn land_finished_build(app: &mut App, chassis: Entity) {
+    let build = app
+        .world()
+        .get::<RiggedBuild>(chassis)
+        .expect("a build to land");
+    assert!(
+        build.task.is_finished(),
+        "hand over a finished build (see `finished`), never one still queued on the shared pool"
+    );
+    app.world_mut()
+        .run_system_once(land_rigged_builds)
+        .expect("runs");
+    assert!(
+        app.world().get::<RiggedBuild>(chassis).is_none(),
+        "a finished build was not taken off its chassis"
+    );
 }
 
 fn toast_lines(app: &App) -> Vec<String> {
@@ -2835,7 +2849,7 @@ fn a_failed_build_tells_the_owner_and_leaves_the_editor_something_to_say() {
         ))
         .id();
 
-    land_until_settled(&mut app, chassis);
+    land_finished_build(&mut app, chassis);
 
     assert!(
         app.world().get::<RiggedBuildFailed>(chassis).is_some(),
@@ -2857,7 +2871,7 @@ fn a_failed_build_tells_the_owner_and_leaves_the_editor_something_to_say() {
     app.world_mut()
         .entity_mut(chassis)
         .insert(doomed_build(body));
-    land_until_settled(&mut app, chassis);
+    land_finished_build(&mut app, chassis);
     assert_eq!(
         toast_lines(&app).len(),
         1,
@@ -2883,7 +2897,7 @@ fn a_peers_failed_build_is_recorded_but_not_toasted() {
         ))
         .id();
 
-    land_until_settled(&mut app, chassis);
+    land_finished_build(&mut app, chassis);
 
     assert!(
         app.world().get::<RiggedBuildFailed>(chassis).is_some(),
@@ -3417,6 +3431,12 @@ mod hair_tiers {
 /// another atlas or without the far hair tier, by the budget and the far
 /// tier; one that hung the body at another height under its chassis, by the
 /// root.
+///
+/// The game's half is its own kick and its own landing, with the job the kick
+/// dispatches - `rigged_build_job` for the record and atlas it chose - run on
+/// this thread in between, not waited for on the shared pool (#1501, see
+/// [`land_finished_build`]). What that leaves unwatched is the one line in
+/// `kick_rigged_builds` that hands `offload` that job.
 #[test]
 fn the_render_tools_rigged_body_is_the_one_the_game_builds() {
     use crate::render_tool::rigged;
@@ -3454,11 +3474,20 @@ fn the_render_tools_rigged_body_is_the_one_the_game_builds() {
     app.world_mut()
         .run_system_once(kick_rigged_builds)
         .expect("runs");
-    assert!(
-        app.world().get::<RiggedBuild>(chassis).is_some(),
-        "the game kicked a build for the record"
-    );
-    land_until_settled(&mut app, chassis);
+    let kicked = app
+        .world_mut()
+        .entity_mut(chassis)
+        .take::<RiggedBuild>()
+        .expect("the game kicked a build for the record");
+    // Cancelled before the build it would duplicate, so a copy still queued on
+    // the shared pool never takes its worker from a neighbouring test.
+    drop(kicked.task);
+    let built = crate::player::visuals::rigged_build_job(&kicked.target, kicked.atlas).run();
+    app.world_mut().entity_mut(chassis).insert(RiggedBuild {
+        task: finished(built),
+        ..kicked
+    });
+    land_finished_build(&mut app, chassis);
     app.update();
     let mut roots = app
         .world_mut()
