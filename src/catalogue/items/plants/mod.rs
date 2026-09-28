@@ -26,6 +26,14 @@ pub mod lsys_birch;
 pub mod lsys_bush;
 pub mod lsys_fern;
 pub mod lsys_flowering_tree;
+// Ashmere's species (#1496) - the trees and shrubs of the agent Reeve's
+// region, a Norfolk manor village of about 1300, each the generator saved
+// in its room record. Its birch replaced `lsys_birch`'s tree above.
+pub mod lsys_apple;
+pub mod lsys_gorse;
+pub mod lsys_hazel;
+pub mod lsys_oak;
+pub mod lsys_yew;
 // Civic planting species (#972) - small, gardened plants the civic planter
 // and garden bed nest inside their own containers.
 pub mod lsys_coneflower;

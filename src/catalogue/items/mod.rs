@@ -432,6 +432,13 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &plants::lsys_bush::Bush,
     &plants::lsys_fern::Fern,
     &plants::lsys_flowering_tree::FloweringTree,
+    // Plants - Ashmere's species (#1496), from the agent Reeve's region.
+    &plants::lsys_oak::Oak,
+    &plants::lsys_oak::YoungOak,
+    &plants::lsys_apple::AppleTree,
+    &plants::lsys_hazel::Hazel,
+    &plants::lsys_gorse::Gorse,
+    &plants::lsys_yew::Yew,
     // Plants - civic planting species (#972), nested by the planter and bed.
     &plants::lsys_topiary_standard::TopiaryStandard,
     &plants::lsys_trailing_ivy::TrailingIvy,

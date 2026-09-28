@@ -262,7 +262,11 @@ mode:
   Keep a trial out of every other save with `rec.py save ... --hold
   POINTER`: it takes ONE pointer, so hold a trial of several fields by
   their parent (`/environment`) - [region.md](region.md), "Water, sky and
-  light".
+  light". A world past the live ceiling (900 KiB of compact JSON:
+  [region.md](region.md), "The record's budget") sends no live trial to
+  anyone: say so, save the trial on the owner's word with the old value
+  kept to put back, and ask them to step out and back to judge it
+  (session 883's sound).
 - **A rigged avatar change is seen only once saved**: the owner's client
   fetches the sculpt and worn items from the account's PDS. Save it before
   you ask them to look; where saving waits for their word, say so and ask

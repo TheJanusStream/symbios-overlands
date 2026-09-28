@@ -9,4 +9,4 @@ seed 8	47899e365cdc7b68	17 generators
 seed 9	cb4048e62ffe89eb	10 generators
 seed 10	d89489bf497f1a06	14 generators
 seed 11	f593b49b89380314	23 generators
-seed 12	ffd34f2f6c4cb5cd	25 generators
+seed 12	fd7f7047b4ddc3fc	25 generators

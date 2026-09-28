@@ -100,6 +100,14 @@ A scatter's `biome_filter` lists the layers it may grow on, by that largest
 share: ferns filtered to `[0, 1]` never grow where the high ground's layer 3
 is largest, which is why the Understory's plateau had none.
 
+**A terrain layer can be low vegetation.** Ashmere's heath layer was a flat
+grey-brown `Ground` and read as bare earth; the same layer in heather colours
+read as red clay - a flat colour cannot make a carpet. A `Moss` layer did:
+cushions 0.8 m across (`cushion_scale` 14 on Ashmere's tile of 10.8 m - a
+tile is the world's width over 90, 11.4 m on the default 1022 m world),
+faded grey-purple tips over dark stems, rusty `dry_patches` 0.4 - the whole
+hilltop read as heather past its flower, for no parts at all (session 883).
+
 **A procedural texture's colours are LINEAR**, unlike a material's
 `base_color` (sRGB): the generator converts them when it bakes. A litter
 meant as dark brown sRGB `(0.36, 0.25, 0.13)` is written
@@ -317,8 +325,11 @@ A forest is a few generators and a scatter placement each:
   a client would.
 - **A tree's cost is mostly its branch cylinders.** An L-system's
   `mesh_resolution` is the number of sides every branch and twig gets; at
-  the catalogue's 8, a broadleaf is 9,578 triangles, at 5 it is 6,176
-  (conifer 5,100 -> 3,570, birch 5,166 -> 3,888, bush 3,958 -> 3,070). The
+  the catalogue's usual 8, a broadleaf is 9,578 triangles, at 5 it is 6,176
+  (conifer 5,100 -> 3,570, the #910 birch 5,166 -> 3,888, bush 3,958 ->
+  3,070; measured in session 878). The catalogue's `lsys_birch` is Ashmere's
+  birch since #1496, 4,316 triangles at 5, and the six plants that came with
+  it (oak, young oak, apple, hazel, gorse, yew) all ship at 5. The
   Understory's four species at 5 took the world from 19.2M to 15.1M
   triangles (session 878), and renders from 3.5 m to the horizon showed no
   difference - the leaves and the bark texture carry the look. Try 5 before
@@ -390,7 +401,17 @@ like every other**: the seeded recipe's `duration_beats` of 340000 is a
 `loop_crossfade_beats` tail, and an event that starts later never sounds:
 Ashmere's builder took the seed's 340000 for 340 s and set its animal calls
 at 37-323 beats, so only one rook call ever played (found 2026-09-27).
-Check every event's `time_beats` against `duration_beats` before a set. A
+Check every event's `time_beats` against `duration_beats` before a set.
+Session 883 brought the calls inside a 2-minute loop (the owner's yes): its
+cost is its length, by the arithmetic of the code's constants (not measured) -
+16-bit mono at 22,050 Hz stores 44 KB a second (5.3 MB
+for 2 minutes) and the bake mixes in 32-bit floats (10.6 MB), which a wasm
+client never gives back - so 340 s would have cost about 45 MB. At their
+first volumes (0.11-0.30 under a 0.16 breeze) the owner heard "a little
+honk once in a long while"; at 2.2 times "the cow's moo is very loud"; kept
+at 1.6 times with the cow at 1.1. Derive such a fix from the ORIGINAL sound
+kept aside, not the saved record: re-running the fitting on a record that
+already held it squeezed the calls into 40 s and raised them again. A
 refused set names where (#1457): a
 field that does not read ends `... at /environment/ambient_audio/...`, and a
 node `kind` this build does not know - which reads in as `Unknown` and cannot
@@ -441,6 +462,21 @@ real numbers instead - every `room set` and `avatar set` answer carries
 `bytes`; `budget_bytes`; `over` past it), and `status.editing.record_size`
 has the room, the avatar and the inventory (#1455). The avatar is ONE record,
 so a detailed body spends its budget fastest (Hypha's: 42 KB).
+
+**A second ceiling: the whole world, sent live.** Every live edit is sent to
+the players in the world as the WHOLE record in one message, and past
+`MAX_RELIABLE_PAYLOAD_BYTES` (900 KiB of compact JSON) the sender refuses it
+(#1123) - so no live edit reaches anyone, and a player already in the world
+sees a save only after leaving and coming back: nothing tells a visitor to
+reload a world its owner saved (#1499). The per-record gauge stays green all
+the while. Ashmere was past it before session 883 began (1.2 MiB, refused
+at the owner's first join) and ended it at 1.36 MiB: the owner heard a new
+sound only after a save and a trip through the gate, and asked "Maybe you
+need to save, for me to hear it". The agent's
+answers do not say so yet (#1500); its daemon log does (`Refusing to send
+RoomStateUpdate`). Weigh the world with `json.dumps(record,
+separators=(',', ':'))` on a pulled record, and past 900 KiB show the owner
+changes by saving, then asking them to step out and back.
 
 Still worth knowing:
 
@@ -638,6 +674,25 @@ What made the Understory's outer ring read, and what did not:
   yard as one wide flattened BlobGroup stood proud on the downhill side with a
   shadowed edge. Anything wide and flat must follow the ground piece by piece
   (thread.py, hedge.py, fence.py do) or be left out.
+- **A lane's material cannot make a street look used.** A spine's texture
+  runs round its ring (U, in metres) and along it (V), and a `Ground`
+  texture's soil patches are low-contrast: a 4 m tile with metre patches
+  (session 883) changed nothing visible from the arrival. Ruts did: two dark,
+  wet strips a cart's gauge (1.45 m) apart down the middle, wandering a
+  little, each a thin flat thread laid ON the lane (`thread.py --ride`) and
+  then seated exactly on its drawn top (the account's `b/ride_fix.py`).
+  `--ride` then read the ground under the rut, not under the lane's middle,
+  so on the street's side slope the formula left them from 6 cm under its
+  top to 5 cm over it, where they read as kerbs; since session 883's review
+  it reads the lane's middle (its OFF is signed) and lands within about
+  1 cm. Where two lanes overlap it still sees only one. `--floating-report`
+  then names ruts as floating: they rest on the lane, which it does not
+  count.
+- **A flat lens over a slope stands proud of it**: its top rises about
+  `radius x (sqrt(F^2 + g^2) - F)` on a grade g, 0.18 m for a trodden yard
+  (radius 4.5, flat 0.05) on a manor court's 7% - it buried the scattered hens
+  and covered the court's path, and was not kept. Wide flat things suit
+  gentle ground only.
 - **Join two lanes by overlapping them**, each tapered where the other takes
   over (`thread.py --taper-start/--taper-end`) and one 1.5 cm higher: end to
   end, their square end caps drew a crease across the street.
@@ -679,7 +734,11 @@ Session 879's village and its fields filled the middle 300 m of a world about
   `--lay` at that yaw runs local +X along the contour. Dark still water on
   a flat cuboid mirrored the low sun and lay on the grass like pale metal at
   any roughness under 0.5 - a peat cutting drawn as matte dark peat read
-  true.
+  true - up close. A generator material has no reflectance field, so any
+  flat dark top seen toward a low sun still takes its sheen: from 35 m the
+  turbary's three cuttings read as pale plates on the lawn. Cut as rows of
+  narrow trenches with turf showing between (as turbaries were worked) they
+  read as cut peat near to; toward the sun they still shine.
 - **Scatters do not avoid each other, or your buildings**: a second pose of a
   beast in its own scatter over the same pasture can stand inside the first;
   give each its own ground, or place the few by hand, and check a hand-placed

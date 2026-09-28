@@ -122,16 +122,24 @@ wrong and the offsets need tuning".
   source exists.
 - **Measure the socket frames before authoring; do not assume them.** Hang
   a ruled marker (a bar with a coloured ball each 10 cm along X, Y and Z)
-  on each socket and render once. Reeve's, measured so: `hips` and `waist`
-  sit at the body's FRONT, a buckle's place, the body's middle about 9 cm
-  behind them - and `waist` rides well above the girdle (a sword hung there
-  had its hilt at his chest); the leg roots (`left-hip`, `right-hip`) sit
-  OUTSIDE each hip, about 17 cm from the middle, +Y up, +Z outward, +X
-  backward on the left leg and forward on the right; `neck` is about 6 cm
-  behind the nape at jaw height, the neck's middle 12 cm in front of it;
-  the foot sockets are about 5 cm past the toe tips, +Z forward;
-  `right-hand` has +Y back up the forearm, +Z forward. Guessed frames put
-  the shoes in front of the feet and the hood on his back like a pack.
+  on each socket and render once, against the bare body (hide the worn
+  items with the account's `b/markers.py --hide`). Reeve's, measured so in
+  sessions 879 and 883: `hips` and `waist` sit at the body's FRONT, a
+  buckle's place, the body's middle about 9 cm behind them - and `waist`
+  rides well above the girdle (a sword hung there had its hilt at his
+  chest); the leg roots (`left-hip`, `right-hip`) sit OUTSIDE each hip,
+  0.139 m out from the middle, 0.12 m below the hips socket and 0.10 m
+  behind it, +Y up, +Z outward, +X backward on the left leg and forward on
+  the right; `neck` is about 6 cm behind the nape at jaw height, the neck's
+  middle 12 cm in front of it; each foot socket is about 5 cm past the toe
+  tip, 1.7 cm over the sole and 3-4 cm OUTSIDE its foot's centre line, +Z
+  forward and +X the body's left on BOTH feet (not mirrored); `right-hand`'s
+  +Y and +X lie 45 degrees either side of the hanging forearm, +Z forward
+  and 17 degrees up, so the body's vertical there is about (0.68, 0.68,
+  0.29) - a staff aimed along +Y leaned 45 degrees. Guessed frames put the
+  shoes in front of the feet and the hood on his back like a pack, and
+  shoes centred on the foot socket left each foot's inner side and heel
+  bare.
 - **A worn item is rigid on its joint, and a leg root swings with the
   thigh.** Judge every worn thing walking AND running from four sides:
   `render --world DID --world-record R --walker-avatar FILE --walker-pace
@@ -144,11 +152,35 @@ wrong and the offsets need tuning".
   lathe with `path_cut` [0, 0.5], its axis set back to the body's middle).
   Keep the halves to the knee: at a run a panel turns with its thigh, and a
   mid-calf one jutted 0.6 m forward like a board.
+- **Measure the body, not only its sockets.** Session 879 noted Reeve's hips
+  as 0.30 m wide and cut his yoke to that; the bare body is 0.186 m wide at
+  the hips socket (0.21 m over the buttocks) - the arms, hanging 0.17 m out,
+  had been measured in. The owner saw the result at once: "the clothing
+  piece underneath [the belt] ... is too large". Read widths from a `render
+  --rigged --size 1024` sheet in pixels against the markers' 2 cm balls,
+  and check the scale against the body's height.
 - **A body is shallower than it is wide**: a round skirt, girdle or cape
-  stands off it front and back - scale them 0.62-0.76 in Z. A single-walled
-  lathe shows its lit outer faces from inside as a pale lampshade; give a
-  skirt two walls (down the inside, across the hem, up the outside) so the
-  inside is a dark lining.
+  stands off it front and back - scale them 0.62-0.76 in Z. Not at the
+  neck: there the body is deeper than it is wide (the upper chest and back
+  reach 0.11 m from the neck's middle), so a shoulder cape shallow enough
+  for the shoulder tips showed the chest through it at any depth scale up
+  to 0.78, and a collar, a round yoke and a band fitted by eye still showed
+  the shoulders' slope between them. A solid BlobGroup mantle (a flattened
+  ellipsoid over the shoulders blended into one round the neck) cannot show
+  what it contains. A single-walled lathe shows its lit outer faces from
+  inside as a pale lampshade; give a skirt two walls (down the inside,
+  across the hem, up the outside) so the inside is a dark lining.
+- **A worn thing's underside**: an ellipsoid sole curves up at its sides and
+  narrows toward the toes, so the foot's edge showed along it; a flat blob
+  box under the foot's sole covers it.
+- **A rigid thing in the hand follows the forearm**: at a run the engine
+  lifts the forearm level, so a staff held upright at rest points forward
+  like a lance for part of each stride. Walking, it moves as a staff does.
+- **Judge motion at chosen moments**: `render --world ... --walker-avatar
+  FILE --walker-lead S` starts the capture S seconds into the walk, so a
+  handful of leads from both sides, walking and running, tiled into one
+  sheet (the account's `b/gait_sheet.py`), shows every worn thing mid-stride
+  in one picture.
 - **An item's root shows where its socket is outside the body.** A carrier's
   1 cm root cube at the neck socket sat beside the jaw in every close-up:
   move the root into the body and shift its children back by as much.

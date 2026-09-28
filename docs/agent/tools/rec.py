@@ -6,7 +6,9 @@
   rec.py apply room|avatar EDITS           send each edit live with `set --file`, one summary
                                            line per answer (adjusted_at, ignored_at, z_fighting,
                                            record_size) and a WARNING line naming each key the
-                                           record does not have (ignored_at, #1483: dropped)
+                                           record does not have (ignored_at, #1483: dropped);
+                                           exits 3 after a CHECK line when any answer was adjusted,
+                                           ignored a key or z-fights, so `apply && save` stops there
   rec.py save room|avatar OUT.json [--log LOG "NOTE"] [--hold POINTER]
                                            save, wait for it to land, pull the saved record to
                                            OUT.json (the new source to build on) and, with --log,
@@ -114,6 +116,8 @@ def main():
         print(f"composed {out}")
     elif cmd == "apply":
         record, ed = sys.argv[2], sys.argv[3]
+        # the labels are the CHECK line's words: an answer naming dropped keys was still written
+        flagged = {"adjusted": 0, "ignored a key": 0, "z-fight": 0}
         for ptr, f, n in edits(ed):
             r = agentlib.result(agentlib.agent(record, "set", ptr, "--file", f), f"set {ptr}")
             zf = r.get("z_fighting") or []
@@ -121,6 +125,9 @@ def main():
             landed = r.get("pointer") or ptr
             at = f" -> {landed}" if landed != ptr else ""
             ignored = r.get("ignored_at") or []
+            flagged["adjusted"] += bool(r.get("adjusted_at"))
+            flagged["ignored a key"] += bool(ignored)
+            flagged["z-fight"] += bool(zf)
             print(f"ok {ptr}{at}: adjusted_at={r.get('adjusted_at') or []} ignored_at={ignored} "
                   f"z_fighting={len(zf)} largest={size.get('largest')} "
                   f"{size.get('bytes')}/{size.get('budget_bytes')}")
@@ -139,6 +146,12 @@ def main():
                 else:
                     print(f"   WARNING: the answer does not say where {ptr} landed (a daemon "
                           f"older than #1470?); a re-run appends it again")
+        if any(flagged.values()):
+            # Every edit is live; the exit code only stops an `apply ... && save ...` chain, which saved a
+            # sanitiser-raised value and then 2.7 m2 of z-fighting unread in session 883.
+            print("CHECK: " + ", ".join(f"{v} edit(s) {k}" for k, v in flagged.items() if v)
+                  + " - read the lines above, then save (or fix) on purpose")
+            sys.exit(3)
     elif cmd == "save":
         args = sys.argv[2:]
         log = note = None

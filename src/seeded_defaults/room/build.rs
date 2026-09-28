@@ -241,8 +241,14 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
             // 111 → 10,242 entities/tree across seeds), so the budget is
             // enforced by *measuring* the expansion below, not assumed
             // from the band. Clamp to ≥ 2 as belt-and-braces against
-            // future catalogue tweaks.
-            *iterations = (*iterations as i32 + scatter.iterations_delta).max(2) as u32;
+            // future catalogue tweaks, and to the record sanitiser's cap
+            // (#1497): a species that ships at the cap (`lsys_birch`, 12)
+            // would otherwise derive a year past it here, while every
+            // fetched copy of the room is clamped back to it.
+            *iterations = (*iterations as i32 + scatter.iterations_delta).clamp(
+                2,
+                crate::pds::sanitize::limits::MAX_LSYSTEM_ITERATIONS as i32,
+            ) as u32;
             // #810 per-tree ceiling: step iterations down until the
             // measured expansion fits. A grammar error (`None`) is left
             // untouched - the spawn path skips those generators, so they
@@ -1990,6 +1996,34 @@ mod tests {
             record.sanitize();
             assert_eq!(record.generators.len(), generators_before);
             assert_eq!(record.placements.len(), placements_before);
+        }
+    }
+
+    /// No seeded tree stand derives past the record sanitiser's iteration
+    /// cap (#1497). A loaded or fetched copy of a room is clamped to the cap
+    /// on install, so a stand past it draws one tree on the login backdrop
+    /// (`attract`, which installs the build unsanitised) and another in
+    /// every loaded copy of the same seed: the build has to be a fixpoint of
+    /// the sanitiser. `lsys_birch` ships at the cap, so every stand of it
+    /// that rolls a year older is the case; seed 12 is the first to roll one.
+    #[test]
+    fn seeded_stands_stay_within_the_iteration_cap() {
+        fn walk(seed: u64, name: &str, generator: &Generator) {
+            if let GeneratorKind::LSystem { iterations, .. } = &generator.kind {
+                assert!(
+                    *iterations <= crate::pds::sanitize::limits::MAX_LSYSTEM_ITERATIONS,
+                    "seed {seed}: {name} derives at {iterations} iterations, past the cap"
+                );
+            }
+            for child in &generator.children {
+                walk(seed, name, child);
+            }
+        }
+        for seed in 1..=64u64 {
+            let room = RoomRecord::default_for_seed(seed, "did:plc:corpus");
+            for (name, generator) in &room.generators {
+                walk(seed, name, generator);
+            }
         }
     }
 }

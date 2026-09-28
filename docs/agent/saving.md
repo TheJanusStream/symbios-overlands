@@ -2,10 +2,14 @@
 
 ## What is live and what is kept
 
-- An edit to the world or to a generator body is live for everyone in the
-  world the moment it is made. A rigged body's sculpt and worn items are
-  records of their own that other clients fetch from your PDS, so they see
-  a change to those only after a save. Every edit is lost when the daemon
+- An edit to the world is live for everyone in it the moment it is made -
+  while the world's whole record is under 900 KiB of compact JSON. Past
+  that no world edit reaches anyone, and a player already there sees a save
+  only after leaving and coming back ([region.md](region.md), "The record's
+  budget"; #1499). An edit to a generator body is live whatever the world
+  weighs: it travels as the avatar record alone. A rigged body's sculpt and
+  worn items are records of their own that other clients fetch from your
+  PDS, so they see a change to those only after a save. Every edit is lost when the daemon
   stops unless it was saved. `status.editing.unsaved` lists the records
   (`room`, `avatar`, `inventory`) holding unsaved edits.
 - **Save only when the admin asks for it in chat** ("save", "keep it"),
@@ -27,6 +31,12 @@
 - `status.editing.undo` names what the next undo would step.
 - Trying something out: write it (an unplaced generator is drawn nowhere),
   read the answer, `undo`. Nothing is left behind.
+- **An edit that changes nothing leaves no undo step**: a value the
+  sanitiser pulls back to the one already kept (a Fabric `thread_count` of 6
+  raised to its floor of 8, where 8 was saved) is no edit to the history, so
+  the `undo` after it steps back the edit BEFORE it. Session 883 undid two
+  track edits that way. `revert` puts the last save back whole; then pull
+  the record and compare it with your source.
 
 ## Restarts
 

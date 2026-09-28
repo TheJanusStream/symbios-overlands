@@ -362,11 +362,15 @@ re-skin lever anyway.
 **Material slot convention.** Slot `0` is always the woody surface - bark, or
 whatever stands in for it (bamboo cane, fern rachis, the cactus's succulent
 skin). Above that the catalogue runs two families: **0 bark / 1 foliage**
-(birch, acacia, bamboo, bush, fern, palm, monopodial, and the flowering tree's
-leaf ring) and **0 bark / 2 foliage** (mangrove, sympodial, ternary-gravity).
-Only `lsys_ternary_props` uses the full **0 bark / 1 twig-cluster / 2 leaf**
-split; `lsys_flowering_tree` puts blossom on `2`; `lsys_cactus` and
-`lsys_dead_shrub` ship slot `0` alone; nothing ships on `3`.
+(birch, acacia, bamboo, bush, hazel, gorse, fern, palm, monopodial, and the
+flowering tree's leaf ring) and **0 bark / 2 foliage** (mangrove, sympodial,
+ternary-gravity). Only `lsys_ternary_props` uses the full **0 bark / 1
+twig-cluster / 2 leaf** split; `lsys_flowering_tree` puts blossom on `2`, and
+Ashmere's species (#1496) use `2` beside a foliage `1` - `lsys_oak` and
+`lsys_young_oak` for their bronzing leaf cards, `lsys_yew` for a second copy of
+its needle card (the young oak's grammar, re-dressed), `lsys_apple` for its
+untextured fruit; `lsys_cactus` and `lsys_dead_shrub` ship slot `0` alone;
+nothing ships on `3`.
 
 Palettes and biome tinting do *not* key off the numbering - `PlantVariant::apply`
 names the slot it re-skins per species - so the rule that actually binds is
@@ -423,7 +427,7 @@ many species without copy-paste.
 ```bash
 cargo run --bin render -- --catalogue lsys_birch --ages 3,5,7,9,11
 cargo run --bin render -- --catalogue lsys_birch --variant list          # named re-skins
-cargo run --bin render -- --catalogue lsys_birch --variant autumn --ages 5,9
+cargo run --bin render -- --catalogue lsys_birch --variant autumn_gold --ages 5,9
 cargo run --bin render -- --catalogue lsys_birch --dump > /tmp/x.json   # edit + re-render
 cargo run --bin render -- --generator /tmp/x.json --ages 3,5,7,9,11     # no recompile
 ```
@@ -436,9 +440,14 @@ differ, `--dump`, edit `seed` in the JSON, and re-render through `--generator`.
 
 Two ceilings bound the loop. `iterations` is clamped to **12** by the record
 sanitiser (the forge's own slider stops there too), and `--ages` deliberately
-does *not* sanitise - so a sweep past 12 renders a plant no room can ever spawn.
-Beyond that, derivation aborts at the 2²⁰-symbol state cap. Keep the top of a
-sweep at or below 12, and ship a species a step or two under it for headroom.
+does *not* sanitise - so a sweep past 12 renders a plant no fetched room record
+draws. Beyond that, derivation aborts at the 2²⁰-symbol state cap. Keep the
+top of a sweep at or below 12, and ship a species a step or two under it for
+headroom: a seeded stand ages its species a step either way
+(`iterations_delta`), and the seeded-room builder clamps the sum to the cap,
+so a species shipped at the cap cannot age. `lsys_birch` is the exception: it
+is Ashmere's birch (#1496), designed at 12 and shipped as its room record
+saved it, so a seeded birch stand that rolls +1 grows at 12 all the same.
 
 Inside the app there is a shorter loop still: the L-system forge renders the last
 compile outcome under its code editor - the parser's error in red (line-numbered

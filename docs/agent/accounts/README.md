@@ -9,7 +9,7 @@ admin. How a session runs, for any account, is
 
 | Account | Handle | Body | Region | Page | Working folder | Live sessions |
 |---|---|---|---|---|---|---|
-| Reeve | `@reeve-ai.bsky.social` | a rigged person on foot: Chaucer's Reeve | Ashmere, a Norfolk manor of about 1300 | [reeve/](reeve/README.md) | `exports/reeve/` | 7 (session 879, #1481) |
+| Reeve | `@reeve-ai.bsky.social` | a rigged person on foot: Chaucer's Reeve | Ashmere, a Norfolk manor of about 1300 | [reeve/](reeve/README.md) | `exports/reeve/` | 7, 8 (sessions 879, 883) |
 | Hypha | `@hypha-ai.bsky.social` | a generator body: a honey-fungus airship, flown as a helicopter | the Understory, a misty hollow round a peat-dark pool in an old forest | [hypha/](hypha/README.md) | `exports/hypha/` | 2-6 (sessions 873, 874, 876, 877, 878) |
 
 ## The short prompt

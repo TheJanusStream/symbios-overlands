@@ -108,7 +108,23 @@ and saved seventeen world changes in the same hours.
   sawn-off stubs, a khaki crown in the world's own light, smooth bark and
   apples drawn as split discs, all in pictures the builder had judged; the
   fixer then found the Twig texture caps leaves at 8 (the oak's 11 were
-  always drawn as 8). 1.38M sub-agent tokens, 2 h 38 min.
+  always drawn as 8). 1.38M sub-agent tokens, 2 h 38 min. Session 883's
+  catalogue plants (#1496) made it seven in eight: the builder reproduced
+  seven plants exactly and passed the gate; the critic found that the new
+  birch, shipped at the iteration cap, grew seeded stands one year past it
+  (#1497), five untrue or weak details, and that seeded birch woods read as
+  bare poles from 150 m - a question for the owner, not a defect. 1.27M
+  sub-agent tokens, 2 h 52 min. A fix outside the fixer's files came back as
+  a tested patch for the main session to apply (`patch -p1`; the hook
+  refuses `git apply`). The same session's beasts made it eight in nine:
+  the builder remade Ashmere's sheep and cattle and judged its own
+  pictures; the critic found nine real faults in them, among them cattle
+  fore legs starting below the chest with grass showing through, hip
+  craters, glossy ball hooves, a grazing ewe's head apart from its neck,
+  lying beasts floating and cell sizes misstated; and the
+  fixer, fixing those, found a see-through hole in the grazing cow's neck
+  (13 inward-facing triangles, found by porting the blob mesher to count
+  them). 1.67M sub-agent tokens, 2 h 45 min.
 - **Check every tool the brief names is safe where the sub-agent sits.**
   The tree brief pointed the builder at `views.py @landingcam`, which then
   looked the admin up through the live daemon for any `@` spec, so a
@@ -128,7 +144,14 @@ and saved seventeen world changes in the same hours.
   --rigged` called the fetched sculpt's own `$type` a misspelt key on every
   avatar from the PDS. A fix's test pins the case that exposed it - ask of
   each fix which sibling (the other verb, the default-valued parent, the
-  record as fetched rather than as written) it has not seen.
+  record as fetched rather than as written) it has not seen. Session 883's
+  review (13 findings, all confirmed, in 28 minutes and 2.55M sub-agent
+  tokens) found a tool the session had used live wrong in its geometry:
+  `thread.py --ride` read the ground under the rut rather than under the
+  lane's middle, which a side slope turns into centimetres. The session had
+  seen the ruts sit badly and blamed a steep brow, because the fixing
+  script printed its largest correction unsigned: the "6.5 cm proud" it
+  reported was a buried point raised. Print a correction with its sign.
 - **When a finding is a pattern, grep for its siblings.** The tools
   fixer->verifier pass (301k tokens, 17 min) fixed hedge.py's part count,
   which left out its root, and the verifier found fence.py printing the same
@@ -216,5 +239,11 @@ the files back and compare checksums, and grep that no guard is left.
 - A test run with guards in relinks the binaries too. After restoring the
   files, rebuild and check `strings target/test-release/agent | grep -c
   AGENT_MUTANT` is 0 before the next restart of the live daemon.
+- **Restore with a fresh mtime.** `shutil.copy2` (and `cp -p`) puts back the
+  file's OLD modification time, older than the mutant build, so cargo takes
+  the mutant binaries as up to date and "rebuild" rebuilds nothing: #1496's
+  fixer tried it on a scratch crate and kept a MUTANT binary after a
+  0.00 s build. Restore with `shutil.copyfile` or plain `cp`, or `touch`
+  the restored files; the `strings` check above is what catches it.
 - Session 874 ran 17 mutants over 7 rules in three builds of about two
   minutes each - cheap enough to do as each rule lands, not only at the end.

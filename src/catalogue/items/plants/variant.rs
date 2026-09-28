@@ -118,6 +118,31 @@ pub fn tint_bark(
     }
 }
 
+/// Re-tint a slot carrying a [`SovereignTextureConfig::Lichen`] texture used
+/// as bark - the birch's (#1496), whose white trunk is a Lichen texture's
+/// pale "rock" marked with dark colonies. `rock` recolours that bare face,
+/// `marks` the two colony tints (the lenticels) and `rim` the colonies'
+/// margins; their size, cover and grain keep the species' authored values.
+pub fn tint_lichen(
+    materials: &mut HashMap<u16, SovereignMaterialSettings>,
+    slot: u16,
+    base: [f32; 3],
+    rock: [f32; 3],
+    marks: [[f32; 3]; 2],
+    rim: [f32; 3],
+) {
+    let Some(m) = materials.get_mut(&slot) else {
+        return;
+    };
+    m.base_color = Fp3(base);
+    if let SovereignTextureConfig::Lichen(lichen) = &mut m.texture {
+        lichen.color_rock = Fp3(rock);
+        lichen.color_lichen_a = Fp3(marks[0]);
+        lichen.color_lichen_b = Fp3(marks[1]);
+        lichen.color_rim = Fp3(rim);
+    }
+}
+
 /// Resolve a variant by name and apply it. An empty or unknown name leaves
 /// the species' authored materials untouched, which is the correct fallback
 /// for every pool entry that doesn't ask for a re-skin.
@@ -137,7 +162,7 @@ pub fn apply_named(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pds::{Fp, SovereignBarkConfig, SovereignLeafConfig};
+    use crate::pds::{Fp, Fp64, SovereignBarkConfig, SovereignLeafConfig, SovereignLichenConfig};
 
     fn leaf_slot() -> SovereignMaterialSettings {
         SovereignMaterialSettings {
@@ -164,6 +189,61 @@ mod tests {
         };
         assert_eq!(leaf.color_base.0, [0.8, 0.4, 0.05]);
         assert_eq!(leaf.color_edge.0, [0.95, 0.6, 0.2]);
+    }
+
+    #[test]
+    fn tint_lichen_rewrites_base_and_texture_colors() {
+        // The birch's bark, whose every field but the seed is off its
+        // default, so a tint that rewrote any of them would show.
+        let authored = SovereignLichenConfig {
+            patch_scale: Fp64(1.75),
+            patch_octaves: 3,
+            coverage: Fp64(0.32),
+            rim_width: Fp64(0.1),
+            species_scale: Fp64(1.5),
+            color_rock: Fp3([0.8689, 0.8481, 0.7874]),
+            color_lichen_a: Fp3([0.01, 0.0085, 0.0085]),
+            color_lichen_b: Fp3([0.0732, 0.0593, 0.0509]),
+            color_rim: Fp3([0.3185, 0.2957, 0.2633]),
+            grain_scale: Fp64(30.0),
+            grain_strength: Fp64(0.25),
+            relief: Fp64(0.4),
+            normal_strength: Fp(1.2),
+            ..Default::default()
+        };
+        let mut m = HashMap::from([(
+            0u16,
+            SovereignMaterialSettings {
+                base_color: Fp3([0.1, 0.2, 0.3]),
+                texture: SovereignTextureConfig::Lichen(authored.clone()),
+                ..Default::default()
+            },
+        )]);
+        tint_lichen(
+            &mut m,
+            0,
+            [0.9, 0.8, 0.7],
+            [0.6, 0.5, 0.4],
+            [[0.01, 0.02, 0.03], [0.04, 0.05, 0.06]],
+            [0.3, 0.2, 0.1],
+        );
+        let slot = &m[&0];
+        assert_eq!(slot.base_color.0, [0.9, 0.8, 0.7]);
+        let SovereignTextureConfig::Lichen(lichen) = &slot.texture else {
+            panic!("texture kind changed");
+        };
+        // The four colours, and nothing else: the colonies keep their
+        // authored size, cover and grain.
+        assert_eq!(
+            *lichen,
+            SovereignLichenConfig {
+                color_rock: Fp3([0.6, 0.5, 0.4]),
+                color_lichen_a: Fp3([0.01, 0.02, 0.03]),
+                color_lichen_b: Fp3([0.04, 0.05, 0.06]),
+                color_rim: Fp3([0.3, 0.2, 0.1]),
+                ..authored
+            }
+        );
     }
 
     #[test]

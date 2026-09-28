@@ -29,3 +29,25 @@ texture envelope the sanitiser clamps to, the Leaf texture's vein cast).
 The saved record differs from a fresh build only where the sanitiser drops
 a default (an identity scale, default texture fields) or pulls a texture
 field into its envelope: compare after a `room set`, not before.
+
+## In the catalogue
+
+Four of these trees are catalogue entries now (#1496), each the generator
+saved in Ashmere's room record, copied into `src/catalogue/items/plants/`:
+
+| Builder | Catalogue entry |
+|---|---|
+| `birch.py` | `lsys_birch` - it replaced the #910 birch there, so the seeded worlds' birch stands grow it too |
+| `oak.py` | `lsys_oak` |
+| `oak.py` preset `y` | `lsys_young_oak` |
+| `apple.py` | `lsys_apple` |
+
+Ashmere's other plants joined them: `lsys_yew` is preset `y` dressed as a
+yew (a Needle card, a red-brown bark), and `lsys_hazel` and `lsys_gorse` are
+the catalogue's own `lsys_bush` grammar in Ashmere's materials, with coarser
+tubes, each stretched to its own size by a root transform. A fresh build of
+each builder draws the same tree as its entry - the files differ only in
+defaults a record leaves out, and the pictures are pixel-identical - but a
+change made here does not reach the catalogue by itself: judge it, save it,
+then copy the saved record into the entry, and check that `render --dump
+--catalogue <slug>` equals the record field for field.

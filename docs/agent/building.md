@@ -134,6 +134,12 @@ building's frame through it.
   nodes: the `Lichen` texture made lichen-crusted granite where 200 disc
   patches read as polka dots ([region.md](region.md), "Backdrop").
 
+- **A texture field outside its envelope is pulled in, and the answer says
+  so** (`adjusted_at`): a Fabric `thread_count` of 6 became 8, its floor, on
+  every fence panel (session 883). The render tool keeps a record as a
+  fetched one is kept, so an offline picture already shows the pulled value;
+  write the kept value into your builder so the next run is what you saw.
+
 ## A building in few parts
 
 Session 879 built a village of about 1300 (eight houses, a church, a manor
@@ -221,6 +227,17 @@ part ([region.md](region.md), "Planting: scatters"). What did it:
   and reads the same. `render --generator` now draws the file as a record
   keeps it and names the cut (#1486); before, its sheets showed the whole
   cow.
+- **A BlobGroup meshes on a grid over the box round every element's
+  bounding sphere**, padded by the largest blend: a cell is that box's
+  longest side over the `resolution` (8 to 48), and what is thinner than
+  about two cells melts away. The sphere is generous - a box's is its
+  half-diagonal, so a 9 m box reaches 4.5 m out on every axis, up and down
+  too - and long elements far from the group's middle make the box, and so
+  every cell, much larger than the shape drawn. Session 883's turbary rim -
+  four 0.45 m wide turf baulks round a 9 m peat cutting, as one group -
+  drew nothing at resolution 18 and needed 0.8 m wide boxes at 48 to show;
+  boxes blended where they meet at the corners swelled into knobs. A long
+  thin thing is a spine or a cuboid, not a blob.
 - **Folk at their work, built the same way**, read as people from 15 m and
   give a place its life: a shepherd leaning on his crook at the flock's edge,
   a woman with a bucket at the well, the ploughman at the handles and a boy
