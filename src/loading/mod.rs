@@ -50,8 +50,9 @@ pub(crate) use ambient::{
 };
 pub use ambient::{AmbientHandle, AmbientPlayer, AmbientResolveFailed};
 // The world ambient patch's bake numbers, which the audio pop-out auditions
-// at (#1330), and the real bake-job builder its tests compare them with.
-#[cfg(test)]
+// at (#1330), and the real bake-job builder its tests compare them with - and
+// which the native-only render tool's `--ambient-wav` bakes with (#1519).
+#[cfg(any(test, not(target_arch = "wasm32")))]
 pub(crate) use ambient::ambient_bake_job;
 pub(crate) use ambient::{AMBIENT_PATCH_SAMPLE_RATE, AMBIENT_PATCH_SECS};
 pub(crate) use fetch::{fire_pending_record_retries, poll_record_task};

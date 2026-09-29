@@ -109,6 +109,9 @@
 //! app and prints what each placement costs to draw. `--world ...
 //! --floating-report` (see `floating/mod.rs`, #1477) needs no app: it meshes
 //! each placed generator's primitives and names every part that floats.
+//! `--world ... --ambient-wav PATH` (see `ambient_wav.rs`, #1519) needs none
+//! either: it bakes the world's ambient bed into a WAV file as the game bakes
+//! it, and says where the loop the game plays starts.
 
 use std::time::Duration;
 
@@ -124,6 +127,7 @@ use crate::pds::avatar::default_visuals::{build_for_did_in_livery, build_in_live
 use crate::pds::types::{Fp, Fp2};
 use crate::pds::{Generator, GeneratorKind, RoomRecord};
 
+mod ambient_wav;
 mod editor;
 mod figure;
 mod floating;
@@ -759,6 +763,21 @@ struct Args {
     /// `--world-record` when given, as a render does. See `floating/mod.rs`.
     #[arg(long, requires = "world", conflicts_with_all = ["terrain_report", "triangle_report"])]
     floating_report: bool,
+    /// With `--world`: bake the world's ambient bed - the room's
+    /// `ambient_audio` recipe - into this WAV file and exit without
+    /// rendering (#1519). The bytes are the game's own bake (mono 16-bit
+    /// PCM); one JSON line gives its rate, its length and `loop_start_s`,
+    /// where the loop the game plays starts - a visitor hears the file from
+    /// there on, repeated. Reads `--world-record` when given, as a render
+    /// does. A bed that is silent, a referenced clip or unknown to this
+    /// build writes nothing and exits 2. See `ambient_wav.rs`.
+    #[arg(
+        long,
+        value_name = "PATH",
+        requires = "world",
+        conflicts_with_all = ["terrain_report", "triangle_report", "floating_report"]
+    )]
+    ambient_wav: Option<String>,
     /// With `--terrain-report`: a point to read, `X,Z` in world metres;
     /// repeat for more. A negative X needs the `=`: `--at=-18.6,22`.
     #[arg(long, value_name = "X,Z", requires = "terrain_report")]
@@ -887,6 +906,13 @@ pub fn run() {
     if args.floating_report {
         let world = args.world.as_deref().expect("clap requires --world");
         floating::print_floating_report(world, &report_record(&args));
+        return;
+    }
+
+    // `--ambient-wav`: bake a world's ambient bed to a WAV file and exit -
+    // never renders (#1519).
+    if let Some(path) = &args.ambient_wav {
+        ambient_wav::print_ambient_wav(&report_record(&args), path);
         return;
     }
 

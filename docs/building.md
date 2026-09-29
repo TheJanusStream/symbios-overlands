@@ -892,6 +892,12 @@ cargo run --bin render -- --world <did> --world-record room.json --triangle-repo
 # than 15 cm over the real ground, water or part under it. What touches what
 # comes from the real meshes, so a cap resting on its stem is not named; ~1 s:
 cargo run --bin render -- --world <did> --world-record room.json --floating-report
+# A world's ambient bed as a WAV file, no render (#1519): the game's own bake of
+# the room's ambient_audio recipe (mono 16-bit PCM), and one JSON line with its
+# rate, its length and loop_start_s - the game plays every pass from there to
+# the end, so a visitor hears the file from loop_start_s on, repeated. A bed
+# that is silent or a referenced clip writes nothing and exits 2:
+cargo run --bin render -- --world <did> --world-record room.json --ambient-wav bed.wav
 # PNG frame directories (as --keep-frames writes them) → one GIF at --fps:
 cargo run --bin render -- --stitch /tmp/a-frames,/tmp/b-frames --out /tmp/ab.gif
 ```
