@@ -132,6 +132,77 @@ pub(crate) mod rover {
     /// degenerated (the chassis is dead-inverted - a saddle it could perch on),
     /// so the assist falls back to the roll axis to tip it off its roof.
     pub const CAR_UPRIGHT_DEGENERATE_SQ: f32 = 1.0e-4;
+    // --- Car suspension bump stop (#1524) -------------------------------------
+    // The linear spring cannot hold a car's box off the ground through a
+    // landing: it sits 22% into its travel at rest, and a car dropped flat
+    // from 2 m hits the floor with its box. Past a start compression the stop
+    // adds a force rising with the square of how far past it the corner is,
+    // and damps the corner both ways. Per kilogram of the corner's share of
+    // the mass, so it holds any car the same way. The shape, and why each
+    // part is there, is on `player::car::CarBumpStop`.
+    //
+    // MEASURED on the drive bench, default car and the seeded Cyclecar alike:
+    // dropped flat from 2 / 2.5 / 3 m the box keeps 76 / 51 / 38 mm off the
+    // floor and rebounds at 2.3-2.8 m/s, where without the stop it hits at
+    // every height and rebounds at 3.7. Off the jump table's 1.5 m ramps the
+    // box clears the landing by 48-60 mm at 10 m/s over 12 degrees and 21-28
+    // mm at 14 over 18, keeping 95-100% of the speed against 79-88%. It does
+    // NOT keep the box off the ground from 18 m/s over 25 degrees, a landing
+    // at 8-9 m/s: 0.6 m of travel cannot stop that at forces the 64 Hz step
+    // integrates without throwing the car back up.
+    /// Compression, as a fraction of `suspension_rest_length`, where the stop
+    /// begins. MEASURED on the drive bench, ordinary driving - flat, a hard
+    /// turn, the handbrake, braking - never passes 26%. Ground rolling +-0.1 m
+    /// met at top speed reaches 60-65%, the stop's edge, and drives there at
+    /// the same speed with the same bounce as without it; ground rolling
+    /// +-0.2 m, or a 20-30 degree slope met at speed, went to 80-100%.
+    pub const CAR_BUMP_STOP_START: f32 = 0.6;
+    /// The stop's rate (1/s^2): at full travel it pushes with the corner's
+    /// mass times this times the stop's travel - 240 m/s^2 over the fleet's
+    /// 0.24 m. Its stiffness there, a natural frequency of 45 rad/s, sits
+    /// well inside the 64 Hz step's stable limit (`2 / dt` = 128 rad/s).
+    pub const CAR_BUMP_STOP_RATE: f32 = 1_000.0;
+    /// The stop's damping at full travel (1/s), both ways. Per kilogram of a
+    /// corner it takes out at most 60/64 of the corner's speed in a step, and
+    /// a landing on one axle - whose effective mass, for ANY box, is at least
+    /// half a corner's, since a cuboid's pitch lever `hz^2 / inertia` is
+    /// under 3 - at most 1.9 of it: under the step's limit of 2.
+    pub const CAR_BUMP_STOP_DAMPING: f32 = 60.0;
+    /// How many times the torque gravity needs to tip a lying car back over
+    /// the edge it pivots on - a roof edge on its back, an edge of its
+    /// underside on a side or its nose - the uprighting assist applies at
+    /// least (#1524). Below 1 a flat roof, or a tall box's side, holds the car
+    /// for ever. For the default car it only acts on its back: on a side it
+    /// comes to 2.35 x mass, under the record's 2.5.
+    pub const CAR_UPRIGHT_TIP_MARGIN: f32 = 1.5;
+    /// How far past `suspension_rest_length` (m) a car's corner ray may hit
+    /// and still count that wheel as on the ground (#1524). The spring
+    /// tops out AT the rest length, so without slack a wheel at full droop
+    /// over every crest flickers out of contact, taking a quarter of the
+    /// traction with it for a step or two. MEASURED on ground rolling
+    /// +-0.1 m over 8 m, the default car at its 11 m/s top speed read a
+    /// wheel off on 37% of steps with no slack, 8% at 0.1 m and none at
+    /// 0.15 m; a real takeoff, rising at the jump table's 4-5 m/s, clears
+    /// it in two steps.
+    pub const CAR_CONTACT_SLACK_M: f32 = 0.15;
+    /// Tilt off world-up (degrees) past which no corner of a car counts as a
+    /// wheel on the ground, whatever its ray finds, and no corner spring
+    /// pushes (#1524). A corner ray is cast down from the chassis' underside;
+    /// tipped this far it is cast from the side or the roof and through the
+    /// chassis itself. Five of the six seeded skiff types are thin enough
+    /// (half-height 0.35 m or less) that a car lying on its roof would read
+    /// four wheels down, and a spring pushing up the lower side of a car
+    /// lying on its side rolled it onto its roof. Well past any slope a car
+    /// drives (the fleet climbs 30 degrees at full speed) and well short of
+    /// lying on a side.
+    pub const CAR_WHEEL_TILT_LIMIT_DEGREES: f32 = 70.0;
+    /// How close (m) a point of a car's box must come to something for the
+    /// body to count as touching it (#1524). Avian keeps a contact point from
+    /// as far off as a body could close in one step - 23 cm at 15 m/s - and
+    /// a car counted as lying on everything it flew past paused its air
+    /// levelling at every lip and every landing (measured on the drive
+    /// bench). A box resting on the ground sits within millimetres of it.
+    pub const CAR_BODY_TOUCH_M: f32 = 0.01;
 
     // --- Airplane uprighting (#1240 f162) ------------------------------------
     // The airplane was the only preset of four with no righting assist, so a

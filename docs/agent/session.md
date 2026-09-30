@@ -71,8 +71,9 @@ folder, `exports/<name>/` (the page's "Working folder" row).
      with more than one session saved here, a command without its account
      is refused. The watcher's `RE-ARM:` line does not carry it: put it in
      front. While a delegation rebuilds the render tool, put
-     `AGENT_RENDER=<a copy of render>` in front too, so the tools never run
-     a half-built binary.
+     `AGENT_RENDER=<a copy of render>` in front too (and `AGENT_BIN=<a copy
+     of agent>` while one rebuilds the client), so the tools never run a
+     half-built binary.
    - A direct `agent` or `render` call needs `BEVY_ASSET_ROOT=<repo>`; the
      tools set it themselves.
 6. **Into the world.** `A start --admin @codewright.bsky.social

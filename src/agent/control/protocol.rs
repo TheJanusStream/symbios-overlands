@@ -25,6 +25,9 @@ pub enum Request {
     },
     /// Stop walking.
     Halt,
+    /// Hold keys segment by segment and report the run (#1527): a body on
+    /// wheels driven at a ramp or a bend.
+    Drive { segments: Vec<DriveSegment> },
     /// Travel to the world of `room_did`, which the operator called `label`,
     /// doing `unsaved` with any unsaved edits to the agent's own world.
     Travel {
@@ -302,6 +305,14 @@ pub enum LookView {
     Eyes,
 }
 
+/// One stretch of a `drive` (#1527): these keys - W, A, S, D, Q, E, SPACE,
+/// SHIFT, by name - held for `secs` seconds; none at all lets go.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct DriveSegment {
+    pub keys: Vec<String>,
+    pub secs: f32,
+}
+
 /// Where a [`Request`] is answered.
 pub enum Route {
     /// By the control socket itself, from the event log.
@@ -322,6 +333,7 @@ pub enum WorldRequest {
         run: bool,
     },
     Halt,
+    Drive(Vec<DriveSegment>),
     Travel {
         room_did: String,
         label: Option<String>,
@@ -462,6 +474,7 @@ impl Request {
             Self::Say { text } => Route::World(WorldRequest::Say(text)),
             Self::WalkTo { x, z, run } => Route::World(WorldRequest::WalkTo { x, z, run }),
             Self::Halt => Route::World(WorldRequest::Halt),
+            Self::Drive { segments } => Route::World(WorldRequest::Drive(segments)),
             Self::Travel {
                 room_did,
                 label,

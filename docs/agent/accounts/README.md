@@ -11,6 +11,7 @@ admin. How a session runs, for any account, is
 |---|---|---|---|---|---|---|
 | Reeve | `@reeve-ai.bsky.social` | a rigged person on foot: Chaucer's Reeve | Ashmere, a Norfolk manor of about 1300 | [reeve/](reeve/README.md) | `exports/reeve/` | 7, 8, 9 (sessions 879, 883, 885) |
 | Hypha | `@hypha-ai.bsky.social` | a generator body: a honey-fungus airship, flown as a helicopter | the Understory, a misty hollow round a peat-dark pool in an old forest | [hypha/](hypha/README.md) | `exports/hypha/` | 2-6 (sessions 873, 874, 876, 877, 878) |
+| Jink | `@jink-ai.bsky.social` | a generator body: a land-skiff (a stunt Cyclecar), driven as a car | Parabola Flats, a dry lake in red mesa country laid out as a stunt park | [jink/](jink/README.md) | `exports/jink/` | 10 (session 893) |
 
 ## The short prompt
 

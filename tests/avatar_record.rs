@@ -237,9 +237,10 @@ fn avatar_sanitize_clamps_non_finite_chassis_dimensions() {
 // Wire back-compat (#874/#876)
 // ---------------------------------------------------------------------------
 
-/// A record published before #874 (no `gait` section) and before #876 (no
-/// promoted feel fields on its locomotion preset) must still deserialize -
-/// field-level serde defaults fill in the historical constants, and the
+/// A record published before #874 (no `gait` section), before #876 (no
+/// promoted feel fields on its locomotion preset) and before #1524 (no air
+/// model on its car) must still deserialize - field-level serde defaults
+/// fill in the historical constants and the air model's defaults, and the
 /// missing gait section stays `None` (the DID-seeded fallback).
 #[test]
 fn pre_gait_pre_feel_records_still_deserialize() {
@@ -250,8 +251,8 @@ fn pre_gait_pre_feel_records_still_deserialize() {
         LocomotionConfig::Helicopter(Box::default()),
         LocomotionConfig::Car(Box::default()),
     ];
-    // Every field #874/#876 added, across all presets. Stripping keys a
-    // preset doesn't carry is a no-op.
+    // Every field #874/#876/#1524 added, across all presets. Stripping keys
+    // a preset doesn't carry is a no-op.
     let added_fields = [
         "stop_damping",
         "turn_rate",
@@ -261,6 +262,10 @@ fn pre_gait_pre_feel_records_still_deserialize() {
         "center_of_mass_drop",
         "stabilize_torque",
         "cruise_throttle",
+        "air_linear_damping",
+        "air_angular_damping",
+        "air_control_accel",
+        "air_level_accel",
     ];
     for preset in presets {
         let mut avatar = AvatarRecord::default_for_did("did:plc:alice");
@@ -276,8 +281,11 @@ fn pre_gait_pre_feel_records_still_deserialize() {
         }
 
         let old: AvatarRecord = serde_json::from_value(value)
-            .unwrap_or_else(|e| panic!("{tag}: pre-#874/#876 record must decode: {e}"));
+            .unwrap_or_else(|e| panic!("{tag}: pre-#874/#876/#1524 record must decode: {e}"));
         assert!(old.gait.is_none(), "{tag}: absent gait stays None");
+        // Re-published, it carries the defaults on the wire and reads back
+        // the same.
+        assert_round_trips(&old);
         // The defaults reproduce the exact record the new schema builds,
         // so old and new clients agree on the feel. Compared on the wire
         // (same as `assert_round_trips`): continuous fields quantise
@@ -289,6 +297,41 @@ fn pre_gait_pre_feel_records_still_deserialize() {
             "{tag}"
         );
     }
+}
+
+/// The air model's four fields (#1524) are clamped into bounds the physics
+/// can live with: nothing negative or non-finite (a negative damping
+/// accelerates, and avian's damping is `1 / (1 + dt c)`), and nothing past
+/// the ceilings. An in-range value passes untouched.
+#[test]
+fn car_air_fields_sanitize_into_their_bounds() {
+    let sanitized = |value: f32| {
+        let mut avatar = AvatarRecord::default_for_did("did:plc:alice");
+        let mut p = Box::<CarParams>::default();
+        p.air_linear_damping = Fp(value);
+        p.air_angular_damping = Fp(value);
+        p.air_control_accel = Fp(value);
+        p.air_level_accel = Fp(value);
+        avatar.locomotion = LocomotionConfig::Car(p);
+        avatar.sanitize();
+        let LocomotionConfig::Car(p) = avatar.locomotion else {
+            panic!("sanitize must not change the locomotion variant");
+        };
+        [
+            p.air_linear_damping.0,
+            p.air_angular_damping.0,
+            p.air_control_accel.0,
+            p.air_level_accel.0,
+        ]
+    };
+    assert_eq!(sanitized(-1.0), [0.0; 4], "negatives clamp to 0");
+    assert_eq!(sanitized(f32::NAN), [0.0; 4], "non-finite collapses to 0");
+    assert_eq!(sanitized(1.0e9), [10.0, 20.0, 50.0, 50.0], "the ceilings");
+    assert_eq!(
+        sanitized(0.75),
+        [0.75; 4],
+        "an in-range value passes untouched"
+    );
 }
 
 /// The re-roll path derives the gait from the same master seed as the

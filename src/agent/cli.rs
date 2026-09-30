@@ -115,6 +115,10 @@ pub enum Command {
     /// Stop moving. A body that flies comes straight down first, and the
     /// movement ends once it is down.
     Halt(AccountArg),
+    /// Drive a body on wheels by the keys, segment by segment - at a ramp,
+    /// a bend, a gap - and report the run: its speed, each jump's airtime,
+    /// rise and length, how it landed, how far it tipped (#1527).
+    Drive(DriveArgs),
     /// Travel to another player's world - or `home`.
     Travel(TravelArgs),
     /// Take a picture of what the agent sees, write it to a PNG and print
@@ -531,6 +535,24 @@ pub struct TravelArgs {
 }
 
 #[derive(Args, Debug)]
+pub struct DriveArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// Segments in order, each KEYS@SECONDS: the keys held together, joined
+    /// by `+` (W, A, S, D, Q, E, SPACE, SHIFT, any case), `none` for none -
+    /// `W@4 W+D@0.6 W@3 none@2` accelerates 4 s, swings right 0.6 s, runs
+    /// on 3 s and coasts 2 s. At most 64 segments, 60 s each, 180 s in all.
+    /// The keys change on the daemon's frames, 30 a second, so a segment is
+    /// held for whole frames and one under 33 ms can be skipped.
+    #[arg(required = true, value_name = "KEYS@SECONDS")]
+    pub segments: Vec<String>,
+    /// Wait for the drive to end and print its report, instead of returning
+    /// as soon as it starts.
+    #[arg(long)]
+    pub wait: bool,
+}
+
+#[derive(Args, Debug)]
 pub struct WalkToArgs {
     #[command(flatten)]
     pub account: AccountArg,
@@ -907,6 +929,22 @@ mod tests {
             let help = help_for(words);
             assert_eq!(help.matches("--account").count(), 1, "{words:?}: {help}");
         }
+    }
+
+    /// #1527: a drive is its segments in order, `--wait` after them.
+    #[test]
+    fn a_drive_takes_its_segments_and_a_wait() {
+        let cli = Cli::try_parse_from(["agent", "drive", "W@2", "W+D@0.5", "none@1", "--wait"])
+            .expect("parses");
+        let Command::Drive(args) = cli.command else {
+            panic!("drive");
+        };
+        assert_eq!(args.segments, ["W@2", "W+D@0.5", "none@1"]);
+        assert!(args.wait);
+        assert!(
+            Cli::try_parse_from(["agent", "drive"]).is_err(),
+            "no segment"
+        );
     }
 
     /// A point west or south of the origin has a minus sign, which clap would

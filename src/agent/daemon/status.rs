@@ -75,6 +75,7 @@ pub(super) fn snapshot(world: &mut World) -> Value {
         "position": pose.as_ref().map(|p| hundredths3(p.position)),
         "height_m": super::movement::height(world).map(hundredths),
         "facing": pose.as_ref().map(|p| [hundredths(p.forward.x), hundredths(p.forward.z)]),
+        "heading_deg": pose.as_ref().map(|p| heading_deg(p.forward)),
         "movement": super::movement::describe(world),
         "peers": peers(world, pose.as_ref(), admin.as_ref()),
         "nearby": nearby(world, pose.as_ref()),
@@ -83,6 +84,16 @@ pub(super) fn snapshot(world: &mut World) -> Value {
         "gifts": super::gifts::describe(world),
         "interface": super::ui::describe(world),
     })
+}
+
+/// Which way `forward` points on the ground as a compass bearing, degrees
+/// clockwise from north (-Z), to the hundredth and in `[0, 360)` - what
+/// `facing`'s hundredths of a unit vector give only to about a degree, and
+/// a run lined up at a ramp needs finer (#1527). A bearing a hair west of
+/// north rounds up to 360, which is north: 0.
+fn heading_deg(forward: Vec3) -> f64 {
+    let bearing = hundredths(forward.x.atan2(-forward.z).to_degrees().rem_euclid(360.0));
+    if bearing >= 360.0 { 0.0 } else { bearing }
 }
 
 /// Whose chat the agent hears (#1427), and when it is nobody's, why.
@@ -342,6 +353,24 @@ fn link_word(phase: LinkPhase) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    /// #1527: a heading is a compass bearing - north 0, east 90, south 180,
+    /// west 270, clockwise - read to the hundredth.
+    #[test]
+    fn a_heading_is_a_compass_bearing_clockwise_from_north() {
+        for (forward, bearing) in [
+            (Vec3::NEG_Z, 0.0),
+            (Vec3::X, 90.0),
+            (Vec3::Z, 180.0),
+            (Vec3::NEG_X, 270.0),
+            (Vec3::new(-1.0, 0.0, -1.0).normalize(), 315.0),
+            (Vec3::new(-1.0e-4, 0.0, -1.0).normalize(), 359.99),
+            // A hair west of north rounds up to 360.00, which is north.
+            (Vec3::new(-1.0e-6, 0.0, -1.0).normalize(), 0.0),
+        ] {
+            assert_eq!(super::heading_deg(forward), bearing, "{forward:?}");
+        }
+    }
+
     use super::*;
 
     /// Bevy looks down -Z by default; a body turned to face +Z has -X on its
@@ -420,6 +449,7 @@ mod tests {
         assert_eq!(status["room_did"], "did:plc:home");
         assert_eq!(status["position"], json!([0.0, 1.0, 0.0]));
         assert_eq!(status["facing"], json!([0.0, 1.0]));
+        assert_eq!(status["heading_deg"], 180.0, "facing +Z is facing south");
         let peers = status["peers"].as_array().expect("peers");
         assert_eq!(peers.len(), 2, "a peer with no DID yet is not listed");
         assert_eq!(peers[0]["did"], "did:plc:near", "nearest first");

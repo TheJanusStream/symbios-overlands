@@ -113,6 +113,14 @@ world_z = at_z - x * sin(t) + z * cos(t)
 Keep that as a helper and place everything else - dressing, fences - in the
 building's frame through it.
 
+**A catalogue piece faces local +Z, the other way.** Its front (a stand's
+seats, a scoreboard's screen, the first tile of `render --catalogue`) looks
+along its local +Z, while `place --yaw` turns local -Z to the bearing you
+give. So to face a catalogue piece's front toward bearing B,
+place it at yaw B + 180. Session 893 set two bleachers at yaw 225 to face a
+jump line and saw their backs; yaw 45 turned their seats to it. Check the
+first tile of `render --catalogue <slug>` and one picture after placing.
+
 ## Materials
 
 - **Borrow them.** Place a catalogue entry with the look you want (or find
@@ -134,6 +142,12 @@ building's frame through it.
   nodes: the `Lichen` texture made lichen-crusted granite where 200 disc
   patches read as polka dots ([region.md](region.md), "Backdrop").
 
+- **Checks and stripes are an `Encaustic` checkerboard**: `"pattern":
+  "Checkerboard"`, `scale` 2 (cells a tile), `color_a` and `color_b` the two
+  colours (LINEAR), `grout_width` 0.02 and `color_grout` one of them; the
+  squares are then `1 / (2 x uv_scale)` metres. One cuboid is a chequered
+  start line or banner, and one flattened spine along a bend is a red and
+  white kerb (session 893's circuit). Its `glaze_roughness` caps at 0.15.
 - **A texture field outside its envelope is pulled in, and the answer says
   so** (`adjusted_at`): a Fabric `thread_count` of 6 became 8, its floor, on
   every fence panel (session 883). The render tool keeps a record as a

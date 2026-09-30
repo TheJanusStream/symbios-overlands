@@ -92,5 +92,28 @@ impl LocomotionPanel for CarParams {
                 ui.label("Upright assist damping");
                 fp_slider(ui, &mut self.upright_assist_damping, 0.0..=5.0, 0.05, dirty);
             });
+
+        // The air model (#1524). Ranges inside `CarParams::sanitize`'s.
+        egui::CollapsingHeader::new("In the air")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new(
+                        "Off the ground W/S pitch, A/D yaw (both pressed there) and Q/E \
+                         roll the car, it levels its pitch and roll while no key holds \
+                         them, and these dampings replace the chassis ones.",
+                    )
+                    .small()
+                    .weak(),
+                );
+                ui.label("Linear damping");
+                fp_slider(ui, &mut self.air_linear_damping, 0.0..=2.0, 0.01, dirty);
+                ui.label("Angular damping");
+                fp_slider(ui, &mut self.air_angular_damping, 0.0..=10.0, 0.05, dirty);
+                ui.label("Air control strength");
+                fp_slider(ui, &mut self.air_control_accel, 0.0..=20.0, 0.1, dirty);
+                ui.label("Self-levelling strength (0 = off)");
+                fp_slider(ui, &mut self.air_level_accel, 0.0..=30.0, 0.5, dirty);
+            });
     }
 }

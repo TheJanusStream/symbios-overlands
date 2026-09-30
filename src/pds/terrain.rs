@@ -195,8 +195,10 @@ impl Default for SovereignTerrainConfig {
     }
 }
 
-/// Splat rule for a single texture layer. `[0, 1]` normalised height; slope
-/// is raw gradient magnitude in `[0, ∞)` (1.0 ≈ 45°).
+/// Splat rule for a single texture layer. Height is a `[0, 1]` fraction of
+/// `height_scale`; slope is `1 - normal.y` in `[0, 1]`, as symbios-ground's
+/// splat computes it: 0 on the flat, about 0.29 at 45 degrees, 1 on a sheer
+/// wall.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct SovereignSplatRule {
     pub height_min: Fp,

@@ -110,6 +110,9 @@ fn answer(world: &mut World, request: WorldRequest, reply: mpsc::Sender<Response
         WorldRequest::Halt => {
             movement::halt(world).map_or_else(Response::failure, Response::success)
         }
+        WorldRequest::Drive(segments) => {
+            movement::drive(world, segments).map_or_else(Response::failure, Response::success)
+        }
         WorldRequest::Travel {
             room_did,
             label,

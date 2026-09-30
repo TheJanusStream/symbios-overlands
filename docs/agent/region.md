@@ -38,6 +38,18 @@ ridge, and dropping the water from 6 to 5.2 m shrank the mere to a lake with
 an outflow. FBM makes blobby lakes, never a river: plan water mills and
 streams out ([the water is one flat plane](#the-land-is-a-recipe-not-a-sculpt)).
 
+**Mesa country** (Jink's Parabola Flats, session 893): `VoronoiTerracing`
+with `voronoi_num_terraces` 2 and `voronoi_num_seeds` 50 lays big flat cells
+at two levels - a floor at 0 and tabletop mesas at half the `height_scale` -
+and thermal erosion slumps their walls: 60 iterations left 12 m cliffs, 250
+at talus 0.02 rolled them into 11-degree hills, and 120 at talus 0.06 with
+`height_scale` 30 gave 15 m mesas whose walls reach 19 degrees over 60 m,
+still drivable. Six terraces over 300 seeds made a patchwork of small
+cliffs, and FBM made rolling hills with no flat floor. The seed scan's
+`p50` names the seed with the most floor (0.22 m: over half the map at 0).
+A mesa 15 m high reads as a thin strip on the horizon from 400 m: height on
+the skyline comes from placed rock ([Backdrop](#backdrop-making-the-far-places-read)).
+
 ## Seeing it before anyone does
 
 - **Numbers in half a second**: `render --world <your DID> --world-record
@@ -540,9 +552,52 @@ walk to each landmark by following the glow. How it was laid:
   - flattened onto the 100 m line; `adjusted_at` named the points. Place
   the generator (unsnapped, `snap_to_terrain: false`) near the middle of
   what it spans and write the points relative to it.
+- **A flat lane's spines z-fight at their joints.** `thread.py` starts each
+  16-point spine where the last ended, so on a lane (`--flat`) the two lens
+  tops share a ring and a plane: `room set` named 0.06-0.5 m2 at every joint
+  of session 893's circuit. Raise every other spine 8 mm - its points are
+  written divided by F, so add 8 mm / F to their y - and a loop laid as
+  overlapping pieces at alternating lifts needs an EVEN number of pieces,
+  or the last and the first share a lift where they close.
 - The sanitiser renormalises quaternions on the wire's grid: a rotation can
   come back one unit off in its last digit (`adjusted_at` names it). That is
   harmless, but a rebuilt piece then differs from the saved one by that unit.
+
+## Ramps and jumps for wheels
+
+Session 893 built Parabola Flats' Jump Line and drove it with `drive`
+([moving.md](moving.md#driving-a-run-stunts-measured)) on #1524's air model.
+A jump is for cars and hover-boats: they ride it on suspension rays cast
+straight down, which push on any collider but a sensor, so every part of a
+ramp is solid.
+
+- **Size a jump from a driven run, not from arithmetic.** The first
+  landings were laid by the ballistic sum; driven, the small jump came
+  down past its landing's end and the medium at the very end of its own,
+  bleeding half its speed. `drive W@20 none@4 --wait` down the line gives
+  each jump's airtime, where it left and landed, and its landing pitch;
+  lay the landing where the car comes down (Jink's Cyclecar at 14 m/s:
+  0.70 s off a 15 degree, 1 m lip; 1.33 s off a 24 degree, 2.4 m one).
+- **A tabletop's deck at lip height is not a jump**: the car rode its
+  springs across it (the small jump, 14 m/s over a 1 m lip) and never
+  left it. A deck 0.5 m below the lip gave a 0.70 s flight.
+- **Wide enough to hold a line**: a car on a held key drifts, and a
+  landing that yaws it sends every later jump off its line. 6 m ramps could
+  not hold one over three jumps; 9 m did.
+- **A gap's landing is a hump, not a wall**: a steep face (30 degrees up
+  to 1.4 m) and a gentle run-out (14 degrees), so a car that comes up
+  short meets a slope.
+- **A curved lead-in** is two shallower wedges in front of the kicker, at
+  0.3 and 0.62 of its angle, meeting the slope at 12% and 35% of the lip's
+  height, each 1 cm narrower a side than what it meets so no side faces
+  share a plane (Jink's `b/jumps.py`, `kicker`). Session 893 added them for
+  a scrape that was most likely not one: `height_m` read 0.0 on a straight
+  kicker, which a speculative contact does too (#1528), and on #1524's bench
+  the small kicker at 15 m/s never brought the Cyclecar's box within 19 mm
+  of the ramp. The landing is where a box hits.
+- **After an `apply`, `look` until `world_building` is false before the
+  next run**: one started seconds after an apply (15:34) drove the whole
+  line without a jump, most likely on ramps still being rebuilt.
 
 ## Working fast
 
@@ -589,6 +644,14 @@ What made the Understory's outer ring read, and what did not:
   (radius and drift both rising with the square of the height), billowed
   over the treeline as a spore cloud (session 877). Keep the colour
   saturated to the top and fade the emission strength instead.
+- **Rock formations are one BlobGroup of blended boxes.** Session 893's
+  sandstone buttes: faceted lathes read as storage tanks with rims, rounded
+  boxes (`bevel`) as brick buildings (a `Rock` texture on a flat wall is
+  brickwork), and a BlobGroup of 3-6 `box` elements blended 2-5 m over an
+  `ellipsoid` talus mound read as eroded sandstone - a Monument Valley
+  mitten, a castle, a stepped spire - at 1 part and 3-5k triangles each. A
+  single tall rounded column reads as something else entirely up close:
+  build spires from boxes stepped and tilted a few degrees.
 - **Surface detail belongs in a texture, not in nodes.** Lichen as disc
   patches on the Lichen Tors read as polka dots, then as sparse spots once
   cut to fit the record budget (200 discs, 30 KB); the `Lichen` texture

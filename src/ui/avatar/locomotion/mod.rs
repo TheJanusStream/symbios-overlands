@@ -701,6 +701,44 @@ mod inert_panel_tests {
         }
     }
 
+    /// #1524: the Car panel's "In the air" section draws the air model as it
+    /// finds it and writes nothing - a value between its sliders' steps is
+    /// not snapped, and one past a slider's range but inside the sanitiser's
+    /// is not clamped. The seeded fleet above only ever shows these sliders
+    /// their defaults, which sit on the steps.
+    #[test]
+    fn the_in_the_air_section_writes_nothing() {
+        use crate::pds::types::Fp;
+        for (linear, angular, control, level) in [
+            // Between the steps.
+            (0.0137, 0.4321, 3.3333, 7.7777),
+            // Past the sliders' ranges, inside the sanitiser's.
+            (5.5, 15.5, 33.3, 44.4),
+        ] {
+            let mut record = AvatarRecord::default_for_did("did:plc:in-the-air-panel");
+            let car = crate::pds::CarParams {
+                air_linear_damping: Fp(linear),
+                air_angular_damping: Fp(angular),
+                air_control_accel: Fp(control),
+                air_level_accel: Fp(level),
+                ..Default::default()
+            };
+            record.locomotion = LocomotionConfig::Car(Box::new(car));
+            let drawn = draw_tab_over(&mut record, 0, 2);
+            assert!(
+                drawn.controls.iter().any(|c| c == "In the air"),
+                "the section is drawn: {:?}",
+                drawn.controls
+            );
+            assert!(
+                drawn.moved.is_empty() && !drawn.dirty,
+                "drawing the air model wrote to it: {:?}, dirty {}",
+                drawn.moved,
+                drawn.dirty
+            );
+        }
+    }
+
     /// THE GUARD. Drawing the Locomotion tab, every section open and
     /// nothing touched, leaves the record bit-identical and the editor
     /// clean - on all fourteen seeded presets (#1390).

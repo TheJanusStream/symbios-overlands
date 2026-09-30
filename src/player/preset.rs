@@ -142,9 +142,14 @@ impl PresetComponents for CarParams {
         // rest unstable. The fraction is record tuning since #876; like the
         // collider dimensions it applies on chassis (re)build, not live.
         let com_y = -self.center_of_mass_drop.0 * self.chassis_half_extents.0[1];
-        commands
-            .entity(entity)
-            .insert(CenterOfMass(Vec3::new(0.0, com_y, 0.0)));
+        // Contact starts FULLY GROUNDED (#1524): the suspension overwrites it
+        // on the first step, and a harness that runs the drive without the
+        // suspension - the planar drive probe - measures full traction.
+        commands.entity(entity).insert((
+            CenterOfMass(Vec3::new(0.0, com_y, 0.0)),
+            super::car::CarContact::default(),
+            super::car::CarAirKeys::default(),
+        ));
     }
 }
 
@@ -215,6 +220,8 @@ pub(super) fn strip_preset_components(commands: &mut Commands, entity: Entity) {
         AirplanePreset,
         HelicopterPreset,
         CarPreset,
+        super::car::CarContact,
+        super::car::CarAirKeys,
         VehicleChassis,
         super::gait::GaitAnimation,
     )>();

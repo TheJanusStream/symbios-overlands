@@ -1,7 +1,9 @@
 //! `agent walk-to`, `follow` and `face` (#1418, #1421, #1430): the agent
 //! moves itself the way a person does - toward a point, after another
 //! player, or round to face something - until it gets there, gets stuck, or
-//! is told to stop.
+//! is told to stop. And `agent drive` (#1527): a body on wheels holds keys
+//! segment by segment, as a driver does at a ramp, and the ending says what
+//! the run did ([`keys`]).
 //!
 //! There is no movement-command layer in the game to call. Every drive
 //! system reads the keyboard (`ButtonInput<KeyCode>`) in `FixedUpdate`, and a
@@ -49,6 +51,7 @@
 
 mod flight;
 mod ground;
+mod keys;
 mod sense;
 mod wing;
 
@@ -69,6 +72,7 @@ use crate::player::humanoid::WaterState;
 use crate::state::{AppState, LiveAvatarRecord, LocalPlayer, RemotePeer, TravelingTo};
 
 use super::super::control::events::{EventKind, MoveOutcome};
+use super::super::control::protocol::DriveSegment;
 use super::observe::EventSink;
 use super::{hundredths, hundredths3};
 
@@ -153,6 +157,8 @@ enum Aim {
     /// A body that flies coming straight down, to end as `then` once it is
     /// down, having had `left` metres still to go when it stopped.
     Down { then: MoveOutcome, left: f32 },
+    /// Keys held segment by segment, the run measured as it goes (#1527).
+    Keys(Box<keys::KeyRun>),
 }
 
 /// Where a turn is: stepping (or swinging) since a time, or let go and
@@ -329,6 +335,35 @@ pub(super) fn face(world: &mut World, target: FaceTarget) -> Result<Value, Strin
     }))
 }
 
+/// Hold keys segment by segment (#1527), replacing any movement under way:
+/// a body on wheels driven at a ramp, a bend, a gap. Its ending carries what
+/// the run did.
+pub(super) fn drive(world: &mut World, asked: Vec<DriveSegment>) -> Result<Value, String> {
+    let airborne_above = keys::airborne_above(
+        &world
+            .get_resource::<LiveAvatarRecord>()
+            .ok_or("the agent has no body yet")?
+            .0
+            .locomotion,
+    )
+    .ok_or(
+        "`drive` is for a body on wheels - a car or a hover-boat; a walker walks, and a \
+         body that flies never ends a movement in the air",
+    )?;
+    let segments = keys::segments(asked)?;
+    let count = segments.len();
+    let now = world.resource::<Time<Real>>().elapsed_secs_f64();
+    let run = keys::KeyRun::new(segments, now, airborne_above);
+    let total = run.total();
+    let (started, _) = begin(world, Aim::Keys(Box::new(run)), false)?;
+    Ok(json!({
+        "goal_id": started.id,
+        "segments": count,
+        "total_s": hundredths(total as f32),
+        "events_seq": started.events_seq,
+    }))
+}
+
 /// A movement just begun: its id, and the event cursor a caller that wants
 /// to wait for its end reads from - nothing before it can be this one's.
 struct Started {
@@ -376,7 +411,7 @@ fn begin(world: &mut World, aim: Aim, run: bool) -> Result<(Started, Vec3), Stri
     let now = world.resource::<Time<Real>>().elapsed_secs_f64();
     let best_distance = match &aim {
         Aim::Point(target) => position.xz().distance(*target),
-        Aim::Peer { .. } | Aim::Heading { .. } | Aim::Down { .. } => f32::INFINITY,
+        Aim::Peer { .. } | Aim::Heading { .. } | Aim::Down { .. } | Aim::Keys(_) => f32::INFINITY,
     };
     let mut movement = world.get_resource_or_init::<Movement>();
     let replaced = movement.goal.take();
@@ -450,6 +485,11 @@ fn grounded(drive: Drive, craft: &Craft) -> bool {
 /// What the agent is doing on its feet (or wheels, or rotors), for
 /// `status`: `None` when standing still of its own accord.
 pub(super) fn describe(world: &mut World) -> Value {
+    // Only a drive reads the clock, and a world with no movement - a test's,
+    // or the daemon's before its first frame - may have none yet.
+    let now = world
+        .get_resource::<Time<Real>>()
+        .map_or(0.0, Time::<Real>::elapsed_secs_f64);
     let Some(movement) = world.get_resource::<Movement>() else {
         return Value::Null;
     };
@@ -498,6 +538,15 @@ pub(super) fn describe(world: &mut World) -> Value {
             "doing": "landing",
             "then": then,
         }),
+        Aim::Keys(run) => {
+            let (segment, left) = run.describe(now);
+            json!({
+                "goal_id": goal.id,
+                "doing": "driving",
+                "segment": segment.map(|index| index + 1),
+                "left_s": hundredths(left as f32),
+            })
+        }
     };
     if flying && matches!(goal.aim, Aim::Point(_) | Aim::Peer { .. }) {
         described["phase"] = json!(phase);
@@ -520,7 +569,7 @@ fn distance_left(goal: &Goal, position: Vec3) -> f32 {
     match &goal.aim {
         Aim::Point(target) => position.xz().distance(*target),
         Aim::Peer { gap, .. } => *gap,
-        Aim::Heading { .. } => 0.0,
+        Aim::Heading { .. } | Aim::Keys(_) => 0.0,
         Aim::Down { left, .. } => *left,
     }
 }
@@ -532,21 +581,25 @@ fn end(world: &mut World, goal: &Goal, outcome: MoveOutcome, position: Vec3) {
         Drive::Rotor(_) | Drive::Wing(_) => sense::height(world),
         Drive::Ground(_) => None,
     };
+    let now = world
+        .get_resource::<Time<Real>>()
+        .map_or(0.0, Time::<Real>::elapsed_secs_f64);
     world
         .resource::<EventSink>()
         .0
-        .push(ended(goal, outcome, position, forward, height));
+        .push(ended(goal, outcome, position, forward, height, now));
 }
 
-/// The event that says how `goal` ended, with the body at `position`
-/// facing `forward` - and, for a body that flies, `height` above what is
-/// below it.
+/// The event that says how `goal` ended at `now`, with the body at
+/// `position` facing `forward` - and, for a body that flies, `height` above
+/// what is below it; for a drive, what the run did.
 fn ended(
     goal: &Goal,
     outcome: MoveOutcome,
     position: Vec3,
     forward: Vec3,
     height: Option<f32>,
+    now: f64,
 ) -> EventKind {
     EventKind::MovementEnded {
         goal_id: goal.id,
@@ -555,9 +608,13 @@ fn ended(
         distance_left_m: hundredths(distance_left(goal, position)),
         facing_off_deg: match &goal.aim {
             Aim::Heading { dir, .. } => Some(hundredths(heading_off(forward, *dir))),
-            Aim::Point(_) | Aim::Peer { .. } | Aim::Down { .. } => None,
+            Aim::Point(_) | Aim::Peer { .. } | Aim::Down { .. } | Aim::Keys(_) => None,
         },
         height_m: height.map(hundredths),
+        report: match &goal.aim {
+            Aim::Keys(run) => Some(run.report(now)),
+            _ => None,
+        },
     }
 }
 
@@ -614,6 +671,9 @@ pub(super) fn steer(
     sink: Res<EventSink>,
     // Only a flight reads it, and it wants the physics a walk does not.
     sensing: Option<sense::Sensing>,
+    // A car's own count of wheels on the ground, which a drive's report
+    // reads to know when it is in the air (#1527, #1524).
+    contact: Query<&crate::player::CarContact, With<LocalPlayer>>,
 ) {
     let Some(goal) = movement.goal.as_mut() else {
         return;
@@ -625,6 +685,10 @@ pub(super) fn steer(
     let craft = sensing.as_ref().and_then(sense::Sensing::craft);
     let step = if *state.get() != AppState::InGame || traveling.is_some() || body.is_none() {
         Step::End(MoveOutcome::Interrupted)
+    } else if let Aim::Keys(run) = &mut goal.aim {
+        // A drive holds what it was told whatever the body is doing, and
+        // notes each frame what that was (#1527).
+        run.step(now, craft.as_ref(), contact.single().ok().map(|c| c.wheels))
     } else {
         match (goal.drive, sensing.as_ref(), craft.as_ref()) {
             (Drive::Ground(ground), ..) => {
@@ -655,7 +719,8 @@ pub(super) fn steer(
                 Drive::Rotor(_) | Drive::Wing(_) => craft.map(|craft| craft.height()),
                 Drive::Ground(_) => None,
             };
-            sink.0.push(ended(goal, outcome, position, forward, height));
+            sink.0
+                .push(ended(goal, outcome, position, forward, height, now));
             movement.goal = None;
             return;
         }
@@ -812,6 +877,8 @@ fn steer_ground(
         }
         // A body on the ground is down already.
         Aim::Down { then, .. } => Step::End(*then),
+        // `steer` holds a drive's keys itself, before it gets here.
+        Aim::Keys(_) => Step::End(MoveOutcome::Interrupted),
     }
 }
 
@@ -882,6 +949,8 @@ fn steer_flight(
                 Flown::Landed | Flown::Stuck => Step::End(*then),
             }
         }
+        // `drive` refuses a body that flies.
+        Aim::Keys(_) => Step::End(MoveOutcome::Interrupted),
     }
 }
 
@@ -913,8 +982,9 @@ fn steer_wing(
             // Down - or unable to get down: it ends as it would have.
             Flown::Landed | Flown::Stuck => Step::End(*then),
         },
-        // `begin` refuses a follow in an airplane.
-        Aim::Peer { .. } => Step::End(MoveOutcome::Interrupted),
+        // `begin` refuses a follow in an airplane, and `drive` any body that
+        // flies.
+        Aim::Peer { .. } | Aim::Keys(_) => Step::End(MoveOutcome::Interrupted),
     }
 }
 

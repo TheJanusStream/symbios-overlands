@@ -42,7 +42,7 @@ use cli::{Cli, Command};
 use control::protocol::Request;
 use lifecycle::{list_accounts, run_daemon, run_login, start_daemon};
 use requests::{
-    JsonRecord, ask, catalogue, face, follow, gift, look, move_placement, place, placements,
+    JsonRecord, ask, catalogue, drive, face, follow, gift, look, move_placement, place, placements,
     record_json, remove, save, travel, ui, walk_to, watch_events,
 };
 
@@ -72,6 +72,7 @@ fn execute(command: Command) -> Result<ExitCode, String> {
         ),
         Command::WalkTo(args) => walk_to(args),
         Command::Halt(account) => ask(account.name.as_deref(), Request::Halt),
+        Command::Drive(args) => drive(args),
         Command::Travel(args) => travel(args),
         Command::Look(args) => look(args),
         Command::Follow(args) => follow(args),

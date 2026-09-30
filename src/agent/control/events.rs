@@ -51,9 +51,9 @@ pub enum EventKind {
     ChatDropped { from_did: String },
     /// A trip the agent started did not arrive.
     TravelFailed { to_did: String, reason: String },
-    /// A walk, follow or turn the agent started has ended, one way or
-    /// another. `distance_left_m` is to the point, the player or - for a
-    /// turn - 0.
+    /// A walk, follow, turn or drive the agent started has ended, one way
+    /// or another. `distance_left_m` is to the point, the player or - for a
+    /// turn or a drive - 0.
     MovementEnded {
         goal_id: u64,
         outcome: MoveOutcome,
@@ -67,6 +67,10 @@ pub enum EventKind {
         /// below it - about nothing once it has landed.
         #[serde(skip_serializing_if = "Option::is_none")]
         height_m: Option<f64>,
+        /// A `drive` only (#1527): what the run did - its speed, each jump
+        /// and how it landed, how far the body tipped.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        report: Option<DriveReport>,
     },
     /// A follow has closed no distance on its player for a while: something
     /// is in the way. It keeps trying until it is halted; this is said once
@@ -134,6 +138,66 @@ pub enum MoveOutcome {
     PeerLeft,
     /// Travel, or leaving the world, cut it short.
     Interrupted,
+    /// Every segment of a `drive` was held for its time (#1527).
+    Driven,
+}
+
+/// What a `drive` did (#1527), measured every frame it ran. Lengths in
+/// metres, speeds in metres a second, angles in degrees, times in seconds
+/// from the drive's start - all to the hundredth.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct DriveReport {
+    /// How long it ran, and how far the body went over the ground.
+    pub duration_s: f64,
+    pub distance_m: f64,
+    /// The fastest the body went over the ground.
+    pub max_speed_ms: f64,
+    /// The furthest its up leaned from straight up, and whether that was
+    /// past 90 degrees: on its side or its roof at some point.
+    pub max_tilt_deg: f64,
+    pub rolled_over: bool,
+    /// How far its up leans from straight up as the drive ends.
+    pub end_tilt_deg: f64,
+    /// Every time it left the ground, in order.
+    pub jumps: Vec<JumpReport>,
+}
+
+/// One time a `drive` left the ground (#1527), and came back to it. A car is
+/// off the ground while none of its wheels is down - the count its traction
+/// uses, a wheel counting while its ray meets the ground within the
+/// suspension's rest length and 15 cm and the car is within 70 degrees of
+/// upright - and its underside is more than 10 cm up; a hover-boat, while
+/// its underside is higher than its suspension's rest length and 5 cm. Either for
+/// two frames running.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct JumpReport {
+    /// When it left the ground and when it came back - or `None` while it
+    /// was still in the air as the drive ended.
+    pub off_s: f64,
+    pub landed_s: Option<f64>,
+    pub airtime_s: f64,
+    /// Where it left the ground and where it came back, (x, z), and how far
+    /// apart those are.
+    pub from: [f64; 2],
+    pub to: [f64; 2],
+    pub distance_m: f64,
+    /// How far the body rose above where it left the ground, and the most
+    /// it had under it at any moment in the air.
+    pub rise_m: f64,
+    pub max_clearance_m: f64,
+    /// Its speed over the ground as it left, and as it landed, and how fast
+    /// it was coming down.
+    pub off_speed_ms: f64,
+    pub landing_speed_ms: f64,
+    pub landing_sink_ms: f64,
+    /// Its attitude as it landed: nose up positive, right side up positive.
+    /// Each is an arcsine, so it folds at 90: a landing on the roof reads
+    /// as a level one here, and only `landing_tilt_deg` tells them apart.
+    pub landing_pitch_deg: f64,
+    pub landing_roll_deg: f64,
+    /// How far its up leaned from straight up as it landed: 0 on its
+    /// wheels, 90 on a side or its nose, 180 on its roof.
+    pub landing_tilt_deg: f64,
 }
 
 /// A batch of events for one `agent events` call.

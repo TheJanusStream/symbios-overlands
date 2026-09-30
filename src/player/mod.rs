@@ -30,8 +30,10 @@
 //!   to forward airspeed, pitch / roll / yaw torque from input.
 //! - **Helicopter** - cuboid fuselage, auto-stabilising hover thrust,
 //!   cyclic + strafe + yaw input, vertical climb/descend on Space/Shift.
-//! - **Car** - cuboid chassis, four-corner raycast suspension, ground
-//!   drive + steering + handbrake, no buoyancy.
+//! - **Car** - cuboid chassis, four-corner raycast suspension with a bump
+//!   stop, drive + steering + handbrake through the wheels on the ground and
+//!   an air model (pitch / yaw / roll control, self-levelling, air damping)
+//!   off it, no buoyancy.
 //!
 //! All five read their tuning from the live
 //! [`LiveAvatarRecord`](crate::state::LiveAvatarRecord), so UI
@@ -60,14 +62,16 @@
 //!   modes) and the `humanoid_water_state` classifier.
 //! * [`airplane`] - Airplane preset: thrust + control-surface forces.
 //! * [`helicopter`] - Helicopter preset: auto-stabilised hover + cyclic.
-//! * [`car`] - Car preset: ground drive + steering + handbrake.
+//! * [`car`] - Car preset: suspension + bump stop, ground drive + steering +
+//!   handbrake, the air model, uprighting.
 //! * [`portal`] - `handle_portal_interaction`,
 //!   `poll_portal_travel_tasks`, and the `PortalTravelTask` async job.
 //!   `begin_portal_travel` / `PortalCooldown` are re-exported for the
 //!   unsaved-edits guard in [`crate::ui::unsaved_guard`], which owns the
 //!   confirm step between portal contact and the actual travel fetch.
-//! * `sim` (tests only) - a bench that flies one body under the game's own
-//!   flight systems and avian, stepped by hand (#1430).
+//! * `sim` (tests only) - benches that run one body under the game's own
+//!   flight systems (#1430) or car systems (#1524) and avian, stepped by
+//!   hand.
 
 mod airplane;
 pub(crate) mod attachments;
@@ -87,6 +91,10 @@ pub(crate) mod sim;
 mod spawn;
 pub mod visuals;
 
+// Read only by the agent's `drive` (#1527), which is Unix-only like the
+// rest of the agent: ungated, this is an unused import on wasm32.
+#[cfg(unix)]
+pub(crate) use car::CarContact;
 pub(crate) use hotswap::AppliedAvatar;
 pub(crate) use portal::PORTAL_COOLDOWN_SECS;
 pub use portal::PortalContact;

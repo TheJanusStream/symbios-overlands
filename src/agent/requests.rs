@@ -6,11 +6,11 @@
 use std::process::ExitCode;
 
 use super::cli::{
-    CatalogueArgs, EventsArgs, FaceArgs, FollowArgs, GiftAction, GiftArgs, JsonAction, LookArgs,
-    MoveArgs, PlaceArgs, PlacementsArgs, RecordJsonArgs, RemoveArgs, SaveArgs, TravelArgs,
-    UiAction, UiArgs, WalkToArgs,
+    CatalogueArgs, DriveArgs, EventsArgs, FaceArgs, FollowArgs, GiftAction, GiftArgs, JsonAction,
+    LookArgs, MoveArgs, PlaceArgs, PlacementsArgs, RecordJsonArgs, RemoveArgs, SaveArgs,
+    TravelArgs, UiAction, UiArgs, WalkToArgs,
 };
-use super::control::protocol::{LookSpec, Request, Response, UnsavedEdits};
+use super::control::protocol::{DriveSegment, LookSpec, Request, Response, UnsavedEdits};
 use super::{config, control, find_session, print_json, resolve_name, session_file};
 
 pub(super) fn watch_events(args: EventsArgs) -> Result<ExitCode, String> {
@@ -86,6 +86,41 @@ pub(super) fn walk_to(args: WalkToArgs) -> Result<ExitCode, String> {
         [player] => walk_to_player(account, player, args.distance, args.run),
         _ => Err("walk-to takes a point's x and z, or a player".to_owned()),
     }
+}
+
+/// Start a drive (#1527): each `KEYS@SECONDS` segment held in turn; with
+/// `--wait`, follow the event log to its `movement_ended`, which carries the
+/// run's report, and print that.
+pub(super) fn drive(args: DriveArgs) -> Result<ExitCode, String> {
+    let segments = args
+        .segments
+        .iter()
+        .map(|raw| drive_segment(raw))
+        .collect::<Result<Vec<_>, _>>()?;
+    move_and_wait(
+        args.account.name.as_deref(),
+        &Request::Drive { segments },
+        args.wait,
+    )
+}
+
+/// One `KEYS@SECONDS` segment: keys joined by `+`, `none` (any case) or
+/// nothing for none. The names and the time are the daemon's to check.
+fn drive_segment(raw: &str) -> Result<DriveSegment, String> {
+    let (keys, secs) = raw
+        .rsplit_once('@')
+        .ok_or_else(|| format!("{raw:?} is not KEYS@SECONDS (W@2, W+D@0.5, none@1)"))?;
+    let secs = secs
+        .trim()
+        .parse::<f32>()
+        .map_err(|_| format!("{raw:?}: {secs:?} is not a number of seconds"))?;
+    let keys = keys.trim();
+    let keys = if keys.is_empty() || keys.eq_ignore_ascii_case("none") {
+        Vec::new()
+    } else {
+        keys.split('+').map(|key| key.trim().to_owned()).collect()
+    };
+    Ok(DriveSegment { keys, secs })
 }
 
 fn metres(raw: &str) -> Result<f32, String> {
@@ -562,7 +597,26 @@ pub(super) fn ui(args: UiArgs) -> Result<ExitCode, String> {
 mod tests {
     use serde_json::json;
 
-    use super::{save_ended, stand_off, xz};
+    use super::{drive_segment, save_ended, stand_off, xz};
+
+    /// #1527: `KEYS@SECONDS`, keys joined by `+`, `none` for none; the keys'
+    /// names are the daemon's to check, the shape is this side's.
+    #[test]
+    fn a_drive_segment_is_keys_at_seconds() {
+        let held = drive_segment("W+d@0.5").expect("two keys");
+        assert_eq!(
+            (held.keys, held.secs),
+            (vec!["W".to_owned(), "d".to_owned()], 0.5)
+        );
+        let coast = drive_segment("none@2").expect("no keys");
+        assert!(coast.keys.is_empty() && coast.secs == 2.0);
+        // Any case, as the key names are.
+        let shouted = drive_segment("NONE@1").expect("no keys, shouted");
+        assert!(shouted.keys.is_empty(), "{:?}", shouted.keys);
+        for bad in ["W2", "W@", "W@two", "@"] {
+            assert!(drive_segment(bad).is_err(), "{bad:?} accepted");
+        }
+    }
 
     /// #1456: "come here" stops `distance` short of the player on the line
     /// from the agent - not on them, and not past them - and does not move

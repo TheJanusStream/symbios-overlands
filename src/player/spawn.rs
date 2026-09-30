@@ -269,14 +269,22 @@ mod tests {
     /// this test's.
     ///
     /// GRAVITY OFF AND NO GROUND is an honest harness for the planar feel,
-    /// which is the whole of what the card reports. Read off both systems in
-    /// session 833: neither [`super::hover_boat::apply_hover_boat_drive`] nor
-    /// [`super::car::apply_car_drive`] gates on ground contact - each wants a
-    /// `LiveAvatarRecord`, a `ButtonInput<KeyCode>`, a `LocalPlayer` with its
-    /// preset marker and no `TravelingTo` - so the suspension stays out of
-    /// it. And the buoyancy's drag acts along the water's NORMAL only (its
-    /// own comment: lateral resistance is the body's linear damping), so a
-    /// boat's numbers here are her numbers over still water.
+    /// which is the whole of what the card reports.
+    /// [`super::hover_boat::apply_hover_boat_drive`] does not gate on ground
+    /// contact - it wants a `LiveAvatarRecord`, a `ButtonInput<KeyCode>`, a
+    /// `LocalPlayer` with its preset marker and no `TravelingTo` - so the
+    /// suspension stays out of it. [`super::car::apply_car_drive`] DOES,
+    /// since #1524: it scales throttle, steering and grip by the wheels its
+    /// `CarContact` says are down, which only the car's suspension writes.
+    /// This harness runs no suspension and leaves the contact at the default
+    /// the chassis is built with, all four wheels down, so the car drives
+    /// here with full traction - and on the record's ground dampings, which
+    /// only the suspension would swap for the air ones.
+    /// `the_planar_probe_drives_as_a_car_on_the_ground_does` holds that
+    /// premise against the drive bench, gravity, springs and all. And the
+    /// buoyancy's drag acts along the water's NORMAL only (its own comment:
+    /// lateral resistance is the body's linear damping), so a boat's numbers
+    /// here are her numbers over still water.
     fn drive_app(record: &AvatarRecord) -> (App, Entity) {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
@@ -775,6 +783,112 @@ mod tests {
                  {:.4}% over its last second",
                 c.coast_distance,
                 c.yaw_drift * 100.0
+            );
+        }
+    }
+
+    /// #1524: the planar probe's premise, held against the car as it really
+    /// drives. The drive bench runs the car's suspension, drive and
+    /// uprighting over a floor with gravity on - the contact the drive reads
+    /// is the rays', the dampings the suspension's - and on the flat, W held,
+    /// the car must reach the planar probe's top speed within 2%. Were the
+    /// ground to cost traction, or the dampings not to be the record's with
+    /// four wheels down, the card would describe a car nobody drives.
+    #[test]
+    fn the_planar_probe_drives_as_a_car_on_the_ground_does() {
+        let mut car = AvatarRecord::default_for_did("did:plc:planar-probe-premise");
+        car.locomotion = LocomotionConfig::Car(Box::default());
+        let cyclecar = AvatarRecord::default_for_did("did:plc:lr2ocunor73lfqpwtgvt274o");
+        let secs = Window::GUARD.straight_secs;
+        for (name, record) in [("the default car", car), ("the seeded Cyclecar", cyclecar)] {
+            let (mut app, entity) = drive_app(&record);
+            for _ in 0..(DRIVE_HZ * secs) as usize {
+                drive_step(&mut app, &[KeyCode::KeyW]);
+            }
+            let planar = motion(&app, entity).0;
+
+            let mut bench = crate::player::sim::DriveBench::parked(&record, 0.0, 240.0);
+            bench.hold(&[KeyCode::KeyW]);
+            bench.run(secs);
+            let v = bench.velocity();
+            let grounded = Vec3::new(v.x, 0.0, v.z).length();
+            assert_eq!(
+                bench.contact().wheels,
+                4,
+                "{name} on the flat has four wheels down"
+            );
+            assert!(
+                (grounded - planar).abs() < 0.02 * planar,
+                "{name}: {grounded:.3} m/s on the ground against the planar probe's {planar:.3}"
+            );
+        }
+    }
+
+    /// #1524: the car's traction is the share of its wheels down, and every
+    /// ground force takes it - with two wheels of four down the throttle
+    /// pushes, the steering turns and the grip holds at half what four give.
+    /// Run on this harness because only here can the contact be set by hand
+    /// (the drive bench's suspension writes it every step), with the
+    /// record's dampings at 0 so each response is its force alone.
+    #[test]
+    fn half_the_wheels_down_is_half_the_throttle_steering_and_grip() {
+        use crate::pds::CarParams;
+        use crate::pds::types::Fp;
+        use crate::player::car::CarContact;
+        let mut record = AvatarRecord::default_for_did("did:plc:half-traction");
+        record.locomotion = LocomotionConfig::Car(Box::new(CarParams {
+            linear_damping: Fp(0.0),
+            angular_damping: Fp(0.0),
+            ..Default::default()
+        }));
+        let respond = |wheels: u8| {
+            let on = |app: &mut App, entity: Entity| {
+                app.world_mut()
+                    .get_mut::<CarContact>(entity)
+                    .expect("the car has a contact")
+                    .wheels = wheels;
+            };
+            // W from rest: the speed it gathers.
+            let (mut app, entity) = drive_app(&record);
+            on(&mut app, entity);
+            for _ in 0..8 {
+                drive_step(&mut app, &[KeyCode::KeyW]);
+            }
+            let throttle = motion(&app, entity).0;
+            // A from rest: the yaw rate it gathers.
+            let (mut app, entity) = drive_app(&record);
+            on(&mut app, entity);
+            for _ in 0..8 {
+                drive_step(&mut app, &[KeyCode::KeyA]);
+            }
+            let steering = motion(&app, entity).1;
+            // Sliding sideways at 1 m/s, no key: the slide one step takes.
+            let (mut app, entity) = drive_app(&record);
+            on(&mut app, entity);
+            app.world_mut()
+                .get_mut::<LinearVelocity>(entity)
+                .expect("the chassis has a linear velocity")
+                .0 = Vec3::X;
+            drive_step(&mut app, &[]);
+            let grip = 1.0
+                - app
+                    .world()
+                    .get::<LinearVelocity>(entity)
+                    .expect("a velocity")
+                    .0
+                    .x;
+            [throttle, steering, grip]
+        };
+        let (four, two) = (respond(4), respond(2));
+        for (name, full, half) in [
+            ("throttle", four[0], two[0]),
+            ("steering", four[1], two[1]),
+            ("grip", four[2], two[2]),
+        ] {
+            assert!(full > 0.0, "the premise: four wheels give some {name}");
+            assert!(
+                (half / full - 0.5).abs() < 0.01,
+                "two wheels down must give half the {name}: {half:.4} against {full:.4}"
             );
         }
     }

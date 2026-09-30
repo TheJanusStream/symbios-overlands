@@ -948,7 +948,9 @@ struct ControlRow {
 // GLOBAL_ROWS and EDITOR_ROWS only. `on_foot_rows_mirror_the_humanoid_
 // handler` closes that (#1235 f40/f41) - Shift became the run key with
 // #1193 and the sheet went on calling it "swim down", while Space
-// advertised a "climb" the humanoid controller has never implemented.
+// advertised a "climb" the humanoid controller has never implemented - and
+// `skiff_rows_mirror_the_car_handler` does it for the car, whose air model
+// (#1524) gave W/S/A/D a second meaning and Q/E a first.
 const ON_FOOT_ROWS: &[ControlRow] = &[
     ControlRow {
         keys: "W A S D  or  Arrows",
@@ -989,18 +991,30 @@ const BOAT_ROWS: &[ControlRow] = &[
         action: "hop up",
     },
 ];
+// The air rows mirror `player::car`'s air model (#1524): W/S/A/D count in
+// the air only when pressed there - held from the ground they drive and
+// steer - and Q/E whenever held, and with no key on pitch or roll the car
+// levels that axis itself.
 const SKIFF_ROWS: &[ControlRow] = &[
     ControlRow {
         keys: "W / S  or  ⬆ / ⬇",
-        action: "throttle / reverse",
+        action: "throttle / reverse · pressed in the air: pitch nose down / up",
     },
     ControlRow {
         keys: "A / D  or  ⬅ / ➡",
-        action: "steer (on the ground)",
+        action: "steer on the ground · pressed in the air: yaw",
+    },
+    ControlRow {
+        keys: "Q / E",
+        action: "roll left / right in the air",
     },
     ControlRow {
         keys: "Space",
         action: "handbrake",
+    },
+    ControlRow {
+        keys: "no key",
+        action: "in the air the car levels its pitch and roll",
     },
 ];
 const AIRSHIP_ROWS: &[ControlRow] = &[
@@ -1642,6 +1656,92 @@ mod tests {
             },
         ),
     ];
+
+    /// Every `KeyCode` `player::car` reads, and the fragment [`SKIFF_ROWS`]
+    /// must print for it (#1524) - the same guard as the on-foot one below.
+    const SKIFF_KEY_ROWS: &[(&str, &str)] = &[
+        ("KeyW", "W / S"),
+        ("KeyS", "W / S"),
+        ("ArrowUp", "⬆ / ⬇"),
+        ("ArrowDown", "⬆ / ⬇"),
+        ("KeyA", "A / D"),
+        ("KeyD", "A / D"),
+        ("ArrowLeft", "⬅ / ➡"),
+        ("ArrowRight", "⬅ / ➡"),
+        ("KeyQ", "Q / E"),
+        ("KeyE", "Q / E"),
+        ("Space", "Space"),
+    ];
+
+    /// **The skiff rows mirror the car handler** (#1524), as the on-foot
+    /// rows do the humanoid's: every key `player::car` reads is on the sheet,
+    /// and so is what the air model does with them - it gave W/S/A/D a
+    /// second meaning in the air, Q/E their only one, and the car a
+    /// levelling of its own, and a sheet that kept saying "steer (on the
+    /// ground)" and nothing else left the air model to the collapsed editor
+    /// section that was its only description.
+    #[test]
+    fn skiff_rows_mirror_the_car_handler() {
+        let handler = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/player/car.rs"),
+        )
+        .expect("the car handler is readable");
+        let printed: String = SKIFF_ROWS
+            .iter()
+            .map(|r| format!("{}\n{}\n", r.keys, r.action))
+            .collect();
+
+        let mut bound: Vec<&str> = Vec::new();
+        let mut rest = handler.as_str();
+        while let Some(at) = rest.find("KeyCode::") {
+            rest = &rest[at + "KeyCode::".len()..];
+            let end = rest
+                .find(|c: char| !c.is_ascii_alphanumeric())
+                .unwrap_or(rest.len());
+            let key = &rest[..end];
+            if !bound.contains(&key) {
+                bound.push(key);
+            }
+        }
+        assert!(
+            bound.len() >= 11,
+            "the handler scan found only {bound:?} - it has stopped working"
+        );
+        for key in bound {
+            let (_, fragment) = SKIFF_KEY_ROWS
+                .iter()
+                .find(|(name, _)| *name == key)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "player::car binds KeyCode::{key} and SKIFF_KEY_ROWS does not know \
+                         it - say what it does on the sheet"
+                    )
+                });
+            assert!(
+                printed.contains(fragment),
+                "the sheet never prints {fragment:?} for KeyCode::{key}:\n{printed}"
+            );
+        }
+
+        // What the air model does with the keys, each tied to the code that
+        // does it, so neither half can go without the other noticing.
+        for (code, says) in [
+            ("nose_down", "pitch"),
+            ("yaw_left", "yaw"),
+            ("roll_left", "roll"),
+            ("fn air_level_torque", "levels"),
+            ("fn on_the_ground", "pressed in the air"),
+        ] {
+            assert!(
+                handler.contains(code),
+                "player::car no longer has {code:?}; re-check what the sheet says about it"
+            );
+            assert!(
+                printed.contains(says),
+                "player::car has {code:?} and the sheet never says {says:?}:\n{printed}"
+            );
+        }
+    }
 
     /// **The on-foot rows mirror the humanoid handler** (#1235 f40/f41).
     ///

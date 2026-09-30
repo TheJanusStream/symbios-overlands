@@ -7,10 +7,11 @@ Pillow; they find the repo from their own place in it and use the binaries
 built with `--profile test-release`. With more than one session saved,
 start each call with `AGENT_ACCOUNT=<the agent's handle>`: each script adds
 `--account` to every command it runs (the flag goes anywhere on the line).
-While a sub-agent works on the render tool, copy the binary aside and start
-each call with `AGENT_RENDER=<the copy>` as well: the scripts then use it,
-and a rebuild (with mutant guards in, or half-linked) does not change the
-tool under you. Do not `export` either where each command runs in a fresh
+While a sub-agent works on the render tool or the client, copy the binary
+aside and start each call with `AGENT_RENDER=<the copy>` (and
+`AGENT_BIN=<the copy>` for the agent) as well: the scripts then use it, and
+a rebuild (with mutant guards in, or half-linked) does not change the tool
+under you. Do not `export` either where each command runs in a fresh
 shell ([../session.md](../session.md#starting)).
 
 | Script | What it does |

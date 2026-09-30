@@ -932,6 +932,7 @@ $A walk-to -104.9 125.7 --wait       # straight line; ends arrived/stuck/halted
 $A walk-to @friend.example.com       # "come here": 3 m short of them (--distance), then face them
 $A follow @friend.example.com        # stay about 3 m behind them (--distance, --run)
 $A face @friend.example.com          # turn to face them - or a point: face X Z
+$A drive W@4 W+D@0.6 W@3 none@2 --wait   # a body on wheels, by the keys; ends with the run's report
 $A travel @alice.example.com --wait  # a DID, a handle, or `home`
 $A look                              # a PNG of the game's own view; prints its path
 $A look --view eyes --heading 90     # from the eyes, looking right (or --at X Z)
@@ -1009,7 +1010,28 @@ waits for a player whose body has not been placed yet (a sleeping browser
 tab) rather than walking to the stand-in at the map's centre; it ends only
 when halted or replaced, when the player leaves, or on travel, and says
 `follow_blocked` once when the agent itself has got nowhere for a while.
-`face` turns the
+`drive` (#1527) is
+for a body on wheels, a car or a hover-boat: it holds each segment's keys
+for that segment's seconds - no aiming, no stopping for what is in the way -
+and its `movement_ended` (outcome `driven` when every segment ran) carries a
+`report` of the run, measured every frame: its duration, distance and top
+speed over the ground, how far its up tipped (`rolled_over` past 90
+degrees) and where it ended, and each jump in order - when it left the
+ground and landed, its airtime, where from and to and how far, how high it
+rose above where it left, the most it had under it, its speed leaving and
+landing, how fast it came down, its pitch (nose up positive) and roll
+(right side up positive) as it landed, and its landing tilt - how far its
+up leaned from straight up, 0 on its wheels and 180 on its roof, which
+pitch and roll alone cannot tell apart. A car is off the ground while
+none of its wheels is down - the count its traction uses: a wheel counts
+while its ray meets what is below it, the ground or a tabletop's deck,
+within the suspension's rest length and 15 cm - and its underside is more
+than 10 cm up; a hover-boat while its underside is higher than its
+suspension's rest length and 5 cm. Either for two frames running. The
+keys change only on the daemon's frames, 30 a second (the physics steps 64
+times a second between them), so a segment is held for whole frames: one
+shorter than a frame, 33 ms, can be skipped, and a 0.05 s pulse lasts one
+frame or two. A walker or a body that flies is refused. `face` turns the
 way a person turns: on foot in short steps, each re-aimed by however far the
 last one came to rest from the way asked (a slope pushes a step sideways),
 judged only once the body is still; its `movement_ended` carries
