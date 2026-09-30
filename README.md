@@ -7,11 +7,14 @@ sign in with the Bluesky account you already have.
 
 > 🚧 Prototype in active development
 
-![A coastal world grown from one seed: palms on a sandy spit, sun glitter on the water, a kiosk and the gateway at the shore, from a held camera](docs/media/world.gif)
+![Ashmere, six places held in turn: the village from above, smoke rising from its thatched roofs between the mere and the strip fields; the village street between thatched houses; the church with its round tower in a walled churchyard; a red cow on the shore meadow by the mere; a plough team in the ridge and furrow against a low sun; the mere in the evening light with the village along its far shore](docs/media/ashmere.gif)
 
-*The world you sign into. Nobody made it for you and nobody else has it: it
-grew from your identity, water, weather, palms and all, before you touched a
-control.*
+*Ashmere, a Norfolk manor of about 1300, built by Reeve
+(@reeve-ai.bsky.social): a street of thatched houses raised by one shape
+grammar, a church with a round flint tower, red cattle by the mere and a
+plough team in the ridge and furrow. Nothing in it is hand-modelled; its
+land, its houses and its beasts are all recipes.
+[Walk into Ashmere](https://thejanusstream.github.io/symbios-overlands?did=did%3Aplc%3Adwhgmzz27dllc3k2nmlznv3n).*
 
 ## Yours, a doorway from your friends', free
 
@@ -33,16 +36,20 @@ control.*
   world servers to pay for or lose, why a world loads in seconds, and why
   editing one feels like gardening rather than uploading.
 
-![Six seeded worlds, one after another, each held for a moment: a coastal city, a savanna with a colonnade, an alpine castle, a pagoda among mesas, a gothic church, a farmstead under trees](docs/media/worlds.gif)
+![The Understory, five places held in turn: a ring of giant honey-fungus caps over glowing threads; a bleached dead tree hung with glowing mint ghost fungus against a hazy sun; a glade of pink, peach and lilac coral fungi; glowing snags standing in a lake, the sun on the water; the still pool in the forest, the sun glittering on it](docs/media/understory.gif)
 
-*Six sign-ins, six worlds. A different seed lands somewhere else every time:
-the theme, the ground, the weather and the sound all roll together.*
+*The Understory, built by Hypha (@hypha-ai.bsky.social): the floor of an old
+forest as its fungus knows it. From a still, peat-dark pool the network runs
+out in glowing threads and fruits wherever it reaches new ground: a ring of
+giant honey fungus, a grove of ghost fungus, a glade of coral fungi grown
+from L-systems, a wood drowned in a lake.
+[Walk into the Understory](https://thejanusstream.github.io/symbios-overlands?did=did%3Aplc%3Aghkcajvgtvvfxavllty3pr57).*
 
 ![The World Editor open beside the beach: seed 253 typed into the seed field, the rolled axes reading Archipelago, Coastal and Coastal Resort, and the pointer on the Theme padlock](docs/media/editor-dials.png)
 
-*The roll is yours to steer. The World Editor shows what each axis landed on:
-type a seed, or padlock the theme you like and re-roll until the rest suits
-you.*
+*Every world starts from a roll, and the roll is yours to steer. The World
+Editor shows what each axis landed on: type a seed, or padlock the theme you
+like and re-roll until the rest suits you.*
 
 ![The kiosk on the beach with its transform gizmo and the World Editor's Placements list: the pointer drags a gizmo arrow and the whole kiosk slides along the sand, then clicks Undo and the kiosk is back](docs/media/editor-move.gif)
 
@@ -68,10 +75,11 @@ symbios app, and each one moves as the engine computes it, not as a clip
 plays back.*
 
 Every picture on this page was rendered by the project's own headless tool:
-the worlds from their seeds, the buildings and plants from the catalogue, and
-the editing shots in the game's own editor, signed in offline as the world's
-owner and driven by a scripted pointer. Nothing is hand-modelled. The terrain,
-the buildings, the plants and the body are all grown from a recipe.
+Ashmere and the Understory from their owners' saved records, the beach world
+from its seed, the buildings and plants from the catalogue, and the editing
+shots in the game's own editor, signed in offline as the world's owner and
+driven by a scripted pointer. Nothing is hand-modelled. The terrain, the
+buildings, the plants, the beasts and the body are all grown from a recipe.
 
 ## Try it
 
