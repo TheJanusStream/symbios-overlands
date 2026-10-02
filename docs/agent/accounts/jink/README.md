@@ -29,8 +29,8 @@ session.
 | Commands | every agent command takes `--account jink-ai.bsky.social`; every tool call starts `AGENT_ACCOUNT=jink-ai.bsky.social` ([session.md](../../session.md#starting)) |
 | Admin | @codewright.bsky.social, the owner: `start --admin @codewright.bsky.social --allow-save` |
 | Region | Parabola Flats, Jink's own world: its DID is Jink's, the `--world` of every offline render |
-| Working folder | `exports/jink/` (gitignored, on this machine only), kept across sessions: `A` the agent wrapper (it runs the copy in `bin/`), `b/` the builders, `gen/` what they write, `src/` the last saves - `room.json` (2026-10-02 15:34, save event seq 90 - the daemon restarted at 14:25 and numbers afresh) and `avatar.json` (09:21, seq 160) - and `log.md` the save log; numbered subfolders (`893/`, `895/`) are earlier scratchpads, read-only |
-| Last session | chainlink session 895 (live session 10 continued, on #1523; nobody visited), after session 893 - read #1523's comments (`chainlink show 1523`); `chainlink session last-handoff` is the latest session of any kind |
+| Working folder | `exports/jink/` (gitignored, on this machine only), kept across sessions: `A` the agent wrapper (it runs the copy in `bin/`), `b/` the builders, `gen/` what they write, `src/` the last saves - `room.json` (2026-10-02 20:21, save event seq 2 - the daemon restarted at 20:19 and numbers afresh) and `avatar.json` (09:21, seq 160) - and `log.md` the save log; numbered subfolders (`893/`, `895/`, `896/`) are earlier scratchpads, read-only |
+| Last session | chainlink session 897 (live session 11, on #1523: the softer wind saved on the owner's word, Jink up two minutes to do it), after sessions 896 (offline: the wind rendered for the owner's ear) and 895 - read #1523's comments (`chainlink show 1523`); `chainlink session last-handoff` is the latest session of any kind |
 | Default mode | self-guided ([session.md](../../session.md#self-guided)), as the first session ran |
 | Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), or Reeve's world (Ashmere) or avatar ([reeve/](../reeve/README.md)) |
 
@@ -187,9 +187,19 @@ Three spots on the brow were compared in session 893
   behind and west of the arrival, on the south mesa, thin over the map;
   dry grass tufts on the tongue mesa's aprons. None stand in the arrival's
   view: the first try put a saguaro across half its frame.
-- **Sound** (the first session's own, 10:29): the seed's desert wind and
-  gusts, its organ dirge and bass removed, the wind bed halved to 0.25.
-  Unheard: the owner's to judge.
+- **Sound**: the seed's desert wind and gusts (session 893: its organ dirge
+  and bass removed, the wind bed halved to 0.25), softened on the owner's
+  word on 2026-10-02 (session 897, saved 20:21). They had found it "a
+  little too harsh and thereby unpleasant on the ears": the bed was pink
+  noise through a HIGH-pass at about 1.35 kHz (59% of the sound above 2
+  kHz, none under 500 Hz - hiss), the gusts white noise band-passed at
+  1.75 kHz (a whistle). Now the bed runs through a gentle low-pass at 700
+  Hz (Q 0.70) that breathes 300 Hz either way, and the gusts through a band
+  at 650 Hz twice as wide (Q 0.8); every instrument, level and event as
+  before (`b/sound_soft.py soft`). They chose it by ear ("wind_soft sounds
+  good") from `exports/jink/896/wind_soft.wav` over `wind_medium.wav`,
+  which a slip in the builder (fixed) gave the same bed: the two differed
+  only in their gusts.
 - **The show's life** (2026-10-02): 42 seated spectators on the four
   stands in show-day shirts, a few in caps (a body lathe and a head each:
   `b/crowd.py`; the floating report counts them as free, since they sit on
@@ -218,6 +228,8 @@ the `shipping_containers` generator (43,056 of 102,400 bytes,
 | 2026-09-30 | #1522 | **The account**: @jink-ai.bsky.social, created by the owner; the concept in the owner's words: "focussed on playing with the physics of land-skiffs. So its region will contain props like ramps for jumping, maybe a race-track and themed around stunt-driving with land-skiffs." |
 | 2026-09-30 | #1523 | **Build Jink's region and custom avatar**: "Now please add Jink properly and start building Jink's region and custom avatar" - full permission to edit Jink's region and avatar, and leave to save each improvement (a first session run self-guided) |
 | 2026-09-30 | #1523, #1524 | **Change land-skiff physics in general**: "You are allowed to make changes to the way Overlands land-skiff locomotion and physics work in general, to enhance the driving (and jumping) experience." |
+| 2026-10-02 | - | **The light is approved** (the owner, terminal): "The light looks good." The late-afternoon sun, sky and fog stay as session 893 set them |
+| 2026-10-02 | - | **The softer wind** (the owner, terminal): the wind was "a little too harsh"; of two renders they chose the soft one ("wind_soft sounds good"), saved 20:21 (the Sound bullet) |
 | 2026-10-02 | #1534 | **Fleet damping**: every seeded skiff's suspension damping raised to about 0.35 of critical (from 0.11), so a skiff settles after a landing instead of porpoising |
 | 2026-10-02 | #1535 | **Soften the bump stop's rebound**: no landing may come back up harder with the stop than without it (kept, with #1538's terrain fix, after the critic measured terrain landings) |
 | 2026-10-02 | #1523 | **No lap timing**: checkpoints and a lap timer for the Circuit are NOT wanted - it stays an untimed loop |
@@ -232,7 +244,7 @@ the `shipping_containers` generator (43,056 of 102,400 bytes,
 | Path | What it holds |
 |---|---|
 | `A`, `bin/` | the agent wrapper and the copies of `agent` and `render` it and the tools use (session 895's build of 14:25, with #1528-#1538); beside them the earlier ones: `*.s895-0817` (the committed 13d5515, session 895's morning), `*.s893-1739` (session 893's last), `agent.head-64e27ab` (HEAD before session 893), `agent.drive-oldphysics`, `*.drive-1530` |
-| `src/room.json`, `src/avatar.json` | the last saves (room 2026-10-02 15:34, seq 90; avatar 09:21, seq 160) |
+| `src/room.json`, `src/avatar.json` | the last saves (room 2026-10-02 20:21, seq 2; avatar 09:21, seq 160) |
 | `src/room_seeded.json`, `src/avatar_seeded.json` | the seed's world and body (the reference) |
 | `b/land.py` | the land, ground, light, sound and arrival; also writes `edits_clear_ONCE.txt` (never again: it replaces every generator and placement with the bare terrain) and `edits_land.txt` |
 | `b/jumps.py`, `b/start_drift.py`, `b/props.py` | the Jump Line, its start gantry and the drift circle, the catalogue props round it (`props.py` prints `place` commands) |
@@ -241,10 +253,12 @@ the `shipping_containers` generator (43,056 of 102,400 bytes,
 | `b/lineup.py`, `b/aim.py`, `b/trace.py` | back to the Jump Line's start and facing down it; turning to a bearing within 0.5 degrees; a drive with `status` polled every 0.1 s |
 | `b/ground_playa.py`, `b/mesa_drop.py`, `b/lineup_md.py`, `b/place.py` | the playa crust (`key=value` overrides); the Mesa Drop (`angle=`, `lip=`, `lip_s=`; fits the kicker's plane to the ground, re-runs set its placements); a route round the kicker onto the run-up; the car at rest on a point by throttle-and-brake moves, then aimed |
 | `b/windmill_fix.py`, `b/track_jump.py`, `b/crowd.py`, `b/dust.py`, `b/windsock.py`, `b/fire_ring.py`, `b/markers.py`, `b/circuit_lines.py` | the windmill's head, braces and blades; the circuit tabletop from the tuned jump; the spectators; the dust devils; the windsocks; the ring of fire; the distance posts; the circuit's edge lines (each on its own lane piece, by `thread.py --ride`) |
+| `b/sound_soft.py` | the softer wind (`soft`, saved; `medium`, the other proposal); it stops at its first assert on the saved record, whose bed no longer has the high-pass it replaces |
 | `b/land_try.py`, `b/viewcopy.py`, `b/butte_blob.py` | seed-scan copies; a viewing copy with the fog pushed out; the first blob butte trial |
 | `log.md` | the save log |
 | `893/` | session 893's notes (`notes.md`), scans, apply logs, command files, and the Jump Line's runs: `run_before_1.json` and `trace_before_*.txt` on the old physics, `run_after_*.json` and `trace_after_*.txt` on #1524's |
-| `895/` | session 895's review pictures and comparisons, the Mesa Drop's ground grids (`md_ground*.json`) and runs (`run_md_*.json`, `run_md_4_newphys.json` on the new physics), the tabletop's and whoops' runs, the Jump Line through the ring (`run_jl_ring.json`) and on the new physics (`run_jl_newphys.json`, `trace_jl_newphys.txt`), and the triangle and floating reports |
+| `895/` | session 895's review pictures and comparisons, the Mesa Drop's ground grids (`md_ground*.json`) and runs (`run_md_*.json`, `run_md_4_newphys.json` on the new physics), the tabletop's and whoops' runs, the Jump Line through the ring (`run_jl_ring.json`) and on the new physics (`run_jl_newphys.json`, `trace_jl_newphys.txt`), the triangle and floating reports, and `room_sound_soft.json` (the saved room with the soft wind: what `896/wind_soft.wav` was rendered from, and what was saved at 20:21) |
+| `896/` | session 896's wind renders for the owner's ear (`render --ambient-wav`): `wind_now.wav` (the harsh one), `wind_soft.wav` (chosen), `wind_medium.wav` and its record |
 
 The pulled records are the truth, not the builders: diff a builder's output
 against the record before applying it. `b/circuit.py` rewrites
@@ -347,16 +361,34 @@ lines (the placements are 21-28).
   and #1541 (a car sent to a point behind it ends `stuck`: its swing
   outlasts the 6 s progress rule; pre-existing).
 
+### 2026-10-02: sessions 896 and 897, live session 11, #1523
+
+- **Mode**: on the owner's word in the terminal. 896 (offline): they
+  approved the light and found the wind too harsh; the cause read off the
+  patch, two softer versions rendered for their ear, and parry's
+  internal-edge fix put into bevy_symbios_ground's collider builder for
+  their release (#1542). 897: they published bevy_symbios_ground 0.6.0 and
+  chose the soft wind.
+- **Built**: the soft wind, applied live and saved at 20:21 (Jink up two
+  minutes to do it); the saved record is the one `wind_soft.wav` was
+  rendered from, compared whole.
+- **Code**: overlands builds its terrain and its physics benches' floor
+  with the crate's builder again (#1542). The crate spans a map's samples
+  times its scale, so a bench floor sized as before came out 8 m wider,
+  and an airplane bench that flies out past the floor's edge came round
+  differently and did not land in time; the floor keeps its old 512 m
+  and asserts it.
+- **Found**: the terrain collider is stretched against the drawn ground,
+  in every room since it existed (#1543): 0.29 m off at 500 m out on a 0.3
+  slope. On Parabola Flats' level pan it moves nothing; the Mesa Drop's
+  landing, on a 15-19 degree slope about 110 m out, sits 6-7 cm off.
+
 ## Open threads
 
-- **The owner's to do outside the game**: commit session 895's working
-  tree; remove session 893's git worktree `/home/codewright/Workspace/overlands-drive-verb`
-  and branch `jink-drive-verb` (the hook blocks `git worktree remove`);
-  give bevy_symbios_ground's `build_heightfield_collider` parry's
-  internal-edge flag when it next releases (overlands builds its own since
-  #1538).
-- **The owner's word on the mood**: the light and the sound are theirs to
-  judge; nobody has heard the sound.
+- **The owner's to do outside the game**: commit sessions 896-897's
+  working tree (overlands on bevy_symbios_ground 0.6); #1543 waits on a
+  bevy_symbios_ground release (proposed as 0.7.0) before overlands can
+  follow.
 - **Filed in session 895, open**: #1541 (medium: a car's walk-to of a
   point behind it ends `stuck` while it swings round - turn it first with
   `face` or `b/aim.py`), #1539 (a car on its side with its roof downhill on

@@ -59,7 +59,7 @@ egui_ltreeview = "0.8"
 # the equivalent gate with a right-button override instead (#702).
 bevy_panorbit_camera = "0.35"
 bevy_symbios = "0.10"
-bevy_symbios_ground = { version = "0.5", features = ["physics"] }
+bevy_symbios_ground = { version = "0.6", features = ["physics"] }
 bevy_symbios_multiuser = "0.7"
 bevy_symbios_texture = { version = "0.12", features = ["egui"] }
 # The Bevy-free core, for its per-field texture registry: the mirrors in

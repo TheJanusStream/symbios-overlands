@@ -46,8 +46,6 @@
 //! every sub-module touches some subset of them.
 
 mod heightmap;
-#[cfg(test)]
-pub(crate) use heightmap::heightfield_collider;
 pub(crate) use heightmap::heightmap_params;
 mod lifecycle;
 mod lots;

@@ -70,16 +70,28 @@ fn bench_app<M>(
         .init_resource::<ButtonInput<KeyCode>>()
         .insert_resource(LiveAvatarRecord(record.clone()))
         .add_systems(FixedUpdate, systems);
-    // The floor is a heightfield, built as the game's terrain is (with
-    // parry's internal-edge fix, #1538), and of the heightmap's size:
-    // against one box thousands of metres across a shape cast stops
-    // centimetres short of it.
-    let floor = vec![vec![0.0; FLOOR_CELLS + 1]; FLOOR_CELLS + 1];
-    app.world_mut().spawn((
-        RigidBody::Static,
-        crate::terrain::heightfield_collider(floor, Vec3::new(FLOOR_M, 1.0, FLOOR_M)),
-        Transform::IDENTITY,
-    ));
+    // The floor is a heightfield, built by the builder the game's terrain
+    // uses (with parry's internal-edge fix, #1538), and of the heightmap's
+    // size: against one box thousands of metres across a shape cast stops
+    // centimetres short of it. The builder spans a map's `world_width()`,
+    // its samples times its scale, so FLOOR_CELLS + 1 samples span FLOOR_M
+    // at a scale of FLOOR_M / (FLOOR_CELLS + 1).
+    let floor =
+        bevy_symbios_ground::build_heightfield_collider(&bevy_symbios_ground::HeightMap::new(
+            FLOOR_CELLS + 1,
+            FLOOR_CELLS + 1,
+            FLOOR_M / (FLOOR_CELLS + 1) as f32,
+        ));
+    // The flight benches fly out past the floor's edge, so its size steers
+    // them: 8 m wider, one came round again and did not land in time.
+    let spans = floor.shape().as_heightfield().map(|field| field.scale());
+    assert_eq!(
+        spans,
+        Some(Vec3::new(FLOOR_M, 1.0, FLOOR_M)),
+        "the bench floor is not {FLOOR_M} m across: has the builder's extent changed?"
+    );
+    app.world_mut()
+        .spawn((RigidBody::Static, floor, Transform::IDENTITY));
     let body = app
         .world_mut()
         .spawn(super::spawn::chassis_root_bundle(at))
