@@ -92,14 +92,32 @@ fn build_tree() -> Generator {
             ));
         }
     }
-    // Two diagonal cross-braces on the front face.
-    for (cy, ang) in [(2.3_f32, 0.6_f32), (5.7, 0.6)] {
+    // Two diagonal cross-braces in the back face, leg to leg across the
+    // second and third bays up from the pad, between the first three ring
+    // braces. (They used to turn about X, which stood them out of
+    // the face at its middle, touching nothing: #1537.)
+    let ring_y = |k: f32| 0.3 + tower_h * (k / 4.5);
+    for (k, lean) in [(1.0_f32, -1.0_f32), (2.0, 1.0)] {
+        let (low, high) = (ring_y(k), ring_y(k + 1.0));
+        let rise = high - low;
         prims.push(prim(
-            cuboid_tapered([0.07, 3.4, 0.07], 0.0, enamel(STEEL)),
-            [0.0, cy, half],
-            quat_x(ang),
+            cuboid_tapered(
+                [0.07, (4.0 * half * half + rise * rise).sqrt(), 0.07],
+                0.0,
+                enamel(STEEL),
+            ),
+            [0.0, (low + high) * 0.5, half],
+            quat_z(lean * (2.0 * half).atan2(rise)),
         ));
     }
+    // A cap plate on the leg tops, and a gearbox head on it that the tail
+    // boom runs through: the head used to hang 0.35 m over the legs (#1537).
+    let leg_top = 0.3 + tower_h;
+    prims.push(prim(
+        solid(cuboid_tapered([2.2, 0.1, 2.2], 0.0, enamel(STEEL))),
+        [0.0, leg_top + 0.05, 0.0],
+        id_quat(),
+    ));
 
     // Fan wheel at the top, facing the −Z front (the camera) so the multi-blade
     // wheel reads head-on; the tail vane trails to the +Z back. A rotated
@@ -125,12 +143,15 @@ fn build_tree() -> Generator {
         quat_x(FRAC_PI_2),
     ));
     // Radial sheet-steel blades around the wheel face.
+    // Neighbours overlap near the hub, so every other blade stands 4 mm
+    // further forward: in one plane their faces z-fought (#1537).
     let blades = 16;
     for k in 0..blades {
         let th = k as f32 / blades as f32 * TAU;
+        let z = blade_z - if k % 2 == 1 { 0.004 } else { 0.0 };
         prims.push(prim(
             cuboid_tapered([1.1, 0.26, 0.03], 0.0, enamel([0.8, 0.82, 0.84])),
-            [0.95 * th.cos(), hub_y + 0.95 * th.sin(), blade_z],
+            [0.95 * th.cos(), hub_y + 0.95 * th.sin(), z],
             quat_z(th),
         ));
     }
@@ -141,15 +162,30 @@ fn build_tree() -> Generator {
         quat_x(FRAC_PI_2),
     ));
 
-    // Tail boom and vane trailing to the +Z back.
+    // Tail boom and vane trailing to the +Z back. The boom starts 5 cm inside
+    // the hub (its back face is at hub_z + 0.25) - it used to stop 25 cm
+    // short - and runs through the gearbox head on the tower's cap.
     prims.push(prim(
-        solid(cuboid_tapered([0.1, 0.1, 2.2], 0.0, enamel(STEEL))),
-        [0.0, hub_y, hub_z + 1.6],
+        solid(cuboid_tapered([0.1, 0.1, 2.5], 0.0, enamel(STEEL))),
+        [0.0, hub_y, hub_z + 1.45],
         id_quat(),
     ));
+    let head_low = leg_top + 0.1 - 0.01;
+    let head_high = hub_y + 0.05 + 0.06;
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [0.36, head_high - head_low, 0.5],
+            0.0,
+            enamel(STEEL),
+        )),
+        [0.0, (head_low + head_high) * 0.5, 0.0],
+        id_quat(),
+    ));
+    // The vane stands 0.3 m up on the boom, so its foot clears the cap plate
+    // it hung 15 cm through (#1537's review).
     let mut vane = prim(
         solid(cuboid_tapered([0.06, 1.1, 1.5], 0.0, enamel(TRACTOR_GREEN))),
-        [0.0, hub_y, hub_z + 2.6],
+        [0.0, hub_y + 0.3, hub_z + 2.6],
         id_quat(),
     );
     vane.audio = fx::windmill_creak();

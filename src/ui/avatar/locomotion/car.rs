@@ -3,6 +3,7 @@
 use bevy_egui::egui;
 
 use super::{LocomotionPanel, fp_slider, fp3_extents};
+use crate::config::rover as cfg;
 use crate::pds::CarParams;
 use crate::player::LocalMovement;
 
@@ -45,10 +46,12 @@ impl LocomotionPanel for CarParams {
                     dirty,
                 );
                 ui.label("Damping");
+                // Up to what the heaviest seeded skiff derives (#1534): the
+                // default car's 1,360 scaled by 1,500 / 900 kg is 2,267.
                 fp_slider(
                     ui,
                     &mut self.suspension_damping,
-                    10.0..=2_000.0,
+                    10.0..=2_500.0,
                     10.0,
                     dirty,
                 );
@@ -80,10 +83,12 @@ impl LocomotionPanel for CarParams {
                     .weak(),
                 );
                 ui.label("Upright assist engages beyond tilt (°)");
+                // The sanitiser's own range (#1532).
                 fp_slider(
                     ui,
                     &mut self.upright_engage_tilt_degrees,
-                    15.0..=90.0,
+                    cfg::CAR_UPRIGHT_ENGAGE_TILT_MIN_DEGREES
+                        ..=cfg::CAR_UPRIGHT_ENGAGE_TILT_MAX_DEGREES,
                     1.0,
                     dirty,
                 );

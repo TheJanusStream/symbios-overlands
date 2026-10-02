@@ -85,10 +85,9 @@ mod tests {
     /// instead of reporting "Broken pipe" (#1511).
     #[test]
     fn a_request_refused_mid_send_is_answered_with_the_daemons_reason() {
-        let dir = std::env::temp_dir().join(format!("sa-cut-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("a directory");
-        let path = dir.join("agent.sock");
+        // Its directory goes with the guard, failed or not (#1517).
+        let path = super::super::TestSocket::new("cut");
+        std::fs::create_dir_all(path.parent().expect("a directory")).expect("made");
         let listener = std::os::unix::net::UnixListener::bind(&path).expect("bound");
         // the stand-in reads a little, answers why it stopped, and hangs up
         // with the rest unread - as the daemon does past MAX_REQUEST_BYTES
@@ -111,7 +110,6 @@ mod tests {
         let response = call(&path, &request).expect("the refusal, read");
 
         daemon.join().expect("the stand-in finished");
-        let _ = std::fs::remove_dir_all(&dir);
         assert!(!response.ok);
         assert_eq!(response.error.as_deref(), Some("the request is too long"));
     }

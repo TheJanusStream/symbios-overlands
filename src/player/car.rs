@@ -71,7 +71,7 @@ pub(crate) struct CarContact {
     /// through it, so they still reach the ground unless the box is very
     /// tall or very wide; the touch covers those, which a record may author.
     /// Touching means a point of the box within
-    /// [`cfg::CAR_BODY_TOUCH_M`] of the thing, not merely one of avian's
+    /// [`cfg::BODY_TOUCH_M`] of the thing, not merely one of avian's
     /// speculative contacts.
     pub(crate) near_ground: bool,
     /// The car lies on the ground rather than flying or driving: its box on
@@ -100,29 +100,43 @@ impl CarContact {
     }
 }
 
-/// The car suspension's bump stop (#1524): past `start` of the rest length a
-/// corner adds a force rising with the square of how far past it is, and
-/// damps the corner both ways, so a landing keeps the chassis box off the
-/// ground where the linear spring alone let it hit.
+/// The car suspension's bump stop (#1524, #1535): past `start` of the rest
+/// length a corner adds a force rising with the square of how far past it
+/// is, and damps the corner both ways, harder as it opens, so a landing keeps
+/// the chassis box off the ground where the linear spring alone let it hit,
+/// and comes back up no harder than it would have off the box.
 ///
 /// Every term is per kilogram of the corner's quarter of the mass, so the
 /// stop holds any car the same way. It is shaped by what a 64 Hz fixed step
-/// can integrate, each part MEASURED on the drive bench:
+/// can integrate, each part MEASURED on the drive bench, on the suspension
+/// damping of #1534 unless it says otherwise:
 ///
+/// * The spring is soft. #1524's, at a rate of 1,000, held the box higher
+///   but handed a hard landing's energy back: off the jump table's ramps at
+///   15-20 m/s the Cyclecar came back up at up to 4.5 m/s, against 2.7 with
+///   no stop at all. At 300 none of the landings `probe_the_landing_sweep`
+///   runs comes back up harder with the stop than without it (#1535).
 /// * The spring is weighed where the corner will be at the END of the step
 ///   (`compression + closing speed x dt`). The force is held for the whole
 ///   step, and a stiff one weighed at the step's start pushes too little
-///   going in and too much coming out: this stop weighed that way let a 3 m
-///   drop down to 5 mm over the floor and threw it back up at 4.3 m/s,
-///   harder than the box hitting the ground does (3.7). Weighed ahead it
-///   brakes earlier and lets go sooner: 38 mm, and 2.8 m/s.
+///   going in and too much coming out: #1524's stiffer stop weighed that way
+///   let a 3 m drop down to 5 mm over the floor and threw it back up at 4.3
+///   m/s, harder than the box hitting the ground does (3.7); weighed ahead,
+///   38 mm and 2.8 m/s (both on the suspension's old damping). The soft
+///   spring cares less: 61 mm weighed ahead, 52 at the step's start, and
+///   the same 1.4 m/s back up.
 /// * The look-ahead is a share of the stop's travel like the depth is, so
 ///   it stops at full travel, where the box is on the ground. Unbounded,
-///   the first, stiffer stop tried threw a car that landed at 9 m/s back up
-///   at 10.
-/// * The damping works both ways. Damping only the compression lets the
-///   spring hand its energy back: from 2 m / 3 m a car rebounded at 4.7 /
-///   6.2 m/s, against 2.3 / 2.8 both ways and 3.7 with no stop at all.
+///   the first, stiffer stop #1524 tried threw a car that landed at 9 m/s
+///   back up at 10; the soft spring never reaches the bound up to a 4 m
+///   drop.
+/// * The damping works both ways, and harder as the corner opens. Damping
+///   only the compression lets the spring hand its energy back: from 2 / 3 /
+///   4 m a car came back up at 2.4 / 3.2 / 4.2 m/s, against 2.4 / 2.7 / 2.7
+///   with no stop at all. Damped as hard opening as closing it came back up
+///   at 1.6, and at [`cfg::CAR_BUMP_STOP_REBOUND`] at 1.4. A corner opening
+///   is pushed less by it, never pulled, so that damping needs none of the
+///   step's limit that the closing damping keeps under.
 ///
 /// A resource, which the game never inserts, so the default - the
 /// `config::rover` constants - is what every car rides on; the drive bench
@@ -137,8 +151,11 @@ pub(crate) struct CarBumpStop {
     pub(crate) rate: f32,
     /// Damping (1/s) at full travel, fading to none at `start`: per
     /// kilogram of the corner, this times the depth times the speed the
-    /// corner closes on the ground at, or opens from it.
+    /// corner closes on the ground at.
     pub(crate) damping: f32,
+    /// The same while the corner opens from the ground again (#1535):
+    /// harder, so a landing's energy does not come back out of the stop.
+    pub(crate) rebound: f32,
 }
 
 impl Default for CarBumpStop {
@@ -147,6 +164,7 @@ impl Default for CarBumpStop {
             start: cfg::CAR_BUMP_STOP_START,
             rate: cfg::CAR_BUMP_STOP_RATE,
             damping: cfg::CAR_BUMP_STOP_DAMPING,
+            rebound: cfg::CAR_BUMP_STOP_REBOUND,
         }
     }
 }
@@ -158,6 +176,7 @@ impl CarBumpStop {
         start: 1.0,
         rate: 0.0,
         damping: 0.0,
+        rebound: 0.0,
     };
 
     /// The stop's extra force (N) at a corner compressed `compression` m of
@@ -180,7 +199,13 @@ impl CarBumpStop {
         let depth = ((compression - start) / travel).clamp(0.0, 1.0);
         let ahead = ((compression + closing_speed * dt - start) / travel).clamp(0.0, 1.0);
         let spring = self.rate * travel * ahead * ahead;
-        let damping = self.damping * depth * closing_speed;
+        // Harder as the corner opens than as it closes (#1535).
+        let coefficient = if closing_speed >= 0.0 {
+            self.damping
+        } else {
+            self.rebound
+        };
+        let damping = coefficient * depth * closing_speed;
         corner_mass * (spring + damping)
     }
 }
@@ -317,7 +342,7 @@ pub(super) fn apply_car_suspension(
                         manifold
                             .points
                             .iter()
-                            .any(|point| point.penetration > -cfg::CAR_BODY_TOUCH_M)
+                            .any(|point| point.penetration > -cfg::BODY_TOUCH_M)
                     })
             })
     });
@@ -367,6 +392,90 @@ pub(super) fn apply_car_suspension(
     }
 }
 
+/// What a key does on the car with a wheel on the ground: through the
+/// wheels, so scaled by the traction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OnTheGround {
+    Throttle,
+    Reverse,
+    SteerLeft,
+    SteerRight,
+    Handbrake,
+}
+
+/// What a key does in the air (#1524), about the chassis' own axes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InTheAir {
+    NoseDown,
+    NoseUp,
+    YawLeft,
+    YawRight,
+    /// The left side down.
+    RollLeft,
+    /// The right side down.
+    RollRight,
+}
+
+/// A key the car reads, and what it does on the ground and in the air -
+/// either of which may be nothing.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CarKey {
+    pub(crate) key: KeyCode,
+    pub(crate) on_the_ground: Option<OnTheGround>,
+    pub(crate) in_the_air: Option<InTheAir>,
+}
+
+impl CarKey {
+    const fn new(
+        key: KeyCode,
+        on_the_ground: Option<OnTheGround>,
+        in_the_air: Option<InTheAir>,
+    ) -> Self {
+        Self {
+            key,
+            on_the_ground,
+            in_the_air,
+        }
+    }
+}
+
+/// Every key the car reads, and what each does (#1533). The drive reads
+/// the keyboard through this table and nowhere else, and the controls
+/// sheet's skiff rows are checked against it. The arrows double W/S/A/D, in
+/// the air as on the ground; Q/E act only in the air and Space only on the
+/// ground.
+pub(crate) const CAR_KEYS: [CarKey; 11] = {
+    use InTheAir::*;
+    use OnTheGround::*;
+    [
+        CarKey::new(KeyCode::KeyW, Some(Throttle), Some(NoseDown)),
+        CarKey::new(KeyCode::ArrowUp, Some(Throttle), Some(NoseDown)),
+        CarKey::new(KeyCode::KeyS, Some(Reverse), Some(NoseUp)),
+        CarKey::new(KeyCode::ArrowDown, Some(Reverse), Some(NoseUp)),
+        CarKey::new(KeyCode::KeyA, Some(SteerLeft), Some(YawLeft)),
+        CarKey::new(KeyCode::ArrowLeft, Some(SteerLeft), Some(YawLeft)),
+        CarKey::new(KeyCode::KeyD, Some(SteerRight), Some(YawRight)),
+        CarKey::new(KeyCode::ArrowRight, Some(SteerRight), Some(YawRight)),
+        CarKey::new(KeyCode::KeyQ, None, Some(RollLeft)),
+        CarKey::new(KeyCode::KeyE, None, Some(RollRight)),
+        CarKey::new(KeyCode::Space, Some(Handbrake), None),
+    ]
+};
+
+/// Whether a key that does `what` on the ground is held.
+fn held_on_the_ground(keyboard: &ButtonInput<KeyCode>, what: OnTheGround) -> bool {
+    CAR_KEYS
+        .iter()
+        .any(|car_key| car_key.on_the_ground == Some(what) && keyboard.pressed(car_key.key))
+}
+
+/// Whether a key that does `what` in the air is held.
+fn held_in_the_air(keyboard: &ButtonInput<KeyCode>, what: InTheAir) -> bool {
+    CAR_KEYS
+        .iter()
+        .any(|car_key| car_key.in_the_air == Some(what) && keyboard.pressed(car_key.key))
+}
+
 /// The six air-control keys (#1524). `pub(super)` only because the drive
 /// system remembers a set of them in a `Local` and [`CarAirKeys`] carries a
 /// set on the chassis, and both are.
@@ -381,17 +490,16 @@ pub(super) struct AirKeys {
 }
 
 impl AirKeys {
-    /// The keys as they stand this step. The arrows double W/S/A/D, as they
-    /// do on the ground.
+    /// The keys as they stand this step, read through [`CAR_KEYS`].
     fn read(keyboard: &ButtonInput<KeyCode>) -> Self {
-        let any = |keys: &[KeyCode]| keys.iter().any(|k| keyboard.pressed(*k));
+        let held = |what| held_in_the_air(keyboard, what);
         Self {
-            nose_down: any(&[KeyCode::KeyW, KeyCode::ArrowUp]),
-            nose_up: any(&[KeyCode::KeyS, KeyCode::ArrowDown]),
-            yaw_left: any(&[KeyCode::KeyA, KeyCode::ArrowLeft]),
-            yaw_right: any(&[KeyCode::KeyD, KeyCode::ArrowRight]),
-            roll_left: any(&[KeyCode::KeyQ]),
-            roll_right: any(&[KeyCode::KeyE]),
+            nose_down: held(InTheAir::NoseDown),
+            nose_up: held(InTheAir::NoseUp),
+            yaw_left: held(InTheAir::YawLeft),
+            yaw_right: held(InTheAir::YawRight),
+            roll_left: held(InTheAir::RollLeft),
+            roll_right: held(InTheAir::RollRight),
         }
     }
 
@@ -596,13 +704,13 @@ pub(super) fn apply_car_drive(
 
     // ---- On the ground: through the wheels, so scaled by traction. ----
     if t > 0.0 {
-        let handbrake = keyboard.pressed(KeyCode::Space);
+        let handbrake = held_on_the_ground(&keyboard, OnTheGround::Handbrake);
         let drive = p.drive_force.0 * t;
         if !handbrake {
-            if keyboard.pressed(KeyCode::KeyW) || keyboard.pressed(KeyCode::ArrowUp) {
+            if held_on_the_ground(&keyboard, OnTheGround::Throttle) {
                 forces.apply_force(flat_forward * drive);
             }
-            if keyboard.pressed(KeyCode::KeyS) || keyboard.pressed(KeyCode::ArrowDown) {
+            if held_on_the_ground(&keyboard, OnTheGround::Reverse) {
                 forces.apply_force(-flat_forward * drive);
             }
         }
@@ -614,10 +722,10 @@ pub(super) fn apply_car_drive(
         // A always yaws left.
         let forward_speed = flat_forward.dot(lin_vel);
         let steer = local_up * (p.turn_torque.0 * t) * super::reverse_steer_sign(forward_speed);
-        if keyboard.pressed(KeyCode::KeyA) || keyboard.pressed(KeyCode::ArrowLeft) {
+        if held_on_the_ground(&keyboard, OnTheGround::SteerLeft) {
             forces.apply_torque(steer);
         }
-        if keyboard.pressed(KeyCode::KeyD) || keyboard.pressed(KeyCode::ArrowRight) {
+        if held_on_the_ground(&keyboard, OnTheGround::SteerRight) {
             forces.apply_torque(-steer);
         }
 
@@ -936,6 +1044,33 @@ mod tests {
             spinning.dot(righting_axis) < still.dot(righting_axis),
             "a chassis already rotating upright should get less righting torque"
         );
+    }
+
+    /// The latch holds back from the air exactly the keys [`CAR_KEYS`] gives
+    /// a meaning on the ground (#1533): W/S/A/D and the arrows, held from the
+    /// ground, drive and steer and must not also tip the car; Q/E, which do
+    /// nothing there, count in the air whenever held.
+    #[test]
+    fn the_latch_holds_back_the_keys_that_act_on_the_ground() {
+        for car_key in CAR_KEYS {
+            let mut keyboard = ButtonInput::<KeyCode>::default();
+            keyboard.press(car_key.key);
+            let held = AirKeys::read(&keyboard);
+            assert_eq!(
+                held != AirKeys::default(),
+                car_key.in_the_air.is_some(),
+                "{:?} is read in the air if and only if it does something there",
+                car_key.key
+            );
+            if car_key.in_the_air.is_some() {
+                assert_eq!(
+                    held.on_the_ground() == held,
+                    car_key.on_the_ground.is_some(),
+                    "{:?}: the latch holds back a key that also acts on the ground, and only one",
+                    car_key.key
+                );
+            }
+        }
     }
 
     #[test]
@@ -1395,6 +1530,34 @@ mod air_model {
         );
     }
 
+    /// An air key the drive counted stops holding its axis once the drive
+    /// stands down (#1530). The suspension clears the keys every step and
+    /// only the drive writes them back, so a drive gated off by the chat
+    /// leaves none held and the passive halves act on every axis (#821).
+    /// Here E is pressed with the car on its back in the air, the player
+    /// starts typing, and the car comes down on its roof: the uprighting
+    /// assist must have the roll E held. With the keys kept it left the roll
+    /// out, and the car stayed on its roof.
+    #[test]
+    fn a_key_counted_before_the_player_types_does_not_keep_the_car_down() {
+        let record = default_car();
+        // On its back, its roof 1.6 m up: in the air and out of its rays'
+        // reach, so E counts.
+        let mut bench = DriveBench::new(
+            &record,
+            Transform::from_xyz(0.0, 2.0, 0.0)
+                .with_rotation(Quat::from_rotation_z(std::f32::consts::PI)),
+        );
+        bench.hold(&[KeyCode::KeyE]);
+        bench.step();
+        bench.step();
+        bench.typing(true);
+        assert!(
+            upright_by(&mut bench, 6.0).is_some(),
+            "E counted, then typing: the car stayed down for 6 s"
+        );
+    }
+
     /// Near the ground a held roll is the player's to finish: the uprighting
     /// assist leaves alone the axis a counted air key holds, as the levelling
     /// does. E pressed at the lip, the car rolls on until it lands; with the
@@ -1481,7 +1644,9 @@ mod air_model {
     /// linear spring alone lets the box hit - it sits 22% into its travel at
     /// rest and the drop lands at 6.8 m/s - and a stop that pumps energy in
     /// fails the second half: weighed at the step's start rather than its
-    /// end, this one kept 5 mm under the box and threw it up at 4.3 m/s.
+    /// end, #1524's stiffer stop kept 5 mm under the box and threw it up at
+    /// 4.3 m/s. This one keeps 61 mm and comes back up at 1.4 m/s, against 1
+    /// mm and 2.7 with no stop (#1535).
     #[test]
     fn a_hard_landing_keeps_the_box_off_the_floor() {
         let record = default_car();
@@ -1512,6 +1677,372 @@ mod air_model {
             rebound <= bare_rebound,
             "the stop must not throw the car back up: {rebound:.2} m/s against {bare_rebound:.2}"
         );
+    }
+
+    /// The bump stop never throws a landing back up harder than the box
+    /// hitting the ground would (#1535). These are the jump table's landings
+    /// the stiffer stop of #1524 (rate 1,000) handed back hardest, on the
+    /// suspension damping of #1534: the Cyclecar at 20 m/s off an 18 degree
+    /// ramp and at 18 off a 25 degree one came back up at 4.5 m/s, and the
+    /// default car at 20 off 18 degrees at 3.9, against 2.7 with no stop.
+    #[test]
+    fn the_bump_stop_never_throws_a_landing_back_harder_than_the_ground() {
+        for (name, record, approach, degrees) in [
+            ("Jink's Cyclecar", seeded_cyclecar(), 20.0, 18.0),
+            ("Jink's Cyclecar", seeded_cyclecar(), 18.0, 25.0),
+            ("the default car", default_car(), 20.0, 18.0),
+        ] {
+            let rebound = |stop| {
+                ramp_run(
+                    &record,
+                    approach,
+                    degrees,
+                    &[KeyCode::KeyW],
+                    keep_going,
+                    stop,
+                )
+                .landing
+                .iter()
+                .map(|s| s.velocity.y)
+                .fold(0.0, f32::max)
+            };
+            let (with, without) = (rebound(CarBumpStop::default()), rebound(CarBumpStop::OFF));
+            assert!(
+                with <= without,
+                "{name} off a {degrees} deg ramp at {approach} m/s came back up at {with:.2} m/s, \
+                 {without:.2} with no stop"
+            );
+        }
+    }
+
+    /// A car whose box meets the ground at speed slides on (#1538). The
+    /// bench's floor is a heightfield, as the game's terrain is; without
+    /// parry's internal-edge fix a box skimming it met the next cell's
+    /// internal edge as a wall, and the Cyclecar landing a jump with no bump
+    /// stop - so that its box reaches the floor - lost 8.4 m/s in one step
+    /// off a 12 degree ramp at 15 m/s (13.6 to 5.2), and 9.8 at 20 (16.2 to
+    /// 6.4).
+    #[test]
+    fn a_box_meeting_the_ground_at_speed_slides_on() {
+        for approach in [15.0, 20.0] {
+            let landing = ramp_run(
+                &seeded_cyclecar(),
+                approach,
+                12.0,
+                &[KeyCode::KeyW],
+                keep_going,
+                CarBumpStop::OFF,
+            )
+            .landing;
+            let lowest = landing.iter().map(|s| s.underside).fold(f32::MAX, f32::min);
+            assert!(
+                lowest < 0.01,
+                "the premise: at {approach} m/s the box reaches the floor, came to {lowest:.3} m"
+            );
+            let worst = landing
+                .windows(2)
+                .map(|pair| pair[0].velocity.xz().length() - pair[1].velocity.xz().length())
+                .fold(0.0, f32::max);
+            assert!(
+                worst < 3.0,
+                "at {approach} m/s the landing lost {worst:.2} m/s in one step"
+            );
+        }
+    }
+
+    /// One landing of the bump stop's sweep (#1535).
+    enum Landing {
+        /// Dropped from rest, turned, its box's lowest corner `height` up.
+        Drop {
+            name: String,
+            turned: Quat,
+            height: f32,
+        },
+        /// A ramp run, as the jump table drives it: W held, pinned to
+        /// `approach` m/s until its nose meets a `degrees` ramp.
+        Jump { approach: f32, degrees: f32 },
+        /// Coming down at `speed` onto a slope falling away at `slope`
+        /// degrees - a landing ramp - on a path `steeper` degrees steeper
+        /// than it, its box's lowest corner `height` over it; level, as the
+        /// levelling holds a car in the air, or pitched to the slope.
+        Ramp {
+            speed: f32,
+            slope: f32,
+            steeper: f32,
+            height: f32,
+            pitched: bool,
+        },
+    }
+
+    impl Landing {
+        fn name(&self) -> String {
+            match self {
+                Self::Drop { name, .. } => name.clone(),
+                Self::Jump { approach, degrees } => {
+                    format!("jump at {approach} m/s, {degrees} deg ramp")
+                }
+                Self::Ramp {
+                    speed,
+                    slope,
+                    pitched,
+                    ..
+                } => format!(
+                    "{speed} m/s onto a {slope} deg slope{}",
+                    if *pitched { ", pitched" } else { "" }
+                ),
+            }
+        }
+
+        /// Every landing the sweep runs.
+        fn all() -> Vec<Self> {
+            let mut all = Vec::new();
+            for height in [1.0, 2.0, 3.0, 4.0] {
+                all.push(Self::Drop {
+                    name: format!("flat drop {height} m"),
+                    turned: Quat::IDENTITY,
+                    height,
+                });
+            }
+            for degrees in [10.0f32, 20.0, 30.0] {
+                for (how, turned) in [
+                    ("nose down", Quat::from_rotation_x(-degrees.to_radians())),
+                    ("nose up", Quat::from_rotation_x(degrees.to_radians())),
+                    ("rolled", Quat::from_rotation_z(degrees.to_radians())),
+                ] {
+                    all.push(Self::Drop {
+                        name: format!("{how} {degrees} deg, 2 m"),
+                        turned,
+                        height: 2.0,
+                    });
+                }
+            }
+            for (approach, degrees) in [
+                (15.0, 12.0),
+                (15.0, 18.0),
+                (15.0, 25.0),
+                (18.0, 12.0),
+                (18.0, 18.0),
+                (18.0, 25.0),
+                (20.0, 12.0),
+                (20.0, 18.0),
+            ] {
+                all.push(Self::Jump { approach, degrees });
+            }
+            for speed in [15.0, 20.0] {
+                for slope in [15.0, 25.0] {
+                    for pitched in [false, true] {
+                        all.push(Self::Ramp {
+                            speed,
+                            slope,
+                            steeper: 10.0,
+                            height: 0.5,
+                            pitched,
+                        });
+                    }
+                }
+            }
+            all
+        }
+
+        /// `record` landing so on `stop`: the fastest it came back up off
+        /// what it landed on (m/s, along that surface's normal) in the second
+        /// and a half after a wheel first touched - for a jump, the second
+        /// the jump table watches - and the least clearance of its box.
+        fn run(&self, record: &AvatarRecord, stop: CarBumpStop) -> (f32, f32) {
+            let (turned, height, velocity, slope) = match self {
+                Self::Jump { approach, degrees } => {
+                    let run = ramp_run(
+                        record,
+                        *approach,
+                        *degrees,
+                        &[KeyCode::KeyW],
+                        keep_going,
+                        stop,
+                    );
+                    let up = run.landing.iter().map(|s| s.velocity.y).fold(0.0, f32::max);
+                    let under = run
+                        .landing
+                        .iter()
+                        .map(|s| s.underside)
+                        .fold(f32::MAX, f32::min);
+                    return (up, under);
+                }
+                Self::Drop { turned, height, .. } => (*turned, *height, Vec3::ZERO, 0.0f32),
+                Self::Ramp {
+                    speed,
+                    slope,
+                    steeper,
+                    height,
+                    pitched,
+                } => {
+                    let path = (slope + steeper).to_radians();
+                    let turned = if *pitched {
+                        Quat::from_rotation_x(-slope.to_radians())
+                    } else {
+                        Quat::IDENTITY
+                    };
+                    let velocity = Vec3::new(0.0, -path.sin(), -path.cos()) * *speed;
+                    (turned, *height, velocity, *slope)
+                }
+            };
+            let half = Vec3::from_array(car_params(record).chassis_half_extents.0);
+            let tilt = Quat::from_rotation_x(-slope.to_radians());
+            let normal = tilt * Vec3::Y;
+            // A slope is laid well above the floor, through this point.
+            let origin = if slope > 0.0 {
+                Vec3::Y * 20.0
+            } else {
+                Vec3::ZERO
+            };
+            let lowest_corner = |at: Vec3, rotation: Quat| {
+                let mut least = f32::MAX;
+                for x in [-1.0, 1.0] {
+                    for y in [-1.0, 1.0] {
+                        for z in [-1.0, 1.0] {
+                            let corner = at + rotation * (half * Vec3::new(x, y, z));
+                            least = least.min((corner - origin).dot(normal));
+                        }
+                    }
+                }
+                least
+            };
+            let at = origin + normal * (height - lowest_corner(origin, turned));
+            let mut bench = DriveBench::new(
+                record,
+                Transform::from_translation(at).with_rotation(turned),
+            );
+            bench.bump_stop(stop);
+            if slope > 0.0 {
+                bench.block(
+                    Transform::from_translation(origin - normal).with_rotation(tilt),
+                    Vec3::new(10.0, 1.0, 80.0),
+                );
+            }
+            bench.set_velocity(velocity);
+            let (mut touched, mut up, mut under) = (None::<f64>, f32::MIN, f32::MAX);
+            while bench.elapsed() < 4.0 {
+                bench.step();
+                if touched.is_none() && bench.contact().wheels > 0 {
+                    touched = Some(bench.elapsed());
+                }
+                let Some(touch) = touched else {
+                    continue;
+                };
+                if bench.elapsed() - touch > 1.5 {
+                    break;
+                }
+                up = up.max(bench.velocity().dot(normal));
+                under = under.min(lowest_corner(bench.position(), bench.rotation()));
+            }
+            (up, under)
+        }
+    }
+
+    /// PRINT-ONLY. The bump stop's sweep (#1535), the default car and the
+    /// seeded Cyclecar each landing every way [`Landing::all`] lists, with
+    /// the stop and without it: how fast each came back up (m/s) and the
+    /// least clearance of its box (m). The stop is tuned so that no row comes
+    /// back up harder with it than without; re-run it after any retune of
+    /// the stop or the suspension.
+    #[test]
+    #[ignore = "probe for #1535: the landings the bump stop is tuned against"]
+    fn probe_the_landing_sweep() {
+        println!(
+            "{:<9} {:<34} | {:>5} {:>5} | {:>6} {:>6}",
+            "car", "landing", "up", "off", "under", "off"
+        );
+        for (name, record) in [("default", default_car()), ("Cyclecar", seeded_cyclecar())] {
+            for landing in Landing::all() {
+                let (up, under) = landing.run(&record, CarBumpStop::default());
+                let (bare_up, bare_under) = landing.run(&record, CarBumpStop::OFF);
+                println!(
+                    "{name:<9} {:<34} | {up:>5.2} {bare_up:>5.2} | {under:>6.3} {bare_under:>6.3}",
+                    landing.name()
+                );
+            }
+        }
+    }
+
+    /// After the car first touches down: how many times every wheel left the
+    /// ground again, and the seconds from that first touch until it came to
+    /// rest - no vertical speed over 5 cm/s for half a second - if it did
+    /// within `secs`.
+    fn bounces_and_settling(bench: &mut DriveBench, secs: f64) -> (u32, Option<f64>) {
+        let limit = bench.elapsed() + secs;
+        let (mut touched, mut calm_since) = (None::<f64>, None::<f64>);
+        let (mut bounces, mut was_down) = (0, false);
+        while bench.elapsed() < limit {
+            bench.step();
+            let down = bench.contact().wheels > 0;
+            if touched.is_none() && down {
+                touched = Some(bench.elapsed());
+            }
+            let Some(touch) = touched else {
+                continue;
+            };
+            if was_down && !down {
+                bounces += 1;
+            }
+            was_down = down;
+            if bench.velocity().y.abs() < 0.05 {
+                let since = *calm_since.get_or_insert(bench.elapsed());
+                if bench.elapsed() - since >= 0.5 {
+                    return (bounces, Some(since - touch));
+                }
+            } else {
+                calm_since = None;
+            }
+        }
+        (bounces, None)
+    }
+
+    /// `record` driven at `approach` m/s at a `degrees` ramp with W held,
+    /// as [`ramp_run`] drives it, and left the moment it is past the lip with
+    /// no wheel down.
+    fn off_the_lip(record: &AvatarRecord, approach: f32, degrees: f32) -> DriveBench {
+        let half_length = car_params(record).chassis_half_extents.0[2];
+        let base = LIP_Z + LIP_M / degrees.to_radians().tan();
+        let mut bench = DriveBench::parked(record, 0.0, base + 10.0 + half_length);
+        ramp(&mut bench, LIP_Z, LIP_M, degrees);
+        bench.hold(&[KeyCode::KeyW]);
+        while bench.position().z - half_length > base {
+            let v = bench.velocity();
+            bench.set_velocity(Vec3::new(v.x, v.y, -approach));
+            bench.step();
+        }
+        while bench.position().z + half_length > LIP_Z || bench.contact().wheels > 0 {
+            assert!(bench.elapsed() < 10.0, "the car never left the lip");
+            bench.step();
+        }
+        bench
+    }
+
+    /// A landing stays landed (#1534): dropped flat from 2 m, or landed at
+    /// 14 m/s off an 18 degree, 1.5 m lip, the default car and the seeded
+    /// Cyclecar keep a wheel on the ground from the moment they touch, and
+    /// are at rest within 2 s. On the old damping, 0.11 of critical, each was
+    /// still moving 4 s later (and on #1524's stiffer bump stop first bounced
+    /// its wheels clear of the ground again).
+    #[test]
+    fn a_landing_stays_landed_and_settles() {
+        for (name, record) in [
+            ("the default car", default_car()),
+            ("Jink's Cyclecar", seeded_cyclecar()),
+        ] {
+            let half_height = car_params(&record).chassis_half_extents.0[1];
+            let dropped =
+                DriveBench::new(&record, Transform::from_xyz(0.0, 2.0 + half_height, 0.0));
+            for (how, mut bench) in [
+                ("dropped from 2 m", dropped),
+                ("off the lip", off_the_lip(&record, 14.0, 18.0)),
+            ] {
+                let (bounces, settled) = bounces_and_settling(&mut bench, 4.0);
+                assert!(
+                    bounces == 0 && settled.is_some_and(|secs| secs < 2.0),
+                    "{name} {how}: {bounces} bounces, at rest after {settled:?} s"
+                );
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1596,6 +2127,49 @@ mod air_model {
         }
     }
 
+    /// Flying fast close past a wall, a car is not lying on it, and it keeps
+    /// levelling (#1530). Avian keeps a contact open with the wall from as
+    /// far as the car could close in a step - 23 cm at 15 m/s - and counted
+    /// as the box touching, it read the car as lying there, where the
+    /// levelling holds off for the uprighting assist: pitched up 25 degrees,
+    /// 5 cm off a wall at 15 m/s, it was still 23 degrees up after 1.5 s.
+    /// The box touches only within [`cfg::BODY_TOUCH_M`].
+    #[test]
+    fn a_car_flying_close_past_a_wall_is_not_lying_on_it() {
+        let record = default_car();
+        let half_width = car_params(&record).chassis_half_extents.0[0];
+        let mut bench = aloft(
+            &record,
+            Vec3::new(0.0, 0.0, -15.0),
+            Quat::from_rotation_x(25f32.to_radians()),
+        );
+        // Along the flight 5 cm off the car's right side, and taller and
+        // longer than the second and a half of it.
+        bench.block(
+            Transform::from_xyz(half_width + 0.55, 30.0, -15.0),
+            Vec3::new(0.5, 30.0, 30.0),
+        );
+        bench.run(0.5);
+        let world = bench.world_mut();
+        let car = world
+            .query_filtered::<Entity, With<LocalPlayer>>()
+            .single(world)
+            .expect("the bench car");
+        assert!(
+            world
+                .resource::<ContactGraph>()
+                .contact_pairs_with(car)
+                .any(|pair| pair.is_touching()),
+            "the premise: avian keeps a contact open with the wall"
+        );
+        bench.run(1.0);
+        let left = pitch(bench.rotation()).abs();
+        assert!(
+            left < 5.0,
+            "pitched up 25 deg beside a wall, still {left:.1} deg after 1.5 s"
+        );
+    }
+
     // -----------------------------------------------------------------------
     // The uprighting: near the ground only, and it rights a car on its roof
     // -----------------------------------------------------------------------
@@ -1648,6 +2222,12 @@ mod air_model {
             Transform::from_xyz(0.0, low + 0.01, 0.0).with_rotation(turned),
         );
         bench.hold(keys);
+        upright_by(&mut bench, limit)
+    }
+
+    /// Seconds on the bench's clock when the car began to stand on all four
+    /// wheels, upright, for half a second - or `None` by `limit`.
+    fn upright_by(bench: &mut DriveBench, limit: f64) -> Option<f64> {
         let mut since: Option<f64> = None;
         while bench.elapsed() < limit {
             bench.step();
@@ -1691,6 +2271,38 @@ mod air_model {
                 assert!(
                     rights_itself(record, turned, &[], 5.0).is_some(),
                     "{name} on its {pose} did not right itself in 5 s"
+                );
+            }
+        }
+    }
+
+    /// A record asking for the uprighting to wait as long as it may still
+    /// has a car on its side righted, from either side (#1532). The assist
+    /// acts only past the engage tilt, and a car on its side lies at 90: at
+    /// 90, the old ceiling, the default car and the Cyclecar stayed down
+    /// for good. The sanitiser now caps the tilt short of what the bench
+    /// measured either car righting at (85 and 84).
+    #[test]
+    fn a_car_at_the_highest_engage_tilt_rights_itself_from_either_side() {
+        use std::f32::consts::FRAC_PI_2;
+        for (name, record) in [
+            ("the default car", default_car()),
+            ("Jink's Cyclecar", seeded_cyclecar()),
+        ] {
+            let mut waiting = tuned(&record, |p| p.upright_engage_tilt_degrees = Fp(90.0));
+            waiting.sanitize();
+            assert_eq!(
+                car_params(&waiting).upright_engage_tilt_degrees.0,
+                cfg::CAR_UPRIGHT_ENGAGE_TILT_MAX_DEGREES,
+                "{name}: the record carries the highest tilt it may"
+            );
+            for (side, turned) in [
+                ("left", Quat::from_rotation_z(FRAC_PI_2)),
+                ("right", Quat::from_rotation_z(-FRAC_PI_2)),
+            ] {
+                assert!(
+                    rights_itself(&waiting, turned, &[], 6.0).is_some(),
+                    "{name} on its {side} side did not right itself in 6 s"
                 );
             }
         }

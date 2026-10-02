@@ -70,7 +70,11 @@ the hang time, do not guess it.
 
 - **Line up first, precisely.** A run holds its keys and nothing else: no
   aiming. `walk-to` a point behind the start and then the start itself, so
-  the body arrives on the line's axis, then turn it to the exact bearing:
+  the body arrives on the line's axis. A car's walk-to brakes onto its point
+  and ends `arrived` at rest within 3 m of it (#1536); before, it let go at
+  that circle's edge and rolled 7-11 m on, once to within 9 m of a gateway,
+  and Jink's `b/place.py` (short throttle-and-brake moves) was written to
+  get round it. Then turn it to the exact bearing:
   `face` stops within 10 degrees, 10 m off at 60 m, which misses a 6 m
   ramp. Short A/D pulses as `drive` segments (`D@0.05 none@1.2`, then read
   `status.heading_deg`) turn a car at rest about 2.4 degrees a pulse - but
@@ -90,14 +94,20 @@ the hang time, do not guess it.
 - **A landing on the roof reads level in pitch and roll** - each folds at
   90 degrees - so read the jump's `landing_tilt_deg`: 0 on the wheels, 180
   on the roof.
-- **`status.height_m` reads 0.0 when the physics has the body on a
-  contact - and at speed that includes a speculative one**, which avian
-  opens before anything touches (about 23 cm out at 15 m/s, #1528). So a
-  0.0 on a kicker at speed is not proof of a scrape: session 893 read one
-  and took it for the chassis on the ramp, where the bench showed Jink's
-  Cyclecar 19 mm clear (the default car 72 mm). On landing it was real -
-  the box hit the ground and the car fell from 15 to 4-6 m/s - until
-  #1524's bump stop.
+- **`status.height_m` reads 0.0 only when the body is within a
+  centimetre of what is under it** (#1528). Avian opens a contact before
+  anything touches - as far out as the body could close in a step, 23 cm
+  at 15 m/s - and until #1528 that read 0.0 too: session 893 read one on a
+  kicker at speed and took it for the chassis on the ramp, where the bench
+  showed Jink's Cyclecar 19 mm clear (the default car 72 mm). A 0.0 at
+  speed is now the box on what it rides over. On landing it was real - the
+  box hit the ground and the car fell from 15 to 4-6 m/s - until #1524's
+  bump stop. Since #1535 the stop lets the box touch in the hardest
+  landings rather than throw the car back up, and since #1538 a box that
+  meets the terrain slides on: before it, a box touching the ground at
+  speed met an edge between the heightfield's cells as a wall and lost
+  most of its speed in one step (13.6 to 5.2 m/s, and 15.8 to 1.4 in one
+  case).
 - A landing that yaws the body sends every later jump off its line: read
   the report's positions before blaming a ramp.
 

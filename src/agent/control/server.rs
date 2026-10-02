@@ -187,11 +187,11 @@ fn write_response(mut stream: UnixStream, response: &Response) -> io::Result<()>
 mod tests {
     use super::*;
 
-    /// A fresh socket path for one test, short enough for a Unix socket.
-    fn socket(test: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("sa-{test}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        dir.join("agent.sock")
+    /// A fresh socket path for one test, short enough for a Unix socket, its
+    /// directory removed when the test ends (#1517). Declared before the
+    /// listener, so the listener drops first and takes its socket file.
+    fn socket(test: &str) -> super::super::TestSocket {
+        super::super::TestSocket::new(test)
     }
 
     fn call(path: &Path, line: &str) -> Response {

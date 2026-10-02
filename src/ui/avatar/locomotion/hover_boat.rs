@@ -19,7 +19,7 @@
 //! |---|---|---|---|---|
 //! | Mass | 101.9 - 474.1 | 5..200 | 5..500 | 10 000 |
 //! | Suspension stiffness | 8 557 - 39 824 | 500..15 000 | 500..50 000 | 50 000 |
-//! | Suspension damping | 357 - 1 659 | 10..500 | 10..2 000 | 5 000 |
+//! | Suspension damping | 357 - 1 659 | 10..500 | 10..2 500 | 5 000 |
 //! | Lateral grip | 12 224 - 48 000 | 500..15 000 | 500..50 000 | 50 000 |
 //! | Buoyancy strength | 5 093 - 23 705 | 0..10 000 | 0..25 000 | 100 000 |
 //! | Buoyancy damping | 815 - 3 793 | 0..2 000 | 0..4 000 | 10 000 |
@@ -28,7 +28,8 @@
 //! the four scaled support fields are `stock x (480 / BOAT_REF_MASS)`,
 //! which is what `scaled()` can reach before its cap. The three the car
 //! panel also has now carry the car's bounds and steps, so the same knob
-//! feels the same on both families.
+//! feels the same on both families: damping's 2 500 is the car's, whose
+//! seeds derive up to 2 267 since #1534 raised its default.
 
 use bevy_egui::egui;
 
@@ -72,7 +73,7 @@ impl LocomotionPanel for HoverBoatParams {
                 fp_slider(
                     ui,
                     &mut self.suspension_damping,
-                    10.0..=2_000.0,
+                    10.0..=2_500.0,
                     10.0,
                     dirty,
                 );

@@ -63,7 +63,7 @@ use serde_json::{Value, json};
 use crate::camera::WorldCamera;
 use crate::config::agent::{
     CAMERA_CAUGHT_UP_DEG, FACE_PULSE_SECS, FACE_SETTLE_SECS, FACE_TOLERANCE_DEG,
-    FOLLOW_RUN_BEYOND_M, PROGRESS_STEP_M, STUCK_AFTER_SECS,
+    FOLLOW_RUN_BEYOND_M, PROGRESS_STEP_M, STUCK_AFTER_SECS, WHEELED_STOPPED_MS,
 };
 use crate::network::PeerResolve;
 use crate::pds::LocomotionConfig;
@@ -80,7 +80,7 @@ pub(super) use ground::camera_yaw_facing;
 pub(super) use sense::height;
 
 use flight::{Craft, Flight, Flown, Rotor, Turned};
-use ground::{Ground, follow_blocked, follow_moves, nearest_turn};
+use ground::{Ground, approach_speed, brake, follow_blocked, follow_moves, nearest_turn};
 use wing::{Sortie, Wing};
 
 /// The keys the controller drives with. It releases all of them whenever it
@@ -674,6 +674,8 @@ pub(super) fn steer(
     // A car's own count of wheels on the ground, which a drive's report
     // reads to know when it is in the air (#1527, #1524).
     contact: Query<&crate::player::CarContact, With<LocalPlayer>>,
+    // How fast the body rolls: a driven walk brakes onto its point (#1536).
+    velocity: Query<&avian3d::prelude::LinearVelocity, With<LocalPlayer>>,
 ) {
     let Some(goal) = movement.goal.as_mut() else {
         return;
@@ -681,6 +683,7 @@ pub(super) fn steer(
     let body = player.single().ok();
     let position = body.map_or(Vec3::ZERO, GlobalTransform::translation);
     let forward = body.map_or(Vec3::NEG_Z, |body| body.forward().as_vec3());
+    let velocity = velocity.single().map_or(Vec3::ZERO, |moving| moving.0);
     let now = time.elapsed_secs_f64();
     let craft = sensing.as_ref().and_then(sense::Sensing::craft);
     let step = if *state.get() != AppState::InGame || traveling.is_some() || body.is_none() {
@@ -692,7 +695,12 @@ pub(super) fn steer(
     } else {
         match (goal.drive, sensing.as_ref(), craft.as_ref()) {
             (Drive::Ground(ground), ..) => {
-                steer_ground(goal, ground, position, forward, &peers, now, &sink)
+                let body = Body {
+                    position,
+                    forward,
+                    velocity,
+                };
+                steer_ground(goal, ground, body, &peers, now, &sink)
             }
             (Drive::Rotor(rotor), Some(sensing), Some(craft)) => {
                 steer_flight(goal, &rotor, craft, sensing, &peers, now, &sink)
@@ -771,17 +779,28 @@ pub(super) fn steer(
     }
 }
 
+/// Where a body on the ground is, which way it faces, and how it moves.
+#[derive(Clone, Copy)]
+struct Body {
+    position: Vec3,
+    forward: Vec3,
+    velocity: Vec3,
+}
+
 /// One frame of a movement on the ground.
-#[allow(clippy::too_many_arguments)]
 fn steer_ground(
     goal: &mut Goal,
     ground: Ground,
-    position: Vec3,
-    forward: Vec3,
+    body: Body,
     peers: &Peers,
     now: f64,
     sink: &EventSink,
 ) -> Step {
+    let Body {
+        position,
+        forward,
+        velocity,
+    } = body;
     let Goal {
         id,
         aim,
@@ -790,14 +809,28 @@ fn steer_ground(
         best_at,
         ..
     } = goal;
+    // A driven body that lets go rolls on (#1536): a walk-to used to say it
+    // had arrived at its circle's edge at full throttle and roll 7-11 m past,
+    // and a follow drove through its player. It comes in no faster than it
+    // can stop by where it should, and brakes to a stand there.
+    let rolling = velocity.xz().length();
+    let wheeled = ground == Ground::Wheeled;
     match aim {
         Aim::Point(target) => {
             let distance = position.xz().distance(*target);
             progress(best_distance, best_at, distance, now);
+            // Planned to stop half the arrival radius short of the point; it
+            // has arrived once in the circle and at rest.
             if distance <= ground.arrive_within() {
-                Step::End(MoveOutcome::Arrived)
+                if wheeled && rolling > WHEELED_STOPPED_MS {
+                    Step::Drive(brake(forward, velocity))
+                } else {
+                    Step::End(MoveOutcome::Arrived)
+                }
             } else if now - *best_at >= STUCK_AFTER_SECS {
                 Step::End(MoveOutcome::Stuck)
+            } else if wheeled && rolling > approach_speed(distance - ground.arrive_within() * 0.5) {
+                Step::Drive(brake(forward, velocity))
             } else {
                 Step::Drive(ground.toward(position, forward, *target, *run))
             }
@@ -818,7 +851,11 @@ fn steer_ground(
                 *gap = position.xz().distance(at.xz());
                 let was_closing = *closing;
                 if !follow_moves(*gap, *keep, closing) {
-                    Step::Stand
+                    if wheeled && rolling > WHEELED_STOPPED_MS {
+                        Step::Drive(brake(forward, velocity))
+                    } else {
+                        Step::Stand
+                    }
                 } else {
                     if !was_closing {
                         // Setting off again: a blockage is measured from
@@ -839,7 +876,11 @@ fn steer_ground(
                         *blocked = false;
                     }
                     let run = *run || *gap > *keep + FOLLOW_RUN_BEYOND_M;
-                    Step::Drive(ground.toward(position, forward, at.xz(), run))
+                    if wheeled && rolling > approach_speed(*gap - *keep) {
+                        Step::Drive(brake(forward, velocity))
+                    } else {
+                        Step::Drive(ground.toward(position, forward, at.xz(), run))
+                    }
                 }
             }
         },
@@ -1032,7 +1073,8 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::agent::control::events::EventLog;
+    use crate::agent::control::events::{DriveReport, EventLog};
+    use crate::player::sim::{DriveBench, FlightBench};
 
     /// A face with nothing to turn still ends the movement under way - the
     /// follow it interrupts stops either way - and lets go of the keys.
@@ -1200,16 +1242,48 @@ mod tests {
     }
 
     /// The daemon's own steering, flying the airship stand-in on the flight
-    /// bench: the `steer` system, the event log it writes to, and the clock
-    /// it reads, turned on a frame at a time with the physics caught up
-    /// between.
-    struct Daemon {
-        bench: crate::player::sim::FlightBench,
+    /// bench - or driving a car on the drive bench (#1531): the `steer`
+    /// system, the event log it writes to, and the clock it reads, turned on
+    /// a frame at a time with the physics caught up between.
+    struct Daemon<B = FlightBench> {
+        bench: B,
         steer: bevy::ecs::system::SystemId,
         park: bevy::ecs::system::SystemId,
         log: Arc<EventLog>,
         start: f64,
         now: f64,
+    }
+
+    /// What the daemon needs of a bench: its world, its clock, and one fixed
+    /// step of its physics.
+    trait Bench {
+        fn world_of(&mut self) -> &mut World;
+        fn seconds(&self) -> f64;
+        fn step_physics(&mut self);
+    }
+
+    impl Bench for FlightBench {
+        fn world_of(&mut self) -> &mut World {
+            self.world_mut()
+        }
+        fn seconds(&self) -> f64 {
+            self.elapsed()
+        }
+        fn step_physics(&mut self) {
+            self.step();
+        }
+    }
+
+    impl Bench for DriveBench {
+        fn world_of(&mut self) -> &mut World {
+            self.world_mut()
+        }
+        fn seconds(&self) -> f64 {
+            self.elapsed()
+        }
+        fn step_physics(&mut self) {
+            self.step();
+        }
     }
 
     /// A daemon frame, as the agent's loop runs them.
@@ -1232,15 +1306,20 @@ mod tests {
         }
 
         fn wearing(record: &crate::pds::avatar::AvatarRecord, at: Vec3) -> Self {
-            let mut bench = crate::player::sim::FlightBench::new(record, at);
+            Self::over(FlightBench::new(record, at))
+        }
+    }
+
+    impl<B: Bench> Daemon<B> {
+        fn over(mut bench: B) -> Self {
             let log = Arc::new(EventLog::new(64, "test".into()));
-            let world = bench.world_mut();
+            let world = bench.world_of();
             world.insert_resource(EventSink(Arc::clone(&log)));
             world.insert_resource(State::new(AppState::InGame));
             world.init_resource::<Movement>();
             let steer = world.register_system(steer);
             let park = world.register_system(park);
-            let start = bench.elapsed();
+            let start = bench.seconds();
             Self {
                 bench,
                 steer,
@@ -1252,20 +1331,20 @@ mod tests {
         }
 
         fn world(&mut self) -> &mut World {
-            self.bench.world_mut()
+            self.bench.world_of()
         }
 
         /// One frame: the clock on, the steering, the physics caught up.
         fn frame(&mut self) {
             self.now += FRAME;
-            let world = self.bench.world_mut();
+            let world = self.bench.world_of();
             world
                 .resource_mut::<Time<Real>>()
                 .update_with_duration(Duration::from_secs_f64(FRAME));
             world.run_system(self.steer).expect("the steering runs");
             world.run_system(self.park).expect("the parking runs");
-            while self.bench.elapsed() - self.start < self.now {
-                self.bench.step();
+            while self.bench.seconds() - self.start < self.now {
+                self.bench.step_physics();
             }
         }
 
@@ -1294,6 +1373,19 @@ mod tests {
                     EventKind::MovementEnded {
                         outcome, height_m, ..
                     } => Some((outcome, height_m)),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        /// The report of every drive that has ended, in order.
+        fn reports(&self) -> Vec<DriveReport> {
+            self.log
+                .after(0, Duration::ZERO)
+                .events
+                .into_iter()
+                .filter_map(|e| match e.what {
+                    EventKind::MovementEnded { report, .. } => report,
                     _ => None,
                 })
                 .collect()
@@ -1453,6 +1545,164 @@ mod tests {
             daemon.height() < 0.1,
             "{:.2} m up after landing",
             daemon.height()
+        );
+    }
+
+    /// A ramp of two planks rising toward -Z at `degrees`, its lip `height`
+    /// m up at `lip_z`: one plank under each wheel track of a car
+    /// `half_width` m wide and nothing between them, the way a car is driven
+    /// up onto a trailer. Each plank starts halfway between the car's box
+    /// and the 90% of it the agent's height sweeps down, so the car's corner
+    /// rays meet the planks and the sweep passes between them to the floor.
+    fn plank_ramp(bench: &mut DriveBench, half_width: f32, lip_z: f32, height: f32, degrees: f32) {
+        let theta = degrees.to_radians();
+        let length = height / theta.sin();
+        let thick = 1.0;
+        let turned = Quat::from_rotation_x(theta);
+        let (inner, outer) = (0.95 * half_width, half_width + 0.6);
+        for side in [-1.0, 1.0] {
+            let middle = Vec3::new(
+                side * (inner + outer) * 0.5,
+                height * 0.5,
+                lip_z + length * 0.5 * theta.cos(),
+            );
+            bench.block(
+                Transform::from_translation(middle - turned * Vec3::Y * thick)
+                    .with_rotation(turned),
+                Vec3::new((outer - inner) * 0.5, thick, length * 0.5),
+            );
+        }
+    }
+
+    /// A car's walk-to stops on its point (#1536): it comes in no faster than
+    /// it can stop, says it has arrived once it is in its circle and at
+    /// rest, and is still there two seconds on. It used to hold the throttle
+    /// to the circle's edge and let go there: Jink's lineups rolled 7-11 m
+    /// past their points (session 895), once to within 9 m of a gateway.
+    #[test]
+    fn a_cars_walk_to_stops_on_its_point() {
+        let mut record = crate::pds::avatar::AvatarRecord::default_for_did("did:plc:agentwalkcar");
+        record.locomotion = LocomotionConfig::Car(Box::default());
+        let mut daemon = Daemon::over(DriveBench::parked(&record, 0.0, 0.0));
+        let target = Vec2::new(0.0, -40.0);
+        walk_to(daemon.world(), target, false).expect("a walk-to");
+
+        daemon.until(30.0, |daemon| !daemon.endings().is_empty());
+        assert_eq!(daemon.endings()[0].0, MoveOutcome::Arrived);
+        for _ in 0..60 {
+            daemon.frame();
+        }
+
+        let off = daemon.bench.position().xz().distance(target);
+        assert!(
+            off <= crate::config::agent::ARRIVE_WHEELED_M,
+            "two seconds after it arrived the car is {off:.2} m from its point"
+        );
+    }
+
+    /// A car following a player brakes to a stand short of them (#1536): it
+    /// used to let go at its following distance at full speed and drive on
+    /// through the player - from 40 m, 10.85 m/s, 0.01 m from where they
+    /// stood, at rest 6.78 m beyond (the session's end review).
+    #[test]
+    fn a_car_following_a_player_stops_short_of_them() {
+        let mut record =
+            crate::pds::avatar::AvatarRecord::default_for_did("did:plc:agentfollowcar");
+        record.locomotion = LocomotionConfig::Car(Box::default());
+        let mut daemon = Daemon::over(DriveBench::parked(&record, 0.0, 0.0));
+        let player = Vec3::new(0.0, 0.0, -40.0);
+        daemon.world().spawn((
+            peer("did:plc:friend"),
+            placed(true),
+            GlobalTransform::from(Transform::from_translation(player)),
+        ));
+        let keep = 3.0;
+        follow(daemon.world(), "did:plc:friend".into(), keep, false).expect("a follow");
+
+        let mut nearest = f32::MAX;
+        for _ in 0..(15.0 / FRAME) as usize {
+            daemon.frame();
+            nearest = nearest.min(daemon.bench.position().xz().distance(player.xz()));
+        }
+
+        assert!(
+            nearest >= keep * 0.5,
+            "it came within {nearest:.2} m of the player it follows at {keep} m"
+        );
+        let resting = daemon.bench.position().xz().distance(player.xz());
+        assert!(
+            resting <= keep + crate::config::agent::FOLLOW_SLACK_M + 1.0,
+            "it stood {resting:.2} m off, following at {keep} m"
+        );
+    }
+
+    /// A drive reads a car's jump by its wheels (#1531): `steer` hands the
+    /// run the car's own count of wheels on the ground. Up a ramp of two
+    /// planks the car's body has nothing under it but the floor, so by its
+    /// height alone - the rule for a body with no count - it left the ground
+    /// halfway up the ramp, with every wheel on a plank; by its wheels it
+    /// leaves at the lip.
+    #[test]
+    fn a_drive_reads_a_cars_jump_by_its_wheels() {
+        const LIP_Z: f32 = -30.0;
+        let mut record = crate::pds::avatar::AvatarRecord::default_for_did("did:plc:agentdrive");
+        record.locomotion = LocomotionConfig::Car(Box::default());
+        let half_width = match &record.locomotion {
+            LocomotionConfig::Car(p) => p.chassis_half_extents.0[0],
+            _ => unreachable!("a car"),
+        };
+        let airborne_above = keys::airborne_above(&record.locomotion).expect("a car drives");
+        let mut bench = DriveBench::parked(&record, 0.0, 0.0);
+        plank_ramp(&mut bench, half_width, LIP_Z, 1.5, 18.0);
+        let mut daemon = Daemon::over(bench);
+        drive(
+            daemon.world(),
+            vec![DriveSegment {
+                keys: vec!["W".to_owned()],
+                secs: 6.0,
+            }],
+        )
+        .expect("a drive");
+
+        // The most frames running, every wheel down, that the height rule
+        // reads as off the ground - two make a jump.
+        let (mut running, mut most) = (0, 0);
+        daemon.until(8.0, |daemon| {
+            let height = daemon.height();
+            let world = daemon.world();
+            let wheels = world
+                .query_filtered::<&crate::player::CarContact, With<LocalPlayer>>()
+                .single(world)
+                .expect("the bench car")
+                .wheels;
+            running = if wheels == 4 && height > airborne_above {
+                running + 1
+            } else {
+                0
+            };
+            most = most.max(running);
+            !daemon.endings().is_empty()
+        });
+
+        assert!(
+            most >= 2,
+            "the premise: up the planks the height rule reads the car as off the ground"
+        );
+        let reports = daemon.reports();
+        let [report] = reports.as_slice() else {
+            panic!("one drive, one report: {reports:?}");
+        };
+        // The first jump is the one off the lip: read it alone, so a landing
+        // that lifted the wheels again - the default car did on its damping
+        // before #1534 - cannot change what this reads.
+        let jump = report.jumps.first().expect("a jump off the lip");
+        assert!(jump.landed_s.is_some(), "it came down: {jump:?}");
+        // Off at the lip: the car's middle past it, so its rear wheels too
+        // within a frame.
+        assert!(
+            jump.from[1] < f64::from(LIP_Z),
+            "it left the ground at z {}, short of the lip at {LIP_Z}: {jump:?}",
+            jump.from[1]
         );
     }
 }

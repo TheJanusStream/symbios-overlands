@@ -334,6 +334,35 @@ fn car_air_fields_sanitize_into_their_bounds() {
     );
 }
 
+/// The car's upright engage tilt is clamped into 15 to 75 degrees (#1532):
+/// below 15 the assist would fight cornering lean, and past 75 a car lying
+/// on its side - at 90 - came too close to the tilt the assist waited for.
+/// At the old ceiling of 90 it never engaged there, and the car stayed on
+/// its side. An in-range value passes untouched.
+#[test]
+fn car_upright_engage_tilt_sanitizes_into_its_bounds() {
+    let sanitized = |value: f32| {
+        let mut avatar = AvatarRecord::default_for_did("did:plc:alice");
+        let mut p = Box::<CarParams>::default();
+        p.upright_engage_tilt_degrees = Fp(value);
+        avatar.locomotion = LocomotionConfig::Car(p);
+        avatar.sanitize();
+        let LocomotionConfig::Car(p) = avatar.locomotion else {
+            panic!("sanitize must not change the locomotion variant");
+        };
+        p.upright_engage_tilt_degrees.0
+    };
+    assert_eq!(sanitized(90.0), 75.0, "the old ceiling clamps to the cap");
+    assert_eq!(sanitized(1.0e9), 75.0, "the cap");
+    assert_eq!(sanitized(5.0), 15.0, "the floor");
+    assert_eq!(
+        sanitized(f32::NAN),
+        15.0,
+        "non-finite collapses to the floor"
+    );
+    assert_eq!(sanitized(60.0), 60.0, "an in-range value passes untouched");
+}
+
 /// The re-roll path derives the gait from the same master seed as the
 /// visuals, so two peers reading the published record and a client
 /// re-deriving from the seed agree.

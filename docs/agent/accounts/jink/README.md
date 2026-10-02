@@ -4,16 +4,19 @@ Jink (@jink-ai.bsky.social) is a land-skiff stunt driver who treats every
 jump as an experiment and measures the hang time rather than guessing it.
 Its body is a three-wheeled stunt cyclecar that drives as a car; its world,
 Parabola Flats, is a dry lake in red mesa country laid out as a stunt park:
-a jump line, a grandstand, a drift circle, a 945 m circuit round a rock
+a jump line with a ring of fire over its biggest gap, a crowd in the
+stands, a drop off a mesa brow, a drift circle, a 945 m circuit round a rock
 spire, and sandstone buttes on the skyline. The owner created the account on
 2026-09-30 and asked, the same morning, for Jink's region, a custom body and
-better land-skiff physics (#1523). Where things stand (2026-09-30, 15:49,
-the last save): the park and the body are built and saved; the land-skiff
-air model (#1524) is in the working tree, not yet committed (that is the
-owner's), and Jink's daemon ran a build of it (17:39, after the end
-review's fixes) until the session closed at 17:46; the Jump Line was tuned
-on it from driven, measured runs (`agent drive`, #1527). Times on this page
-are local (CEST).
+better land-skiff physics (#1523). Where things stand (2026-10-02, after
+session 895): the park and the body are built and saved (room 09:32, avatar
+09:21, the room once more at 15:34); session 893's air model was
+committed by the owner (13d5515);
+session 895's physics - fleet damping, a softer bump stop, terrain without
+ghost edges, cars that brake onto a walk-to's point - is in the working
+tree, not committed (that is the owner's), and Jink's daemon ran a build of
+it from 14:25, on which the Jump Line and the Mesa Drop were driven again.
+Times on this page are local (CEST).
 
 ## Start here
 
@@ -26,8 +29,8 @@ session.
 | Commands | every agent command takes `--account jink-ai.bsky.social`; every tool call starts `AGENT_ACCOUNT=jink-ai.bsky.social` ([session.md](../../session.md#starting)) |
 | Admin | @codewright.bsky.social, the owner: `start --admin @codewright.bsky.social --allow-save` |
 | Region | Parabola Flats, Jink's own world: its DID is Jink's, the `--world` of every offline render |
-| Working folder | `exports/jink/` (gitignored, on this machine only), kept across sessions: `A` the agent wrapper (it runs the copy in `bin/`), `b/` the builders, `gen/` what they write, `src/` the last saves - `room.json` (2026-09-30 15:49, save event seq 154) and `avatar.json` (15:49, seq 155) - and `log.md` the save log; numbered subfolders (`893/`) are earlier scratchpads, read-only |
-| Last session | chainlink session 893 (live session 10), parent #1523 - read its comments (`chainlink show 1523`); `chainlink session last-handoff` is the latest session of any kind |
+| Working folder | `exports/jink/` (gitignored, on this machine only), kept across sessions: `A` the agent wrapper (it runs the copy in `bin/`), `b/` the builders, `gen/` what they write, `src/` the last saves - `room.json` (2026-10-02 15:34, save event seq 90 - the daemon restarted at 14:25 and numbers afresh) and `avatar.json` (09:21, seq 160) - and `log.md` the save log; numbered subfolders (`893/`, `895/`) are earlier scratchpads, read-only |
+| Last session | chainlink session 895 (live session 10 continued, on #1523; nobody visited), after session 893 - read #1523's comments (`chainlink show 1523`); `chainlink session last-handoff` is the latest session of any kind |
 | Default mode | self-guided ([session.md](../../session.md#self-guided)), as the first session ran |
 | Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), or Reeve's world (Ashmere) or avatar ([reeve/](../reeve/README.md)) |
 
@@ -48,14 +51,26 @@ session.
 - **Drive and measure the Jump Line** from `exports/jink`: `b/lineup.py`
   takes the car back to the start by open-pan waypoints and aims it at
   bearing 315 with `b/aim.py` (pulses of A/D, read against
-  `status.heading_deg`); then `./A drive W@20 none@4 --wait`. The answer's
-  `report.jumps` gives each jump's airtime, distance, rise, landing pitch,
-  roll and tilt, and speeds ([moving.md](../../moving.md#driving-a-run-stunts-measured)).
+  `status.heading_deg`) - run `b/aim.py 315` once more if it ends a few
+  degrees off (session 895: 3.4 off missed the Big One); then
+  `./A drive W@20 none@4 --wait`. The answer's `report.jumps` gives each
+  jump's airtime, distance, rise, landing pitch, roll and tilt, and speeds
+  ([moving.md](../../moving.md#driving-a-run-stunts-measured)).
+- **Drive the Mesa Drop**: `python3 b/place.py -78.17 67.86 -54.61 78.85`
+  puts the car at rest on the start arch and aims it at the lip (short
+  throttle-and-brake moves; written while a car's walk-to rolled 7-11 m
+  past its point, #1536, now fixed), then `./A drive W@5 none@4 --wait`:
+  1.24 s and 15.6 m off the brow at 13 m/s. Never come in along the run's
+  axis from behind: the Stadium Gate stands on it 40 m back.
 - **After an `apply`, `look` until `world_building` is false before a
   run**: a run started seconds after one (15:34) drove the whole line
   without a single jump, most likely on ramps still being rebuilt.
-- **Catalogue pieces face local +Z**: place them at the bearing to face plus
-  180 ([building.md](../../building.md#frames-and-yaw)).
+- **Catalogue pieces face local -Z**, as `place --yaw` counts it: the
+  bleachers' seats, the scoreboard's screen, the floodlights' lamps, the
+  trailers' doors. Session 893 wrote the opposite here and turned seven
+  pieces backwards; session 895 turned them round
+  ([building.md](../../building.md#frames-and-yaw)). Read a piece from four
+  sides after placing it.
 
 ## Who Jink is
 
@@ -83,11 +98,17 @@ is named for the curve every jump draws.
   18,468 triangles, 10.4 KB of the avatar's 100 KiB
   (`exports/jink/pics/body_v3.png`). The seed's collider box, tuning and
   motor-whine voice are kept, but for the suspension damping.
+- **Body v2** (`b/body.py`, saved 2026-10-02 09:21, seq 160): copper
+  hubcaps on every wheel's outer face (both faces of the fat rear one) and
+  white racing roundels on the hull's flanks - 33 parts, 10.7 KB. v1's
+  copper hubs sat inside the tyres, and a lathe fills its own middle, so
+  every wheel read plain black (`exports/jink/895/body_v4.png`).
 - **Suspension damping 900** (15:49, seq 155; the seed's was 271.1). Per
   corner that is about 0.37 of critical damping where the seed's was 0.11:
   on the seed's, Jink landed a jump and porpoised on its springs for about
-  2.5 s; on 900 it settles at once. Every seeded skiff has the low figure
-  (an open question for the owner, below).
+  2.5 s; on 900 it settles at once. Since #1534 (the owner's decision,
+  2026-10-02) every seeded skiff gets 0.35 of critical too; a record saved
+  before keeps what it saved.
 - **Ride height**: at rest the springs compress m g / 4 k = 0.131 m of their
   0.6 m, so the ground is at y = -0.948 in body space; every wheel's bottom
   goes there. A helix is centred on its origin along +Y.
@@ -115,10 +136,13 @@ circle, a mesa drop, buttes on the skyline, and the show's life.
   iterations, talus 0.06) slumps the mesa walls into slopes of up to about
   19 degrees over 60 m ([region.md](../../region.md#the-land-is-a-recipe-not-a-sculpt),
   "Mesa country"). The seed scans are in `exports/jink/pics/scan_*.png`.
-- **Ground**, four layers with LINEAR colours: `CrackedEarth` on the pan
-  (pale salt-clay plates), red sandstone `Rock` on the walls (slope
-  0.035-0.2), warm `Sand` on the aprons (and wherever no rule matches),
-  `Gravel` desert pavement on the tops (its `scale` capped at 64).
+- **Ground**, four layers with LINEAR colours: `CrackedEarth` on the pan, a
+  playa crust since 2026-10-02 (`b/ground_playa.py`: the envelope's 20
+  plates a tile, about 0.57 m, cracks about 5 cm, little curl, a paler
+  plate - session 893's 1.4 m plates with 14 cm cracks read as giant crazy
+  paving), red sandstone `Rock` on the walls (slope 0.035-0.2), warm `Sand`
+  on the aprons (and wherever no rule matches), `Gravel` desert pavement on
+  the tops (its `scale` capped at 64).
 - **Water**: the plane at -5 m, under the whole map. A dry lake: skiffs have
   no buoyancy.
 - **Light** (the first session's own): the sun at bearing 248 (WSW), 24
@@ -129,11 +153,14 @@ circle, a mesa drop, buttes on the skyline, and the show's life.
 ### Arrival
 
 `default_landing` is (-72, 44), on the tongue mesa's east brow about 13 m
-up on an 11.5 degree slope, `yaw_deg` 315.3: facing the pan's middle
-(120, -150), the sun behind. The arrival camera looks down over the Jump
-Line's medium jump and flags to the grandstand, a floodlight, the circuit's
-dark ribbon beyond and the buttes on the skyline. Three spots on the brow
-were compared (`exports/jink/pics/landcams.png`).
+up on an 11.5 degree slope, `yaw_deg` 335 since 2026-10-02 (bearing 25,
+NNE; it was 315.3, bearing 45): the arrival camera looks down over the Big
+One with its ring of fire and wrecks on the left, the medium jump, the two
+stands and their crowd, a floodlight, the circuit with its stands beyond
+and the buttes and dust devils on the skyline, the sun behind. At bearing
+45 the Big One sat just outside the frame (`exports/jink/895/cmp_landing.png`).
+Three spots on the brow were compared in session 893
+(`exports/jink/pics/landcams.png`).
 
 ### Places
 
@@ -142,12 +169,15 @@ were compared (`exports/jink/pics/landcams.png`).
 | Arrival | -72, 44 | the tongue mesa's east brow, facing NE over the pan | 893 |
 | Stadium Gate | -91.8, 63.8 | the world's gateway (catalogue `sports_rec_gateway`), 28 m behind the arrival so its afternoon shadow stays out of the arrival camera; proven by driving in (`picker: open`) | 893 |
 | The Jump Line | 58.8, 91.2 to -125, -93 | on the pan, launching NW (bearing 315), side-on to the arrival, every ramp 9 m wide and solid, each kicker with a two-wedge curved lead-in: the start gantry at its start (a red banner, a drag-race light tree facing the run-up); a small 15 degree tabletop at 16.4, 48.8 (lip 1.0 m, a 6 m table 0.5 m below the lip, a 2.5 degree landing 6-17.5 m past the lip); a medium 20 degree tabletop at -36.7, -4.3 (lip 1.6 m, a 10 m table, a 6.5 degree landing 10-24 m past); the Big One, a 24 degree kicker (lip 2.4 m) at -86.2, -53.8 over a 16 m gap with four wrecked cars side by side and a landing hump (a 30 degree face to 1.4 m, a 14 degree run-out); flags at each lip (`b/jumps.py`, `b/start_drift.py`). Sized from measured runs (History) | 893 |
-| Grandstand | -34.5, -38.9 and -50.1, -54.5 | two bleachers on the far side of the Jump Line facing the jumps and the arrival; floodlight masts along that side | 893 |
-| Owner's scoreboard | 63.0, 75.6 | the catalogue's owner monument (a scoreboard showing the room owner) by the Jump Line's start, facing the arrival | 893 |
+| Ring of fire | -92.8, -60.4 | a glowing 3.2 m hoop on two striped posts across the Big One's gap, 9.4 m past its lip and 4.6 m up where the car's apex is; twelve flame emitters round it and a smoke plume; nothing solid - the Big One flew through it 1.3 m off its middle (`b/fire_ring.py`) | 895 |
+| Distance posts | beside each landing | short white posts every 5 m past each lip and tall red ones at the tens, on the stands' side 6.5 m out: small 5-20 m, medium 10-25, the Big One 15-30 (`b/markers.py`) | 895 |
+| Grandstand | -34.5, -38.9 and -50.1, -54.5 | two bleachers on the far side of the Jump Line, turned on 2026-10-02 to face SW across it at the jumps and the arrival (session 893's placing sat them backwards), with 14 and 12 seated spectators (`b/crowd.py`); floodlight masts along that side | 893, 895 |
+| Owner's scoreboard | 63.0, 75.6 | the catalogue's owner monument (a scoreboard showing the room owner) by the Jump Line's start, its screen turned to bearing 250 (the start and the way down from the arrival) on 2026-10-02; it had shown the arrival its back | 893, 895 |
+| The Mesa Drop | lip -54.6, 78.9 | a 20 degree kicker (lip 1.6 m, 9 m wide, curved lead-in, a back ramp) on the tongue mesa's crest, launching ESE (bearing 115) off the brow onto the natural 15-19 degree slope; its frame tilted to a plane fitted to the ground; tall pennants at the lip, a striped start arch 26 m back (not solid), a windsock beside it. Driven: 1.24 s, 15.6 m, up to 3.34 m over the slope at 13 m/s, landing level, 94% kept (`b/mesa_drop.py`, `b/lineup_md.py`, `b/place.py`) | 895 |
 | Drift Circle | 96, 52 | a painted 18 m ring, a striped pylon, skid-mark arcs round it (each mark at its own height) | 893 |
-| The camp | 104-152, 72-124 | the show's camp SE of the start: two crew trailers, a water tower, a windmill, a shade tarp (`b/camp.py`) | 893 |
+| The camp | 104-152, 72-124 | the show's camp SE of the start: two crew trailers and a shade tarp (turned on 2026-10-02 to face the camp and the start), a water tower, a windmill (its head put back on its tower, `b/windmill_fix.py`), a windsock by the start gantry (`b/camp.py`, `b/windsock.py`) | 893, 895 |
 | The Circuit | start/finish -20, -150 | a 945 m asphalt loop on the northern pan, 12 m wide, clockwise: the start straight east along z -150, round the Needle's west and north sides, the back straight west past the Castle, back down the west side; eight overlapping flat lanes (`b/circuit.py`) | 893 |
-| Circuit furniture | bends at 205, -190; 230, -320; -48, -169 | a chequered start/finish gantry and line, moved 7.5 m on at 13:22 to cover the seam where the last lane piece ends; tyre walls round the outside of the three tightest bends, checkered kerbs on their insides (`b/circuit_kit.py`); a tabletop on the north half of the start straight at 84.5, -147.5 (the small jump as it was at 11:30, table at lip height - not yet rebuilt from the tuned one); six earth whoops across the back straight near 116, -399; a grandstand of two bleachers facing the start straight (32-45, -128) and a paddock inside the loop (containers, tyres, barrels) (`b/circuit_extras.py`) | 893 |
+| Circuit furniture | bends at 205, -190; 230, -320; -48, -169 | a chequered start/finish gantry and line, moved 7.5 m on at 13:22 to cover the seam where the last lane piece ends; tyre walls round the outside of the three tightest bends, checkered kerbs on their insides (`b/circuit_kit.py`); white edge lines the whole way round, 4.5 m out, riding each lane piece (`b/circuit_lines.py`, 2026-10-02); a tabletop on the start straight at 84.5, -147.5, rebuilt on 2026-10-02 from the tuned small jump, 6 m wide (`b/track_jump.py`: 0.70 s, 9.8 m at 14 m/s); six earth whoops across the back straight near 116, -399 (driven 2026-10-02: hops of 0.07-0.23 s, 0.70 s off the last); a grandstand of two bleachers facing the start straight (32-45, -128, turned north on 2026-10-02) with 8 spectators each, a floodlight turned to light the straight, and a paddock inside the loop (containers, tyres, barrels) (`b/circuit_extras.py`) | 893, 895 |
 | The buttes | Mitten 365, -170; Castle 90, -470; Thumb 450, -345; Needle 250, -300 | sandstone formations on the NE skyline, each one BlobGroup of blended boxes on a talus mound (`b/buttes.py`) | 893 |
 
 ### Life and sound
@@ -160,16 +190,26 @@ were compared (`exports/jink/pics/landcams.png`).
 - **Sound** (the first session's own, 10:29): the seed's desert wind and
   gusts, its organ dirge and bass removed, the wind bed halved to 0.25.
   Unheard: the owner's to judge.
+- **The show's life** (2026-10-02): 42 seated spectators on the four
+  stands in show-day shirts, a few in caps (a body lathe and a head each:
+  `b/crowd.py`; the floating report counts them as free, since they sit on
+  another generator's seats); two dust devils on the far pan, each its own
+  particle generator and seed, puffs rising 15-20 m and leaning ENE
+  (`b/dust.py`); windsocks at both launch points trailing ENE
+  (`b/windsock.py`); the ring of fire's flames and smoke.
 
 ### Budget
 
-`render --triangle-report` on the save of 15:49 (seq 154): 855,886
-triangles (the ground 522,242) and 1,832 parts; the saguaros are the
+`render --triangle-report` on the save of 2026-10-02 15:34 (seq 90; the
+same as at 09:32):
+924,802 triangles (the ground 522,242) and 2,081 parts (1,832 at session
+893's end: the crowd 96, the circuit's lines 80, the ring of fire, the
+Mesa Drop, the windsocks and posts the rest); the saguaros are still the
 largest share after the ground (180 copies, 185,760 triangles). The room
-record is 271,944 bytes of compact JSON, far under the 900 KiB live-update
+record is 391,450 bytes of compact JSON, 42% of the 900 KiB live-update
 ceiling (#1499): live edits reach visitors. The largest single record is
 the `shipping_containers` generator (43,056 of 102,400 bytes,
-`status.editing.record_size`).
+`status.editing.record_size`). The avatar is 10,729 bytes.
 
 ## Standing decisions
 
@@ -178,6 +218,9 @@ the `shipping_containers` generator (43,056 of 102,400 bytes,
 | 2026-09-30 | #1522 | **The account**: @jink-ai.bsky.social, created by the owner; the concept in the owner's words: "focussed on playing with the physics of land-skiffs. So its region will contain props like ramps for jumping, maybe a race-track and themed around stunt-driving with land-skiffs." |
 | 2026-09-30 | #1523 | **Build Jink's region and custom avatar**: "Now please add Jink properly and start building Jink's region and custom avatar" - full permission to edit Jink's region and avatar, and leave to save each improvement (a first session run self-guided) |
 | 2026-09-30 | #1523, #1524 | **Change land-skiff physics in general**: "You are allowed to make changes to the way Overlands land-skiff locomotion and physics work in general, to enhance the driving (and jumping) experience." |
+| 2026-10-02 | #1534 | **Fleet damping**: every seeded skiff's suspension damping raised to about 0.35 of critical (from 0.11), so a skiff settles after a landing instead of porpoising |
+| 2026-10-02 | #1535 | **Soften the bump stop's rebound**: no landing may come back up harder with the stop than without it (kept, with #1538's terrain fix, after the critic measured terrain landings) |
+| 2026-10-02 | #1523 | **No lap timing**: checkpoints and a lap timer for the Circuit are NOT wanted - it stays an untimed loop |
 | 2026-09-26 | #1481 | **Agents keep to their own**: never touch another account's world or avatar |
 | 2026-09-26 | #1474 | **Build for the browser**: count parts as well as triangles |
 | 2026-09-27 | #1467 | **Terrain reflectance 0.25 in every world** (in code) |
@@ -188,17 +231,20 @@ the `shipping_containers` generator (43,056 of 102,400 bytes,
 
 | Path | What it holds |
 |---|---|
-| `A`, `bin/` | the agent wrapper and the copies of `agent` and `render` it and the tools use (the 17:39 build); beside them the earlier ones: `agent.head-64e27ab` (HEAD before the session), `agent.drive-oldphysics` (HEAD with the drive verb, the old physics), `*.drive-1530` (the build of 15:30) |
-| `src/room.json`, `src/avatar.json` | the last saves (both 15:49; room seq 154, avatar seq 155) |
+| `A`, `bin/` | the agent wrapper and the copies of `agent` and `render` it and the tools use (session 895's build of 14:25, with #1528-#1538); beside them the earlier ones: `*.s895-0817` (the committed 13d5515, session 895's morning), `*.s893-1739` (session 893's last), `agent.head-64e27ab` (HEAD before session 893), `agent.drive-oldphysics`, `*.drive-1530` |
+| `src/room.json`, `src/avatar.json` | the last saves (room 2026-10-02 15:34, seq 90; avatar 09:21, seq 160) |
 | `src/room_seeded.json`, `src/avatar_seeded.json` | the seed's world and body (the reference) |
 | `b/land.py` | the land, ground, light, sound and arrival; also writes `edits_clear_ONCE.txt` (never again: it replaces every generator and placement with the bare terrain) and `edits_land.txt` |
 | `b/jumps.py`, `b/start_drift.py`, `b/props.py` | the Jump Line, its start gantry and the drift circle, the catalogue props round it (`props.py` prints `place` commands) |
 | `b/circuit.py`, `b/circuit_kit.py`, `b/circuit_extras.py` | the Circuit (its centre line in `gen/circuit_samples.json`), its furniture, its riding features and stands |
 | `b/buttes.py`, `b/camp.py`, `b/body.py` | the buttes; the camp and plants; the body |
 | `b/lineup.py`, `b/aim.py`, `b/trace.py` | back to the Jump Line's start and facing down it; turning to a bearing within 0.5 degrees; a drive with `status` polled every 0.1 s |
+| `b/ground_playa.py`, `b/mesa_drop.py`, `b/lineup_md.py`, `b/place.py` | the playa crust (`key=value` overrides); the Mesa Drop (`angle=`, `lip=`, `lip_s=`; fits the kicker's plane to the ground, re-runs set its placements); a route round the kicker onto the run-up; the car at rest on a point by throttle-and-brake moves, then aimed |
+| `b/windmill_fix.py`, `b/track_jump.py`, `b/crowd.py`, `b/dust.py`, `b/windsock.py`, `b/fire_ring.py`, `b/markers.py`, `b/circuit_lines.py` | the windmill's head, braces and blades; the circuit tabletop from the tuned jump; the spectators; the dust devils; the windsocks; the ring of fire; the distance posts; the circuit's edge lines (each on its own lane piece, by `thread.py --ride`) |
 | `b/land_try.py`, `b/viewcopy.py`, `b/butte_blob.py` | seed-scan copies; a viewing copy with the fog pushed out; the first blob butte trial |
 | `log.md` | the save log |
 | `893/` | session 893's notes (`notes.md`), scans, apply logs, command files, and the Jump Line's runs: `run_before_1.json` and `trace_before_*.txt` on the old physics, `run_after_*.json` and `trace_after_*.txt` on #1524's |
+| `895/` | session 895's review pictures and comparisons, the Mesa Drop's ground grids (`md_ground*.json`) and runs (`run_md_*.json`, `run_md_4_newphys.json` on the new physics), the tabletop's and whoops' runs, the Jump Line through the ring (`run_jl_ring.json`) and on the new physics (`run_jl_newphys.json`, `trace_jl_newphys.txt`), and the triangle and floating reports |
 
 The pulled records are the truth, not the builders: diff a builder's output
 against the record before applying it. `b/circuit.py` rewrites
@@ -258,24 +304,64 @@ lines (the placements are 21-28).
   car on its roof - all fixed (`landing_tilt_deg`; no air key counts while
   a car lies on the ground) - and four lows, filed as #1530-#1533.
 
+### 2026-10-02: session 895, live session 10 continued, #1523
+
+- **Mode**: self-guided, on the owner's word in the terminal - continue
+  #1523: build the region out, work the follow-ups, close what is done. The
+  owner answered three questions at the start: raise the fleet's damping
+  (#1534), soften the bump stop's rebound (#1535), no lap timing.
+- **Built** (17 logged saves, 08:28-09:32; nobody visited): the pan as a
+  playa; the arrival turned to bearing 25; the Mesa Drop; the windmill's
+  head; the circuit tabletop from the tuned jump; all four stands, the
+  scoreboard, the circuit floodlight, both trailers and the tarp turned to
+  face what they serve (catalogue fronts are local -Z); 42 spectators; two
+  dust devils; two windsocks; the ring of fire; white edge lines round the
+  circuit; distance posts at every landing; body v2 (hubcaps, roundels).
+- **Measured**: the Mesa Drop's first kicker (15 degrees, 0.6 m lip) flew
+  0.6 s and never rose (the springs took the kick); at 20 degrees and 1.6 m
+  it flies 1.23 s, 15.6 m, 3.35 m over the slope. The tabletop 0.70 s; the
+  whoops hops of 0.07-0.23 s and 0.70 s off the last. On the new physics
+  (14:25 build): the Jump Line 0.73 / 0.87 / 1.27 s, the Mesa Drop 1.24 s,
+  all level, 94-97% kept.
+- **Failed at first**: thin cracks (under two pixels of the 512 px bake)
+  drew as zippers; the run-up arch's solid posts caught an off-axis car;
+  the kicker's 1.8 m back face stopped a car climbing from the pan; walk-to
+  lineups rolled 7-11 m past (#1536); the first dust devils rose as chimney
+  plumes; the ring's first flames were too small to see; a line-up 3.4
+  degrees off missed the Big One.
+- **Code**: a builder (676k tokens, 3 h 46 min) fixed #1528-#1535; its
+  critic (307k, about 67 min) found one high: the softer bump stop let a
+  box reach the ground, and the terrain - a heightfield with no
+  internal-edge fix - stopped such a car dead (65 of 176 bench landings for
+  records published before #1534). Fixed at the root in the main session:
+  #1538 (parry's FIX_INTERNAL_EDGES on the terrain and the bench floor:
+  after it 0 dead stops of 176 on the new damping, 16 for records published
+  before #1534, about HEAD's 14 on the fixed terrain); it also made the
+  airplane slide 15.6 m after touching down,
+  so its autopilot aims 14 m short (was 8). Also #1536 (walk-to braking),
+  #1537 (the catalogue windmill), #1517 (test directories in /tmp). One end
+  reviewer over that code (364k tokens, 46 min) found #1536's sibling - a
+  car on `follow` drove through its player (fixed, with a test) - the
+  windmill's vane through its new cap (raised 0.3 m, saved 15:34), an
+  overstated figure and stale comments (fixed). Filed #1539 and #1540 (lows)
+  and #1541 (a car sent to a point behind it ends `stuck`: its swing
+  outlasts the 6 s progress rule; pre-existing).
+
 ## Open threads
 
-- **Two physics questions for the owner** (#1524): every seeded skiff's
-  suspension damping is about 0.11 of critical, so a skiff landing a jump
-  porpoises on its springs (Jink's own is now 900, about 0.37) - raise the
-  seeded damping for the whole fleet? And the new bump stop makes some
-  landings rebound harder than before (the critic's finding 4: 5.2 against
-  3.7 m/s) - keep it or soften it?
-- **The circuit's tabletop** is the small jump as it was at 11:30, its
-  table at lip height: rebuild it from the tuned `jump_s` and drive it; the
-  six whoops are not yet driven on the air model either.
-- **The Mesa Drop**: a launch ramp off a mesa brow onto a landing ramp on
-  the pan, sized from measured runs.
-- **Lap timing and checkpoints** do not exist in the game: a new mechanic,
-  to be filed and described, and built only on the owner's word.
-- **#1528** (`height_m` reads 0.0 over a surface a fast car is not on),
-  **#1529** (the airplane's roll keys), and the end review's lows
-  #1530-#1533 (untested rules, an engage tilt of 90 that leaves a car on
-  its side, the controls sheet's guard).
-- **The owner's word on the mood**: they visited at 13:07 and said nothing;
-  the light and the sound are theirs to judge.
+- **The owner's to do outside the game**: commit session 895's working
+  tree; remove session 893's git worktree `/home/codewright/Workspace/overlands-drive-verb`
+  and branch `jink-drive-verb` (the hook blocks `git worktree remove`);
+  give bevy_symbios_ground's `build_heightfield_collider` parry's
+  internal-edge flag when it next releases (overlands builds its own since
+  #1538).
+- **The owner's word on the mood**: the light and the sound are theirs to
+  judge; nobody has heard the sound.
+- **Filed in session 895, open**: #1541 (medium: a car's walk-to of a
+  point behind it ends `stuck` while it swings round - turn it first with
+  `face` or `b/aim.py`), #1539 (a car on its side with its roof downhill on
+  a side slope stays down), #1540 (the controls guard does not stop a key
+  read beside `CAR_KEYS`).
+- **Ideas not built**: a judges' booth by the Big One; more spectators
+  along the run-up; a parked show car at the arrival (its foreground is
+  the bare mesa top under the camera).

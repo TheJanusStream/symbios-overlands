@@ -120,6 +120,18 @@ tile is the world's width over 90, 11.4 m on the default 1022 m world),
 faded grey-purple tips over dark stems, rusty `dry_patches` 0.4 - the whole
 hilltop read as heather past its flower, for no parts at all (session 883).
 
+**A ground pattern is sized per tile, and a tile bakes at 512 px**: 11.4 m
+on the default world, so about 2.2 cm a pixel. Parabola Flats' `CrackedEarth`
+pan drew 1.4 m plates (`scale` 8 plates a tile) with 14 cm cracks
+(`crack_width` 0.012 of the tile) and the default curl lifting every edge:
+from eye height, giant crazy paving in every frame. A dry lake's crust is
+plates a hand or two across with thin cracks. The texture's envelope stops at
+20 plates a tile (0.57 m); cracks under about two pixels (`crack_width` below
+0.0045) draw as a jagged zipper, so take 0.0045, a small curl (0.08 over
+0.01), `normal_strength` 0.7 and a paler crust (session 895, Jink's
+`b/ground_playa.py`). A bigger bake would cost every browser visitor GPU
+memory for four layers; widen the cracks instead.
+
 **A procedural texture's colours are LINEAR**, unlike a material's
 `base_color` (sRGB): the generator converts them when it bakes. A litter
 meant as dark brown sRGB `(0.36, 0.25, 0.13)` is written
@@ -592,12 +604,31 @@ ramp is solid.
   height, each 1 cm narrower a side than what it meets so no side faces
   share a plane (Jink's `b/jumps.py`, `kicker`). Session 893 added them for
   a scrape that was most likely not one: `height_m` read 0.0 on a straight
-  kicker, which a speculative contact does too (#1528), and on #1524's bench
+  kicker, which a speculative contact did too until #1528, and on #1524's bench
   the small kicker at 15 m/s never brought the Cyclecar's box within 19 mm
   of the ramp. The landing is where a box hits.
 - **After an `apply`, `look` until `world_building` is false before the
   next run**: one started seconds after an apply (15:34) drove the whole
   line without a jump, most likely on ramps still being rebuilt.
+- **A kicker on a slope** (session 895's Mesa Drop, Jink's
+  `b/mesa_drop.py`): fit a plane to the ground under the kicker's footprint
+  (`--terrain-report` on a grid), tilt the generator's frame to it through
+  the placement (`snap_to_terrain` off, the plane's own height at the lip),
+  and sink every part past the deepest point where the real ground falls
+  below the plane; put the run on a ridge's crest, where the ground is level
+  across (`--terrain-report` across the line, not along it). A small kicker
+  launches nothing: 15 degrees over a 0.6 m lip flew 0.6 s and never rose
+  above the lip, the springs took the kick; the medium jump's size (20
+  degrees, 1.6 m) flew 1.23 s off the brow with 3.35 m under it. Give the
+  kicker a back ramp: a car climbing from below met the lip's 1.8 m back
+  face and ended `stuck`.
+- **A drop that lands on the natural slope lands hard**: the car levels
+  itself in the air while a mesa wall slopes 15-19 degrees, so it came down
+  at 9.75 m/s, about 5.8 m/s into the slope (the Big One's landing hump is
+  about 4) - it held, 94% of the speed kept. Softer needs a landing ramp
+  steeper than the slope where the car comes down, which on a slope means a
+  tabletop: a ramp's top standing above the ground is a wall to a car that
+  falls short.
 
 ## Working fast
 

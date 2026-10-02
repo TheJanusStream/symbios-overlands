@@ -6,16 +6,18 @@
 //! touched something solid - the ground, or whatever stands on it, a roof or
 //! a tree - or how far its lowest point is above water, where water lies
 //! higher. A body resting on something - the physics has it touching a
-//! thing under it - is at nought. Otherwise its own collider is swept down:
-//! a ray from its middle is not enough, since an airship held level on a
-//! hillside rests on its uphill edge, and a ray from its middle read half a
-//! metre under it (#1430). A body standing, parked or landed reads about
-//! nothing.
+//! thing under it, within a centimetre of it, which leaves out the contacts
+//! avian opens ahead of a fast body (#1528) - is at nought. Otherwise its
+//! own collider is swept down: a ray from its middle is not enough, since an
+//! airship held level on a hillside rests on its uphill edge, and a ray from
+//! its middle read half a metre under it (#1430). A body standing, parked or
+//! landed reads about nothing.
 
 use avian3d::prelude::*;
 use bevy::ecs::system::{SystemParam, SystemState};
 use bevy::prelude::*;
 
+use crate::config::rover::BODY_TOUCH_M;
 use crate::state::LocalPlayer;
 use crate::terrain::FinishedHeightMap;
 use crate::water::WaterSurfaces;
@@ -115,7 +117,10 @@ impl Sensing<'_, '_> {
 
     /// Whether the physics has `body` touching something under it - a
     /// contact whose normal, turned to point out of the thing touched, leans
-    /// less than 60 degrees from straight up.
+    /// less than 60 degrees from straight up, with a point within
+    /// [`BODY_TOUCH_M`] of it. Avian counts a pair as touching from as far
+    /// off as the body could close in one step, 23 cm at 15 m/s, and a body
+    /// flying that low over the ground is not on it (#1528).
     fn resting_on_something(&self, body: Entity) -> bool {
         let Some(contacts) = self.contacts.as_ref() else {
             return false;
@@ -133,10 +138,13 @@ impl Sensing<'_, '_> {
                 // second: turned to point out of the other, it points up out
                 // of a thing under the body.
                 !self.sensors.contains(other)
-                    && pair
-                        .manifolds
-                        .iter()
-                        .any(|manifold| out_of_other * manifold.normal.y >= UNDER_NORMAL_Y)
+                    && pair.manifolds.iter().any(|manifold| {
+                        out_of_other * manifold.normal.y >= UNDER_NORMAL_Y
+                            && manifold
+                                .points
+                                .iter()
+                                .any(|point| point.penetration > -BODY_TOUCH_M)
+                    })
             })
     }
 
@@ -264,6 +272,46 @@ mod tests {
             "{height:.2} m up against a wall, its underside at {:.2}",
             bench.underside()
         );
+    }
+
+    /// Flying fast and low over the ground, a body is as high as it is.
+    /// Avian keeps a contact from as far out as a body could close in one
+    /// step - 23 cm at 15 m/s - once it has paired the two, which it does
+    /// with a floor within about 10 cm of a body flying level over it.
+    /// Counted as touching, the contact read nought skimming the floor 3, 6
+    /// and 9 cm up at 15 m/s (#1528).
+    #[test]
+    fn a_fast_body_low_over_the_ground_is_as_high_as_it_is() {
+        // Where the body's origin sits over its underside.
+        let lift = {
+            let bench = airship_at(Vec3::new(0.0, 10.0, 0.0));
+            bench.position().y - bench.underside()
+        };
+        for gap in [0.03, 0.06, 0.09] {
+            let mut bench = airship_at(Vec3::new(0.0, gap + lift, 0.0));
+            bench.set_velocity(Vec3::new(0.0, 0.0, -15.0));
+            bench.step();
+            let world = bench.world_mut();
+            let body = world
+                .query_filtered::<Entity, With<LocalPlayer>>()
+                .single(world)
+                .expect("the bench body");
+            assert!(
+                world
+                    .resource::<ContactGraph>()
+                    .contact_pairs_with(body)
+                    .any(|pair| pair.is_touching()),
+                "the premise: avian has a contact open with the floor {gap} m under it"
+            );
+
+            let height = height_over(&mut bench);
+
+            assert!(
+                (height - bench.underside()).abs() < 0.01 && height > gap * 0.5,
+                "{height:.3} m read at 15 m/s over a floor {:.3} m under it",
+                bench.underside()
+            );
+        }
     }
 
     /// Down on a hillside - level, resting on its uphill edge - a body is

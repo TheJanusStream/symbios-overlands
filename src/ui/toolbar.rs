@@ -994,7 +994,10 @@ const BOAT_ROWS: &[ControlRow] = &[
 // The air rows mirror `player::car`'s air model (#1524): W/S/A/D count in
 // the air only when pressed there - held from the ground they drive and
 // steer - and Q/E whenever held, and with no key on pitch or roll the car
-// levels that axis itself.
+// levels that axis itself. Each row says what its keys do in their order
+// ("W / S" - "throttle / reverse"), and `skiff_rows_mirror_the_car_handler`
+// reads them back against the car's own key table, `player::car::CAR_KEYS`
+// (#1533).
 const SKIFF_ROWS: &[ControlRow] = &[
     ControlRow {
         keys: "W / S  or  ⬆ / ⬇",
@@ -1002,7 +1005,7 @@ const SKIFF_ROWS: &[ControlRow] = &[
     },
     ControlRow {
         keys: "A / D  or  ⬅ / ➡",
-        action: "steer on the ground · pressed in the air: yaw",
+        action: "steer left / right · pressed in the air: yaw left / right",
     },
     ControlRow {
         keys: "Q / E",
@@ -1050,8 +1053,9 @@ const AIRPLANE_ROWS: &[ControlRow] = &[
         action: "pitch down / up",
     },
     ControlRow {
+        // `player::airplane` (#1529): A takes the left wing down.
         keys: "A / D  or  ⬅ / ➡",
-        action: "roll",
+        action: "roll left / right",
     },
     ControlRow {
         keys: "Q / E",
@@ -1457,6 +1461,7 @@ pub fn latch_controls_seen(mut panels: ResMut<UiPanels>, mut was_open: Local<boo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::player::sim::{CAR_KEYS, InTheAir, OnTheGround};
 
     /// #1271 f409. The dot's hover names the problem, not just a count.
     #[test]
@@ -1657,90 +1662,187 @@ mod tests {
         ),
     ];
 
-    /// Every `KeyCode` `player::car` reads, and the fragment [`SKIFF_ROWS`]
-    /// must print for it (#1524) - the same guard as the on-foot one below.
-    const SKIFF_KEY_ROWS: &[(&str, &str)] = &[
-        ("KeyW", "W / S"),
-        ("KeyS", "W / S"),
-        ("ArrowUp", "⬆ / ⬇"),
-        ("ArrowDown", "⬆ / ⬇"),
-        ("KeyA", "A / D"),
-        ("KeyD", "A / D"),
-        ("ArrowLeft", "⬅ / ➡"),
-        ("ArrowRight", "⬅ / ➡"),
-        ("KeyQ", "Q / E"),
-        ("KeyE", "Q / E"),
-        ("Space", "Space"),
+    /// How the sheet names each key the car can read.
+    const KEY_GLYPHS: &[(KeyCode, &str)] = &[
+        (KeyCode::KeyW, "W"),
+        (KeyCode::KeyS, "S"),
+        (KeyCode::KeyA, "A"),
+        (KeyCode::KeyD, "D"),
+        (KeyCode::KeyQ, "Q"),
+        (KeyCode::KeyE, "E"),
+        (KeyCode::Space, "Space"),
+        (KeyCode::ArrowUp, "⬆"),
+        (KeyCode::ArrowDown, "⬇"),
+        (KeyCode::ArrowLeft, "⬅"),
+        (KeyCode::ArrowRight, "➡"),
     ];
 
-    /// **The skiff rows mirror the car handler** (#1524), as the on-foot
-    /// rows do the humanoid's: every key `player::car` reads is on the sheet,
-    /// and so is what the air model does with them - it gave W/S/A/D a
-    /// second meaning in the air, Q/E their only one, and the car a
-    /// levelling of its own, and a sheet that kept saying "steer (on the
-    /// ground)" and nothing else left the air model to the collapsed editor
-    /// section that was its only description.
-    #[test]
-    fn skiff_rows_mirror_the_car_handler() {
-        let handler = std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/player/car.rs"),
-        )
-        .expect("the car handler is readable");
-        let printed: String = SKIFF_ROWS
-            .iter()
-            .map(|r| format!("{}\n{}\n", r.keys, r.action))
-            .collect();
+    /// What the sheet says for a meaning of a car key: a word the whole
+    /// clause holds, and one the key's own slot of it holds - "throttle",
+    /// "steer ... left", "pitch nose ... down".
+    fn sheet_words_on_the_ground(what: OnTheGround) -> (&'static str, &'static str) {
+        match what {
+            OnTheGround::Throttle => ("throttle", "throttle"),
+            OnTheGround::Reverse => ("reverse", "reverse"),
+            OnTheGround::SteerLeft => ("steer", "left"),
+            OnTheGround::SteerRight => ("steer", "right"),
+            OnTheGround::Handbrake => ("handbrake", "handbrake"),
+        }
+    }
 
-        let mut bound: Vec<&str> = Vec::new();
-        let mut rest = handler.as_str();
-        while let Some(at) = rest.find("KeyCode::") {
-            rest = &rest[at + "KeyCode::".len()..];
-            let end = rest
-                .find(|c: char| !c.is_ascii_alphanumeric())
-                .unwrap_or(rest.len());
-            let key = &rest[..end];
-            if !bound.contains(&key) {
-                bound.push(key);
+    fn sheet_words_in_the_air(what: InTheAir) -> (&'static str, &'static str) {
+        match what {
+            InTheAir::NoseDown => ("pitch", "down"),
+            InTheAir::NoseUp => ("pitch", "up"),
+            InTheAir::YawLeft => ("yaw", "left"),
+            InTheAir::YawRight => ("yaw", "right"),
+            InTheAir::RollLeft => ("roll", "left"),
+            InTheAir::RollRight => ("roll", "right"),
+        }
+    }
+
+    /// One clause of a skiff row's action - what its keys do on the ground,
+    /// or in the air - split into the keys' slots: "throttle / reverse" says
+    /// "throttle" for the row's first key and "reverse" for its second, and
+    /// a clause with no slash says the same for each.
+    struct Clause<'a> {
+        whole: &'a str,
+        slots: Vec<&'a str>,
+        /// An air clause that counts only a press made in the air
+        /// ("pressed in the air: yaw"), not a key held from the ground.
+        pressed: bool,
+    }
+
+    impl<'a> Clause<'a> {
+        fn read(whole: &'a str, pressed: bool) -> Self {
+            Self {
+                whole,
+                slots: whole.split(" / ").collect(),
+                pressed,
             }
         }
-        assert!(
-            bound.len() >= 11,
-            "the handler scan found only {bound:?} - it has stopped working"
-        );
-        for key in bound {
-            let (_, fragment) = SKIFF_KEY_ROWS
-                .iter()
-                .find(|(name, _)| *name == key)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "player::car binds KeyCode::{key} and SKIFF_KEY_ROWS does not know \
-                         it - say what it does on the sheet"
-                    )
-                });
-            assert!(
-                printed.contains(fragment),
-                "the sheet never prints {fragment:?} for KeyCode::{key}:\n{printed}"
-            );
-        }
 
-        // What the air model does with the keys, each tied to the code that
-        // does it, so neither half can go without the other noticing.
-        for (code, says) in [
-            ("nose_down", "pitch"),
-            ("yaw_left", "yaw"),
-            ("roll_left", "roll"),
-            ("fn air_level_torque", "levels"),
-            ("fn on_the_ground", "pressed in the air"),
-        ] {
-            assert!(
-                handler.contains(code),
-                "player::car no longer has {code:?}; re-check what the sheet says about it"
-            );
-            assert!(
-                printed.contains(says),
-                "player::car has {code:?} and the sheet never says {says:?}:\n{printed}"
+        fn slot(&self, slot: usize) -> &'a str {
+            if self.slots.len() == 1 {
+                self.slots[0]
+            } else {
+                self.slots[slot]
+            }
+        }
+    }
+
+    /// A skiff row's action read back: its clause for the ground, if it has
+    /// one, and its clause for the air.
+    fn read_action(action: &str) -> (Option<Clause<'_>>, Option<Clause<'_>>) {
+        let (mut ground, mut air) = (None, None);
+        for clause in action.split(" · ") {
+            if let Some(rest) = clause.strip_prefix("pressed in the air: ") {
+                air = Some(Clause::read(rest, true));
+            } else if let Some(rest) = clause.strip_suffix(" in the air") {
+                air = Some(Clause::read(rest, false));
+            } else {
+                ground = Some(Clause::read(clause, false));
+            }
+        }
+        (ground, air)
+    }
+
+    /// **The skiff rows mirror the car handler** (#1524, #1533): each row,
+    /// read back, says of each key it names what `player::car::CAR_KEYS` -
+    /// the table the car reads its keys through - says that key does, on the
+    /// ground and in the air, in the key's own slot ("W / S" -
+    /// "throttle / reverse"); and every key the car reads is on one row. So
+    /// a swapped pair of meanings fails on either side, as does a key the
+    /// sheet names and the car does not read, or the other way about.
+    /// W/S/A/D, which also act on the ground, count in the air only when
+    /// pressed there, and their rows say so; Q/E count whenever held.
+    #[test]
+    fn skiff_rows_mirror_the_car_handler() {
+        let mut named: Vec<KeyCode> = Vec::new();
+        let mut keyless = Vec::new();
+        for row in SKIFF_ROWS {
+            if row.keys == "no key" {
+                keyless.push(row);
+                continue;
+            }
+            let (ground, air) = read_action(row.action);
+            for names in row.keys.split("  or  ") {
+                for (slot, name) in names.split(" / ").enumerate() {
+                    let (key, _) = KEY_GLYPHS
+                        .iter()
+                        .find(|(_, glyph)| *glyph == name)
+                        .unwrap_or_else(|| panic!("the sheet names {name:?}, an unknown key"));
+                    let car_key = CAR_KEYS
+                        .iter()
+                        .find(|car_key| car_key.key == *key)
+                        .unwrap_or_else(|| {
+                            panic!("the sheet names {name}, which the car does not read")
+                        });
+                    named.push(*key);
+                    match (car_key.on_the_ground, &ground) {
+                        (Some(what), Some(clause)) => {
+                            let (verb, way) = sheet_words_on_the_ground(what);
+                            assert!(
+                                clause.whole.contains(verb) && clause.slot(slot).contains(way),
+                                "{name} is {what:?} on the ground and its row says {:?}",
+                                clause.whole
+                            );
+                        }
+                        (None, None) => {}
+                        (what, clause) => panic!(
+                            "{name} is {what:?} on the ground and its row says {:?}",
+                            clause.as_ref().map(|c| c.whole)
+                        ),
+                    }
+                    match (car_key.in_the_air, &air) {
+                        (Some(what), Some(clause)) => {
+                            let (verb, way) = sheet_words_in_the_air(what);
+                            assert!(
+                                clause.whole.contains(verb) && clause.slot(slot).contains(way),
+                                "{name} is {what:?} in the air and its row says {:?}",
+                                clause.whole
+                            );
+                            assert_eq!(
+                                clause.pressed,
+                                car_key.on_the_ground.is_some(),
+                                "{name}: a key that also acts on the ground counts in the air \
+                                 only when pressed there, and only such a key - its row must \
+                                 say which"
+                            );
+                        }
+                        (None, None) => {}
+                        (what, clause) => panic!(
+                            "{name} is {what:?} in the air and its row says {:?}",
+                            clause.as_ref().map(|c| c.whole)
+                        ),
+                    }
+                }
+            }
+        }
+        for car_key in CAR_KEYS {
+            let rows = named.iter().filter(|key| **key == car_key.key).count();
+            assert_eq!(
+                rows, 1,
+                "the car reads {:?} and the sheet names it on {rows} rows",
+                car_key.key
             );
         }
+        // The row for no key: with nothing held on pitch or roll the car
+        // levels that axis itself - as the default car does.
+        let [levels] = keyless.as_slice() else {
+            panic!("one row for no key, got {}", keyless.len());
+        };
+        assert!(
+            crate::pds::CarParams::default().air_level_accel.0 > 0.0,
+            "the default car no longer levels itself; re-check the sheet's row for no key"
+        );
+        assert!(
+            ["levels", "pitch", "roll"]
+                .iter()
+                .all(|word| levels.action.contains(word)),
+            "the car levels its pitch and roll with no key held, and the sheet says {:?}",
+            levels.action
+        );
     }
 
     /// **The on-foot rows mirror the humanoid handler** (#1235 f40/f41).

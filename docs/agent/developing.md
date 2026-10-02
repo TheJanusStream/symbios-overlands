@@ -189,6 +189,15 @@ checks only for rules that protect data or security. The rules are in
   fixer->verifier pass (301k tokens, 17 min) fixed hedge.py's part count,
   which left out its root, and the verifier found fence.py printing the same
   undercount and region.md repeating it as a fact.
+- **Measure a physics change on the game's own ground.** Session 895's
+  builder (676k tokens, 3 h 46 min, eight issues) tuned a softer bump stop
+  over placed ramps and blocks, where it was right; its critic (307k, about
+  67 min) dropped cars onto a heightfield, as the terrain is, and found the
+  softer stop let the box reach the ground, where cells' internal edges
+  stopped a car dead - 65 of 176 landings for skiffs on the old damping,
+  twice HEAD's. The cure was the terrain collider (#1538), not the stop;
+  re-measured by the same critic in four minutes, 0 of 176. Brief a physics
+  builder to sweep over the terrain's heightfield too.
 - **Small fixes need no sub-agent.** With the one slot taken by a long
   visual job, two small fixes (#1476, #1472: a directory rule and a
   per-frame handle cache, each with a failing test and a mutant) took the

@@ -6,7 +6,7 @@ use bevy::prelude::*;
 
 use crate::config::agent::{
     ARRIVE_ON_FOOT_M, ARRIVE_WHEELED_M, FACE_STEP_SECS, FOLLOW_SLACK_M, PROGRESS_STEP_M,
-    STEER_DEAD_ZONE, STUCK_AFTER_SECS, SWING_FIRST_DEG,
+    STEER_DEAD_ZONE, STUCK_AFTER_SECS, SWING_FIRST_DEG, WHEELED_BRAKE_FLOOR_MS, WHEELED_BRAKE_MS2,
 };
 
 use super::{Controls, heading_off};
@@ -115,6 +115,34 @@ pub(super) fn swing(forward: Vec3, toward: Vec2) -> Controls {
     };
     Controls {
         keys: vec![key],
+        camera_yaw: None,
+    }
+}
+
+/// The fastest a driven body may roll `left` metres short of where it must
+/// have stopped: what [`WHEELED_BRAKE_MS2`] of braking takes off over that
+/// distance (#1536). Nought at the spot itself.
+pub(super) fn approach_speed(left: f32) -> f32 {
+    (2.0 * WHEELED_BRAKE_MS2 * left.max(0.0)).sqrt()
+}
+
+/// A driven body braking: the throttle against the way it is rolling, and
+/// nothing once it rolls slower than [`WHEELED_BRAKE_FLOOR_MS`] either way -
+/// its drag stops it from there, where a held S would back a stopped car
+/// away and a hover-boat's strong reverse rocked it to and fro (#1536). No
+/// steering: a car braking on full lock slews.
+pub(super) fn brake(forward: Vec3, velocity: Vec3) -> Controls {
+    let ahead = Vec2::new(forward.x, forward.z).normalize_or_zero();
+    let along = Vec2::new(velocity.x, velocity.z).dot(ahead);
+    let keys = if along > WHEELED_BRAKE_FLOOR_MS {
+        vec![KeyCode::KeyS]
+    } else if along < -WHEELED_BRAKE_FLOOR_MS {
+        vec![KeyCode::KeyW]
+    } else {
+        Vec::new()
+    };
+    Controls {
+        keys,
         camera_yaw: None,
     }
 }

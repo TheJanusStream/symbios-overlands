@@ -38,7 +38,9 @@ pub struct CarParams {
     /// engages (#804). Below it the assist stays silent so cornering lean
     /// and slope driving are never fought. Promoted from
     /// `CAR_UPRIGHT_ASSIST_COS` by #876 (60° ↔ cos 0.5); field-level
-    /// serde default keeps pre-#876 records at the historical feel.
+    /// serde default keeps pre-#876 records at the historical feel. From 15
+    /// to 75 (#1532): a car lying on its side sits at 90, and an assist that
+    /// waits for more never rights it.
     #[serde(default = "default_upright_engage_tilt")]
     pub upright_engage_tilt_degrees: Fp,
     /// Mass-normalised righting acceleration (rad/s²-equivalent) applied
@@ -140,7 +142,7 @@ impl Default for CarParams {
             suspension_rest_length: Fp(0.6),
             // Stiffer than hover-boat: cars need quick response on terrain.
             suspension_stiffness: Fp(cfg::SUSPENSION_STIFFNESS * 4.0),
-            suspension_damping: Fp(cfg::SUSPENSION_DAMPING * 2.5),
+            suspension_damping: Fp(cfg::CAR_SUSPENSION_DAMPING),
             drive_force: Fp(8_000.0),
             turn_torque: Fp(1_800.0),
             lateral_grip: Fp(20_000.0),
@@ -162,6 +164,7 @@ impl LocomotionPreset for CarParams {
     const DISPLAY_LABEL: &'static str = "Car";
 
     fn sanitize(&mut self) {
+        use crate::config::rover as cfg;
         clamp_half_extents(&mut self.chassis_half_extents);
         self.mass = clamp_pos(self.mass, 0.1, 50_000.0);
         self.linear_damping = clamp_pos(self.linear_damping, 0.0, 100.0);
@@ -173,9 +176,14 @@ impl LocomotionPreset for CarParams {
         self.turn_torque = clamp_pos(self.turn_torque, 0.0, 50_000.0);
         self.lateral_grip = clamp_pos(self.lateral_grip, 0.0, 200_000.0);
         self.handbrake_grip_factor = clamp_pos(self.handbrake_grip_factor, 0.0, 100.0);
-        // Floor of 15°: an assist that engages inside ordinary cornering
-        // lean would fight normal driving every turn.
-        self.upright_engage_tilt_degrees = clamp_pos(self.upright_engage_tilt_degrees, 15.0, 90.0);
+        // The editor's slider shares the range: an assist engaging inside
+        // cornering lean would fight every turn, and one engaging only past
+        // the 90 degrees a car lies at on its side never righted it (#1532).
+        self.upright_engage_tilt_degrees = clamp_pos(
+            self.upright_engage_tilt_degrees,
+            cfg::CAR_UPRIGHT_ENGAGE_TILT_MIN_DEGREES,
+            cfg::CAR_UPRIGHT_ENGAGE_TILT_MAX_DEGREES,
+        );
         self.upright_assist_accel = clamp_pos(self.upright_assist_accel, 0.0, 50.0);
         self.upright_assist_damping = clamp_pos(self.upright_assist_damping, 0.0, 20.0);
         self.center_of_mass_drop = clamp_pos(self.center_of_mass_drop, 0.0, 1.0);

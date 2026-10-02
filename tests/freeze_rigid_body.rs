@@ -33,7 +33,8 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 
-/// Gentle sine-bump heightfield (the app's terrain collider class):
+/// Gentle sine-bump heightfield (the shape the app's terrain collider has,
+/// though the app's carries parry's internal-edge fix since #1538):
 /// cell-scale relief so a walking capsule's contact spans a varying
 /// number of heightfield triangles - multi-manifold contact pairs are a
 /// precondition of the original panic (`index 2` needs ≥3 manifolds).

@@ -1,6 +1,6 @@
 seed 1	4eafd346a8f6b6b3	13 generators
 seed 2	23d36cc03dca0006	22 generators
-seed 3	c275c38ac92de4b2	16 generators
+seed 3	947713b6c2e58230	16 generators
 seed 4	1bd6f21eeae1270c	22 generators
 seed 5	74a3bcaacf0a9d54	19 generators
 seed 6	2b60184ed99932af	16 generators

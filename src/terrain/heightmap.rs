@@ -4,9 +4,7 @@ use avian3d::prelude::*;
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy_symbios_ground::{
-    HeightMap, HeightMapMeshBuilder, NormalMethod, build_heightfield_collider,
-};
+use bevy_symbios_ground::{HeightMap, HeightMapMeshBuilder, NormalMethod};
 
 use crate::config::terrain as tcfg;
 use crate::offload::{GenJob, GenResult};
@@ -137,6 +135,56 @@ pub(super) fn poll_terrain_task(
     }
 }
 
+/// The room's terrain collider: the heightfield `bevy_symbios_ground`'s
+/// `build_heightfield_collider` makes from `hm`, built with parry's
+/// internal-edge fix (#1538). Without it a box skimming the ground at speed
+/// met the next cell's internal edge as a wall: a car landing a jump on its
+/// box lost 8.4 m/s in one step (13.6 to 5.2), and in a harder case went
+/// from 15.8 to 1.4.
+fn heightmap_collider(hm: &HeightMap) -> Collider {
+    // As `build_heightfield_collider` lays it out: a row per sample along X,
+    // a column per sample along Z, so `HeightMap`'s row-major `(x, z)` is
+    // transposed - and, as it does, refusing a non-finite height, which a
+    // physics heightfield turns into silent tunnelling and stray contacts.
+    let heights = (0..hm.width())
+        .map(|x| {
+            (0..hm.height())
+                .map(|z| {
+                    let v = hm.get(x, z);
+                    assert!(
+                        v.is_finite(),
+                        "heightmap_collider: non-finite height {v} at cell ({x}, {z})"
+                    );
+                    v
+                })
+                .collect()
+        })
+        .collect();
+    heightfield_collider(heights, Vec3::new(hm.world_width(), 1.0, hm.world_depth()))
+}
+
+/// A heightfield collider with parry's internal-edge fix (#1538), from
+/// `heights` (a row per sample along X, a column per sample along Z) and
+/// `scale`, its whole extent on each axis. Avian's `Collider::heightfield`
+/// builds the same shape without the fix. The physics benches' floor uses
+/// this too, so a bench drives on what the game drives on.
+pub(crate) fn heightfield_collider(heights: Vec<Vec<f32>>, scale: Vec3) -> Collider {
+    use avian3d::parry::shape::{HeightFieldFlags, SharedShape};
+    let rows = heights.len();
+    let columns = heights.first().map_or(0, Vec::len);
+    let data: Vec<f32> = heights.into_iter().flatten().collect();
+    assert_eq!(
+        data.len(),
+        rows * columns,
+        "every row of a heightfield has as many samples"
+    );
+    Collider::from(SharedShape::heightfield_with_flags(
+        avian3d::parry::utils::Array2::new(rows, columns, data),
+        scale,
+        HeightFieldFlags::FIX_INTERNAL_EDGES,
+    ))
+}
+
 /// The room's ground mesh: heightfield triangles, area-weighted normals, one
 /// UV tile across the whole world, tangents for the splat material's normal
 /// maps - and no CPU copy.
@@ -195,7 +243,7 @@ pub(super) fn spawn_terrain_mesh(
 
     let mesh = build_terrain_mesh(hm, world_extent);
 
-    let collider = build_heightfield_collider(hm);
+    let collider = heightmap_collider(hm);
 
     // Generate D2Array placeholders to satisfy WGPU validation until the real arrays load
     let albedo_placeholder = images.add(Image::new(

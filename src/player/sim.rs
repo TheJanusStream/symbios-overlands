@@ -48,16 +48,11 @@ const FLIGHT_KEYS: [KeyCode; 8] = [
     KeyCode::ShiftLeft,
 ];
 
-/// Every key a drive can hold.
-const DRIVE_KEYS: [KeyCode; 7] = [
-    KeyCode::KeyW,
-    KeyCode::KeyS,
-    KeyCode::KeyA,
-    KeyCode::KeyD,
-    KeyCode::KeyQ,
-    KeyCode::KeyE,
-    KeyCode::Space,
-];
+/// The car's key table (#1533): every key the car reads, and what it does
+/// on the ground and in the air. A drive holds these; and the controls
+/// sheet's guard, in `ui::toolbar`, checks the sheet's skiff rows against
+/// them.
+pub(crate) use super::car::{CAR_KEYS, InTheAir, OnTheGround};
 
 /// The app both benches stand on: the floor, and one body wearing `record`
 /// posed at `at`, built through the game's own spawn path, with `systems`
@@ -75,13 +70,14 @@ fn bench_app<M>(
         .init_resource::<ButtonInput<KeyCode>>()
         .insert_resource(LiveAvatarRecord(record.clone()))
         .add_systems(FixedUpdate, systems);
-    // The floor is a heightfield, as the game's terrain is, and of the
-    // heightmap's size: against one box thousands of metres across a
-    // shape cast stops centimetres short of it.
+    // The floor is a heightfield, built as the game's terrain is (with
+    // parry's internal-edge fix, #1538), and of the heightmap's size:
+    // against one box thousands of metres across a shape cast stops
+    // centimetres short of it.
     let floor = vec![vec![0.0; FLOOR_CELLS + 1]; FLOOR_CELLS + 1];
     app.world_mut().spawn((
         RigidBody::Static,
-        Collider::heightfield(floor, Vec3::new(FLOOR_M, 1.0, FLOOR_M)),
+        crate::terrain::heightfield_collider(floor, Vec3::new(FLOOR_M, 1.0, FLOOR_M)),
         Transform::IDENTITY,
     ));
     let body = app
@@ -338,9 +334,9 @@ impl DriveBench {
         }
     }
 
-    /// Hold `keys` down, and let go of every other drive key.
+    /// Hold `keys` down, and let go of every other key the car reads.
     pub(crate) fn hold(&mut self, keys: &[KeyCode]) {
-        hold_keys(&mut self.app, keys, &DRIVE_KEYS);
+        hold_keys(&mut self.app, keys, &CAR_KEYS.map(|car_key| car_key.key));
     }
 
     /// One fixed step of the game's loop: the car's systems, then avian's
@@ -355,6 +351,13 @@ impl DriveBench {
         for _ in 0..(secs * BENCH_HZ).round() as usize {
             self.step();
         }
+    }
+
+    /// The bench's world, as [`FlightBench::world_mut`] gives its own: for
+    /// what a test reads of it the way the game does, or runs in it - the
+    /// agent's steering, say (#1531).
+    pub(crate) fn world_mut(&mut self) -> &mut World {
+        self.app.world_mut()
     }
 
     /// Seconds of physics stepped so far.

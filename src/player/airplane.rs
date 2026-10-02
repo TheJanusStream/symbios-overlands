@@ -4,7 +4,8 @@
 //! Controls (chassis-local):
 //!   * **W / S** - pitch input torque (`pitch_torque`). W pitches nose down,
 //!     S pitches nose up.
-//!   * **A / D** - roll input torque (`roll_torque`).
+//!   * **A / D** - roll input torque (`roll_torque`): A rolls left (the
+//!     left wing down), D right.
 //!   * **Q / E** - yaw / rudder torque (`yaw_torque`).
 //!   * **Space** - throttle up: full forward thrust.
 //!   * **Shift** - throttle down: zero thrust. Without input, thrust is
@@ -217,13 +218,15 @@ pub(super) fn apply_airplane_forces(
     if keyboard.pressed(KeyCode::KeyS) || keyboard.pressed(KeyCode::ArrowDown) {
         forces.apply_torque(right * p.pitch_torque.0);
     }
-    // Roll: A rolls left (positive Z-forward axis rotation in chassis
-    // local space).
+    // Roll: A rolls left, the left wing down. `forward` is the chassis' -Z,
+    // and a positive turn about it takes the right wing down, so A turns
+    // about -forward and D about +forward (#1529: they were the other way
+    // round).
     if keyboard.pressed(KeyCode::KeyA) || keyboard.pressed(KeyCode::ArrowLeft) {
-        forces.apply_torque(forward * p.roll_torque.0);
+        forces.apply_torque(-forward * p.roll_torque.0);
     }
     if keyboard.pressed(KeyCode::KeyD) || keyboard.pressed(KeyCode::ArrowRight) {
-        forces.apply_torque(-forward * p.roll_torque.0);
+        forces.apply_torque(forward * p.roll_torque.0);
     }
     // Yaw / rudder.
     let local_up = global_tf.up().as_vec3();
@@ -319,6 +322,39 @@ mod tests {
         // cruise applies - the airplane must keep flying at idle power,
         // i.e. the input system contributes nothing at rest.
         assert_eq!(throttle_delta(false, false, cruise()), 0.0);
+    }
+
+    /// A rolls left and D rolls right (#1529), on the flight bench: the
+    /// game's own airplane systems over avian, gravity on. Held for four
+    /// steps in level flight, A takes the left wing down - the right wing's
+    /// end rises - and D the right. The torque about Bevy's `forward()`, which
+    /// is the chassis' -Z, rolls it RIGHT, and A carried it with the comment
+    /// "A rolls left": the keys were swapped against the controls sheet.
+    #[test]
+    fn a_rolls_left_and_d_rolls_right() {
+        use crate::pds::avatar::AvatarRecord;
+        use crate::player::sim::FlightBench;
+
+        let mut record = AvatarRecord::default_for_did("did:plc:airplane-roll-bench");
+        record.locomotion = LocomotionConfig::Airplane(Box::default());
+        // How far up the right wing points after the key is held for four
+        // steps: positive is the right wing up, rolled left.
+        let right_wing_up = |key: KeyCode| {
+            let mut bench = FlightBench::new(&record, Vec3::new(0.0, 40.0, 0.0));
+            bench.set_velocity(Vec3::new(0.0, 0.0, -15.0));
+            bench.hold(&[key]);
+            for _ in 0..4 {
+                bench.step();
+            }
+            (bench.rotation() * Vec3::X).y
+        };
+        let a = right_wing_up(KeyCode::KeyA);
+        let d = right_wing_up(KeyCode::KeyD);
+        assert!(a > 0.1, "A must roll left, the right wing up: got {a:.3}");
+        assert!(
+            d < -0.1,
+            "D must roll right, the right wing down: got {d:.3}"
+        );
     }
 
     #[test]

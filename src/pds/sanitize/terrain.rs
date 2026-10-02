@@ -12,9 +12,10 @@ impl Sanitize for SovereignTerrainConfig {
     fn sanitize(&mut self) {
         self.grid_size = self.grid_size.clamp(2, limits::MAX_GRID_SIZE);
         // Every `f32` coefficient below feeds the heightmap noise / erosion
-        // math, whose output lands in `build_heightfield_collider` - an
-        // `assert!(is_finite)` that panics the physics step on a single NaN or
-        // infinity. Two subtleties make a plain range clamp insufficient:
+        // math, whose output lands in the terrain collider's builder
+        // (`heightmap_collider`, which asserts `is_finite` as
+        // `build_heightfield_collider` did before #1538) - a panic on a single
+        // NaN or infinity. Two subtleties make a plain range clamp insufficient:
         // `HeightMap::normalize` does NOT scrub non-finite values (its min/max
         // fold ignores NaN, so a poisoned cell is rescaled to NaN rather than
         // dropped), and `f32::clamp` *propagates* NaN (`NaN.clamp(lo, hi)` is

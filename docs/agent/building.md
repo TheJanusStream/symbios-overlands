@@ -113,13 +113,17 @@ world_z = at_z - x * sin(t) + z * cos(t)
 Keep that as a helper and place everything else - dressing, fences - in the
 building's frame through it.
 
-**A catalogue piece faces local +Z, the other way.** Its front (a stand's
-seats, a scoreboard's screen, the first tile of `render --catalogue`) looks
-along its local +Z, while `place --yaw` turns local -Z to the bearing you
-give. So to face a catalogue piece's front toward bearing B,
-place it at yaw B + 180. Session 893 set two bleachers at yaw 225 to face a
-jump line and saw their backs; yaw 45 turned their seats to it. Check the
-first tile of `render --catalogue <slug>` and one picture after placing.
+**A catalogue piece's front is its local -Z as well**, so `place --yaw B`
+turns it to bearing B, as it turns a building's door. Session 895 read three
+from four sides in the world: the bleachers' seats, the owner monument's
+screen and the floodlight mast's lamps all look along local -Z. This page
+said the opposite after session 893 (front +Z, place at B + 180): two
+bleachers set that way sat their crowd facing away from the Jump Line for a
+day, the arrival saw their slatted backs and read them as solar panels, and
+the scoreboard showed the arrival its blank back. Check every piece that
+must face something once it is placed: `views.py` from four bearings 15 m
+out (a `render --catalogue` sheet does not say which axis a tile looks
+along).
 
 ## Materials
 

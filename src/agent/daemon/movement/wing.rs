@@ -323,7 +323,7 @@ pub(super) fn fly_to(
             keys.extend(nose_for(wing, craft, along));
         }
         Leg::Rollout { resting } => {
-            // Engine cut: it slides to a stop within a few metres.
+            // Engine cut: it slides to a stop, 12-14 m on terrain (#1538).
             keys.push(KeyCode::ShiftLeft);
             let could_be_down = craft.height() <= TOUCHDOWN_HEIGHT_M;
             match *resting {

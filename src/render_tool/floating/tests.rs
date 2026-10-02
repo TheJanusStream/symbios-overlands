@@ -500,3 +500,24 @@ fn the_report_prints_a_row_a_line() {
     );
     assert_eq!(parsed["checked"]["parts"], 3);
 }
+
+/// #1537: the catalogue windmill stands whole. Its head - the tail boom, the
+/// vane and the fan wheel - hung 0.35 m over the tower's leg tops, its boom
+/// stopped 25 cm short of the hub, and its two braces stood out of the
+/// tower's face touching nothing: 23 of its parts read free of it. Placed on
+/// flat ground, none may.
+#[test]
+fn the_catalogue_windmill_stands_whole() {
+    let windmill = crate::catalogue::items::by_slug("windmill")
+        .expect("the windmill is in the catalogue")
+        .build("");
+    let windmill = serde_json::to_value(windmill).expect("a generator encodes");
+    let rows = floating(
+        &record(
+            vec![("windmill", windmill)],
+            vec![absolute("windmill", 0.0, 0.0)],
+        ),
+        &flat(),
+    );
+    assert!(rows.is_empty(), "{} parts free: {rows:?}", rows.len());
+}

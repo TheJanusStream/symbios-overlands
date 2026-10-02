@@ -86,7 +86,7 @@ pub const MAX_HEIGHT_SCALE: f32 = 10_000.0;
 /// past a few hundred is pure aliasing with no visual payoff - and pushes the
 /// `coord as i32` lattice index toward overflow. The float output stays finite
 /// regardless (the noise table is bounded), so this bound is about sanity, not
-/// the finiteness that keeps `build_heightfield_collider` from panicking.
+/// the finiteness that keeps the terrain collider's builder from panicking.
 pub const MAX_LACUNARITY: f32 = 4.0;
 /// FBM base (octave-0) frequency. Capped at the editor's slider ceiling for the
 /// same reason as [`MAX_LACUNARITY`] - beyond it the noise only aliases.

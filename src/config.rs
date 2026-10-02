@@ -108,6 +108,19 @@ pub(crate) mod rover {
     pub const SUSPENSION_REST_LENGTH: f32 = 0.8;
     pub const SUSPENSION_STIFFNESS: f32 = 4_200.0;
     pub const SUSPENSION_DAMPING: f32 = 175.0;
+    /// The default car's suspension damping (N per m/s, at each corner):
+    /// 0.35 of critical for its quarter of 900 kg on 16,800 N/m, where
+    /// critical is `2 sqrt(k m)` = 3,888 (#1534). The seeder scales a
+    /// skiff's stiffness and damping alike by its mass, so every seeded
+    /// skiff carries the same 0.35. It was the hover-boat's damping times
+    /// 2.5, 437.5 - 0.11 of critical - and a car porpoised on it: MEASURED
+    /// on the drive bench, the default car and every seeded skiff type,
+    /// dropped flat from 2 m or landed at 14 m/s off an 18 degree, 1.5 m lip,
+    /// was still moving 4 s later (on #1524's stiffer bump stop each first
+    /// bounced its wheels clear of the ground again; on #1535's none does),
+    /// and even a 0.5 m drop took 2.8 s to settle. At 0.35 none of them
+    /// bounces and each settles in about 1.7 s (1.67-1.72), 0.6 s from 0.5 m.
+    pub const CAR_SUSPENSION_DAMPING: f32 = 1_360.0;
 
     // --- Drive ---------------------------------------------------------------
     pub const DRIVE_FORCE: f32 = 1_800.0;
@@ -132,42 +145,85 @@ pub(crate) mod rover {
     /// degenerated (the chassis is dead-inverted - a saddle it could perch on),
     /// so the assist falls back to the roll axis to tip it off its roof.
     pub const CAR_UPRIGHT_DEGENERATE_SQ: f32 = 1.0e-4;
-    // --- Car suspension bump stop (#1524) -------------------------------------
+    /// The least a car record's `upright_engage_tilt_degrees` may be: the
+    /// sanitiser's floor and the editor slider's start. An assist that
+    /// engages inside ordinary cornering lean would fight normal driving
+    /// every turn.
+    pub const CAR_UPRIGHT_ENGAGE_TILT_MIN_DEGREES: f32 = 15.0;
+    /// The most a car record's `upright_engage_tilt_degrees` may be: the
+    /// sanitiser's cap and the editor slider's end (#1532). The assist acts
+    /// only past the engage tilt, and a car lying on its side sits at 90 - at
+    /// 90, the old cap, it never engaged, and a car on its side stayed there.
+    /// MEASURED on the drive bench, a car laid on either side at rest: the
+    /// default car rights itself in 6 s up to an engage tilt of 85 and the
+    /// seeded Cyclecar up to 84, the fleet's other five types up to 85 at
+    /// least. On a side slope a car on its side with its roof uphill rests
+    /// at 90 less the slope: on 10 degrees an assist silent below 80 left
+    /// both cars down, one engaging past 75 rights them, and from about 15
+    /// degrees gravity rolls them back unaided. Roof downhill it rests at 90
+    /// plus the slope, where the assist engages at any cap but cannot roll
+    /// most of the fleet uphill (#1539). Past
+    /// [`CAR_WHEEL_TILT_LIMIT_DEGREES`] no wheel counts, so an assist kept
+    /// silent beyond this would spare no driving.
+    pub const CAR_UPRIGHT_ENGAGE_TILT_MAX_DEGREES: f32 = 75.0;
+    // --- Car suspension bump stop (#1524, #1535) -----------------------------
     // The linear spring cannot hold a car's box off the ground through a
     // landing: it sits 22% into its travel at rest, and a car dropped flat
-    // from 2 m hits the floor with its box. Past a start compression the stop
+    // from 3 m hits the floor with its box. Past a start compression the stop
     // adds a force rising with the square of how far past it the corner is,
-    // and damps the corner both ways. Per kilogram of the corner's share of
-    // the mass, so it holds any car the same way. The shape, and why each
-    // part is there, is on `player::car::CarBumpStop`.
+    // and damps the corner both ways, harder as it opens. Per kilogram of the
+    // corner's share of the mass, so it holds any car the same way. The
+    // shape, and why each part is there, is on `player::car::CarBumpStop`.
     //
-    // MEASURED on the drive bench, default car and the seeded Cyclecar alike:
-    // dropped flat from 2 / 2.5 / 3 m the box keeps 76 / 51 / 38 mm off the
-    // floor and rebounds at 2.3-2.8 m/s, where without the stop it hits at
-    // every height and rebounds at 3.7. Off the jump table's 1.5 m ramps the
-    // box clears the landing by 48-60 mm at 10 m/s over 12 degrees and 21-28
-    // mm at 14 over 18, keeping 95-100% of the speed against 79-88%. It does
-    // NOT keep the box off the ground from 18 m/s over 25 degrees, a landing
-    // at 8-9 m/s: 0.6 m of travel cannot stop that at forces the 64 Hz step
-    // integrates without throwing the car back up.
+    // MEASURED on the drive bench (#1535, on #1534's suspension damping), the
+    // default car and the seeded Cyclecar alike: dropped flat from 2 / 3 / 4
+    // m the box keeps 109 / 61 / 4 mm off the floor and comes back up at 1.4
+    // m/s, where without the stop it comes to 63 / 1 / 1 mm and back up at
+    // 2.4 / 2.7 / 2.7. Off the jump table's 1.5 m ramps the box clears the
+    // landing by 92-106 mm at 10 m/s over 12 degrees and 31-68 mm at 14 over
+    // 18, keeping 95-100% of the speed against 64-92%, and comes back up at
+    // 1.3-1.4 m/s against 2.3-2.7. It does NOT keep the box off the ground
+    // from 18 m/s over 25 degrees, or dropped flat from 4 m onto it at 8.2
+    // m/s: 0.6 m of travel cannot stop that at forces the 64 Hz step
+    // integrates without throwing the car back up. `probe_the_landing_sweep`
+    // in `player::car` runs every landing the stop is tuned against - drops,
+    // pitched and rolled landings, the jump table's, landing ramps - and none
+    // comes back up harder with the stop than without it.
     /// Compression, as a fraction of `suspension_rest_length`, where the stop
-    /// begins. MEASURED on the drive bench, ordinary driving - flat, a hard
-    /// turn, the handbrake, braking - never passes 26%. Ground rolling +-0.1 m
-    /// met at top speed reaches 60-65%, the stop's edge, and drives there at
-    /// the same speed with the same bounce as without it; ground rolling
-    /// +-0.2 m, or a 20-30 degree slope met at speed, went to 80-100%.
+    /// begins. MEASURED on the drive bench at #1524, on the suspension's old
+    /// damping: ordinary driving (flat, a hard turn, the handbrake, braking)
+    /// never passes 26%. Ground rolling +-0.1 m met at top speed reaches
+    /// 60-65%, the stop's edge, and drives there at the same speed with the
+    /// same bounce as without it; ground rolling +-0.2 m, or a 20-30 degree
+    /// slope met at speed, went to 80-100%.
     pub const CAR_BUMP_STOP_START: f32 = 0.6;
     /// The stop's rate (1/s^2): at full travel it pushes with the corner's
-    /// mass times this times the stop's travel - 240 m/s^2 over the fleet's
-    /// 0.24 m. Its stiffness there, a natural frequency of 45 rad/s, sits
+    /// mass times this times the stop's travel - 72 m/s^2 over the fleet's
+    /// 0.24 m. Its stiffness there, a natural frequency of 24 rad/s, sits
     /// well inside the 64 Hz step's stable limit (`2 / dt` = 128 rad/s).
-    pub const CAR_BUMP_STOP_RATE: f32 = 1_000.0;
-    /// The stop's damping at full travel (1/s), both ways. Per kilogram of a
-    /// corner it takes out at most 60/64 of the corner's speed in a step, and
-    /// a landing on one axle - whose effective mass, for ANY box, is at least
-    /// half a corner's, since a cuboid's pitch lever `hz^2 / inertia` is
-    /// under 3 - at most 1.9 of it: under the step's limit of 2.
-    pub const CAR_BUMP_STOP_DAMPING: f32 = 60.0;
+    /// #1524's 1,000 held the box higher but handed a hard landing's energy
+    /// back: off the jump table's ramps at 15-20 m/s the Cyclecar came back
+    /// up at up to 4.5 m/s and the default car at 3.9, against 2.7 with no
+    /// stop at all (#1535, on #1534's damping).
+    pub const CAR_BUMP_STOP_RATE: f32 = 300.0;
+    /// The stop's damping at full travel (1/s) while the corner closes. With
+    /// the suspension's own damping - since #1534 0.35 of critical, 6 per
+    /// second per kilogram of a corner across the seeded fleet - it takes
+    /// out at most 56/64 of the corner's speed in a step, and a landing on
+    /// one axle - whose effective mass, for ANY box, is at least half a
+    /// corner's, since a cuboid's pitch lever `hz^2 / inertia` is under 3 -
+    /// at most 1.75 of it: under the step's limit of 2.
+    pub const CAR_BUMP_STOP_DAMPING: f32 = 50.0;
+    /// The stop's damping at full travel (1/s) while the corner opens again
+    /// (#1535): harder than while it closes, so the energy a landing put into
+    /// the stop does not come back out. A corner opening is pushed less by
+    /// it and never pulled - the suspension clamps a corner's whole force at
+    /// none - so it cannot overshoot in a step the way the closing damping
+    /// can, and needs no such limit. MEASURED, the default car dropped flat
+    /// from 2-4 m comes back up at 1.44 m/s; damped opening as closing, at
+    /// 1.6; with the opening not damped at all, at 2.4-4.2 - harder than
+    /// with no stop.
+    pub const CAR_BUMP_STOP_REBOUND: f32 = 120.0;
     /// How many times the torque gravity needs to tip a lying car back over
     /// the edge it pivots on - a roof edge on its back, an edge of its
     /// underside on a side or its nose - the uprighting assist applies at
@@ -179,11 +235,11 @@ pub(crate) mod rover {
     /// and still count that wheel as on the ground (#1524). The spring
     /// tops out AT the rest length, so without slack a wheel at full droop
     /// over every crest flickers out of contact, taking a quarter of the
-    /// traction with it for a step or two. MEASURED on ground rolling
-    /// +-0.1 m over 8 m, the default car at its 11 m/s top speed read a
-    /// wheel off on 37% of steps with no slack, 8% at 0.1 m and none at
-    /// 0.15 m; a real takeoff, rising at the jump table's 4-5 m/s, clears
-    /// it in two steps.
+    /// traction with it for a step or two. MEASURED at #1524, on the
+    /// suspension's old damping, on ground rolling +-0.1 m over 8 m: the
+    /// default car at its 11 m/s top speed read a wheel off on 37% of steps
+    /// with no slack, 8% at 0.1 m and none at 0.15 m; a real takeoff, rising
+    /// at the jump table's 4-5 m/s, clears it in two steps.
     pub const CAR_CONTACT_SLACK_M: f32 = 0.15;
     /// Tilt off world-up (degrees) past which no corner of a car counts as a
     /// wheel on the ground, whatever its ray finds, and no corner spring
@@ -196,13 +252,17 @@ pub(crate) mod rover {
     /// drives (the fleet climbs 30 degrees at full speed) and well short of
     /// lying on a side.
     pub const CAR_WHEEL_TILT_LIMIT_DEGREES: f32 = 70.0;
-    /// How close (m) a point of a car's box must come to something for the
-    /// body to count as touching it (#1524). Avian keeps a contact point from
-    /// as far off as a body could close in one step - 23 cm at 15 m/s - and
-    /// a car counted as lying on everything it flew past paused its air
-    /// levelling at every lip and every landing (measured on the drive
-    /// bench). A box resting on the ground sits within millimetres of it.
-    pub const CAR_BODY_TOUCH_M: f32 = 0.01;
+    /// How close (m) a point of a body's collider must come to something for
+    /// the body to count as touching it: a car's box lying on the ground
+    /// (#1524), and the agent's body resting on what is under it, which its
+    /// `status.height_m` reads as nought (#1528). Avian keeps a contact point
+    /// from as far off as a body could close in one step - 23 cm at 15 m/s -
+    /// and counts the pair as touching. A car counted as lying on everything
+    /// it flew past paused its air levelling at every lip and every landing
+    /// (measured on the drive bench), and the agent read nought skimming a
+    /// floor 3 to 9 cm under it at 15 m/s. A box resting on the ground sits
+    /// within millimetres of it.
+    pub const BODY_TOUCH_M: f32 = 0.01;
 
     // --- Airplane uprighting (#1240 f162) ------------------------------------
     // The airplane was the only preset of four with no righting assist, so a
@@ -1832,6 +1892,26 @@ pub(crate) mod agent {
     pub const ARRIVE_ON_FOOT_M: f32 = 1.0;
     /// The same for a driven body, which cannot stop on a coin (m).
     pub const ARRIVE_WHEELED_M: f32 = 3.0;
+    /// The braking a driven body plans its approach on (m/s^2): it rolls no
+    /// faster than it could stop at this before a point half its arrival
+    /// radius short of where it is going, or its following distance from a
+    /// player it follows (#1536). A walk-to that held the throttle to its
+    /// circle and let go rolled a car 7-11 m past, and a follow drove
+    /// through the player. Under what most of the fleet's reverse does (8.9
+    /// m/s^2 on the default car, 11.5 on Jink's Cyclecar); the slowest
+    /// seeded types reverse at 1.9-3.8 but drive slowly enough to stop
+    /// inside the circle all the same (0.8-2.0 m from the point on the
+    /// drive bench). A record edited to a weak reverse and little drag can
+    /// still run over.
+    pub const WHEELED_BRAKE_MS2: f32 = 4.0;
+    /// Under this speed a driven body is at rest, and a walk that has
+    /// brought it into its arrival circle has arrived (m/s).
+    pub const WHEELED_STOPPED_MS: f32 = 0.3;
+    /// Under this speed a braking body lets go and its drag stops it (m/s).
+    /// Braked all the way down, the default hover-boat's reverse (36 m/s^2,
+    /// 1.2 m/s a 1/30 s frame) rocked it through the stopped band for ten
+    /// frames.
+    pub const WHEELED_BRAKE_FLOOR_MS: f32 = 1.0;
     /// How much closer counts as progress (m). Less than this is jitter.
     pub const PROGRESS_STEP_M: f32 = 0.5;
     /// How long a walk may go without progress before it is `stuck` (s).
@@ -2059,16 +2139,21 @@ pub(crate) mod agent {
     /// Where it aims to touch down, short of the point (m): about what it
     /// slides, engine off, after a gentle touchdown at its approach speed.
     /// Set down gently its lift still carries nearly all its weight, so the
-    /// ground barely brakes it: 9 m from 8.4 m/s (a heavier touchdown, 1-2).
-    pub const TOUCHDOWN_SHORT_M: f32 = 8.0;
+    /// ground barely brakes it: 15.6 m from 8.4 m/s on terrain built with
+    /// parry's internal-edge fix (#1538). Before it the heightfield's
+    /// internal edges braked a slide to about 9 m, and an aim of 8 that
+    /// stopped the bench's landings 8.2-9.4 m past their point overran one
+    /// to 11. At 14 they stop 1.6-3.7 m from it.
+    pub const TOUCHDOWN_SHORT_M: f32 = 14.0;
     /// Under this height it rounds out, coming down more slowly the lower
     /// it is (m).
     pub const FLARE_FROM_M: f32 = 1.0;
     /// The sink it touches down at, rounded out (m/s).
     pub const FLARE_SINK: f32 = 0.6;
-    /// Stopped this near its point, an airplane has arrived (m). What it
-    /// slides after touching down varies from about 4 m to 9, so its stop
-    /// cannot be promised much nearer; one run stopped 7.1 m off.
+    /// Stopped this near its point, an airplane has arrived (m). Where it
+    /// touches down and how far it slides vary with its approach, so its
+    /// stop cannot be promised much nearer: the bench's landings stop
+    /// 1.6-3.7 m off (#1538), and before that fix one stopped 7.1 m off.
     pub const ARRIVE_WINGED_M: f32 = 10.0;
     /// The clear run an airplane needs on the ground to take off (m).
     pub const TAKE_OFF_RUN_M: f32 = 25.0;

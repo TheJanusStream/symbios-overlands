@@ -52,7 +52,7 @@ fn terrain_grid_size_clamped_to_max() {
 fn terrain_coefficients_clamped_to_finite() {
     // A hostile record can carry NaN / ±∞ in any terrain coefficient. They feed
     // the heightmap noise + erosion math, survive `HeightMap::normalize` (its
-    // min/max fold ignores NaN), and reach `build_heightfield_collider`'s
+    // min/max fold ignores NaN), and reach the terrain collider builder's
     // `assert!(is_finite)` - a remote crash on every peer that loads or receives
     // the record. `f32::clamp` alone would not catch it (`NaN.clamp(..)` is
     // NaN), so sanitise routes each field through `clamp_finite`. Assert every
