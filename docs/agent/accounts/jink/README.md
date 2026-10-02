@@ -385,10 +385,9 @@ lines (the placements are 21-28).
 
 ## Open threads
 
-- **The owner's to do outside the game**: commit sessions 896-897's
-  working tree (overlands on bevy_symbios_ground 0.6); #1543 waits on a
-  bevy_symbios_ground release (proposed as 0.7.0) before overlands can
-  follow.
+- **The owner's to do outside the game**: commit session 899's working
+  tree (overlands on bevy_symbios_ground 0.7, whose terrain collider
+  lines up with the drawn ground, #1543).
 - **Filed in session 895, open**: #1541 (medium: a car's walk-to of a
   point behind it ends `stuck` while it swings round - turn it first with
   `face` or `b/aim.py`), #1539 (a car on its side with its roof downhill on

@@ -394,4 +394,52 @@ mod tests {
             "no tangents - the splat material's normal maps would be unlit"
         );
     }
+
+    /// The physics stands on the drawn ground (#1543): the collider, centred
+    /// on the terrain entity, meets the mesh, which sits half its extent back
+    /// from it, out to the map's edges. Built a cell wider each way, as
+    /// bevy_symbios_ground built it before 0.7, it stood 0.29 m off this
+    /// plane 500 m out.
+    #[test]
+    fn the_terrain_collider_stands_on_the_drawn_ground() {
+        // The shipped grid, 512 samples 2 m apart, as one plane sloping 0.3
+        // along X and 0.1 along Z: the mesh's surface is the plane.
+        let (n, cell) = (512, 2.0);
+        let mut hm = HeightMap::new(n, n, cell);
+        for z in 0..n {
+            for x in 0..n {
+                hm.set(x, z, (0.3 * x as f32 + 0.1 * z as f32) * cell);
+            }
+        }
+        // Placed as `spawn_terrain_mesh` places them: the collider on the
+        // entity's origin, the mesh `half` back on both axes.
+        let half = (hm.width() - 1) as f32 * hm.scale() * 0.5;
+        let collider = build_heightfield_collider(&hm);
+        for (x, z) in [
+            (0.0, 0.0),
+            (250.0, 0.0),
+            (-250.0, 0.0),
+            (500.0, 0.0),
+            (0.0, 500.0),
+            (400.0, -400.0),
+            (-510.0, 510.0),
+        ] {
+            let drawn = 0.3 * (x + half) + 0.1 * (z + half);
+            let (distance, _) = collider
+                .cast_ray(
+                    Vec3::ZERO,
+                    Quat::IDENTITY,
+                    Vec3::new(x, 1000.0, z),
+                    Vec3::NEG_Y,
+                    5000.0,
+                    true,
+                )
+                .expect("the collider is under the point");
+            let solid = 1000.0 - distance;
+            assert!(
+                (solid - drawn).abs() < 0.01,
+                "at ({x}, {z}) the collider stands at {solid:.3} m, the ground is drawn at {drawn:.3}"
+            );
+        }
+    }
 }

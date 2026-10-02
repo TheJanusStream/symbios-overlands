@@ -73,14 +73,14 @@ fn bench_app<M>(
     // The floor is a heightfield, built by the builder the game's terrain
     // uses (with parry's internal-edge fix, #1538), and of the heightmap's
     // size: against one box thousands of metres across a shape cast stops
-    // centimetres short of it. The builder spans a map's `world_width()`,
-    // its samples times its scale, so FLOOR_CELLS + 1 samples span FLOOR_M
-    // at a scale of FLOOR_M / (FLOOR_CELLS + 1).
+    // centimetres short of it. The builder spans what the mesh does, a
+    // map's samples less one times its scale, so FLOOR_CELLS + 1 samples
+    // FLOOR_M / FLOOR_CELLS apart span FLOOR_M.
     let floor =
         bevy_symbios_ground::build_heightfield_collider(&bevy_symbios_ground::HeightMap::new(
             FLOOR_CELLS + 1,
             FLOOR_CELLS + 1,
-            FLOOR_M / (FLOOR_CELLS + 1) as f32,
+            FLOOR_M / FLOOR_CELLS as f32,
         ));
     // The flight benches fly out past the floor's edge, so its size steers
     // them: 8 m wider, one came round again and did not land in time.
