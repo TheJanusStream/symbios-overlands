@@ -128,6 +128,7 @@ use crate::pds::types::{Fp, Fp2};
 use crate::pds::{Generator, GeneratorKind, RoomRecord};
 
 mod ambient_wav;
+mod driver;
 mod editor;
 mod figure;
 mod floating;
@@ -528,6 +529,45 @@ struct Args {
     /// and each hangs half a metre further back.
     #[arg(long, default_value_t = 1.6)]
     walker_spread: f32,
+    /// With `--world`: a car driven through the world on the game's own
+    /// physics (#1546) - the avatar in this file (what `rec.py pull avatar`
+    /// writes, or an `agent avatar get ""` answer), whose body must be a
+    /// car's: its chassis, its locomotion's physics and its body's parts as
+    /// the game puts them under a player, pushed by the game's own car
+    /// systems at 64 steps a second. `--focus driver` follows it.
+    #[arg(long, value_name = "FILE", requires = "world")]
+    driver: Option<String>,
+    /// With `--driver`: where the car is set down, `x,z` (default: the
+    /// record's landing). It is dropped a metre onto the ground there,
+    /// tilted to the slope, and settles before its lead-in starts.
+    #[arg(long, requires = "driver")]
+    drive_from: Option<String>,
+    /// With `--driver`: the compass bearing the car faces when it is set
+    /// down, degrees - north (-Z) is 0, east (+X) 90, as `agent status`
+    /// reads a heading (default: the landing's facing).
+    #[arg(long, requires = "driver")]
+    drive_bearing: Option<f32>,
+    /// With `--driver`: what the driver presses, `KEYS@SECONDS` segments in
+    /// order, as `agent drive` takes them - `W@4 W+D@0.6 none@2`: keys joined
+    /// by `+` (W, A, S, D, Q, E, SPACE), `none` for none. Space-separated in
+    /// one value, or the flag repeated. The keys change on the physics' own
+    /// steps; what the car does with them varies with `--fps` and
+    /// `--time-scale` by a few hundredths of a second of airtime, as the
+    /// game's car varies with the display's frame rate.
+    #[arg(long, requires = "driver", action = clap::ArgAction::Append)]
+    drive_keys: Vec<String>,
+    /// With `--driver`: seconds of the drive played before the first
+    /// captured frame (default 0: it starts on the first frame), so a clip
+    /// can open on the car already at speed.
+    #[arg(long, default_value_t = 0.0, requires = "driver")]
+    drive_lead: f32,
+    /// With `--driver`: write the run to this file, one JSON line a physics
+    /// step from the car being set down - `t` (seconds into the drive), the
+    /// keys, position, velocity, speed, compass bearing, pitch and roll in
+    /// degrees, and its wheels on the ground. How a stunt is measured and
+    /// a camera placed before a shot is rendered.
+    #[arg(long, requires = "driver")]
+    drive_log: Option<String>,
     /// Single subjects (a catalogue entry, a primitive, a generator, a
     /// wearable): the studio backdrop as a hex colour, `#rrggbb` or
     /// `rrggbb` (default the blue-grey `#8592b3`). A world and a room paint
@@ -705,6 +745,37 @@ struct Args {
     /// An explicit `--dist` is absolute and ignores this.
     #[arg(long, default_value_t = 1.0)]
     zoom: f32,
+    /// Single-camera shots: stand the camera at `x,z` (a person's eye height,
+    /// 1.6 m, over the ground there) or `x,y,z` and turn it to the focus,
+    /// instead of orbiting the focus (#1546) - a spectator's shot of a car
+    /// going by. `--dist`, `--elev`, `--yaw` and `--sweep` then mean nothing.
+    #[arg(long)]
+    eye: Option<String>,
+    /// With `--eye`: where the camera has slid to by the clip's last frame,
+    /// in a straight line - a dolly or a crane move.
+    #[arg(long, requires = "eye")]
+    eye_end: Option<String>,
+    /// For a followed body (`--focus walker` or `--focus driver`): the yaw
+    /// is the world's, not measured from behind the body, so the camera keeps
+    /// its side as the body turns - a tracking shot rather than a chase
+    /// (#1546).
+    #[arg(long)]
+    yaw_world: bool,
+    /// For a followed body: seconds of a camera operator's lag - the camera
+    /// eases toward the body's position and heading with this time
+    /// constant, so a landing's bounce is not a shake (default 0, rigid).
+    #[arg(long, default_value_t = 0.0)]
+    follow_lag: f32,
+    /// `--world`: the camera's vertical field of view in degrees, for a shot
+    /// on another lens than the game's (Bevy's 45 degrees) - a long lens
+    /// that flattens a jump's run-up, a wide one inside the action (#1546).
+    #[arg(long)]
+    fov: Option<f32>,
+    /// Clips: seconds of the world's time a second of the clip shows - 0.25
+    /// is four times slower than life (#1546). The warm-up runs at full
+    /// speed; wind, water, particles and a driven car all slow together.
+    #[arg(long, default_value_t = 1.0)]
+    time_scale: f32,
     /// Frames in the clip (default 1 - a still). Above 1 the single camera
     /// is moved along the rig one frame at a time and the result is a GIF;
     /// the clock advances exactly `1 / --fps` seconds a frame, so wind,
@@ -1069,6 +1140,35 @@ pub fn run() {
         walker.is_none() || is_world,
         "--walker and --walker-avatar need --world: the body walks the compiled terrain"
     );
+    // `--driver` (#1546): the car, read and checked before anything is built.
+    let driver = args.driver.as_deref().map(|path| driver::DriverSpec {
+        record: driver::read_driver(path).unwrap_or_else(|e| panic!("--driver {path:?}: {e}")),
+        from: args.drive_from.as_deref().map(parse_xz),
+        bearing: args.drive_bearing,
+        keys: if args.drive_keys.is_empty() {
+            // No keys: the car is set down and stands - a portrait.
+            Vec::new()
+        } else {
+            driver::parse_drive_keys(&args.drive_keys).unwrap_or_else(|e| panic!("{e}"))
+        },
+        lead: args.drive_lead,
+        log: args.drive_log.clone(),
+    });
+    assert!(
+        driver.is_none() || !args.editor,
+        "--driver and --editor: the editor's host brings physics of its own; film the car \
+         without the editor"
+    );
+    assert!(
+        args.time_scale.is_finite() && args.time_scale > 0.0,
+        "--time-scale {} is not a positive number",
+        args.time_scale
+    );
+    assert!(
+        args.drive_lead >= 0.0,
+        "--drive-lead {} is not a number of seconds",
+        args.drive_lead
+    );
     let single_camera = is_world || frames > 1 || args.play_view;
     let frame = if args.play_view {
         PLAY_FRAME
@@ -1168,6 +1268,9 @@ pub fn run() {
     );
     if let Subject::World(spec) = &subject {
         world::register(&mut app, spec, walker);
+        if let Some(driver) = &driver {
+            driver::register(&mut app, driver.clone());
+        }
         // `--editor` (#1353): the game's own editing surfaces over it.
         if args.editor {
             let opening = editor::EditorOpening {
@@ -1238,6 +1341,13 @@ pub fn run() {
             keep_frames: args.keep_frames,
             dither: args.dither,
             downscale: args.downscale,
+            // Long enough for a driven car to settle and drive its lead-in
+            // at full speed before the first frame.
+            warmup: driver.as_ref().map_or(WARMUP, |d| {
+                WARMUP.max((d.warmup_secs() * args.fps).ceil() as u32)
+            }),
+            clip_step: args.time_scale / args.fps,
+            fov: args.fov,
         })
         .insert_resource(Clock {
             step: 1.0 / args.fps,
@@ -1339,13 +1449,16 @@ fn build_rig(args: &Args, is_world: bool) -> CameraRig {
             yaw: args.yaw.unwrap_or(ANGLES[1]),
             sweep: args.sweep.unwrap_or(0.0),
             zoom: args.zoom.max(0.01),
+            eye: eye_pair(args),
+            yaw_world: args.yaw_world,
+            follow_lag: args.follow_lag.max(0.0),
         };
     }
     // A vista focus (the spawn, the landing, the settlement) looks at the
     // built-up band, 8 m up; a point on the ground and the walker are
     // deliberate ground-level shots, and a subject is framed on its centre.
     let lift = args.lift.unwrap_or(match focus {
-        Focus::Walker | Focus::Point { .. } => 1.0,
+        Focus::Walker | Focus::Driver | Focus::Point { .. } => 1.0,
         Focus::Subject => 0.0,
         _ if is_world => 8.0,
         _ => 0.0,
@@ -1359,13 +1472,13 @@ fn build_rig(args: &Args, is_world: bool) -> CameraRig {
         .map(|e| (e, args.elev_end.unwrap_or(e)))
         .or(is_world.then_some((28.0, 28.0)));
     let yaw = args.yaw.unwrap_or(match focus {
-        Focus::Walker => 30.0,
+        Focus::Walker | Focus::Driver => 30.0,
         _ if is_world => 0.0,
         _ => 180.0,
     });
     // A vista drifts; a deliberate shot (the walker, a named point) holds.
     let sweep = args.sweep.unwrap_or(match focus {
-        Focus::Walker | Focus::Point { .. } => 0.0,
+        Focus::Walker | Focus::Driver | Focus::Point { .. } => 0.0,
         _ if is_world => 30.0,
         _ => 360.0,
     });
@@ -1377,7 +1490,22 @@ fn build_rig(args: &Args, is_world: bool) -> CameraRig {
         yaw,
         sweep,
         zoom: args.zoom.max(0.01),
+        eye: eye_pair(args),
+        yaw_world: args.yaw_world,
+        follow_lag: args.follow_lag.max(0.0),
     }
+}
+
+/// `--eye` and `--eye-end` as the rig takes them: the camera's start and
+/// end, the start held when there is no end.
+fn eye_pair(args: &Args) -> Option<(rig::Eye, rig::Eye)> {
+    let from = rig::Eye::parse(args.eye.as_deref()?).unwrap_or_else(|e| panic!("{e}"));
+    let to = args
+        .eye_end
+        .as_deref()
+        .map(|end| rig::Eye::parse(end).unwrap_or_else(|e| panic!("{e}")))
+        .unwrap_or(from);
+    Some((from, to))
 }
 
 /// The studio clear colour behind a single subject: the blue-grey the tool

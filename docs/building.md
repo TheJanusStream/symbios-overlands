@@ -565,6 +565,43 @@ its file says; `--walker-wear` and `--walker-outfit` dress the seeded bodies
 only. The file's body is built before the world compiles, so a body the
 engine cannot build is said in a second.
 
+`--driver FILE` (with `--world`, #1546) drives a car through the world on
+the game's own physics and films it: the file's avatar (what `rec.py pull
+avatar` writes, or an `agent avatar get ""` answer; its body must be a car's)
+gets the local player's chassis, its locomotion's physics and its body's
+parts, under avian and the game's own fixed-step car systems at 64 steps a
+second. The tool only holds the keys, `--drive-keys` in the `agent drive`
+form (`W@4 W+D@0.6 none@2`). The car is set down at `--drive-from x,z`
+facing `--drive-bearing` (a compass bearing; both default to the record's
+landing), settles, and starts its keys `--drive-lead` seconds before the
+first frame. Keys change on whole physics steps; what the car does with
+them is the game's, down to its one frame-rate dependence (its systems read
+the pose the last frame left), so a run filmed at another `--fps` or
+`--time-scale` differs by a few hundredths of a second of airtime.
+`--drive-log run.jsonl` writes a run a step at a
+time (position, velocity, bearing, pitch, roll, wheels down), which is how a
+stunt is measured and a camera placed before a shot is rendered. In
+session 900 it flew Jink's Jump Line in 0.73 / 0.89 / 1.34 s of airtime
+against the live game's 0.70 / 0.90 / 1.33.
+
+```bash
+cargo run --profile test-release --bin render -- --world did:plc:x --world-record room.json \
+  --driver avatar.json --drive-from=58.8,91.2 --drive-bearing 315 --drive-keys "W@20 none@4" \
+  --drive-lead 4.4 --eye=-0.6,48.8 --focus driver --follow-lag 0.3 --fov 40 \
+  --frames 84 --fps 30 --keep-frames --drive-log run.jsonl
+```
+
+The camera flags it brought apply to any single-camera shot. `--focus
+driver` follows the car as `--focus walker` follows a walker, the yaw
+measured from behind it, or the world's with `--yaw-world` (a tracking shot
+that keeps its side as the car turns). `--follow-lag s` gives a followed body
+a camera operator's lag, so a landing's bounce is not a shake. `--eye x,z`
+(1.6 m over the ground) or `--eye x,y,z` stands the camera there, sliding to
+`--eye-end` over the clip, and turns it to the focus instead of orbiting it.
+`--fov` changes the lens from the game's 45 degrees, and `--time-scale 0.25`
+films four times slower than life (the warm-up runs at full speed, and the
+chassis is eased between physics steps as the game eases a player's).
+
 `--editor` (#1353, with `--world`) draws the game's own editing surfaces
 into the same frame as the world: the toolbar, the World Editor, the
 Catalogue, the toasts and the in-world transform gizmo, registered as the

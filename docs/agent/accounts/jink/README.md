@@ -30,7 +30,7 @@ session.
 | Admin | @codewright.bsky.social, the owner: `start --admin @codewright.bsky.social --allow-save` |
 | Region | Parabola Flats, Jink's own world: its DID is Jink's, the `--world` of every offline render |
 | Working folder | `exports/jink/` (gitignored, on this machine only), kept across sessions: `A` the agent wrapper (it runs the copy in `bin/`), `b/` the builders, `gen/` what they write, `src/` the last saves - `room.json` (2026-10-02 20:21, save event seq 2 - the daemon restarted at 20:19 and numbers afresh) and `avatar.json` (09:21, seq 160) - and `log.md` the save log; numbered subfolders (`893/`, `895/`, `896/`) are earlier scratchpads, read-only |
-| Last session | chainlink session 897 (live session 11, on #1523: the softer wind saved on the owner's word, Jink up two minutes to do it), after sessions 896 (offline: the wind rendered for the owner's ear) and 895 - read #1523's comments (`chainlink show 1523`); `chainlink session last-handoff` is the latest session of any kind |
+| Last session | chainlink session 900 (offline: the promo, #1545, filmed with `render --driver`, #1546), after 897 (live session 11: the softer wind saved on the owner's word) - read #1523's and #1545's comments (`chainlink show 1523`); `chainlink session last-handoff` is the latest session of any kind |
 | Default mode | self-guided ([session.md](../../session.md#self-guided)), as the first session ran |
 | Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), or Reeve's world (Ashmere) or avatar ([reeve/](../reeve/README.md)) |
 
@@ -383,11 +383,29 @@ lines (the placements are 21-28).
   slope. On Parabola Flats' level pan it moves nothing; the Mesa Drop's
   landing, on a 15-19 degree slope about 110 m out, sits 6-7 cm off.
 
+### 2026-10-02: session 900, the promo, #1545
+
+- **Mode**: offline, on the owner's word: "make a promo-video for Jink and
+  his region, similar to the ones you made for Reeve and Hypha, but this
+  one more focussed on action and Jink driving stunts in his region."
+- **Made**: `exports/promo/parabola-flats-promo.mp4` (69.3 s, with `-web`
+  and `-ambience` copies): the car flying the Jump Line, the Big One
+  through the ring of fire from three angles (two slowed), the Mesa Drop,
+  the Circuit, the whoops and the Drift Circle, under eight cards and a
+  synthesised score. Every stunt is flown on the game's own physics by the
+  render tool's new `--driver` (#1546), from the saved room and avatar,
+  with the keys this page's runs use: the tool flies the Jump Line in 0.75
+  / 0.89 / 1.36 s against the 0.70 / 0.90 / 1.33 measured live.
+- **Found**: a car's physics depends on the frame rate (#1548); a car
+  throws no dust (#1549); from the side the ring of fire is edge-on and
+  vanishes - shoot it along the line.
+
 ## Open threads
 
-- **The owner's to do outside the game**: commit session 899's working
-  tree (overlands on bevy_symbios_ground 0.7, whose terrain collider
-  lines up with the drawn ground, #1543).
+- **The owner's to do outside the game**: review the promo
+  (`exports/promo/parabola-flats-promo.mp4`; the score is synthesised and
+  was never heard); commit session 900's working tree (`render --driver`,
+  #1546).
 - **Filed in session 895, open**: #1541 (medium: a car's walk-to of a
   point behind it ends `stuck` while it swings round - turn it first with
   `face` or `b/aim.py`), #1539 (a car on its side with its roof downhill on

@@ -283,7 +283,7 @@ pub struct GaitAnimation {
 }
 
 impl GaitAnimation {
-    fn for_did(did: &str, mode: GaitMode) -> Self {
+    pub(super) fn for_did(did: &str, mode: GaitMode) -> Self {
         let gait = AvatarGait::for_did(did);
         // Cheap stable per-DID phase offset in [0, τ).
         let hash = crate::seeded_defaults::hash::fnv1a_64(did);

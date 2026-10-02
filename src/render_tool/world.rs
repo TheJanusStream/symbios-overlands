@@ -309,7 +309,16 @@ pub(super) fn register(app: &mut App, spec: &WorldSpec, walker: Option<WalkerSpe
 /// when `editor` is set (`--editor`), so the interface and the gizmo draw
 /// into the same target the drive loop reads back. Tile 0, so the drive
 /// loop steers it like any other.
-pub(super) fn spawn_world_camera(commands: &mut Commands, target: Handle<Image>, editor: bool) {
+///
+/// `fov` is `--fov` (#1546): a vertical field of view in degrees for a shot
+/// on another lens than the game's, which is Bevy's default.
+pub(super) fn spawn_world_camera(
+    commands: &mut Commands,
+    target: Handle<Image>,
+    editor: bool,
+    fov: Option<f32>,
+) {
+    let lens = PerspectiveProjection::default();
     let mut camera = commands.spawn((
         Camera3d::default(),
         WorldCamera,
@@ -319,7 +328,8 @@ pub(super) fn spawn_world_camera(commands: &mut Commands, target: Handle<Image>,
         // must stay inside the frustum from a 150 m orbit.
         Projection::from(PerspectiveProjection {
             far: 12_000.0,
-            ..default()
+            fov: fov.map_or(lens.fov, f32::to_radians),
+            ..lens
         }),
         // Shore foam reads the opaque prepass depth (see `camera.rs`).
         DepthPrepass,
@@ -363,7 +373,10 @@ pub(super) fn resolve_focus(
             Some(c) => Vec3::new(c.x, ground(c.x, c.y), c.y),
             None => Vec3::new(0.0, ground(0.0, 0.0), 0.0),
         },
-        Focus::Walker => walker.unwrap_or_else(|| Vec3::new(0.0, ground(0.0, 0.0), 0.0)),
+        // `walker` is the followed body: the lead walker, or the driven car.
+        Focus::Walker | Focus::Driver => {
+            walker.unwrap_or_else(|| Vec3::new(0.0, ground(0.0, 0.0), 0.0))
+        }
         Focus::Subject => subject.unwrap_or_else(|| Vec3::new(0.0, ground(0.0, 0.0), 0.0)),
         Focus::Point { x, y, z } => Vec3::new(x, y.unwrap_or_else(|| ground(x, z)), z),
     }

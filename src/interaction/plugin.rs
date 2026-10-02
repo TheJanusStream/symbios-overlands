@@ -49,6 +49,30 @@ pub struct ContactProducerSet;
 #[derive(SystemSet, Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct PerturbationSet;
 
+/// The contact effects a driven body raises in an app that is not the game -
+/// the render tool's `--driver` (#1546): the classifier and the particle
+/// bursts it dispatches (a splash on water, ground dust under a body whose
+/// underside touches the ground), as [`InteractionPlugin`] registers them but without its
+/// `InGame` gate. Its water wakes, terrain stains, sounds and audio editor stay
+/// out: a render draws no water uniforms of its own and plays nothing. Keep in
+/// step with [`InteractionPlugin`].
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn register_headless_contacts(app: &mut App) {
+    app.init_resource::<AvatarContacts>()
+        .init_resource::<PeerVelocityCache>()
+        .init_resource::<ContactPersistence>()
+        .init_resource::<ContactRecipeRegistry>()
+        .init_resource::<ParticleDispatchState>()
+        .add_systems(Update, classify_contacts.in_set(ContactProducerSet))
+        .add_systems(
+            Update,
+            (
+                particle_dispatcher.after(ContactProducerSet),
+                retire_transient_emitters,
+            ),
+        );
+}
+
 pub struct InteractionPlugin;
 
 impl Plugin for InteractionPlugin {

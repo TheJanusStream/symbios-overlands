@@ -254,7 +254,7 @@ pub(crate) fn avatar_json(record: &AvatarRecord) -> Value {
 /// The avatar a file holds and the pointer it is at: the whole file, as
 /// `rec.py pull avatar` writes it, or the `result.value` of an `agent avatar
 /// get ""` answer.
-fn unwrap_answer(document: Value) -> Result<(Value, &'static str), String> {
+pub(super) fn unwrap_answer(document: Value) -> Result<(Value, &'static str), String> {
     let Value::Object(mut top) = document else {
         return Err(format!(
             "the top level: {}, not an object - an avatar is {{record, body, worn}}, or the \
@@ -320,7 +320,11 @@ fn read_worn(entry: &Value, at: &str) -> Result<ResolvedAttachment, String> {
 
 /// `value` read as a `T`, or a refusal naming where in it the read failed
 /// (`at` is the pointer of `value` itself).
-fn read_part<T: DeserializeOwned>(value: &Value, at: &str, what: &str) -> Result<T, String> {
+pub(super) fn read_part<T: DeserializeOwned>(
+    value: &Value,
+    at: &str,
+    what: &str,
+) -> Result<T, String> {
     serde_json::from_value::<T>(value.clone()).map_err(|e| {
         let inner = failing_pointer::<T>(value).unwrap_or_default();
         format!(
@@ -331,7 +335,7 @@ fn read_part<T: DeserializeOwned>(value: &Value, at: &str, what: &str) -> Result
 }
 
 /// A pointer as a refusal names it: the empty pointer is the whole file.
-fn place(pointer: &str) -> String {
+pub(super) fn place(pointer: &str) -> String {
     if pointer.is_empty() {
         "the top level".to_owned()
     } else {
@@ -340,7 +344,7 @@ fn place(pointer: &str) -> String {
 }
 
 /// What kind of JSON value `value` is, for a refusal.
-fn kind_of(value: &Value) -> &'static str {
+pub(super) fn kind_of(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "a boolean",

@@ -234,6 +234,59 @@ pub(super) fn random_spawn_xz() -> (f32, f32) {
     ((u - 0.5) * side, (v - 0.5) * side)
 }
 
+/// A car driven in an app that is not the game - the render tool's
+/// `--driver` (#1546): the game's own fixed-step car systems, chained as
+/// [`PlayerPlugin`] chains them, without the gates an owner typing into a
+/// chat field needs. Nobody types into a headless render.
+///
+/// With them, the cosmetic layer the game lays over a car's body: its lean
+/// into a turn, its bob and its idle shiver (`gait::animate_avatar_gait`),
+/// run in `Update` as `PlayerPlugin` runs it.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn register_headless_car(app: &mut App) {
+    app.init_resource::<RigHold>()
+        .add_systems(
+            FixedUpdate,
+            (
+                car::apply_car_suspension,
+                car::apply_car_drive,
+                car::apply_car_uprighting,
+            )
+                .chain()
+                .in_set(HeadlessCarSystems),
+        )
+        .add_systems(Update, gait::animate_avatar_gait);
+}
+
+/// The set [`register_headless_car`] puts the car's systems in, so a caller
+/// can press its keys before them.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct HeadlessCarSystems;
+
+/// The chassis of a car driven in an app that is not the game (#1546): the
+/// local player's root bundle and the physics of `locomotion`'s preset, as
+/// `spawn::spawn_local_player` assembles them, at `at`, and - for a car - the
+/// gait the game attaches to a signed-in player's own car
+/// (`gait::attach_gait_animation`), seeded by `did`. The caller hangs the
+/// body's visuals under it.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn spawn_headless_chassis(
+    commands: &mut Commands,
+    at: Transform,
+    locomotion: &crate::pds::LocomotionConfig,
+    did: &str,
+) -> Entity {
+    let entity = commands.spawn(spawn::chassis_root_bundle(at)).id();
+    preset::build_preset_components(commands, entity, locomotion);
+    if matches!(locomotion, crate::pds::LocomotionConfig::Car(_)) {
+        commands
+            .entity(entity)
+            .insert(gait::GaitAnimation::for_did(did, gait::GaitMode::Skiff));
+    }
+    entity
+}
+
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {

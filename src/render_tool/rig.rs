@@ -29,6 +29,8 @@ pub(super) enum Focus {
     Settlement,
     /// The `--walker` body, followed as it walks.
     Walker,
+    /// The `--driver` car, followed as it drives (#1546).
+    Driver,
     /// The auto-framed bounds of a single subject - the turntable case.
     Subject,
     /// An explicit world point: `x,z` on the terrain surface, or `x,y,z`.
@@ -43,6 +45,7 @@ impl Focus {
             "landing" | "gateway" => return Ok(Self::Landing),
             "settlement" | "town" => return Ok(Self::Settlement),
             "walker" => return Ok(Self::Walker),
+            "driver" | "car" => return Ok(Self::Driver),
             "subject" => return Ok(Self::Subject),
             _ => {}
         }
@@ -59,7 +62,7 @@ impl Focus {
                 z: *z,
             }),
             _ => Err(format!(
-                "--focus {s:?}: expected origin | landing | settlement | walker | subject | x,z | x,y,z"
+                "--focus {s:?}: expected origin | landing | settlement | walker | driver | subject | x,z | x,y,z"
             )),
         }
     }
@@ -81,8 +84,9 @@ pub(super) struct CameraRig {
     /// Elevation above the look-at point, degrees, at `t = 0` and `t = 1`;
     /// `None` leaves it to the mode's default orbit.
     pub(super) elev: Option<(f32, f32)>,
-    /// Yaw at `t = 0`, degrees. For a [`Focus::Walker`] rig this is measured
-    /// from directly behind the walker, so 0 follows and 180 faces it.
+    /// Yaw at `t = 0`, degrees. For a followed body ([`Focus::Walker`],
+    /// [`Focus::Driver`]) this is measured from directly behind it, so 0
+    /// follows and 180 faces it - unless [`Self::yaw_world`].
     pub(super) yaw: f32,
     /// How far the yaw turns over the clip, degrees. 360 is one full
     /// turntable revolution; 0 holds the angle.
@@ -91,6 +95,63 @@ pub(super) struct CameraRig {
     /// bounds): 1 is the sheet cameras' fit, 1.5 sits a third closer. An
     /// explicit `--dist` is absolute and ignores it.
     pub(super) zoom: f32,
+    /// `--eye` and `--eye-end` (#1546): the camera stands here - sliding from
+    /// the first point to the second over the clip - and turns to the
+    /// focus, as a spectator's or a dolly's would, instead of orbiting it.
+    /// Distance, elevation, yaw and sweep then mean nothing.
+    pub(super) eye: Option<(Eye, Eye)>,
+    /// `--yaw-world` (#1546): for a followed body, the yaw is the world's
+    /// rather than measured from behind the body, so the camera keeps its
+    /// side of the road as the body turns - a tracking shot, not a chase.
+    pub(super) yaw_world: bool,
+    /// `--follow-lag` (#1546): seconds of the camera operator's lag on a
+    /// followed body - its position and heading eased toward the body's
+    /// with this time constant, so a landing's bounce is not a shake. 0
+    /// follows rigidly.
+    pub(super) follow_lag: f32,
+}
+
+/// Where an `--eye` camera stands: `x,z` at a person's eye height over the
+/// ground there, or `x,y,z`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Eye {
+    pub(super) x: f32,
+    pub(super) y: Option<f32>,
+    pub(super) z: f32,
+}
+
+/// Metres over the ground an `--eye` given as `x,z` stands: a spectator's
+/// eye.
+pub(super) const EYE_HEIGHT: f32 = 1.6;
+
+impl Eye {
+    /// Parse an `--eye` value: `x,z` or `x,y,z`.
+    pub(super) fn parse(s: &str) -> Result<Self, String> {
+        let parts: Result<Vec<f32>, _> = s.split(',').map(|p| p.trim().parse::<f32>()).collect();
+        match parts.as_deref() {
+            Ok([x, z]) => Ok(Self {
+                x: *x,
+                y: None,
+                z: *z,
+            }),
+            Ok([x, y, z]) => Ok(Self {
+                x: *x,
+                y: Some(*y),
+                z: *z,
+            }),
+            _ => Err(format!("--eye {s:?}: expected x,z or x,y,z")),
+        }
+    }
+
+    /// The point, `ground` giving the terrain's height where none is given.
+    pub(super) fn at(&self, ground: impl Fn(f32, f32) -> f32) -> Vec3 {
+        Vec3::new(
+            self.x,
+            self.y
+                .unwrap_or_else(|| ground(self.x, self.z) + EYE_HEIGHT),
+            self.z,
+        )
+    }
 }
 
 impl CameraRig {
@@ -125,6 +186,38 @@ impl CameraRig {
     pub(super) fn yaw_behind(dir: Vec3) -> f32 {
         (-dir.x).atan2(-dir.z).to_degrees()
     }
+
+    /// Camera position and look-at point for clip progress `t` when the
+    /// camera stands on an `--eye` and turns to `focus`: the eye slid from
+    /// `from` to `to`, the look `lift` above the focus.
+    pub(super) fn eye_pose(&self, from: Vec3, to: Vec3, focus: Vec3, t: f32) -> (Vec3, Vec3) {
+        (
+            from.lerp(to, t.clamp(0.0, 1.0)),
+            focus + Vec3::Y * self.lift,
+        )
+    }
+}
+
+/// One step of the camera operator's lag (`--follow-lag`): the followed
+/// pose eased from `was` toward `now` over `dt` seconds with time constant
+/// `lag`, the heading kept on the ground plane. No earlier pose, or no lag,
+/// is the body's own.
+pub(super) fn ease_follow(
+    was: Option<(Vec3, Vec3)>,
+    now: (Vec3, Vec3),
+    dt: f32,
+    lag: f32,
+) -> (Vec3, Vec3) {
+    let Some((at, heading)) = was else {
+        return now;
+    };
+    if lag <= 0.0 {
+        return now;
+    }
+    let k = 1.0 - (-dt.max(0.0) / lag).exp();
+    let eased = heading.lerp(now.1, k);
+    let flat = Vec3::new(eased.x, 0.0, eased.z).normalize_or(now.1);
+    (at.lerp(now.0, k), flat)
 }
 
 // ---------------------------------------------------------------------------
@@ -195,10 +288,56 @@ mod tests {
             yaw: 180.0,
             sweep: 0.0,
             zoom: 1.0,
+            eye: None,
+            yaw_world: false,
+            follow_lag: 0.0,
         }
     }
 
     const AUTO: (f32, f32) = (99.0, 45.0);
+
+    /// An `--eye` camera stands where it is put - at eye height over the
+    /// ground for `x,z` - slides to `--eye-end` over the clip, and always
+    /// looks at the focus.
+    #[test]
+    fn an_eye_camera_stands_and_turns_to_the_focus() {
+        let ground = |_: f32, _: f32| 2.0;
+        let from = Eye::parse("10,5").expect("x,z").at(ground);
+        assert_eq!(from, Vec3::new(10.0, 2.0 + EYE_HEIGHT, 5.0));
+        let to = Eye::parse("20, 7, 5").expect("x,y,z").at(ground);
+        assert_eq!(to, Vec3::new(20.0, 7.0, 5.0));
+        assert!(Eye::parse("1").is_err() && Eye::parse("a,b").is_err());
+        let mut r = rig();
+        r.lift = 1.0;
+        let focus = Vec3::new(0.0, 3.0, 0.0);
+        let (pos, look) = r.eye_pose(from, to, focus, 0.5);
+        assert_eq!(pos, from.lerp(to, 0.5));
+        assert_eq!(look, Vec3::new(0.0, 4.0, 0.0));
+        let (pos, _) = r.eye_pose(from, to, focus, 2.0);
+        assert_eq!(pos, to, "past the end of the clip it stays at the end");
+    }
+
+    /// The operator's lag eases toward the body - a part of the way a step,
+    /// more for a longer step or a shorter lag - and never lags without one.
+    #[test]
+    fn the_follow_lag_eases_toward_the_body() {
+        let was = (Vec3::ZERO, Vec3::NEG_Z);
+        let now = (Vec3::new(10.0, 0.0, 0.0), Vec3::X);
+        assert_eq!(ease_follow(None, now, 0.1, 0.5), now, "no earlier pose");
+        assert_eq!(ease_follow(Some(was), now, 0.1, 0.0), now, "no lag");
+        let (at, heading) = ease_follow(Some(was), now, 0.1, 0.5);
+        let k = 1.0 - (-0.2f32).exp();
+        assert!((at.x - 10.0 * k).abs() < 1e-4, "{at}");
+        assert!(heading.y == 0.0 && (heading.length() - 1.0).abs() < 1e-5);
+        let (later, _) = ease_follow(Some(was), now, 0.5, 0.5);
+        assert!(later.x > at.x, "a longer step goes further");
+    }
+
+    #[test]
+    fn driver_and_car_name_the_driven_car() {
+        assert_eq!(Focus::parse("driver"), Ok(Focus::Driver));
+        assert_eq!(Focus::parse("Car"), Ok(Focus::Driver));
+    }
 
     #[test]
     fn yaw_180_sits_on_the_minus_z_side_like_the_front_tile() {

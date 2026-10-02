@@ -53,12 +53,15 @@ use crate::state::LiveRoomRecord;
 use crate::terrain::FinishedHeightMap;
 use crate::world_builder::particles::{Particle, ParticleEmitterMarker};
 
-use super::rig::{CameraRig, Focus, delay_cs, half_fov_x, play_elev_deg, progress, px_per_metre};
+use super::driver::{Driver, driver_pose};
+use super::rig::{
+    CameraRig, Focus, delay_cs, ease_follow, half_fov_x, play_elev_deg, progress, px_per_metre,
+};
 use super::rigged::{FileBody, HeadFrame, RiggedFraming, spawn_standing};
 use super::world::{
     ShutterGate, Walker, WorldReadiness, WorldSpec, resolve_focus, spawn_world_camera,
 };
-use super::{ANGLES, FOV, OUT_DIR, WARMUP, gif};
+use super::{ANGLES, FOV, OUT_DIR, gif};
 
 /// What to render: a single generator tree, an `--ages` lineup of variants of
 /// one tree (one grid row each), a whole seeded room, or the world itself.
@@ -284,8 +287,12 @@ impl SubjectParts<'_, '_> {
 /// The slot-placement query: a line-up slot's chassis entity, which
 /// `--play-view` moves once its bounds have resolved. Filtered off the two
 /// other `Transform` queries in [`drive`] so the three stay disjoint.
-type PlaySlotQuery<'w, 's> =
-    Query<'w, 's, (&'static mut Transform, &'static PlaySlot), (Without<TileCam>, Without<Walker>)>;
+type PlaySlotQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static mut Transform, &'static PlaySlot),
+    (Without<TileCam>, Without<Walker>, Without<Driver>),
+>;
 
 /// Fraction of a neighbour's own angular half-width left as clear air between
 /// two line-up slots. Small: the point of the shot is that the craft are side
@@ -387,6 +394,15 @@ pub(super) struct RenderJob {
     /// `--downscale`: how many times smaller a single-camera shot is written
     /// than it renders (1 is full size).
     pub(super) downscale: u32,
+    /// Frames of warm-up before the first capture: [`super::WARMUP`], or more when
+    /// a `--driver` needs the time to settle and drive its lead-in (#1546).
+    pub(super) warmup: u32,
+    /// Seconds of the world's time a captured frame steps the clock by:
+    /// `--time-scale` over `--fps`. The warm-up steps at full speed.
+    pub(super) clip_step: f32,
+    /// `--fov`: the world camera's vertical field of view in degrees, when
+    /// not the game's lens.
+    pub(super) fov: Option<f32>,
 }
 
 impl RenderJob {
@@ -583,6 +599,10 @@ pub(super) struct Capture {
     /// The point [`aim_rig`] last aimed the rig camera at - what
     /// [`follow_rig_zoom`] measures the game's shadow reach to (#1475).
     look: Option<Vec3>,
+    /// The followed body as the camera operator has it, eased by
+    /// `--follow-lag`, and the clock second it was eased at (#1546).
+    follow: Option<(Vec3, Vec3)>,
+    follow_at: f32,
     tile_of: HashMap<Entity, usize>,
     results: Vec<Option<Vec<u8>>>,
     frames: Vec<Vec<u8>>,
@@ -597,6 +617,8 @@ impl Default for Capture {
             last_log: Instant::now(),
             framing: None,
             look: None,
+            follow: None,
+            follow_at: 0.0,
             tile_of: HashMap::new(),
             results: Vec::new(),
             frames: Vec::new(),
@@ -650,7 +672,7 @@ pub(super) fn setup(
         let target = images.add(new_target(job.tile));
         targets.push(target.clone());
         if matches!(job.subject, Subject::World(_)) {
-            spawn_world_camera(&mut commands, target, editor.is_some());
+            spawn_world_camera(&mut commands, target, editor.is_some(), job.fov);
             continue;
         }
         commands.spawn((
@@ -996,7 +1018,7 @@ pub(super) fn drive(
     parts: SubjectParts,
     mut cams: Query<(&mut Transform, &TileCam)>,
     mut slots: PlaySlotQuery,
-    walkers: Query<(&Transform, &Walker), Without<TileCam>>,
+    followed: Followed,
     terrain_ready: Option<Res<crate::terrain::SplatApplied>>,
     world: WorldReadiness,
     gate: ShutterGate,
@@ -1030,10 +1052,10 @@ pub(super) fn drive(
             };
             if framed {
                 info!("framed after {} frames; warming up", capture.waited);
-                capture.phase = Phase::Warmup { left: WARMUP };
+                capture.phase = Phase::Warmup { left: job.warmup };
                 clock.run = true;
                 commands.insert_resource(ClipTiming {
-                    capture_start: clock.elapsed + WARMUP as f32 * clock.step,
+                    capture_start: clock.elapsed + job.warmup as f32 * clock.step,
                 });
                 // The rig camera goes to its shot pose NOW, as the sheet
                 // cameras do, not on the capture frame (#1351). Until it
@@ -1045,7 +1067,7 @@ pub(super) fn drive(
                 // a mesh for a view when the mesh changes, not when the view
                 // first sees it. Frame 0 re-aims anyway; this is the warm-up.
                 if job.single_camera() {
-                    let walker = lead_walker(&walkers);
+                    let walker = followed.body(job.rig.focus);
                     aim_rig(
                         &mut capture,
                         &job,
@@ -1054,6 +1076,7 @@ pub(super) fn drive(
                         record.as_deref(),
                         heightmap.as_deref(),
                         0,
+                        clock.elapsed,
                     );
                 }
             }
@@ -1068,7 +1091,7 @@ pub(super) fn drive(
                     // camera finally turns to it. Following it here is what
                     // puts its meshes in view as they are built.
                     if job.single_camera() {
-                        let walker = lead_walker(&walkers);
+                        let walker = followed.body(job.rig.focus);
                         aim_rig(
                             &mut capture,
                             &job,
@@ -1077,6 +1100,7 @@ pub(super) fn drive(
                             record.as_deref(),
                             heightmap.as_deref(),
                             0,
+                            clock.elapsed,
                         );
                     }
                     capture.phase = Phase::Warmup { left: left - 1 };
@@ -1120,7 +1144,7 @@ pub(super) fn drive(
                 }
                 Warmup::Ready => clock.run = true,
             }
-            let walker = lead_walker(&walkers);
+            let walker = followed.body(job.rig.focus);
             if job.single_camera() {
                 aim_rig(
                     &mut capture,
@@ -1130,11 +1154,15 @@ pub(super) fn drive(
                     record.as_deref(),
                     heightmap.as_deref(),
                     0,
+                    clock.elapsed,
                 );
             }
             if job.frames > 1 {
-                // Lockstep from here: the clock steps once per captured frame.
+                // Lockstep from here: the clock steps once per captured frame,
+                // by the clip's step - slower than the warm-up's under
+                // `--time-scale`.
                 clock.run = false;
+                clock.step = job.clip_step;
                 commands.insert_resource(ClipStarted);
                 let e = commands.spawn(Readback::texture(targets.0[0].clone())).id();
                 capture.phase = Phase::Clip {
@@ -1196,7 +1224,7 @@ pub(super) fn drive(
                 };
             }
             ClipStep::Shoot => {
-                let walker = lead_walker(&walkers);
+                let walker = followed.body(job.rig.focus);
                 aim_rig(
                     &mut capture,
                     &job,
@@ -1205,10 +1233,11 @@ pub(super) fn drive(
                     record.as_deref(),
                     heightmap.as_deref(),
                     next,
+                    clock.elapsed,
                 );
                 if let Some((transform, _)) = cams.iter().next() {
                     info!(
-                        "frame {next}/{}: t={:.2}s camera ({:.1}, {:.1}, {:.1}) walker {}",
+                        "frame {next}/{}: t={:.2}s camera ({:.1}, {:.1}, {:.1}) followed {}",
                         job.frames,
                         clock.elapsed,
                         transform.translation.x,
@@ -1234,13 +1263,29 @@ pub(super) fn drive(
     }
 }
 
-/// The body the rig follows: the first `--walker` seed, whichever order
-/// the query hands the group back in (#1352).
-fn lead_walker(walkers: &Query<(&Transform, &Walker), Without<TileCam>>) -> Option<(Vec3, Vec3)> {
-    walkers
-        .iter()
-        .find(|(_, w)| w.is_lead())
-        .map(|(t, w)| (t.translation, w.dir()))
+/// The bodies a rig can follow: the `--walker` group and the `--driver` car.
+/// Bundled because [`drive`] is at Bevy's sixteen-parameter ceiling.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(super) struct Followed<'w, 's> {
+    walkers: Query<'w, 's, (&'static Transform, &'static Walker), Without<TileCam>>,
+    drivers: Query<'w, 's, &'static Transform, (With<Driver>, Without<TileCam>)>,
+}
+
+impl Followed<'_, '_> {
+    /// The body `focus` follows, as (position, heading on the ground): the
+    /// first `--walker` seed, whichever order the query hands the group back
+    /// in (#1352), or the driven car (#1546); none for any other focus.
+    fn body(&self, focus: Focus) -> Option<(Vec3, Vec3)> {
+        match focus {
+            Focus::Walker => self
+                .walkers
+                .iter()
+                .find(|(_, w)| w.is_lead())
+                .map(|(t, w)| (t.translation, w.dir())),
+            Focus::Driver => self.drivers.iter().next().map(driver_pose),
+            _ => None,
+        }
+    }
 }
 
 /// `--world`: wait for the compile to settle, then fix the rig's focus.
@@ -1691,41 +1736,72 @@ fn frame_play_view(
     true
 }
 
-/// Put the rig camera at its pose for frame `frame`. `walker` is the
-/// body's (position, heading) when one exists; a walker focus orbits it
-/// with the yaw measured from behind, everything else orbits the framed
-/// point.
+/// Put the rig camera at its pose for frame `frame`. `followed` is the
+/// followed body's (position, heading) when one exists - the lead walker's
+/// or the driven car's - which a walker or driver focus orbits with the yaw
+/// measured from behind (or the world's, under `--yaw-world`), eased by the
+/// rig's `--follow-lag` on the clock's second `now`; everything else orbits
+/// the framed point. An `--eye` camera stands where it is put and turns to
+/// the focus instead.
+#[allow(clippy::too_many_arguments)]
 fn aim_rig(
     capture: &mut Capture,
     job: &RenderJob,
     cams: &mut Query<(&mut Transform, &TileCam)>,
-    walker: Option<(Vec3, Vec3)>,
+    followed: Option<(Vec3, Vec3)>,
     record: Option<&LiveRoomRecord>,
     heightmap: Option<&FinishedHeightMap>,
     frame: u32,
+    now: f32,
 ) {
-    let Some(framing) = &capture.framing else {
+    let Some((framed_at, auto)) = capture
+        .framing
+        .as_ref()
+        .map(|f| (f.focus, (f.auto_dist, f.auto_elev)))
+    else {
         return;
     };
     let (focus, yaw_base) = match job.rig.focus {
-        Focus::Walker => (
-            resolve_focus(
-                Focus::Walker,
+        Focus::Walker | Focus::Driver => {
+            let at = resolve_focus(
+                job.rig.focus,
                 record.map(|r| &r.0),
                 heightmap,
-                walker.map(|(at, _)| at),
-                Some(framing.focus),
-            ),
-            CameraRig::yaw_behind(walker.map_or(Vec3::NEG_Z, |(_, dir)| dir)),
-        ),
-        _ => (framing.focus, 0.0),
+                followed.map(|(at, _)| at),
+                Some(framed_at),
+            );
+            let heading = followed.map_or(Vec3::NEG_Z, |(_, dir)| dir);
+            let eased = ease_follow(
+                capture.follow,
+                (at, heading),
+                now - capture.follow_at,
+                job.rig.follow_lag,
+            );
+            // Only a body that is there is eased toward: before the walker or
+            // the car is spawned the rig stands on the fallback without
+            // remembering it, so the lag starts from the body itself rather
+            // than sweeping in from the origin.
+            if followed.is_some() {
+                capture.follow = Some(eased);
+                capture.follow_at = now;
+            }
+            let yaw_base = if job.rig.yaw_world {
+                0.0
+            } else {
+                CameraRig::yaw_behind(eased.1)
+            };
+            (eased.0, yaw_base)
+        }
+        _ => (framed_at, 0.0),
     };
-    let (pos, look) = job.rig.pose_at(
-        focus,
-        yaw_base,
-        progress(frame, job.frames),
-        (framing.auto_dist, framing.auto_elev),
-    );
+    let t = progress(frame, job.frames);
+    let (pos, look) = match job.rig.eye {
+        Some((from, to)) => {
+            let ground = |x: f32, z: f32| heightmap.map_or(0.0, |h| h.world_height_at(x, z));
+            job.rig.eye_pose(from.at(ground), to.at(ground), focus, t)
+        }
+        None => job.rig.pose_at(focus, yaw_base, t, auto),
+    };
     for (mut transform, _) in cams.iter_mut() {
         *transform = Transform::from_translation(pos).looking_at(look, Vec3::Y);
     }
@@ -2126,6 +2202,7 @@ pub(crate) fn new_target((width, height): (u32, u32)) -> Image {
 
 #[cfg(test)]
 mod tests {
+    use super::super::WARMUP;
     use super::*;
 
     /// #1482: a rigged body's two hair tiers are never drawn together, so
@@ -2339,12 +2416,18 @@ mod tests {
                 yaw: 180.0,
                 sweep: 360.0,
                 zoom: 1.0,
+                eye: None,
+                yaw_world: false,
+                follow_lag: 0.0,
             },
             frames: 12,
             fps: 10.0,
             keep_frames: false,
             dither: 0.0,
             downscale: 1,
+            warmup: WARMUP,
+            clip_step: 0.1,
+            fov: None,
         });
         let cam = world
             .spawn((
