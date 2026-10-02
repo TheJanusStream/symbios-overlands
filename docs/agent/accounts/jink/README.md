@@ -399,13 +399,11 @@ lines (the placements are 21-28).
 - **Found**: a car's physics depends on the frame rate (#1548); a car
   throws no dust (#1549); from the side the ring of fire is edge-on and
   vanishes - shoot it along the line.
+- **The owner approved the promo** (2026-10-02) and committed the tool
+  (f877a19).
 
 ## Open threads
 
-- **The owner's to do outside the game**: review the promo
-  (`exports/promo/parabola-flats-promo.mp4`; the score is synthesised and
-  was never heard); commit session 900's working tree (`render --driver`,
-  #1546).
 - **Filed in session 895, open**: #1541 (medium: a car's walk-to of a
   point behind it ends `stuck` while it swings round - turn it first with
   `face` or `b/aim.py`), #1539 (a car on its side with its roof downhill on
