@@ -426,6 +426,48 @@ fn regrow_warning(buildings: usize, props: usize) -> String {
     )
 }
 
+/// One socio override row in the road panel's Lots section (#1555), drawn
+/// like the Appearance section's override rows: the checkbox arms the
+/// `Option` at `armed`, and while armed a 0-1 slider edits it. Unticked is
+/// `None` - the world's own seeded value.
+fn lot_override_row(
+    ui: &mut egui::Ui,
+    slot: &mut Option<crate::pds::Fp>,
+    label: &str,
+    armed: f32,
+    hover: &str,
+    dirty: &mut bool,
+    undo_label: &mut crate::ui::undo::LabelSlot,
+) {
+    // On the slider's own 0.01 step (the end review of #1553): the world's
+    // value is a full-precision float, and the wire keeps 1e-4, so arming at
+    // it unrounded grew one district in the owner's client and another in a
+    // guest's, which reads the value back from the wire. A 0.01 step
+    // survives that round trip exactly.
+    let armed = (armed * 100.0).round() / 100.0;
+    ui.horizontal(|ui| {
+        let mut on = slot.is_some();
+        if ui.checkbox(&mut on, label).on_hover_text(hover).changed() {
+            *slot = on.then_some(crate::pds::Fp(armed));
+            undo_label.set(format!(
+                "lot {} {}",
+                label.to_lowercase(),
+                if on { "override" } else { "from the world" }
+            ));
+            *dirty = true;
+        }
+        if let Some(value) = slot
+            && ui
+                .add(crate::ui::num::slider(&mut value.0, 0.0..=1.0).step_by(0.01))
+                .on_hover_text(hover)
+                .changed()
+        {
+            undo_label.set(format!("lot {}", label.to_lowercase()));
+            *dirty = true;
+        }
+    });
+}
+
 fn draw_road_editor(
     ui: &mut egui::Ui,
     config: &mut crate::pds::generator::RoadConfig,
@@ -628,6 +670,23 @@ fn draw_road_editor(
                     }
                 }
             });
+            // Shore-aware tracing (#1552).
+            if ui
+                .checkbox(&mut config.avoid_water, "Streets stop at the water")
+                .on_hover_text(
+                    "Streets end at the shore and no lot touches the water. \
+                     Changing it re-traces the whole district, not only the \
+                     streets that reached the water.",
+                )
+                .changed()
+            {
+                undo_label.set(String::from(if config.avoid_water {
+                    "streets stop at the water"
+                } else {
+                    "streets cross the water"
+                }));
+                *dirty = true;
+            }
             road_slider(
                 ui,
                 &mut config.district_half_extent.0,
@@ -879,7 +938,10 @@ fn draw_road_editor(
             let lots = &mut config.lots;
             if ui
                 .add(crate::ui::num::slider(&mut lots.density.0, 0.0..=1.0).text("Density"))
-                .on_hover_text("Fraction of lots that grow a building - the largest lots win")
+                .on_hover_text(
+                    "Fraction of lots that grow a building - the largest lots win, \
+                     or with a core, the lots nearest it",
+                )
                 .changed()
             {
                 undo_label.set("lot density".to_string());
@@ -938,7 +1000,9 @@ fn draw_road_editor(
                     Some("the world's own theme is growing instead"),
                 );
             }
-            ui.horizontal(|ui| {
+            // Wrapped: five mixes since Downtown (#1555) are wider than a
+            // narrow panel.
+            ui.horizontal_wrapped(|ui| {
                 ui.label("Mix:");
                 for (value, label, tip) in crate::pds::generator::LotTierBias::pickers() {
                     if ui
@@ -953,8 +1017,129 @@ fn draw_road_editor(
                     }
                 }
             });
+            // The district's core (#1555): lots rank nearest-first round it.
+            ui.horizontal(|ui| {
+                let mut on = lots.focus.is_some();
+                if ui
+                    .checkbox(&mut on, "Core")
+                    .on_hover_text(
+                        "Give the district a core: its landmarks stand nearest \
+                         it, and a density under 1 keeps the lots round it - a \
+                         downtown. Off, the biggest lots take the landmarks.",
+                    )
+                    .changed()
+                {
+                    lots.focus = on.then_some(config.center);
+                    undo_label.set(String::from(if on {
+                        "lot core set"
+                    } else {
+                        "lot core cleared"
+                    }));
+                    *dirty = true;
+                }
+                if let Some(core) = &mut lots.focus {
+                    for (axis_label, axis) in ["X", "Z"].iter().zip(core.0.iter_mut()) {
+                        ui.label(*axis_label);
+                        if ui
+                            .add(
+                                crate::ui::num::drag(axis)
+                                    .speed(1.0)
+                                    .range(-1024.0..=1024.0),
+                            )
+                            .changed()
+                        {
+                            undo_label.set("lot core".to_string());
+                            *dirty = true;
+                        }
+                    }
+                }
+            });
+            // The world's own character, overridable for this network's
+            // buildings and street props (#1555). A box ticks on at the
+            // world's own value, so ticking it changes nothing until the
+            // slider moves; before the lot layer has said what that is, at a
+            // neutral one.
+            let scene = road_stats.and_then(|s| s.scene);
+            lot_override_row(
+                ui,
+                &mut lots.prosperity,
+                "Prosperity",
+                scene.map_or(
+                    crate::pds::generator::LotSettings::NEUTRAL_PROSPERITY,
+                    |s| s.0,
+                ),
+                "How rich this district is, in place of the world's own. 0 is \
+                 poor: shanties and scrap, grimy rough surfaces. 1 is rich: \
+                 fountains and statues, polished brighter surfaces. Unticked, \
+                 the world's own prosperity is used; ticked, it starts there.",
+                dirty,
+                undo_label,
+            );
+            lot_override_row(
+                ui,
+                &mut lots.escalation,
+                "Escalation",
+                scene.map_or(
+                    crate::pds::generator::LotSettings::NEUTRAL_ESCALATION,
+                    |s| s.1,
+                ),
+                "How much conflict this district shows, in place of the \
+                 world's own. 0 is peaceful. Higher values darken surfaces \
+                 with soot; from a third up the buildings lean and settle; \
+                 from two thirds up barricades, sandbags and wreckage appear \
+                 and the buildings partly collapse. Unticked, the world's own \
+                 escalation is used; ticked, it starts there.",
+                dirty,
+                undo_label,
+            );
             ui.separator();
             let lots = &mut config.lots;
+            // Lot size (#1555): how far blocks are split. Logarithmic -
+            // house plots and city blocks are an order of magnitude apart.
+            ui.horizontal(|ui| {
+                ui.label("Lot size (m\u{b2})");
+                if ui
+                    .add(
+                        crate::ui::num::slider(&mut lots.lot_area.0, 100.0..=10_000.0)
+                            .logarithmic(true),
+                    )
+                    .on_hover_text(
+                        "The largest lot a block is split into. Small lots grow \
+                         many small buildings; a few thousand square metres grow \
+                         fewer, bigger ones - a downtown of towers.",
+                    )
+                    .changed()
+                {
+                    undo_label.set("lot size".to_string());
+                    *dirty = true;
+                }
+            });
+            // The fit (#1553): without it a building is drawn at its
+            // catalogue size, and the scale clamp below has nothing to clamp.
+            if ui
+                .checkbox(&mut lots.fit, "Fit buildings to their lots")
+                .on_hover_text(
+                    "Draw each building at the size of its lot, inside the \
+                     scale range below. Off, every building keeps its catalogue \
+                     size, whatever its lot.",
+                )
+                .changed()
+            {
+                undo_label.set(String::from(if lots.fit {
+                    "lot buildings fitted"
+                } else {
+                    "lot buildings at catalogue size"
+                }));
+                *dirty = true;
+            }
+            if !lots.fit {
+                ui.label(
+                    egui::RichText::new("Buildings are drawn at their catalogue size.")
+                        .small()
+                        .weak(),
+                );
+                return;
+            }
             ui.horizontal(|ui| {
                 ui.label("Building scale");
                 // Bounded against each other (#1238 f90). This pair was
@@ -1487,6 +1672,302 @@ mod lot_clamp_tests {
         assert!(lines[2].0.contains("3 furniture spots"), "{}", lines[2].0);
         assert!(lines[2].0.contains("per district"), "{}", lines[2].0);
         assert!(lines[3].0.contains("item limit"), "{}", lines[3].0);
+    }
+}
+
+#[cfg(test)]
+mod lots_section_tests {
+    use super::draw_road_editor;
+    use crate::pds::Fp;
+    use crate::pds::generator::{LotSettings, LotTierBias, RoadConfig};
+    use bevy_egui::egui;
+    use bevy_egui::egui::accesskit::{Action, ActionRequest, Node, NodeId, Role, TreeId};
+
+    /// One interactive control of a drawn pass, in document order.
+    #[derive(Debug)]
+    struct Control {
+        id: NodeId,
+        role: Role,
+        label: String,
+        /// `(value, min, max)` for a numeric control.
+        range: Option<(f64, f64, f64)>,
+    }
+
+    /// What one pass of the road panel did.
+    struct Pass {
+        controls: Vec<Control>,
+        dirty: bool,
+        label: Option<String>,
+    }
+
+    /// A bare context with AccessKit on and every collapsing section open,
+    /// so the whole panel is drawn whichever sections default closed.
+    fn context() -> egui::Context {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        ctx.memory_mut(|m| m.set_everything_is_visible(true));
+        ctx
+    }
+
+    /// Draw the road panel over `config` once, with `events` as the input.
+    fn pass(ctx: &egui::Context, config: &mut RoadConfig, events: Vec<egui::Event>) -> Pass {
+        pass_with(ctx, config, events, None)
+    }
+
+    /// [`pass`] with the road layer's readout handed to the panel, as the
+    /// live editor does.
+    fn pass_with(
+        ctx: &egui::Context,
+        config: &mut RoadConfig,
+        events: Vec<egui::Event>,
+        stats: Option<&crate::terrain::RoadPanelStats>,
+    ) -> Pass {
+        let mut labels = crate::ui::undo::PendingUndoLabels::default();
+        let mut dirty = false;
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 2400.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                draw_road_editor(
+                    ui,
+                    config,
+                    &mut dirty,
+                    &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
+                    stats,
+                );
+            },
+        );
+        let update = output
+            .platform_output
+            .accesskit_update
+            .expect("AccessKit is on");
+        let by_id: std::collections::HashMap<NodeId, &Node> =
+            update.nodes.iter().map(|(id, n)| (*id, n)).collect();
+        // Depth first from the root: document order (the node list is in
+        // id-map order).
+        let mut controls = Vec::new();
+        let mut stack = vec![update.tree.as_ref().expect("a tree").root];
+        while let Some(id) = stack.pop() {
+            let Some(node) = by_id.get(&id) else { continue };
+            if matches!(node.role(), Role::CheckBox | Role::Slider | Role::Button) {
+                controls.push(Control {
+                    id,
+                    role: node.role(),
+                    label: node.label().unwrap_or_default().to_string(),
+                    range: node
+                        .numeric_value()
+                        .zip(node.min_numeric_value())
+                        .zip(node.max_numeric_value())
+                        .map(|((v, lo), hi)| (v, lo, hi)),
+                });
+            }
+            stack.extend(node.children().iter().rev().copied());
+        }
+        Pass {
+            controls,
+            dirty,
+            label: labels.peek_room().map(str::to_string),
+        }
+    }
+
+    fn click(id: NodeId) -> Vec<egui::Event> {
+        vec![egui::Event::AccessKitActionRequest(ActionRequest {
+            action: Action::Click,
+            target_tree: TreeId::ROOT,
+            target_node: id,
+            data: None,
+        })]
+    }
+
+    fn find<'p>(pass: &'p Pass, role: Role, label: &str) -> &'p Control {
+        pass.controls
+            .iter()
+            .find(|c| c.role == role && c.label == label)
+            .unwrap_or_else(|| panic!("no {role:?} {label:?} in {:#?}", pass.controls))
+    }
+
+    /// The control drawn right after the checkbox `label`: its slider while
+    /// the override is armed.
+    fn after<'p>(pass: &'p Pass, label: &str) -> Option<&'p Control> {
+        let at = pass
+            .controls
+            .iter()
+            .position(|c| c.role == Role::CheckBox && c.label == label)?;
+        pass.controls.get(at + 1)
+    }
+
+    /// #1555: the Mix row offers Downtown with the others, and picking it
+    /// sets the mix, names the edit and marks the record dirty.
+    #[test]
+    fn the_mix_row_offers_downtown() {
+        let ctx = context();
+        let mut config = RoadConfig::default();
+        let _ = pass(&ctx, &mut config, Vec::new());
+        let drawn = pass(&ctx, &mut config, Vec::new());
+        for (_, label, _) in LotTierBias::pickers() {
+            find(&drawn, Role::Button, label);
+        }
+        let downtown = find(&drawn, Role::Button, "Downtown").id;
+        let picked = pass(&ctx, &mut config, click(downtown));
+        assert_eq!(config.lots.tier_bias, LotTierBias::Downtown);
+        assert!(picked.dirty);
+        assert_eq!(picked.label.as_deref(), Some("lot mix Downtown"));
+    }
+
+    /// #1555: each socio override is a checkbox that arms the `Option` at
+    /// its neutral value, with a 0-1 slider beside it only while armed, and
+    /// unticking it hands the district back to the world's own scene.
+    #[test]
+    fn each_lot_override_is_armed_by_a_checkbox_and_edited_by_a_slider() {
+        let ctx = context();
+        let mut config = RoadConfig::default();
+        let _ = pass(&ctx, &mut config, Vec::new());
+        let unarmed = pass(&ctx, &mut config, Vec::new());
+        // Counted rather than read off the control after each checkbox: the
+        // section's other sliders (the lot size) follow these rows.
+        let sliders = |p: &Pass| p.controls.iter().filter(|c| c.role == Role::Slider).count();
+        let base = sliders(&unarmed);
+        for label in ["Prosperity", "Escalation"] {
+            find(&unarmed, Role::CheckBox, label);
+        }
+
+        let tick = find(&unarmed, Role::CheckBox, "Escalation").id;
+        let armed = pass(&ctx, &mut config, click(tick));
+        assert_eq!(
+            config.lots.escalation,
+            Some(Fp(LotSettings::NEUTRAL_ESCALATION))
+        );
+        assert_eq!(config.lots.prosperity, None, "only the ticked one arms");
+        assert!(armed.dirty);
+        assert_eq!(armed.label.as_deref(), Some("lot escalation override"));
+
+        let shown = pass(&ctx, &mut config, Vec::new());
+        assert!(!shown.dirty);
+        assert_eq!(
+            sliders(&shown),
+            base + 1,
+            "the armed override draws its slider"
+        );
+        let slider = after(&shown, "Escalation").expect("a control after the checkbox");
+        assert_eq!(slider.role, Role::Slider, "{slider:?}");
+        assert_eq!(
+            slider.range,
+            Some((f64::from(LotSettings::NEUTRAL_ESCALATION), 0.0, 1.0))
+        );
+
+        let tick = find(&shown, Role::CheckBox, "Prosperity").id;
+        let _ = pass(&ctx, &mut config, click(tick));
+        assert_eq!(
+            config.lots.prosperity,
+            Some(Fp(LotSettings::NEUTRAL_PROSPERITY))
+        );
+
+        let shown = pass(&ctx, &mut config, Vec::new());
+        let untick = find(&shown, Role::CheckBox, "Escalation").id;
+        let cleared = pass(&ctx, &mut config, click(untick));
+        assert_eq!(config.lots.escalation, None);
+        assert!(cleared.dirty);
+        assert_eq!(
+            cleared.label.as_deref(),
+            Some("lot escalation from the world")
+        );
+    }
+
+    /// #1555, the critic of #1553: a ticked override starts at the world's
+    /// OWN value (on the slider's 0.01 step), so the district keeps its
+    /// character when the box is ticked - a neutral arming turned a world at
+    /// open conflict peaceful the moment its box was ticked. Ticking still
+    /// grows the district again (the setting is now the network's own),
+    /// with the same buildings. The step is what a guest reads back from
+    /// the wire, so both clients grow one district (the end review).
+    #[test]
+    fn a_lot_override_ticks_on_at_the_worlds_own_value() {
+        let ctx = context();
+        let mut config = RoadConfig::default();
+        let stats = crate::terrain::RoadPanelStats {
+            scene: Some((0.81, 0.73047285)),
+            ..Default::default()
+        };
+        let _ = pass_with(&ctx, &mut config, Vec::new(), Some(&stats));
+        let drawn = pass_with(&ctx, &mut config, Vec::new(), Some(&stats));
+        let tick = find(&drawn, Role::CheckBox, "Prosperity").id;
+        let _ = pass_with(&ctx, &mut config, click(tick), Some(&stats));
+        let drawn = pass_with(&ctx, &mut config, Vec::new(), Some(&stats));
+        let tick = find(&drawn, Role::CheckBox, "Escalation").id;
+        let _ = pass_with(&ctx, &mut config, click(tick), Some(&stats));
+        assert_eq!(config.lots.prosperity, Some(Fp(0.81)));
+        assert_eq!(
+            config.lots.escalation,
+            Some(Fp(0.73)),
+            "on the slider's step, which the wire carries exactly"
+        );
+        // The guest's read: through the wire and back, unchanged.
+        let wire: LotSettings =
+            serde_json::from_value(serde_json::to_value(&config.lots).expect("writes"))
+                .expect("reads");
+        assert_eq!(wire.escalation, config.lots.escalation);
+    }
+
+    /// #1553: the fit is a checkbox that sets the switch, names the edit and
+    /// marks the record dirty; the scale range it governs is drawn only
+    /// while it is on (off, a building keeps its catalogue size).
+    #[test]
+    fn the_fit_is_a_checkbox_and_the_lot_size_a_slider() {
+        let ctx = context();
+        let mut config = RoadConfig::default();
+        let _ = pass(&ctx, &mut config, Vec::new());
+        let drawn = pass(&ctx, &mut config, Vec::new());
+        let size = drawn.controls.iter().find(|c| {
+            c.role == Role::Slider
+                && c.range.is_some_and(|(v, lo, hi)| {
+                    v == f64::from(LotSettings::DEFAULT_LOT_AREA) && lo == 100.0 && hi == 10_000.0
+                })
+        });
+        assert!(size.is_some(), "a lot-size slider at 400 of 100-10000");
+        let tick = find(&drawn, Role::CheckBox, "Fit buildings to their lots").id;
+        let fitted = pass(&ctx, &mut config, click(tick));
+        assert!(config.lots.fit);
+        assert!(fitted.dirty);
+        assert_eq!(fitted.label.as_deref(), Some("lot buildings fitted"));
+        let drawn = pass(&ctx, &mut config, Vec::new());
+        let tick = find(&drawn, Role::CheckBox, "Fit buildings to their lots").id;
+        let unfitted = pass(&ctx, &mut config, click(tick));
+        assert!(!config.lots.fit);
+        assert_eq!(
+            unfitted.label.as_deref(),
+            Some("lot buildings at catalogue size")
+        );
+    }
+
+    /// The Lots section does not edit what it shows (#1390's rule): armed
+    /// overrides off the slider's step, a lot size off any step, the fit and
+    /// a Downtown mix survive every section drawn, untouched and not dirty.
+    #[test]
+    fn the_lots_section_does_not_edit_what_it_shows() {
+        let ctx = context();
+        let mut config = RoadConfig {
+            lots: LotSettings {
+                tier_bias: LotTierBias::Downtown,
+                prosperity: Some(Fp(0.7309)),
+                escalation: Some(Fp(0.1234)),
+                fit: true,
+                lot_area: Fp(1234.5678),
+                ..LotSettings::default()
+            },
+            ..RoadConfig::default()
+        };
+        let before = config.clone();
+        for _ in 0..3 {
+            let drawn = pass(&ctx, &mut config, Vec::new());
+            assert!(!drawn.dirty, "the panel dirtied a record it only showed");
+        }
+        assert_eq!(config, before);
     }
 }
 

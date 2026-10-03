@@ -917,7 +917,11 @@ cargo run --bin render -- --catalogue-sizes rust scrap
 # absolute placement with a grammar seed of its own costs what its generator
 # draws with that seed, and its row says the seed (`seed`); a generator's row
 # counts such placements (`seeded`), and its `triangles_each` stays one copy
-# as the generator draws itself (#1505):
+# as the generator draws itself (#1505). A road network counts as a client
+# draws it (#1554): its streets on a `streets` line, a row a network (one part
+# per surface its mesh emits), and the buildings and props its lots grow as
+# the placements they are - a district the record does not carry yet is grown
+# into the counted copy first, and `grown` says how many it planted:
 cargo run --bin render -- --world <did> --world-record room.json --triangle-report
 # Every part of a world that floats, no render (#1477): one JSON object, a row
 # a line, each floating part by its JSON pointer into the record, with its gap
@@ -942,7 +946,8 @@ cargo run --bin render -- --stitch /tmp/a-frames,/tmp/b-frames --out /tmp/ab.gif
 `--outfit`, `--find-part`, `--describe`, `--room-census`, `--foundation-audit`
 and `--gateway-fit` only roll records or build catalogue trees, so they return
 quickly, and `--terrain-report` builds one heightmap (about half a second;
-`--triangle-report` builds one beside its no-renderer app, about 2 s in all,
+`--triangle-report` builds one before its no-renderer app - a road network's
+lots grow on it first - about 2 s in all,
 and `--floating-report` beside meshing every placed generator, about 1 s);
 `--scatter-census`, `--scatter-plot` and `--settlement-drop` rebuild each
 seed's heightmap, which costs a few seconds per seed.

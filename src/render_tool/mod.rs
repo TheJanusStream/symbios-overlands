@@ -968,7 +968,7 @@ pub fn run() {
     // and exit - never renders (#1471).
     if args.triangle_report {
         let world = args.world.as_deref().expect("clap requires --world");
-        triangles::print_triangle_report(world, &report_record(&args));
+        triangles::print_triangle_report(&world_did(world), &report_record(&args));
         return;
     }
 
@@ -1790,9 +1790,20 @@ fn report_record(args: &Args) -> RoomRecord {
     match &args.world_record {
         Some(path) => read_room_record(path),
         None => match world.parse::<u64>() {
-            Ok(seed) => RoomRecord::default_for_seed(seed, &format!("did:render:{seed}")),
+            Ok(seed) => RoomRecord::default_for_seed(seed, &world_did(world)),
             Err(_) => RoomRecord::default_for_did(world),
         },
+    }
+}
+
+/// The DID a `--world` names: a seed `N` is the room the world mode renders
+/// for it, `did:render:N`; anything else is a DID already. The report grows
+/// a road network's lots under it (the room's scene picks the buildings), so
+/// it must be the one the world mode grows them under (#1554).
+fn world_did(world: &str) -> String {
+    match world.parse::<u64>() {
+        Ok(seed) => format!("did:render:{seed}"),
+        Err(_) => world.to_string(),
     }
 }
 

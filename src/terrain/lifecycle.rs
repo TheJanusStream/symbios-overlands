@@ -75,6 +75,7 @@ pub(super) fn cleanup_terrain(
     last_cfg.0 = None;
     pending_cfg.0 = None;
     commands.remove_resource::<FinishedHeightMap>();
+    commands.remove_resource::<super::HeightMapSource>();
     commands.remove_resource::<SplatMaterialHandle>();
     commands.remove_resource::<TextureTasksStarted>();
     commands.remove_resource::<TerrainTask>();

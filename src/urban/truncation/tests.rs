@@ -273,7 +273,7 @@ fn pilot_junctions_keep_every_mouth_after_truncation() {
     use std::collections::BTreeMap;
     let hm = pilot_heightmap();
     let config = cfg(PILOT_ROAD_SEED);
-    let (graph, sub, _lo) = build_road_graph(&hm, &config).expect("pilot must trace");
+    let (graph, sub, _lo) = build_road_graph(&hm, &config, None).expect("pilot must trace");
     let dims = Dims::from_config(&config);
     let chains = extract_chains(&graph, &sub, &dims);
 

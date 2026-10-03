@@ -718,7 +718,7 @@ fn hub_fillet_winding_consistent_on_sloped_hub() {
 fn pilot_hub_fillets_are_wound_consistently() {
     let hm = pilot_heightmap();
     let config = cfg(PILOT_ROAD_SEED);
-    let (graph, sub, lo) = build_road_graph(&hm, &config).expect("pilot must trace");
+    let (graph, sub, lo) = build_road_graph(&hm, &config, None).expect("pilot must trace");
     let dims = Dims::from_config(&config);
     let chains = extract_chains(&graph, &sub, &dims);
     let mut degree = vec![0u32; graph.nodes.len()];

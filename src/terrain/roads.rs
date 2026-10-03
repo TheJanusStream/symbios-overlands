@@ -176,12 +176,20 @@ fn current_configs(
     // `to_string` on these plain structs cannot realistically fail; an empty
     // fingerprint (rather than a panic or a silently-dropped mesh) is the
     // degenerate fallback.
+    // The water line moves the streets of a network that stops at the
+    // shore (#1552), so it is part of that network's key: raising the lake
+    // re-traces it, and leaves a network that ignores the water alone.
+    let water = crate::world_builder::compile::room_water_level(record);
     let want = configs
         .iter()
         .map(|c| {
             let mut geometry_only = c.clone();
             geometry_only.appearance = Default::default();
-            serde_json::to_string(&geometry_only).unwrap_or_default()
+            let mut key = serde_json::to_string(&geometry_only).unwrap_or_default();
+            if c.avoid_water {
+                key.push_str(&format!("|water={water:?}"));
+            }
+            key
         })
         .collect::<Vec<_>>()
         .join("\u{1f}");
@@ -273,10 +281,11 @@ pub(super) fn maybe_rebuild_roads(
                 // One task builds every network (#895) - the heightmap copy
                 // is shared and the swap stays atomic across districts.
                 let hm = copy_heightmap(&heightmap.0);
+                let water = crate::world_builder::compile::room_water_level(&record.0);
                 let task = bevy::tasks::AsyncComputeTaskPool::get().spawn(async move {
                     configs
                         .iter()
-                        .map(|c| crate::urban::build_road_geometry(&hm, c))
+                        .map(|c| crate::urban::build_road_geometry(&hm, c, water))
                         .collect::<Vec<_>>()
                 });
                 state.building = Some((want.unwrap_or_default(), task));
@@ -502,5 +511,60 @@ fn spawn_road_meshes(
                 entity.insert((RigidBody::Static, collider));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::current_configs;
+    use crate::pds::generator::RoadConfig;
+    use crate::pds::{Generator, GeneratorKind, RoomRecord};
+
+    /// A seeded record (its terrain carries the water) with one road
+    /// network under the terrain, and the water plane at `water_y`.
+    fn record_with_network(avoid_water: bool, water_y: f32) -> RoomRecord {
+        let mut record = RoomRecord::default_for_seed(0, "did:test:1552");
+        let terrain = record
+            .generators
+            .values_mut()
+            .find(|g| matches!(g.kind, GeneratorKind::Terrain(_)))
+            .expect("a seeded record has a terrain");
+        let water = terrain
+            .children
+            .iter_mut()
+            .find(|c| matches!(c.kind, GeneratorKind::Water { .. }))
+            .expect("a seeded terrain carries the water");
+        water.transform.translation.0[1] = water_y;
+        terrain
+            .children
+            .push(Generator::from_kind(GeneratorKind::RoadNetwork(
+                RoadConfig {
+                    avoid_water,
+                    ..RoadConfig::default()
+                },
+            )));
+        record
+    }
+
+    /// #1552: the rebuild key carries the water line for a network that
+    /// stops at the shore, so raising the lake re-traces its streets - and
+    /// not for one that ignores the water, whose streets did not move.
+    #[test]
+    fn the_rebuild_key_carries_the_water_line_only_for_a_network_that_avoids_it() {
+        let key = |avoid_water: bool, water_y: f32| {
+            current_configs(&record_with_network(avoid_water, water_y))
+                .1
+                .expect("an enabled network has a key")
+        };
+        assert_ne!(
+            key(true, 7.0),
+            key(true, 9.5),
+            "raising the lake must re-trace a network that stops at the shore"
+        );
+        assert_eq!(
+            key(false, 7.0),
+            key(false, 9.5),
+            "raising the lake must not re-trace a network that ignores it"
+        );
     }
 }

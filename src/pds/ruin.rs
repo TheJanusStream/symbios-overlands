@@ -724,6 +724,59 @@ mod tests {
         assert_eq!(a, b);
     }
 
+    /// A Shape node whose material map holds eight lit materials, built
+    /// afresh - so its `HashMap` has an iteration order of its own.
+    fn lit_shape() -> Generator {
+        let lit = serde_json::json!({
+            "emission_color": [10000, 1000, 8000],
+            "emission_strength": 80000
+        });
+        let materials: serde_json::Map<String, serde_json::Value> =
+            (0..8).map(|i| (format!("neon_{i}"), lit.clone())).collect();
+        serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.gen.shape",
+            "grammar_source": "Lot --> I(\"Box\")",
+            "root_rule": "Lot",
+            "footprint": [100000, 0, 100000],
+            "seed": "1",
+            "materials": materials,
+        }))
+        .expect("a Shape node")
+    }
+
+    /// The emission strength of each of a Shape node's materials, by name.
+    fn strengths(node: &Generator) -> Vec<(String, f32)> {
+        let GeneratorKind::Shape { materials, .. } = &node.kind else {
+            panic!("a Shape node");
+        };
+        let mut out: Vec<_> = materials
+            .iter()
+            .map(|(k, m)| (k.clone(), m.emission_strength.0))
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    /// The damage pass draws a random number per material as it walks a
+    /// node's materials, so it must walk them in an order every peer shares
+    /// (the critic of #1553 found the same record ruined two ways by two
+    /// builds, from a Shape's material map walked in `HashMap` order). Two
+    /// separately built copies of one node, ruined with one seed, must break
+    /// the same neon - over many seeds, since one pair of orders can agree
+    /// by chance.
+    #[test]
+    fn conflict_ruin_breaks_the_same_neon_in_every_copy() {
+        let mut broke_some = false;
+        for seed in 0..40 {
+            let (mut a, mut b) = (lit_shape(), lit_shape());
+            apply_ruin(&mut a, 1.0, seed);
+            apply_ruin(&mut b, 1.0, seed);
+            assert_eq!(strengths(&a), strengths(&b), "seed {seed}");
+            broke_some |= strengths(&a).iter().any(|(_, s)| *s < 8.0);
+        }
+        assert!(broke_some, "the control: open conflict breaks some neon");
+    }
+
     #[test]
     fn conflict_breaks_some_neon() {
         const NEON: [f32; 3] = [1.0, 0.1, 0.8];

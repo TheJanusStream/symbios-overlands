@@ -311,7 +311,8 @@ pub(super) fn dump_road_graph(room: &str) {
         config.minor_spacing.0, config.major_spacing.0
     );
     let hm = crate::terrain::rebuild_heightmap_for_record(&record);
-    match crate::urban::road_graph_diagnostics(&hm, &config) {
+    let water = crate::world_builder::compile::room_water_level(&record);
+    match crate::urban::road_graph_diagnostics(&hm, &config, water) {
         Some(stats) => print!("{}", stats.report(room)),
         None => println!(
             "room {room:?}: road graph produced no network (district window too small or tracer empty)"

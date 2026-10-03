@@ -241,7 +241,17 @@ pub(crate) fn make_default_for_kind(kind: &str) -> GeneratorKind {
         "Water" => GeneratorKind::Water {
             surface: WaterSurface::default(),
         },
-        "RoadNetwork" => GeneratorKind::RoadNetwork(crate::pds::generator::RoadConfig::default()),
+        // A new network stops at the shore (#1552) and fits its buildings
+        // to their lots (#1553); both fields' own defaults stay off so
+        // networks saved before them grow as they did.
+        "RoadNetwork" => GeneratorKind::RoadNetwork(crate::pds::generator::RoadConfig {
+            avoid_water: true,
+            lots: crate::pds::generator::LotSettings {
+                fit: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
         "Sign" => GeneratorKind::default_sign(),
         "ParticleSystem" => GeneratorKind::default_particles(),
         _ => GeneratorKind::default_cuboid(),
@@ -464,6 +474,29 @@ mod kind_change_tests {
         // Tuned settings are still a loss whatever the target.
         let losses = kind_change_losses("Cuboid", false, 3, "Sphere");
         assert_eq!(losses, vec![String::from("this node's Cuboid settings")]);
+    }
+
+    /// #1552: a network the editor makes stops its streets at the water,
+    /// while one read from a record without the field keeps tracing across
+    /// it - so the switch is on for new work and existing districts keep
+    /// the street plan their saved buildings stand on.
+    #[test]
+    fn a_new_road_network_stops_at_the_water_and_an_old_one_does_not() {
+        let GeneratorKind::RoadNetwork(fresh) = make_default_for_kind("RoadNetwork") else {
+            panic!("RoadNetwork makes a road network");
+        };
+        assert!(
+            fresh.avoid_water,
+            "the editor's new network stops at the shore"
+        );
+        assert!(fresh.lots.fit, "and fits its buildings to their lots");
+        let saved: crate::pds::generator::RoadConfig =
+            serde_json::from_value(serde_json::json!({"seed": "7"})).expect("an old network reads");
+        assert!(
+            !saved.avoid_water,
+            "a network saved before the field traces as it always did"
+        );
+        assert!(!saved.lots.fit, "and grows its buildings at catalogue size");
     }
 
     /// The one genuinely lossy switch used to strand the children in the

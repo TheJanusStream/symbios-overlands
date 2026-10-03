@@ -173,6 +173,15 @@ pub struct RoadConfig {
     /// Street-plan character (#890): how the tensor field trades the
     /// axis-aligned grid against terrain-following directions.
     pub style: RoadStyle,
+    /// Whether streets stop at the room's water line (#1552): the tracer
+    /// is handed the water level, so no street starts under water and a
+    /// street reaching the shore ends there instead of running on across
+    /// the lake bed. Off by default so a network saved before the field
+    /// existed traces exactly as it always did - turning it on changes the
+    /// whole trace, not only the drowned streets, and would stand that
+    /// network's saved lot buildings on a new layout. The editor's new
+    /// networks switch it on.
+    pub avoid_water: bool,
     /// Optional per-surface look overrides (#891). Every `None` falls back
     /// to the room theme's road palette, so an untouched network keeps its
     /// theme identity. Appearance edits re-tint the live materials without
@@ -270,6 +279,11 @@ impl RoadAppearance {
 /// Building-layer authoring knobs for a road network (#892). Field-level
 /// serde defaults keep pre-#892 records at the historical behavior; the
 /// whole struct is elided from the wire while untouched.
+///
+/// The struct derives `Serialize`, so a touched one writes every field -
+/// except the two socio overrides (#1555), which stay off the wire while
+/// `None`, so a record saved before they existed writes back
+/// byte-identical.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct LotSettings {
@@ -283,9 +297,51 @@ pub struct LotSettings {
     pub theme_override: String,
     /// Role emphasis across the ranked lots.
     pub tier_bias: LotTierBias,
-    /// Building fit-scale clamp (relative to lot size).
+    /// Building fit-scale clamp (relative to lot size). Props are held to
+    /// at most 1.0 inside it (#1553) - see `terrain::lots`. Read only when
+    /// [`Self::fit`] is set: the world compile draws an absolute placement
+    /// at its generator's size (#1454), so without the fit baked into the
+    /// generator a building is drawn at its catalogue size whatever these
+    /// say.
     pub scale_min: Fp,
     pub scale_max: Fp,
+    /// Draw each building at its lot's size (#1553): the lot's fit, rounded
+    /// down to a quarter-octave step inside the clamp, baked into a shared
+    /// generator per catalogue entry and step. Off (the default, and every
+    /// network saved before the field) grows exactly what it always did: one
+    /// generator per entry at its catalogue size, so a saved district that
+    /// is grown again - after a portal, say - comes back byte for byte. The
+    /// editor's new networks switch it on.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub fit: bool,
+    /// The largest lot a block is subdivided into, in square metres (#1555;
+    /// symbios-tensor's `LotConfig::max_lot_area`): blocks split across
+    /// their longest side until each piece is under it. 400 (the default,
+    /// and every network saved before the field) gives house-sized lots of
+    /// 6-15 m across; a downtown of towers wants a few thousand.
+    #[serde(skip_serializing_if = "is_default_lot_area")]
+    pub lot_area: Fp,
+    /// The district's core, in room metres (XZ), when it has one (#1555):
+    /// lots rank by their distance to it, nearest first, so the landmarks
+    /// stand at the core and [`Self::density`] thinning keeps the lots
+    /// round it - a downtown. `None` (the default, and every network saved
+    /// before the field) ranks them by size, biggest first, as before.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub focus: Option<Fp2>,
+    /// The prosperity (0 poor to 1 rich) the lot and street-furniture
+    /// layers grow with (#1555), in place of the room's own seeded scene
+    /// value: it picks the catalogue pools by tier and drives the material
+    /// finish. `None` is the room's own scene.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prosperity: Option<Fp>,
+    /// The escalation (0 peaceful to 1 open conflict) the lot and
+    /// street-furniture layers grow with (#1555), in place of the room's own
+    /// seeded scene value: it picks the catalogue pools by tier (barricades
+    /// and wreckage from two thirds up), drives the scorch finish and the
+    /// ruin that leans and collapses the buildings. `None` is the room's own
+    /// scene.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub escalation: Option<Fp>,
 }
 
 impl Default for LotSettings {
@@ -296,7 +352,57 @@ impl Default for LotSettings {
             tier_bias: LotTierBias::Balanced,
             scale_min: Fp(0.5),
             scale_max: Fp(2.0),
+            fit: false,
+            lot_area: Fp(LotSettings::DEFAULT_LOT_AREA),
+            focus: None,
+            prosperity: None,
+            escalation: None,
         }
+    }
+}
+
+/// Whether `area` is [`LotSettings::DEFAULT_LOT_AREA`], kept off the wire.
+fn is_default_lot_area(area: &Fp) -> bool {
+    area.0 == LotSettings::DEFAULT_LOT_AREA
+}
+
+impl LotSettings {
+    /// The largest lot area a network grows by default, in square metres:
+    /// symbios-tensor's own `LotConfig` default, which every network was
+    /// subdivided by before [`Self::lot_area`] existed.
+    pub const DEFAULT_LOT_AREA: f32 = 400.0;
+
+    /// What a non-finite prosperity override reads as (#1555): the material
+    /// finish's neutral midpoint, a Modest tier. The sanitiser writes the
+    /// same value, so the two never answer differently.
+    pub const NEUTRAL_PROSPERITY: f32 = 0.5;
+    /// What a non-finite escalation override reads as (#1555): peace - no
+    /// conflict props, no scorch, no ruin.
+    pub const NEUTRAL_ESCALATION: f32 = 0.0;
+
+    /// The prosperity the lot layer grows with (#1555): the authored
+    /// override, clamped to the unit range, or `scene` - the room's own
+    /// seeded value - when there is none.
+    pub fn prosperity_or(&self, scene: f32) -> f32 {
+        self.prosperity
+            .map_or(scene, |p| unit_or(p.0, Self::NEUTRAL_PROSPERITY))
+    }
+
+    /// The escalation the lot layer grows with (#1555): the authored
+    /// override, clamped to the unit range, or `scene` - the room's own
+    /// seeded value - when there is none.
+    pub fn escalation_or(&self, scene: f32) -> f32 {
+        self.escalation
+            .map_or(scene, |e| unit_or(e.0, Self::NEUTRAL_ESCALATION))
+    }
+}
+
+/// `v` clamped into `[0, 1]`, or `neutral` when it is not finite.
+fn unit_or(v: f32, neutral: f32) -> f32 {
+    if v.is_finite() {
+        v.clamp(0.0, 1.0)
+    } else {
+        neutral
     }
 }
 
@@ -343,13 +449,21 @@ pub enum LotTierBias {
     /// Props only - street clutter without buildings.
     #[serde(rename = "network.symbios.lot_bias.props_only")]
     PropsOnly,
+    /// A built-up city (#1555): a building on every lot - the top ~15% of
+    /// the lots (at least one) take landmarks, the rest secondary
+    /// buildings. Props grow only where the theme offers no secondary at
+    /// its tier: then the tail takes props rather than one landmark on
+    /// every lot. A client that predates it reads it as `Unknown`, so as
+    /// `Balanced`.
+    #[serde(rename = "network.symbios.lot_bias.downtown")]
+    Downtown,
     #[serde(other, skip_serializing)]
     Unknown,
 }
 
 impl LotTierBias {
     /// Picker rows for the editor: `(value, label, tooltip)`.
-    pub fn pickers() -> [(Self, &'static str, &'static str); 4] {
+    pub fn pickers() -> [(Self, &'static str, &'static str); 5] {
         [
             (
                 Self::Balanced,
@@ -370,6 +484,12 @@ impl LotTierBias {
                 Self::PropsOnly,
                 "Props only",
                 "Street clutter without buildings",
+            ),
+            (
+                Self::Downtown,
+                "Downtown",
+                "A city: a building on every lot - landmarks on the top 15%, \
+                 secondaries on the rest",
             ),
         ]
     }
@@ -404,6 +524,7 @@ crate::pds::serde_util::impl_default_eliding_serialize!(RoadConfig {
     district_half_extent,
     center,
     style,
+    avoid_water,
     appearance,
     lots,
     furniture,
@@ -426,6 +547,7 @@ impl Default for RoadConfig {
             district_half_extent: Fp(170.0),
             center: Fp2([0.0, 0.0]),
             style: RoadStyle::Hillside,
+            avoid_water: false,
             appearance: RoadAppearance::default(),
             lots: LotSettings::default(),
             furniture: FurnitureSettings::default(),
@@ -3369,6 +3491,39 @@ mod face_override_tests {
         assert_eq!(re, FaceKey::Unknown);
     }
 
+    /// #1552: `avoid_water` is off the wire while off, so every network
+    /// saved before the field writes back byte-identical, and on it is
+    /// written and read back. The record form is the generator's, as
+    /// `room set` takes it.
+    #[test]
+    fn a_road_networks_water_switch_elides_off_and_round_trips_on() {
+        let plain = GeneratorKind::RoadNetwork(RoadConfig::default());
+        let v = serde_json::to_value(&plain).expect("serialises");
+        assert!(
+            v.as_object().expect("object").get("avoid_water").is_none(),
+            "the switch off must stay off the wire: {v}"
+        );
+
+        let shore = GeneratorKind::RoadNetwork(RoadConfig {
+            avoid_water: true,
+            ..RoadConfig::default()
+        });
+        let v = serde_json::to_value(&shore).expect("serialises");
+        assert_eq!(v["avoid_water"], serde_json::json!(true), "{v}");
+        let back: GeneratorKind = serde_json::from_value(v).expect("reads back");
+        assert_eq!(back, shore);
+
+        let old: GeneratorKind = serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.gen.road_network",
+            "seed": "7"
+        }))
+        .expect("a network saved before the field reads");
+        let GeneratorKind::RoadNetwork(old) = old else {
+            panic!("a road network reads as one");
+        };
+        assert!(!old.avoid_water);
+    }
+
     #[test]
     fn faceless_prim_elides_and_legacy_records_decode() {
         // Elision (#695): a prim with no overrides keeps `faces` off the wire.
@@ -3407,6 +3562,183 @@ mod face_override_tests {
         // The painted face keeps both.
         assert!(faces[0].get("material").is_some());
         assert!(faces[0].get("uv_mapping").is_some());
+    }
+}
+
+#[cfg(test)]
+mod lot_settings_wire_tests {
+    use super::*;
+
+    fn network(lots: LotSettings) -> serde_json::Value {
+        serde_json::to_value(GeneratorKind::RoadNetwork(RoadConfig {
+            lots,
+            ..RoadConfig::default()
+        }))
+        .expect("a road network serialises")
+    }
+
+    /// #1555: the two socio overrides stay off the wire while `None`, so a
+    /// network saved before they existed writes back byte-identical - an
+    /// untouched `lots` is still elided whole, and a touched one carries
+    /// exactly the five fields it always did.
+    #[test]
+    fn lot_overrides_stay_off_the_wire_until_armed() {
+        assert!(
+            network(LotSettings::default()).get("lots").is_none(),
+            "untouched lot settings stay elided"
+        );
+        let touched = network(LotSettings {
+            density: Fp(0.5),
+            ..LotSettings::default()
+        });
+        let mut keys: Vec<&str> = touched["lots"]
+            .as_object()
+            .expect("an object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "density",
+                "scale_max",
+                "scale_min",
+                "theme_override",
+                "tier_bias"
+            ],
+            "{touched}"
+        );
+    }
+
+    /// #1553, #1555: the fit and the lot area stay off the wire at their
+    /// defaults (the key set above), and set they are written in the
+    /// record's own form and read back.
+    #[test]
+    fn the_fit_and_the_lot_area_round_trip_when_set() {
+        let lots = LotSettings {
+            fit: true,
+            lot_area: Fp(2400.0),
+            focus: Some(Fp2([12.5, -260.0])),
+            ..LotSettings::default()
+        };
+        let v = network(lots.clone());
+        assert_eq!(v["lots"]["fit"], serde_json::json!(true), "{v}");
+        assert_eq!(
+            v["lots"]["focus"],
+            serde_json::json!([125_000, -2_600_000]),
+            "{v}"
+        );
+        assert_eq!(v["lots"]["lot_area"], serde_json::json!(24_000_000), "{v}");
+        let back: GeneratorKind = serde_json::from_value(v).expect("reads back");
+        let GeneratorKind::RoadNetwork(back) = back else {
+            panic!("a road network reads as one");
+        };
+        assert_eq!(back.lots, lots);
+        let old: LotSettings =
+            serde_json::from_value(serde_json::json!({ "density": 5000 })).expect("reads");
+        assert!(
+            !old.fit,
+            "a block written before the fit grows at catalogue size"
+        );
+        assert_eq!(old.lot_area.0, LotSettings::DEFAULT_LOT_AREA);
+    }
+
+    /// #1555: armed overrides are written in the record's fixed point and
+    /// read back; a peaceful override of zero is written, not elided - it
+    /// is a value, not an absence.
+    #[test]
+    fn lot_overrides_and_the_downtown_mix_round_trip() {
+        let lots = LotSettings {
+            theme_override: String::from("Cyberpunk"),
+            tier_bias: LotTierBias::Downtown,
+            prosperity: Some(Fp(0.9)),
+            escalation: Some(Fp(0.0)),
+            ..LotSettings::default()
+        };
+        let v = network(lots.clone());
+        assert_eq!(v["lots"]["prosperity"], serde_json::json!(9000), "{v}");
+        assert_eq!(v["lots"]["escalation"], serde_json::json!(0), "{v}");
+        assert_eq!(
+            v["lots"]["tier_bias"],
+            serde_json::json!({ "$type": "network.symbios.lot_bias.downtown" }),
+            "{v}"
+        );
+        let back: GeneratorKind = serde_json::from_value(v).expect("reads back");
+        let GeneratorKind::RoadNetwork(back) = back else {
+            panic!("a road network reads as one");
+        };
+        assert_eq!(back.lots, lots);
+
+        // The form the brief's trial record is written in.
+        let authored: LotSettings = serde_json::from_value(serde_json::json!({
+            "theme_override": "Cyberpunk",
+            "tier_bias": { "$type": "network.symbios.lot_bias.downtown" },
+            "escalation": 0,
+            "prosperity": 9000
+        }))
+        .expect("an authored lots block reads");
+        assert_eq!(authored, lots);
+    }
+
+    /// A network saved before #1555 reads with no overrides (the room's own
+    /// scene), and a mix from a newer build reads as `Unknown`, which the
+    /// lot layer grows as Balanced.
+    #[test]
+    fn older_and_newer_lot_settings_read() {
+        let old: LotSettings =
+            serde_json::from_value(serde_json::json!({ "theme_override": "Cyberpunk" }))
+                .expect("a pre-#1555 lots block reads");
+        assert_eq!(old.prosperity, None);
+        assert_eq!(old.escalation, None);
+        assert_eq!(old.tier_bias, LotTierBias::Balanced);
+
+        let newer: LotTierBias = serde_json::from_value(
+            serde_json::json!({ "$type": "network.symbios.lot_bias.arcology" }),
+        )
+        .expect("an unknown mix reads");
+        assert_eq!(newer, LotTierBias::Unknown);
+    }
+
+    /// The editor's Mix row lists the new mix with the rest (#1555).
+    #[test]
+    fn the_mix_picker_offers_downtown() {
+        let rows = LotTierBias::pickers();
+        assert!(
+            rows.iter()
+                .any(|(value, label, tip)| *value == LotTierBias::Downtown
+                    && *label == "Downtown"
+                    && !tip.is_empty()),
+            "no Downtown row"
+        );
+        assert!(
+            rows.iter()
+                .all(|(value, ..)| *value != LotTierBias::Unknown),
+            "Unknown is never offered"
+        );
+    }
+
+    /// #1555: an override reads clamped, a non-finite one as the neutral
+    /// value the sanitiser writes, and `None` as the scene's own value.
+    #[test]
+    fn an_override_reads_in_place_of_the_scene() {
+        let none = LotSettings::default();
+        assert_eq!(none.prosperity_or(0.89), 0.89);
+        assert_eq!(none.escalation_or(0.73), 0.73);
+        let armed = LotSettings {
+            prosperity: Some(Fp(1.7)),
+            escalation: Some(Fp(-0.2)),
+            ..LotSettings::default()
+        };
+        assert_eq!(armed.prosperity_or(0.2), 1.0);
+        assert_eq!(armed.escalation_or(0.73), 0.0);
+        let broken = LotSettings {
+            prosperity: Some(Fp(f32::NAN)),
+            escalation: Some(Fp(f32::INFINITY)),
+            ..LotSettings::default()
+        };
+        assert_eq!(broken.prosperity_or(0.2), LotSettings::NEUTRAL_PROSPERITY);
+        assert_eq!(broken.escalation_or(0.73), LotSettings::NEUTRAL_ESCALATION);
     }
 }
 

@@ -10,7 +10,7 @@ use crate::urban::truncation::MAX_TRUNCATION_FACTOR;
 fn road_graph_diagnostics_reports_consistent_stats() {
     let hm = pilot_heightmap();
     let dims = Dims::from_config(&cfg(PILOT_ROAD_SEED));
-    let diag = road_graph_diagnostics(&hm, &cfg(PILOT_ROAD_SEED))
+    let diag = road_graph_diagnostics(&hm, &cfg(PILOT_ROAD_SEED), None)
         .expect("pilot network must yield diagnostics");
     for stats in [&diag.raw, &diag.sanitized] {
         // The degree histogram partitions every node exactly once.

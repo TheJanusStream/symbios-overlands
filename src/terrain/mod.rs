@@ -97,6 +97,30 @@ pub struct WaterVolume;
 #[derive(Resource)]
 pub struct FinishedHeightMap(pub HeightMap);
 
+/// Which terrain the [`FinishedHeightMap`] was generated from: the
+/// [`terrain_source_key`] of the record the task started on, written with
+/// the heightmap when the task lands. Between a record swap (a portal) or a
+/// terrain edit and the new heightmap's arrival, the old heightmap is still
+/// there - for one frame or for a whole regeneration - and the lot layer
+/// reads this to decide nothing on ground that belongs to another terrain
+/// (#1553, the critic's first finding). Absent where a heightmap is
+/// inserted directly (the render tool, tests): the heightmap is then taken
+/// as the record's own.
+#[derive(Resource, Clone, Debug)]
+pub(crate) struct HeightMapSource(pub(crate) Option<String>);
+
+/// The key a record's terrain is generated from: its terrain config (the
+/// default one where it has none, as the terrain task falls back to) as
+/// JSON. Equal keys build the same heightmap.
+pub(crate) fn terrain_source_key(record: &crate::pds::RoomRecord) -> Option<String> {
+    serde_json::to_string(
+        &crate::pds::find_terrain_config(record)
+            .cloned()
+            .unwrap_or_default(),
+    )
+    .ok()
+}
+
 /// The terrain generation gave an answer that is not a heightmap (#1230
 /// f21), and this is what it said.
 ///
@@ -139,6 +163,12 @@ pub struct RoadPanelStats {
     /// "re-growing the district" actually costs, in the panel and in the
     /// toast that says it happened.
     pub last_replaced: usize,
+    /// The room's own seeded `(prosperity, escalation)`, written by the lot
+    /// layer, so the editor arms a lot override at the world's own value
+    /// (#1555) rather than at a neutral one that regrows the district in
+    /// another character the moment the box is ticked. `None` until the lot
+    /// layer has run in this room.
+    pub scene: Option<(f32, f32)>,
 }
 
 /// The four silent drops in the lot injector, counted (#1211): density
@@ -172,6 +202,8 @@ pub fn is_road_grown(placement: &crate::pds::Placement) -> bool {
     lots::is_road_grown(placement)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use lots::grow_missing_districts;
 pub(crate) use lots::{
     MAX_FURNITURE_PROPS, MAX_LOT_BUILDINGS, is_derived_generator_key, resolve_lot_theme,
 };
@@ -201,6 +233,9 @@ pub struct TerrainTask(
     pub bevy::tasks::Task<crate::offload::GenResult>,
     /// Session-relative seconds at dispatch, for the E-4 completion latency.
     pub f64,
+    /// The [`terrain_source_key`] of the record the task started on: the
+    /// [`HeightMapSource`] its heightmap is written with.
+    pub Option<String>,
 );
 
 /// Shared marker on an in-flight splat-texture-bake entity. The bake task and

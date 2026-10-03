@@ -863,6 +863,64 @@ Session 879's village and its fields filled the middle 300 m of a world about
   beans are in, the bed is dug). A `LogEnd` texture is a card, clear outside
   each log's end: on a box it drew floating discs - a woodpile is capsules.
 
+## A city: the road network
+
+A street plan is not placed piece by piece: it is a
+`network.symbios.gen.road_network` child of the terrain generator (beside
+the water), and every client traces it from the land at load - the
+tensor field's contour lines become the major streets, the fall lines the
+minor ones, and a dead-flat area a grid. What its lots grow IS written into
+the record: the first client to see the network injects theme-catalogue
+buildings onto its lots (`lot_building_...` generators and placements),
+and a save keeps them. Isoline (Eigen, session 903) is the first region
+built this way; its builder is `exports/eigen/b/city.py`.
+
+- **The land decides the plan.** On the seeded 56 m DiamondSquare slope the
+  trace was a tangle of wobbly lanes; on a gentle FBM slope (36 m, 4-8
+  degrees) the same network traced boulevards along the contours stepping
+  down to the shore, crossed by straight fall-line streets. Choose the land
+  for the streets before anything else (`--seed-scan`).
+- **Try it offline**: `render --world <DID> --world-record copy.json`
+  traces the streets and grows the lots exactly as the game does (the log
+  line says `streets=` and `buildings=`), and `--triangle-report` counts the
+  streets (`streets`, a row a network: three parts) and the buildings the
+  lots will grow (`grown`: how many the record did not carry yet). A
+  network put live grows its buildings into the live record at once;
+  `revert` takes them out.
+- **The fields that make a city** (session 903, #1552-#1555): `avoid_water`
+  (streets end at the shore and no lot touches the water - without it they
+  run across the lake bed), `major_spacing`/`minor_spacing` (70/35 m read
+  as a city; 95/55 as a town; 60/30 as clutter), and in `lots`:
+  `theme_override`, `tier_bias` `network.symbios.lot_bias.downtown` (a
+  building on every lot, landmarks on the top 15%), `escalation` 0 and
+  `prosperity` (the room DID's own scene otherwise - Eigen's rolled 0.73,
+  which grew barricades, sandbags, wreckage and leaning ruins), `fit` (each
+  building drawn at its lot's size; off, at its catalogue size whatever the
+  lot), `lot_area` (the largest lot, m2: 400 grows house plots, a few
+  thousand a downtown) and `focus` (a core in room XZ: the landmarks stand
+  nearest it). Without a core the BIGGEST lots take the landmarks, and
+  those lie at the district's ragged edge: Isoline's first trial stood its
+  megatowers on the outskirts and small blocks on the waterfront.
+- **Streets run through what you placed.** The trace knows nothing of the
+  room's placements: Isoline's streets ran through the Spire's podium on
+  the shore. Stand a landmark where no street goes - in the water, with
+  `avoid_water` on - or outside the district (keep-out discs come with
+  symbios-tensor's next release, #1556).
+- **Pave it.** Between the streets is the terrain's own splat: sand reads
+  as a desert with roads on it. A splat layer can be any texture: `Pavers`
+  in the city's height band (pale, `color_stone` about 0.66) made it a
+  city (`exports/eigen/b/ground.py`).
+- **Count before saving**: the catalogue's city buildings are part-heavy (a
+  neon megatower is 58 parts). Isoline's 61 buildings and its streets are
+  2,938 parts and 819k triangles; 400 m2 lots would have grown 160
+  buildings. The lots' generators are written into the record (one per
+  building and drawn scale): 418 KB of compact JSON in all, 45% of the live
+  ceiling.
+- **A grown building can stand on your arrival line.** A holo billboard
+  grew on Isoline's axis and hid the Spire from the first landing: check
+  the landing's sight line against the lot placements (their positions are
+  in the record) and its clearance from every footprint before choosing it.
+
 ## Arrivals
 
 `default_landing` is `{pos: [x, z], yaw_deg}`. Its yaw turns

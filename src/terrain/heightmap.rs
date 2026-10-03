@@ -36,6 +36,7 @@ pub(super) fn start_terrain_generation(
     // Dispatched through `offload` so the heavy noise + erosion run off the
     // schedule (native: AsyncComputeTaskPool; wasm: task pool / Web Worker).
     let now = time.elapsed_secs_f64();
+    let source = super::terrain_source_key(&record.0);
     let task = crate::offload::offload(GenJob::Heightmap(heightmap_params(&cfg)));
     // Mark the offload lifecycle (#631) so the `offload.task_never_resolves`
     // stall rule can pair this dispatch with its completion in the offline
@@ -47,7 +48,7 @@ pub(super) fn start_terrain_generation(
             job: "heightmap".into(),
         },
     );
-    commands.insert_resource(TerrainTask(task, now));
+    commands.insert_resource(TerrainTask(task, now, source));
 }
 
 pub(super) fn poll_terrain_task(
@@ -112,6 +113,7 @@ pub(super) fn poll_terrain_task(
                     },
                 );
                 commands.insert_resource(FinishedHeightMap(heightmap_from_data(data)));
+                commands.insert_resource(super::HeightMapSource(task_res.2.clone()));
             }
             // A heightmap job only ever yields a heightmap; count an unexpected
             // variant as an offload error (E-4) rather than panicking - and

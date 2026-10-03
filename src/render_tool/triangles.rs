@@ -38,8 +38,16 @@
 //! which can be fewer than its `count` when its filters refuse most of its
 //! ground. The terrain's ground mesh is listed on its own line, built by the
 //! game's own mesher from the rebuilt heightmap; a generator's water is the
-//! plane its generator spawns, counted with it. Not counted: particles, and
-//! what a road network grows (its roads and the buildings on its lots).
+//! plane its generator spawns, counted with it. Not counted: particles.
+//!
+//! What a road network grows is counted as a client draws it (#1554): its
+//! streets on a line of their own (`streets`), one row a network with its
+//! triangles and parts - one part per surface the mesh emits, as the game
+//! spawns them - and the buildings and street props on its lots as the
+//! placements they are. A record saved with its district carries them
+//! already; a network it carries no content for is grown into the counted
+//! copy first, as a visitor's client grows it on load, and the report says
+//! how many it grew (`grown`).
 //!
 //! An absolute placement with a grammar seed of its own (#1505) draws its
 //! generator's shape grammars with that seed, which may choose other rules
@@ -145,6 +153,12 @@ pub(super) fn tally<'a>(
 /// `--triangle-report`: what `world`'s placements cost to draw, printed as
 /// one JSON object, one row a line.
 pub(super) fn print_triangle_report(world: &str, record: &RoomRecord) {
+    // The ground first: the road layer grows its districts on it (#1554),
+    // and the copies to grow are the grown record's.
+    let heightmap = FinishedHeightMap(crate::terrain::rebuild_heightmap_for_record(record));
+    let mut grown = record.clone();
+    let grown_count = crate::terrain::grow_missing_districts(&mut grown, &heightmap.0, world);
+    let record = &grown;
     let copies = copies_to_grow(record);
     let labels: Vec<(String, Generator)> = copies
         .iter()
@@ -153,17 +167,7 @@ pub(super) fn print_triangle_report(world: &str, record: &RoomRecord) {
             None => (name.clone(), tree.clone()),
         })
         .collect();
-    // The heightmap job and the spawn app are the two slow halves, and
-    // neither reads the other: the map is rebuilt beside the app.
-    let (heightmap, tallies) = std::thread::scope(|scope| {
-        let heightmap =
-            scope.spawn(|| FinishedHeightMap(crate::terrain::rebuild_heightmap_for_record(record)));
-        let tallies = super::sizes::tallies_of(labels);
-        (
-            heightmap.join().expect("the heightmap rebuild panicked"),
-            tallies,
-        )
-    });
+    let tallies = super::sizes::tallies_of(labels);
     // The tallies come back in the order the copies were given.
     let (mut each, mut seeded) = (HashMap::new(), HashMap::new());
     for (((name, seed), _), (_, tally)) in copies.into_iter().zip(tallies) {
@@ -172,7 +176,9 @@ pub(super) fn print_triangle_report(world: &str, record: &RoomRecord) {
             None => each.insert(name, tally),
         };
     }
-    let report = world_report(world, record, &heightmap, &each, &seeded);
+    let streets = street_costs(record, &heightmap);
+    let mut report = world_report(world, record, &heightmap, &each, &seeded, &streets);
+    report.insert(4, ("grown", json!(grown_count)));
     println!("{}", one_row_a_line(&report));
 }
 
@@ -219,12 +225,40 @@ fn generator_ref(placement: &Placement) -> Option<&str> {
 }
 
 /// What the world report leaves out, in its own words.
-const NOT_COUNTED: &str = "live particle quads, which come and go with an emitter's rate; \
-     what a road network grows, its roads and the buildings on its lots";
+const NOT_COUNTED: &str = "live particle quads, which come and go with an emitter's rate";
 
 /// The parts the terrain's ground is: the game draws it as one mesh on one
 /// entity (`terrain::heightmap`'s spawn).
 const GROUND_PARTS: u64 = 1;
+
+/// Each enabled road network's streets as the game meshes them on this
+/// ground (#1554): `(network index, streets, junctions, triangles, parts)`.
+/// A network whose tracer finds nothing draws nothing and is left out.
+fn street_costs(record: &RoomRecord, heightmap: &FinishedHeightMap) -> Vec<(usize, Value, Tally)> {
+    let water = crate::world_builder::compile::room_water_level(record);
+    crate::pds::find_road_configs(record)
+        .into_iter()
+        .enumerate()
+        .filter(|(_, c)| c.enabled)
+        .filter_map(|(i, c)| {
+            let parts = crate::urban::build_road_geometry(&heightmap.0, c, water)?;
+            let (triangles, drawn) = parts.draw_cost();
+            let tally = Tally {
+                triangles: triangles as u64,
+                parts: drawn as u64,
+                unreadable: 0,
+            };
+            let row = json!({
+                "network": i,
+                "streets": parts.chains,
+                "junctions": parts.junctions,
+                "triangles": tally.triangles,
+                "parts": tally.parts,
+            });
+            Some((i, row, tally))
+        })
+        .collect()
+}
 
 /// One generator's cost, summed over its placements (#1505): one copy as
 /// it draws itself, and what all its copies draw, each as it is drawn.
@@ -251,6 +285,7 @@ fn world_report(
     heightmap: &FinishedHeightMap,
     each: &HashMap<String, Tally>,
     seeded: &HashMap<(String, u64), Tally>,
+    streets: &[(usize, Value, Tally)],
 ) -> Vec<(&'static str, Value)> {
     let yields = crate::world_builder::compile::scatter_yields(record, heightmap);
     // (triangles, parts, index, row)
@@ -340,25 +375,33 @@ fn world_report(
     let planted: u64 = placements.iter().map(|p| p.0).sum();
     let planted_parts: u64 = placements.iter().map(|p| p.1).sum();
     let ground = ground_triangles(heightmap);
+    let street_triangles: u64 = streets.iter().map(|s| s.2.triangles).sum();
+    let street_parts: u64 = streets.iter().map(|s| s.2.parts).sum();
     vec![
         ("world", json!(world)),
         (
             "triangles",
             json!({
-                "total": planted + ground,
+                "total": planted + ground + street_triangles,
                 "placements": planted,
                 "ground": ground,
+                "streets": street_triangles,
             }),
         ),
         (
             "parts",
             json!({
-                "total": planted_parts + GROUND_PARTS,
+                "total": planted_parts + GROUND_PARTS + street_parts,
                 "placements": planted_parts,
                 "ground": GROUND_PARTS,
+                "streets": street_parts,
             }),
         ),
         ("not_counted", json!(NOT_COUNTED)),
+        (
+            "streets",
+            Value::Array(streets.iter().map(|s| s.1.clone()).collect()),
+        ),
         (
             "generators",
             Value::Array(generators.into_iter().map(|g| g.2).collect()),
@@ -520,7 +563,7 @@ mod tests {
     #[test]
     fn a_scatter_costs_what_its_sampler_places_not_what_it_asks_for() {
         let (record, map) = (fixture(), ramp());
-        let report = world_report("did:test", &record, &map, &each(), &HashMap::new());
+        let report = world_report("did:test", &record, &map, &each(), &HashMap::new(), &[]);
 
         let placed = crate::world_builder::compile::scatter_yields(&record, &map)[1]
             .expect("placement 1 is a scatter");
@@ -571,7 +614,7 @@ mod tests {
         record.placements[1] = scatter("pair", 10, None);
         record.placements[3] = Placement::Unknown;
         let map = ramp();
-        let report = world_report("did:test", &record, &map, &each, &HashMap::new());
+        let report = world_report("did:test", &record, &map, &each, &HashMap::new(), &[]);
 
         let k = crate::world_builder::compile::scatter_yields(&record, &map)[1]
             .expect("placement 1 is a scatter");
@@ -601,7 +644,7 @@ mod tests {
         let planted = 2 * u64::from(k) + 7;
         assert_eq!(
             *field(&report, "parts"),
-            json!({"total": planted + 1, "placements": planted, "ground": 1})
+            json!({"total": planted + 1, "placements": planted, "ground": 1, "streets": 0})
         );
     }
 
@@ -650,6 +693,7 @@ mod tests {
             &map,
             &each(),
             &HashMap::new(),
+            &[],
         ));
         let report: Value = serde_json::from_str(&printed).expect("the report is JSON");
 
@@ -661,6 +705,7 @@ mod tests {
                 "not_counted",
                 "parts",
                 "placements",
+                "streets",
                 "triangles",
                 "world"
             ],
@@ -680,6 +725,7 @@ mod tests {
                 "triangles",
                 "parts",
                 "not_counted",
+                "streets",
                 "generators",
                 "placements"
             ],
@@ -791,7 +837,7 @@ mod tests {
         };
         *seed = Some(7);
         let seeded = HashMap::from([(("rock".to_string(), 7), Tally::counted(36, 3))]);
-        let report = world_report("did:test", &record, &map, &each(), &seeded);
+        let report = world_report("did:test", &record, &map, &each(), &seeded, &[]);
 
         let rock = placement(&report, 0);
         assert_eq!(rock["seed"], "7", "{rock}");
@@ -883,10 +929,57 @@ mod tests {
                 None => each.insert(name, tally),
             };
         }
-        let report = world_report("did:test", &record, &ramp(), &each, &seeded);
+        let report = world_report("did:test", &record, &ramp(), &each, &seeded, &[]);
         assert_eq!(placement(&report, 0)["parts"], 1);
         assert_eq!(placement(&report, 1)["parts"], 2);
         assert_eq!(placement(&report, 2)["parts"], 2);
+    }
+
+    /// #1554: a road network's streets are counted as the game meshes them -
+    /// a row a network, its triangles and one part per surface it emits - and
+    /// summed into the world's totals beside the ground and the placements.
+    #[test]
+    fn a_road_network_is_counted_as_a_client_draws_it() {
+        let mut record = RoomRecord::default_for_seed(3, "did:test:streets");
+        let terrain = record
+            .generators
+            .values_mut()
+            .find(|g| matches!(g.kind, crate::pds::GeneratorKind::Terrain(_)))
+            .expect("a seeded room has terrain");
+        terrain.children.push(Generator::from_kind(
+            crate::pds::GeneratorKind::RoadNetwork(crate::pds::generator::RoadConfig {
+                seed: crate::urban::test_support::PILOT_ROAD_SEED,
+                ..Default::default()
+            }),
+        ));
+        let map = FinishedHeightMap(crate::urban::test_support::pilot_heightmap());
+        let streets = street_costs(&record, &map);
+        assert_eq!(streets.len(), 1, "one network, one row");
+        let (_, row, tally) = &streets[0];
+        assert!(tally.triangles > 1000, "a district's streets: {row}");
+        assert!((1..=3).contains(&tally.parts), "a part per surface: {row}");
+        assert!(row["streets"].as_u64().is_some_and(|n| n > 0), "{row}");
+
+        let report = world_report(
+            "did:test",
+            &record,
+            &map,
+            &HashMap::new(),
+            &HashMap::new(),
+            &streets,
+        );
+        let triangles = field(&report, "triangles");
+        assert_eq!(triangles["streets"], json!(tally.triangles));
+        assert_eq!(
+            triangles["total"].as_u64(),
+            Some(
+                triangles["ground"].as_u64().unwrap()
+                    + triangles["placements"].as_u64().unwrap()
+                    + tally.triangles
+            )
+        );
+        assert_eq!(field(&report, "parts")["streets"], json!(tally.parts));
+        assert_eq!(field(&report, "streets").as_array().map(Vec::len), Some(1));
     }
 
     /// A mesh with indices draws its indices / 3; one without, its vertices

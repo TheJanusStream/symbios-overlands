@@ -33,7 +33,7 @@ session.
 | Working folder | `exports/reeve/` (gitignored, on this machine only), the same folder every session: `b/` the builders, `src/` the last saves - `room.json` (2026-09-28 19:44, save event seq 2) and `avatar.json` (avatar v6b, 2026-09-27 20:06, save event seq 31); `hints_885.md` and `885/` (the grammar trials in `885/sg/` and `885/try/`, the #1503 and #1505 delegations' scratch in `885/deleg_zfight/` and `885/deleg_1505/`, the binaries they ran in `885/bin/`, the move onto shared generators checked in `885/share/`, the room before it in `885/room_pre_share.json`) from session 885; `hints_883.md` and `883/` from session 883 |
 | Last session | chainlink session 885 (live session 9), parent #1502 - read its comments (`chainlink show 1502`); `chainlink session last-handoff` is the latest session of any kind |
 | Default mode | visit ([session.md](../../session.md#visit)): the owner's plan of 2026-09-27 - meet Reeve in Ashmere, inspect the avatar and region, give hints |
-| Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), or Jink's world (Parabola Flats) or avatar ([jink/](../jink/README.md)); apply `edits_clear_ONCE.txt` again - it replaces every generator and placement with the bare terrain |
+| Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), Jink's world (Parabola Flats) or avatar ([jink/](../jink/README.md)), or Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)); apply `edits_clear_ONCE.txt` again - it replaces every generator and placement with the bare terrain |
 
 - **Ashmere leans on #1505** (deployed 2026-09-29, the owner's "Looks good
   to me" in the app): each grammar house's placement carries its grammar

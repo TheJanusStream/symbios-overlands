@@ -284,10 +284,36 @@ fn sanitize_road(c: &mut crate::pds::generator::RoadConfig) {
     if c.lots.scale_min.0 > c.lots.scale_max.0 {
         std::mem::swap(&mut c.lots.scale_min, &mut c.lots.scale_max);
     }
+    // Lot area (#1555): at least twice symbios-tensor's 50 m2 discard floor,
+    // so a split always leaves pieces it keeps, and at most a hectare, past
+    // which no block of a real street plan is split at all.
+    c.lots.lot_area.0 = clamp_finite(
+        c.lots.lot_area.0,
+        100.0,
+        10_000.0,
+        crate::pds::generator::LotSettings::DEFAULT_LOT_AREA,
+    );
+    // The core (#1555): finite, and on the map - a point past any room's
+    // edge ranks nothing it could mean.
+    if let Some(core) = &mut c.lots.focus {
+        for axis in &mut core.0 {
+            *axis = clamp_finite(*axis, -1024.0, 1024.0, 0.0);
+        }
+    }
     truncate_on_char_boundary(
         &mut c.lots.theme_override,
         limits::MAX_LOT_THEME_OVERRIDE_BYTES,
     );
+    // Socio overrides (#1555): an armed one to finite unit range, at the
+    // neutral value the lot layer itself reads a non-finite one as; `None`
+    // (the room's own scene) is left alone.
+    use crate::pds::generator::LotSettings;
+    if let Some(p) = &mut c.lots.prosperity {
+        p.0 = clamp_finite(p.0, 0.0, 1.0, LotSettings::NEUTRAL_PROSPERITY);
+    }
+    if let Some(e) = &mut c.lots.escalation {
+        e.0 = clamp_finite(e.0, 0.0, 1.0, LotSettings::NEUTRAL_ESCALATION);
+    }
     // Furniture (#893): spacing floor keeps a hostile record from planting
     // a prop every half-metre down every street.
     c.furniture.spacing.0 = clamp_finite(c.furniture.spacing.0, 8.0, 200.0, 30.0);
@@ -397,6 +423,89 @@ fn enforce_avatar_kinds(node: &mut Generator) {
     }
     for child in node.children.iter_mut() {
         enforce_avatar_kinds(child);
+    }
+}
+
+#[cfg(test)]
+mod road_lot_override_tests {
+    use super::*;
+    use crate::pds::generator::{LotSettings, RoadConfig};
+    use crate::pds::types::Fp;
+
+    fn sanitised(prosperity: Option<f32>, escalation: Option<f32>) -> LotSettings {
+        let mut road = RoadConfig::default();
+        road.lots.prosperity = prosperity.map(Fp);
+        road.lots.escalation = escalation.map(Fp);
+        let mut generator = Generator {
+            kind: GeneratorKind::RoadNetwork(road),
+            ..Default::default()
+        };
+        sanitize_generator(&mut generator);
+        let GeneratorKind::RoadNetwork(road) = generator.kind else {
+            panic!("the sanitiser keeps the variant");
+        };
+        road.lots
+    }
+
+    /// #1555: an armed socio override is clamped to finite unit range, a
+    /// non-finite one to the neutral value the lot layer itself reads it
+    /// as, and an unarmed one stays `None`, the room's own scene.
+    #[test]
+    fn the_lot_overrides_are_clamped_to_finite_unit_range() {
+        let high = sanitised(Some(1.7), Some(3.0));
+        assert_eq!(high.prosperity, Some(Fp(1.0)));
+        assert_eq!(high.escalation, Some(Fp(1.0)));
+        let low = sanitised(Some(-0.4), Some(-2.0));
+        assert_eq!(low.prosperity, Some(Fp(0.0)));
+        assert_eq!(low.escalation, Some(Fp(0.0)));
+        let broken = sanitised(Some(f32::NAN), Some(f32::NEG_INFINITY));
+        assert_eq!(broken.prosperity, Some(Fp(LotSettings::NEUTRAL_PROSPERITY)));
+        assert_eq!(broken.escalation, Some(Fp(LotSettings::NEUTRAL_ESCALATION)));
+        let inside = sanitised(Some(0.9), Some(0.25));
+        assert_eq!(inside.prosperity, Some(Fp(0.9)));
+        assert_eq!(inside.escalation, Some(Fp(0.25)));
+        let unarmed = sanitised(None, None);
+        assert_eq!(unarmed.prosperity, None);
+        assert_eq!(unarmed.escalation, None);
+    }
+
+    /// #1555: a lot area is held to a real lot - at least twice
+    /// symbios-tensor's 50 m2 discard floor, at most a hectare - and a
+    /// non-finite one reads as the default split.
+    #[test]
+    fn the_lot_area_is_clamped_to_a_real_lot() {
+        let area = |v: f32| {
+            let mut road = RoadConfig::default();
+            road.lots.lot_area = Fp(v);
+            let mut generator = Generator {
+                kind: GeneratorKind::RoadNetwork(road),
+                ..Default::default()
+            };
+            sanitize_generator(&mut generator);
+            let GeneratorKind::RoadNetwork(road) = generator.kind else {
+                panic!("the sanitiser keeps the variant");
+            };
+            road.lots.lot_area.0
+        };
+        let mut road = RoadConfig::default();
+        road.lots.focus = Some(crate::pds::types::Fp2([f32::NAN, 5000.0]));
+        let mut generator = Generator {
+            kind: GeneratorKind::RoadNetwork(road),
+            ..Default::default()
+        };
+        sanitize_generator(&mut generator);
+        let GeneratorKind::RoadNetwork(road) = generator.kind else {
+            panic!("the sanitiser keeps the variant");
+        };
+        assert_eq!(
+            road.lots.focus,
+            Some(crate::pds::types::Fp2([0.0, 1024.0])),
+            "a core is finite and on the map"
+        );
+        assert_eq!(area(5.0), 100.0);
+        assert_eq!(area(1.0e9), 10_000.0);
+        assert_eq!(area(f32::NAN), LotSettings::DEFAULT_LOT_AREA);
+        assert_eq!(area(2400.0), 2400.0);
     }
 }
 

@@ -89,8 +89,20 @@ pub(crate) fn node_materials_mut(kind: &mut GeneratorKind) -> Vec<&mut Sovereign
         crate::for_each_primitive!(pattern { common }) => std::iter::once(&mut common.material)
             .chain(common.faces.iter_mut().map(|f| &mut f.material))
             .collect(),
-        GeneratorKind::Shape { materials, .. } => materials.values_mut().collect(),
-        GeneratorKind::LSystem { materials, .. } => materials.values_mut().collect(),
+        // In key order, not the map's: a `HashMap`'s iteration order differs
+        // from one map to the next, and the damage pass draws a random number
+        // per material as it walks them - in map order, the same room was
+        // ruined two ways by two peers (or two builds of one record).
+        GeneratorKind::Shape { materials, .. } => {
+            let mut by_key: Vec<_> = materials.iter_mut().collect();
+            by_key.sort_unstable_by(|a, b| a.0.cmp(b.0));
+            by_key.into_iter().map(|(_, m)| m).collect()
+        }
+        GeneratorKind::LSystem { materials, .. } => {
+            let mut by_key: Vec<_> = materials.iter_mut().collect();
+            by_key.sort_unstable_by_key(|(k, _)| **k);
+            by_key.into_iter().map(|(_, m)| m).collect()
+        }
         // `Sign` is deliberately absent (#977). Its `base_color` is not a
         // surface colour - it is a **tint multiplied over a fetched image**,
         // so weathering it does not weather a sign, it stains the picture on

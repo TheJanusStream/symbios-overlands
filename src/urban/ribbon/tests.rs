@@ -7,7 +7,7 @@ use bevy_symbios_ground::HeightMap;
 /// normalize would poison the mesh.
 #[test]
 fn geometry_is_finite() {
-    if let Some(parts) = build_road_geometry(&sloped_heightmap(), &cfg(7)) {
+    if let Some(parts) = build_road_geometry(&sloped_heightmap(), &cfg(7), None) {
         assert!(!parts.deck.is_empty());
         for geo in surfaces(&parts) {
             for v in &geo.vertices {
@@ -26,7 +26,7 @@ fn geometry_is_finite() {
 /// emit; and every normal is unit length (the smoothing's `normalize`).
 #[test]
 fn deck_is_welded_with_unit_normals() {
-    let parts = build_road_geometry(&pilot_heightmap(), &cfg(PILOT_ROAD_SEED))
+    let parts = build_road_geometry(&pilot_heightmap(), &cfg(PILOT_ROAD_SEED), None)
         .expect("pilot network must produce roads");
     let deck_quads = parts.deck.indices.len() / 6;
     assert!(deck_quads > 0, "no deck quads");
@@ -50,8 +50,8 @@ fn deck_is_welded_with_unit_normals() {
 #[test]
 fn deck_never_buries() {
     let hm = pilot_heightmap();
-    let parts =
-        build_road_geometry(&hm, &cfg(PILOT_ROAD_SEED)).expect("pilot network must produce roads");
+    let parts = build_road_geometry(&hm, &cfg(PILOT_ROAD_SEED), None)
+        .expect("pilot network must produce roads");
     for v in &parts.deck.vertices {
         let ground = hm.get_height_at(v[0], v[2]);
         assert!(
@@ -151,8 +151,8 @@ fn high_deck_skirt_floats_clear_over_a_dip() {
 #[test]
 fn pilot_deck_is_finite_and_faces_up() {
     let hm = pilot_heightmap();
-    let parts =
-        build_road_geometry(&hm, &cfg(PILOT_ROAD_SEED)).expect("pilot network must produce roads");
+    let parts = build_road_geometry(&hm, &cfg(PILOT_ROAD_SEED), None)
+        .expect("pilot network must produce roads");
     for v in &parts.deck.vertices {
         assert!(
             v.iter().all(|c| c.is_finite()),

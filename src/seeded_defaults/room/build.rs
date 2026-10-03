@@ -801,7 +801,10 @@ fn build_member_generator(
 /// unapplied. The root's translation scales with it, so the tree grows about
 /// the ground point the placement stands it on: a root that sits above its
 /// own foot keeps that foot on the ground.
-fn scale_about_ground(generator: &mut Generator, scale: f32) {
+///
+/// Shared with the road layer's lot buildings (#1553), which bake their
+/// lot fit into the generator the same way.
+pub(crate) fn scale_about_ground(generator: &mut Generator, scale: f32) {
     if scale == 1.0 {
         return;
     }

@@ -17,8 +17,13 @@ use crate::pds::generator::RoadConfig;
 /// The road network's rationalized planar graph for `config`, plus the district
 /// sub-heightmap it was traced on and that window's lower cell index `lo`.
 /// `None` when the network is disabled, the window is too small, or the tracer
-/// can't produce a network. Deterministic in `config.seed`. Never writes back
-/// to `hm` (the `sub` copy is the only mutable surface, and nothing carves it).
+/// can't produce a network. Deterministic in `config.seed` and, for a network
+/// that avoids water, `water_level`. Never writes back to `hm` (the `sub` copy
+/// is the only mutable surface, and nothing carves it).
+///
+/// `water_level` is the room's water line in world Y
+/// ([`crate::world_builder::compile::room_water_level`]), `None` for a dry room. It is
+/// read only when `config.avoid_water` is set (#1552).
 ///
 /// Shared by [`crate::urban::build_road_geometry`] (the draped mesh) and
 /// [`crate::urban::extract_building_lots`] (footprints) so both read the *same* graph - a
@@ -27,8 +32,9 @@ use crate::pds::generator::RoadConfig;
 pub(crate) fn build_road_graph(
     hm: &HeightMap,
     config: &RoadConfig,
+    water_level: Option<f32>,
 ) -> Option<(RoadGraph, HeightMap, [usize; 2])> {
-    let (mut graph, sub, lo) = build_road_graph_raw(hm, config)?;
+    let (mut graph, sub, lo) = build_road_graph_raw(hm, config, water_level)?;
     // Clean tracer / rationalize artefacts (grazing false junctions and dead-end
     // stubs) out of the topology, and weld near-miss dead-ends into junctions,
     // before it is meshed *or* lotted - see [`sanitize_graph`]. Both consumers read
@@ -43,6 +49,7 @@ pub(crate) fn build_road_graph(
 pub(crate) fn build_road_graph_raw(
     hm: &HeightMap,
     config: &RoadConfig,
+    water_level: Option<f32>,
 ) -> Option<(RoadGraph, HeightMap, [usize; 2])> {
     if !config.enabled {
         return None;
@@ -79,6 +86,16 @@ pub(crate) fn build_road_graph_raw(
         minor_road_dist: config.minor_spacing.0,
         ..TensorConfig::default()
     };
+    // Streets stop at the shore (#1552): the tracer spawns no seed at or
+    // below the water line and ends a trace whose next step would dip under
+    // it. The district copy holds the terrain's own heights, which are
+    // world Y (the terrain anchor sits at the origin), so the room's water
+    // level passes straight through.
+    if config.avoid_water
+        && let Some(level) = water_level
+    {
+        cfg.water_level = level;
+    }
     // Street-plan style (#890): trade the field's axis-aligned fallback
     // against terrain-derived directions. `Hillside` (and `Unknown`, the
     // forward-compat arm) keeps the historical adaptive blend.
