@@ -107,6 +107,8 @@ pub use preset::{
 pub use respawn::{PlayerMove, PlayerMoveRequest, go_to_pose, return_to_spawn_blocked};
 pub use rigged::RiggedBuildFailed;
 pub(crate) use rigged::RiggedRoot;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use spawn::spawn_facing;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;

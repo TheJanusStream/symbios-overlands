@@ -375,7 +375,10 @@ fn draw_arrival_point(
                             .speed(1.0)
                             .range(0.0..=360.0),
                     )
-                    .on_hover_text("0° faces −Z, 90° faces +X.")
+                    .on_hover_text(
+                        "0° faces −Z, 90° faces −X: the facing turns counter-clockwise seen \
+                         from above.",
+                    )
                     .changed()
                 {
                     *dirty = true;

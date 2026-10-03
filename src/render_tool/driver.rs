@@ -26,10 +26,8 @@
 //! The game's layers over a moving car come too: the body's lean and idle
 //! shiver (the car's gait, seeded by the world's DID as the game seeds its
 //! owner's own car) and the contact effects the game raises for its local
-//! player ([`crate::interaction::plugin::register_headless_contacts`]) - a
-//! splash in water; no ground dust, which the game's classifier gives only a
-//! body whose underside touches the ground, and a car's box rides on its
-//! springs (#1549).
+//! player ([`crate::interaction::plugin::register_headless_contacts`]) - the
+//! dust its wheels throw on dry ground, a splash in water.
 
 use std::io::Write;
 
@@ -269,7 +267,7 @@ fn start_pose(spec: &DriverSpec, room: &RoomRecord, heightmap: &FinishedHeightMa
     let y = pinned.unwrap_or_else(|| {
         heightmap.world_height_at(x, z) + crate::config::rover::SPAWN_HEIGHT_OFFSET
     });
-    Transform::from_xyz(x, y, z).with_rotation(tilt * Quat::from_rotation_y(yaw_deg.to_radians()))
+    Transform::from_xyz(x, y, z).with_rotation(tilt * crate::player::spawn_facing(yaw_deg))
 }
 
 /// Set the car down once the world has settled (the clip timing is the

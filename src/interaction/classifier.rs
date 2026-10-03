@@ -35,7 +35,7 @@ use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 use crate::water::WaterSurfaces;
 
 use super::contact::{AvatarContacts, ContactPhase, ContactSample, SurfaceContact};
-use super::locomotion::{locomotion_footprint, locomotion_total_height};
+use super::locomotion::{locomotion_footprint, locomotion_ground_reach, locomotion_total_height};
 
 /// Last-frame position/time cache for remote peers (whose entities do
 /// not carry `LinearVelocity`). Pruned each frame to avoid leaking
@@ -202,16 +202,19 @@ pub(crate) fn classify_terrain_contact(
     })
 }
 
-/// Probe the terrain heightmap against an avatar's body bottom. `None`
-/// when the terrain CPU mirror isn't resident yet (still loading) or
-/// the avatar is airborne above the ground.
+/// Probe the terrain heightmap against an avatar's body bottom - `reach`
+/// below the bottom of its body, where a wheeled or hovering body meets the
+/// ground (#1549: a car's box rides on its springs, so measured from the box
+/// it never touched down). `None` when the terrain CPU mirror isn't resident
+/// yet (still loading) or the avatar is airborne above the ground.
 pub(crate) fn probe_terrain(
     world_pos: Vec3,
     total_height: f32,
+    reach: f32,
     was_in_contact: bool,
     terrain: &TerrainSurfaceQuery,
 ) -> Option<SurfaceContact> {
-    let body_bottom_y = world_pos.y - 0.5 * total_height;
+    let body_bottom_y = world_pos.y - 0.5 * total_height - reach;
     let (surface_y, weights, normal) = terrain.sample(world_pos.x, world_pos.z);
     classify_terrain_contact(body_bottom_y, surface_y, was_in_contact, weights, normal)
 }
@@ -450,6 +453,7 @@ fn emit_for_avatar(
     out: &mut Vec<ContactSample>,
 ) {
     let total_height = locomotion_total_height(locomotion);
+    let reach = locomotion_ground_reach(locomotion);
     let last = persistence.last_surface.get(&avatar).copied();
     // Per-kind Schmitt trigger: probe with the wide exit threshold only
     // for the surface kind we were *already* on, so a settling bob (or
@@ -458,8 +462,9 @@ fn emit_for_avatar(
     let was_terrain = matches!(last, Some(SurfaceContact::Terrain { .. }));
     // Water wins when both hit: an avatar wading in a shallow pond is
     // "in water", not "on ground".
-    let curr = probe_water(world_pos, total_height, was_water, water)
-        .or_else(|| terrain.and_then(|t| probe_terrain(world_pos, total_height, was_terrain, t)));
+    let curr = probe_water(world_pos, total_height, was_water, water).or_else(|| {
+        terrain.and_then(|t| probe_terrain(world_pos, total_height, reach, was_terrain, t))
+    });
     let (transitions, new_state) = compute_transitions(last, curr);
 
     for t in transitions {
@@ -614,6 +619,44 @@ mod tests {
             normal: Vec3::Y,
             ground_y: 0.0,
         }
+    }
+
+    /// A car on its wheels is on the ground and a car in the air is not
+    /// (#1549): measured from its box alone - 0.47 m up on Jink's car - it
+    /// never touched down, so it threw no dust and made no landing sound.
+    /// The car stands where the game stands it, at its derived ride height,
+    /// over a level map.
+    #[test]
+    fn a_car_on_its_wheels_is_on_the_ground() {
+        let cfg = LocomotionConfig::Car(Box::default());
+        let ride = crate::pds::avatar::default_visuals::ground_ride_height(&cfg)
+            .expect("a car has a ride height");
+        let total = locomotion_total_height(&cfg);
+        let reach = locomotion_ground_reach(&cfg);
+        let terrain = TerrainSurfaceQuery::new(
+            TerrainQuery::new(
+                bevy_symbios_ground::HeightMap::new(9, 9, 1.0),
+                bevy_symbios_ground::SplatMapper::default(),
+            ),
+            4.0,
+        );
+        let at = |y: f32| Vec3::new(0.0, y, 0.0);
+        assert!(
+            ride - total / 2.0 > gcfg::CONTACT_SLACK,
+            "the premise: the box alone rides clear of the ground"
+        );
+        assert!(
+            probe_terrain(at(ride), total, 0.0, false, &terrain).is_none(),
+            "measured from the box, the car is in the air"
+        );
+        assert!(
+            probe_terrain(at(ride), total, reach, false, &terrain).is_some(),
+            "on its wheels, at rest"
+        );
+        assert!(
+            probe_terrain(at(ride + reach + 1.0), total, reach, true, &terrain).is_none(),
+            "a metre clear of where its wheels touch, it is in the air"
+        );
     }
 
     #[test]

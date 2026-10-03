@@ -33,6 +33,14 @@ pub trait LocomotionFootprint {
     /// derive body-bottom as `origin.y − total_height/2`). Clamped
     /// positive per impl so downstream divisions never see zero.
     fn total_height(&self) -> f32;
+
+    /// How far below its body's bottom the avatar reaches the ground (#1549):
+    /// a wheeled or hovering body rides on its springs, its box clear of the
+    /// ground by up to their rest length, and what touches the ground is its
+    /// wheels or skirt. 0 for a body that stands on its own bottom.
+    fn ground_reach(&self) -> f32 {
+        0.0
+    }
 }
 
 impl LocomotionFootprint for HumanoidParams {
@@ -72,6 +80,9 @@ impl LocomotionFootprint for HoverBoatParams {
     fn total_height(&self) -> f32 {
         cuboid_height(self.chassis_half_extents.0)
     }
+    fn ground_reach(&self) -> f32 {
+        self.suspension_rest_length.0.max(0.0)
+    }
 }
 
 impl LocomotionFootprint for CarParams {
@@ -80,6 +91,9 @@ impl LocomotionFootprint for CarParams {
     }
     fn total_height(&self) -> f32 {
         cuboid_height(self.chassis_half_extents.0)
+    }
+    fn ground_reach(&self) -> f32 {
+        self.suspension_rest_length.0.max(0.0)
     }
 }
 
@@ -141,6 +155,19 @@ pub fn locomotion_total_height(cfg: &LocomotionConfig) -> f32 {
     }
 }
 
+/// How far below its body's bottom any locomotion config reaches the
+/// ground ([`LocomotionFootprint::ground_reach`]); 0 for `Unknown`.
+pub fn locomotion_ground_reach(cfg: &LocomotionConfig) -> f32 {
+    match cfg {
+        LocomotionConfig::Humanoid(p) => LocomotionFootprint::ground_reach(p.as_ref()),
+        LocomotionConfig::HoverBoat(p) => p.ground_reach(),
+        LocomotionConfig::Car(p) => p.ground_reach(),
+        LocomotionConfig::Helicopter(p) => p.ground_reach(),
+        LocomotionConfig::Airplane(p) => p.ground_reach(),
+        LocomotionConfig::Unknown => 0.0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,6 +197,26 @@ mod tests {
         let cfg = LocomotionConfig::Unknown;
         assert!((locomotion_footprint(&cfg) - UNKNOWN_FOOTPRINT).abs() < 1e-5);
         assert!((locomotion_total_height(&cfg) - 1.0).abs() < 1e-5);
+    }
+
+    /// A car and a hover-boat reach the ground by their suspension's rest
+    /// length below their box (#1549); a body that stands on its own bottom
+    /// reaches no further.
+    #[test]
+    fn a_body_on_springs_reaches_the_ground_by_their_rest_length() {
+        let car = CarParams::default();
+        let boat = HoverBoatParams::default();
+        let reach = |cfg: LocomotionConfig| locomotion_ground_reach(&cfg);
+        assert_eq!(
+            reach(LocomotionConfig::Car(Box::new(car.clone()))),
+            car.suspension_rest_length.0
+        );
+        assert_eq!(
+            reach(LocomotionConfig::HoverBoat(Box::new(boat.clone()))),
+            boat.suspension_rest_length.0
+        );
+        assert_eq!(reach(LocomotionConfig::Humanoid(Box::default())), 0.0);
+        assert_eq!(reach(LocomotionConfig::Unknown), 0.0);
     }
 
     #[test]

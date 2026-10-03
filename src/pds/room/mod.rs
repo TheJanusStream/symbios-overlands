@@ -315,8 +315,10 @@ pub struct DefaultLanding {
     /// without the owner re-aiming the pose.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub y: Option<Fp>,
-    /// Facing, in degrees (0 faces −Z, 90 faces +X - the landmark-link
-    /// `rot=` convention). Seeded rooms aim this at the gateway landmark.
+    /// Facing, in degrees, counter-clockwise seen from above: 0 faces −Z,
+    /// 90 faces −X - a compass bearing negated, and the landmark link's
+    /// `rot=` (`player::spawn_facing`, #1547). Seeded rooms aim this at the
+    /// gateway landmark.
     #[serde(default)]
     pub yaw_deg: Fp,
 }

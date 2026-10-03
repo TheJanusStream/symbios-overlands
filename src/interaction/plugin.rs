@@ -51,8 +51,8 @@ pub struct PerturbationSet;
 
 /// The contact effects a driven body raises in an app that is not the game -
 /// the render tool's `--driver` (#1546): the classifier and the particle
-/// bursts it dispatches (a splash on water, ground dust under a body whose
-/// underside touches the ground), as [`InteractionPlugin`] registers them but without its
+/// bursts it dispatches (a splash on water, the dust a body throws on dry
+/// ground), as [`InteractionPlugin`] registers them but without its
 /// `InGame` gate. Its water wakes, terrain stains, sounds and audio editor stay
 /// out: a render draws no water uniforms of its own and plays nothing. Keep in
 /// step with [`InteractionPlugin`].

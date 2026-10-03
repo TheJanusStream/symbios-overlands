@@ -136,9 +136,35 @@ fn scaled_shape(shape: &EmitterShape, extent: f32) -> EmitterShape {
     }
 }
 
+/// How much bigger a terrain burst's puffs are for a body whose footprint is
+/// `footprint` than for a walker's (#1549): in proportion to a walker's
+/// default footprint, from 1 - a walker, or anything smaller - up to 3. The
+/// recipe's puffs are sized for a running walker's feet, and the same 18 of
+/// them spread over a car's footprint read as nothing at all.
+fn dust_scale(footprint: f32) -> f32 {
+    use super::locomotion::LocomotionFootprint;
+    let walker = crate::pds::HumanoidParams::default().footprint_radius();
+    (footprint / walker.max(0.01)).clamp(1.0, 3.0)
+}
+
+/// Where a burst rides its body, in the body's own frame: at its origin for
+/// water - a hull at the waterline - and on the ground under it for terrain
+/// (#1549), so dust rises from the ground rather than from a capsule's middle,
+/// or out of a car's box above its wheels. Turned into the body's frame
+/// because the burst is parented to it (velocity inheritance, despawn).
+fn burst_offset(surface: &SurfaceContact, world_pos: Vec3, body: Option<&GlobalTransform>) -> Vec3 {
+    let (SurfaceContact::Terrain { ground_y, .. }, Some(body)) = (surface, body) else {
+        return Vec3::ZERO;
+    };
+    body.affine()
+        .inverse()
+        .transform_vector3(Vec3::new(0.0, ground_y - world_pos.y, 0.0))
+}
+
 /// Phase 2 consumer: `AvatarContacts × recipes` → transient particle
 /// bursts. Ordered `.after(ContactProducerSet)` so it reads the
 /// freshly-built contacts for this frame.
+#[allow(clippy::too_many_arguments)]
 pub fn particle_dispatcher(
     time: Res<Time>,
     contacts: Res<AvatarContacts>,
@@ -147,6 +173,7 @@ pub fn particle_dispatcher(
     mut state: ResMut<ParticleDispatchState>,
     mut commands: Commands,
     settings: Res<crate::state::LocalSettings>,
+    bodies: Query<&GlobalTransform>,
 ) {
     // The viewer's own ceiling on somebody else's room (#1221 f308).
     // Bursts are the flashing-and-motion half of the same control.
@@ -201,6 +228,12 @@ pub fn particle_dispatcher(
                 &emitter.shape,
                 sample.footprint_radius * recipe.spawn.radius_scale,
             );
+            // A body bigger than a walker throws bigger dust (#1549).
+            if matches!(sample.surface, SurfaceContact::Terrain { .. }) {
+                let k = dust_scale(sample.footprint_radius);
+                emitter.start_size *= k;
+                emitter.end_size *= k;
+            }
             // Flowing-water contacts drift their burst downstream: bias
             // the emitter's world-space acceleration along the surface's
             // downhill tangent (#659) so splash droplets ride the current
@@ -242,11 +275,16 @@ pub fn particle_dispatcher(
             // the emitter rides the avatar's despawn if it leaves.
             // `tag_room_entity = false` - retirement / the avatar owns
             // its lifetime, not the room cleanup sweep.
+            let at = burst_offset(
+                &sample.surface,
+                sample.world_pos,
+                bodies.get(sample.avatar).ok(),
+            );
             let e = spawn_particle_emitter(
                 &mut commands,
                 emitter,
                 seed,
-                Transform::from_translation(Vec3::ZERO),
+                Transform::from_translation(at),
                 false,
                 crate::world_builder::PlacementUnit::NONE,
             );
@@ -283,6 +321,67 @@ pub fn retire_transient_emitters(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_terrain_burst_rises_from_the_ground_under_its_body() {
+        let ground = SurfaceContact::Terrain {
+            material_blend: [1.0, 0.0, 0.0, 0.0],
+            normal: Vec3::Y,
+            ground_y: 2.0,
+        };
+        let at = Vec3::new(5.0, 2.95, -3.0);
+        // Level, and pitched nose-up on a ramp: either way the burst lands on
+        // the ground straight under the body, once its frame is undone.
+        for rotation in [
+            Quat::IDENTITY,
+            Quat::from_rotation_x(0.4) * Quat::from_rotation_y(1.0),
+        ] {
+            let body =
+                GlobalTransform::from(Transform::from_translation(at).with_rotation(rotation));
+            let offset = burst_offset(&ground, at, Some(&body));
+            let world = body.transform_point(offset);
+            assert!(
+                world.abs_diff_eq(Vec3::new(5.0, 2.0, -3.0), 1e-5),
+                "{world}"
+            );
+        }
+        let water = SurfaceContact::Water {
+            plane_idx: 0,
+            depth: 0.3,
+            flow_dir: Vec2::ZERO,
+            surface_y: 2.0,
+        };
+        let body = GlobalTransform::from(Transform::from_translation(at));
+        assert_eq!(
+            burst_offset(&water, at, Some(&body)),
+            Vec3::ZERO,
+            "a splash keeps to the hull"
+        );
+        assert_eq!(
+            burst_offset(&ground, at, None),
+            Vec3::ZERO,
+            "no body, no offset"
+        );
+    }
+
+    /// A walker's dust is the recipe's own size; a car's, a few times
+    /// bigger in proportion to its footprint, and never more than three
+    /// times (#1549).
+    #[test]
+    fn a_bigger_body_throws_bigger_dust() {
+        use crate::interaction::locomotion::locomotion_footprint;
+        use crate::pds::LocomotionConfig;
+        let walker = locomotion_footprint(&LocomotionConfig::Humanoid(Box::default()));
+        let car = locomotion_footprint(&LocomotionConfig::Car(Box::default()));
+        assert_eq!(dust_scale(walker), 1.0);
+        assert_eq!(dust_scale(walker * 0.5), 1.0, "a small body is not shrunk");
+        assert!(
+            (dust_scale(car) - (car / walker).min(3.0)).abs() < 1e-5 && dust_scale(car) > 1.5,
+            "a car's dust grows with its footprint: {}",
+            dust_scale(car)
+        );
+        assert_eq!(dust_scale(walker * 10.0), 3.0);
+    }
 
     #[test]
     fn scaled_shape_tracks_extent_and_preserves_kind() {

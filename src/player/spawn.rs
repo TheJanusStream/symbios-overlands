@@ -63,9 +63,7 @@ pub(super) fn spawn_local_player(
     let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
     // Apply yaw on top of the surface tilt so a landmark "facing N" lands the
     // chassis aimed at -Z while still resting flush on the slope.
-    let yaw = pose_yaw_deg
-        .map(|deg| Quat::from_rotation_y(deg.to_radians()))
-        .unwrap_or(Quat::IDENTITY);
+    let yaw = pose_yaw_deg.map(spawn_facing).unwrap_or(Quat::IDENTITY);
     let rotation = tilt * yaw;
     // y override (`pos=x,y,z`) bypasses the heightmap sample; the drop-pin
     // form (`pos=x,z`) keeps the heightmap-resolved height.
@@ -106,6 +104,17 @@ pub(super) fn spawn_local_player(
         .insert(super::hotswap::AppliedLocalBody::painted(&live.0.body));
 }
 
+/// The turn a spawn facing of `yaw_deg` gives the chassis: a turn about
+/// `+Y`, so the angle runs counter-clockwise seen from above - 0 faces -Z,
+/// 90 faces -X, 180 faces +Z (#1547). A compass bearing, which runs
+/// clockwise from north (-Z), is the facing negated. One convention for a
+/// room's landing (`DefaultLanding::yaw_deg`), a landmark link's `rot=` -
+/// written from the chassis's own yaw, so a link lands facing the way its
+/// maker faced - and the native client's `--rot`.
+pub(crate) fn spawn_facing(yaw_deg: f32) -> Quat {
+    Quat::from_rotation_y(yaw_deg.to_radians())
+}
+
 /// Preset-independent components of the local chassis root, shared by the
 /// live spawn path, the #670 regression test and the test-only flight
 /// bench (`player::sim`) so the three can't drift.
@@ -137,6 +146,25 @@ pub(super) fn chassis_root_bundle(transform: Transform) -> impl Bundle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A spawn facing turns counter-clockwise seen from above (#1547): 90
+    /// faces -X, the reverse of a compass bearing. Jink's landing of 335
+    /// looks at bearing 25, as its arrival camera does live; and the yaw a
+    /// landmark link writes from a chassis lands it facing the same way.
+    #[test]
+    fn a_spawn_facing_of_90_faces_minus_x() {
+        let faces = |deg: f32| spawn_facing(deg) * Vec3::NEG_Z;
+        assert!(faces(0.0).abs_diff_eq(Vec3::NEG_Z, 1e-6));
+        assert!(faces(90.0).abs_diff_eq(Vec3::NEG_X, 1e-6));
+        assert!(faces(180.0).abs_diff_eq(Vec3::Z, 1e-6));
+        let jink = faces(335.0);
+        let bearing = jink.x.atan2(-jink.z).to_degrees().rem_euclid(360.0);
+        assert!((bearing - 25.0).abs() < 1e-3, "bearing {bearing}");
+        // What `ui::diagnostics::landmark_link_button` writes as `rot=`.
+        let chassis = Quat::from_rotation_y(1.2);
+        let rot = chassis.to_euler(EulerRot::YXZ).0.to_degrees();
+        assert!(spawn_facing(rot).abs_diff_eq(chassis, 1e-6));
+    }
     use crate::pds::LocomotionConfig;
     use crate::pds::avatar::AvatarRecord;
 

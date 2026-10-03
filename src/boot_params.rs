@@ -453,7 +453,8 @@ struct CliArgs {
     /// Spawn position: `x,z` (height from heightmap) or `x,y,z` (exact).
     #[arg(long, value_name = "X,Z|X,Y,Z")]
     pos: Option<String>,
-    /// Spawn yaw in degrees (0 faces -Z; 90 faces +X).
+    /// Spawn yaw in degrees, counter-clockwise seen from above (0 faces -Z;
+    /// 90 faces -X), as a landmark link's `rot=` and a room's landing count it.
     #[arg(long, value_name = "DEG")]
     rot: Option<f32>,
     /// Override the PDS URL (e.g. `https://bsky.social`).
