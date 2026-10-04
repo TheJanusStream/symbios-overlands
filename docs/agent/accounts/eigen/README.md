@@ -170,6 +170,8 @@ Jink's park 2,081 parts, Reeve's Ashmere 8,712, Hypha's Understory 38,579.
 | 2026-10-03 | #1550 | **The account**: @eigen-ai.bsky.social, created by the owner; the concept in the owner's words: "build a futuristic urban environment and improve the upstream symbios tensor crate while building its region." |
 | 2026-10-03 | #1551 | **Change Overlands' road and urban code** ("Yes, like Jink's physics"): Eigen may change the road pipeline and expose new crate features in Overlands (record fields, sanitiser, editor), each change tested and gated as usual and handed to the owner to commit |
 | 2026-10-03 | #1551 | **The first session runs self-guided, saving as it goes**: "full permission to edit Eigen's region and avatar and to save each improvement, with the mood (light, sky, fog, sound) left for your yes" - stricter than the first-session default: a mood is a live trial held out of saves until the owner says yes |
+| 2026-10-04 | #1558 | **Street plan revision 1 keeps its rim clip** (the owner, terminal: "Keep both as is for now"): blocks whose streets lie outside the drawn district grow no buildings; Isoline grows 29 |
+| 2026-10-04 | #1551 | **The Spire keeps its height** (same answer): the new towers may stand as tall as it, for now |
 | 2026-10-03 | #1551 | **The city sound is approved** (the owner, chat, 18:53: "the city-sound is much better now. lets keep this", on v2 after v1 was "too bright and optimistic for a cyberpunk-ish theme. cyberpunk should sound darker and more looming"): saved 18:55 (Life and sound) |
 | 2026-10-03 | #1559 | **Overhaul the Cyberpunk catalogue directly** (the owner, chat, 18:01: "I think you took a lot from the cyberpunk catalogue and those are currently the weakest and oldest buildings ... feel free to overhaul the cyberpunk catalogue items directly") |
 | 2026-10-03 | #1551 | **The dusk light is approved** (the owner, terminal, 15:04: "Yes"): saved 15:05 (the Mood section) |
@@ -302,11 +304,7 @@ rebuilt from the reviewer's byte-checked scratch copy.
   a rebuilt LD_PRELOAD shim, hubs capped at 8 nodes at every revision,
   crescents kept (a second street goes only at 3x the shorter), the tidy
   reaches a fixed point, hypot off the decision paths.
-- **A decision for the owner before revision 1 ships** (it freezes into
-  saved lots then): at revision 1 Isoline grows 29 buildings, not 44,
-  almost all from the rim clip - blocks whose bounding streets lie outside
-  the drawn district circle grow nothing (a building needs a street).
-  Recommended: yes. Ask on their return, in chat or the terminal.
+- **Revision 1's rim clip**: answered - keep it as designed (the owner, 2026-10-04: "Keep both as is for now"); Isoline grows 29 buildings.
 - **#1559 builder launched 05:45** (the Cyberpunk five toward realistic,
   dark, looming architecture at real sizes; budgets 30 KB and 60 parts an
   item; seeded Cyberpunk rooms checked; sounds trimmed). Done 07:20 (729k,
@@ -337,10 +335,8 @@ rebuilt from the reviewer's byte-checked scratch copy.
 - **The full gate** (all four issues, #1556-#1559) GREEN 14:47: fmt, clippy 0 warnings, nextest 4169, doctests, cargo doc 0 warnings, wasm 0 warnings, deny, lib 3917 twice. Binaries rebuilt (bin/ 14:49), daemon restarted; Isoline regrown at revision 1 and saved 14:53.
 - **End review** (one reviewer over the code no critic saw: the main session's #1556/#1557 fixes and both fix rounds; 479k, 75 min): revision 0 byte-identical to HEAD again confirmed independently, other themes' rooms identical, every fix it broke failed its test. HIGH: the revision-1 tidy wipes out SPARSE plans (the detour and spun-ring rules run after the district clip, which turns a truncated edge block into one long 'detour' street: 200/100 spacing loses over a third of its lots in 15 of 32 configurations, 250/125 can lose every street; Isoline's 120/60 unaffected) - second #1558 fix round sent 16:00. MEDIUM: #1559's settlement call sites untested; LOWs: the pre-fit oracle reads the hooks it pins, the fit rule pinned only for overflow, the ruin doc's bound (sqrt 2), stale #1557 mute docs (fixed by the main session 16:05). Filed #1564 (generator-cap interplay); #1563 commented.
 - **#1558 second fix round done 17:50** (~700k, 1.8 h; #1558 in all ~2.6M - a resumed builder carries its whole context into every turn): the loop rules now judge the plan as TRACED, before the district cut; a stub is capped at four street widths; two streets with room for a lot between their curbs are never a double; the tidy no longer cuts grazes (the sanitiser does). Sweep of 320 configurations: 46 under the 2/3 bounds -> 18, all of them plans made almost wholly of tracer junk. Isoline's saved plan does NOT move (same graph, same 29 lots). #1559's end-review round sent 17:55 (tests through the settlement call sites, the oracle's inputs pinned, the fit pinned both ways, the ruin doc); done 19:25 (it also caught the arcade's lean bound measuring to the wrong top).
-- **The final gate GREEN 19:31** over the whole tree (#1556-#1559 with every fix round): fmt, clippy 0 warnings, nextest 4174, doctests, cargo doc 0 warnings, wasm 0 warnings, deny, lib 3922 twice. Binaries rebuilt 19:33 into bin/ (previous kept as *.s903-1449), daemon restarted. Ready for the owner to commit.
-- **A taste question for the owner, before the regrow**: the new data
-  spires (142 m masts) and megatowers would outgrow the Spire (~111 m) -
-  raise the Spire to ~170 m, or keep the tallest towers back from it?
+- **The final gate GREEN 19:31** over the whole tree (#1556-#1559 with every fix round): fmt, clippy 0 warnings, nextest 4174, doctests, cargo doc 0 warnings, wasm 0 warnings, deny, lib 3922 twice. Binaries rebuilt 19:33 into bin/ (previous kept as *.s903-1449), daemon restarted. COMMITTED by the owner as bedfd9c ('Improve urban planning and Cyberpunk theme', 47 files); #1556-#1559 closed (--no-changelog). The owner is waiting for the deployment to try it.
+- **The Spire versus the new towers**: answered - keep the Spire as it is for now (2026-10-04).
 - #1556 (street field) in the working tree: critic SOUND on both rules,
   its five findings fixed (an unknown basis kind keyed the rebuild key
   empty, members required, the editor's bearing, two doc pointers, the

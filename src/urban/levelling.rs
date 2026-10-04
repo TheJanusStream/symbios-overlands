@@ -209,8 +209,8 @@ pub(crate) fn level_network(
             if base.is_empty() {
                 continue;
             }
-            for slot in 0..2 {
-                let Some(h) = plan.arm_hub[ci][slot] else {
+            for (slot, hub) in plan.arm_hub[ci].iter().enumerate() {
+                let Some(h) = *hub else {
                     continue;
                 };
                 let m = if slot == 0 {
@@ -248,8 +248,8 @@ pub(crate) fn junction_mouth_spreads(base_ys: &[Vec<f32>], plan: &JunctionPlan) 
         if base.is_empty() {
             continue;
         }
-        for slot in 0..2 {
-            let Some(h) = plan.arm_hub[ci][slot] else {
+        for (slot, hub) in plan.arm_hub[ci].iter().enumerate() {
+            let Some(h) = *hub else {
                 continue;
             };
             let m = if slot == 0 {

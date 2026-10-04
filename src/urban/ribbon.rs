@@ -313,8 +313,8 @@ pub(crate) fn extrude_ribbon(
     // district-edge clip running off the network perimeter (#582), and a
     // junction whose hub kept only this arm (#1558). An end opening into a
     // hub is closed by it; a loop closure / used-edge break stays open.
-    for slot in 0..2 {
-        if !ends.cap[slot] {
+    for (slot, &cap) in ends.cap.iter().enumerate() {
+        if !cap {
             continue;
         }
         let (fe, fi) = if slot == 0 {
