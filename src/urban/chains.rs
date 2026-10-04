@@ -31,6 +31,44 @@ pub(crate) struct Chain {
 
 // --- Chain extraction -------------------------------------------------------
 
+/// The graph as the mesher draws it (#1558): a copy with every edge that has
+/// an end outside the district interior deactivated - exactly the edges
+/// [`push_interior_runs`] leaves undrawn - so node degrees count only the
+/// streets the player sees. A node that loses an arm to the clip is no
+/// junction any more: two streets left meeting there run on through it as
+/// one, where the full graph's degree used to pull both back as at a
+/// junction no hub could close (fewer than three drawn arms), leaving the
+/// street broken by a gap. Never feeds the lots or the street furniture,
+/// which read the full graph.
+pub(crate) fn drawn_graph(graph: &RoadGraph, hm: &HeightMap) -> RoadGraph {
+    let center = hm.width() as f32 * hm.scale() * 0.5;
+    let interior_r2 = (center * ROAD_INTERIOR_FRACTION).powi(2);
+    let inside = |i: u32| {
+        let p = graph.nodes[i as usize].position;
+        let (dx, dz) = (p.x - center, p.y - center);
+        dx * dx + dz * dz <= interior_r2
+    };
+    let mut drawn = graph.clone();
+    for e in &mut drawn.edges {
+        if e.active && !(inside(e.start) && inside(e.end)) {
+            e.active = false;
+        }
+    }
+    drawn
+}
+
+/// Active degree of every node of `graph`.
+pub(crate) fn active_degree(graph: &RoadGraph) -> Vec<u32> {
+    let mut degree = vec![0u32; graph.nodes.len()];
+    for e in &graph.edges {
+        if e.active {
+            degree[e.start as usize] += 1;
+            degree[e.end as usize] += 1;
+        }
+    }
+    degree
+}
+
 /// Split the planar graph into continuous chains: runs of degree-2 nodes
 /// between intersections / endpoints, clipped to the district interior. Walks
 /// the public adjacency by node degree - no dependency on tensor internals.

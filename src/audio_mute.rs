@@ -16,7 +16,12 @@
 //! bake, a fresh footstep) are caught within a frame too. The most
 //! prominent loop, the ambient bed, additionally spawns pre-muted (see
 //! `loading::ambient`) so launching muted never leaks even a one-frame
-//! blip.
+//! blip. Construct and engine voices go further: the voice budget
+//! ([`crate::world_builder::voice_budget`], #1557) holds back every voice
+//! the master toggle or a peer mute silences - no player, nothing in the
+//! mixer - and gives it a player again on the first pass after the mute
+//! lifts. Between a mute and that pass, this module mutes the voice's live
+//! sink at once, and it owns every live sink's mute as before.
 //!
 //! It is also the second reason a sink can be silent (#1219 f324):
 //! [`SilencedByMute`] carries the entities belonging to a peer the user has

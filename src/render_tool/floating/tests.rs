@@ -521,3 +521,105 @@ fn the_catalogue_windmill_stands_whole() {
     );
     assert!(rows.is_empty(), "{} parts free: {rows:?}", rows.len());
 }
+
+/// The five downtown buildings Isoline's lots grow (#1559), each in the wire
+/// form a record carries it.
+fn downtown() -> Vec<(&'static str, Value)> {
+    [
+        "neon_megatower",
+        "data_spire",
+        "arcade_block",
+        "parking_stack",
+        "holo_billboard",
+    ]
+    .into_iter()
+    .map(|slug| {
+        let entry = crate::catalogue::items::by_slug(slug).expect("in the catalogue");
+        let wire = serde_json::to_value(entry.build("")).expect("a generator encodes");
+        (slug, wire)
+    })
+    .collect()
+}
+
+/// A seeded building's placement of `name` at the origin turned `yaw`: sunk
+/// 0.35 m and floored on the highest ground within `ground` m of it, as the
+/// settlement and the lot builder write one.
+fn seeded(name: &str, yaw: f32, ground: f32) -> Value {
+    let half = yaw * 0.5;
+    json!({
+        "$type": "network.symbios.place.absolute",
+        "generator_ref": name,
+        "transform": {
+            "translation": [0, fp(-0.35), 0],
+            "rotation": [0, fp(half.sin()), 0, fp(half.cos())],
+        },
+        "avoid_water": true,
+        "avoid_water_clearance": fp(ground),
+    })
+}
+
+/// #1559: the downtown buildings stand on a slope with nothing floating.
+/// Each is floored as the game floors a seeded building - on the highest
+/// ground within the ground radius it declares - on a ramp as steep as the
+/// settlement builds on, at eight headings: its footing reaches the ground
+/// under every corner, and nothing at the ground stands past it. The
+/// garage's core stood 10 cm past its footing and floated over the ground
+/// falling away beside it.
+#[test]
+fn the_cyberpunk_downtown_floats_nothing_on_a_slope() {
+    let slope = crate::seeded_defaults::BUILD_SLOPE_LIMIT;
+    let mut map = HeightMap::new(49, 49, 2.0);
+    for z in 0..49 {
+        for x in 0..49 {
+            map.data_mut()[z * 49 + x] = slope * (x as f32 * 2.0);
+        }
+    }
+    for (slug, wire) in downtown() {
+        let ground = crate::catalogue::items::by_slug(slug)
+            .and_then(|e| e.ground_radius())
+            .expect("a downtown building declares its ground");
+        for k in 0..8 {
+            let yaw = k as f32 * std::f32::consts::FRAC_PI_4;
+            let rows = floating(
+                &record(vec![(slug, wire.clone())], vec![seeded(slug, yaw, ground)]),
+                &map,
+            );
+            assert!(rows.is_empty(), "{slug} turned {k} x 45 deg: {rows:?}");
+        }
+    }
+}
+
+/// #1559: a fought-over room's ruin takes the downtown buildings' pieces and
+/// leaves none of them hanging. The pass knocks every piece askew on its
+/// own, so a sign on a wall or a unit standing flush on a roof was left
+/// clear of what carried it: 33 of 150 ruined garages had their "P" sign or
+/// a lamp post in the air, 18 of 150 arcade blocks a sign or a roof unit.
+/// Over sixty-four conflict ruins of each, on flat ground, nothing floats.
+#[test]
+fn the_cyberpunk_downtown_ruins_leave_nothing_hanging() {
+    for (slug, _) in downtown() {
+        let entry = crate::catalogue::items::by_slug(slug).expect("in the catalogue");
+        let ruins: Vec<(String, Value)> = (0..64_u64)
+            .map(|seed| {
+                let mut tree = entry.build("");
+                crate::pds::ruin::apply_ruin_bounded(&mut tree, 0.95, seed, entry.ruin_max_lean());
+                let wire = serde_json::to_value(tree).expect("a generator encodes");
+                (format!("ruin_{seed}"), wire)
+            })
+            .collect();
+        let placements = ruins
+            .iter()
+            .map(|(name, _)| absolute(name, 0.0, 0.0))
+            .collect();
+        let generators = ruins
+            .iter()
+            .map(|(name, wire)| (name.as_str(), wire.clone()))
+            .collect();
+        let rows = floating(&record(generators, placements), &flat());
+        assert!(
+            rows.is_empty(),
+            "{slug}: {} parts float: {rows:?}",
+            rows.len()
+        );
+    }
+}

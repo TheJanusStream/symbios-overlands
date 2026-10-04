@@ -12,11 +12,13 @@ use symbios_tensor::RoadGraph;
 
 use crate::pds::generator::RoadConfig;
 use crate::urban::graph::{
-    WELD_TOL_FRACTION, active_adjacency, build_road_graph_raw, sanitize_graph, weld_candidate,
+    WELD_TOL_FRACTION, active_adjacency, build_road_graph_raw, sanitize_graph, tidy_graph,
+    weld_candidate,
 };
 use crate::urban::{
-    ChainSample, Dims, RIBBON_STEP_M, ROAD_INTERIOR_FRACTION, compute_truncations, densify,
-    extract_chains, frame_right, junction_mouth_spreads, level_chain, level_network, sample_chain,
+    ChainSample, Dims, RIBBON_STEP_M, ROAD_INTERIOR_FRACTION, active_degree, densify, drawn_graph,
+    extract_chains, frame_right, junction_mouth_spreads, level_chain, level_network,
+    plan_junctions, sample_chain,
 };
 
 // --- Diagnostics ------------------------------------------------------------
@@ -70,6 +72,15 @@ pub struct RoadGraphStats {
     /// spread collapses toward 0 as junctions go flat.
     junction_spread_raw: Vec<f32>,
     junction_spread_level: Vec<f32>,
+    /// #1558: the hubs the mesher draws, how many of them merge a cluster of
+    /// junctions into one deck, how many chains those clusters swallow, the
+    /// most junction nodes one hub covers, and how many chains the hub cap
+    /// held out as short ribbons.
+    drawn_hubs: usize,
+    cluster_hubs: usize,
+    swallowed_chains: usize,
+    largest_hub: usize,
+    short_ribbons: usize,
     chains: usize,
     chain_lengths: Vec<f32>,
     /// Chain-end disposition, mirroring how the mesher closes each end:
@@ -142,11 +153,20 @@ pub fn road_graph_diagnostics(
     let dims = Dims::from_config(config);
     let (graph_raw, sub, _lo) = build_road_graph_raw(hm, config, water_level)?;
     let raw = collect_graph_stats(&graph_raw, &sub, &dims);
-    // Sanitise a fresh raw build (deterministic, so byte-identical to `graph_raw`).
+    // Sanitise a fresh raw build (deterministic, so byte-identical to `graph_raw`),
+    // and tidy it at layout revision 1 or later (#1558) - the graph the
+    // mesher and the lots read.
     let (mut graph_san, sub2, _lo2) = build_road_graph_raw(hm, config, water_level)?;
     sanitize_graph(&mut graph_san, WELD_TOL_FRACTION * config.minor_spacing.0);
+    if config.tidies_layout() {
+        tidy_graph(&mut graph_san, &sub2, config);
+    }
     let sanitized = collect_graph_stats(&graph_san, &sub2, &dims);
-    Some(RoadDiagnostics { raw, sanitized })
+    Some(RoadDiagnostics {
+        raw,
+        sanitized,
+        layout_revision: config.layout_revision,
+    })
 }
 
 /// Gather topology + geometry-risk stats for one graph - the exact one
@@ -277,25 +297,34 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
         hubs_spurious += usize::from(has_stub || collinear_graze || near_dup);
     }
 
-    // Chains + spike risk, via the *exact* mesher paths.
-    let chains = extract_chains(graph, sub, dims);
+    // Chains + spike risk, via the *exact* mesher paths: the drawn graph
+    // (#1558), its chains and the junction plan the mesher truncates by.
+    let drawn = drawn_graph(graph, sub);
+    let drawn_degree = active_degree(&drawn);
+    let chains = extract_chains(&drawn, sub, dims);
+    let plan = plan_junctions(&chains, &drawn_degree, dims);
     // Per-arm junction pull-back (#575) - the same truncation the mesher applies,
     // so the dump reports how far each ribbon retreats into its hub.
-    let trims = compute_truncations(&chains, |nd| degree[nd] >= 3, dims);
-    let truncation_dists: Vec<f32> = trims
+    let truncation_dists: Vec<f32> = plan
+        .trims
         .iter()
-        .flatten()
-        .copied()
+        .zip(&plan.internal)
+        .filter(|(_, internal)| !**internal)
+        .flat_map(|(t, _)| *t)
         .filter(|&t| t > 0.0)
         .collect();
-    // #584 junction levelling: per-junction incident-mouth height SPREAD, natural
+    // #584 junction levelling: per-hub incident-mouth height SPREAD, natural
     // (each road levelled independently) vs network-levelled (mouths pinned to one
     // height) - the spread collapses toward 0 as junctions go flat.
-    let degree_u32: Vec<u32> = degree.iter().map(|&d| d as u32).collect();
     let samples: Vec<Option<ChainSample>> = chains
         .iter()
-        .zip(&trims)
-        .map(|(c, &[s, e])| sample_chain(c, s, e, sub))
+        .enumerate()
+        .map(|(ci, c)| {
+            let [s, e] = plan.trims[ci];
+            (!plan.internal[ci])
+                .then(|| sample_chain(c, s, e, sub))
+                .flatten()
+        })
         .collect();
     let natural_by: Vec<Vec<f32>> = samples
         .iter()
@@ -307,23 +336,31 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
             None => Vec::new(),
         })
         .collect();
-    let levelled_by = level_network(&chains, &samples, &degree_u32, sub);
-    let is_junction = |nd: usize| degree.get(nd).copied().unwrap_or(0) >= 3;
-    let junction_spread_raw = junction_mouth_spreads(&chains, &natural_by, &is_junction);
-    let junction_spread_level = junction_mouth_spreads(&chains, &levelled_by, &is_junction);
+    let levelled_by = level_network(
+        &chains,
+        &samples,
+        &plan,
+        &crate::urban::hub_grounds(&chains, &samples, &plan, dims),
+        sub,
+    );
+    let junction_spread_raw = junction_mouth_spreads(&natural_by, &plan);
+    let junction_spread_level = junction_mouth_spreads(&levelled_by, &plan);
     let mut chain_lengths: Vec<f32> = Vec::with_capacity(chains.len());
     let (mut densified_vertices, mut spike_vertices, mut spike_max_scale) =
         (0usize, 0usize, 0.0_f32);
     // Classify each chain end the way the mesher closes it (hub / cap / open).
     let mut chain_end_class = [0usize; 4];
-    for chain in &chains {
+    for (ci, chain) in chains.iter().enumerate() {
+        if plan.internal[ci] {
+            continue;
+        }
         for (slot, &nd) in chain.end_nodes.iter().enumerate() {
-            let bucket = if degree.get(nd).copied().unwrap_or(0) >= 3 {
-                0 // junction → hub
-            } else if degree.get(nd).copied().unwrap_or(0) == 1 {
+            let bucket = if plan.arm_hub[ci][slot].is_some() {
+                0 // opens into a hub
+            } else if plan.cap[ci][slot] && degree[nd] > drawn_degree[nd] as usize {
+                2 // the district clip took this street's way on → cap (#582)
+            } else if plan.cap[ci][slot] {
                 1 // dead-end → cap (#579)
-            } else if chain.clip[slot] {
-                2 // perimeter clip → cap (#582)
             } else {
                 3 // loop closure / used-edge break → left open
             };
@@ -377,7 +414,12 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
         truncation_dists,
         junction_spread_raw,
         junction_spread_level,
-        chains: chains.len(),
+        drawn_hubs: plan.hubs.len(),
+        cluster_hubs: plan.hubs.iter().filter(|h| h.nodes.len() > 1).count(),
+        swallowed_chains: plan.internal.iter().filter(|&&i| i).count(),
+        largest_hub: plan.hubs.iter().map(|h| h.nodes.len()).max().unwrap_or(0),
+        short_ribbons: plan.short_ribbon.iter().filter(|&&s| s).count(),
+        chains: chains.len() - plan.internal.iter().filter(|&&i| i).count(),
         chain_lengths,
         chain_end_class,
         near_miss_dangles,
@@ -451,6 +493,16 @@ impl RoadGraphStats {
             distro(&self.junction_spread_raw),
             distro(&self.junction_spread_level)
         );
+        let _ = writeln!(
+            s,
+            "  drawn hubs (#1558): {}   merged clusters: {}   chains drawn inside a hub: {}   \
+             largest hub (nodes): {}   short ribbons held by the hub cap: {}",
+            self.drawn_hubs,
+            self.cluster_hubs,
+            self.swallowed_chains,
+            self.largest_hub,
+            self.short_ribbons
+        );
         let _ = writeln!(s, "-- ribbon / spike risk --");
         let _ = writeln!(
             s,
@@ -484,6 +536,9 @@ impl RoadGraphStats {
 pub struct RoadDiagnostics {
     raw: RoadGraphStats,
     sanitized: RoadGraphStats,
+    /// The network's layout revision (#1558): from 1 the second graph is
+    /// tidied as well as sanitised.
+    layout_revision: u32,
 }
 
 impl RoadDiagnostics {
@@ -500,7 +555,15 @@ impl RoadDiagnostics {
             r.section("RAW (generate_roads + rationalize_graph)")
         );
         let _ = writeln!(s);
-        let _ = write!(s, "{}", c.section("SANITIZED (+ sanitize_graph)"));
+        let title = if self.layout_revision >= 1 {
+            format!(
+                "SANITIZED (+ sanitize_graph + the layout revision {} tidy)",
+                self.layout_revision
+            )
+        } else {
+            String::from("SANITIZED (+ sanitize_graph)")
+        };
+        let _ = write!(s, "{}", c.section(&title));
         let _ = writeln!(s, "-- sanitation delta --");
         let _ = writeln!(
             s,

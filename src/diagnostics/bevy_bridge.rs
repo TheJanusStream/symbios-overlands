@@ -317,12 +317,15 @@ fn scrape_bevy_diagnostics(
 
 /// Scrape the spatial-audio load into the registry at 1 Hz (#802): the count
 /// of live *looping* voices (construct hums + avatar engine voices - the
-/// sustained-lag suspect, distinct from transient one-shot SFX) and the baked
-/// cache's retained entry count + byte footprint. `Option` params keep this
-/// inert on any app configured without the audio assets / bake cache (e.g. a
-/// minimal test app) rather than panicking on a missing resource.
+/// sustained-lag suspect, distinct from transient one-shot SFX), the ones the
+/// voice budget holds out of the mix (#1557), and the baked cache's retained
+/// entry count + byte footprint. `Option` params keep this inert on any app
+/// configured without the audio assets / bake cache (e.g. a minimal test app)
+/// rather than panicking on a missing resource.
 fn scrape_audio_diagnostics(
+    // What plays: a held-back voice has no `AudioPlayer`, so it is not here.
     voices: Query<&PlaybackSettings, With<AudioPlayer>>,
+    held_back: Query<(), With<crate::world_builder::voice_budget::HeldBackVoice>>,
     // The one-shot half (#1252 f316). `ContactAudioVoice` exists precisely
     // for counting - `play_contact_audio` counts it every frame against
     // `MAX_CONCURRENT_VOICES` - and nothing in the diagnostics suite asked.
@@ -336,6 +339,10 @@ fn scrape_audio_diagnostics(
         .filter(|s| matches!(s.mode, PlaybackMode::Loop))
         .count();
     reg.observe_gauge(names::AUDIO_SPATIAL_ACTIVE_SINKS, looping as f64);
+    reg.observe_gauge(
+        names::AUDIO_SPATIAL_HELD_BACK_VOICES,
+        held_back.iter().count() as f64,
+    );
     reg.observe_gauge(
         names::AUDIO_CONTACT_ACTIVE_VOICES,
         contact_voices.iter().count() as f64,
@@ -709,6 +716,38 @@ mod tests {
                     crate::diagnostics::event::EventPayload::SocketPeerListReceived { .. }
                 )),
             "no welcome, no event"
+        );
+    }
+
+    /// #1557: the looping gauge counts the voices that play and the
+    /// held-back gauge the ones the voice budget keeps out of the mix, so
+    /// the overload rule reads what the mixer carries and the Audio card can
+    /// say what the budget saved. A one-shot is neither.
+    #[test]
+    fn the_looping_gauge_counts_what_plays_and_the_held_back_gauge_the_rest() {
+        use crate::world_builder::voice_budget::HeldBackVoice;
+
+        let mut app = App::new();
+        app.init_resource::<MetricsRegistry>();
+        app.add_systems(Update, scrape_audio_diagnostics);
+        let player = || AudioPlayer::<AudioSource>(Handle::default());
+        for _ in 0..2 {
+            app.world_mut().spawn((player(), PlaybackSettings::LOOP));
+        }
+        app.world_mut().spawn((player(), PlaybackSettings::DESPAWN));
+        for _ in 0..3 {
+            app.world_mut().spawn(HeldBackVoice);
+        }
+        app.update();
+
+        let reg = app.world().resource::<MetricsRegistry>();
+        assert_eq!(
+            reg.gauge_latest(names::AUDIO_SPATIAL_ACTIVE_SINKS),
+            Some(2.0)
+        );
+        assert_eq!(
+            reg.gauge_latest(names::AUDIO_SPATIAL_HELD_BACK_VOICES),
+            Some(3.0)
         );
     }
 

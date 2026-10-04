@@ -70,11 +70,30 @@ fn envelope(tier: EscalationTier) -> Option<(f32, f32, f32, f32)> {
 /// room's `escalation` (`[0, 1]`), deterministically in `seed`. A calm room
 /// leaves the member untouched.
 pub fn apply_ruin(node: &mut Generator, escalation: f32, seed: u64) {
-    let Some((max_lean, max_sink, min_scale, collapse_p)) =
+    apply_ruin_bounded(node, escalation, seed, None);
+}
+
+/// [`apply_ruin`] with the member's own bound on the lean (#1559): `max_lean`
+/// radians, the bound a catalogue entry declares
+/// ([`CatalogueEntry::ruin_max_lean`](crate::catalogue::CatalogueEntry::ruin_max_lean)),
+/// takes the tier's place wherever the pass reads its lean. The whole
+/// structure leans at most `max_lean`. Each surviving part's knock askew is
+/// drawn on two horizontal axes at once, each up to `max_lean` (a quarter
+/// of it for a part that still holds another up), so the knock itself
+/// reaches sqrt(2) times that. `None` is [`apply_ruin`] exactly.
+///
+/// The tier's lean is an angle, so on a 150 m tower its 0.22 rad swings the
+/// crown 30 m sideways, past the footprint the settlement spaced it by and
+/// over its neighbours. The bound only clamps values: every random draw is
+/// taken as it always was, so the rest of the ruin (sink, shrink, collapse,
+/// rubble, dead lights) comes out of the same stream.
+pub fn apply_ruin_bounded(node: &mut Generator, escalation: f32, seed: u64, max_lean: Option<f32>) {
+    let Some((tier_lean, max_sink, min_scale, collapse_p)) =
         envelope(EscalationTier::from_unit(escalation))
     else {
         return;
     };
+    let max_lean = max_lean.map_or(tier_lean, |bound| tier_lean.min(bound.max(0.0)));
     let mut rng = ChaCha8Rng::seed_from_u64(seed ^ RUIN_SALT);
 
     // Whole-structure lean about a random horizontal axis.

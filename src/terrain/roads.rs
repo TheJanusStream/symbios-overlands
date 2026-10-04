@@ -173,9 +173,12 @@ fn current_configs(
     if configs.is_empty() {
         return (configs, None);
     }
-    // `to_string` on these plain structs cannot realistically fail; an empty
-    // fingerprint (rather than a panic or a silently-dropped mesh) is the
-    // degenerate fallback.
+    // `to_string` fails on a network holding a kind this build cannot read:
+    // an `Unknown` variant (a newer client's road style or street field)
+    // cannot be written back (#1111). Such a network keys by its Debug form
+    // instead, which still moves with every member this build reads, so an
+    // edit to it re-traces its streets like any other (#1556: an empty key
+    // never moved, and the lots regrew round streets that were never drawn).
     // The water line moves the streets of a network that stops at the
     // shore (#1552), so it is part of that network's key: raising the lake
     // re-traces it, and leaves a network that ignores the water alone.
@@ -185,7 +188,8 @@ fn current_configs(
         .map(|c| {
             let mut geometry_only = c.clone();
             geometry_only.appearance = Default::default();
-            let mut key = serde_json::to_string(&geometry_only).unwrap_or_default();
+            let mut key = serde_json::to_string(&geometry_only)
+                .unwrap_or_else(|_| format!("{geometry_only:?}"));
             if c.avoid_water {
                 key.push_str(&format!("|water={water:?}"));
             }
@@ -523,6 +527,17 @@ mod tests {
     /// A seeded record (its terrain carries the water) with one road
     /// network under the terrain, and the water plane at `water_y`.
     fn record_with_network(avoid_water: bool, water_y: f32) -> RoomRecord {
+        record_with_road(
+            RoadConfig {
+                avoid_water,
+                ..RoadConfig::default()
+            },
+            water_y,
+        )
+    }
+
+    /// [`record_with_network`] with `road` as the network.
+    fn record_with_road(road: RoadConfig, water_y: f32) -> RoomRecord {
         let mut record = RoomRecord::default_for_seed(0, "did:test:1552");
         let terrain = record
             .generators
@@ -537,12 +552,7 @@ mod tests {
         water.transform.translation.0[1] = water_y;
         terrain
             .children
-            .push(Generator::from_kind(GeneratorKind::RoadNetwork(
-                RoadConfig {
-                    avoid_water,
-                    ..RoadConfig::default()
-                },
-            )));
+            .push(Generator::from_kind(GeneratorKind::RoadNetwork(road)));
         record
     }
 
@@ -566,5 +576,156 @@ mod tests {
             key(false, 9.5),
             "raising the lake must not re-trace a network that ignores it"
         );
+    }
+
+    /// #1558: the layout revision is part of the rebuild key - an upgrade
+    /// re-traces the streets with the tidied graph - and a network on the
+    /// original plan keys exactly as it did before the field existed (the
+    /// field stays off the wire at 0). A revision from a newer client is
+    /// read as this build's latest, so it keys as that.
+    #[test]
+    fn the_rebuild_key_moves_with_the_layout_revision() {
+        let key = |layout_revision: u32| {
+            let mut record = record_with_road(
+                RoadConfig {
+                    layout_revision,
+                    ..RoadConfig::default()
+                },
+                7.0,
+            );
+            record.sanitize();
+            current_configs(&record)
+                .1
+                .expect("an enabled network has a key")
+        };
+        assert_ne!(key(0), key(1), "an upgrade must re-trace the streets");
+        assert!(
+            !key(0).contains("layout_revision"),
+            "the original plan keys as it always did"
+        );
+        assert_eq!(
+            key(RoadConfig::LATEST_LAYOUT + 5),
+            key(RoadConfig::LATEST_LAYOUT),
+            "a newer client's revision keys as this build's latest"
+        );
+    }
+
+    /// #1556: the rebuild key is the network's config as written, so every
+    /// street field edit re-traces the streets - its smoothing, its terrain
+    /// weight, a field added or turned, a disc added - and no two of these
+    /// key alike.
+    #[test]
+    fn the_rebuild_key_moves_with_the_street_field() {
+        use crate::pds::generator::{RoadBasis, RoadField, RoadKeepOut};
+        use crate::pds::types::{Fp, Fp2};
+        let key = |field: RoadField| {
+            current_configs(&record_with_road(
+                RoadConfig {
+                    field,
+                    ..RoadConfig::default()
+                },
+                7.0,
+            ))
+            .1
+            .expect("an enabled network has a key")
+        };
+        let at = Fp2([10.0, -20.0]);
+        let turned = RoadBasis::Grid {
+            center: at,
+            bearing: Fp(30.0),
+            radius: Fp(RoadBasis::DEFAULT_RADIUS),
+            strength: Fp(RoadBasis::DEFAULT_STRENGTH),
+        };
+        let edits = [
+            RoadField {
+                smoothing: Fp(12.0),
+                ..RoadField::default()
+            },
+            RoadField {
+                terrain_weight: Fp(0.5),
+                ..RoadField::default()
+            },
+            RoadField {
+                basis: vec![RoadBasis::ring_at(at)],
+                ..RoadField::default()
+            },
+            RoadField {
+                basis: vec![RoadBasis::grid_at(at)],
+                ..RoadField::default()
+            },
+            RoadField {
+                basis: vec![turned],
+                ..RoadField::default()
+            },
+            RoadField {
+                keep_out: vec![RoadKeepOut::at(at)],
+                ..RoadField::default()
+            },
+        ];
+        let mut seen = vec![key(RoadField::default())];
+        for field in edits {
+            let moved = key(field.clone());
+            assert!(
+                !seen.contains(&moved),
+                "{field:?} did not move the rebuild key"
+            );
+            seen.push(moved);
+        }
+    }
+
+    /// #1556 critic: a network holding a street field kind from a newer
+    /// client (read as [`RoadBasis::Unknown`], which cannot be written back)
+    /// still keys by everything this build reads, so an edit to its seed,
+    /// centre, extent or known fields re-traces its streets. Its key used to
+    /// be empty whatever the network said, so no edit re-traced it while the
+    /// lots regrew on the edited layout.
+    ///
+    /// [`RoadBasis::Unknown`]: crate::pds::generator::RoadBasis::Unknown
+    #[test]
+    fn a_network_holding_a_newer_kind_of_field_still_rekeys_on_every_edit() {
+        use crate::pds::generator::{RoadBasis, RoadField};
+        use crate::pds::types::{Fp, Fp2};
+        let key = |road: RoadConfig| {
+            current_configs(&record_with_road(road, 7.0))
+                .1
+                .expect("an enabled network has a key")
+        };
+        // The newer kind beside whatever else the network's field holds.
+        let beside = |known: Vec<RoadBasis>| RoadField {
+            basis: [vec![RoadBasis::Unknown], known].concat(),
+            ..RoadField::default()
+        };
+        let plain = RoadConfig {
+            field: beside(Vec::new()),
+            ..RoadConfig::default()
+        };
+        let edits = [
+            RoadConfig {
+                seed: plain.seed + 1,
+                ..plain.clone()
+            },
+            RoadConfig {
+                center: Fp2([40.0, -60.0]),
+                ..plain.clone()
+            },
+            RoadConfig {
+                district_half_extent: Fp(plain.district_half_extent.0 + 50.0),
+                ..plain.clone()
+            },
+            RoadConfig {
+                field: beside(vec![RoadBasis::ring_at(Fp2([10.0, -20.0]))]),
+                ..plain.clone()
+            },
+        ];
+        let mut seen = vec![key(plain.clone())];
+        assert!(!seen[0].is_empty(), "a network's key is never empty");
+        for road in edits {
+            let moved = key(road.clone());
+            assert!(
+                !seen.contains(&moved),
+                "{road:?} did not move the rebuild key"
+            );
+            seen.push(moved);
+        }
     }
 }

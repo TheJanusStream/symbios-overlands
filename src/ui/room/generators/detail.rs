@@ -392,6 +392,15 @@ pub(crate) fn lot_clamp_lines(
             true,
         ));
     }
+    if clamps.lots_too_small > 0 {
+        lines.push((
+            format!(
+                "{} lots left empty - too small for any building of the mix",
+                clamps.lots_too_small
+            ),
+            false,
+        ));
+    }
     if clamps.generator_cap_skips > 0 {
         lines.push((
             format!(
@@ -404,6 +413,14 @@ pub(crate) fn lot_clamp_lines(
     }
     lines
 }
+
+/// What the street plan's latest layout revision does (#1558), on the road
+/// panel's revision row.
+const LAYOUT_REVISION_HOVER: &str = "Revision 1 tidies the traced streets - junctions a few \
+     metres apart become one, streets doubled side by side, tiny loops and short stubs go, and \
+     streets end at the district's edge - and keeps every lot a sidewalk clear of the streets, \
+     growing no building larger than its lot. Upgrading re-traces the district and regrows its \
+     buildings.";
 
 /// The sentence over the layout controls naming what changing them
 /// replaces (#1245 f378). Pure so the arithmetic and the plural are
@@ -466,6 +483,363 @@ fn lot_override_row(
             *dirty = true;
         }
     });
+}
+
+/// What the row of a basis field of a kind from a newer client says on
+/// hover (#1556). Its `Unknown` cannot be written back (#1111), so the
+/// world it rides in cannot be saved while it is there - the one thing the
+/// owner has to be told.
+const UNKNOWN_BASIS_HOVER: &str = "A kind of street field this client does not know, made by a \
+     newer client. The streets here are traced without it, and this client cannot save the \
+     world while it is in the network: remove it here, or update.";
+
+/// One labelled Street field slider (#1556) with a named undo entry and a
+/// hover saying what it does.
+#[allow(clippy::too_many_arguments)]
+fn field_slider(
+    ui: &mut egui::Ui,
+    v: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    label: &str,
+    undo_name: &str,
+    hover: &str,
+    dirty: &mut bool,
+    undo_label: &mut crate::ui::undo::LabelSlot,
+) {
+    if ui
+        .add(crate::ui::num::slider(v, range).text(label))
+        .on_hover_text(hover)
+        .changed()
+    {
+        undo_label.set(undo_name);
+        *dirty = true;
+    }
+}
+
+/// One labelled number in a Street field row (#1556), held to `range` -
+/// the sanitiser's own bounds - with a named undo entry and a hover.
+#[allow(clippy::too_many_arguments)]
+fn field_drag(
+    ui: &mut egui::Ui,
+    label: &str,
+    v: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    speed: f64,
+    hover: &str,
+    undo_name: &str,
+    dirty: &mut bool,
+    undo_label: &mut crate::ui::undo::LabelSlot,
+) {
+    ui.label(label);
+    if ui
+        .add(crate::ui::num::drag(v).speed(speed).range(range))
+        .on_hover_text(hover)
+        .changed()
+    {
+        undo_label.set(undo_name);
+        *dirty = true;
+    }
+}
+
+/// The X and Z of a Street field centre (#1556), in world metres - the
+/// frame the district centre is given in - on the sanitiser's own range.
+fn field_centre(
+    ui: &mut egui::Ui,
+    center: &mut crate::pds::Fp2,
+    hover: &str,
+    undo_name: &str,
+    dirty: &mut bool,
+    undo_label: &mut crate::ui::undo::LabelSlot,
+) {
+    use crate::pds::generator::RoadField;
+    for (axis_label, axis) in ["X", "Z"].iter().zip(center.0.iter_mut()) {
+        field_drag(
+            ui,
+            axis_label,
+            axis,
+            -RoadField::CENTER_LIMIT_M..=RoadField::CENTER_LIMIT_M,
+            1.0,
+            hover,
+            undo_name,
+            dirty,
+            undo_label,
+        );
+    }
+}
+
+/// The road panel's Street field section (#1556): the smoothing scale and
+/// the terrain weight, then a row per basis field and a row per keep-out
+/// disc, each with its own Remove, and the buttons that add one at the
+/// district centre. Every range is the sanitiser's own (the bounds on
+/// [`crate::pds::generator::RoadField`]), so the panel offers nothing a
+/// guest's client would clamp away. A basis field of a kind from a newer
+/// client is a row with nothing to edit: it is kept in the record, and
+/// removing it is the one edit this client can make to it.
+fn draw_street_field(
+    ui: &mut egui::Ui,
+    field: &mut crate::pds::generator::RoadField,
+    district_centre: crate::pds::Fp2,
+    dirty: &mut bool,
+    undo_label: &mut crate::ui::undo::LabelSlot,
+) {
+    use crate::pds::generator::{RoadBasis, RoadField, RoadKeepOut};
+    ui.label(
+        egui::RichText::new(
+            "Shapes the streets beyond the land itself. Centres are world metres \
+             (X, Z), like the district centre.",
+        )
+        .small()
+        .weak(),
+    );
+    field_slider(
+        ui,
+        &mut field.smoothing.0,
+        RoadField::SMOOTHING_M,
+        "Smoothing (m)",
+        "street smoothing",
+        "How big a bump the streets ignore. At 0 they turn with every rise in \
+         the land; at 30 m or more they sweep along the hillside's broad shape. \
+         Street heights and the shore still follow the land itself.",
+        dirty,
+        undo_label,
+    );
+    field_slider(
+        ui,
+        &mut field.terrain_weight.0,
+        RoadField::TERRAIN_WEIGHT,
+        "Terrain weight",
+        "street terrain weight",
+        "How hard the land steers the streets inside a field's reach. 1 pulls \
+         as hard as a field of strength 1; 0 leaves the fields alone to decide \
+         there. Outside every field the land decides.",
+        dirty,
+        undo_label,
+    );
+
+    ui.add_space(4.0);
+    ui.label("Ring and grid fields");
+    let mut removed = None;
+    for (i, basis) in field.basis.iter_mut().enumerate() {
+        ui.push_id(("street_field_basis", i), |ui| {
+            ui.horizontal_wrapped(|ui| {
+                let (kind, about, center, bearing, radius, strength) = match basis {
+                    RoadBasis::Ring {
+                        center,
+                        radius,
+                        strength,
+                    } => (
+                        "Ring",
+                        "Ring roads: the main streets circle the centre and the \
+                         cross streets run straight out from it.",
+                        center,
+                        None,
+                        radius,
+                        strength,
+                    ),
+                    RoadBasis::Grid {
+                        center,
+                        bearing,
+                        radius,
+                        strength,
+                    } => (
+                        "Grid",
+                        "A straight grid turned to a compass bearing, whatever the \
+                         land does.",
+                        center,
+                        Some(bearing),
+                        radius,
+                        strength,
+                    ),
+                    RoadBasis::Unknown => {
+                        let warn = crate::ui::theme::current(ui.ctx()).status.warn;
+                        ui.label(egui::RichText::new("Unknown kind").color(warn))
+                            .on_hover_text(UNKNOWN_BASIS_HOVER);
+                        ui.label(
+                            egui::RichText::new("from a newer client - kept, ignored here")
+                                .small()
+                                .weak(),
+                        );
+                        if ui
+                            .button("Remove")
+                            .on_hover_text("Remove this field.")
+                            .clicked()
+                        {
+                            removed = Some(i);
+                        }
+                        return;
+                    }
+                };
+                ui.label(kind).on_hover_text(about);
+                field_centre(
+                    ui,
+                    center,
+                    "The centre of the field, in world metres.",
+                    "street field centre",
+                    dirty,
+                    undo_label,
+                );
+                if let Some(bearing) = bearing {
+                    let shown = bearing.0;
+                    field_drag(
+                        ui,
+                        "Bearing (°)",
+                        &mut bearing.0,
+                        // Wide, so a drag or a typed bearing past either end
+                        // comes round instead of stopping there.
+                        -1800.0..=1800.0,
+                        1.0,
+                        "The compass bearing the main streets run along: 0 \
+                         north-south, 90 east-west. The cross streets run square \
+                         to them. A half turn round is the same grid, so 180 \
+                         reads as 0.",
+                        "street grid bearing",
+                        dirty,
+                        undo_label,
+                    );
+                    // Folded as it changes into the one value the record
+                    // keeps (a grid at 180 is the grid at 0), so the widget
+                    // shows what the flush writes rather than a 180 that
+                    // snaps to 0 a debounce later.
+                    if bearing.0 != shown {
+                        bearing.0 = RoadBasis::canonical_bearing(bearing.0);
+                    }
+                }
+                field_drag(
+                    ui,
+                    "Radius (m)",
+                    &mut radius.0,
+                    RoadField::BASIS_RADIUS_M,
+                    1.0,
+                    "How far the field reaches. Its pull fades to nothing at the edge.",
+                    "street field radius",
+                    dirty,
+                    undo_label,
+                );
+                field_drag(
+                    ui,
+                    "Strength",
+                    &mut strength.0,
+                    RoadField::BASIS_STRENGTH,
+                    0.01,
+                    "How hard the field pulls at its centre. 1 pulls as hard as the \
+                     land at terrain weight 1; more overrules it.",
+                    "street field strength",
+                    dirty,
+                    undo_label,
+                );
+                if ui
+                    .button("Remove")
+                    .on_hover_text("Remove this field.")
+                    .clicked()
+                {
+                    removed = Some(i);
+                }
+            });
+        });
+    }
+    if let Some(i) = removed {
+        field.basis.remove(i);
+        undo_label.set("street field removed");
+        *dirty = true;
+    }
+    let fields_full = format!(
+        "A network keeps at most {} fields: remove one first.",
+        RoadField::MAX_BASIS
+    );
+    ui.horizontal(|ui| {
+        let room = field.basis.len() < RoadField::MAX_BASIS;
+        if ui
+            .add_enabled(room, egui::Button::new("+ Ring"))
+            .on_hover_text(
+                "Add ring roads round the district centre: main streets circle it, \
+                 cross streets run out from it.",
+            )
+            .on_disabled_hover_text(fields_full.as_str())
+            .clicked()
+        {
+            field.basis.push(RoadBasis::ring_at(district_centre));
+            undo_label.set("street ring added");
+            *dirty = true;
+        }
+        if ui
+            .add_enabled(room, egui::Button::new("+ Grid"))
+            .on_hover_text(
+                "Add a straight grid at the district centre, its main streets \
+                 running north-south. Turn it with its bearing.",
+            )
+            .on_disabled_hover_text(fields_full.as_str())
+            .clicked()
+        {
+            field.basis.push(RoadBasis::grid_at(district_centre));
+            undo_label.set("street grid added");
+            *dirty = true;
+        }
+    });
+
+    ui.add_space(4.0);
+    ui.label("Keep-out discs");
+    let mut removed = None;
+    for (i, disc) in field.keep_out.iter_mut().enumerate() {
+        ui.push_id(("street_field_keep_out", i), |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Disc").on_hover_text(
+                    "No street enters this disc and no lot inside it grows a \
+                     building - a plaza, a park, a landmark's ground.",
+                );
+                field_centre(
+                    ui,
+                    &mut disc.center,
+                    "The centre of the disc, in world metres.",
+                    "keep-out disc centre",
+                    dirty,
+                    undo_label,
+                );
+                field_drag(
+                    ui,
+                    "Radius (m)",
+                    &mut disc.radius.0,
+                    RoadField::KEEP_OUT_RADIUS_M,
+                    0.5,
+                    "How far the disc reaches from its centre.",
+                    "keep-out disc radius",
+                    dirty,
+                    undo_label,
+                );
+                if ui
+                    .button("Remove")
+                    .on_hover_text("Remove this disc.")
+                    .clicked()
+                {
+                    removed = Some(i);
+                }
+            });
+        });
+    }
+    if let Some(i) = removed {
+        field.keep_out.remove(i);
+        undo_label.set("keep-out disc removed");
+        *dirty = true;
+    }
+    let discs_full = format!(
+        "A network keeps at most {} keep-out discs: remove one first.",
+        RoadField::MAX_KEEP_OUT
+    );
+    if ui
+        .add_enabled(
+            field.keep_out.len() < RoadField::MAX_KEEP_OUT,
+            egui::Button::new("+ Keep-out"),
+        )
+        .on_hover_text(
+            "Add a disc at the district centre that no street enters and no \
+             lot inside it grows a building - a plaza, a park, a landmark's ground.",
+        )
+        .on_disabled_hover_text(discs_full.as_str())
+        .clicked()
+    {
+        field.keep_out.push(RoadKeepOut::at(district_centre));
+        undo_label.set("keep-out disc added");
+        *dirty = true;
+    }
 }
 
 fn draw_road_editor(
@@ -687,6 +1061,36 @@ fn draw_road_editor(
                 }));
                 *dirty = true;
             }
+            // The street plan's layout revision (#1558): a network saved
+            // before the tidy keeps its plan until its owner upgrades it.
+            let latest = crate::pds::generator::RoadConfig::LATEST_LAYOUT;
+            ui.horizontal(|ui| {
+                if config.layout_revision >= latest {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Street plan: revision {} (the latest)",
+                            config.layout_revision
+                        ))
+                        .small()
+                        .weak(),
+                    )
+                    .on_hover_text(LAYOUT_REVISION_HOVER);
+                } else {
+                    ui.label(format!(
+                        "Street plan: revision {} (the original)",
+                        config.layout_revision
+                    ));
+                    if ui
+                        .button(format!("Upgrade to revision {latest}"))
+                        .on_hover_text(LAYOUT_REVISION_HOVER)
+                        .clicked()
+                    {
+                        config.layout_revision = latest;
+                        undo_label.set(format!("street plan upgraded to revision {latest}"));
+                        *dirty = true;
+                    }
+                }
+            });
             road_slider(
                 ui,
                 &mut config.district_half_extent.0,
@@ -736,6 +1140,15 @@ fn draw_road_editor(
                 dirty,
                 undo_label,
             );
+        });
+
+    // The street field (#1556): part of the street plan, so an edit here
+    // re-grows the lots as a Layout edit does.
+    egui::CollapsingHeader::new("Street field")
+        .default_open(false)
+        .show(ui, |ui| {
+            let district_centre = config.center;
+            draw_street_field(ui, &mut config.field, district_centre, dirty, undo_label);
         });
 
     egui::CollapsingHeader::new("Ribbon profile")
@@ -1656,6 +2069,7 @@ mod lot_clamp_tests {
             props_dropped: 3,
             props_capped_by_budget: false,
             generator_cap_skips: 2,
+            lots_too_small: 0,
         };
         let lines = lot_clamp_lines(&clamps, 124);
         assert_eq!(lines.len(), 4);
@@ -1672,6 +2086,18 @@ mod lot_clamp_tests {
         assert!(lines[2].0.contains("3 furniture spots"), "{}", lines[2].0);
         assert!(lines[2].0.contains("per district"), "{}", lines[2].0);
         assert!(lines[3].0.contains("item limit"), "{}", lines[3].0);
+        // #1558: lots too small for any building are named, quietly - the
+        // layout's own doing, not a cap that bit.
+        let small = LotClamps {
+            lots_too_small: 5,
+            ..clamps
+        };
+        let lines = lot_clamp_lines(&small, 124);
+        let line = lines
+            .iter()
+            .find(|(l, _)| l.contains("5 lots left empty - too small"))
+            .expect("the small lots are named");
+        assert!(!line.1, "and not as a warning");
     }
 }
 
@@ -1685,24 +2111,28 @@ mod lots_section_tests {
 
     /// One interactive control of a drawn pass, in document order.
     #[derive(Debug)]
-    struct Control {
-        id: NodeId,
-        role: Role,
-        label: String,
+    pub(super) struct Control {
+        pub(super) id: NodeId,
+        pub(super) role: Role,
+        pub(super) label: String,
         /// `(value, min, max)` for a numeric control.
-        range: Option<(f64, f64, f64)>,
+        pub(super) range: Option<(f64, f64, f64)>,
     }
 
     /// What one pass of the road panel did.
-    struct Pass {
-        controls: Vec<Control>,
-        dirty: bool,
-        label: Option<String>,
+    pub(super) struct Pass {
+        pub(super) controls: Vec<Control>,
+        /// The drag values drawn, in document order - apart from
+        /// [`Self::controls`], so a test that steps through those by
+        /// position still finds what it did.
+        pub(super) spins: Vec<Control>,
+        pub(super) dirty: bool,
+        pub(super) label: Option<String>,
     }
 
     /// A bare context with AccessKit on and every collapsing section open,
     /// so the whole panel is drawn whichever sections default closed.
-    fn context() -> egui::Context {
+    pub(super) fn context() -> egui::Context {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         ctx.memory_mut(|m| m.set_everything_is_visible(true));
@@ -1710,7 +2140,11 @@ mod lots_section_tests {
     }
 
     /// Draw the road panel over `config` once, with `events` as the input.
-    fn pass(ctx: &egui::Context, config: &mut RoadConfig, events: Vec<egui::Event>) -> Pass {
+    pub(super) fn pass(
+        ctx: &egui::Context,
+        config: &mut RoadConfig,
+        events: Vec<egui::Event>,
+    ) -> Pass {
         pass_with(ctx, config, events, None)
     }
 
@@ -1752,31 +2186,36 @@ mod lots_section_tests {
         // Depth first from the root: document order (the node list is in
         // id-map order).
         let mut controls = Vec::new();
+        let mut spins = Vec::new();
         let mut stack = vec![update.tree.as_ref().expect("a tree").root];
         while let Some(id) = stack.pop() {
             let Some(node) = by_id.get(&id) else { continue };
+            let control = || Control {
+                id,
+                role: node.role(),
+                label: node.label().unwrap_or_default().to_string(),
+                range: node
+                    .numeric_value()
+                    .zip(node.min_numeric_value())
+                    .zip(node.max_numeric_value())
+                    .map(|((v, lo), hi)| (v, lo, hi)),
+            };
             if matches!(node.role(), Role::CheckBox | Role::Slider | Role::Button) {
-                controls.push(Control {
-                    id,
-                    role: node.role(),
-                    label: node.label().unwrap_or_default().to_string(),
-                    range: node
-                        .numeric_value()
-                        .zip(node.min_numeric_value())
-                        .zip(node.max_numeric_value())
-                        .map(|((v, lo), hi)| (v, lo, hi)),
-                });
+                controls.push(control());
+            } else if node.role() == Role::SpinButton {
+                spins.push(control());
             }
             stack.extend(node.children().iter().rev().copied());
         }
         Pass {
             controls,
+            spins,
             dirty,
             label: labels.peek_room().map(str::to_string),
         }
     }
 
-    fn click(id: NodeId) -> Vec<egui::Event> {
+    pub(super) fn click(id: NodeId) -> Vec<egui::Event> {
         vec![egui::Event::AccessKitActionRequest(ActionRequest {
             action: Action::Click,
             target_tree: TreeId::ROOT,
@@ -1785,7 +2224,18 @@ mod lots_section_tests {
         })]
     }
 
-    fn find<'p>(pass: &'p Pass, role: Role, label: &str) -> &'p Control {
+    /// An AccessKit request setting the numeric control `id` to `value`,
+    /// as a screen reader or a typed entry does.
+    pub(super) fn set_value(id: NodeId, value: f64) -> Vec<egui::Event> {
+        vec![egui::Event::AccessKitActionRequest(ActionRequest {
+            action: Action::SetValue,
+            target_tree: TreeId::ROOT,
+            target_node: id,
+            data: Some(bevy_egui::egui::accesskit::ActionData::NumericValue(value)),
+        })]
+    }
+
+    pub(super) fn find<'p>(pass: &'p Pass, role: Role, label: &str) -> &'p Control {
         pass.controls
             .iter()
             .find(|c| c.role == role && c.label == label)
@@ -1945,6 +2395,42 @@ mod lots_section_tests {
         );
     }
 
+    /// #1558: a network on the original street plan offers the upgrade to
+    /// the latest layout revision, which names the edit and marks the record
+    /// dirty; a network already on it offers none, and drawing either changes
+    /// nothing.
+    #[test]
+    fn an_original_street_plan_offers_the_upgrade_and_the_latest_does_not() {
+        let ctx = context();
+        let mut config = RoadConfig::default();
+        let _ = pass(&ctx, &mut config, Vec::new());
+        let drawn = pass(&ctx, &mut config, Vec::new());
+        assert!(!drawn.dirty, "drawing the row changed the network");
+        let latest = RoadConfig::LATEST_LAYOUT;
+        let upgrade = find(
+            &drawn,
+            Role::Button,
+            &format!("Upgrade to revision {latest}"),
+        )
+        .id;
+        let upgraded = pass(&ctx, &mut config, click(upgrade));
+        assert_eq!(config.layout_revision, latest);
+        assert!(upgraded.dirty);
+        assert_eq!(
+            upgraded.label.as_deref(),
+            Some(format!("street plan upgraded to revision {latest}").as_str())
+        );
+        let drawn = pass(&ctx, &mut config, Vec::new());
+        assert!(
+            !drawn
+                .controls
+                .iter()
+                .any(|c| c.role == Role::Button && c.label.starts_with("Upgrade to revision")),
+            "a network on the latest plan is offered an upgrade"
+        );
+        assert!(!drawn.dirty);
+    }
+
     /// The Lots section does not edit what it shows (#1390's rule): armed
     /// overrides off the slider's step, a lot size off any step, the fit and
     /// a Downtown mix survive every section drawn, untouched and not dirty.
@@ -1966,6 +2452,255 @@ mod lots_section_tests {
         for _ in 0..3 {
             let drawn = pass(&ctx, &mut config, Vec::new());
             assert!(!drawn.dirty, "the panel dirtied a record it only showed");
+        }
+        assert_eq!(config, before);
+    }
+}
+
+#[cfg(test)]
+mod street_field_tests {
+    use super::lots_section_tests::{Pass, click, context, find, pass, set_value};
+    use crate::pds::generator::{RoadBasis, RoadConfig, RoadField, RoadKeepOut};
+    use crate::pds::{Fp, Fp2};
+    use bevy_egui::egui::accesskit::Role;
+
+    /// The ids of every button labelled `label`, in document order.
+    fn buttons(pass: &Pass, label: &str) -> Vec<bevy_egui::egui::accesskit::NodeId> {
+        pass.controls
+            .iter()
+            .filter(|c| c.role == Role::Button && c.label == label)
+            .map(|c| c.id)
+            .collect()
+    }
+
+    /// #1556: `+ Ring` adds ring roads round the district centre at the
+    /// starting reach and strength, names the edit and marks the record
+    /// dirty; `+ Grid` adds a north-south grid there and `+ Keep-out` a disc.
+    #[test]
+    fn the_add_buttons_put_a_field_at_the_district_centre() {
+        let ctx = context();
+        let centre = Fp2([40.0, -25.0]);
+        let mut config = RoadConfig {
+            center: centre,
+            ..RoadConfig::default()
+        };
+        let _ = pass(&ctx, &mut config, Vec::new());
+        let drawn = pass(&ctx, &mut config, Vec::new());
+        assert!(!drawn.dirty);
+        let add = find(&drawn, Role::Button, "+ Ring").id;
+        let added = pass(&ctx, &mut config, click(add));
+        assert_eq!(
+            config.field.basis,
+            vec![RoadBasis::Ring {
+                center: centre,
+                radius: Fp(120.0),
+                strength: Fp(1.0),
+            }]
+        );
+        assert!(added.dirty);
+        assert_eq!(added.label.as_deref(), Some("street ring added"));
+
+        let drawn = pass(&ctx, &mut config, Vec::new());
+        let add = find(&drawn, Role::Button, "+ Grid").id;
+        let added = pass(&ctx, &mut config, click(add));
+        assert_eq!(
+            config.field.basis[1],
+            RoadBasis::Grid {
+                center: centre,
+                bearing: Fp(0.0),
+                radius: Fp(120.0),
+                strength: Fp(1.0),
+            }
+        );
+        assert!(added.dirty);
+        assert_eq!(added.label.as_deref(), Some("street grid added"));
+
+        let drawn = pass(&ctx, &mut config, Vec::new());
+        let add = find(&drawn, Role::Button, "+ Keep-out").id;
+        let added = pass(&ctx, &mut config, click(add));
+        assert_eq!(
+            config.field.keep_out,
+            vec![RoadKeepOut {
+                center: centre,
+                radius: Fp(30.0),
+            }]
+        );
+        assert!(added.dirty);
+        assert_eq!(added.label.as_deref(), Some("keep-out disc added"));
+    }
+
+    /// #1556: each row's Remove takes that field or disc - and only it - out
+    /// of the record, names the edit and marks the record dirty. A kind from
+    /// a newer client can be removed too: it is the one edit this client can
+    /// make to it, and the one that lets the world be saved again.
+    #[test]
+    fn remove_takes_its_own_row_out() {
+        let ctx = context();
+        let ring = RoadBasis::ring_at(Fp2([5.0, 5.0]));
+        let disc = RoadKeepOut::at(Fp2([-5.0, 5.0]));
+        let mut config = RoadConfig {
+            field: RoadField {
+                basis: vec![RoadBasis::Unknown, ring],
+                keep_out: vec![disc, RoadKeepOut::at(Fp2([9.0, 9.0]))],
+                ..RoadField::default()
+            },
+            ..RoadConfig::default()
+        };
+        let _ = pass(&ctx, &mut config, Vec::new());
+
+        // Rows in document order: the unknown kind, the ring, two discs.
+        let drawn = pass(&ctx, &mut config, Vec::new());
+        assert_eq!(buttons(&drawn, "Remove").len(), 4, "{:#?}", drawn.controls);
+        let removed = pass(&ctx, &mut config, click(buttons(&drawn, "Remove")[0]));
+        assert_eq!(config.field.basis, vec![ring], "the unknown kind goes");
+        assert!(removed.dirty);
+        assert_eq!(removed.label.as_deref(), Some("street field removed"));
+
+        let drawn = pass(&ctx, &mut config, Vec::new());
+        let removed = pass(&ctx, &mut config, click(buttons(&drawn, "Remove")[2]));
+        assert_eq!(config.field.keep_out, vec![disc], "the second disc goes");
+        assert!(removed.dirty);
+        assert_eq!(removed.label.as_deref(), Some("keep-out disc removed"));
+
+        let drawn = pass(&ctx, &mut config, Vec::new());
+        let _ = pass(&ctx, &mut config, click(buttons(&drawn, "Remove")[0]));
+        assert!(config.field.basis.is_empty(), "the ring goes");
+        assert_eq!(config.field.keep_out, vec![disc]);
+    }
+
+    /// #1556: at the cap the add buttons add nothing - the sanitiser would
+    /// drop what they added.
+    #[test]
+    fn a_full_field_adds_nothing() {
+        let ctx = context();
+        let mut config = RoadConfig {
+            field: RoadField {
+                basis: vec![RoadBasis::ring_at(Fp2([0.0, 0.0])); RoadField::MAX_BASIS],
+                keep_out: vec![RoadKeepOut::at(Fp2([0.0, 0.0])); RoadField::MAX_KEEP_OUT],
+                ..RoadField::default()
+            },
+            ..RoadConfig::default()
+        };
+        let before = config.clone();
+        let _ = pass(&ctx, &mut config, Vec::new());
+        for label in ["+ Ring", "+ Grid", "+ Keep-out"] {
+            let drawn = pass(&ctx, &mut config, Vec::new());
+            let clicked = pass(
+                &ctx,
+                &mut config,
+                click(find(&drawn, Role::Button, label).id),
+            );
+            assert!(!clicked.dirty, "{label} added past the cap");
+        }
+        assert_eq!(config, before);
+    }
+
+    /// #1556 critic: a grid's bearing folds into `[0, 180)` as it is set, so
+    /// the widget shows what the record will keep. Its drag range used to
+    /// end at 180, which the flush then folded to 0 a debounce later - the
+    /// widget jumped - and a typed 200 stopped at 180 rather than reading as
+    /// the grid at 20 it is.
+    #[test]
+    fn a_grid_bearing_folds_as_it_is_set() {
+        let ctx = context();
+        let mut config = RoadConfig {
+            field: RoadField {
+                basis: vec![RoadBasis::Grid {
+                    center: Fp2([11.0, -13.0]),
+                    bearing: Fp(37.0),
+                    radius: Fp(170.0),
+                    strength: Fp(2.0),
+                }],
+                ..RoadField::default()
+            },
+            ..RoadConfig::default()
+        };
+        let _ = pass(&ctx, &mut config, Vec::new());
+        let drawn = pass(&ctx, &mut config, Vec::new());
+        // The bearing is the one drag showing 37 - found while that is
+        // unique, since a later bearing of 0 shows like the district
+        // centre - and it keeps its id from pass to pass.
+        let showing: Vec<_> = drawn
+            .spins
+            .iter()
+            .filter(|c| c.range.is_some_and(|(v, ..)| v == 37.0))
+            .collect();
+        assert_eq!(showing.len(), 1, "one bearing drag: {:#?}", drawn.spins);
+        let widget = showing[0].id;
+        for (typed, kept) in [(180.0, 0.0), (200.0, 20.0), (-30.0, 150.0), (179.5, 179.5)] {
+            let set = pass(&ctx, &mut config, set_value(widget, typed));
+            assert!(
+                set.dirty,
+                "setting the bearing to {typed} marks the record dirty"
+            );
+            assert_eq!(set.label.as_deref(), Some("street grid bearing"));
+            let folded = RoadBasis::Grid {
+                center: Fp2([11.0, -13.0]),
+                bearing: Fp(kept),
+                radius: Fp(170.0),
+                strength: Fp(2.0),
+            };
+            assert_eq!(
+                config.field.basis[0], folded,
+                "a bearing set to {typed} keeps {kept}"
+            );
+            let idle = pass(&ctx, &mut config, Vec::new());
+            assert!(!idle.dirty, "the folded bearing is left as it is");
+            assert_eq!(config.field.basis[0], folded);
+        }
+    }
+
+    /// The Street field section does not edit what it shows (#1390's rule):
+    /// values off every step, a strength past its drag's range, a grid, a
+    /// disc and a kind from a newer client survive every section drawn,
+    /// untouched and not dirty.
+    #[test]
+    fn the_street_field_section_does_not_edit_what_it_shows() {
+        let ctx = context();
+        let mut config = RoadConfig {
+            field: RoadField {
+                smoothing: Fp(12.3456),
+                terrain_weight: Fp(0.1234),
+                basis: vec![
+                    RoadBasis::Ring {
+                        center: Fp2([12.3456, -7.8912]),
+                        radius: Fp(123.4567),
+                        strength: Fp(0.9876),
+                    },
+                    RoadBasis::Grid {
+                        center: Fp2([-0.0001, 1023.9999]),
+                        bearing: Fp(37.1234),
+                        radius: Fp(5.0001),
+                        strength: Fp(12.5),
+                    },
+                    RoadBasis::Unknown,
+                ],
+                keep_out: vec![RoadKeepOut {
+                    center: Fp2([3.3333, -4.4444]),
+                    radius: Fp(33.3333),
+                }],
+            },
+            ..RoadConfig::default()
+        };
+        let before = config.clone();
+        for _ in 0..3 {
+            let drawn = pass(&ctx, &mut config, Vec::new());
+            assert!(!drawn.dirty, "the panel dirtied a record it only showed");
+            assert_eq!(
+                buttons(&drawn, "Remove").len(),
+                4,
+                "every row is drawn: {:#?}",
+                drawn.controls
+            );
+            let smoothing = drawn.controls.iter().find(|c| {
+                c.role == Role::Slider
+                    && c.range.is_some_and(|(_, lo, hi)| lo == 0.0 && hi == 100.0)
+            });
+            assert!(
+                smoothing
+                    .is_some_and(|c| c.range.is_some_and(|(v, ..)| (v - 12.3456).abs() < 1.0e-4)),
+                "the smoothing slider shows the record's value: {smoothing:?}"
+            );
         }
         assert_eq!(config, before);
     }

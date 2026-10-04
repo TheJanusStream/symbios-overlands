@@ -600,8 +600,11 @@ struct Args {
     /// Road-graph diagnostics: a u64 seed or DID - reproduces the room's
     /// heightmap, builds the *meshed* road graph, and prints topology +
     /// geometry-risk stats (degree histogram, dead-end spurs, spurious-junction
-    /// and spike-risk counts), then exits. A no-render dump to size road-network
-    /// data filtering. Runs before any render app stands up.
+    /// and spike-risk counts, the hubs drawn and the junction clusters merged
+    /// into them), then exits. A seeded room grows no roads: with
+    /// `--world-record` (and its `--world`) it dumps every road network of
+    /// that record instead. A no-render dump to size road-network data
+    /// filtering. Runs before any render app stands up.
     #[arg(long)]
     road_dump: Option<String>,
     /// Analytic entity census over seeded rooms (#810): for seeds `0..N`, sum
@@ -935,8 +938,10 @@ pub fn run() {
 
     // `--road-dump <seed|did>`: print the room's road-graph diagnostics and
     // exit - a no-render topology/geometry-risk dump for the road-filtering work.
+    // With `--world-record` it reads that record (#1558): a seeded room grows
+    // no roads, so a real city is only in a saved record.
     if let Some(room) = &args.road_dump {
-        dump_road_graph(room);
+        dump_road_graph(room, args.world_record.as_deref().map(read_room_record));
         return;
     }
 

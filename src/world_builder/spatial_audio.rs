@@ -5,10 +5,12 @@
 //! [`Generator`](crate::pds::Generator)
 //! carries a non-`None` [`SovereignAudioConfig`] on its `audio` field,
 //! we dispatch a background bake on
-//! [`bevy::tasks::AsyncComputeTaskPool`] and, on completion, attach a
-//! looping spatial [`AudioPlayer`] to the construct's spawned entity.
-//! Bevy's built-in spatial-audio attenuation does the
-//! positional panning at runtime.
+//! [`bevy::tasks::AsyncComputeTaskPool`] and, on completion, give the
+//! construct's spawned entity a looping spatial voice
+//! ([`super::voice_budget::LoopingVoice`]). The voice budget hands it an
+//! [`AudioPlayer`] while it is among the nearest audible voices and takes
+//! the player away again when it is not (#1557). Bevy's built-in
+//! spatial-audio attenuation does the positional panning at runtime.
 //!
 //! # Listener
 //!
@@ -23,8 +25,8 @@
 //!     └── dispatch_construct_audio()  ──>  poll_spatial_audio_tasks()
 //!         resolves via BakedAudioCache:     drains finished bakes,
 //!         Ready  → attach immediately       promotes cache → Ready,
-//!         Pending→ join waiter list         attaches AudioPlayer +
-//!         miss   → register + spawn         Spatial to every waiter
+//!         Pending→ join waiter list         attaches a held-back
+//!         miss   → register + spawn         LoopingVoice to every waiter
 //!         SpatialAudioBakeTask{key}
 //! ```
 //!
@@ -51,7 +53,11 @@ use crate::pds::SovereignAudioConfig;
 /// proportionally - `0.25` ≈ carries ~4× farther - letting an avatar's engine
 /// hum or arcane shimmer read from a normal viewing distance. One-shot impact
 /// SFX keep the default scale (they fire right next to the listener).
-const CONSTRUCT_SPATIAL_SCALE: f32 = 0.25;
+///
+/// The voice budget's audible radius is worked out from it
+/// ([`super::voice_budget::VOICE_AUDIBLE_RADIUS_M`], #1557), so a new scale
+/// moves where these voices stop being mixed too.
+pub(crate) const CONSTRUCT_SPATIAL_SCALE: f32 = 0.25;
 
 /// The sample rate a construct's `Patch` audio is baked at - a worn part's
 /// too, since it is spawned as a construct. 22.05 kHz halves the baked and
@@ -195,7 +201,9 @@ pub(crate) fn loop_is_closed(patch: &bevy_symbios_audio::AudioPatch, secs: f32) 
 /// so the loop carries across a normal viewing distance, starting every pass
 /// at `loop_start` - from [`baked_loop_start`], `None` to loop from the first
 /// sample.
-fn looping_construct_playback(loop_start: Option<std::time::Duration>) -> PlaybackSettings {
+pub(crate) fn looping_construct_playback(
+    loop_start: Option<std::time::Duration>,
+) -> PlaybackSettings {
     PlaybackSettings {
         spatial: true,
         spatial_scale: Some(SpatialScale::new(CONSTRUCT_SPATIAL_SCALE)),
@@ -233,9 +241,10 @@ pub(crate) fn baked_loop_start(audio: &SovereignAudioConfig) -> Option<std::time
 #[derive(Clone, Copy, Debug)]
 pub enum BakeAttachmentMode {
     /// Construct emitter - looping, sticky on the target entity, every pass
-    /// from `loop_start` ([`baked_loop_start`]). Carried here rather than
-    /// looked up when the bake lands, because a waiter holds only its entity
-    /// and this mode: the config is in hand where the mode is made.
+    /// from `loop_start` ([`baked_loop_start`]), and played only while the
+    /// voice budget lets it ([`super::voice_budget`]). Carried here rather
+    /// than looked up when the bake lands, because a waiter holds only its
+    /// entity and this mode: the config is in hand where the mode is made.
     LoopingConstruct {
         loop_start: Option<std::time::Duration>,
     },
@@ -356,31 +365,41 @@ impl BakedAudioCache {
 }
 
 /// Attach the baked buffer to `target` with the playback shape `mode`
-/// asks for. Uses `try_insert` so an insert on a despawned target is a
-/// silent no-op - the orphan case (room rebuild between dispatch and bake
-/// completion) is common enough during editing that warn-logs would drown
-/// the channel, and in Bevy 0.18 a plain `insert` on a missing entity
-/// panics through the command error handler instead of dropping quietly.
+/// asks for: a construct's loop as a held-back voice the budget plays when
+/// it is near enough ([`super::voice_budget::attach_looping_voice`]), a
+/// one-shot as a player at once. Uses `try_insert` so an insert on a
+/// despawned target is a silent no-op - the orphan case (room rebuild
+/// between dispatch and bake completion) is common enough during editing
+/// that warn-logs would drown the channel, and in Bevy 0.18 a plain
+/// `insert` on a missing entity panics through the command error handler
+/// instead of dropping quietly.
 fn attach_baked_audio(
     commands: &mut Commands,
     target: Entity,
     mode: BakeAttachmentMode,
     handle: Handle<AudioSource>,
 ) {
-    let settings = match mode {
+    match mode {
         BakeAttachmentMode::LoopingConstruct { loop_start } => {
-            looping_construct_playback(loop_start)
+            super::voice_budget::attach_looping_voice(
+                commands,
+                target,
+                handle,
+                looping_construct_playback(loop_start),
+            );
         }
-        BakeAttachmentMode::OneShot { volume } => PlaybackSettings {
-            mode: PlaybackMode::Despawn,
-            spatial: true,
-            volume: Volume::Linear(volume.clamp(0.0, 1.0)),
-            ..PlaybackSettings::ONCE
-        },
-    };
-    commands
-        .entity(target)
-        .try_insert((AudioPlayer::new(handle), settings));
+        BakeAttachmentMode::OneShot { volume } => {
+            let settings = PlaybackSettings {
+                mode: PlaybackMode::Despawn,
+                spatial: true,
+                volume: Volume::Linear(volume.clamp(0.0, 1.0)),
+                ..PlaybackSettings::ONCE
+            };
+            commands
+                .entity(target)
+                .try_insert((AudioPlayer::new(handle), settings));
+        }
+    }
 }
 
 /// Resolve `audio` through the bake cache: attach immediately on a
@@ -445,8 +464,8 @@ fn request_baked_audio(
 /// Referenced will eventually flow through the audio resolver, #308).
 ///
 /// The bake runs off the main thread on `AsyncComputeTaskPool`; the
-/// poll system below attaches the resulting `AudioPlayer` to `target`
-/// once the bytes are ready.
+/// poll system below gives `target` its looping voice once the bytes are
+/// ready, and the voice budget plays it from there.
 pub fn dispatch_construct_audio(
     commands: &mut Commands,
     audio_cache: &mut super::audio_resolver::BlobAudioCache,
@@ -458,10 +477,10 @@ pub fn dispatch_construct_audio(
         // Silent / forward-compat - nothing to dispatch.
         SovereignAudioConfig::None | SovereignAudioConfig::Unknown => {}
         // External asset - hand the reference to the audio resolver,
-        // which fetches and attaches the spatial-looping AudioPlayer
-        // to `target` once bytes arrive. The settings shape matches
-        // what poll_spatial_audio_tasks would apply for the
-        // LoopingConstruct mode (spatial=true + LOOP).
+        // which fetches and gives `target` its looping voice once bytes
+        // arrive, through the same voice-budget door the bake uses. The
+        // settings shape matches what poll_spatial_audio_tasks would
+        // apply for the LoopingConstruct mode (spatial=true + LOOP).
         SovereignAudioConfig::Referenced { source } => {
             super::audio_resolver::request_blob_audio(
                 commands,
@@ -952,6 +971,92 @@ mod tests {
                 "{what}"
             );
         }
+    }
+
+    /// #1557: a construct's looping voice - baked or fetched - arrives held
+    /// back, with what it plays kept on the entity and no player yet, so the
+    /// voice budget decides whether it plays before any sink is built. A
+    /// one-shot still plays at once.
+    #[test]
+    fn a_construct_voice_arrives_held_back_and_a_one_shot_plays_at_once() {
+        use super::super::audio_resolver::{
+            AudioReferenceEntry, AudioReferenceKey, AudioReferenceTarget, BlobAudioCache,
+            request_blob_audio,
+        };
+        use super::super::voice_budget::{HeldBackVoice, LoopingVoice};
+
+        let mut world = World::new();
+        let mut clips = Assets::<AudioSource>::default();
+        let mut clip = || {
+            clips.add(AudioSource {
+                bytes: std::sync::Arc::from(Vec::new()),
+            })
+        };
+        let (baked_clip, fetched_clip, cue_clip) = (clip(), clip(), clip());
+        let (baked, fetched, cue) = (
+            world.spawn_empty().id(),
+            world.spawn_empty().id(),
+            world.spawn_empty().id(),
+        );
+        let loop_start = Some(std::time::Duration::from_secs(2));
+
+        attach_baked_audio(
+            &mut world.commands(),
+            baked,
+            BakeAttachmentMode::LoopingConstruct { loop_start },
+            baked_clip.clone(),
+        );
+        attach_baked_audio(
+            &mut world.commands(),
+            cue,
+            BakeAttachmentMode::OneShot { volume: 0.5 },
+            cue_clip,
+        );
+        // A fetched clip the resolver already holds attaches on request.
+        let reference = SovereignAssetReference::Url {
+            url: "https://example.org/hum.ogg".into(),
+        };
+        let mut cache = BlobAudioCache::default();
+        cache.insert_bounded(
+            AudioReferenceKey::from_reference(&reference).expect("a key"),
+            AudioReferenceEntry::Ready(fetched_clip.clone()),
+        );
+        request_blob_audio(
+            &mut world.commands(),
+            &mut cache,
+            &reference,
+            AudioReferenceTarget::AttachToEntity {
+                entity: fetched,
+                settings: looping_construct_playback(None),
+            },
+        );
+        world.flush();
+
+        for (what, entity, clip, start) in [
+            ("baked", baked, &baked_clip, loop_start),
+            ("fetched", fetched, &fetched_clip, None),
+        ] {
+            let voice = world.entity(entity);
+            assert!(voice.contains::<HeldBackVoice>(), "{what}: held back");
+            assert!(
+                !voice.contains::<AudioPlayer>() && !voice.contains::<PlaybackSettings>(),
+                "{what}: no player until the budget gives it one"
+            );
+            let kept = voice.get::<LoopingVoice>().expect("a looping voice");
+            assert_eq!(&kept.clip, clip, "{what}: its clip");
+            assert_eq!(
+                kept.settings.start_position, start,
+                "{what}: its loop start"
+            );
+            assert!(matches!(kept.settings.mode, PlaybackMode::Loop), "{what}");
+        }
+        let cue = world.entity(cue);
+        assert!(cue.contains::<AudioPlayer>(), "a one-shot plays at once");
+        assert!(matches!(
+            cue.get::<PlaybackSettings>().expect("settings").mode,
+            PlaybackMode::Despawn
+        ));
+        assert!(!cue.contains::<LoopingVoice>() && !cue.contains::<HeldBackVoice>());
     }
 
     /// The start is asked of the recipe as gen-jobs BAKES it - clamped to the

@@ -317,6 +317,99 @@ fn sanitize_road(c: &mut crate::pds::generator::RoadConfig) {
     // Furniture (#893): spacing floor keeps a hostile record from planting
     // a prop every half-metre down every street.
     c.furniture.spacing.0 = clamp_finite(c.furniture.spacing.0, 8.0, 200.0, 30.0);
+    // The street field (#1556): every value the trace hands symbios-tensor
+    // finite and inside what it accepts, and both lists bounded, so a
+    // hostile record can neither make the tracer refuse the whole network
+    // nor have it sum a thousand fields at every step of every street.
+    sanitize_road_field(&mut c.field);
+    // The layout revision (#1558): one from a newer client reads as the
+    // latest this build derives - its streets and lots are grown by this
+    // build's latest tidy, its re-mesh and lot fingerprint key on that, and
+    // a save from here writes it back as that revision.
+    //
+    // The clamp is kept on purpose, though the derivation would not need it
+    // (`tidies_layout` is `>= 1`). A record's revision must say what its
+    // saved buildings were grown with, so an older client that regrows them
+    // writes the revision it grew them by: a silent downgrade of the field,
+    // and the consistent one. Passing an unknown revision through instead
+    // would save buildings grown by this build's tidy under a number that
+    // promises a newer one, and a newer client reading it back would take
+    // them for its own.
+    c.layout_revision = c
+        .layout_revision
+        .min(crate::pds::generator::RoadConfig::LATEST_LAYOUT);
+}
+
+/// Clamp a road network's street field (#1556) so the trace always accepts
+/// it. symbios-tensor's `TensorFieldConfig::validate` refuses a non-finite
+/// value, a negative smoothing, terrain weight or strength, and a radius
+/// that is not positive, and `generate_roads` refuses a keep-out disc
+/// likewise - and a refused field takes the whole network with it, streets,
+/// lots and all. Centres stay on any room's map, a grid's bearing is folded
+/// into `[0, 180)`, and the lists are cut to their caps. A basis field of a
+/// kind from a newer client is kept as read - it cannot be written back
+/// (#1111), and the trace ignores it - but it counts toward the cap.
+fn sanitize_road_field(field: &mut crate::pds::generator::RoadField) {
+    use crate::pds::generator::{RoadBasis, RoadField, RoadKeepOut};
+    use common::clamp_finite;
+    let clamp = |v: &mut crate::pds::Fp, range: std::ops::RangeInclusive<f32>, fallback: f32| {
+        v.0 = clamp_finite(v.0, *range.start(), *range.end(), fallback);
+    };
+    let clamp_center = |c: &mut crate::pds::Fp2| {
+        for axis in &mut c.0 {
+            *axis = clamp_finite(
+                *axis,
+                -RoadField::CENTER_LIMIT_M,
+                RoadField::CENTER_LIMIT_M,
+                0.0,
+            );
+        }
+    };
+    clamp(&mut field.smoothing, RoadField::SMOOTHING_M, 0.0);
+    clamp(&mut field.terrain_weight, RoadField::TERRAIN_WEIGHT, 1.0);
+    field.basis.truncate(RoadField::MAX_BASIS);
+    for basis in &mut field.basis {
+        match basis {
+            RoadBasis::Ring {
+                center,
+                radius,
+                strength,
+            } => {
+                clamp_center(center);
+                clamp(radius, RoadField::BASIS_RADIUS_M, RoadBasis::DEFAULT_RADIUS);
+                clamp(
+                    strength,
+                    RoadField::BASIS_STRENGTH,
+                    RoadBasis::DEFAULT_STRENGTH,
+                );
+            }
+            RoadBasis::Grid {
+                center,
+                bearing,
+                radius,
+                strength,
+            } => {
+                clamp_center(center);
+                bearing.0 = RoadBasis::canonical_bearing(bearing.0);
+                clamp(radius, RoadField::BASIS_RADIUS_M, RoadBasis::DEFAULT_RADIUS);
+                clamp(
+                    strength,
+                    RoadField::BASIS_STRENGTH,
+                    RoadBasis::DEFAULT_STRENGTH,
+                );
+            }
+            RoadBasis::Unknown => {}
+        }
+    }
+    field.keep_out.truncate(RoadField::MAX_KEEP_OUT);
+    for disc in &mut field.keep_out {
+        clamp_center(&mut disc.center);
+        clamp(
+            &mut disc.radius,
+            RoadField::KEEP_OUT_RADIUS_M,
+            RoadKeepOut::DEFAULT_RADIUS,
+        );
+    }
 }
 
 /// Clamp a whole [`Generator`] tree (root + descendants) in place. Shared
@@ -506,6 +599,175 @@ mod road_lot_override_tests {
         assert_eq!(area(1.0e9), 10_000.0);
         assert_eq!(area(f32::NAN), LotSettings::DEFAULT_LOT_AREA);
         assert_eq!(area(2400.0), 2400.0);
+    }
+}
+
+#[cfg(test)]
+mod layout_revision_tests {
+    use crate::pds::Generator;
+    use crate::pds::generator::{GeneratorKind, RoadConfig};
+
+    /// #1558: a layout revision from a newer client reads as the latest this
+    /// build derives; one it knows is kept.
+    #[test]
+    fn a_newer_layout_revision_reads_as_the_latest_this_build_knows() {
+        let sanitised = |layout_revision: u32| {
+            let mut generator = Generator::from_kind(GeneratorKind::RoadNetwork(RoadConfig {
+                layout_revision,
+                ..RoadConfig::default()
+            }));
+            super::sanitize_generator(&mut generator);
+            let GeneratorKind::RoadNetwork(road) = generator.kind else {
+                panic!("still a road network");
+            };
+            road.layout_revision
+        };
+        assert_eq!(sanitised(0), 0);
+        assert_eq!(
+            sanitised(RoadConfig::LATEST_LAYOUT),
+            RoadConfig::LATEST_LAYOUT
+        );
+        assert_eq!(
+            sanitised(RoadConfig::LATEST_LAYOUT + 1),
+            RoadConfig::LATEST_LAYOUT
+        );
+        assert_eq!(sanitised(u32::MAX), RoadConfig::LATEST_LAYOUT);
+    }
+}
+
+#[cfg(test)]
+mod road_field_tests {
+    use super::*;
+    use crate::pds::generator::{RoadBasis, RoadConfig, RoadField, RoadKeepOut};
+    use crate::pds::types::{Fp, Fp2};
+
+    fn sanitised(field: RoadField) -> RoadField {
+        let mut generator = Generator {
+            kind: GeneratorKind::RoadNetwork(RoadConfig {
+                field,
+                ..RoadConfig::default()
+            }),
+            ..Default::default()
+        };
+        sanitize_generator(&mut generator);
+        let GeneratorKind::RoadNetwork(road) = generator.kind else {
+            panic!("the sanitiser keeps the variant");
+        };
+        road.field
+    }
+
+    fn ring(center: [f32; 2], radius: f32, strength: f32) -> RoadBasis {
+        RoadBasis::Ring {
+            center: Fp2(center),
+            radius: Fp(radius),
+            strength: Fp(strength),
+        }
+    }
+
+    fn grid(center: [f32; 2], bearing: f32, radius: f32, strength: f32) -> RoadBasis {
+        RoadBasis::Grid {
+            center: Fp2(center),
+            bearing: Fp(bearing),
+            radius: Fp(radius),
+            strength: Fp(strength),
+        }
+    }
+
+    fn disc(center: [f32; 2], radius: f32) -> RoadKeepOut {
+        RoadKeepOut {
+            center: Fp2(center),
+            radius: Fp(radius),
+        }
+    }
+
+    /// #1556: the street field is held to what the tracer takes - radii
+    /// 5-1024 m (discs 2-512 m), strengths 0-10, smoothing 0-100 m, terrain
+    /// weight 0-10, centres finite and within 1024 m of the origin, a grid's
+    /// bearing folded into `[0, 180)` - with a non-finite value at its
+    /// default, at most 8 basis fields and 16 discs, a kind from a newer
+    /// client kept as read, and a field already inside its bounds untouched.
+    #[test]
+    fn the_street_field_is_clamped_to_what_the_tracer_takes() {
+        let scalars = |smoothing: f32, terrain_weight: f32| {
+            let f = sanitised(RoadField {
+                smoothing: Fp(smoothing),
+                terrain_weight: Fp(terrain_weight),
+                ..RoadField::default()
+            });
+            (f.smoothing.0, f.terrain_weight.0)
+        };
+        assert_eq!(scalars(-5.0, -1.0), (0.0, 0.0));
+        assert_eq!(scalars(1.0e9, 50.0), (100.0, 10.0));
+        assert_eq!(scalars(f32::NAN, f32::INFINITY), (0.0, 1.0));
+        assert_eq!(scalars(12.5, 0.25), (12.5, 0.25));
+
+        let mut basis = vec![
+            ring([f32::NAN, 5000.0], 0.0, -1.0),
+            ring([f32::NEG_INFINITY, -5000.0], 1.0e6, f32::INFINITY),
+            grid([12.5, -7.0], -30.0, f32::NAN, 50.0),
+            grid([0.0, 0.0], 540.0, 3.0, 2.0),
+            grid([0.0, 0.0], 190.0, 120.0, 1.0),
+            grid([0.0, 0.0], f32::NAN, 120.0, 1.0),
+            grid([0.0, 0.0], -1.0e-8, 120.0, 1.0),
+            RoadBasis::Unknown,
+        ];
+        basis.extend(std::iter::repeat_n(ring([1.0, 2.0], 50.0, 1.0), 100));
+        let clean = sanitised(RoadField {
+            basis,
+            ..RoadField::default()
+        });
+        assert_eq!(
+            clean.basis,
+            vec![
+                ring([0.0, 1024.0], 5.0, 0.0),
+                ring([0.0, -1024.0], 1024.0, RoadBasis::DEFAULT_STRENGTH),
+                grid([12.5, -7.0], 150.0, RoadBasis::DEFAULT_RADIUS, 10.0),
+                grid([0.0, 0.0], 0.0, 5.0, 2.0),
+                grid([0.0, 0.0], 10.0, 120.0, 1.0),
+                grid([0.0, 0.0], 0.0, 120.0, 1.0),
+                grid([0.0, 0.0], 0.0, 120.0, 1.0),
+                RoadBasis::Unknown,
+            ],
+            "cut to the first {} and each held to its bounds",
+            RoadField::MAX_BASIS
+        );
+
+        let mut keep_out = vec![
+            disc([f32::NAN, 2000.0], 0.0),
+            disc([-2000.0, f32::INFINITY], 1.0e6),
+            disc([3.0, 4.0], f32::NAN),
+            disc([-12.5, 30.0], 45.5),
+        ];
+        keep_out.extend(std::iter::repeat_n(disc([1.0, 2.0], 10.0), 100));
+        let clean = sanitised(RoadField {
+            keep_out,
+            ..RoadField::default()
+        });
+        assert_eq!(clean.keep_out.len(), RoadField::MAX_KEEP_OUT);
+        assert_eq!(
+            clean.keep_out[..4],
+            [
+                disc([0.0, 1024.0], 2.0),
+                disc([-1024.0, 0.0], 512.0),
+                disc([3.0, 4.0], RoadKeepOut::DEFAULT_RADIUS),
+                disc([-12.5, 30.0], 45.5),
+            ]
+        );
+
+        let inside = RoadField {
+            smoothing: Fp(30.0),
+            terrain_weight: Fp(0.5),
+            basis: vec![
+                ring([90.0, -10.0], 200.0, 1.5),
+                grid([5.0, 5.0], 37.5, 80.0, 0.25),
+            ],
+            keep_out: vec![disc([40.0, 60.0], 25.0)],
+        };
+        assert_eq!(
+            sanitised(inside.clone()),
+            inside,
+            "a sane field is left alone"
+        );
     }
 }
 

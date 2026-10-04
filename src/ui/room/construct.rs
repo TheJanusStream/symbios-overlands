@@ -241,15 +241,17 @@ pub(crate) fn make_default_for_kind(kind: &str) -> GeneratorKind {
         "Water" => GeneratorKind::Water {
             surface: WaterSurface::default(),
         },
-        // A new network stops at the shore (#1552) and fits its buildings
-        // to their lots (#1553); both fields' own defaults stay off so
-        // networks saved before them grow as they did.
+        // A new network stops at the shore (#1552), fits its buildings to
+        // their lots (#1553) and takes the latest street plan (#1558); each
+        // field's own default stays off so networks saved before them grow
+        // as they did.
         "RoadNetwork" => GeneratorKind::RoadNetwork(crate::pds::generator::RoadConfig {
             avoid_water: true,
             lots: crate::pds::generator::LotSettings {
                 fit: true,
                 ..Default::default()
             },
+            layout_revision: crate::pds::generator::RoadConfig::LATEST_LAYOUT,
             ..Default::default()
         }),
         "Sign" => GeneratorKind::default_sign(),
@@ -490,6 +492,11 @@ mod kind_change_tests {
             "the editor's new network stops at the shore"
         );
         assert!(fresh.lots.fit, "and fits its buildings to their lots");
+        assert_eq!(
+            fresh.layout_revision,
+            crate::pds::generator::RoadConfig::LATEST_LAYOUT,
+            "and takes the latest street plan (#1558)"
+        );
         let saved: crate::pds::generator::RoadConfig =
             serde_json::from_value(serde_json::json!({"seed": "7"})).expect("an old network reads");
         assert!(
@@ -497,6 +504,7 @@ mod kind_change_tests {
             "a network saved before the field traces as it always did"
         );
         assert!(!saved.lots.fit, "and grows its buildings at catalogue size");
+        assert_eq!(saved.layout_revision, 0, "on the original street plan");
     }
 
     /// The one genuinely lossy switch used to strand the children in the

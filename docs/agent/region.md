@@ -901,17 +901,86 @@ built this way; its builder is `exports/eigen/b/city.py`.
   nearest it). Without a core the BIGGEST lots take the landmarks, and
   those lie at the district's ragged edge: Isoline's first trial stood its
   megatowers on the outskirts and small blocks on the waterfront.
+- **Shape the plan with a street field** (#1556): `field` on the network.
+  Its `basis` lays designer fields over the land's own - a
+  `network.symbios.road_basis.ring` (major streets ring its `center`,
+  minor streets run straight out from it) or a
+  `network.symbios.road_basis.grid` (major streets along its `bearing`, a
+  compass bearing: 0 north-south, 90 east-west; minor streets square to
+  them) - each reaching `radius` m from its centre, its `strength` (1 pulls
+  as hard as the land) fading to nothing at the edge; beyond every field
+  the land decides alone. `terrain_weight` (default 1) trades the land
+  against the fields inside their reach (0: the fields alone decide there),
+  `smoothing` (m, default 0) reads the street directions off land blurred
+  over that scale, so streets sweep along a hillside instead of turning at
+  every bump, and `keep_out` lists discs (`center`, `radius`) no street
+  enters and no lot grows a building in. Centres are room metres (X, Z),
+  like the district's own. The sanitiser clamps what it cannot take, with
+  no warning: at most 8 fields and 16 discs, centres within 1,024 m of the
+  origin on each axis, a field's radius 5-1,024 m and strength 0-10, a
+  disc's radius 2-512 m, smoothing up to 100 m, terrain weight up to 10,
+  and a bearing folded into 0-180 (180 is the grid at 0). On the wire
+  every value is x10,000, as everywhere: a ring reaching 150 m from the
+  point (40, -25) at strength 1 is
+  `"field": {"basis": [{"$type": "network.symbios.road_basis.ring",
+  "center": [400000, -250000], "radius": 1500000, "strength": 10000}]}`.
+  Any field edit re-traces the whole district and regrows its lots.
+- **Tidy the plan with the layout revision** (#1558): `layout_revision` on
+  the network. 0 - every network saved before it, and what a network
+  without the field reads as - is the plan its lots were grown from, byte
+  for byte. 1 tidies the traced streets: junctions joined by a street
+  shorter than 2.5 major footprints (about 10 m) or a third of
+  `minor_spacing`, whichever is less, merge into one - never into a
+  cluster wider than that, so a wide street on a dense plan merges the
+  junctions of one junction, not a district; two streets running side by
+  side (within 15 degrees, for 20 m and 40% of the shorter) closer than a
+  quarter of `minor_spacing` or than their curbs plus 2 m - but never half
+  of `minor_spacing` or more, and never with room for a lot (6 m and a 2 m
+  sidewalk either side) between their curbs - go down to one; a loop
+  street round less than a quarter of a nominal block and a second street
+  between the same two junctions three or more times as long as the first
+  (a detour, not the far side of a thin block) are opened, judged on the
+  plan as traced - once the district edge has cut the streets leaving a
+  real block's corners, that block reads as a loop - and so is a face
+  smaller than 5% of a nominal block; a dead end shorter than half
+  `minor_spacing`, and never longer than four street widths (33 m at the
+  default widths), goes; each street takes one road class; and streets end
+  at the drawn district's edge instead of running on past it - so no block
+  is closed by a street nobody sees, and the blocks at the rim grow no
+  lots (Isoline: 44 lots at 0, 29 at 1 - cutting its plan to the drawn
+  district alone leaves 29). Every lot then keeps 2 m clear of every
+  street's curb (its sides facing a neighbouring lot keep their own
+  setbacks), no street prop stands on a street, and no building or prop is
+  grown larger than its lot: a lot too small for every building of its mix
+  grows nothing, and the road panel counts those. Small lots pay most for
+  the clearance - at the default 400 m2 lot area half the lots are
+  7 to 8 m across their short side, and one facing a major street gives up
+  3 m of it - so a dense plan of wide streets grows few lots or none:
+  raise `lots.lot_area`, or narrow the streets. The editor's new networks
+  take 1, an older one shows `Upgrade to revision 1` on its road panel,
+  and in a record it is `"layout_revision": 1` - a plain number, not
+  x10,000. Changing it re-traces the district and regrows its lots, as any
+  layout edit does. A revision this build does not know reads as its
+  latest. How the streets are drawn - junction decks, curbs - is not part
+  of it: every client meshes the plan itself, so a meshing fix reaches
+  every network.
 - **Streets run through what you placed.** The trace knows nothing of the
   room's placements: Isoline's streets ran through the Spire's podium on
-  the shore. Stand a landmark where no street goes - in the water, with
-  `avoid_water` on - or outside the district (keep-out discs come with
-  symbios-tensor's next release, #1556).
+  the shore. Stand a landmark where no street goes - in a keep-out disc
+  (above), in the water with `avoid_water` on, or outside the district. A
+  street can still graze a disc's rim by a few metres where it snaps onto
+  a junction beside it, a street passing the disc keeps only its
+  centreline outside (its deck, curb and street furniture reach a few
+  metres further in), and a lot is dropped only when its centre is in the
+  disc, so give a landmark's disc a margin beyond its footprint.
 - **Pave it.** Between the streets is the terrain's own splat: sand reads
   as a desert with roads on it. A splat layer can be any texture: `Pavers`
   in the city's height band (pale, `color_stone` about 0.66) made it a
   city (`exports/eigen/b/ground.py`).
-- **Count before saving**: the catalogue's city buildings are part-heavy (a
-  neon megatower is 58 parts). Isoline's 61 buildings and its streets are
+- **Count before saving**: the catalogue's city buildings are part-heavy (the
+  supertall tower `neon_megatower` is 37 parts and the helix tower
+  `data_spire` 48 as the record counts them since #1559; the old neon
+  megatower was 58). Isoline's 61 buildings and its streets are
   2,938 parts and 819k triangles; 400 m2 lots would have grown 160
   buildings. The lots' generators are written into the record (one per
   building and drawn scale): 418 KB of compact JSON in all, 45% of the live

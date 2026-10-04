@@ -8,6 +8,7 @@
 //! (a dead-end #579, a perimeter clip #582) gets an explicit cross-section cap.
 
 use crate::urban::math::{cross, dot, normalize, sub3};
+use crate::urban::truncation::ChainEnds;
 use crate::urban::{Chain, ChainSample, Dims, RoadEnd, RoadParts};
 
 /// Spacing (m) of ribbon cross-sections along a road. Straight edges are
@@ -154,6 +155,8 @@ pub(crate) fn quad_normal(
 /// the resolved per-frame deck height ([`crate::urban::level_chain`], with junction pins folded
 /// in by the network pass) - both supplied by the caller so the heightmap is
 /// sampled exactly once and the pre-pass and mesh agree to the bit (#584).
+/// `ends` says how each end closes (#1558): the hub it opens into, where it
+/// records its mouth, or an end cap.
 #[allow(clippy::too_many_arguments)] // each arg is a distinct input/sink.
 pub(crate) fn extrude_ribbon(
     chain: &Chain,
@@ -161,7 +164,7 @@ pub(crate) fn extrude_ribbon(
     base_y: &[f32],
     world_offset: [f32; 2],
     dims: &Dims,
-    degree: &[u32],
+    ends: ChainEnds,
     road_ends: &mut Vec<RoadEnd>,
     parts: &mut RoadParts,
 ) {
@@ -192,24 +195,27 @@ pub(crate) fn extrude_ribbon(
         })
         .collect();
 
-    // Record this chain's ends that abut a junction (degree ≥ 3) so the hub
-    // builder can meet each road at its exact deck mouth and height.
+    // Record this chain's ends that open into a hub so the hub builder can
+    // meet each road at its exact deck mouth, heading and height.
     let last = frames.len() - 1;
-    for (slot, &nd) in chain.end_nodes.iter().enumerate() {
-        if degree.get(nd).copied().unwrap_or(0) < 3 {
+    for (slot, hub) in ends.hub.iter().enumerate() {
+        let Some(hub) = *hub else {
             continue;
-        }
-        let f = &frames[if slot == 0 { 0 } else { last }];
-        road_ends.push(RoadEnd {
-            node: nd,
-            cx: f.cx,
-            cz: f.cz,
-            rx: f.rx,
-            rz: f.rz,
-            half_w,
-            deck_y: f.base_y,
-            skirt_y: f.skirt_bottom_y,
-        });
+        };
+        let (f, g) = if slot == 0 {
+            (&frames[0], &frames[1])
+        } else {
+            (&frames[last], &frames[last - 1])
+        };
+        road_ends.push(mouth(
+            chain,
+            slot,
+            hub,
+            ends.trim[slot],
+            [(f.cx, f.cz), (g.cx, g.cz)],
+            f.base_y,
+            f.skirt_bottom_y,
+        ));
     }
 
     // Cumulative cross-section perimeter, for the U coordinate.
@@ -302,13 +308,13 @@ pub(crate) fn extrude_ribbon(
 
     // End caps: an open chain end leaves the extruded cross-section open - a
     // visible hollow tube into the road's underside. Close it with a flat
-    // cross-section cap facing outward (away from the ribbon). Two ends need it:
-    // a degree-1 dead-end / cul-de-sac (#579), and a district-edge clip running
-    // off the network perimeter (#582, `chain.clip[slot]`). Junctions (degree ≥ 3)
-    // are closed by their hub; a loop closure / used-edge break stays open.
-    for (slot, &nd) in chain.end_nodes.iter().enumerate() {
-        let is_dead_end = degree.get(nd).copied().unwrap_or(0) == 1;
-        if !is_dead_end && !chain.clip[slot] {
+    // cross-section cap facing outward (away from the ribbon). The junction
+    // plan says which ends need it: a dead-end / cul-de-sac (#579), a
+    // district-edge clip running off the network perimeter (#582), and a
+    // junction whose hub kept only this arm (#1558). An end opening into a
+    // hub is closed by it; a loop closure / used-edge break stays open.
+    for slot in 0..2 {
+        if !ends.cap[slot] {
             continue;
         }
         let (fe, fi) = if slot == 0 {
@@ -332,6 +338,81 @@ pub(crate) fn extrude_ribbon(
         let pts: [[f32; 3]; 10] = std::array::from_fn(|pi| world(fe, pi));
         push_end_cap(parts, &pts, &prof, outward);
     }
+}
+
+/// The mouth chain end `slot`, pulled back `trim` metres, opens into `hub`
+/// with: its end frame centre `ends[0]`, the heading away from the hub along
+/// the end segment to the next frame `ends[1]` (which the mouth frame's
+/// right axis is perpendicular to), its deck and skirt-bottom heights, and
+/// the stub of chain from its node to the mouth that the hub draws.
+fn mouth(
+    chain: &Chain,
+    slot: usize,
+    hub: usize,
+    trim: f32,
+    ends: [(f32, f32); 2],
+    deck_y: f32,
+    skirt_y: f32,
+) -> RoadEnd {
+    let [(cx, cz), (nx, nz)] = ends;
+    let (hx, hz) = (nx - cx, nz - cz);
+    let len = hx.hypot(hz).max(1.0e-6);
+    // The first `trim` metres of the chain from its node end, ending exactly
+    // on the mouth centre.
+    let mut pts = chain.pts.clone();
+    if slot == 1 {
+        pts.reverse();
+    }
+    let mut spine = vec![pts[0]];
+    let mut walked = 0.0_f32;
+    for w in pts.windows(2) {
+        let seg = (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1);
+        if walked + seg >= trim - 1.0e-4 {
+            break;
+        }
+        walked += seg;
+        spine.push(w[1]);
+    }
+    spine.push((cx, cz));
+    RoadEnd {
+        hub,
+        node: chain.end_nodes[slot],
+        cx,
+        cz,
+        dx: hx / len,
+        dz: hz / len,
+        half_w: chain.half_w,
+        deck_y,
+        skirt_y,
+        spine,
+    }
+}
+
+/// The mouths a chain's sampled frames open into hubs with, before any deck
+/// height is resolved (heights 0) - what the levelling reads the hubs'
+/// outlines from (#1558).
+pub(crate) fn sample_mouths(chain: &Chain, sample: &ChainSample, ends: ChainEnds) -> Vec<RoadEnd> {
+    let f = &sample.frames;
+    let last = f.len() - 1;
+    (0..2)
+        .filter_map(|slot| {
+            let hub = ends.hub[slot]?;
+            let (a, b) = if slot == 0 {
+                (&f[0], &f[1])
+            } else {
+                (&f[last], &f[last - 1])
+            };
+            Some(mouth(
+                chain,
+                slot,
+                hub,
+                ends.trim[slot],
+                [(a.cx, a.cz), (b.cx, b.cz)],
+                0.0,
+                0.0,
+            ))
+        })
+        .collect()
 }
 
 /// Cap a degree-1 dead-end's open cross-section (#579): a flat end wall filling

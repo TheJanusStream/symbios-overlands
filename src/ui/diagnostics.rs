@@ -839,6 +839,12 @@ fn row_note(metric: &str) -> Option<&'static str> {
             "The longest single frame in the last second. The smoothed figure \
              above is an average and cannot see a stutter.",
         ),
+        names::AUDIO_SPATIAL_HELD_BACK_VOICES => Some(
+            "Hums and engine sounds left out of the mix because they are too \
+             far away to hear, farther than the nearest ones that play, or \
+             muted. They cost nothing, and each starts again as you come near \
+             or unmute.",
+        ),
         _ => None,
     }
 }
@@ -1212,6 +1218,11 @@ fn health_cards(tab: DiagTab, metrics: &MetricsRegistry) -> Vec<Card> {
                         "Looping voices",
                         g(names::AUDIO_SPATIAL_ACTIVE_SINKS),
                         names::AUDIO_SPATIAL_ACTIVE_SINKS,
+                    ),
+                    (
+                        "Voices held back",
+                        g(names::AUDIO_SPATIAL_HELD_BACK_VOICES),
+                        names::AUDIO_SPATIAL_HELD_BACK_VOICES,
                     ),
                     (
                         "Contact cues",
@@ -2286,6 +2297,8 @@ mod tests {
             names::RECORD_SIZE_AVATAR_BYTES,
             names::RECORD_SIZE_INVENTORY_BYTES,
             names::RUNTIME_FRAME_TIME_MAX_MS,
+            // #1557: the voice budget's count sits under the looping one.
+            names::AUDIO_SPATIAL_HELD_BACK_VOICES,
         ] {
             assert!(row_note(metric).is_some(), "{metric} lost its note");
             assert!(

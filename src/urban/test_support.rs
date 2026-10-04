@@ -13,6 +13,7 @@ use symbios_tensor::{RoadGraph, RoadType};
 use crate::pds::generator::RoadConfig;
 use crate::urban::graph::active_adjacency;
 use crate::urban::levelling::RawFrame;
+use crate::urban::truncation::{ChainEnds, Hub};
 use crate::urban::{
     Chain, ChainSample, Dims, RoadEnd, RoadGeometry, RoadParts, extrude_ribbon, level_chain,
     sample_chain,
@@ -43,10 +44,35 @@ pub(crate) fn extrude_chain(
             &base_y,
             world_offset,
             dims,
-            degree,
+            node_ends(chain, degree, [start_trim, end_trim]),
             road_ends,
             parts,
         );
+    }
+}
+
+/// How `chain`'s ends close when every junction node (degree ≥ 3) is its
+/// own hub, numbered by the node, and a degree-1 or clipped end is capped -
+/// the plan of a network with no junction cluster, for tests that drive one
+/// chain at a time. Pair it with [`node_hubs`].
+pub(crate) fn node_ends(chain: &Chain, degree: &[u32], trim: [f32; 2]) -> ChainEnds {
+    let deg = |slot: usize| degree.get(chain.end_nodes[slot]).copied().unwrap_or(0);
+    ChainEnds {
+        hub: [0, 1].map(|slot| (deg(slot) >= 3).then_some(chain.end_nodes[slot])),
+        cap: [0, 1].map(|slot| deg(slot) == 1 || chain.clip[slot]),
+        trim,
+    }
+}
+
+/// A single-node hub at `at` holding node 0 - for tests that build its
+/// road ends by hand.
+pub(crate) fn hub_at(at: (f32, f32)) -> Hub {
+    Hub {
+        nodes: vec![0],
+        points: vec![at],
+        links: Vec::new(),
+        centre: at,
+        arms: Vec::new(),
     }
 }
 
@@ -116,6 +142,27 @@ pub(crate) fn weld_graph(nodes: &[(f32, f32)], edges: &[(u32, u32)]) -> RoadGrap
     }
     for &(s, e) in edges {
         g.add_edge(s, e, RoadType::Minor);
+    }
+    g
+}
+
+/// A graph from XZ node positions (window metres) and `(start, end,
+/// major)` edges.
+pub(crate) fn typed_graph(nodes: &[(f32, f32)], edges: &[(u32, u32, bool)]) -> RoadGraph {
+    let mut g = RoadGraph::default();
+    for &(x, z) in nodes {
+        g.add_node(glam::Vec2::new(x, z));
+    }
+    for &(s, e, major) in edges {
+        g.add_edge(
+            s,
+            e,
+            if major {
+                RoadType::Major
+            } else {
+                RoadType::Minor
+            },
+        );
     }
     g
 }

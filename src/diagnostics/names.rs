@@ -308,17 +308,27 @@ pub const OFFLOAD_TEXTURE_BAKE_LATENCY_MS: &str = "offload.texture_bake.latency_
 pub const OFFLOAD_JOB_ERROR_COUNT: &str = "offload.job.error_count";
 
 // ---- spatial audio (#802) -------------------------------------------------
-/// Live looping spatial-audio voices - construct hums + avatar engine voices.
-/// Each is a per-frame rodio spatialise-and-mix, so this is the prime suspect
-/// for sustained vehicle-scene lag (as opposed to a one-off spawn hitch).
+/// Live looping voices - construct hums + avatar engine voices, and every
+/// other looping player, such as the room's ambient bed and an editor
+/// audition. Rodio mixes each of them for every sample, so this is the
+/// prime suspect for sustained vehicle-scene lag (as opposed to a one-off
+/// spawn hitch). Since the voice budget (#1557) it counts only the
+/// voices that hold a player; the ones the budget keeps out of the mix are
+/// [`AUDIO_SPATIAL_HELD_BACK_VOICES`].
 pub const AUDIO_SPATIAL_ACTIVE_SINKS: &str = "audio.spatial.active_sinks";
-/// Retained baked-audio cache entries (distinct voice / construct patches).
+/// Looping construct and engine voices the voice budget is holding out of the
+/// mix (#1557): too far from the listener to hear, farther than the nearest
+/// the budget keeps, or silenced by the master mute or a peer mute. They
+/// cost the mixer nothing; the number says how much the budget is saving,
+/// beside the looping gauge that says what plays.
+pub const AUDIO_SPATIAL_HELD_BACK_VOICES: &str = "audio.spatial.held_back_voices";
 /// One-shot contact-cue voices currently mixing (#1252 f316). Counted apart
 /// from the looping gauge because they are the subsystem a careless or
 /// hostile room saturates, and they spawn `PlaybackMode::Despawn` - so the
 /// looping gauge read 0 while 24 of them mixed, which is worse than no
 /// gauge: it actively rules out the correct diagnosis.
 pub const AUDIO_CONTACT_ACTIVE_VOICES: &str = "audio.contact.active_voices";
+/// Retained baked-audio cache entries (distinct voice / construct patches).
 pub const AUDIO_BAKE_CACHE_ENTRIES: &str = "audio.bake.cache_entries";
 /// Total bytes of retained baked-audio buffers - the cache's memory footprint.
 pub const AUDIO_BAKE_CACHE_BYTES: &str = "audio.bake.cache_bytes";
@@ -410,6 +420,7 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (OFFLOAD_JOB_ERROR_COUNT, MetricKind::Counter),
     // spatial audio (#802)
     (AUDIO_SPATIAL_ACTIVE_SINKS, MetricKind::Gauge),
+    (AUDIO_SPATIAL_HELD_BACK_VOICES, MetricKind::Gauge),
     (AUDIO_CONTACT_ACTIVE_VOICES, MetricKind::Gauge),
     (AUDIO_BAKE_CACHE_ENTRIES, MetricKind::Gauge),
     (AUDIO_BAKE_CACHE_BYTES, MetricKind::Gauge),

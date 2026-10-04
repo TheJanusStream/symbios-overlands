@@ -12,9 +12,11 @@
 //! * **Per-entity (constructs)** - a Generator carrying a Referenced
 //!   audio source spawns a construct entity that should hum / drone /
 //!   chime at its world position via spatial audio.
-//!   [`AudioReferenceTarget::AttachToEntity`] inserts an
-//!   [`AudioPlayer`] + [`PlaybackSettings`] on that entity once bytes
-//!   land.
+//!   [`AudioReferenceTarget::AttachToEntity`] gives that entity its
+//!   looping voice once bytes land
+//!   ([`super::voice_budget::attach_looping_voice`]), and the voice
+//!   budget inserts the [`AudioPlayer`] + [`PlaybackSettings`] while
+//!   the entity is near enough to hear (#1557).
 //! * **Resource (ambient)** - the loading-gate ambient bake (#297)
 //!   uses [`AudioReferenceTarget::AmbientHandle`] to publish the
 //!   resolved handle into [`crate::loading::AmbientHandle`] so the
@@ -34,7 +36,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use bevy::audio::{AudioPlayer, AudioSource, PlaybackSettings};
+use bevy::audio::{AudioSource, PlaybackSettings};
 use bevy::prelude::*;
 use bevy::tasks::{IoTaskPool, Task};
 
@@ -96,8 +98,9 @@ impl AudioReferenceKey {
 /// inside the cache resource.
 #[derive(Clone, Debug)]
 pub enum AudioReferenceTarget {
-    /// Spatial-construct case - attach an `AudioPlayer` + the supplied
-    /// `PlaybackSettings` to `entity` once the bake resolves.
+    /// Spatial-construct case - give `entity` a looping voice that plays
+    /// the clip with the supplied `PlaybackSettings` once the fetch
+    /// resolves, played and held back by the voice budget like a baked one.
     AttachToEntity {
         entity: Entity,
         settings: PlaybackSettings,
@@ -397,12 +400,11 @@ fn apply_target(
 ) {
     match target {
         AudioReferenceTarget::AttachToEntity { entity, settings } => {
-            // `try_insert`: the entity may have despawned between bake dispatch
-            // and completion (room rebuild). In Bevy 0.18 a plain `insert` on a
-            // missing entity panics through the command error handler.
-            commands
-                .entity(*entity)
-                .try_insert((AudioPlayer::new(handle), *settings));
+            // The entity may have despawned between dispatch and completion
+            // (room rebuild); the voice-budget door inserts with `try_insert`,
+            // because a plain `insert` on a missing entity panics through the
+            // command error handler.
+            super::voice_budget::attach_looping_voice(commands, *entity, handle, *settings);
         }
         AudioReferenceTarget::AmbientHandle => {
             commands.insert_resource(crate::loading::AmbientHandle(Some(handle)));

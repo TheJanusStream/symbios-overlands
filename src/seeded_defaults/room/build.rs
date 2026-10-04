@@ -791,7 +791,14 @@ fn build_member_generator(
     // Escalation-driven geometric damage: lean / settle / collapse the
     // structure by the room's conflict tier (the Ruins modifier).
     // Deterministic in the member's grammar seed; calm rooms are untouched.
-    crate::pds::ruin::apply_ruin(&mut member_gen, escalation, member.grammar_seed);
+    // A tall entry bounds the lean (#1559); every other entry's is the
+    // tier's own, as it always was.
+    crate::pds::ruin::apply_ruin_bounded(
+        &mut member_gen,
+        escalation,
+        member.grammar_seed,
+        entry.ruin_max_lean(),
+    );
     scale_about_ground(&mut member_gen, member.scale);
     Some(member_gen)
 }
@@ -816,9 +823,10 @@ pub(crate) fn scale_about_ground(generator: &mut Generator, scale: f32) {
 /// A terrain-snapped, water-avoiding [`Placement::Absolute`] for a settlement
 /// member at its derived offset and yaw, referencing `generator_ref`. Its
 /// scale is the generator's own ([`scale_about_ground`]); the placement keeps
-/// a unit scale and carries the footprint at the size the member is drawn
-/// (`member.clearance`). Sunk 0.35 m below the snap so foundations bite into
-/// slopes instead of leaving daylight gaps under the downhill edge.
+/// a unit scale and carries the ground it stands on at the size the member
+/// is drawn ([`member_ground_radius`]). Sunk 0.35 m below the snap so
+/// foundations bite into slopes instead of leaving daylight gaps under the
+/// downhill edge.
 fn member_placement(
     generator_ref: String,
     member: &crate::seeded_defaults::SettlementMember,
@@ -833,9 +841,19 @@ fn member_placement(
         },
         snap_to_terrain: true,
         avoid_water: true,
-        avoid_water_clearance: Fp(member.clearance),
+        avoid_water_clearance: Fp(member_ground_radius(member)),
         seed: None,
     }
+}
+
+/// The ground a member's placement stands on, at the size it is drawn: the
+/// entry's own [`ground_radius`](crate::catalogue::CatalogueEntry::ground_radius)
+/// times the member's scale where it declares one (#1559), else the
+/// member's clearance - what every placement carried before, unchanged.
+fn member_ground_radius(member: &crate::seeded_defaults::SettlementMember) -> f32 {
+    crate::catalogue::by_slug(member.slug)
+        .and_then(|entry| entry.ground_radius())
+        .map_or(member.clearance, |radius| radius * member.scale)
 }
 
 /// Build an [`Environment`] whose colour fields are taken from a

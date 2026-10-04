@@ -69,6 +69,9 @@
 //! * [`spatial_audio`] - per-construct bake-and-attach: the
 //!   [`crate::loading`] ambient pipeline at per-entity granularity, so a
 //!   node's `audio` field plays from that node's own position.
+//! * [`voice_budget`] - the looping-voice budget (#1557): only the nearest
+//!   audible construct hums and engine voices hold a player, and the rest
+//!   leave the mixer until the listener comes near.
 //! * [`surface_bake`] - offload-routed surface-texture bakes (#807), so wasm
 //!   generates through the worker pool instead of the upstream rayon path.
 //! * [`generator_cache`] - the shared per-generator cache family and the
@@ -105,6 +108,7 @@ mod shape;
 mod sign;
 pub mod spatial_audio;
 mod surface_bake;
+pub mod voice_budget;
 
 use crate::pds::{Placement, PropMeshType, RoomRecord, ScatterBounds};
 use crate::state::{AppState, LiveRoomRecord};
@@ -199,7 +203,10 @@ pub fn register_headless_spawn(app: &mut App) {
 /// compile's asynchronous asset work - blob images, blob audio, spatial
 /// audio bakes and offloaded surface bakes. Not registered: the editor
 /// visualiser, the rebuild toast, the asset-retry plumbing and the contact
-/// recipes, none of which has a reader in a headless app.
+/// recipes, none of which has a reader in a headless app, and the voice
+/// budget ([`voice_budget`]), which would rank for a listener the tool's
+/// cameras do not carry - so a construct's voice lands held back and the
+/// tool stays silent.
 ///
 /// Call it *with* [`register_headless_spawn`] (the resources) and
 /// `terrain::register_headless_terrain` (the heightmap the compile waits
@@ -591,6 +598,9 @@ impl Plugin for WorldBuilderPlugin {
         // The player's ground-cover draw distance (#1480), kept on every
         // scattered small copy the compile stamps.
         draw_distance::register(app);
+        // The looping-voice budget (#1557): every construct voice the pollers
+        // above attach arrives held back, and only this gives it a player.
+        voice_budget::register(app);
     }
 }
 

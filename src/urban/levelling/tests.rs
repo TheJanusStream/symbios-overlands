@@ -1,7 +1,12 @@
 use super::*;
-use crate::urban::Chain;
 use crate::urban::test_support::*;
+use crate::urban::{Chain, Dims, plan_junctions};
 use bevy_symbios_ground::HeightMap;
+
+/// The junction plan of `chains` for these active `degree`s.
+fn plan(chains: &[Chain], degree: &[u32]) -> JunctionPlan {
+    plan_junctions(chains, degree, &Dims::from_config(&cfg(7)))
+}
 
 /// #584 STEP-A lock: with no junction pins, `level_chain` is the #573 two-pass
 /// upward grade limit - a flat floor stays flat, a dip is bridged UPWARD (never
@@ -75,7 +80,8 @@ fn level_network_pins_all_arm_mouths_to_the_max() {
         Some(mk_sample(&[(0.0, -1.0), (0.0, -30.0)], &[3.0, 0.0])),
     ];
     let degree = vec![3u32, 1, 1, 1];
-    let base = level_network(&chains, &samples, &degree, &hm);
+    let plan = plan(&chains, &degree);
+    let base = level_network(&chains, &samples, &plan, &[], &hm);
     for (ci, b) in base.iter().enumerate() {
         assert!(
             (b[0] - 3.0).abs() < 1.0e-3,
@@ -94,7 +100,7 @@ fn level_network_pins_all_arm_mouths_to_the_max() {
     }
     assert_eq!(
         base,
-        level_network(&chains, &samples, &degree, &hm),
+        level_network(&chains, &samples, &plan, &[], &hm),
         "not deterministic"
     );
 }
@@ -145,7 +151,8 @@ fn level_network_two_junction_chain_levels_both_junctions() {
         Some(mk_sample(&[(40.0, 0.0), (40.0, -30.0)], &[1.0, 0.0])),
     ];
     let degree = vec![3u32, 3, 1, 1, 1, 1];
-    let base = level_network(&chains, &samples, &degree, &hm);
+    let plan = plan(&chains, &degree);
+    let base = level_network(&chains, &samples, &plan, &[], &hm);
     let last = base[0].len() - 1;
     let (h0, h1) = (base[0][0], base[0][last]);
     // Both junctions are internally flat (all incident mouths share one height).

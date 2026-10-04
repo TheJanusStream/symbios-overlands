@@ -286,37 +286,42 @@ pub(super) fn find_part(slug: &str, count: usize) {
     }
 }
 
-/// Reproduce a room's heightmap + road config and print the road-graph
-/// diagnostics (see [`crate::urban::road_graph_diagnostics`]) to stdout. The
-/// room is the seeded default for a `u64` seed or a DID string - the same
-/// derivation `--room` uses - so the heightmap and road network match what the
-/// game renders for that room.
-pub(super) fn dump_road_graph(room: &str) {
-    let record = match room.parse::<u64>() {
+/// Reproduce a room's heightmap + road configs and print each network's
+/// road-graph diagnostics (see [`crate::urban::road_graph_diagnostics`]) to
+/// stdout. The room is `record` when given (`--world-record`, #1558), else
+/// the seeded default for a `u64` seed or a DID string - the same derivation
+/// `--room` uses - so the heightmap and road network match what the game
+/// renders for that room.
+pub(super) fn dump_road_graph(room: &str, record: Option<RoomRecord>) {
+    let record = record.unwrap_or_else(|| match room.parse::<u64>() {
         Ok(seed) => RoomRecord::default_for_seed(seed, &format!("did:render:{seed}")),
         Err(_) => RoomRecord::default_for_did(room),
-    };
-    let Some(config) = crate::pds::find_road_config(&record).cloned() else {
+    });
+    let configs = crate::pds::find_road_configs(&record);
+    if configs.is_empty() {
         println!(
             "room {room:?}: no road config - this room grows no roads (try a road-growing theme seed)"
         );
         return;
-    };
-    if !config.enabled {
-        println!("room {room:?}: road config present but disabled");
-        return;
     }
-    println!(
-        "room {room:?}: minor_spacing {:.1} m, major_spacing {:.1} m",
-        config.minor_spacing.0, config.major_spacing.0
-    );
     let hm = crate::terrain::rebuild_heightmap_for_record(&record);
     let water = crate::world_builder::compile::room_water_level(&record);
-    match crate::urban::road_graph_diagnostics(&hm, &config, water) {
-        Some(stats) => print!("{}", stats.report(room)),
-        None => println!(
-            "room {room:?}: road graph produced no network (district window too small or tracer empty)"
-        ),
+    for (i, config) in configs.into_iter().enumerate() {
+        let label = format!("{room} network {i}");
+        if !config.enabled {
+            println!("{label}: road config present but disabled");
+            continue;
+        }
+        println!(
+            "{label}: minor_spacing {:.1} m, major_spacing {:.1} m, layout revision {}",
+            config.minor_spacing.0, config.major_spacing.0, config.layout_revision
+        );
+        match crate::urban::road_graph_diagnostics(&hm, config, water) {
+            Some(stats) => print!("{}", stats.report(&label)),
+            None => println!(
+                "{label}: road graph produced no network (district window too small or tracer empty)"
+            ),
+        }
     }
 }
 

@@ -182,6 +182,14 @@ pub struct RoadConfig {
     /// network's saved lot buildings on a new layout. The editor's new
     /// networks switch it on.
     pub avoid_water: bool,
+    /// The street field (#1556): what shapes the streets beyond the land
+    /// itself - a smoothing scale, designer fields (ring roads round a
+    /// point, a grid turned to a compass bearing) and discs no street
+    /// enters and no lot inside grows a building. Untouched (the default, and
+    /// every network saved before it) it stays off the wire and the
+    /// streets trace exactly as they always did; any edit re-traces the
+    /// whole district and regrows its lots.
+    pub field: RoadField,
     /// Optional per-surface look overrides (#891). Every `None` falls back
     /// to the room theme's road palette, so an untouched network keeps its
     /// theme identity. Appearance edits re-tint the live materials without
@@ -212,6 +220,34 @@ pub struct RoadConfig {
     /// Defaults on; older records without the field deserialise to `true`.
     #[serde(default = "default_populate_lots")]
     pub populate_lots: bool,
+    /// The street plan's layout revision (#1558): which version of the
+    /// graph tidy and the lot clearance the network's streets and lots are
+    /// derived with. 0 (the default, and every network saved before the
+    /// field) is the pipeline every saved district was grown by, byte for
+    /// byte. 1 tidies the traced street graph - junctions a few metres
+    /// apart merged into one, streets running off the drawn district cut at
+    /// its edge, doubled streets running side by side, tiny loops and short
+    /// stub streets removed - and keeps every lot clear of every street's
+    /// curb by a sidewalk's margin, growing no building larger than its
+    /// lot. Changing it re-traces the district and regrows its buildings,
+    /// so a later fix to either derivation bumps the revision rather than
+    /// adding a switch. The editor's new networks take
+    /// [`Self::LATEST_LAYOUT`]; the sanitiser reads a revision from a newer
+    /// client as the latest this build knows. How a network is MESHED is
+    /// not part of it: the mesh is rebuilt by every client and never saved.
+    pub layout_revision: u32,
+}
+
+impl RoadConfig {
+    /// The newest layout revision this build derives (#1558) - see
+    /// [`Self::layout_revision`].
+    pub const LATEST_LAYOUT: u32 = 1;
+
+    /// Whether the network's streets and lots are derived with the tidied
+    /// graph and street-clear lots of layout revision 1 or later (#1558).
+    pub fn tidies_layout(&self) -> bool {
+        self.layout_revision >= 1
+    }
 }
 
 /// Serde default for [`RoadConfig::populate_lots`] - a road network in a record
@@ -222,7 +258,7 @@ fn default_populate_lots() -> bool {
 
 /// Street-plan character for a [`RoadConfig`] (#890) - maps onto the tensor
 /// field's grid-vs-terrain blend at trace time (see
-/// `crate::urban::graph::build_road_graph_raw`). Open union so future styles
+/// `crate::urban::graph::tensor_config`). Open union so future styles
 /// degrade gracefully on older clients: `Unknown` traces as [`Self::Hillside`],
 /// the historical terrain-adaptive behavior a record without the field also
 /// gets.
@@ -428,6 +464,255 @@ impl Default for FurnitureSettings {
     }
 }
 
+/// The street field of a [`RoadConfig`] (#1556): what the tensor field its
+/// streets are traced along is made of beyond the land's own contour and
+/// fall lines. It maps onto symbios-tensor's `TensorFieldConfig`
+/// (`smoothing`, `terrain_weight`, `basis`) and `TensorConfig::keep_out` at
+/// trace time (see `crate::urban::graph::tensor_config`), every
+/// centre moved from the room frame into the district window the trace runs
+/// in and every radius kept.
+///
+/// Default-eliding wire format (#695): fields matching
+/// [`RoadField::default`] are omitted on write, and an untouched field is
+/// left off its network altogether, so a network saved before it existed
+/// writes back byte-identical and traces the same streets.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct RoadField {
+    /// Scale (m) below which the land's relief does not steer the streets:
+    /// the field's directions come from a copy of the heightmap blurred
+    /// over about this radius, so a street follows a hillside's broad form
+    /// rather than turning at every hummock on it. Street heights, the
+    /// water line and the lots still read the land itself. 0 (the default)
+    /// reads the land unblurred.
+    pub smoothing: Fp,
+    /// Weight of the land's own field against the [`Self::basis`] fields
+    /// where they reach: 1 (the default) is an equal partner of a field of
+    /// strength 1, and 0 lets the basis fields alone decide inside their
+    /// reach. Outside every basis field the land decides alone, so with no
+    /// basis field this changes nothing.
+    pub terrain_weight: Fp,
+    /// Designer fields laid over the land's and summed with it, at most
+    /// [`Self::MAX_BASIS`]. Empty (the default) is the land's field alone.
+    pub basis: Vec<RoadBasis>,
+    /// Discs no street enters and no lot centred inside grows a building,
+    /// at most [`Self::MAX_KEEP_OUT`]. Empty (the default) keeps nothing
+    /// out.
+    pub keep_out: Vec<RoadKeepOut>,
+}
+
+impl Default for RoadField {
+    fn default() -> Self {
+        Self {
+            smoothing: Fp(0.0),
+            terrain_weight: Fp(1.0),
+            basis: Vec::new(),
+            keep_out: Vec::new(),
+        }
+    }
+}
+
+// Default-eliding wire format (#695); the container `#[serde(default)]`
+// above is the matching read-side contract.
+crate::pds::serde_util::impl_default_eliding_serialize!(RoadField {
+    smoothing,
+    terrain_weight,
+    basis,
+    keep_out,
+});
+
+impl RoadField {
+    /// The most basis fields a network keeps; the sanitiser drops the rest.
+    pub const MAX_BASIS: usize = 8;
+    /// The most keep-out discs a network keeps; the sanitiser drops the
+    /// rest.
+    pub const MAX_KEEP_OUT: usize = 16;
+    /// The smoothing scale's bounds (m): the sanitiser's clamp, and the
+    /// editor's range.
+    pub const SMOOTHING_M: std::ops::RangeInclusive<f32> = 0.0..=100.0;
+    /// The terrain weight's bounds.
+    pub const TERRAIN_WEIGHT: std::ops::RangeInclusive<f32> = 0.0..=10.0;
+    /// A basis field's reach (m).
+    pub const BASIS_RADIUS_M: std::ops::RangeInclusive<f32> = 5.0..=1024.0;
+    /// A basis field's strength.
+    pub const BASIS_STRENGTH: std::ops::RangeInclusive<f32> = 0.0..=10.0;
+    /// A keep-out disc's radius (m).
+    pub const KEEP_OUT_RADIUS_M: std::ops::RangeInclusive<f32> = 2.0..=512.0;
+    /// How far from the room origin (m), on either axis, a basis field's or
+    /// a keep-out disc's centre may stand.
+    pub const CENTER_LIMIT_M: f32 = 1024.0;
+}
+
+/// One designer field of a [`RoadField`] (#1556), laid over the land's own
+/// tensor field and summed with it as a tensor (after Chen et al. 2008,
+/// "Interactive Procedural Street Modeling"). Each reaches `radius` metres
+/// from its `center`, its pull falling smoothly from `strength` there to
+/// nothing at the edge (`strength * (1 - (d/r)^2)^2`); beyond it the land
+/// decides alone. Centres are room metres (X, Z), the frame placements and
+/// the district centre use.
+///
+/// Open union: a kind from a newer client reads as [`Self::Unknown`], which
+/// the trace ignores, so an older client still traces the rest of the
+/// field. Like every `Unknown`, it cannot be written back (#1111): content
+/// this build cannot read is content it must not overwrite.
+///
+/// Its members read leniently, as [`RoadKeepOut`]'s do: one missing from
+/// the wire takes the value a new field starts with (the room origin,
+/// bearing 0, [`Self::DEFAULT_RADIUS`], [`Self::DEFAULT_STRENGTH`]), so a
+/// writer that leaves a default off never makes the whole terrain
+/// unreadable. This build writes every member.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(tag = "$type")]
+pub enum RoadBasis {
+    /// Ring roads: major streets ring `center` and minor streets run
+    /// straight out from it - the field a lone round hill there would give,
+    /// without the hill (symbios-tensor's `BasisField::Radial`).
+    #[serde(rename = "network.symbios.road_basis.ring")]
+    Ring {
+        /// The ring's centre, room metres (X, Z).
+        #[serde(default)]
+        center: Fp2,
+        /// How far the field reaches (m).
+        #[serde(default = "RoadBasis::default_radius")]
+        radius: Fp,
+        /// Its pull at the centre: 1 pulls as hard as the land does at
+        /// terrain weight 1.
+        #[serde(default = "RoadBasis::default_strength")]
+        strength: Fp,
+    },
+    /// A straight grid turned to a compass bearing: major streets run along
+    /// `bearing` and minor streets square to them (symbios-tensor's
+    /// `BasisField::Grid`).
+    #[serde(rename = "network.symbios.road_basis.grid")]
+    Grid {
+        /// The grid field's centre, room metres (X, Z).
+        #[serde(default)]
+        center: Fp2,
+        /// The compass bearing (degrees) the major streets run along:
+        /// clockwise from north, where north is -Z and east +X, so 0 runs
+        /// them north-south and 90 east-west. A grid repeats every half
+        /// turn, so the sanitiser folds it into `[0, 180)` (see
+        /// [`RoadBasis::canonical_bearing`]).
+        #[serde(default)]
+        bearing: Fp,
+        /// How far the field reaches (m).
+        #[serde(default = "RoadBasis::default_radius")]
+        radius: Fp,
+        /// Its pull at the centre: 1 pulls as hard as the land does at
+        /// terrain weight 1.
+        #[serde(default = "RoadBasis::default_strength")]
+        strength: Fp,
+    },
+    /// A kind from a newer client: kept as it was read, ignored by the
+    /// trace.
+    #[serde(other, skip_serializing)]
+    Unknown,
+}
+
+impl Default for RoadBasis {
+    /// Ring roads round the room origin at the editor's starting reach and
+    /// strength.
+    fn default() -> Self {
+        Self::ring_at(Fp2([0.0, 0.0]))
+    }
+}
+
+impl RoadBasis {
+    /// The reach (m) a field added in the editor starts with.
+    pub const DEFAULT_RADIUS: f32 = 120.0;
+    /// The strength a field added in the editor starts with: as strong as
+    /// the land at its centre.
+    pub const DEFAULT_STRENGTH: f32 = 1.0;
+
+    /// The reach a ring or grid read without one takes.
+    fn default_radius() -> Fp {
+        Fp(Self::DEFAULT_RADIUS)
+    }
+
+    /// The strength a ring or grid read without one takes.
+    fn default_strength() -> Fp {
+        Fp(Self::DEFAULT_STRENGTH)
+    }
+
+    /// Ring roads round `center` at the starting reach and strength - what
+    /// the editor's `+ Ring` adds.
+    pub fn ring_at(center: Fp2) -> Self {
+        Self::Ring {
+            center,
+            radius: Fp(Self::DEFAULT_RADIUS),
+            strength: Fp(Self::DEFAULT_STRENGTH),
+        }
+    }
+
+    /// A grid at `center` with its major streets running north-south
+    /// (bearing 0), at the starting reach and strength - what the editor's
+    /// `+ Grid` adds.
+    pub fn grid_at(center: Fp2) -> Self {
+        Self::Grid {
+            center,
+            bearing: Fp(0.0),
+            radius: Fp(Self::DEFAULT_RADIUS),
+            strength: Fp(Self::DEFAULT_STRENGTH),
+        }
+    }
+
+    /// `bearing` (degrees) folded into `[0, 180)`, the one value a grid's
+    /// bearing has: a grid at 180 is the grid at 0. A non-finite bearing
+    /// reads as 0. The sanitiser writes it and the trace reads every bearing
+    /// through it, so an owner's 180 and a guest's 0 trace the same streets
+    /// to the bit.
+    pub fn canonical_bearing(bearing: f32) -> f32 {
+        if !bearing.is_finite() {
+            return 0.0;
+        }
+        let folded = bearing.rem_euclid(180.0);
+        // `rem_euclid` rounds a hair below zero up to the modulus itself.
+        if folded >= 180.0 { 0.0 } else { folded }
+    }
+}
+
+/// A disc no street of its network enters and no lot building grows in
+/// (#1556): a plaza, a park, a landmark's ground. The tracer ends a street
+/// at its rim as it does at the shore - though a street can graze the rim
+/// by a few metres where it snaps onto a junction beside it - and a lot
+/// whose centre lies inside grows nothing, since a block of streets round
+/// the disc still encloses it. Room metres (X, Z), like [`RoadBasis`].
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(default)]
+pub struct RoadKeepOut {
+    /// The disc's centre, room metres (X, Z).
+    pub center: Fp2,
+    /// Its radius (m).
+    pub radius: Fp,
+}
+
+impl Default for RoadKeepOut {
+    fn default() -> Self {
+        Self::at(Fp2([0.0, 0.0]))
+    }
+}
+
+impl RoadKeepOut {
+    /// The radius (m) a disc added in the editor starts with.
+    pub const DEFAULT_RADIUS: f32 = 30.0;
+
+    /// A disc of the starting radius at `center` - what the editor's
+    /// `+ Keep-out` adds.
+    pub fn at(center: Fp2) -> Self {
+        Self {
+            center,
+            radius: Fp(Self::DEFAULT_RADIUS),
+        }
+    }
+
+    /// Whether the room point `p` (X, Z) lies inside the disc. Its rim is
+    /// outside, as symbios-tensor's `KeepOut::contains` counts it.
+    pub fn contains(&self, p: [f32; 2]) -> bool {
+        let (dx, dz) = (p[0] - self.center.0[0], p[1] - self.center.0[1]);
+        dx * dx + dz * dz < self.radius.0 * self.radius.0
+    }
+}
+
 /// Role emphasis for lot buildings (#892). Open union: `Unknown` populates
 /// as `Balanced`, the historical mix.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -525,6 +810,7 @@ crate::pds::serde_util::impl_default_eliding_serialize!(RoadConfig {
     center,
     style,
     avoid_water,
+    field,
     appearance,
     lots,
     furniture,
@@ -537,6 +823,7 @@ crate::pds::serde_util::impl_default_eliding_serialize!(RoadConfig {
     chamfer_width,
     skirt_depth,
     populate_lots,
+    layout_revision,
 });
 
 impl Default for RoadConfig {
@@ -548,6 +835,7 @@ impl Default for RoadConfig {
             center: Fp2([0.0, 0.0]),
             style: RoadStyle::Hillside,
             avoid_water: false,
+            field: RoadField::default(),
             appearance: RoadAppearance::default(),
             lots: LotSettings::default(),
             furniture: FurnitureSettings::default(),
@@ -560,6 +848,7 @@ impl Default for RoadConfig {
             chamfer_width: Fp(0.4),
             skirt_depth: Fp(5.0),
             populate_lots: true,
+            layout_revision: 0,
         }
     }
 }
@@ -3836,5 +4125,341 @@ mod particle_params_tests {
         let re: GeneratorKind =
             serde_json::from_value(serde_json::to_value(&kind).unwrap()).unwrap();
         assert_eq!(re, kind);
+    }
+}
+
+#[cfg(test)]
+mod layout_revision_tests {
+    use super::*;
+
+    /// #1558: a network on the original street plan writes no
+    /// `layout_revision` (every network saved before it writes back
+    /// byte-identical), and an upgraded one writes it as a plain number and
+    /// reads it back.
+    #[test]
+    fn the_layout_revision_stays_off_the_wire_until_it_is_raised() {
+        assert_eq!(
+            serde_json::to_string(&RoadConfig::default()).expect("writes"),
+            "{}"
+        );
+        let upgraded = RoadConfig {
+            layout_revision: RoadConfig::LATEST_LAYOUT,
+            ..RoadConfig::default()
+        };
+        let wire = serde_json::to_string(&upgraded).expect("writes");
+        assert_eq!(wire, r#"{"layout_revision":1}"#);
+        let back: RoadConfig = serde_json::from_str(&wire).expect("reads");
+        assert_eq!(back, upgraded);
+        let old: RoadConfig = serde_json::from_str(r#"{"seed":"7"}"#).expect("reads");
+        assert_eq!(
+            old.layout_revision, 0,
+            "a network without it is on the original plan"
+        );
+        assert!(!old.tidies_layout() && upgraded.tidies_layout());
+    }
+}
+
+#[cfg(test)]
+mod road_field_wire_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A default network as this build wrote it before the street field
+    /// existed (#1556), captured from that build.
+    const PLAIN_BEFORE: &str = r#"{"$type":"network.symbios.gen.road_network"}"#;
+
+    /// [`populated`] as this build wrote it before the street field existed
+    /// (#1556), captured from that build.
+    const POPULATED_BEFORE: &str = concat!(
+        r#"{"$type":"network.symbios.gen.road_network","enabled":false,"#,
+        r#""seed":"12345678901234567890","district_half_extent":2200000,"#,
+        r#""center":[400000,-255000],"style":{"$type":"network.symbios.road_style.organic"},"#,
+        r#""avoid_water":true,"appearance":{"deck_color":[1000,2000,3000],"#,
+        r#""deck_roughness":4000,"structure_color":null,"neon_color":null,"#,
+        r#""neon_strength":30000},"lots":{"density":6000,"theme_override":"Cyberpunk","#,
+        r#""tier_bias":{"$type":"network.symbios.lot_bias.downtown"},"scale_min":7000,"#,
+        r#""scale_max":15000,"fit":true,"lot_area":24000000,"focus":[100000,200000],"#,
+        r#""prosperity":8000,"escalation":0},"furniture":{"enabled":true,"spacing":250000},"#,
+        r#""major_spacing":700000,"minor_spacing":350000,"major_half_width":40000,"#,
+        r#""minor_half_width":25000,"curb_height":2000,"curb_top_width":3000,"#,
+        r#""chamfer_width":5000,"skirt_depth":60000,"populate_lots":false}"#,
+    );
+
+    /// A network with every field but the street field set off its default.
+    fn populated() -> RoadConfig {
+        RoadConfig {
+            enabled: false,
+            seed: 12_345_678_901_234_567_890,
+            district_half_extent: Fp(220.0),
+            center: Fp2([40.0, -25.5]),
+            style: RoadStyle::Organic,
+            avoid_water: true,
+            appearance: RoadAppearance {
+                deck_color: Some(Fp3([0.1, 0.2, 0.3])),
+                deck_roughness: Some(Fp(0.4)),
+                structure_color: None,
+                neon_color: None,
+                neon_strength: Some(Fp(3.0)),
+            },
+            lots: LotSettings {
+                density: Fp(0.6),
+                theme_override: String::from("Cyberpunk"),
+                tier_bias: LotTierBias::Downtown,
+                scale_min: Fp(0.7),
+                scale_max: Fp(1.5),
+                fit: true,
+                lot_area: Fp(2400.0),
+                focus: Some(Fp2([10.0, 20.0])),
+                prosperity: Some(Fp(0.8)),
+                escalation: Some(Fp(0.0)),
+            },
+            furniture: FurnitureSettings {
+                enabled: true,
+                spacing: Fp(25.0),
+            },
+            major_spacing: Fp(70.0),
+            minor_spacing: Fp(35.0),
+            major_half_width: Fp(4.0),
+            minor_half_width: Fp(2.5),
+            curb_height: Fp(0.2),
+            curb_top_width: Fp(0.3),
+            chamfer_width: Fp(0.5),
+            skirt_depth: Fp(6.0),
+            populate_lots: false,
+            ..RoadConfig::default()
+        }
+    }
+
+    /// #1556: an untouched street field stays off the wire, so every network
+    /// saved before it writes back byte-identical - a default network, and
+    /// one with every other field set, are written exactly as this build
+    /// wrote them before the field existed, and those bytes read back as
+    /// the same network.
+    #[test]
+    fn an_untouched_street_field_leaves_a_network_as_it_was_written() {
+        assert_eq!(
+            serde_json::to_string(&RoadConfig::default()).expect("writes"),
+            "{}"
+        );
+        assert_eq!(
+            serde_json::to_string(&GeneratorKind::RoadNetwork(RoadConfig::default()))
+                .expect("writes"),
+            PLAIN_BEFORE
+        );
+        assert_eq!(
+            serde_json::to_string(&GeneratorKind::RoadNetwork(populated())).expect("writes"),
+            POPULATED_BEFORE
+        );
+        let back: GeneratorKind = serde_json::from_str(POPULATED_BEFORE).expect("reads");
+        assert_eq!(back, GeneratorKind::RoadNetwork(populated()));
+    }
+
+    /// #1556: a set street field is written in the record's own form - the
+    /// fixed point, each basis kind by its `$type` - with its untouched
+    /// members left out, and reads back as it was. The authored form
+    /// `docs/agent/region.md` gives for one ring reads too.
+    #[test]
+    fn a_street_field_round_trips_in_the_records_own_form() {
+        let field = RoadField {
+            basis: vec![
+                RoadBasis::Ring {
+                    center: Fp2([90.0, -10.5]),
+                    radius: Fp(200.0),
+                    strength: Fp(1.5),
+                },
+                RoadBasis::Grid {
+                    center: Fp2([-5.0, 7.5]),
+                    bearing: Fp(30.0),
+                    radius: Fp(80.0),
+                    strength: Fp(0.5),
+                },
+            ],
+            keep_out: vec![RoadKeepOut {
+                center: Fp2([40.0, 60.0]),
+                radius: Fp(25.0),
+            }],
+            ..RoadField::default()
+        };
+        let network = GeneratorKind::RoadNetwork(RoadConfig {
+            field,
+            ..RoadConfig::default()
+        });
+        let v = serde_json::to_value(&network).expect("writes");
+        assert_eq!(
+            v["field"],
+            json!({
+                "basis": [
+                    {
+                        "$type": "network.symbios.road_basis.ring",
+                        "center": [900_000, -105_000],
+                        "radius": 2_000_000,
+                        "strength": 15_000
+                    },
+                    {
+                        "$type": "network.symbios.road_basis.grid",
+                        "center": [-50_000, 75_000],
+                        "bearing": 300_000,
+                        "radius": 800_000,
+                        "strength": 5_000
+                    }
+                ],
+                "keep_out": [{ "center": [400_000, 600_000], "radius": 250_000 }]
+            }),
+            "{v}"
+        );
+        let back: GeneratorKind = serde_json::from_value(v).expect("reads back");
+        assert_eq!(back, network);
+
+        let scalars = GeneratorKind::RoadNetwork(RoadConfig {
+            field: RoadField {
+                smoothing: Fp(12.5),
+                terrain_weight: Fp(0.0),
+                ..RoadField::default()
+            },
+            ..RoadConfig::default()
+        });
+        let v = serde_json::to_value(&scalars).expect("writes");
+        assert_eq!(
+            v["field"],
+            json!({ "smoothing": 125_000, "terrain_weight": 0 }),
+            "{v}"
+        );
+        let back: GeneratorKind = serde_json::from_value(v).expect("reads back");
+        assert_eq!(back, scalars);
+
+        let authored: RoadField = serde_json::from_value(json!({
+            "basis": [{
+                "$type": "network.symbios.road_basis.ring",
+                "center": [400_000, -250_000],
+                "radius": 1_500_000,
+                "strength": 10_000
+            }]
+        }))
+        .expect("the documented ring reads");
+        assert_eq!(
+            authored,
+            RoadField {
+                basis: vec![RoadBasis::Ring {
+                    center: Fp2([40.0, -25.0]),
+                    radius: Fp(150.0),
+                    strength: Fp(1.0),
+                }],
+                ..RoadField::default()
+            }
+        );
+    }
+
+    /// #1556: a basis kind from a newer client reads as `Unknown` - the
+    /// network still reads, the rest of its field with it - and, like every
+    /// `Unknown` (#1111), is never written back: a save is refused rather
+    /// than replacing the newer client's field with a husk.
+    #[test]
+    fn a_basis_kind_from_a_newer_client_reads_as_unknown() {
+        let kind: GeneratorKind = serde_json::from_value(json!({
+            "$type": "network.symbios.gen.road_network",
+            "field": {
+                "basis": [
+                    {
+                        "$type": "network.symbios.road_basis.spiral",
+                        "center": [0, 0],
+                        "turns": 30_000
+                    },
+                    {
+                        "$type": "network.symbios.road_basis.ring",
+                        "center": [0, 0],
+                        "radius": 1_000_000,
+                        "strength": 10_000
+                    }
+                ]
+            }
+        }))
+        .expect("a network carrying a newer kind reads");
+        let GeneratorKind::RoadNetwork(road) = &kind else {
+            panic!("a road network reads as one");
+        };
+        assert_eq!(
+            road.field.basis,
+            vec![
+                RoadBasis::Unknown,
+                RoadBasis::Ring {
+                    center: Fp2([0.0, 0.0]),
+                    radius: Fp(100.0),
+                    strength: Fp(1.0),
+                },
+            ]
+        );
+        let refused = serde_json::to_string(&kind).expect_err("an unknown kind is not written");
+        assert!(
+            refused.to_string().contains("cannot be serialized"),
+            "{refused}"
+        );
+    }
+
+    /// #1556 critic: a ring or grid with members left off the wire still
+    /// reads, each missing one at the value a new field starts with. A
+    /// required member used to fail the network's decode, and with it the
+    /// whole terrain generator: a room with no ground, water or streets.
+    #[test]
+    fn a_basis_field_missing_members_reads_with_their_defaults() {
+        let terrain: Generator = serde_json::from_value(json!({
+            "$type": "network.symbios.gen.terrain",
+            "children": [{
+                "$type": "network.symbios.gen.road_network",
+                "field": {
+                    "basis": [
+                        {
+                            "$type": "network.symbios.road_basis.ring",
+                            "center": [100_000, -200_000],
+                            "radius": 900_000
+                        },
+                        {"$type": "network.symbios.road_basis.grid", "bearing": 450_000},
+                        {"$type": "network.symbios.road_basis.grid"}
+                    ]
+                }
+            }]
+        }))
+        .expect("a terrain whose network leaves basis members off still reads");
+        let GeneratorKind::RoadNetwork(road) = &terrain.children[0].kind else {
+            panic!("the terrain's child reads as its road network");
+        };
+        let starting = Fp(RoadBasis::DEFAULT_RADIUS);
+        assert_eq!(
+            road.field.basis,
+            vec![
+                RoadBasis::Ring {
+                    center: Fp2([10.0, -20.0]),
+                    radius: Fp(90.0),
+                    strength: Fp(RoadBasis::DEFAULT_STRENGTH),
+                },
+                RoadBasis::Grid {
+                    center: Fp2([0.0, 0.0]),
+                    bearing: Fp(45.0),
+                    radius: starting,
+                    strength: Fp(RoadBasis::DEFAULT_STRENGTH),
+                },
+                RoadBasis::grid_at(Fp2([0.0, 0.0])),
+            ]
+        );
+    }
+
+    /// #1556: a grid's bearing has one value per grid, in `[0, 180)`: a half
+    /// turn more is the same grid, a non-finite bearing reads as north-south,
+    /// and a hair below zero - which `rem_euclid` rounds up to 180 - is 0.
+    #[test]
+    fn a_grid_bearing_folds_into_a_half_turn() {
+        for (given, folded) in [
+            (0.0, 0.0),
+            (30.0, 30.0),
+            (179.5, 179.5),
+            (180.0, 0.0),
+            (210.0, 30.0),
+            (-30.0, 150.0),
+            (540.0, 0.0),
+            (-1.0e-8, 0.0),
+            (f32::NAN, 0.0),
+            (f32::NEG_INFINITY, 0.0),
+        ] {
+            assert_eq!(RoadBasis::canonical_bearing(given), folded, "{given}");
+        }
     }
 }

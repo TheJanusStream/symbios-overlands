@@ -194,6 +194,9 @@ pub struct LotClamps {
     pub props_capped_by_budget: bool,
     /// Lots and spots skipped because the world is at the generator cap.
     pub generator_cap_skips: usize,
+    /// Lots too small for any building of their pools (#1558: a network at
+    /// layout revision 1 grows none larger than its lot).
+    pub lots_too_small: usize,
 }
 
 /// Whether `placement` was planted by the road layer (#1211): a lot

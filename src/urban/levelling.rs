@@ -9,6 +9,7 @@
 
 use bevy_symbios_ground::HeightMap;
 
+use crate::urban::truncation::JunctionPlan;
 use crate::urban::{Chain, RIBBON_STEP_M, ROAD_DEPTH_BIAS_M, densify, frame_right, trim_polyline};
 
 /// Lateral samples across the deck width for the upward-only height: the flat
@@ -144,25 +145,28 @@ pub(crate) fn level_chain(floor: &[f32], seg: &[f32], pin: [Option<f32>; 2]) -> 
     base_y
 }
 
-/// Resolve a FLAT height per junction and the final deck height per chain across
-/// the whole network (#584). Each junction is lifted to the max of (a) the terrain
-/// under its mouth-centroid + the depth bias - so a junction on a local rise stays
-/// flat by lifting its mouths to clear it rather than doming the hub - and (b) the
-/// highest road mouth meeting it; every incident road is then ramped up to that
-/// height by [`level_chain`]'s pin cones. A chain joins two junctions, and raising
-/// one can raise the next, so junction heights are RELAXED to a monotone-upward
-/// fixed point. Heights only ever rise and are bounded by the highest terrain
-/// floor, so it converges; capped at [`MAX_LEVEL_ITERS`] (graceful degradation -
-/// every chain still levels watertight, just under-pinned). Returns `base_y` per
-/// chain (empty where the chain had no meshable sample).
+/// Resolve a FLAT height per hub and the final deck height per chain across
+/// the whole network (#584). Each hub is lifted to the max of (a) the terrain
+/// under its centre, its junction nodes and its `ground` points (the deck
+/// outline, per hub, where the caller knows it) + the depth bias, so a hub on
+/// a local rise stays flat by lifting its mouths to clear it rather than
+/// doming, and (b) the highest road mouth meeting it; every incident road is
+/// then ramped up to that height by [`level_chain`]'s pin cones. A chain joins two
+/// hubs, and raising one can raise the next, so hub heights are RELAXED to a
+/// monotone-upward fixed point. Heights only ever rise and are bounded by the
+/// highest terrain floor, so it converges; capped at [`MAX_LEVEL_ITERS`]
+/// (graceful degradation - every chain still levels watertight, just
+/// under-pinned). Returns `base_y` per chain (empty where the chain had no
+/// meshable sample). The hubs and which chain ends open into them come from
+/// the junction plan (#1558), so a cluster of junctions drawn as one deck
+/// levels as one.
 pub(crate) fn level_network(
     chains: &[Chain],
     samples: &[Option<ChainSample>],
-    degree: &[u32],
+    plan: &JunctionPlan,
+    ground: &[Vec<[f32; 2]>],
     hm: &HeightMap,
 ) -> Vec<Vec<f32>> {
-    use std::collections::BTreeMap;
-    let is_junction = |nd: usize| degree.get(nd).copied().unwrap_or(0) >= 3;
     // Per-chain floor profiles are immutable across the levelling passes, so
     // build them once here instead of re-collecting a fresh `Vec` per chain on
     // every one of the ~64 iterations + the final re-level (#643).
@@ -174,71 +178,49 @@ pub(crate) fn level_network(
         })
         .collect();
 
-    // Seed each junction at the terrain under its incident mouths' centroid + bias.
-    let mut centroid: BTreeMap<usize, (f32, f32, u32)> = BTreeMap::new();
-    for (ci, chain) in chains.iter().enumerate() {
-        let Some(s) = &samples[ci] else { continue };
-        for (slot, &nd) in chain.end_nodes.iter().enumerate() {
-            if !is_junction(nd) {
-                continue;
-            }
-            let f = if slot == 0 {
-                &s.frames[0]
-            } else {
-                s.frames.last().expect("sample has >= 2 frames")
-            };
-            let acc = centroid.entry(nd).or_insert((0.0, 0.0, 0));
-            acc.0 += f.cx;
-            acc.1 += f.cz;
-            acc.2 += 1;
-        }
-    }
-    let mut hub_h: BTreeMap<usize, f32> = BTreeMap::new();
-    for (&nd, &(sx, sz, n)) in &centroid {
-        let (cx, cz) = (sx / n as f32, sz / n as f32);
-        hub_h.insert(nd, hm.get_height_at(cx, cz) + ROAD_DEPTH_BIAS_M);
-    }
+    // Seed each hub at the highest terrain under its centre, its nodes and
+    // `ground` - its deck outline, where the caller knows it - so no corner
+    // of the flat deck buries.
+    let mut hub_h: Vec<f32> = plan
+        .hubs
+        .iter()
+        .enumerate()
+        .map(|(i, h)| {
+            std::iter::once(h.centre)
+                .chain(h.points.iter().copied())
+                .chain(ground.get(i).into_iter().flatten().map(|p| (p[0], p[1])))
+                .map(|(x, z)| hm.get_height_at(x, z))
+                .fold(f32::MIN, f32::max)
+                + ROAD_DEPTH_BIAS_M
+        })
+        .collect();
 
-    let pin_for = |hub_h: &BTreeMap<usize, f32>, nd: usize| -> Option<f32> {
-        if is_junction(nd) {
-            hub_h.get(&nd).copied()
-        } else {
-            None
-        }
-    };
+    let pins = |hub_h: &[f32], ci: usize| plan.arm_hub[ci].map(|h| h.map(|h| hub_h[h]));
     let mut base_ys: Vec<Vec<f32>> = vec![Vec::new(); chains.len()];
     for _ in 0..MAX_LEVEL_ITERS {
-        // Re-level every chain to its current junction pins.
-        for (ci, chain) in chains.iter().enumerate() {
-            let Some(s) = &samples[ci] else { continue };
-            let pin = [
-                pin_for(&hub_h, chain.end_nodes[0]),
-                pin_for(&hub_h, chain.end_nodes[1]),
-            ];
-            base_ys[ci] = level_chain(&floors[ci], &s.seg, pin);
+        // Re-level every chain to its current hub pins.
+        for (ci, s) in samples.iter().enumerate() {
+            let Some(s) = s else { continue };
+            base_ys[ci] = level_chain(&floors[ci], &s.seg, pins(&hub_h, ci));
         }
-        // Lift each junction to the highest mouth now meeting it; track movement.
+        // Lift each hub to the highest mouth now meeting it; track movement.
         let mut moved = 0.0_f32;
-        for (ci, chain) in chains.iter().enumerate() {
-            if base_ys[ci].is_empty() {
+        for (ci, base) in base_ys.iter().enumerate() {
+            if base.is_empty() {
                 continue;
             }
-            for (slot, &nd) in chain.end_nodes.iter().enumerate() {
-                if !is_junction(nd) {
+            for slot in 0..2 {
+                let Some(h) = plan.arm_hub[ci][slot] else {
                     continue;
-                }
-                let m = if slot == 0 {
-                    base_ys[ci][0]
-                } else {
-                    base_ys[ci][base_ys[ci].len() - 1]
                 };
-                // Every junction reaching the lift was seeded above (same Some-sample
-                // gate), so the entry exists; `or_insert(m)` is a sane fallback (the
-                // mouth itself), never a garbage `f32::MIN`, if that ever changes.
-                let h = hub_h.entry(nd).or_insert(m);
-                if m > *h + LEVEL_CONVERGE_EPS_M {
-                    moved = moved.max(m - *h);
-                    *h = m;
+                let m = if slot == 0 {
+                    base[0]
+                } else {
+                    base[base.len() - 1]
+                };
+                if m > hub_h[h] + LEVEL_CONVERGE_EPS_M {
+                    moved = moved.max(m - hub_h[h]);
+                    hub_h[h] = m;
                 }
             }
         }
@@ -246,44 +228,36 @@ pub(crate) fn level_network(
             break;
         }
     }
-    // Final re-level to the converged junction heights: the loop breaks just after a
+    // Final re-level to the converged hub heights: the loop breaks just after a
     // lift, so without this the deck would lag the last (sub-eps) lift. This pins
-    // every mouth EXACTLY to its junction's resolved height → spread is exactly 0.
-    for (ci, chain) in chains.iter().enumerate() {
-        let Some(s) = &samples[ci] else { continue };
-        let pin = [
-            pin_for(&hub_h, chain.end_nodes[0]),
-            pin_for(&hub_h, chain.end_nodes[1]),
-        ];
-        base_ys[ci] = level_chain(&floors[ci], &s.seg, pin);
+    // every mouth EXACTLY to its hub's resolved height → spread is exactly 0.
+    for (ci, s) in samples.iter().enumerate() {
+        let Some(s) = s else { continue };
+        base_ys[ci] = level_chain(&floors[ci], &s.seg, pins(&hub_h, ci));
     }
     base_ys
 }
 
-/// Per-junction incident-mouth height SPREAD (max − min over the roads meeting it)
-/// for junctions with ≥ 2 meshed incident roads - 0 once the network levelling has
+/// Per-hub incident-mouth height SPREAD (max − min over the roads meeting it)
+/// for hubs with ≥ 2 meshed incident roads - 0 once the network levelling has
 /// pinned every incident mouth to one height (#584 diagnostic).
-pub(crate) fn junction_mouth_spreads(
-    chains: &[Chain],
-    base_ys: &[Vec<f32>],
-    is_junction: &impl Fn(usize) -> bool,
-) -> Vec<f32> {
+pub(crate) fn junction_mouth_spreads(base_ys: &[Vec<f32>], plan: &JunctionPlan) -> Vec<f32> {
     use std::collections::BTreeMap;
     let mut acc: BTreeMap<usize, (f32, f32, u32)> = BTreeMap::new(); // (min, max, count)
-    for (ci, chain) in chains.iter().enumerate() {
-        if base_ys[ci].is_empty() {
+    for (ci, base) in base_ys.iter().enumerate() {
+        if base.is_empty() {
             continue;
         }
-        for (slot, &nd) in chain.end_nodes.iter().enumerate() {
-            if !is_junction(nd) {
+        for slot in 0..2 {
+            let Some(h) = plan.arm_hub[ci][slot] else {
                 continue;
-            }
-            let m = if slot == 0 {
-                base_ys[ci][0]
-            } else {
-                base_ys[ci][base_ys[ci].len() - 1]
             };
-            let e = acc.entry(nd).or_insert((f32::MAX, f32::MIN, 0));
+            let m = if slot == 0 {
+                base[0]
+            } else {
+                base[base.len() - 1]
+            };
+            let e = acc.entry(h).or_insert((f32::MAX, f32::MIN, 0));
             e.0 = e.0.min(m);
             e.1 = e.1.max(m);
             e.2 += 1;

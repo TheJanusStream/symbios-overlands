@@ -31,6 +31,24 @@
 //! can be re-rolled without disturbing the land - and recomputed at load,
 //! never stored, like the heightmap itself.
 //!
+//! The field the streets follow is the land's own - contour lines for the
+//! major streets, fall lines for the minor ones - unless the network carries
+//! a street field ([`RoadConfig::field`], #1556): a smoothing scale that reads
+//! the directions off a blurred copy of the relief, designer basis fields
+//! summed with the land's (ring roads round a point, a grid turned to a
+//! compass bearing), and keep-out discs no street enters and no lot grows a
+//! building in. Its centres are authored in room metres; [`graph`] moves them
+//! into the district window the trace runs in, by the inverse of the shift
+//! the lots and the street furniture come back out by.
+//!
+//! What the street graph and the lots are derived with is the network's
+//! layout revision ([`RoadConfig::layout_revision`], #1558): 0, every network
+//! saved before it, is the original pipeline byte for byte; 1 tidies the
+//! graph ([`graph`]) and keeps every lot clear of every street
+//! ([`extract_building_lots`]). The lots are saved, so a derivation change
+//! bumps the revision. How the graph is meshed is not part of it: every
+//! client meshes the plan afresh and nothing of the mesh is saved.
+//!
 //! `symbios-tensor` consumes a `symbios_ground::HeightMap`; overlands' own
 //! [`bevy_symbios_ground::HeightMap`] is the same crate/type - both crates
 //! resolve to the same `symbios-ground` version, so the heightmap passes
@@ -38,29 +56,33 @@
 //!
 //! ## Sub-module map
 //!
-//! * [`graph`] - tensor-field trace and rationalisation, then the sanitation
-//!   pass that welds coincident nodes and drops the degenerate edges whose
-//!   unstable direction spikes a miter.
-//! * [`chains`] - extraction of continuous runs of connected nodes between
-//!   intersections, plus the district-interior clip.
+//! * [`graph`] - tensor-field trace and rationalisation (the street field
+//!   moved into the district window first), then the sanitation pass that
+//!   welds coincident nodes and drops the degenerate edges whose unstable
+//!   direction spikes a miter, and at layout revision 1 the tidy that merges
+//!   junction clusters and drops doubled streets, loops and stubs.
+//! * [`chains`] - the graph as drawn (cut to the district interior), and
+//!   extraction of continuous runs of connected nodes between intersections.
 //! * [`truncation`] - per-end pull-back, so a ribbon stops at the
-//!   intersection boundary instead of overlapping into the hub.
+//!   intersection boundary instead of overlapping into the hub, and which
+//!   junctions a few metres apart are drawn as one hub.
 //! * [`levelling`] - the single heightmap-sampling pass, and the
-//!   network-wide resolve of flat junction heights and per-chain deck
-//!   heights, so the pre-pass and the ribbon agree to the bit.
+//!   network-wide resolve of flat hub heights and per-chain deck heights,
+//!   so the pre-pass and the ribbon agree to the bit.
 //! * [`ribbon`] - cross-section extrusion along a levelled chain: miter
 //!   frames, arc-length UVs, and the deck / curb / skirt / bottom strips.
-//! * [`hubs`] - junction decks, built to meet every incident road at its
-//!   exact levelled mouth.
+//! * [`hubs`] - junction decks outlined by the streets' own curb lines,
+//!   meeting every incident road at its exact levelled mouth.
 //! * [`diagnostics`] - the `render --road-dump` topology and geometry-risk
-//!   report (degree histogram, dead-end spurs, spike-risk bends).
+//!   report (degree histogram, dead-end spurs, spike-risk bends, the hubs
+//!   drawn).
 //! * [`math`] - small vector helpers shared across the builders.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy_symbios_ground::HeightMap;
-use symbios_tensor::{LotConfig, extract_blocks, extract_lots};
+use symbios_tensor::{LotConfig, RoadGraph, extract_blocks, extract_lots};
 
 use crate::pds::generator::RoadConfig;
 
@@ -75,10 +97,10 @@ mod ribbon;
 pub(crate) mod test_support;
 mod truncation;
 
-use crate::urban::graph::build_road_graph;
+use crate::urban::graph::{build_road_graph, window_to_room_shift};
 use crate::urban::math::normalize;
 
-pub(crate) use crate::urban::chains::{Chain, extract_chains};
+pub(crate) use crate::urban::chains::{Chain, active_degree, drawn_graph, extract_chains};
 pub use crate::urban::diagnostics::{RoadDiagnostics, RoadGraphStats, road_graph_diagnostics};
 pub(crate) use crate::urban::hubs::{RoadEnd, extrude_hubs};
 pub(crate) use crate::urban::levelling::{
@@ -87,7 +109,7 @@ pub(crate) use crate::urban::levelling::{
 pub(crate) use crate::urban::ribbon::{
     RIBBON_STEP_M, UV_TILE_M, densify, extrude_ribbon, frame_right, quad_normal,
 };
-pub(crate) use crate::urban::truncation::{compute_truncations, trim_polyline};
+pub(crate) use crate::urban::truncation::{plan_junctions, trim_polyline};
 
 // --- Tuning -----------------------------------------------------------------
 //
@@ -233,10 +255,11 @@ pub struct RoadParts {
     pub structure: RoadGeometry,
     /// Thin strips riding proud of each curb's inner top crease.
     pub neon: RoadGeometry,
-    /// Street (chain) count of the built network - for the editor's stats
-    /// readout (#888), not the geometry.
+    /// Street (chain) count of the built network - the chains drawn as
+    /// ribbons - for the editor's stats readout (#888), not the geometry.
     pub chains: usize,
-    /// Junction (active degree ≥ 3) count - see [`Self::chains`].
+    /// Junction count: the hubs three or more streets meet at (#1558) - see
+    /// [`Self::chains`].
     pub junctions: usize,
 }
 
@@ -272,43 +295,55 @@ pub fn build_road_geometry(
     water_level: Option<f32>,
 ) -> Option<RoadParts> {
     let (graph, sub, lo) = build_road_graph(hm, config, water_level)?;
-    let dims = Dims::from_config(config);
-    let chains = extract_chains(&graph, &sub, &dims);
+    let parts = mesh_road_graph(&graph, &sub, lo, &Dims::from_config(config));
+    (!parts.deck.is_empty() || !parts.structure.is_empty()).then_some(parts)
+}
 
-    // Active degree per node - distinguishes a junction end (≥3) from a mid-chain
-    // / district-clip terminus, so only real intersections grow a hub.
-    let mut degree = vec![0u32; graph.nodes.len()];
-    for e in &graph.edges {
-        if e.active {
-            degree[e.start as usize] += 1;
-            degree[e.end as usize] += 1;
-        }
-    }
+/// Mesh a traced road graph over its district window `sub` (lower cell `lo`
+/// in the full heightmap): the drawn graph's chains, truncated and grouped
+/// into hubs by the junction plan, levelled network-wide, extruded, and
+/// closed by their hubs. Split out of [`build_road_geometry`] so a test can
+/// mesh a hand-built graph.
+pub(crate) fn mesh_road_graph(
+    graph: &symbios_tensor::RoadGraph,
+    sub: &HeightMap,
+    lo: [usize; 2],
+    dims: &Dims,
+) -> RoadParts {
+    // Only the streets the player sees count (#1558): an arm the district
+    // clip drops no longer makes its node a junction.
+    let drawn = drawn_graph(graph, sub);
+    let chains = extract_chains(&drawn, sub, dims);
+    let degree = active_degree(&drawn);
 
-    // Pull-back distance per chain end abutting a junction (active degree ≥ 3),
-    // so each ribbon stops at the intersection boundary instead of overlapping
-    // into the hub (#575). Computed once, ahead of extrusion.
-    let trims = compute_truncations(
-        &chains,
-        |nd| degree.get(nd).copied().unwrap_or(0) >= 3,
-        &dims,
-    );
+    // Pull-back per chain end abutting a hub, so each ribbon stops at the
+    // intersection boundary instead of overlapping into it (#575), and which
+    // junctions are drawn as one hub (#1558). Computed once, ahead of
+    // extrusion.
+    let plan = plan_junctions(&chains, &degree, dims);
 
     let mut parts = RoadParts::default();
     let world_offset = [lo[0] as f32 * sub.scale(), lo[1] as f32 * sub.scale()];
 
     // Sample each chain's terrain ONCE (the only heightmap-sampling site), then
-    // resolve flat junction heights + the per-chain deck heights network-wide
+    // resolve flat hub heights + the per-chain deck heights network-wide
     // (#584). The mesh pass consumes the cached sample + resolved heights, so the
     // pre-pass and the ribbon agree to the bit (no floor-drift seam at the mouths).
+    // A chain swallowed by its hub grows no ribbon.
     let samples: Vec<Option<ChainSample>> = chains
         .iter()
-        .zip(&trims)
-        .map(|(chain, &[s, e])| sample_chain(chain, s, e, &sub))
+        .enumerate()
+        .map(|(ci, chain)| {
+            let [s, e] = plan.trims[ci];
+            (!plan.internal[ci])
+                .then(|| sample_chain(chain, s, e, sub))
+                .flatten()
+        })
         .collect();
-    let base_ys = level_network(&chains, &samples, &degree, &sub);
+    let ground = hub_grounds(&chains, &samples, &plan, dims);
+    let base_ys = level_network(&chains, &samples, &plan, &ground, sub);
 
-    // Each chain extrudes its ribbon and records its end-frames at junctions, so
+    // Each chain extrudes its ribbon and records its end-frames at hubs, so
     // the hubs can be built to meet every incident road at its exact (levelled) mouth.
     let mut road_ends: Vec<RoadEnd> = Vec::new();
     for (ci, chain) in chains.iter().enumerate() {
@@ -318,18 +353,49 @@ pub fn build_road_geometry(
                 sample,
                 &base_ys[ci],
                 world_offset,
-                &dims,
-                &degree,
+                dims,
+                plan.chain_ends(ci),
                 &mut road_ends,
                 &mut parts,
             );
         }
     }
-    extrude_hubs(&road_ends, &sub, world_offset, &dims, &mut parts);
-    // Editor stats (#888): streets = chains, junctions = active degree ≥ 3.
-    parts.chains = chains.len();
-    parts.junctions = degree.iter().filter(|&&d| d >= 3).count();
-    (!parts.deck.is_empty() || !parts.structure.is_empty()).then_some(parts)
+    extrude_hubs(&road_ends, &plan.hubs, world_offset, dims, &mut parts);
+    // Editor stats (#888): streets = the chains drawn as ribbons, junctions =
+    // the hubs three or more of them meet at.
+    parts.chains = plan.internal.iter().filter(|&&i| !i).count();
+    parts.junctions = plan.hubs.iter().filter(|h| h.arms.len() >= 3).count();
+    parts
+}
+
+/// Every hub's deck outline in the district window (#1558), read from the
+/// sampled mouths before any deck height exists: the ground its flat deck
+/// must clear, so no corner of a hub buries.
+pub(crate) fn hub_grounds(
+    chains: &[Chain],
+    samples: &[Option<ChainSample>],
+    plan: &truncation::JunctionPlan,
+    dims: &Dims,
+) -> Vec<Vec<[f32; 2]>> {
+    let mut mouths: Vec<Vec<RoadEnd>> = (0..plan.hubs.len()).map(|_| Vec::new()).collect();
+    for (ci, chain) in chains.iter().enumerate() {
+        if let Some(sample) = &samples[ci] {
+            for m in ribbon::sample_mouths(chain, sample, plan.chain_ends(ci)) {
+                mouths[m.hub].push(m);
+            }
+        }
+    }
+    mouths
+        .iter()
+        .zip(&plan.hubs)
+        .map(|(ends, hub)| {
+            let ends: Vec<&RoadEnd> = ends.iter().collect();
+            if ends.len() < 2 {
+                return Vec::new();
+            }
+            hubs::hub_outline(&ends, hub, dims)
+        })
+        .collect()
 }
 
 /// A building footprint extracted from the road network's enclosed city blocks,
@@ -354,6 +420,17 @@ pub struct BuildingLot {
 /// [`symbios_tensor::WaterPolicy::Skip`], which leaves the heightmap untouched).
 /// Empty when the network is disabled, fails to trace, or encloses no blocks.
 ///
+/// A lot whose centre lies inside one of the network's keep-out discs
+/// (#1556) is left out: the tracer keeps every street out of a disc, but the
+/// block of streets round it still encloses it, and its lots would stand a
+/// building on the plaza the disc was drawn to keep clear.
+///
+/// At layout revision 1 (#1558) every lot is pushed clear of every street
+/// ([`clear_lots`]): symbios-tensor cuts lots from the street CENTRELINES and
+/// sets them back 3 m at the front and 1.5 m at the sides, while a street's
+/// curb reaches up to 4.12 m out, so a revision-0 lot's front and a corner
+/// lot's side stand on the curb.
+///
 /// This is the seed for the lot-based building layer ([`crate::terrain`]'s
 /// load-time populate-lots system): it shares [`build_road_graph`] with the
 /// road mesh, so every footprint sits on a street the player can see.
@@ -362,20 +439,42 @@ pub fn extract_building_lots(
     config: &RoadConfig,
     water_level: Option<f32>,
 ) -> Vec<BuildingLot> {
+    let mut lots = traced_lots(hm, config, water_level);
+    // Room frame on both sides: the lots were shifted out of the window
+    // and the discs are authored in room metres.
+    lots.retain(|lot| {
+        !config
+            .field
+            .keep_out
+            .iter()
+            .any(|disc| disc.contains(lot.position))
+    });
+    lots
+}
+
+/// Every lot the network's blocks subdivide into, in the room placement
+/// frame: [`extract_building_lots`] before it drops the lots in a keep-out
+/// disc.
+fn traced_lots(hm: &HeightMap, config: &RoadConfig, water_level: Option<f32>) -> Vec<BuildingLot> {
     let Some((mut graph, mut sub, lo)) = build_road_graph(hm, config, water_level) else {
         return Vec::new();
     };
     // Enclosed faces → blocks → recursively subdivided, street-aligned lots.
     extract_blocks(&mut graph);
-    let lots = extract_lots(&graph, &mut sub, &lot_config(config, water_level));
+    let mut lots = extract_lots(&graph, &mut sub, &lot_config(config, water_level));
+    // Layout revision 1 (#1558): every lot clears every street.
+    if config.tidies_layout() {
+        lots = clear_lots(
+            lots,
+            &street_footprints(&graph, config, LOT_STREET_MARGIN_M),
+        );
+    }
 
     // Sub-window XZ (origin at the window's lower corner) → room-centred frame:
     // the road mesh draws window coord `p` at world `p + lo*scale - half`, so a
     // footprint placed there lands exactly on its street. Per-axis since the
     // district centre offset (#889) can shift the window asymmetrically.
-    let scale = sub.scale();
-    let half = hm.width().saturating_sub(1) as f32 * scale * 0.5;
-    let shift = [lo[0] as f32 * scale - half, lo[1] as f32 * scale - half];
+    let shift = window_to_room_shift(hm, lo);
     lots.into_iter()
         .map(|l| BuildingLot {
             position: [l.position.x + shift[0], l.position.y + shift[1]],
@@ -412,6 +511,279 @@ fn lot_config(config: &RoadConfig, water_level: Option<f32>) -> LotConfig {
     lots
 }
 
+/// Clearance (m) every lot of a tidied layout (revision 1, #1558) keeps from
+/// every street's outer footprint - deck, curb and chamfer: a sidewalk, on
+/// which the street furniture stands.
+pub(crate) const LOT_STREET_MARGIN_M: f32 = 2.0;
+/// The narrowest a cleared lot may become (m) before it is dropped -
+/// symbios-tensor's own least lot width and depth.
+const LOT_MIN_SIDE_M: f32 = 6.0;
+/// Bisection steps when a lot's side is pushed back off a street: the push
+/// lands within a millionth of the lot's side.
+const LOT_PUSH_STEPS: usize = 20;
+
+/// A street's footprint as the lots must clear it: the capsule within
+/// `radius` of the segment `a`-`b` (a disc where they coincide), window
+/// frame.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Footprint {
+    pub(crate) a: [f32; 2],
+    pub(crate) b: [f32; 2],
+    pub(crate) radius: f32,
+}
+
+/// Every street of `graph` as the lots must clear it (#1558): each active
+/// edge's centreline grown by its road class's outer half-width (deck, curb
+/// and chamfer) plus `margin`, and every bend between two edges by the mitre
+/// the ribbon takes there (its corner reaches `1/cos(turn/2)` times as far,
+/// clamped at three as the ribbon clamps it). Derived from the graph and the
+/// network's dimensions alone - not from the mesher, which may change - so
+/// the lots of one layout revision stay the same lots.
+pub(crate) fn street_footprints(
+    graph: &RoadGraph,
+    config: &RoadConfig,
+    margin: f32,
+) -> Vec<Footprint> {
+    let outer = config.curb_top_width.0 + config.chamfer_width.0;
+    let wo = |t: &symbios_tensor::RoadType| match t {
+        symbios_tensor::RoadType::Major => config.major_half_width.0 + outer,
+        symbios_tensor::RoadType::Minor => config.minor_half_width.0 + outer,
+    };
+    let pos = |i: u32| {
+        let p = graph.nodes[i as usize].position;
+        [p.x, p.y]
+    };
+    let mut out = Vec::new();
+    let mut at: Vec<Vec<(usize, [f32; 2])>> = vec![Vec::new(); graph.nodes.len()];
+    for (ei, e) in graph.edges.iter().enumerate() {
+        if !e.active {
+            continue;
+        }
+        let (a, b) = (pos(e.start), pos(e.end));
+        out.push(Footprint {
+            a,
+            b,
+            radius: wo(&e.road_type) + margin,
+        });
+        at[e.start as usize].push((ei, b));
+        at[e.end as usize].push((ei, a));
+    }
+    for (n, spokes) in at.iter().enumerate() {
+        if spokes.len() != 2 {
+            continue;
+        }
+        let p = pos(n as u32);
+        let unit = |q: [f32; 2]| {
+            let d = [q[0] - p[0], q[1] - p[1]];
+            let l = (d[0] * d[0] + d[1] * d[1]).sqrt().max(1.0e-6);
+            [d[0] / l, d[1] / l]
+        };
+        let (u, v) = (unit(spokes[0].1), unit(spokes[1].1));
+        // Half the angle between the two arms; a straight run is half a turn.
+        let cos_half = ((1.0 - (u[0] * v[0] + u[1] * v[1])) * 0.5).max(0.0).sqrt();
+        let mitre = (1.0 / cos_half.max(1.0e-6)).min(3.0);
+        if mitre > 1.0 + 1.0e-4 {
+            let w = wo(&graph.edges[spokes[0].0].road_type)
+                .max(wo(&graph.edges[spokes[1].0].road_type));
+            out.push(Footprint {
+                a: p,
+                b: p,
+                radius: w * mitre + margin,
+            });
+        }
+    }
+    out
+}
+
+/// The distance from a segment to an axis-aligned rectangle
+/// `[u0, u1] × [v0, v1]`, both in the rectangle's own frame: 0 when they
+/// touch.
+fn segment_rect_distance(p: [f32; 2], q: [f32; 2], r: [f32; 4]) -> f32 {
+    let [u0, u1, v0, v1] = r;
+    // Liang-Barsky: does the segment enter the rectangle?
+    let d = [q[0] - p[0], q[1] - p[1]];
+    let (mut t0, mut t1) = (0.0_f32, 1.0_f32);
+    let mut enters = true;
+    for (den, num) in [
+        (-d[0], p[0] - u0),
+        (d[0], u1 - p[0]),
+        (-d[1], p[1] - v0),
+        (d[1], v1 - p[1]),
+    ] {
+        if den.abs() < 1.0e-12 {
+            if num < 0.0 {
+                enters = false;
+                break;
+            }
+        } else {
+            let t = num / den;
+            if den < 0.0 {
+                t0 = t0.max(t);
+            } else {
+                t1 = t1.min(t);
+            }
+        }
+    }
+    if enters && t0 <= t1 {
+        return 0.0;
+    }
+    let to_rect = |x: [f32; 2]| {
+        let dx = (u0 - x[0]).max(0.0).max(x[0] - u1);
+        let dz = (v0 - x[1]).max(0.0).max(x[1] - v1);
+        (dx * dx + dz * dz).sqrt()
+    };
+    let to_seg = |x: [f32; 2]| {
+        let l2 = d[0] * d[0] + d[1] * d[1];
+        let t = if l2 < 1.0e-12 {
+            0.0
+        } else {
+            (((x[0] - p[0]) * d[0] + (x[1] - p[1]) * d[1]) / l2).clamp(0.0, 1.0)
+        };
+        let (dx, dz) = (x[0] - p[0] - d[0] * t, x[1] - p[1] - d[1] * t);
+        (dx * dx + dz * dz).sqrt()
+    };
+    [
+        to_rect(p),
+        to_rect(q),
+        to_seg([u0, v0]),
+        to_seg([u0, v1]),
+        to_seg([u1, v0]),
+        to_seg([u1, v1]),
+    ]
+    .into_iter()
+    .fold(f32::INFINITY, f32::min)
+}
+
+/// Push every lot's sides back off the streets (#1558): while a footprint
+/// still reaches into a lot, the side whose push frees it of that footprint
+/// for the least area moves back - each push the least that frees it - so a
+/// side facing a street clears it and a side facing a neighbouring lot keeps
+/// the setback the subdivision gave it. A lot left narrower than
+/// [`LOT_MIN_SIDE_M`] either way is dropped. Rotation is kept; the centre
+/// moves with the sides.
+///
+/// What is and is not the same on every peer: this step, and
+/// [`street_footprints`] before it, are basic IEEE arithmetic (square roots,
+/// no platform transcendental) and the `libm` crate's sine and cosine, so
+/// given the same traced lots and graph every peer clears them to the same
+/// bits. The lots and graph it is given are not guaranteed the same: the
+/// tracer's `rationalize` (`acosf`, `tanf`), `extract_blocks` (`atan2f`) and
+/// `extract_lots` (`cosf`, `sinf`, `atan2f`) go through the platform's libm,
+/// whose last bits differ between a native glibc and the wasm build - so a
+/// lot can differ in its last bits between peers, and where a lot's side
+/// lands on a clearance or least-width threshold it can be kept on one and
+/// dropped on another (the lot derivation as a whole, at every revision:
+/// #1563). Once saved, the record's buildings are what every peer shows.
+fn clear_lots(
+    lots: Vec<symbios_tensor::BuildingLot>,
+    streets: &[Footprint],
+) -> Vec<symbios_tensor::BuildingLot> {
+    lots.into_iter()
+        .filter_map(|lot| clear_lot(lot, streets))
+        .collect()
+}
+
+/// One lot of [`clear_lots`], or `None` when it is dropped.
+fn clear_lot(
+    mut lot: symbios_tensor::BuildingLot,
+    streets: &[Footprint],
+) -> Option<symbios_tensor::BuildingLot> {
+    let (sin, cos) = (libm::sinf(lot.rotation), libm::cosf(lot.rotation));
+    let (u, v) = ([cos, sin], [-sin, cos]);
+    let c = [lot.position.x, lot.position.y];
+    let local = |p: [f32; 2]| {
+        let d = [p[0] - c[0], p[1] - c[1]];
+        [d[0] * u[0] + d[1] * u[1], d[0] * v[0] + d[1] * v[1]]
+    };
+    let reach = (lot.width * lot.width + lot.depth * lot.depth).sqrt() * 0.5;
+    // The footprints that can reach the lot at all, in its frame.
+    let near: Vec<([f32; 2], [f32; 2], f32)> = streets
+        .iter()
+        .filter_map(|f| {
+            let (a, b) = (local(f.a), local(f.b));
+            let d = segment_rect_distance(a, b, [-reach, reach, -reach, reach]);
+            (d < f.radius).then_some((a, b, f.radius))
+        })
+        .collect();
+    let mut r = [
+        -lot.width * 0.5,
+        lot.width * 0.5,
+        -lot.depth * 0.5,
+        lot.depth * 0.5,
+    ];
+    for _ in 0..4 * near.len().max(1) {
+        // The deepest footprint still in the lot (the first, on a tie).
+        let Some((a, b, radius)) = near
+            .iter()
+            .map(|&(a, b, rad)| (segment_rect_distance(a, b, r) - rad, (a, b, rad)))
+            .filter(|(gap, _)| *gap < 0.0)
+            .min_by(|x, y| x.0.total_cmp(&y.0))
+            .map(|(_, f)| f)
+        else {
+            break;
+        };
+        // Each side's least push that frees the lot of it, and what it costs.
+        let mut best: Option<(f32, usize, f32)> = None; // (area lost, side, push)
+        for side in 0..4 {
+            let along = if side < 2 { r[1] - r[0] } else { r[3] - r[2] };
+            let across = if side < 2 { r[3] - r[2] } else { r[1] - r[0] };
+            let room = along - LOT_MIN_SIDE_M;
+            if room <= 0.0 {
+                continue;
+            }
+            let pushed = |p: f32| {
+                let mut q = r;
+                match side {
+                    0 => q[0] += p,
+                    1 => q[1] -= p,
+                    2 => q[2] += p,
+                    _ => q[3] -= p,
+                }
+                q
+            };
+            if segment_rect_distance(a, b, pushed(room)) < radius {
+                continue; // even pushed to the least lot, it still reaches in
+            }
+            let (mut lo, mut hi) = (0.0_f32, room);
+            for _ in 0..LOT_PUSH_STEPS {
+                let mid = (lo + hi) * 0.5;
+                if segment_rect_distance(a, b, pushed(mid)) < radius {
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            let cost = hi * across;
+            if best.is_none_or(|(c0, _, _)| cost < c0) {
+                best = Some((cost, side, hi));
+            }
+        }
+        let (_, side, push) = best?;
+        match side {
+            0 => r[0] += push,
+            1 => r[1] -= push,
+            2 => r[2] += push,
+            _ => r[3] -= push,
+        }
+    }
+    if near
+        .iter()
+        .any(|&(a, b, rad)| segment_rect_distance(a, b, r) < rad - 1.0e-3)
+    {
+        return None; // still on a street after every push
+    }
+    let (w, d) = (r[1] - r[0], r[3] - r[2]);
+    if w < LOT_MIN_SIDE_M || d < LOT_MIN_SIDE_M {
+        return None;
+    }
+    let (mu, mv) = ((r[0] + r[1]) * 0.5, (r[2] + r[3]) * 0.5);
+    lot.position.x = c[0] + u[0] * mu + v[0] * mv;
+    lot.position.y = c[1] + u[1] * mu + v[1] * mv;
+    lot.width = w;
+    lot.depth = d;
+    Some(lot)
+}
+
 /// A street-furniture spot (#893) in the room placement frame: a point just
 /// outside a street's curb line, facing the road.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -430,7 +802,9 @@ const FURNITURE_CURB_CLEARANCE_M: f32 = 0.6;
 /// Extract street-furniture spots (#893): a point every `spacing` metres of
 /// arc along each chain, alternating sides, offset outside the curb's outer
 /// footprint. Deterministic in the config (pure geometry - no RNG here; the
-/// injector's seeded stream picks *which* prop stands at each spot).
+/// injector's seeded stream picks *which* prop stands at each spot). At
+/// layout revision 1 (#1558) a spot that falls on another street - beside a
+/// junction - is left out.
 pub fn extract_furniture_spots(
     hm: &HeightMap,
     config: &RoadConfig,
@@ -446,9 +820,20 @@ pub fn extract_furniture_spots(
     let chains = extract_chains(&graph, &sub, &dims);
     let spacing = config.furniture.spacing.0.max(1.0);
 
-    let scale = sub.scale();
-    let half = hm.width().saturating_sub(1) as f32 * scale * 0.5;
-    let shift = [lo[0] as f32 * scale - half, lo[1] as f32 * scale - half];
+    let shift = window_to_room_shift(hm, lo);
+    // Layout revision 1 (#1558): no prop stands on a street - near a
+    // junction a spot beside one street can fall on the next.
+    let streets = config
+        .tidies_layout()
+        .then(|| street_footprints(&graph, config, 0.0));
+    let clear = |p: [f32; 2]| {
+        streets.as_ref().is_none_or(|streets| {
+            streets.iter().all(|f| {
+                segment_rect_distance(f.a, f.b, [p[0], p[0], p[1], p[1]])
+                    >= f.radius + FURNITURE_CURB_CLEARANCE_M - 0.05
+            })
+        })
+    };
 
     let mut spots = Vec::new();
     for chain in &chains {
@@ -473,10 +858,12 @@ pub fn extract_furniture_spots(
                 let (px, pz) = (cx + rx * stand_off * side, cz + rz * stand_off * side);
                 // Face the road: the prop's +Z front turns toward the deck.
                 let (vx, vz) = (-rx * side, -rz * side);
-                spots.push(FurnitureSpot {
-                    position: [px + shift[0], pz + shift[1]],
-                    yaw: vx.atan2(vz),
-                });
+                if clear([px, pz]) {
+                    spots.push(FurnitureSpot {
+                        position: [px + shift[0], pz + shift[1]],
+                        yaw: vx.atan2(vz),
+                    });
+                }
                 side = -side;
                 next_at += spacing;
             }
@@ -671,6 +1058,221 @@ mod tests {
             big.len(),
             small.len()
         );
+    }
+
+    /// #1556: a keep-out disc keeps the lots out too. The tracer keeps the
+    /// streets out of it, but the block of streets round the disc still
+    /// encloses it, and that block's lots would stand buildings on the
+    /// plaza the disc was drawn to keep clear. The disc is given in room
+    /// metres in a district moved off the room origin, and the lots are
+    /// read in the room frame they are placed in. The control is the same
+    /// trace before the lot rule, which does grow lots in the disc.
+    #[test]
+    fn a_keep_out_disc_keeps_the_lots_out_of_its_room_disc() {
+        use crate::pds::generator::{RoadField, RoadKeepOut};
+        use crate::pds::types::{Fp, Fp2};
+        let hm = pilot_heightmap();
+        let (centre, radius) = ([90.0_f32, -10.0_f32], 50.0_f32);
+        let config = RoadConfig {
+            center: Fp2([60.0, -40.0]),
+            field: RoadField {
+                keep_out: vec![RoadKeepOut {
+                    center: Fp2(centre),
+                    radius: Fp(radius),
+                }],
+                ..RoadField::default()
+            },
+            ..cfg(PILOT_ROAD_SEED)
+        };
+        let in_disc = |lots: &[BuildingLot]| {
+            lots.iter()
+                .filter(|l| (l.position[0] - centre[0]).hypot(l.position[1] - centre[1]) < radius)
+                .count()
+        };
+        let traced = traced_lots(&hm, &config, None);
+        let lots = extract_building_lots(&hm, &config, None);
+        assert!(
+            in_disc(&traced) > 0,
+            "the control: the block round the disc grows lots in it"
+        );
+        assert_eq!(in_disc(&lots), 0, "a lot grows in the keep-out disc");
+        assert_eq!(
+            lots.len() + in_disc(&traced),
+            traced.len(),
+            "only the lots in the disc are dropped"
+        );
+    }
+
+    /// A tensor lot centred on `(x, z)`, `width` along X (rotation 0) and
+    /// `depth` along Z.
+    fn tensor_lot(x: f32, z: f32, width: f32, depth: f32) -> symbios_tensor::BuildingLot {
+        symbios_tensor::BuildingLot {
+            position: glam::Vec2::new(x, z),
+            frontage_center: glam::Vec2::new(x, z),
+            rotation: 0.0,
+            width,
+            depth,
+            is_shoreline: false,
+        }
+    }
+
+    /// #1558: a corner lot pushed off the major street it fronts and the
+    /// minor street down its side clears both by the sidewalk margin past
+    /// their full footprints (deck, curb and chamfer), while its two sides
+    /// facing neighbouring lots keep the setbacks the subdivision gave them.
+    /// The lot reaches 3 m from the major's centreline - the old front
+    /// setback - and 2 m short of the minor's.
+    #[test]
+    fn a_corner_lot_clears_both_streets_and_keeps_its_inner_setbacks() {
+        let c = RoadConfig::default();
+        let graph = typed_graph(
+            &[(-60.0, 0.0), (60.0, 0.0), (20.0, -60.0), (20.0, 60.0)],
+            &[(0, 1, true), (2, 3, false)],
+        );
+        let streets = street_footprints(&graph, &c, LOT_STREET_MARGIN_M);
+        let outer = c.curb_top_width.0 + c.chamfer_width.0;
+        let (major, minor) = (c.major_half_width.0 + outer, c.minor_half_width.0 + outer);
+        // x in [-5, 18], z in [3, 17].
+        let lot = clear_lot(tensor_lot(6.5, 10.0, 23.0, 14.0), &streets).expect("the lot survives");
+        let (x0, x1) = (
+            lot.position.x - lot.width * 0.5,
+            lot.position.x + lot.width * 0.5,
+        );
+        let (z0, z1) = (
+            lot.position.y - lot.depth * 0.5,
+            lot.position.y + lot.depth * 0.5,
+        );
+        assert!(
+            z0 >= major + LOT_STREET_MARGIN_M - 1.0e-3,
+            "the front {z0} is within {} of the major street",
+            major + LOT_STREET_MARGIN_M
+        );
+        assert!(
+            x1 <= 20.0 - minor - LOT_STREET_MARGIN_M + 1.0e-3,
+            "the side {x1} is within {} of the minor street",
+            minor + LOT_STREET_MARGIN_M
+        );
+        assert!((x0 + 5.0).abs() < 1.0e-3, "the inner side moved: {x0}");
+        assert!((z1 - 17.0).abs() < 1.0e-3, "the rear moved: {z1}");
+        assert_eq!(lot.rotation, 0.0, "the lot keeps its street alignment");
+        // A lot the streets leave no room in goes.
+        assert!(
+            clear_lot(tensor_lot(16.0, 4.0, 6.0, 6.0), &streets).is_none(),
+            "a lot under both streets is dropped"
+        );
+    }
+
+    /// Whether an XZ triangle comes within `gap` of a lot's footprint.
+    fn near_lot(lot: &BuildingLot, tri: [[f32; 3]; 3], gap: f32) -> bool {
+        // The lot's frame: X along its frontage, Z across it.
+        let yaw = -lot.yaw;
+        let (u, v) = ([yaw.cos(), yaw.sin()], [-yaw.sin(), yaw.cos()]);
+        let local = |p: [f32; 3]| {
+            let d = [p[0] - lot.position[0], p[2] - lot.position[1]];
+            [d[0] * u[0] + d[1] * u[1], d[0] * v[0] + d[1] * v[1]]
+        };
+        let t = tri.map(local);
+        let r = [
+            -lot.width * 0.5,
+            lot.width * 0.5,
+            -lot.depth * 0.5,
+            lot.depth * 0.5,
+        ];
+        // A lot corner inside the triangle, or any side within the gap.
+        let inside = |p: [f32; 2]| {
+            let s = |a: [f32; 2], b: [f32; 2]| {
+                (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+            };
+            let (d1, d2, d3) = (s(t[0], t[1]), s(t[1], t[2]), s(t[2], t[0]));
+            (d1 >= 0.0 && d2 >= 0.0 && d3 >= 0.0) || (d1 <= 0.0 && d2 <= 0.0 && d3 <= 0.0)
+        };
+        [[r[0], r[2]], [r[0], r[3]], [r[1], r[2]], [r[1], r[3]]]
+            .into_iter()
+            .any(inside)
+            || (0..3).any(|k| segment_rect_distance(t[k], t[(k + 1) % 3], r) < gap)
+    }
+
+    /// #1558: at layout revision 1 no lot of the pilot network comes within
+    /// the sidewalk margin of anything the road mesh draws - deck, curb,
+    /// chamfer, junction - checked against the mesh's own triangles, not the
+    /// footprints the lots were cleared by. The control is the original
+    /// plan, whose lots reach into the streets.
+    #[test]
+    fn at_layout_revision_1_no_lot_touches_a_street() {
+        let hm = pilot_heightmap();
+        let half = hm.width().saturating_sub(1) as f32 * hm.scale() * 0.5;
+        let touching = |config: &RoadConfig, gap: f32| {
+            let parts = build_road_geometry(&hm, config, None).expect("the pilot meshes");
+            let lots = extract_building_lots(&hm, config, None);
+            let tris: Vec<[[f32; 3]; 3]> = [&parts.deck, &parts.structure]
+                .iter()
+                .flat_map(|g| {
+                    g.indices.as_chunks::<3>().0.iter().map(|t| {
+                        t.map(|i| {
+                            let v = g.vertices[i as usize];
+                            [v[0] - half, v[1], v[2] - half] // room frame, as the lots
+                        })
+                    })
+                })
+                .collect();
+            let hit = lots
+                .iter()
+                .filter(|lot| {
+                    let reach = lot.width.hypot(lot.depth) * 0.5 + gap + 1.0;
+                    tris.iter().any(|t| {
+                        t.iter().any(|p| {
+                            (p[0] - lot.position[0]).abs() < reach + 30.0
+                                && (p[2] - lot.position[1]).abs() < reach + 30.0
+                        }) && near_lot(lot, *t, gap)
+                    })
+                })
+                .count();
+            (hit, lots.len())
+        };
+        let (original_hits, original_lots) = touching(&cfg(PILOT_ROAD_SEED), 0.0);
+        assert!(
+            original_hits > 0,
+            "the control: the original plan's lots reach into the streets ({original_hits} of {original_lots})"
+        );
+        let mut config = cfg(PILOT_ROAD_SEED);
+        config.layout_revision = 1;
+        let (hits, lots) = touching(&config, LOT_STREET_MARGIN_M - 0.05);
+        assert!(lots > 0, "the tidied pilot still grows lots");
+        assert_eq!(
+            hits, 0,
+            "{hits} of {lots} lots come within the margin of a street"
+        );
+    }
+
+    /// #1558: at layout revision 1 no street-furniture spot stands on a
+    /// street: each keeps its clearance from every street's footprint, the
+    /// next street's near a junction too. The original plan's do not.
+    #[test]
+    fn at_layout_revision_1_no_street_prop_stands_on_a_street() {
+        let hm = pilot_heightmap();
+        let on_street = |config: &RoadConfig| {
+            let (graph, _sub, lo) = build_road_graph(&hm, config, None).expect("traces");
+            let shift = window_to_room_shift(&hm, lo);
+            let streets = street_footprints(&graph, config, 0.0);
+            extract_furniture_spots(&hm, config, None)
+                .iter()
+                .filter(|s| {
+                    let p = [s.position[0] - shift[0], s.position[1] - shift[1]];
+                    streets.iter().any(|f| {
+                        segment_rect_distance(f.a, f.b, [p[0], p[0], p[1], p[1]]) < f.radius
+                    })
+                })
+                .count()
+        };
+        let mut config = cfg(PILOT_ROAD_SEED);
+        config.furniture.enabled = true;
+        assert!(
+            on_street(&config) > 0,
+            "the control: the original plan's props stand on streets"
+        );
+        config.layout_revision = 1;
+        assert!(!extract_furniture_spots(&hm, &config, None).is_empty());
+        assert_eq!(on_street(&config), 0, "a prop stands on a street");
     }
 
     #[test]

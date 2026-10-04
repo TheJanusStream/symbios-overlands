@@ -327,6 +327,44 @@ pub trait CatalogueEntry: Sync {
         }
     }
 
+    /// Half the narrow side of the lot this entry fills at scale 1 (m) -
+    /// what the road layer fits a lot building by (#1559). Defaults to the
+    /// footprint's [`clearance`](Footprint::clearance), which is what the
+    /// lot fit has always read; a building whose clearance is a generous
+    /// spacing circle (the settlement keeps props out of it) declares its
+    /// real half side here instead, so a lot draws it at the size it fills.
+    fn lot_half_width(&self) -> f32 {
+        self.footprint().clearance
+    }
+
+    /// The radius of the ground a seeded placement of this entry stands on,
+    /// at scale 1 (m): the disc whose highest point sets its floor, and the
+    /// disc the compile walks off water and steep ground (both in
+    /// [`crate::world_builder::compile::pad`], which reads it from the
+    /// placement's `avoid_water_clearance`). `None`, the default, is the
+    /// footprint's [`clearance`](Footprint::clearance), which is what every
+    /// placement has always carried. A building whose clearance is a
+    /// generous spacing circle (the settlement keeps props out of it)
+    /// declares the reach of its own footing here instead (#1559), so it is
+    /// floored on the ground under it rather than on the highest ground
+    /// within its neighbours' spacing, which on a slope stands it metres
+    /// above its downhill side.
+    fn ground_radius(&self) -> Option<f32> {
+        None
+    }
+
+    /// The bound on the escalation ruin pass's lean for this entry (rad) -
+    /// `None`, the default, keeps the tier's own envelope (see
+    /// [`crate::pds::ruin::apply_ruin_bounded`]). The whole entry leans at
+    /// most this; each part's own knock askew, drawn on two axes at once,
+    /// at most sqrt(2) times it. A tall building declares one so a
+    /// fought-over room sways its top by about a metre, not by tens of
+    /// metres: the tier's lean is an angle, and an angle swings a 150 m
+    /// crown far past its footprint (#1559).
+    fn ruin_max_lean(&self) -> Option<f32> {
+        None
+    }
+
     /// Section bucket - drives the row grouping in the catalogue
     /// window. Derived from [`Self::role`] so the UI grouping and the
     /// settlement taxonomy stay in lockstep; overridable for the rare
@@ -375,6 +413,56 @@ pub trait CatalogueEntry: Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1559's three hooks are overridden by the five downtown buildings
+    /// and by nothing else: every other entry keeps the defaults - a lot
+    /// fits it by its clearance, its placement is floored on its clearance,
+    /// and the ruin pass leans it by the tier's own envelope. The lot
+    /// builder's pre-fit oracle and the room build read the hooks, so this
+    /// pins what they are fed: a changed default, or an override on any
+    /// other entry, would move saved lot buildings and seeded rooms with
+    /// every byte-identity test still green.
+    #[test]
+    fn only_the_downtown_buildings_override_the_1559_hooks() {
+        const DOWNTOWN: [&str; 5] = [
+            "neon_megatower",
+            "data_spire",
+            "arcade_block",
+            "parking_stack",
+            "holo_billboard",
+        ];
+        let mut others = 0;
+        for entry in ENTRIES {
+            let slug = entry.slug();
+            let clearance = entry.footprint().clearance;
+            if DOWNTOWN.contains(&slug) {
+                assert!(
+                    entry.lot_half_width() != clearance
+                        && entry.ground_radius().is_some()
+                        && entry.ruin_max_lean().is_some(),
+                    "{slug}: a downtown building declares all three"
+                );
+                continue;
+            }
+            assert_eq!(
+                entry.lot_half_width().to_bits(),
+                clearance.to_bits(),
+                "{slug}: its lot half side is its clearance"
+            );
+            assert_eq!(
+                entry.ground_radius(),
+                None,
+                "{slug}: its ground is its clearance"
+            );
+            assert_eq!(entry.ruin_max_lean(), None, "{slug}: the tier leans it");
+            others += 1;
+        }
+        assert_eq!(
+            others + DOWNTOWN.len(),
+            ENTRIES.len(),
+            "every downtown slug is in the catalogue"
+        );
+    }
 
     /// **Every sound the catalogue ships already fits the bake envelope.**
     ///
@@ -472,8 +560,6 @@ mod tests {
             "koi_pond",
             "well_house",
             "bathhouse",
-            "holo_billboard",
-            "data_spire",
             "vending_machine",
             "fuel_pump",
             "floodlight",

@@ -28,7 +28,8 @@
 //! the seeded settlements' members are, and the placement keeps a unit
 //! scale. The fit is rounded DOWN to a quarter-octave bucket (0.5, 0.59,
 //! 0.71, 0.84, 1.0, 1.19, ...), so above the clamp's floor a building never
-//! outgrows its lot (at the floor it still can: a 32 m tower on an 8 m lot),
+//! outgrows its lot (at the floor it still can: a 32 m tower on an 8 m lot -
+//! except at layout revision 1, #1558, where a lot grows only what fits it),
 //! and one entry grows at most a handful of generators rather than one per
 //! lot. Props keep street scale, at most 1.0 ([`fit_clamp`]).
 //!
@@ -166,11 +167,22 @@ fn combined_fingerprint(did: &str, configs: &[RoadConfig], water_level: Option<f
 /// of a network that avoids water (#1552), so it is part of that network's
 /// key and of no other's - a dry-traced network must not churn its
 /// buildings when the lake is raised.
+///
+/// The street field (#1556) is part of every network's key: its smoothing
+/// and basis fields move the streets, and its keep-out discs drop lots. So is
+/// the layout revision from 1 on (#1558): it re-derives the graph and lots.
 fn layout_fingerprint(did: &str, c: &RoadConfig, water_level: Option<f32>) -> String {
     let water = if c.avoid_water {
         format!("|water={water_level:?}")
     } else {
         String::new()
+    };
+    // The layout revision (#1558) re-derives the graph and the lots; at 0,
+    // every network saved before it, the key is what it always was.
+    let layout = if c.layout_revision == 0 {
+        String::new()
+    } else {
+        format!("|layout={}", c.layout_revision)
     };
     format!(
         "{did}|{}|{}|{}|{}|{}|{}|{:?}",
@@ -181,7 +193,10 @@ fn layout_fingerprint(did: &str, c: &RoadConfig, water_level: Option<f32>) -> St
         c.center.0[0],
         c.center.0[1],
         c.style,
-    ) + &format!("|{:?}|{:?}{water}", c.lots, c.furniture)
+    ) + &format!(
+        "|{:?}|{:?}|{:?}{water}{layout}",
+        c.lots, c.furniture, c.field
+    )
 }
 
 /// What [`maybe_populate_lots`] should do for an active network, from the
@@ -254,6 +269,8 @@ struct InjectReport {
     dropped_to_cap: usize,
     capped_by_budget: bool,
     generator_cap_skips: usize,
+    /// Lots no building of their pools fits (#1558, layout revision 1).
+    too_small: usize,
 }
 
 /// The cap one injection may fill: the layer's own constant, or the
@@ -451,13 +468,14 @@ fn grow_generator(
         *s = entry_seed;
     }
     material_finish::apply_socio_finish(&mut tree, prosperity, escalation);
-    ruin::apply_ruin(&mut tree, escalation, entry_seed);
+    ruin::apply_ruin_bounded(&mut tree, escalation, entry_seed, entry.ruin_max_lean());
     crate::seeded_defaults::room::build::scale_about_ground(&mut tree, scale);
     tree
 }
 
-/// Inject lot buildings into `record`, deterministic in the room DID + the
-/// network's layout `seed`. Returns the number placed.
+/// [`inject_lots`] as layout revision 0 grows lots - every network saved
+/// before #1558 - for the tests of the rules that predate it.
+#[cfg(test)]
 fn inject_lot_buildings(
     record: &mut RoomRecord,
     lots: &[crate::urban::BuildingLot],
@@ -465,6 +483,45 @@ fn inject_lot_buildings(
     seed: u64,
     prefix: &str,
     settings: &LotSettings,
+) -> InjectReport {
+    inject_lots(record, lots, did, seed, prefix, settings, false)
+}
+
+/// Whether `entry`, drawn on `lot` as the network's settings draw it - its
+/// fit inside the clamp, or its catalogue size without the fit - fits the
+/// lot (#1558): drawn no larger than the lot's narrower side holds.
+fn fits_lot(
+    entry: &dyn CatalogueEntry,
+    lot: &crate::urban::BuildingLot,
+    settings: &LotSettings,
+) -> bool {
+    let fit = lot.width.min(lot.depth) / (2.0 * entry.lot_half_width().max(0.5));
+    let drawn = if settings.fit {
+        let (lo, hi) = fit_clamp(settings, entry.role());
+        fitted_scale(fit, lo, hi)
+    } else {
+        1.0
+    };
+    drawn <= fit
+}
+
+/// Inject lot buildings into `record`, deterministic in the room DID + the
+/// network's layout `seed`. Returns the number placed.
+///
+/// With `fit_only` - a network at layout revision 1 or later (#1558) - no
+/// building or prop is drawn larger than its lot: a lot draws only from the
+/// catalogue entries that fit it at the size they would be drawn, falling
+/// through the pools as an empty pool does, and grows nothing when none
+/// fits. Without it, as every network grew before: a building at its
+/// clamp's floor stands on a lot however small.
+fn inject_lots(
+    record: &mut RoomRecord,
+    lots: &[crate::urban::BuildingLot],
+    did: &str,
+    seed: u64,
+    prefix: &str,
+    settings: &LotSettings,
+    fit_only: bool,
 ) -> InjectReport {
     let mut report = InjectReport {
         found: lots.len(),
@@ -535,13 +592,33 @@ fn inject_lot_buildings(
     let mut placed = 0usize;
     let pools = [landmark.as_slice(), secondary.as_slice(), prop.as_slice()];
     for (i, lot) in ranked.iter().enumerate() {
-        let Some(chosen) = role_order(settings.tier_bias, i, ranked.len(), pools)
-            .into_iter()
-            .find(|p| !p.is_empty())
-        else {
-            continue;
+        let entry = if fit_only {
+            let fitting: [Vec<&'static dyn CatalogueEntry>; 3] = pools.map(|pool| {
+                pool.iter()
+                    .copied()
+                    .filter(|e| fits_lot(*e, lot, settings))
+                    .collect()
+            });
+            let order = role_order(
+                settings.tier_bias,
+                i,
+                ranked.len(),
+                [&fitting[0][..], &fitting[1][..], &fitting[2][..]],
+            );
+            let Some(chosen) = order.into_iter().find(|p| !p.is_empty()) else {
+                report.too_small += 1;
+                continue;
+            };
+            chosen[(rng.next_u32() as usize) % chosen.len()]
+        } else {
+            let Some(chosen) = role_order(settings.tier_bias, i, ranked.len(), pools)
+                .into_iter()
+                .find(|p| !p.is_empty())
+            else {
+                continue;
+            };
+            chosen[(rng.next_u32() as usize) % chosen.len()]
         };
-        let entry = chosen[(rng.next_u32() as usize) % chosen.len()];
         let slug = entry.slug();
 
         // The scale this lot draws its building at (#1553): with the fit
@@ -551,9 +628,13 @@ fn inject_lot_buildings(
         // again comes back byte for byte.
         let fp = entry.footprint();
         let fit = lot.width.min(lot.depth) / (2.0 * fp.clearance.max(0.5));
+        // The fit a building is drawn at reads its own half side (#1559),
+        // which for every entry that declares none is its clearance - the
+        // `fit` above, which the placement keeps without the fit.
         let wanted = if settings.fit {
             let (lo, hi) = fit_clamp(settings, entry.role());
-            fitted_scale(fit, lo, hi)
+            let fill = lot.width.min(lot.depth) / (2.0 * entry.lot_half_width().max(0.5));
+            fitted_scale(fill, lo, hi)
         } else {
             1.0
         };
@@ -605,7 +686,9 @@ fn inject_lot_buildings(
             // generator; the compile multiplies it by the placement's scale
             // (`world_builder::compile::pad::relocation_clearance`) - unit
             // with the fit, the old clamped fit without it, as it always was.
-            avoid_water_clearance: Fp(fp.clearance * drawn),
+            // An entry that declares the ground it stands on carries that
+            // instead (#1559); every other carries its clearance.
+            avoid_water_clearance: Fp(entry.ground_radius().unwrap_or(fp.clearance) * drawn),
             seed: None,
         });
         placed += 1;
@@ -802,9 +885,16 @@ fn simulate_districts(
                 let lots = crate::urban::extract_building_lots(heightmap, c, water);
                 if !lots.is_empty() {
                     let prefix = net_prefix(LOT_PREFIX, *i, c.seed);
-                    lots_planted =
-                        inject_lot_buildings(&mut scratch, &lots, did, c.seed, &prefix, &c.lots)
-                            .placed;
+                    lots_planted = inject_lots(
+                        &mut scratch,
+                        &lots,
+                        did,
+                        c.seed,
+                        &prefix,
+                        &c.lots,
+                        c.tidies_layout(),
+                    )
+                    .placed;
                 }
             }
             let mut props_planted = 0;
@@ -875,7 +965,16 @@ pub(crate) fn grow_missing_districts(
         if c.populate_lots && !has_lots {
             let lots = crate::urban::extract_building_lots(heightmap, &c, water);
             let prefix = net_prefix(LOT_PREFIX, i, c.seed);
-            planted += inject_lot_buildings(record, &lots, did, c.seed, &prefix, &c.lots).placed;
+            planted += inject_lots(
+                record,
+                &lots,
+                did,
+                c.seed,
+                &prefix,
+                &c.lots,
+                c.tidies_layout(),
+            )
+            .placed;
         }
         if c.furniture.enabled && !has_props {
             let spots = crate::urban::extract_furniture_spots(heightmap, &c, water);
@@ -1118,18 +1217,20 @@ pub(super) fn maybe_populate_lots(
         if config.populate_lots {
             let lots = crate::urban::extract_building_lots(&heightmap.0, config, water);
             if !lots.is_empty() {
-                let report = inject_lot_buildings(
+                let report = inject_lots(
                     &mut record_mut.0,
                     &lots,
                     did_str,
                     config.seed,
                     &net_prefix(LOT_PREFIX, *i, config.seed),
                     &config.lots,
+                    config.tidies_layout(),
                 );
                 stats.buildings += report.placed;
                 // The arithmetic behind the number (#1211).
                 stats.clamps.lots_found += report.found;
                 stats.clamps.lots_kept += report.kept;
+                stats.clamps.lots_too_small += report.too_small;
                 stats.clamps.buildings_dropped += report.dropped_to_cap;
                 stats.clamps.buildings_capped_by_budget |= report.capped_by_budget;
                 stats.clamps.generator_cap_skips += report.generator_cap_skips;
@@ -1249,6 +1350,38 @@ mod tests {
             fp(&shore),
             "stopping streets at the water moves lots (#1552)"
         );
+
+        // The street field (#1556): its smoothing and basis fields move the
+        // streets, and its keep-out discs drop lots - each edit its own key.
+        use crate::pds::generator::{RoadBasis, RoadKeepOut};
+        const AT: crate::pds::types::Fp2 = crate::pds::types::Fp2([10.0, -20.0]);
+        let field_edits: [fn(&mut RoadConfig); 6] = [
+            |c| c.field.smoothing.0 = 12.0,
+            |c| c.field.terrain_weight.0 = 0.5,
+            |c| c.field.basis.push(RoadBasis::ring_at(AT)),
+            |c| c.field.basis.push(RoadBasis::grid_at(AT)),
+            |c| {
+                c.field.basis.push(RoadBasis::Grid {
+                    center: AT,
+                    bearing: Fp(30.0),
+                    radius: Fp(RoadBasis::DEFAULT_RADIUS),
+                    strength: Fp(RoadBasis::DEFAULT_STRENGTH),
+                })
+            },
+            |c| c.field.keep_out.push(RoadKeepOut::at(AT)),
+        ];
+        let mut seen = vec![fp(&base)];
+        for edit in field_edits {
+            let mut edited = base.clone();
+            edit(&mut edited);
+            let key = fp(&edited);
+            assert!(
+                !seen.contains(&key),
+                "a street field edit must move the lots (#1556): {:?}",
+                edited.field
+            );
+            seen.push(key);
+        }
     }
 
     /// #1552: the water line moves the streets of a network that avoids
@@ -1561,7 +1694,7 @@ mod tests {
             return 1.0;
         }
         let (lo, hi) = fit_clamp(settings, entry.role());
-        let fit = lot.width.min(lot.depth) / (2.0 * entry.footprint().clearance.max(0.5));
+        let fit = lot.width.min(lot.depth) / (2.0 * entry.lot_half_width().max(0.5));
         fitted_scale(fit, lo, hi)
     }
 
@@ -1702,7 +1835,12 @@ mod tests {
                 *seed = entry_seed;
             }
             material_finish::apply_socio_finish(&mut base, scene.prosperity, scene.escalation);
-            ruin::apply_ruin(&mut base, scene.escalation, entry_seed);
+            ruin::apply_ruin_bounded(
+                &mut base,
+                scene.escalation,
+                entry_seed,
+                entry.ruin_max_lean(),
+            );
             let generator = &record.generators[key];
             for axis in 0..3 {
                 assert!(
@@ -1724,9 +1862,12 @@ mod tests {
                 generator.children, base.children,
                 "{key}: only the root carries the fit"
             );
+            // The ground it stands on at the size it is drawn: its clearance,
+            // or the ground radius an entry declares (#1559).
+            let ground = entry.ground_radius().unwrap_or(entry.footprint().clearance);
             assert!(
-                (clearance - entry.footprint().clearance * drawn).abs() < 1e-4,
-                "{key}: the clearance is not the footprint it is drawn at"
+                (clearance - ground * drawn).abs() < 1e-4,
+                "{key}: the clearance is not the ground it stands on at its drawn size"
             );
             if !scales_seen.contains(&drawn) {
                 scales_seen.push(drawn);
@@ -1735,6 +1876,151 @@ mod tests {
         assert!(
             scales_seen.iter().any(|s| *s < 1.0) && scales_seen.iter().any(|s| *s > 1.0),
             "the fixture must draw buildings both under and over unit scale: {scales_seen:?}"
+        );
+    }
+
+    /// #1558: at layout revision 1 no building or prop is grown larger
+    /// than its lot. The control is revision 0 over the same lots, which
+    /// stands buildings at their clamp's floor on lots too small for them -
+    /// as every network grew before. With the fit off a building is drawn
+    /// at its catalogue size, so a lot grows only what fits it at that size.
+    #[test]
+    fn at_layout_revision_1_no_building_outgrows_its_lot() {
+        let did = urban_did();
+        for fit in [true, false] {
+            let settings = LotSettings {
+                theme_override: String::from("Cyberpunk"),
+                tier_bias: crate::pds::generator::LotTierBias::Downtown,
+                fit,
+                scale_min: Fp(1.0),
+                scale_max: Fp(1.8),
+                ..LotSettings::default()
+            };
+            let lots: Vec<BuildingLot> = (0..60)
+                .map(|i| lot(i as f32 * 100.0, 0.0, 0.6 + i as f32, 70.0))
+                .collect();
+            let prefix = seed_prefix(4242);
+            let overflow = |record: &RoomRecord| {
+                grown(record, &lots, &prefix)
+                    .into_iter()
+                    .filter(|(key, lot, _, _)| {
+                        let entry = entry_of(key, &prefix);
+                        let drawn = drawn_scale(entry, lot, &settings);
+                        2.0 * entry.lot_half_width() * drawn > lot.width.min(lot.depth) + 1.0e-4
+                    })
+                    .count()
+            };
+            let mut before = RoomRecord::default_for_did(&did);
+            inject_lots(&mut before, &lots, &did, 4242, &prefix, &settings, false);
+            assert!(
+                overflow(&before) > 0,
+                "the control (fit {fit}): revision 0 outgrows a small lot"
+            );
+            let mut after = RoomRecord::default_for_did(&did);
+            let report = inject_lots(&mut after, &lots, &did, 4242, &prefix, &settings, true);
+            assert_eq!(
+                overflow(&after),
+                0,
+                "fit {fit}: a building outgrows its lot"
+            );
+            assert!(
+                report.too_small > 0,
+                "fit {fit}: the smallest lots grow nothing"
+            );
+            assert_eq!(
+                report.placed + report.too_small,
+                lots.len(),
+                "fit {fit}: every other lot still grows a building"
+            );
+        }
+    }
+
+    /// #1558 and #1559, the other way round: at layout revision 1 a lot
+    /// that holds a downtown building by its own half side grows it. Read
+    /// by the clearance, a spacing circle about twice the building's reach,
+    /// the fit asked the megatower for a 46 m lot where its plinth is
+    /// 18.4 m, and a fit that strict passes every overflow test. Drawn at
+    /// its catalogue size, each of the five fits a lot 30 cm wider than its
+    /// widest part above the ground; and a lone lot that size on a rich,
+    /// monumental Cyberpunk network grows the megatower.
+    #[test]
+    fn at_layout_revision_1_a_downtown_building_that_fits_its_lot_is_grown() {
+        let settings = LotSettings {
+            theme_override: String::from("Cyberpunk"),
+            tier_bias: crate::pds::generator::LotTierBias::Monumental,
+            fit: false,
+            prosperity: Some(Fp(0.9)),
+            escalation: Some(Fp(0.0)),
+            ..LotSettings::default()
+        };
+        // A lot just wider than the entry's widest part above the ground,
+        // measured from its geometry rather than from what it declares.
+        let lot_for = |entry: &dyn CatalogueEntry| {
+            let widest = crate::catalogue::items::measure::solids(&entry.build(""))
+                .iter()
+                .filter(|s| s.bounds.max.y > 0.05)
+                .map(|s| {
+                    let (a, b) = (s.bounds.min, s.bounds.max);
+                    a.x.abs().max(b.x.abs()).max(a.z.abs()).max(b.z.abs())
+                })
+                .fold(0.0_f32, f32::max);
+            lot(0.0, 0.0, 2.0 * widest + 0.3, 70.0)
+        };
+        for slug in [
+            "neon_megatower",
+            "data_spire",
+            "arcade_block",
+            "parking_stack",
+            "holo_billboard",
+        ] {
+            let entry = crate::catalogue::by_slug(slug).expect("a downtown entry");
+            let lot = lot_for(entry);
+            assert!(
+                fits_lot(entry, &lot, &settings),
+                "{slug}: a {} m lot does not hold it",
+                lot.width
+            );
+        }
+        let did = urban_did();
+        let megatower = crate::catalogue::by_slug("neon_megatower").expect("the megatower");
+        let lots = vec![lot_for(megatower)];
+        let prefix = seed_prefix(4242);
+        let mut record = RoomRecord::default_for_did(&did);
+        let report = inject_lots(&mut record, &lots, &did, 4242, &prefix, &settings, true);
+        assert_eq!(report.placed, 1, "the lot grows a building");
+        assert!(
+            record
+                .generators
+                .keys()
+                .any(|k| k.starts_with(&prefix) && entry_of(k, &prefix).slug() == "neon_megatower"),
+            "a lot that holds the megatower grows something else: {:?}",
+            record
+                .generators
+                .keys()
+                .filter(|k| k.starts_with(&prefix))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// #1558: the layout revision re-derives the graph and the lots, so it
+    /// is part of the lot fingerprint - and a network on the original plan
+    /// keys exactly as before the field.
+    #[test]
+    fn the_layout_revision_re_derives_the_lots() {
+        let fp = |layout_revision: u32| {
+            layout_fingerprint(
+                "did:test:0",
+                &RoadConfig {
+                    layout_revision,
+                    ..RoadConfig::default()
+                },
+                None,
+            )
+        };
+        assert_ne!(fp(0), fp(1), "an upgrade must regrow the district");
+        assert!(
+            !fp(0).contains("layout"),
+            "the original plan keys as it always did"
         );
     }
 
@@ -2361,7 +2647,14 @@ mod tests {
                     *s = entry_seed;
                 }
                 material_finish::apply_socio_finish(&mut tree, scene.prosperity, scene.escalation);
-                ruin::apply_ruin(&mut tree, scene.escalation, entry_seed);
+                // The entry's own ruin bound (#1559) is item data, like its
+                // geometry, which this oracle also reads from the catalogue.
+                ruin::apply_ruin_bounded(
+                    &mut tree,
+                    scene.escalation,
+                    entry_seed,
+                    entry.ruin_max_lean(),
+                );
                 let name = format!("{prefix}{slug}");
                 record.generators.insert(name.clone(), tree);
                 by_slug.insert(slug, name.clone());
@@ -2383,7 +2676,9 @@ mod tests {
                 },
                 snap_to_terrain: true,
                 avoid_water: true,
-                avoid_water_clearance: Fp(fp.clearance),
+                // The ground radius an entry declares (#1559), as the live
+                // path writes it; every other entry's clearance, as before.
+                avoid_water_clearance: Fp(entry.ground_radius().unwrap_or(fp.clearance)),
                 seed: None,
             });
             placed += 1;
@@ -2674,7 +2969,12 @@ mod tests {
                 *seed = 19 ^ fnv1a_64(entry.slug());
             }
             material_finish::apply_socio_finish(&mut want, 0.05, scene.escalation);
-            ruin::apply_ruin(&mut want, scene.escalation, 19 ^ fnv1a_64(entry.slug()));
+            ruin::apply_ruin_bounded(
+                &mut want,
+                scene.escalation,
+                19 ^ fnv1a_64(entry.slug()),
+                entry.ruin_max_lean(),
+            );
             assert!(
                 record.generators[key] == want,
                 "{key} was not finished at the override's prosperity"

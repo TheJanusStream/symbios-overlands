@@ -552,8 +552,14 @@ impl Rule for FrameHitch {
 /// every voice is a per-frame spatialise-and-mix, and past this count the
 /// mixer drags the frame long before anything else looks unhealthy. A
 /// dense themed room lands in the low tens; overload cases observed in
-/// #802 ran well past this.
-const LOOPING_VOICES_OVERLOAD_COUNT: f64 = 48.0;
+/// #802 ran well past this, and so did Isoline's 52 (#1557). Since #1557
+/// the construct and engine voices that play are capped at
+/// `world_builder::voice_budget::VOICE_BUDGET` (24) and the loops outside
+/// the budget are the ambient bed and the editor's two auditions, so the
+/// gauge tops out near 27 in a healthy client: 32, not the 48 it was, keeps
+/// the rule able to fire for looping players that reach the mixer around
+/// the budget.
+const LOOPING_VOICES_OVERLOAD_COUNT: f64 = 32.0;
 
 struct LoopingVoicesOverload;
 const LOOPING_VOICES_OVERLOAD: RuleHeader = RuleHeader {
