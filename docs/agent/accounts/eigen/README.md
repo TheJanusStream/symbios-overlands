@@ -8,12 +8,15 @@ is a city on a slope above a lake shore: a tensor-field street plan, a neon
 downtown round the waterfront and a twisted glass Spire standing in the bay.
 The owner created the account on 2026-10-03 to "build a futuristic urban
 environment and improve the upstream symbios tensor crate while building
-its region" (#1550). Where things stand (2026-10-03, session 903): the land,
-the Spire, the drone body, the city, the isoline and the dusk light are saved
-(room 15:05, avatar 09:55). The road-pipeline changes that grew the city are
-committed (1ee310d, #1552-#1555), symbios-tensor 0.5.0 is published with the
-basis fields, smoothing and keep-out discs Eigen built (its #68, #69), and
-Overlands is being taught to use them (#1556, in the working tree). Times on
+its region" (#1550). Where things stand (2026-10-04, end of session 903): Isoline is a
+dark, realistic city on street plan revision 1 - a ring street plan round
+the Spire (rebuilt as 20 straight floors), 29 overhauled Cyberpunk buildings,
+the darker city sound, arrivals on the boulevard facing the Spire - saved
+2026-10-04 14:53 (room) and 2026-10-03 09:55 (avatar). All the session's
+code is committed (bedfd9c: the street field #1556, the voice budget #1557,
+junctions and layout revision 1 #1558, the Cyberpunk overhaul #1559; a1f0027:
+a beta-clippy fix #1566) and deployed. Open: #1567, acute forks in the
+owner's own region (the builder's diagnosis is on the issue). Times on
 this page are local (CEST).
 
 ## Start here
@@ -27,8 +30,8 @@ session.
 | Commands | every agent command takes `--account eigen-ai.bsky.social`; every tool call starts `AGENT_ACCOUNT=eigen-ai.bsky.social` ([session.md](../../session.md#starting)) |
 | Admin | @codewright.bsky.social, the owner: `start --admin @codewright.bsky.social --allow-save` |
 | Region | Isoline, Eigen's own world: its DID is Eigen's, the `--world` of every offline render |
-| Working folder | `exports/eigen/` (gitignored, on this machine only), kept across sessions: `A` the agent wrapper (it runs the copy in `bin/`), `b/` the builders, `gen/` what they write, `src/` the last saves - `room.json` (2026-10-03 15:05, save event seq 3: the daemon restarted at 14:45 on the final build and numbers afresh) and `avatar.json` (09:55, seq 9) - and `log.md` the save log |
-| Last session | chainlink session 903 (live session 12), parent #1551 - read its comments (`chainlink show 1551`); `chainlink session last-handoff` is the latest session of any kind |
+| Working folder | `exports/eigen/` (gitignored, on this machine only), kept across sessions: `A` the agent wrapper (it runs the copy in `bin/`, built 2026-10-04 19:33 from the committed tree), `b/` the builders (`city.py`, `field.py`, `plan_trial.sh`, `spire.py` v3, `sound.py` v2, `mood.py`, `ground.py`), `gen/` what they write, `src/` the last saves - `room.json` (2026-10-04 14:53, save event seq 2 of the daemon started 14:50) and `avatar.json` (2026-10-03 09:55, seq 9) - and `log.md` the save log |
+| Last session | chainlink session 903 (live session 12, 2026-10-03 06:23 to 2026-10-04 22:07), parent #1551 - read its comments (`chainlink show 1551`); `chainlink session last-handoff` is the latest session of any kind |
 | Default mode | self-guided ([session.md](../../session.md#self-guided)), as the first session ran |
 | Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), Reeve's world (Ashmere) or avatar ([reeve/](../reeve/README.md)), or Jink's world (Parabola Flats) or avatar ([jink/](../jink/README.md)); apply `edits_clear_ONCE.txt` again - it replaces every generator and placement with the bare terrain |
 
@@ -43,9 +46,14 @@ session.
   traces its streets from the record at load, so what a visitor sees of
   them is their client's code. The buildings its lots grow ARE written into
   the record (and saved), by whichever client populates them first. A
-  client older than 1ee310d ignores `avoid_water`, `fit`, `lot_area` and
-  `focus`: it traces the streets across the lake bed (it adopts the saved
-  buildings on a normal load).
+  client older than bedfd9c ignores the street field and `layout_revision`
+  and traces different streets under the saved buildings.
+- **First next time:** #1567 (acute forks draw a pale crotch triangle, a
+  curb across the merged deck, a flat wedge proud of a slope, and hard
+  shading at every hub-to-road seam) - start from the diagnosis on the
+  issue; the owner's region record is `gen/owner_room.json` (read-only
+  copy). Then the owner's open preferences: none pending (both answered
+  2026-10-04).
 - **Build the city with `b/city.py`, try it offline first**: it writes the
   network (every field a `key=value`), `b/ground.py` the paving, and
   `bin/render --triangle-report` on the composed record counts the streets
@@ -233,121 +241,58 @@ a script of Eigen's own emptied `src/terrain/lots.rs`
 (`open(L,'w').write(open(L).read())` truncates before it reads); it was
 rebuilt from the reviewer's byte-checked scratch copy.
 
+### 2026-10-03 to 2026-10-04: session 903 continued (the owner's remarks, overnight delegations)
+
+The afternoon: the owner committed 1ee310d, published symbios-tensor 0.5.0
+and said yes to the dusk light (15:04). #1556 exposed the street field
+(builder, critic SOUND, five main-session fixes). The owner walked Isoline at
+17:54-18:04 with five remarks (buildings too stylized; streets too dense and
+flawed at junctions; the Cyberpunk catalogue is the weakest - overhaul it;
+the Spire lacks detail; 52 looping voices) and "please keep going". Saved
+while they were away: Spire v2 (18:21), the ring street plan (18:26), the
+landing on the boulevard (18:28). Back at 18:43-19:00: the city sound v1 was
+"too bright", v2 "much better ... keep this" (saved 18:55); the Spire's
+texture looked "crooked" on its one twisted box - v3 of straight floors
+(18:57), "looks great now"; buildings stood on streets (lots cut from street
+centrelines). Overnight, one delegation at a time, each builder -> critic ->
+fix round: #1557 voice budget (a muted peer could take every slot - fixed),
+#1558 junctions (the old hub mesh tore; revision 1 tidy and lots clear of
+curbs; two fix rounds after the critic and the end review found collapses on
+wide, dense and then sparse plans), #1559 the Cyberpunk five (ruin felled
+whole towers and props were buried in them until each became a trunk with
+three per-item sizes). Isoline regrown at revision 1 and saved 14:53 on
+2026-10-04 (1,075 parts, 216 KB). The full gate green at 19:31; the owner
+committed bedfd9c, kept both open choices as they are (the rim clip, the
+Spire's height), committed the beta-clippy fix a1f0027 (#1566), and took Eigen
+to their own region, where an acute fork's mesh drew badly (#1567, stopped
+at session over with its diagnosis on the issue). Delegations cost about 7M
+sub-agent tokens; resumed fix rounds were the expensive part.
+
 ## Open threads
 
-- **The owner's remarks** (chat, 17:58-18:04, then "please keep going and I
-  will check back later"), and where each stands:
-  1. "the buildings look too stylized and not realistic enough" and "feel
-     free to overhaul the cyberpunk catalogue items directly": #1559, the
-     five items Isoline grows (neon_megatower, data_spire, arcade_block,
-     parking_stack, holo_billboard) toward realistic architecture at real
-     building sizes, then the district regrown (saved lot buildings are
-     copies: they change only on a regrow). Brief written; it runs after
-     #1557's delegation (one at a time).
-  2. "the road-network is too dense and reveals several flaws of either the
-     tensor crate and/or the meshing in overlands ... most notable on
-     intersections": the density answered (120/60 m with a ring field,
-     18:26); the flaws are #1558 - junction decks that tear into shards
-     where three or more streets meet at sharp angles (meshing), and tracer
-     artefacts: a tiny closed loop, near-parallel streets merging into one
-     thick band, stubs, junctions a few metres apart. A graph change moves
-     every saved district's lots, so a tracer or graph fix must be opt-in.
-  3. "The Spire looks good, but lacks detail to make it look more
-     realistic": v2 saved 18:21; "the uv-mapping makes it look crooked":
-     v3 saved 18:57 (Places); "the spire looks great now" (18:58).
-  5. "The cyberpunk catalogue items used here have not been overhauled
-     yet, so I wont comment on them until they gone through another
-     iteration" (18:58): call the owner when #1559 has a version to see.
-  4. "a lot of sounds are playing at once ... 52 looping voices": #1557, a
-     voice budget - only the 24 nearest looping construct and avatar
-     voices within 40 m hold a player, the rest leave rodio's mixer
-     altogether (a muted or paused sink is still mixed) and come back on
-     approach; builder done (450k, 99 min, 17 mutations each caught);
-     critic (327k, 37 min): the listener SOUND, rule 2 BROKEN - a muted
-     voice still took a slot, so a muted peer standing close in 24 voice
-     nodes held every player and silenced the room; fixed in the main
-     session (a silenced voice is not weighed), with a despawn-race test,
-     the overload rule lowered 48 -> 32; filed #1560 (a referenced audio URL
-     serving non-audio bytes may panic bevy_audio's decoder - high,
-     untested), #1561 (rodio pans the wrong way), #1562 (cutoffs). Its side findings: rodio 0.22 pans the wrong way (the
-     far ear louder, upstream); the Audio card's "mute to test" advice is
-     false (a muted sink mixes as before); a voice dropped inside the
-     radius stops dead (no fade); `render --world` is now silent.
-- **Say on the owner's next return** (two lines at 07:28 reached nobody: they joined 07:27 and left within the minute): the street fix built and reviewed (junction tears, the broken street, buildings on streets; lot and graph changes behind the opt-in street plan revision 1); the Cyberpunk five rebuilt as realistic dark towers, a helix-balcony tower, a mid-rise, a media block and a garage at real sizes, review running, pictures in the terminal, Isoline still shows the old ones until a regrow; and the decision: at revision 1 blocks whose streets lie outside the drawn district grow nothing (Isoline 29 instead of 44) - recommend yes - 'Yes or no?'.
-- **Said on the owner's return (21:18)**: the buildings-on-streets cause and the change of order (street fix before buildings, lot changes opt-in), the 52-sounds fix built and reviewed (goes live with the owner's next client build), the Cyberpunk buildings after the streets.
-- **The owner's remark 6** (18:59): "some of the buildings and props stand
-  on a road or intersect with a road" - added to #1558 (comment there).
-- **#1558 builder done** (922k, 3.9 h; all Overlands-side, no tensor
-  release): the junction tears were the OLD HUB MESH (a sub-metre stub
-  between two pulled-back junctions let corners interleave and swept curb
-  and skirt across the asphalt; curb arcs bulged outward) - rewritten,
-  corners where the curb lines meet, for every revision; the gap was a
-  junction whose third street runs outside the drawn district circle
-  (`drawn_graph`, two-arm hubs); behind `layout_revision` 1: `tidy_graph`
-  (clusters, doubled streets, loops, stubs), `clear_lots` (2 m past every
-  curb), furniture off other streets. Isoline at revision 1 grows 26
-  buildings, not 44 - tell the owner before upgrading. Renders
-  /tmp/claude-1000/roads1558/ (cmp_main.png: the crossing and the gap,
-  before and after). Critic (483k, 49 min): rule 1 SOUND (revision 0 =
-  HEAD on 11 records, fit rule gated), rule 2 sound in practice; two HIGH -
-  the revision-1 tidy collapses wide or dense networks (a transitive
-  cluster merge: 214 junctions -> 15, 56 lots -> 1 at 8/6 m on 60/30) and
-  the pin test's bit hashes ride platform libm (red on CI's glibc 2.39);
-  MEDIUM - the mesh's hub merge is unbounded at every revision (one hub of
-  2,130 nodes at 10/8 m), the second-street loop rule drops big crescents.
-  Fix round sent to the builder 01:23. Filed #1563 (pre-existing: lots
-  differ between native and wasm - seed-3 43 vs 44 under the libm crate).
-  Fix round done 05:40 (524k, 3.9 h; #1558 in all ~1.9M with its critic):
-  tidy bounds from spacing as well as width (a cluster can no longer
-  chain; across 18 plans the worst keeps 73% of streets and lots), the pin
-  made tolerant and proven under the libm crate and 62 one-ulp nudges with
-  a rebuilt LD_PRELOAD shim, hubs capped at 8 nodes at every revision,
-  crescents kept (a second street goes only at 3x the shorter), the tidy
-  reaches a fixed point, hypot off the decision paths.
-- **Revision 1's rim clip**: answered - keep it as designed (the owner, 2026-10-04: "Keep both as is for now"); Isoline grows 29 buildings.
-- **#1559 builder launched 05:45** (the Cyberpunk five toward realistic,
-  dark, looming architecture at real sizes; budgets 30 KB and 60 parts an
-  item; seeded Cyberpunk rooms checked; sounds trimmed). Done 07:20 (729k,
-  2 h): office tower 142 m (mast 160), helix-balcony tower 105 m, a 26 m
-  mid-rise over an arcade, a 16 m open-deck garage, an 8-storey media block;
-  footprints 12.8-18.4 m, sized to Isoline's revision-1 cleared lots
-  (narrow side median 16.8 m); compare sheets /tmp/claude-1000/cyber1559/.
-  Critic (517k, 72 min): budgets SOUND (Isoline regrown at revision 1:
-  265.6 KB compact); BROKEN - the ruin pass fells or deletes whole towers in
-  Conflict rooms (one child holds the whole building; a felled tower lies
-  over the gate in seeds 1199, 5213), props buried in buildings in calm
-  rooms (the keep-clear radius was cut for the lot fit; a settlement fix
-  would move 563 of 2000 rooms), the parking stack z-fights (13 pairs) and
-  its core floats; buildings drawn at 0.71 or less look like dolls' houses.
-  Fix round sent 08:41 (per-item data and structure only; other themes'
-  rooms must stay byte-identical). Done 14:40 (536k, 5.9 h; #1559 in all
-  ~1.8M): each building a trunk the ruin pass never takes, lean capped at
-  ~1 m at the tip; three per-item numbers (spacing clearance, lot
-  half-width, ground radius) via new `CatalogueEntry` hooks defaulting to
-  the old clearance, so props are out of buildings (HEAD's 0) and other
-  themes' seeded rooms are byte-identical (2931 of 3000; the 69 that differ
-  are Cyberpunk rooms holding the five); 0 z-fight pairs at every scale; 0
-  floating lot buildings; display names Supertall Tower, Helix Tower, Media
-  Facade Block. Smallest real scales: megatower 0.67, helix 0.83, arcade
-  0.78, garage 0.80, media 0.74 - set Isoline's lot clamp floor to 0.83.
-  Rich Cyberpunk rooms hold 6% fewer buildings and 18% fewer props (wider
-  spacing circles).
-- **The full gate** (all four issues, #1556-#1559) GREEN 14:47: fmt, clippy 0 warnings, nextest 4169, doctests, cargo doc 0 warnings, wasm 0 warnings, deny, lib 3917 twice. Binaries rebuilt (bin/ 14:49), daemon restarted; Isoline regrown at revision 1 and saved 14:53.
-- **End review** (one reviewer over the code no critic saw: the main session's #1556/#1557 fixes and both fix rounds; 479k, 75 min): revision 0 byte-identical to HEAD again confirmed independently, other themes' rooms identical, every fix it broke failed its test. HIGH: the revision-1 tidy wipes out SPARSE plans (the detour and spun-ring rules run after the district clip, which turns a truncated edge block into one long 'detour' street: 200/100 spacing loses over a third of its lots in 15 of 32 configurations, 250/125 can lose every street; Isoline's 120/60 unaffected) - second #1558 fix round sent 16:00. MEDIUM: #1559's settlement call sites untested; LOWs: the pre-fit oracle reads the hooks it pins, the fit rule pinned only for overflow, the ruin doc's bound (sqrt 2), stale #1557 mute docs (fixed by the main session 16:05). Filed #1564 (generator-cap interplay); #1563 commented.
-- **#1558 second fix round done 17:50** (~700k, 1.8 h; #1558 in all ~2.6M - a resumed builder carries its whole context into every turn): the loop rules now judge the plan as TRACED, before the district cut; a stub is capped at four street widths; two streets with room for a lot between their curbs are never a double; the tidy no longer cuts grazes (the sanitiser does). Sweep of 320 configurations: 46 under the 2/3 bounds -> 18, all of them plans made almost wholly of tracer junk. Isoline's saved plan does NOT move (same graph, same 29 lots). #1559's end-review round sent 17:55 (tests through the settlement call sites, the oracle's inputs pinned, the fit pinned both ways, the ruin doc); done 19:25 (it also caught the arcade's lean bound measuring to the wrong top).
-- **The final gate GREEN 19:31** over the whole tree (#1556-#1559 with every fix round): fmt, clippy 0 warnings, nextest 4174, doctests, cargo doc 0 warnings, wasm 0 warnings, deny, lib 3922 twice. Binaries rebuilt 19:33 into bin/ (previous kept as *.s903-1449), daemon restarted. COMMITTED by the owner as bedfd9c ('Improve urban planning and Cyberpunk theme', 47 files); #1556-#1559 closed (--no-changelog). The owner is waiting for the deployment to try it.
-- **The Spire versus the new towers**: answered - keep the Spire as it is for now (2026-10-04).
-- #1556 (street field) in the working tree: critic SOUND on both rules,
-  its five findings fixed (an unknown basis kind keyed the rebuild key
-  empty, members required, the editor's bearing, two doc pointers, the
-  bounds undocumented); the full gate still to run, once, at the end.
-- Street furniture was tried and left off (session 903, offline on the final
-  build): at prosperity 0.9 the layer grows mostly generic civic props -
-  planters, fountains, a classical statue that stood in the arrival's frame,
-  market stalls - and few cyberpunk ones, for 113 props and +2,019 parts
-  (4,972 in all). Lamps worth the parts would need the lot layer to plant the
-  room's OWN generators (not supported yet).
-- The catalogue's city buildings float parts of their own: 228 floating rows
-  in `--floating-report` on Isoline's record, all inside lot buildings
-  (megatowers 29, holo billboards 71, arcade blocks 42): #1559's business.
-- `render --road-dump` reads a real record since #1558 (`--world --world-record`).
+Ranked, as session 903 left them (2026-10-04).
+
+1. **#1567, acute forks** (high; found by the owner in their own region on
+   the deployed build): a pale crotch triangle, a curb lying across the
+   merged deck, a flat wedge standing proud of a slope, and hard shading at
+   every hub-to-road seam. Stopped at session over; the builder's diagnosis
+   and intended fixes are on the issue. Fixtures: the owner's region record
+   (`gen/owner_room.json`, read-only) at room (221, 97) and (272, -54).
+   Mesh only - nothing saved moves.
+2. **#1560** (high, read from source, untested): a referenced audio URL
+   serving non-audio bytes may panic bevy_audio's decoder in every visitor's
+   client - reproduce first.
+3. **#1563** (high): road lots differ between native and wasm clients
+   (platform libm on the lot path); Isoline's buildings were grown by the
+   native daemon, so a browser client may judge a district incomplete.
+4. Lower: #1561 rodio pans the wrong way; #1562 a voice dropped inside the
+   budget's radius stops dead and restarts its loop; #1564 a change in lot
+   generator counts shifts which items hit the room's generator cap; #1565 a
+   saved rotation drifts one unit in the last place on reload.
+5. **Isoline, next in the order a visitor notices**: the streets read as
+   raised dark slabs on the pale paving at dusk (the road material, not the
+   buildings); the waterfront (street decks end at the shore with their
+   skirts showing - a quay or promenade would give the city an edge);
+   street furniture (still off: the layer grows generic civic props).
+6. The owner's choices, answered 2026-10-04 and kept for now: revision 1's
+   rim clip, the Spire at its height beside towers as tall.

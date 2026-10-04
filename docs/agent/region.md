@@ -391,6 +391,19 @@ A forest is a few generators and a scatter placement each:
 - A long thing on a slope lies along the contour or one end floats: with
   the gradient `(dx, dz)`, the clockwise yaw that lays local +X along the
   contour is `atan2(dz, dx) + 90` degrees.
+- **Emission adds its colour flat over the whole surface**, panes and
+  mullions alike: on dark glass even `emission_strength` 0.05 of warm white
+  read grey-brown, and 0.3 made a glass lobby a beige wall - it looks
+  exactly like a texture whose colours were ignored (Eigen's Spire,
+  session 903). Glass gets no emission and reads by its reflections; "lit"
+  comes from small lit pieces (a canopy soffit, an open entrance, a framed
+  sign).
+- **A texture on a twisted or tapered part (`torture`) shears with the
+  deform**: a curtain-wall grid laid on one twisted box read "crooked" to
+  the owner. Build a twist from straight pieces instead - one box a floor,
+  each turned and tapered at its own height, a band over each joint - and a
+  box projection centred on each piece puts a grid line mid-floor unless
+  `uv_offset` (metres) moves it half a floor (b/spire.py v3).
 - **Children inherit their parent's whole transform, scale included**: a
   flattened root flattens everything on it. Give a piece a tiny root with no
   transform, hidden inside a part, and scale only leaves.
@@ -989,6 +1002,13 @@ built this way; its builder is `exports/eigen/b/city.py`.
   grew on Isoline's axis and hid the Spire from the first landing: check
   the landing's sight line against the lot placements (their positions are
   in the record) and its clearance from every footprint before choosing it.
+
+- **A field the deployed client does not know traces differently there.**
+  Every client traces the streets from the record, but the lot buildings
+  are saved: save a network with a new field (a street field, a
+  `layout_revision`) before the owner deploys it, and a visitor on the
+  deployed client draws the old streets under the new buildings. Say so
+  when you save one, and tell the owner it waits on their deploy.
 
 ## Arrivals
 
