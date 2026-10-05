@@ -46,6 +46,9 @@ fn harness() -> App {
     // the real app, and it lets the tests read what went on the wire.
     app.add_message::<Broadcast<OverlandsMessage>>();
     app.add_message::<SendTo<OverlandsMessage>>();
+    // The room poll reads whether the world's live updates are refused, to
+    // decide whether a landed save tells the room (#1499).
+    app.init_resource::<symbios_overlands::network::chunk::OversizeNotices>();
     app
 }
 

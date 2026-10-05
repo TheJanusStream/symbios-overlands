@@ -82,6 +82,9 @@ enum CoalesceKey {
     /// whole-outfit diff in `sync_rigged_attachments`, which is exactly the
     /// work #1135's latch exists to avoid.
     AvatarPublished,
+    /// `RoomRecordsPublished` (#1499): it carries nothing, and the room
+    /// refresh keeps one notice however many come.
+    RoomPublished,
 }
 
 fn coalesce_key(msg: &OverlandsMessage) -> Option<CoalesceKey> {
@@ -91,6 +94,7 @@ fn coalesce_key(msg: &OverlandsMessage) -> Option<CoalesceKey> {
         OverlandsMessage::RoomStateUpdate { .. } => Some(CoalesceKey::RoomState),
         OverlandsMessage::Hello { .. } => Some(CoalesceKey::Hello),
         OverlandsMessage::AvatarRecordsPublished => Some(CoalesceKey::AvatarPublished),
+        OverlandsMessage::RoomRecordsPublished => Some(CoalesceKey::RoomPublished),
         _ => None,
     }
 }
@@ -171,6 +175,9 @@ pub(super) struct InboundBuffers<'w, 's> {
     /// and `handle_incoming_messages` is at the 16-parameter ceiling so a
     /// bare parameter is not available.
     resolve: Query<'w, 's, &'static mut PeerResolve>,
+    /// The guest's state for the room it stands in (#1499): an owner's save
+    /// notice is noted here, and every owner update applied overtakes it.
+    room_refresh: ResMut<'w, super::room_refresh::RoomRefresh>,
 }
 
 /// Move a peer's existing rig resolution onto an incoming record when the
@@ -376,9 +383,23 @@ pub(super) fn handle_incoming_messages(
                 &mut bufs,
                 now,
             ),
-            OverlandsMessage::AvatarRecordsPublished => {
-                record_updates::handle_records_published(msg.sender, &mut commands, &mut peers, now)
-            }
+            OverlandsMessage::AvatarRecordsPublished => record_updates::handle_records_published(
+                msg.sender,
+                &mut commands,
+                &mut peers,
+                &mut avatar_cache,
+            ),
+            OverlandsMessage::RoomRecordsPublished => record_updates::handle_room_published(
+                msg.sender,
+                &peers,
+                (
+                    room_did.as_deref().map(|room| room.0.as_str()),
+                    session.as_deref().map(|session| session.did.as_str()),
+                ),
+                &mut bufs.room_refresh,
+                &mut session_log,
+                now,
+            ),
             OverlandsMessage::RoomStateUpdate { record_json } => record_updates::handle_room_state(
                 msg.sender,
                 record_json,
@@ -594,12 +615,22 @@ mod tests {
         };
 
         let mut world = World::new();
+        world.init_resource::<PeerAvatarCache>();
         let owner = world.spawn(live(1, OWNER)).id();
         let bystander = world.spawn(live(2, BYSTANDER)).id();
         world
-            .run_system_once(move |mut commands: Commands, mut peers: Query<PeerParts>| {
-                record_updates::handle_records_published(id(1), &mut commands, &mut peers, 5.0);
-            })
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut peers: Query<PeerParts>,
+                      mut cache: ResMut<PeerAvatarCache>| {
+                    record_updates::handle_records_published(
+                        id(1),
+                        &mut commands,
+                        &mut peers,
+                        &mut cache,
+                    );
+                },
+            )
             .expect("the notice is handled");
 
         let rig = |entity: Entity| {
@@ -624,14 +655,90 @@ mod tests {
             rig(bystander).resolved.is_some(),
             "someone who saved nothing keeps their resolution"
         );
-        // #1489's second review: a refresh already fetching the owner's
-        // records started before this save, so the notice marks its time.
+        // #1489's second review, #1490: a fetch or resolution already running
+        // for the owner started before this save, so the notice marks its
+        // place in the count - the first notice this client has taken in.
         use crate::network::peer_cache::AvatarPublishedAt;
         assert_eq!(
             world.get::<AvatarPublishedAt>(owner).map(|at| at.0),
-            Some(5.0)
+            Some(1)
         );
+        assert_eq!(world.resource::<PeerAvatarCache>().notice_seq(), 1);
         assert!(world.get::<AvatarPublishedAt>(bystander).is_none());
+    }
+
+    /// #1499: the room's owner saying a guest's copy is behind the saved one
+    /// sets the guest fetching. A stranger saying it is turned away, and
+    /// logged - what it would set off is a fetch of the whole world - and the
+    /// owner's own other session is not a guest: its copies are the
+    /// same-owner split's (#1203).
+    #[test]
+    fn only_the_room_owner_sends_a_guest_for_the_saved_world() {
+        use crate::diagnostics::event::EventPayload;
+        use crate::network::room_refresh::RoomRefresh;
+        use bevy::ecs::system::RunSystemOnce;
+
+        const OWNER: &str = "did:plc:ownsthesavedworld";
+        const STRANGER: &str = "did:plc:ownsnothinghere22";
+        const GUEST: &str = "did:plc:visitingthisworld";
+        let id = |n: u8| -> PeerId {
+            serde_json::from_str(&format!("\"00000000-0000-0000-0000-0000000000{n:02}\""))
+                .expect("a well-formed uuid")
+        };
+        // (whether a fetch now waits, whether a rejection was logged)
+        let notice = |from: u8, session_did: &'static str| -> (bool, bool) {
+            let mut world = World::new();
+            world.init_resource::<RoomRefresh>();
+            world.init_resource::<SessionLog>();
+            for (n, did) in [(1, OWNER), (2, STRANGER)] {
+                world.spawn((
+                    RemotePeer {
+                        peer_id: id(n),
+                        did: Some(did.to_owned()),
+                        handle: None,
+                        muted: false,
+                        avatar: None,
+                        build: None,
+                        connected_at: 0.0,
+                    },
+                    Transform::default(),
+                    TransformBuffer::default(),
+                ));
+            }
+            world
+                .run_system_once(
+                    move |peers: Query<PeerParts>,
+                          mut refresh: ResMut<RoomRefresh>,
+                          mut log: ResMut<SessionLog>| {
+                        record_updates::handle_room_published(
+                            id(from),
+                            &peers,
+                            (Some(OWNER), Some(session_did)),
+                            &mut refresh,
+                            &mut log,
+                            1.0,
+                        );
+                    },
+                )
+                .expect("the notice is handled");
+            let rejected = world
+                .resource::<SessionLog>()
+                .iter()
+                .any(|event| matches!(event.payload, EventPayload::RoomStateRejected { .. }));
+            (world.resource::<RoomRefresh>().waiting(), rejected)
+        };
+
+        assert_eq!(
+            notice(1, GUEST),
+            (true, false),
+            "the owner's is fetched for"
+        );
+        assert_eq!(notice(2, GUEST), (false, true), "a stranger's is refused");
+        assert_eq!(
+            notice(1, OWNER),
+            (false, false),
+            "the owner's other session is not a guest"
+        );
     }
 
     /// #1489: an owner saved while this client was in another room, so no

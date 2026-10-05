@@ -221,7 +221,7 @@ pub(super) fn broadcast_room_state(
         chunk.broadcast(&mut sender, &mut session_log, now, message),
         &mut notices,
         &mut toasts,
-        "world",
+        super::chunk::LIVE_WORLD,
         now,
     );
 }

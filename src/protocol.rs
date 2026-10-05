@@ -224,6 +224,30 @@ pub enum OverlandsMessage {
     /// Appended last, and [`PROTOCOL_VERSION`] bumped with it - the pattern
     /// [`Self::Hello`] documents.
     WorldDigest { record_fp: u64, digest: u64 },
+    /// The world's live updates cannot reach the recipient, so what it can
+    /// have of the world is the copy saved on the owner's PDS: fetch it
+    /// (#1499). The room counterpart of [`Self::AvatarRecordsPublished`], for
+    /// the case [`Self::RoomStateUpdate`] cannot carry - a world past
+    /// [`crate::config::network::MAX_RELIABLE_PAYLOAD_BYTES`] is refused at
+    /// the sender, so its live edits reach nobody, and until this notice a
+    /// guest saw a save only after leaving the world and coming back.
+    ///
+    /// The owner sends it to the room when a save lands while the world's
+    /// live updates are being refused, and to a newcomer whose join push was
+    /// refused - a guest whose link dropped meanwhile has missed every save
+    /// since. Never while the live updates go out: a guest then holds the
+    /// owner's live state, which can be NEWER than a save just landing (an
+    /// edit made while it was in flight), and fetching the save would roll it
+    /// back. It carries nothing: a guest fetches and replaces its copy only
+    /// where the fetched one differs.
+    ///
+    /// Only the room's owner is listened to, and a guest fetches at most once
+    /// per [`crate::config::network::ROOM_REFRESH_MIN_INTERVAL_SECS`] however
+    /// often the notice comes ([`crate::network`]'s `room_refresh`).
+    ///
+    /// Appended last, and [`PROTOCOL_VERSION`] bumped with it: an older peer
+    /// drops the unknown discriminant and keeps the behaviour it has.
+    RoomRecordsPublished,
 }
 
 /// What an [`OverlandsMessage::ItemOffer`] is offering (#1184).
@@ -382,8 +406,9 @@ where
 /// [`OverlandsMessage::ItemOffer`] and
 /// [`OverlandsMessage::ItemOfferResponse`] onto single JSON payloads
 /// (#1184) - a deliberate break, so that the *next* field either of them
-/// grows is not one.
-pub const PROTOCOL_VERSION: u16 = 3;
+/// grows is not one; 4 appended [`OverlandsMessage::RoomRecordsPublished`]
+/// (#1499).
+pub const PROTOCOL_VERSION: u16 = 4;
 
 /// This build's human-readable identity for [`OverlandsMessage::Hello`]:
 /// crate version plus the short git sha `build.rs` bakes in. Only ever
@@ -946,6 +971,7 @@ mod tests {
                 record_fp: 1,
                 digest: 2,
             },
+            OverlandsMessage::RoomRecordsPublished,
         ]
     }
 
@@ -1030,6 +1056,8 @@ mod tests {
             "0900000001000d00000000000000302e302e302b61626364656631",
         ),
         ("WorldDigest", "0a00000001000000000000000200000000000000"),
+        // #1499, appended with PROTOCOL_VERSION 4.
+        ("RoomRecordsPublished", "0b000000"),
     ];
 
     fn hex(bytes: &[u8]) -> String {
@@ -1077,7 +1105,7 @@ mod tests {
     #[test]
     fn the_protocol_version_matches_the_pinned_layout() {
         assert_eq!(
-            PROTOCOL_VERSION, 3,
+            PROTOCOL_VERSION, 4,
             "PROTOCOL_VERSION changed: WIRE_LAYOUT must have changed in the \
              same commit, or the bump describes nothing"
         );

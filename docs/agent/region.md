@@ -503,18 +503,20 @@ so a detailed body spends its budget fastest (Hypha's: 42 KB).
 **A second ceiling: the whole world, sent live.** Every live edit is sent to
 the players in the world as the WHOLE record in one message, and past
 `MAX_RELIABLE_PAYLOAD_BYTES` (900 KiB of compact JSON) the sender refuses it
-(#1123) - so no live edit reaches anyone, and a player already in the world
-sees a save only after leaving and coming back: nothing tells a visitor to
-reload a world its owner saved (#1499). The per-record gauge stays green all
+(#1123) - so no live edit reaches anyone. A save does: the game tells the
+world it was saved, and every player in it fetches the saved world from the
+account's PDS (#1499) - the first save at once, then at most one fetch every
+10 s however often the world is saved. The per-record gauge stays green all
 the while. Ashmere was past it before session 883 began (1.2 MiB, refused
-at the owner's first join) and ended it at 1.36 MiB: the owner heard a new
-sound only after a save and a trip through the gate, and asked "Maybe you
-need to save, for me to hear it". Session 885's grammar buildings took it to
-1.60 MiB, and the two cuts below brought it back to 1.45 MiB. The agent's
-answers do not say so yet (#1500); its daemon log does (`Refusing to send
-RoomStateUpdate`). Weigh the world with `json.dumps(record,
-separators=(',', ':'))` on a pulled record, and past 900 KiB show the owner
-changes by saving, then asking them to step out and back.
+at the owner's first join) and ended it at 1.36 MiB: before #1499 the owner
+heard a new sound only after a save and a trip through the gate, and asked
+"Maybe you need to save, for me to hear it". Session 885's grammar buildings
+took it to 1.60 MiB, and the two cuts below brought it back to 1.45 MiB.
+The agent's answers say when the world is past it (#1500): `room set`
+answers `live_sync` (`bytes`, `ceiling_bytes`, `refused`) when an edit went
+nowhere live, and `status.editing.live_sync` weighs the world every time.
+Past 900 KiB, show the owner a change by saving it; a player whose build
+predates #1499 still sees it only after stepping out and back.
 
 Still worth knowing:
 

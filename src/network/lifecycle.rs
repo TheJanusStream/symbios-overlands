@@ -214,7 +214,7 @@ pub(super) fn handle_peer_connections(
                             // PDS-saved room. Shares the "world" latch, so
                             // an owner already warned by the broadcaster is
                             // not told again per arriving guest.
-                            super::chunk::warn_once_on_refusal(
+                            let pushed = super::chunk::warn_once_on_refusal(
                                 super::chunk::send_chunked(
                                     &mut sender,
                                     &mut seq,
@@ -226,9 +226,22 @@ pub(super) fn handle_peer_connections(
                                 ),
                                 &mut notices,
                                 &mut toasts,
-                                "world",
+                                super::chunk::LIVE_WORLD,
                                 elapsed,
                             );
+                            // Refused, so the newcomer can have only the
+                            // saved copy - and a guest whose link dropped
+                            // while it stood here has missed every save
+                            // since. Tell it to read the saved copy (#1499);
+                            // one that loaded it moments ago finds nothing
+                            // different and installs nothing.
+                            if !pushed.is_sent() {
+                                sender.to(
+                                    event.peer,
+                                    OverlandsMessage::RoomRecordsPublished,
+                                    ChannelKind::Reliable,
+                                );
+                            }
                         }
                     }
                 }

@@ -11,7 +11,9 @@
                                            in (z_fighting_unchecked, #1503: it stops at 3 s);
                                            exits 3 after a CHECK line when any answer was adjusted,
                                            ignored a key, z-fights or left z-fighting unchecked,
-                                           so `apply && save` stops there
+                                           so `apply && save` stops there; a NOTE line when the
+                                           world is past the live ceiling (live_sync, #1500: the
+                                           edits reached nobody live - a save will, #1499)
   rec.py save room|avatar OUT.json [--log LOG "NOTE"] [--hold POINTER]
                                            save, wait for it to land, pull the saved record to
                                            OUT.json (the new source to build on) and, with --log,
@@ -121,8 +123,13 @@ def main():
         record, ed = sys.argv[2], sys.argv[3]
         # the labels are the CHECK line's words: an answer naming dropped keys was still written
         flagged = {"adjusted": 0, "ignored a key": 0, "z-fight": 0, "left z-fighting unchecked": 0}
+        past_ceiling = None
         for ptr, f, n in edits(ed):
             r = agentlib.result(agentlib.agent(record, "set", ptr, "--file", f), f"set {ptr}")
+            # the world's whole record is past the live ceiling (#1500): written, but seen by nobody
+            # until it is saved - not a CHECK, since saving is exactly what shows it (#1499)
+            if (r.get("live_sync") or {}).get("refused"):
+                past_ceiling = r["live_sync"]
             zf = r.get("z_fighting") or []
             size = r.get("record_size") or {}
             landed = r.get("pointer") or ptr
@@ -156,6 +163,10 @@ def main():
                 else:
                     print(f"   WARNING: the answer does not say where {ptr} landed (a daemon "
                           f"older than #1470?); a re-run appends it again")
+        if past_ceiling:
+            print(f"NOTE: the world is past the live ceiling ({past_ceiling.get('bytes')} of "
+                  f"{past_ceiling.get('ceiling_bytes')} bytes): these edits reached nobody live. "
+                  f"Save to show them - everyone in the world fetches a save")
         if any(flagged.values()):
             # Every edit is live; the exit code only stops an `apply ... && save ...` chain, which saved a
             # sanitiser-raised value and then 2.7 m2 of z-fighting unread in session 883.

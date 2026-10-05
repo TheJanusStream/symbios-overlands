@@ -1256,6 +1256,24 @@ pub(crate) mod network {
     /// per-frame.
     pub const ROOM_BROADCAST_MIN_INTERVAL_SECS: f64 = 0.15;
 
+    /// The fewest seconds between the starts of two fetches of the room a
+    /// guest stands in, after its owner's save notices (#1499). A notice is
+    /// a message the owner sends at will, and each fetch is the whole world,
+    /// a manifest and every generator record, so notices inside the window
+    /// wait for its end, the newest of them standing for the rest: delayed,
+    /// never dropped. An agent saving a world after each change costs its
+    /// visitors one fetch a window, not one a save.
+    pub const ROOM_REFRESH_MIN_INTERVAL_SECS: f64 = 10.0;
+    /// First wait (seconds) after a failed fetch of a saved room, doubling
+    /// to [`ROOM_REFRESH_RETRY_MAX_SECS`] (#1499).
+    pub const ROOM_REFRESH_RETRY_BASE_SECS: f64 = 2.0;
+    /// Ceiling for the doubling in [`ROOM_REFRESH_RETRY_BASE_SECS`].
+    pub const ROOM_REFRESH_RETRY_MAX_SECS: f64 = 30.0;
+    /// Failed fetches of one saved room before a guest stops asking (#1499):
+    /// its owner's next save notice asks again. The world already standing
+    /// stays, so giving up costs a guest the save, never the world.
+    pub const ROOM_REFRESH_MAX_ATTEMPTS: u32 = 4;
+
     /// Maximum age (seconds) an `IncomingOfferDialog` is allowed to sit on
     /// screen before it is auto-declined and evicted. Without this, an
     /// ignored garbage offer would hold the busy-gate forever and lock the

@@ -315,8 +315,9 @@ pub async fn fetch_avatar_record(
 /// body is returned - a profile pointing at a deleted wardrobe record falls
 /// through to `Ok(None)` (seeded default), because a bare humanoid chassis
 /// with no geometry says less about the identity than the vehicle would.
-/// Transport errors propagate as `Err`, keeping the caller's
-/// don't-overwrite-on-transient-failure rule intact.
+/// Transport errors propagate as `Err` - the profile's, and since #1493 the
+/// wardrobe record's - keeping the caller's don't-overwrite-on-transient-
+/// failure rule intact.
 async fn fallback_from_profile(
     client: &reqwest::Client,
     pds: &str,
@@ -328,7 +329,15 @@ async fn fallback_from_profile(
     };
     let mut record = AvatarRecord::wearing(rkey);
     if let Some(rig) = record.body.rigged_mut() {
-        let _ = wardrobe::resolve_rigged_body(client, pds, did, rig).await;
+        let report = wardrobe::resolve_rigged_body(client, pds, did, rig).await;
+        // A wardrobe fetch that timed out or met a server error has not
+        // said the record is gone (#1493). Reading it as `Ok(None)` made a
+        // first meeting settle on the DID-seeded default - `Landed`, never
+        // retried - for a peer whose body was merely slow to arrive; as an
+        // `Err` it is a failed fetch, and the caller's retry fetches it.
+        if let Some(err) = report.body_fetch_error.filter(FetchError::left_unanswered) {
+            return Err(err);
+        }
         if rig.resolved.is_none() {
             return Ok(None);
         }
@@ -492,5 +501,89 @@ mod tests {
             matches!(back.locomotion, LocomotionConfig::Humanoid(_)),
             "a rigged body walks"
         );
+    }
+}
+
+/// #1493 against a real socket, as #1124's tests serve theirs: a mock-server
+/// crate would be a new dependency for one fixture.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod profile_fallback_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    const DID: &str = "did:plc:slowwardrobe";
+    const BODY: &str = "3jzfcijpj2z2a";
+
+    /// A PDS that answers the profile with a pointer to [`BODY`] and the
+    /// wardrobe fetch with `wardrobe_status` and an empty body, one request
+    /// a connection, until both have been asked for.
+    fn serve(wardrobe_status: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let mut profile = serde_json::to_value(wardrobe::EngineProfileRecord::pointing_at(
+            BODY,
+            "2026-10-05T00:00:00Z",
+        ))
+        .expect("a profile serialises");
+        profile["$type"] = serde_json::json!(crate::pds::AVATAR_PROFILE_COLLECTION);
+        let profile = serde_json::json!({ "value": profile }).to_string();
+        std::thread::spawn(move || {
+            for _ in 0..2 {
+                let Ok((mut sock, _)) = listener.accept() else {
+                    return;
+                };
+                let mut request = [0u8; 4096];
+                let read = sock.read(&mut request).unwrap_or(0);
+                let request = String::from_utf8_lossy(&request[..read]);
+                let (status, body) = if request.contains("avatar.profile") {
+                    ("200 OK", profile.clone())
+                } else {
+                    (wardrobe_status, String::new())
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = sock.write_all(response.as_bytes());
+                let _ = sock.flush();
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    fn fall_back(pds: &str) -> Result<Option<AvatarRecord>, FetchError> {
+        crate::config::http::block_on(async {
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .expect("client");
+            fallback_from_profile(&client, pds, DID).await
+        })
+    }
+
+    /// #1493: the profile names a body and its wardrobe record cannot be
+    /// fetched just now. That is a failed fetch - the caller retries it -
+    /// and not "no record", which a first meeting settled on as the peer's
+    /// appearance for good.
+    #[test]
+    fn a_wardrobe_the_server_failed_to_send_is_a_failed_fetch() {
+        let answer = fall_back(&serve("503 Service Unavailable"));
+        assert!(
+            matches!(answer, Err(FetchError::PdsError(503))),
+            "{answer:?}"
+        );
+    }
+
+    /// The other half: a wardrobe record that is not there, or one the
+    /// server refuses outright, IS an answer, and it is still the seeded
+    /// default's to stand in.
+    #[test]
+    fn a_wardrobe_record_that_is_not_there_is_still_no_record() {
+        for status in ["404 Not Found", "400 Bad Request"] {
+            let answer = fall_back(&serve(status));
+            assert!(matches!(answer, Ok(None)), "{status}: {answer:?}");
+        }
     }
 }

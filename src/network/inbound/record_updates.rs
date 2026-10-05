@@ -1,7 +1,8 @@
-//! Record broadcasts: a peer's avatar, the room, and the digest that says
-//! whether either is worth fetching (#1161).
+//! Record broadcasts: a peer's avatar, the room, the digest that says
+//! whether either is worth fetching (#1161), and the two save notices that
+//! say the owner's PDS holds something newer (#1122, #1499).
 //!
-//! What these four share is that each carries, or points at, a whole
+//! What these share is that each carries, or points at, a whole
 //! **record** - the same shapes the PDS stores - and so each is the place a
 //! peer-supplied payload becomes local state. Every one of them therefore
 //! decodes, sanitises and ownership-checks before it writes, and the
@@ -178,7 +179,7 @@ pub(super) fn handle_records_published(
     sender: PeerId,
     commands: &mut Commands,
     peers: &mut Query<PeerParts>,
-    now: f64,
+    avatar_cache: &mut PeerAvatarCache,
 ) {
     // The sender saved their rigged body (#1122). Same rkeys,
     // new bytes behind them - so drop the resolution we are
@@ -218,14 +219,59 @@ pub(super) fn handle_records_published(
         }
         // `try_remove` (#1411): the peer whose record this is can be
         // despawned by `network::lifecycle` in the same frame its last
-        // message is handled. A refresh already fetching this peer's
-        // records may bring the ones from before this save (#1489): the
-        // notice's time marks it stale.
+        // message is handled. A fetch or resolution already running for
+        // this peer may bring the records from before this save (#1489,
+        // #1490): the notice's place in the count marks every one started
+        // before it stale.
         commands
             .entity(peer_entity)
             .try_remove::<crate::network::peer_cache::PeerRigResolveBackoff>()
-            .try_insert(crate::network::peer_cache::AvatarPublishedAt(now));
+            .try_insert(crate::network::peer_cache::AvatarPublishedAt(
+                avatar_cache.note_publish(),
+            ));
         break;
+    }
+}
+
+/// The room's owner says this guest's copy is behind the saved one (#1499):
+/// note it for the room refresh, which fetches the saved world.
+///
+/// Authority as for [`handle_room_state`]: only the room's owner may say so,
+/// since what the notice sets off is a fetch of the whole world. The owner's
+/// own other session is not a guest - its copies and this one's are the
+/// same-owner split's (#1203) - so it is not listened to either, and says
+/// nothing about it. `(room_did, session_did)` is where this session stands
+/// and who it is.
+pub(super) fn handle_room_published(
+    sender: PeerId,
+    peers: &Query<PeerParts>,
+    (room_did, session_did): (Option<&str>, Option<&str>),
+    room_refresh: &mut crate::network::room_refresh::RoomRefresh,
+    session_log: &mut SessionLog,
+    now: f64,
+) {
+    let sender_did = peers
+        .iter()
+        .find(|(_, peer, _, _)| peer.peer_id == sender)
+        .and_then(|(_, peer, _, _)| peer.did.clone());
+    if !crate::network::room_refresh::listens_to_save_notice(
+        sender_did.as_deref(),
+        room_did,
+        session_did,
+    ) {
+        if sender_did.is_some() && sender_did.as_deref() != room_did {
+            session_log.warn(
+                now,
+                EventPayload::RoomStateRejected {
+                    sender_did: sender_did.unwrap_or_default(),
+                    reason: String::from("a save notice from someone who does not own this room"),
+                },
+            );
+        }
+        return;
+    }
+    if let Some(room) = room_did {
+        room_refresh.note_save(room, now);
     }
 }
 
@@ -383,6 +429,9 @@ pub(super) fn handle_room_state(
             },
         );
         record.0 = new_record;
+        // Newer than any save noticed before it, so the room refresh drops
+        // a waiting notice and lands a fetch already running nowhere (#1499).
+        bufs.room_refresh.overtake();
         // Foreign wholesale write (#862): mostly guests (whose
         // history is empty anyway), but a second session of
         // the SAME owner DID passes the is_owner gate too -

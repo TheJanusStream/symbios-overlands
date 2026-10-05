@@ -228,6 +228,30 @@ class Apply(unittest.TestCase):
         self.assertIn("z-fighting not checked in time for: /generators/town", text)
         self.assertIn("CHECK: 1 edit(s) left z-fighting unchecked", text)
 
+    def test_edits_past_the_live_ceiling_say_they_reached_nobody(self):
+        # Ashmere, sessions 883-885 (#1500): every live edit was refused at the wire while apply read as
+        # clean, so the owner was told of changes nobody could see. A NOTE says so; saving is what
+        # shows them (#1499), so it is not a reason to stop an `apply && save` chain
+        answer = {"ok": True, "result": {"changed": True, "adjusted_at": [], "z_fighting": [],
+                                         "ignored_at": [],
+                                         "record_size": {"largest": "room", "bytes": 1, "budget_bytes": 2},
+                                         "live_sync": {"bytes": 1500000, "ceiling_bytes": 921600,
+                                                       "refused": "past the ceiling"}}}
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "fog.json"), "w") as fh:
+                json.dump(1234500, fh)
+            edits = os.path.join(d, "EDITS")
+            with open(edits, "w") as fh:
+                fh.write("/environment/fog_visibility fog.json\n")
+            out = io.StringIO()
+            with mock.patch.object(rec.agentlib, "agent", lambda *args: answer), \
+                    mock.patch.object(sys, "argv", ["rec.py", "apply", "room", edits]), \
+                    contextlib.redirect_stdout(out):
+                rec.main()
+        text = out.getvalue()
+        self.assertIn("NOTE: the world is past the live ceiling (1500000 of 921600 bytes)", text)
+        self.assertNotIn("CHECK:", text)
+
     def test_the_usage_names_every_reason_apply_stops(self):
         # the usage text is what rec.py prints for a bad call: it listed three reasons to exit 3 after
         # the check's time limit (#1503) made a fourth (session 885's review)

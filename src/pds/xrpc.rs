@@ -563,6 +563,22 @@ impl std::fmt::Debug for FetchError {
     }
 }
 
+impl FetchError {
+    /// Whether the failure left its question open - the network, the
+    /// directory or the server failed in a way that may pass - rather than
+    /// answering it (#1493, #1499). A record that will not decode, or an
+    /// identity that does not exist, is an answer however often it is asked
+    /// again; so is a 4xx other than a timeout or a rate limit. Asking again
+    /// is for the open ones only.
+    pub fn left_unanswered(&self) -> bool {
+        match self {
+            Self::Network(_) | Self::DidResolutionFailed => true,
+            Self::PdsError(status) => *status >= 500 || matches!(status, 408 | 429),
+            Self::NoSuchIdentity | Self::Decode(_) => false,
+        }
+    }
+}
+
 /// How a log line names a decoder's message it may not repeat: its size.
 /// [`FetchError`]'s `Debug`, and the sites that hold the message on its own.
 pub fn decode_for_log(detail: &str) -> String {

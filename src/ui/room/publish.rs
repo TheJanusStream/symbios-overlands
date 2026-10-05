@@ -157,6 +157,10 @@ pub fn poll_publish_tasks(
     // - a save let run in the background across a portal hop, or a task
     // that outlived its session - must not pin `stored`.
     current_room: Option<Res<crate::state::CurrentRoomDid>>,
+    // The save notice (#1499), sent while the world's live updates are
+    // refused - which this latch records.
+    mut network: bevy_symbios_multiuser::prelude::SendMessage<crate::protocol::OverlandsMessage>,
+    live_sync: Res<crate::network::chunk::OversizeNotices>,
 ) {
     for (entity, mut task) in publish_tasks.iter_mut() {
         let spawned_at = task.spawned_at;
@@ -197,6 +201,7 @@ pub fn poll_publish_tasks(
                 // recovery marker - "the stored copy was never read" - is
                 // retired HERE, where success is known (#1199).
                 commands.remove_resource::<crate::state::RoomRecordRecovery>();
+                announce_save(&mut network, &live_sync);
                 publish_feedback.status = PublishStatus::Success { at_secs: now };
                 crate::ui::editable::report_publish_success(
                     RecordKind::Room,
@@ -267,6 +272,7 @@ pub fn poll_publish_tasks(
                 // the click that asked for it (#1199). A failed reset keeps
                 // its banner and its button.
                 commands.remove_resource::<crate::state::RoomRecordRecovery>();
+                announce_save(&mut network, &live_sync);
                 publish_feedback.status = PublishStatus::Success { at_secs: now };
                 crate::ui::editable::report_publish_success(
                     RecordKind::Room,
@@ -300,6 +306,27 @@ pub fn poll_publish_tasks(
     }
 }
 
+/// Tell the room its world was saved (#1499) - while the world's live
+/// updates are refused, and only then.
+///
+/// Past the live ceiling a guest's copy is the one it arrived to, or the last
+/// save it fetched, since the owner's edits are refused at the wire
+/// (`network::chunk`); the notice is how it learns to fetch the save. While
+/// the live updates go out, a guest holds the owner's live state, which can
+/// be NEWER than the save landing now - an edit made while the save was in
+/// flight - so nothing is sent: fetching the save would roll that edit back.
+fn announce_save(
+    network: &mut bevy_symbios_multiuser::prelude::SendMessage<crate::protocol::OverlandsMessage>,
+    live_sync: &crate::network::chunk::OversizeNotices,
+) {
+    if live_sync.paused(crate::network::chunk::LIVE_WORLD) {
+        network.broadcast(
+            crate::protocol::OverlandsMessage::RoomRecordsPublished,
+            bevy_symbios_multiuser::prelude::ChannelKind::Reliable,
+        );
+    }
+}
+
 /// Whether a landed write belongs to a session or room this client is no
 /// longer in (#1204). `expected` is the DID the poll answers for now -
 /// the current room for a room write, the signed-in session for an avatar
@@ -329,11 +356,79 @@ pub(crate) fn stale_result(label: &str, task_did: &str, expected: Option<&str>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network::chunk::{LIVE_WORLD, OversizeNotices, SendOutcome, warn_once_on_refusal};
+    use crate::protocol::OverlandsMessage;
+    use bevy_symbios_multiuser::prelude::{Broadcast, SendTo};
 
     #[test]
     fn a_result_is_stale_only_when_the_expected_did_differs() {
         assert!(!stale_result("t", "did:plc:a", None));
         assert!(!stale_result("t", "did:plc:a", Some("did:plc:a")));
         assert!(stale_result("t", "did:plc:a", Some("did:plc:b")));
+    }
+
+    /// Whether a save landing tells the room, with the world's live updates
+    /// refused (`paused`) or going out.
+    fn a_save_lands(paused: bool) -> bool {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<SessionLog>()
+            .init_resource::<MetricsRegistry>()
+            .init_resource::<crate::ui::toolbar::UiPanels>()
+            .init_resource::<crate::notify::Toasts>()
+            .init_resource::<PublishFeedback<RoomRecord>>()
+            .add_message::<Broadcast<OverlandsMessage>>()
+            .add_message::<SendTo<OverlandsMessage>>()
+            .add_systems(Update, poll_publish_tasks);
+        let mut live_sync = OversizeNotices::default();
+        if paused {
+            warn_once_on_refusal(
+                SendOutcome::Refused { bytes: 1_000_000 },
+                &mut live_sync,
+                &mut crate::notify::Toasts::default(),
+                LIVE_WORLD,
+                0.0,
+            );
+        }
+        let record = RoomRecord::default_for_did("did:plc:savedworld");
+        app.insert_resource(live_sync)
+            .insert_resource(crate::state::LiveRoomRecord(record.clone()))
+            .insert_resource(StoredRoomRecord(record.clone()));
+        app.world_mut().spawn(PublishRoomTask {
+            task: bevy::tasks::IoTaskPool::get().spawn(async { Ok(()) }),
+            did: String::from("did:plc:savedworld"),
+            spawned_at: 0.0,
+            record_bytes: Some(1),
+            published: record,
+        });
+        let mut told = false;
+        for _ in 0..2_000 {
+            app.update();
+            told |= app
+                .world_mut()
+                .resource_mut::<Messages<Broadcast<OverlandsMessage>>>()
+                .drain()
+                .any(|sent| matches!(sent.payload, OverlandsMessage::RoomRecordsPublished));
+            let mut tasks = app.world_mut().query::<&PublishRoomTask>();
+            if tasks.iter(app.world()).next().is_none() {
+                return told;
+            }
+        }
+        panic!("the save never landed");
+    }
+
+    /// #1499, as its review reshaped it: a save landing while the world's
+    /// live updates are refused tells the room - a guest's copy is behind the
+    /// save - and one landing while they go out tells nobody: a guest then
+    /// holds the owner's live state, which can be newer than the save (an
+    /// edit made while it was in flight), and fetching the save would roll
+    /// that edit back.
+    #[test]
+    fn a_save_tells_the_room_only_while_its_live_updates_are_refused() {
+        assert!(a_save_lands(true), "past the ceiling the save is news");
+        assert!(
+            !a_save_lands(false),
+            "while the live updates go out, the guests already hold it or newer"
+        );
     }
 }

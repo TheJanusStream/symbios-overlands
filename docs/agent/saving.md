@@ -4,9 +4,11 @@
 
 - An edit to the world is live for everyone in it the moment it is made -
   while the world's whole record is under 900 KiB of compact JSON. Past
-  that no world edit reaches anyone, and a player already there sees a save
-  only after leaving and coming back ([region.md](region.md), "The record's
-  budget"; #1499). An edit to a generator body is live whatever the world
+  that no world edit reaches anyone live, but a save does: everyone in the
+  world fetches the saved world (#1499), so show a change by saving it.
+  `room set` answers `live_sync` with `refused` when an edit went nowhere
+  live, and `status.editing.live_sync` weighs the world every time (#1500;
+  [region.md](region.md), "The record's budget"). An edit to a generator body is live whatever the world
   weighs: it travels as the avatar record alone. A rigged body's sculpt and
   worn items are records of their own that other clients fetch from your
   PDS, so they see a change to those only after a save. Every edit is lost when the daemon

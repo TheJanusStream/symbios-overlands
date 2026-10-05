@@ -369,6 +369,13 @@ pub(super) fn describe(world: &mut World) -> Value {
         "saving": saving(world),
         "record_size": record_sizes(world),
     });
+    // Whether the world's live edits reach the people in it (#1500): only
+    // while the agent stands in its own, the one world it edits.
+    if owns_room(world)
+        && let Some(room) = world.get_resource::<LiveRoomRecord>()
+    {
+        answer["live_sync"] = size::live_sync(&room.0);
+    }
     if let (Some(answer), Value::Object(steps)) = (answer.as_object_mut(), steps(world)) {
         answer.extend(steps);
     }
@@ -609,6 +616,40 @@ pub(super) mod harness {
             .add_systems(PostUpdate, (capture_room_history, capture_avatar_history));
         app.update();
         (app, log)
+    }
+
+    /// `did`'s seeded world grown past the live ceiling (#1500): generators
+    /// of a thousand cuboids each - inside every sanitiser limit, so an edit
+    /// keeps them - until the live update weighs more than
+    /// `MAX_RELIABLE_PAYLOAD_BYTES`. Measured, not assumed, so a test built
+    /// on it cannot pass on a world that fits.
+    pub fn past_the_live_ceiling(did: &str) -> RoomRecord {
+        use crate::config::network::MAX_RELIABLE_PAYLOAD_BYTES;
+        let mut record = RoomRecord::default_for_did(did);
+        let mut heavy = crate::pds::Generator::default_cuboid();
+        heavy.children = vec![crate::pds::Generator::default_cuboid(); 1000];
+        let weight = |record: &RoomRecord| {
+            OverlandsMessage::room_state_update(record)
+                .and_then(|message| crate::network::chunk::wire_payload_bytes(&message))
+                .expect("the world serialises")
+        };
+        let mut n = 0;
+        while weight(&record) <= MAX_RELIABLE_PAYLOAD_BYTES {
+            record
+                .generators
+                .insert(format!("heavy_{n}"), heavy.clone());
+            n += 1;
+            assert!(
+                record.generators.len() <= crate::pds::sanitize::limits::MAX_GENERATORS,
+                "a world this size should cross the ceiling well inside the generator cap"
+            );
+        }
+        record.sanitize();
+        assert!(
+            weight(&record) > MAX_RELIABLE_PAYLOAD_BYTES,
+            "and stays past it"
+        );
+        record
     }
 
     /// A catalogue entry that can stand in a world, by its slug - one the
@@ -929,6 +970,14 @@ mod describe_tests {
         let editing = describe(app.world_mut());
 
         assert_eq!(editing["own_world"], true);
+        // Whether its live edits reach the people in it (#1500): a seeded
+        // world does, so the readout is a weight and a ceiling, no refusal.
+        assert!(
+            editing["live_sync"]["bytes"].as_u64().is_some(),
+            "{editing}"
+        );
+        assert!(editing["live_sync"]["ceiling_bytes"].as_u64().is_some());
+        assert!(editing["live_sync"].get("refused").is_none(), "{editing}");
         assert_eq!(editing["may_save"], true);
         assert!(editing["why_no_save"].is_null());
         assert_eq!(editing["unsaved"], json!(["room"]));
@@ -943,6 +992,10 @@ mod describe_tests {
         });
         let editing = describe(visiting.world_mut());
         assert_eq!(editing["own_world"], false);
+        assert!(
+            editing.get("live_sync").is_none(),
+            "another's world is not the agent's to weigh"
+        );
         assert_eq!(editing["may_save"], false);
         assert!(
             editing["why_no_save"]

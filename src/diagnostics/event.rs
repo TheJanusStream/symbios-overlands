@@ -419,6 +419,20 @@ pub enum EventPayload {
         bytes: u64,
         digest_of_record: u64,
     },
+    /// A guest fetched the room it stands in from its owner's PDS on the
+    /// owner's notice (#1499), and replaced its live copy with it (`changed`)
+    /// or found that copy already the saved one.
+    RoomRefreshedAfterSave {
+        changed: bool,
+    },
+    /// A guest's fetch of a room its owner saved failed (#1499). With
+    /// `will_retry` false the attempts are spent, or the failure was an
+    /// answer: the guest keeps the world it has until the owner's next
+    /// notice.
+    RoomRefreshFailed {
+        error: String,
+        will_retry: bool,
+    },
     /// A peer reported a world digest that differs from ours for the SAME
     /// record (#1146). The first captured evidence this project has ever had
     /// that two clients expanded one record into two different worlds.
@@ -632,6 +646,8 @@ impl EventPayload {
             | RoomStateRejected { .. }
             | RoomStateDecodeFailed { .. }
             | RoomStateApplied { .. }
+            | RoomRefreshedAfterSave { .. }
+            | RoomRefreshFailed { .. }
             | PeerWorldDigestMismatch { .. }
             | ChatReceived { .. }
             | ChatDroppedMuted { .. }
@@ -717,6 +733,8 @@ impl EventPayload {
             | RoomStateRejected { .. }
             | RoomStateDecodeFailed { .. }
             | RoomStateApplied { .. }
+            | RoomRefreshedAfterSave { .. }
+            | RoomRefreshFailed { .. }
             | PeerWorldDigestMismatch { .. }
             | OutboundMessageOversize { .. } => Category::Transport,
 
@@ -941,6 +959,18 @@ impl EventPayload {
                 bytes,
                 digest_of_record,
             } => format!("room-state applied ({bytes} B, record {digest_of_record:016x})"),
+            RoomRefreshedAfterSave { changed } => format!(
+                "saved room fetched ({})",
+                if *changed {
+                    "replaced"
+                } else {
+                    "already current"
+                }
+            ),
+            RoomRefreshFailed { error, will_retry } => format!(
+                "saved room fetch FAILED: {error} ({})",
+                if *will_retry { "retrying" } else { "gave up" }
+            ),
             PeerWorldDigestMismatch {
                 peer,
                 record_fp,

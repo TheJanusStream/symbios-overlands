@@ -45,9 +45,10 @@ use super::presence::{FetchState, PeerResolve, RetryBackoff};
 /// it was in another room, or its link was down, or the notice came before
 /// the DID was adopted - which is why every adoption from it is refreshed
 /// (#1485, #1489). A first meeting's fetch, or a rig resolution, already
-/// running when a notice lands can still put pre-save records back - and
-/// the resolution into this cache too, through [`Self::learn_resolution`]
-/// (#1490).
+/// running when a notice lands may bring records from before that save, so
+/// each carries the notice count it started at ([`Self::notice_seq`]) and
+/// one that started before its peer's last notice is neither installed nor
+/// remembered as it stands (#1490).
 #[derive(Resource, Default)]
 pub struct PeerAvatarCache {
     by_did: std::collections::HashMap<String, AvatarRecord>,
@@ -56,9 +57,31 @@ pub struct PeerAvatarCache {
     /// [`Self::claim_refresh`]. Pruned with the entry it belongs to, and at
     /// logout.
     refreshed_at: std::collections::HashMap<String, f64>,
+    /// How many save notices this client has taken in (#1490): stamped on a
+    /// peer when its notice lands ([`AvatarPublishedAt`]) and on every fetch
+    /// and resolution when it starts. A count rather than a clock because
+    /// order is the whole question - "did this start before that notice?" -
+    /// and a clock cannot always answer it: two events in one frame share a
+    /// time, and so do two frames under a coarsened browser clock (#1494).
+    /// Never reset, so a task that outlives a logout can still not pass for
+    /// a later one.
+    notices: u64,
 }
 
 impl PeerAvatarCache {
+    /// Count a save notice, and return its place in the count (#1490).
+    pub(super) fn note_publish(&mut self) -> u64 {
+        self.notices += 1;
+        self.notices
+    }
+
+    /// The notice count now: what a fetch or resolution starting now
+    /// carries, to be compared with its peer's [`AvatarPublishedAt`] when it
+    /// lands.
+    pub(super) fn notice_seq(&self) -> u64 {
+        self.notices
+    }
+
     pub(super) fn get(&self, did: &str) -> Option<&AvatarRecord> {
         self.by_did.get(did)
     }
@@ -138,6 +161,10 @@ pub(super) struct PeerAvatarFetchTask {
     /// Session-relative seconds when the fetch was dispatched, so the poller can
     /// record its spawn→resolve latency (E-4).
     pub(super) spawned_at: f64,
+    /// [`PeerAvatarCache::notice_seq`] when the fetch was dispatched: a peer
+    /// whose last save notice counts higher saved after this started
+    /// (#1490).
+    pub(super) notice_seq: u64,
     /// For the refresh of a record remembered at adoption (#1489), the peer
     /// entity it was started for: its answer lands there or nowhere - never
     /// on a later entity that happens to reuse the peer id.
@@ -164,10 +191,12 @@ pub(super) struct RefreshCachedAvatar {
     pub(super) backoff: Option<RetryBackoff>,
 }
 
-/// When this peer's last save notice arrived (#1489): a refresh started
-/// before it can carry the records from before that save, so it runs again.
+/// Where this peer's last save notice stands in [`PeerAvatarCache`]'s count
+/// (#1489, #1490): a fetch or resolution that started at a lower count may
+/// carry the records from before that save. It was the notice's session
+/// time until #1494, which a clock coarsened past a frame could not order.
 #[derive(Component)]
-pub(super) struct AvatarPublishedAt(pub(super) f64);
+pub(super) struct AvatarPublishedAt(pub(super) u64);
 
 /// What [`spawn_peer_rig_resolutions`] reads of a peer.
 type RigResolvePeer = (
@@ -229,7 +258,15 @@ pub(super) fn spawn_cached_avatar_refreshes(
                 }
             }
         }
-        spawn_peer_avatar_fetch(&mut commands, peer.peer_id, did, now, Some(entity));
+        let notice_seq = avatar_cache.notice_seq();
+        spawn_peer_avatar_fetch(
+            &mut commands,
+            peer.peer_id,
+            did,
+            now,
+            notice_seq,
+            Some(entity),
+        );
         refresh.spawned = true;
         in_flight += 1;
     }
@@ -248,11 +285,16 @@ pub(super) fn drop_inflight_peer_fetches(
     }
 }
 
+/// Start fetching `did`'s avatar record. It starts at two kinds of now: the
+/// session time `spawned_at`, for the latency sampler, and the save-notice
+/// count `notice_seq` ([`PeerAvatarCache::notice_seq`]), for telling a
+/// record from before the peer's last save (#1490).
 pub(super) fn spawn_peer_avatar_fetch(
     commands: &mut Commands,
     peer_id: PeerId,
     did: String,
     spawned_at: f64,
+    notice_seq: u64,
     refresh_of: Option<Entity>,
 ) {
     // `IoTaskPool` is the correct home for blocking HTTP calls - the
@@ -278,6 +320,7 @@ pub(super) fn spawn_peer_avatar_fetch(
         did,
         task,
         spawned_at,
+        notice_seq,
         refresh_of,
     });
 }
@@ -300,6 +343,12 @@ pub(super) struct PeerRigResolveTask {
     did: String,
     avatar_rkey: String,
     attachment_rkeys: Vec<String>,
+    /// [`PeerAvatarCache::notice_seq`] when the resolution started (#1490).
+    /// The rkeys alone cannot tell it is stale: a save keeps them and moves
+    /// the bytes behind them, so a resolution that read the PDS before the
+    /// owner's save landing after its notice would otherwise install the
+    /// pre-save outfit, where nothing fetches it again.
+    notice_seq: u64,
     task: bevy::tasks::Task<(
         Option<crate::pds::avatar::ResolvedRig>,
         crate::pds::avatar::wardrobe::ResolveReport,
@@ -400,6 +449,7 @@ pub(super) fn spawn_peer_rig_resolutions(
     mut commands: Commands,
     peers: Query<RigResolvePeer>,
     inflight: Query<&PeerRigResolveTask>,
+    avatar_cache: Res<PeerAvatarCache>,
     time: Res<Time>,
 ) {
     let now = time.elapsed_secs_f64();
@@ -500,6 +550,7 @@ pub(super) fn spawn_peer_rig_resolutions(
             did: did_for_event,
             avatar_rkey,
             attachment_rkeys,
+            notice_seq: avatar_cache.notice_seq(),
             task,
         });
         // Stamped at START, not at completion: the cost this bounds is the
@@ -526,6 +577,7 @@ pub(super) fn poll_peer_rig_resolutions(
         &mut RemotePeer,
         &mut PeerResolve,
         Option<&PeerRigResolveBackoff>,
+        Option<&AvatarPublishedAt>,
     )>,
     time: Res<Time>,
     mut session_log: ResMut<SessionLog>,
@@ -569,6 +621,20 @@ pub(super) fn poll_peer_rig_resolutions(
         if let Some(reason) = &report.body_error {
             debug!("wardrobe unresolved for {}: {reason}", task.did);
         }
+        // Started before its peer's last save notice (#1490): what it read
+        // may be the outfit from before that save, behind the very rkeys the
+        // peer still names - the one change the reference check below cannot
+        // see. Neither its outfit nor its failure is news about the saved
+        // records, so it installs nothing, remembers nothing and backs nothing
+        // off. The notice left `resolved` empty, so the spawner resolves the
+        // saved outfit afresh, under the peer's floor (#1126).
+        let notice_seq = task.notice_seq;
+        let before_save = move |published: Option<&AvatarPublishedAt>| {
+            published.is_some_and(|at| at.0 > notice_seq)
+        };
+        let stale = peers
+            .get(task.peer_entity)
+            .is_ok_and(|(_, _, _, published)| before_save(published));
         // The shortfall reaches the roster (#1217 f332). Until now the ONLY
         // trace of a worn item that could not be fetched was a session-log
         // line - and the failure is per-viewer, so two people in the same
@@ -579,7 +645,8 @@ pub(super) fn poll_peer_rig_resolutions(
         // Only for the references still standing: a resolve of references
         // the peer has since changed - a refresh swapped the record in
         // (#1489) - says nothing about what they wear now.
-        if let Ok((peer, mut resolve, _)) = peers.get_mut(task.peer_entity)
+        if !stale
+            && let Ok((peer, mut resolve, _, _)) = peers.get_mut(task.peer_entity)
             && peer
                 .avatar
                 .as_ref()
@@ -609,10 +676,13 @@ pub(super) fn poll_peer_rig_resolutions(
             // for every client in the room. The comment here used to claim
             // "NOT retried in a loop" while nothing recorded the failure,
             // which is exactly what made it a loop.
+            if stale {
+                continue;
+            }
             let rig = peers
                 .get(task.peer_entity)
                 .ok()
-                .and_then(|(peer, _, backoff)| {
+                .and_then(|(peer, _, backoff, _)| {
                     peer.avatar
                         .as_ref()
                         .and_then(|record| record.body.rigged_ref())
@@ -623,11 +693,15 @@ pub(super) fn poll_peer_rig_resolutions(
             }
             continue;
         };
-        let Some((mut peer, _, previous_backoff)) =
-            peers.iter_mut().find(|(p, _, _)| p.peer_id == task.peer_id)
+        let Some((mut peer, _, previous_backoff, published)) = peers
+            .iter_mut()
+            .find(|(p, _, _, _)| p.peer_id == task.peer_id)
         else {
             continue;
         };
+        if before_save(published) {
+            continue;
+        }
         let Some(record) = peer.avatar.as_mut() else {
             continue;
         };
@@ -696,6 +770,7 @@ pub(super) fn poll_peer_avatar_fetches(
         let peer_id = task.peer_id;
         let did = task.did.clone();
         let spawned_at = task.spawned_at;
+        let notice_seq = task.notice_seq;
         let refresh_of = task.refresh_of;
         // Record the fetch's spawn→resolve latency (E-4) before the task despawns.
         crate::diagnostics::samplers::avatar_fetch_latency_secs(&mut metrics, elapsed - spawned_at);
@@ -780,11 +855,13 @@ pub(super) fn poll_peer_avatar_fetches(
             if peer.did.as_deref() != Some(did.as_str()) {
                 continue;
             }
-            if published.is_some_and(|at| at.0 > spawned_at) {
+            if published.is_some_and(|at| at.0 > notice_seq) {
                 // Started before this peer's last save notice, so its
                 // records may be the ones from before that save: run it
                 // again - under a fresh claim, so a peer who sends notices
-                // at will cannot make this client fetch at will.
+                // at will cannot make this client fetch at will. Ordered
+                // by the notice count, not the clock (#1494): a notice in
+                // the frame after this started could share its time.
                 refresh.spawned = false;
                 refresh.claimed = false;
                 refresh.not_before = elapsed;
@@ -821,8 +898,9 @@ pub(super) fn poll_peer_avatar_fetches(
                             }),
                     });
             if (!cacheable || short) && !settled {
-                // A transport failure, a "no record" a failed wardrobe fetch
-                // also reads as, or a short outfit. The remembered avatar
+                // A transport failure - a wardrobe fetch that failed in
+                // transit is one too since #1493 - a "no record", or a short
+                // outfit. The remembered avatar
                 // stands and the state is left as it was - `Failed` means a
                 // generated stand-in (#1217 f323) - and the refresh tries
                 // again on a first meeting's doubling wait.
@@ -899,45 +977,88 @@ pub(super) fn poll_peer_avatar_fetches(
             continue;
         }
 
-        if cacheable {
-            avatar_cache.insert(did.clone(), record.clone());
-        }
-
         // Find the live peer entity; it may have despawned if the peer
-        // disconnected between the fetch kick-off and its completion.
-        //
+        // disconnected between the fetch kick-off and its completion. What
+        // the fetch brought is then still this client's latest word on them,
+        // for the next meeting - which refreshes it anyway (#1489).
+        let Some((target, mut peer, mut resolve, refresh, published)) = peers
+            .iter_mut()
+            .find(|(_, p, _, _, _)| p.peer_id == peer_id && p.did.as_deref() == Some(did.as_str()))
+        else {
+            if cacheable {
+                avatar_cache.insert(did, record);
+            }
+            continue;
+        };
+        // A peer being refreshed is its refresh's to settle (#1489): this is
+        // a first meeting's fetch that outlived an earlier entity with the
+        // same peer id.
+        if refresh.is_some() {
+            continue;
+        }
         // Only install the fetched record if we haven't already received a
         // newer state for this peer. An `AvatarStateUpdate` broadcast (the
         // live-preview nudge from a peer dragging a slider in the Avatar
         // Editor) can land between the fetch kick-off and its completion;
-        // overwriting it here would permanently fracture visual state -
-        // this client would see the old PDS record while every other peer
-        // in the room sees the live preview.
-        if let Some((_, mut peer, mut resolve, refresh, _)) = peers
-            .iter_mut()
-            .find(|(_, p, _, _, _)| p.peer_id == peer_id && p.did.as_deref() == Some(did.as_str()))
-        {
-            // A peer being refreshed is its refresh's to settle (#1489):
-            // this is a first meeting's fetch that outlived an earlier
-            // entity with the same peer id.
-            if refresh.is_some() {
+        // overwriting it here would permanently fracture visual state - this
+        // client would see the old PDS record while every other peer in the
+        // room sees the live preview.
+        //
+        // A stand-in installed by an earlier FAILED attempt may be replaced -
+        // that is the whole point of the retry (#1217 f323). A live preview
+        // may not: `AvatarStateUpdate` sets `avatar` to `Landed`, so the
+        // state read here distinguishes "nothing real is standing" from
+        // "something newer already arrived". And a failed attempt changes
+        // nothing under a real record already standing: marking it `Failed`
+        // called it a stand-in, and the retry that followed put one over it
+        // (#1489's third review).
+        let stand_in = resolve.avatar.is_failed();
+        let nothing_real = peer.avatar.is_none() || stand_in;
+        // Started before this peer's last save notice (#1490): what it
+        // brought may be from before that save - the outfit behind the
+        // references, or the references themselves - and nothing would fetch
+        // it again. It is neither settled on nor remembered.
+        if published.is_some_and(|at| at.0 > notice_seq) {
+            if !nothing_real {
+                // A live preview stands, newer than both.
                 continue;
             }
-            // A stand-in installed by an earlier FAILED attempt may be
-            // replaced - that is the whole point of the retry (#1217 f323).
-            // A live preview may not: `AvatarStateUpdate` sets `avatar` to
-            // `Landed`, so the state read here distinguishes "nothing real
-            // is standing" from "something newer already arrived". And a
-            // failed attempt changes nothing under a real record already
-            // standing: marking it `Failed` called it a stand-in, and the
-            // retry that followed put one over it (#1489's third review).
-            let stand_in = resolve.avatar.is_failed();
-            if peer.avatar.is_none() || stand_in {
-                peer.avatar = Some(record);
-                resolve.avatar = outcome;
-            } else if matches!(outcome, FetchState::Landed) {
-                resolve.avatar = outcome;
+            peer.avatar = Some(record);
+            resolve.avatar = if cacheable {
+                // It stands as a remembered record does, which beats a
+                // stand-in, and the saved one comes by the refresh a
+                // remembered record gets - under a claim, so a peer who
+                // sends notices at will cannot make this client fetch at
+                // will.
+                commands
+                    .entity(target)
+                    .try_insert(RefreshCachedAvatar::default());
+                FetchState::Pending
+            } else {
+                // "No record", or a failure, from before a save that may be
+                // what made one: a stand-in either way, fetched again on a
+                // failed fetch's doubling wait.
+                match outcome {
+                    FetchState::Failed(backoff) => FetchState::Failed(backoff),
+                    _ => FetchState::Failed(RetryBackoff::after_failure(
+                        resolve.avatar.backoff(),
+                        elapsed,
+                    )),
+                }
+            };
+            continue;
+        }
+        if nothing_real {
+            if cacheable {
+                avatar_cache.insert(did, record.clone());
             }
+            peer.avatar = Some(record);
+            resolve.avatar = outcome;
+        } else if matches!(outcome, FetchState::Landed) {
+            // The live preview standing is newer, and it is what the cache
+            // already holds (`handle_avatar_state`): this record is not
+            // remembered over it (#1490).
+            resolve.avatar = outcome;
         }
     }
 }
@@ -1015,6 +1136,7 @@ mod tests {
     fn a_muted_peer_does_not_fan_out_to_a_wardrobe() {
         let mut app = App::new();
         app.add_plugins((bevy::app::TaskPoolPlugin::default(), bevy::time::TimePlugin));
+        app.init_resource::<PeerAvatarCache>();
         app.add_systems(Update, spawn_peer_rig_resolutions);
 
         let mut record = AvatarRecord::default_for_did("did:plc:hostile");
@@ -1248,6 +1370,7 @@ mod tests {
             did: key_did(n),
             task: finished(result),
             spawned_at: 1.0,
+            notice_seq: 1,
             refresh_of,
         });
     }
@@ -1370,7 +1493,7 @@ mod tests {
     }
 
     /// #1489's reviews: a refresh that brings no record - a transport
-    /// failure, or a "no record" a failed wardrobe fetch also reads as -
+    /// failure, or a "no record" (a profile naming a body that is gone) -
     /// leaves the remembered body standing, never calls it a stand-in
     /// (#1217 f323), and tries again on a first meeting's doubling wait,
     /// however many times it has failed.
@@ -1465,7 +1588,7 @@ mod tests {
     #[test]
     fn a_refresh_started_before_a_save_notice_runs_again() {
         let mut app = refresh_app();
-        let spawn = |app: &mut App, n: u8, notice_at: f64| {
+        let spawn = |app: &mut App, n: u8, notice_at: u64| {
             app.world_mut()
                 .spawn((
                     remembered_peer(n, wearing("3jzfcijpj2z2a", "remembered")),
@@ -1475,8 +1598,8 @@ mod tests {
                 ))
                 .id()
         };
-        let overtaken = spawn(&mut app, 1, 2.0);
-        let after_notice = spawn(&mut app, 2, 1.0);
+        let overtaken = spawn(&mut app, 1, 2);
+        let after_notice = spawn(&mut app, 2, 1);
         answer(
             &mut app,
             1,
@@ -1609,6 +1732,204 @@ mod tests {
         assert!(app.world().get::<RefreshCachedAvatar>(peer).is_some());
     }
 
+    /// A first meeting: a peer with nothing standing yet, whose last save
+    /// notice is `notice` in the count (`0` for none).
+    fn met(app: &mut App, n: u8, notice: u64) -> Entity {
+        let mut peer = remembered_peer(n, wearing("3jzfcijpj2z2a", "unused"));
+        peer.avatar = None;
+        let entity = app.world_mut().spawn((peer, PeerResolve::default())).id();
+        if notice > 0 {
+            app.world_mut()
+                .entity_mut(entity)
+                .insert(AvatarPublishedAt(notice));
+        }
+        entity
+    }
+
+    fn state(app: &App, entity: Entity) -> FetchState {
+        app.world()
+            .get::<PeerResolve>(entity)
+            .expect("a resolve record")
+            .avatar
+    }
+
+    /// #1490: a first meeting's fetch started (count 1) before the owner's
+    /// save notice (count 2) may bring the record from before that save. It
+    /// stands, as a remembered record would - better than a stand-in - but
+    /// it is not settled on: the refresh a remembered record gets fetches the
+    /// saved one, under a claim. Nor is it remembered. A fetch that started
+    /// after the notice is the saved record, settled and remembered.
+    #[test]
+    fn a_first_meeting_fetch_from_before_a_save_stands_until_the_saved_one_comes() {
+        let mut app = refresh_app();
+        let overtaken = met(&mut app, 1, 2);
+        let after_notice = met(&mut app, 2, 1);
+        for n in [1, 2] {
+            answer(
+                &mut app,
+                n,
+                Ok(Some(wearing("3jzfcijpj2z2b", "fetched"))),
+                None,
+            );
+        }
+        app.update();
+
+        assert_eq!(rig_of(&standing(&app, overtaken)).avatar, "3jzfcijpj2z2b");
+        assert_eq!(state(&app, overtaken), FetchState::Pending, "not settled");
+        assert!(
+            app.world()
+                .get::<RefreshCachedAvatar>(overtaken)
+                .is_some_and(|refresh| !refresh.spawned && !refresh.claimed),
+            "the saved record is fetched by a refresh, under a claim of its own"
+        );
+        assert!(remembered(&app, 1).is_none(), "nor remembered");
+
+        assert_eq!(state(&app, after_notice), FetchState::Landed);
+        assert!(
+            app.world()
+                .get::<RefreshCachedAvatar>(after_notice)
+                .is_none()
+        );
+        assert!(
+            remembered(&app, 2).is_some(),
+            "a fetch that started after the notice is the saved record"
+        );
+    }
+
+    /// #1490: "no record", or a failure, from before a save that may be what
+    /// made the record is a stand-in, asked again on a failed fetch's wait -
+    /// never the settled answer a first meeting used to keep for good.
+    #[test]
+    fn a_first_meeting_no_record_from_before_a_save_is_asked_again() {
+        let mut app = refresh_app();
+        let overtaken = met(&mut app, 1, 2);
+        let failed = met(&mut app, 2, 2);
+        let after_notice = met(&mut app, 3, 1);
+        answer(&mut app, 1, Ok(None), None);
+        answer(&mut app, 2, offline(), None);
+        answer(&mut app, 3, Ok(None), None);
+        app.update();
+
+        assert!(state(&app, overtaken).is_failed(), "asked again");
+        assert!(state(&app, failed).is_failed());
+        assert!(
+            app.world()
+                .get::<RemotePeer>(overtaken)
+                .is_some_and(|peer| peer.avatar.is_some()),
+            "a stand-in stands meanwhile"
+        );
+        assert_eq!(
+            state(&app, after_notice),
+            FetchState::Landed,
+            "after the notice, \"no record\" is the answer"
+        );
+    }
+
+    /// #1490: a first meeting's fetch landing under a live preview is older
+    /// than it. The install was already skipped; the cache insert was not,
+    /// so the next meeting stood in the older record. Now neither happens.
+    #[test]
+    fn a_first_meeting_fetch_does_not_overwrite_a_newer_preview_in_the_cache() {
+        let mut app = refresh_app();
+        let preview = wearing("3jzfcijpj2z2a", "preview");
+        app.world_mut()
+            .resource_mut::<PeerAvatarCache>()
+            .insert(key_did(1), preview.clone());
+        let peer = app
+            .world_mut()
+            .spawn((remembered_peer(1, preview.clone()), live()))
+            .id();
+        answer(
+            &mut app,
+            1,
+            Ok(Some(wearing("3jzfcijpj2z2b", "older"))),
+            None,
+        );
+        app.update();
+
+        assert_eq!(standing(&app, peer), preview);
+        assert_eq!(remembered(&app, 1), Some(preview));
+    }
+
+    /// #1490: a rig resolution that started (count 1) before the owner's save
+    /// notice (count 2) read the PDS before the save, behind the very rkeys
+    /// the peer still names. Its outfit is neither installed nor remembered,
+    /// and its failure backs nothing off - neither says anything about the
+    /// saved records. One that started after the notice lands as before.
+    #[test]
+    fn a_rig_resolution_from_before_a_save_is_not_installed() {
+        let mut app = bare_app();
+        app.add_systems(Update, poll_peer_rig_resolutions);
+        for n in 1..=4 {
+            app.world_mut()
+                .resource_mut::<PeerAvatarCache>()
+                .insert(key_did(n), AvatarRecord::wearing("3jzfcijpj2z2a"));
+        }
+        // (peer, last notice, outfit the resolution brought)
+        let cases = [(1, 2, true), (2, 1, true), (3, 2, false), (4, 1, false)];
+        let mut entities = Vec::new();
+        for (n, notice, resolved) in cases {
+            let peer = app
+                .world_mut()
+                .spawn((
+                    remembered_peer(n, AvatarRecord::wearing("3jzfcijpj2z2a")),
+                    PeerResolve::default(),
+                    AvatarPublishedAt(notice),
+                ))
+                .id();
+            app.world_mut().spawn(PeerRigResolveTask {
+                peer_id: peer_id(n),
+                peer_entity: peer,
+                did: key_did(n),
+                avatar_rkey: String::from("3jzfcijpj2z2a"),
+                attachment_rkeys: Vec::new(),
+                notice_seq: 1,
+                task: finished((
+                    resolved.then(|| outfit("read")),
+                    crate::pds::avatar::wardrobe::ResolveReport::default(),
+                )),
+            });
+            entities.push(peer);
+        }
+        app.update();
+
+        let resolved = |entity: Entity| rig_of(&standing(&app, entity)).resolved.clone();
+        let backed_off =
+            |entity: Entity| app.world().get::<PeerRigResolveBackoff>(entity).is_some();
+        assert_eq!(resolved(entities[0]), None, "from before the save");
+        assert!(
+            remembered(&app, 1).is_some_and(|record| rig_of(&record).resolved.is_none()),
+            "and not remembered either"
+        );
+        assert_eq!(resolved(entities[1]), Some(outfit("read")));
+        assert!(remembered(&app, 2).is_some_and(|record| rig_of(&record).resolved.is_some()));
+        assert!(!backed_off(entities[2]), "a failure from before the save");
+        assert!(backed_off(entities[3]), "a failure after it waits as ever");
+    }
+
+    /// #1494: the order of a save notice and a fetch is read from the count,
+    /// so it holds when both happen in one frame - or in two frames a
+    /// coarsened browser clock gives one time - where comparing session
+    /// seconds could not tell which came first.
+    #[test]
+    fn a_save_notice_and_a_fetch_are_ordered_by_the_count_not_the_clock() {
+        let mut cache = PeerAvatarCache::default();
+        let started_before = cache.notice_seq();
+        let notice = cache.note_publish();
+        let started_after = cache.notice_seq();
+        assert!(
+            notice > started_before,
+            "the fetch before the notice is stale"
+        );
+        assert!(notice <= started_after, "the one after it is not");
+        cache.clear();
+        assert_eq!(
+            cache.notice_seq(),
+            notice,
+            "a logout keeps the count, so a task that outlives it cannot pass for a later one"
+        );
+    }
+
     /// #1489's third review: a DID refreshed moments ago waits out the rest
     /// of its window - the refresh is delayed, not dropped.
     #[test]
@@ -1726,6 +2047,7 @@ mod tests {
     fn the_resolver_steps_aside_only_while_a_refresh_fetches_the_same_outfit() {
         let mut app = App::new();
         app.add_plugins((bevy::app::TaskPoolPlugin::default(), bevy::time::TimePlugin));
+        app.init_resource::<PeerAvatarCache>();
         app.add_systems(Update, spawn_peer_rig_resolutions);
         let spawn = |app: &mut App, n: u8, resolve: PeerResolve, refresh: RefreshCachedAvatar| {
             app.world_mut()
@@ -1785,6 +2107,7 @@ mod tests {
                 did: key_did(n),
                 avatar_rkey: String::from(rkey),
                 attachment_rkeys: Vec::new(),
+                notice_seq: 0,
                 task: finished((
                     Some(outfit("landed")),
                     crate::pds::avatar::wardrobe::ResolveReport::default(),
@@ -1819,6 +2142,7 @@ mod tests {
             did: key_did(1),
             avatar_rkey: String::from("3jzfcijpj2z2a"),
             attachment_rkeys: Vec::new(),
+            notice_seq: 0,
             task: finished((None, crate::pds::avatar::wardrobe::ResolveReport::default())),
         });
         app.update();
@@ -2014,6 +2338,7 @@ mod tests {
             did: key_did(2),
             avatar_rkey: String::from("3jzfcijpj2z2a"),
             attachment_rkeys: vec![String::from("att-1"), String::from("att-2")],
+            notice_seq: 0,
             task: finished((None, crate::pds::avatar::wardrobe::ResolveReport::default())),
         });
         app.update();

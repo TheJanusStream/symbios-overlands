@@ -114,6 +114,13 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
     if !ignored_at.is_empty() {
         answer["ignored_at"] = json!(ignored_at);
     }
+    // Said only when the edit did not go live (#1500): a world past the
+    // live ceiling reaches nobody with it, and this answer is where an
+    // agent about to tell the owner "it's live" reads.
+    let live_sync = super::size::live_sync(live);
+    if live_sync.get("refused").is_some() {
+        answer["live_sync"] = live_sync;
+    }
     Ok(answer)
 }
 
@@ -1189,6 +1196,36 @@ mod world_tests {
             assert_eq!(set["pointer"], pointer, "{set}");
             assert!(!set["kept"].is_null(), "{pointer}: {set}");
         }
+    }
+
+    /// #1500, seen in Ashmere (1.3 MiB): every live edit was refused at the
+    /// wire while the set answered as though it had gone out, so a session
+    /// told the owner of changes they could not see. Past the ceiling the
+    /// answer says the edit reached nobody live, and that a save would.
+    #[test]
+    fn a_set_in_a_world_past_the_live_ceiling_says_it_reached_nobody() {
+        let (mut app, _) = app_in(AGENT);
+        let heavy = super::super::harness::past_the_live_ceiling(AGENT);
+        app.world_mut()
+            .insert_resource(LiveRoomRecord(heavy.clone()));
+        app.world_mut()
+            .insert_resource(crate::state::StoredRoomRecord(heavy));
+
+        let set = room_set(
+            app.world_mut(),
+            "/environment/fog_visibility",
+            json!(1_234_500),
+        )
+        .expect("set");
+
+        assert_eq!(set["changed"], true, "{set}");
+        assert!(
+            set["live_sync"]["refused"]
+                .as_str()
+                .is_some_and(|why| why.contains("no live edit")),
+            "{set}"
+        );
+        assert!(set["live_sync"]["bytes"].as_u64().is_some(), "{set}");
     }
 
     /// What the sanitiser pulls back into range is what the world keeps,

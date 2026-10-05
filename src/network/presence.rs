@@ -700,7 +700,14 @@ pub(super) fn adopt_peer_did(
             .entity(entity)
             .try_insert(super::peer_cache::RefreshCachedAvatar::default());
     } else {
-        super::peer_cache::spawn_peer_avatar_fetch(commands, peer_id, did.to_owned(), now, None);
+        super::peer_cache::spawn_peer_avatar_fetch(
+            commands,
+            peer_id,
+            did.to_owned(),
+            now,
+            avatar_cache.notice_seq(),
+            None,
+        );
     }
     true
 }
@@ -793,6 +800,7 @@ pub(super) fn retry_peer_avatar_fetches(
     mut commands: Commands,
     peers: Query<(&RemotePeer, &PeerResolve)>,
     inflight: Query<&super::peer_cache::PeerAvatarFetchTask>,
+    avatar_cache: Res<super::peer_cache::PeerAvatarCache>,
     time: Res<Time>,
 ) {
     let now = time.elapsed_secs_f64();
@@ -805,7 +813,14 @@ pub(super) fn retry_peer_avatar_fetches(
         let Some(did) = peer.did.clone() else {
             continue;
         };
-        super::peer_cache::spawn_peer_avatar_fetch(&mut commands, peer.peer_id, did, now, None);
+        super::peer_cache::spawn_peer_avatar_fetch(
+            &mut commands,
+            peer.peer_id,
+            did,
+            now,
+            avatar_cache.notice_seq(),
+            None,
+        );
         // The state is deliberately NOT reset to `Pending`: the standing body
         // is still the stand-in, and `poll_peer_avatar_fetches` reads the
         // failed state to decide it may overwrite it. The backoff carries

@@ -41,11 +41,12 @@ session.
   an agent built without it drops the seeds on its next save: never save
   Ashmere from one.
 - **Ashmere is past the live-update ceiling** (1.45 MiB of compact JSON
-  against 900 KiB, #1499): no live edit reaches the owner. Show a change by
-  saving it, then asking them to step out through the gate and back - a
-  mood trial too, saved on their word with the old value kept to put back
-  ([region.md](../../region.md#the-records-budget)). #1500 would make the
-  agent say so; until then, read the daemon log for `Refusing to send`.
+  against 900 KiB): no live edit reaches the owner. Show a change by saving
+  it - their client fetches each save (#1499) - a mood trial too, saved on
+  their word with the old value kept to put back
+  ([region.md](../../region.md#the-records-budget)). `room set` answers
+  `live_sync.refused` here, and `status.editing.live_sync` weighs the world
+  (#1500).
 - **The builders find their folder from their own place** (fixed in
   session 883); `deleg1/`, `deleg2/` and `briefs/` still name session 879's
   gone scratchpad.
@@ -586,13 +587,11 @@ binaries and pictures.
 
 ## Open threads
 
-- **#1499, the owner's decision**: Ashmere's record (1.45 MiB of compact
-  JSON at session 885's end) is past the 900 KiB live-update ceiling, so
-  no live room edit reaches a visitor, and one already there sees a save
-  only after re-entering. The choices on the issue: a notice that makes
-  visitors re-fetch a saved room (as #1489 does for avatars), a larger
-  ceiling, or deltas. **#1500**: the agent should say when a broadcast
-  was refused.
+- **#1499 and #1500, done in session 909 (2026-10-05)**: the owner chose
+  the save notice - a visitor now fetches each save of a world past the
+  ceiling, without re-entering - and the agent's answers say when a live
+  edit was refused (`live_sync`). Ashmere's live edits still reach nobody
+  until the record is back under 900 KiB.
 - **Filed in session 885 and open**: #1506, colliders for grammar
   terminals - APPROVED by the owner on 2026-09-29, to build (the grammar
   buildings can then drop their hidden solid cores); #1507, `room set` says nothing when a changed Shape node's

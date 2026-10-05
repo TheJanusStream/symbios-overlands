@@ -58,6 +58,8 @@
 //!   stand-in body a peer wears until their real one arrives
 //!   (#1217/#1218).
 //! * [`inbound`] - [`inbound::handle_incoming_messages`] dispatcher.
+//! * [`room_refresh`] - a guest's fetch of the world it stands in on its
+//!   owner's notice, for the worlds whose live edits cannot reach it (#1499).
 //! * [`broadcast`] - outbound `Transform` / `Identity` /
 //!   `AvatarStateUpdate` / `RoomStateUpdate` writers.
 //! * [`chat_send`] - sending one line of chat as the local player, the one
@@ -74,6 +76,7 @@ mod lifecycle;
 pub mod link;
 mod peer_cache;
 pub mod presence;
+mod room_refresh;
 mod smoother;
 
 pub use link::{ChatDelivery, LinkPhase, LinkState};
@@ -165,6 +168,8 @@ impl Plugin for NetworkPlugin {
             .init_resource::<chunk::ChunkReassembly>()
             .init_resource::<chunk::OutboundChunkSeq>()
             .init_resource::<chunk::OversizeNotices>()
+            // #1499: an owner's save notice, waiting for its fetch.
+            .init_resource::<room_refresh::RoomRefresh>()
             // #1213: the connection fact every UI surface reads, plus the
             // narration edge that must be cleared with it on logout.
             .init_resource::<lifecycle::SweptPeers>()
@@ -237,6 +242,21 @@ impl Plugin for NetworkPlugin {
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             )
+            // Apart from the chain above, which is at the 20 systems a
+            // tuple can hold: an owner's notice lands in the dispatcher, a
+            // room swap overtakes a fetch before it can land, and a fetch
+            // lands before the next one starts (#1499).
+            .add_systems(
+                Update,
+                (
+                    room_refresh::note_room_swaps,
+                    room_refresh::poll_room_refreshes,
+                    room_refresh::start_room_refreshes,
+                )
+                    .chain()
+                    .after(inbound::handle_incoming_messages)
+                    .run_if(in_state(AppState::InGame)),
+            )
             // A session that ends must not carry its link state - or the
             // narration edge - into the next one, or the first frame of the
             // next login (no socket yet) reads as an outage (#1213).
@@ -246,6 +266,7 @@ impl Plugin for NetworkPlugin {
                     link::reset_link_state,
                     presence::reset_mute_audio,
                     peer_cache::drop_inflight_peer_fetches,
+                    room_refresh::reset_room_refresh,
                 ),
             )
             // Network broadcast is tied to a fixed tick so the outbound rate

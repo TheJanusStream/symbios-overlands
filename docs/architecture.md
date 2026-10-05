@@ -69,7 +69,14 @@ fails the whole save, and measuring at plan time is what lets the owner be told
 which record is too big instead of watching an opaque rejection. The peer path is chunked rather than refused: a reliable
 payload over ~48 KiB is split under WebRTC's 64 KiB SCTP whole-message ceiling
 and reassembled on the far side, with the same 900 KiB backstop above which the
-broadcast is dropped and counted.
+broadcast is dropped and counted. A world past that backstop reaches its guests
+by its saves instead: while its live updates are refused, the owner's client
+announces each save (`RoomRecordsPublished`) - and tells a newcomer whose join
+push was refused - and a guest fetches the saved world from the owner's PDS, at
+most once every ten seconds
+([`network::room_refresh`](../src/network/room_refresh.rs), #1499). Never while
+the live updates go out: a guest then holds the owner's live state, which can be
+newer than a save just landing.
 
 ## State machine and the loading gate
 

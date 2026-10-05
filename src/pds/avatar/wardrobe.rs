@@ -1174,10 +1174,16 @@ pub fn wear_new_engine_body(record: &mut super::AvatarRecord, did: &str) {
 /// records cross-owner, a guest fetching a peer depends on N+2 records - and
 /// "why is Bob a bare chassis for me but not for Alice" was unanswerable from
 /// a captured log.
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Debug)]
 pub(crate) struct ResolveReport {
     /// Why the wardrobe record itself did not install. `None` = it did.
     pub body_error: Option<String>,
+    /// The wardrobe fetch's own error, when it failed rather than answered
+    /// (#1493). `None` for a record that is missing - that IS an answer -
+    /// and for one that installed. A caller that turns "no body" into "no
+    /// record" must look here first: a timeout says nothing about whether
+    /// the record exists.
+    pub body_fetch_error: Option<FetchError>,
     /// Attachment rkeys that were not installed, each with its reason.
     pub skipped: Vec<(String, String)>,
 }
@@ -1189,6 +1195,7 @@ impl ResolveReport {
     pub(crate) fn aborted(reason: &str) -> Self {
         ResolveReport {
             body_error: Some(reason.to_owned()),
+            body_fetch_error: None,
             skipped: Vec::new(),
         }
     }
@@ -1227,6 +1234,7 @@ pub(crate) async fn resolve_rigged_body(
             );
             rig.resolved = None;
             report.body_error = Some(format!("wardrobe fetch failed: {err:?}"));
+            report.body_fetch_error = Some(err);
             return report;
         }
     };

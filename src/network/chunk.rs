@@ -335,6 +335,18 @@ impl SendOutcome {
 #[derive(Resource, Default)]
 pub struct OversizeNotices(std::collections::HashSet<&'static str>);
 
+/// The latch key, and the noun, for the world's live updates
+/// (`RoomStateUpdate`) - the broadcaster's and the join push's alike.
+pub(crate) const LIVE_WORLD: &str = "world";
+
+impl OversizeNotices {
+    /// Whether the last send of `subject` was refused: its live updates reach
+    /// nobody until one fits again (#1499 reads it for the world).
+    pub(crate) fn paused(&self, subject: &str) -> bool {
+        self.0.contains(subject)
+    }
+}
+
 /// Report a refused send to the person who caused it, at most once per
 /// crossing, and pass the outcome through.
 ///
@@ -502,6 +514,7 @@ fn variant_label(msg: &OverlandsMessage) -> &'static str {
         OverlandsMessage::AvatarRecordsPublished => "AvatarRecordsPublished",
         OverlandsMessage::Hello { .. } => "Hello",
         OverlandsMessage::WorldDigest { .. } => "WorldDigest",
+        OverlandsMessage::RoomRecordsPublished => "RoomRecordsPublished",
     }
 }
 
@@ -664,6 +677,35 @@ mod tests {
         warn_once_on_refusal(SendOutcome::Sent, &mut notices, &mut toasts, "world", 1.0);
         warn_once_on_refusal(refused, &mut notices, &mut toasts, "world", 2.0);
         assert_eq!(toasts.shown().len(), 3);
+    }
+
+    /// #1499: the latch is also the owner's word on whether the world's live
+    /// updates reach anyone - a save notice goes out only while they do not,
+    /// since a guest that has them can hold an edit newer than the save. It
+    /// says "paused" from the first refusal until a send goes through, and
+    /// the world's and the avatar's are separate.
+    #[test]
+    fn the_latch_says_whether_the_worlds_live_updates_are_paused() {
+        let mut notices = OversizeNotices::default();
+        let mut toasts = crate::notify::Toasts::default();
+        let refused = SendOutcome::Refused { bytes: 1_000_000 };
+        assert!(!notices.paused(LIVE_WORLD), "nothing refused yet");
+
+        warn_once_on_refusal(refused, &mut notices, &mut toasts, LIVE_WORLD, 0.0);
+        assert!(notices.paused(LIVE_WORLD));
+        assert!(!notices.paused("avatar"), "the avatar's is its own");
+
+        warn_once_on_refusal(
+            SendOutcome::Sent,
+            &mut notices,
+            &mut toasts,
+            LIVE_WORLD,
+            1.0,
+        );
+        assert!(
+            !notices.paused(LIVE_WORLD),
+            "a send that went through ends it"
+        );
     }
 
     /// A serialize failure is not a send. It is a bug rather than a user
