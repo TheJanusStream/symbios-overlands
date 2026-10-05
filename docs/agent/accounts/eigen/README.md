@@ -285,10 +285,11 @@ Ranked, as session 903 left them (2026-10-04).
 3. **#1563** (high): road lots differ between native and wasm clients
    (platform libm on the lot path); Isoline's buildings were grown by the
    native daemon, so a browser client may judge a district incomplete.
-4. Lower: #1561 rodio pans the wrong way; #1562 a voice dropped inside the
-   budget's radius stops dead and restarts its loop; #1564 a change in lot
-   generator counts shifts which items hit the room's generator cap; #1565 a
-   saved rotation drifts one unit in the last place on reload.
+4. Lower: #1565 a saved rotation drifts one unit in the last place on
+   reload (its mechanism pinned in session 909: client-grown lot rotations,
+   on their first trip through the wire). Done since: #1561 (sounds now pan
+   to their own side) and #1562 (budgeted voices fade out and in, ranked by
+   loudness) in session 910; #1564 closed as theoretical in session 908.
 5. **Isoline, next in the order a visitor notices**: the streets read as
    raised dark slabs on the pale paving at dusk (the road material, not the
    buildings); the waterfront (street decks end at the shore with their

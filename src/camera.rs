@@ -495,11 +495,31 @@ fn spawn_orbit_camera(mut commands: Commands) {
         Transform::from_xyz(pos[0], pos[1], pos[2]).looking_at(Vec3::ZERO, Vec3::Y),
         default_distance_fog(),
         Bloom::NATURAL, // Enable Bloom
-        // Spatial-audio listener for contact-effect cues (#262). Ears a
-        // head-width apart (Bevy's 4 m default over-pans); inert for
-        // non-spatial audio, so this is purely additive.
-        SpatialListener::new(audio_cfg::LISTENER_EAR_GAP),
+        // Spatial-audio listener for every positional voice (#262); inert
+        // for non-spatial audio, so this is purely additive.
+        camera_listener(),
     ));
+}
+
+/// The camera's spatial listener: ears a head-width apart (Bevy's 4 m default
+/// over-pans), handed to rodio the other way round (#1561).
+///
+/// rodio 0.22's `Spatial`, the source bevy_audio plays every positional voice
+/// through, gives the larger gain to the ear FARTHER from the sound (its
+/// `source/spatial.rs`, the two `*_diff_modifier`s). Given the ears the right
+/// way round, every construct hum, engine and contact cue on the listener's
+/// right played up to 6 dB louder on its left. Given them swapped, each sound
+/// is back on its own side by the same margin. 0.22.2 is rodio's latest
+/// release; were it to fix the sign, the swap would mirror every sound again,
+/// and `a_sound_on_the_right_is_louder_in_the_right_ear`, which plays a tone
+/// through rodio's own `Spatial`, fails then.
+pub(crate) fn camera_listener() -> SpatialListener {
+    let mut listener = SpatialListener::new(audio_cfg::LISTENER_EAR_GAP);
+    std::mem::swap(
+        &mut listener.left_ear_offset,
+        &mut listener.right_ear_offset,
+    );
+    listener
 }
 
 /// Keep the orbit camera glued to the local chassis.
@@ -561,6 +581,69 @@ fn follow_local_player(
 mod tests {
     use super::*;
     use bevy::MinimalPlugins;
+
+    /// #1561: a sound to the listener's right is louder in its right ear, one
+    /// to its left in its left, and one straight ahead in neither.
+    ///
+    /// Played through rodio's own `Spatial` - what bevy_audio wraps every
+    /// positional voice in - with the ears where bevy_audio puts them: the
+    /// camera listener's offsets through the camera's transform, handed over
+    /// left then right (bevy_audio's `audio_output.rs`). The camera stands
+    /// turned and off the origin so the transform is part of what is checked.
+    /// rodio 0.22 gives the larger gain to the farther ear, which is why the
+    /// listener's ears are swapped; a rodio that fixed its sign fails this.
+    /// bevy_audio's placement is written out here rather than run - it needs
+    /// an audio device - so a bevy that changed the order it hands the ears
+    /// over in would not fail it: re-read `audio_output.rs` at a Bevy bump.
+    #[test]
+    fn a_sound_on_the_right_is_louder_in_the_right_ear() {
+        use rodio::Source as _;
+        use std::num::NonZero;
+
+        let listener = camera_listener();
+        let camera = GlobalTransform::from(
+            Transform::from_xyz(3.0, 2.0, -4.0).looking_to(Vec3::new(1.0, 0.0, 1.0), Vec3::Y),
+        );
+        let left_ear = camera.transform_point(listener.left_ear_offset);
+        let right_ear = camera.transform_point(listener.right_ear_offset);
+        // (left, right) as rodio plays a steady tone from `emitter`.
+        let heard = |emitter: Vec3| -> (f32, f32) {
+            let tone = rodio::buffer::SamplesBuffer::new(
+                NonZero::new(1).expect("one channel"),
+                NonZero::new(22_050).expect("a rate"),
+                vec![1.0; 8],
+            );
+            let mut spatial = rodio::source::Spatial::new(
+                tone,
+                emitter.to_array(),
+                left_ear.to_array(),
+                right_ear.to_array(),
+            );
+            assert_eq!(spatial.channels().get(), 2);
+            let left = spatial.next().expect("a left sample");
+            let right = spatial.next().expect("a right sample");
+            (left, right)
+        };
+
+        let centre = camera.translation();
+        for metres in [1.0, 5.0, 20.0] {
+            let (left, right) = heard(centre + camera.right() * metres);
+            assert!(
+                right > left,
+                "{metres} m to the right: left {left}, right {right}"
+            );
+            let (left, right) = heard(centre + camera.left() * metres);
+            assert!(
+                left > right,
+                "{metres} m to the left: left {left}, right {right}"
+            );
+        }
+        let (left, right) = heard(centre + camera.forward() * 5.0);
+        assert!(
+            (left - right).abs() <= 1e-6 * left.abs().max(right.abs()),
+            "straight ahead is centred: left {left}, right {right}"
+        );
+    }
 
     /// Strip `//` line comments, so the scan below does not read its own
     /// prose - this module explains the rule using the very needle it

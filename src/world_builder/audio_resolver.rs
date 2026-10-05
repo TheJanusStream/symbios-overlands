@@ -408,7 +408,9 @@ fn apply_target(
             // (room rebuild); the voice-budget door inserts with `try_insert`,
             // because a plain `insert` on a missing entity panics through the
             // command error handler.
-            super::voice_budget::attach_looping_voice(commands, *entity, handle, *settings);
+            // A fetched clip is never decoded here, so it has no measured
+            // level, and the budget counts it as full scale (#1562).
+            super::voice_budget::attach_looping_voice(commands, *entity, handle, *settings, None);
         }
         AudioReferenceTarget::AmbientHandle => {
             commands.insert_resource(crate::loading::AmbientHandle(Some(handle)));

@@ -8,9 +8,11 @@
 //! [`bevy::tasks::AsyncComputeTaskPool`] and, on completion, give the
 //! construct's spawned entity a looping spatial voice
 //! ([`super::voice_budget::LoopingVoice`]). The voice budget hands it an
-//! [`AudioPlayer`] while it is among the nearest audible voices and takes
-//! the player away again when it is not (#1557). Bevy's built-in
-//! spatial-audio attenuation does the positional panning at runtime.
+//! [`AudioPlayer`] while it is among the audible voices that reach the
+//! listener loudest and takes the player away again when it is not (#1557,
+//! #1562), fading either way. Bevy's built-in spatial-audio attenuation does
+//! the positional panning at runtime (with the listener's ears handed over
+//! swapped, `camera::camera_listener`, #1561).
 //!
 //! # Listener
 //!
@@ -296,7 +298,9 @@ const MAX_BAKED_AUDIO_ENTRIES: usize = 64;
 /// it lands) or the finished shared buffer.
 enum BakedAudioEntry {
     Pending(Vec<(Entity, BakeAttachmentMode)>),
-    Ready(Handle<AudioSource>),
+    /// The shared buffer, and its RMS ([`super::voice_budget::wav_rms`]),
+    /// which the voice budget ranks a looping voice by (#1562).
+    Ready(Handle<AudioSource>, Option<f32>),
 }
 
 /// Content-keyed cache of baked procedural audio buffers.
@@ -333,7 +337,7 @@ impl BakedAudioCache {
         let mut count = 0;
         let mut bytes = 0;
         for entry in self.entries.values() {
-            if let BakedAudioEntry::Ready(handle) = entry {
+            if let BakedAudioEntry::Ready(handle, _) = entry {
                 count += 1;
                 if let Some(source) = sources.get(handle) {
                     bytes += source.bytes.len();
@@ -351,7 +355,7 @@ impl BakedAudioCache {
             let Some(pos) = self
                 .order
                 .iter()
-                .position(|k| matches!(self.entries.get(k), Some(BakedAudioEntry::Ready(_))))
+                .position(|k| matches!(self.entries.get(k), Some(BakedAudioEntry::Ready(..))))
             else {
                 // Everything is Pending (pathological) - nothing safely
                 // evictable; allow temporary overshoot.
@@ -377,7 +381,7 @@ fn attach_baked_audio(
     commands: &mut Commands,
     target: Entity,
     mode: BakeAttachmentMode,
-    handle: Handle<AudioSource>,
+    (handle, level): (Handle<AudioSource>, Option<f32>),
 ) {
     match mode {
         BakeAttachmentMode::LoopingConstruct { loop_start } => {
@@ -386,6 +390,7 @@ fn attach_baked_audio(
                 target,
                 handle,
                 looping_construct_playback(loop_start),
+                level,
             );
         }
         BakeAttachmentMode::OneShot { volume } => {
@@ -424,9 +429,9 @@ fn request_baked_audio(
     };
 
     match bake_cache.entries.get_mut(&key) {
-        Some(BakedAudioEntry::Ready(handle)) => {
-            let handle = handle.clone();
-            attach_baked_audio(commands, target, mode, handle);
+        Some(BakedAudioEntry::Ready(handle, level)) => {
+            let baked = (handle.clone(), *level);
+            attach_baked_audio(commands, target, mode, baked);
         }
         Some(BakedAudioEntry::Pending(waiters)) => {
             waiters.push((target, mode));
@@ -616,7 +621,7 @@ pub fn poll_spatial_audio_tasks(
         // attach, nothing to retain.
         let waiters = match bake_cache.entries.remove(&bake.key) {
             Some(BakedAudioEntry::Pending(waiters)) => waiters,
-            Some(ready @ BakedAudioEntry::Ready(_)) => {
+            Some(ready @ BakedAudioEntry::Ready(..)) => {
                 // Shouldn't happen (one task per key), but restoring the
                 // Ready entry beats discarding a usable buffer.
                 bake_cache.entries.insert(bake.key.clone(), ready);
@@ -651,15 +656,18 @@ pub fn poll_spatial_audio_tasks(
         if let Some(metrics) = metrics.as_deref_mut() {
             crate::diagnostics::samplers::audio_voice_baked(metrics, now - started_at, bytes.len());
         }
+        // Measured once, here, for the voice budget's ranking (#1562).
+        let level = super::voice_budget::wav_rms(&bytes);
         let handle = audio_sources.add(AudioSource {
             bytes: bytes.into(),
         });
-        bake_cache
-            .entries
-            .insert(bake.key.clone(), BakedAudioEntry::Ready(handle.clone()));
+        bake_cache.entries.insert(
+            bake.key.clone(),
+            BakedAudioEntry::Ready(handle.clone(), level),
+        );
 
         for (target, mode) in waiters {
-            attach_baked_audio(&mut commands, target, mode, handle.clone());
+            attach_baked_audio(&mut commands, target, mode, (handle.clone(), level));
         }
     }
 }
@@ -781,7 +789,7 @@ mod tests {
     use crate::pds::SovereignAssetReference;
 
     fn ready_entry() -> BakedAudioEntry {
-        BakedAudioEntry::Ready(Handle::default())
+        BakedAudioEntry::Ready(Handle::default(), None)
     }
 
     /// The offload-diagnostics job name (#671) must be deterministic for a
@@ -852,7 +860,7 @@ mod tests {
         let mut cache = BakedAudioCache::default();
         cache
             .entries
-            .insert("ready".into(), BakedAudioEntry::Ready(handle));
+            .insert("ready".into(), BakedAudioEntry::Ready(handle, None));
         cache.entries.insert(
             "pending".into(),
             BakedAudioEntry::Pending(vec![(
@@ -1004,13 +1012,13 @@ mod tests {
             &mut world.commands(),
             baked,
             BakeAttachmentMode::LoopingConstruct { loop_start },
-            baked_clip.clone(),
+            (baked_clip.clone(), Some(0.25)),
         );
         attach_baked_audio(
             &mut world.commands(),
             cue,
             BakeAttachmentMode::OneShot { volume: 0.5 },
-            cue_clip,
+            (cue_clip, None),
         );
         // A fetched clip the resolver already holds attaches on request.
         let reference = SovereignAssetReference::Url {
@@ -1032,9 +1040,11 @@ mod tests {
         );
         world.flush();
 
-        for (what, entity, clip, start) in [
-            ("baked", baked, &baked_clip, loop_start),
-            ("fetched", fetched, &fetched_clip, None),
+        // The level the budget ranks it by (#1562): the bake's measured RMS,
+        // and none for a fetched clip, which nothing here decodes.
+        for (what, entity, clip, start, level) in [
+            ("baked", baked, &baked_clip, loop_start, Some(0.25)),
+            ("fetched", fetched, &fetched_clip, None, None),
         ] {
             let voice = world.entity(entity);
             assert!(voice.contains::<HeldBackVoice>(), "{what}: held back");
@@ -1049,6 +1059,7 @@ mod tests {
                 "{what}: its loop start"
             );
             assert!(matches!(kept.settings.mode, PlaybackMode::Loop), "{what}");
+            assert_eq!(kept.level, level, "{what}: its level");
         }
         let cue = world.entity(cue);
         assert!(cue.contains::<AudioPlayer>(), "a one-shot plays at once");
