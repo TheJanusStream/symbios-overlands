@@ -229,7 +229,12 @@ pub struct RoadConfig {
     /// its edge, doubled streets running side by side, tiny loops and short
     /// stub streets removed - and keeps every lot clear of every street's
     /// curb by a sidewalk's margin, growing no building larger than its
-    /// lot. Changing it re-traces the district and regrows its buildings,
+    /// lot. 2 derives all of that with portable maths (#1563): every
+    /// `sin`, `cos`, `tan`, `acos`, `atan2` and `hypot` the streets, lots
+    /// and street props depend on comes from the `libm` crate rather than
+    /// the platform's own, which differ in the last bit between a native
+    /// client and the web one - so every client, whatever it runs on, grows
+    /// the same district. Changing it re-traces the district and regrows its buildings,
     /// so a later fix to either derivation bumps the revision rather than
     /// adding a switch. The editor's new networks take
     /// [`Self::LATEST_LAYOUT`]; the sanitiser reads a revision from a newer
@@ -239,14 +244,30 @@ pub struct RoadConfig {
 }
 
 impl RoadConfig {
-    /// The newest layout revision this build derives (#1558) - see
+    /// The newest layout revision this build derives (#1558, #1563) - see
     /// [`Self::layout_revision`].
-    pub const LATEST_LAYOUT: u32 = 1;
+    pub const LATEST_LAYOUT: u32 = 2;
 
     /// Whether the network's streets and lots are derived with the tidied
     /// graph and street-clear lots of layout revision 1 or later (#1558).
     pub fn tidies_layout(&self) -> bool {
         self.layout_revision >= 1
+    }
+
+    /// Whether the network is derived with portable maths, the same on
+    /// every client: layout revision 2 or later (#1563).
+    pub fn portable_math(&self) -> bool {
+        self.layout_revision >= 2
+    }
+
+    /// The [`symbios_tensor::MathMode`] the network's layout is derived
+    /// with - see [`Self::portable_math`].
+    pub fn math_mode(&self) -> symbios_tensor::MathMode {
+        if self.portable_math() {
+            symbios_tensor::MathMode::Portable
+        } else {
+            symbios_tensor::MathMode::Platform
+        }
     }
 }
 
@@ -4147,7 +4168,7 @@ mod layout_revision_tests {
             ..RoadConfig::default()
         };
         let wire = serde_json::to_string(&upgraded).expect("writes");
-        assert_eq!(wire, r#"{"layout_revision":1}"#);
+        assert_eq!(wire, r#"{"layout_revision":2}"#);
         let back: RoadConfig = serde_json::from_str(&wire).expect("reads");
         assert_eq!(back, upgraded);
         let old: RoadConfig = serde_json::from_str(r#"{"seed":"7"}"#).expect("reads");
@@ -4156,6 +4177,17 @@ mod layout_revision_tests {
             "a network without it is on the original plan"
         );
         assert!(!old.tidies_layout() && upgraded.tidies_layout());
+        // #1563: only revision 2 and later derive with portable maths.
+        let at = |layout_revision: u32| RoadConfig {
+            layout_revision,
+            ..RoadConfig::default()
+        };
+        assert_eq!(
+            [0, 1, 2].map(|r| at(r).portable_math()),
+            [false, false, true]
+        );
+        assert_eq!(at(2).math_mode(), symbios_tensor::MathMode::Portable);
+        assert_eq!(at(1).math_mode(), symbios_tensor::MathMode::Platform);
     }
 }
 

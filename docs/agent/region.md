@@ -969,10 +969,13 @@ built this way; its builder is `exports/eigen/b/city.py`.
   the clearance - at the default 400 m2 lot area half the lots are
   7 to 8 m across their short side, and one facing a major street gives up
   3 m of it - so a dense plan of wide streets grows few lots or none:
-  raise `lots.lot_area`, or narrow the streets. The editor's new networks
-  take 1, an older one shows `Upgrade to revision 1` on its road panel,
-  and in a record it is `"layout_revision": 1` - a plain number, not
-  x10,000. Changing it re-traces the district and regrows its lots, as any
+  raise `lots.lot_area`, or narrow the streets. 2 (#1563) is 1 derived
+  with portable maths: every client - the native agent, a browser - grows
+  the same district from it, where at 0 and 1 a lot sitting on a threshold
+  can be kept on one platform and dropped on another until the district is
+  saved. The editor's new networks take 2, an older one shows `Upgrade to
+  revision 2` on its road panel, and in a record it is
+  `"layout_revision": 2` - a plain number, not x10,000. Changing it re-traces the district and regrows its lots, as any
   layout edit does. A revision this build does not know reads as its
   latest. How the streets are drawn - junction decks, curbs - is not part
   of it: every client meshes the plan itself, so a meshing fix reaches

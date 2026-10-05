@@ -10,9 +10,14 @@
 //! them.
 //!
 //! Everything is deterministic in the room DID + the network's layout seed: the
-//! terrain (and thus the lots) reproduce on every peer, the building picks come
-//! from a seeded stream, so every peer that derives the record lands identical
-//! buildings even before anyone saves. The buildings share one generator per
+//! terrain reproduces on every peer, the building picks come from a seeded
+//! stream, and at layout revision 2 the streets and lots are derived with
+//! portable maths (#1563), so every peer that derives the record lands
+//! identical buildings even before anyone saves. At revisions 0 and 1 the
+//! platform's maths derive them, and a native client and the web one can
+//! keep different lots where one sits on a threshold - which matters only
+//! until the district is saved: a saved district is adopted, never derived
+//! again. The buildings share one generator per
 //! catalogue entry and drawn scale, named `lot_building_{seed}_{slug}` - with
 //! an `@{scale}` suffix off scale 1.0, see below - and the seed-tagged prefix
 //! is the idempotency key: a re-roll (new seed) strips the stale set and

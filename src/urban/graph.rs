@@ -149,6 +149,10 @@ pub(crate) fn tensor_config(
         seed: config.seed,
         major_road_dist: config.major_spacing.0,
         minor_road_dist: config.minor_spacing.0,
+        // Layout revision 2 (#1563): the trace's jitter, and - through the
+        // graph it returns - the fillets, blocks and lots after it, with the
+        // `libm` crate's functions, the same on every client.
+        math: config.math_mode(),
         ..TensorConfig::default()
     };
     // Streets stop at the shore (#1552): the tracer spawns no seed at or
@@ -320,7 +324,7 @@ fn sanitize_targets(graph: &RoadGraph) -> Vec<usize> {
         }
         let (s, t) = (e.start as usize, e.end as usize);
         let (a, b) = (pos(s), pos(t));
-        let l = (a.0 - b.0).hypot(a.1 - b.1);
+        let l = graph.math.hypot(a.0 - b.0, a.1 - b.1);
         adj[s].push((t, ei, l));
         adj[t].push((s, ei, l));
     }
@@ -341,8 +345,10 @@ fn sanitize_targets(graph: &RoadGraph) -> Vec<usize> {
     //    and a third branch nearly parallel to that through-line. Real 3-way
     //    junctions (branches ~120° apart) have no collinear pair, so they are
     //    never touched; only the snap-welded tangential touch is cut.
-    let collinear_cos = (180.0 - SANITIZE_COLLINEAR_TOL_DEG).to_radians().cos();
-    let graze_cos = SANITIZE_GRAZE_ANGLE_DEG.to_radians().cos();
+    let collinear_cos = graph
+        .math
+        .cos((180.0 - SANITIZE_COLLINEAR_TOL_DEG).to_radians());
+    let graze_cos = graph.math.cos(SANITIZE_GRAZE_ANGLE_DEG.to_radians());
     for (h, edges) in adj.iter().enumerate() {
         if edges.len() != 3 {
             continue;
@@ -407,6 +413,8 @@ fn uf_union(parent: &mut [usize], a: usize, b: usize) {
 /// untouched, and `extract_blocks` rebuilds its own adjacency from the active
 /// edges, so the planar structure stays valid for the lot layer.
 pub(crate) fn merge_coincident_nodes(graph: &mut RoadGraph) {
+    // The network's maths (#1563): portable at layout revision 2.
+    let math = graph.math;
     let n = graph.nodes.len();
     let pos = |i: usize| {
         let p = graph.nodes[i].position;
@@ -433,7 +441,7 @@ pub(crate) fn merge_coincident_nodes(graph: &mut RoadGraph) {
         }
         let (s, t) = (e.start as usize, e.end as usize);
         let (a, b) = (pos(s), pos(t));
-        let l = (a.0 - b.0).hypot(a.1 - b.1);
+        let l = graph.math.hypot(a.0 - b.0, a.1 - b.1);
         let junction_pair = deg[s] >= 3 && deg[t] >= 3;
         if l < MERGE_EDGE_LEN_M || (junction_pair && l < MERGE_NODE_EPS_M) {
             uf_union(&mut parent, s, t);
@@ -470,7 +478,7 @@ pub(crate) fn merge_coincident_nodes(graph: &mut RoadGraph) {
                 if let Some(bucket) = grid.get(&(kx + dx, kz + dz)) {
                     for &j in bucket {
                         let q = pos(j);
-                        if (p.0 - q.0).hypot(p.1 - q.1) < MERGE_NODE_EPS_M
+                        if math.hypot(p.0 - q.0, p.1 - q.1) < MERGE_NODE_EPS_M
                             && !adjacent.contains(&(i.min(j), i.max(j)))
                         {
                             uf_union(&mut parent, i, j);
@@ -1254,7 +1262,7 @@ pub(crate) fn weld_candidate(
     if arm.length_squared() < 0.5 {
         return None;
     }
-    let cos_min = WELD_MIN_CROSS_ANGLE_DEG.to_radians().cos();
+    let cos_min = graph.math.cos(WELD_MIN_CROSS_ANGLE_DEG.to_radians());
     let self_chain = weld_self_chain(adj, p);
     let mut best: Option<(f32, usize, f32)> = None; // (foot distance, edge id, t)
     for (ei, e) in graph.edges.iter().enumerate() {

@@ -419,8 +419,19 @@ pub(crate) fn lot_clamp_lines(
 const LAYOUT_REVISION_HOVER: &str = "Revision 1 tidies the traced streets - junctions a few \
      metres apart become one, streets doubled side by side, tiny loops and short stubs go, and \
      streets end at the district's edge - and keeps every lot a sidewalk clear of the streets, \
-     growing no building larger than its lot. Upgrading re-traces the district and regrows its \
-     buildings.";
+     growing no building larger than its lot. Revision 2 works all of that out the same way on \
+     every computer, so a visitor in a browser grows the very district a desktop client does. \
+     Upgrading re-traces the district and regrows its buildings.";
+
+/// What the road panel calls a network's street plan revision (#1558,
+/// #1563).
+fn layout_revision_name(revision: u32) -> &'static str {
+    match revision {
+        0 => "the original",
+        1 => "tidied",
+        _ => "the latest",
+    }
+}
 
 /// The sentence over the layout controls naming what changing them
 /// replaces (#1245 f378). Pure so the arithmetic and the plural are
@@ -1077,8 +1088,9 @@ fn draw_road_editor(
                     .on_hover_text(LAYOUT_REVISION_HOVER);
                 } else {
                     ui.label(format!(
-                        "Street plan: revision {} (the original)",
-                        config.layout_revision
+                        "Street plan: revision {} ({})",
+                        config.layout_revision,
+                        layout_revision_name(config.layout_revision)
                     ));
                     if ui
                         .button(format!("Upgrade to revision {latest}"))
@@ -2429,6 +2441,26 @@ mod lots_section_tests {
             "a network on the latest plan is offered an upgrade"
         );
         assert!(!drawn.dirty);
+    }
+
+    /// #1563: a network on the tidied plan of revision 1 is offered the
+    /// upgrade to the portable revision, and the panel names each plan for
+    /// what it is - revision 1 is no longer the original.
+    #[test]
+    fn a_tidied_street_plan_is_offered_the_upgrade() {
+        let ctx = context();
+        let mut config = RoadConfig {
+            layout_revision: 1,
+            ..RoadConfig::default()
+        };
+        let _ = pass(&ctx, &mut config, Vec::new());
+        let drawn = pass(&ctx, &mut config, Vec::new());
+        find(&drawn, Role::Button, "Upgrade to revision 2");
+        assert!(!drawn.dirty);
+        assert_eq!(
+            [0, 1, 2].map(super::layout_revision_name),
+            ["the original", "tidied", "the latest"]
+        );
     }
 
     /// The Lots section does not edit what it shows (#1390's rule): armed

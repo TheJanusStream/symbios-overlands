@@ -1802,6 +1802,118 @@ fn the_original_street_plan_is_traced_and_lotted_as_before_the_tidy() {
     }
 }
 
+/// Everything layout revision 2 derives for a network (#1563): the drawn
+/// graph's every node and edge, every lot and every street-prop spot,
+/// hashed to the bit.
+fn district_hash(hm: &HeightMap, config: &RoadConfig, water: Option<f32>) -> u64 {
+    let (g, _, _) = build_road_graph(hm, config, water).expect("traces");
+    let lots = crate::urban::extract_building_lots(hm, config, water);
+    let spots = crate::urban::extract_furniture_spots(hm, config, water);
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    let mut eat = |v: u64| {
+        for byte in v.to_le_bytes() {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    };
+    eat(g.nodes.len() as u64);
+    for n in &g.nodes {
+        eat(n.position.x.to_bits().into());
+        eat(n.position.y.to_bits().into());
+    }
+    eat(g.edges.len() as u64);
+    for e in &g.edges {
+        eat(e.start.into());
+        eat(e.end.into());
+        eat(e.active.into());
+        eat(matches!(e.road_type, RoadType::Major).into());
+    }
+    eat(lots.len() as u64);
+    for lot in &lots {
+        for v in [
+            lot.position[0],
+            lot.position[1],
+            lot.yaw,
+            lot.width,
+            lot.depth,
+        ] {
+            eat(v.to_bits().into());
+        }
+    }
+    eat(spots.len() as u64);
+    for spot in &spots {
+        for v in [spot.position[0], spot.position[1], spot.yaw] {
+            eat(v.to_bits().into());
+        }
+    }
+    hash
+}
+
+/// The pinned networks at layout revision 2, and the plain one in the
+/// organic style, whose jitter turns the field with `sin` and `cos`.
+fn portable_networks() -> Vec<(&'static str, HeightMap, RoadConfig, Option<f32>)> {
+    use crate::pds::generator::RoadStyle;
+    let mut networks = pinned_networks();
+    let organic = RoadConfig {
+        style: RoadStyle::Organic,
+        ..networks[0].2.clone()
+    };
+    networks.push(("organic", pilot_heightmap(), organic, None));
+    for (_, _, config, _) in &mut networks {
+        config.layout_revision = 2;
+    }
+    networks
+}
+
+/// [`portable_networks`]' hashes, in order.
+const PORTABLE_PINS: [u64; 4] = [
+    0x712c_9245_26fd_3819,
+    0x822b_a4f9_97dc_b565,
+    0x803c_27d9_3c3d_3093,
+    0x246c_bf48_efa4_84db,
+];
+
+/// #1563: layout revision 2 derives the same district on every client.
+/// The platform's maths answer `sin`, `acos`, `atan2` and `hypot`
+/// differently in the last bit - CI's glibc and this machine's do, as do a
+/// native client and the web one - and revisions 0 and 1 turn such bits
+/// into different lots ([`LOT_COUNT_BAND`]); revision 2 takes every one of
+/// them from the `libm` crate, so its pins are exact. They were recorded
+/// with every platform maths function interposed by an `LD_PRELOAD` shim
+/// and nudged three ulps, and without it, alike, with no platform maths
+/// call made on the way.
+#[test]
+fn layout_revision_2_derives_the_same_district_on_every_platform() {
+    let got: Vec<u64> = portable_networks()
+        .iter()
+        .map(|(name, hm, config, water)| {
+            let hash = district_hash(hm, config, *water);
+            println!("revision 2 {name}: {hash:#018x}");
+            hash
+        })
+        .collect();
+    assert_eq!(
+        got, PORTABLE_PINS,
+        "a district at layout revision 2 derived differently"
+    );
+}
+
+/// The revision 2 pins hold whole districts, or they would prove nothing
+/// about the lots and props: every network grows streets, lots and props.
+#[test]
+fn the_revision_2_pins_hold_whole_districts() {
+    for (name, hm, config, water) in portable_networks() {
+        let lots = crate::urban::extract_building_lots(&hm, &config, water);
+        let spots = crate::urban::extract_furniture_spots(&hm, &config, water);
+        assert!(
+            lots.len() >= 10 && spots.len() >= 20,
+            "{name}: {} lots, {} props",
+            lots.len(),
+            spots.len()
+        );
+    }
+}
+
 /// #1558: on the pilot network the tidy leaves no stub, no loop street and
 /// no street off the drawn district, and no short street between two
 /// junctions it could have merged - each of which the original plan has -

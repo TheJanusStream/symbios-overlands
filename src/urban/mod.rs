@@ -46,7 +46,13 @@
 //! layout revision ([`RoadConfig::layout_revision`], #1558): 0, every network
 //! saved before it, is the original pipeline byte for byte; 1 tidies the
 //! graph ([`graph`]) and keeps every lot clear of every street
-//! ([`extract_building_lots`]). The lots are saved, so a derivation change
+//! ([`extract_building_lots`]); 2 derives all of that with portable maths
+//! (#1563) - the `libm` crate's `sin`, `cos`, `tan`, `acos`, `atan2` and
+//! `hypot` in symbios-tensor's trace, fillets, blocks and lots
+//! ([`symbios_tensor::MathMode::Portable`]) and in this module's own graph
+//! clean-up and street-prop yaws - where 0 and 1 take the platform's, which
+//! a native client and the web one answer differently in the last bit, and
+//! turn into different lots. The lots are saved, so a derivation change
 //! bumps the revision. How the graph is meshed is not part of it: every
 //! client meshes the plan afresh and nothing of the mesh is saved.
 //!
@@ -708,14 +714,15 @@ fn segment_rect_distance(p: [f32; 2], q: [f32; 2], r: [f32; 4]) -> f32 {
 /// [`street_footprints`] before it, are basic IEEE arithmetic (square roots,
 /// no platform transcendental) and the `libm` crate's sine and cosine, so
 /// given the same traced lots and graph every peer clears them to the same
-/// bits. The lots and graph it is given are not guaranteed the same: the
+/// bits. The lots and graph it is given are the same on every peer at
+/// layout revision 2 (#1563). At revisions 0 and 1 they are not: the
 /// tracer's `rationalize` (`acosf`, `tanf`), `extract_blocks` (`atan2f`) and
 /// `extract_lots` (`cosf`, `sinf`, `atan2f`) go through the platform's libm,
 /// whose last bits differ between a native glibc and the wasm build - so a
 /// lot can differ in its last bits between peers, and where a lot's side
 /// lands on a clearance or least-width threshold it can be kept on one and
-/// dropped on another (the lot derivation as a whole, at every revision:
-/// #1563). Once saved, the record's buildings are what every peer shows.
+/// dropped on another. Once saved, the record's buildings are what every
+/// peer shows.
 fn clear_lots(
     lots: Vec<symbios_tensor::BuildingLot>,
     streets: &[Footprint],
@@ -861,6 +868,8 @@ pub fn extract_furniture_spots(
     let dims = Dims::from_config(config);
     let chains = extract_chains(&graph, &sub, &dims);
     let spacing = config.furniture.spacing.0.max(1.0);
+    // A prop's yaw is saved with it: portable at layout revision 2 (#1563).
+    let math = graph.math;
 
     let shift = window_to_room_shift(hm, lo);
     // Layout revision 1 (#1558): no prop stands on a street - near a
@@ -903,7 +912,7 @@ pub fn extract_furniture_spots(
                 if clear([px, pz]) {
                     spots.push(FurnitureSpot {
                         position: [px + shift[0], pz + shift[1]],
-                        yaw: vx.atan2(vz),
+                        yaw: math.atan2(vx, vz),
                     });
                 }
                 side = -side;
