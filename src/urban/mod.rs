@@ -12,8 +12,9 @@
 //! The road is built by extracting continuous **chains** (runs of connected
 //! nodes between intersections) from the graph and extruding a closed
 //! cross-section profile along each, with **miter joins** at the bends (so
-//! curves have no gaps) and continuous arc-length UVs (so a texture flows down
-//! the street). The profile is a chamfered curb framing a flat deck, over a
+//! curves have no gaps), sharp bends rounded into arcs first and any line of
+//! the profile a bend still runs backwards collapsed, so no face folds over,
+//! and continuous arc-length UVs (so a texture flows down the street). The profile is a chamfered curb framing a flat deck, over a
 //! skirt that drops a fixed depth below the deck and is capped by a textured
 //! bottom - so where the road runs out high over a dip the underside floats
 //! clear as a bridge, not a hollow strip.
@@ -69,6 +70,9 @@
 //! * [`levelling`] - the single heightmap-sampling pass, and the
 //!   network-wide resolve of flat hub heights and per-chain deck heights,
 //!   so the pre-pass and the ribbon agree to the bit.
+//! * [`bends`] - how a ribbon gets round a bend without folding: sharp
+//!   bends rounded into arcs before sampling, and any line of the profile
+//!   still running backwards collapsed onto the corner it crosses itself at.
 //! * [`ribbon`] - cross-section extrusion along a levelled chain: miter
 //!   frames, arc-length UVs, and the deck / curb / skirt / bottom strips.
 //! * [`hubs`] - junction decks outlined by the streets' own curb lines,
@@ -86,6 +90,7 @@ use symbios_tensor::{LotConfig, RoadGraph, extract_blocks, extract_lots};
 
 use crate::pds::generator::RoadConfig;
 
+mod bends;
 mod chains;
 mod diagnostics;
 mod graph;
@@ -98,7 +103,7 @@ pub(crate) mod test_support;
 mod truncation;
 
 use crate::urban::graph::{build_road_graph, window_to_room_shift};
-use crate::urban::math::normalize;
+use crate::urban::math::{cross, dot, sub3};
 
 pub(crate) use crate::urban::chains::{Chain, active_degree, drawn_graph, extract_chains};
 pub use crate::urban::diagnostics::{RoadDiagnostics, RoadGraphStats, road_graph_diagnostics};
@@ -121,6 +126,36 @@ pub(crate) use crate::urban::truncation::{plan_junctions, trim_polyline};
 /// Lift (m) of the deck above the sampled terrain - keeps the deck clear of the
 /// ground and the curb framing it proud.
 pub(crate) const ROAD_DEPTH_BIAS_M: f32 = 0.2;
+/// Below this squared cross product (m⁴, four times a triangle's squared
+/// area) a road triangle encloses nothing and is not emitted.
+const DEGENERATE_AREA2: f32 = 1.0e-12;
+/// Diagonals of a road quad within this fraction of each other in squared
+/// length are a tie, which [`quad_split`] settles the way every quad was
+/// split before #1567.
+const DIAGONAL_TIE: f32 = 1.0e-3;
+
+/// Whether a road quad - `q` holding its left and right edge points at one
+/// frame, then at the next (`a, b, c, d`) - is split along its `a`-`d`
+/// diagonal rather than `b`-`c`: whichever is shorter, so a quad a grade
+/// twists bends where it bends least, and a street draws the same whichever
+/// way it turns (#1567). A tie keeps `a`-`d`, every quad's split before.
+pub(crate) fn splits_along_ad(q: &[[f32; 3]; 4]) -> bool {
+    let [a, b, c, d] = *q;
+    let (ad, bc) = (sub3(d, a), sub3(c, b));
+    dot(bc, bc) >= dot(ad, ad) * (1.0 - DIAGONAL_TIE)
+}
+
+/// The two triangles road quad `q` is drawn as (see [`splits_along_ad`]),
+/// as indices from `base`, where its four corners were pushed in order -
+/// every one wound like `a→b→d`.
+fn quad_split(q: &[[f32; 3]; 4], base: u32) -> [[u32; 3]; 2] {
+    let [a, b, c, d] = [base, base + 1, base + 2, base + 3];
+    if splits_along_ad(q) {
+        [[a, b, d], [a, d, c]]
+    } else {
+        [[a, b, c], [b, d, c]]
+    }
+}
 /// Drop edges whose endpoints fall beyond this fraction of the district
 /// half-extent, so the network ends in the interior, not at the visible edge.
 pub(crate) const ROAD_INTERIOR_FRACTION: f32 = 0.88;
@@ -155,7 +190,8 @@ impl Dims {
 /// **smoothed along their length** so the deck reads as one continuous surface;
 /// the crease *across* the profile (deck↔curb↔skirt) stays sharp because each
 /// profile face is its own strip. Junction hub decks are smooth-shaded from
-/// accumulated up-facing triangle normals (see [`extrude_hubs`]).
+/// accumulated up-facing triangle normals, except at each mouth, whose corners
+/// share the ribbon's own mouth normal (see [`extrude_hubs`]).
 #[derive(Default)]
 pub struct RoadGeometry {
     vertices: Vec<[f32; 3]>,
@@ -166,8 +202,10 @@ pub struct RoadGeometry {
 
 impl RoadGeometry {
     /// True when no faces were emitted - the caller skips spawning a mesh.
+    /// Counted in triangles: a surface can hold vertices whose every
+    /// triangle had no area and was left out (#1567).
     pub fn is_empty(&self) -> bool {
-        self.vertices.is_empty()
+        self.indices.is_empty()
     }
 
     /// The triangles this surface draws (#1554).
@@ -176,7 +214,8 @@ impl RoadGeometry {
     }
 
     /// Append one quad (corners `a,b,c,d`, wound `a→b→d→c`) with a shared flat
-    /// `nrm` and the four corner UVs.
+    /// `nrm` and the four corner UVs, split as [`quad_split`] says; a half
+    /// with no area is left out.
     fn push_quad(
         &mut self,
         a: [f32; 3],
@@ -192,22 +231,23 @@ impl RoadGeometry {
         for _ in 0..4 {
             self.normals.push(nrm);
         }
-        self.indices
-            .extend_from_slice(&[base, base + 1, base + 3, base, base + 3, base + 2]);
+        for tri in quad_split(&[a, b, c, d], base) {
+            self.push_triangle(tri);
+        }
     }
 
-    /// Append one longitudinally-smoothed quad strip for a single profile face:
-    /// `left[i]`/`right[i]` are the face's two edges at frame `i`, `seg_normals`
-    /// (len `frames-1`) the flat outward normal of each segment. Each frame
-    /// contributes a shared vertex pair carrying the **average** of its adjacent
-    /// segment normals, so the strip shades smoothly along its length while
-    /// remaining a hard crease against the neighbouring face (a separate strip).
-    /// `uv_u` is the lateral U of the two edges; `v[i]` the along-road V.
-    fn push_smoothed_strip(
+    /// Append one quad strip for a single profile face: `left[i]`/`right[i]`
+    /// are the face's two edges at frame `i` and `rows[i]` the normal both
+    /// carry - the ribbon smooths them ALONG the strip, so it shades as one
+    /// surface while staying a hard crease against the neighbouring face (a
+    /// separate strip). `uv_u` is the lateral U of the two edges; `v[i]` the
+    /// along-road V. A triangle with no area - where a fold was collapsed
+    /// onto a point (#1567) - is left out.
+    fn push_strip(
         &mut self,
         left: &[[f32; 3]],
         right: &[[f32; 3]],
-        seg_normals: &[[f32; 3]],
+        rows: &[[f32; 3]],
         uv_u: (f32, f32),
         v: &[f32],
     ) {
@@ -217,27 +257,28 @@ impl RoadGeometry {
         }
         let base = self.vertices.len() as u32;
         for i in 0..n {
-            // Average the (up to two) segment normals meeting at frame `i`.
-            let mut acc = [0.0_f32; 3];
-            for s in [i.checked_sub(1), (i < seg_normals.len()).then_some(i)]
-                .into_iter()
-                .flatten()
-            {
-                let nrm = seg_normals[s];
-                acc = [acc[0] + nrm[0], acc[1] + nrm[1], acc[2] + nrm[2]];
-            }
-            let nrm = normalize(acc);
             self.vertices.push(left[i]);
             self.vertices.push(right[i]);
-            self.normals.push(nrm);
-            self.normals.push(nrm);
+            self.normals.push(rows[i]);
+            self.normals.push(rows[i]);
             self.uvs.push([uv_u.0, v[i]]);
             self.uvs.push([uv_u.1, v[i]]);
         }
         for i in 0..n - 1 {
-            let a = base + (i as u32) * 2; // left[i]
-            self.indices
-                .extend_from_slice(&[a, a + 1, a + 3, a, a + 3, a + 2]);
+            let q = [left[i], right[i], left[i + 1], right[i + 1]];
+            for tri in quad_split(&q, base + (i as u32) * 2) {
+                self.push_triangle(tri);
+            }
+        }
+    }
+
+    /// Append the triangle on three of this surface's vertices, unless its
+    /// corners enclose no area.
+    fn push_triangle(&mut self, tri: [u32; 3]) {
+        let [a, b, c] = tri.map(|i| self.vertices[i as usize]);
+        let area = cross(sub3(b, a), sub3(c, a));
+        if dot(area, area) > DEGENERATE_AREA2 {
+            self.indices.extend_from_slice(&tri);
         }
     }
 }
@@ -336,7 +377,7 @@ pub(crate) fn mesh_road_graph(
         .map(|(ci, chain)| {
             let [s, e] = plan.trims[ci];
             (!plan.internal[ci])
-                .then(|| sample_chain(chain, s, e, sub))
+                .then(|| sample_chain(chain, s, e, sub, dims))
                 .flatten()
         })
         .collect();
@@ -535,10 +576,11 @@ pub(crate) struct Footprint {
 /// Every street of `graph` as the lots must clear it (#1558): each active
 /// edge's centreline grown by its road class's outer half-width (deck, curb
 /// and chamfer) plus `margin`, and every bend between two edges by the mitre
-/// the ribbon takes there (its corner reaches `1/cos(turn/2)` times as far,
-/// clamped at three as the ribbon clamps it). Derived from the graph and the
-/// network's dimensions alone - not from the mesher, which may change - so
-/// the lots of one layout revision stay the same lots.
+/// a ribbon took there before it rounded its sharp bends (#1567): its corner
+/// reaches `1/cos(turn/2)` times as far, clamped at three. The rounded ribbon
+/// keeps inside that footprint. Derived from the graph and the network's
+/// dimensions alone - not from the mesher, which may change - so the lots of
+/// one layout revision stay the same lots.
 pub(crate) fn street_footprints(
     graph: &RoadGraph,
     config: &RoadConfig,

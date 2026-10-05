@@ -1,15 +1,21 @@
 //! Ribbon extrusion: one chain's closed cross-section swept along its centreline.
 //! The profile is a chamfered curb framing a flat deck over a skirt of FIXED
 //! depth, so a deck riding high over a dip floats clear as a bridge rather than
-//! filling it. Frames miter through bends to hold a constant width, UVs run on
-//! arc length so the texture flows down the street, and each profile face is its
-//! own strip - normals average ALONG the road while the creases across it stay
-//! sharp. Deck, structure and neon go to separate buffers; an end no hub closes
-//! (a dead-end #579, a perimeter clip #582) gets an explicit cross-section cap.
+//! filling it. Frames miter through bends to hold a constant width - a bend
+//! sharper than one arc step arrives already rounded, and each line a profile
+//! point traces is collapsed wherever a bend still runs it backwards, so no
+//! face folds ([`crate::urban::bends`], #1567). UVs run on arc length so the
+//! texture flows down the street, and each profile face is its own strip -
+//! normals average ALONG the road while the creases across it stay sharp; at a
+//! hub's mouth the deck row shades halfway to the hub's flat deck, as the hub's
+//! mouth corners do, so the seam shows no crease. Deck, structure and neon go
+//! to separate buffers; an end no hub closes (a dead-end #579, a perimeter clip
+//! #582) gets an explicit cross-section cap.
 
+use crate::urban::bends::unfold_rail;
 use crate::urban::math::{cross, dot, normalize, sub3};
 use crate::urban::truncation::ChainEnds;
-use crate::urban::{Chain, ChainSample, Dims, RoadEnd, RoadParts};
+use crate::urban::{Chain, ChainSample, Dims, RoadEnd, RoadParts, splits_along_ad};
 
 /// Spacing (m) of ribbon cross-sections along a road. Straight edges are
 /// subdivided to this so the deck still drapes over relief between graph nodes.
@@ -133,18 +139,124 @@ pub(crate) fn quad_normal(
 ) -> [f32; 3] {
     let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
     let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-    let mut nrm = cross(e1, e2);
-    let fc = [
-        (a[0] + b[0] + c[0] + d[0]) * 0.25,
-        (a[1] + b[1] + c[1] + d[1]) * 0.25,
-        (a[2] + b[2] + c[2] + d[2]) * 0.25,
-    ];
-    let outward = [fc[0] - axis[0], fc[1] - axis[1], fc[2] - axis[2]];
-    if dot(nrm, outward) < 0.0 {
-        nrm = [-nrm[0], -nrm[1], -nrm[2]];
-    }
-    normalize(nrm)
+    orient_out(cross(e1, e2), [a, b, c, d], axis)
 }
+
+/// `nrm`, flipped if it points into the quad `q`'s segment (towards `axis`),
+/// and made unit length.
+fn orient_out(nrm: [f32; 3], q: [[f32; 3]; 4], axis: [f32; 3]) -> [f32; 3] {
+    let fc = [
+        (q[0][0] + q[1][0] + q[2][0] + q[3][0]) * 0.25,
+        (q[0][1] + q[1][1] + q[2][1] + q[3][1]) * 0.25,
+        (q[0][2] + q[1][2] + q[2][2] + q[3][2]) * 0.25,
+    ];
+    let outward = sub3(fc, axis);
+    if dot(nrm, outward) < 0.0 {
+        normalize([-nrm[0], -nrm[1], -nrm[2]])
+    } else {
+        normalize(nrm)
+    }
+}
+
+/// The outward normal of one strip quad - `q` holds its left and right edge
+/// points at one frame, then at the next - or `None` for a quad of no width,
+/// which no vertex should take its shading from. Where both edges move it is
+/// the quad's own area vector, so a quad a graded bend twists shades the same
+/// whichever way the street turns. A collapsed fold (#1567) leaves an edge
+/// standing still in plan, or crawling beside the other: a corner every
+/// frame reaches at its own height, a vertical riser on a graded street that
+/// would tip the area vector onto its side. Such a quad takes the normal of
+/// the triangle it is drawn with on the edge that moves.
+fn strip_normal(q: [[f32; 3]; 4], axis: [f32; 3]) -> Option<[f32; 3]> {
+    let [a, b, c, d] = q;
+    let plan = |p: [f32; 3], r: [f32; 3]| (r[0] - p[0]).hypot(r[2] - p[2]);
+    let (left, right) = (plan(a, c), plan(b, d));
+    let along_ad = splits_along_ad(&q);
+    let nrm = match (edge_moves(left, right), edge_moves(right, left)) {
+        (true, true) => cross(sub3(d, a), sub3(c, b)),
+        // The left edge stands still: the triangle on the right edge.
+        (false, true) if along_ad => cross(sub3(b, a), sub3(d, a)),
+        (false, true) => cross(sub3(d, b), sub3(c, b)),
+        // The right edge stands still: the triangle on the left edge.
+        (true, false) if along_ad => cross(sub3(d, a), sub3(c, a)),
+        (true, false) => cross(sub3(b, a), sub3(c, a)),
+        (false, false) => return None,
+    };
+    (dot(nrm, nrm) > PINCHED_NORMAL2).then(|| orient_out(nrm, q, axis))
+}
+
+/// Whether a strip edge travelling `own` metres in plan beside one
+/// travelling `other` moves, for its quad's shading: at least
+/// [`STILL_EDGE_M`], and either [`SLOW_EDGE_M`] or [`SLOW_EDGE_RATIO`] of
+/// the other edge's travel.
+fn edge_moves(own: f32, other: f32) -> bool {
+    own >= STILL_EDGE_M && (own >= SLOW_EDGE_M || own >= SLOW_EDGE_RATIO * other)
+}
+
+/// An edge travelling less than this (m) in plan stands still: a collapsed
+/// corner, to within float noise.
+const STILL_EDGE_M: f32 = 1.0e-3;
+/// An edge travelling at least this (m) in plan always moves; a slower one
+/// moves only beside an edge no more than four times faster.
+const SLOW_EDGE_M: f32 = 0.05;
+/// See [`SLOW_EDGE_M`].
+const SLOW_EDGE_RATIO: f32 = 0.25;
+/// Below this squared cross product (m⁴) a strip quad's edges span nothing.
+const PINCHED_NORMAL2: f32 = 1.0e-12;
+
+/// Per-row normals of a strip from its segments' normals: each row the
+/// average of the (up to two) segments meeting at it - so the strip shades
+/// smoothly along its length - leaving out a segment with no width.
+fn smoothed_rows(seg_normals: &[Option<[f32; 3]>]) -> Vec<[f32; 3]> {
+    let rows = seg_normals.len() + 1;
+    (0..rows)
+        .map(|i| {
+            let mut acc = [0.0_f32; 3];
+            for s in [i.checked_sub(1), (i < seg_normals.len()).then_some(i)]
+                .into_iter()
+                .flatten()
+            {
+                if let Some(nrm) = seg_normals[s] {
+                    acc = [acc[0] + nrm[0], acc[1] + nrm[1], acc[2] + nrm[2]];
+                }
+            }
+            normalize(acc)
+        })
+        .collect()
+}
+
+/// The line the profile point `lateral` metres right of the centreline
+/// traces through `frames` (mitred like the frame), shifted into the
+/// full-terrain frame by `world_offset`, with every stretch a bend runs
+/// backwards collapsed (#1567, [`unfold_rail`]). Each frame's point keeps
+/// its frame's height, so every cross-section stays the profile it was
+/// drawn as; where a collapsed corner is reached at several heights, the
+/// faces meet there in a vertical seam.
+fn rail(frames: &[Frame], lateral: f32, world_offset: [f32; 2]) -> Vec<[f32; 2]> {
+    let centre: Vec<[f32; 2]> = frames.iter().map(|f| [f.cx, f.cz]).collect();
+    let mut line: Vec<[f32; 2]> = frames
+        .iter()
+        .map(|f| {
+            let off = lateral * f.scale;
+            [f.cx + f.rx * off, f.cz + f.rz * off]
+        })
+        .collect();
+    unfold_rail(&mut line, &centre);
+    line.iter()
+        .map(|p| [p[0] + world_offset[0], p[1] + world_offset[1]])
+        .collect()
+}
+
+/// The normal a deck row at a hub mouth takes (#1567): halfway between the
+/// ribbon's own end segment `seg` and the flat hub deck it meets, which the
+/// hub's mouth corners take too, so the seam does not shade as a crease on a
+/// graded approach.
+fn mouth_deck_normal(seg: Option<[f32; 3]>) -> [f32; 3] {
+    let n = seg.unwrap_or(UP);
+    normalize([n[0], n[1] + 1.0, n[2]])
+}
+
+const UP: [f32; 3] = [0.0, 1.0, 0.0];
 
 /// Extrude the curb/skirt profile along one chain into `parts`. The deck drapes
 /// over the terrain **flat-across and upward-only** (it never sinks below the
@@ -194,29 +306,25 @@ pub(crate) fn extrude_ribbon(
             }
         })
         .collect();
-
-    // Record this chain's ends that open into a hub so the hub builder can
-    // meet each road at its exact deck mouth, heading and height.
     let last = frames.len() - 1;
-    for (slot, hub) in ends.hub.iter().enumerate() {
-        let Some(hub) = *hub else {
-            continue;
-        };
-        let (f, g) = if slot == 0 {
-            (&frames[0], &frames[1])
+
+    // Each profile point's line along the chain, unfolded where a bend would
+    // run it backwards (#1567): every face and cap is built on these.
+    let rails: Vec<Vec<[f32; 2]>> = prof
+        .iter()
+        .map(|&(pu, _)| rail(&frames, pu, world_offset))
+        .collect();
+    // World position of profile point `pi` at frame `i`: flat deck (no lateral
+    // banking); the skirt-bottom points (5, 6) drop to `skirt_bottom_y`.
+    let world = |i: usize, pi: usize| {
+        let f = &frames[i];
+        let y = if pi == 5 || pi == 6 {
+            f.skirt_bottom_y
         } else {
-            (&frames[last], &frames[last - 1])
+            f.base_y + prof[pi].1
         };
-        road_ends.push(mouth(
-            chain,
-            slot,
-            hub,
-            ends.trim[slot],
-            [(f.cx, f.cz), (g.cx, g.cz)],
-            f.base_y,
-            f.skirt_bottom_y,
-        ));
-    }
+        [rails[pi][i][0], y, rails[pi][i][1]]
+    };
 
     // Cumulative cross-section perimeter, for the U coordinate.
     let mut u = [0.0_f32; 10];
@@ -224,87 +332,71 @@ pub(crate) fn extrude_ribbon(
         let (a, b) = (prof[j - 1], prof[j]);
         u[j] = u[j - 1] + (b.0 - a.0).hypot(b.1 - a.1);
     }
-
-    // World position of profile point `pi` at frame `f`: flat deck (no lateral
-    // banking); the skirt-bottom points (5, 6) drop to `skirt_bottom_y`.
-    let world = |f: &Frame, pi: usize| {
-        let (pu, ph) = prof[pi];
-        let lateral = pu * f.scale;
-        let y = if pi == 5 || pi == 6 {
-            f.skirt_bottom_y
-        } else {
-            f.base_y + ph
-        };
-        [
-            f.cx + f.rx * lateral + world_offset[0],
-            y,
-            f.cz + f.rz * lateral + world_offset[1],
-        ]
-    };
-
     // Per-frame along-road V, shared by every profile face.
     let v: Vec<f32> = frames.iter().map(|f| f.arc / UV_TILE_M).collect();
 
-    for j in 0..10 {
+    // One strip per face: normals are averaged ALONG the chain (smooth
+    // ribbon) but each face is its own strip, so the crease ACROSS the
+    // profile stays sharp.
+    let faces: Vec<FaceStrip> = (0..10)
+        .map(|j| {
+            let k = (j + 1) % 10;
+            let left: Vec<[f32; 3]> = (0..frames.len()).map(|i| world(i, j)).collect();
+            let right: Vec<[f32; 3]> = (0..frames.len()).map(|i| world(i, k)).collect();
+            let seg_n = (0..last)
+                .map(|i| {
+                    let axis = beam_axis(&frames[i], &frames[i + 1], world_offset);
+                    strip_normal([left[i], right[i], left[i + 1], right[i + 1]], axis)
+                })
+                .collect();
+            FaceStrip { left, right, seg_n }
+        })
+        .collect();
+
+    // Record this chain's ends that open into a hub so the hub builder can
+    // meet each road at its exact deck mouth, heading, height and shading.
+    let mut deck_rows = smoothed_rows(&faces[0].seg_n);
+    for (slot, hub) in ends.hub.iter().enumerate() {
+        let Some(hub) = *hub else {
+            continue;
+        };
+        let (fi, gi, seg) = if slot == 0 {
+            (0, 1, 0)
+        } else {
+            (last, last - 1, last - 1)
+        };
+        let (f, g) = (&frames[fi], &frames[gi]);
+        let deck_normal = mouth_deck_normal(faces[0].seg_n[seg]);
+        deck_rows[fi] = deck_normal;
+        road_ends.push(mouth(
+            chain,
+            slot,
+            hub,
+            ends.trim[slot],
+            [(f.cx, f.cz), (g.cx, g.cz)],
+            [f.base_y, f.skirt_bottom_y],
+            deck_normal,
+        ));
+    }
+
+    for (j, face) in faces.iter().enumerate() {
         let k = (j + 1) % 10;
         let (uj, uk) = (u[j] / UV_TILE_M, u[k] / UV_TILE_M);
         // Profile face 0→1 is the flat drivable deck top; every other face is
         // structural (curb walls, chamfers, the deep skirt and its bottom cap).
-        let target = if j == 0 {
-            &mut parts.deck
+        if j == 0 {
+            parts
+                .deck
+                .push_strip(&face.left, &face.right, &deck_rows, (uj, uk), &v);
         } else {
-            &mut parts.structure
-        };
-        // One strip per face: normals are averaged ALONG the chain (smooth
-        // ribbon) but each face is its own strip, so the crease ACROSS the
-        // profile stays sharp.
-        let left: Vec<[f32; 3]> = frames.iter().map(|f| world(f, j)).collect();
-        let right: Vec<[f32; 3]> = frames.iter().map(|f| world(f, k)).collect();
-        let mut seg_n = Vec::with_capacity(frames.len().saturating_sub(1));
-        for i in 0..frames.len() - 1 {
-            let axis = beam_axis(&frames[i], &frames[i + 1], world_offset);
-            seg_n.push(quad_normal(
-                left[i],
-                right[i],
-                left[i + 1],
-                right[i + 1],
-                axis,
-            ));
+            let rows = smoothed_rows(&face.seg_n);
+            parts
+                .structure
+                .push_strip(&face.left, &face.right, &rows, (uj, uk), &v);
         }
-        target.push_smoothed_strip(&left, &right, &seg_n, (uj, uk), &v);
     }
 
-    // Emissive neon edge-line: a thin strip riding proud of each curb's inner top
-    // crease (lateral ±half_w, just above the curb top), lifted clear so it never
-    // z-fights the curb. Kept on its own surface for the hot emissive material.
-    let lift = dims.curb_height + NEON_LINE_LIFT_M;
-    let neon_at = |f: &Frame, lu: f32| {
-        [
-            f.cx + f.rx * (lu * f.scale) + world_offset[0],
-            f.base_y + lift,
-            f.cz + f.rz * (lu * f.scale) + world_offset[1],
-        ]
-    };
-    for (u0, u1) in [
-        (half_w, half_w + NEON_LINE_WIDTH_M),
-        (-half_w, -half_w - NEON_LINE_WIDTH_M),
-    ] {
-        for i in 0..frames.len() - 1 {
-            let (f0, f1) = (&frames[i], &frames[i + 1]);
-            let (a, b) = (neon_at(f0, u0), neon_at(f0, u1));
-            let (c, d) = (neon_at(f1, u0), neon_at(f1, u1));
-            let nrm = quad_normal(a, b, c, d, beam_axis(f0, f1, world_offset));
-            let (vi, vi1) = (f0.arc / UV_TILE_M, f1.arc / UV_TILE_M);
-            parts.neon.push_quad(
-                a,
-                b,
-                c,
-                d,
-                [[0.0, vi], [1.0, vi], [0.0, vi1], [1.0, vi1]],
-                nrm,
-            );
-        }
-    }
+    push_neon(&frames, &rails, half_w, dims, world_offset, parts);
 
     // End caps: an open chain end leaves the extruded cross-section open - a
     // visible hollow tube into the road's underside. Close it with a flat
@@ -317,11 +409,12 @@ pub(crate) fn extrude_ribbon(
         if !cap {
             continue;
         }
-        let (fe, fi) = if slot == 0 {
-            (&frames[0], &frames[1.min(last)])
+        let (ei, ii) = if slot == 0 {
+            (0, 1.min(last))
         } else {
-            (&frames[last], &frames[last.saturating_sub(1)])
+            (last, last.saturating_sub(1))
         };
+        let (fe, fi) = (&frames[ei], &frames[ii]);
         // The cap is the (vertical) end cross-section, so its true normal is the
         // HORIZONTAL lateral-perp `(rx,rz)⊥` - independent of the deck/skirt grade
         // - oriented away from the ribbon. Using the road tangent would tilt the
@@ -335,24 +428,79 @@ pub(crate) fn extrude_ribbon(
             -1.0
         };
         let outward = [perp[0] * s, 0.0, perp[1] * s];
-        let pts: [[f32; 3]; 10] = std::array::from_fn(|pi| world(fe, pi));
+        let pts: [[f32; 3]; 10] = std::array::from_fn(|pi| world(ei, pi));
         push_end_cap(parts, &pts, &prof, outward);
+    }
+}
+
+/// One profile face's strip along a chain: its two edges per frame and each
+/// segment's outward normal (`None` where a collapsed fold left no area).
+struct FaceStrip {
+    left: Vec<[f32; 3]>,
+    right: Vec<[f32; 3]>,
+    seg_n: Vec<Option<[f32; 3]>>,
+}
+
+/// Emissive neon edge-lines: a thin strip riding proud of each curb's inner
+/// top crease (lateral ±half_w, just above the curb top), lifted clear so it
+/// never z-fights the curb. Kept on its own surface for the hot emissive
+/// material. Its inner edge is the deck edge's own rail (`rails[1]`,
+/// `rails[0]`), its outer edge a rail of its own, so it folds nowhere the
+/// deck does not.
+fn push_neon(
+    frames: &[Frame],
+    rails: &[Vec<[f32; 2]>],
+    half_w: f32,
+    dims: &Dims,
+    world_offset: [f32; 2],
+    parts: &mut RoadParts,
+) {
+    let lift = dims.curb_height + NEON_LINE_LIFT_M;
+    let outer_w = half_w + NEON_LINE_WIDTH_M;
+    let lines = [
+        (&rails[1], rail(frames, outer_w, world_offset)),
+        (&rails[0], rail(frames, -outer_w, world_offset)),
+    ];
+    for (inner, outer) in &lines {
+        let at = |line: &[[f32; 2]], i: usize| [line[i][0], frames[i].base_y + lift, line[i][1]];
+        for i in 0..frames.len() - 1 {
+            let (f0, f1) = (&frames[i], &frames[i + 1]);
+            let q = [
+                at(inner, i),
+                at(outer, i),
+                at(inner, i + 1),
+                at(outer, i + 1),
+            ];
+            let Some(nrm) = strip_normal(q, beam_axis(f0, f1, world_offset)) else {
+                continue; // folded onto a point: nothing to draw
+            };
+            let (vi, vi1) = (f0.arc / UV_TILE_M, f1.arc / UV_TILE_M);
+            parts.neon.push_quad(
+                q[0],
+                q[1],
+                q[2],
+                q[3],
+                [[0.0, vi], [1.0, vi], [0.0, vi1], [1.0, vi1]],
+                nrm,
+            );
+        }
     }
 }
 
 /// The mouth chain end `slot`, pulled back `trim` metres, opens into `hub`
 /// with: its end frame centre `ends[0]`, the heading away from the hub along
 /// the end segment to the next frame `ends[1]` (which the mouth frame's
-/// right axis is perpendicular to), its deck and skirt-bottom heights, and
-/// the stub of chain from its node to the mouth that the hub draws.
+/// right axis is perpendicular to), its deck and skirt-bottom heights
+/// `heights`, the normal its deck row is shaded with, and the stub of chain
+/// from its node to the mouth that the hub draws.
 fn mouth(
     chain: &Chain,
     slot: usize,
     hub: usize,
     trim: f32,
     ends: [(f32, f32); 2],
-    deck_y: f32,
-    skirt_y: f32,
+    heights: [f32; 2],
+    deck_normal: [f32; 3],
 ) -> RoadEnd {
     let [(cx, cz), (nx, nz)] = ends;
     let (hx, hz) = (nx - cx, nz - cz);
@@ -382,15 +530,16 @@ fn mouth(
         dx: hx / len,
         dz: hz / len,
         half_w: chain.half_w,
-        deck_y,
-        skirt_y,
+        deck_y: heights[0],
+        skirt_y: heights[1],
+        deck_normal,
         spine,
     }
 }
 
 /// The mouths a chain's sampled frames open into hubs with, before any deck
-/// height is resolved (heights 0) - what the levelling reads the hubs'
-/// outlines from (#1558).
+/// height is resolved (heights 0, shading straight up) - what the levelling
+/// reads the hubs' outlines from (#1558).
 pub(crate) fn sample_mouths(chain: &Chain, sample: &ChainSample, ends: ChainEnds) -> Vec<RoadEnd> {
     let f = &sample.frames;
     let last = f.len() - 1;
@@ -408,8 +557,8 @@ pub(crate) fn sample_mouths(chain: &Chain, sample: &ChainSample, ends: ChainEnds
                 hub,
                 ends.trim[slot],
                 [(a.cx, a.cz), (b.cx, b.cz)],
-                0.0,
-                0.0,
+                [0.0, 0.0],
+                UP,
             ))
         })
         .collect()

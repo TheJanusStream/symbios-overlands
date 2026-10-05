@@ -330,9 +330,10 @@ generation cores shared with the wasm Web Worker.
   textures, and batched per source material so a 500-card scatter costs one
   wind material), and the road layer: [`src/urban/`](../src/urban/)
   meshes a `symbios-tensor` road topology into a ribbon draped over the terrain
-  (graph sanitation → chain extraction → junction truncation → network
-  levelling → ribbon extrusion with dead-end caps → junction hubs with
-  curb-return fillets), wired in as a terrain child that rebuilds reactively
+  (graph sanitation → chain extraction → junction truncation → sharp bends
+  rounded into arcs → network levelling → ribbon extrusion, any fold collapsed,
+  with dead-end caps → junction hubs outlined by the streets' own curb lines),
+  wired in as a terrain child that rebuilds reactively
   ([`roads.rs`](../src/terrain/roads.rs)), with themed buildings and street
   furniture injected onto its enclosed lots at load time
   ([`lots.rs`](../src/terrain/lots.rs)). Roads are **editor-opt-in**: seeded

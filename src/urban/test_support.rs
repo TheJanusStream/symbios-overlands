@@ -7,6 +7,10 @@
 //! mouth / truncation tests can read one chain's geometry without the network
 //! levelling pass in the way.
 
+mod mesh;
+
+pub(crate) use mesh::*;
+
 use bevy_symbios_ground::{FbmNoise, HeightMap, TerrainGenerator};
 use symbios_tensor::{RoadGraph, RoadType};
 
@@ -35,7 +39,7 @@ pub(crate) fn extrude_chain(
     road_ends: &mut Vec<RoadEnd>,
     parts: &mut RoadParts,
 ) {
-    if let Some(s) = sample_chain(chain, start_trim, end_trim, hm) {
+    if let Some(s) = sample_chain(chain, start_trim, end_trim, hm, dims) {
         let floor: Vec<f32> = s.frames.iter().map(|r| r.floor).collect();
         let base_y = level_chain(&floor, &s.seg, [None, None]);
         extrude_ribbon(

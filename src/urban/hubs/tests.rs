@@ -20,6 +20,7 @@ fn arm(ang: f32, t: f32, half_w: f32, deck_y: f32) -> RoadEnd {
         half_w,
         deck_y,
         skirt_y: deck_y - 5.0,
+        deck_normal: [0.0, 1.0, 0.0],
         spine: vec![(0.0, 0.0), (dx * t, dz * t)],
     }
 }
@@ -33,106 +34,6 @@ fn near(verts: &[[f32; 3]], p: [f32; 3]) -> bool {
     verts.iter().any(|v| {
         (v[0] - p[0]).abs() < 1.0e-3 && (v[1] - p[1]).abs() < 1.0e-3 && (v[2] - p[2]).abs() < 1.0e-3
     })
-}
-
-/// The triangles of one surface, as XZ-plane corner triples with their
-/// stored winding.
-fn triangles(g: &crate::urban::RoadGeometry) -> Vec<[[f32; 3]; 3]> {
-    g.indices
-        .as_chunks::<3>()
-        .0
-        .iter()
-        .map(|t| t.map(|i| g.vertices[i as usize]))
-        .collect()
-}
-
-/// Twice the signed XZ area of a triangle, positive when its stored winding
-/// faces up (+Y).
-fn up_area2(t: &[[f32; 3]; 3]) -> f32 {
-    cross(sub3(t[1], t[0]), sub3(t[2], t[0]))[1]
-}
-
-/// Whether two XZ triangles' interiors overlap - a separating-axis test on
-/// copies shrunk 1 mm toward their centroids, so triangles that merely share
-/// an edge or a corner never count.
-fn interiors_overlap(a: &[[f32; 3]; 3], b: &[[f32; 3]; 3]) -> bool {
-    let shrink = |t: &[[f32; 3]; 3]| {
-        let c = [
-            (t[0][0] + t[1][0] + t[2][0]) / 3.0,
-            (t[0][2] + t[1][2] + t[2][2]) / 3.0,
-        ];
-        t.map(|p| {
-            let (dx, dz) = (p[0] - c[0], p[2] - c[1]);
-            let l = dx.hypot(dz).max(1.0e-6);
-            let k = ((l - 1.0e-3) / l).max(0.0);
-            [c[0] + dx * k, c[1] + dz * k]
-        })
-    };
-    let (pa, pb) = (shrink(a), shrink(b));
-    for poly in [&pa, &pb] {
-        for i in 0..3 {
-            let (p, q) = (poly[i], poly[(i + 1) % 3]);
-            let axis = [q[1] - p[1], p[0] - q[0]];
-            let proj = |t: &[[f32; 2]; 3]| {
-                let v: Vec<f32> = t.iter().map(|c| c[0] * axis[0] + c[1] * axis[1]).collect();
-                (
-                    v.iter().copied().fold(f32::INFINITY, f32::min),
-                    v.iter().copied().fold(f32::NEG_INFINITY, f32::max),
-                )
-            };
-            let ((a0, a1), (b0, b1)) = (proj(&pa), proj(&pb));
-            if a1 <= b0 || b1 <= a0 {
-                return false;
-            }
-        }
-    }
-    true
-}
-
-/// The deck of a hub (or a whole mesh) is sound: every triangle finite,
-/// non-degenerate and wound to face up, and no two overlapping (a fold).
-fn assert_deck_sound(deck: &crate::urban::RoadGeometry, what: &str) {
-    let tris = triangles(deck);
-    assert!(!tris.is_empty(), "{what}: no deck");
-    for t in &tris {
-        assert!(
-            t.iter().flatten().all(|c| c.is_finite()),
-            "{what}: non-finite deck triangle {t:?}"
-        );
-        let a2 = up_area2(t);
-        assert!(
-            a2 > 2.0e-4,
-            "{what}: deck triangle degenerate or facing down (2·area {a2}): {t:?}"
-        );
-    }
-    for (i, a) in tris.iter().enumerate() {
-        for b in &tris[i + 1..] {
-            assert!(
-                !interiors_overlap(a, b),
-                "{what}: deck triangles overlap (a fold): {a:?} / {b:?}"
-            );
-        }
-    }
-    for n in &deck.normals {
-        assert!(n[1] > 0.0, "{what}: deck normal {n:?} not upward");
-    }
-}
-
-/// No curb top or chamfer (structure at or above the deck height `deck_y`)
-/// lies over the asphalt: no shard poking out of the deck.
-fn assert_no_curb_over_deck(parts: &RoadParts, deck_y: f32, what: &str) {
-    let deck = triangles(&parts.deck);
-    for s in triangles(&parts.structure) {
-        if s.iter().any(|p| p[1] < deck_y - 1.0e-2) || up_area2(&s).abs() < 1.0e-4 {
-            continue; // a skirt, a bottom cap, or a vertical wall
-        }
-        for d in &deck {
-            assert!(
-                !interiors_overlap(&s, d),
-                "{what}: curb over the asphalt: {s:?} over deck {d:?}"
-            );
-        }
-    }
 }
 
 /// Every hub deck vertex lies inside the junction: within some arm's deck
@@ -380,7 +281,7 @@ fn plan_and_extrude(
             continue;
         }
         let [s, e] = plan.trims[ci];
-        if let Some(sample) = crate::urban::sample_chain(c, s, e, hm) {
+        if let Some(sample) = crate::urban::sample_chain(c, s, e, hm, dims) {
             let floor: Vec<f32> = sample.frames.iter().map(|r| r.floor).collect();
             let base = crate::urban::level_chain(&floor, &sample.seg, [None, None]);
             crate::urban::extrude_ribbon(
@@ -501,6 +402,50 @@ fn hub_curb_skirt_welds_on_shallow_cross_slope() {
             );
         }
     }
+}
+
+/// #1567, the owner's "sharp edges on the road surface" where a hub meets a
+/// road: on a graded approach the ribbon and the hub shade each mouth alike.
+/// A mouth corner is two vertices, the ribbon's and the hub's, and both take
+/// the normal halfway between the ribbon's end segment and the flat hub -
+/// where the hub's pointed straight up while the ribbon's tilted with its
+/// grade, a crease along every mouth.
+#[test]
+fn the_hub_and_its_ribbon_shade_each_mouth_alike() {
+    let dims = Dims::from_config(&cfg(7));
+    // Ground rising 8% along +x.
+    let mut hm = HeightMap::new(96, 96, 2.0);
+    let width = hm.width();
+    for z in 0..width {
+        for x in 0..width {
+            hm.set(x, z, x as f32 * 0.16);
+        }
+    }
+    let (ribbon, road_ends, hub) = y_junction(&hm, &dims, (90.0, 90.0));
+    let normal_at = |g: &crate::urban::RoadGeometry, p: [f32; 3]| {
+        let at = g.vertices.iter().position(|v| near(&[*v], p))?;
+        Some(g.normals[at])
+    };
+    let mut graded = false;
+    for e in &road_ends {
+        for sgn in [-1.0_f32, 1.0] {
+            let corner = [
+                e.cx - sgn * e.dz * e.half_w,
+                e.deck_y,
+                e.cz + sgn * e.dx * e.half_w,
+            ];
+            let on_ribbon = normal_at(&ribbon.deck, corner).expect("the ribbon's mouth corner");
+            let on_hub = normal_at(&hub.deck, corner).expect("the hub's mouth corner");
+            let agree = dot(on_ribbon, on_hub).clamp(-1.0, 1.0).acos().to_degrees();
+            assert!(
+                agree < 1.0,
+                "mouth corner {corner:?}: the ribbon shades {on_ribbon:?}, the hub \
+                 {on_hub:?} - {agree} degrees apart"
+            );
+            graded |= on_ribbon[1] < 1.0_f32.to_radians().cos();
+        }
+    }
+    assert!(graded, "no approach is graded: the seam was never at risk");
 }
 
 /// #577: the hub curbs are wound front-out - every structure triangle's
@@ -709,75 +654,6 @@ fn graph_of(nodes: &[(f32, f32)], edges: &[(u32, u32, bool)]) -> RoadGraph {
     typed_graph(nodes, edges)
 }
 
-/// Every vertex of the mesh lies within the outer footprint (deck, curb,
-/// chamfer) of some street of `graph`: no curb or skirt past the curb line.
-fn assert_within_footprints(parts: &RoadParts, graph: &RoadGraph, dims: &Dims, what: &str) {
-    let outer = dims.curb_top_width + dims.chamfer_width;
-    for v in parts.deck.vertices.iter().chain(&parts.structure.vertices) {
-        let gap = graph
-            .edges
-            .iter()
-            .filter(|e| e.active)
-            .map(|e| {
-                let (a, b) = (
-                    graph.nodes[e.start as usize].position,
-                    graph.nodes[e.end as usize].position,
-                );
-                let (ab, av) = ([b.x - a.x, b.y - a.y], [v[0] - a.x, v[2] - a.y]);
-                let t = ((av[0] * ab[0] + av[1] * ab[1])
-                    / (ab[0] * ab[0] + ab[1] * ab[1]).max(1.0e-9))
-                .clamp(0.0, 1.0);
-                let w = match e.road_type {
-                    symbios_tensor::RoadType::Major => dims.major_half_width,
-                    symbios_tensor::RoadType::Minor => dims.minor_half_width,
-                } + outer;
-                (av[0] - ab[0] * t).hypot(av[1] - ab[1] * t) - w
-            })
-            .fold(f32::INFINITY, f32::min);
-        assert!(
-            gap <= 0.05,
-            "{what}: vertex {v:?} lies {gap} m past every curb line"
-        );
-    }
-}
-
-/// Mesh `graph` over a flat 256 m window (the junctions near its centre,
-/// well inside the district interior) and check the whole deck is sound -
-/// every triangle up, none folded or overlapping another, ribbons included
-/// unless `ribbons_may_overlap` (a pair too sharp for any pull-back) - with
-/// no curb over the asphalt and nothing past any street's curb line.
-fn assert_network_sound(graph: &RoadGraph, what: &str, ribbons_may_overlap: bool) -> RoadParts {
-    let dims = Dims::from_config(&cfg(7));
-    let sub = HeightMap::new(128, 128, 2.0);
-    let parts = mesh_road_graph(graph, &sub, [0, 0], &dims);
-    let deck_y = parts
-        .deck
-        .vertices
-        .iter()
-        .map(|v| v[1])
-        .fold(f32::MIN, f32::max);
-    for v in &parts.deck.vertices {
-        assert!(
-            (v[1] - deck_y).abs() < 1.0e-3,
-            "{what}: flat ground grew an unlevel deck {v:?}"
-        );
-    }
-    if ribbons_may_overlap {
-        let tris = triangles(&parts.deck);
-        for t in &tris {
-            assert!(
-                up_area2(t) > 2.0e-4,
-                "{what}: degenerate or downward deck {t:?}"
-            );
-        }
-    } else {
-        assert_deck_sound(&parts.deck, what);
-        assert_no_curb_over_deck(&parts, deck_y, what);
-    }
-    assert_within_footprints(&parts, graph, &dims, what);
-    parts
-}
-
 /// The deck covers `p` (XZ): some deck triangle contains it.
 fn deck_covers(parts: &RoadParts, p: (f32, f32)) -> bool {
     triangles(&parts.deck).iter().any(|t| {
@@ -933,7 +809,9 @@ fn a_near_parallel_pair_keeps_a_sound_hub() {
     let samples: Vec<_> = chains
         .iter()
         .enumerate()
-        .map(|(ci, ch)| crate::urban::sample_chain(ch, plan.trims[ci][0], plan.trims[ci][1], &sub))
+        .map(|(ci, ch)| {
+            crate::urban::sample_chain(ch, plan.trims[ci][0], plan.trims[ci][1], &sub, &dims)
+        })
         .collect();
     let base = crate::urban::level_network(
         &chains,
@@ -999,7 +877,15 @@ fn pilot_hubs_are_sound() {
         .enumerate()
         .map(|(ci, ch)| {
             (!plan.internal[ci])
-                .then(|| crate::urban::sample_chain(ch, plan.trims[ci][0], plan.trims[ci][1], &sub))
+                .then(|| {
+                    crate::urban::sample_chain(
+                        ch,
+                        plan.trims[ci][0],
+                        plan.trims[ci][1],
+                        &sub,
+                        &dims,
+                    )
+                })
                 .flatten()
         })
         .collect();

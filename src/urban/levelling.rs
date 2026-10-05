@@ -1,7 +1,8 @@
 //! Deck heights - the one place the heightmap is sampled, so nothing drifts.
-//! Each chain is trimmed, densified and sampled ONCE here (#584), and both the
-//! levelling pre-pass and the ribbon mesher consume that cached sample, so the
-//! deck floor is bit-identical between them and the mouths leave no seam.
+//! Each chain is trimmed, its sharp bends rounded (#1567), densified and
+//! sampled ONCE here (#584), and both the levelling pre-pass and the ribbon
+//! mesher consume that cached sample, so the deck floor is bit-identical
+//! between them and the mouths leave no seam.
 //! Heights resolve upward-only - the deck rises to clear the terrain under it,
 //! never sinks: a longitudinal grade limit that bridges dips (#573), then ramp
 //! cones down from each junction's pinned height. Junctions are flat and lifting
@@ -9,8 +10,11 @@
 
 use bevy_symbios_ground::HeightMap;
 
+use crate::urban::bends::round_bends;
 use crate::urban::truncation::JunctionPlan;
-use crate::urban::{Chain, RIBBON_STEP_M, ROAD_DEPTH_BIAS_M, densify, frame_right, trim_polyline};
+use crate::urban::{
+    Chain, Dims, RIBBON_STEP_M, ROAD_DEPTH_BIAS_M, densify, frame_right, trim_polyline,
+};
 
 /// Lateral samples across the deck width for the upward-only height: the flat
 /// deck is lifted to clear the MAX of these, so no part of the drivable surface
@@ -59,17 +63,21 @@ pub(crate) struct ChainSample {
     pub(crate) seg: Vec<f32>,
 }
 
-/// Trim a chain at its junction ends (#575), densify it, and sample the terrain
-/// floor per frame (Pass A) - `None` if nothing meshable survives. The single
-/// heightmap-sampling site for a chain (#584).
+/// Trim a chain at its junction ends (#575), round its sharp bends into arcs
+/// of its outer half-width - deck, curb and chamfer - where its legs leave
+/// room, so the ribbon does not fold there (#1567), densify it, and sample
+/// the terrain floor per frame (Pass A) - `None` if nothing meshable
+/// survives. The single heightmap-sampling site for a chain (#584).
 pub(crate) fn sample_chain(
     chain: &Chain,
     start_trim: f32,
     end_trim: f32,
     hm: &HeightMap,
+    dims: &Dims,
 ) -> Option<ChainSample> {
     let trimmed = trim_polyline(&chain.pts, start_trim, end_trim);
-    let pts = densify(&trimmed, RIBBON_STEP_M);
+    let outer = chain.half_w + dims.curb_top_width + dims.chamfer_width;
+    let pts = densify(&round_bends(&trimmed, outer), RIBBON_STEP_M);
     if pts.len() < 2 {
         return None;
     }

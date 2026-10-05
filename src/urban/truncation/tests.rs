@@ -264,7 +264,7 @@ fn a_short_junction_connector_merges_its_junctions_into_one_hub() {
             continue;
         }
         let [s, e] = plan.trims[ci];
-        let sample = crate::urban::sample_chain(c, s, e, &hm).expect("a long arm meshes");
+        let sample = crate::urban::sample_chain(c, s, e, &hm, &dims).expect("a long arm meshes");
         let floor: Vec<f32> = sample.frames.iter().map(|r| r.floor).collect();
         let base = crate::urban::level_chain(&floor, &sample.seg, [None, None]);
         crate::urban::extrude_ribbon(
@@ -316,7 +316,7 @@ fn pilot_junctions_keep_every_mouth_after_truncation() {
             continue;
         }
         let [s, e] = plan.trims[ci];
-        if let Some(sample) = crate::urban::sample_chain(c, s, e, &sub) {
+        if let Some(sample) = crate::urban::sample_chain(c, s, e, &sub, &dims) {
             let floor: Vec<f32> = sample.frames.iter().map(|r| r.floor).collect();
             let base = crate::urban::level_chain(&floor, &sample.seg, [None, None]);
             crate::urban::extrude_ribbon(

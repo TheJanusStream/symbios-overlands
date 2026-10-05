@@ -1,6 +1,8 @@
 use super::*;
 use crate::urban::test_support::*;
-use crate::urban::{Chain, Dims, RoadParts, build_road_geometry};
+use crate::urban::{
+    Chain, Dims, RoadGeometry, RoadParts, build_road_geometry, mesh_road_graph, sample_chain,
+};
 use bevy_symbios_ground::HeightMap;
 
 /// Every emitted vertex must be finite - a NaN from a degenerate miter or
@@ -457,5 +459,164 @@ fn clip_end_cap_normal_is_horizontal_on_a_slope() {
             (len2 - 1.0).abs() < 1.0e-3,
             "clip cap normal not unit: {n:?}"
         );
+    }
+}
+
+// --- #1567: hairpins, meshed end to end -------------------------------------
+
+/// The point `len` metres from `from` at `deg` degrees (counter-clockwise
+/// from +x in `(x, z)`).
+fn step(from: (f32, f32), deg: f32, len: f32) -> (f32, f32) {
+    let a = deg.to_radians();
+    (from.0 + a.cos() * len, from.1 + a.sin() * len)
+}
+
+/// The owner's first corner (#1567), mid-window: a major street turning
+/// 117.2 degrees at one vertex between straight legs of 13.4 m and 17.0 m.
+fn major_hairpin() -> Vec<(f32, f32)> {
+    let v = (128.0, 128.0);
+    vec![(v.0 - 13.4, v.1), v, step(v, 117.2, 17.0)]
+}
+
+/// The owner's second corner: a minor street turning -116.5 degrees 6.2 m
+/// from its start and a further -31.5 degrees after a 3.1 m leg.
+fn minor_hairpin() -> Vec<(f32, f32)> {
+    let p = (122.0, 128.0);
+    let a = step(p, 0.0, 6.2);
+    let b = step(a, -116.5, 3.1);
+    vec![p, a, b, step(b, -148.0, 8.0)]
+}
+
+/// One street along `pts` (dead-ended at both ends), as a graph.
+fn street(pts: &[(f32, f32)], major: bool) -> symbios_tensor::RoadGraph {
+    let edges: Vec<(u32, u32, bool)> = (1..pts.len() as u32).map(|i| (i - 1, i, major)).collect();
+    typed_graph(pts, &edges)
+}
+
+/// The first corner meshed end to end: every deck triangle faces up and
+/// none overlaps another (no pale tip turned over), no curb lies over the
+/// asphalt (the inner curb no longer runs on across the other leg's deck),
+/// and nothing reaches past the street's own curb line.
+#[test]
+fn a_hairpin_in_a_major_street_meshes_without_folding() {
+    assert_network_sound(&street(&major_hairpin(), true), "major hairpin", false);
+}
+
+/// The second corner, whose 3.1 m leg leaves no room for an arc of the
+/// street's outer half-width: the tighter arc it gets still folds its inner
+/// lines, which collapse onto their corners - sound all the same.
+#[test]
+fn a_hairpin_on_a_short_leg_of_a_minor_street_meshes_without_folding() {
+    assert_network_sound(&street(&minor_hairpin(), false), "minor hairpin", false);
+}
+
+/// Neither corner's frames stretch the cross-section much: the single
+/// vertex was mitred 1.92 times the street's width, and the frames beside
+/// it 1.5 to 2.9 m away were not mitred at all.
+#[test]
+fn a_rounded_hairpin_keeps_every_mitre_small() {
+    let dims = Dims::from_config(&cfg(7));
+    let hm = HeightMap::new(128, 128, 2.0);
+    for (pts, half_w) in [
+        (major_hairpin(), dims.major_half_width),
+        (minor_hairpin(), dims.minor_half_width),
+    ] {
+        let chain = Chain {
+            pts,
+            half_w,
+            end_nodes: [0, 1],
+            clip: [false, false],
+        };
+        let sample = sample_chain(&chain, 0.0, 0.0, &hm, &dims).expect("the street meshes");
+        let widest = sample.frames.iter().map(|f| f.scale).fold(0.0, f32::max);
+        assert!(widest < 1.5, "a frame is mitred {widest} times wide");
+    }
+}
+
+/// Ground rising 6% along +z over a 256 m window, or - `mirrored` - falling
+/// along it, the mirror image about the row at z = 127 m.
+fn graded_window(mirrored: bool) -> HeightMap {
+    let mut sub = HeightMap::new(128, 128, 2.0);
+    let width = sub.width();
+    for z in 0..width {
+        let row = if mirrored { width - 1 - z } else { z };
+        for x in 0..width {
+            sub.set(x, z, row as f32 * 2.0 * 0.06);
+        }
+    }
+    sub
+}
+
+/// The second corner on graded ground, as the owner met it 44 m up a slope.
+/// Its inner deck edge collapses onto one corner that each frame reaches at
+/// its own height, so the deck meets there in a vertical seam - its only
+/// triangles with no plan area, two of whose corners stand one above the
+/// other. The deck around it is sound, and every deck normal stays near
+/// upright: the seam's risers once shaded its fan sideways, a pale fan in
+/// the asphalt.
+#[test]
+fn a_hairpin_on_graded_ground_shades_as_one_surface() {
+    let dims = Dims::from_config(&cfg(7));
+    let parts = mesh_road_graph(
+        &street(&minor_hairpin(), false),
+        &graded_window(false),
+        [0, 0],
+        &dims,
+    );
+    let deck = &parts.deck;
+    let (plan, seam): (Vec<&[u32]>, Vec<&[u32]>) = deck
+        .indices
+        .chunks(3)
+        .partition(|t| up_area2(&[0, 1, 2].map(|k| deck.vertices[t[k] as usize])).abs() > 1.0e-6);
+    for t in &seam {
+        let [a, b, c] = [0, 1, 2].map(|k| deck.vertices[t[k] as usize]);
+        let stacked = |p: [f32; 3], q: [f32; 3]| (p[0] - q[0]).hypot(p[2] - q[2]) < 1.0e-3;
+        assert!(
+            stacked(a, b) || stacked(b, c) || stacked(c, a),
+            "a deck triangle stands on edge away from any seam: {a:?} {b:?} {c:?}"
+        );
+    }
+    let ground = RoadGeometry {
+        vertices: deck.vertices.clone(),
+        normals: deck.normals.clone(),
+        uvs: deck.uvs.clone(),
+        indices: plan.concat(),
+    };
+    assert_deck_sound(&ground, "graded minor hairpin");
+    let upright = 15.0_f32.to_radians().cos();
+    for n in &deck.normals {
+        assert!(n[1] > upright, "a deck normal leans over: {n:?}");
+    }
+}
+
+/// The critic's case (#1567): a rounded hairpin and its mirror image, each
+/// on its mirror image of graded ground, draw mirror images - every vertex
+/// of either, on every surface, has its mirror image in the other, shaded
+/// as its mirror image. A turn one way once shaded its inner chamfer
+/// sideways (a riser on its left edge) and tipped its deck along the grade
+/// where the other way did not.
+#[test]
+fn a_hairpin_shades_alike_turning_either_way() {
+    let dims = Dims::from_config(&cfg(7));
+    let v = (128.0, 127.0);
+    let left = vec![(v.0 - 13.4, v.1), v, step(v, 117.2, 17.0)];
+    let right: Vec<(f32, f32)> = left.iter().map(|p| (p.0, 254.0 - p.1)).collect();
+    let a = mesh_road_graph(&street(&left, true), &graded_window(false), [0, 0], &dims);
+    let b = mesh_road_graph(&street(&right, true), &graded_window(true), [0, 0], &dims);
+    let alike = 3.0_f32.to_radians().cos();
+    for (from, to) in [(&a, &b), (&b, &a)] {
+        for (g, h) in surfaces(from).into_iter().zip(surfaces(to)) {
+            for (p, n) in g.vertices.iter().zip(&g.normals) {
+                let (pm, nm) = ([p[0], p[1], 254.0 - p[2]], [n[0], n[1], -n[2]]);
+                let mirrored = h.vertices.iter().zip(&h.normals).any(|(q, m)| {
+                    let gap = (q[0] - pm[0]).hypot(q[1] - pm[1]).hypot(q[2] - pm[2]);
+                    gap < 1.0e-3 && m[0] * nm[0] + m[1] * nm[1] + m[2] * nm[2] > alike
+                });
+                assert!(
+                    mirrored,
+                    "{p:?} shaded {n:?} has no mirror image shaded alike"
+                );
+            }
+        }
     }
 }

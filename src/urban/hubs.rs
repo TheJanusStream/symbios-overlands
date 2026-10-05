@@ -23,7 +23,7 @@
 //! swept across the asphalt; where two pull-backs differed, a diagonal chord
 //! stepped every corner sideways. Both were what the owner saw (#1558).
 
-use crate::urban::math::{cross, dot, normalize, sub3};
+use crate::urban::math::{add2, cross, cross2, dot, dot2, normalize, scale2, sub2, sub3};
 use crate::urban::truncation::Hub;
 use crate::urban::{Dims, RoadParts, UV_TILE_M, quad_normal};
 
@@ -52,6 +52,11 @@ pub(crate) struct RoadEnd {
     /// ribbon skirt exactly - at any skirt depth or cross-slope - leaving no
     /// open band at the seam.
     pub(crate) skirt_y: f32,
+    /// The normal the ribbon's deck row at this mouth is shaded with: halfway
+    /// between its own end segment and the hub's flat deck (#1567). The hub's
+    /// two mouth corners take it too, so on a graded approach the seam does
+    /// not shade as a crease.
+    pub(crate) deck_normal: [f32; 3],
     /// The stub of chain the pull-back cut off, from the junction node to the
     /// mouth centre (XZ): the hub draws it, its deck edges following it.
     pub(crate) spine: Vec<(f32, f32)>,
@@ -140,26 +145,6 @@ fn root(parent: &mut [usize], mut x: usize) -> usize {
         x = parent[x];
     }
     x
-}
-
-fn add2(a: [f32; 2], b: [f32; 2]) -> [f32; 2] {
-    [a[0] + b[0], a[1] + b[1]]
-}
-
-fn sub2(a: [f32; 2], b: [f32; 2]) -> [f32; 2] {
-    [a[0] - b[0], a[1] - b[1]]
-}
-
-fn scale2(a: [f32; 2], s: f32) -> [f32; 2] {
-    [a[0] * s, a[1] * s]
-}
-
-fn dot2(a: [f32; 2], b: [f32; 2]) -> f32 {
-    a[0] * b[0] + a[1] * b[1]
-}
-
-fn cross2(a: [f32; 2], b: [f32; 2]) -> f32 {
-    a[0] * b[1] - a[1] * b[0]
 }
 
 /// Where the line through `a` along `da` meets the line through `b` along
@@ -900,19 +885,21 @@ fn extrude_hub(
 
     // --- Deck: the ear-clipped outline, flat at the hub height; a mouth
     //     corner keeps its own deck height so the seam with its ribbon holds
-    //     even when the levelling capped out under-pinned. ---
-    let height_at = |p: [f32; 2]| {
+    //     even when the levelling capped out under-pinned, and its ribbon's
+    //     mouth shading (#1567). ---
+    let mouth_at = |p: [f32; 2]| {
         arms.iter()
-            .flat_map(|a| {
-                [
-                    (a.corner(-1.0), a.end.deck_y),
-                    (a.corner(1.0), a.end.deck_y),
-                ]
+            .find(|a| {
+                [a.corner(-1.0), a.corner(1.0)]
+                    .iter()
+                    .any(|q| (q[0] - p[0]).hypot(q[1] - p[1]) < 1.0e-4)
             })
-            .find(|(q, _)| (q[0] - p[0]).hypot(q[1] - p[1]) < 1.0e-4)
-            .map_or(hub_y, |(_, y)| y)
+            .map(|a| a.end)
     };
-    let verts: Vec<[f32; 3]> = poly.iter().map(|p| [p[0], height_at(*p), p[1]]).collect();
+    let verts: Vec<[f32; 3]> = poly
+        .iter()
+        .map(|p| [p[0], mouth_at(*p).map_or(hub_y, |e| e.deck_y), p[1]])
+        .collect();
     let mut vn = vec![[0.0_f32; 3]; verts.len()];
     let base = parts.deck.vertices.len() as u32;
     for t in &tris {
@@ -932,9 +919,12 @@ fn extrude_hub(
             parts.deck.indices.extend_from_slice(&[i0, i2, i1]);
         }
     }
-    for (v, nrm) in verts.iter().zip(&vn) {
+    for ((v, nrm), p) in verts.iter().zip(&vn).zip(&poly) {
         parts.deck.vertices.push(*v);
-        parts.deck.normals.push(normalize(*nrm));
+        parts
+            .deck
+            .normals
+            .push(mouth_at(*p).map_or_else(|| normalize(*nrm), |e| e.deck_normal));
         parts.deck.uvs.push([v[0] / UV_TILE_M, v[2] / UV_TILE_M]);
     }
 

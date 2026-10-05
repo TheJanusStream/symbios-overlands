@@ -41,7 +41,9 @@ const DIAG_STUB_LEN_M: f32 = 8.0;
 const DIAG_COLLINEAR_TOL_DEG: f32 = 25.0;
 /// A third branch within this of the through-line counts as a glancing graze.
 const DIAG_SHALLOW_ANGLE_DEG: f32 = 20.0;
-/// Miter scale at/above this (the builder clamps at 3.0) marks a spike-risk bend.
+/// Miter scale at/above this (the builder clamps at 3.0) marks a spike-risk
+/// bend in the graph - one the mesher rounds into an arc where its legs leave
+/// room (#1567).
 const DIAG_SPIKE_SCALE: f32 = 2.5;
 /// Tolerances (m) the diagnostic sweeps when counting near-miss dead-ends (#583
 /// weld candidates), to size the candidate population before pinning the weld
@@ -322,7 +324,7 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
         .map(|(ci, c)| {
             let [s, e] = plan.trims[ci];
             (!plan.internal[ci])
-                .then(|| sample_chain(c, s, e, sub))
+                .then(|| sample_chain(c, s, e, sub, dims))
                 .flatten()
         })
         .collect();
