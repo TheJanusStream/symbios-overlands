@@ -22,6 +22,11 @@
 //!   resolved handle into [`crate::loading::AmbientHandle`] so the
 //!   InGame ambient-player spawner picks it up.
 //!
+//! Fetched bytes become a clip only through [`super::audio_probe`], which
+//! builds the decoder a voice would play them with: bytes that are not audio
+//! fail like a fetch instead of crashing every visitor when a voice first
+//! plays them (#1560).
+//!
 //! # What's not handled here
 //!
 //! - [`SovereignAssetReference::DidPfp`] is image-only; the resolver
@@ -319,9 +324,10 @@ fn report_ambient_failure(commands: &mut Commands, failure: &AssetFailure) {
     commands.insert_resource(crate::loading::AmbientResolveFailed { failure: *failure });
 }
 
-/// Drain finished blob-audio fetches: wrap bytes in [`AudioSource`],
-/// dispatch the resolved handle to every waiting target, and promote
-/// the cache entry to `Ready` for future requesters.
+/// Drain finished blob-audio fetches: build each clip through
+/// [`super::audio_probe::playable_clip`], dispatch the resolved handle to
+/// every waiting target, and promote the cache entry to `Ready` for future
+/// requesters. Bytes no voice could play fail as an undecodable fetch.
 pub fn poll_blob_audio_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut BlobAudioTask)>,
@@ -353,8 +359,8 @@ pub fn poll_blob_audio_tasks(
             None => continue,
         };
 
-        let bytes = match result {
-            Ok(bytes) => bytes,
+        let clip = match result.and_then(super::audio_probe::playable_clip) {
+            Ok(clip) => clip,
             Err(reason) => {
                 // The entry SURVIVES the failure (#1246/#1247), carrying the
                 // reason and the doubling wait. The pending list is still
@@ -378,9 +384,7 @@ pub fn poll_blob_audio_tasks(
                 continue;
             }
         };
-        let handle = audio_sources.add(AudioSource {
-            bytes: bytes.into(),
-        });
+        let handle = audio_sources.add(clip);
         for target in pending {
             apply_target(&mut commands, &target, handle.clone());
         }
@@ -551,6 +555,140 @@ mod tests {
 
         let order: Vec<&AudioReferenceKey> = cache.insert_order.iter().collect();
         assert_eq!(order, vec![&early, &middle, &late]);
+    }
+
+    /// A resolver with no network: a fetch is injected as an already
+    /// finished task, and the poll drains it.
+    fn harness() -> App {
+        let mut app = App::new();
+        // `AssetPlugin` rather than bare `init_asset`: `Assets::add` reaches
+        // for the `AssetServer` to mint a handle.
+        app.add_plugins((
+            bevy::asset::AssetPlugin::default(),
+            bevy::app::TaskPoolPlugin::default(),
+        ))
+        .init_asset::<AudioSource>()
+        .init_resource::<BlobAudioCache>()
+        .init_resource::<Time>()
+        .add_systems(Update, poll_blob_audio_tasks);
+        app
+    }
+
+    /// A construct entity and the ambient bed both waiting on `key`, whose
+    /// fetch has already brought `bytes`; returns the construct.
+    fn fetched(app: &mut App, key: &AudioReferenceKey, bytes: Vec<u8>) -> Entity {
+        let construct = app.world_mut().spawn_empty().id();
+        app.world_mut()
+            .resource_mut::<BlobAudioCache>()
+            .insert_bounded(
+                key.clone(),
+                AudioReferenceEntry::Pending(vec![
+                    AudioReferenceTarget::AttachToEntity {
+                        entity: construct,
+                        settings: PlaybackSettings::LOOP,
+                    },
+                    AudioReferenceTarget::AmbientHandle,
+                ]),
+            );
+        let task =
+            IoTaskPool::get_or_init(bevy::tasks::TaskPool::default).spawn(async move { Ok(bytes) });
+        app.world_mut().spawn(BlobAudioTask {
+            key: key.clone(),
+            task,
+            previous: None,
+        });
+        construct
+    }
+
+    /// Run frames until every injected fetch has been drained (a single
+    /// update races the task pool).
+    fn drain(app: &mut App) {
+        for _ in 0..1000 {
+            let pending = app
+                .world_mut()
+                .query::<&BlobAudioTask>()
+                .iter(app.world())
+                .next()
+                .is_some();
+            if !pending {
+                return;
+            }
+            app.update();
+        }
+        panic!("a fetch task never resolved");
+    }
+
+    /// #1560: a web page served where a sound was promised. It used to
+    /// become a clip, and the first voice to play it crashed the client of
+    /// whoever came near; now the construct stays silent, the ambient bed
+    /// says why it is missing, and the source is remembered as undecodable.
+    #[test]
+    fn bytes_that_are_not_audio_reach_no_voice_and_say_why() {
+        let mut app = harness();
+        let key = url_key("https://example.test/hum.ogg");
+        let construct = fetched(&mut app, &key, b"<!doctype html><p>Not found</p>".to_vec());
+        drain(&mut app);
+
+        let cache = app.world().resource::<BlobAudioCache>();
+        let status = cache.status(&key).expect("the source is remembered");
+        let failure = status.failure().expect("as failed");
+        assert_eq!(failure.reason, AssetFetchError::Undecodable);
+        assert!(
+            app.world()
+                .get::<super::super::voice_budget::LoopingVoice>(construct)
+                .is_none(),
+            "no voice may be given bytes that are not audio"
+        );
+        assert_eq!(app.world().resource::<Assets<AudioSource>>().len(), 0);
+        assert!(
+            app.world()
+                .resource::<crate::loading::AmbientHandle>()
+                .0
+                .is_none()
+        );
+        assert_eq!(
+            app.world()
+                .resource::<crate::loading::AmbientResolveFailed>()
+                .failure
+                .reason,
+            AssetFetchError::Undecodable
+        );
+    }
+
+    /// The control: a real clip reaches both of its targets.
+    #[test]
+    fn a_clip_reaches_its_voice_and_the_ambient_bed() {
+        let mut app = harness();
+        let key = url_key("https://example.test/hum.wav");
+        let mut wav = Vec::new();
+        {
+            let spec = hound::WavSpec {
+                channels: 1,
+                sample_rate: 22_050,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut writer =
+                hound::WavWriter::new(std::io::Cursor::new(&mut wav), spec).expect("a WAV writer");
+            for s in [0i16, 900, -900, 0] {
+                writer.write_sample(s).expect("a sample");
+            }
+            writer.finalize().expect("a finished WAV");
+        }
+        let construct = fetched(&mut app, &key, wav);
+        drain(&mut app);
+
+        let cache = app.world().resource::<BlobAudioCache>();
+        let ready = cache.ready(&key).expect("the clip is ready").clone();
+        let voice = app
+            .world()
+            .get::<super::super::voice_budget::LoopingVoice>(construct)
+            .expect("the construct has its voice");
+        assert_eq!(voice.clip, ready);
+        assert_eq!(
+            app.world().resource::<crate::loading::AmbientHandle>().0,
+            Some(ready)
+        );
     }
 
     #[test]

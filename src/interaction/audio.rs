@@ -15,7 +15,11 @@
 //! ATProto `getBlob`, same as Sign textures). The first trigger for an
 //! uncached clip primes the cache asynchronously and is silent; every
 //! later trigger plays synchronously. Decoding is rodio's - Bevy's
-//! default audio feature is `vorbis`, so v1 clips are Ogg/Vorbis.
+//! default audio feature is `vorbis`, so v1 clips are Ogg/Vorbis - and a
+//! clip is built by that decoder before it is cached
+//! ([`crate::world_builder::audio_probe`]), so bytes that are not audio
+//! fail like a fetch instead of crashing the client on first contact
+//! (#1560).
 //!
 //! [`PlaybackMode::Despawn`] makes a finished voice GC itself, so there
 //! is no manual reaper - only a global concurrent-voice cap
@@ -359,8 +363,10 @@ pub fn play_contact_audio(
     state.cooldowns.prune(now);
 }
 
-/// Drain finished clip fetches: wrap the bytes in an [`AudioSource`]
-/// asset and promote the cache entry to `Ready`. A failed fetch leaves a
+/// Drain finished clip fetches: build each clip through
+/// [`crate::world_builder::audio_probe::playable_clip`] and promote the
+/// cache entry to `Ready`. A failed fetch - or bytes no voice could play,
+/// an undecodable one - leaves a
 /// [`AudioClipEntry::Failed`] entry carrying the reason and the doubling
 /// wait, so the cue goes quiet instead of re-requesting on the next
 /// contact sample (#1247 f309).
@@ -382,11 +388,9 @@ pub fn poll_audio_clip_tasks(
         };
         commands.entity(entity).despawn();
 
-        match result {
-            Ok(bytes) => {
-                let handle = assets.add(AudioSource {
-                    bytes: bytes.into(),
-                });
+        match result.and_then(crate::world_builder::audio_probe::playable_clip) {
+            Ok(clip) => {
+                let handle = assets.add(clip);
                 cache.insert_bounded(task.key.clone(), AudioClipEntry::Ready(handle));
             }
             Err(reason) => {
@@ -496,6 +500,54 @@ mod tests {
             cache.status(&key).is_none(),
             "and the next contact re-fetches"
         );
+    }
+
+    /// #1560: a web page served where a contact cue's sound was promised
+    /// is never cached as a clip - the first contact to play it used to
+    /// crash the client - and is remembered as undecodable instead, so the
+    /// cue stays quiet without asking again.
+    #[test]
+    fn bytes_that_are_not_audio_never_become_a_cue() {
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::asset::AssetPlugin::default(),
+            bevy::app::TaskPoolPlugin::default(),
+        ))
+        .init_asset::<AudioSource>()
+        .init_resource::<AudioClipCache>()
+        .init_resource::<Time>()
+        .add_systems(Update, poll_audio_clip_tasks);
+        let key = AudioClipKey::Url("https://x.test/thud.ogg".into());
+        app.world_mut()
+            .resource_mut::<AudioClipCache>()
+            .insert_bounded(key.clone(), AudioClipEntry::Pending);
+        let page = b"<!doctype html><p>Not found</p>".to_vec();
+        let task =
+            IoTaskPool::get_or_init(bevy::tasks::TaskPool::default).spawn(async move { Ok(page) });
+        app.world_mut().spawn(AudioClipTask {
+            key: key.clone(),
+            task,
+            previous: None,
+        });
+        for _ in 0..1000 {
+            let pending = app
+                .world_mut()
+                .query::<&AudioClipTask>()
+                .iter(app.world())
+                .next()
+                .is_some();
+            if !pending {
+                break;
+            }
+            app.update();
+        }
+
+        let status = app.world().resource::<AudioClipCache>().status(&key);
+        let Some(AssetStatus::Failed(failure)) = status else {
+            panic!("the cue's source must be remembered as failed, got {status:?}");
+        };
+        assert_eq!(failure.reason, AssetFetchError::Undecodable);
+        assert_eq!(app.world().resource::<Assets<AudioSource>>().len(), 0);
     }
 
     /// A settled clip goes quiet for the rest of the room rather than

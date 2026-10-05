@@ -87,6 +87,7 @@
 //!   with a zero-margin `VisibilityRange`, kept on the setting and the fog.
 
 pub mod asset_failure;
+pub(crate) mod audio_probe;
 pub mod audio_resolver;
 pub mod avatar_spawn;
 pub(crate) mod blob_fetch;

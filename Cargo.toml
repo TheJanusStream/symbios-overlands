@@ -131,14 +131,27 @@ proto-blue-common = "0.2"
 # the same macro.
 async-trait = "0.1"
 url = "2"
+# The audio backend under Bevy's, and the WAV reader under it (both already in
+# the graph, at the minors bevy_audio 0.19 builds, on the web build too): a
+# fetched clip is built by the very decoder Bevy plays it with before any
+# voice may, because Bevy unwraps that decoder and bytes that are not audio
+# would crash every visitor (#1560); hound reads a WAV header first, since
+# rodio divides by its sample rate. No features of our own, so the decoder is
+# Bevy's to the byte. The master-mute test also builds real `AudioSink`s from
+# a rodio `Player`, which Bevy does not re-export (#1341).
+rodio = { version = "0.22", default-features = false }
+hound = "3.5"
+# The Ogg layer under lewton, Bevy's Vorbis decoder (also already in the
+# graph, native and web): a fetched clip's Vorbis headers are walked from the
+# very packets lewton will read, before lewton allocates from them (#1560).
+ogg = "0.8"
 
 [dev-dependencies]
 glam = "0.32"
-# The audio backend under Bevy's (already in the graph, at the minor
-# bevy_audio 0.19 uses): the master-mute test builds real `AudioSink`s, and
-# `AudioSink::new` takes a rodio `Player`, which Bevy does not re-export
-# (#1341).
-rodio = { version = "0.22", default-features = false }
+# Bevy's Vorbis decoder (already in the graph): the #1560 tests check that a
+# crafted stream's identification header is one lewton accepts, so the
+# hostile headers behind it would really be read.
+lewton = "0.10"
 # The font parser epaint 0.35 reads faces with (already in the graph): the
 # UI glyph-coverage guard asks each bundled face's charmap directly, because
 # epaint's `has_glyph` compares faces, not glyphs (#1105).
