@@ -288,6 +288,7 @@ fn build_kind() -> GeneratorKind {
         materials,
         // Nothing turned: the castle's masses are all square-plan.
         round_meshes: Vec::new(),
+        solid_meshes: Vec::new(),
     }
 }
 

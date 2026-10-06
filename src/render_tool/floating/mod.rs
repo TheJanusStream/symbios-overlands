@@ -15,7 +15,15 @@
 //! # The rules
 //!
 //! Each placed generator's primitives are meshed by the real mesher in the
-//! generator's own frame ([`body`]), and two parts touch when their surfaces
+//! generator's own frame ([`body`]), and so is each terminal its shape
+//! grammars derive, by the spawner's own code (#1508): a terminal is a part
+//! named by its Shape node's pointer and, beside it, `terminal` - its
+//! `index` in derivation order, its `mesh` id and `material` slot, as
+//! `room set`'s z-fighting answer names one. An absolute placement with a
+//! grammar seed of its own (#1505) draws the generator's grammars with it,
+//! so the generator is meshed again as that seed draws it, and that
+//! placement - its rows carry the `seed` - is checked against that body.
+//! Two parts touch when their surfaces
 //! come within [`body::CONTACT_M`] of each other or one lies wholly inside
 //! the other's closed solid. The ground touches a part too: a part reaching
 //! down to the generator's ground plane (its y = 0, where a snapped
@@ -86,9 +94,10 @@ const CLASSES: [(&str, &str); 2] = [
 ];
 
 /// What the report does not look at, in its own words.
-const NOT_CHECKED: &str = "L-systems, shapes and signs, which are not meshed here \
-     (a part resting on one would read as floating: `unmeshed` names each generator \
-     that holds one); particle emitters, portals, gateways and water, which are not \
+const NOT_CHECKED: &str = "L-systems and signs, which are not meshed here (a part \
+     resting on one would read as floating: `unmeshed` names each generator that holds \
+     one); a shape grammar that does not parse or derive, which draws nothing, nor \
+     anything below its node; particle emitters, portals, gateways and water, which are not \
      parts; anything under a terrain or particle-system root, whose generator is not \
      read at all; class b for scatters and grids, whose copies each snap at their own \
      point (`scatters` gives each one's reach from its centre, which times the slope \
@@ -106,35 +115,64 @@ pub(super) fn print_floating_report(world: &str, record: &RoomRecord) {
     println!("{}", one_row_a_line(&report(world, record, &map, &bodies)));
 }
 
-/// Every placed generator's body, by name, meshed on every core.
-fn bodies_of(record: &RoomRecord) -> BTreeMap<String, Body> {
-    let mut names: Vec<&String> = record
+/// A body's key: its generator's name, and the grammar seed of the
+/// absolute placements that draw it with one of their own (#1505) - `None`
+/// for the generator as it draws itself.
+type BodyKey = (String, Option<u64>);
+
+/// The seed `placement` draws its generator's grammars with, where it
+/// draws them otherwise than the generator does itself (#1505): its own
+/// seed, when the tree has a Shape node of another seed. `None` for a
+/// placement that draws the tree as it is - unseeded, a scatter or a grid,
+/// a tree with no grammar, or a seed every Shape node in it has already.
+fn drawn_seed(record: &RoomRecord, placement: &Placement) -> Option<u64> {
+    let seed = placement.shape_seed()?;
+    let generator = record.generators.get(generator_ref(placement)?)?;
+    fn reseeds(node: &crate::pds::Generator, seed: u64) -> bool {
+        matches!(node.kind, GeneratorKind::Shape { seed: own, .. } if own != seed)
+            || node.children.iter().any(|child| reseeds(child, seed))
+    }
+    reseeds(generator, seed).then_some(seed)
+}
+
+/// Every placed generator's body, meshed on every core: each as it draws
+/// itself, and as each grammar seed an absolute placement of it draws it
+/// with (#1505) - the seed written into every Shape node of the tree, as
+/// the compile draws that placement.
+fn bodies_of(record: &RoomRecord) -> BTreeMap<BodyKey, Body> {
+    let mut keys: Vec<(&String, Option<u64>)> = record
         .placements
         .iter()
-        .filter_map(generator_ref)
-        .filter_map(|name| record.generators.get_key_value(name).map(|(k, _)| k))
-        .filter(|name| {
+        .filter_map(|placement| {
+            let (name, _) = record.generators.get_key_value(generator_ref(placement)?)?;
+            Some((name, drawn_seed(record, placement)))
+        })
+        .filter(|(name, _)| {
             !matches!(
                 record.generators[*name].kind,
                 GeneratorKind::Terrain(_) | GeneratorKind::ParticleSystem(_)
             )
         })
         .collect();
-    names.sort();
-    names.dedup();
+    keys.sort();
+    keys.dedup();
     let next = AtomicUsize::new(0);
     let done = Mutex::new(BTreeMap::new());
     let workers = std::thread::available_parallelism()
         .map_or(4, |n| n.get())
-        .clamp(1, names.len().max(1));
+        .clamp(1, keys.len().max(1));
     std::thread::scope(|scope| {
         for _ in 0..workers {
             scope.spawn(|| {
-                while let Some(name) = names.get(next.fetch_add(1, Ordering::Relaxed)) {
-                    let body = Body::of(&record.generators[*name]);
+                while let Some(&(name, seed)) = keys.get(next.fetch_add(1, Ordering::Relaxed)) {
+                    let generator = &record.generators[name];
+                    let body = match seed {
+                        Some(seed) => Body::of(&generator.with_shape_seed(seed)),
+                        None => Body::of(generator),
+                    };
                     done.lock()
                         .expect("a meshing worker panicked")
-                        .insert((*name).clone(), body);
+                        .insert((name.clone(), seed), body);
                 }
             });
         }
@@ -167,12 +205,15 @@ struct Uses {
     scattered: bool,
 }
 
+/// Where each body is placed, by its key: an absolute placement under the
+/// seed it draws its generator's grammars with ([`drawn_seed`]), a scatter
+/// or a grid under the generator as it draws itself.
 fn uses_of<'a>(
     record: &'a RoomRecord,
     map: &HeightMap,
     water: Option<f32>,
-) -> HashMap<&'a str, Uses> {
-    let mut uses: HashMap<&str, Uses> = HashMap::new();
+) -> HashMap<(&'a str, Option<u64>), Uses> {
+    let mut uses: HashMap<(&str, Option<u64>), Uses> = HashMap::new();
     for (index, placement) in record.placements.iter().enumerate() {
         match placement {
             Placement::Absolute {
@@ -183,7 +224,9 @@ fn uses_of<'a>(
                 avoid_water_clearance,
                 ..
             } => {
-                let used = uses.entry(generator_ref).or_default();
+                let used = uses
+                    .entry((generator_ref, drawn_seed(record, placement)))
+                    .or_default();
                 // As the executor stands it: the placement's rotation and no
                 // scale, snapped at the anchor the terrain report prints, or
                 // unsnapped where it says - where the real ground under it
@@ -214,7 +257,7 @@ fn uses_of<'a>(
                 snap_to_terrain,
                 ..
             } => {
-                let used = uses.entry(generator_ref).or_default();
+                let used = uses.entry((generator_ref, None)).or_default();
                 used.elsewhere.push(index);
                 used.snapped |= *snap_to_terrain;
                 used.scattered = true;
@@ -230,7 +273,7 @@ fn report(
     world: &str,
     record: &RoomRecord,
     map: &HeightMap,
-    bodies: &BTreeMap<String, Body>,
+    bodies: &BTreeMap<BodyKey, Body>,
 ) -> Vec<(&'static str, Value)> {
     let ground = Ground::new(map);
     let height = |x: f32, z: f32| ground.height(x, z);
@@ -238,20 +281,26 @@ fn report(
     let uses = uses_of(record, map, water);
     let mut rows: Vec<Row> = Vec::new();
     let mut scatters = Vec::new();
-    let mut unmeshed = Vec::new();
-    let (mut meshed, mut parts, mut stands) = (0, 0, 0);
-    for (name, body) in bodies {
-        let Some(used) = uses.get(name.as_str()) else {
+    // By name: a generator drawn with several grammar seeds is one
+    // generator, checked as each of them draws it.
+    let mut unmeshed = std::collections::BTreeSet::new();
+    let mut meshed = std::collections::BTreeSet::new();
+    let (mut parts, mut stands) = (0, 0);
+    for ((name, seed), body) in bodies {
+        let Some(used) = uses.get(&(name.as_str(), *seed)) else {
             continue;
         };
-        meshed += usize::from(!body.parts.is_empty());
+        if !body.parts.is_empty() {
+            meshed.insert(name);
+        }
         parts += body.parts.len();
         stands += used.stands.len();
         if body.unmeshed > 0 {
-            unmeshed.push(json!(name));
+            unmeshed.insert(name);
         }
         let check = Check {
             name,
+            seed: *seed,
             body,
             used,
             ground: &height,
@@ -272,7 +321,7 @@ fn report(
         (
             "checked",
             json!({
-                "generators": meshed,
+                "generators": meshed.len(),
                 "parts": parts,
                 "absolute_placements": stands,
             }),
@@ -291,7 +340,10 @@ fn report(
             ),
         ),
         ("not_checked", json!(NOT_CHECKED)),
-        ("unmeshed", Value::Array(unmeshed)),
+        (
+            "unmeshed",
+            Value::Array(unmeshed.into_iter().map(|name| json!(name)).collect()),
+        ),
         ("scatters", Value::Array(scatters)),
         (
             "floating",
@@ -318,6 +370,9 @@ type Row = (String, &'static str, f32, Value);
 /// One generator, checked where it is placed.
 struct Check<'a, G: Fn(f32, f32) -> f32> {
     name: &'a str,
+    /// The grammar seed the placements of this body draw the generator
+    /// with (#1505), or `None` for the generator as it draws itself.
+    seed: Option<u64>,
     body: &'a Body,
     used: &'a Uses,
     /// The real ground's height at a world `(x, z)`.
@@ -406,12 +461,22 @@ impl<G: Fn(f32, f32) -> f32> Check<'_, G> {
                     "local": round3v(centre),
                     "placements": placements,
                 });
+                if let Some(terminal) = &part.terminal {
+                    row["terminal"] = terminal.json();
+                }
+                if let Some(seed) = self.seed {
+                    row["seed"] = json!(seed.to_string());
+                }
                 if let Some((_, stand)) = self.used.stands.first() {
                     row["at"] = round3v(stand.transform_point3(centre));
                 }
                 if members.len() > 1 {
                     // Free together: the group's first part, and its size.
-                    row["group"] = json!(pointer(self.name, &parts[members[0]].path));
+                    let first = &parts[members[0]];
+                    row["group"] = json!(pointer(self.name, &first.path));
+                    if let Some(terminal) = &first.terminal {
+                        row["group_terminal"] = terminal.json();
+                    }
                     row["group_parts"] = json!(members.len());
                 }
                 rows.push((self.name.to_owned(), "a", gap, row));
@@ -525,7 +590,7 @@ impl<G: Fn(f32, f32) -> f32> Check<'_, G> {
         }
         let (gap, at, under) = worst;
         (gap > FLOAT_M).then(|| {
-            let row = json!({
+            let mut row = json!({
                 "generator": self.name,
                 "part": pointer(self.name, &part.path),
                 "kind": part.kind,
@@ -535,6 +600,12 @@ impl<G: Fn(f32, f32) -> f32> Check<'_, G> {
                 "at": round3v(at),
                 "under_m": round2(under),
             });
+            if let Some(terminal) = &part.terminal {
+                row["terminal"] = terminal.json();
+            }
+            if let Some(seed) = self.seed {
+                row["seed"] = json!(seed.to_string());
+            }
             (self.name.to_owned(), "b", gap, row)
         })
     }

@@ -179,14 +179,17 @@ fn build_kind() -> GeneratorKind {
         grammar_source,
         root_rule: "Lot".to_string(),
         footprint: Fp3([14.0, 0.0, 24.0]),
-        // Seed chosen so the catalogue render keeps its pediment; in-game
-        // each placement gets its own seed, so ~60% stay roofed and the
-        // rest collapse to open rubble.
+        // Seed chosen so the catalogue render keeps its pediment. A seeded
+        // settlement's temple draws with its member's own seed, carried on
+        // its placement (#1514), so ~60% stay roofed and the rest collapse
+        // to open rubble; a hand-placed one draws this seed unless its
+        // placement sets one (#1505).
         seed: 7,
         materials,
         // The peripteral shafts are turned. Pilasters stay square - an
         // engaged pilaster is a flat pier by definition.
         round_meshes: vec!["Column".to_string()],
+        solid_meshes: Vec::new(),
     }
 }
 

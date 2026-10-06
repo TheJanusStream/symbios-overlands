@@ -1812,6 +1812,7 @@ fn draw_generator_detail(
             seed,
             materials,
             round_meshes,
+            solid_meshes,
         } => draw_shape_forge(
             ui,
             salt,
@@ -1822,6 +1823,7 @@ fn draw_generator_detail(
             seed,
             materials,
             round_meshes,
+            solid_meshes,
             dirty,
             assets,
         ),

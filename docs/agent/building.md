@@ -324,11 +324,25 @@ main eave cut) is quicker and better by hand.
   field at its default
   (a Stucco texture's seed 13, a Plank's count 5), so compare what the
   sanitiser keeps, not what a builder wrote.
-- **A Shape node has no collider** (#1506 proposes one). Lay a solid
-  primitive core from the builder - the whole footprint for a closed
-  building, the back part of an open shed - and hide it: the grammar lays a
-  skin 1 cm proud of each face, the walls a visitor sees, in the material the
-  seed chose. A walk into a cot stopped 0.28 m from its wall.
+- **A grammar's terminals collide only where you list them** (#1506, the
+  owner's yes of 2026-09-29): a Shape node's `solid_meshes` lists the mesh
+  ids (the strings of `I("...")`) whose terminals are solid, as
+  `round_meshes` lists the turned ones - `"solid_meshes": ["Post", "Roof",
+  "Wall"]`, kept sorted (written out of order, `adjusted_at` names it).
+  Each such terminal collides as the box of its scope, whatever
+  its mesh draws: a column as the box it is turned in, a gable end as the
+  rectangle round its triangle, a face split off flat (a wall of
+  `Comp(Faces)`, a roof's slope) as a slab 1 mm thick. Leave a doorway, an
+  open front or a gable end off the list and a body passes through it.
+  Empty (the default), nothing of the grammar collides. So a grammar
+  building needs no hidden solid core any more, with two traps: a visitor
+  on a build older than #1506 walks through its walls, as through every
+  grammar building before, and a SAVE from such a build - the owner's or
+  an agent's - writes every Shape node without the list, as it drops a
+  placement's grammar seed (#1505), leaving every building walk-through for
+  everyone. Keep a building's core until everything that saves the world
+  runs #1506; the old way is a primitive core with the grammar's skins 1 cm
+  proud of it (a walk into a cot stopped 0.28 m from its wall).
 - **Two passes over one face.** `Comp(Faces)` hands each face out once; for a
   second pass (a step under each door, the skins under the frame), split a
   zero-height row off a band (`Split(Y) { ~1: Plinth | 0.001: StepRow }`),
@@ -400,7 +414,12 @@ composed into a copy of the record and seen from where visitors stand
   the eye had missed across five sessions - the admin had found three by
   walking round. Run it after every build that spreads over ground, and fix
   a class-b part by laying it on `--terrain-report` heights, not by
-  guessing. It cannot see a part whose own mesh splits into islands (a
+  guessing. A grammar's terminals are parts too (#1508): a row names one
+  by its Shape node's pointer and `terminal` (`index`, `mesh`, `material`,
+  as `z_fighting` does), and a part resting on a grammar's terminal is held
+  by it. A placement with a grammar seed of its own is checked as that seed
+  draws the grammar, and its rows say the `seed`. L-systems and signs are not meshed (their generators are listed as
+  `unmeshed`). It cannot see a part whose own mesh splits into islands (a
   BlobGroup whose elements do not overlap), and a stacked stone's overhang
   reads as class b: judge those by eye.
 - Building around a person: an interior of 5.2 x 7 m held a 2 x 3 m buggy
@@ -431,6 +450,17 @@ Two faces in one plane, facing one way, flicker as anyone moves. A still
   the node's terminals in derivation order from 0 and tells two with one
   mesh id apart. A grammar that does not parse or derive draws nothing, nor
   anything hung below its node, and none of it is checked.
+- **The answer says what each grammar drew** (#1507), since an empty
+  `z_fighting` can also mean a grammar drew nothing at all: `grammars` lists
+  each Shape node the check derived, by pointer, with `terminals` (how many
+  it derived) or `error` (why it drew nothing, as the World Editor's grammar
+  forge says it: `line 6: ...` for a line that does not parse, or the
+  derivation's failure). Those that drew nothing come first; at most 16 are
+  listed, and `grammars_total` says how many there were when more. A
+  grammar a placement's seed draws carries `placement`. A count far from
+  what you meant (3 terminals for a terrace of 40 windows) is a grammar
+  that went somewhere else. `rec.py apply` warns of each that draws nothing
+  and stops before a save.
 - Where a terminal is one of the pair, a strip narrower than 2 mm is left
   out too. The mesher draws a face the grammar splits off flat - a wall of
   `Comp(Faces)`, a roof's slope - as a slab 1 mm thick, and two such slabs

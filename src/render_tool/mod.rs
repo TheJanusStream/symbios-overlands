@@ -108,7 +108,8 @@
 //! `triangles.rs`, #1471) grows a world's placed generators in the same
 //! app and prints what each placement costs to draw. `--world ...
 //! --floating-report` (see `floating/mod.rs`, #1477) needs no app: it meshes
-//! each placed generator's primitives and names every part that floats.
+//! each placed generator's primitives and shape-grammar terminals (#1508)
+//! and names every part that floats.
 //! `--world ... --ambient-wav PATH` (see `ambient_wav.rs`, #1519) needs none
 //! either: it bakes the world's ambient bed into a WAV file as the game bakes
 //! it, and says where the loop the game plays starts.
@@ -833,8 +834,11 @@ struct Args {
     /// `a`, free of its generator (it touches nothing the generator stands
     /// by), or `b`, over falling ground (it rests on the generator's ground
     /// plane, and where the game stands an absolute placement the real
-    /// ground under it is lower) - the gap in metres and where it is. Reads
-    /// `--world-record` when given, as a render does. See `floating/mod.rs`.
+    /// ground under it is lower) - the gap in metres and where it is. A
+    /// shape grammar's terminals are parts (#1508), each also named by
+    /// `terminal`, and a placement with a grammar seed of its own is checked
+    /// as that seed draws them (`seed`). Reads `--world-record` when given,
+    /// as a render does. See `floating/mod.rs`.
     #[arg(long, requires = "world", conflicts_with_all = ["terrain_report", "triangle_report"])]
     floating_report: bool,
     /// With `--world`: bake the world's ambient bed - the room's

@@ -228,6 +228,31 @@ class Apply(unittest.TestCase):
         self.assertIn("z-fighting not checked in time for: /generators/town", text)
         self.assertIn("CHECK: 1 edit(s) left z-fighting unchecked", text)
 
+    def test_a_grammar_that_draws_nothing_stops_the_chain(self):
+        # a grammar with a line that does not parse draws nothing, and z_fighting=0 then means nothing
+        # was there to fight (#1507): the daemon names it with the editor's message
+        answer = {"ok": True, "result": {"changed": True, "adjusted_at": [], "z_fighting": [],
+                                         "ignored_at": [],
+                                         "grammars": [{"node": "/generators/barn", "error": "line 6: bad"},
+                                                      {"node": "/generators/barn/children/2", "terminals": 40}],
+                                         "record_size": {"largest": "room", "bytes": 1, "budget_bytes": 2}}}
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "barn.json"), "w") as fh:
+                json.dump({}, fh)
+            edits = os.path.join(d, "EDITS")
+            with open(edits, "w") as fh:
+                fh.write("/generators/barn barn.json\n")
+            out = io.StringIO()
+            with mock.patch.object(rec.agentlib, "agent", lambda *args: answer), \
+                    mock.patch.object(sys, "argv", ["rec.py", "apply", "room", edits]), \
+                    contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as stopped:
+                rec.main()
+        self.assertEqual(stopped.exception.code, 3)
+        text = out.getvalue()
+        self.assertIn("WARNING: the grammar at /generators/barn draws nothing: line 6: bad", text)
+        self.assertNotIn("/generators/barn/children/2", text)
+        self.assertIn("CHECK: 1 edit(s) drew nothing with a grammar", text)
+
     def test_edits_past_the_live_ceiling_say_they_reached_nobody(self):
         # Ashmere, sessions 883-885 (#1500): every live edit was refused at the wire while apply read as
         # clean, so the owner was told of changes nobody could see. A NOTE says so; saving is what
@@ -259,6 +284,7 @@ class Apply(unittest.TestCase):
                                          "z_fighting": [{"a": "/generators/a", "b": "/generators/b"}],
                                          "z_fighting_unchecked": ["/generators/a"],
                                          "ignored_at": ["/generators/a/y"],
+                                         "grammars": [{"node": "/generators/a", "error": "line 1: bad"}],
                                          "record_size": {"largest": "room", "bytes": 1, "budget_bytes": 2}}}
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "a.json"), "w") as fh:
@@ -273,7 +299,7 @@ class Apply(unittest.TestCase):
                 rec.main()
         [check] = [line for line in out.getvalue().splitlines() if line.startswith("CHECK:")]
         labels = [part.split(" edit(s) ", 1)[1] for part in check[len("CHECK: "):].split(" - ")[0].split(", ")]
-        self.assertEqual(len(labels), 4, check)
+        self.assertEqual(len(labels), 5, check)
         usage = " ".join(rec.__doc__.split())
         for label in labels:
             self.assertIn(label, usage)

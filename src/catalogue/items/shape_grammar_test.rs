@@ -26,6 +26,7 @@ pub(super) fn assert_grammar_parses_and_derives(kind: GeneratorKind, entry_name:
         seed,
         materials,
         round_meshes,
+        solid_meshes,
     } = kind
     else {
         panic!("{entry_name}: build_kind must return GeneratorKind::Shape");
@@ -80,6 +81,14 @@ pub(super) fn assert_grammar_parses_and_derives(kind: GeneratorKind, entry_name:
         assert!(
             emitted_meshes.contains(id),
             "{entry_name} marks `{id}` as a turned terminal but the grammar never emits I(\"{id}\")"
+        );
+    }
+    // Nor does a `solid_meshes` entry (#1506): a typo there leaves a wall
+    // a visitor walks through.
+    for id in &solid_meshes {
+        assert!(
+            emitted_meshes.contains(id),
+            "{entry_name} marks `{id}` as a solid terminal but the grammar never emits I(\"{id}\")"
         );
     }
 

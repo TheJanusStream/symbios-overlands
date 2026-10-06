@@ -38,11 +38,14 @@
 //! and one entry grows at most a handful of generators rather than one per
 //! lot. Props keep street scale, at most 1.0 ([`fit_clamp`]).
 //!
-//! Without the fit the injection writes exactly what it wrote before the
-//! switch existed: one generator per entry, the clamped fit on each
-//! placement's own (undrawn) scale. A saved district grown again - a portal
-//! into the room, a sibling network that grows nothing - therefore comes
-//! back byte for byte.
+//! Without the fit the injection writes what it wrote before the switch
+//! existed: one generator per entry, the clamped fit on each placement's
+//! own (undrawn) scale. A saved district grown again - a portal into the
+//! room, a sibling network that grows nothing - therefore comes back byte
+//! for byte, but for one change since: every Shape node of an entry's
+//! generator now draws with the entry's seed (#1514), which used to reach
+//! none of them, so a district grown before that comes back with its
+//! grammar buildings drawn anew.
 //!
 //! # What the district is made of (#1555)
 //!
@@ -60,7 +63,7 @@ use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 
 use crate::catalogue::{CatalogueEntry, StructureRole, entries_for, entries_for_room};
-use crate::pds::generator::{Generator, GeneratorKind, LotSettings, Placement, RoadConfig};
+use crate::pds::generator::{Generator, LotSettings, Placement, RoadConfig};
 use crate::pds::sanitize::limits;
 use crate::pds::types::{FP_SCALE, Fp, Fp3, Fp4, TransformData};
 use crate::pds::{RoomRecord, material_finish, ruin};
@@ -456,11 +459,13 @@ fn pool_for(
     .collect()
 }
 
-/// One shared road-layer generator: the catalogue entry built, its grammar
-/// seed restamped, finished and ruined by the layer's prosperity and
-/// escalation - one derivation per entry, shared by all its instances - and
-/// drawn at `scale` by its root (#1553), about the ground point its
-/// placement stands it on, as the seeded settlements' members are.
+/// One shared road-layer generator: the catalogue entry built, its grammars
+/// reseeded, finished and ruined by the layer's prosperity and escalation -
+/// one derivation per entry, shared by all its instances - and drawn at
+/// `scale` by its root (#1553), about the ground point its placement stands
+/// it on, as the seeded settlements' members are. Every Shape node takes the
+/// entry's seed (#1514): it was stamped on the root only, and every grammar
+/// entry roots on a footing box, so the seed reached none of them.
 fn grow_generator(
     entry: &dyn CatalogueEntry,
     did: &str,
@@ -468,10 +473,7 @@ fn grow_generator(
     (prosperity, escalation): (f32, f32),
     scale: f32,
 ) -> Generator {
-    let mut tree = entry.build(did);
-    if let GeneratorKind::Shape { seed: s, .. } = &mut tree.kind {
-        *s = entry_seed;
-    }
+    let mut tree = entry.build(did).with_shape_seed(entry_seed);
     material_finish::apply_socio_finish(&mut tree, prosperity, escalation);
     ruin::apply_ruin_bounded(&mut tree, escalation, entry_seed, entry.ruin_max_lean());
     crate::seeded_defaults::room::build::scale_about_ground(&mut tree, scale);
@@ -630,7 +632,7 @@ fn inject_lots(
         // switched on, the lot's fit rounded down to a quarter-octave bucket
         // inside the entry's clamp; with it off, the catalogue size - what
         // every lot building was drawn at before, so a saved district grown
-        // again comes back byte for byte.
+        // again comes back at the size it was saved at.
         let fp = entry.footprint();
         let fit = lot.width.min(lot.depth) / (2.0 * fp.clearance.max(0.5));
         // The fit a building is drawn at reads its own half side (#1559),
@@ -1288,6 +1290,7 @@ pub(super) fn maybe_populate_lots(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pds::generator::GeneratorKind;
     use crate::urban::BuildingLot;
 
     fn lot(x: f32, z: f32, w: f32, d: f32) -> BuildingLot {
@@ -1834,11 +1837,8 @@ mod tests {
             );
             let entry = entry_of(key, &prefix);
             let drawn = drawn_scale(entry, lot, &settings);
-            let mut base = entry.build(&did);
             let entry_seed = 4242 ^ fnv1a_64(entry.slug());
-            if let GeneratorKind::Shape { seed, .. } = &mut base.kind {
-                *seed = entry_seed;
-            }
+            let mut base = entry.build(&did).with_shape_seed(entry_seed);
             material_finish::apply_socio_finish(&mut base, scene.prosperity, scene.escalation);
             ruin::apply_ruin_bounded(
                 &mut base,
@@ -2345,10 +2345,9 @@ mod tests {
         );
         for (key, lot, ..) in grown(&calm, &lots, &prefix) {
             let entry = entry_of(key, &prefix);
-            let mut want = entry.build(&did);
-            if let GeneratorKind::Shape { seed, .. } = &mut want.kind {
-                *seed = 11 ^ fnv1a_64(entry.slug());
-            }
+            let mut want = entry
+                .build(&did)
+                .with_shape_seed(11 ^ fnv1a_64(entry.slug()));
             material_finish::apply_socio_finish(&mut want, scene.prosperity, 0.0);
             crate::seeded_defaults::room::build::scale_about_ground(
                 &mut want,
@@ -2451,10 +2450,9 @@ mod tests {
             .filter(|(k, _)| k.starts_with(&prefix))
         {
             let entry = entry_of(key, &prefix);
-            let mut want = entry.build(&did);
-            if let GeneratorKind::Shape { seed, .. } = &mut want.kind {
-                *seed = 3 ^ fnv1a_64(entry.slug()) ^ FURNITURE_STREAM_SALT;
-            }
+            let mut want = entry
+                .build(&did)
+                .with_shape_seed(3 ^ fnv1a_64(entry.slug()) ^ FURNITURE_STREAM_SALT);
             material_finish::apply_socio_finish(&mut want, scene.prosperity, 0.0);
             assert!(
                 *generator == want,
@@ -2646,11 +2644,8 @@ mod tests {
                 report.generator_cap_skips += 1;
                 continue;
             } else {
-                let mut tree = entry.build(did);
                 let entry_seed = seed ^ fnv1a_64(slug);
-                if let GeneratorKind::Shape { seed: s, .. } = &mut tree.kind {
-                    *s = entry_seed;
-                }
+                let mut tree = entry.build(did).with_shape_seed(entry_seed);
                 material_finish::apply_socio_finish(&mut tree, scene.prosperity, scene.escalation);
                 // The entry's own ruin bound (#1559) is item data, like its
                 // geometry, which this oracle also reads from the catalogue.
@@ -2698,7 +2693,10 @@ mod tests {
     /// mix HEAD knew, the default and a narrower clamp, a calm room and one
     /// at open conflict. So a saved district grown again (a portal into the
     /// room, a sibling network that grows nothing) comes back as it was
-    /// saved rather than in a new form.
+    /// saved rather than in a new form. The copy it is held to carries the
+    /// one change made since, #1514's - every Shape node of an entry's
+    /// generator draws with the entry's seed - so this does not pin the
+    /// bytes a district grown before #1514 had.
     #[test]
     fn the_default_injection_is_byte_identical_to_the_one_before_the_fit() {
         use crate::pds::generator::LotTierBias;
@@ -2948,6 +2946,58 @@ mod tests {
         );
     }
 
+    /// #1514: a lot building's grammars draw with its entry's seed. Every
+    /// grammar entry of the catalogue roots on a footing box with its Shape
+    /// node beneath it, and the seed was stamped on the root alone, so a
+    /// grown building drew its entry's catalogue seed in every room. Over
+    /// every theme, every Shape node of every grown generator carries
+    /// `seed ^ fnv1a_64(slug)` - and some sit below their roots, where the
+    /// old stamp never reached.
+    #[test]
+    fn a_lot_buildings_grammars_draw_with_its_entrys_seed() {
+        fn shape_seeds(node: &Generator, depth: usize, out: &mut Vec<(usize, u64)>) {
+            if let GeneratorKind::Shape { seed, .. } = node.kind {
+                out.push((depth, seed));
+            }
+            for child in &node.children {
+                shape_seeds(child, depth + 1, out);
+            }
+        }
+        let did = urban_did();
+        let lots: Vec<BuildingLot> = (0..40)
+            .map(|i| lot(i as f32 * 60.0, 0.0, 20.0 + i as f32, 30.0))
+            .collect();
+        let mut below_the_root = 0;
+        for theme in ThemeArchetype::ALL {
+            let settings = LotSettings {
+                theme_override: theme.label().to_string(),
+                ..LotSettings::default()
+            };
+            let mut record = RoomRecord::default_for_did(&did);
+            let prefix = seed_prefix(77);
+            inject_lot_buildings(&mut record, &lots, &did, 77, &prefix, &settings);
+            for (key, generator) in &record.generators {
+                if !key.starts_with(&prefix) {
+                    continue;
+                }
+                let entry_seed = 77 ^ fnv1a_64(entry_of(key, &prefix).slug());
+                let mut seeds = Vec::new();
+                shape_seeds(generator, 0, &mut seeds);
+                for (depth, seed) in seeds {
+                    assert_eq!(
+                        seed, entry_seed,
+                        "{theme:?} {key}: a grammar {depth} deep draws another seed"
+                    );
+                    below_the_root += usize::from(depth > 0);
+                }
+            }
+        }
+        assert!(
+            below_the_root >= 3,
+            "the themes grow grammar buildings: {below_the_root} grammars below a root"
+        );
+    }
+
     /// #1555, the critic's fifth finding: the prosperity override reaches
     /// the material finish, not only the pools - every generator is its
     /// entry finished at the OVERRIDE's prosperity, in a calm room whose own
@@ -2969,10 +3019,9 @@ mod tests {
         assert!(report.placed > 0);
         for (key, ..) in grown(&record, &lots, &prefix) {
             let entry = entry_of(key, &prefix);
-            let mut want = entry.build(&did);
-            if let GeneratorKind::Shape { seed, .. } = &mut want.kind {
-                *seed = 19 ^ fnv1a_64(entry.slug());
-            }
+            let mut want = entry
+                .build(&did)
+                .with_shape_seed(19 ^ fnv1a_64(entry.slug()));
             material_finish::apply_socio_finish(&mut want, 0.05, scene.escalation);
             ruin::apply_ruin_bounded(
                 &mut want,

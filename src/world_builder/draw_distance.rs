@@ -742,6 +742,7 @@ mod ecs_tests {
             seed: 1,
             materials: HashMap::new(),
             round_meshes: Vec::new(),
+            solid_meshes: Vec::new(),
         })
     }
 

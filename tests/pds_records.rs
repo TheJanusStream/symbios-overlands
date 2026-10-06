@@ -320,6 +320,40 @@ fn every_placement_variant_round_trips() {
     assert_no_floats(&back);
 }
 
+/// #1506: a client built before `solid_meshes` reads a node that carries
+/// it - the Shape node's decoder ignores a key it does not know, as it
+/// ignores a key from any later build - and draws it with no collider,
+/// rather than refusing the record.
+#[test]
+fn a_shape_node_reads_past_a_key_it_does_not_know() {
+    let node = |extra: Option<(&str, serde_json::Value)>| {
+        let mut wire = serde_json::json!({
+            "$type": "network.symbios.gen.shape",
+            "grammar_source": "Lot --> Extrude(2) I(\"Wall\")",
+            "root_rule": "Lot",
+            "footprint": [40_000, 0, 40_000],
+            "seed": "7",
+        });
+        if let Some((key, value)) = extra {
+            wire[key] = value;
+        }
+        serde_json::from_value::<symbios_overlands::pds::Generator>(wire).expect("the node reads")
+    };
+    let plain = node(None);
+    assert_eq!(
+        node(Some((
+            "a_key_from_a_later_build",
+            serde_json::json!(["Wall"])
+        ))),
+        plain
+    );
+    let solid = node(Some(("solid_meshes", serde_json::json!(["Wall"]))));
+    let GeneratorKind::Shape { solid_meshes, .. } = &solid.kind else {
+        panic!("a Shape node: {solid:?}");
+    };
+    assert_eq!(solid_meshes, &["Wall".to_string()]);
+}
+
 /// A `GeneratorKind::Shape` round-trips losslessly through JSON. Guards
 /// the string-keyed `materials` map (PDS deserialises JSON object keys
 /// as strings, which is the natural shape here) and the `seed` field
@@ -349,6 +383,7 @@ fn shape_generator_round_trips() {
             seed: 18_446_744_073_709_551_557,
             materials,
             round_meshes: vec!["Tower".into()],
+            solid_meshes: vec!["Tower".into()],
         }),
     );
 
@@ -371,6 +406,7 @@ fn shape_generator_round_trips() {
         seed,
         materials,
         round_meshes,
+        solid_meshes,
     } = kind
     else {
         panic!("expected Shape variant after round-trip, got {:?}", kind);
@@ -381,20 +417,31 @@ fn shape_generator_round_trips() {
     assert_eq!(*seed, 18_446_744_073_709_551_557);
     assert!(materials.contains_key("Brick"));
     assert_eq!(round_meshes, &vec!["Tower".to_string()]);
+    assert_eq!(solid_meshes, &vec!["Tower".to_string()]);
     assert_no_floats(&back);
 
-    // An empty turned-terminal list must not appear on the wire at all, so
-    // records written before the field round-trip byte-identically.
+    // An empty turned- or solid-terminal list (#1506) must not appear on
+    // the wire at all, so records written before the field round-trip
+    // byte-identically.
     let mut plain = record.clone();
     if let Some(g) = plain.generators.get_mut("tower")
-        && let GeneratorKind::Shape { round_meshes, .. } = &mut g.kind
+        && let GeneratorKind::Shape {
+            round_meshes,
+            solid_meshes,
+            ..
+        } = &mut g.kind
     {
         round_meshes.clear();
+        solid_meshes.clear();
     }
     let plain_json = serde_json::to_string(&plain).expect("serialise");
     assert!(
         !plain_json.contains("round_meshes"),
         "an empty round_meshes must be omitted from the wire form"
+    );
+    assert!(
+        !plain_json.contains("solid_meshes"),
+        "an empty solid_meshes must be omitted from the wire form"
     );
 }
 

@@ -1426,6 +1426,140 @@ mod tests {
         }
     }
 
+    /// #1506: a Shape node's terminals listed solid collide where they are
+    /// drawn, each as the box of its scope - in a placement turned and moved
+    /// off the origin, under a non-solid root - and the rest do not: the
+    /// wall holds a point inside it, the doorway beside it holds none.
+    /// Listing the door instead, an edit, swaps them, so a changed list is
+    /// not answered from the cached spawn list.
+    #[test]
+    fn a_grammar_s_solid_terminals_collide_where_they_are_drawn() {
+        use bevy::ecs::system::RunSystemOnce;
+        let house = |solid: &[&str]| -> Generator {
+            serde_json::from_value(serde_json::json!({
+                "$type": "network.symbios.gen.cuboid", "size": [1000, 1000, 1000], "solid": false,
+                "children": [{
+                    "$type": "network.symbios.gen.shape",
+                    "grammar_source": "Lot --> Extrude(2) Split(X) { ~1: Wall | ~1: Door }\n\
+                                       Wall --> I(\"Wall\")\nDoor --> I(\"Door\")",
+                    "root_rule": "Lot",
+                    "footprint": [40_000, 0, 10_000],
+                    "seed": "1",
+                    "solid_meshes": solid,
+                    "transform": {"translation": [0, 5_000, 0]},
+                }]
+            }))
+            .expect("wire JSON")
+        };
+        let mut record = test_record(0);
+        record.generators.insert("house".into(), house(&["Wall"]));
+        let turn = Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2);
+        record.placements.push(Placement::Absolute {
+            generator_ref: "house".into(),
+            transform: TransformData {
+                translation: Fp3([10.0, 0.0, -5.0]),
+                rotation: Fp4(turn.to_array()),
+                scale: Fp3([1.0, 1.0, 1.0]),
+            },
+            snap_to_terrain: false,
+            avoid_water: false,
+            avoid_water_clearance: Fp(0.0),
+            seed: None,
+        });
+        // The middle of each 2 x 2 x 1 m terminal, from the node's frame
+        // (wall at x 0..2, door at x 2..4, 0.5 m up the root) to the world.
+        let world = |x: f32| Vec3::new(10.0, 0.0, -5.0) + turn * Vec3::new(x, 1.5, 0.5);
+        let (wall, door) = (world(1.0), world(3.0));
+        let mut app = compile_app_with_physics(record);
+        let held = |app: &mut App| {
+            settle(app);
+            for _ in 0..4 {
+                app.update();
+            }
+            let drawn: Vec<Vec3> = app
+                .world_mut()
+                .query_filtered::<&GlobalTransform, With<Mesh3d>>()
+                .iter(app.world())
+                .map(GlobalTransform::translation)
+                .collect();
+            for at in [wall, door] {
+                assert!(
+                    drawn.iter().any(|d| d.distance(at) < 1e-3),
+                    "a terminal is drawn at {at}: {drawn:?}"
+                );
+            }
+            app.world_mut()
+                .run_system_once(move |query: SpatialQuery| {
+                    [wall, door].map(|at| {
+                        !query
+                            .point_intersections(at, &SpatialQueryFilter::default())
+                            .is_empty()
+                    })
+                })
+                .expect("the spatial query runs")
+        };
+        assert_eq!(held(&mut app), [true, false], "the wall is solid");
+
+        app.world_mut()
+            .resource_mut::<LiveRoomRecord>()
+            .0
+            .generators
+            .insert("house".into(), house(&["Door"]));
+        assert_eq!(held(&mut app), [false, true], "the door is solid now");
+    }
+
+    /// #1506, the critic's case: the flat walls `Comp(Faces)` hands out, on
+    /// a node scaled 2 x 1 x 1, collide where they are drawn - a ray at
+    /// mid-height meets the far side wall 1 mm thick where it stands, and
+    /// one a metre past the building's end meets nothing. avian scales a
+    /// compound's pieces along each piece's own axes, and a side wall is
+    /// turned in the node: given as a turned box, its collider ran double
+    /// its length past both ends of the building.
+    #[test]
+    fn flat_solid_walls_collide_where_drawn_on_a_scaled_node() {
+        use bevy::ecs::system::RunSystemOnce;
+        let house: Generator = serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.gen.shape",
+            "grammar_source": "Lot --> Extrude(3) Comp(Faces) { Side: Wall }\nWall --> I(\"Wall\")",
+            "root_rule": "Lot",
+            "footprint": [40_000, 0, 100_000],
+            "seed": "1",
+            "solid_meshes": ["Wall"],
+            "transform": {"scale": [20_000, 10_000, 10_000]},
+        }))
+        .expect("wire JSON");
+        let mut record = test_record(0);
+        record.generators.insert("house".into(), house);
+        record.placements.push(placed("house", 0, None));
+        let mut app = compile_app_with_physics(record);
+        settle(&mut app);
+        for _ in 0..4 {
+            app.update();
+        }
+        // The block stands over x 0..8 (4 m scaled 2) and z 0..10.
+        let hits = app
+            .world_mut()
+            .run_system_once(|query: SpatialQuery| {
+                [5.0_f32, 11.0, -1.0].map(|z| {
+                    query
+                        .cast_ray(
+                            Vec3::new(20.0, 1.5, z),
+                            Dir3::NEG_X,
+                            40.0,
+                            true,
+                            &SpatialQueryFilter::default(),
+                        )
+                        .map(|hit| hit.distance)
+                })
+            })
+            .expect("the spatial query runs");
+        let [inside, past_the_end, before_the_start] = hits;
+        let met = inside.expect("the side wall at x = 8 stops the ray");
+        assert!((met - 12.0).abs() < 0.01, "met at {met}");
+        assert_eq!(past_the_end, None, "an invisible wall past z = 10");
+        assert_eq!(before_the_start, None, "an invisible wall before z = 0");
+    }
+
     /// The node seed of [`tower`]'s grammar.
     const OWN_SEED: u64 = 1;
 

@@ -935,7 +935,13 @@ cargo run --bin render -- --world <did> --world-record room.json --triangle-repo
 # (its ground plane, or the real ground at one of its placements), but where
 # the game stands an absolute placement some point of its underside is more
 # than 15 cm over the real ground, water or part under it. What touches what
-# comes from the real meshes, so a cap resting on its stem is not named; ~1 s:
+# comes from the real meshes, so a cap resting on its stem is not named. A
+# shape grammar's terminals are parts too (#1508), derived and meshed as the
+# world draws them, each named by its Shape node's pointer and `terminal`
+# (its index, mesh id and material slot) - an absolute placement with a
+# grammar seed of its own (#1505) is checked as that seed draws them, and
+# its rows say the `seed`; L-systems and signs are not meshed and their
+# generators are listed as `unmeshed`; ~1 s:
 cargo run --bin render -- --world <did> --world-record room.json --floating-report
 # A world's ambient bed as a WAV file, no render (#1519): the game's own bake of
 # the room's ambient_audio recipe (mono 16-bit PCM), and one JSON line with its
@@ -1239,7 +1245,13 @@ own, or a tree with no grammar) is not checked again. The check stops after
 3 s, well inside the 10 s the agent waits for an answer - though it derives
 a grammar whole before it looks at the time again, which symbios-shape stops
 at 100 000 terminals - and lists each generator it did not finish by pointer
-(`z_fighting_unchecked`), a seeded placement by its own. `room set` and
+(`z_fighting_unchecked`), a seeded placement by its own. It also says what
+each Shape node it derived drew (`grammars`, #1507), since an empty
+`z_fighting` can also mean a grammar drew nothing: the node's pointer and
+`terminals`, how many it derived, or `error`, the World Editor grammar
+forge's reason it drew nothing; those that drew nothing first, at most 16,
+with `grammars_total` when there were more, and `placement` where a
+placement's seed drew it. `room set` and
 `avatar set` also weigh the record as a save would write it - a world as
 its manifest and one record per generator, the avatar as one - and name the
 largest with its size against

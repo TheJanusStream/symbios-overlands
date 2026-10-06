@@ -15,9 +15,9 @@
 //! (so they never crowd the spawn square) facing inward; props scatter
 //! across the settlement's far hemisphere. The wiring layer
 //! ([`RoomRecord::default_for_did`](crate::pds::RoomRecord::default_for_did))
-//! turns each member into a named generator (restamping Shape-grammar
-//! seeds) plus a terrain-snapped `Placement::Absolute` carrying the
-//! member's water clearance.
+//! turns each member into a named generator plus a terrain-snapped
+//! `Placement::Absolute` carrying the member's water clearance and, for a
+//! Shape-grammar building, its grammar seed.
 
 use std::f32::consts::TAU;
 
@@ -74,7 +74,8 @@ pub struct SettlementMember {
     /// a prop: every copy of a prop slug shares one generator, so a per-copy
     /// scale could never be drawn.
     pub scale: f32,
-    /// Replacement seed for Shape-grammar entries' stochastic rules.
+    /// Replacement seed for Shape-grammar entries' stochastic rules,
+    /// written on the member's placement (#1514), and the seed of its ruin.
     pub grammar_seed: u64,
     /// Keep-clear radius (m) at the size the member is drawn - its
     /// [`crate::catalogue::Footprint::clearance`] times [`Self::scale`] -

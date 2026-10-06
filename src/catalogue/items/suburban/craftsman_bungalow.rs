@@ -527,6 +527,7 @@ fn build_kind() -> GeneratorKind {
         materials: materials(),
         // All square timber - even the battered piers are square in plan.
         round_meshes: Vec::new(),
+        solid_meshes: Vec::new(),
     }
 }
 

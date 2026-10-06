@@ -243,6 +243,7 @@ fn build_kind() -> GeneratorKind {
             "StackBand".to_string(),
             "Tank".to_string(),
         ],
+        solid_meshes: Vec::new(),
     }
 }
 

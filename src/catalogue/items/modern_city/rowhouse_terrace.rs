@@ -271,6 +271,7 @@ fn build_kind() -> GeneratorKind {
         materials: materials(),
         // A terrace is square-plan throughout - nothing is turned.
         round_meshes: Vec::new(),
+        solid_meshes: Vec::new(),
     }
 }
 

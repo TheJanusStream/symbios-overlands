@@ -167,6 +167,7 @@ pub fn sanitize_kind_with(kind: &mut GeneratorKind, max_dim: f32) {
             footprint,
             materials,
             round_meshes,
+            solid_meshes,
             ..
         } => {
             truncate_on_char_boundary(grammar_source, limits::MAX_SHAPE_SOURCE_BYTES);
@@ -201,11 +202,13 @@ pub fn sanitize_kind_with(kind: &mut GeneratorKind, max_dim: f32) {
             // match an emitted `I("...")`, and the list is deduped and
             // capped so a hostile record cannot blow the budget with
             // near-duplicate entries.
-            round_meshes
-                .retain(|id| !id.is_empty() && id.len() <= limits::MAX_SHAPE_ROOT_RULE_BYTES);
-            round_meshes.sort();
-            round_meshes.dedup();
-            round_meshes.truncate(limits::MAX_SHAPE_MATERIAL_SLOTS);
+            // Solid-mesh ids (#1506) likewise.
+            for ids in [round_meshes, solid_meshes] {
+                ids.retain(|id| !id.is_empty() && id.len() <= limits::MAX_SHAPE_ROOT_RULE_BYTES);
+                ids.sort();
+                ids.dedup();
+                ids.truncate(limits::MAX_SHAPE_MATERIAL_SLOTS);
+            }
         }
         GeneratorKind::Portal {
             target_did,

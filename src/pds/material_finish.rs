@@ -1,9 +1,8 @@
 //! Socio-political material-finish pass for seeded settlement members.
 //!
-//! After a catalogue entry is built into a concrete generator tree (and its
-//! Shape-grammar seed restamped), [`apply_socio_finish`] walks every
-//! material in that tree and nudges its PBR finish by the room's two
-//! continuous socio-political dials (see
+//! After a catalogue entry is built into a concrete generator tree,
+//! [`apply_socio_finish`] walks every material in that tree and nudges its
+//! PBR finish by the room's two continuous socio-political dials (see
 //! [`SceneCharacter`](crate::seeded_defaults::SceneCharacter)):
 //!
 //! - **prosperity** (poor → rich): rich surfaces lose roughness, gain
@@ -360,6 +359,7 @@ mod tests {
             seed: 1,
             materials: shape_mats,
             round_meshes: Vec::new(),
+            solid_meshes: Vec::new(),
         });
         let mut lsys = Generator::from_kind(GeneratorKind::LSystem {
             source_code: String::new(),

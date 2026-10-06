@@ -78,6 +78,15 @@
 //! placement whose seed draws exactly what its generator draws - a tree
 //! with no Shape node, or the seed every Shape node in it has already - is
 //! not checked again.
+//!
+//! An empty list can also mean a grammar drew nothing at all, which the
+//! world says only in the World Editor (#829). So the answer also says what
+//! each Shape node the check derived drew (`grammars`, #1507): its pointer
+//! and how many terminals it derived, or why it drew nothing - the grammar
+//! forge's message - those that drew nothing first, with the placement's
+//! pointer where a placement's seed drew it. A node the check did not reach
+//! before its time ran out, or one below a node that drew nothing, is not
+//! derived and not answered.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -302,10 +311,12 @@ impl Unit {
     }
 }
 
-/// At most this many pairs are named in one answer, the most area first.
+/// At most this many pairs are named in one answer, the most area first;
+/// and at most this many grammars, those that drew nothing first.
 const MAX_NAMED: usize = 16;
 
-/// What `room set` answers about z-fighting.
+/// What `room set` answers about z-fighting, and about the grammars the
+/// check derived on the way (#1507).
 #[derive(Debug, Default, PartialEq)]
 pub(super) struct Report {
     /// The pairs found, by JSON pointer into the record, the most area
@@ -318,12 +329,21 @@ pub(super) struct Report {
     /// its pairs, and perhaps not all. A generator as a placement's grammar
     /// seed draws it (#1505) is listed by the placement's pointer.
     pub(super) unchecked: Vec<String>,
+    /// What each Shape node the check derived drew, by the node's pointer:
+    /// how many terminals, or why nothing (`error`). Those that drew
+    /// nothing first, then in the order they were derived: at most
+    /// [`MAX_NAMED`].
+    pub(super) grammars: Vec<Value>,
+    /// How many Shape nodes were derived in all.
+    pub(super) grammars_total: usize,
 }
 
 impl Report {
     /// Writes this into a set's `answer`: `z_fighting`, the pairs named;
-    /// `z_fighting_total`, only when more were found than named; and
-    /// `z_fighting_unchecked`, only when the check ran out of time.
+    /// `z_fighting_total`, only when more were found than named;
+    /// `z_fighting_unchecked`, only when the check ran out of time; and
+    /// `grammars` and `grammars_total` by the same rule, only when the
+    /// check derived a grammar.
     pub(super) fn answer(self, answer: &mut Value) {
         let named = self.named.len();
         answer["z_fighting"] = json!(self.named);
@@ -332,6 +352,13 @@ impl Report {
         }
         if !self.unchecked.is_empty() {
             answer["z_fighting_unchecked"] = json!(self.unchecked);
+        }
+        let grammars = self.grammars.len();
+        if grammars > 0 {
+            answer["grammars"] = json!(self.grammars);
+        }
+        if self.grammars_total > grammars {
+            answer["grammars_total"] = json!(self.grammars_total);
         }
     }
 }
@@ -437,6 +464,8 @@ fn report_within(before: &RoomRecord, after: &RoomRecord, mut budget: Budget) ->
     let mut found: Vec<(f32, Value)> = Vec::new();
     let mut total = 0;
     let mut unchecked = Vec::new();
+    // Each derived grammar's answer, and whether it drew nothing (#1507).
+    let mut grammars: Vec<(bool, Value)> = Vec::new();
     for subject in subjects {
         let base = format!(
             "/generators/{}",
@@ -450,6 +479,17 @@ fn report_within(before: &RoomRecord, after: &RoomRecord, mut budget: Budget) ->
             .seeded
             .map(|(index, _)| format!("/placements/{index}"));
         let mut checked = check(&subject.tree, &mut budget);
+        for grammar in &checked.grammars {
+            let mut status = json!({ "node": pointer(&grammar.path) });
+            match &grammar.drawn {
+                Ok(terminals) => status["terminals"] = json!(terminals),
+                Err(why) => status["error"] = json!(why),
+            }
+            if let Some(placement) = &placement {
+                status["placement"] = json!(placement);
+            }
+            grammars.push((grammar.drawn.is_err(), status));
+        }
         // Of what a seed draws, only what the generator does not draw
         // itself is the seed's to answer for (#1505).
         if let Some((_, own)) = subject.seeded {
@@ -486,10 +526,20 @@ fn report_within(before: &RoomRecord, after: &RoomRecord, mut budget: Budget) ->
         }
     }
     found.sort_by(|x, y| y.0.total_cmp(&x.0));
+    // Stable: those that drew nothing first, each kind in the order it was
+    // derived.
+    grammars.sort_by_key(|(failed, _)| !failed);
+    let grammars_total = grammars.len();
     Report {
         named: found.into_iter().take(MAX_NAMED).map(|(_, v)| v).collect(),
         total,
         unchecked,
+        grammars: grammars
+            .into_iter()
+            .take(MAX_NAMED)
+            .map(|(_, v)| v)
+            .collect(),
+        grammars_total,
     }
 }
 
@@ -512,11 +562,14 @@ fn keep_what_only_the_seed_draws(
         return true;
     }
     let mut pieces = Vec::new();
+    // What its grammars draw is answered for the generator itself, where
+    // the set changed it, not for the seed.
     collect(
         own,
         transform_of(&own.transform).compute_affine(),
         &mut Vec::new(),
         &mut pieces,
+        &mut Vec::new(),
         budget,
     );
     // Spent while the pieces were being collected, some are missing.
@@ -627,8 +680,20 @@ struct Checked {
     /// be seen, by index, with the area they draw there: the most area
     /// first.
     pairs: Vec<(usize, usize, f32)>,
+    /// What each Shape node the check derived drew, in the order it was
+    /// derived (#1507).
+    grammars: Vec<Grammar>,
     /// Whether every pair was compared before the budget was spent.
     finished: bool,
+}
+
+/// What a Shape node's grammar drew when the check derived it (#1507).
+struct Grammar {
+    /// The node's path of child indices from the generator's root.
+    path: Vec<usize>,
+    /// How many terminals it derived, or why it drew nothing: the message
+    /// the World Editor's grammar forge shows.
+    drawn: Result<usize, String>,
 }
 
 impl Checked {
@@ -651,11 +716,13 @@ impl Checked {
 /// they can be seen, compared for as long as `budget` lasts.
 fn check(root: &Generator, budget: &mut Budget) -> Checked {
     let mut pieces = Vec::new();
+    let mut grammars = Vec::new();
     collect(
         root,
         transform_of(&root.transform).compute_affine(),
         &mut Vec::new(),
         &mut pieces,
+        &mut grammars,
         budget,
     );
     let tree = BoxTree::new(pieces.iter().map(|piece| (piece.min, piece.max)).collect());
@@ -697,20 +764,23 @@ fn check(root: &Generator, budget: &mut Budget) -> Checked {
     Checked {
         pieces,
         pairs,
+        grammars,
         finished,
     }
 }
 
 /// Every primitive and every shape-grammar terminal under `node`, placed as
 /// the world places it: each child by its parent's transform times its own,
-/// as the spawner parents them, and each terminal by its node's. Nothing
-/// below a Shape node whose grammar does not derive, which the world draws
-/// nothing of. Stops where it is once `budget` is spent.
+/// as the spawner parents them, and each terminal by its node's, with what
+/// each Shape node's grammar drew onto `grammars`. Nothing below a Shape
+/// node whose grammar does not derive, which the world draws nothing of.
+/// Stops where it is once `budget` is spent.
 fn collect(
     node: &Generator,
     world: Affine3A,
     path: &mut Vec<usize>,
     out: &mut Vec<Piece>,
+    grammars: &mut Vec<Grammar>,
     budget: &mut Budget,
 ) {
     if budget.spent() {
@@ -724,7 +794,7 @@ fn collect(
     {
         out.push(piece);
     }
-    if !terminals(&node.kind, world, path, out, budget) {
+    if !terminals(&node.kind, world, path, out, grammars, budget) {
         // The spawner hangs a node's children under the entity it spawns
         // for the node, and spawns none for a grammar that does not derive
         // (`spawn_node`): nothing below it is drawn.
@@ -733,7 +803,7 @@ fn collect(
     for (i, child) in node.children.iter().enumerate() {
         path.push(i);
         let child_world = world * transform_of(&child.transform).compute_affine();
-        collect(child, child_world, path, out, budget);
+        collect(child, child_world, path, out, grammars, budget);
         path.pop();
     }
 }
@@ -741,23 +811,36 @@ fn collect(
 /// The terminals of `kind`, when it is a Shape node placed by `world`:
 /// derived, meshed and placed by the spawner's own code
 /// (`world_builder::shape`), each by its own transform under its node's, as
-/// the spawner hangs each terminal under the node's entity. Whether the
-/// world spawns the node, as far as its grammar decides: a grammar that
-/// does not parse or derive draws nothing in the world, adds nothing here,
-/// and is false; every other node is true.
+/// the spawner hangs each terminal under the node's entity, with what its
+/// grammar drew pushed onto `grammars` (#1507). Whether the world spawns
+/// the node, as far as its grammar decides: a grammar that does not parse
+/// or derive draws nothing in the world, adds nothing here, and is false;
+/// every other node is true.
 fn terminals(
     kind: &GeneratorKind,
     world: Affine3A,
     path: &[usize],
     out: &mut Vec<Piece>,
+    grammars: &mut Vec<Grammar>,
     budget: &mut Budget,
 ) -> bool {
     let Some(def) = kind.shape_def() else {
         return true;
     };
-    let Ok(model) = def.derive() else {
-        return false;
+    let model = match def.derive() {
+        Ok(model) => model,
+        Err(underived) => {
+            grammars.push(Grammar {
+                path: path.to_vec(),
+                drawn: Err(underived.message().to_owned()),
+            });
+            return false;
+        }
     };
+    grammars.push(Grammar {
+        path: path.to_vec(),
+        drawn: Ok(model.terminals.len()),
+    });
     // Terminals of one key draw one mesh, which the spawner builds once
     // and shares among them; so is it read here.
     let mut units: HashMap<MeshCacheKey, Option<Unit>> = HashMap::new();
@@ -1350,6 +1433,7 @@ mod tests {
             transform_of(&node.transform).compute_affine(),
             &mut Vec::new(),
             &mut pieces,
+            &mut Vec::new(),
             budget,
         );
         pieces
@@ -1579,6 +1663,7 @@ mod tests {
             named,
             total,
             unchecked,
+            ..
         } = report_within(
             &empty(),
             &world(
@@ -1813,6 +1898,127 @@ mod tests {
             let found = set_in_a_box(broken);
             assert!(found.is_empty(), "{broken:?}: {found:?}");
         }
+    }
+
+    /// #1507: a set's answer says what each grammar it derived drew, since
+    /// an empty `z_fighting` can also mean a grammar drew nothing at all. A
+    /// Shape node that derives is answered with how many terminals it
+    /// derived; one that does not, with the message the World Editor's
+    /// grammar forge shows, ahead of every one that does; one below a node
+    /// that does not derive is not derived, as the world spawns nothing
+    /// there; and a generator with no grammar answers none.
+    #[test]
+    fn the_answer_says_what_each_grammar_drew() {
+        let good = shape(
+            &[
+                "Lot --> Extrude(1) Split(X) { ~1: Post | ~1: Post }",
+                "Post --> I(\"Post\")",
+            ],
+            [2.0, 0.0, 1.0],
+            [3.0, 0.0, 0.0],
+        );
+        let mut broken = shape(
+            &["Lot --> Extrude(1) I(\"Post\")", "%%% not a statement"],
+            [1.0, 0.0, 1.0],
+            [-3.0, 0.0, 0.0],
+        );
+        broken["children"] = json!([shape(
+            &["Lot --> Extrude(1) I(\"Post\")"],
+            [1.0, 0.0, 1.0],
+            [0.0, 2.0, 0.0],
+        )]);
+        let tree = cuboid([1.0, 1.0, 1.0], [0.0, 0.5, 0.0], vec![good, broken]);
+        let report = within(
+            &empty(),
+            &world(
+                HashMap::from([("house".to_owned(), generator(tree))]),
+                Vec::new(),
+            ),
+        );
+        assert_eq!(report.grammars_total, 2, "{:?}", report.grammars);
+        assert_eq!(report.grammars.len(), 2, "{:?}", report.grammars);
+        assert_eq!(
+            report.grammars[0]["node"], "/generators/house/children/1",
+            "{:?}",
+            report.grammars
+        );
+        assert!(
+            report.grammars[0]["error"]
+                .as_str()
+                .is_some_and(|why| why.starts_with("line 2: ")),
+            "{:?}",
+            report.grammars
+        );
+        assert_eq!(
+            report.grammars[1],
+            json!({ "node": "/generators/house/children/0", "terminals": 2 })
+        );
+
+        let plain = within(
+            &empty(),
+            &world(
+                HashMap::from([(
+                    "box".to_owned(),
+                    generator(cuboid([1.0, 1.0, 1.0], [0.0, 0.5, 0.0], vec![])),
+                )]),
+                Vec::new(),
+            ),
+        );
+        assert_eq!((plain.grammars.len(), plain.grammars_total), (0, 0));
+    }
+
+    /// #1507: at most [`MAX_NAMED`] grammars are answered, those that drew
+    /// nothing first - each kind in the order it was derived - and how many
+    /// were derived in all. Twenty Shape nodes, the last three of which do
+    /// not parse.
+    #[test]
+    fn the_grammars_that_drew_nothing_are_answered_first() {
+        let nodes: Vec<Value> = (0..20)
+            .map(|i| {
+                let grammar: &[&str] = if i >= 17 {
+                    &["Lot --> Extrude(1) I(\"Post\")", "%%% not a statement"]
+                } else {
+                    &["Lot --> Extrude(1) I(\"Post\")"]
+                };
+                shape(grammar, [0.5, 0.0, 0.5], [i as f32 * 2.0, 0.0, 0.0])
+            })
+            .collect();
+        let report = within(
+            &empty(),
+            &world(
+                HashMap::from([(
+                    "row".to_owned(),
+                    generator(cuboid([0.2, 0.2, 0.2], [0.0, -5.0, 0.0], nodes)),
+                )]),
+                Vec::new(),
+            ),
+        );
+        assert_eq!(report.grammars_total, 20);
+        assert_eq!(report.grammars.len(), MAX_NAMED);
+        let nodes: Vec<&str> = report
+            .grammars
+            .iter()
+            .map(|status| status["node"].as_str().expect("a pointer"))
+            .collect();
+        let want: Vec<String> = (17..20)
+            .chain(0..MAX_NAMED - 3)
+            .map(|i| format!("/generators/row/children/{i}"))
+            .collect();
+        assert_eq!(nodes, want);
+        assert!(
+            report.grammars[..3]
+                .iter()
+                .all(|status| status.get("error").is_some()),
+            "{:?}",
+            report.grammars
+        );
+        assert!(
+            report.grammars[3..]
+                .iter()
+                .all(|status| status["terminals"] == 1),
+            "{:?}",
+            report.grammars
+        );
     }
 
     /// Nor is anything below a grammar that does not derive: the world
@@ -2422,8 +2628,9 @@ mod tests {
     }
 
     /// The answer carries `z_fighting` always, `z_fighting_total` only when
-    /// more pairs were found than named, and `z_fighting_unchecked` only
-    /// when the check ran out of time.
+    /// more pairs were found than named, `z_fighting_unchecked` only when
+    /// the check ran out of time, and `grammars` only when it derived one,
+    /// with `grammars_total` only when more were derived than named (#1507).
     #[test]
     fn the_answer_lists_what_was_not_checked_only_when_something_was_not() {
         let mut answer = json!({ "changed": true });
@@ -2435,6 +2642,8 @@ mod tests {
             named: vec![json!({ "a": "/generators/g" })],
             total: 3,
             unchecked: vec!["/generators/g".to_owned()],
+            grammars: vec![json!({ "node": "/generators/g", "terminals": 2 })],
+            grammars_total: 5,
         }
         .answer(&mut answer);
         assert_eq!(
@@ -2444,6 +2653,24 @@ mod tests {
                 "z_fighting": [{ "a": "/generators/g" }],
                 "z_fighting_total": 3,
                 "z_fighting_unchecked": ["/generators/g"],
+                "grammars": [{ "node": "/generators/g", "terminals": 2 }],
+                "grammars_total": 5,
+            })
+        );
+
+        let mut answer = json!({ "changed": true });
+        Report {
+            grammars: vec![json!({ "node": "/generators/g", "error": "line 1: no" })],
+            grammars_total: 1,
+            ..Report::default()
+        }
+        .answer(&mut answer);
+        assert_eq!(
+            answer,
+            json!({
+                "changed": true,
+                "z_fighting": [],
+                "grammars": [{ "node": "/generators/g", "error": "line 1: no" }],
             })
         );
     }
@@ -2518,6 +2745,16 @@ mod tests {
         report_within(before, after, Budget::new(|| false))
     }
 
+    /// `report` with what it says of the grammars it derived left out
+    /// (#1507), for a test of what it says of z-fighting.
+    fn fights(report: Report) -> Report {
+        Report {
+            grammars: Vec::new(),
+            grammars_total: 0,
+            ..report
+        }
+    }
+
     /// #1505: a placement's grammar seed draws its generator as the
     /// generator's own seed does not, and what it draws is checked. A house
     /// whose own seed leaves its panel beside its post fights nowhere, set
@@ -2530,7 +2767,7 @@ mod tests {
         let (beside, pushed) = coin_seeds();
         let alone = housed(coin_house(beside), &[]);
         assert_eq!(
-            within(&empty(), &alone),
+            fights(within(&empty(), &alone)),
             Report::default(),
             "its own seed draws nothing twice"
         );
@@ -2561,6 +2798,31 @@ mod tests {
                 "placement": "/placements/1",
             })
         );
+    }
+
+    /// #1507: a grammar a placement's seed draws (#1505) is answered as
+    /// that seed draws it, by its node's pointer and the placement's; the
+    /// generator as it draws itself is answered, without one, where the set
+    /// changed the generator.
+    #[test]
+    fn a_grammar_a_placement_s_seed_draws_is_answered_with_the_placement() {
+        let (beside, pushed) = coin_seeds();
+        let alone = housed(coin_house(beside), &[]);
+        let own = within(&empty(), &alone);
+        assert_eq!(
+            own.grammars,
+            [json!({ "node": "/generators/house", "terminals": 2 })]
+        );
+        let seeded = within(&alone, &housed(coin_house(beside), &[None, Some(pushed)]));
+        assert_eq!(
+            seeded.grammars,
+            [json!({
+                "node": "/generators/house",
+                "terminals": 2,
+                "placement": "/placements/1",
+            })]
+        );
+        assert_eq!(seeded.grammars_total, 1);
     }
 
     /// #1505: what a seed draws is checked when its placement did not draw
@@ -2722,7 +2984,7 @@ mod tests {
         assert_eq!(own.total, 2, "fixture: the garage and the pushed panel");
 
         assert_eq!(
-            within(&set, &housed(garage.clone(), &[None, Some(quiet)])),
+            fights(within(&set, &housed(garage.clone(), &[None, Some(quiet)]))),
             Report::default(),
             "seed {quiet} draws no pair its generator does not"
         );
@@ -2784,7 +3046,7 @@ mod tests {
         let away = (1..64).find(|&s| !buried(s)).expect("one that does not");
 
         let set = housed(garage(cover), &[None]);
-        assert_eq!(within(&empty(), &set), Report::default(), "fixture");
+        assert_eq!(fights(within(&empty(), &set)), Report::default(), "fixture");
         let seeded = within(&set, &housed(garage(cover), &[None, Some(away)]));
         assert_eq!(seeded.total, 1, "{seeded:?}");
         assert_eq!(

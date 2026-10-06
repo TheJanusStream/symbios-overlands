@@ -180,6 +180,7 @@ fn build_kind() -> GeneratorKind {
         materials,
         // Nothing turned: the tower is a square-plan garrison keep.
         round_meshes: Vec::new(),
+        solid_meshes: Vec::new(),
     }
 }
 

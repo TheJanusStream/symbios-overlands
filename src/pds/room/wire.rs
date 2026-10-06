@@ -961,6 +961,7 @@ mod split_wire_tests {
                 seed: 3,
                 materials,
                 round_meshes: Vec::new(),
+                solid_meshes: Vec::new(),
             })
         };
         let baseline = child_rkey("hut", &build(0)).expect("test fixtures are addressable");

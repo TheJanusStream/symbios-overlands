@@ -623,3 +623,192 @@ fn the_cyberpunk_downtown_ruins_leave_nothing_hanging() {
         );
     }
 }
+
+/// A shape-grammar node in wire form (#1508): `grammar` one statement a
+/// line, derived from `Lot` over `footprint`, standing at `at` (m).
+fn shape(grammar: &[&str], footprint: [f32; 3], at: [f32; 3], children: Vec<Value>) -> Value {
+    json!({
+        "$type": "network.symbios.gen.shape",
+        "grammar_source": grammar.join("\n"),
+        "root_rule": "Lot",
+        "footprint": footprint.map(fp),
+        "seed": "1",
+        "transform": { "translation": at.map(fp) },
+        "children": children,
+    })
+}
+
+/// #1508: a grammar's terminals are parts. A house on a footing draws a
+/// block standing on it and a lantern half a metre aside and a metre over
+/// the block's top: the lantern floats, named by its Shape node's pointer
+/// and by which terminal it is, 1.12 m from the block (the nearest part
+/// it left); the block, standing on the footing, is held. Nothing is left
+/// unmeshed.
+#[test]
+fn a_grammar_s_floating_terminal_is_named_by_its_rule() {
+    let house = cuboid(
+        [4.0, 0.2, 4.0],
+        [0.0, 0.1, 0.0],
+        vec![shape(
+            &[
+                "Lot --> Extrude(1) Split(X) { ~1: Block | ~1: Air }",
+                "Block --> Mat(\"Stone\") I(\"Block\")",
+                "Air --> Translate(0.5, 2, 0) Size(scope.x, 0.5, scope.z) I(\"Lantern\")",
+            ],
+            [2.0, 0.0, 2.0],
+            [-1.0, 0.1, -1.0],
+            vec![],
+        )],
+    );
+    let fields = fields(
+        &record(vec![("house", house)], vec![absolute("house", 0.0, 0.0)]),
+        &flat(),
+    );
+
+    assert_eq!(fields["checked"]["parts"], 3, "{:?}", fields["checked"]);
+    assert_eq!(fields["unmeshed"], json!([]));
+    let rows = fields["floating"].as_array().expect("a list");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["part"], "/generators/house/children/0");
+    assert_eq!(rows[0]["kind"], "Shape");
+    assert_eq!(rows[0]["class"], "a");
+    assert_eq!(
+        rows[0]["terminal"],
+        json!({ "index": 1, "mesh": "Lantern", "material": null })
+    );
+    assert!(
+        (gap(&rows[0]) - 1.25_f32.sqrt()).abs() < 0.01,
+        "{}",
+        rows[0]
+    );
+}
+
+/// #1508: a part resting on a grammar's terminal is held by it. A ball on
+/// a block a grammar stands on a footing touches only the block: read with
+/// the grammar unmeshed, as it was, the ball floated 1 m over the footing.
+/// With a line of the grammar that does not parse, the world draws nothing
+/// of the node or below it, and neither is a part here.
+#[test]
+fn a_part_resting_on_a_grammar_s_terminal_is_held_by_it() {
+    let house = |grammar: &[&str]| {
+        cuboid(
+            [2.0, 0.2, 2.0],
+            [0.0, 0.1, 0.0],
+            vec![shape(
+                grammar,
+                [1.0, 0.0, 1.0],
+                [-0.5, 0.1, -0.5],
+                vec![sphere(0.2, [0.5, 1.2, 0.5])],
+            )],
+        )
+    };
+    let mended = fields(
+        &record(
+            vec![("house", house(&["Lot --> Extrude(1) I(\"Block\")"]))],
+            vec![absolute("house", 0.0, 0.0)],
+        ),
+        &flat(),
+    );
+    assert_eq!(mended["checked"]["parts"], 3, "{:?}", mended["checked"]);
+    assert_eq!(mended["floating"], json!([]));
+
+    let broken = fields(
+        &record(
+            vec![(
+                "house",
+                house(&["Lot --> Extrude(1) I(\"Block\")", "%%% not a statement"]),
+            )],
+            vec![absolute("house", 0.0, 0.0)],
+        ),
+        &flat(),
+    );
+    assert_eq!(broken["checked"]["parts"], 1, "{:?}", broken["checked"]);
+    assert_eq!(broken["floating"], json!([]));
+    assert_eq!(broken["unmeshed"], json!([]));
+}
+
+/// #1508: a grammar's terminal over falling ground is a class-b float, as
+/// a primitive is: the Puffball Meadow's downhill puff, drawn by a grammar,
+/// floats by the 4.05 m its box did, and is named by its rule.
+#[test]
+fn a_grammar_s_terminal_over_falling_ground_floats() {
+    let meadow = cuboid(
+        [0.2, 0.2, 0.2],
+        [0.0, 0.1, 0.0],
+        vec![shape(
+            &["Lot --> Extrude(0.2) I(\"Puff\")"],
+            [0.2, 0.0, 0.2],
+            [-8.1, -0.1, -0.1],
+            vec![],
+        )],
+    );
+    let rows = floating(
+        &record(vec![("meadow", meadow)], vec![absolute("meadow", 0.0, 0.0)]),
+        &ramp(),
+    );
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["part"], "/generators/meadow/children/0");
+    assert_eq!(rows[0]["class"], "b");
+    assert_eq!(
+        rows[0]["terminal"],
+        json!({ "index": 0, "mesh": "Puff", "material": null })
+    );
+    assert!((gap(&rows[0]) - 4.05).abs() < 0.01, "{rows:?}");
+}
+
+/// #1508 with #1505: an absolute placement with a grammar seed of its own
+/// is checked as that seed draws the generator's grammars, not as the
+/// generator's own seed does. A grammar whose lantern a coin lifts 3 m up
+/// from beside the block or leaves standing there: placed with the seed
+/// that lifts it, it floats 2 m over the block's top and its row carries
+/// the seed, though the node's own seed leaves it standing; placed with
+/// the seed that leaves it, the node's own lifting seed draws nothing
+/// anyone sees and nothing floats.
+#[test]
+fn a_placement_s_grammar_seed_is_checked_as_it_draws() {
+    let house = |seed: u64| {
+        let mut node = shape(
+            &[
+                "Lot --> Extrude(1) Split(X) { ~1: Block | ~1: Lantern }",
+                "Block --> I(\"Block\")",
+                "Lantern --> 50% Lifted | 50% Standing",
+                "Lifted --> Translate(0, 3, 0) I(\"Lantern\")",
+                "Standing --> I(\"Lantern\")",
+            ],
+            [2.0, 0.0, 1.0],
+            [-1.0, 0.0, -0.5],
+            vec![],
+        );
+        node["seed"] = json!(seed.to_string());
+        node
+    };
+    let floats = |seed: u64| {
+        !floating(
+            &record(
+                vec![("house", house(seed))],
+                vec![absolute("house", 0.0, 0.0)],
+            ),
+            &flat(),
+        )
+        .is_empty()
+    };
+    let lifts = (1..64).find(|&s| floats(s)).expect("a seed that lifts it");
+    let rests = (1..64).find(|&s| !floats(s)).expect("a seed that rests it");
+    let placed = |own: u64, seed: u64| {
+        let mut placement = absolute("house", 0.0, 0.0);
+        placement["seed"] = json!(seed.to_string());
+        floating(
+            &record(vec![("house", house(own))], vec![placement]),
+            &flat(),
+        )
+    };
+
+    let rows = placed(rests, lifts);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["seed"], lifts.to_string(), "{}", rows[0]);
+    assert_eq!(rows[0]["terminal"]["mesh"], "Lantern", "{}", rows[0]);
+    assert!((gap(&rows[0]) - 2.0).abs() < 0.01, "{}", rows[0]);
+
+    let rows = placed(lifts, rests);
+    assert!(rows.is_empty(), "{rows:?}");
+}

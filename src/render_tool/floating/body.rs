@@ -4,9 +4,15 @@
 //! tree's composed transforms, as the agent's z-fighting check places them
 //! (`agent::daemon::edit::zfight`, whose walk this copies): taper, bend,
 //! bulge and cut are in the mesh, so a limb set for a trunk's untapered
-//! radius stands off the trunk here exactly as it does in the world. The
-//! frame is the generator's own - its anchor at the origin, the ground it
-//! is snapped to at y = 0.
+//! radius stands off the trunk here exactly as it does in the world. So is
+//! every terminal a shape grammar in the tree derives (#1508): each Shape
+//! node's grammar is derived, and each of its terminals meshed and placed,
+//! by the spawner's own code (`world_builder::shape`), a part of its own
+//! under its node's transform. A Shape node whose grammar does not parse or
+//! derive is spawned with nothing below it, its children included, and so
+//! it is read: nothing of it or under it is a part. The frame is the
+//! generator's own - its anchor at the origin, the ground it is snapped to
+//! at y = 0.
 //!
 //! Two parts touch when their surfaces come within [`CONTACT_M`] of each
 //! other, or when one lies wholly inside the other's closed solid (a knot
@@ -17,6 +23,7 @@ use std::collections::HashMap;
 use bevy::math::Affine3A;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
+use bevy_symbios_shape::cache::MeshCacheKey;
 
 use super::geometry::{
     Tri, box_distance, boxes_distance, boxes_meet, closest_on_tri, ray_hit, tris_within,
@@ -34,12 +41,18 @@ pub(super) const CONTACT_M: f32 = 0.03;
 /// (the z-fighting check's).
 const RAY: Vec3 = Vec3::new(0.296_8, 0.881_3, 0.367_7);
 
-/// One primitive as the world draws it, in its generator's frame.
+/// One primitive, or one terminal of a shape grammar, as the world draws
+/// it, in its generator's frame.
 pub(super) struct Part {
-    /// Its path of child indices from the generator's root.
+    /// Its path of child indices from the generator's root: a primitive's
+    /// own node, or the Shape node a terminal was derived from.
     pub(super) path: Vec<usize>,
-    /// Its kind, as the record tags it (`Sphere`, `Spine`, ...).
+    /// Its kind, as the record tags it (`Sphere`, `Spine`, ...; `Shape` for
+    /// a terminal).
     pub(super) kind: &'static str,
+    /// Which of its Shape node's terminals it is (#1508); `None` for a
+    /// primitive.
+    pub(super) terminal: Option<Terminal>,
     pub(super) tris: Vec<Tri>,
     /// Its corners, each once.
     pub(super) points: Vec<Vec3>,
@@ -84,13 +97,36 @@ impl Part {
     }
 }
 
+/// A terminal of a shape grammar, named as the agent's z-fighting check
+/// names one, so that its rule can be found.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Terminal {
+    /// Its place in the derivation, from 0: the order the spawner meshes
+    /// the node's terminals in.
+    pub(super) index: usize,
+    /// The mesh id its rule emitted, the string of `I("...")`.
+    pub(super) mesh: String,
+    /// The material slot stamped on it, the string of `Mat("...")`.
+    pub(super) material: Option<String>,
+}
+
+impl Terminal {
+    pub(super) fn json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "index": self.index,
+            "mesh": self.mesh,
+            "material": self.material,
+        })
+    }
+}
+
 /// A generator's parts and what each touches.
 pub(super) struct Body {
     pub(super) parts: Vec<Part>,
     /// Each part's neighbours: the parts it touches, by index.
     pub(super) touches: Vec<Vec<usize>>,
-    /// Nodes that draw something this does not mesh - an L-system, a
-    /// shape, a sign - which a part could rest on unseen here.
+    /// Nodes that draw something this does not mesh, an L-system or a
+    /// sign, which a part could rest on unseen here.
     pub(super) unmeshed: usize,
 }
 
@@ -208,8 +244,11 @@ pub(super) fn distance(a: &Part, b: &Part, best: f32) -> f32 {
     best
 }
 
-/// Every primitive under `node`, placed as the world places it: each child
-/// by its parent's transform times its own, as the spawner parents them.
+/// Every primitive and every shape-grammar terminal under `node`, placed as
+/// the world places it: each child by its parent's transform times its own,
+/// as the spawner parents them, and each terminal by its node's. Nothing
+/// below a Shape node whose grammar does not derive, which the world draws
+/// nothing of.
 fn collect(
     node: &Generator,
     world: Affine3A,
@@ -218,12 +257,38 @@ fn collect(
     unmeshed: &mut usize,
 ) {
     if is_primitive(&node.kind) {
-        if let Some(part) = part(node, world, path) {
+        let mesh = build_primitive_mesh(&node.kind).mesh;
+        if let Some(part) = part(&mesh, world, path, node.kind.kind_tag(), None) {
             out.push(part);
+        }
+    } else if let Some(def) = node.kind.shape_def() {
+        let Ok(model) = def.derive() else {
+            // The spawner hangs a node's children under the entity it
+            // spawns for the node, and spawns none for a grammar that does
+            // not derive (`spawn_node`): nothing below it is drawn.
+            return;
+        };
+        // Terminals of one key draw one mesh, which the spawner builds once
+        // and shares among them; so is it built here.
+        let mut meshes: HashMap<MeshCacheKey, Mesh> = HashMap::new();
+        for (index, terminal) in model.terminals.iter().enumerate() {
+            let bake = def.bake(terminal);
+            let mesh = meshes
+                .entry(bake.cache_key())
+                .or_insert_with(|| bake.mesh());
+            let name = Terminal {
+                index,
+                mesh: terminal.mesh_id.clone(),
+                material: terminal.material.as_ref().map(|m| m.id.clone()),
+            };
+            let placed = world * bake.transform.compute_affine();
+            if let Some(part) = part(mesh, placed, path, node.kind.kind_tag(), Some(name)) {
+                out.push(part);
+            }
         }
     } else if matches!(
         node.kind,
-        GeneratorKind::LSystem { .. } | GeneratorKind::Shape { .. } | GeneratorKind::Sign { .. }
+        GeneratorKind::LSystem { .. } | GeneratorKind::Sign { .. }
     ) {
         *unmeshed += 1;
     }
@@ -235,9 +300,16 @@ fn collect(
     }
 }
 
-/// `node`'s primitive meshed by the real mesher and placed by `world`.
-fn part(node: &Generator, world: Affine3A, path: &[usize]) -> Option<Part> {
-    let mesh = build_primitive_mesh(&node.kind).mesh;
+/// `mesh` - a primitive's from the real mesher, or a terminal's from the
+/// shape mesher - placed by `world`: the part at `path`, of `kind`, or
+/// `terminal` of the Shape node there.
+fn part(
+    mesh: &Mesh,
+    world: Affine3A,
+    path: &[usize],
+    kind: &'static str,
+    terminal: Option<Terminal>,
+) -> Option<Part> {
     let Some(VertexAttributeValues::Float32x3(positions)) =
         mesh.attribute(Mesh::ATTRIBUTE_POSITION)
     else {
@@ -289,7 +361,8 @@ fn part(node: &Generator, world: Affine3A, path: &[usize]) -> Option<Part> {
     let max = points.iter().fold(Vec3::NEG_INFINITY, |m, p| m.max(*p));
     Some(Part {
         path: path.to_vec(),
-        kind: node.kind.kind_tag(),
+        kind,
+        terminal,
         closed: edges.values().all(|n| n % 2 == 0),
         tris,
         points,

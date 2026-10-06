@@ -273,11 +273,14 @@ share one generator a size and carry their seeds on their placements
   solar, the mill, the lodges and the smithy - one of a kind each. The
   next parish's three cottages keep their hand-built generators: at 450 m
   they are a skyline.
-- **A Shape node has no collider**: every grammar building has a solid
-  primitive core laid by its builder and hidden behind the grammar's skins
-  (proven live: a walk into a cot stopped 0.28 m from its wall; into the
-  cart lodge's open front, 0.24 m short of its back part). #1506 proposes
-  terminal colliders.
+- **Grammar buildings were built without colliders**: every grammar
+  building has a solid primitive core laid by its builder and hidden behind
+  the grammar's skins (proven live: a walk into a cot stopped 0.28 m from
+  its wall; into the
+  cart lodge's open front, 0.24 m short of its back part). #1506 built
+  terminal colliders in session 913 (`solid_meshes`, see
+  [building.md](../../building.md)): the cores can come out once everything
+  that saves Ashmere runs it - a save from an older build drops the lists.
 - The builders print each generator's bytes; `render --lineup a.json,...`
   sheets seeds or footprints side by side (`885/sg/v2_seeds.png`,
   `v2_footprints.png`).
@@ -395,7 +398,8 @@ From session 879's prompt (2026-09-26, #1481), unless dated otherwise:
   the next parish's three; `b/cottage.py` and `b/village.py` can build
   them again).
 - **Colliders for grammar buildings** (2026-09-29, #1506): "Yes, I want
-  colliders for grammar buildings" - approved, not yet built.
+  colliders for grammar buildings" - built in session 913 (2026-10-06): a
+  Shape node's `solid_meshes`.
 
 ## Working material
 
@@ -592,19 +596,15 @@ binaries and pictures.
   ceiling, without re-entering - and the agent's answers say when a live
   edit was refused (`live_sync`). Ashmere's live edits still reach nobody
   until the record is back under 900 KiB.
-- **Filed in session 885 and open**: #1506, colliders for grammar
-  terminals - APPROVED by the owner on 2026-09-29, to build (the grammar
-  buildings can then drop their hidden solid cores); #1507, `room set` says nothing when a changed Shape node's
-  grammar fails to parse or derive; #1508, `render --floating-report`
-  skips grammar terminals; #1510, the z-fighting check's point-in-solid
-  test takes every primitive for closed. From the end review: #1512 (the
-  editor may draw a rect scatter's outline turned the wrong way - read,
-  not rendered), #1513 (the older Seed fields round a seed past 2^53
-  through f64), #1514 (seeded settlements never vary their grammar
-  buildings; #1505's placement seed could), #1515 (z-fighting still checks
-  the children of a failing L-system or road node), #1516 (grammar status
-  keys can collide), #1517 (the control tests leave socket folders in
-  /tmp).
+- **Filed in session 885, all closed now**: #1506, colliders for grammar
+  terminals (the owner's yes of 2026-09-29; built in session 913 as a
+  Shape node's `solid_meshes`, so the grammar buildings can drop their
+  hidden solid cores); #1507, `room set` now answers what each changed
+  grammar drew (`grammars`: its terminal count, or why it drew nothing);
+  #1508, `render --floating-report` meshes grammar terminals; #1514,
+  seeded settlements' grammar buildings now draw with their own seeds
+  (all session 913); #1510 and, from the end review, #1512, #1513 and
+  #1515-#1517 in earlier sessions.
 - **#1489's live retry passed in part** (session 883): the owner left
   through the gate at 20:06:05 with their client open, Reeve saved the
   russet hood at 20:06:31, and asked 26 s after their return (22:19:16)
@@ -621,8 +621,10 @@ binaries and pictures.
   animals should also be improved significantly" (00:13 on 2026-09-27).
   They plan to work on the seeded regions soon (22:30).
 - **Next**, ranked at session 885's end:
-  1. #1506, colliders for grammar terminals (approved 2026-09-29), then
-     the grammar buildings' hidden solid cores taken out.
+  1. The grammar buildings' hidden solid cores taken out, now that a
+     Shape node's `solid_meshes` collides (#1506, built in session 913) -
+     once the owner's client and the daemon both run it, since a save from
+     an older build drops the lists.
   2. The other beasts as the sheep and cattle were remade: pigs, geese,
      hens, deer, horses, the oxen, the coneys.
   3. The empty land that remains.

@@ -560,6 +560,15 @@ fn shape_generator_caps_clamp_oversized_inputs() {
             "Column".into(),
             "Y".repeat(limits::MAX_SHAPE_ROOT_RULE_BYTES * 4),
         ],
+        // The solid list (#1506) by the same rules, and capped: a thousand
+        // distinct ids come out as the cap's worth, sorted.
+        solid_meshes: [String::new(), "Wall".into(), "Wall".into()]
+            .into_iter()
+            .chain(std::iter::once(
+                "Y".repeat(limits::MAX_SHAPE_ROOT_RULE_BYTES * 4),
+            ))
+            .chain((0..1000).map(|i| format!("Z{i:04}")))
+            .collect(),
     });
     sanitize_generator(&mut shape);
 
@@ -569,6 +578,7 @@ fn shape_generator_caps_clamp_oversized_inputs() {
         footprint,
         materials,
         round_meshes,
+        solid_meshes,
         ..
     } = &shape.kind
     else {
@@ -589,6 +599,18 @@ fn shape_generator_caps_clamp_oversized_inputs() {
         &vec!["Column".to_string()],
         "round_meshes should drop empty/oversized ids and dedupe"
     );
+    assert_eq!(solid_meshes.len(), limits::MAX_SHAPE_MATERIAL_SLOTS);
+    assert!(
+        solid_meshes
+            .iter()
+            .all(|id| !id.is_empty() && id.len() <= limits::MAX_SHAPE_ROOT_RULE_BYTES),
+        "solid_meshes should drop empty/oversized ids: {solid_meshes:?}"
+    );
+    assert!(
+        solid_meshes.windows(2).all(|w| w[0] < w[1]),
+        "solid_meshes should be sorted and deduped"
+    );
+    assert_eq!(solid_meshes[0], "Wall", "{solid_meshes:?}");
     for axis in footprint.0 {
         assert!(axis.is_finite(), "footprint axis left non-finite: {axis}");
     }

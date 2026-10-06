@@ -1829,6 +1829,28 @@ pub enum GeneratorKind {
         /// written before this field round-trip byte-identically.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         round_meshes: Vec<String>,
+        /// Terminal mesh ids - the strings emitted by `I("...")` - whose
+        /// terminals are solid (#1506): each carries a box collider on its
+        /// scope, as a solid primitive carries one, so a grammar building
+        /// stands in a visitor's way with no hidden solid primitive inside
+        /// it, and an open shed lists the walls it has and not its open
+        /// front. Keyed on the mesh id, as [`Self::Shape`]'s `round_meshes`
+        /// is.
+        ///
+        /// The collider is the scope's box whatever the mesh draws in it:
+        /// a turned column collides as the box it is inscribed in, a gable
+        /// end as the rectangle round its triangle, and a face a grammar
+        /// splits off flat (a wall of `Comp(Faces)`, a roof's slope) as a
+        /// slab 1 mm thick, the thickness the mesher draws it at.
+        ///
+        /// Empty (the default) leaves every terminal without a collider, as
+        /// every grammar was before, and is not written, so records written
+        /// before this field round-trip byte-identically. A client built
+        /// before it ignores the key and lets a visitor walk through - and
+        /// a save from one writes the node without it, as it drops a
+        /// placement's grammar seed (#1505).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        solid_meshes: Vec<String>,
     },
 
     #[serde(rename = "network.symbios.gen.cuboid")]
@@ -3054,6 +3076,13 @@ impl Generator {
         reseed(&mut copy, seed);
         copy
     }
+
+    /// Whether any node of this tree is a [`GeneratorKind::Shape`] grammar -
+    /// whether a placement's seed (#1505) varies anything it draws.
+    pub fn draws_a_grammar(&self) -> bool {
+        matches!(self.kind, GeneratorKind::Shape { .. })
+            || self.children.iter().any(Generator::draws_a_grammar)
+    }
 }
 
 #[cfg(test)]
@@ -3166,31 +3195,44 @@ mod placement_seed_wire_tests {
     /// Unset, the key is not written and the bytes are the ones the record
     /// had before the field existed - checked against a literal, and for
     /// every absolute placement of twelve seeded rooms against what the
-    /// placement type as it was before writes for the same values.
+    /// placement type as it was before writes for the same values. A seeded
+    /// settlement's grammar buildings carry their members' seeds (#1514):
+    /// their bytes are the old ones with the key after them.
     #[test]
     fn an_unseeded_placement_keeps_the_bytes_it_had() {
         assert_eq!(
             serde_json::to_string(&house(None)).expect("serialises"),
             r#"{"$type":"network.symbios.place.absolute","generator_ref":"house","transform":{"translation":[125000,0,-30000]},"avoid_water_clearance":0}"#
         );
-        let mut absolute = 0;
+        let (mut unseeded, mut seeded) = (0, 0);
         for seed in 1..=12u64 {
             let room = crate::pds::RoomRecord::default_for_seed(seed, "did:plc:corpus");
             for placement in &room.placements {
                 let Some(before) = as_before(placement) else {
                     continue;
                 };
-                absolute += 1;
+                let old = serde_json::to_string(&before).expect("serialises");
+                let expected = match placement.shape_seed() {
+                    None => {
+                        unseeded += 1;
+                        old
+                    }
+                    Some(own) => {
+                        seeded += 1;
+                        let fields = old.strip_suffix('}').expect("an object");
+                        format!(r#"{fields},"seed":"{own}"}}"#)
+                    }
+                };
                 assert_eq!(
                     serde_json::to_string(placement).expect("serialises"),
-                    serde_json::to_string(&before).expect("serialises"),
+                    expected,
                     "seed {seed}: a placement's bytes moved"
                 );
             }
         }
         assert!(
-            absolute > 12,
-            "the corpus holds absolute placements: {absolute}"
+            unseeded > 12 && seeded > 0,
+            "the corpus holds absolute placements, seeded and not: {unseeded} and {seeded}"
         );
     }
 

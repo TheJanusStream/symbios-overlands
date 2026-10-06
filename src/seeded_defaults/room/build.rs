@@ -518,10 +518,11 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
     // primary landmark cluster (kept under the historical "landmark"
     // generator name the gateway and compile layers key on), an
     // optional second landmark cluster on naturally-partitioned
-    // landforms, and small hamlets in leftover regions. Shape-grammar
-    // entries get their stochastic seed restamped per DID so two users
-    // sharing a structure type still see different derivations; every
-    // member snaps to terrain with its own water clearance.
+    // landforms, and small hamlets in leftover regions. A Shape-grammar
+    // building draws with its member's own seed, carried on its placement
+    // (#1514), so two users - and two buildings of one entry - see
+    // different derivations; every member snaps to terrain with its own
+    // water clearance.
     //
     // Built once here and reused by the gateway wiring below, which
     // anchors the gate to the primary landmark.
@@ -577,7 +578,8 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
                     };
                     generators.insert(name.clone(), prop_gen);
                 }
-                placements.push(member_placement(name, member));
+                let grammar = generators[&name].draws_a_grammar();
+                placements.push(member_placement(name, member, grammar));
             }
         }
     }
@@ -746,11 +748,11 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
 }
 
 /// Wire one seeded [`crate::seeded_defaults::SettlementMember`] into the
-/// room record: resolve its catalogue entry, restamp the Shape-grammar
-/// seed, register the generator under `name`, and emit a terrain-snapped,
-/// water-avoiding `Placement::Absolute`. A slug that no longer resolves
-/// is silently skipped - a removed catalogue entry must not strand the
-/// whole room on the recovery banner.
+/// room record: resolve its catalogue entry, register the generator under
+/// `name`, and emit a terrain-snapped, water-avoiding `Placement::Absolute`
+/// carrying the member's grammar seed. A slug that no longer resolves is
+/// silently skipped - a removed catalogue entry must not strand the whole
+/// room on the recovery banner.
 fn wire_settlement_member(
     member: &crate::seeded_defaults::SettlementMember,
     name: &str,
@@ -763,16 +765,18 @@ fn wire_settlement_member(
     let Some(member_gen) = build_member_generator(member, did, prosperity, escalation) else {
         return;
     };
+    let grammar = member_gen.draws_a_grammar();
     generators.insert(name.to_string(), member_gen);
-    placements.push(member_placement(name.to_string(), member));
+    placements.push(member_placement(name.to_string(), member, grammar));
 }
 
-/// Build a settlement member's generator tree: the catalogue entry, its
-/// stochastic grammar seed restamped from the member, and the socio-political
-/// finish + escalation damage applied. `None` if the slug no longer resolves
-/// (a catalogue rename); the caller then skips both the generator and its
-/// placement. Shared by the unique members (landmark / secondaries) and the
-/// slug-deduped props, so they build identically.
+/// Build a settlement member's generator tree: the catalogue entry, with the
+/// socio-political finish + escalation damage applied. Its grammars draw
+/// with the member's seed through its placement ([`member_placement`]).
+/// `None` if the slug no longer resolves (a catalogue rename); the caller
+/// then skips both the generator and its placement. Shared by the unique
+/// members (landmark / secondaries) and the slug-deduped props, so they
+/// build identically.
 fn build_member_generator(
     member: &crate::seeded_defaults::SettlementMember,
     did: &str,
@@ -781,9 +785,6 @@ fn build_member_generator(
 ) -> Option<Generator> {
     let entry = crate::catalogue::by_slug(member.slug)?;
     let mut member_gen = entry.build(did);
-    if let GeneratorKind::Shape { seed, .. } = &mut member_gen.kind {
-        *seed = member.grammar_seed;
-    }
     // Socio-political material finish: nudge every material in the built
     // tree toward the room's prosperity (grime ↔ polish) and escalation
     // (peace ↔ scorch). Deterministic; a neutral room is left untouched.
@@ -827,9 +828,17 @@ pub(crate) fn scale_about_ground(generator: &mut Generator, scale: f32) {
 /// is drawn ([`member_ground_radius`]). Sunk 0.35 m below the snap so
 /// foundations bite into slopes instead of leaving daylight gaps under the
 /// downhill edge.
+///
+/// Where the member's tree `draws_a_grammar`, the placement carries the
+/// member's grammar seed (#1505), which every Shape node in the tree draws
+/// with - so the members of one entry, and the copies of one shared prop,
+/// each draw their own variety. The seed used to be stamped on the tree's
+/// root only, and every grammar entry of the catalogue roots on a footing
+/// box: no settlement building ever varied (#1514).
 fn member_placement(
     generator_ref: String,
     member: &crate::seeded_defaults::SettlementMember,
+    grammar: bool,
 ) -> Placement {
     let half_yaw = member.yaw_rad * 0.5;
     Placement::Absolute {
@@ -842,7 +851,7 @@ fn member_placement(
         snap_to_terrain: true,
         avoid_water: true,
         avoid_water_clearance: Fp(member_ground_radius(member)),
-        seed: None,
+        seed: grammar.then_some(member.grammar_seed),
     }
 }
 
@@ -1664,6 +1673,97 @@ mod tests {
             );
             assert!(props <= 20, "too many distinct props: {props}");
         }
+    }
+
+    /// #1514: a seeded settlement's grammar buildings draw with their own
+    /// members' seeds. Every grammar entry of the catalogue roots on a
+    /// footing box with its Shape node beneath it, and the member's seed was
+    /// stamped on the root, where no grammar read it: every building of an
+    /// entry drew the same derivation. Now a member whose tree draws a
+    /// grammar carries its seed on its placement, a member that draws none
+    /// carries no seed (its placement keeps the bytes it had), and the
+    /// buildings of one grammar derive differently.
+    #[test]
+    fn seeded_settlement_grammar_buildings_vary() {
+        use std::collections::{BTreeMap, BTreeSet};
+        fn shape_nodes<'g>(node: &'g Generator, out: &mut Vec<&'g Generator>) {
+            if node.kind.shape_def().is_some() {
+                out.push(node);
+            }
+            for child in &node.children {
+                shape_nodes(child, out);
+            }
+        }
+        // Per grammar (its text, root rule and footprint), the distinct
+        // derivations the corpus's buildings draw of it.
+        let mut drawn: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let (mut seeded, mut unseeded) = (0, 0);
+        for s in 0u64..64 {
+            let record = RoomRecord::default_for_did(&format!("did:test:{s}"));
+            for placement in &record.placements {
+                let Placement::Absolute { generator_ref, .. } = placement else {
+                    continue;
+                };
+                if !(generator_ref.starts_with("landmark")
+                    || generator_ref.starts_with("settlement_"))
+                {
+                    continue;
+                }
+                let tree = &record.generators[generator_ref];
+                let Some(seed) = placement.shape_seed() else {
+                    assert!(
+                        !tree.draws_a_grammar(),
+                        "did:test:{s}: {generator_ref} draws a grammar with no seed of its own"
+                    );
+                    unseeded += 1;
+                    continue;
+                };
+                assert!(
+                    tree.draws_a_grammar(),
+                    "did:test:{s}: {generator_ref} carries a seed it draws nothing with"
+                );
+                seeded += 1;
+                let as_placed = tree.with_shape_seed(seed);
+                let mut nodes = Vec::new();
+                shape_nodes(&as_placed, &mut nodes);
+                for node in nodes {
+                    let def = node.kind.shape_def().expect("a Shape node");
+                    let GeneratorKind::Shape {
+                        grammar_source,
+                        root_rule,
+                        footprint,
+                        ..
+                    } = &node.kind
+                    else {
+                        unreachable!("shape_def answers only for a Shape node");
+                    };
+                    let model = def
+                        .derive()
+                        .unwrap_or_else(|_| panic!("{generator_ref}'s grammar derives"));
+                    let layout: Vec<_> = model
+                        .terminals
+                        .iter()
+                        .map(|t| (&t.mesh_id, t.scope.position, t.scope.size))
+                        .collect();
+                    drawn
+                        .entry(format!("{root_rule} {:?}\n{grammar_source}", footprint.0))
+                        .or_default()
+                        .insert(format!("{layout:?}"));
+                }
+            }
+        }
+        assert!(
+            seeded >= 12 && unseeded >= 100,
+            "the corpus holds grammar buildings and others: {seeded} seeded, {unseeded} not"
+        );
+        let varied = drawn.values().filter(|layouts| layouts.len() > 1).count();
+        // 64 rooms hold 18 grammar buildings of 9 grammars, 5 of which
+        // draw more than one derivation; each drew one before.
+        assert!(
+            varied >= 3,
+            "the buildings of one grammar derive differently: {varied} of {} grammars vary",
+            drawn.len()
+        );
     }
 
     #[test]

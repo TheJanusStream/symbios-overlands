@@ -28,10 +28,15 @@
 //! [`MAX_REMEMBERED_FAILURES`] of them in all - so that the node's grammar
 //! status shows that error while the world draws the node with it,
 //! whichever copy compiled last.
+//!
+//! A node may list mesh ids as solid (#1506): each terminal with one of
+//! them collides as the box of its scope, all of a node's in one compound
+//! collider on the node's own entity ([`solid_collider`]).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use avian3d::prelude::Collider;
 use bevy::prelude::*;
 use bevy_symbios_shape::cache::{
     MeshCacheKey, ProfileKey, ShapeMeshCache as UpstreamShapeMeshCache,
@@ -62,13 +67,25 @@ pub type ShapeMaterialCache = GeneratorCache<(String, String), Handle<StandardMa
 
 /// One pre-baked terminal: the world-relative transform produced by
 /// `scope_to_transform`, the unit-sized procedural mesh handle (shared across
-/// all terminals with the same `(profile, size)` triple), and the optional
-/// material name emitted by `Mat("...")` in the grammar.
+/// all terminals with the same `(profile, size)` triple), the optional
+/// material name emitted by `Mat("...")` in the grammar, and whether its
+/// mesh id is listed solid (#1506).
 #[derive(Clone, Debug)]
 pub struct ShapeInstance {
     pub transform: Transform,
     pub mesh: Handle<Mesh>,
     pub material_id: Option<String>,
+    pub solid: bool,
+}
+
+/// What a grammar draws, as the spawner caches it per node and seed: its
+/// terminals in derivation order, and the collider of those listed solid
+/// (#1506, [`solid_collider`]) - built once per variant and shared, as the
+/// meshes are, by every copy that draws all of its terminals.
+#[derive(Debug, Default)]
+pub struct ShapeBuild {
+    pub instances: Vec<ShapeInstance>,
+    pub solid: Option<Collider>,
 }
 
 /// Persistent cross-compile cache for shape grammar geometry - the
@@ -154,7 +171,7 @@ struct Failing {
 }
 
 /// One variant's terminals, and the geometry hash it drew them from.
-pub(super) type Built = CachedBuild<Arc<[ShapeInstance]>>;
+pub(super) type Built = CachedBuild<Arc<ShapeBuild>>;
 
 /// At most this many variants that draw nothing are remembered (#1505):
 /// one for every placement a room can hold. Past it a failure is kept
@@ -489,12 +506,12 @@ impl ShapeMeshCache {
 
 /// What one variant of a Shape node draws: its terminals, or the grammar's
 /// error.
-pub(super) type Drawn = Result<Arc<[ShapeInstance]>, String>;
+pub(super) type Drawn = Result<Arc<ShapeBuild>, String>;
 
 /// The `GeneratorKind::Shape` payload, borrowed for the duration of one
 /// build. Grouping it keeps the derivation entry points to a handful of
 /// arguments now that the material map is a geometry input too (#939) -
-/// these five always travel together and always come from the same node.
+/// these always travel together and always come from the same node.
 #[derive(Clone, Copy)]
 pub(crate) struct ShapeDef<'a> {
     grammar_source: &'a str,
@@ -503,6 +520,7 @@ pub(crate) struct ShapeDef<'a> {
     seed: u64,
     materials: &'a HashMap<String, SovereignMaterialSettings>,
     round_meshes: &'a [String],
+    solid_meshes: &'a [String],
 }
 
 impl GeneratorKind {
@@ -521,6 +539,7 @@ impl GeneratorKind {
             seed,
             materials,
             round_meshes,
+            solid_meshes,
         } = self
         else {
             return None;
@@ -532,6 +551,7 @@ impl GeneratorKind {
             seed: *seed,
             materials,
             round_meshes,
+            solid_meshes,
         })
     }
 }
@@ -560,6 +580,14 @@ impl Underived {
             message: message.to_string(),
             logged: false,
         }
+    }
+
+    /// Why the grammar drew nothing, as the editor's grammar forge shows
+    /// it, and as the agent's `room set` answers it (#1507) - on the
+    /// platforms the agent builds for.
+    #[cfg(unix)]
+    pub(crate) fn message(&self) -> &str {
+        &self.message
     }
 }
 
@@ -799,6 +827,19 @@ fn shape_geometry_fingerprint(def: &ShapeDef<'_>) -> u64 {
     for name in round {
         h.field(name);
     }
+    // Which terminals are solid is held in the cached spawn list (#1506),
+    // so it keys the list as the geometry does. Tagged and counted, so no
+    // id can be read as a round one; left out when empty, so a node with
+    // none keeps the key it had.
+    if !def.solid_meshes.is_empty() {
+        let mut solid: Vec<&str> = def.solid_meshes.iter().map(String::as_str).collect();
+        solid.sort_unstable();
+        h.field("solid_meshes");
+        h.field(solid.len() as u64);
+        for name in solid {
+            h.field(name);
+        }
+    }
     h.finish()
 }
 
@@ -841,6 +882,7 @@ fn build_shape_geometry(
             transform: bake.transform,
             mesh,
             material_id: terminal.material.as_ref().map(|m| m.id.clone()),
+            solid: def.solid_meshes.contains(&terminal.mesh_id),
         });
     }
 
@@ -937,8 +979,12 @@ pub(super) fn spawn_shape_entity(
                 None => generator_ref.to_string(),
             };
             let drawn: Drawn =
-                build_shape_geometry(&def, &label, ctx.meshes, ctx.upstream_shape_mesh_cache)
-                    .map(Arc::from);
+                build_shape_geometry(&def, &label, ctx.meshes, ctx.upstream_shape_mesh_cache).map(
+                    |instances| {
+                        let solid = solid_collider(&instances);
+                        Arc::new(ShapeBuild { instances, solid })
+                    },
+                );
             // A grammar rejected, a root rule missing or an empty model is
             // remembered as well, under the hash it failed at: an edit that
             // fixes it changes the hash, so it is derived afresh rather
@@ -971,7 +1017,7 @@ pub(super) fn spawn_shape_entity(
         Ok(_) => failing_variant(ctx, generator_ref, own, (def.seed, geometry_hash)),
     };
     ctx.record_grammar_status(generator_ref, path, error);
-    let instances = drawn.ok()?;
+    let build = drawn.ok()?;
 
     // Parent every terminal under a single transform so the placement's
     // rotation/position anchors the whole building as a unit. Avatar
@@ -996,10 +1042,12 @@ pub(super) fn spawn_shape_entity(
     // - the per-generator-node accounting in `spawn_generator` would only
     // charge one per scatter point regardless of terminal count, blowing
     // past `MAX_ROOM_ENTITIES` and OOMing the ECS.
-    for instance in instances.iter() {
+    let mut drawn = 0;
+    for instance in &build.instances {
         if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
             break;
         }
+        drawn += 1;
         let material = resolve_material_handle(
             ctx,
             generator_ref,
@@ -1023,8 +1071,118 @@ pub(super) fn spawn_shape_entity(
         ctx.note_part(child, &instance.mesh, &instance.transform);
         *ctx.entities_spawned = ctx.entities_spawned.saturating_add(1);
     }
+    // The solid terminals' collider (#1506), of the terminals drawn: past
+    // the budget, a terminal that is not drawn is no wall either. Not on
+    // an avatar, whose locomotion preset's chassis is its only body - as a
+    // solid primitive's collider is not.
+    let collider = if drawn == build.instances.len() {
+        build.solid.clone()
+    } else {
+        solid_collider(&build.instances[..drawn])
+    };
+    if !ctx.avatar_mode
+        && let Some(collider) = collider
+    {
+        ctx.commands.entity(parent).insert(collider);
+    }
 
     Some(parent)
+}
+
+/// A solid terminal whose box reaches past this, in extent or in distance
+/// from its node, is left without a collider (m): symbios-shape bounds a
+/// scope's size only by its being finite, and an extent that overflows
+/// `f32` must not reach the physics.
+const MAX_SOLID_M: f32 = 4096.0;
+
+/// The 12 triangles of a box whose corner `i` lies on the `+x` side where
+/// bit 0 of `i` is set, `+y` for bit 1 and `+z` for bit 2, each wound
+/// counter-clockwise seen from outside.
+const BOX_TRIANGLES: [[u32; 3]; 12] = [
+    [0, 4, 6],
+    [0, 6, 2],
+    [1, 3, 7],
+    [1, 7, 5],
+    [0, 1, 5],
+    [0, 5, 4],
+    [2, 6, 7],
+    [2, 7, 3],
+    [0, 2, 3],
+    [0, 3, 1],
+    [4, 5, 7],
+    [4, 7, 6],
+];
+
+/// The collider of the solid terminals among `instances` (#1506), in their
+/// node's frame: each the box of its scope - the transform its unit mesh is
+/// drawn with, whose scale is the scope's extents (a mirrored one's taken
+/// unsigned, a flat one's the millimetre `scope_to_transform` gives it) -
+/// all in one compound. `None` when none is solid. A terminal whose box is
+/// not finite, or reaches past [`MAX_SOLID_M`], is left out.
+///
+/// One compound on the node's own entity, not one collider on each
+/// terminal's: avian finds the body a collider belongs to - the
+/// placement's static anchor - by walking up from the collider when the
+/// collider gains its parent (#1453), and the node is hung under its own
+/// parent only after its terminals are spawned under it, so a terminal's
+/// walk would stop at the node. The node's own collider walks the whole
+/// chain when the node is hung, as a solid primitive's does.
+///
+/// avian scales a compound by its entity's scale - the node's, under all
+/// its parents' - one piece at a time along each piece's own axes. That is
+/// exact for a box the scope leaves unturned, which is kept a box; a turned
+/// one (a wall `Comp(Faces)` hands out, a roof's slope) is given as the
+/// convex solid of its eight corners in the node's frame, which a scale
+/// along the node's axes moves exactly as it moves the mesh. Given as a box
+/// turned in the compound, a node scaled 2 x 1 x 1 stretched its side
+/// walls' colliders along their own length: invisible walls past the
+/// building's ends.
+pub(crate) fn solid_collider(instances: &[ShapeInstance]) -> Option<Collider> {
+    let pieces: Vec<(Vec3, Quat, Collider)> = instances
+        .iter()
+        .filter(|instance| instance.solid)
+        .filter_map(|instance| {
+            let Transform {
+                translation,
+                rotation,
+                scale,
+            } = instance.transform;
+            let extents = scale.abs();
+            let sound = translation.is_finite()
+                && rotation.is_finite()
+                && extents.is_finite()
+                && translation.abs().max_element() <= MAX_SOLID_M
+                && extents.max_element() <= MAX_SOLID_M;
+            if !sound {
+                return None;
+            }
+            let as_box = || {
+                (
+                    translation,
+                    rotation,
+                    Collider::cuboid(extents.x, extents.y, extents.z),
+                )
+            };
+            if rotation.abs_diff_eq(Quat::IDENTITY, 1.0e-6) {
+                return Some(as_box());
+            }
+            let half = extents * 0.5;
+            let corners: Vec<Vec3> = (0..8)
+                .map(|i| {
+                    let side = |bit: u32| if i & bit == 0 { -1.0 } else { 1.0 };
+                    translation + rotation * (half * Vec3::new(side(1), side(2), side(4)))
+                })
+                .collect();
+            // A box's own faces, so no hull is searched for: a search
+            // merges a slab's two faces when they lie a millimetre apart.
+            Some(
+                avian3d::parry::shape::SharedShape::convex_mesh(corners, &BOX_TRIANGLES)
+                    .map(|solid| (Vec3::ZERO, Quat::IDENTITY, Collider::from(solid)))
+                    .unwrap_or_else(as_box),
+            )
+        })
+        .collect();
+    (!pieces.is_empty()).then(|| Collider::compound(pieces))
 }
 
 /// How a grammar error names the copy that drew it (#1505): by its
@@ -1111,6 +1269,7 @@ mod grammar_error_tests {
                 seed: 1,
                 materials: &HashMap::new(),
                 round_meshes: &[],
+                solid_meshes: &[],
             },
             "test_gen",
             &mut meshes,
@@ -1127,6 +1286,7 @@ mod grammar_error_tests {
                 seed: 1,
                 materials: &HashMap::new(),
                 round_meshes: &[],
+                solid_meshes: &[],
             },
             "test_gen",
             &mut meshes,
@@ -1143,6 +1303,7 @@ mod grammar_error_tests {
                 seed: 1,
                 materials: &HashMap::new(),
                 round_meshes: &[],
+                solid_meshes: &[],
             },
             "test_gen",
             &mut meshes,
@@ -1185,7 +1346,7 @@ mod failure_memo_tests {
             !cache.remember(("g/9".to_owned(), 0), 1, &failed),
             "still full"
         );
-        let drew: Drawn = Ok(Arc::from(Vec::new()));
+        let drew: Drawn = Ok(Arc::new(ShapeBuild::default()));
         assert!(cache.remember(("g/0".to_owned(), 0), 3, &drew));
         assert_eq!(held(&cache), MAX_REMEMBERED_FAILURES - 1);
         assert!(
@@ -1284,6 +1445,7 @@ mod round_mesh_tests {
                 seed: 1,
                 materials: &HashMap::new(),
                 round_meshes: &round,
+                solid_meshes: &[],
             },
             "test_gen",
             &mut meshes,
@@ -1331,6 +1493,7 @@ mod round_mesh_tests {
                 seed: 1,
                 materials: &HashMap::new(),
                 round_meshes: round,
+                solid_meshes: &[],
             })
         };
 
@@ -1409,6 +1572,7 @@ mod card_uv_tests {
                 seed: 1,
                 materials: &materials,
                 round_meshes: &[],
+                solid_meshes: &[],
             },
             "test_gen",
             &mut meshes,
@@ -1474,6 +1638,7 @@ mod card_uv_tests {
                 seed: 1,
                 materials: m,
                 round_meshes: &[],
+                solid_meshes: &[],
             })
         };
 
@@ -1487,5 +1652,128 @@ mod card_uv_tests {
             h(&recoloured),
             "a colour/roughness edit must reuse the baked mesh list"
         );
+    }
+}
+
+#[cfg(test)]
+mod solid_collider_tests {
+    use super::*;
+
+    fn instance(transform: Transform, solid: bool) -> ShapeInstance {
+        ShapeInstance {
+            transform,
+            mesh: Handle::default(),
+            material_id: None,
+            solid,
+        }
+    }
+
+    /// #1506: the collider holds a piece for each solid terminal, in the
+    /// node's frame, and nothing of one not listed; with none solid there
+    /// is none. An unturned scope is a box at its middle with its extents
+    /// unsigned (a mirrored one's) and a flat one's millimetre; a turned
+    /// one is the convex solid of its eight corners where they stand in the
+    /// node, so that the node's own scale moves it as it moves the mesh; a
+    /// scope that is not finite or reaches past [`MAX_SOLID_M`] is left
+    /// out.
+    #[test]
+    fn each_solid_terminal_is_its_scope_in_the_node() {
+        let flat_mirrored =
+            Transform::from_xyz(1.0, 2.0, 3.0).with_scale(Vec3::new(-2.0, 4.0, 0.001));
+        let turn = Quat::from_rotation_y(0.5);
+        let turned = Transform::from_xyz(-4.0, 1.0, 0.0)
+            .with_rotation(turn)
+            .with_scale(Vec3::new(3.0, 2.0, 0.001));
+        let instances = [
+            instance(flat_mirrored, true),
+            instance(Transform::from_xyz(9.0, 9.0, 9.0), false),
+            instance(turned, true),
+            instance(Transform::from_xyz(f32::NAN, 0.0, 0.0), true),
+            instance(
+                Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::new(
+                    1.0e39_f64 as f32,
+                    1.0,
+                    1.0,
+                )),
+                true,
+            ),
+            instance(Transform::from_xyz(5_000.0, 0.0, 0.0), true),
+        ];
+        let collider = solid_collider(&instances).expect("solid terminals");
+        let compound = collider.shape().as_compound().expect("a compound");
+        let [(box_pose, unturned), (hull_pose, turned_piece)] = compound.shapes() else {
+            panic!("two pieces: {} shapes", compound.shapes().len());
+        };
+
+        let half = unturned.as_cuboid().expect("a box").half_extents;
+        assert!(
+            (half - Vec3::new(1.0, 2.0, 0.0005)).length() < 1e-6,
+            "{half:?}"
+        );
+        assert!(
+            (box_pose.translation - Vec3::new(1.0, 2.0, 3.0)).length() < 1e-6,
+            "{box_pose:?}"
+        );
+
+        assert!(hull_pose.translation.length() < 1e-6, "{hull_pose:?}");
+        assert!(
+            hull_pose.rotation.angle_between(Quat::IDENTITY) < 1e-6,
+            "{hull_pose:?}"
+        );
+        let solid = turned_piece
+            .as_convex_polyhedron()
+            .expect("the convex solid of a turned box");
+        let mut held: Vec<Vec3> = solid.points().to_vec();
+        let mut want: Vec<Vec3> = (0..8)
+            .map(|i| {
+                let side = |bit: u32| if i & bit == 0 { -0.5 } else { 0.5 };
+                turned.translation
+                    + turn * (Vec3::new(3.0, 2.0, 0.001) * Vec3::new(side(1), side(2), side(4)))
+            })
+            .collect();
+        let order = |a: &Vec3, b: &Vec3| a.to_array().partial_cmp(&b.to_array()).expect("finite");
+        held.sort_by(order);
+        want.sort_by(order);
+        assert_eq!(held.len(), 8, "{held:?}");
+        for (h, w) in held.iter().zip(&want) {
+            assert!((*h - *w).length() < 1e-5, "{h} against {w}");
+        }
+
+        assert!(solid_collider(&instances[1..2]).is_none());
+        assert!(
+            solid_collider(&instances[3..]).is_none(),
+            "nothing sound to collide"
+        );
+    }
+
+    /// The solid list keys the cached spawn list (#1506): listing a mesh
+    /// solid, or another one, derives afresh, while an empty list keeps the
+    /// key a node had before the field existed.
+    #[test]
+    fn the_solid_list_keys_the_spawn_list() {
+        let key = |round: &[String], solid: &[String]| {
+            shape_geometry_fingerprint(&ShapeDef {
+                grammar_source: "Lot --> I(\"x\")",
+                root_rule: "Lot",
+                footprint: Fp3([1.0, 0.0, 1.0]),
+                seed: 1,
+                materials: &HashMap::new(),
+                round_meshes: round,
+                solid_meshes: solid,
+            })
+        };
+        let x = ["x".to_string()];
+        let y = ["y".to_string()];
+        assert_ne!(key(&[], &[]), key(&[], &x));
+        assert_ne!(key(&[], &x), key(&[], &y));
+        assert_ne!(key(&x, &[]), key(&[], &x), "a solid id is not a round one");
+        let mut h = GeometryHasher::new();
+        h.field("Lot --> I(\"x\")");
+        h.field("Lot");
+        h.field(1_u64);
+        for axis in [1.0, 0.0, 1.0] {
+            h.fp(axis);
+        }
+        assert_eq!(key(&[], &[]), h.finish(), "an empty list adds nothing");
     }
 }

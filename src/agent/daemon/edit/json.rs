@@ -30,6 +30,12 @@
 //! placement (`placement`). The check stops after a
 //! few seconds, well before the agent stops waiting for the answer, and
 //! lists each generator it did not finish (`z_fighting_unchecked`).
+//!
+//! On the way it derives each Shape node of what it checks, and the answer
+//! says what each drew (`grammars`, #1507): how many terminals, or why
+//! nothing - the grammar forge's message, a line that does not parse or a
+//! derivation that failed - since an empty `z_fighting` can also mean a
+//! grammar drew nothing at all.
 
 use bevy::prelude::*;
 use serde_json::{Value, json};
@@ -1273,5 +1279,39 @@ mod world_tests {
         assert_eq!(named.len(), 1, "{set}");
         assert_eq!(named[0]["placement"], at.as_str(), "{set}");
         assert_eq!(named[0]["a"], "/generators/house", "{set}");
+    }
+
+    /// #1507: a set's answer says what each grammar it wrote drew. A house
+    /// whose grammar has a line that does not parse is written, and answers
+    /// an empty `z_fighting` - and, beside it, the line that sank the
+    /// grammar, which is why nothing fought; mended, how many terminals it
+    /// derived.
+    #[test]
+    fn a_set_says_when_a_grammar_it_wrote_draws_nothing() {
+        let (mut app, _) = app_in(AGENT);
+        let mut house = super::super::zfight::coin_house(1);
+        let mended = house["grammar_source"]
+            .as_str()
+            .expect("a grammar")
+            .to_owned();
+        house["grammar_source"] = json!(format!("{mended}\n%%% not a statement"));
+        let set = room_set(app.world_mut(), "/generators/house", house.clone()).expect("set");
+        assert_eq!(set["changed"], true, "{set}");
+        assert_eq!(set["z_fighting"], json!([]), "{set}");
+        assert_eq!(set["grammars"][0]["node"], "/generators/house", "{set}");
+        assert!(
+            set["grammars"][0]["error"]
+                .as_str()
+                .is_some_and(|why| why.starts_with("line 6: ")),
+            "{set}"
+        );
+
+        house["grammar_source"] = json!(mended);
+        let set = room_set(app.world_mut(), "/generators/house", house).expect("set");
+        assert_eq!(
+            set["grammars"],
+            json!([{ "node": "/generators/house", "terminals": 2 }]),
+            "{set}"
+        );
     }
 }

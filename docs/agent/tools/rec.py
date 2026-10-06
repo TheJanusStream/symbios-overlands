@@ -6,14 +6,17 @@
   rec.py apply room|avatar EDITS           send each edit live with `set --file`, one summary
                                            line per answer (adjusted_at, ignored_at, z_fighting,
                                            record_size), a WARNING line naming each key the
-                                           record does not have (ignored_at, #1483: dropped) and
-                                           one naming what the z-fighting check ran out of time
-                                           in (z_fighting_unchecked, #1503: it stops at 3 s);
-                                           exits 3 after a CHECK line when any answer was adjusted,
-                                           ignored a key, z-fights or left z-fighting unchecked,
-                                           so `apply && save` stops there; a NOTE line when the
-                                           world is past the live ceiling (live_sync, #1500: the
-                                           edits reached nobody live - a save will, #1499)
+                                           record does not have (ignored_at, #1483: dropped), one
+                                           naming what the z-fighting check ran out of time in
+                                           (z_fighting_unchecked, #1503: it stops at 3 s) and one
+                                           per grammar that draws nothing, with why (grammars,
+                                           #1507: a line that does not parse); exits 3 after a
+                                           CHECK line when any answer was adjusted, ignored a key,
+                                           z-fights, left z-fighting unchecked or drew nothing
+                                           with a grammar, so `apply && save` stops there; a NOTE
+                                           line when the world is past the live ceiling
+                                           (live_sync, #1500: the edits reached nobody live - a
+                                           save will, #1499)
   rec.py save room|avatar OUT.json [--log LOG "NOTE"] [--hold POINTER]
                                            save, wait for it to land, pull the saved record to
                                            OUT.json (the new source to build on) and, with --log,
@@ -122,7 +125,8 @@ def main():
     elif cmd == "apply":
         record, ed = sys.argv[2], sys.argv[3]
         # the labels are the CHECK line's words: an answer naming dropped keys was still written
-        flagged = {"adjusted": 0, "ignored a key": 0, "z-fight": 0, "left z-fighting unchecked": 0}
+        flagged = {"adjusted": 0, "ignored a key": 0, "z-fight": 0, "left z-fighting unchecked": 0,
+                   "drew nothing with a grammar": 0}
         past_ceiling = None
         for ptr, f, n in edits(ed):
             r = agentlib.result(agentlib.agent(record, "set", ptr, "--file", f), f"set {ptr}")
@@ -142,6 +146,10 @@ def main():
             # z_fighting=0 there without having been looked at
             unchecked = r.get("z_fighting_unchecked") or []
             flagged["left z-fighting unchecked"] += bool(unchecked)
+            # a grammar that does not parse or derive draws nothing, and z_fighting=0 says nothing of
+            # it (#1507): the daemon names each, those that draw nothing first, with the editor's message
+            undrawn = [g for g in r.get("grammars") or [] if "error" in g]
+            flagged["drew nothing with a grammar"] += bool(undrawn)
             print(f"ok {ptr}{at}: adjusted_at={r.get('adjusted_at') or []} ignored_at={ignored} "
                   f"z_fighting={len(zf)} largest={size.get('largest')} "
                   f"{size.get('bytes')}/{size.get('budget_bytes')}")
@@ -155,6 +163,9 @@ def main():
             if unchecked:
                 print(f"   WARNING: z-fighting not checked in time for: {', '.join(unchecked)} - set one "
                       f"generator at a time, or split a grammar too big to finish")
+            for g in undrawn:
+                drawn_by = f" as {g['placement']}'s seed draws it" if g.get("placement") else ""
+                print(f"   WARNING: the grammar at {g['node']}{drawn_by} draws nothing: {g['error']}")
             if ptr.endswith("/-"):
                 if r.get("appended") and not landed.endswith("/-"):
                     # Written at once: a later edit that fails exits, and this append is live.

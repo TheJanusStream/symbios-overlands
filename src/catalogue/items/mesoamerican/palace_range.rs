@@ -420,6 +420,7 @@ fn build_kind() -> GeneratorKind {
         materials: materials(),
         // Engaged half-columns, not square pickets.
         round_meshes: vec!["Colonnette".to_string()],
+        solid_meshes: Vec::new(),
     }
 }
 

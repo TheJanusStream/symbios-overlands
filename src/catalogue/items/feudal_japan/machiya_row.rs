@@ -475,6 +475,7 @@ fn build_kind() -> GeneratorKind {
         materials: materials(),
         // Nothing here is turned - a machiya is all square timber.
         round_meshes: Vec::new(),
+        solid_meshes: Vec::new(),
     }
 }
 

@@ -14,6 +14,45 @@ use crate::pds::{Fp3, SovereignMaterialSettings};
 use super::material::{draw_texture_bridge, draw_uv_transform_rows};
 use super::widgets::{color_picker, fp_slider, grammar_status_line, u64_row};
 
+/// A comma-separated list of terminal mesh ids (`I("...")` literals),
+/// written back on Enter or click-away, the empty entries dropped. Its
+/// typing is held under `field` and the node's `salt`, as the seed field's
+/// is (#1513): the next node's list is drawn in the same place on the frame
+/// a row is clicked, and an unapplied draft must not be written into it.
+///
+/// Deferred commit (#1238 f77). This used to regenerate the buffer from the
+/// record every frame and re-parse on every change: a typed comma produced
+/// an empty entry, the empty was filtered out, and the next frame
+/// re-rendered the field WITHOUT the comma - so the second name could never
+/// be started and the documented multi-id feature was reachable only by
+/// pasting the whole string at once.
+fn mesh_id_list(
+    ui: &mut egui::Ui,
+    field: &'static str,
+    salt: &str,
+    ids: &mut Vec<String>,
+    dirty: &mut bool,
+) {
+    let joined = ids.join(", ");
+    let out = crate::ui::room::widgets::text_draft_row(
+        ui,
+        (field, salt),
+        &joined,
+        f32::INFINITY,
+        "Comma-separated mesh ids. Press Enter (or click away) to apply.",
+        |_| None,
+    );
+    if let Some(text) = out.committed {
+        *ids = text
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
+        *dirty = true;
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_shape_forge(
     ui: &mut egui::Ui,
@@ -26,6 +65,7 @@ pub(super) fn draw_shape_forge(
     seed: &mut u64,
     materials: &mut std::collections::HashMap<String, SovereignMaterialSettings>,
     round_meshes: &mut Vec<String>,
+    solid_meshes: &mut Vec<String>,
     dirty: &mut bool,
     assets: &mut super::assets::AssetPanel<'_>,
 ) {
@@ -121,36 +161,28 @@ pub(super) fn draw_shape_forge(
             // colonnade's shafts and its flat entablature normally share
             // one stone.
             ui.label("Turned terminals (round cross-section)");
-            // Deferred commit (#1238 f77). This used to regenerate the
-            // buffer from the record every frame and re-parse on every
-            // change: a typed comma produced an empty entry, the empty was
-            // filtered out, and the next frame re-rendered the field
-            // WITHOUT the comma - so the second name could never be
-            // started and the documented multi-id feature was reachable
-            // only by pasting the whole string at once.
-            let joined = round_meshes.join(", ");
-            let out = crate::ui::room::widgets::text_draft_row(
-                ui,
-                "shape_round_meshes",
-                &joined,
-                f32::INFINITY,
-                "Comma-separated mesh ids. Press Enter (or click away) to apply.",
-                |_| None,
-            );
-            if let Some(text) = out.committed {
-                *round_meshes = text
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_string)
-                    .collect();
-                *dirty = true;
-            }
+            mesh_id_list(ui, "shape_round_meshes", salt, round_meshes, dirty);
             ui.label(
                 egui::RichText::new(
                     "Mesh ids listed here bake as cylinders (or cones, with `Taper`) \
                      inscribed in their scope. The grammar still derives boxes, so \
                      splits and occlusion are unaffected.",
+                )
+                .small()
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
+            );
+
+            // Solid terminals (#1506): the mesh ids whose terminals a
+            // visitor collides with, each as the box of its scope.
+            ui.label("Solid terminals (collide)");
+            mesh_id_list(ui, "shape_solid_meshes", salt, solid_meshes, dirty);
+            ui.label(
+                egui::RichText::new(
+                    "Mesh ids listed here collide as the box of their scope: a \
+                     column as the box it is turned in, a flat wall or roof face \
+                     as a slab 1 mm thick. Leave a door or an open front off the \
+                     list to walk through it. Empty, nothing of the grammar \
+                     collides.",
                 )
                 .small()
                 .color(crate::ui::theme::current(ui.ctx()).text_weak),
@@ -285,4 +317,78 @@ pub(super) fn draw_shape_forge(
                 *dirty = true;
             }
         });
+}
+
+#[cfg(test)]
+mod mesh_id_list_tests {
+    use super::super::widgets::text_probe::{button, key, typed};
+    use super::*;
+
+    /// #1506: a Shape node's solid terminals are written in the World
+    /// Editor as its turned ones are - a comma-separated list typed and
+    /// applied with Enter, the spaces and empty entries dropped, the record
+    /// marked dirty.
+    #[test]
+    fn a_list_typed_into_the_row_is_written_and_marks_the_record_dirty() {
+        let (mut ids, mut dirty) = (Vec::new(), false);
+        let drew = typed(
+            6,
+            |ui| mesh_id_list(ui, "shape_solid_meshes", "node", &mut ids, &mut dirty),
+            |frame, field| match frame {
+                1 => vec![egui::Event::PointerMoved(field), button(field, true)],
+                2 => vec![button(field, false)],
+                3 => vec![
+                    egui::Event::Text("Wall, ,Roof ".to_owned()),
+                    key(egui::Key::Enter, true, egui::Modifiers::NONE),
+                    key(egui::Key::Enter, false, egui::Modifiers::NONE),
+                ],
+                _ => Vec::new(),
+            },
+        );
+        assert!(
+            drew.focused,
+            "fixture: the click gave the field the keyboard"
+        );
+        assert_eq!(ids, ["Wall", "Roof"]);
+        assert!(dirty, "a list edit is an edit");
+    }
+
+    /// #1506, the #1513 case: a list typed into one node's row and left
+    /// unapplied when another node is chosen does not go into the other
+    /// node, though both hold the same (empty) list and the other's row is
+    /// drawn in the same place on the frame the first lets go of the
+    /// keyboard - the rows are told apart by their node.
+    #[test]
+    fn a_list_left_unapplied_goes_into_no_other_node() {
+        let (mut lists, mut dirty) = ([Vec::<String>::new(), Vec::new()], false);
+        let frame = std::cell::Cell::new(0_usize);
+        let empty = egui::pos2(700.0, 500.0);
+        let drew = typed(
+            7,
+            |ui| {
+                // Node "a", then node "b" from frame 4.
+                let node = usize::from(frame.get() >= 4);
+                frame.set(frame.get() + 1);
+                let salt = ["a", "b"][node];
+                mesh_id_list(ui, "shape_solid_meshes", salt, &mut lists[node], &mut dirty);
+            },
+            |frame, field| match frame {
+                1 => vec![egui::Event::PointerMoved(field), button(field, true)],
+                2 => vec![button(field, false)],
+                3 => vec![egui::Event::Text("Wall".to_owned())],
+                4 => vec![egui::Event::PointerMoved(empty), button(empty, true)],
+                5 => vec![button(empty, false)],
+                _ => Vec::new(),
+            },
+        );
+        assert!(
+            drew.focused,
+            "fixture: the click gave the field the keyboard"
+        );
+        assert!(
+            lists[1].is_empty(),
+            "the other node took the draft: {lists:?}"
+        );
+        assert!(!dirty);
+    }
 }

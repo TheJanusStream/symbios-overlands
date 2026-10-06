@@ -304,6 +304,7 @@ fn build_kind() -> GeneratorKind {
         // Every mass is square-plan; the turning is in the carving, not the
         // geometry.
         round_meshes: Vec::new(),
+        solid_meshes: Vec::new(),
     }
 }
 

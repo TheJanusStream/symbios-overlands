@@ -168,6 +168,7 @@ fn build_kind() -> GeneratorKind {
         // The colonnade's shafts are turned; the entablature, architrave
         // and tympanum share the same marble but stay flat.
         round_meshes: vec!["Column".to_string()],
+        solid_meshes: Vec::new(),
     }
 }
 
