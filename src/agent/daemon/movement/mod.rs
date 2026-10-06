@@ -63,7 +63,7 @@ use serde_json::{Value, json};
 use crate::camera::WorldCamera;
 use crate::config::agent::{
     CAMERA_CAUGHT_UP_DEG, FACE_PULSE_SECS, FACE_SETTLE_SECS, FACE_TOLERANCE_DEG,
-    FOLLOW_RUN_BEYOND_M, PROGRESS_STEP_M, STUCK_AFTER_SECS, WHEELED_STOPPED_MS,
+    FOLLOW_RUN_BEYOND_M, PROGRESS_STEP_M, PROGRESS_TURN_DEG, STUCK_AFTER_SECS, WHEELED_STOPPED_MS,
 };
 use crate::network::PeerResolve;
 use crate::pds::LocomotionConfig;
@@ -80,7 +80,7 @@ pub(super) use ground::camera_yaw_facing;
 pub(super) use sense::height;
 
 use flight::{Craft, Flight, Flown, Rotor, Turned};
-use ground::{Ground, approach_speed, brake, follow_blocked, follow_moves, nearest_turn};
+use ground::{Ground, Stopping, brake, follow_blocked, follow_moves, nearest_turn};
 use wing::{Sortie, Wing};
 
 /// The keys the controller drives with. It releases all of them whenever it
@@ -175,9 +175,16 @@ struct Goal {
     run: bool,
     drive: Drive,
     /// The nearest the body has been, and when - what `stuck` is measured
-    /// by on the ground. A turn only uses the time: when it started.
+    /// by on the ground. A walker's turn only uses the time: when it
+    /// started.
     best_distance: f32,
     best_at: f64,
+    /// The least a driven body has been turned from its way, degrees either
+    /// side: turning nearer it is progress too (#1541), and moves `best_at` -
+    /// on a follow, the blockage clock `still_since`.
+    best_off: f32,
+    /// How the body stops, for a driven one's approach (#1570).
+    stopping: Stopping,
     /// A rotorcraft's flight, from the frame it first flies.
     flight: Option<Flight>,
     /// An airplane's, from the frame it first flies.
@@ -379,13 +386,13 @@ fn begin(world: &mut World, aim: Aim, run: bool) -> Result<(Started, Vec3), Stri
     if world.contains_resource::<TravelingTo>() {
         return Err("the agent is travelling".to_owned());
     }
-    let drive = Drive::of(
-        &world
-            .get_resource::<LiveAvatarRecord>()
-            .ok_or("the agent has no body yet")?
-            .0
-            .locomotion,
-    )?;
+    let locomotion = &world
+        .get_resource::<LiveAvatarRecord>()
+        .ok_or("the agent has no body yet")?
+        .0
+        .locomotion;
+    let drive = Drive::of(locomotion)?;
+    let stopping = Stopping::of(locomotion);
     if let Drive::Wing(_) = drive {
         match &aim {
             Aim::Peer { .. } => {
@@ -424,6 +431,8 @@ fn begin(world: &mut World, aim: Aim, run: bool) -> Result<(Started, Vec3), Stri
         drive,
         best_distance,
         best_at: now,
+        best_off: f32::INFINITY,
+        stopping,
         flight: None,
         sortie: None,
     });
@@ -807,6 +816,8 @@ fn steer_ground(
         run,
         best_distance,
         best_at,
+        best_off,
+        stopping,
         ..
     } = goal;
     // A driven body that lets go rolls on (#1536): a walk-to used to say it
@@ -819,6 +830,10 @@ fn steer_ground(
         Aim::Point(target) => {
             let distance = position.xz().distance(*target);
             progress(best_distance, best_at, distance, now);
+            if wheeled {
+                let way = *target - position.xz();
+                turning(best_off, best_at, heading_off(forward, way), now);
+            }
             // Planned to stop half the arrival radius short of the point; it
             // has arrived once in the circle and at rest.
             if distance <= ground.arrive_within() {
@@ -829,7 +844,9 @@ fn steer_ground(
                 }
             } else if now - *best_at >= STUCK_AFTER_SECS {
                 Step::End(MoveOutcome::Stuck)
-            } else if wheeled && rolling > approach_speed(distance - ground.arrive_within() * 0.5) {
+            } else if wheeled
+                && rolling > stopping.approach_speed(distance - ground.arrive_within() * 0.5)
+            {
                 Step::Drive(brake(forward, velocity))
             } else {
                 Step::Drive(ground.toward(position, forward, *target, *run))
@@ -863,6 +880,13 @@ fn steer_ground(
                         *still_at = position.xz();
                         *still_since = now;
                         *blocked = false;
+                        *best_off = f32::INFINITY;
+                    }
+                    // A driven body swinging round to its player is getting
+                    // somewhere (#1541).
+                    if wheeled {
+                        let way = at.xz() - position.xz();
+                        turning(best_off, still_since, heading_off(forward, way), now);
                     }
                     if follow_blocked(position.xz(), still_at, still_since, now) && !*blocked {
                         *blocked = true;
@@ -876,7 +900,7 @@ fn steer_ground(
                         *blocked = false;
                     }
                     let run = *run || *gap > *keep + FOLLOW_RUN_BEYOND_M;
-                    if wheeled && rolling > approach_speed(*gap - *keep) {
+                    if wheeled && rolling > stopping.approach_speed(*gap - *keep) {
                         Step::Drive(brake(forward, velocity))
                     } else {
                         Step::Drive(ground.toward(position, forward, at.xz(), run))
@@ -891,6 +915,11 @@ fn steer_ground(
         } => {
             let off = heading_off(forward, *dir);
             let aligned = off.abs() <= FACE_TOLERANCE_DEG;
+            // A swing round is given its time from its last real turn, not
+            // from its start: a car turns at its own pace (#1541).
+            if wheeled {
+                turning(best_off, best_at, off, now);
+            }
             let out_of_time = now - *best_at >= ground.turn_within();
             match *phase {
                 TurnPhase::Settling { since } if now - since < FACE_SETTLE_SECS => Step::Stand,
@@ -1056,6 +1085,19 @@ pub(super) fn park(
     }
 }
 
+/// Note `off`, how far the body is turned from its way in degrees either
+/// side, if it is the least yet by a real turn ([`PROGRESS_TURN_DEG`]), and
+/// when: whether it was.
+fn turning(best_off: &mut f32, best_at: &mut f64, off: f32, now: f64) -> bool {
+    let off = off.abs();
+    let nearer = off + PROGRESS_TURN_DEG <= *best_off;
+    if nearer {
+        *best_off = off;
+        *best_at = now;
+    }
+    nearer
+}
+
 /// Note `distance` if it is the nearest yet by a real step, and when:
 /// whether it was.
 fn progress(best_distance: &mut f32, best_at: &mut f64, distance: f32, now: f64) -> bool {
@@ -1098,6 +1140,8 @@ mod tests {
                 drive: Drive::Ground(Ground::OnFoot),
                 best_distance: 50.0,
                 best_at: 0.0,
+                best_off: f32::INFINITY,
+                stopping: Stopping::default(),
                 flight: None,
                 sortie: None,
             }),
@@ -1171,6 +1215,8 @@ mod tests {
                     drive: Drive::Ground(Ground::OnFoot),
                     best_distance: f32::INFINITY,
                     best_at: 0.0,
+                    best_off: f32::INFINITY,
+                    stopping: Stopping::default(),
                     flight: None,
                     sortie: None,
                 }),
@@ -1581,59 +1627,195 @@ mod tests {
     /// past their points (session 895), once to within 9 m of a gateway.
     #[test]
     fn a_cars_walk_to_stops_on_its_point() {
-        let mut record = crate::pds::avatar::AvatarRecord::default_for_did("did:plc:agentwalkcar");
-        record.locomotion = LocomotionConfig::Car(Box::default());
-        let mut daemon = Daemon::over(DriveBench::parked(&record, 0.0, 0.0));
-        let target = Vec2::new(0.0, -40.0);
-        walk_to(daemon.world(), target, false).expect("a walk-to");
+        for (name, record) in swinging_cars() {
+            let mut daemon = Daemon::over(DriveBench::parked(&record, 0.0, 0.0));
+            let target = Vec2::new(0.0, -40.0);
+            walk_to(daemon.world(), target, false).expect("a walk-to");
 
-        daemon.until(30.0, |daemon| !daemon.endings().is_empty());
-        assert_eq!(daemon.endings()[0].0, MoveOutcome::Arrived);
-        for _ in 0..60 {
-            daemon.frame();
+            daemon.until(40.0, |daemon| !daemon.endings().is_empty());
+            assert_eq!(daemon.endings()[0].0, MoveOutcome::Arrived, "{name}");
+            for _ in 0..60 {
+                daemon.frame();
+            }
+
+            let off = daemon.bench.position().xz().distance(target);
+            assert!(
+                off <= crate::config::agent::ARRIVE_WHEELED_M,
+                "two seconds after it arrived {name} is {off:.2} m from its point"
+            );
         }
+    }
 
-        let off = daemon.bench.position().xz().distance(target);
-        assert!(
-            off <= crate::config::agent::ARRIVE_WHEELED_M,
-            "two seconds after it arrived the car is {off:.2} m from its point"
-        );
+    /// The cars #1541 was found on: the default car, and the seeded wagon
+    /// and armoured car, which swing round at about its pace.
+    fn swinging_cars() -> Vec<(&'static str, crate::pds::avatar::AvatarRecord)> {
+        use crate::seeded_defaults::{AvatarPins, CraftType, SkiffType};
+        let mut default = crate::pds::avatar::AvatarRecord::default_for_did("did:plc:agentwalkcar");
+        default.locomotion = LocomotionConfig::Car(Box::default());
+        let seeded = |skiff| {
+            let mut pins = AvatarPins::default();
+            pins.lock_craft(Some(CraftType::Skiff(skiff)));
+            crate::pds::avatar::AvatarRecord::default_for_seed(
+                pins.find_seed(0).expect("the skiff is reachable"),
+            )
+        };
+        vec![
+            ("the default car", default),
+            ("the wagon", seeded(SkiffType::Wagon)),
+            ("the armoured car", seeded(SkiffType::ArmouredCar)),
+        ]
+    }
+
+    /// A car's walk-to of a point behind it arrives (#1541). It swings round
+    /// on the spot first - the default car at about 25 degrees a second -
+    /// and with progress counted by distance alone the walk ended stuck
+    /// after 6 s, still some 24 degrees short of facing it. Turning nearer
+    /// its way counts too. Each
+    /// car here goes longer than that without getting half a metre closer,
+    /// or the test would not show it.
+    #[test]
+    fn a_cars_walk_to_a_point_behind_it_arrives() {
+        for (name, record) in swinging_cars() {
+            let mut daemon = Daemon::over(DriveBench::parked(&record, 0.0, 0.0));
+            let target = Vec2::new(0.0, 40.0);
+            let from = daemon.bench.position().xz().distance(target);
+            walk_to(daemon.world(), target, false).expect("a walk-to");
+            let mut closer_at = None;
+            daemon.until(60.0, |daemon| {
+                let distance = daemon.bench.position().xz().distance(target);
+                if closer_at.is_none() && distance <= from - crate::config::agent::PROGRESS_STEP_M {
+                    closer_at = Some(daemon.now);
+                }
+                !daemon.endings().is_empty()
+            });
+            assert_eq!(
+                daemon.endings()[0].0,
+                MoveOutcome::Arrived,
+                "{name}'s walk-to of a point behind it"
+            );
+            assert!(
+                closer_at.is_some_and(|t| t > STUCK_AFTER_SECS),
+                "the premise: {name} swings round longer than a walk may go without getting \
+                 closer, but got closer at {closer_at:?} s"
+            );
+        }
+    }
+
+    /// And a car faces a point behind it (#1541): a turn on wheels had
+    /// [`STUCK_AFTER_SECS`] from its start, and a car swinging round at its
+    /// own pace ended stuck before it faced the point; it has that long from
+    /// its last real turn now. Each car here first faces it after that long,
+    /// or the test would not show it.
+    #[test]
+    fn a_car_faces_a_point_behind_it() {
+        for (name, record) in swinging_cars() {
+            let mut daemon = Daemon::over(DriveBench::parked(&record, 0.0, 0.0));
+            let point = Vec2::new(0.0, 40.0);
+            face(daemon.world(), FaceTarget::Point(point)).expect("a face");
+            let mut faced_at = None;
+            daemon.until(60.0, |daemon| {
+                let forward = daemon.bench.rotation() * Vec3::NEG_Z;
+                let way = point - daemon.bench.position().xz();
+                if faced_at.is_none() && heading_off(forward, way).abs() <= FACE_TOLERANCE_DEG {
+                    faced_at = Some(daemon.now);
+                }
+                !daemon.endings().is_empty()
+            });
+            assert_eq!(
+                daemon.endings()[0].0,
+                MoveOutcome::Faced,
+                "{name}'s face of a point behind it"
+            );
+            assert!(
+                faced_at.is_some_and(|t| t > STUCK_AFTER_SECS),
+                "the premise: {name} first faced the point at {faced_at:?} s, within the old budget"
+            );
+        }
+    }
+
+    /// A car following a player behind it is not blocked while it swings
+    /// round to them (#1541's follow): counted by its moving alone, each car
+    /// here was said to be blocked at 6.07 s, still turning, before it had
+    /// gone half a metre - so the first half metre must come after that
+    /// long, or the test would not show it.
+    #[test]
+    fn a_car_following_a_player_behind_it_is_not_blocked_turning_round() {
+        for (name, record) in swinging_cars() {
+            let mut daemon = Daemon::over(DriveBench::parked(&record, 0.0, 0.0));
+            let start = daemon.bench.position().xz();
+            let player = Vec3::new(0.0, 0.0, 40.0);
+            daemon.world().spawn((
+                peer("did:plc:friend"),
+                placed(true),
+                GlobalTransform::from(Transform::from_translation(player)),
+            ));
+            follow(daemon.world(), "did:plc:friend".into(), 3.0, false).expect("a follow");
+            let mut moved_at = None;
+            for _ in 0..(15.0 / FRAME) as usize {
+                daemon.frame();
+                if moved_at.is_none()
+                    && daemon.bench.position().xz().distance(start)
+                        >= crate::config::agent::PROGRESS_STEP_M
+                {
+                    moved_at = Some(daemon.now);
+                }
+            }
+            let blocked = daemon
+                .log
+                .after(0, Duration::ZERO)
+                .events
+                .into_iter()
+                .any(|e| matches!(e.what, EventKind::FollowBlocked { .. }));
+            assert!(
+                !blocked,
+                "{name} was said to be blocked following a player behind it"
+            );
+            assert!(
+                moved_at.is_some_and(|t| t > STUCK_AFTER_SECS),
+                "the premise: {name} had gone half a metre at {moved_at:?} s"
+            );
+        }
     }
 
     /// A car following a player brakes to a stand short of them (#1536): it
     /// used to let go at its following distance at full speed and drive on
     /// through the player - from 40 m, 10.85 m/s, 0.01 m from where they
-    /// stood, at rest 6.78 m beyond (the session's end review).
+    /// stood, at rest 6.78 m beyond (the session's end review). And a car
+    /// that brakes and slows less does too (#1570): planned on 4 m/s^2 and
+    /// no coast, the wagon - reversing at 1.9 and coasting 2.2 m once the
+    /// brake let go - came to rest 0.35 m from a player ahead of it and 0.98
+    /// m from one behind, and the armoured car 1.4 m from either.
     #[test]
     fn a_car_following_a_player_stops_short_of_them() {
-        let mut record =
-            crate::pds::avatar::AvatarRecord::default_for_did("did:plc:agentfollowcar");
-        record.locomotion = LocomotionConfig::Car(Box::default());
-        let mut daemon = Daemon::over(DriveBench::parked(&record, 0.0, 0.0));
-        let player = Vec3::new(0.0, 0.0, -40.0);
-        daemon.world().spawn((
-            peer("did:plc:friend"),
-            placed(true),
-            GlobalTransform::from(Transform::from_translation(player)),
-        ));
         let keep = 3.0;
-        follow(daemon.world(), "did:plc:friend".into(), keep, false).expect("a follow");
+        for (name, record) in swinging_cars() {
+            for (side, z) in [("ahead", -40.0), ("behind", 40.0)] {
+                let mut daemon = Daemon::over(DriveBench::parked(&record, 0.0, 0.0));
+                let player = Vec3::new(0.0, 0.0, z);
+                daemon.world().spawn((
+                    peer("did:plc:friend"),
+                    placed(true),
+                    GlobalTransform::from(Transform::from_translation(player)),
+                ));
+                follow(daemon.world(), "did:plc:friend".into(), keep, false).expect("a follow");
 
-        let mut nearest = f32::MAX;
-        for _ in 0..(15.0 / FRAME) as usize {
-            daemon.frame();
-            nearest = nearest.min(daemon.bench.position().xz().distance(player.xz()));
+                let mut nearest = f32::MAX;
+                for _ in 0..(20.0 / FRAME) as usize {
+                    daemon.frame();
+                    nearest = nearest.min(daemon.bench.position().xz().distance(player.xz()));
+                }
+
+                assert!(
+                    nearest >= keep * 0.5,
+                    "{name} came within {nearest:.2} m of a player {side} it follows at {keep} m"
+                );
+                let resting = daemon.bench.position().xz().distance(player.xz());
+                assert!(
+                    resting <= keep + crate::config::agent::FOLLOW_SLACK_M + 1.0,
+                    "{name} stood {resting:.2} m off a player {side}, following at {keep} m"
+                );
+            }
         }
-
-        assert!(
-            nearest >= keep * 0.5,
-            "it came within {nearest:.2} m of the player it follows at {keep} m"
-        );
-        let resting = daemon.bench.position().xz().distance(player.xz());
-        assert!(
-            resting <= keep + crate::config::agent::FOLLOW_SLACK_M + 1.0,
-            "it stood {resting:.2} m off, following at {keep} m"
-        );
     }
 
     /// A drive reads a car's jump by its wheels (#1531): `steer` hands the

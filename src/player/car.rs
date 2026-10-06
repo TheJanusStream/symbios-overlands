@@ -109,7 +109,10 @@ impl CarContact {
 /// Every term is per kilogram of the corner's quarter of the mass, so the
 /// stop holds any car the same way. It is shaped by what a 64 Hz fixed step
 /// can integrate, each part MEASURED on the drive bench, on the suspension
-/// damping of #1534 unless it says otherwise:
+/// damping of #1534 unless it says otherwise - and all of it before #1548,
+/// while the car read its pose a step late, which let every landing sink
+/// further: what it does now is measured in `config::rover` beside the
+/// constants, and the shape was not tuned again for it.
 ///
 /// * The spring is soft. #1524's, at a rate of 1,000, held the box higher
 ///   but handed a hard landing's energy back: off the jump table's ramps at
@@ -231,7 +234,6 @@ pub(super) fn apply_car_suspension(
         (
             Entity,
             Forces,
-            &GlobalTransform,
             &mut CarContact,
             &mut CarAirKeys,
             &mut LinearDamping,
@@ -252,7 +254,6 @@ pub(super) fn apply_car_suspension(
     let Ok((
         chassis_entity,
         mut forces,
-        global_tf,
         mut contact,
         mut air_keys,
         mut linear_damping,
@@ -261,6 +262,7 @@ pub(super) fn apply_car_suspension(
     else {
         return;
     };
+    let global_tf = &super::physics_pose(forces.position(), forces.rotation());
 
     let half_extents = Vec3::from_array(p.chassis_half_extents.0);
     let corners = chassis_corners(half_extents);
@@ -654,10 +656,7 @@ fn air_level_torque(
 pub(super) fn apply_car_drive(
     live: Res<LiveAvatarRecord>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut query: Query<
-        (Forces, &GlobalTransform, &CarContact, &mut CarAirKeys),
-        (With<LocalPlayer>, With<CarPreset>),
-    >,
+    mut query: Query<(Forces, &CarContact, &mut CarAirKeys), (With<LocalPlayer>, With<CarPreset>)>,
     traveling: Option<Res<TravelingTo>>,
     // The drive and steer keys that were already down while a wheel was on
     // the ground: they drive and steer, and must not also tip the car the
@@ -670,9 +669,10 @@ pub(super) fn apply_car_drive(
     let LocomotionConfig::Car(p) = &live.0.locomotion else {
         return;
     };
-    let Ok((mut forces, global_tf, contact, mut air_keys)) = query.single_mut() else {
+    let Ok((mut forces, contact, mut air_keys)) = query.single_mut() else {
         return;
     };
+    let global_tf = &super::physics_pose(forces.position(), forces.rotation());
 
     let t = contact.traction();
     let held = AirKeys::read(&keyboard);
@@ -777,13 +777,19 @@ pub(super) fn apply_car_drive(
 /// Either way of mass x `upright_assist_accel`, or of
 /// [`cfg::CAR_UPRIGHT_TIP_MARGIN`] times the torque gravity needs to tip the
 /// lying box back over the edge it pivots on, whichever is more (#1524). On
-/// its back that edge is a roof edge, half-width from the centre of mass; on
-/// a side or its nose it is an edge of the underside, which the lowered
-/// centre of mass sits `(1 - center_of_mass_drop)` x half-height above. Each
-/// lever is scaled by how far into its pose the car lies, so the two meet at
-/// 90 degrees without a step. The assist alone used to be about a third of
-/// the roof's: measured on the drive bench at #1524, no car of the seeded
-/// fleet came off its roof, and a record's tall box stayed on its side.
+/// a side or its nose that edge is an edge of the underside, which the
+/// lowered centre of mass sits `(1 - center_of_mass_drop)` x half-height
+/// beside; lying past 90 degrees, the centre of mass is also above it - by up
+/// to the half-width on a side, all of it on its back, where the edge is a
+/// roof edge, and by up to the half-length on its nose or tail. Gravity's
+/// lever is the two together, each scaled by how far into its pose the car
+/// lies, so it is the side's alone at 90 degrees and the roof's alone at 180.
+/// It used to be the larger of the two, with the half-width on a nose too: as
+/// little as half what a car lying on a 15 degree slope with its roof down
+/// the slope needs. On its side there, seven of the eight cars of the fleet
+/// stayed down, and on its nose all eight, from 10 degrees (#1539). The assist alone used to be about a third of the
+/// roof's: measured on the drive bench at #1524, no car of the seeded fleet
+/// came off its roof, and a record's tall box stayed on its side.
 fn upright_assist_torque(
     up: Vec3,
     forward: Vec3,
@@ -797,19 +803,22 @@ fn upright_assist_torque(
     let mass = p.mass.0;
     let damping = -ang_vel * (mass * p.upright_assist_damping.0);
     let tilt_axis = up.cross(Vec3::Y);
+    // Steep: within 45 degrees of pointing straight up or down.
+    let on_end = forward.y.abs() > std::f32::consts::FRAC_1_SQRT_2;
     // A strength of 0 is an owner turning the assist off, and the tipping
     // floor goes with it.
     let accel = if p.upright_assist_accel.0 > 0.0 {
-        let [hx, hy, _] = p.chassis_half_extents.0;
-        let on_its_back = hx * (-up.y).max(0.0);
-        let on_a_side = (1.0 - p.center_of_mass_drop.0) * hy * (1.0 - up.y * up.y).max(0.0).sqrt();
-        let tip = cfg::CAR_UPRIGHT_TIP_MARGIN * gravity * on_its_back.max(on_a_side);
+        let [hx, hy, hz] = p.chassis_half_extents.0;
+        // Past 90 degrees the centre of mass is above the edge as well as
+        // beside it: by the half-width on a side or its back, by the
+        // half-length on its nose or tail.
+        let above = if on_end { hz } else { hx } * (-up.y).max(0.0);
+        let beside = (1.0 - p.center_of_mass_drop.0) * hy * (1.0 - up.y * up.y).max(0.0).sqrt();
+        let tip = cfg::CAR_UPRIGHT_TIP_MARGIN * gravity * (above + beside);
         p.upright_assist_accel.0.max(tip)
     } else {
         0.0
     };
-    // Steep: within 45 degrees of pointing straight up or down.
-    let on_end = forward.y.abs() > std::f32::consts::FRAC_1_SQRT_2;
     if up.y >= 0.0 || on_end {
         let restoring = tilt_axis.normalize_or_zero() * (mass * accel);
         return Some(restoring + damping);
@@ -846,17 +855,15 @@ fn upright_assist_torque(
 pub(super) fn apply_car_uprighting(
     live: Res<LiveAvatarRecord>,
     gravity: Option<Res<Gravity>>,
-    mut query: Query<
-        (Forces, &GlobalTransform, &CarContact, &CarAirKeys),
-        (With<LocalPlayer>, With<CarPreset>),
-    >,
+    mut query: Query<(Forces, &CarContact, &CarAirKeys), (With<LocalPlayer>, With<CarPreset>)>,
 ) {
     let LocomotionConfig::Car(p) = &live.0.locomotion else {
         return;
     };
-    let Ok((mut forces, global_tf, contact, air_keys)) = query.single_mut() else {
+    let Ok((mut forces, contact, air_keys)) = query.single_mut() else {
         return;
     };
+    let global_tf = &super::physics_pose(forces.position(), forces.rotation());
     if !contact.near_ground {
         return;
     }
@@ -1639,21 +1646,24 @@ mod air_model {
     // The bump stop
     // -----------------------------------------------------------------------
 
-    /// A car dropped flat with its box 3 m up lands on its springs, not its
+    /// A car dropped flat with its box 4 m up lands on its springs, not its
     /// box, and comes back up no harder than it would have off the box. The
     /// linear spring alone lets the box hit - it sits 22% into its travel at
-    /// rest and the drop lands at 6.8 m/s - and a stop that pumps energy in
+    /// rest and the drop lands at 8.0 m/s - and a stop that pumps energy in
     /// fails the second half: weighed at the step's start rather than its
-    /// end, #1524's stiffer stop kept 5 mm under the box and threw it up at
-    /// 4.3 m/s. This one keeps 61 mm and comes back up at 1.4 m/s, against 1
-    /// mm and 2.7 with no stop (#1535).
+    /// end, #1524's stiffer stop kept 5 mm under a 3 m drop's box and threw
+    /// it up at 4.3 m/s. This one keeps 98 mm and comes back up at 1.4 m/s,
+    /// against none and 2.6 with no stop. The drop was 3 m until #1548: with
+    /// the car reading its pose a step late the springs answered a step late
+    /// too, and from 3 m the bare box hit; read as the physics leaves it,
+    /// they keep it 57 mm up.
     #[test]
     fn a_hard_landing_keeps_the_box_off_the_floor() {
         let record = default_car();
         let half_height = car_params(&record).chassis_half_extents.0[1];
         let drop = |stop: CarBumpStop| {
             let mut bench =
-                DriveBench::new(&record, Transform::from_xyz(0.0, 3.0 + half_height, 0.0));
+                DriveBench::new(&record, Transform::from_xyz(0.0, 4.0 + half_height, 0.0));
             bench.bump_stop(stop);
             let (mut lowest, mut rebound) = (f32::MAX, 0.0f32);
             for _ in 0..(1.5 * crate::player::sim::BENCH_HZ) as usize {
@@ -1721,14 +1731,16 @@ mod air_model {
     /// internal edge as a wall, and the Cyclecar landing a jump with no bump
     /// stop - so that its box reaches the floor - lost 8.4 m/s in one step
     /// off a 12 degree ramp at 15 m/s (13.6 to 5.2), and 9.8 at 20 (16.2 to
-    /// 6.4).
+    /// 6.4). Since the car reads its pose as the physics leaves it (#1548)
+    /// its springs keep the box clear off a 12 degree ramp, so the landings
+    /// here are off an 18 degree one.
     #[test]
     fn a_box_meeting_the_ground_at_speed_slides_on() {
-        for approach in [15.0, 20.0] {
+        for approach in [18.0, 20.0] {
             let landing = ramp_run(
                 &seeded_cyclecar(),
                 approach,
-                12.0,
+                18.0,
                 &[KeyCode::KeyW],
                 keep_going,
                 CarBumpStop::OFF,
@@ -2241,6 +2253,143 @@ mod air_model {
             }
         }
         None
+    }
+
+    /// The fleet the uprighting is held to: the default car, Jink's
+    /// Cyclecar and one of each seeded skiff type.
+    fn uprighting_fleet() -> Vec<(String, AvatarRecord)> {
+        use crate::seeded_defaults::{AvatarPins, CraftType};
+        let mut fleet = vec![
+            ("the default car".to_string(), default_car()),
+            ("Jink's Cyclecar".to_string(), seeded_cyclecar()),
+        ];
+        for craft in CraftType::SKIFFS {
+            let mut pins = AvatarPins::default();
+            pins.lock_craft(Some(craft));
+            let seed = pins.find_seed(0).expect("every skiff type is reachable");
+            fleet.push((
+                craft.label().to_string(),
+                AvatarRecord::default_for_seed(seed),
+            ));
+        }
+        fleet
+    }
+
+    /// Which face a car lies on, on a slope.
+    #[derive(Clone, Copy, Debug)]
+    enum Lying {
+        Side,
+        Nose,
+    }
+
+    /// Seconds for a car lying `on` a slope of `degrees`, its roof down the
+    /// slope when `roof_downhill` and up it otherwise, to stand on all four
+    /// wheels for half a second - or `None` in `limit`.
+    fn rights_itself_on_a_slope(
+        record: &AvatarRecord,
+        on: Lying,
+        degrees: f32,
+        roof_downhill: bool,
+        limit: f64,
+    ) -> Option<f64> {
+        use std::f32::consts::FRAC_PI_2;
+        let half = Vec3::from_array(car_params(record).chassis_half_extents.0);
+        let slope_rad = degrees.to_radians();
+        // On a side the slope rises toward +X, and a quarter turn about Z lays
+        // the roof toward -X, down it; on its nose the slope rises toward
+        // +Z, and a quarter turn about X stands the car on its nose with the
+        // roof toward -Z, down it. The other way round, the roof is up it.
+        let (slope, lying, face) = match on {
+            Lying::Side => (
+                Quat::from_rotation_z(slope_rad),
+                Quat::from_rotation_z(if roof_downhill { FRAC_PI_2 } else { -FRAC_PI_2 }),
+                half.x,
+            ),
+            Lying::Nose => (
+                Quat::from_rotation_x(if roof_downhill { -slope_rad } else { slope_rad }),
+                Quat::from_rotation_x(-FRAC_PI_2),
+                half.z,
+            ),
+        };
+        // The slope's top passes 8 m over the floor's origin, clear of the
+        // floor across the car's reach.
+        let normal = slope * Vec3::Y;
+        let on_top = Vec3::new(0.0, 8.0, 0.0);
+        let mut bench = DriveBench::new(
+            record,
+            Transform::from_translation(on_top + normal * (face + 0.01))
+                .with_rotation(slope * lying),
+        );
+        let thick = 2.0;
+        bench.block(
+            Transform::from_translation(on_top - normal * thick).with_rotation(slope),
+            Vec3::new(20.0, thick, 20.0),
+        );
+        let mut since: Option<f64> = None;
+        while bench.elapsed() < limit {
+            bench.step();
+            if bench.contact().wheels == 4 {
+                let at = *since.get_or_insert(bench.elapsed());
+                if bench.elapsed() - at >= 0.5 {
+                    return Some(at);
+                }
+            } else {
+                since = None;
+            }
+        }
+        None
+    }
+
+    /// #1539: a car lying on its side or its nose on a slope rights itself,
+    /// its roof down the slope or up it. Down it, the car lies past 90
+    /// degrees, and its centre of mass is above the underside edge it pivots
+    /// on as well as beside it; the assist pushed with the larger of the two
+    /// levers only. On its side on a 15 degree slope seven of the eight cars
+    /// here stayed down (all but the Rover), on 20 degrees six; on its nose
+    /// none came up from 10 degrees, and summing the levers with the
+    /// half-width above the edge - where it is the half-length - still left
+    /// five down. Each rights itself within 2.3 s now, on slopes up to 25
+    /// degrees (the probe below).
+    #[test]
+    fn the_fleet_rights_itself_from_its_side_or_its_nose_on_a_slope() {
+        for (name, record) in uprighting_fleet() {
+            for on in [Lying::Side, Lying::Nose] {
+                for degrees in [15.0, 20.0] {
+                    for roof_downhill in [true, false] {
+                        assert!(
+                            rights_itself_on_a_slope(&record, on, degrees, roof_downhill, 5.0)
+                                .is_some(),
+                            "{name} on its {on:?} on a {degrees} degree slope, its roof {} it, \
+                             did not right itself in 5 s",
+                            if roof_downhill { "down" } else { "up" }
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "probe for #1539: the fleet righting itself from its side on a slope"]
+    fn probe_righting_on_a_slope() {
+        for (name, record) in uprighting_fleet() {
+            for on in [Lying::Side, Lying::Nose] {
+                let mut row = format!("{name:<18} {on:<4?}");
+                for degrees in [0.0, 10.0, 15.0, 20.0, 25.0] {
+                    for roof_downhill in [true, false] {
+                        let took =
+                            rights_itself_on_a_slope(&record, on, degrees, roof_downhill, 8.0);
+                        row += &format!(
+                            " {:>2}{} {:>5}",
+                            degrees as i32,
+                            if roof_downhill { "v" } else { "^" },
+                            took.map_or("-".to_string(), |t| format!("{t:.2}"))
+                        );
+                    }
+                }
+                println!("{row}");
+            }
+        }
     }
 
     /// #804's promise, for the whole seeded fleet: a car on its roof or its

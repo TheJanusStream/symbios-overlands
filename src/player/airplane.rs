@@ -105,14 +105,15 @@ fn cruise_thrust_applies(up: Vec3) -> bool {
 #[allow(clippy::type_complexity)]
 pub(super) fn apply_airplane_uprighting(
     live: Res<LiveAvatarRecord>,
-    mut query: Query<(Forces, &GlobalTransform), (With<LocalPlayer>, With<AirplanePreset>)>,
+    mut query: Query<Forces, (With<LocalPlayer>, With<AirplanePreset>)>,
 ) {
     let LocomotionConfig::Airplane(p) = &live.0.locomotion else {
         return;
     };
-    let Ok((mut forces, global_tf)) = query.single_mut() else {
+    let Ok(mut forces) = query.single_mut() else {
         return;
     };
+    let global_tf = &super::physics_pose(forces.position(), forces.rotation());
     let up = global_tf.up().as_vec3();
     let right = global_tf.right().as_vec3();
     let ang_vel = forces.angular_velocity();
@@ -135,7 +136,7 @@ pub(super) fn apply_airplane_uprighting(
 pub(super) fn apply_airplane_aerodynamics(
     live: Res<LiveAvatarRecord>,
     mut query: Query<
-        (Forces, &GlobalTransform),
+        Forces,
         (
             With<LocalPlayer>,
             With<AirplanePreset>,
@@ -150,9 +151,10 @@ pub(super) fn apply_airplane_aerodynamics(
     let LocomotionConfig::Airplane(p) = &live.0.locomotion else {
         return;
     };
-    let Ok((mut forces, global_tf)) = query.single_mut() else {
+    let Ok(mut forces) = query.single_mut() else {
         return;
     };
+    let global_tf = &super::physics_pose(forces.position(), forces.rotation());
 
     let forward = global_tf.forward().as_vec3();
 
@@ -184,7 +186,7 @@ pub(super) fn apply_airplane_aerodynamics(
 pub(super) fn apply_airplane_forces(
     live: Res<LiveAvatarRecord>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut query: Query<(Forces, &GlobalTransform), (With<LocalPlayer>, With<AirplanePreset>)>,
+    mut query: Query<Forces, (With<LocalPlayer>, With<AirplanePreset>)>,
     traveling: Option<Res<TravelingTo>>,
 ) {
     if traveling.is_some() {
@@ -193,9 +195,10 @@ pub(super) fn apply_airplane_forces(
     let LocomotionConfig::Airplane(p) = &live.0.locomotion else {
         return;
     };
-    let Ok((mut forces, global_tf)) = query.single_mut() else {
+    let Ok(mut forces) = query.single_mut() else {
         return;
     };
+    let global_tf = &super::physics_pose(forces.position(), forces.rotation());
 
     let forward = global_tf.forward().as_vec3();
     let right = global_tf.right().as_vec3();

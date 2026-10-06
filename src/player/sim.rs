@@ -7,6 +7,8 @@
 //!
 //! * [`FlightBench`] (#1430) runs the flight systems.
 //! * [`DriveBench`] (#1524) runs the car's: suspension, drive, uprighting.
+//! * [`run_at_frame_rate`] (#1548) runs every vehicle's systems the way the
+//!   game's frames do, at a display's frame rate, rather than step by step.
 //!
 //! Both keep gravity, unlike the planar drive probe in `spawn`'s tests,
 //! which turns it off because a car's feel on the flat does not need it. A
@@ -70,6 +72,17 @@ fn bench_app<M>(
         .init_resource::<ButtonInput<KeyCode>>()
         .insert_resource(LiveAvatarRecord(record.clone()))
         .add_systems(FixedUpdate, systems);
+    let body = furnish(&mut app, record, at);
+    // `App::update` would do these on its first run; the bench drives
+    // the schedules by hand, and some of avian's resources land in them.
+    app.finish();
+    app.cleanup();
+    (app, body)
+}
+
+/// The floor, and one body wearing `record` posed at `at`, built through
+/// the game's own spawn path.
+fn furnish(app: &mut App, record: &AvatarRecord, at: Transform) -> Entity {
     // The floor is a heightfield, built by the builder the game's terrain
     // uses (with parry's internal-edge fix, #1538), and of the heightmap's
     // size: against one box thousands of metres across a shape cast stops
@@ -99,11 +112,19 @@ fn bench_app<M>(
     let mut commands = app.world_mut().commands();
     super::preset::build_preset_components(&mut commands, body, &record.locomotion);
     app.world_mut().flush();
-    // `App::update` would do these on its first run; the bench drives
-    // the schedules by hand, and some of avian's resources land in them.
-    app.finish();
-    app.cleanup();
-    (app, body)
+    body
+}
+
+/// The game's heightmap with the ground at `height` at each point (x, z).
+fn heightmap(height: impl Fn(Vec2) -> f32) -> FinishedHeightMap {
+    let half = (GROUND_SAMPLES - 1) as f32 * 0.5;
+    let mut heightmap = bevy_symbios_ground::HeightMap::new(GROUND_SAMPLES, GROUND_SAMPLES, 1.0);
+    for z in 0..GROUND_SAMPLES {
+        for x in 0..GROUND_SAMPLES {
+            heightmap.set(x, z, height(Vec2::new(x as f32 - half, z as f32 - half)));
+        }
+    }
+    FinishedHeightMap(heightmap)
 }
 
 /// A fixed block, `half` its half-extents, placed by `at`.
@@ -177,17 +198,7 @@ impl FlightBench {
     /// `height` at each point (x, z). The physics floor stays where it is:
     /// blocks are what a body can touch.
     pub(crate) fn ground(&mut self, height: impl Fn(Vec2) -> f32) {
-        let half = (GROUND_SAMPLES - 1) as f32 * 0.5;
-        let mut heightmap =
-            bevy_symbios_ground::HeightMap::new(GROUND_SAMPLES, GROUND_SAMPLES, 1.0);
-        for z in 0..GROUND_SAMPLES {
-            for x in 0..GROUND_SAMPLES {
-                heightmap.set(x, z, height(Vec2::new(x as f32 - half, z as f32 - half)));
-            }
-        }
-        self.app
-            .world_mut()
-            .insert_resource(FinishedHeightMap(heightmap));
+        self.app.world_mut().insert_resource(heightmap(height));
     }
 
     /// A fixed block, `half` its half-extents, placed by `at`: a wall, a
@@ -419,5 +430,235 @@ impl DriveBench {
             .world()
             .get::<C>(self.body)
             .expect("the bench car has every physics component")
+    }
+}
+
+/// The poses [`run_at_frame_rate`] records, one after each fixed step.
+#[derive(Resource, Default)]
+struct StepPoses(Vec<(Vec3, Quat)>);
+
+fn record_step_pose(
+    bodies: Query<(&Position, &Rotation), With<crate::state::LocalPlayer>>,
+    mut poses: ResMut<StepPoses>,
+) {
+    if let Ok((position, rotation)) = bodies.single() {
+        poses.0.push((position.0, rotation.0));
+    }
+}
+
+/// One body wearing `record`, posed by `at` over the benches' floor - under
+/// water up to `water` when given - with `keys` held, run as the game runs
+/// it (#1548): in frames of `1 / fps`
+/// seconds, each taking as many fixed steps as the frame's time holds - none
+/// at all, or several - with the chassis eased between steps and the
+/// scene's transforms propagated after them, as `PostUpdate` does. Every
+/// preset's fixed-step systems run, in the order `PlayerPlugin` chains them
+/// (each stands down for a body that is not its preset). The pose after
+/// each of the first `steps` fixed steps.
+///
+/// The benches above step the physics by hand and propagate nothing, so a
+/// system that read the pose a frame leaves - `GlobalTransform` - instead of
+/// the physics' own read it one step late, always, as at a frame rate of 64
+/// or a whole fraction of it; only frames of another length show the rest.
+pub(crate) fn run_at_frame_rate(
+    record: &AvatarRecord,
+    at: Transform,
+    water: Option<f32>,
+    keys: &[KeyCode],
+    fps: f64,
+    steps: usize,
+) -> Vec<(Vec3, Quat)> {
+    let mut app = App::new();
+    // Whole frames run avian's housekeeping too, which reads mesh events.
+    app.add_plugins((
+        MinimalPlugins,
+        TransformPlugin,
+        bevy::asset::AssetPlugin::default(),
+    ))
+    .init_asset::<Mesh>()
+    .add_plugins(PhysicsPlugins::default())
+    .insert_resource(Time::<Fixed>::from_hz(BENCH_HZ))
+    .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        std::time::Duration::from_secs_f64(1.0 / fps),
+    ))
+    .init_resource::<ButtonInput<KeyCode>>()
+    .insert_resource(crate::water::WaterSurfaces {
+        planes: water
+            .map(|y| crate::water::WaterPlane {
+                world_from_local: Transform::from_xyz(0.0, y, 0.0),
+                local_half_extents: Vec2::splat(FLOOR_M * 0.5),
+                flow_strength: 0.0,
+                owner: crate::water::WaterPlane::NO_OWNER,
+            })
+            .into_iter()
+            .collect(),
+    })
+    .init_resource::<super::humanoid::JumpQueued>()
+    .init_resource::<super::RigHold>()
+    .init_resource::<StepPoses>()
+    .insert_resource(LiveAvatarRecord(record.clone()))
+    .insert_resource(heightmap(|_| 0.0))
+    .add_systems(
+        FixedUpdate,
+        (
+            super::hover_boat::sync_hover_boat_physics,
+            super::hover_boat::apply_hover_boat_suspension,
+            super::hover_boat::apply_hover_boat_buoyancy,
+            super::helicopter::apply_helicopter_stabilization,
+            super::airplane::apply_airplane_aerodynamics,
+            super::airplane::apply_airplane_uprighting,
+            super::hover_boat::apply_hover_boat_drive,
+            super::hover_boat::apply_hover_boat_uprighting,
+            super::humanoid::apply_humanoid_walk,
+            super::humanoid::clear_jump_queue,
+            super::airplane::apply_airplane_forces,
+            super::helicopter::apply_helicopter_forces,
+            super::car::apply_car_suspension,
+            super::car::apply_car_drive,
+            super::car::apply_car_uprighting,
+        )
+            .chain(),
+    )
+    .add_systems(FixedLast, record_step_pose);
+    furnish(&mut app, record, at);
+    app.finish();
+    app.cleanup();
+    {
+        let mut input = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        for key in keys {
+            input.press(*key);
+        }
+    }
+    while app.world().resource::<StepPoses>().0.len() < steps {
+        app.update();
+    }
+    let mut poses = std::mem::take(&mut app.world_mut().resource_mut::<StepPoses>().0);
+    poses.truncate(steps);
+    poses
+}
+
+#[cfg(test)]
+mod frame_rate_tests {
+    use super::*;
+    use crate::pds::LocomotionConfig;
+
+    /// Three seconds of the game's fixed steps.
+    const STEPS: usize = 192;
+
+    /// A record wearing `locomotion`'s preset at its defaults.
+    fn wearing(locomotion: LocomotionConfig) -> AvatarRecord {
+        let mut record = AvatarRecord::default_for_did("did:plc:frame-rate-bench");
+        record.locomotion = locomotion;
+        record
+    }
+
+    /// #1548: a body does the same at any frame rate. Its fixed-step
+    /// systems read the pose the last frame left - `GlobalTransform`, set by
+    /// avian only before its solve and eased by `PostUpdate` - instead of
+    /// the physics' own, so a step saw the body a whole step late or part
+    /// of one, depending on how many steps the frame held and where it fell
+    /// on the step grid: two players on different displays flew the same
+    /// jump differently. Each body, with its keys held, must go through the
+    /// same poses step for step and to the bit at 12.5, 30, 50 and 144
+    /// frames a second as at 64 - each vehicle driven, and the systems no
+    /// drive reaches: a car on its side righting itself, a hover-boat
+    /// floating, a tilted helicopter levelling, a swimmer at the surface.
+    #[test]
+    fn a_body_does_the_same_at_any_frame_rate() {
+        use std::f32::consts::FRAC_PI_2;
+        let car = wearing(LocomotionConfig::Car(Box::default()));
+        let car_half = match &car.locomotion {
+            LocomotionConfig::Car(p) => p.chassis_half_extents.0,
+            _ => unreachable!("a car"),
+        };
+        let bodies = [
+            (
+                "car",
+                car.clone(),
+                Transform::from_xyz(0.0, 1.2, 0.0),
+                None,
+                vec![KeyCode::KeyW, KeyCode::KeyD],
+            ),
+            (
+                "car on its side",
+                car,
+                Transform::from_xyz(0.0, car_half[0] + 0.01, 0.0)
+                    .with_rotation(Quat::from_rotation_z(FRAC_PI_2)),
+                None,
+                vec![],
+            ),
+            (
+                "hover-boat",
+                wearing(LocomotionConfig::HoverBoat(Box::default())),
+                Transform::from_xyz(0.0, 1.5, 0.0),
+                None,
+                vec![KeyCode::KeyW, KeyCode::KeyD],
+            ),
+            (
+                "hover-boat afloat",
+                wearing(LocomotionConfig::HoverBoat(Box::default())),
+                Transform::from_xyz(0.0, 2.6, 0.0),
+                Some(2.0),
+                vec![KeyCode::KeyW, KeyCode::KeyD],
+            ),
+            (
+                "helicopter",
+                wearing(LocomotionConfig::Helicopter(Box::default())),
+                Transform::from_xyz(0.0, 12.0, 0.0),
+                None,
+                vec![KeyCode::KeyW, KeyCode::KeyD],
+            ),
+            (
+                "tilted helicopter",
+                wearing(LocomotionConfig::Helicopter(Box::default())),
+                Transform::from_xyz(0.0, 12.0, 0.0)
+                    .with_rotation(Quat::from_rotation_x(0.35) * Quat::from_rotation_z(0.25)),
+                None,
+                vec![],
+            ),
+            (
+                "airplane",
+                wearing(LocomotionConfig::Airplane(Box::default())),
+                Transform::from_xyz(0.0, 0.5, 0.0),
+                None,
+                vec![KeyCode::KeyW],
+            ),
+            (
+                "swimmer",
+                wearing(LocomotionConfig::Humanoid(Box::default())),
+                Transform::from_xyz(0.0, 1.6, 0.0),
+                Some(2.0),
+                vec![KeyCode::KeyW],
+            ),
+        ];
+        for (name, record, at, water, keys) in &bodies {
+            let locked = run_at_frame_rate(record, *at, *water, keys, 64.0, STEPS);
+            let (first, last) = (locked[0], locked[STEPS - 1]);
+            let (moved, turned) = (
+                first.0.distance(last.0),
+                first.1.angle_between(last.1).to_degrees(),
+            );
+            assert!(
+                moved > 0.5 || turned > 20.0,
+                "fixture: the {name} went {moved:.2} m and turned {turned:.1} deg - a body that \
+                 does nothing shows nothing"
+            );
+            for fps in [12.5, 30.0, 50.0, 144.0] {
+                let other = run_at_frame_rate(record, *at, *water, keys, fps, STEPS);
+                if let Some(step) = (0..STEPS).find(|&i| other[i] != locked[i]) {
+                    panic!(
+                        "the {name} at {fps} frames a second leaves the run at 64 at step {step}: \
+                         {:?} against {:?}, and after {STEPS} steps is {:.4} m and {:.3} deg away",
+                        other[step],
+                        locked[step],
+                        other[STEPS - 1].0.distance(locked[STEPS - 1].0),
+                        other[STEPS - 1]
+                            .1
+                            .angle_between(locked[STEPS - 1].1)
+                            .to_degrees(),
+                    );
+                }
+            }
+        }
     }
 }

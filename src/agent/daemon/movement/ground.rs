@@ -119,11 +119,62 @@ pub(super) fn swing(forward: Vec3, toward: Vec2) -> Controls {
     }
 }
 
-/// The fastest a driven body may roll `left` metres short of where it must
-/// have stopped: what [`WHEELED_BRAKE_MS2`] of braking takes off over that
-/// distance (#1536). Nought at the spot itself.
-pub(super) fn approach_speed(left: f32) -> f32 {
-    (2.0 * WHEELED_BRAKE_MS2 * left.max(0.0)).sqrt()
+/// How a driven body stops (#1570): the braking its approach is planned on,
+/// and the linear damping that stops it once [`brake`] lets go, under
+/// [`WHEELED_BRAKE_FLOOR_MS`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Stopping {
+    /// Its own reverse - drive force over mass - and never more than
+    /// [`WHEELED_BRAKE_MS2`] (m/s^2).
+    braking: f32,
+    /// Its linear damping on the ground (1/s).
+    damping: f32,
+}
+
+impl Default for Stopping {
+    fn default() -> Self {
+        Self {
+            braking: WHEELED_BRAKE_MS2,
+            damping: 1.0,
+        }
+    }
+}
+
+impl Stopping {
+    /// How a body moving by `locomotion` stops: a car or a hover-boat by its
+    /// record; anything else as the default, which no walker uses.
+    pub(super) fn of(locomotion: &crate::pds::LocomotionConfig) -> Self {
+        use crate::pds::LocomotionConfig;
+        let (drive, mass, damping) = match locomotion {
+            LocomotionConfig::Car(p) => (p.drive_force.0, p.mass.0, p.linear_damping.0),
+            LocomotionConfig::HoverBoat(p) => (p.drive_force.0, p.mass.0, p.linear_damping.0),
+            _ => return Self::default(),
+        };
+        Self {
+            braking: (drive / mass.max(1.0)).clamp(0.1, WHEELED_BRAKE_MS2),
+            damping,
+        }
+    }
+
+    /// The fastest the body may roll `left` metres short of where it must
+    /// have stopped: no faster than it can brake to [`WHEELED_BRAKE_FLOOR_MS`]
+    /// and coast the rest on its damping (#1536, #1570). Nought at the spot
+    /// itself. Planned on a fixed 4 m/s^2 with no coast, the wagon - which
+    /// reverses at 1.9 and coasts 2.2 m from the floor - came to rest 0.35
+    /// m from a player it followed at 3.
+    pub(super) fn approach_speed(self, left: f32) -> f32 {
+        let left = left.max(0.0);
+        // A body with next to no damping coasts on and on; past a tenth it
+        // is planned as if it had a tenth.
+        let damping = self.damping.max(0.1);
+        let coast = WHEELED_BRAKE_FLOOR_MS / damping;
+        if left >= coast {
+            (2.0 * self.braking * (left - coast) + WHEELED_BRAKE_FLOOR_MS * WHEELED_BRAKE_FLOOR_MS)
+                .sqrt()
+        } else {
+            left * damping
+        }
+    }
 }
 
 /// A driven body braking: the throttle against the way it is rolling, and

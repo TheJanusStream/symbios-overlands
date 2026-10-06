@@ -81,6 +81,7 @@ pub(super) fn handle_portal_interaction(
         (
             &CollidingEntities,
             &mut Transform,
+            &mut Position,
             &mut LinearVelocity,
             &mut AngularVelocity,
         ),
@@ -127,7 +128,7 @@ pub(super) fn handle_portal_interaction(
         return;
     }
 
-    let Ok((collisions, mut tf, mut lv, mut av)) = players.single_mut() else {
+    let Ok((collisions, mut tf, mut pos, mut lv, mut av)) = players.single_mut() else {
         return;
     };
 
@@ -141,7 +142,11 @@ pub(super) fn handle_portal_interaction(
             .map(|r| r.0 == portal.target_did)
             .unwrap_or(false);
         if same_room {
+            // The physics' own position too: the vehicles' fixed steps read
+            // it (#1548), and avian takes a moved `Transform` into it only
+            // at its next step, after them.
             tf.translation = portal.target_pos;
+            pos.0 = portal.target_pos;
             lv.0 = Vec3::ZERO;
             av.0 = Vec3::ZERO;
             // Engage the cooldown so a portal whose target_pos lies
@@ -246,7 +251,13 @@ pub(super) fn poll_portal_travel_tasks(
     relay_host: Option<Res<crate::state::RelayHost>>,
     peers: Query<Entity, With<RemotePeer>>,
     mut players: Query<
-        (&mut Transform, &mut LinearVelocity, &mut AngularVelocity),
+        (
+            &mut Transform,
+            &mut Position,
+            &mut Rotation,
+            &mut LinearVelocity,
+            &mut AngularVelocity,
+        ),
         With<LocalPlayer>,
     >,
     time: Res<Time>,
@@ -454,7 +465,7 @@ pub(super) fn poll_portal_travel_tasks(
         // `lift_player_above_new_ground` snap the chassis onto the new
         // ground the frame the heightmap lands, exactly as it already does
         // for re-seeds and stale baked targets.
-        if let Ok((mut tf, mut lv, mut av)) = players.single_mut() {
+        if let Ok((mut tf, mut pos, mut rot, mut lv, mut av)) = players.single_mut() {
             let (arrival, yaw_deg) = match travel_data.target_pos {
                 Some(pos) => (pos, None),
                 None => match destination_landing {
@@ -472,9 +483,12 @@ pub(super) fn poll_portal_travel_tasks(
                     }
                 },
             };
+            // The physics' own pose with it, as for a hop within a room.
             tf.translation = arrival;
+            pos.0 = arrival;
             if let Some(deg) = yaw_deg {
                 tf.rotation = Quat::from_rotation_y(deg.to_radians());
+                rot.0 = tf.rotation;
             }
             lv.0 = Vec3::ZERO;
             av.0 = Vec3::ZERO;

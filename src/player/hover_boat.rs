@@ -42,19 +42,17 @@ pub(super) fn sync_hover_boat_physics(
 #[allow(clippy::type_complexity)]
 pub(super) fn apply_hover_boat_suspension(
     live: Res<LiveAvatarRecord>,
-    mut query: Query<
-        (Entity, Forces, &GlobalTransform),
-        (With<LocalPlayer>, With<HoverBoatPreset>),
-    >,
+    mut query: Query<(Entity, Forces), (With<LocalPlayer>, With<HoverBoatPreset>)>,
     sensors: Query<Entity, With<Sensor>>,
     spatial_query: SpatialQuery,
 ) {
     let LocomotionConfig::HoverBoat(p) = &live.0.locomotion else {
         return;
     };
-    let Ok((chassis_entity, mut forces, global_tf)) = query.single_mut() else {
+    let Ok((chassis_entity, mut forces)) = query.single_mut() else {
         return;
     };
+    let global_tf = &super::physics_pose(forces.position(), forces.rotation());
 
     let half_extents = Vec3::from_array(p.chassis_half_extents.0);
     let corners = chassis_corners(half_extents);
@@ -91,7 +89,7 @@ pub(super) fn apply_hover_boat_suspension(
 pub(super) fn apply_hover_boat_drive(
     live: Res<LiveAvatarRecord>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut query: Query<(Forces, &GlobalTransform), (With<LocalPlayer>, With<HoverBoatPreset>)>,
+    mut query: Query<Forces, (With<LocalPlayer>, With<HoverBoatPreset>)>,
     traveling: Option<Res<TravelingTo>>,
 ) {
     if traveling.is_some() {
@@ -100,9 +98,10 @@ pub(super) fn apply_hover_boat_drive(
     let LocomotionConfig::HoverBoat(p) = &live.0.locomotion else {
         return;
     };
-    let Ok((mut forces, global_tf)) = query.single_mut() else {
+    let Ok(mut forces) = query.single_mut() else {
         return;
     };
+    let global_tf = &super::physics_pose(forces.position(), forces.rotation());
 
     let lin_vel = forces.linear_velocity();
     let forward = global_tf.forward().as_vec3();
@@ -140,14 +139,15 @@ pub(super) fn apply_hover_boat_drive(
 #[allow(clippy::type_complexity)]
 pub(super) fn apply_hover_boat_uprighting(
     live: Res<LiveAvatarRecord>,
-    mut query: Query<(Forces, &GlobalTransform), (With<LocalPlayer>, With<HoverBoatPreset>)>,
+    mut query: Query<Forces, (With<LocalPlayer>, With<HoverBoatPreset>)>,
 ) {
     let LocomotionConfig::HoverBoat(p) = &live.0.locomotion else {
         return;
     };
-    let Ok((mut forces, global_tf)) = query.single_mut() else {
+    let Ok(mut forces) = query.single_mut() else {
         return;
     };
+    let global_tf = &super::physics_pose(forces.position(), forces.rotation());
     let vehicle_up = global_tf.up().as_vec3();
     forces.apply_torque(vehicle_up.cross(Vec3::Y) * p.uprighting_torque.0);
 }
@@ -162,14 +162,15 @@ pub(super) fn apply_hover_boat_buoyancy(
     live: Res<LiveAvatarRecord>,
     water_surfaces: Res<crate::water::WaterSurfaces>,
     hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
-    mut query: Query<(Forces, &GlobalTransform), (With<LocalPlayer>, With<HoverBoatPreset>)>,
+    mut query: Query<Forces, (With<LocalPlayer>, With<HoverBoatPreset>)>,
 ) {
     let LocomotionConfig::HoverBoat(p) = &live.0.locomotion else {
         return;
     };
-    let Ok((mut forces, global_tf)) = query.single_mut() else {
+    let Ok(mut forces) = query.single_mut() else {
         return;
     };
+    let global_tf = &super::physics_pose(forces.position(), forces.rotation());
     // Past the heightmap's edge the lift FADES rather than cutting out
     // (#1240 f169). It used to return outright the instant the hull
     // crossed the extent, so a boat driven over the boundary lost all

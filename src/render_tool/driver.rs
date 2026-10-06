@@ -16,12 +16,14 @@
 //! fixed clock from the clip's first frame less `--drive-lead`, and the
 //! chassis is eased between steps as the game eases a player's
 //! (`TransformInterpolation`), which is what keeps a slowed shot smooth.
-//! What the car does with them is the game's down to its one frame-rate
-//! dependence: the car systems read the pose the last frame left
-//! (`GlobalTransform`), not the physics' own, as they do in the game - so a
-//! run filmed at another `--fps` or `--time-scale` differs by a few
-//! hundredths of a second of airtime and a fraction of a degree, as the game
-//! does between displays. `--drive-log` writes the run, step by step.
+//! What the car does with them is the game's, and it does not depend on the
+//! frame rate: the car systems read the physics' own pose, not the one the
+//! last frame left (#1548). Only the step the car is set down on falls on a
+//! frame, so a run at another `--fps` or `--time-scale` can start a step or
+//! two apart: Jink's Jump Line flies its three jumps to the same millisecond
+//! and centimetre at 24, 30 and 60 frames a second, where the car of the
+//! build before flew the first 0.67 to 0.72 s with the frame rate.
+//! `--drive-log` writes the run, step by step.
 //!
 //! The game's layers over a moving car come too: the body's lean and idle
 //! shiver (the car's gait, seeded by the world's DID as the game seeds its

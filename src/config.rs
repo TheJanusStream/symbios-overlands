@@ -175,20 +175,22 @@ pub(crate) mod rover {
     // corner's share of the mass, so it holds any car the same way. The
     // shape, and why each part is there, is on `player::car::CarBumpStop`.
     //
-    // MEASURED on the drive bench (#1535, on #1534's suspension damping), the
-    // default car and the seeded Cyclecar alike: dropped flat from 2 / 3 / 4
-    // m the box keeps 109 / 61 / 4 mm off the floor and comes back up at 1.4
-    // m/s, where without the stop it comes to 63 / 1 / 1 mm and back up at
-    // 2.4 / 2.7 / 2.7. Off the jump table's 1.5 m ramps the box clears the
-    // landing by 92-106 mm at 10 m/s over 12 degrees and 31-68 mm at 14 over
-    // 18, keeping 95-100% of the speed against 64-92%, and comes back up at
-    // 1.3-1.4 m/s against 2.3-2.7. It does NOT keep the box off the ground
-    // from 18 m/s over 25 degrees, or dropped flat from 4 m onto it at 8.2
-    // m/s: 0.6 m of travel cannot stop that at forces the 64 Hz step
-    // integrates without throwing the car back up. `probe_the_landing_sweep`
-    // in `player::car` runs every landing the stop is tuned against - drops,
-    // pitched and rolled landings, the jump table's, landing ramps - and none
-    // comes back up harder with the stop than without it.
+    // MEASURED on the drive bench, the default car and the seeded Cyclecar
+    // alike - tuned at #1535 on #1534's suspension damping, and measured
+    // again at #1548, once the car systems read the physics' own pose rather
+    // than a step-late one: dropped flat from 2 / 3 / 4 m the box keeps 169 /
+    // 134 / 98 mm off the floor and comes back up at 1.4 m/s, where without
+    // the stop it comes to 141 / 57 / 0 mm and back up at 1.8 / 2.3 / 2.6.
+    // Off the jump table's 1.5 m ramps the box clears the landing by 152-169
+    // mm at 10 m/s over 12 degrees and 129-137 mm at 14 over 18, and comes
+    // back up at 1.4 m/s against 1.7-2.4; at 18 m/s over 25 degrees it keeps
+    // 89-106 mm where the bare box reaches the ground. Read a step late (#1535
+    // measured 109 / 61 / 4 mm for the drops) the stop let the box reach the
+    // ground from 18 m/s over 25 degrees and from 4 m; now every landing
+    // `probe_the_landing_sweep` in `player::car` runs - drops, pitched and
+    // rolled landings, the jump table's, landing ramps - keeps the box at
+    // least 89 mm up, and none comes back up harder with the stop than
+    // without it.
     /// Compression, as a fraction of `suspension_rest_length`, where the stop
     /// begins. MEASURED on the drive bench at #1524, on the suspension's old
     /// damping: ordinary driving (flat, a hard turn, the handbrake, braking)
@@ -1910,17 +1912,18 @@ pub(crate) mod agent {
     pub const ARRIVE_ON_FOOT_M: f32 = 1.0;
     /// The same for a driven body, which cannot stop on a coin (m).
     pub const ARRIVE_WHEELED_M: f32 = 3.0;
-    /// The braking a driven body plans its approach on (m/s^2): it rolls no
-    /// faster than it could stop at this before a point half its arrival
-    /// radius short of where it is going, or its following distance from a
-    /// player it follows (#1536). A walk-to that held the throttle to its
-    /// circle and let go rolled a car 7-11 m past, and a follow drove
-    /// through the player. Under what most of the fleet's reverse does (8.9
-    /// m/s^2 on the default car, 11.5 on Jink's Cyclecar); the slowest
-    /// seeded types reverse at 1.9-3.8 but drive slowly enough to stop
-    /// inside the circle all the same (0.8-2.0 m from the point on the
-    /// drive bench). A record edited to a weak reverse and little drag can
-    /// still run over.
+    /// The most braking a driven body plans its approach on (m/s^2): it rolls
+    /// no faster than it could stop before a point half its arrival radius
+    /// short of where it is going, or its following distance from a player
+    /// it follows (#1536). A walk-to that held the throttle to its circle and
+    /// let go rolled a car 7-11 m past, and a follow drove through the
+    /// player. Under what most of the fleet's reverse does (8.9 m/s^2 on the
+    /// default car, 11.5 on Jink's Cyclecar); a body whose reverse (drive
+    /// force over mass) is weaker, as the wagon's 1.9 and the armoured car's
+    /// 3.8 are, is planned on its own, and every approach leaves room for the
+    /// coast once the brake lets go under [`WHEELED_BRAKE_FLOOR_MS`], its
+    /// speed over its linear damping (#1570). Planned on this alone with no
+    /// coast, the wagon came to rest 0.35 m from a player it followed at 3.
     pub const WHEELED_BRAKE_MS2: f32 = 4.0;
     /// Under this speed a driven body is at rest, and a walk that has
     /// brought it into its arrival circle has arrived (m/s).
@@ -2066,7 +2069,11 @@ pub(crate) mod agent {
     pub const LAND_SLIDE_GAIN: f32 = 0.5;
     pub const LAND_SLIDE_SPEED: f32 = 1.0;
     /// Turning this far counts as getting somewhere, for `stuck` (degrees):
-    /// a long airship swings round more slowly than a walk is called stuck.
+    /// a long airship swings round more slowly than a walk is called stuck,
+    /// and so does a car swinging round on the spot to a point behind it -
+    /// the default car at about 25 degrees a second - which, counted by
+    /// distance alone, ended its walk-to stuck six seconds in, still some 24
+    /// degrees short of facing it (#1541).
     pub const PROGRESS_TURN_DEG: f32 = 10.0;
     /// How far along its course a flying body sweeps itself for something in
     /// the way at its own height - a landmark, a tower, a cliff - which the

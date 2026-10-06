@@ -575,14 +575,18 @@ form (`W@4 W+D@0.6 none@2`). The car is set down at `--drive-from x,z`
 facing `--drive-bearing` (a compass bearing; both default to the record's
 landing), settles, and starts its keys `--drive-lead` seconds before the
 first frame. Keys change on whole physics steps; what the car does with
-them is the game's, down to its one frame-rate dependence (its systems read
-the pose the last frame left), so a run filmed at another `--fps` or
-`--time-scale` differs by a few hundredths of a second of airtime.
+them is the game's, and since #1548 it does not depend on the frame rate
+(the car's systems read the physics' own pose, not the one the last frame
+left). Only the step the car is set down on falls on a frame, so a run at
+another `--fps` or `--time-scale` can start a step or two apart.
 `--drive-log run.jsonl` writes a run a step at a
 time (position, velocity, bearing, pitch, roll, wheels down), which is how a
 stunt is measured and a camera placed before a shot is rendered. In
-session 900 it flew Jink's Jump Line in 0.73 / 0.89 / 1.34 s of airtime
-against the live game's 0.70 / 0.90 / 1.33.
+session 912 it flew Jink's Jump Line in 0.70 / 0.88 / 1.33 s of airtime,
+9.8 / 12.3 / 18.4 m from take-off to touchdown, at 24, 30 and 60 frames a
+second alike, against the live game's 0.70 / 0.90 / 1.33 s and 9.7 / 12.5
+/ 18.4 m (session 893); before #1548 the first jump flew 0.67 to 0.72 s
+with the frame rate.
 
 ```bash
 cargo run --profile test-release --bin render -- --world did:plc:x --world-record room.json \

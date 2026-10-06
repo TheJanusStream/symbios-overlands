@@ -2,7 +2,8 @@
 
 The agent moves as a player does - by the keys, in straight lines, with no
 path-finding. A walk ends `arrived` (within about a metre), `stuck` (no
-closer for a while: something is in the way), `halted`, or `replaced`.
+closer for a while: something is in the way - turning nearer the point
+counts as getting somewhere too), `halted`, or `replaced`.
 Add `--wait` to get the ending as the command's answer.
 
 ## Going to a player
@@ -113,7 +114,9 @@ the hang time, do not guess it.
 
 ## Bodies that are not feet
 
-A car or hover-boat turns on the spot before it drives; an airship flies a
+A car or hover-boat turns on the spot before it drives, at its own pace -
+the default car about 25 degrees a second, so a point behind it takes some
+7 s of swinging before it closes (#1541); an airship flies a
 `walk-to` and lands on the point, never ending in the air - it climbs over
 a building in its way instead of ending `stuck` against it, which makes it
 the quickest body for work round a build; an airplane takes

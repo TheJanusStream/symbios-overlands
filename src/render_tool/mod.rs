@@ -551,9 +551,9 @@ struct Args {
     /// order, as `agent drive` takes them - `W@4 W+D@0.6 none@2`: keys joined
     /// by `+` (W, A, S, D, Q, E, SPACE), `none` for none. Space-separated in
     /// one value, or the flag repeated. The keys change on the physics' own
-    /// steps; what the car does with them varies with `--fps` and
-    /// `--time-scale` by a few hundredths of a second of airtime, as the
-    /// game's car varies with the display's frame rate.
+    /// steps, and what the car does with them is the same at any `--fps` or
+    /// `--time-scale` (#1548); only the step it is set down on falls on a
+    /// frame, and can come a step or two apart.
     #[arg(long, requires = "driver", action = clap::ArgAction::Append)]
     drive_keys: Vec<String>,
     /// With `--driver`: seconds of the drive played before the first

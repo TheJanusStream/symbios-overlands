@@ -52,7 +52,7 @@ fn stabilize_torque(chassis_up: Vec3, strength: f32) -> Vec3 {
 pub(super) fn apply_helicopter_stabilization(
     live: Res<LiveAvatarRecord>,
     mut query: Query<
-        (Forces, &GlobalTransform),
+        Forces,
         (
             With<LocalPlayer>,
             With<HelicopterPreset>,
@@ -63,9 +63,10 @@ pub(super) fn apply_helicopter_stabilization(
     let LocomotionConfig::Helicopter(p) = &live.0.locomotion else {
         return;
     };
-    let Ok((mut forces, global_tf)) = query.single_mut() else {
+    let Ok(mut forces) = query.single_mut() else {
         return;
     };
+    let global_tf = &super::physics_pose(forces.position(), forces.rotation());
 
     // Hover thrust along world-Y so the helicopter floats independent
     // of cyclic pitch - players can tilt for forward speed without
@@ -86,7 +87,7 @@ pub(super) fn apply_helicopter_stabilization(
 pub(super) fn apply_helicopter_forces(
     live: Res<LiveAvatarRecord>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut query: Query<(Forces, &GlobalTransform), (With<LocalPlayer>, With<HelicopterPreset>)>,
+    mut query: Query<Forces, (With<LocalPlayer>, With<HelicopterPreset>)>,
     traveling: Option<Res<TravelingTo>>,
 ) {
     if traveling.is_some() {
@@ -95,9 +96,10 @@ pub(super) fn apply_helicopter_forces(
     let LocomotionConfig::Helicopter(p) = &live.0.locomotion else {
         return;
     };
-    let Ok((mut forces, global_tf)) = query.single_mut() else {
+    let Ok(mut forces) = query.single_mut() else {
         return;
     };
+    let global_tf = &super::physics_pose(forces.position(), forces.rotation());
 
     // Vertical climb / descend lerps the Y component of velocity toward
     // ±vertical_speed when Space / Shift is held; idle leaves vertical

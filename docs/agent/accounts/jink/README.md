@@ -396,7 +396,9 @@ lines (the placements are 21-28).
   render tool's new `--driver` (#1546), from the saved room and avatar,
   with the keys this page's runs use: the tool flies the Jump Line in 0.75
   / 0.89 / 1.36 s against the 0.70 / 0.90 / 1.33 measured live.
-- **Found**: a car's physics depends on the frame rate (#1548); a car
+- **Found**: a car's physics depends on the frame rate (#1548, fixed in
+  session 912: every vehicle reads the physics' own pose now, and the
+  render tool flies the Jump Line alike at any frame rate); a car
   threw no dust (#1549, fixed in session 902: the car throws dust from its
   wheels now, and thuds when it lands a jump); from the side the ring of
   fire is edge-on and vanishes - shoot it along the line.

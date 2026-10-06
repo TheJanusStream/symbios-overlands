@@ -262,6 +262,46 @@ pub fn humanoid_water_state(
     }
 }
 
+/// The radius of the sphere [`feet_on_the_ground`] casts (m): about a ray's
+/// reach, without a ray's blind spot.
+const FEET_PROBE_RADIUS: f32 = 0.05;
+
+/// Whether a body `total_height` tall, centred at `chassis_pos`, has ground
+/// under its feet to jump off: something within 5 cm below them, straight
+/// down from its middle.
+///
+/// A short sphere cast, not a ray (#1544). parry tests a ray that runs
+/// straight down against the one heightfield cell its point falls in, with a
+/// strict triangle test, so a ray exactly on a cell's edge can miss the
+/// ground - and the terrain's grid lines fall on odd whole metres: on the
+/// shipped map, a player standing still exactly on one could not jump. A
+/// cast tests every cell it touches.
+pub(super) fn feet_on_the_ground(
+    spatial_query: &SpatialQuery,
+    chassis_pos: Vec3,
+    total_height: f32,
+    filter: &SpatialQueryFilter,
+) -> bool {
+    let origin = chassis_pos + Vec3::Y * 0.05;
+    let reach = total_height * 0.5 + 0.1;
+    // Swept from its middle, the sphere starts clear of the ground; what it
+    // starts inside - a wall the body leans on - is not what is under it.
+    let config = ShapeCastConfig {
+        ignore_origin_penetration: true,
+        ..ShapeCastConfig::from_max_distance(reach - FEET_PROBE_RADIUS)
+    };
+    spatial_query
+        .cast_shape(
+            &Collider::sphere(FEET_PROBE_RADIUS),
+            origin,
+            Quat::IDENTITY,
+            Dir3::NEG_Y,
+            &config,
+            filter,
+        )
+        .is_some()
+}
+
 /// Publish the local humanoid's water classification for the UI (#1241
 /// f160).
 ///
@@ -380,7 +420,7 @@ pub(super) fn apply_humanoid_walk(
             Entity,
             &mut LinearVelocity,
             &mut Transform,
-            &GlobalTransform,
+            &Position,
             &mut HumanoidWater,
         ),
         (With<LocalPlayer>, With<HumanoidPreset>),
@@ -399,11 +439,13 @@ pub(super) fn apply_humanoid_walk(
     let LocomotionConfig::Humanoid(p) = &live.0.locomotion else {
         return;
     };
-    let Ok((entity, mut lin_vel, mut chassis_tf, global_tf, mut water)) = query.single_mut() else {
+    let Ok((entity, mut lin_vel, mut chassis_tf, position, mut water)) = query.single_mut() else {
         return;
     };
 
-    let chassis_pos = global_tf.translation();
+    // The physics' own position, not the pose the last frame left (#1548,
+    // see `super::physics_pose`).
+    let chassis_pos = position.0;
     let total_height = p.total_height();
     let state = humanoid_water_state(
         matches!(water.0, WaterState::Swimming { .. }),
@@ -512,16 +554,11 @@ pub(super) fn apply_humanoid_walk(
             // after this system) wipes the flag each step, so a tap fires
             // at most once and a mid-air tap can't fire on a later landing.
             if jump_queued.0 {
-                let origin = chassis_pos + Vec3::Y * 0.05;
-                let feet_distance = total_height * 0.5 + 0.1;
                 // Exclude self + every sensor so a gateway veil / portal never
                 // counts as ground for the jump check (#813) -
                 // see [`super::ground_ray_filter`].
                 let filter = super::ground_ray_filter(entity, sensors.iter());
-                let grounded = spatial_query
-                    .cast_ray(origin, Dir3::NEG_Y, feet_distance, true, &filter)
-                    .is_some();
-                if grounded {
+                if feet_on_the_ground(&spatial_query, chassis_pos, total_height, &filter) {
                     let delta_v = p.jump_impulse.0 / p.mass.0.max(1.0);
                     lin_vel.0.y += delta_v;
                 }
@@ -871,6 +908,8 @@ mod speed_change {
                 LocalPlayer,
                 HumanoidPreset,
                 LinearVelocity::default(),
+                // The pose the walk reads (#1548), as avian keeps it.
+                Position::default(),
                 Transform::default(),
                 GlobalTransform::default(),
             ))
@@ -1514,6 +1553,8 @@ mod turning {
                 LocalPlayer,
                 HumanoidPreset,
                 LinearVelocity::default(),
+                // The pose the walk reads (#1548), as avian keeps it.
+                Position::default(),
                 Transform::default(),
                 GlobalTransform::default(),
             ))
@@ -1600,6 +1641,10 @@ mod turning {
             *app.world_mut()
                 .get_mut::<GlobalTransform>(chassis)
                 .expect("the chassis has a global transform") = GlobalTransform::from(placed);
+            app.world_mut()
+                .get_mut::<Position>(chassis)
+                .expect("the chassis has a position")
+                .0 = placed.translation;
             app.world_mut().resource_mut::<Time>().advance_by(dt);
             drive_frame(&mut app);
 
@@ -2029,6 +2074,8 @@ mod turning {
                 LocalPlayer,
                 HumanoidPreset,
                 LinearVelocity::default(),
+                // The pose the walk reads (#1548), as avian keeps it.
+                Position::default(),
                 Transform::default(),
                 GlobalTransform::default(),
             ))
@@ -2113,6 +2160,10 @@ mod turning {
                 *app.world_mut()
                     .get_mut::<GlobalTransform>(local)
                     .expect("the chassis has a global transform") = GlobalTransform::from(placed);
+                app.world_mut()
+                    .get_mut::<Position>(local)
+                    .expect("the chassis has a position")
+                    .0 = placed.translation;
                 // It leaves with the sender's frame, arrives after the
                 // latency and its jitter, and never overtakes its predecessor.
                 noise ^= noise << 13;
@@ -2427,6 +2478,8 @@ mod surface {
                 LocalPlayer,
                 HumanoidPreset,
                 LinearVelocity::default(),
+                // The pose the walk reads (#1548), as avian keeps it.
+                Position(start.translation),
                 start,
                 GlobalTransform::from(start),
             ))
@@ -2497,6 +2550,10 @@ mod surface {
                 *app.world_mut()
                     .get_mut::<GlobalTransform>(chassis)
                     .expect("the chassis has a global transform") = GlobalTransform::from(placed);
+                app.world_mut()
+                    .get_mut::<Position>(chassis)
+                    .expect("the chassis has a position")
+                    .0 = placed.translation;
                 app.world_mut().resource_mut::<Time>().advance_by(dt);
                 drive_frame(&mut app);
 
@@ -2687,5 +2744,105 @@ mod surface {
                 pelvis.1,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod feet_on_the_ground_tests {
+    use bevy::ecs::system::RunSystemOnce;
+
+    use super::*;
+
+    /// #1544: a body standing exactly on one of the terrain's grid lines, or
+    /// on one of its samples, has ground under its feet. The terrain is the
+    /// shipped map's - 512 samples 2 m apart, a 1022 m span, its lines on odd
+    /// whole metres - and on it a ray dropped straight down from a point
+    /// exactly on a line missed the ground: so must some of the old ray's
+    /// here, or the test would not show it.
+    #[test]
+    fn a_body_on_a_grid_line_has_ground_under_its_feet() {
+        use crate::config::terrain::{CELL_SCALE, GRID_SIZE};
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins(PhysicsPlugins::default());
+        let mut heightmap = bevy_symbios_ground::HeightMap::new(GRID_SIZE, GRID_SIZE, CELL_SCALE);
+        for z in 0..GRID_SIZE {
+            for x in 0..GRID_SIZE {
+                // A gentle roll, as the land has: no cell is flat.
+                heightmap.set(x, z, ((x as f32) * 0.37).sin() + ((z as f32) * 0.23).cos());
+            }
+        }
+        app.world_mut().spawn((
+            RigidBody::Static,
+            bevy_symbios_ground::build_heightfield_collider(&heightmap),
+            Transform::IDENTITY,
+        ));
+        app.finish();
+        app.cleanup();
+        // One physics step puts the terrain in the collider trees.
+        let world = app.world_mut();
+        world
+            .resource_mut::<Time<Fixed>>()
+            .advance_by(std::time::Duration::from_secs_f64(1.0 / 64.0));
+        let fixed = *world.resource::<Time<Fixed>>();
+        *world.resource_mut::<Time>() = fixed.as_generic();
+        world.run_schedule(FixedPostUpdate);
+
+        let half = (GRID_SIZE - 1) as f32 * CELL_SCALE * 0.5;
+        // The ground at a point on a line of samples running along Z, x on a
+        // sample: along a cell's edge it runs straight from sample to sample.
+        let ground_at = |x: f32, z: f32| {
+            let ix = ((x + half) / CELL_SCALE).round() as usize;
+            let gz = (z + half) / CELL_SCALE;
+            let iz = (gz.floor() as usize).min(GRID_SIZE - 2);
+            let along = gz - iz as f32;
+            heightmap.get(ix, iz) * (1.0 - along) + heightmap.get(ix, iz + 1) * along
+        };
+        let total_height = 1.8;
+        let (mut points, mut missed_by_a_ray) = (0, 0);
+        for i in -60..60 {
+            for (x, z) in [
+                // On a grid line along Z, between samples.
+                (
+                    -511.0 + CELL_SCALE * (200 + i) as f32,
+                    0.5 + i as f32 * 0.37,
+                ),
+                // On a sample.
+                (
+                    -511.0 + CELL_SCALE * (260 + i) as f32,
+                    -511.0 + CELL_SCALE * (240 - i) as f32,
+                ),
+            ] {
+                let feet = ground_at(x, z);
+                let chassis = Vec3::new(x, feet + total_height * 0.5 + 0.02, z);
+                let (grounded, ray) = app
+                    .world_mut()
+                    .run_system_once(move |spatial: SpatialQuery| {
+                        let filter = SpatialQueryFilter::default();
+                        (
+                            feet_on_the_ground(&spatial, chassis, total_height, &filter),
+                            spatial
+                                .cast_ray(
+                                    chassis + Vec3::Y * 0.05,
+                                    Dir3::NEG_Y,
+                                    total_height * 0.5 + 0.1,
+                                    true,
+                                    &filter,
+                                )
+                                .is_some(),
+                        )
+                    })
+                    .expect("the query runs");
+                points += 1;
+                assert!(grounded, "no ground under feet at ({x}, {z})");
+                if !ray {
+                    missed_by_a_ray += 1;
+                }
+            }
+        }
+        assert!(
+            missed_by_a_ray > 0,
+            "the premise: a straight-down ray missed none of the {points} points"
+        );
     }
 }

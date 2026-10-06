@@ -205,6 +205,19 @@ pub(super) fn ground_ray_filter(
     SpatialQueryFilter::default().with_excluded_entities(std::iter::once(chassis).chain(sensors))
 }
 
+/// The pose a vehicle's fixed-step systems read their chassis at (#1548):
+/// avian's own `Position` and `Rotation`, as its solver left them at the end
+/// of the last step. Not `GlobalTransform`: in `FixedUpdate` that is the pose
+/// the last frame left - set by avian only before its solve, and eased by
+/// `PostUpdate` from the interpolated `Transform` - so a step read the body a
+/// whole step late or part of one, depending on how many steps the frame held
+/// and where it fell on the step grid. A car at 12.5 frames a second drove off
+/// its run at 64 within five steps, and two players on different displays flew
+/// the same jump differently.
+pub(super) fn physics_pose(position: &Position, rotation: &Rotation) -> GlobalTransform {
+    GlobalTransform::from(Transform::from_translation(position.0).with_rotation(rotation.0))
+}
+
 /// Steering-direction multiplier from a vehicle's signed longitudinal speed:
 /// `-1` while genuinely reversing (below `-REVERSE_STEER_SPEED`), else `+1`.
 /// Both [`car`] and [`hover_boat`] multiply their A/D yaw torque by it so the
