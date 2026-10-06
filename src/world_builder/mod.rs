@@ -692,6 +692,12 @@ fn reset_traits(commands: &mut Commands, entity: Entity) {
     commands.entity(entity).remove::<Sensor>();
 }
 
+/// The turn of a rect scatter's outline: laid flat (the rect's Y onto +Z),
+/// then turned as the sampler lays the rect out (#1512).
+fn rect_outline_turn(rotation: f32) -> Quat {
+    compile::scatter::rect_turn(rotation) * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)
+}
+
 /// Outline the focused placement (#1297 step 4): a sphere for an Absolute
 /// anchor, a flat circle or rectangle for a Scatter's bounds, the cell
 /// grid for a Grid.
@@ -765,34 +771,32 @@ fn draw_placement_visualizers(
             bounds,
             snap_to_terrain,
             ..
-        } => {
-            match bounds {
-                ScatterBounds::Circle { center, radius } => {
-                    let mut pos = Vec3::new(center.0[0], 0.0, center.0[1]);
-                    if *snap_to_terrain {
-                        pos.y = get_y(pos.x, pos.z);
-                    }
-                    let iso =
-                        Isometry3d::new(pos, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2));
-                    gizmos.circle(iso, radius.0, color);
+        } => match bounds {
+            ScatterBounds::Circle { center, radius } => {
+                let mut pos = Vec3::new(center.0[0], 0.0, center.0[1]);
+                if *snap_to_terrain {
+                    pos.y = get_y(pos.x, pos.z);
                 }
-                ScatterBounds::Rect {
-                    center,
-                    extents,
-                    rotation,
-                } => {
-                    let mut pos = Vec3::new(center.0[0], 0.0, center.0[1]);
-                    if *snap_to_terrain {
-                        pos.y = get_y(pos.x, pos.z);
-                    }
-                    // Align the rect to lie flat on the XZ plane
-                    let rot = Quat::from_rotation_y(rotation.0)
-                        * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
-                    let size = Vec2::new(extents.0[0] * 2.0, extents.0[1] * 2.0);
-                    gizmos.rect(Isometry3d::new(pos, rot), size, color);
-                }
+                let iso = Isometry3d::new(pos, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2));
+                gizmos.circle(iso, radius.0, color);
             }
-        }
+            ScatterBounds::Rect {
+                center,
+                extents,
+                rotation,
+            } => {
+                let mut pos = Vec3::new(center.0[0], 0.0, center.0[1]);
+                if *snap_to_terrain {
+                    pos.y = get_y(pos.x, pos.z);
+                }
+                let size = Vec2::new(extents.0[0] * 2.0, extents.0[1] * 2.0);
+                gizmos.rect(
+                    Isometry3d::new(pos, rect_outline_turn(rotation.0)),
+                    size,
+                    color,
+                );
+            }
+        },
         Placement::Grid {
             transform,
             counts,
@@ -804,7 +808,7 @@ fn draw_placement_visualizers(
             if *snap_to_terrain {
                 pos.y = get_y(pos.x, pos.z);
             }
-            let rot = Quat::from_array(transform.rotation.0);
+            let rot = Transform::from(transform).rotation;
             let w = ((counts[0] as f32) - 1.0).max(0.0) * gaps.0[0];
             let h = ((counts[1] as f32) - 1.0).max(0.0) * gaps.0[1];
             let d = ((counts[2] as f32) - 1.0).max(0.0) * gaps.0[2];
@@ -830,5 +834,34 @@ fn draw_placement_visualizers(
             );
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod rect_outline_tests {
+    use super::*;
+
+    /// #1512: a turned rect scatter's outline has its corners where the
+    /// sampler puts the rect's corners. It was drawn turned the other way,
+    /// mirrored from where the copies stand.
+    #[test]
+    fn a_turned_rect_outline_stands_where_its_copies_do() {
+        let (center, extents) = ([12.0, -8.0], [32.0, 16.0]);
+        for rotation in [0.3_f32, 0.9, 2.2, -1.1] {
+            let outline = Isometry3d::new(
+                Vec3::new(center[0], 0.0, center[1]),
+                rect_outline_turn(rotation),
+            );
+            for (sx, sz) in [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)] {
+                let (lx, lz) = (sx * extents[0], sz * extents[1]);
+                // `gizmos.rect` draws a corner at `isometry * (x, y, 0)`.
+                let drawn = outline * Vec3::new(lx, lz, 0.0);
+                let (x, z) = compile::scatter::rect_point(center, rotation, lx, lz);
+                assert!(
+                    (drawn - Vec3::new(x, 0.0, z)).length() < 1e-3,
+                    "turned {rotation}: corner ({lx}, {lz}) drawn at {drawn}, sampled at ({x}, {z})"
+                );
+            }
+        }
     }
 }

@@ -28,7 +28,7 @@ use bevy::prelude::*;
 
 use crate::pds::generator::{BlobElement, BlobShape, Generator, GeneratorKind};
 use crate::pds::sanitize::limits::MAX_BLOB_ELEMENTS;
-use crate::pds::types::{Fp3, Fp4};
+use crate::pds::types::{Fp3, rotation_after};
 
 use super::BlobEditKey;
 use crate::editor_gizmo::ActiveTarget;
@@ -106,7 +106,7 @@ pub(crate) fn apply_local_to_element(e: &mut BlobElement, tf: &Transform) {
         clamp_pos(tf.translation.y),
         clamp_pos(tf.translation.z),
     ]);
-    e.rotation = Fp4(safe_unit(tf.rotation).to_array());
+    e.rotation = rotation_after(e.rotation, safe_unit(tf.rotation));
     let s = tf.scale.abs();
     match e.shape {
         BlobShape::Sphere | BlobShape::Unknown => {
@@ -223,7 +223,7 @@ pub(crate) fn commit_blob_element_drag(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pds::types::Fp;
+    use crate::pds::types::{Fp, Fp4};
 
     fn sphere_at(pos: [f32; 3], r: f32) -> BlobElement {
         BlobElement {

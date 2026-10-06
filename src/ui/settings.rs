@@ -58,346 +58,352 @@ pub fn settings_ui(
     // prefs save debounce - local copy in, write back only on close.
     let mut open = panels.settings;
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Settings, ctx);
+    let screen = chrome.available_rect(ctx);
     let response = egui::Window::new("Settings")
         .open(&mut open)
         .default_pos(pos)
         .default_size(size)
-        .constrain_to(chrome.available_rect(ctx))
+        .constrain_to(screen)
         .resizable(false)
         .collapsible(true)
         .show(ctx, |ui| {
-            // Guarded-dirty pattern: `&mut` field access through the
-            // `ResMut` would mark the resource changed every frame the
-            // window is open, and the prefs debounce would re-save
-            // identical data forever. Only a real interaction dirties.
-            let s = settings.bypass_change_detection();
-            let mut dirty = false;
+            // Taller than a 720-line screen (#1434): the body scrolls, so
+            // Windows and Muted people below the screen's edge can be reached.
+            crate::ui::layout::screen_scroll(ui, "settings_body", screen, |ui| {
+                // Guarded-dirty pattern: `&mut` field access through the
+                // `ResMut` would mark the resource changed every frame the
+                // window is open, and the prefs debounce would re-save
+                // identical data forever. Only a real interaction dirties.
+                let s = settings.bypass_change_detection();
+                let mut dirty = false;
 
-            ui.strong("Theme");
-            ui.horizontal(|ui| {
-                for pref in [UserTheme::Dark, UserTheme::Light, UserTheme::HighContrast] {
-                    dirty |= ui
-                        .selectable_value(&mut s.theme, pref, pref.label())
-                        .changed();
-                }
-            });
-            ui.small("Applies immediately; remembered for this account on this device.");
-
-            ui.add_space(8.0);
-            // The other half of the accessibility surface (#1259 f239).
-            // The palette picker used to be all of it: there was no
-            // text-size control anywhere, and egui's own Ctrl+plus was
-            // undocumented and forgotten at every launch. The slider and
-            // the shortcut are one setting - `theme::sync_ui_scale` reads
-            // the keyboard zoom back out - so this number is always what
-            // is on screen, however the user got there.
-            ui.strong("Interface size");
-            ui.horizontal(|ui| {
-                dirty |= ui
-                    .add(
-                        crate::ui::num::slider(
-                            &mut s.ui_scale,
-                            crate::config::ui::UI_SCALE_MIN..=crate::config::ui::UI_SCALE_MAX,
-                        )
-                        .fixed_decimals(2)
-                        .suffix("x"),
-                    )
-                    .on_hover_text(
-                        "Scales all text and controls. Ctrl+plus and Ctrl+minus \
-                         do the same thing from anywhere.",
-                    )
-                    .changed();
-                if ui
-                    .button("Reset")
-                    .on_hover_text("Back to the default size.")
-                    .clicked()
-                {
-                    s.ui_scale = 1.0;
-                    dirty = true;
-                }
-            });
-
-            ui.add_space(8.0);
-            ui.separator();
-            ui.strong("Camera");
-            ui.label("Ground avoidance:");
-            ui.horizontal(|ui| {
-                for mode in [
-                    CameraGroundAvoidance::Off,
-                    CameraGroundAvoidance::CameraOnly,
-                    CameraGroundAvoidance::FullRay,
-                ] {
-                    dirty |= ui
-                        .selectable_value(&mut s.camera_ground_avoidance, mode, mode.label())
-                        .on_hover_text(match mode {
-                            CameraGroundAvoidance::Off => {
-                                "Never pull the camera in - it may dip under \
-                                 terrain when orbiting low."
-                            }
-                            CameraGroundAvoidance::CameraOnly => {
-                                "Keep the camera itself above the ground. \
-                                 Terrain between you and the camera may block \
-                                 the view but never zooms it in."
-                            }
-                            CameraGroundAvoidance::FullRay => {
-                                "Also zoom in whenever terrain would block the \
-                                 view of your avatar (the old behavior - \
-                                 aggressive at low angles)."
-                            }
-                        })
-                        .changed();
-                }
-            });
-            if s.camera_ground_avoidance != CameraGroundAvoidance::Off {
+                ui.strong("Theme");
                 ui.horizontal(|ui| {
-                    ui.label("Clearance:");
+                    for pref in [UserTheme::Dark, UserTheme::Light, UserTheme::HighContrast] {
+                        dirty |= ui
+                            .selectable_value(&mut s.theme, pref, pref.label())
+                            .changed();
+                    }
+                });
+                ui.small("Applies immediately; remembered for this account on this device.");
+
+                ui.add_space(8.0);
+                // The other half of the accessibility surface (#1259 f239).
+                // The palette picker used to be all of it: there was no
+                // text-size control anywhere, and egui's own Ctrl+plus was
+                // undocumented and forgotten at every launch. The slider and
+                // the shortcut are one setting - `theme::sync_ui_scale` reads
+                // the keyboard zoom back out - so this number is always what
+                // is on screen, however the user got there.
+                ui.strong("Interface size");
+                ui.horizontal(|ui| {
                     dirty |= ui
                         .add(
-                            crate::ui::num::slider(&mut s.camera_ground_clearance_m, 0.2..=5.0)
-                                .suffix(" m"),
+                            crate::ui::num::slider(
+                                &mut s.ui_scale,
+                                crate::config::ui::UI_SCALE_MIN..=crate::config::ui::UI_SCALE_MAX,
+                            )
+                            .fixed_decimals(2)
+                            .suffix("x"),
                         )
-                        .on_hover_text("Headroom kept between the camera and the terrain")
+                        .on_hover_text(
+                            "Scales all text and controls. Ctrl+plus and Ctrl+minus \
+                         do the same thing from anywhere.",
+                        )
                         .changed();
+                    if ui
+                        .button("Reset")
+                        .on_hover_text("Back to the default size.")
+                        .clicked()
+                    {
+                        s.ui_scale = 1.0;
+                        dirty = true;
+                    }
                 });
-            }
 
-            ui.add_space(8.0);
-            ui.separator();
-            // #1480: every drawn part costs a browser CPU each frame, and
-            // ground cover is most of a planted world's parts. The slider's
-            // far end is Unlimited - drawn to the fog, as before - and its
-            // stops are the grid the cuts land on, which is what keeps the
-            // number of distinct ranges small enough for WebGL2 (see
-            // `world_builder::draw_distance`).
-            ui.strong("Draw distance");
-            ui.horizontal(|ui| {
-                ui.label("Ground cover:");
-                dirty |= ui
-                    .add(ground_cover_slider(&mut s.ground_cover_draw_distance_m))
-                    .on_hover_text(
-                        "Grass, ferns, moss and other plants under about 2 m are not \
+                ui.add_space(8.0);
+                ui.separator();
+                ui.strong("Camera");
+                ui.label("Ground avoidance:");
+                ui.horizontal(|ui| {
+                    for mode in [
+                        CameraGroundAvoidance::Off,
+                        CameraGroundAvoidance::CameraOnly,
+                        CameraGroundAvoidance::FullRay,
+                    ] {
+                        dirty |= ui
+                            .selectable_value(&mut s.camera_ground_avoidance, mode, mode.label())
+                            .on_hover_text(match mode {
+                                CameraGroundAvoidance::Off => {
+                                    "Never pull the camera in - it may dip under \
+                                 terrain when orbiting low."
+                                }
+                                CameraGroundAvoidance::CameraOnly => {
+                                    "Keep the camera itself above the ground. \
+                                 Terrain between you and the camera may block \
+                                 the view but never zooms it in."
+                                }
+                                CameraGroundAvoidance::FullRay => {
+                                    "Also zoom in whenever terrain would block the \
+                                 view of your avatar (the old behavior - \
+                                 aggressive at low angles)."
+                                }
+                            })
+                            .changed();
+                    }
+                });
+                if s.camera_ground_avoidance != CameraGroundAvoidance::Off {
+                    ui.horizontal(|ui| {
+                        ui.label("Clearance:");
+                        dirty |= ui
+                            .add(
+                                crate::ui::num::slider(&mut s.camera_ground_clearance_m, 0.2..=5.0)
+                                    .suffix(" m"),
+                            )
+                            .on_hover_text("Headroom kept between the camera and the terrain")
+                            .changed();
+                    });
+                }
+
+                ui.add_space(8.0);
+                ui.separator();
+                // #1480: every drawn part costs a browser CPU each frame, and
+                // ground cover is most of a planted world's parts. The slider's
+                // far end is Unlimited - drawn to the fog, as before - and its
+                // stops are the grid the cuts land on, which is what keeps the
+                // number of distinct ranges small enough for WebGL2 (see
+                // `world_builder::draw_distance`).
+                ui.strong("Draw distance");
+                ui.horizontal(|ui| {
+                    ui.label("Ground cover:");
+                    dirty |= ui
+                        .add(ground_cover_slider(&mut s.ground_cover_draw_distance_m))
+                        .on_hover_text(
+                            "Grass, ferns, moss and other plants under about 2 m are not \
                          drawn past this distance from the camera, and things up to \
                          4 m not past twice it: they pop in as you come closer. Lower \
                          keeps the game faster, most of all in a web browser; \
                          Unlimited draws them all the way out to the fog. Trees and \
                          buildings are always drawn.",
-                    )
-                    .changed();
-            });
+                        )
+                        .changed();
+                });
 
-            ui.add_space(8.0);
-            ui.separator();
-            ui.strong("Network");
-            // Outcome-first, like the Camera options above it (#1224
-            // f334). Three of the four content words in the old text -
-            // spline, packet, jitter - were transport implementation, and
-            // it described the mechanism rather than what happens to the
-            // people you are looking at. Both states have a real
-            // user-visible shape and neither was named.
-            dirty |= ui
-                .checkbox(&mut s.smooth_kinematics, "Smooth remote peers")
-                .on_hover_text(if s.smooth_kinematics {
-                    "On: other people move smoothly, shown a fraction of a second \
+                ui.add_space(8.0);
+                ui.separator();
+                ui.strong("Network");
+                // Outcome-first, like the Camera options above it (#1224
+                // f334). Three of the four content words in the old text -
+                // spline, packet, jitter - were transport implementation, and
+                // it described the mechanism rather than what happens to the
+                // people you are looking at. Both states have a real
+                // user-visible shape and neither was named.
+                dirty |= ui
+                    .checkbox(&mut s.smooth_kinematics, "Smooth remote peers")
+                    .on_hover_text(if s.smooth_kinematics {
+                        "On: other people move smoothly, shown a fraction of a second \
                      behind where they really are."
-                } else {
-                    "Off: other people jump straight to their last known position - \
+                    } else {
+                        "Off: other people jump straight to their last known position - \
                      choppier, but with no delay."
-                })
-                .changed();
-            // The only in-world identity the product has (#1226 f325). Off
-            // is a real preference - a busy room is a wall of text - so it
-            // is a setting and not a constant, but it defaults on, because
-            // with it off nothing on screen connects a People row to a body
-            // and Mute has to be aimed by trial and error.
-            dirty |= ui
-                .checkbox(&mut s.show_peer_nametags, "Show names over people")
-                .on_hover_text(if s.show_peer_nametags {
-                    "On: each person's name hangs over their body, and hovering \
+                    })
+                    .changed();
+                // The only in-world identity the product has (#1226 f325). Off
+                // is a real preference - a busy room is a wall of text - so it
+                // is a setting and not a constant, but it defaults on, because
+                // with it off nothing on screen connects a People row to a body
+                // and Mute has to be aimed by trial and error.
+                dirty |= ui
+                    .checkbox(&mut s.show_peer_nametags, "Show names over people")
+                    .on_hover_text(if s.show_peer_nametags {
+                        "On: each person's name hangs over their body, and hovering \
                      a row in People outlines the body it belongs to."
-                } else {
-                    "Off: bodies carry no name. You can still tell who is who \
+                    } else {
+                        "Off: bodies carry no name. You can still tell who is who \
                      from the People window."
-                })
-                .changed();
+                    })
+                    .changed();
 
-            ui.add_space(8.0);
-            ui.separator();
-            ui.strong("Privacy");
-            // #1248 f298 asked for a policy, not a patch, and this is the
-            // policy: state the exposure, and give the person standing in
-            // somebody else's world a way out of it. A world reached
-            // through a portal or a gateway is a stranger's, its record can
-            // name any web address, and being in the room is what makes
-            // your client fetch from it. #1127 removed the crude half of
-            // that (http, loopback, private ranges); the rest is inherent
-            // to following an address somebody else chose.
-            //
-            // Defaults ON: most authored imagery in the product is a URL,
-            // and defaulting off would make every visited world worse
-            // without the visitor knowing why. Being able to see and change
-            // it is the fix; hiding it was the defect.
-            dirty |= ui
-                .checkbox(
-                    &mut s.load_external_assets,
-                    "Load images and sounds from outside Bluesky",
-                )
-                .on_hover_text(if s.load_external_assets {
-                    "On: worlds can show pictures and play sounds stored anywhere \
+                ui.add_space(8.0);
+                ui.separator();
+                ui.strong("Privacy");
+                // #1248 f298 asked for a policy, not a patch, and this is the
+                // policy: state the exposure, and give the person standing in
+                // somebody else's world a way out of it. A world reached
+                // through a portal or a gateway is a stranger's, its record can
+                // name any web address, and being in the room is what makes
+                // your client fetch from it. #1127 removed the crude half of
+                // that (http, loopback, private ranges); the rest is inherent
+                // to following an address somebody else chose.
+                //
+                // Defaults ON: most authored imagery in the product is a URL,
+                // and defaulting off would make every visited world worse
+                // without the visitor knowing why. Being able to see and change
+                // it is the fix; hiding it was the defect.
+                dirty |= ui
+                    .checkbox(
+                        &mut s.load_external_assets,
+                        "Load images and sounds from outside Bluesky",
+                    )
+                    .on_hover_text(if s.load_external_assets {
+                        "On: worlds can show pictures and play sounds stored anywhere \
                      on the web. Whoever built the world chooses the address, and \
                      loading it tells that address you are here."
-                } else {
-                    "Off: only pictures and sounds stored in Bluesky are loaded. \
+                    } else {
+                        "Off: only pictures and sounds stored in Bluesky are loaded. \
                      Anything a world points at elsewhere is left blank, and the \
                      editor says so."
-                })
-                .changed();
+                    })
+                    .changed();
 
-            ui.add_space(8.0);
-            ui.separator();
-            // #1276 f38. Settings had Theme, Interface size, Camera,
-            // Network, Privacy, Effects, Login screen and Windows, and
-            // said nothing at all about sound - the only affordance in the
-            // app was an emoji toggle in the toolbar and its duplicate
-            // inside Diagnostics, neither of which is where a person looks
-            // for "why is this silent".
-            //
-            // There is no volume control, deliberately: this app has no
-            // master gain to put behind one. `audio_mute`'s module doc
-            // records why Bevy's `GlobalVolume` cannot serve as one here -
-            // it is read only when a sink is CREATED, so a sink born quiet
-            // stores a zero a later change cannot recover - and mute works
-            // instead by stashing and restoring each sink's own volume.
-            // A slider would have to be a real per-sink gain reconciler,
-            // which is a feature, not a settings row.
-            ui.strong("Audio");
-            // Guarded-dirty (#879 / #1274 f177): the widget gets a LOCAL,
-            // and the write-back happens on a real click. `prefs` watches
-            // this resource's change tick, so a `&mut` through the `ResMut`
-            // would re-save the prefs file every frame this window is open.
-            let mut muted = audio_muted.0;
-            if ui
-                .checkbox(&mut muted, "Mute all sound")
-                .on_hover_text(if muted {
-                    "On: the world is silent. The ambient bed, the props that \
+                ui.add_space(8.0);
+                ui.separator();
+                // #1276 f38. Settings had Theme, Interface size, Camera,
+                // Network, Privacy, Effects, Login screen and Windows, and
+                // said nothing at all about sound - the only affordance in the
+                // app was an emoji toggle in the toolbar and its duplicate
+                // inside Diagnostics, neither of which is where a person looks
+                // for "why is this silent".
+                //
+                // There is no volume control, deliberately: this app has no
+                // master gain to put behind one. `audio_mute`'s module doc
+                // records why Bevy's `GlobalVolume` cannot serve as one here -
+                // it is read only when a sink is CREATED, so a sink born quiet
+                // stores a zero a later change cannot recover - and mute works
+                // instead by stashing and restoring each sink's own volume.
+                // A slider would have to be a real per-sink gain reconciler,
+                // which is a feature, not a settings row.
+                ui.strong("Audio");
+                // Guarded-dirty (#879 / #1274 f177): the widget gets a LOCAL,
+                // and the write-back happens on a real click. `prefs` watches
+                // this resource's change tick, so a `&mut` through the `ResMut`
+                // would re-save the prefs file every frame this window is open.
+                let mut muted = audio_muted.0;
+                if ui
+                    .checkbox(&mut muted, "Mute all sound")
+                    .on_hover_text(if muted {
+                        "On: the world is silent. The ambient bed, the props that \
                      make noise, and footstep and contact sounds are all off."
-                } else {
-                    "Off: you hear the world - its ambient bed, the props that \
+                    } else {
+                        "Off: you hear the world - its ambient bed, the props that \
                      make noise, and footstep and contact sounds."
-                })
-                .changed()
-            {
-                audio_muted.0 = muted;
-            }
-            ui.small("Remembered for this account on this device.");
+                    })
+                    .changed()
+                {
+                    audio_muted.0 = muted;
+                }
+                ui.small("Remembered for this account on this device.");
 
-            ui.add_space(8.0);
-            ui.separator();
-            ui.strong("Effects");
-            ui.label("Contact effects from the world you're in:");
-            ui.horizontal(|ui| {
-                for level in [
-                    crate::state::EffectsIntensity::Full,
-                    crate::state::EffectsIntensity::Reduced,
-                    crate::state::EffectsIntensity::Off,
-                ] {
-                    dirty |= ui
-                        .selectable_value(&mut s.effects_intensity, level, level.label())
-                        .on_hover_text(match level {
-                            crate::state::EffectsIntensity::Full => {
-                                "Play the splashes, dust, scorch marks and footstep \
+                ui.add_space(8.0);
+                ui.separator();
+                ui.strong("Effects");
+                ui.label("Contact effects from the world you're in:");
+                ui.horizontal(|ui| {
+                    for level in [
+                        crate::state::EffectsIntensity::Full,
+                        crate::state::EffectsIntensity::Reduced,
+                        crate::state::EffectsIntensity::Off,
+                    ] {
+                        dirty |= ui
+                            .selectable_value(&mut s.effects_intensity, level, level.label())
+                            .on_hover_text(match level {
+                                crate::state::EffectsIntensity::Full => {
+                                    "Play the splashes, dust, scorch marks and footstep \
                                  sounds this world's owner authored."
-                            }
-                            crate::state::EffectsIntensity::Reduced => {
-                                "Keep them, smaller and quieter, and never more than \
+                                }
+                                crate::state::EffectsIntensity::Reduced => {
+                                    "Keep them, smaller and quieter, and never more than \
                                  one of each per second."
-                            }
-                            crate::state::EffectsIntensity::Off => {
-                                "None at all. Rooms you visit are authored by other \
+                                }
+                                crate::state::EffectsIntensity::Off => {
+                                    "None at all. Rooms you visit are authored by other \
                                  people, and this is the only control over what they \
                                  can put on your screen."
-                            }
-                        })
-                        .changed();
-                }
-            });
-            ui.small(
-                "Also the setting to reach for if flashing or motion is a problem \
+                                }
+                            })
+                            .changed();
+                    }
+                });
+                ui.small(
+                    "Also the setting to reach for if flashing or motion is a problem \
                  for you.",
-            );
+                );
 
-            ui.add_space(8.0);
-            ui.separator();
-            ui.strong("Login screen");
-            // The machine's, not the account's (#1407): the login screen is
-            // the one screen every account on this device shares. Guarded
-            // like the audio checkbox above - the widget gets a LOCAL and
-            // the write-back happens on a real click, because `prefs`
-            // watches this resource's change tick too.
-            let mut backdrop = login_screen.world_backdrop;
-            if ui
-                .checkbox(&mut backdrop, "Live world backdrop")
-                .on_hover_text(
-                    "Build and slowly orbit a random seeded world behind the \
+                ui.add_space(8.0);
+                ui.separator();
+                ui.strong("Login screen");
+                // The machine's, not the account's (#1407): the login screen is
+                // the one screen every account on this device shares. Guarded
+                // like the audio checkbox above - the widget gets a LOCAL and
+                // the write-back happens on a real click, because `prefs`
+                // watches this resource's change tick too.
+                let mut backdrop = login_screen.world_backdrop;
+                if ui
+                    .checkbox(&mut backdrop, "Live world backdrop")
+                    .on_hover_text(
+                        "Build and slowly orbit a random seeded world behind the \
                      login screen. Costs a few seconds of world generation; \
                      applies the next time you see the login screen.",
-                )
-                .changed()
-            {
-                login_screen.world_backdrop = backdrop;
-            }
-            ui.small("Shared by every account on this device.");
-
-            ui.add_space(8.0);
-            ui.separator();
-            ui.strong("Windows");
-            // #1261 f45: the #833 non-overlap guarantee held only until
-            // each window had been shown once - `remember` persists a
-            // rect on the very first frame and `place` returns it
-            // thereafter, so the staggering machinery was dead from then
-            // on and a machine inherited whatever geometry its first
-            // session produced. `place` re-tidies a rect that no longer
-            // fits the screen now, but a merely MESSY arrangement is the
-            // user's own and only they can say when they are done with
-            // it. This is that button.
-            ui.horizontal(|ui| {
-                if ui
-                    .button("Reset window layout")
-                    .on_hover_text(
-                        "Forget where every window was left, so they lay themselves \
-                         out again next time you open them. Nothing else changes.",
                     )
-                    .clicked()
+                    .changed()
                 {
-                    *layout_reset = chrome.reset_layout();
+                    login_screen.world_backdrop = backdrop;
                 }
-                if *layout_reset {
-                    crate::ui::affordances::ok_label(ui, "Windows will re-tidy when reopened");
+                ui.small("Shared by every account on this device.");
+
+                ui.add_space(8.0);
+                ui.separator();
+                ui.strong("Windows");
+                // #1261 f45: the #833 non-overlap guarantee held only until
+                // each window had been shown once - `remember` persists a
+                // rect on the very first frame and `place` returns it
+                // thereafter, so the staggering machinery was dead from then
+                // on and a machine inherited whatever geometry its first
+                // session produced. `place` re-tidies a rect that no longer
+                // fits the screen now, but a merely MESSY arrangement is the
+                // user's own and only they can say when they are done with
+                // it. This is that button.
+                ui.horizontal(|ui| {
+                    if ui
+                        .button("Reset window layout")
+                        .on_hover_text(
+                            "Forget where every window was left, so they lay themselves \
+                         out again next time you open them. Nothing else changes.",
+                        )
+                        .clicked()
+                    {
+                        *layout_reset = chrome.reset_layout();
+                    }
+                    if *layout_reset {
+                        crate::ui::affordances::ok_label(ui, "Windows will re-tidy when reopened");
+                    }
+                });
+
+                ui.add_space(8.0);
+                ui.separator();
+                if let Some(did) = muted_people_section(ui, &muted_dids, &profile_cache, &clipboard)
+                {
+                    // Through the same funnel as every other mute write (#1219)
+                    // so the durable list and the session log cannot disagree
+                    // about what happened. No live peer to pass: the person whose
+                    // row this is may be nowhere near, which is exactly why this
+                    // surface exists - but `sync_mute_visibility` picks them up
+                    // within a frame if they are.
+                    crate::network::presence::set_peer_mute(
+                        None,
+                        Some(did.as_str()),
+                        false,
+                        &mut muted_dids,
+                        &mut session_log,
+                        None,
+                        time.elapsed_secs_f64(),
+                    );
+                }
+
+                if dirty {
+                    settings.set_changed();
                 }
             });
-
-            ui.add_space(8.0);
-            ui.separator();
-            if let Some(did) = muted_people_section(ui, &muted_dids, &profile_cache, &clipboard) {
-                // Through the same funnel as every other mute write (#1219)
-                // so the durable list and the session log cannot disagree
-                // about what happened. No live peer to pass: the person whose
-                // row this is may be nowhere near, which is exactly why this
-                // surface exists - but `sync_mute_visibility` picks them up
-                // within a frame if they are.
-                crate::network::presence::set_peer_mute(
-                    None,
-                    Some(did.as_str()),
-                    false,
-                    &mut muted_dids,
-                    &mut session_log,
-                    None,
-                    time.elapsed_secs_f64(),
-                );
-            }
-
-            if dirty {
-                settings.set_changed();
-            }
         });
     if let Some(response) = response.as_ref() {
         chrome.remember(

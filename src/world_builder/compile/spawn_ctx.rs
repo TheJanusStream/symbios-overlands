@@ -127,11 +127,7 @@ pub fn budget_exceeded(spawned: u32, warned: &mut bool) -> bool {
 }
 
 pub(crate) fn transform_from_data(t: &TransformData) -> Transform {
-    Transform {
-        translation: Vec3::from_array(t.translation.0),
-        rotation: Quat::from_array(t.rotation.0),
-        scale: Vec3::from_array(t.scale.0),
-    }
+    Transform::from(t)
 }
 
 /// Parameter bundle for recursive generator spawning - a plain struct

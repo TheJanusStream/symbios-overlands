@@ -12,11 +12,13 @@ use bevy_egui::egui;
 use crate::pds::{Fp3, SovereignMaterialSettings};
 
 use super::material::{draw_texture_bridge, draw_uv_transform_rows};
-use super::widgets::{color_picker, drag_u64, fp_slider, grammar_status_line};
+use super::widgets::{color_picker, fp_slider, grammar_status_line, u64_row};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_shape_forge(
     ui: &mut egui::Ui,
+    // The node's salt, which names its seed field (#1513).
+    salt: &str,
     grammar_status: Option<&crate::world_builder::grammar_diag::GrammarStatus>,
     grammar_source: &mut String,
     root_rule: &mut String,
@@ -75,7 +77,7 @@ pub(super) fn draw_shape_forge(
                     *dirty = true;
                 }
             });
-            drag_u64(ui, "Seed", seed, dirty);
+            u64_row(ui, "Seed", salt, seed, dirty);
             ui.label("Footprint (X / Y / Z, world units)");
             ui.horizontal(|ui| {
                 let mut v = footprint.0;

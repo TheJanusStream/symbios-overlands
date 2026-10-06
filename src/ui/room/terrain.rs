@@ -6,10 +6,12 @@ use bevy_egui::egui;
 use crate::pds::{SovereignGeneratorKind, SovereignTerrainConfig};
 
 use super::material::draw_material_forge;
-use super::widgets::{drag_u32, drag_u64, fp_slider, kind_combo};
+use super::widgets::{drag_u32, fp_slider, kind_combo, u64_row};
 
 pub(super) fn draw_terrain_forge(
     ui: &mut egui::Ui,
+    // The node's salt, which names its seed field (#1513).
+    salt: &str,
     cfg: &mut SovereignTerrainConfig,
     dirty: &mut bool,
     assets: &mut super::assets::AssetPanel<'_>,
@@ -48,7 +50,7 @@ pub(super) fn draw_terrain_forge(
             if kind_combo(ui, &mut cfg.generator_kind) {
                 *dirty = true;
             }
-            drag_u64(ui, "Seed", &mut cfg.seed, dirty);
+            u64_row(ui, "Seed", salt, &mut cfg.seed, dirty);
             match cfg.generator_kind {
                 SovereignGeneratorKind::FbmNoise => {
                     drag_u32(ui, "Octaves", &mut cfg.octaves, 1, 32, dirty).on_hover_text(
@@ -237,7 +239,7 @@ mod tests {
             .0;
 
         // Every parameter widget is followed by its own explanation. The
-        // seed drag is exempt: it is an identifier, not a dial, and the
+        // seed field is exempt: it is an identifier, not a dial, and the
         // lead-in below already says what re-rolling it does.
         let knobs = body.matches("fp_slider(").count() + body.matches("drag_u32(").count();
         let explained = body.matches(".on_hover_text(").count();

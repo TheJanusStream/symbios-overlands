@@ -200,7 +200,7 @@ fn uses_of<'a>(
                     Vec3::from_array(transform.translation.0)
                 };
                 let pose = Transform::from_translation(at)
-                    .with_rotation(Quat::from_array(transform.rotation.0));
+                    .with_rotation(Transform::from(transform).rotation);
                 used.stands.push((index, pose.compute_affine()));
                 used.snapped |= *snap_to_terrain;
             }

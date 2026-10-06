@@ -96,11 +96,7 @@ pub fn gateway_veil(root: &Generator) -> Option<Bounds> {
 }
 
 pub fn transform_of(t: &TransformData) -> Transform {
-    Transform {
-        translation: Vec3::from_array(t.translation.0),
-        rotation: Quat::from_array(t.rotation.0),
-        scale: Vec3::from_array(t.scale.0),
-    }
+    Transform::from(t)
 }
 
 pub(super) fn walk(

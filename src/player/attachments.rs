@@ -642,15 +642,9 @@ fn outward_yaw(socket: symbios_avatar::Socket) -> Quat {
     }
 }
 
-/// PDS `TransformData` → Bevy `Transform`. The same three lines
-/// `world_builder::avatar_spawn` keeps for itself; the compile module's
-/// helper is `pub(super)` there.
+/// PDS `TransformData` → Bevy `Transform`, its rotation normalised (#1565).
 fn transform_from_data(t: &crate::pds::TransformData) -> Transform {
-    Transform {
-        translation: Vec3::from_array(t.translation.0),
-        rotation: Quat::from_array(t.rotation.0),
-        scale: Vec3::from_array(t.scale.0),
-    }
+    Transform::from(t)
 }
 
 #[cfg(test)]

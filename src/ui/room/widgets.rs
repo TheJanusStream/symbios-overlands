@@ -323,10 +323,97 @@ pub(super) fn drag_u32(
     .inner
 }
 
-pub(super) fn drag_u64(ui: &mut egui::Ui, label: &str, value: &mut u64, dirty: &mut bool) {
+/// A whole `u64` in a text field as wide as any `u64` (#1505, #1513). What
+/// is typed is written when the field lets go of the keyboard - Enter, Tab
+/// or a click elsewhere - if it reads as a `u64` other than `value`; a text
+/// that does not read is shown in the error colour while it is typed and
+/// written nowhere. Whether it wrote `value`.
+///
+/// `id_salt` must name the item the number belongs to. The field keeps its
+/// text between frames under it, and a list's detail panel draws the next
+/// item's field in the same place on the frame a row is clicked - the frame
+/// the field lets go of the keyboard - so a salt two items share wrote one
+/// item's typing into the other. And the text is the value's whenever the
+/// field is not being typed into: a draft left unapplied is dropped, not
+/// shown again later as if it were the value.
+///
+/// Not a drag number: egui's `DragValue` carries its value as an `f64`, so
+/// a seed past 2^53 showed rounded, could not be dragged, and a click in and
+/// out wrote it back rounded while reporting no change - so nothing was
+/// marked dirty, undone or sent to guests. Seeded scatters draw their seeds
+/// from the whole range.
+pub(super) fn u64_text_field(
+    ui: &mut egui::Ui,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
+    value: &mut u64,
+    hover: &str,
+) -> bool {
+    /// The field's text, kept between frames while it is typed into, and
+    /// the value it was last read from: a value changed underneath it - an
+    /// undo, a peer's edit - replaces it.
+    #[derive(Clone)]
+    struct U64Text {
+        text: String,
+        synced_to: u64,
+    }
+    let id = ui.id().with(id_salt);
+    let edit_id = id.with("edit");
+    let mut state = ui
+        .data_mut(|d| d.get_temp::<U64Text>(id))
+        .unwrap_or(U64Text {
+            text: value.to_string(),
+            synced_to: *value,
+        });
+    if state.synced_to != *value || !ui.memory(|m| m.has_focus(edit_id)) {
+        state.text = value.to_string();
+        state.synced_to = *value;
+    }
+    let refused = state
+        .text
+        .trim()
+        .parse::<u64>()
+        .is_err()
+        .then(|| crate::ui::theme::current(ui.ctx()).status.error);
+    let width = u64_field_width(ui);
+    let response = crate::ui::affordances::text_edit(
+        ui,
+        egui::TextEdit::singleline(&mut state.text)
+            .id(edit_id)
+            .desired_width(width)
+            .text_color_opt(refused),
+    )
+    .on_hover_text(hover);
+    let mut wrote = false;
+    if response.lost_focus()
+        && let Ok(typed) = state.text.trim().parse::<u64>()
+        && typed != *value
+    {
+        *value = typed;
+        state.synced_to = typed;
+        wrote = true;
+    }
+    ui.data_mut(|d| d.insert_temp(id, state));
+    wrote
+}
+
+/// A labelled seed: a [`u64_text_field`] that marks the record dirty when
+/// it writes (#1513). `id_salt` names the item the seed belongs to.
+pub(super) fn u64_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
+    value: &mut u64,
+    dirty: &mut bool,
+) {
     ui.horizontal(|ui| {
         ui.label(label);
-        if ui.add(crate::ui::num::drag(value)).changed() {
+        if u64_text_field(
+            ui,
+            (label, id_salt),
+            value,
+            "Type a whole number and press Enter to apply it - the same seed \
+             grows the same result.",
+        ) {
             *dirty = true;
         }
     });
@@ -982,6 +1069,211 @@ pub(super) mod text_probe {
     ) -> bool {
         let margin = text.x0 - field.x0;
         margin > 0.0 && text.x1 <= field.x1 - margin + 1.0
+    }
+
+    /// A pointer event of the primary button at `pos`.
+    pub(in crate::ui::room) fn button(pos: egui::Pos2, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    /// A key going down or up.
+    pub(in crate::ui::room) fn key(
+        key: egui::Key,
+        pressed: bool,
+        modifiers: egui::Modifiers,
+    ) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers,
+        }
+    }
+
+    /// What the one text field `draw` draws did over a run of frames.
+    pub(in crate::ui::room) struct Typed {
+        /// The text the field shows after the last frame.
+        pub(in crate::ui::room) shown: Option<String>,
+        /// Whether the field held the keyboard at any frame.
+        pub(in crate::ui::room) focused: bool,
+    }
+
+    /// Draw `draw` alone for `frames` frames, giving each frame the input
+    /// `input` makes of the frame's number and the centre of the text field
+    /// it draws - found on the first frame through AccessKit, as a person
+    /// finds it by eye.
+    pub(in crate::ui::room) fn typed(
+        frames: usize,
+        mut draw: impl FnMut(&mut egui::Ui),
+        input: impl Fn(usize, egui::Pos2) -> Vec<egui::Event>,
+    ) -> Typed {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut typed = Typed {
+            shown: None,
+            focused: false,
+        };
+        let mut field = None;
+        for frame in 0..frames {
+            let events = field.map(|at| input(frame, at)).unwrap_or_default();
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                &mut draw,
+            );
+            let Some(update) = output.platform_output.accesskit_update.as_ref() else {
+                continue;
+            };
+            let Some((id, node)) = update
+                .nodes
+                .iter()
+                .find(|(_, node)| node.role() == egui::accesskit::Role::TextInput)
+            else {
+                continue;
+            };
+            if field.is_none() {
+                field = node.bounds().map(|b| {
+                    egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
+                });
+            }
+            typed.shown = node.value().map(str::to_owned);
+            typed.focused |= update.focus == *id;
+        }
+        assert!(field.is_some(), "no text field drawn");
+        typed
+    }
+}
+
+#[cfg(test)]
+mod u64_row_tests {
+    use super::text_probe::{button, drawn, key, shown_whole, typed};
+    use super::*;
+
+    /// #1513: a seed row's number is an edit like any other - typed over
+    /// and applied with Enter, it writes the seed and marks the record
+    /// dirty, the path the recompile, the broadcast and the undo history
+    /// all ride.
+    #[test]
+    fn a_seed_typed_into_its_row_is_written_and_marks_the_record_dirty() {
+        let (mut seed, mut dirty) = (42_u64, false);
+        let drew = typed(
+            6,
+            |ui| u64_row(ui, "Seed", 0, &mut seed, &mut dirty),
+            |frame, field| match frame {
+                1 => vec![egui::Event::PointerMoved(field), button(field, true)],
+                2 => vec![button(field, false)],
+                3 => vec![
+                    key(egui::Key::A, true, egui::Modifiers::COMMAND),
+                    key(egui::Key::A, false, egui::Modifiers::COMMAND),
+                    egui::Event::Text("7".to_owned()),
+                    key(egui::Key::Enter, true, egui::Modifiers::NONE),
+                    key(egui::Key::Enter, false, egui::Modifiers::NONE),
+                ],
+                _ => Vec::new(),
+            },
+        );
+        assert!(
+            drew.focused,
+            "fixture: the click gave the field the keyboard"
+        );
+        assert_eq!(seed, 7);
+        assert!(dirty, "a number edit is an edit");
+        assert_eq!(drew.shown.as_deref(), Some("7"));
+    }
+
+    /// #1513: a seed is shown and kept as the whole 64-bit number it is.
+    /// 2^53 + 1 is the first a drag number, which carries its value as an
+    /// `f64`, cannot hold: it showed 2^53, and a click in and out wrote that
+    /// into the record while saying nothing had changed. Clicked into and
+    /// away from, the number is shown and kept to the last digit, and
+    /// nothing is marked dirty.
+    #[test]
+    fn a_64_bit_seed_survives_a_click_in_and_out_of_its_row() {
+        let exact = (1_u64 << 53) + 1;
+        let (mut seed, mut dirty) = (exact, false);
+        let empty = egui::pos2(700.0, 500.0);
+        let drew = typed(
+            7,
+            |ui| u64_row(ui, "Seed", 0, &mut seed, &mut dirty),
+            |frame, field| match frame {
+                1 => vec![egui::Event::PointerMoved(field), button(field, true)],
+                2 => vec![button(field, false)],
+                4 => vec![egui::Event::PointerMoved(empty), button(empty, true)],
+                5 => vec![button(empty, false)],
+                _ => Vec::new(),
+            },
+        );
+        assert!(
+            drew.focused,
+            "fixture: the click gave the field the keyboard"
+        );
+        assert_eq!(seed, exact);
+        assert!(!dirty, "a click in and out is no edit");
+        assert_eq!(drew.shown, Some(exact.to_string()));
+    }
+
+    /// #1513, the review's case: a seed typed into one item's row and left
+    /// unapplied when another item is chosen goes into no item - not the
+    /// other one, though the two hold the same seed and its field is drawn
+    /// in the same place on the frame the first lets go of the keyboard,
+    /// and not the first, whose row shows its own seed when it comes back.
+    #[test]
+    fn a_seed_left_unapplied_goes_into_no_item() {
+        let (mut seeds, mut dirty) = ([5_u64, 5], false);
+        let frame = std::cell::Cell::new(0_usize);
+        let empty = egui::pos2(700.0, 500.0);
+        let drew = typed(
+            9,
+            |ui| {
+                // Item 0, then item 1 for frames 4 to 6, then item 0 again.
+                let item = usize::from((4..7).contains(&frame.get()));
+                frame.set(frame.get() + 1);
+                u64_row(ui, "Seed", item, &mut seeds[item], &mut dirty);
+            },
+            |frame, field| match frame {
+                1 => vec![egui::Event::PointerMoved(field), button(field, true)],
+                2 => vec![button(field, false)],
+                3 => vec![egui::Event::Text("123".to_owned())],
+                4 => vec![egui::Event::PointerMoved(empty), button(empty, true)],
+                5 => vec![button(empty, false)],
+                _ => Vec::new(),
+            },
+        );
+        assert!(
+            drew.focused,
+            "fixture: the click gave the field the keyboard"
+        );
+        assert_eq!(seeds, [5, 5], "a seed nobody applied was written");
+        assert!(!dirty);
+        assert_eq!(
+            drew.shown.as_deref(),
+            Some("5"),
+            "the row shows a draft as its seed"
+        );
+    }
+
+    /// #1513: a seed row shows its seed to the last of its twenty digits.
+    #[test]
+    fn a_twenty_digit_seed_is_shown_whole_in_its_row() {
+        let widest = u64::MAX;
+        let (field, text) = drawn(&widest.to_string(), |ui| {
+            let mut seed = widest;
+            u64_row(ui, "Seed", 0, &mut seed, &mut false);
+        });
+        assert!(
+            shown_whole(field, text),
+            "the text {text:?} runs past its field {field:?}"
+        );
     }
 }
 

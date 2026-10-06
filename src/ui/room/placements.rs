@@ -18,7 +18,7 @@ use crate::pds::{
 };
 
 use super::environment::PlayerPose;
-use super::widgets::{drag_u32, drag_u64, draw_transform_no_scale, fp_slider, generator_combo};
+use super::widgets::{drag_u32, draw_transform_no_scale, fp_slider, generator_combo, u64_row};
 
 /// One-line list/heading label for a placement row.
 fn placement_label(index: usize, placement: &Placement) -> String {
@@ -642,6 +642,7 @@ pub(super) fn draw_placements_tab(
                 ui.add_space(4.0);
                 draw_placement_detail(
                     ui,
+                    idx,
                     p,
                     &all_names,
                     &eligible_names,
@@ -697,7 +698,13 @@ const NO_GRAMMAR: &str = "this item has no shape grammar, so a seed changes noth
 /// `f64`, which holds a whole number exactly only up to 2^53, so a seed
 /// past that was shown as another and rewritten by a click in and out -
 /// with no change reported, so nothing recompiled or took an undo step.
-fn draw_grammar_seed(ui: &mut egui::Ui, seed: &mut Option<u64>, own: &[u64], dirty: &mut bool) {
+fn draw_grammar_seed(
+    ui: &mut egui::Ui,
+    item: usize,
+    seed: &mut Option<u64>,
+    own: &[u64],
+    dirty: &mut bool,
+) {
     let weak = crate::ui::theme::current(ui.ctx()).text_weak;
     ui.horizontal(|ui| {
         let mut on = seed.is_some();
@@ -718,7 +725,7 @@ fn draw_grammar_seed(ui: &mut egui::Ui, seed: &mut Option<u64>, own: &[u64], dir
         }
         match seed {
             Some(value) => {
-                if grammar_seed_number(ui, value) {
+                if grammar_seed_number(ui, item, value) {
                     *dirty = true;
                 }
             }
@@ -736,60 +743,17 @@ fn draw_grammar_seed(ui: &mut egui::Ui, seed: &mut Option<u64>, own: &[u64], dir
     }
 }
 
-/// The Grammar seed's number (#1505): a text field holding `value` as a
-/// whole `u64`, on the pattern of the road network's layout seed, and wide
-/// enough to show any `u64` whole. What is typed is written when the field
-/// lets go of the keyboard - Enter, Tab or a click elsewhere - if it reads
-/// as a `u64` other than `value`; a text that does not read is shown in the
-/// error colour and written nowhere. Whether it wrote `value`.
-fn grammar_seed_number(ui: &mut egui::Ui, value: &mut u64) -> bool {
-    /// The field's text, kept between frames while it is typed into, and
-    /// the seed it was last read from: a seed changed underneath it - an
-    /// undo, another placement selected, a peer's edit - replaces it.
-    #[derive(Clone)]
-    struct SeedText {
-        text: String,
-        synced_to: u64,
-    }
-    let id = ui.id().with("grammar_seed");
-    let mut state = ui
-        .data_mut(|d| d.get_temp::<SeedText>(id))
-        .unwrap_or(SeedText {
-            text: value.to_string(),
-            synced_to: *value,
-        });
-    if state.synced_to != *value {
-        state.text = value.to_string();
-        state.synced_to = *value;
-    }
-    let refused = state
-        .text
-        .trim()
-        .parse::<u64>()
-        .is_err()
-        .then(|| crate::ui::theme::current(ui.ctx()).status.error);
-    let width = super::widgets::u64_field_width(ui);
-    let response = crate::ui::affordances::text_edit(
+/// The Grammar seed's number (#1505): a whole `u64` typed into a text
+/// field, written when the field lets go of the keyboard - the field of the
+/// placement numbered `item`. Whether it wrote `value`.
+fn grammar_seed_number(ui: &mut egui::Ui, item: usize, value: &mut u64) -> bool {
+    super::widgets::u64_text_field(
         ui,
-        egui::TextEdit::singleline(&mut state.text)
-            .desired_width(width)
-            .text_color_opt(refused),
-    )
-    .on_hover_text(
+        ("grammar_seed", item),
+        value,
         "The seed every shape grammar in this item derives with. Type a whole \
          number and press Enter to apply it.",
-    );
-    let mut wrote = false;
-    if response.lost_focus()
-        && let Ok(typed) = state.text.trim().parse::<u64>()
-        && typed != *value
-    {
-        *value = typed;
-        state.synced_to = typed;
-        wrote = true;
-    }
-    ui.data_mut(|d| d.insert_temp(id, state));
-    wrote
+    )
 }
 
 /// What the Grammar seed control says while it is off, for an item whose
@@ -812,6 +776,8 @@ fn grammar_seed_off(own: &[u64]) -> String {
 #[allow(clippy::too_many_arguments)]
 fn draw_placement_detail(
     ui: &mut egui::Ui,
+    // The placement's index, which names its seed fields (#1513).
+    item: usize,
     placement: &mut Placement,
     all_names: &[String],
     eligible_names: &[String],
@@ -834,7 +800,7 @@ fn draw_placement_detail(
             seed,
         } => {
             generator_combo(ui, "Item", generator_ref, all_names, dirty);
-            draw_grammar_seed(ui, seed, own_seeds, dirty);
+            draw_grammar_seed(ui, item, seed, own_seeds, dirty);
             if snap_toggle(
                 ui,
                 snap_to_terrain,
@@ -943,7 +909,7 @@ fn draw_placement_detail(
                 *dirty = true;
             }
             drag_u32(ui, "Count", count, 0, 100_000, dirty);
-            drag_u64(ui, "Seed", local_seed, dirty);
+            u64_row(ui, "Seed", item, local_seed, dirty);
             draw_scatter_bounds(ui, bounds, dirty);
             draw_biome_filter(ui, biome_filter, dirty);
             draw_naturalness(ui, naturalness, dirty);
@@ -1696,6 +1662,7 @@ mod tests {
             let output = ctx.run_ui(input, |ui| {
                 draw_placement_detail(
                     ui,
+                    0,
                     placement,
                     &names,
                     &names,
@@ -1831,7 +1798,9 @@ mod tests {
                 ..Default::default()
             };
             let output = ctx.run_ui(input, |ui| {
-                draw_placement_detail(ui, placement, &names, &names, None, None, own, &mut dirty);
+                draw_placement_detail(
+                    ui, 0, placement, &names, &names, None, None, own, &mut dirty,
+                );
             });
             if frame == 0 {
                 checkbox = output
@@ -1902,26 +1871,7 @@ mod tests {
         assert_eq!(placement.shape_seed(), None);
     }
 
-    /// A pointer event of the primary button at `pos`.
-    fn button(pos: egui::Pos2, pressed: bool) -> egui::Event {
-        egui::Event::PointerButton {
-            pos,
-            button: egui::PointerButton::Primary,
-            pressed,
-            modifiers: egui::Modifiers::NONE,
-        }
-    }
-
-    /// A key going down or up.
-    fn key(key: egui::Key, pressed: bool, modifiers: egui::Modifiers) -> egui::Event {
-        egui::Event::Key {
-            key,
-            physical_key: None,
-            pressed,
-            repeat: false,
-            modifiers,
-        }
-    }
+    use super::super::widgets::text_probe::{button, key};
 
     /// What the Grammar seed control's number did, drawn alone.
     struct SeedNumber {
@@ -1936,53 +1886,24 @@ mod tests {
     /// Draw the Grammar seed control alone for `frames` frames, for an
     /// item whose grammars' own seeds are `own`, giving each frame the
     /// input `input` makes of the frame's number and the centre of the
-    /// number's field - found on the first frame through AccessKit, as a
-    /// person finds it by eye.
+    /// number's field.
     fn seed_number(
         seed: &mut Option<u64>,
         own: &[u64],
         frames: usize,
         input: impl Fn(usize, egui::Pos2) -> Vec<egui::Event>,
     ) -> SeedNumber {
-        let ctx = egui::Context::default();
-        ctx.enable_accesskit();
-        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
-        let mut drew = SeedNumber {
-            shown: None,
-            focused: false,
-            dirty: false,
-        };
-        let mut field = None;
-        for frame in 0..frames {
-            let events = field.map(|at| input(frame, at)).unwrap_or_default();
-            let output = ctx.run_ui(
-                egui::RawInput {
-                    screen_rect: Some(screen),
-                    events,
-                    ..Default::default()
-                },
-                |ui| draw_grammar_seed(ui, seed, own, &mut drew.dirty),
-            );
-            let Some(update) = output.platform_output.accesskit_update.as_ref() else {
-                continue;
-            };
-            let Some((id, node)) = update
-                .nodes
-                .iter()
-                .find(|(_, node)| node.role() == egui::accesskit::Role::TextInput)
-            else {
-                continue;
-            };
-            if field.is_none() {
-                field = node.bounds().map(|b| {
-                    egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
-                });
-            }
-            drew.shown = node.value().map(str::to_owned);
-            drew.focused |= update.focus == *id;
+        let mut dirty = false;
+        let typed = super::super::widgets::text_probe::typed(
+            frames,
+            |ui| draw_grammar_seed(ui, 0, seed, own, &mut dirty),
+            input,
+        );
+        SeedNumber {
+            shown: typed.shown,
+            focused: typed.focused,
+            dirty,
         }
-        assert!(field.is_some(), "no number beside the switch");
-        drew
     }
 
     /// #1505: the Grammar seed's number is an edit like any other - typed
@@ -2051,7 +1972,7 @@ mod tests {
         use super::super::widgets::text_probe::{drawn, shown_whole};
         let widest = u64::MAX;
         let (field, text) = drawn(&widest.to_string(), |ui| {
-            draw_grammar_seed(ui, &mut Some(widest), &[widest], &mut false);
+            draw_grammar_seed(ui, 0, &mut Some(widest), &[widest], &mut false);
         });
         assert!(
             shown_whole(field, text),
@@ -2108,7 +2029,9 @@ mod tests {
         let mut dirty = false;
         let output = ctx.run_ui(input, |ui| {
             let placement = &mut placement;
-            draw_placement_detail(ui, placement, &names, &names, None, None, own, &mut dirty);
+            draw_placement_detail(
+                ui, 0, placement, &names, &names, None, None, own, &mut dirty,
+            );
         });
         assert!(!dirty, "drawn, the panel writes nothing");
         output

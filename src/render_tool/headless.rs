@@ -2168,11 +2168,7 @@ fn save_contact_sheet(
 }
 
 fn to_transform(t: &TransformData) -> Transform {
-    Transform {
-        translation: Vec3::from_array(t.translation.0),
-        rotation: Quat::from_array(t.rotation.0),
-        scale: Vec3::from_array(t.scale.0),
-    }
+    Transform::from(t)
 }
 
 fn srgb3(c: [f32; 3]) -> Color {

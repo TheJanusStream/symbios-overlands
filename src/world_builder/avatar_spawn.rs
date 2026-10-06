@@ -160,12 +160,7 @@ pub fn spawn_avatar_visuals_subtree(
     }
 }
 
-/// PDS `TransformData` → Bevy `Transform`. Local copy so this
-/// submodule doesn't reach into `compile`'s `pub(super)` helper.
+/// PDS `TransformData` → Bevy `Transform`, its rotation normalised (#1565).
 fn transform_from_data(t: &crate::pds::TransformData) -> Transform {
-    Transform {
-        translation: Vec3::from_array(t.translation.0),
-        rotation: Quat::from_array(t.rotation.0),
-        scale: Vec3::from_array(t.scale.0),
-    }
+    Transform::from(t)
 }

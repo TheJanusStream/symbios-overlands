@@ -7,7 +7,8 @@
 use bevy::prelude::*;
 use transform_gizmo_bevy::GizmoTarget;
 
-use crate::pds::{Fp3, Fp4, Generator, Placement, RoomRecord, TransformData};
+use crate::pds::types::rotation_after;
+use crate::pds::{Fp3, Generator, Placement, RoomRecord, TransformData};
 use crate::player::attachments::LocalAttachment;
 use crate::state::LiveAvatarRecord;
 use crate::ui::room::RoomEditorState;
@@ -393,7 +394,10 @@ pub(super) fn commit_attachment_drag(
         // Detached from the Attachments tab while the drag was in flight.
         return false;
     };
-    attachment.record.offset = TransformData::from(world.reparented_to(&rest));
+    let posed = world.reparented_to(&rest);
+    let stored = attachment.record.offset.rotation;
+    attachment.record.offset = TransformData::from(posed);
+    attachment.record.offset.rotation = rotation_after(stored, posed.rotation);
     attachment.record.sanitize();
     true
 }
@@ -421,11 +425,7 @@ fn root_transform_with_drag_delta(
     world_before: &Transform,
     world_after: &Transform,
 ) -> Transform {
-    let old_root = Transform {
-        translation: Vec3::from_array(authored.translation.0),
-        rotation: Quat::from_array(authored.rotation.0),
-        scale: Vec3::from_array(authored.scale.0),
-    };
+    let old_root = Transform::from(authored);
     let delta = world_before.compute_affine().inverse() * world_after.compute_affine();
     let (scale, rotation, translation) =
         (old_root.compute_affine() * delta).to_scale_rotation_translation();
@@ -478,7 +478,9 @@ fn commit_transform_at_path(
         }
         current = &mut current.children[idx];
     }
+    let stored = current.transform.rotation;
     current.transform = TransformData::from(new_local);
+    current.transform.rotation = rotation_after(stored, new_local.rotation);
     true
 }
 
@@ -511,7 +513,9 @@ pub(crate) fn append_sibling_at_path(
     }
     let mut new_child = parent.children[child_idx].clone();
     if let Some(new_local) = new_local {
+        let stored = new_child.transform.rotation;
         new_child.transform = TransformData::from(new_local);
+        new_child.transform.rotation = rotation_after(stored, new_local.rotation);
     }
     parent.children.push(new_child);
     Some(parent.children.len() - 1)
@@ -577,7 +581,7 @@ pub(crate) fn write_transform_into_placement(
                 );
             }
             rec_tf.translation = Fp3(translation);
-            rec_tf.rotation = Fp4(transform.rotation.to_array());
+            rec_tf.rotation = rotation_after(rec_tf.rotation, transform.rotation);
             true
         }
         Placement::Grid {
@@ -600,7 +604,7 @@ pub(crate) fn write_transform_into_placement(
                 );
             }
             rec_tf.translation = Fp3(translation);
-            rec_tf.rotation = Fp4(transform.rotation.to_array());
+            rec_tf.rotation = rotation_after(rec_tf.rotation, transform.rotation);
             true
         }
         Placement::Scatter { bounds, .. } => {
@@ -639,11 +643,7 @@ mod tests {
                 .with_rotation(Quat::from_rotation_y(0.4))
                 .with_scale(Vec3::splat(1.5)),
         );
-        let root_old = Transform {
-            translation: Vec3::from_array(authored.translation.0),
-            rotation: Quat::from_array(authored.rotation.0),
-            scale: Vec3::from_array(authored.scale.0),
-        };
+        let root_old = Transform::from(&authored);
         // A scatter-like cell: sample offset + random yaw, composed under
         // a snapped anchor.
         let anchor = Transform::from_xyz(-40.0, 6.5, 12.0);
@@ -781,6 +781,54 @@ mod tests {
             (offset - OFFSET).abs() < 1e-4,
             "a sideways drag of a relocated placement stored offset {offset}, not {OFFSET}"
         );
+    }
+}
+
+#[cfg(test)]
+mod rotation_commit_tests {
+    use super::*;
+
+    /// #1565: a drag that only moves a placement keeps the rotation its
+    /// record holds. The anchor carries it normalised, and writing that
+    /// back rounded a kept rotation onto the grid again - this one's `w`
+    /// from -8734 to -8735, though nobody turned it.
+    #[test]
+    fn a_sideways_drag_keeps_the_stored_rotation() {
+        let kept = crate::pds::Fp4([0.2135, 0.373, -0.2287, -0.8734]);
+        let mut placement = Placement::Absolute {
+            generator_ref: "kiosk".into(),
+            transform: TransformData {
+                translation: Fp3([4.0, 0.0, -2.0]),
+                rotation: kept,
+                ..Default::default()
+            },
+            snap_to_terrain: false,
+            avoid_water: false,
+            avoid_water_clearance: crate::pds::Fp(0.0),
+            seed: None,
+        };
+        let Placement::Absolute { transform, .. } = &placement else {
+            unreachable!("built as Absolute")
+        };
+        let start = Transform::from(transform);
+        assert_ne!(
+            crate::pds::Fp4(start.rotation.to_array()).wire(),
+            kept.wire(),
+            "fixture: writing the anchor's rotation back would move it"
+        );
+        let moved = Transform::from_translation(start.translation + Vec3::new(2.0, 0.0, 1.0))
+            .with_rotation(start.rotation);
+        assert!(write_transform_into_placement(
+            &mut placement,
+            &moved,
+            &start,
+            None
+        ));
+        let Placement::Absolute { transform, .. } = &placement else {
+            unreachable!("built as Absolute")
+        };
+        assert_eq!(transform.rotation, kept, "a move turned the record");
+        assert_eq!(transform.translation.0, [6.0, 0.0, -1.0]);
     }
 }
 

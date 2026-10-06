@@ -182,14 +182,17 @@ impl From<[f32; 3]> for Fp3 {
     }
 }
 
+impl Fp3 {
+    /// The integers the wire holds for this: each component scaled by
+    /// [`FP_SCALE`] and rounded, as it is written.
+    pub fn wire(&self) -> [i32; 3] {
+        self.0.map(|v| (v * FP_SCALE).round() as i32)
+    }
+}
+
 impl Serialize for Fp3 {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let ints = [
-            (self.0[0] * FP_SCALE).round() as i32,
-            (self.0[1] * FP_SCALE).round() as i32,
-            (self.0[2] * FP_SCALE).round() as i32,
-        ];
-        ints.serialize(s)
+        self.wire().serialize(s)
     }
 }
 
@@ -209,15 +212,17 @@ impl From<[f32; 4]> for Fp4 {
     }
 }
 
+impl Fp4 {
+    /// The integers the wire holds for this: each component scaled by
+    /// [`FP_SCALE`] and rounded, as it is written.
+    pub fn wire(&self) -> [i32; 4] {
+        self.0.map(|v| (v * FP_SCALE).round() as i32)
+    }
+}
+
 impl Serialize for Fp4 {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let ints = [
-            (self.0[0] * FP_SCALE).round() as i32,
-            (self.0[1] * FP_SCALE).round() as i32,
-            (self.0[2] * FP_SCALE).round() as i32,
-            (self.0[3] * FP_SCALE).round() as i32,
-        ];
-        ints.serialize(s)
+        self.wire().serialize(s)
     }
 }
 
@@ -269,17 +274,27 @@ pub struct TransformData {
     pub scale: Fp3,
 }
 
+// Elided by their wire form (#1565): a pose computed in memory is often a
+// hair off a default - a scale of 0.99999994 out of a matrix, a yaw of 1e-7 -
+// and is written as the default's integers, so a reload reads the default
+// back and would leave out what the first save wrote.
 crate::pds::serde_util::impl_default_eliding_serialize!(TransformData {
-    translation,
-    rotation,
-    scale,
+    translation (wire),
+    rotation (wire),
+    scale (wire),
 });
 
 impl TransformData {
-    /// `true` when the whole transform equals the identity default - the
-    /// wire-format skip predicate for `transform` fields (#695).
+    /// `true` when the whole transform is the identity default as the wire
+    /// holds it - the skip predicate for `transform` fields (#695). Compared
+    /// on the wire (#1565): a transform a hair off the identity is written
+    /// as the identity, so it is skipped as one, or a reload - which reads
+    /// the identity back - would save it differently.
     pub fn is_identity(&self) -> bool {
-        *self == Self::default()
+        let identity = Self::default();
+        self.translation.wire() == identity.translation.wire()
+            && self.rotation.wire() == identity.rotation.wire()
+            && self.scale.wire() == identity.scale.wire()
     }
 }
 
@@ -290,6 +305,48 @@ impl Default for TransformData {
             rotation: Fp4([0.0, 0.0, 0.0, 1.0]),
             scale: Fp3([1.0; 3]),
         }
+    }
+}
+
+/// The Bevy transform a stored one stands for, its rotation normalised
+/// (#1565): the sanitiser keeps a stored rotation as the wire holds it, up to
+/// `sanitize::common::UNIT_QUAT_TOLERANCE` off unit length, and a Bevy
+/// rotation should be unit. A zero rotation - one no sanitiser has seen -
+/// stands for none.
+impl From<&TransformData> for Transform {
+    fn from(t: &TransformData) -> Self {
+        Transform {
+            translation: Vec3::from_array(t.translation.0),
+            rotation: Vec4::from_array(t.rotation.0)
+                .try_normalize()
+                .map_or(Quat::IDENTITY, Quat::from_vec4),
+            scale: Vec3::from_array(t.scale.0),
+        }
+    }
+}
+
+/// The rotation to store for a part now posed at `posed` whose record holds
+/// `stored` (#1565): `stored` itself while `posed` is still the rotation it
+/// stands for - after a drag that only moved the part - and `posed`
+/// otherwise. A Bevy rotation made from a stored one is normalised
+/// (`From<&TransformData> for Transform`), and writing it back unchanged
+/// would round a kept rotation onto the grid again: one in sixty would move
+/// a step. A pose read back through the scene's matrices can be a few units
+/// in the last place off, and can come back negated, which is the same
+/// rotation.
+pub fn rotation_after(stored: Fp4, posed: Quat) -> Fp4 {
+    let standing = Vec4::from_array(stored.0)
+        .try_normalize()
+        .unwrap_or(Vec4::W);
+    let posed_v = Vec4::from(posed);
+    let off = (standing - posed_v)
+        .abs()
+        .max_element()
+        .min((standing + posed_v).abs().max_element());
+    if off <= 1e-5 {
+        stored
+    } else {
+        Fp4(posed.to_array())
     }
 }
 
@@ -690,6 +747,78 @@ where
         map_ser.serialize_entry(k, &map[k])?;
     }
     map_ser.end()
+}
+
+#[cfg(test)]
+mod transform_conversion_tests {
+    use super::*;
+
+    /// #1565: a stored rotation is kept as the wire holds it, a little off
+    /// unit length; the Bevy rotation made from it is unit.
+    #[test]
+    fn a_stored_rotation_becomes_a_unit_bevy_rotation() {
+        let kept = TransformData {
+            rotation: Fp4([0.5001, 0.5001, 0.5, 0.5]),
+            ..Default::default()
+        };
+        let rotation = Transform::from(&kept).rotation;
+        assert!(
+            (rotation.length_squared() - 1.0).abs() < 1e-6,
+            "{rotation:?} is not unit"
+        );
+        let none = TransformData {
+            rotation: Fp4([0.0; 4]),
+            ..Default::default()
+        };
+        assert_eq!(Transform::from(&none).rotation, Quat::IDENTITY);
+    }
+
+    /// #1565: a transform a hair off the identity - as a pose computed in
+    /// memory is - is written as the identity and skipped as one, as its
+    /// reload is; a whole grid step off is written.
+    #[test]
+    fn a_transform_a_hair_off_the_identity_is_written_as_the_identity() {
+        let hair = TransformData {
+            translation: Fp3([1e-5, -2e-5, 4e-5]),
+            rotation: Fp4([0.0, 1.75e-7, 0.0, 1.0]),
+            scale: Fp3([0.99999994; 3]),
+        };
+        assert!(hair.is_identity());
+        assert_eq!(serde_json::to_string(&hair).expect("serialise"), "{}");
+        let step = TransformData {
+            translation: Fp3([1e-4, 0.0, 0.0]),
+            ..Default::default()
+        };
+        assert!(!step.is_identity());
+        assert_eq!(
+            serde_json::to_string(&step).expect("serialise"),
+            r#"{"translation":[1,0,0]}"#
+        );
+    }
+
+    /// A rotation the wire holds, a hair off unit length, whose normalised
+    /// form rounds a whole step away: `w` goes from -8734 to -8735.
+    const KEPT: Fp4 = Fp4([0.2135, 0.373, -0.2287, -0.8734]);
+
+    /// #1565: a part a drag only moved keeps the rotation its record holds,
+    /// though the scene carries it normalised; a turned one takes the turn.
+    #[test]
+    fn a_rotation_a_drag_did_not_turn_is_kept() {
+        let posed = Transform::from(&TransformData {
+            rotation: KEPT,
+            ..Default::default()
+        })
+        .rotation;
+        assert_ne!(
+            Fp4(posed.to_array()).wire(),
+            KEPT.wire(),
+            "fixture: writing the scene's rotation back would move it"
+        );
+        assert_eq!(rotation_after(KEPT, posed), KEPT);
+        assert_eq!(rotation_after(KEPT, -posed), KEPT, "the same rotation");
+        let turned = Quat::from_rotation_y(1f32.to_radians()) * posed;
+        assert_eq!(rotation_after(KEPT, turned), Fp4(turned.to_array()));
+    }
 }
 
 #[cfg(test)]

@@ -6,11 +6,13 @@ use bevy_egui::egui;
 use crate::pds::{Fp, Fp3, PropMeshType, SovereignMaterialSettings};
 
 use super::material::{draw_texture_bridge, draw_uv_transform_rows};
-use super::widgets::{color_picker, drag_u32, drag_u64, fp_slider, grammar_status_line};
+use super::widgets::{color_picker, drag_u32, fp_slider, grammar_status_line, u64_row};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_lsystem_forge(
     ui: &mut egui::Ui,
+    // The node's salt, which names its seed field (#1513).
+    salt: &str,
     grammar_status: Option<&crate::world_builder::grammar_diag::GrammarStatus>,
     source_code: &mut String,
     finalization_code: &mut String,
@@ -70,7 +72,7 @@ pub(super) fn draw_lsystem_forge(
         .default_open(true)
         .show(ui, |ui| {
             drag_u32(ui, "Iterations", iterations, 0, 12, dirty);
-            drag_u64(ui, "Seed", seed, dirty);
+            u64_row(ui, "Seed", salt, seed, dirty);
             fp_slider(ui, "Angle (deg)", angle, 0.0, 180.0, dirty);
             fp_slider(ui, "Step", step, 0.0, 10.0, dirty);
             fp_slider(ui, "Width", width, 0.0, 5.0, dirty);

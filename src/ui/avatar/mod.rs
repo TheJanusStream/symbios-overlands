@@ -780,6 +780,15 @@ fn tab_disabled_reason(tab: AvatarTab, rigged: bool) -> Option<&'static str> {
     }
 }
 
+/// The least height the Avatar window's tab body asks for (#1433): the Body
+/// tab's identity rows. It is also the floor a person resizing the window
+/// cannot drag it below - the blocks above, this, and the footer - so it is
+/// kept to what makes the tab usable rather than comfortable: at 240 the
+/// window measured 650 points tall at 1280x720 with the could-not-load
+/// banner up and the whole-avatar seed open. On a screen too short for it
+/// the body gets what is left.
+const MIN_TAB_BODY: f32 = 160.0;
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn avatar_ui(
     mut contexts: EguiContexts,
@@ -904,6 +913,7 @@ pub fn avatar_ui(
         // to its content, and forcing the persisted height back on it
         // would pad the shorter Locomotion tab with dead space.
         let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Avatar, ctx);
+        let screen = chrome.available_rect(ctx);
         // Guarded-dirty (#879): `.open(&mut panels.avatar)` through the
         // `ResMut` would mark UiPanels changed every frame, starving the
         // prefs save debounce - local copy in, write back only on close.
@@ -917,7 +927,7 @@ pub fn avatar_ui(
             .open(&mut open)
             .default_pos(pos)
             .default_width(size.x)
-            .constrain_to(chrome.available_rect(ctx))
+            .constrain_to(screen)
             .resizable(true)
             .collapsible(true)
             .show(ctx, |ui| {
@@ -1283,7 +1293,7 @@ pub fn avatar_ui(
                 // exactly the space that remains. Everything in here is
                 // fixed-height, which is what keeps the panel's reserve
                 // honest (see the re-roll block above).
-                egui::Panel::bottom("avatar_footer")
+                let footer_height = egui::Panel::bottom("avatar_footer")
                     .resizable(false)
                     .show(ui, |ui| {
                         // The "Smooth remote peers" toggle moved to the
@@ -1454,10 +1464,10 @@ pub fn avatar_ui(
                             "avatar",
                         );
                         publish_status_line(ui, &feedback.status, time.elapsed_secs_f64(), dirty);
-                    });
-
-                // The tab body fills exactly what the footer left over.
-                let body_height = ui.available_height();
+                    })
+                    .response
+                    .rect
+                    .height();
 
                 // The four arms' shared environment (#1161), built HERE and
                 // not at the top of the draw: it borrows the record, the
@@ -1486,36 +1496,46 @@ pub fn avatar_ui(
                     parts_tree,
                 };
 
-                match *selected_tab {
-                    AvatarTab::Body => body::draw_tab(
-                        ui,
-                        &mut tab_ctx,
-                        body_height,
-                        wardrobe,
-                        local_body.build_failed(),
-                        &mut commands,
-                    ),
-                    AvatarTab::Attachments => attachments::draw_tab(
-                        ui,
-                        &mut tab_ctx,
-                        &mut aim,
-                        body_height,
-                        attachments_state,
-                        editing_parts,
-                        std::mem::take(pending_attachment_focus),
-                        &worn_body,
-                    ),
-                    AvatarTab::Visuals => {
-                        visuals::draw_tab(ui, &mut tab_ctx, &mut aim, body_height)
-                    }
-                    AvatarTab::Locomotion => locomotion::draw_tab(
-                        ui,
-                        &mut tab_ctx,
-                        body_height,
-                        &reroll.seed_row,
-                        &movement,
-                    ),
-                }
+                // The tab body fills exactly the room the footer leaves, and
+                // asks the window for at least `MIN_TAB_BODY` of it (#1433):
+                // a window that had sized itself before the could-not-load
+                // banner arrived drew the Body tab over the Save row.
+                crate::ui::layout::body_above_footer(
+                    ui,
+                    screen,
+                    footer_height,
+                    MIN_TAB_BODY,
+                    |ui, body_height| match *selected_tab {
+                        AvatarTab::Body => body::draw_tab(
+                            ui,
+                            &mut tab_ctx,
+                            body_height,
+                            wardrobe,
+                            local_body.build_failed(),
+                            &mut commands,
+                        ),
+                        AvatarTab::Attachments => attachments::draw_tab(
+                            ui,
+                            &mut tab_ctx,
+                            &mut aim,
+                            body_height,
+                            attachments_state,
+                            editing_parts,
+                            std::mem::take(pending_attachment_focus),
+                            &worn_body,
+                        ),
+                        AvatarTab::Visuals => {
+                            visuals::draw_tab(ui, &mut tab_ctx, &mut aim, body_height)
+                        }
+                        AvatarTab::Locomotion => locomotion::draw_tab(
+                            ui,
+                            &mut tab_ctx,
+                            body_height,
+                            &reroll.seed_row,
+                            &movement,
+                        ),
+                    },
+                );
             });
 
         // The whole-record clone this used to compare against is gone

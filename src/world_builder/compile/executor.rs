@@ -609,21 +609,11 @@ fn start_unit(
             bounds,
             snap_to_terrain,
             ..
-        } => {
-            let center = match bounds {
-                ScatterBounds::Circle { center, .. } => Vec3::new(center.0[0], 0.0, center.0[1]),
-                ScatterBounds::Rect { center, .. } => Vec3::new(center.0[0], 0.0, center.0[1]),
-            };
-            let rot = match bounds {
-                ScatterBounds::Circle { .. } => Quat::IDENTITY,
-                ScatterBounds::Rect { rotation, .. } => Quat::from_rotation_y(rotation.0),
-            };
-            (
-                Transform::from_translation(center).with_rotation(rot),
-                *snap_to_terrain,
-                None,
-            )
-        }
+        } => (
+            super::scatter::scatter_anchor(bounds),
+            *snap_to_terrain,
+            None,
+        ),
         Placement::Grid {
             transform,
             snap_to_terrain,
@@ -1090,6 +1080,45 @@ mod tests {
             .iter(app.world())
             .map(|(e, u)| (e, u.0))
             .collect()
+    }
+
+    /// #1512: a turned rect scatter's anchor - the frame its copies hang
+    /// from, and face by when they keep no yaw of their own - turns as the
+    /// sampler lays the rect out. Its X ran mirrored from the rect's.
+    #[test]
+    fn a_turned_rect_scatters_anchor_turns_as_the_rect_is_laid_out() {
+        let rotation = 0.6;
+        let mut record = test_record(0);
+        record.placements = vec![Placement::Scatter {
+            generator_ref: "box".to_string(),
+            bounds: ScatterBounds::Rect {
+                center: crate::pds::Fp2([10.0, -4.0]),
+                extents: crate::pds::Fp2([40.0, 5.0]),
+                rotation: Fp(rotation),
+            },
+            count: 4,
+            local_seed: 7,
+            biome_filter: Default::default(),
+            snap_to_terrain: false,
+            random_yaw: false,
+            avoid_urban: false,
+            float_on_water: false,
+            naturalness: Default::default(),
+        }];
+        let mut app = compile_app(record);
+        settle(&mut app);
+        let anchor = unit_anchors(&app)[0].expect("the scatter spawned its anchor");
+        let turn = app
+            .world()
+            .get::<Transform>(anchor)
+            .expect("the anchor has a transform")
+            .rotation;
+        let (x, z) = super::super::scatter::rect_point([0.0, 0.0], rotation, 1.0, 0.0);
+        let along = turn * Vec3::X;
+        assert!(
+            (along - Vec3::new(x, 0.0, z)).length() < 1e-5,
+            "the anchor's X runs along {along}, the rect's along ({x}, 0, {z})"
+        );
     }
 
     #[test]

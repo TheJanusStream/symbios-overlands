@@ -1763,7 +1763,7 @@ fn draw_generator_detail(
         };
     }
     match kind {
-        GeneratorKind::Terrain(cfg) => draw_terrain_forge(ui, cfg, dirty, assets),
+        GeneratorKind::Terrain(cfg) => draw_terrain_forge(ui, salt, cfg, dirty, assets),
         GeneratorKind::Water { surface } => {
             draw_water_editor(ui, surface, dirty);
         }
@@ -1787,6 +1787,7 @@ fn draw_generator_detail(
             ..
         } => draw_lsystem_forge(
             ui,
+            salt,
             grammar_status,
             source_code,
             finalization_code,
@@ -1813,6 +1814,7 @@ fn draw_generator_detail(
             round_meshes,
         } => draw_shape_forge(
             ui,
+            salt,
             grammar_status,
             grammar_source,
             root_rule,

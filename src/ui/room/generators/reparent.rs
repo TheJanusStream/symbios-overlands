@@ -6,7 +6,7 @@
 //! module mutates the [`GeneratorTreeSource`] (#650).
 
 use bevy::math::Affine3A;
-use bevy::prelude::{Quat, Transform, Vec3};
+use bevy::prelude::Transform;
 use egui_ltreeview::DirPosition;
 
 use crate::pds::{Generator, TransformData};
@@ -710,11 +710,7 @@ fn chain_affine(source: &dyn GeneratorTreeSource, id: &GenNodeId) -> Option<Affi
 }
 
 fn affine_of(t: &TransformData) -> Affine3A {
-    Affine3A::from_scale_rotation_translation(
-        Vec3::from_array(t.scale.0),
-        Quat::from_array(t.rotation.0),
-        Vec3::from_array(t.translation.0),
-    )
+    Transform::from(t).compute_affine()
 }
 
 /// Rewrite `local` so that `new_parent * local` reproduces the world pose
@@ -736,11 +732,14 @@ fn rebase_local(local: &mut TransformData, old_parent: Affine3A, new_parent: Aff
     if !translation.is_finite() || !scale.is_finite() || !rotation.is_finite() {
         return;
     }
+    let stored = local.rotation;
     *local = TransformData::from(Transform {
         translation,
         rotation,
         scale,
     });
+    // A rebase that turns nothing keeps the stored rotation (#1565).
+    local.rotation = crate::pds::types::rotation_after(stored, rotation);
 }
 
 /// Rewrite `id` so it still names the same node after the child at
@@ -867,6 +866,7 @@ mod tests {
     use crate::pds::{
         Environment, GeneratorKind, Placement, RoomRecord, ScatterBounds, TransformData,
     };
+    use bevy::prelude::{Quat, Vec3};
     use std::collections::HashMap;
 
     fn empty_record() -> RoomRecord {

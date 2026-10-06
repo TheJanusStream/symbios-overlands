@@ -164,6 +164,83 @@ pub fn fill_above<R>(ui: &mut egui::Ui, body: impl FnOnce(&mut egui::Ui) -> R) -
     out
 }
 
+/// The body of a window that heights itself to its content, under a footer
+/// panel already laid against its bottom edge (#1433): `body` gets a
+/// top-down `Ui` clipped to exactly the room between them, and its height.
+///
+/// A window sizes itself from its first frames and afterwards grows only
+/// when its content overflows it. A bottom panel takes its room out of the
+/// window's height and never reports more, so once something above the body
+/// grew - the Avatar editor's could-not-load banner arriving after the
+/// window had opened - the only thing left to grow the window was the body,
+/// a scroll area at its 64-point floor. The window grew until that floor
+/// fitted under the blocks above it, and the footer, laid against the
+/// bottom, then stood over the floor's last stretch: the Body tab was drawn
+/// over the Save row. Here the room is asked for instead: the window's
+/// content reaches `min_height` below the body's top and the footer's
+/// height below that, so a window too short to give the body `min_height`
+/// grows - but no further than `screen`, past which the window's frame
+/// would run off it. Where the screen cannot give the room, the body is
+/// clipped above the footer rather than drawn over it, and the window is
+/// advanced by the room it was given, not by what overflowed.
+pub fn body_above_footer<R>(
+    ui: &mut egui::Ui,
+    screen: egui::Rect,
+    footer_height: f32,
+    min_height: f32,
+    body: impl FnOnce(&mut egui::Ui, f32) -> R,
+) -> R {
+    let rect = ui.available_rect_before_wrap();
+    // The window's frame below its content: its margin and its stroke.
+    let below = egui::Frame::window(ui.style()).total_margin().bottom;
+    ui.expand_to_include_y((rect.top() + min_height + footer_height).min(screen.bottom() - below));
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(rect)
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+    );
+    child.set_clip_rect(rect.intersect(ui.clip_rect()));
+    let out = body(&mut child, rect.height());
+    ui.advance_cursor_after_rect(rect);
+    out
+}
+
+/// A window body that grows with its content down to the bottom of
+/// `screen`, and scrolls past it (#1434).
+///
+/// For a window that is not resizable and has no footer. A scroll area is
+/// offered no more height than its window has, and the window then grows
+/// only to the scroll area: Settings, opened at its 200-point default, would
+/// have stayed a 200-point slit. Without a scroll area the window followed
+/// its content to the screen's edge and `constrain_to` stopped it there,
+/// with everything below drawn off the screen, where nothing could scroll
+/// it in. A vertical scroll area is `min(max(offered, min_scrolled_height),
+/// content)` tall, so raising that floor to the room left on the screen -
+/// as the login screen's feed does (#898) - lets the window grow to its
+/// content and no further than the screen. A body that fits is drawn whole,
+/// with no bar.
+pub fn screen_scroll<R>(
+    ui: &mut egui::Ui,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
+    screen: egui::Rect,
+    body: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    /// The least a body is given, however near the screen's bottom the
+    /// window stands: `constrain_to` lifts the window to make room for it.
+    const MIN_ROOM: f32 = 120.0;
+    // Below the body: the window frame's margin and its stroke. A pixel
+    // short, the window stands over the screen's edge, `constrain_to`
+    // lifts it, and the room grows by what it was lifted: it creeps up.
+    let below = egui::Frame::window(ui.style()).total_margin().bottom;
+    let room = (screen.bottom() - ui.next_widget_position().y - below).max(MIN_ROOM);
+    egui::ScrollArea::vertical()
+        .id_salt(id_salt)
+        .max_height(room)
+        .min_scrolled_height(room)
+        .show(ui, body)
+        .inner
+}
+
 /// A persisted rect, nudged onto the current screen - or `None` when it
 /// cannot be made to fit and the computed layout should run again
 /// (#1261 f45).
@@ -818,6 +895,242 @@ mod growth {
             late < SCREEN * 0.6,
             "the window followed its content off the screen: {late:.0}"
         );
+    }
+
+    /// Run a window built the way Settings is (#1434) - not resizable,
+    /// opened at its default height, held to the screen - for `frames`
+    /// frames around `contents`, and return the window's rect and the rect
+    /// `contents` returns: the last row its body drew.
+    fn settle_fixed(
+        frames: usize,
+        contents: impl Fn(&mut egui::Ui, egui::Rect) -> egui::Rect,
+    ) -> (egui::Rect, egui::Rect) {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, SCREEN));
+        let (mut window, mut last) = (egui::Rect::NOTHING, egui::Rect::NOTHING);
+        for _ in 0..frames {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                let response = egui::Window::new("fixed")
+                    .default_pos(egui::pos2(0.0, 40.0))
+                    .default_size(egui::vec2(300.0, START_HEIGHT))
+                    .constrain_to(screen)
+                    .resizable(false)
+                    .show(ui.ctx(), |ui| last = contents(ui, screen));
+                if let Some(r) = response {
+                    window = r.response.rect;
+                }
+            });
+        }
+        (window, last)
+    }
+
+    /// Sixty rows, far taller than the screen, asking every frame for the
+    /// last of them to be scrolled into view - as a person scrolling to the
+    /// end of Settings does. The last row's rect.
+    fn rows(ui: &mut egui::Ui) -> egui::Rect {
+        let mut last = egui::Rect::NOTHING;
+        for row in 0..60 {
+            last = ui.label(format!("row {row}")).rect;
+        }
+        ui.scroll_to_rect(last, Some(egui::Align::BOTTOM));
+        last
+    }
+
+    /// #1434, the defect: a body taller than the screen in a window that
+    /// is not resizable. The window follows it to the screen's edge, and
+    /// the rows past that are drawn below the screen, where nothing can
+    /// scroll them in.
+    #[test]
+    fn an_unscrolled_body_runs_off_the_screen() {
+        let (window, last) = settle_fixed(20, |ui, _| rows(ui));
+        assert!(
+            last.top() > SCREEN,
+            "the last row was in view after all: {last:?} in {window:?}"
+        );
+    }
+
+    /// #1434, the fix: the same body in a [`super::screen_scroll`] grows
+    /// the window to the screen's edge and no further, and its last row
+    /// scrolls into view.
+    #[test]
+    fn a_screen_scroll_body_grows_to_the_screen_and_scrolls_to_its_end() {
+        let scrolled = |ui: &mut egui::Ui, screen| super::screen_scroll(ui, "body", screen, rows);
+        let (early, _) = settle_fixed(4, scrolled);
+        let (window, last) = settle_fixed(40, scrolled);
+        assert_eq!(
+            early, window,
+            "the window moved between frame 4 and frame 40"
+        );
+        assert!(window.bottom() <= SCREEN, "{window:?}");
+        assert!(
+            window.height() > SCREEN * 0.75,
+            "the window stayed a slit: {window:?}"
+        );
+        assert!(
+            window.contains_rect(last),
+            "the last row {last:?} is out of the window {window:?}"
+        );
+    }
+
+    /// A body that fits claims no more than it needs: the window keeps the
+    /// height it opened at.
+    #[test]
+    fn a_screen_scroll_body_that_fits_does_not_grow_the_window() {
+        let (window, _) = settle_fixed(20, |ui, screen| {
+            super::screen_scroll(ui, "body", screen, |ui| ui.label("short").rect)
+        });
+        assert!(
+            window.height() <= START_HEIGHT + 1.0,
+            "a short body grew the window: {window:?}"
+        );
+    }
+
+    /// Where one frame of a window shaped like the Avatar editor (#1433)
+    /// put its parts: the footer panel, the body's scroll viewport, and the
+    /// rect the body may draw in (its clip).
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct Parts {
+        window: egui::Rect,
+        footer: egui::Rect,
+        viewport: egui::Rect,
+        clip: egui::Rect,
+    }
+
+    /// The body every frame of [`settle_avatar_like`] draws: far taller
+    /// than any window, as the Body tab's sliders are.
+    fn sliders(ui: &mut egui::Ui) -> egui::Rect {
+        egui::ScrollArea::vertical()
+            .id_salt("sliders")
+            .show(ui, |ui| {
+                for row in 0..80 {
+                    ui.label(format!("slider {row}"));
+                }
+            })
+            .inner_rect
+    }
+
+    /// Run a window built the way the Avatar editor is (#1433) - resizable,
+    /// only its width given, so it heights itself to its content, held to
+    /// the screen - for `frames` frames: a block 150 points tall that grows
+    /// to `top` from the fourth frame on, once the window has sized itself,
+    /// as the could-not-load banner arrives; a footer panel against the
+    /// bottom edge; and `body` between them, which is handed the screen and
+    /// the footer's height and returns the body's viewport and clip.
+    fn settle_avatar_like(
+        frames: usize,
+        top: f32,
+        body: impl Fn(&mut egui::Ui, egui::Rect, f32) -> (egui::Rect, egui::Rect),
+    ) -> Parts {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, SCREEN));
+        let mut parts = None;
+        for frame in 0..frames {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let block = if frame < 3 { 150.0 } else { top };
+            let _ = ctx.run_ui(input, |ui| {
+                let mut drawn = None;
+                let response = egui::Window::new("avatar-like")
+                    .default_pos(egui::pos2(0.0, 20.0))
+                    .default_width(300.0)
+                    .constrain_to(screen)
+                    .resizable(true)
+                    .show(ui.ctx(), |ui| {
+                        ui.allocate_space(egui::vec2(250.0, block));
+                        let footer = egui::Panel::bottom("footer")
+                            .resizable(false)
+                            .show(ui, footer)
+                            .response
+                            .rect;
+                        let (viewport, clip) = body(ui, screen, footer.height());
+                        drawn = Some((footer, viewport, clip));
+                    });
+                if let (Some(r), Some((footer, viewport, clip))) = (response, drawn) {
+                    parts = Some(Parts {
+                        window: r.response.rect,
+                        footer,
+                        viewport,
+                        clip,
+                    });
+                }
+            });
+        }
+        parts.expect("the window drew its body")
+    }
+
+    /// The Avatar editor's body before #1433: the room the footer left,
+    /// measured, handed to the tab, which scrolls in it.
+    fn measured_room(
+        ui: &mut egui::Ui,
+        _screen: egui::Rect,
+        _footer: f32,
+    ) -> (egui::Rect, egui::Rect) {
+        let height = ui.available_height();
+        ui.allocate_ui(egui::vec2(ui.available_width(), height), |ui| {
+            (sliders(ui), ui.clip_rect())
+        })
+        .inner
+    }
+
+    /// The least body [`super::body_above_footer`] asks for in these tests.
+    const MIN_BODY: f32 = 150.0;
+
+    fn asked_room(ui: &mut egui::Ui, screen: egui::Rect, footer: f32) -> (egui::Rect, egui::Rect) {
+        super::body_above_footer(ui, screen, footer, MIN_BODY, |ui, _| {
+            (sliders(ui), ui.clip_rect())
+        })
+    }
+
+    /// #1433, the defect: the window grows until the body's scroll floor
+    /// fits under the block above it, and stops - and the footer, laid
+    /// against its bottom, stands over the floor's last stretch.
+    #[test]
+    fn a_measured_body_runs_under_its_footer() {
+        let parts = settle_avatar_like(20, 300.0, measured_room);
+        let under = parts.viewport.bottom() - parts.footer.top();
+        assert!(under > 10.0, "the body stayed above its footer: {parts:?}");
+    }
+
+    /// #1433, the fix: the window grows to give the body the room it asks
+    /// for, the body stays above its footer, and nothing moves once it has.
+    #[test]
+    fn an_asked_for_body_stands_above_its_footer() {
+        let early = settle_avatar_like(8, 300.0, asked_room);
+        let parts = settle_avatar_like(40, 300.0, asked_room);
+        assert_eq!(
+            early, parts,
+            "the window moved between frame 8 and frame 40"
+        );
+        assert!(
+            parts.viewport.bottom() <= parts.footer.top() + 0.5,
+            "the body runs under its footer: {parts:?}"
+        );
+        assert!(
+            parts.viewport.height() >= MIN_BODY - 0.5,
+            "the window did not grow to give the body its room: {parts:?}"
+        );
+        assert!(parts.window.bottom() <= SCREEN, "{parts:?}");
+    }
+
+    /// Where the screen cannot give the body its room, the window stops at
+    /// the screen's edge and the body is clipped above the footer, which
+    /// stays whole and on the screen - as it can while the blocks above
+    /// leave room for it at all.
+    #[test]
+    fn a_body_the_screen_cannot_hold_is_clipped_above_its_footer() {
+        let parts = settle_avatar_like(20, 450.0, asked_room);
+        assert!(parts.window.bottom() <= SCREEN, "{parts:?}");
+        assert!(
+            parts.clip.bottom() <= parts.footer.top() + 0.5,
+            "the body may draw over its footer: {parts:?}"
+        );
+        assert!(parts.footer.bottom() <= SCREEN, "{parts:?}");
     }
 
     /// The fix: measure the footer instead of predicting it, and the

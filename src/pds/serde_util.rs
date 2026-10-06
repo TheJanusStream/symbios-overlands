@@ -35,6 +35,13 @@
 /// through the same `module::serialize` the old derive used (e.g. the
 /// `u64_as_string` seeds) instead of silently changing the wire shape.
 ///
+/// A fixed-point field marked `name (wire)` is elided when its WIRE form -
+/// the integers its `wire()` gives - equals the default's, rather than its
+/// value in memory (#1565). Use it for fields code computes: a value a hair
+/// off the default is written as the default's integers, a reload reads the
+/// default back, and with the in-memory test the first save would carry the
+/// field and the next leave it out.
+///
 /// A field marked `name (always)` is written unconditionally. Use this when
 /// an *absent* key already has a legacy meaning that differs from the
 /// struct's default - e.g. `ParticleParams::procedural_texture`, where a
@@ -77,6 +84,9 @@ macro_rules! impl_default_eliding_serialize {
     };
     (@keep $default:ident, $field:ident (always)) => {
         true
+    };
+    (@keep $default:ident, $field:ident (wire)) => {
+        $field.wire() != $default.$field.wire()
     };
     (@field $state:ident, $field:ident) => {
         $state.serialize_field(stringify!($field), $field)?;

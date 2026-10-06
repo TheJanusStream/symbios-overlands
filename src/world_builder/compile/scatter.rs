@@ -57,6 +57,47 @@ pub(crate) const JITTER_DRAWS_PER_INSTANCE: usize = 4;
 /// finer than the props themselves and the effect reads as noise.
 const MAX_CLUSTERS: usize = 32;
 
+/// Where the point `(lx, lz)` of a rect scatter's own frame lands on the
+/// ground: the rect's X runs along `(cos r, sin r)`. This is what a rect's
+/// `rotation` means - the outline and the anchor turn by [`rect_turn`] to
+/// match it (#1512).
+pub(crate) fn rect_point(center: [f32; 2], rotation: f32, lx: f32, lz: f32) -> (f32, f32) {
+    // libm (#1132): a rotated rect's instance positions must agree between
+    // a native and a browser peer, because the position is what the slope
+    // and biome filters are then sampled AT - so a difference here feeds
+    // the accept/reject decisions.
+    let (sin, cos) = (libm::sinf(rotation), libm::cosf(rotation));
+    let rx = lx * cos - lz * sin;
+    let rz = lx * sin + lz * cos;
+    (center[0] + rx, center[1] + rz)
+}
+
+/// The turn a rect scatter's `rotation` stands for, as [`rect_point`] lays
+/// the rect out: glam's `from_rotation_y(-r)`, since glam's own
+/// `from_rotation_y(r)` turns X to `(cos r, -sin r)`, the other way. The
+/// anchor its copies hang from and the World Editor's outline both turn by
+/// it; both used `from_rotation_y(r)`, so the outline was drawn mirrored
+/// from where the copies stand and a copy with no yaw of its own faced
+/// mirrored from the rect's sides (#1512).
+pub(crate) fn rect_turn(rotation: f32) -> Quat {
+    Quat::from_rotation_y(-rotation)
+}
+
+/// The frame a scatter's copies hang from, on the ground plane: at the
+/// bounds' centre, and for a rect turned by [`rect_turn`]. The compile
+/// spawns its anchor here (then snapped to the ground), and the render
+/// tool's preview poses its copies in it, so the two turn them alike.
+pub(crate) fn scatter_anchor(bounds: &ScatterBounds) -> Transform {
+    match bounds {
+        ScatterBounds::Circle { center, .. } => Transform::from_xyz(center.0[0], 0.0, center.0[1]),
+        ScatterBounds::Rect {
+            center, rotation, ..
+        } => {
+            Transform::from_xyz(center.0[0], 0.0, center.0[1]).with_rotation(rect_turn(rotation.0))
+        }
+    }
+}
+
 /// Uniform sample inside the scatter region, warped by `edge_falloff`.
 /// Circle bounds use rejection sampling so the base distribution stays flat
 /// instead of clumping at the centre (which a naïve `radius * random()`
@@ -81,15 +122,7 @@ pub(crate) fn sample_bounds(
             // Per-axis falloff: the rect thins toward all four edges.
             let lx = falloff_axis(unit_f32(rng), edge_falloff) * extents.0[0];
             let lz = falloff_axis(unit_f32(rng), edge_falloff) * extents.0[1];
-            let rot = rotation.0;
-            // libm (#1132): a rotated rect's instance positions must agree
-            // between a native and a browser peer, because the position is
-            // what the slope and biome filters are then sampled AT - so a
-            // difference here feeds the accept/reject decisions above.
-            let (sin, cos) = (libm::sinf(rot), libm::cosf(rot));
-            let rx = lx * cos - lz * sin;
-            let rz = lx * sin + lz * cos;
-            (center.0[0] + rx, center.0[1] + rz)
+            rect_point(center.0, rotation.0, lx, lz)
         }
         ScatterBounds::Circle { center, radius } => loop {
             let x = unit_f32(rng);
@@ -304,7 +337,10 @@ impl ScatterPreview {
         }
     }
 
-    /// The next instance's pose on the ground plane.
+    /// The next instance's pose on the ground plane: posed in the
+    /// scatter's anchor frame and set in the world through it, as the
+    /// compile parents a copy to its anchor - so a turned rect's copies turn
+    /// with it here too (#1512).
     pub(crate) fn next_pose(&mut self) -> Transform {
         let (x, z) = apply_clumping(
             sample_bounds(&self.bounds, &mut self.rng, self.naturalness.edge_falloff.0),
@@ -312,12 +348,12 @@ impl ScatterPreview {
             self.naturalness.clumping.0,
         );
         let jitter = instance_jitter(&mut self.jitter_rng, &self.naturalness);
-        instance_pose(
-            Vec3::new(x, 0.0, z),
-            &jitter,
-            self.random_yaw,
-            &self.naturalness,
-        )
+        let anchor = scatter_anchor(&self.bounds);
+        let local = anchor
+            .compute_affine()
+            .inverse()
+            .transform_point3(Vec3::new(x, 0.0, z));
+        anchor * instance_pose(local, &jitter, self.random_yaw, &self.naturalness)
     }
 }
 
@@ -579,6 +615,36 @@ mod tests {
             })
             .sum();
         total / n as f32
+    }
+
+    /// #1512: the render tool's preview turns a turned rect's copies as the
+    /// compile does - with Random yaw off, each faces along the rect's own X
+    /// - and stands each where the sampler put it.
+    #[test]
+    fn the_preview_turns_a_turned_rects_copies_with_it() {
+        let rotation = 0.7_f32;
+        let bounds = ScatterBounds::Rect {
+            center: Fp2([3.0, -2.0]),
+            extents: Fp2([20.0, 4.0]),
+            rotation: Fp(rotation),
+        };
+        let mut preview =
+            ScatterPreview::new(&bounds, 8, 42, &ScatterNaturalness::default(), false);
+        let mut sampler = ChaCha8Rng::seed_from_u64(42);
+        let (ax, az) = rect_point([0.0, 0.0], rotation, 1.0, 0.0);
+        for _ in 0..8 {
+            let pose = preview.next_pose();
+            let (x, z) = sample_bounds(&bounds, &mut sampler, 0.0);
+            assert!(
+                (pose.translation - Vec3::new(x, 0.0, z)).length() < 1e-3,
+                "{pose:?} does not stand at ({x}, {z})"
+            );
+            let along = pose.rotation * Vec3::X;
+            assert!(
+                (along - Vec3::new(ax, 0.0, az)).length() < 1e-5,
+                "a copy faces {along}, the rect runs along ({ax}, 0, {az})"
+            );
+        }
     }
 
     // --- determinism contract ------------------------------------------
