@@ -266,6 +266,10 @@ macro_rules! texture_mirrors_with_roster {
             [SovereignFlowerConfig],
             [SovereignFlameConfig],
             [SovereignLeafSpriteConfig],
+            [SovereignRoofTileConfig],
+            [SovereignLogWallConfig],
+            [SovereignDryStoneConfig],
+            [SovereignFurConfig],
             ]
             $($registry)*
         );
@@ -363,6 +367,11 @@ pub enum SovereignTextureConfig {
     SolarPanel(SovereignSolarPanelConfig),
     Parquet(SovereignParquetConfig),
     Truchet(SovereignTruchetConfig),
+    // Surfaces added in symbios-texture 0.8 (#1574).
+    RoofTile(SovereignRoofTileConfig),
+    LogWall(SovereignLogWallConfig),
+    DryStone(SovereignDryStoneConfig),
+    Fur(SovereignFurConfig),
     // Alpha-masked mesh cards.
     ChainLink(SovereignChainLinkConfig),
     LogEnd(SovereignLogEndConfig),
@@ -435,6 +444,10 @@ impl SovereignTextureConfig {
             Self::SolarPanel(_) => "Solar Panel",
             Self::Parquet(_) => "Parquet",
             Self::Truchet(_) => "Truchet",
+            Self::RoofTile(_) => "Roof Tile",
+            Self::LogWall(_) => "Log Wall",
+            Self::DryStone(_) => "Dry Stone",
+            Self::Fur(_) => "Fur",
             Self::ChainLink(_) => "Chain Link",
             Self::LogEnd(_) => "Log End",
             Self::Unknown => "Unknown",
@@ -527,6 +540,10 @@ impl SovereignTextureConfig {
             Self::SolarPanel(c) => T::SolarPanel(c.to_native()),
             Self::Parquet(c) => T::Parquet(c.to_native()),
             Self::Truchet(c) => T::Truchet(c.to_native()),
+            Self::RoofTile(c) => T::RoofTile(c.to_native()),
+            Self::LogWall(c) => T::LogWall(c.to_native()),
+            Self::DryStone(c) => T::DryStone(c.to_native()),
+            Self::Fur(c) => T::Fur(c.to_native()),
             Self::ChainLink(c) => T::ChainLink(c.to_native()),
             Self::LogEnd(c) => T::LogEnd(c.to_native()),
         }
@@ -735,6 +752,10 @@ mod tests {
         rt!(SovereignCactusSkinConfig);
         rt!(SovereignChainLinkConfig);
         rt!(SovereignLogEndConfig);
+        rt!(SovereignRoofTileConfig);
+        rt!(SovereignLogWallConfig);
+        rt!(SovereignDryStoneConfig);
+        rt!(SovereignFurConfig);
     }
 
     /// The new tileable surfaces must be fully wired: a non-"Unknown" label
@@ -789,14 +810,36 @@ mod tests {
         }
     }
 
+    /// The four surfaces added in symbios-texture 0.8 (#1574) - roof tile,
+    /// log wall, dry stone, fur - are wired through every dispatch arm, and
+    /// none claims to be a card.
+    #[test]
+    fn texture_0_8_symbios_surfaces_are_fully_wired() {
+        use bevy_symbios_texture::TextureConfig as T;
+        let variants = [
+            SovereignTextureConfig::RoofTile(Default::default()),
+            SovereignTextureConfig::LogWall(Default::default()),
+            SovereignTextureConfig::DryStone(Default::default()),
+            SovereignTextureConfig::Fur(Default::default()),
+        ];
+        for v in &variants {
+            assert_ne!(v.label(), "Unknown", "{v:?} missing label arm");
+            assert!(
+                !matches!(v.to_texture_config(), T::None),
+                "{v:?} collapsed to TextureConfig::None"
+            );
+            assert!(!v.is_card(), "{v:?} is not a card");
+        }
+    }
+
     // `mirror_defaults_match_upstream` lived here: twenty-six hand-written
     // assertions that a mirror's declared default matched upstream's. Since
     // #1304 there is no declared default to drift - `Default` is
     // `Self::from_native(&Native::default())` - and the check that matters is
     // exhaustive and lives with the bytes it protects, in
     // `tests/texture_wire.rs`: `every_mirror_default_matches_upstream` covers
-    // all fifty-seven, and the blessed fixture fails loudly if a default move
-    // ever changes which fields elide.
+    // every procedural variant, and the blessed fixture fails loudly if a
+    // default move ever changes which fields elide.
 
     /// Every sprite variant must carry a non-"Unknown" label and convert to a
     /// non-`None` upstream `TextureConfig` - i.e. it is wired through all the

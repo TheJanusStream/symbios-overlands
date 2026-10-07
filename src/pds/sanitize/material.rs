@@ -132,6 +132,10 @@ impl Sanitize for SovereignTextureConfig {
             Self::SolarPanel(c) => c.clamp_to_envelope(),
             Self::Parquet(c) => c.clamp_to_envelope(),
             Self::Truchet(c) => c.clamp_to_envelope(),
+            Self::RoofTile(c) => c.clamp_to_envelope(),
+            Self::LogWall(c) => c.clamp_to_envelope(),
+            Self::DryStone(c) => c.clamp_to_envelope(),
+            Self::Fur(c) => c.clamp_to_envelope(),
             Self::ChainLink(c) => c.clamp_to_envelope(),
             Self::LogEnd(c) => c.clamp_to_envelope(),
         }

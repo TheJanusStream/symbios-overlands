@@ -578,10 +578,11 @@ mod tests {
             expires_at: Some("2099-01-01T00:00:00Z".into()),
             aud: None,
         };
-        let session = std::sync::Arc::new(OAuthSession::new(
+        let session = std::sync::Arc::new(OAuthSession::with_fetch_handler(
             token_set,
             DpopKey::generate().expect("dpop keygen"),
             DpopNonceCache::new(),
+            std::sync::Arc::new(crate::oauth::capped_fetch::CappedFetcher::new()),
         ));
         // Deserialised rather than hand-built: `OAuthServerMetadata` has no
         // `Default` and its optional half is irrelevant here.

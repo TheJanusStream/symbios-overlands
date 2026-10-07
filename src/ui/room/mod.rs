@@ -1894,20 +1894,23 @@ mod placement_focus_tests {
             did: String::from(did),
             handle: String::from("alice"),
             pds_url: String::from("https://pds.example"),
-            session: std::sync::Arc::new(proto_blue_oauth::session::OAuthSession::new(
-                proto_blue_oauth::types::TokenSet {
-                    issuer: String::from("https://as.example"),
-                    sub: String::from(did),
-                    scope: String::from("atproto"),
-                    access_token: String::from("access"),
-                    refresh_token: Some(String::from("refresh")),
-                    token_type: String::from("DPoP"),
-                    expires_at: Some(String::from("2099-01-01T00:00:00Z")),
-                    aud: Some(String::from("https://as.example")),
-                },
-                proto_blue_oauth::DpopKey::generate().expect("DPoP key"),
-                proto_blue_oauth::DpopNonceCache::new(),
-            )),
+            session: std::sync::Arc::new(
+                proto_blue_oauth::session::OAuthSession::with_fetch_handler(
+                    proto_blue_oauth::types::TokenSet {
+                        issuer: String::from("https://as.example"),
+                        sub: String::from(did),
+                        scope: String::from("atproto"),
+                        access_token: String::from("access"),
+                        refresh_token: Some(String::from("refresh")),
+                        token_type: String::from("DPoP"),
+                        expires_at: Some(String::from("2099-01-01T00:00:00Z")),
+                        aud: Some(String::from("https://as.example")),
+                    },
+                    proto_blue_oauth::DpopKey::generate().expect("DPoP key"),
+                    proto_blue_oauth::DpopNonceCache::new(),
+                    std::sync::Arc::new(crate::oauth::capped_fetch::CappedFetcher::new()),
+                ),
+            ),
         }
     }
 

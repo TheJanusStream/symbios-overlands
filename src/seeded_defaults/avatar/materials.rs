@@ -365,10 +365,12 @@ impl MaterialKit {
     /// staggered plank is a butt-joint grid and reads as brickwork, which is
     /// what the retired barge deck did.
     ///
-    /// The grain runs along the tile's own V axis. A prim whose surface
-    /// parametrisation puts its length the other way wants
-    /// `uv_rotation = 90.0` on the returned material - the caller's call,
-    /// because only the caller knows which way its sweep runs.
+    /// The boards run along the tile's own U axis, stacked up V, and - since
+    /// symbios-texture 0.8 (#1388) - their grain runs along them too; it
+    /// used to run across. A prim whose surface parametrisation puts its
+    /// length the other way wants `uv_rotation = 90.0` on the returned
+    /// material - the caller's call, because only the caller knows which way
+    /// its sweep runs.
     pub fn timber(&self, color: [f32; 3]) -> SovereignMaterialSettings {
         let mut m = self.finish(color, 0.0, 0.72);
         let base = m.base_color.0;

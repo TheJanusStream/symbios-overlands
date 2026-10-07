@@ -937,7 +937,7 @@ mod tests {
             did: String::from(did),
             handle: String::from("someone"),
             pds_url: String::from("https://pds.example"),
-            session: Arc::new(proto_blue_oauth::session::OAuthSession::new(
+            session: Arc::new(proto_blue_oauth::session::OAuthSession::with_fetch_handler(
                 proto_blue_oauth::types::TokenSet {
                     issuer: String::from("https://as.example"),
                     sub: String::from(did),
@@ -950,6 +950,7 @@ mod tests {
                 },
                 proto_blue_oauth::DpopKey::generate().expect("DPoP key"),
                 proto_blue_oauth::DpopNonceCache::new(),
+                Arc::new(crate::oauth::capped_fetch::CappedFetcher::new()),
             )),
         }
     }

@@ -25,6 +25,9 @@ use crate::pds::{
     SovereignThatchConfig, SovereignTruchetConfig, SovereignTwigConfig, SovereignWainscotingConfig,
     SovereignWindowConfig,
 };
+use crate::pds::{
+    SovereignDryStoneConfig, SovereignFurConfig, SovereignLogWallConfig, SovereignRoofTileConfig,
+};
 
 use super::widgets::{drag_u32, fp_slider};
 
@@ -389,6 +392,20 @@ pub(super) fn draw_texture_bridge_opts(
                 "Truchet",
                 SovereignTextureConfig::Truchet(Default::default())
             );
+            // symbios-texture 0.8 (#1574).
+            opt!(
+                "Roof Tile",
+                SovereignTextureConfig::RoofTile(Default::default())
+            );
+            opt!(
+                "Log Wall",
+                SovereignTextureConfig::LogWall(Default::default())
+            );
+            opt!(
+                "Dry Stone",
+                SovereignTextureConfig::DryStone(Default::default())
+            );
+            opt!("Fur", SovereignTextureConfig::Fur(Default::default()));
             // Alpha-masked mesh cards.
             group!("Alpha-masked cards");
             opt!(
@@ -725,6 +742,26 @@ pub(super) fn draw_texture_bridge_opts(
             c,
             SovereignTruchetConfig,
             bevy_symbios_texture::ui::truchet_config_editor
+        ),
+        SovereignTextureConfig::RoofTile(c) => run!(
+            c,
+            SovereignRoofTileConfig,
+            bevy_symbios_texture::ui::roof_tile_config_editor
+        ),
+        SovereignTextureConfig::LogWall(c) => run!(
+            c,
+            SovereignLogWallConfig,
+            bevy_symbios_texture::ui::log_wall_config_editor
+        ),
+        SovereignTextureConfig::DryStone(c) => run!(
+            c,
+            SovereignDryStoneConfig,
+            bevy_symbios_texture::ui::dry_stone_config_editor
+        ),
+        SovereignTextureConfig::Fur(c) => run!(
+            c,
+            SovereignFurConfig,
+            bevy_symbios_texture::ui::fur_config_editor
         ),
         SovereignTextureConfig::ChainLink(c) => run!(
             c,

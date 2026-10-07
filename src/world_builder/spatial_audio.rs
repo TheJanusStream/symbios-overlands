@@ -85,12 +85,10 @@ pub(crate) const CONSTRUCT_PATCH_SECS: f32 = 1.0;
 /// A quarter second settles every filter the seeded voices use and brought
 /// each of them to or under that largest step, for a quarter more synthesis.
 ///
-/// The pop-out cannot do this yet, and since #1387 it lacks the seam fade
-/// ([`CONSTRUCT_PATCH_LOOP_FADE_SECS`]) too: its audition is the audio
-/// crate's monitor, which bakes a patch from rest and loops it whole. So a
-/// construct patch auditions with a faint tick at its seam that the world no
-/// longer plays - a filter's, on a tonal voice, and a noise layer's on the
-/// rest. #1386 is the one upstream ask for both.
+/// The pop-out auditions a construct patch the same way, with this warm-up
+/// and the seam fade ([`CONSTRUCT_PATCH_LOOP_FADE_SECS`]): since
+/// bevy_symbios_audio 0.6 its monitor takes both, and settles the loop with
+/// the arithmetic [`gen_jobs::AudioBakeJob::Patch`] uses (#1386).
 pub(crate) const CONSTRUCT_PATCH_WARMUP_SECS: f32 = 0.25;
 
 /// How much of a construct's `Patch` past the end of its loop is baked and

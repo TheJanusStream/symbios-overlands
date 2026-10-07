@@ -110,6 +110,34 @@ impl AudioSlotKind {
         }
     }
 
+    /// The warm-up and seam fade, in seconds, the world bakes a `Patch` in
+    /// this kind of slot with (#1386): a construct's settled and faded
+    /// (#1385, #1387), an ambient bed's cold and whole, as the world bakes
+    /// it. The consts are the ones the bake jobs read.
+    pub(crate) fn patch_loop(self) -> (f32, f32) {
+        match self {
+            Self::WorldAmbient => (0.0, 0.0),
+            Self::Construct => (
+                crate::world_builder::spatial_audio::CONSTRUCT_PATCH_WARMUP_SECS,
+                crate::world_builder::spatial_audio::CONSTRUCT_PATCH_LOOP_FADE_SECS,
+            ),
+        }
+    }
+
+    /// The audition of `patch` - already [`as_baked`](Self::as_baked) - at
+    /// the numbers the world bakes this kind of slot at: its rate and
+    /// length, and its warm-up and seam fade.
+    pub(crate) fn audition<'p>(
+        self,
+        patch: &'p bevy_symbios_audio::AudioPatch,
+    ) -> AuditionSource<'p> {
+        let (sample_rate, secs) = self.patch_bake();
+        let (warmup, fade) = self.patch_loop();
+        AuditionSource::patch(patch, sample_rate, secs)
+            .with_warmup_secs(warmup)
+            .with_loop_fade_secs(fade)
+    }
+
     /// `patch` as the world bakes it in this kind of slot: a construct's with
     /// its loop closed (#1385, every rate a whole number of cycles a loop), an
     /// ambient bed's as authored. Borrowed when there is nothing to close, so
@@ -1308,13 +1336,13 @@ fn audio_editor_body(
     let AudioMonitorIo { monitor, controls } = io;
     let audition = &mut editor.slots.entry(&salt).audition;
     if let Some((patch, state)) = editor.patch.as_mut() {
-        let (sample_rate, secs) = editor.kind.patch_bake();
         let kind = editor.kind;
-        // The strip auditions the patch as the world bakes it, closed loop
-        // and all (#1385); the canvas below edits the patch as authored.
+        // The strip auditions the patch as the world bakes it - closed loop
+        // (#1385), warm-up and seam fade (#1386) and all; the canvas below
+        // edits the patch as authored.
         {
             let baked = kind.as_baked(patch);
-            let source = AuditionSource::patch(&baked, sample_rate, secs).with_note(AUDITION_NOTE);
+            let source = kind.audition(&baked).with_note(AUDITION_NOTE);
             region(ui, strip_id(id), |ui| {
                 super::widgets::mute_banner(ui, muted);
                 requests.extend(audition_strip(
@@ -1344,7 +1372,7 @@ fn audio_editor_body(
             // strip admitted to, so the chip would read Idle, Stop would
             // be disabled and the waveform would not be drawn - while the
             // node was audibly looping.
-            requests.push(audition.play(&AuditionSource::patch(&heard, sample_rate, secs)));
+            requests.push(audition.play(&kind.audition(&heard)));
         }
         editor.committed = res.rebake;
         if res.rebake {
@@ -2204,23 +2232,29 @@ mod tests {
     // An audition that plays what the world plays (#1330)
     // -----------------------------------------------------------------------
 
-    /// The sample rate and length of a world bake job for a `Patch`.
-    fn patch_numbers(job: Option<gen_jobs::AudioBakeJob>) -> (u32, f32) {
+    /// The sample rate, length, warm-up and seam fade of a world bake job
+    /// for a `Patch`.
+    fn patch_numbers(job: Option<gen_jobs::AudioBakeJob>) -> (u32, f32, f32, f32) {
         match job {
             Some(gen_jobs::AudioBakeJob::Patch {
                 sample_rate,
                 duration_secs,
+                warmup_secs,
+                loop_fade_secs,
                 ..
-            }) => (sample_rate, duration_secs),
+            }) => (sample_rate, duration_secs, warmup_secs, loop_fade_secs),
             _ => panic!("a Patch slot bakes a Patch job"),
         }
     }
 
-    /// #1330 A2. For each kind of slot, the pop-out's Audition asks for the
-    /// sample rate and length the world's own bake job for that slot uses,
-    /// built through the real builders. It used to be 44.1 kHz and 4 s for
-    /// every patch: the world bakes an ambient patch at 22.05 kHz for 4 s
-    /// and a construct's (or a worn part's) at 22.05 kHz for 1 s.
+    /// #1330 A2 and #1386. For each kind of slot, the pop-out's Audition
+    /// asks for the sample rate, length, warm-up and seam fade the world's
+    /// own bake job for that slot uses, built through the real builders. It
+    /// used to be 44.1 kHz and 4 s for every patch: the world bakes an
+    /// ambient patch at 22.05 kHz for 4 s, cold and whole, and a construct's
+    /// (or a worn part's) at 22.05 kHz for 1 s after a 0.25 s warm-up with a
+    /// 10 ms seam fade - which the audition lacked until bevy_symbios_audio
+    /// 0.6.
     #[test]
     fn each_slot_kind_auditions_a_patch_as_the_world_bakes_it() {
         let slot = SovereignAudioConfig::from_patch(&seeded_recipe().instruments[3].patch);
@@ -2241,7 +2275,9 @@ mod tests {
             "the two kinds bake differently, so this test can tell them apart"
         );
         for (kind, baked) in world {
-            assert_eq!(kind.patch_bake(), baked, "{kind:?}: the spec");
+            let (rate, secs, warmup, fade) = baked;
+            assert_eq!(kind.patch_bake(), (rate, secs), "{kind:?}: the spec");
+            assert_eq!(kind.patch_loop(), (warmup, fade), "{kind:?}: the loop");
             let mut editor = AudioEditorState::default();
             editor.open_for(&slot, "slot", "A slot", kind);
             let run = run_pop_out(
@@ -2251,15 +2287,17 @@ mod tests {
                 Some("\u{25B6} Audition"),
                 &mut false,
             );
-            let asked: Vec<(u32, f32)> = run
+            let asked: Vec<(u32, f32, f32, f32)> = run
                 .requests
                 .iter()
                 .filter_map(|request| match request {
                     MonitorRequest::PlayPatch {
                         sample_rate,
                         duration_secs,
+                        warmup_secs,
+                        loop_fade_secs,
                         ..
-                    } => Some((*sample_rate, *duration_secs)),
+                    } => Some((*sample_rate, *duration_secs, *warmup_secs, *loop_fade_secs)),
                     _ => None,
                 })
                 .collect();
@@ -2278,6 +2316,56 @@ mod tests {
                 run.text
             );
         }
+    }
+
+    /// #1386: what the pop-out's monitor plays for a construct's patch is
+    /// the world's bake of it, to the byte. The worker's job, run, against
+    /// the monitor's arithmetic - `bevy_symbios_audio`'s
+    /// `settle_patch_loop` over a bake of `patch_loop_bake_secs` - at the
+    /// job's own numbers, through one WAV encoder: so the pop-out's
+    /// audition carries the warm-up and the seam fade exactly as the world
+    /// plays them, ticks and all removed.
+    #[test]
+    fn a_construct_audition_is_the_worlds_bake_to_the_byte() {
+        use bevy_symbios_audio::{
+            bake, patch_loop_bake_secs, samples_to_wav_bytes_pcm16, settle_patch_loop,
+        };
+        let slot = SovereignAudioConfig::from_patch(&seeded_recipe().instruments[3].patch);
+        let job = crate::world_builder::spatial_audio::construct_bake_job(&slot)
+            .expect("a construct's Patch bakes a job");
+        let gen_jobs::AudioBakeJob::Patch {
+            patch,
+            sample_rate,
+            duration_secs,
+            warmup_secs,
+            loop_fade_secs,
+        } = job.clone()
+        else {
+            panic!("a Patch job");
+        };
+        assert!(
+            warmup_secs > 0.0 && loop_fade_secs > 0.0,
+            "fixture: a warm, faded job"
+        );
+        let world = match gen_jobs::GenJob::AudioBake(job).run() {
+            gen_jobs::GenResult::Audio(bytes) => bytes,
+            _ => panic!("an audio job yields audio"),
+        };
+        let heard = settle_patch_loop(
+            bake(
+                &patch,
+                sample_rate,
+                patch_loop_bake_secs(duration_secs, warmup_secs, loop_fade_secs),
+            ),
+            sample_rate,
+            duration_secs,
+            warmup_secs,
+            loop_fade_secs,
+        );
+        assert!(
+            samples_to_wav_bytes_pcm16(&heard, sample_rate) == world,
+            "the pop-out would play another loop than the world bakes"
+        );
     }
 
     /// #1385. A construct's patch is baked with its loop closed - every rate

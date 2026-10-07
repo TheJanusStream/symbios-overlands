@@ -93,17 +93,23 @@ ignore = true
 [bans]
 multiple-versions = "warn"
 wildcards = "allow"
-# Duplicates worth naming rather than tolerating silently. Both are #1154 /
-# #1178 territory: `openssl` is here only because proto-blue re-enables
-# reqwest's default features, and the second `rustls` is the EOL 0.21 line
-# that `async-tls` pins. Listed as `deny` on the *duplicate*, so the gate
-# goes red if a THIRD of either appears, while the known pair is recorded
-# below rather than hidden.
+# The second `rustls` is the EOL 0.21 line that `async-tls` pins (#1178's
+# advisory half, above); it stays a recorded duplicate until matchbox moves.
 skip = []
 
+# No OpenSSL, through any parent (#1178's OpenSSL half). It used to arrive as
+# reqwest's `default-tls` (hyper-tls -> native-tls -> openssl), switched on by
+# proto-blue's default `fetch-reqwest` feature on our edge and on
+# bevy_symbios_multiuser's; both edges ask for proto-blue without its
+# defaults now, and this was a ban that let native-tls through. A dependency
+# that turns them back on - or brings native-tls any other way - reddens the
+# gate here instead of quietly putting a second TLS stack in the binary, and
+# reqwest preferring it at runtime over the rustls our own line asks for.
 [[bans.deny]]
 name = "openssl"
-wrappers = ["native-tls"]
+
+[[bans.deny]]
+name = "native-tls"
 
 [sources]
 unknown-registry = "deny"

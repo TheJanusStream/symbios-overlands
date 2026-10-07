@@ -142,7 +142,10 @@ along).
   as "too bright and yellow" next to the darker one.
 - **A texture has a shape of its own**: a `Plank` texture on a round trunk
   read as square tiles; `Bark` on a lathe runs its furrows round it unless
-  `uv_rotation` is 90. Surface detail belongs in a texture, not in extra
+  `uv_rotation` is 90. A `Plank`'s boards run along U, stacked up V, and
+  since symbios-texture 0.8 (#1388) its grain runs along them; before, it
+  ran across every board, so a plank surface tuned by eye before then may
+  read differently now. Surface detail belongs in a texture, not in extra
   nodes: the `Lichen` texture made lichen-crusted granite where 200 disc
   patches read as polka dots ([region.md](region.md), "Backdrop").
 
@@ -197,6 +200,18 @@ part ([region.md](region.md), "Planting: scatters"). What did it:
   9, `anisotropy` 12, `warp_strength` 0.35, `layer_count` 4, `layer_shadow`
   0.15, `normal_strength` 4.5 at `uv_scale` 0.9 reads as straw; courses
   left across the slope (`uv_rotation` 0) read as wooden shingles.
+- **Four textures draw what once took parts** (symbios-texture 0.8,
+  #1574). `RoofTile`: clay barrel or pan tiles - `barrel` 0 a pantile's
+  wave, 1 Roman, Spanish or kawara caps over pans, `glaze` 1 for a glossy
+  kawara; V runs down the slope, as an image does, so mind `uv_rotation` on
+  a roof part. `LogWall`: round logs with chinking - a cabin wall in ONE
+  part, `uv_rotation` 90 for a palisade's upright logs, `bark` the share
+  still in bark. `DryStone`: irregular unmortared stones with deep dark
+  gaps - field walls, folds, terraces (`Ashlar` is the cut, mortared one).
+  `Fur`: drawn strands hanging down V - `curl` 1 is a sheep's fleece,
+  `patches` with `color_patch` a Holstein's or a piebald's markings - for
+  beasts, and for garments: the Body tab's texture picker offers all four.
+  Sheet a lineup before choosing a scale.
 - **Borrow a texture's field names from upstream**, not from memory: the
   `Moss` colours are `color_deep`, `color_tip`, `color_dry` - a guessed
   `color_base` was dropped without a word and the yew kept the default green;

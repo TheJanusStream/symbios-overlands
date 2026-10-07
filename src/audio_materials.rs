@@ -207,7 +207,14 @@ fn classify(texture: &SovereignTextureConfig) -> ImpactMaterial {
         SovereignTextureConfig::Parquet(_) => ImpactMaterial::Wood,
         SovereignTextureConfig::Pavers(_)
         | SovereignTextureConfig::Cobblestone(_)
-        | SovereignTextureConfig::Ashlar(_) => ImpactMaterial::Rock,
+        | SovereignTextureConfig::Ashlar(_)
+        // Unmortared field stone is rock underfoot.
+        | SovereignTextureConfig::DryStone(_) => ImpactMaterial::Rock,
+        // Fired clay rings like glaze and brick.
+        SovereignTextureConfig::RoofTile(_) => ImpactMaterial::Stone,
+        // A log wall is wood; a coat of fur is soft.
+        SovereignTextureConfig::LogWall(_) => ImpactMaterial::Wood,
+        SovereignTextureConfig::Fur(_) => ImpactMaterial::Soft,
         SovereignTextureConfig::Ground(_) | SovereignTextureConfig::Sand(_) => {
             ImpactMaterial::Ground
         }

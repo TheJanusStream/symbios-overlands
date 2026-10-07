@@ -973,10 +973,10 @@ pub(crate) mod glyph_coverage_tests {
     /// Re-scanned against 0.11.0 (#1404, the outfit's colours, lengths and
     /// textures): the same seven. The outfit section's new controls are all
     /// ASCII - its swatch marker is the existing bullet. It also hosts
-    /// `bevy_symbios_texture`'s config panels now, for a garment's texture,
-    /// and those draw one glyph this list does not probe: U+2192 in the
-    /// Shingle panel's label, tofu here and already in the room editor's
-    /// Material Forge before #1404 (#1405).
+    /// `bevy_symbios_texture`'s config panels now, for a garment's texture;
+    /// those are probed by
+    /// `every_hosted_texture_panel_label_is_in_the_base_font_set`, which
+    /// walks their registry (#1405).
     const HOSTED_EDITOR_GLYPHS: &[char] = &[
         '·', // U+00B7, axis readouts
         // An escape, not the glyph: the 2026-09-14 hyphen sweep rewrote the
@@ -1532,6 +1532,125 @@ pub(crate) mod glyph_coverage_tests {
         assert!(
             !BaseAtlas::new().draws('\u{270E}'),
             "the tofu the scan could not see"
+        );
+    }
+
+    /// Every word the HOSTED texture panels draw - each row's label, each
+    /// panel's header, each layout's text - is in the base font set (#1405).
+    ///
+    /// The panels are `bevy_symbios_texture`'s, generated from
+    /// `symbios-texture`'s per-field registry, and the room editor's
+    /// Material Forge and a garment's texture panel both draw them. So the
+    /// registry itself is walked rather than a hand list kept: a label added
+    /// upstream is probed on the bump that brings it, and a stale list can
+    /// never hide one. The Shingle panel's `Shape (Square\u{2192}Scallop)`
+    /// drew its arrow as an empty box here until symbios-texture 0.8
+    /// relabelled it, and that crate now refuses any non-ASCII label itself.
+    #[test]
+    fn every_hosted_texture_panel_label_is_in_the_base_font_set() {
+        let mut drawn: Vec<&'static str> = Vec::new();
+        macro_rules! collect {
+            (
+                $(
+                    $Config:ty, $header:literal, $editor:ident
+                    $(, fixup $fixup:ident )?
+                    { $( $kind:ident ( $field:ident $($rest:tt)* )
+                         $( explore ( $xlo:expr, $xhi:expr ) )? ),+ $(,)? }
+                    $( layout { $($layout:tt)* } )?
+                ),+ $(,)?
+            ) => {
+                $(
+                    drawn.push($header);
+                    $( drawn.push(stringify!($($rest)*)); )+
+                    $( drawn.push(stringify!($($layout)*)); )?
+                )+
+            };
+        }
+        symbios_texture::for_each_texture_field!(collect);
+        assert!(
+            drawn.len() > 600,
+            "the registry was walked: {} rows",
+            drawn.len()
+        );
+
+        let atlas = BaseAtlas::new();
+        let missing: std::collections::BTreeSet<String> = drawn
+            .iter()
+            .flat_map(|text| decode_unicode_escapes(text).chars().collect::<Vec<_>>())
+            .filter(|c| !c.is_whitespace() && !atlas.draws(*c))
+            .map(|c| format!("{c} U+{:04X}", u32::from(c)))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "glyphs the hosted texture panels draw that the bundled fonts cannot \
+             (tofu in the Material Forge and on a garment's texture panel):\n  {}",
+            missing.into_iter().collect::<Vec<_>>().join("\n  ")
+        );
+    }
+
+    /// `text` with each `\u{...}` escape it spells decoded to its char.
+    /// `stringify!` hands a literal back as written, so a label spelt with
+    /// an escape - `"A\u{2192}B"` - would otherwise read as plain ASCII and
+    /// pass. An escaped backslash (`\\u{`) is left as written.
+    fn decode_unicode_escapes(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut chars = text.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c != '\\' {
+                out.push(c);
+                continue;
+            }
+            match chars.peek() {
+                Some('\\') => {
+                    out.push_str("\\\\");
+                    chars.next();
+                }
+                Some('u') => {
+                    let spelt: String = chars.clone().skip(1).take_while(|&d| d != '}').collect();
+                    let decoded = spelt
+                        .strip_prefix('{')
+                        .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+                        .and_then(char::from_u32);
+                    match decoded {
+                        Some(d) => {
+                            out.push(d);
+                            // 'u', the spelt digits with their '{', and '}'.
+                            for _ in 0..spelt.chars().count() + 2 {
+                                chars.next();
+                            }
+                        }
+                        None => out.push(c),
+                    }
+                }
+                _ => out.push(c),
+            }
+        }
+        out
+    }
+
+    /// The decoder sees through an escape - the gap this guards: a label
+    /// spelt with `\u{...}` reads as ASCII to `stringify!`, and is the glyph
+    /// it names once decoded. Spelt at runtime here, not as a literal, so
+    /// that this file's own strings stay drawable for the glyph scan above.
+    #[test]
+    fn a_label_spelt_with_an_escape_is_read_decoded() {
+        let arrow = 0x2192;
+        let glyph = char::from_u32(arrow).expect("a char");
+        let spelt = format!("\"A\\u{{{arrow:X}}}B\"");
+        assert!(
+            spelt.is_ascii(),
+            "fixture: the escape as stringify! keeps it"
+        );
+        assert!(
+            !BaseAtlas::new().draws(glyph),
+            "fixture: a glyph the fonts lack"
+        );
+        assert_eq!(decode_unicode_escapes(&spelt), format!("\"A{glyph}B\""));
+        let escaped = format!("\\\\u{{{arrow:X}}}");
+        assert_eq!(
+            decode_unicode_escapes(&escaped),
+            escaped,
+            "an escaped backslash"
         );
     }
 

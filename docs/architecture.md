@@ -30,7 +30,7 @@ direct WebRTC mesh.
   [`symbios-tensor`](https://github.com/TheJanusStream/symbios-tensor)
   (tensor-field road topology for urban themes),
   [`bevy_symbios_texture`](https://github.com/TheJanusStream/bevy_symbios_texture)
-  (a 57-generator procedural material catalogue - 35 tileable PBR surfaces plus
+  (a 61-generator procedural material catalogue - 39 tileable PBR surfaces plus
   22 alpha-masked cards, the particle sprites among them),
   [`bevy_symbios_audio`](https://github.com/TheJanusStream/bevy_symbios_audio)
   (node-graph synthesis + step-sequencer mixdown), and
@@ -45,8 +45,8 @@ direct WebRTC mesh.
 - **Networking:**
   [`bevy_symbios_multiuser`](https://github.com/TheJanusStream/bevy_symbios_multiuser)
   over WebRTC ([`matchbox`](https://github.com/johanhelsing/matchbox)) for the
-  peer mesh; [`proto-blue-oauth` + `proto-blue-api`](https://github.com/dollspace-gay/proto-blue)
-  for ATProto identity and PDS plumbing. Peer DIDs are authenticated against the
+  peer mesh; [`proto-blue-oauth`](https://github.com/dollspace-gay/proto-blue)
+  for ATProto OAuth and DPoP (the XRPC calls to a PDS are our own, in `pds`). Peer DIDs are authenticated against the
   relay-signed session map so a peer can't impersonate another identity over the
   unauthenticated data channel.
 

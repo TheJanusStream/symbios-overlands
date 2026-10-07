@@ -1,4 +1,4 @@
-//! Byte-level wire guard for the fifty-seven procedural texture mirrors
+//! Byte-level wire guard for the sixty-one procedural texture mirrors
 //! (#1313, ahead of #1304 slice 3).
 //!
 //! Every `Sovereign*Config` is a hand-declared mirror of a
@@ -118,7 +118,7 @@ fn line(label: &str, texture: &SovereignTextureConfig) -> String {
     format!("{label}\t{rkey}\t{bytes}")
 }
 
-/// `(variant, mirror type, upstream config)` for all fifty-seven procedural
+/// `(variant, mirror type, upstream config)` for all sixty-one procedural
 /// variants, in `to_texture_config`'s order. `None`, `Unknown` and
 /// `Referenced` carry no mirror and are pinned separately below.
 macro_rules! corpus_rows {
@@ -202,6 +202,10 @@ fn corpus() -> Vec<String> {
         SolarPanel, SovereignSolarPanelConfig, bevy_symbios_texture::solar_panel::SolarPanelConfig;
         Parquet, SovereignParquetConfig, bevy_symbios_texture::parquet::ParquetConfig;
         Truchet, SovereignTruchetConfig, bevy_symbios_texture::truchet::TruchetConfig;
+        RoofTile, SovereignRoofTileConfig, bevy_symbios_texture::roof_tile::RoofTileConfig;
+        LogWall, SovereignLogWallConfig, bevy_symbios_texture::log_wall::LogWallConfig;
+        DryStone, SovereignDryStoneConfig, bevy_symbios_texture::dry_stone::DryStoneConfig;
+        Fur, SovereignFurConfig, bevy_symbios_texture::fur::FurConfig;
         ChainLink, SovereignChainLinkConfig, bevy_symbios_texture::chain_link::ChainLinkConfig;
         LogEnd, SovereignLogEndConfig, bevy_symbios_texture::log_end::LogEndConfig;
     );
@@ -285,7 +289,7 @@ fn texture_wire_fixture_is_a_fixed_point() {
 /// changes what an absent key means on every record already stored. It is
 /// also the precondition for deriving those defaults from
 /// `Native::default()` instead of hand-typing them - if this passes for all
-/// fifty-seven, deriving them cannot move a single byte.
+/// sixty-one, deriving them cannot move a single byte.
 ///
 /// Compared through serde because the upstream configs do not implement
 /// `PartialEq`, and on the fixed-point grid because a mirror can only ever
@@ -372,10 +376,14 @@ fn every_mirror_default_matches_upstream() {
         SolarPanel, SovereignSolarPanelConfig, bevy_symbios_texture::solar_panel::SolarPanelConfig;
         Parquet, SovereignParquetConfig, bevy_symbios_texture::parquet::ParquetConfig;
         Truchet, SovereignTruchetConfig, bevy_symbios_texture::truchet::TruchetConfig;
+        RoofTile, SovereignRoofTileConfig, bevy_symbios_texture::roof_tile::RoofTileConfig;
+        LogWall, SovereignLogWallConfig, bevy_symbios_texture::log_wall::LogWallConfig;
+        DryStone, SovereignDryStoneConfig, bevy_symbios_texture::dry_stone::DryStoneConfig;
+        Fur, SovereignFurConfig, bevy_symbios_texture::fur::FurConfig;
         ChainLink, SovereignChainLinkConfig, bevy_symbios_texture::chain_link::ChainLinkConfig;
         LogEnd, SovereignLogEndConfig, bevy_symbios_texture::log_end::LogEndConfig;
     );
-    assert_eq!(checked, 57, "every procedural variant is checked");
+    assert_eq!(checked, 61, "every procedural variant is checked");
 }
 
 /// Drive every number in an upstream config's JSON to an extreme the *wire*
@@ -521,23 +529,40 @@ fn sanitising_a_hostile_record_lands_inside_the_envelope() {
         SolarPanel, SovereignSolarPanelConfig, bevy_symbios_texture::solar_panel::SolarPanelConfig;
         Parquet, SovereignParquetConfig, bevy_symbios_texture::parquet::ParquetConfig;
         Truchet, SovereignTruchetConfig, bevy_symbios_texture::truchet::TruchetConfig;
+        RoofTile, SovereignRoofTileConfig, bevy_symbios_texture::roof_tile::RoofTileConfig;
+        LogWall, SovereignLogWallConfig, bevy_symbios_texture::log_wall::LogWallConfig;
+        DryStone, SovereignDryStoneConfig, bevy_symbios_texture::dry_stone::DryStoneConfig;
+        Fur, SovereignFurConfig, bevy_symbios_texture::fur::FurConfig;
         ChainLink, SovereignChainLinkConfig, bevy_symbios_texture::chain_link::ChainLinkConfig;
         LogEnd, SovereignLogEndConfig, bevy_symbios_texture::log_end::LogEndConfig;
     );
-    assert_eq!(checked, 57 * 2, "both ends of every variant");
+    assert_eq!(checked, 61 * 2, "both ends of every variant");
 }
 
-/// The corpus covers every arm of the union, so a variant added without a
-/// line here fails rather than going unpinned.
+/// The corpus covers every generator upstream's registry has, so a
+/// generator added upstream without a line here fails rather than going
+/// unpinned: the count is the registry's, not a number typed here (it was,
+/// and four generators of symbios-texture 0.8 went unpinned past it until
+/// #1574 added their lines).
 #[test]
 fn every_texture_variant_is_pinned() {
     let labels: Vec<String> = corpus()
         .iter()
         .map(|l| l.split('\t').next().expect("label").to_string())
         .collect();
+    macro_rules! count_rows {
+        ($( ($variant:ident, $module:ident, $config:ty, $generator:ty, $kind:ident) ),+ $(,)?) => {
+            [$(stringify!($variant)),+].len()
+        };
+    }
+    let generators = symbios_texture::for_each_generator!(count_rows);
+    assert_eq!(
+        generators, 61,
+        "the registry this corpus was written against"
+    );
     assert_eq!(
         labels.len(),
-        57 * 2 + 2,
-        "fifty-seven procedural variants at two lines each, plus None and Referenced"
+        generators * 2 + 2,
+        "every procedural variant at two lines each, plus None and Referenced"
     );
 }

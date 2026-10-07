@@ -137,6 +137,12 @@ fn texture_bake_job(layer: &SovereignTextureConfig) -> gen_jobs::TextureBakeJob 
         SovereignTextureConfig::SolarPanel(c) => Job::SolarPanel(c.to_native()),
         SovereignTextureConfig::Parquet(c) => Job::Parquet(c.to_native()),
         SovereignTextureConfig::Truchet(c) => Job::Truchet(c.to_native()),
+        // The symbios-texture 0.8 surfaces (#1574): tileable like any - a
+        // dry-stone field as a ground layer, say.
+        SovereignTextureConfig::RoofTile(c) => Job::RoofTile(c.to_native()),
+        SovereignTextureConfig::LogWall(c) => Job::LogWall(c.to_native()),
+        SovereignTextureConfig::DryStone(c) => Job::DryStone(c.to_native()),
+        SovereignTextureConfig::Fur(c) => Job::Fur(c.to_native()),
         SovereignTextureConfig::Rock(c) => Job::Rock(c.to_native()),
         SovereignTextureConfig::Bark(c) => Job::Bark(c.to_native()),
         SovereignTextureConfig::Brick(c) => Job::Brick(c.to_native()),

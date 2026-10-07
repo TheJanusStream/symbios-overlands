@@ -1343,8 +1343,10 @@ pub(crate) fn runabout_colours(ctx: &PartCtx, variant: RunaboutVariant) -> Runab
 /// through [`trim`] on a luminous style - the cyberpunk canal barge's neon
 /// outline), the door, and the sweep's blade or the stern wheel's rims.
 pub(crate) struct ScowColours {
-    /// The shell and both end faces: paint, not the Plank - its grain runs
-    /// across its boards and combs into a fringe on the flared facets (#1388).
+    /// The shell and both end faces: paint, not the Plank. Until
+    /// symbios-texture 0.8 the Plank's grain ran across its boards and combed
+    /// into a fringe on the flared facets (#1388); the tar finish stayed the
+    /// design when that was fixed.
     pub(crate) hull: SovereignMaterialSettings,
     pub(crate) transom: SovereignMaterialSettings,
     /// The fore and after decks, the scheme's deck in boards run along her.
@@ -1738,8 +1740,10 @@ pub(crate) struct WagonColours {
     pub(crate) paint: SovereignMaterialSettings,
     /// The box's side, front and tail boards, a buckboard's riser and dash:
     /// timber IN THE SCHEME'S COLOUR, so a painted box still shows its
-    /// boards, with the grain turned a quarter to run along them (box UVs run
-    /// it across a side board, and it read as a comb).
+    /// boards. Plain, not [`boards`]: box UVs lay the tile's boards along a
+    /// side board, and since symbios-texture 0.8 (#1388) the grain runs with
+    /// them. Until then the grain ran across, and a quarter turn bought grain
+    /// along the board at the price of boards stood on end.
     pub(crate) boards: SovereignMaterialSettings,
     /// The floor, bolsters, poles, shafts and bows: dark oak.
     pub(crate) timber: SovereignMaterialSettings,
@@ -1763,7 +1767,8 @@ pub(crate) struct WagonColours {
     pub(crate) cask: SovereignMaterialSettings,
     /// The Worn sacks.
     pub(crate) sack: SovereignMaterialSettings,
-    /// The pale replacement board a worn tilted cart wears on its near side.
+    /// The pale replacement board a worn tilted cart wears on its near side:
+    /// a side board, plain timber like [`Self::boards`].
     pub(crate) patch: SovereignMaterialSettings,
 }
 
@@ -1775,7 +1780,13 @@ const SACKING: [f32; 3] = [0.66, 0.58, 0.42];
 const PATCH_BOARD: [f32; 3] = [0.66, 0.60, 0.50];
 const CANDLE: [f32; 3] = [1.0, 0.62, 0.22];
 
-/// Timber whose grain runs along a board that box UVs would run it across.
+/// Timber for a plank swept along its length - a deck, a rail, a sole, a
+/// deck patch. A sweep's V runs along its path and the timber tile's boards
+/// along U, so the quarter turn lays the boards along the plank - and, since
+/// symbios-texture 0.8 (#1388), the grain with them; it used to run around.
+/// A box's side face is the other way about: its U already runs along the
+/// board, so a box-built plank takes plain timber (the wagon's
+/// [`WagonColours::boards`]).
 fn boards(m: &MaterialKit, color: [f32; 3]) -> SovereignMaterialSettings {
     let mut t = m.timber(color);
     t.uv_rotation = Fp(90.0);
@@ -1804,7 +1815,7 @@ pub(crate) fn wagon_colours(ctx: &PartCtx, body: WagonBody) -> WagonColours {
     };
     WagonColours {
         paint: m.paint(l.body),
-        boards: boards(m, l.body),
+        boards: m.timber(l.body),
         timber: m.timber(DARK_OAK),
         iron: m.paint(MACHINERY),
         wheel,
@@ -1815,7 +1826,7 @@ pub(crate) fn wagon_colours(ctx: &PartCtx, body: WagonBody) -> WagonColours {
         blind: m.canvas(CANE),
         cask: m.timber(OAK),
         sack: m.canvas(SACKING),
-        patch: boards(m, PATCH_BOARD),
+        patch: m.timber(PATCH_BOARD),
     }
 }
 
