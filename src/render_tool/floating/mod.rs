@@ -367,6 +367,73 @@ fn ground_reach(body: &Body) -> f32 {
 /// class, and its gap (the largest first).
 type Row = (String, &'static str, f32, Value);
 
+/// Which of a body's parts it stands by, and so which are free of it.
+struct Anchoring {
+    /// Each part's group of touching parts ([`Body::components`]).
+    component: Vec<usize>,
+    /// Whether each part is in a group the generator stands by.
+    anchored: Vec<bool>,
+    /// Whether it was the ground that held them, rather than the first
+    /// part's group where no part reaches the ground.
+    by_ground: bool,
+}
+
+/// What the body stands by: every group of touching parts that reaches the
+/// ground (`grounded`, one flag a part), or, where no part does, the first
+/// part's group. Class a is every part outside them - in the world report
+/// and in the catalogue's per-item check alike (the test-only `free_parts`).
+fn anchoring(body: &Body, grounded: &[bool]) -> Anchoring {
+    let component = body.components();
+    let by_ground = grounded.iter().any(|g| *g);
+    let mut held = vec![false; grounded.len()];
+    for (i, &c) in component.iter().enumerate() {
+        if (by_ground && grounded[i]) || (!by_ground && i == 0) {
+            held[c] = true;
+        }
+    }
+    let anchored = component.iter().map(|&c| held[c]).collect();
+    Anchoring {
+        component,
+        anchored,
+        by_ground,
+    }
+}
+
+/// The parts of a lone generator that float free of it, each by its node's
+/// path and as one line naming it: class a as the report reads a snapped
+/// placement, the ground the generator's own plane, y = 0. For the
+/// catalogue's overhaul guard and census (#1575,
+/// `catalogue::items::overhaul`): a catalogue item is checked as it is
+/// built, with no world under it, so class b - over falling ground - is not
+/// asked, and what the report cannot see it cannot judge here either
+/// ([`NOT_CHECKED`]): a part resting on an L-system or a sign reads as free.
+#[cfg(test)]
+pub(crate) fn free_parts(root: &crate::pds::Generator) -> Vec<(Vec<usize>, String)> {
+    let body = Body::of(root);
+    let grounded: Vec<bool> = body
+        .parts
+        .iter()
+        .map(|part| part.min.y <= CONTACT_M)
+        .collect();
+    let Anchoring { anchored, .. } = anchoring(&body, &grounded);
+    body.parts
+        .iter()
+        .zip(&anchored)
+        .filter(|(_, held)| !**held)
+        .map(|(part, _)| {
+            let centre = (part.min + part.max) * 0.5;
+            let mut line = format!(
+                "{} at children{:?}, centred [{:.2}, {:.2}, {:.2}]",
+                part.kind, part.path, centre.x, centre.y, centre.z
+            );
+            if let Some(terminal) = &part.terminal {
+                line.push_str(&format!(" terminal {}", terminal.json()));
+            }
+            (part.path.clone(), line)
+        })
+        .collect()
+}
+
 /// One generator, checked where it is placed.
 struct Check<'a, G: Fn(f32, f32) -> f32> {
     name: &'a str,
@@ -389,17 +456,11 @@ impl<G: Fn(f32, f32) -> f32> Check<'_, G> {
             return Vec::new();
         }
         let grounded: Vec<bool> = parts.iter().map(|part| self.grounded(part)).collect();
-        let component = self.body.components();
-        let by_ground = grounded.iter().any(|g| *g);
-        let anchored: Vec<bool> = {
-            let mut held = vec![false; parts.len()];
-            for (i, &c) in component.iter().enumerate() {
-                if (by_ground && grounded[i]) || (!by_ground && i == 0) {
-                    held[c] = true;
-                }
-            }
-            component.iter().map(|&c| held[c]).collect()
-        };
+        let Anchoring {
+            component,
+            anchored,
+            by_ground,
+        } = anchoring(self.body, &grounded);
         let mut rows = self.free(&component, &anchored, by_ground);
         for (index, stand) in &self.used.stands {
             for (i, part) in parts.iter().enumerate() {

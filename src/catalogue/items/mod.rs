@@ -49,6 +49,8 @@ pub mod measure;
 mod util;
 
 #[cfg(test)]
+mod overhaul;
+#[cfg(test)]
 mod shape_grammar_test;
 
 /// The full set of catalogue entries the client ships with. Order is

@@ -36,6 +36,10 @@ mod save;
 mod size;
 mod zfight;
 
+// The z-fighting check, lent to the catalogue's overhaul guard (#1575).
+#[cfg(test)]
+pub(crate) use zfight::coplanar_overlap_lines;
+
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde_json::{Value, json};

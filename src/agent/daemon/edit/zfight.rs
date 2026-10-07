@@ -1365,6 +1365,53 @@ pub(super) fn coin_seeds() -> (u64, u64) {
     (beside, pushed)
 }
 
+/// Every pair of pieces of `root` that draws faces in one place where they
+/// can be seen, the most area first, each as one line naming both pieces
+/// and the area they share - the check `room set` runs, with no clock. For
+/// the catalogue's overhaul guard and census (#1575,
+/// `catalogue::items::overhaul`), where nobody waits on an answer and a
+/// grammar building may take longer than [`CHECK_TIME`] to compare whole.
+#[cfg(test)]
+pub(crate) fn coplanar_overlap_lines(root: &Generator) -> Vec<String> {
+    let mut budget = Budget::new(|| false);
+    let checked = check(root, &mut budget);
+    (0..checked.pairs.len())
+        .map(|k| {
+            let pair = checked.overlap(k);
+            format!(
+                "{:.2} m2: {} and {}",
+                pair.area_m2,
+                piece_line(root, &pair.a, pair.a_terminal.as_ref()),
+                piece_line(root, &pair.b, pair.b_terminal.as_ref())
+            )
+        })
+        .collect()
+}
+
+/// A piece named for a person reading a test failure: its node's path of
+/// child indices and kind, and which terminal of it, if a grammar's.
+#[cfg(test)]
+fn piece_line(root: &Generator, path: &[usize], terminal: Option<&TerminalName>) -> String {
+    let node = path
+        .iter()
+        .try_fold(root, |node, &i| node.children.get(i))
+        .map_or("?", |node| node.kind_tag());
+    let mut line = format!("{node} at children{path:?}");
+    if let Some(terminal) = terminal {
+        line.push_str(&format!(
+            " terminal {} (I(\"{}\"){})",
+            terminal.index,
+            terminal.mesh,
+            terminal
+                .material
+                .as_deref()
+                .map(|m| format!(", Mat(\"{m}\")"))
+                .unwrap_or_default()
+        ));
+    }
+    line
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

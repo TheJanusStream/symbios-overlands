@@ -133,6 +133,10 @@ mod driver;
 mod editor;
 mod figure;
 mod floating;
+// The floating report's class a for one generator, lent to the catalogue's
+// overhaul guard and census (#1575).
+#[cfg(test)]
+pub(crate) use floating::free_parts;
 mod generator_file;
 mod gif;
 mod headless;

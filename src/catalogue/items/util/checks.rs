@@ -734,6 +734,12 @@ fn aa_faces(g: &Generator, at: [f32; 3]) -> Vec<AaFace> {
 /// bottom (its sides slant). Oblique, cut or organic prims are left alone,
 /// which is the conservative direction for a guard whose false positive
 /// would be a fault nobody can see.
+///
+/// An overhaul's guards use `overhaul::assert_no_z_fighting` instead
+/// (#1575): the agent's full check, every face meshed by the real mesher and
+/// placed by composed transforms, grammar terminals included. This one reads
+/// only axis-aligned whole faces placed by translation, so an item that
+/// passes it can still z-fight; the items that already call it keep it.
 pub(in crate::catalogue::items) fn assert_no_coplanar_faces(root: &Generator, slug: &str) {
     fn walk(g: &Generator, at: [f32; 3], out: &mut Vec<AaFace>) {
         let t = g.transform.translation.0;
