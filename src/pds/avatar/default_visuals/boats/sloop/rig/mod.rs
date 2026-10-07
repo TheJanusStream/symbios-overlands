@@ -48,9 +48,25 @@ const TRUCK_PER_LOA: f32 = 0.84;
 /// fraction of the overall length - the flag's top edge just under the truck.
 const BURGEE_DROP: f32 = 0.0125;
 
-/// Mainsail and jib offsets to the side of the spars they are set on, so a
-/// spar is never buried in its own canvas.
-const SAIL_OFFSET: f32 = 0.0107;
+/// How far to the side of the spar its luff is set on a sail of `thickness`
+/// stands, centre to axis: its inner face half that spar's radius inside the
+/// spar, the rule [`Rig::jaw`] takes for the boom and the gaff.
+///
+/// The owner's decision of 2026-10-07 (#1393). A fixed offset of 1.07 % of
+/// the length used to stand every sail beside its spar - so a spar was never
+/// buried in its own canvas - and, drawn, no sail but the main reached one:
+/// 0.6 mm clear at 1.6 m, 11 to 21 mm at 2.8 and 4.4 m. Only a connectivity
+/// reading that took the drawn polygons for round tubes and a cambered sail
+/// for its undeformed box had them meeting. The luff's foot is where a sail meets
+/// its spar now; the camber still carries it off toward the head, and the
+/// spar shows there.
+pub(super) fn luff_seat(spar_radius: f32, thickness: f32) -> f32 {
+    (spar_radius + thickness) * 0.5
+}
+
+/// A stay's radius as a fraction of the overall length - the forestay a jib
+/// is set on, and the cutter's inner forestay her staysail is.
+pub(super) const STAY_RADIUS: f32 = 0.004;
 
 /// One rig variant: how tall it wants to be, and how it is drawn over the
 /// heights [`Rig::new`] resolves for it.
@@ -306,7 +322,7 @@ impl Rig {
     }
 
     fn stay(&self, kids: &mut Vec<Generator>, from: [f32; 3], to: [f32; 3], c: &BoatColours) {
-        let r = dim(self.loa * 0.004);
+        let r = dim(self.loa * STAY_RADIUS);
         kids.push(line(&[(from, r), (to, r)], 5, c.rigging.clone()));
     }
 
@@ -346,11 +362,12 @@ impl Rig {
         // leaves of the foot, so the shear that puts it at `head_z` is that
         // difference. With `head_z` on the mast the luff stands vertical.
         let shear = head_z - foot * (1.0 - taper) * 0.5 - body_z;
+        let x = luff_seat(self.mast_radius_at(self.gooseneck), dim(loa * 0.0043));
         Self::sail(
             kids,
             &c.canvas,
             [loa * 0.0043, head_y - self.gooseneck, foot],
-            [loa * SAIL_OFFSET, (head_y + self.gooseneck) * 0.5, body_z],
+            [x, (head_y + self.gooseneck) * 0.5, body_z],
             [0.0, taper],
             [0.08, 0.0, 0.0],
             [0.0, shear],
@@ -373,7 +390,7 @@ impl Rig {
             8,
             c.timber.clone(),
         ));
-        let x = loa * SAIL_OFFSET;
+        let x = luff_seat(self.mast_radius_at(self.gooseneck), dim(loa * 0.0043));
         let foot = self.mast_z - self.boom_aft;
         let head = self.mast_z - self.peak_z - loa * 0.054;
         let taper = 1.0 - head / foot;
@@ -387,12 +404,16 @@ impl Rig {
             [0.09, 0.0, 0.0],
             [0.0, foot * 0.5 * taper],
         );
+        // The peak panel's forward foot is on the mast at the throat - the
+        // body's head ends there - so it is seated on the mast's thickness
+        // THERE, not the gooseneck's.
         let head_z = body_z + foot * 0.5 * taper;
+        let peak_x = luff_seat(self.mast_radius_at(self.throat), dim(loa * 0.0039));
         Self::sail(
             kids,
             &c.canvas,
             [loa * 0.0039, self.peak_y - self.throat, head],
-            [x, (self.peak_y + self.throat) * 0.5, head_z],
+            [peak_x, (self.peak_y + self.throat) * 0.5, head_z],
             [0.0, 0.97],
             [0.07, 0.0, 0.0],
             [0.0, self.peak_z - head_z],
@@ -411,7 +432,11 @@ impl Rig {
             kids,
             &c.jib,
             [loa * 0.0039, self.hounds - self.tack_y, foot],
-            [loa * SAIL_OFFSET, (self.hounds + self.tack_y) * 0.5, mid_z],
+            [
+                luff_seat(dim(STAY_RADIUS * loa), dim(loa * 0.0039)),
+                (self.hounds + self.tack_y) * 0.5,
+                mid_z,
+            ],
             [0.0, 0.97],
             [0.10, 0.0, 0.0],
             [0.0, self.mast_z + loa * 0.018 - mid_z],

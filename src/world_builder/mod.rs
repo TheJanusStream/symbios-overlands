@@ -123,6 +123,8 @@ use bevy::prelude::*;
 
 pub use compile::pad::{snap_footprint_radius, snapped_absolute_anchor, snapped_ground_y};
 pub use lsystem::{LSystemMaterialCache, LSystemMeshCache};
+#[cfg(test)]
+pub(crate) use prim::for_touch;
 pub use prim::{FaceTable, PrimMesh, build_primitive_mesh, enumerate_faces};
 pub use shape::{ShapeMaterialCache, ShapeMeshCache};
 

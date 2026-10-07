@@ -333,9 +333,18 @@ pub(super) fn underbody(kids: &mut Vec<Generator>, hull: &HullProfile, c: &BoatC
         [0.0, 1.0],
         c.antifoul.clone(),
     ));
+    // The tiller's heel is let into the rudder's head, half its own radius
+    // under the head's top station. It used to start 3.2 % of the length
+    // higher, over the deck, and touched nothing that is drawn - 8 to 23 mm
+    // clear of the stern - which only a reading that took the half-pipe hull
+    // for a whole round tube, its open top included, had meeting (#1393).
+    let tiller_r = dim(loa * 0.0068);
     kids.push(line(
         &[
-            ([0.0, head + loa * 0.014, transom], dim(loa * 0.0068)),
+            (
+                [0.0, head - loa * 0.018 - tiller_r * 0.5, transom],
+                tiller_r,
+            ),
             (
                 [0.0, head + loa * 0.036, transom + loa * 0.171],
                 dim(loa * 0.005),

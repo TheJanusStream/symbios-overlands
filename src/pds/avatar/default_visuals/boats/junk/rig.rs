@@ -293,11 +293,39 @@ impl Sail {
     /// The mast's axis at height `y` of the sail's own frame: `fwd` of the
     /// foot abaft the luff and parallel to it, on its own station
     /// athwartships - the centreline but for the mizzen's. The sail hangs a
-    /// mast radius and less than half a batten radius to one side, so every
-    /// batten, the yard and the boom overlap the mast by construction.
+    /// heel's mast radius and less than half a batten radius to one side, so
+    /// the boom overlaps the mast by construction, and each batten is seated
+    /// at its own height ([`Self::batten_x`]).
     fn mast_at(&self, y: f32) -> [f32; 3] {
         let p = self.world([-self.fwd * self.foot, y]);
         [self.mast_x, p[1], p[2]]
+    }
+
+    /// Where batten `i` stands athwartships: a mast radius and less than half
+    /// a batten radius to the sail's side of the mast, as the cloth stands -
+    /// but at the mast's radius where THAT batten crosses it, on the mast
+    /// line `heel` to `head` that `mast_line` draws.
+    ///
+    /// The cloth hangs at the heel's radius, and the mast tapers to 62 % of
+    /// that at its head, so a batten laid in the cloth's plane stood clear of
+    /// the mast above the lower few - a battered sail's upper half, cut from
+    /// the lower by its lost panel, hung from nothing (#1393). Seated at its
+    /// own height a batten overlaps the mast by most of its radius at every
+    /// height, and stays proud of the cloth on the mast's side by under a
+    /// batten radius at the head.
+    fn batten_x(&self, i: usize, l: f32, (heel, head): ([f32; 3], [f32; 3])) -> f32 {
+        // Where the chord crosses the mast, seen down the athwartships axis.
+        let (a, e) = (self.luff[i], self.leech[i]);
+        let (cz, cy) = (e[2] - a[2], e[1] - a[1]);
+        let (mz, my) = (head[2] - heel[2], head[1] - heel[1]);
+        let det = cz * my - cy * mz;
+        if det.abs() < 1e-9 {
+            return self.x;
+        }
+        let u = ((a[1] - heel[1]) * cz - (a[2] - heel[2]) * cy) / det;
+        let r = l * self.mast_r * (MAST_R + (0.008 - MAST_R) * u.clamp(0.0, 1.0));
+        let side = (self.x - self.mast_x).signum();
+        self.mast_x + side * (r + l * BATTEN_R * 0.4)
     }
 
     /// The highest point of the rig on this sail: the yard's peak end.
@@ -411,12 +439,15 @@ pub(super) fn rig(
                 &c.spar,
             ));
         }
-        // The battens: every interior chord, luff to leech.
+        // The battens: every interior chord, luff to leech, each seated on
+        // the mast at its own height (see `Sail::batten_x`).
         for i in 1..s.n - 1 {
+            let dx = s.batten_x(i, l, (heel, head)) - s.x;
+            let on = |p: [f32; 3]| [p[0] + dx, p[1], p[2]];
             kids.push(line(
                 &[
-                    (s.point(i, -0.012), l * BATTEN_R),
-                    (s.point(i, 1.012), l * BATTEN_R),
+                    (on(s.point(i, -0.012)), l * BATTEN_R),
+                    (on(s.point(i, 1.012)), l * BATTEN_R),
                 ],
                 6,
                 &c.batten,

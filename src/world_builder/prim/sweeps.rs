@@ -15,7 +15,7 @@ use super::faces::{FaceSpans, PrimMesh};
 /// One sampled station along a spine: centreline point, tube radius, the
 /// parallel-transported frame, and the radius slope `dr/ds` that tilts the
 /// surface normal on a tapering tube.
-pub(super) struct SpineStation {
+pub(crate) struct SpineStation {
     pub pos: Vec3,
     pub radius: f32,
     pub tangent: Vec3,
@@ -27,10 +27,11 @@ pub(super) struct SpineStation {
 /// Sample a spine's Catmull-Rom curve (positions and radii ride one `Vec4`
 /// spline) into parallel-transport-framed stations. Shared by the mesh
 /// builder and the coarse collider-hull sampler so physics can never
-/// diverge from the visible tube. Falls back to a straight 2-station rod
-/// when the point list is degenerate (the sanitizer prevents that on any
-/// networked record).
-pub(super) fn spine_stations(
+/// diverge from the visible tube, and by the vehicle guards' touch helper
+/// so a guard reads the tube that is drawn (#1393). Falls back to a
+/// straight 2-station rod when the point list is degenerate (the sanitizer
+/// prevents that on any networked record).
+pub(crate) fn spine_stations(
     points: &[(Vec3, f32)],
     samples_per_segment: u32,
 ) -> Vec<SpineStation> {
@@ -129,6 +130,34 @@ pub(super) fn spine_stations(
     stations
 }
 
+/// The stations a spine keeps under its path trim: those inside the
+/// `[t0, t1]` arc-length band (stations are dense - 2..64 per segment - so
+/// snapping to the nearest station is visually exact), never fewer than two.
+/// Shared by the mesher and the vehicle guards' touch helper (#1393), which
+/// read a trimmed band - a sail drawn in strips - as the strip it is.
+pub(crate) fn kept_stations(
+    all: &[SpineStation],
+    t0: f32,
+    t1: f32,
+) -> std::ops::RangeInclusive<usize> {
+    let mut full_arc = vec![0.0f32; all.len()];
+    for i in 1..all.len() {
+        full_arc[i] = full_arc[i - 1] + (all[i].pos - all[i - 1].pos).length();
+    }
+    let total = full_arc.last().copied().unwrap_or(0.0).max(1e-5);
+    let (t0, t1) = (t0.clamp(0.0, 1.0), t1.clamp(0.0, 1.0).max(t0 + 1e-3));
+    let i0 = full_arc.partition_point(|a| *a < t0 * total - 1e-6);
+    let i1 = full_arc
+        .partition_point(|a| *a <= t1 * total + 1e-6)
+        .saturating_sub(1);
+    let (i0, i1) = if i1 > i0 {
+        (i0, i1)
+    } else {
+        (i0.min(all.len() - 2), i0.min(all.len() - 2) + 1)
+    };
+    i0..=i1
+}
+
 /// Build the Spine tube mesh: a circular profile of `resolution` segments
 /// stitched over the [`spine_stations`] rings. SL-style cuts (#691):
 /// `a0..a1` is the kept **angular range** of the ring (an open gutter /
@@ -153,26 +182,7 @@ pub(super) fn build_spine_mesh(
     let k = inner_frac.clamp(0.0, 0.99);
     let hollow = k > 1e-4;
     let all = spine_stations(points, samples_per_segment);
-
-    // Path trim: keep the stations inside the [t0, t1] arc-length band
-    // (stations are dense - 2..64 per segment - so snapping to the nearest
-    // station is visually exact).
-    let mut full_arc = vec![0.0f32; all.len()];
-    for i in 1..all.len() {
-        full_arc[i] = full_arc[i - 1] + (all[i].pos - all[i - 1].pos).length();
-    }
-    let total = full_arc.last().copied().unwrap_or(0.0).max(1e-5);
-    let (t0, t1) = (t0.clamp(0.0, 1.0), t1.clamp(0.0, 1.0).max(t0 + 1e-3));
-    let i0 = full_arc.partition_point(|a| *a < t0 * total - 1e-6);
-    let i1 = full_arc
-        .partition_point(|a| *a <= t1 * total + 1e-6)
-        .saturating_sub(1);
-    let (i0, i1) = if i1 > i0 {
-        (i0, i1)
-    } else {
-        (i0.min(all.len() - 2), i0.min(all.len() - 2) + 1)
-    };
-    let stations = &all[i0..=i1];
+    let stations = &all[kept_stations(&all, t0, t1)];
     let n_rings = stations.len() as u32;
 
     // V is arc length along the spine in metres, U metres around the tube
@@ -371,10 +381,11 @@ fn trim_profile_stations(stations: Vec<Vec2>, t0: f32, t1: f32) -> Vec<Vec2> {
 /// Resolve a lathe's profile points into meshing stations: the raw polyline
 /// when `smooth` is off, or a Catmull-Rom resample through every station
 /// when it's on. Radii are floored at zero (a spline overshoot below the
-/// axis pinches to a pole instead of crossing it). Shared by the mesher and
-/// the collider-hull sampler. Falls back to a unit cone profile on a
-/// degenerate list (sanitize prevents that on networked records).
-pub(super) fn lathe_stations(points: &[(f32, f32)], smooth: bool) -> Vec<Vec2> {
+/// axis pinches to a pole instead of crossing it). Shared by the mesher,
+/// the collider-hull sampler and the vehicle guards' touch helper (#1393).
+/// Falls back to a unit cone profile on a degenerate list (sanitize
+/// prevents that on networked records).
+pub(crate) fn lathe_stations(points: &[(f32, f32)], smooth: bool) -> Vec<Vec2> {
     let fallback = [(0.3, -0.5), (0.0, 0.5)];
     let points = if points.len() >= 2 {
         points

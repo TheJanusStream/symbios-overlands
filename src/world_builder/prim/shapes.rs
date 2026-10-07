@@ -33,8 +33,9 @@ use super::sweeps::{build_lathe_mesh, build_spine_mesh, lathe_hull_points, spine
 /// Vertical wall subdivisions used when a vertex deform is active: the
 /// nonlinear deforms (bulge / bend / S-bend / twist) need mid-height
 /// vertices to move - a 2-ring wall renders a `sin(π t)` bulge as nothing.
-/// Deform-free prims keep their old minimal layouts.
-const DEFORM_ROWS: u32 = 16;
+/// Deform-free prims keep their old minimal layouts. The vehicle guards'
+/// touch helper reads a deformed block at the same rows (#1393).
+pub(crate) const DEFORM_ROWS: u32 = 16;
 
 /// Flat-subdivision levels applied to the faceted low-poly prims (Wedge /
 /// Tetrahedron) when a deform is active: 4 halvings ≈ the same edge density

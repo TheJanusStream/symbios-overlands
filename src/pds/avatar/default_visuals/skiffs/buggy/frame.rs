@@ -2,8 +2,8 @@
 //! through them, the backbone that is her root, and the lamps it carries.
 //!
 //! Every member runs through joints another member also runs through, so
-//! each one ends ON a centreline - the only place the connectedness guard
-//! registers a joint between thin tubes (see the module docs one level up).
+//! each one ends ON a centreline, where a joint between thin tubes is
+//! plainest to the connectedness guard (see the module docs one level up).
 //! The floor rail is drawn nose to tail through all nine of its mounts, the
 //! shoulder rail nose to the main hoop through six.
 

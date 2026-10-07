@@ -236,8 +236,9 @@ impl ArmouredPlan {
     /// The hexagon's own x at station `z` and height `y` (m) - where the
     /// DRAWN flank stands.
     ///
-    /// Inside the round tube the connectedness guard models a sweep as, so
-    /// anything bedded against this is bedded against both. Bed against it at
+    /// The connectedness guard reads the sweep as this same hexagon (#1393),
+    /// so anything bedded against it is bedded against the solid the guard
+    /// checks. Bed against it at
     /// the part's OWN height: above the chine the section has already drawn
     /// in, and an arch or a bin cut to the widest line hangs in the air.
     fn flank_x(&self, z: f32, y: f32) -> f32 {

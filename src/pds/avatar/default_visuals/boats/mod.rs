@@ -998,12 +998,15 @@ mod tests {
     /// failure is size-dependent - anything floored at [`MIN_DIM`] stops
     /// shrinking with the hull, so a part that meets at the nominal size can
     /// come adrift at the small end. See [`super::common::touch`] for why this
-    /// cannot be judged by eye, and for its one blind spot: it resolves a
-    /// tortured cuboid as its UNDEFORMED box, so for the SLOOP's sails it is
-    /// green partly for the wrong reason - measured at #1382, hers are the
-    /// only tortured sails in the fleet. Teaching it the deform is #1393's,
-    /// and the blind spot is why the sail patch the phase-1 prototype drew is
-    /// not in the ladder (#1366).
+    /// cannot be judged by eye, and for what it still reads generously.
+    ///
+    /// It used to resolve a tortured cuboid as its UNDEFORMED box and a sweep
+    /// as a whole round tube, and was green for the wrong reasons: taught the
+    /// deform, the polygon and the path cut (#1393), it found every sail but
+    /// the main's foot standing clear of its spar, the sloop's tiller clear
+    /// of her stern and the scow's crutch post clear of her deck - each one
+    /// confirmed against the real mesher before the craft was changed, and
+    /// each now seated on what it stands on.
     #[test]
     fn a_boat_is_one_machine_at_her_blueprint_extremes() {
         use super::super::common::touch;
@@ -1143,14 +1146,13 @@ mod tests {
     ///
     /// And her lowest point is her rudder's foot, at exactly her derived
     /// draft - the allowance IS the rudder - so her hover, a quarter of a
-    /// draft, clears it. Read off the drawn tree less the hull's own res-3
-    /// sweeps, which the connectivity helper reads too deep as round tubes
-    /// (#1393); for those the profile answers, and her flat bottom lies an
-    /// allowance over the foot.
+    /// draft, clears it. Read off the whole drawn tree: her hull's res-3
+    /// sweeps are read as the polygons they are drawn as (#1393), and their
+    /// flat bottom lies an allowance over the foot. Read as round tubes they
+    /// hung under it, and the guard used to set them aside.
     #[test]
     fn a_junk_floats_in_her_water_and_fits_the_gateway() {
         use super::super::common::touch;
-        use crate::pds::generator::GeneratorKind;
         for (built, hull, what) in every_junk() {
             let keel = hull
                 .stations()
@@ -1173,10 +1175,7 @@ mod tests {
             );
             let foot = junk::rudder_foot(&hull);
             assert_eq!(foot, -hull.draft, "{what}: her rudder is not her draft");
-            let mut rest = built.clone();
-            rest.children
-                .retain(|g| !matches!(g.kind, GeneratorKind::Spine { resolution: 3, .. }));
-            let low = touch::lowest(&rest);
+            let low = touch::lowest(&built);
             assert!(
                 (low - foot).abs() < 1e-4,
                 "{what}: her lowest point is {low} m, not her rudder's foot at {foot} m"
@@ -1205,14 +1204,12 @@ mod tests {
     ///
     /// And her lowest point is the STEERING OAR'S foot, at exactly her
     /// derived draft - the allowance IS the oar - so her hover, a quarter of
-    /// a draft, clears it. Read off the drawn tree less the hull's own
-    /// sweeps, which the connectivity helper reads too deep as round tubes
-    /// (#1393); for those the profile answers, and her canoe body lies an
-    /// allowance over the foot.
+    /// a draft, clears it. Read off the whole drawn tree: her hull's own
+    /// sweeps are read as the polygons they are drawn as (#1393), and her
+    /// canoe body lies an allowance over the foot.
     #[test]
     fn a_longship_floats_in_her_water_and_fits_the_gateway() {
         use super::super::common::touch;
-        use crate::pds::generator::GeneratorKind;
         let mut capped = 0;
         for (built, hull, kind, what) in every_longship() {
             capped += usize::from(longship::mast_is_capped(&hull));
@@ -1275,10 +1272,10 @@ mod tests {
                 "{what}: her bottom {keel} m, her oar's foot {foot} m, the ground {} m",
                 -hover(hull.draft)
             );
-            // And NOTHING she draws hangs under that foot. Read off the
-            // drawn tree less the hull's own sweeps, which the connectivity
-            // helper reads too deep as round tubes (#1393); for those the
-            // profile answers above.
+            // And NOTHING she draws hangs under that foot - her hull's own
+            // sweeps included, read as the polygons they are drawn as
+            // (#1393). Read as round tubes they hung under it, and the guard
+            // used to set them aside and ask the profile instead.
             //
             // The blade does not reach the foot exactly, and that is a fact
             // about a Spine rather than a slack bound: its radius is
@@ -1286,17 +1283,7 @@ mod tests {
             // outboard, so the deepest station's section is tilted and its
             // lowest drawn point sits a little inside the foot. The bound
             // below is what keeps the oar the deepest thing she carries.
-            let mut rest = built.clone();
-            rest.children.retain(|g| {
-                !matches!(
-                    g.kind,
-                    GeneratorKind::Spine {
-                        resolution: longship::HULL_RES,
-                        ..
-                    }
-                )
-            });
-            let low = touch::lowest(&rest);
+            let low = touch::lowest(&built);
             assert!(
                 (foot - 1e-4..=foot + 0.02 * hull.loa).contains(&low),
                 "{what}: her lowest drawn point is {low} m, against a steering \

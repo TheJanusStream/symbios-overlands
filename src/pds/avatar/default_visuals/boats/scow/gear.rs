@@ -65,9 +65,14 @@ pub(super) fn sweep_oar(kids: &mut Vec<Generator>, hull: &HullProfile, c: &ScowC
     let zc = hull.transom_z() + l * 0.025;
     let dy = deck_y(hull, zc, 0.0);
     let pivot = [0.0, dy + l * 0.075, zc];
+    // The post's foot is let 2.5 % of the length under `deck_y`. That is the
+    // crowned deck's top as the formula has it, but the after deck is drawn
+    // lower this near the transom - its section is laid square to a path the
+    // deck's own crown scale makes steep there - and the foot used to stand
+    // 0.8 % under the formula and 2 cm over the deck that is drawn (#1393).
     kids.push(line(
         &[
-            ([0.0, dy - l * 0.008, zc], l * 0.011),
+            ([0.0, dy - l * 0.025, zc], l * 0.011),
             ([0.0, pivot[1] + l * 0.006, zc], l * 0.010),
         ],
         6,

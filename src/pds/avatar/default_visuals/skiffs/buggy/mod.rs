@@ -31,10 +31,12 @@
 //!
 //! # Joints by construction
 //!
-//! The connectedness guard registers a joint between two thin tubes only
-//! where an end ring of one lies inside the other. So no member is fattened
-//! at a joint: every one is drawn THROUGH joints another member also runs
-//! through - the floor rail through nine - and ends on a centreline, and a
+//! The connectedness guard was written to register a joint between two thin
+//! tubes only where an end ring of one lay inside the other; it finds a
+//! mid-span crossing too since #1393 (its axis witness). No member is
+//! fattened at a joint all the same: every one is drawn THROUGH joints
+//! another member also runs through - the floor rail through nine - and
+//! ends on a centreline, and a
 //! mass hung between joints (the light bar, the spare's bracket) is placed
 //! ON the tube's own drawn centreline by sampling the Catmull-Rom the mesher
 //! draws it with. Shorten a rail to its ends and the machine falls apart.

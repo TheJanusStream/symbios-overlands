@@ -44,6 +44,17 @@ pub(super) use shapes::prim_parts;
 pub use split::{FacePlan, build_primitive_groups, group_material, plan_faces};
 use torture::{apply_vertex_torture, torture_of};
 
+/// What the vehicle guards' touch helper reads a prim with
+/// (`pds::avatar::default_visuals::common::touch`, #1393): the mesher's own
+/// stations, deform rows and deform, rather than copies of them that could
+/// drift from what is drawn.
+#[cfg(test)]
+pub(crate) mod for_touch {
+    pub(crate) use super::shapes::DEFORM_ROWS;
+    pub(crate) use super::sweeps::{SpineStation, kept_stations, lathe_stations, spine_stations};
+    pub(crate) use super::torture::{Torture, deform_vertex, torture_of, undeform_vertex};
+}
+
 /// Build the parametric mesh for a primitive [`GeneratorKind`] variant and
 /// apply vertex torture when non-trivial. Returns the raw `Mesh` plus the
 /// face each triangle belongs to (#958); the caller registers the mesh in

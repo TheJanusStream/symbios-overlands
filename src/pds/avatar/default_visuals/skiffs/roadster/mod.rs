@@ -172,10 +172,10 @@ pub(super) enum TailMount {
     /// Against the blunt back panel of a bobtail or a tourer.
     Back {
         /// How far a mounted wheel is pressed into the panel, as a fraction of
-        /// its own half-width: contact by CONSTRUCTION, because the touch
-        /// guard cannot see a gap at a blunt end - its tube is a chain of
-        /// capsules, and where a sweep closes fast they bulge out past the
-        /// drawn end cap (#1367).
+        /// its own half-width: contact by CONSTRUCTION (#1367). The touch
+        /// guard could not see a gap at a blunt end then - its tube was a
+        /// chain of capsules that bulged out past the drawn end cap - and it
+        /// reads the flat cap since #1393.
         sink: f32,
         /// How far the wheel leans back from upright (rad).
         lean: f32,
@@ -568,12 +568,12 @@ mod tests {
     /// drawn, the lamps stood 32 mm behind a bobtail's back and the spare
     /// 34 mm clear of it.
     ///
-    /// A binary test rather than trusting the connectedness guard, because the
-    /// guard cannot see this: its tube is a chain of capsules, and at a blunt
-    /// end they bulge past the drawn end cap - by up to 128 mm on a bobtail -
-    /// so a wheel standing clear of the back still reads as touching. What is
-    /// checked here is the DRAWN end: a back-mounted wheel's inboard face has
-    /// to be past the tail station, where the body is.
+    /// A binary test beside the connectedness guard. The guard could not see
+    /// this when it was written - its tube was a chain of capsules that
+    /// bulged past a blunt end, by up to 128 mm on a bobtail - and it reads
+    /// the drawn cap since #1393; this one checks the DRAWN end directly: a
+    /// back-mounted wheel's inboard face has to be past the tail station,
+    /// where the body is.
     #[test]
     fn every_bodys_tail_mounts_stand_on_the_body() {
         for length in [1.90f32, 2.65, 3.60] {

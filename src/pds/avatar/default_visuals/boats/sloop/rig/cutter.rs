@@ -9,7 +9,7 @@ use crate::pds::generator::Generator;
 
 use super::super::super::profile::HullProfile;
 use super::super::super::{BoatColours, dim};
-use super::{Rig, Rigging, SAIL_OFFSET, gaff::Gaff};
+use super::{Rig, Rigging, STAY_RADIUS, gaff::Gaff, luff_seat};
 
 pub(super) struct GaffCutter;
 
@@ -32,7 +32,11 @@ impl Rigging for GaffCutter {
             kids,
             &c.canvas,
             [dim(loa * 0.0039), rig.hounds - tack[1], foot],
-            [-loa * SAIL_OFFSET, (rig.hounds + tack[1]) * 0.5, mid_z],
+            [
+                -luff_seat(dim(STAY_RADIUS * loa), dim(loa * 0.0039)),
+                (rig.hounds + tack[1]) * 0.5,
+                mid_z,
+            ],
             [0.0, 0.97],
             [0.10, 0.0, 0.0],
             [0.0, rig.mast_z + loa * 0.012 - mid_z],

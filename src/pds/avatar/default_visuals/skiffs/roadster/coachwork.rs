@@ -339,7 +339,9 @@ pub(super) fn lamps_and_bumper(kids: &mut Vec<Generator>, plan: &RoadsterPlan, c
         ));
         // Tail lamp on the quarter, seated on the body's own flank at the
         // station the BODY names (#1367 defect 3): restated as a fraction of
-        // the length, it stood behind a bobtail's back in open air.
+        // the length, it stood behind a bobtail's back in open air. Centred ON
+        // the flank: stood 2 % proud of it, the lamp on a 1.9 m car missed the
+        // tail that is drawn by under a millimetre (#1393).
         let tz = plan.tail_lamps_z();
         let ty = plan.crown_at(tz) * 0.10;
         kids.push(turned(
@@ -347,7 +349,7 @@ pub(super) fn lamps_and_bumper(kids: &mut Vec<Generator>, plan: &RoadsterPlan, c
             12,
             false,
             c.tail_lamp.clone(),
-            [side * plan.side_at(tz, ty) * 1.02, ty, tz - l * 0.004],
+            [side * plan.side_at(tz, ty), ty, tz - l * 0.004],
             quat_x(-FRAC_PI_2),
         ));
     }

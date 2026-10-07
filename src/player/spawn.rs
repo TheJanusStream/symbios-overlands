@@ -279,10 +279,16 @@ mod tests {
         /// alone is 100.4 s. The BUILDS are nearly free: the sanitiser sweep
         /// covers the same 900 sloops plus five other types in 0.2 s. So
         /// thinning a sweep buys almost nothing and costs coverage, while
-        /// making `touch::report` cheaper than its pairwise O(n^2) scan would
-        /// buy back most of the gate for nothing - which is #1393's, since it
-        /// is already the issue that owns that helper. This 21.4 s is the
-        /// second-largest single item and is left as it stands.
+        /// making `touch::report` cheaper would buy back most of the gate for
+        /// nothing. #1393 did, with no coverage lost: profiled, the cost was
+        /// its tube containment test rather than the pairwise scan, and it
+        /// now skips every pair that can change no answer, boxes each tube's
+        /// windows and turns a far point away before it is carried into a
+        /// node's frame - so the same sweeps, now reading every prim as the
+        /// mesher draws it, are 5.8 s for the boats and 5.7 s for the roadster
+        /// in one unoptimised binary (100.4 s and 18.0 s at #1382). That
+        /// leaves this guard, 22-23 s, the largest single item in the vehicle
+        /// gate; it is left as it stands.
         const GUARD: Self = Self {
             straight_secs: 16.0,
             turn_secs: 4.0,

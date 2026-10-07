@@ -81,8 +81,7 @@ pub(super) fn dress(
 /// On a deck it leans back on the crown near the tip, as the boat-tail always
 /// carried it. On a blunt back it stands nearly upright with its inboard face
 /// pressed into the panel by a fraction of its own half-width - contact by
-/// construction, because the connectedness guard cannot see a gap at a blunt
-/// end ([`TailMount::Back`]).
+/// construction ([`TailMount::Back`]).
 fn tail_spare_mount(plan: &RoadsterPlan, wheel: &dyn Wheels) -> ([f32; 3], [f32; 4]) {
     let l = plan.length;
     match plan.tail_mount() {

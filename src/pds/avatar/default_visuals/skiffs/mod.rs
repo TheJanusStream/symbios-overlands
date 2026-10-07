@@ -776,10 +776,10 @@ mod tests {
     /// Nothing on her is fattened to meet: every frame member is drawn
     /// through joints another member also runs through, and a mass hung
     /// between joints sits on the tube's drawn centreline (see the buggy's
-    /// module docs). What the guard cannot see: it ignores `hollow` and
-    /// `path_cut`, so the pod's bore and the canopy's stripes are judged as
-    /// whole tubes, and it samples a turned tyre only at its profile rings
-    /// (#1393).
+    /// module docs). What the guard still reads generously: a `hollow` as
+    /// solid, so the pod's bore is judged filled. The canopy's stripes it
+    /// reads as the path-cut strips they are, and a turned tyre at every
+    /// station of its raw profile (#1393).
     #[test]
     fn a_buggy_is_one_machine_at_every_blueprint_extreme() {
         use super::super::common::touch;
@@ -920,9 +920,10 @@ mod tests {
     /// one component, on every tier at every blueprint corner (#1376) - on
     /// the tree AS SAVED, through the record's 0.1 mm wire.
     ///
-    /// What the guard cannot see: it ignores `path_cut`, so the spat's box
-    /// reaches under the ground and the window band's sectors are judged as
-    /// whole tubes, which lie inside the pod (#1393).
+    /// The spat and the window band's sectors are path-cut, and the guard
+    /// reads them as the open wedges they are drawn as (#1393) - read as
+    /// whole tubes, the band's sectors lay inside the pod and the spat
+    /// reached under the ground.
     #[test]
     fn a_cyclecar_is_one_machine_at_every_blueprint_extreme() {
         use super::super::common::touch;
@@ -1266,13 +1267,13 @@ mod tests {
     /// (the buggy's law, #1374) - and the differential bar athwart both
     /// rocker pivots is what carries the whole linkage back to the deck.
     ///
-    /// What the guard cannot see: it reads a Bevel and a Superellipsoid as
-    /// their BOX, so her deck's taper and chamfer and her shell's curvature
-    /// are invisible to it and it is generous about every plate she carries.
-    /// Her contact is by CONSTRUCTION instead: every stem, pedestal, mast
-    /// and box reaches INSIDE what it stands on, and the dorsal ridge stands
-    /// off the shell's own drawn CROWN rather than off its box's flat top
-    /// (#1393).
+    /// What the guard still reads generously: a Bevel and a Superellipsoid
+    /// as their BOX, so her deck's chamfer and her shell's curvature are
+    /// invisible to it (her deck's taper it reads, through the mesher's own
+    /// deform - #1393) and it is generous about every plate she carries. Her
+    /// contact is by CONSTRUCTION instead: every stem, pedestal, mast and box
+    /// reaches INSIDE what it stands on, and the dorsal ridge stands off the
+    /// shell's own drawn CROWN rather than off its box's flat top.
     #[test]
     fn a_rover_is_one_machine_at_every_blueprint_extreme() {
         use super::super::common::touch;
@@ -1462,10 +1463,11 @@ mod tests {
     /// flush with what it stands on touches in f32 and not after the rounding:
     /// the radiator's filler cap did exactly that on seed 134 (#1367 defect 1).
     ///
-    /// What it cannot see, and the reason a binary test sits beside it: the
-    /// guard models a sweep as a chain of capsules, which bulge past a blunt
-    /// end, so a wheel standing clear of a bobtail's back still reads as
-    /// touching - see the roadster's tail-mount test.
+    /// The roadster's tail-mount test sits beside it and checks the drawn
+    /// end directly. When it was written this guard modelled a sweep as a
+    /// chain of capsules that bulged past a blunt end, so a wheel clear of a
+    /// bobtail's back read as touching; it reads the flat cap the mesher
+    /// draws since #1393.
     #[test]
     fn a_roadster_is_one_machine_at_every_blueprint_extreme() {
         use super::super::common::touch;

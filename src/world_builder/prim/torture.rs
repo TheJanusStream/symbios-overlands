@@ -32,7 +32,7 @@ use crate::pds::GeneratorKind;
 ///   (`shear * t` on X / Z), so edges stay straight but lean - a
 ///   parallelepiped rather than a curve.
 #[derive(Clone, Copy)]
-pub(super) struct Torture {
+pub(crate) struct Torture {
     pub twist: f32,
     pub taper: Vec2,
     pub taper_bottom: Vec2,
@@ -54,7 +54,7 @@ impl Torture {
     }
 }
 
-pub(super) fn torture_of(kind: &GeneratorKind) -> Torture {
+pub(crate) fn torture_of(kind: &GeneratorKind) -> Torture {
     match kind.torture() {
         Some(t) => Torture {
             twist: t.twist.0,
@@ -86,7 +86,7 @@ pub(super) fn torture_of(kind: &GeneratorKind) -> Torture {
 /// `t` is clamped to `[0, 1]`, pinning `t = 0` at the lowest vertex and
 /// `t = 1` at the highest - well-defined for any primitive whether its origin
 /// sits at the base or the centre.
-pub(super) fn deform_vertex(p: Vec3, y_min: f32, y_range: f32, torture: Torture) -> Vec3 {
+pub(crate) fn deform_vertex(p: Vec3, y_min: f32, y_range: f32, torture: Torture) -> Vec3 {
     let t = ((p.y - y_min) / y_range).clamp(0.0, 1.0);
 
     // Per-axis radial scale: top taper × bottom taper × mid-height bulge.
@@ -122,6 +122,47 @@ pub(super) fn deform_vertex(p: Vec3, y_min: f32, y_range: f32, torture: Torture)
         p.y + torture.bend.y * t2,
         z + torture.bend.z * t2 + torture.s_bend.y * wave + torture.shear.y * t,
     )
+}
+
+/// [`deform_vertex`] run backwards: the point it carries to `p`, or `None`
+/// for a deform it cannot undo in closed form.
+///
+/// Exact whenever `bend.y` is zero. Every other term moves a vertex only
+/// across Y, by amounts that depend on its height alone, and leaves the
+/// height where it was - so the `t` read off `p` is the one the forward map
+/// used, and each step undoes in reverse: the slides, then the twist, then
+/// the scale. A `bend.y` lifts the height itself by `t²`, and undoing that
+/// is a root solve nothing has needed yet (#1393: every bend the fleet
+/// authors is lateral). Test-only: the vehicle guards' touch helper asks
+/// whether a point lies inside a tortured prim by asking whether this
+/// point lies inside the prim as authored. Kept beside the forward map so
+/// the two change together; `undeform_vertex_undoes_deform_vertex` holds
+/// them to it.
+#[cfg(test)]
+pub(crate) fn undeform_vertex(p: Vec3, y_min: f32, y_range: f32, torture: Torture) -> Option<Vec3> {
+    if torture.bend.y.abs() > 1e-6 {
+        return None;
+    }
+    let t = ((p.y - y_min) / y_range).clamp(0.0, 1.0);
+    let t2 = t * t;
+    let wave = (std::f32::consts::TAU * t).sin();
+    let mut x = p.x - torture.bend.x * t2 - torture.s_bend.x * wave - torture.shear.x * t;
+    let mut z = p.z - torture.bend.z * t2 - torture.s_bend.y * wave - torture.shear.y * t;
+    if torture.twist.abs() > 1e-6 {
+        let (s, c) = (torture.twist * t).sin_cos();
+        let (ox, oz) = (x, z);
+        x = c * ox + s * oz;
+        z = -s * ox + c * oz;
+    }
+    let wave_pi = (std::f32::consts::PI * t).sin();
+    let scale = |taper_top: f32, taper_bot: f32, bulge: f32| -> f32 {
+        ((1.0 - taper_top * t) * (1.0 - taper_bot * (1.0 - t)) + bulge * wave_pi).max(1e-3)
+    };
+    Some(Vec3::new(
+        x / scale(torture.taper.x, torture.taper_bottom.x, torture.bulge.x),
+        p.y,
+        z / scale(torture.taper.y, torture.taper_bottom.y, torture.bulge.y),
+    ))
 }
 
 /// Mutate `mesh`'s vertex positions in-place through [`deform_vertex`], then
@@ -191,4 +232,94 @@ pub(super) fn apply_vertex_torture(mesh: &mut Mesh, torture: Torture) {
     }
 
     let _ = mesh.generate_tangents();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn torture() -> Torture {
+        Torture {
+            twist: 0.0,
+            taper: Vec2::ZERO,
+            taper_bottom: Vec2::ZERO,
+            bulge: Vec2::ZERO,
+            bend: Vec3::ZERO,
+            s_bend: Vec2::ZERO,
+            shear: Vec2::ZERO,
+        }
+    }
+
+    /// Every deform but a lifting bend, alone and all at once, undone to the
+    /// point it moved - over a prim's height and past both ends, where the
+    /// forward map holds `t` at 0 or 1.
+    #[test]
+    fn undeform_vertex_undoes_deform_vertex() {
+        let each = [
+            Torture {
+                twist: 1.3,
+                ..torture()
+            },
+            Torture {
+                taper: Vec2::new(0.5, -0.4),
+                ..torture()
+            },
+            Torture {
+                taper_bottom: Vec2::new(0.3, 0.6),
+                ..torture()
+            },
+            Torture {
+                bulge: Vec2::new(0.4, -0.2),
+                ..torture()
+            },
+            Torture {
+                bend: Vec3::new(0.07, 0.0, -0.28),
+                ..torture()
+            },
+            Torture {
+                s_bend: Vec2::new(0.1, -0.05),
+                ..torture()
+            },
+            Torture {
+                shear: Vec2::new(-0.47, 0.2),
+                ..torture()
+            },
+            Torture {
+                twist: -0.8,
+                taper: Vec2::new(0.5, 0.5),
+                taper_bottom: Vec2::new(0.2, 0.0),
+                bulge: Vec2::new(0.1, 0.3),
+                bend: Vec3::new(0.03, 0.0, 0.02),
+                s_bend: Vec2::new(0.05, 0.05),
+                shear: Vec2::new(0.0, -0.5),
+            },
+        ];
+        let (y_min, y_range) = (-0.6, 1.2);
+        for (i, t) in each.into_iter().enumerate() {
+            for xi in -2..=2 {
+                for yi in -3..=15 {
+                    for zi in -2..=2 {
+                        let p =
+                            Vec3::new(xi as f32 * 0.31, -0.6 + yi as f32 * 0.1, zi as f32 * 0.17);
+                        let back =
+                            undeform_vertex(deform_vertex(p, y_min, y_range, t), y_min, y_range, t)
+                                .expect("no lifting bend here");
+                        assert!(
+                            back.distance(p) < 1e-5,
+                            "deform {i}: {p} came back as {back}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_bend_that_lifts_the_top_is_refused() {
+        let t = Torture {
+            bend: Vec3::new(0.0, 0.1, 0.0),
+            ..torture()
+        };
+        assert_eq!(undeform_vertex(Vec3::ONE, -0.5, 1.0, t), None);
+    }
 }
