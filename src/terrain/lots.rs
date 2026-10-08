@@ -962,10 +962,12 @@ fn districts_complete(
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn grow_missing_districts(
     record: &mut RoomRecord,
-    heightmap: &bevy_symbios_ground::HeightMap,
+    terrain: &FinishedHeightMap,
     did: &str,
 ) -> usize {
-    let water = crate::world_builder::compile::room_water_level(record);
+    // The water line as drawn: Berlin's in a geodata region (#1586).
+    let water = crate::world_builder::compile::drawn_water_level(record, Some(terrain));
+    let heightmap = &terrain.0;
     let mut planted = 0;
     for (i, c) in active_configs(record) {
         let (has_lots, has_props) = layer_content(record, i, &c);
@@ -1114,7 +1116,7 @@ pub(super) fn maybe_populate_lots(
         if !heightmap_is_current(&record.0, source.as_deref()) {
             return;
         }
-        let water = crate::world_builder::compile::room_water_level(&record.0);
+        let water = crate::world_builder::compile::drawn_water_level(&record.0, Some(&heightmap));
         let fp = combined_fingerprint(
             did_str,
             &configs.iter().map(|(_, c)| c.clone()).collect::<Vec<_>>(),
@@ -1184,7 +1186,7 @@ pub(super) fn maybe_populate_lots(
         stats.pending = false;
         return; // the change branch above already swept
     }
-    let water = crate::world_builder::compile::room_water_level(&record.0);
+    let water = crate::world_builder::compile::drawn_water_level(&record.0, Some(&heightmap));
     let fp = combined_fingerprint(
         did_str,
         &configs.iter().map(|(_, c)| c.clone()).collect::<Vec<_>>(),
@@ -2532,6 +2534,7 @@ mod tests {
             .insert_resource(CurrentRoomDid(did))
             .insert_resource(FinishedHeightMap(
                 crate::urban::test_support::sloped_heightmap(),
+                None,
             ))
             .add_systems(Update, maybe_populate_lots);
         for _ in 0..6 {
@@ -2832,6 +2835,7 @@ mod tests {
             .insert_resource(CurrentRoomDid(did.to_string()))
             .insert_resource(FinishedHeightMap(
                 crate::urban::test_support::sloped_heightmap(),
+                None,
             ))
             .insert_resource(HeightMapSource(source))
             .add_systems(Update, maybe_populate_lots);
@@ -2891,6 +2895,7 @@ mod tests {
         let source = super::super::terrain_source_key(&room_b);
         app.world_mut().insert_resource(FinishedHeightMap(
             crate::urban::test_support::pilot_heightmap(),
+            None,
         ));
         app.world_mut().insert_resource(HeightMapSource(source));
         run_frames(&mut app, 4);
@@ -3092,7 +3097,7 @@ mod tests {
         terrain
             .children
             .push(Generator::from_kind(GeneratorKind::RoadNetwork(config)));
-        let hm = crate::urban::test_support::pilot_heightmap();
+        let hm = FinishedHeightMap(crate::urban::test_support::pilot_heightmap(), None);
         let planted = grow_missing_districts(&mut record, &hm, did);
         assert!(planted > 0, "an unsaved district is grown for the count");
         let grown = record.clone();
@@ -3170,7 +3175,7 @@ mod tests {
     /// record's own terrain named as the heightmap's source.
     fn lot_app_on(record: RoomRecord, did: &str, hm: bevy_symbios_ground::HeightMap) -> App {
         let mut app = lot_app(record, did);
-        app.world_mut().insert_resource(FinishedHeightMap(hm));
+        app.world_mut().insert_resource(FinishedHeightMap(hm, None));
         app
     }
 
@@ -3341,6 +3346,7 @@ mod tests {
         let source = super::super::terrain_source_key(&saved);
         app.world_mut().insert_resource(FinishedHeightMap(
             crate::urban::test_support::pilot_heightmap(),
+            None,
         ));
         app.world_mut().insert_resource(HeightMapSource(source));
         run_frames(&mut app, 4);
@@ -3393,6 +3399,7 @@ mod tests {
         let source = super::super::terrain_source_key(&edited);
         app.world_mut().insert_resource(FinishedHeightMap(
             crate::urban::test_support::sloped_heightmap(),
+            None,
         ));
         app.world_mut().insert_resource(HeightMapSource(source));
         run_frames(&mut app, 4);
@@ -3423,7 +3430,7 @@ mod tests {
             ..pilot_network()
         };
         let mut record = road_room(did, &[props_only]);
-        let hm = crate::urban::test_support::pilot_heightmap();
+        let hm = FinishedHeightMap(crate::urban::test_support::pilot_heightmap(), None);
         assert!(grow_missing_districts(&mut record, &hm, did) > 0);
         assert_eq!(
             grow_missing_districts(&mut record, &hm, did),

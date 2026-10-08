@@ -25,6 +25,7 @@ map() { # service layers bbox size
 
 get dgm1_legend.json "$(legend dgm1 c_dgm1)"
 get dgm1_392000_5820000_1024m_256px.png "$(map dgm1 c_dgm1 392000,5820000,393024,5821024 256)"
+get dgm1_391200_5819700_600m_300px.png "$(map dgm1 c_dgm1 391200,5819700,391800,5820300 300)"
 
 get landuse_legend.json "$(legend ua_flaechennutzung_2015 c_ua_realnutz_2015)"
 get landuse_391200_5819700_600m_300px.png \

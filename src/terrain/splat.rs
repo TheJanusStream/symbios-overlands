@@ -333,25 +333,31 @@ pub(super) fn apply_splat_textures(
     let albedo_array = images.add(albedo_img);
     let normal_array = images.add(normal_img);
 
-    // Generate the RGBA weight map from the heightmap (one texel per cell).
+    // Generate the RGBA weight map (one texel per cell): from the record's
+    // height and slope rules, or - for ground built from real Berlin - from
+    // its land use (#1586), each class on the layer whose role it shares.
     let hm = &hm_res.0;
     let world_extent = (hm.width() - 1) as f32 * hm.scale();
 
     let mapper = record_splat_mapper(record.as_ref().map(|r| &r.0));
-    let weight_map = mapper.generate(hm);
+    let weight_map = match hm_res.ground() {
+        Some(ground) => ground.weight_map(),
+        None => mapper.generate(hm),
+    };
 
     // CPU mirror for the avatar-world interaction classifier (#245):
-    // the same heightmap + splat rules the GPU sees, queryable for
+    // the same heightmap + splat weights the GPU sees, queryable for
     // ground height / normal / splat weights at any world XZ. The
     // heightfield collider *is* this heightmap, so this is the terrain
     // analogue of `WaterSurfaces` (a CPU analytic query, not a physics
     // raycast). `mapper` is moved in (unused after `generate`); the
     // heightmap is deep-cloned once per terrain build (~1 MiB at the
-    // default 512 grid). Overwrites any prior query on regenerate.
-    commands.insert_resource(TerrainSurfaceQuery::new(
-        TerrainQuery::new(hm.clone(), mapper),
-        world_extent * 0.5,
-    ));
+    // default 512 grid), and Berlin's land use with it (a quarter of
+    // that). Overwrites any prior query on regenerate.
+    commands.insert_resource(
+        TerrainSurfaceQuery::new(TerrainQuery::new(hm.clone(), mapper), world_extent * 0.5)
+            .with_ground(hm_res.ground().cloned()),
+    );
 
     // Build the weight-map image manually so we can use RENDER_WORLD-only
     // storage - the CPU bytes are never needed again after upload.
@@ -406,14 +412,14 @@ pub(super) fn apply_splat_textures(
         mat.extension.uniforms.triplanar_scale = tcfg::TILE_SCALE / world_extent.max(1.0);
 
         // Damp ground near the water line (#913, WS5 step 3). Read from the
-        // same `room_water_level` the scatter sampler's riparian band uses,
-        // so the darkened margin and the reeds standing in it cannot drift
-        // apart. A room with no water generator has no waterline to be damp
-        // around, so the effect stays off and the terrain renders exactly as
-        // it did before this landed.
+        // same drawn water line the scatter sampler's riparian band uses -
+        // Berlin's in a geodata region (#1586) - so the darkened margin and
+        // the reeds standing in it cannot drift apart. A room with no water
+        // generator has no waterline to be damp around, so the effect stays
+        // off and the terrain renders exactly as it did before this landed.
         match record
             .as_ref()
-            .and_then(|r| crate::world_builder::compile::room_water_level(&r.0))
+            .and_then(|r| crate::world_builder::compile::drawn_water_level(&r.0, Some(&hm_res)))
         {
             Some(water_y) => {
                 mat.extension.uniforms.water_y = water_y;
@@ -508,6 +514,7 @@ pub(super) fn placeholder_surface() -> StandardMaterial {
 pub(super) fn sync_moisture_water_level(
     record: Option<Res<LiveRoomRecord>>,
     splat_mat: Option<Res<SplatMaterialHandle>>,
+    heightmap: Option<Res<FinishedHeightMap>>,
     mut materials: ResMut<Assets<SplatTerrainMaterial>>,
 ) {
     let (Some(record), Some(splat_mat)) = (record, splat_mat) else {
@@ -516,7 +523,9 @@ pub(super) fn sync_moisture_water_level(
     if !record.is_changed() {
         return;
     }
-    let water = crate::world_builder::compile::room_water_level(&record.0);
+    // The drawn line: an edit to a Berlin region's water plane moves
+    // nothing, since the plane is drawn at Berlin's level (#1586).
+    let water = crate::world_builder::compile::drawn_water_level(&record.0, heightmap.as_deref());
     let (water_y, strength) = match water {
         Some(y) => (y, tcfg::splat::MOISTURE_STRENGTH),
         // No water generator, no waterline to be damp around.

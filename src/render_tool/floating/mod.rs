@@ -70,7 +70,6 @@ use self::body::{Body, CONTACT_M, Part, distance};
 use super::terrain_report::Ground;
 use crate::pds::{GeneratorKind, Placement, RoomRecord};
 use crate::world_builder::compile::pad;
-use crate::world_builder::compile::water::room_water_level;
 
 /// A part resting on its generator's ground that clears the real ground
 /// by more than this floats (m).
@@ -107,12 +106,20 @@ const NOT_CHECKED: &str = "L-systems and signs, which are not meshed here (a par
 pub(super) fn print_floating_report(world: &str, record: &RoomRecord) {
     // The heightmap job and the meshing are the two slow halves, and
     // neither reads the other.
-    let (map, bodies) = std::thread::scope(|scope| {
-        let map = scope.spawn(|| crate::terrain::rebuild_heightmap_for_record(record));
+    let (terrain, bodies) = std::thread::scope(|scope| {
+        let terrain = scope.spawn(|| crate::terrain::rebuild_terrain_for_record(record));
         let bodies = bodies_of(record);
-        (map.join().expect("the heightmap rebuild panicked"), bodies)
+        (
+            terrain.join().expect("the heightmap rebuild panicked"),
+            bodies,
+        )
     });
-    println!("{}", one_row_a_line(&report(world, record, &map, &bodies)));
+    // The water line as drawn: Berlin's in a geodata region (#1586).
+    let water = crate::world_builder::compile::drawn_water_level(record, Some(&terrain));
+    println!(
+        "{}",
+        one_row_a_line(&report(world, record, &terrain.0, water, &bodies))
+    );
 }
 
 /// A body's key: its generator's name, and the grammar seed of the
@@ -273,11 +280,11 @@ fn report(
     world: &str,
     record: &RoomRecord,
     map: &HeightMap,
+    water: Option<f32>,
     bodies: &BTreeMap<BodyKey, Body>,
 ) -> Vec<(&'static str, Value)> {
     let ground = Ground::new(map);
     let height = |x: f32, z: f32| ground.height(x, z);
-    let water = room_water_level(record);
     let uses = uses_of(record, map, water);
     let mut rows: Vec<Row> = Vec::new();
     let mut scatters = Vec::new();

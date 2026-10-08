@@ -629,7 +629,8 @@ pub(super) fn draw_placements_tab(
                 // Read before the placement is borrowed out of the record:
                 // un-snapping walks a seeded anchor against it (#1399), and
                 // the Grammar seed control shows the item's own (#1505).
-                let room_water_y = crate::world_builder::compile::room_water_level(record);
+                let room_water_y =
+                    crate::world_builder::compile::drawn_water_level(record, heightmap);
                 let own_seeds = record
                     .placements
                     .get(idx)
@@ -783,7 +784,7 @@ fn draw_placement_detail(
     eligible_names: &[String],
     heightmap: Option<&crate::terrain::FinishedHeightMap>,
     // The room's water line, which the compile walks a seeded anchor
-    // against (`room_water_level`).
+    // against (`drawn_water_level`: Berlin's in a geodata region).
     room_water_y: Option<f32>,
     // The seeds the placed item's shape grammars derive with on their own
     // (`own_grammar_seeds`), for the Grammar seed control (#1505).

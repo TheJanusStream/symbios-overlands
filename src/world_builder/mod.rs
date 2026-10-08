@@ -764,7 +764,7 @@ fn draw_placement_visualizers(
                     transform,
                     *avoid_water,
                     avoid_water_clearance.0,
-                    compile::room_water_level(record),
+                    compile::drawn_water_level(record, Some(hm)),
                 );
             }
             gizmos.sphere(pos, 1.0, color);

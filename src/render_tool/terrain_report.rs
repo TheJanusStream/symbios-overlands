@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 
 use crate::pds::{GeneratorKind, Placement, RoomRecord, ScatterBounds};
 use crate::world_builder::compile::pad;
-use crate::world_builder::compile::water::room_water_level;
+use crate::world_builder::compile::water::{drawn_water_level, room_water_level};
 
 /// What `--terrain-report` was asked.
 pub(super) struct Request<'a> {
@@ -165,13 +165,18 @@ fn point(ground: &Ground<'_>, x: f32, z: f32, footprint: Option<f32>, water: Opt
 /// heightmap the ground's weight map is generated from - and the layer a
 /// scatter's `biome_filter` reads there, the largest share. Where no rule
 /// matches, the mapper paints the third layer, and so does this.
+///
+/// Ground built from real Berlin is layered by its land use instead
+/// (#1586): the shares are its weight map's, the biome is the layer a
+/// scatter sees (255 on the built city), and `land_use` names the class.
 struct Splat {
     mapper: bevy_symbios_ground::SplatMapper,
     textures: [&'static str; 4],
+    ground: Option<crate::terrain::geo::GeoGround>,
 }
 
 impl Splat {
-    fn new(record: &RoomRecord) -> Self {
+    fn new(record: &RoomRecord, terrain: Option<&crate::terrain::FinishedHeightMap>) -> Self {
         let textures = crate::pds::find_terrain_config(record)
             .map(|c| c.material.layers.each_ref().map(|l| l.label()))
             .unwrap_or_else(|| {
@@ -184,13 +189,20 @@ impl Splat {
         Self {
             mapper: crate::terrain::record_splat_mapper(Some(record)),
             textures,
+            ground: terrain
+                .and_then(crate::terrain::FinishedHeightMap::ground)
+                .cloned(),
         }
     }
 
-    /// `layers` (the shares over 0.5 %, by layer) and `biome` for a point.
+    /// `layers` (the shares over 0.5 %, by layer) and `biome` for a point,
+    /// and on Berlin's ground its `land_use`.
     fn read(&self, ground: &Ground<'_>, x: f32, z: f32, out: &mut Value) {
         let (cx, cz) = ground.cell(x, z);
-        let shares = self.mapper.sample_weights_at(ground.map, cx, cz);
+        let shares = match &self.ground {
+            Some(berlin) => berlin.weights_at_local(cx, cz),
+            None => self.mapper.sample_weights_at(ground.map, cx, cz),
+        };
         out["layers"] = shares
             .iter()
             .enumerate()
@@ -203,7 +215,17 @@ impl Splat {
                 })
             })
             .collect();
-        out["biome"] = json!(self.mapper.sample_biome_at(ground.map, cx, cz));
+        match &self.ground {
+            Some(berlin) => {
+                out["biome"] = json!(berlin.scatter_layer_at(x, z));
+                out["land_use"] = json!(
+                    berlin
+                        .cover_at(x, z)
+                        .map_or("street space", geodata::berlin::LandUse::name)
+                );
+            }
+            None => out["biome"] = json!(self.mapper.sample_biome_at(ground.map, cx, cz)),
+        }
     }
 }
 
@@ -344,10 +366,12 @@ pub(super) fn terrain_report(request: &Request<'_>) -> Value {
         return seed_scan(request, seeds);
     }
     let record = &request.record;
-    let map = crate::terrain::rebuild_heightmap_for_record(record);
-    let ground = Ground::new(&map);
-    let splat = Splat::new(record);
-    let water = room_water_level(record);
+    let terrain = crate::terrain::rebuild_terrain_for_record(record);
+    let map = &terrain.0;
+    let ground = Ground::new(map);
+    let splat = Splat::new(record, Some(&terrain));
+    // The water line as drawn: Berlin's in a geodata region (#1586).
+    let water = drawn_water_level(record, Some(&terrain));
     let landing_json = record.default_landing.map(|landing| {
         let (lx, lz) = (landing.pos.0[0], landing.pos.0[1]);
         // Facing as the arrival turns: counter-clockwise from -Z (session 873).
@@ -374,9 +398,9 @@ pub(super) fn terrain_report(request: &Request<'_>) -> Value {
                 at
             })
             .collect::<Vec<_>>(),
-        "placements": placements(record, &map, water),
+        "placements": placements(record, map, water),
     });
-    if let (Some(obj), Value::Object(h)) = (report.as_object_mut(), heights(&map, water)) {
+    if let (Some(obj), Value::Object(h)) = (report.as_object_mut(), heights(map, water)) {
         obj.extend(h);
     }
     if let Some(path) = request.plan {
@@ -883,7 +907,7 @@ mod tests {
     fn a_seeded_worlds_report_reads_the_ground_the_game_stands_things_on() {
         let record = RoomRecord::default_for_seed(3, "did:render:3");
         let map = crate::terrain::rebuild_heightmap_for_record(&record);
-        let finished = crate::terrain::FinishedHeightMap(map);
+        let finished = crate::terrain::FinishedHeightMap(map, None);
         let landing = record
             .default_landing
             .expect("a seeded world has a landing");
@@ -1006,7 +1030,7 @@ mod tests {
         let map = crate::terrain::rebuild_heightmap_for_record(&record);
         let texels = crate::terrain::record_splat_mapper(Some(&record)).generate(&map);
         let ground = Ground::new(&map);
-        let splat = Splat::new(&record);
+        let splat = Splat::new(&record, None);
         let half = ground.extent * 0.5;
         // One interior node for each layer that is largest somewhere, so
         // every layer the world draws is read at least once.
@@ -1090,7 +1114,7 @@ mod tests {
         };
         let share_of_rock = |record: &RoomRecord| {
             let mut at = json!({});
-            Splat::new(record).read(&Ground::new(&flat), 0.0, 0.0, &mut at);
+            Splat::new(record, None).read(&Ground::new(&flat), 0.0, 0.0, &mut at);
             at["layers"]
                 .as_array()
                 .expect("layers")

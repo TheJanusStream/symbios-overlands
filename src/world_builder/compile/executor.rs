@@ -51,7 +51,6 @@ use super::job::{
 };
 use super::scatter::unit_f32;
 use super::spawn_ctx::{GeneratorCaches, SpawnCtx, budget_exceeded, transform_from_data};
-use super::water::room_water_level;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn compile_room_record(
@@ -90,6 +89,8 @@ pub(crate) fn compile_room_record(
             &existing,
             record,
             heightmap_changed,
+            // Berlin's level where a geodata region's core has water (#1586).
+            super::water::drawn_water_level(record, heightmap.as_deref()),
             &mut generator_caches.world,
             &mut generator_caches.job,
             &mut water_surfaces,
@@ -364,6 +365,7 @@ fn plan_job(
     existing: &Query<(Entity, Option<&PlacementUnit>), With<RoomEntity>>,
     record: &RoomRecord,
     heightmap_changed: bool,
+    room_water_y: Option<f32>,
     world: &mut CompiledWorld,
     job: &mut CompileJob,
     water_surfaces: &mut WaterSurfaces,
@@ -401,9 +403,9 @@ fn plan_job(
     }
 
     // One generator scan + one terrain serialisation for the whole pass
-    // (#673): `room_water_y` feeds both the fingerprints below and (via
-    // the job) `start_unit`'s dry-land walk during the execute slices.
-    let room_water_y = room_water_level(record);
+    // (#673): `room_water_y` - the water line as drawn, Berlin's in a
+    // geodata region - feeds both the fingerprints below and (via the job)
+    // `start_unit`'s dry-land walk during the execute slices.
     let fp_pass = FingerprintPass::new(record, room_water_y);
 
     let len = record.placements.len();
@@ -1238,6 +1240,59 @@ mod tests {
         assert_ne!(anchors_after[1], anchors_before[1], "unit 1 rebuilt");
     }
 
+    /// #1586: a region built from real Berlin draws its water plane at
+    /// Berlin's level, whatever height its record gives the plane; any
+    /// other region at the record's. Only the terrain's own water moves:
+    /// water hung lower in the tree keeps its height, as the water line
+    /// (`room_water_level`) never reads it.
+    #[test]
+    fn a_berlin_regions_water_plane_is_drawn_at_berlins_level() {
+        let plane_y = |ground: Option<crate::terrain::geo::GeoGround>, nested: bool| {
+            let mut record = test_record(0);
+            let mut terrain = Generator::from_kind(GeneratorKind::Terrain(Default::default()));
+            let mut water = Generator::from_kind(GeneratorKind::Water {
+                surface: Default::default(),
+            });
+            if nested {
+                // A pool on a platform: water as the child of a box.
+                water.transform.translation = Fp3([0.0, 5.0, 0.0]);
+                let mut platform = Generator::default_cuboid();
+                platform.children.push(water);
+                terrain.children.push(platform);
+            } else {
+                terrain.children.push(water);
+            }
+            record
+                .generators
+                .insert("base_terrain".to_string(), terrain);
+            record.placements = vec![Placement::Absolute {
+                generator_ref: "base_terrain".to_string(),
+                transform: TransformData::default(),
+                snap_to_terrain: false,
+                avoid_water: false,
+                avoid_water_clearance: Fp(0.0),
+                seed: None,
+            }];
+            let mut app = compile_app(record);
+            let mut map = super::super::pad::wet_ramp();
+            map.1 = ground;
+            app.insert_resource(map);
+            settle(&mut app);
+            let planes = &app.world().resource::<WaterSurfaces>().planes;
+            assert_eq!(planes.len(), 1, "one water plane");
+            planes[0].world_from_local.translation.y
+        };
+        assert_eq!(plane_y(None, false), 0.0, "the record's own height");
+        let berlin =
+            crate::terrain::geo::GeoGround::from_cover(129, 1.0, vec![None; 129 * 129], Some(30.5));
+        assert_eq!(plane_y(Some(berlin.clone()), false), 30.5, "Berlin's level");
+        assert_eq!(
+            plane_y(Some(berlin), true),
+            5.0,
+            "the platform's pool keeps its own"
+        );
+    }
+
     /// #1399: the editor reads a snapped Absolute anchor exactly where this
     /// compile draws it, walk and all, and a record carrying that pose with
     /// snap off draws in the same place - the snap toggle's "turning it OFF
@@ -1276,7 +1331,7 @@ mod tests {
             // Seeded, recorded in the water: walked out along its bearing.
             snapped(25.0, true),
         ];
-        let room_water_y = room_water_level(&record);
+        let room_water_y = super::super::water::room_water_level(&record);
         assert_eq!(room_water_y, Some(0.0));
 
         let mut app = compile_app(record);

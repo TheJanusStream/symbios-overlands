@@ -485,7 +485,12 @@ pub(crate) fn try_sample(
     // need only the height already in hand, where slope costs a normal
     // lookup - and because on a riparian scatter they reject the large
     // majority of samples.
+    // Not on ground built from real Berlin (#1586), which its land use
+    // zones: a seeded treeline is a fraction of a procedural world's relief,
+    // tens of metres below Berlin's lowest ground, and would strip every
+    // stand.
     if let Some(Fp2([lo, hi])) = naturalness.altitude_band
+        && hm_res.ground().is_none()
         && !(lo..=hi).contains(&y)
     {
         return None;
@@ -516,8 +521,13 @@ pub(crate) fn try_sample(
         // to resolve against; treat any non-empty list as "never matches"
         // so accidental biome filters on dry-land records don't silently
         // pass through. The water clause still evaluates.
-        let biome = match (filters.terrain_cfg, slope) {
-            (Some(tcfg), Some(s)) => dominant_biome(tcfg, y, s),
+        //
+        // Ground built from real Berlin is layered by its land use, not by
+        // altitude bands (#1586): the layer the sample's cell is drawn
+        // with, where it is natural ground - none on the built city.
+        let biome = match (hm_res.ground(), filters.terrain_cfg, slope) {
+            (Some(ground), _, _) => ground.scatter_layer_at(world_x, world_z),
+            (None, Some(tcfg), Some(s)) => dominant_biome(tcfg, y, s),
             _ => 255,
         };
         if !filters.biome_filter.accepts(biome, y, filters.water_level) {
@@ -1070,5 +1080,64 @@ mod tests {
         assert_eq!(at(0.97, 0.8), 2, "a summit cliff does not");
         assert_eq!(at(0.6, 0.05), 1, "gentle mid-altitude ground is dirt");
         assert_eq!(at(0.1, 0.05), 0, "gentle low ground is grass");
+    }
+
+    /// #1586: on ground built from real Berlin a biome filter reads the
+    /// land use, so a seeded stand of trees (grass and dirt, above water)
+    /// takes the park and none of the built city beside it - and its
+    /// treeline, a fraction of a procedural world's relief, does not strip
+    /// it from ground 40 m up.
+    #[test]
+    fn a_stand_on_berlin_ground_takes_the_park_and_not_the_city() {
+        use geodata::berlin::LandUse;
+        // 129 x 129 cells 1 m apart at 40 m: a park west of x = 0, housing
+        // east of it.
+        let mut hm = bevy_symbios_ground::HeightMap::new(129, 129, 1.0);
+        hm.data_mut().fill(40.0);
+        let cover = (0..129 * 129)
+            .map(|i| {
+                Some(if i % 129 < 64 {
+                    LandUse::Park
+                } else {
+                    LandUse::Housing
+                })
+            })
+            .collect();
+        let ground = crate::terrain::geo::GeoGround::from_cover(129, 1.0, cover, None);
+        let berlin = crate::terrain::FinishedHeightMap(hm, Some(ground));
+        let stand = crate::pds::BiomeFilter {
+            biomes: vec![0, 1],
+            water: crate::pds::WaterRelation::Above,
+        };
+        let treeline = ScatterNaturalness {
+            altitude_band: Some(Fp2([-10_000.0, 26.0])),
+            ..ScatterNaturalness::default()
+        };
+        let cfg = SovereignTerrainConfig::default();
+        let filters = SampleFilters {
+            biome_filter: &stand,
+            terrain_cfg: Some(&cfg),
+            water_level: Some(30.5),
+            urban_exclusions: &[],
+            slope_cutoff: None,
+        };
+        let mut rng = ChaCha8Rng::seed_from_u64(7);
+        let placed: Vec<(f32, f32, f32)> = (0..400)
+            .filter_map(|_| {
+                try_sample(
+                    &disc(60.0),
+                    &treeline,
+                    &[],
+                    &mut rng,
+                    Some(&berlin),
+                    &filters,
+                )
+            })
+            .collect();
+        assert!(placed.len() > 100, "the park takes trees: {}", placed.len());
+        assert!(
+            placed.iter().all(|&(x, _, _)| x < 0.5),
+            "no tree in the housing east of x = 0"
+        );
     }
 }

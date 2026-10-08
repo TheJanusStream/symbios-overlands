@@ -71,6 +71,7 @@ Measured on the recorded fixtures (`crates/geodata/tests/decode.rs`):
 | terrain, 4 m pixels | raw DGM1, 4 m block means | 0.26 m mean error (class midpoints: 0.42 m); false one-metre steps on flat ground 0.7 % (midpoints: 6 %) |
 | land use, 2 m pixels | WFS blocks | 99.9 % of pixels |
 | storeys, 2 m pixels | WFS ALKIS footprints | 99 % of building pixels, 98 % of open ground |
+| water, 2 m pixels | the Spree's published level, 30.5 m | settled at 30.54 m |
 
 Traps, each found the hard way:
 
@@ -127,7 +128,8 @@ and the wasm worker share it:
 - `request`: canonical `GetMap`, `GetLegendGraphic` and `GetFeature` URLs;
 - `legend`: GeoServer JSON legends, as value ranges or fill classes;
 - `raster`: PNG to RGBA; terrain to heights with clamped smoothing;
-  categorical layers to class ids, with outlines resolved by neighbour vote.
+  categorical layers to class ids, with outlines resolved by neighbour vote;
+- `water`: a core's water level, and the ground shaped around it (P1.4).
 
 `tests/fixtures/README.md` lists the recorded answers and the truth rasters.
 `tools/fixtures.sh` and `tools/truth.py` regenerate them.
@@ -192,19 +194,20 @@ The terrain (P1.2, #1584, `src/terrain/geo.rs`) reads the source. A record
 with a Berlin square starts a geodata job instead of the procedural
 heightmap job.
 
-1. The job fetches the terrain legend and one render of the core: the
-   terrain config's `grid_size` points `cell_scale` apart, centred on the
-   square, with pixel centres on the grid points. The core is never wider
-   than the square (`core_grid`), so a 250 m square is a 250 m world, and
-   the core always lies inside Berlin, where the data is.
+1. The job fetches four answers: the terrain legend and one render of the
+   core - the terrain config's `grid_size` points `cell_scale` apart,
+   centred on the square, with pixel centres on the grid points - and the
+   land-use legend and one render of the same box (P1.4). The core is never
+   wider than the square (`core_grid`), so a 250 m square is a 250 m
+   world, and the core always lies inside Berlin, where the data is.
 2. It decodes them on the compute pool.
 3. It lands the result as a finished `TerrainTask`, so the procedural
    pipeline's own landing builds the world digest, the log, the mesh, the
    collider and the swap.
 
 - **Heights** are metres above sea level, with no datum shift. Berlin's
-  ground never lies below 26 m, so a seeded water plane stays under it
-  until P1.4 adds real water.
+  ground never lies below 26 m, so where Berlin has no water a seeded water
+  plane stays under it.
 - **Rebuilds.** The terrain fingerprint covers `geo_source`, so switching to
   Berlin or moving the square rebuilds the ground in place, as a terrain
   edit does.
@@ -227,9 +230,71 @@ heightmap job.
   `--world N --geo-square E,N,SIZE` to render a region from real Berlin.
   Its `--terrain-report` read the Teufelsberg square's highest ground as
   119.0 m (the summit is about 120 m).
-- **Placeholders.** Until P1.3 and P1.4, the ground's colours follow the
-  record's altitude bands, so at real altitude it is mostly the high
-  bands. Seeded fog also hides real terrain beyond a few hundred metres.
+- **Placeholder.** Until P1.3, seeded fog hides real terrain beyond a few
+  hundred metres.
+
+The ground and the water (P1.4, #1586) come from the land-use render,
+decoded on the core's own grid (`src/terrain/geo/ground.rs`). They ride in
+the `FinishedHeightMap` beside the heights as a `GeoGround`, so the two land
+together and go together.
+
+- **Splat.** Each land-use class is drawn with one of the record's four
+  material layers, by the role every seeded theme gives that layer, and the
+  altitude rules are not read:
+
+  | Layer | Classes |
+  | --- | --- |
+  | 0, green | forest, park, meadow, cemetery, allotments, weekend cottages, sport, tree nursery, the two vegetated fallows |
+  | 1, earth | farmland, bare fallow, construction sites, water beds, and the built-up blocks until buildings stand on them |
+  | 2, stone | street space, city squares, rail and airfields |
+
+  The theme dresses Berlin: a meadow world's grass in the parks, a volcanic
+  world's lava. The contact classifier reads the same weights, so dust and
+  footstep sounds match the ground drawn.
+- **Scatters.** A biome filter names natural ground. Built-up blocks,
+  streets, squares, rail, sport grounds, construction sites and water count
+  as no layer at all, so a seeded stand of trees grows in the parks, woods
+  and fields and never across a street. A scatter's altitude band is not
+  read on Berlin ground: a seeded treeline is a fraction of a procedural
+  world's relief, tens of metres below Berlin's lowest ground, and would
+  strip every stand.
+- **Water.** The terrain layer draws water flat at its surface: the Spree at
+  the Museumsinsel decodes to 30.54 m, its published level about 30.5 m.
+  `geodata::water::settle` takes one level for the core, the median height
+  of a body's pixels, and shapes the ground to it:
+  - every body within 3 m of the level is carved below it, its bed falling
+    a metre per two from the shore, to 3 m;
+  - all other ground is kept 0.2 m above it, so the one plane floods
+    nothing that is not water: an underpass, a building pit, a lock's lower
+    basin;
+  - the shore follows the water's blurred outline rather than the map's
+    2 m pixels, whose staircase showed from the ground as a row of teeth
+    along the far bank. Within that two-pixel margin the shore's profile
+    replaces the two rules above. Water narrower than about two pixels is
+    smoothed away with the steps.
+
+  Lifting the ground is only a repair for the few low spots a plane would
+  flood, so the body that sets the level must be one the plane can stand
+  at. The largest bodies are tried in turn, and the first is taken whose
+  level sinks no more than 2 % of the core over a metre under it and that
+  keeps some water once its shore is smoothed. A pond on a hill over a
+  valley would lift the whole valley to its surface; a lake on the plateau
+  that is larger than the river below it leaves the level to the river.
+  Where no body qualifies, nothing is settled.
+- **One plane.** The record still says whether there is water - a record
+  with no water child draws none, and the beds lie dry - and Berlin says
+  where: every water plane of the region is drawn at Berlin's level, and
+  every reader of the water line (the damp ground, the dry-land walks, the
+  scatter bands, the streets, the editor and the tools) asks
+  `drawn_water_level` for it. A body more than 3 m off the level, a lake on
+  the plateau, is drawn dry; a region with water at several levels needs
+  bounded water planes, a later step. Bridges are causeways at the
+  waterline until P2 builds their decks.
+- **Failure.** If only the land use cannot be had, Berlin's terrain lands
+  without it, coloured by the record's altitude bands and with no water,
+  and the fallback says so as it does for the terrain.
+- **Editor.** The Region source section says what the land use does and
+  shows the water level Berlin set.
 
 The ignored test `live_gdi_berlin_round_trip_decodes_and_is_kept` exercises
 the live path end to end: the real client, the disk store, and the decoders.

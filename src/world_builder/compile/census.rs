@@ -112,8 +112,8 @@ pub(crate) struct ScatterCensus {
 /// is done once and shared across the room's scatters - the same map every
 /// peer's terrain pass produces for that record.
 pub(crate) fn scatter_census(record: &RoomRecord) -> ScatterCensus {
-    let heightmap = FinishedHeightMap(crate::terrain::rebuild_heightmap_for_record(record));
-    let water_level = super::water::room_water_level(record);
+    let heightmap = crate::terrain::rebuild_terrain_for_record(record);
+    let water_level = super::water::drawn_water_level(record, Some(&heightmap));
 
     let rows = record
         .placements
@@ -184,7 +184,7 @@ pub(crate) fn scatter_yields(
     record: &RoomRecord,
     heightmap: &FinishedHeightMap,
 ) -> Vec<Option<u32>> {
-    let water_level = super::water::room_water_level(record);
+    let water_level = super::water::drawn_water_level(record, Some(heightmap));
     record
         .placements
         .iter()

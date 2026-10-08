@@ -17,8 +17,10 @@
 //!   sibling spawner module), [`GeneratorCaches`] system param,
 //!   [`MAX_ROOM_ENTITIES`] cap +
 //!   [`budget_exceeded`] gate, and [`spawn_ctx::transform_from_data`].
-//! * [`water`] - [`water::room_water_level`] sea-level lookup and the
-//!   dry-land relocation walk for water-avoiding placements.
+//! * [`water`] - [`water::room_water_level`] sea-level lookup, the water
+//!   line as drawn ([`water::drawn_water_level`]: Berlin's in a geodata
+//!   region, #1586) and the dry-land relocation walk for water-avoiding
+//!   placements.
 //! * [`environment`] - [`apply_environment_state`] (its own system).
 //! * [`scatter`] - sampling helpers and the biome-rule evaluator.
 //! * [`census`] - offline replay of the sampling loop, for measuring what
@@ -70,5 +72,7 @@ pub use spawn_ctx::{GeneratorCaches, SpawnCtx, budget_exceeded};
 /// Re-exported so the terrain splat pass reads the room's water line from
 /// the same single source the scatter sampler does - if the two ever
 /// disagreed, the damp margin drawn on the ground and the riparian band the
-/// reeds are placed in would sit at different heights (#913).
-pub(crate) use water::room_water_level;
+/// reeds are placed in would sit at different heights (#913). Every reader
+/// with a heightmap asks [`drawn_water_level`], so in a geodata region they
+/// all read Berlin's level (#1586).
+pub(crate) use water::{drawn_water_level, room_water_level};

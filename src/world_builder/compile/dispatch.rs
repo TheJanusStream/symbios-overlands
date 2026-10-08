@@ -200,6 +200,22 @@ fn spawn_node(
                 .heightmap
                 .map(|hm| (hm.0.width() - 1) as f32 * hm.0.scale())
                 .unwrap_or_else(|| (tcfg::GRID_SIZE - 1) as f32 * tcfg::CELL_SCALE);
+            // A region built from real Berlin draws its water at Berlin's
+            // level (#1586), whatever height the record gives the plane: the
+            // beds are carved below that level and all other ground is kept
+            // above it. Only the water the room's water line is read from
+            // moves - a Terrain root's own Water children, as
+            // `room_water_level` counts them, which hang from the terrain's
+            // anchor at the origin, so their height is the plane's.
+            let terrain_water = path.len() == 1
+                && matches!(
+                    ctx.record.generators.get(base_ref).map(|g| &g.kind),
+                    Some(GeneratorKind::Terrain(_))
+                );
+            let mut transform = transform;
+            if terrain_water && let Some(level) = super::water::geo_water_level(ctx.heightmap) {
+                transform.translation.y = level;
+            }
             Some(spawn_water_volume(
                 ctx.commands,
                 surface,

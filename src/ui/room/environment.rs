@@ -54,12 +54,23 @@ impl PlayerPose {
     }
 }
 
+/// What the world as built makes of a Berlin square, for the Region source
+/// section to show (#1586).
+#[derive(Clone, Copy)]
+pub(super) struct BuiltGround<'a> {
+    /// Berlin's ground under the world, once it has landed.
+    pub berlin: Option<&'a crate::terrain::geo::GeoGround>,
+    /// Whether the world has water to draw at Berlin's level.
+    pub has_water: bool,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_environment_tab(
     ui: &mut egui::Ui,
     env: &mut Environment,
     landing: &mut Option<DefaultLanding>,
     geo_source: &mut Option<GeoSource>,
+    ground: BuiltGround<'_>,
     player_pose: Option<PlayerPose>,
     dirty: &mut bool,
     audio_editor: &mut super::audio::AudioEditorState,
@@ -70,7 +81,7 @@ pub(super) fn draw_environment_tab(
 
     egui::CollapsingHeader::new("Region source")
         .default_open(false)
-        .show(ui, |ui| draw_region_source(ui, geo_source, dirty));
+        .show(ui, |ui| draw_region_source(ui, geo_source, ground, dirty));
     draw_arrival_point(ui, landing, player_pose, dirty);
 
     egui::CollapsingHeader::new("Lighting & sky")
@@ -427,7 +438,12 @@ fn draw_arrival_point(
 /// construction, an edited one moved by [`Coverage::nearest`] to the
 /// closest place it fits - the same rule the record sanitiser applies, so
 /// an edit is never rewritten under the owner on the next round trip.
-fn draw_region_source(ui: &mut egui::Ui, source: &mut Option<GeoSource>, dirty: &mut bool) {
+fn draw_region_source(
+    ui: &mut egui::Ui,
+    source: &mut Option<GeoSource>,
+    ground: BuiltGround<'_>,
+    dirty: &mut bool,
+) {
     let weak = crate::ui::theme::current(ui.ctx()).text_weak;
     // A dataset a newer version wrote: shown, kept, and never edited here.
     if let Some(other) = source.as_ref().filter(|s| s.dataset != BERLIN) {
@@ -452,9 +468,10 @@ fn draw_region_source(ui: &mut egui::Ui, source: &mut Option<GeoSource>, dirty: 
         .checkbox(&mut berlin, "Build from real Berlin")
         .on_hover_text(
             "Build the region's ground from a square of real Berlin, at real \
-             scale and real altitude: the city's own terrain, centred on this \
-             square, under everything else in the world. Off: the ground is \
-             drawn from the world's terrain settings.",
+             scale and real altitude: the city's own terrain, land use and \
+             water, centred on this square, under everything else in the \
+             world. Off: the ground is drawn from the world's terrain \
+             settings.",
         )
         .changed()
     {
@@ -555,6 +572,29 @@ fn draw_region_source(ui: &mut egui::Ui, source: &mut Option<GeoSource>, dirty: 
             *dirty = true;
         }
     });
+
+    // What Berlin makes of the ground (#1586): the land use paints it and
+    // zones the scatters, and the water sets the world's.
+    ui.label(
+        egui::RichText::new(
+            "Berlin's land use paints the ground with the world's own layers: parks and \
+             woods on the first, built-up blocks and bare earth on the second, streets and \
+             squares on the third. Seeded trees and rocks keep to its open, natural ground. \
+             Its rivers and lakes set the water: the world's water is drawn at their level.",
+        )
+        .small()
+        .color(weak),
+    );
+    if let Some(berlin) = ground.berlin {
+        ui.label(match (berlin.water_level(), ground.has_water) {
+            (Some(level), true) => format!("Water at {level:.1} m above sea level, from Berlin."),
+            (Some(level), false) => format!(
+                "Berlin's water lies at {level:.1} m, but this world has no water to draw \
+                 there: its beds lie dry."
+            ),
+            (None, _) => "No water is mapped in this square.".to_owned(),
+        });
+    }
 
     ui.label(
         egui::RichText::new("Map data: Geoportal Berlin, dl-de/zero-2.0")
@@ -719,15 +759,23 @@ mod tests {
             min_n: 2,
             size_m: 3,
         });
+        // Berlin's ground as built (#1586) is read, never written.
+        let wet = crate::terrain::geo::GeoGround::from_cover(2, 2.0, vec![None; 4], Some(30.5));
+        let dry = crate::terrain::geo::GeoGround::from_cover(2, 2.0, vec![None; 4], None);
+        let grounds = [None, Some(&wet), Some(&dry)]
+            .into_iter()
+            .flat_map(|berlin| [true, false].map(|has_water| BuiltGround { berlin, has_water }));
         for start in [None, berlin, other] {
-            let ctx = egui::Context::default();
-            let mut source = start.clone();
-            let mut dirty = false;
-            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
-                draw_region_source(ui, &mut source, &mut dirty);
-            });
-            assert_eq!(source, start);
-            assert!(!dirty);
+            for ground in grounds.clone() {
+                let ctx = egui::Context::default();
+                let mut source = start.clone();
+                let mut dirty = false;
+                let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    draw_region_source(ui, &mut source, ground, &mut dirty);
+                });
+                assert_eq!(source, start);
+                assert!(!dirty);
+            }
         }
     }
 

@@ -263,10 +263,13 @@ pub(super) fn placement_generator_ref(placement: &Placement) -> Option<&str> {
 ///
 /// Once-per-planning-pass fingerprint inputs that are pure functions of
 /// the whole record: the room water level and the terrain config, both
-/// serialised up front. Before this existed, every `unit_fingerprint`
-/// call re-scanned all generators (`room_water_level` +
-/// `find_terrain_config`) - O(placements × generators) per pass in the
-/// editing loop (#673). Scoped to a single pass ONLY: the fingerprint is
+/// serialised up front. In a region built from real Berlin the water level
+/// is the one drawn, Berlin's (#1586), and its land use - which a scatter's
+/// biome filter reads there instead of the terrain rules - changes only
+/// with the heightmap, whose every swap is a full rebuild. Before this
+/// existed, every `unit_fingerprint` call re-scanned all generators
+/// (`room_water_level` + `find_terrain_config`) - O(placements ×
+/// generators) per pass in the editing loop (#673). Scoped to a single pass ONLY: the fingerprint is
 /// the planner's change-detection source of truth, so caching these
 /// across passes would be a correctness trap.
 ///

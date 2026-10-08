@@ -612,7 +612,7 @@ mod tests {
             for cell in hm.data_mut() {
                 *cell = 10.0;
             }
-            world.insert_resource(FinishedHeightMap(hm));
+            world.insert_resource(FinishedHeightMap(hm, None));
         }
         if compiled {
             world.insert_resource(WorldCompiled);

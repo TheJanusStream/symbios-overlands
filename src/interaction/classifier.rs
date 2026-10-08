@@ -78,11 +78,25 @@ pub struct TerrainSurfaceQuery {
     /// `world + half` before handing to [`TerrainQuery`] (whose
     /// coordinate origin is the heightmap corner).
     half_extent: f32,
+    /// Real Berlin's land use under a geodata region's ground (#1586),
+    /// whose weights replace the splat rules': the layers the GPU draws.
+    ground: Option<crate::terrain::geo::GeoGround>,
 }
 
 impl TerrainSurfaceQuery {
     pub fn new(query: TerrainQuery, half_extent: f32) -> Self {
-        Self { query, half_extent }
+        Self {
+            query,
+            half_extent,
+            ground: None,
+        }
+    }
+
+    /// Read the splat weights from `ground`'s land use, as the GPU draws a
+    /// geodata region's ground, rather than from the splat rules.
+    pub(crate) fn with_ground(mut self, ground: Option<crate::terrain::geo::GeoGround>) -> Self {
+        self.ground = ground;
+        self
     }
 
     /// Ground height, normalised `[Grass, Dirt, Rock, Snow]` splat
@@ -91,7 +105,10 @@ impl TerrainSurfaceQuery {
         let lx = world_x + self.half_extent;
         let lz = world_z + self.half_extent;
         let h = self.query.height_at(lx, lz);
-        let w = self.query.splat_weights_at(lx, lz);
+        let w = match &self.ground {
+            Some(ground) => ground.weights_at_local(lx, lz),
+            None => self.query.splat_weights_at(lx, lz),
+        };
         let n = self.query.normal_at(lx, lz);
         (h, w, Vec3::new(n[0], n[1], n[2]))
     }
@@ -656,6 +673,38 @@ mod tests {
         assert!(
             probe_terrain(at(ride + reach + 1.0), total, reach, true, &terrain).is_none(),
             "a metre clear of where its wheels touch, it is in the air"
+        );
+    }
+
+    /// #1586: on ground built from real Berlin a footfall reads the layer
+    /// the land use paints there - the stone of a street, the grass of a
+    /// park - not the splat rules', which put real altitude on the summit
+    /// layers. So its dust and its sound are the ground the player sees.
+    #[test]
+    fn a_footfall_on_berlin_ground_reads_its_land_use() {
+        use geodata::berlin::LandUse;
+        // 9 x 9 cells 1 m apart at 40 m: street west of x = 0, park east.
+        let mut hm = bevy_symbios_ground::HeightMap::new(9, 9, 1.0);
+        hm.data_mut().fill(40.0);
+        let cover = (0..81)
+            .map(|i| (i % 9 > 4).then_some(LandUse::Park))
+            .collect();
+        let ground = crate::terrain::geo::GeoGround::from_cover(9, 1.0, cover, None);
+        let terrain = TerrainSurfaceQuery::new(
+            TerrainQuery::new(hm, bevy_symbios_ground::SplatMapper::default()),
+            4.0,
+        )
+        .with_ground(Some(ground));
+        let blend = |x: f32| match probe_terrain(Vec3::new(x, 41.0, 0.0), 2.0, 0.0, false, &terrain)
+        {
+            Some(SurfaceContact::Terrain { material_blend, .. }) => material_blend,
+            other => panic!("standing on the ground: {other:?}"),
+        };
+        assert_eq!(blend(-3.0), [0.0, 0.0, 1.0, 0.0], "a street is stone");
+        assert_eq!(
+            blend(3.0),
+            [1.0, 0.0, 0.0, 0.0],
+            "a park is the green layer"
         );
     }
 

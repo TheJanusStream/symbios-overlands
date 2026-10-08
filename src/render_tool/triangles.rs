@@ -155,9 +155,9 @@ pub(super) fn tally<'a>(
 pub(super) fn print_triangle_report(world: &str, record: &RoomRecord) {
     // The ground first: the road layer grows its districts on it (#1554),
     // and the copies to grow are the grown record's.
-    let heightmap = FinishedHeightMap(crate::terrain::rebuild_heightmap_for_record(record));
+    let heightmap = crate::terrain::rebuild_terrain_for_record(record);
     let mut grown = record.clone();
-    let grown_count = crate::terrain::grow_missing_districts(&mut grown, &heightmap.0, world);
+    let grown_count = crate::terrain::grow_missing_districts(&mut grown, &heightmap, world);
     let record = &grown;
     let copies = copies_to_grow(record);
     let labels: Vec<(String, Generator)> = copies
@@ -235,7 +235,7 @@ const GROUND_PARTS: u64 = 1;
 /// ground (#1554): `(network index, streets, junctions, triangles, parts)`.
 /// A network whose tracer finds nothing draws nothing and is left out.
 fn street_costs(record: &RoomRecord, heightmap: &FinishedHeightMap) -> Vec<(usize, Value, Tally)> {
-    let water = crate::world_builder::compile::room_water_level(record);
+    let water = crate::world_builder::compile::drawn_water_level(record, Some(heightmap));
     crate::pds::find_road_configs(record)
         .into_iter()
         .enumerate()
@@ -460,7 +460,7 @@ mod tests {
                 map.data_mut()[z * 3 + x] = x as f32 * 10.0;
             }
         }
-        FinishedHeightMap(map)
+        FinishedHeightMap(map, None)
     }
 
     fn scatter(generator: &str, count: u32, altitude_band: Option<[f32; 2]>) -> Placement {
@@ -953,7 +953,7 @@ mod tests {
                 ..Default::default()
             }),
         ));
-        let map = FinishedHeightMap(crate::urban::test_support::pilot_heightmap());
+        let map = FinishedHeightMap(crate::urban::test_support::pilot_heightmap(), None);
         let streets = street_costs(&record, &map);
         assert_eq!(streets.len(), 1, "one network, one row");
         let (_, row, tally) = &streets[0];

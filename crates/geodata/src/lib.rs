@@ -20,7 +20,9 @@
 //!   class a WMS layer is drawn with;
 //! - [`raster`]: decoding a WMS render back into data - heights from the
 //!   terrain layer's colour classes, class ids from a categorical layer's
-//!   fills.
+//!   fills;
+//! - [`water`]: the level a core's water lies at, and the ground shaped so
+//!   one flat plane shows the water and nothing else.
 //!
 //! # Why a styled render, not raw data
 //!
@@ -45,5 +47,6 @@ pub mod legend;
 pub mod raster;
 pub mod request;
 pub mod square;
+pub mod water;
 
 pub use square::GeoSquare;

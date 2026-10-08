@@ -66,7 +66,7 @@ pub(super) fn start_terrain_generation(
             job: "heightmap".into(),
         },
     );
-    commands.insert_resource(TerrainTask(task, now, source));
+    commands.insert_resource(TerrainTask(task, now, source, None));
 }
 
 pub(super) fn poll_terrain_task(
@@ -130,7 +130,9 @@ pub(super) fn poll_terrain_task(
                         duration_secs: now - spawned_at,
                     },
                 );
-                commands.insert_resource(FinishedHeightMap(heightmap_from_data(data)));
+                // A geodata region's ground lands with its heights (#1586).
+                let ground = task_res.3.take();
+                commands.insert_resource(FinishedHeightMap(heightmap_from_data(data), ground));
                 commands.insert_resource(super::HeightMapSource(task_res.2.clone()));
             }
             // A heightmap job only ever yields a heightmap; count an unexpected

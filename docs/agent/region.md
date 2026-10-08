@@ -1024,9 +1024,8 @@ Berlin in whole metres of EPSG:25833 (ETRS89 / UTM 33N), its south-west
 corner and side. With it, the ground is the city's own terrain at real scale
 and real altitude: the heightmap keeps `base_terrain`'s `grid_size` and
 `cell_scale`, centred on the square, and the height fields are no longer
-read. Heights are metres above sea level, 26-123 m, so a water child a few
-metres up lies under the ground. `room set /geo_source null` goes back to
-the generated ground.
+read. Heights are metres above sea level, 26-123 m. `room set /geo_source
+null` goes back to the generated ground.
 
 - **The square is checked.** Its side snaps to whole 10 m between 250 m and
   19 km, and a square that is not wholly inside Berlin is moved to the
@@ -1036,13 +1035,35 @@ the generated ground.
   (gdi.berlin.de) and kept on the device for 30 days. Everyone in the world
   fetches the same data. If the service cannot be reached, the world falls
   back to `base_terrain`'s generated ground and says why: an amber
-  terrain row while loading, a warning toast in game.
+  terrain row while loading, a warning toast in game. If only the land use
+  cannot be had, Berlin's terrain stays, coloured by the altitude rules
+  and dry, and says that.
 - **A small square is a small world.** The ground spans `grid_size` points
   `cell_scale` apart, but never more than the square's side: a 250 m square
   gives a ground about 250 m across.
-- **Only the ground comes from Berlin so far.** The ground's colours still
-  follow `base_terrain`'s altitude rules, which at real altitude mostly
-  means the high bands. Water, blocks and buildings are not Berlin's yet.
+- **The land use paints the ground, by layer role.** Parks, woods,
+  meadows, cemeteries, allotments and sport grounds take the first of
+  `base_terrain`'s four material layers; built-up blocks, farmland, bare
+  fallow, construction sites and river beds the second; streets, squares
+  and rail the third. The altitude rules are not read. To change how Berlin
+  looks, change the layers' textures, not the rules.
+- **Scatters keep to natural ground.** A scatter's `biomes` filter reads the
+  layer a point is painted with, and built-up blocks, streets, squares,
+  rail, sport grounds, construction sites and water count as no layer at
+  all. So a stand with `biomes [0, 1]` grows in parks, woods and fields,
+  never on a street. Its `altitude_band` is not read on Berlin ground.
+- **Berlin sets the water level.** Where the square has a river or lake,
+  every water child under `base_terrain` is drawn at Berlin's level (the
+  Spree at the Museumsinsel: 30.5 m), whatever its `transform.translation` y
+  says; with no water child there is no water, and the beds lie dry. The
+  beds are carved below the level, all other ground is kept above it, and
+  a body more than 3 m off the level (a lake on the plateau over a river)
+  is drawn dry. The level is the largest body's that does not sink much of
+  the square under it: a pond on a hill leaves the valley below it alone,
+  and if no body can set a level, the square has no water. Bridges are
+  causeways at the waterline until buildings come. The World Editor's
+  Region source shows the level.
+- **Blocks and buildings are not Berlin's yet.**
 
 ## Arrivals
 

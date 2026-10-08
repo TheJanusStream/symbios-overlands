@@ -1,11 +1,13 @@
 //! The decoders against live GDI Berlin renders (`tests/fixtures`, recorded
 //! 2026-10-08), scored against truth that never passed through a render:
-//! the raw DGM for terrain, the WFS vectors for land use and storeys.
+//! the raw DGM for terrain, the WFS vectors for land use and storeys. And
+//! the water settled on a decoded square against the river's known level.
 
 use geodata::berlin::{self, LandUse, StoreyBand};
 use geodata::legend::{ClassLegend, parse_class_legend, parse_value_legend};
 use geodata::raster::{CLASS_NONE, decode_classes, decode_png, decode_terrain};
 use geodata::request::{Bbox, get_legend, get_map};
+use geodata::water;
 
 fn fixture(name: &str) -> Vec<u8> {
     let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -66,6 +68,13 @@ fn fixtures_are_what_the_builders_ask_for() {
         format!(
             "{wms}/dgm1?service=WMS&version=1.3.0&request=GetMap&layers=c_dgm1{tail}\
              &bbox=392000,5820000,393024,5821024&width=256&height=256{png}"
+        )
+    );
+    assert_eq!(
+        get_map(&berlin::TERRAIN, MUSEUMSINSEL, 300, 300),
+        format!(
+            "{wms}/dgm1?service=WMS&version=1.3.0&request=GetMap&layers=c_dgm1{tail}\
+             &bbox=391200,5819700,391800,5820300&width=300&height=300{png}"
         )
     );
     assert_eq!(
@@ -246,4 +255,66 @@ fn storeys_decode_to_the_alkis_footprints() {
         clear > 0.95,
         "{clear:.4} of {empty} empty pixels decode as none"
     );
+}
+
+#[test]
+fn the_spree_at_the_museumsinsel_settles_at_its_level() {
+    // The land-use square's terrain and land use, decoded on one 2 m grid.
+    let terrain = parse_value_legend(&fixture("dgm1_legend.json")).unwrap();
+    let image = decode_png(&fixture("dgm1_391200_5819700_600m_300px.png"), 300, 300).unwrap();
+    let grid = decode_terrain(&image, &terrain).unwrap();
+    assert_eq!((grid.transparent, grid.unmatched), (0, 0));
+    let mut heights = grid.heights;
+    let legend = parse_class_legend(&fixture("landuse_legend.json")).unwrap();
+    let table = berlin::land_use_table(&legend);
+    let image = decode_png(&fixture("landuse_391200_5819700_600m_300px.png"), 300, 300).unwrap();
+    let wet: Vec<bool> = decode_classes(&image, &legend)
+        .unwrap()
+        .classes
+        .iter()
+        .map(|&c| table[usize::from(c)] == Some(LandUse::Water))
+        .collect();
+    let before = heights.clone();
+    let settled = water::settle(&mut heights, &wet, 300, 300, 2.0).unwrap();
+    // The Spree below the Muehlendamm lock lies at about 30.5 m; the
+    // terrain layer draws it flat in the 30-31 m class (measured 30.54 m).
+    assert!(
+        (30.3..30.8).contains(&settled.level),
+        "level {}",
+        settled.level
+    );
+    // Every body mapped here is the Spree or an arm of it, and is drawn as
+    // water: the smoothed shore trades a few pixels each way (10,504 drawn
+    // of 10,525 mapped).
+    let mapped = wet.iter().filter(|&&w| w).count() as u32;
+    assert_eq!(settled.stranded, 0);
+    assert!(
+        settled.wet.abs_diff(mapped) * 100 < mapped,
+        "{settled:?} of {mapped}"
+    );
+    // Out of the shore's reach - nothing but water, or no water, within
+    // two pixels - the rules hold exactly: the water below the level, the
+    // land above it, and no land lifted by a metre.
+    let only = |i: usize, want: bool| {
+        let (x, y) = ((i % 300) as i64, (i / 300) as i64);
+        (-2..=2).all(|dy| {
+            (-2..=2).all(|dx| {
+                let (nx, ny) = (x + dx, y + dy);
+                !(0..300).contains(&nx)
+                    || !(0..300).contains(&ny)
+                    || wet[(ny * 300 + nx) as usize] == want
+            })
+        })
+    };
+    let crest = settled.level + water::FREEBOARD_M;
+    for (i, (&now, &was)) in heights.iter().zip(&before).enumerate() {
+        if wet[i] && only(i, true) {
+            assert!(now < settled.level, "water pixel {i} at {now}");
+        } else if !wet[i] && only(i, false) {
+            assert!(
+                now >= crest && now - was < 1.0,
+                "land pixel {i}: {was} to {now}"
+            );
+        }
+    }
 }

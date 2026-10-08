@@ -1566,11 +1566,22 @@ pub fn room_admin_ui(
                             .max_height(body_height)
                             .show(ui, |ui| match other {
                                 EditorTab::Environment => {
+                                    // Whether the world has water to draw at
+                                    // Berlin's level (#1586).
+                                    let has_water =
+                                        crate::world_builder::compile::room_water_level(record_mut)
+                                            .is_some();
                                     environment::draw_environment_tab(
                                         ui,
                                         &mut record_mut.environment,
                                         &mut record_mut.default_landing,
                                         &mut record_mut.geo_source,
+                                        environment::BuiltGround {
+                                            berlin: heightmap.as_deref().and_then(
+                                                crate::terrain::FinishedHeightMap::ground,
+                                            ),
+                                            has_water,
+                                        },
                                         player_pose,
                                         &mut widget_change,
                                         audio_editor,

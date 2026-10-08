@@ -62,7 +62,8 @@ fn scatter(name: &str) -> Value {
 
 /// The report's fields for `record` over `map`, by name.
 fn fields(record: &RoomRecord, map: &HeightMap) -> HashMap<&'static str, Value> {
-    report("did:test", record, map, &bodies_of(record))
+    let water = crate::world_builder::compile::room_water_level(record);
+    report("did:test", record, map, water, &bodies_of(record))
         .into_iter()
         .collect()
 }
@@ -482,7 +483,14 @@ fn the_report_prints_a_row_a_line() {
         vec![limb(0.5, 1.0, 1.0), limb(0.5, 1.0, -1.0)],
     );
     let record = record(vec![("a/b~c", tree)], vec![absolute("a/b~c", 0.0, 0.0)]);
-    let printed = one_row_a_line(&report("did:test", &record, &flat(), &bodies_of(&record)));
+    let water = crate::world_builder::compile::room_water_level(&record);
+    let printed = one_row_a_line(&report(
+        "did:test",
+        &record,
+        &flat(),
+        water,
+        &bodies_of(&record),
+    ));
 
     let parsed: Value = serde_json::from_str(&printed).expect("one JSON object");
     assert_eq!(parsed["floating"].as_array().map(Vec::len), Some(2));

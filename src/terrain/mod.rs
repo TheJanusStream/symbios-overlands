@@ -95,8 +95,17 @@ pub struct WaterVolume;
 /// The completed heightmap of the active room. Its insertion (and any later
 /// change) is the readiness signal `world_builder` keys off - room
 /// compilation and avatar spawning both gate on this resource.
+///
+/// For a region built from real Berlin it also carries what covers the
+/// ground and where its water lies ([`geo::GeoGround`], #1586), decoded
+/// beside the heights: the two land together and go together, so nothing
+/// can read one terrain's water against another's ground.
 #[derive(Resource)]
-pub struct FinishedHeightMap(pub HeightMap);
+pub struct FinishedHeightMap(
+    pub HeightMap,
+    /// Berlin's ground under these heights; `None` for procedural ground.
+    pub(crate) Option<geo::GeoGround>,
+);
 
 /// Which terrain the [`FinishedHeightMap`] was generated from: the
 /// [`terrain_source_key`] of the record the task started on, written with
@@ -224,6 +233,13 @@ pub(crate) use lots::{
 };
 
 impl FinishedHeightMap {
+    /// What real Berlin says covers this ground (#1586): a geodata region's
+    /// land use and water level. `None` for procedural ground, and for a
+    /// Berlin region whose land use could not be had.
+    pub(crate) fn ground(&self) -> Option<&geo::GeoGround> {
+        self.1.as_ref()
+    }
+
     /// Terrain height at **world** coordinates: the heightmap's own frame
     /// starts at `(0, 0)` in its corner, while the world centres the
     /// terrain on the origin - this does the half-extent shift + clamp
@@ -251,6 +267,9 @@ pub struct TerrainTask(
     /// The [`terrain_source_key`] of the record the task started on: the
     /// [`HeightMapSource`] its heightmap is written with.
     pub Option<String>,
+    /// The ground a geodata region's heightmap lands beside (#1586), for
+    /// its [`FinishedHeightMap`].
+    pub(crate) Option<geo::GeoGround>,
 );
 
 /// Shared marker on an in-flight splat-texture-bake entity. The bake task and
@@ -327,6 +346,19 @@ struct PendingTerrainConfigJson(Option<Option<String>>);
 /// otherwise report on ground the game never draws.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn rebuild_heightmap_for_record(record: &crate::pds::RoomRecord) -> HeightMap {
+    rebuild_terrain_for_record(record).0
+}
+
+/// [`rebuild_heightmap_for_record`] with what a Berlin region's ground
+/// carries beside its heights (#1586) - its land use and water level - as
+/// the [`FinishedHeightMap`] the game lands. For tools that read the water
+/// line or the ground's layers as well as its heights.
+///
+/// # Panics
+///
+/// When any part of a Berlin region's ground cannot be fetched or read.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn rebuild_terrain_for_record(record: &crate::pds::RoomRecord) -> FinishedHeightMap {
     let cfg = crate::pds::find_terrain_config(record)
         .cloned()
         .unwrap_or_default();
@@ -335,11 +367,15 @@ pub(crate) fn rebuild_heightmap_for_record(record: &crate::pds::RoomRecord) -> H
         .as_ref()
         .and_then(crate::pds::GeoSource::berlin_square)
     {
-        return geo::fetch_core_blocking(square, &cfg).unwrap_or_else(|reason| panic!("{reason}"));
+        let (heights, ground) =
+            geo::fetch_core_blocking(square, &cfg).unwrap_or_else(|reason| panic!("{reason}"));
+        return FinishedHeightMap(heights, Some(ground));
     }
     let params = heightmap::heightmap_params(&cfg);
     match crate::offload::GenJob::Heightmap(params).run() {
-        crate::offload::GenResult::Heightmap(data) => heightmap::heightmap_from_data(data),
+        crate::offload::GenResult::Heightmap(data) => {
+            FinishedHeightMap(heightmap::heightmap_from_data(data), None)
+        }
         _ => unreachable!("a heightmap offload job yields a heightmap result"),
     }
 }
@@ -714,7 +750,7 @@ mod world_height_tests {
                 hm.data_mut()[z * 3 + x] = x as f32;
             }
         }
-        let finished = FinishedHeightMap(hm);
+        let finished = FinishedHeightMap(hm, None);
         assert_eq!(finished.world_height_at(-2.0, -2.0), 0.0);
         assert_eq!(finished.world_height_at(2.0, -2.0), 2.0);
         assert_eq!(finished.world_height_at(0.0, 0.0), 1.0);

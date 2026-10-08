@@ -23,6 +23,30 @@ pub(crate) fn room_water_level(record: &RoomRecord) -> Option<f32> {
         })
 }
 
+/// The room's water level as drawn on `heightmap`: Berlin's own where a
+/// geodata region's core has water (#1586), else the record's
+/// ([`room_water_level`]). The record still decides whether there is water
+/// at all - a record with no Water generator draws no plane, and Berlin's
+/// beds lie dry - while Berlin decides where it lies: every water plane of
+/// such a region is drawn at its level. Every reader of the water line that
+/// has a heightmap asks this, so the plane, the damp ground, the dry-land
+/// walks, the scatter bands and the streets all agree on it.
+pub(crate) fn drawn_water_level(
+    record: &RoomRecord,
+    heightmap: Option<&crate::terrain::FinishedHeightMap>,
+) -> Option<f32> {
+    let own = room_water_level(record)?;
+    Some(geo_water_level(heightmap).unwrap_or(own))
+}
+
+/// Berlin's water level under `heightmap`, where a geodata region's core
+/// has water: the height every water plane of the region is drawn at.
+pub(crate) fn geo_water_level(
+    heightmap: Option<&crate::terrain::FinishedHeightMap>,
+) -> Option<f32> {
+    heightmap?.ground()?.water_level()
+}
+
 /// Slide a water-avoiding anchor along its bearing through the origin -
 /// alternating outward / inward in `DRY_STEP`-metre increments - to
 /// the first probe where the terrain rises above the room's water
@@ -102,6 +126,39 @@ pub(super) fn relocate_above_water(
 mod water_avoidance_tests {
     use super::*;
     use crate::pds::Placement;
+
+    /// #1586: the record says whether there is water, Berlin where it lies.
+    #[test]
+    fn the_drawn_water_line_is_berlins_where_the_region_has_water() {
+        use crate::terrain::FinishedHeightMap;
+        use crate::terrain::geo::GeoGround;
+        let record = RoomRecord::default_for_did("did:test:water");
+        let own = room_water_level(&record).expect("seeded rooms carry water");
+        let map =
+            |ground| FinishedHeightMap(bevy_symbios_ground::HeightMap::new(3, 3, 1.0), ground);
+        let wet = GeoGround::from_cover(3, 1.0, vec![None; 9], Some(30.5));
+        let dry = GeoGround::from_cover(3, 1.0, vec![None; 9], None);
+        assert_eq!(drawn_water_level(&record, None), Some(own));
+        assert_eq!(drawn_water_level(&record, Some(&map(None))), Some(own));
+        assert_eq!(
+            drawn_water_level(&record, Some(&map(Some(wet.clone())))),
+            Some(30.5),
+            "Berlin's level, not the record's"
+        );
+        assert_eq!(
+            drawn_water_level(&record, Some(&map(Some(dry)))),
+            Some(own),
+            "a dry core keeps the record's plane, under Berlin's ground"
+        );
+        // No Water generator: no plane, and so no line, Berlin or not.
+        let mut without = record.clone();
+        for generator in without.generators.values_mut() {
+            generator
+                .children
+                .retain(|c| !matches!(c.kind, GeneratorKind::Water { .. }));
+        }
+        assert_eq!(drawn_water_level(&without, Some(&map(Some(wet)))), None);
+    }
 
     #[test]
     fn room_water_level_reads_seeded_record() {

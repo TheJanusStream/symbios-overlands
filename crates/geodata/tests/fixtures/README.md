@@ -11,6 +11,7 @@ Berlin, <https://gdi.berlin.de>.
 | --- | --- | --- |
 | `dgm1_legend.json` | JSON legend of the terrain layer `c_dgm1` (served in Latin-1) | `GetLegendGraphic` |
 | `dgm1_392000_5820000_1024m_256px.png` | terrain render, E 392000-393024, N 5820000-5821024, 4 m pixels | `GetMap` |
+| `dgm1_391200_5819700_600m_300px.png` | terrain render over the land-use square (Museumsinsel, the Spree at 30-31 m), 2 m pixels | `GetMap` |
 | `dgm1_truth_392000_5820000_1024m_4m.png` | the same square from the raw DGM1 tile 392_5820 (2025): 4 m block means in centimetres, 16-bit grey, north up | ATOM `dgm1/atom/DGM1_392_5820.zip` |
 | `landuse_legend.json` | JSON legend of land use `c_ua_realnutz_2015` | `GetLegendGraphic` |
 | `landuse_391200_5819700_600m_300px.png` | land-use render, E 391200-391800, N 5819700-5820300 (Museumsinsel), 2 m pixels | `GetMap` |

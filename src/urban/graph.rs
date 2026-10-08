@@ -31,9 +31,10 @@ use crate::pds::types::Fp2;
 /// that avoids water, `water_level`. Never writes back to `hm` (the `sub` copy
 /// is the only mutable surface, and nothing carves it).
 ///
-/// `water_level` is the room's water line in world Y
-/// ([`crate::world_builder::compile::room_water_level`]), `None` for a dry room. It is
-/// read only when `config.avoid_water` is set (#1552).
+/// `water_level` is the room's water line in world Y as drawn
+/// ([`crate::world_builder::compile::drawn_water_level`]: Berlin's in a
+/// geodata region, #1586), `None` for a dry room. It is read only when
+/// `config.avoid_water` is set (#1552).
 ///
 /// Shared by [`crate::urban::build_road_geometry`] (the draped mesh) and
 /// [`crate::urban::extract_building_lots`] (footprints) so both read the *same* graph - a

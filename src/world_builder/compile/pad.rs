@@ -136,7 +136,7 @@ pub(super) fn relocate_snapped_anchor(
 /// record's x/z, walked by [`relocate_snapped_anchor`] when it avoids
 /// water, on the ground there ([`snapped_ground_y`]) plus its authored Y
 /// as an offset. `room_water_y` is the room's water line, as the compile
-/// reads it (`room_water_level`).
+/// reads it (`drawn_water_level`: Berlin's in a geodata region, #1586).
 ///
 /// The editor's reading of the anchor, for the sites in the module docs'
 /// "Where it stands" (#1399).
@@ -242,7 +242,7 @@ pub(crate) fn wet_ramp() -> crate::terrain::FinishedHeightMap {
             hm.set(x, z, 0.2 * (x as f32 - 64.0 - 30.0));
         }
     }
-    crate::terrain::FinishedHeightMap(hm)
+    crate::terrain::FinishedHeightMap(hm, None)
 }
 
 #[cfg(test)]

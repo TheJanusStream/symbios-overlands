@@ -375,11 +375,10 @@ pub fn loading_ui(
     let terrain_status = if gate.heightmap.is_some() {
         match gate.geo_fallback.as_deref() {
             // Amber, with the reason: the ground is there, but it is not
-            // the Berlin the record asks for (#1584).
-            Some(fallback) => RowStatus::Fallback(format!(
-                "- {} Drawn from the world's terrain settings instead.",
-                fallback.reason
-            )),
+            // all of the Berlin the record asks for (#1584, #1586).
+            Some(fallback) => {
+                RowStatus::Fallback(format!("- {} {}", fallback.reason, fallback.lost.instead()))
+            }
             None => RowStatus::Done,
         }
     } else if let Some(failed) = gate.terrain_failed.as_deref() {
@@ -390,16 +389,18 @@ pub fn loading_ui(
     } else if !room_landed {
         RowStatus::Blocked("the world recipe")
     } else if let (
-        Some(crate::terrain::geo::GeoTerrainJob::Fetching { legend, render, .. }),
+        Some(crate::terrain::geo::GeoTerrainJob::Fetching { requests, .. }),
         Some(fetcher),
     ) = (gate.geo_terrain.as_deref(), gate.geo_fetcher.as_deref())
     {
-        // Berlin's ground on its way (#1584): its legend and its render.
-        let done = [*legend, *render]
-            .into_iter()
-            .filter(|&id| fetcher.is_settled(id))
-            .count() as u32;
-        RowStatus::Progress { done, total: 2 }
+        // Berlin's ground on its way (#1584, #1586): the terrain's and the
+        // land use's legend and render.
+        let ids = requests.ids();
+        let done = ids.iter().filter(|&&id| fetcher.is_settled(id)).count() as u32;
+        RowStatus::Progress {
+            done,
+            total: ids.len() as u32,
+        }
     } else {
         RowStatus::Active(None)
     };

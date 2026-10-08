@@ -304,8 +304,9 @@ pub(super) fn dump_road_graph(room: &str, record: Option<RoomRecord>) {
         );
         return;
     }
-    let hm = crate::terrain::rebuild_heightmap_for_record(&record);
-    let water = crate::world_builder::compile::room_water_level(&record);
+    let terrain = crate::terrain::rebuild_terrain_for_record(&record);
+    let water = crate::world_builder::compile::drawn_water_level(&record, Some(&terrain));
+    let hm = terrain.0;
     for (i, config) in configs.into_iter().enumerate() {
         let label = format!("{room} network {i}");
         if !config.enabled {

@@ -542,7 +542,7 @@ mod tests {
                 hm.set(x, z, 0.25 * (x as f32 - 64.0));
             }
         }
-        FinishedHeightMap(hm)
+        FinishedHeightMap(hm, None)
     }
 
     /// A placement of `generator_ref` at `at` with its anchor drawn there

@@ -28,9 +28,10 @@ pub struct SplatUniforms {
     pub triplanar_sharpness: f32,
     /// World Y of the room's water surface - the datum the damp-ground
     /// darkening measures from (#913). Sourced from
-    /// `world_builder::compile::room_water_level`, the same single
-    /// definition the scatter sampler's riparian band uses, so the
-    /// darkened margin and the reeds standing in it agree.
+    /// `world_builder::compile::drawn_water_level` (Berlin's level in a
+    /// geodata region, #1586), the same single definition the scatter
+    /// sampler's riparian band uses, so the darkened margin and the reeds
+    /// standing in it agree.
     pub water_y: f32,
     /// Height above `water_y` (m) over which the darkening eases out.
     pub moisture_depth: f32,

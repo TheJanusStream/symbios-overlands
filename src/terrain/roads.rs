@@ -164,6 +164,7 @@ pub(super) struct RoadRebuild {
 /// never trigger a re-extrusion.
 fn current_configs(
     record: &crate::pds::RoomRecord,
+    heightmap: Option<&super::FinishedHeightMap>,
 ) -> (Vec<crate::pds::generator::RoadConfig>, Option<String>) {
     let configs: Vec<_> = crate::pds::find_road_configs(record)
         .into_iter()
@@ -181,8 +182,9 @@ fn current_configs(
     // never moved, and the lots regrew round streets that were never drawn).
     // The water line moves the streets of a network that stops at the
     // shore (#1552), so it is part of that network's key: raising the lake
-    // re-traces it, and leaves a network that ignores the water alone.
-    let water = crate::world_builder::compile::room_water_level(record);
+    // re-traces it, and leaves a network that ignores the water alone. The
+    // line as drawn: Berlin's in a geodata region (#1586).
+    let water = crate::world_builder::compile::drawn_water_level(record, heightmap);
     let want = configs
         .iter()
         .map(|c| {
@@ -251,7 +253,7 @@ pub(super) fn maybe_rebuild_roads(
     // heightmap (initial load / terrain regen) always re-meshes, since the
     // draped geometry depends on the new surface.
     if heightmap.is_changed() || record.is_changed() {
-        let (_, want) = current_configs(&record.0);
+        let (_, want) = current_configs(&record.0, Some(&heightmap));
         if heightmap.is_changed() || want != state.live {
             state.due = Some(now + ROAD_EDIT_DEBOUNCE_SECS);
         } else if state.building.is_none() {
@@ -266,7 +268,7 @@ pub(super) fn maybe_rebuild_roads(
     // folded in), or sweep synchronously when the network went away.
     if state.due.is_some_and(|d| now >= d) {
         state.due = None;
-        let (configs, want) = current_configs(&record.0);
+        let (configs, want) = current_configs(&record.0, Some(&heightmap));
         if want != state.live || heightmap.is_changed() {
             if configs.is_empty() {
                 for e in &existing {
@@ -285,7 +287,8 @@ pub(super) fn maybe_rebuild_roads(
                 // One task builds every network (#895) - the heightmap copy
                 // is shared and the swap stays atomic across districts.
                 let hm = copy_heightmap(&heightmap.0);
-                let water = crate::world_builder::compile::room_water_level(&record.0);
+                let water =
+                    crate::world_builder::compile::drawn_water_level(&record.0, Some(&heightmap));
                 let task = bevy::tasks::AsyncComputeTaskPool::get().spawn(async move {
                     configs
                         .iter()
@@ -562,7 +565,7 @@ mod tests {
     #[test]
     fn the_rebuild_key_carries_the_water_line_only_for_a_network_that_avoids_it() {
         let key = |avoid_water: bool, water_y: f32| {
-            current_configs(&record_with_network(avoid_water, water_y))
+            current_configs(&record_with_network(avoid_water, water_y), None)
                 .1
                 .expect("an enabled network has a key")
         };
@@ -594,7 +597,7 @@ mod tests {
                 7.0,
             );
             record.sanitize();
-            current_configs(&record)
+            current_configs(&record, None)
                 .1
                 .expect("an enabled network has a key")
         };
@@ -619,13 +622,16 @@ mod tests {
         use crate::pds::generator::{RoadBasis, RoadField, RoadKeepOut};
         use crate::pds::types::{Fp, Fp2};
         let key = |field: RoadField| {
-            current_configs(&record_with_road(
-                RoadConfig {
-                    field,
-                    ..RoadConfig::default()
-                },
-                7.0,
-            ))
+            current_configs(
+                &record_with_road(
+                    RoadConfig {
+                        field,
+                        ..RoadConfig::default()
+                    },
+                    7.0,
+                ),
+                None,
+            )
             .1
             .expect("an enabled network has a key")
         };
@@ -686,7 +692,7 @@ mod tests {
         use crate::pds::generator::{RoadBasis, RoadField};
         use crate::pds::types::{Fp, Fp2};
         let key = |road: RoadConfig| {
-            current_configs(&record_with_road(road, 7.0))
+            current_configs(&record_with_road(road, 7.0), None)
                 .1
                 .expect("an enabled network has a key")
         };

@@ -124,7 +124,7 @@ fn heightmap(height: impl Fn(Vec2) -> f32) -> FinishedHeightMap {
             heightmap.set(x, z, height(Vec2::new(x as f32 - half, z as f32 - half)));
         }
     }
-    FinishedHeightMap(heightmap)
+    FinishedHeightMap(heightmap, None)
 }
 
 /// A fixed block, `half` its half-extents, placed by `at`.

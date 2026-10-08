@@ -699,7 +699,7 @@ mod tests {
                 hm.set(x, z, f(x as f32 - 64.0, z as f32 - 64.0));
             }
         }
-        crate::terrain::FinishedHeightMap(hm)
+        crate::terrain::FinishedHeightMap(hm, None)
     }
 
     /// #1398: a sideways drag keeps a snapped placement's offset even when
