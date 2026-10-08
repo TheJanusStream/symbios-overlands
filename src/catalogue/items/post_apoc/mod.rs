@@ -9,9 +9,10 @@
 //!
 //! Surfaces use the real procedural generators rather than flat colour: heavy
 //! [`rusted`] scrap, cracked [`concrete`], corrugated [`sheet`] metal, grey
-//! [`plank`] and matte [`tarp`]. The ruin's barrel fire and worklight glow
-//! over a desolate-wind and fire-crackle bed from [`fx`]. The theme's
-//! dust-haze accent lives in [`crate::seeded_defaults::room::accent`].
+//! [`plank`], chipped [`enamel`] and matte [`tarp`]. The ruin's barrel fire
+//! and worklight glow over a desolate-wind and fire-crackle bed from [`fx`].
+//! The theme's dust-haze accent lives in
+//! [`crate::seeded_defaults::room::accent`].
 
 pub mod fortified_ruin;
 pub mod fuel_barrels;
@@ -39,7 +40,8 @@ use crate::catalogue::items::util::{
 };
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignConcreteConfig, SovereignCorrugatedConfig,
-    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig,
+    SovereignEnamelConfig, SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig,
+    SovereignTextureConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -132,6 +134,28 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
+/// Old vitreous enamel on steel - a salvaged dish, a warning sign. The coat
+/// is crazed and chipped, and the rust it was fired over shows through the
+/// craze and where the weather has had the edges.
+pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.35),
+        metallic: Fp(0.1),
+        uv_scale: tiles_per_metre(tile::ENAMEL),
+        texture: SovereignTextureConfig::Enamel(SovereignEnamelConfig {
+            color: Fp3(color),
+            color_body: Fp3([0.42, 0.24, 0.12]),
+            gloss_roughness: Fp(0.35),
+            metallic: Fp(0.1),
+            crackle: Fp(0.6),
+            weathering: ageing::corroded(0x3D, 0.7),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 /// Matte cloth / rubber / dirt - tarps, tyres, ash, sandbags. A plain surface
 /// with no procedural texture.
 pub(super) fn tarp(color: [f32; 3]) -> SovereignMaterialSettings {
@@ -155,6 +179,9 @@ pub(super) const TARP_FADED: [f32; 3] = [0.40, 0.46, 0.40];
 pub(super) const TIRE_BLACK: [f32; 3] = [0.10, 0.10, 0.11];
 pub(super) const CAR_RUST: [f32; 3] = [0.46, 0.33, 0.27];
 pub(super) const ASH_GREY: [f32; 3] = [0.26, 0.25, 0.24];
+// Enamel coats: a dish's once-white paint, a warning sign's faded yellow.
+pub(super) const DISH_WHITE: [f32; 3] = [0.74, 0.72, 0.66];
+pub(super) const SIGN_YELLOW: [f32; 3] = [0.78, 0.60, 0.14];
 
 // Emissive trim colours. Deep-saturated so bloom keeps them coloured instead
 // of blowing out to a near-white blob: the fire stays incandescent orange and

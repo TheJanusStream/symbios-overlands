@@ -107,45 +107,7 @@ pub(in crate::catalogue::items) fn assert_nothing_floats_but(
 /// Defects found in one item, each fixed by that item's overhaul: (slug,
 /// where it was found, what is wrong and the fix that was tried). Delete a
 /// row when its fix lands; the item's guards should then hold it.
-pub(in crate::catalogue::items) const KNOWN_DEFECTS: &[(&str, &str, &str)] = &[
-    (
-        "scrap_wall",
-        "#1439, seen live by the owner (#1435)",
-        "The 'slumped' bald tyre (torus R 0.4 r 0.16 at [-1.9, 0.42, 0.45], quat_z(0.25)) \
-         lies nearly flat: its 0.56 m outer radius passes through the wall's foot and its \
-         lowest point floats about 17 cm above flat ground. Fixed live by standing it \
-         upright on its tread (quat_x(90 degrees)) just clear of the panels.",
-    ),
-    (
-        "radio_mast",
-        "#1439, seen live by the owner (#1435)",
-        "The antenna whip and cross-element start at mast_top in the open middle of the \
-         lattice (the top brace ring is at base_h + 10.5, the legs end at mast_top): they \
-         float, attached to nothing, and read crooked from below. Fixed live by capping the \
-         legs with a 2.2 m steel plate and footing the whip on it.",
-    ),
-    (
-        "radio_mast",
-        "#1439, seen live by the owner (#1435)",
-        "The dish (sphere r 0.9, profile_cut [0.5, 1], a solid half-ball) is as wide as the \
-         lattice, so its front legs run through it, and the feed horn floats 0.6 m out lying \
-         along Z, off the dish's axis. Fixed live with a shallow hollow cap (r 1.2, \
-         profile_cut [0.75, 1], hollow 0.95) hung in front of the legs on a bracket to a new \
-         front cross-bar, the horn at the focus (R/2 from the vertex) on a three-strut rim \
-         tripod.",
-    ),
-    (
-        "medieval_castle",
-        "#1571, session 913's floating report",
-        "The Roof(DutchGable, ...) branch on the first wing pavilion meshes its two small \
-         gable ends 0.25 m outboard of the slopes - GableEnd applies SolidWall's \
-         Extrude(WallD), and a Triangle profile is meshed flat at the middle of the extruded \
-         scope - so they float 0.16 m over the lower hip slope (assert_nothing_floats names \
-         both: Body::of splits the castle into three groups). Give GableEnd its own rule \
-         without the Extrude, e.g. GableWall --> Mat(\"Stone\") I(\"Wall\"), and re-bless \
-         tests/prim_wire.rs seeded_room_bytes_are_pinned (PRIM_WIRE_BLESS=1).",
-    ),
-];
+pub(in crate::catalogue::items) const KNOWN_DEFECTS: &[(&str, &str, &str)] = &[];
 
 /// The grammar entries a visitor walks through above the footing, because
 /// their Shape nodes list no `solid_meshes` (#1572, folded into #972; #1506
@@ -159,7 +121,6 @@ pub(in crate::catalogue::items) const KNOWN_DEFECTS: &[(&str, &str, &str)] = &[
 pub(in crate::catalogue::items) const SOLID_MESHES_OWED: &[&str] = &[
     "ruined_temple",
     "villa",
-    "medieval_castle",
     "watchtower",
     "palace_range",
     "rowhouse_terrace",

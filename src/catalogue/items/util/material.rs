@@ -363,7 +363,7 @@ pub(in crate::catalogue::items) mod ageing {
 /// | Rock | rock face | | 1.5 m |
 /// | Ground / Sand / Snow / Ice | granular | | 2.0 m |
 /// | Pavers | paving slabs | | 1.2 m |
-/// | Cracked Earth / Gravel / Forest Floor | terrain-only so far | | - |
+/// | Cracked Earth / Forest Floor | terrain-only so far | | - |
 pub(in crate::catalogue::items) mod tile {
     /// One brick column, for configs whose `SovereignBrickConfig::scale`
     /// departs from the usual 5 (mudbrick coursing runs 14). Multiply by
@@ -424,6 +424,16 @@ pub(in crate::catalogue::items) mod tile {
     /// `SovereignCobblestoneConfig::scale` stones per tile - 6 stones at a
     /// 150 mm fieldstone cobble.
     pub(in crate::catalogue::items) const COBBLE: f32 = 0.9;
+    /// One stone of loose gravel or rubble - multiply by
+    /// `SovereignGravelConfig::scale`, which swings from 8 (coarse rubble,
+    /// the medieval castle's ruined keep) to 20 (roadbase), so pinning the
+    /// tile would pin the stone to `1 / scale`. A 150 mm lump of broken
+    /// masonry.
+    pub(in crate::catalogue::items) const GRAVEL_STONE: f32 = 0.15;
+    /// One course of a dry-stone or rubble wall - multiply by
+    /// `SovereignDryStoneConfig::courses`, which ranges from 3 to 20. A
+    /// 0.3 m course of roughly squared stone, the medieval castle's walls.
+    pub(in crate::catalogue::items) const DRY_STONE_COURSE: f32 = 0.3;
     /// `SovereignShingleConfig::scale` courses per tile - 5 courses at a
     /// 300 mm slate or shingle.
     pub(in crate::catalogue::items) const SHINGLE: f32 = 1.5;

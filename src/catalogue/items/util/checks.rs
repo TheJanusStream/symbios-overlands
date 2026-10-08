@@ -272,6 +272,68 @@ pub(in crate::catalogue::items) fn rotate_by(q: [f32; 4], v: [f32; 3]) -> [f32; 
     ]
 }
 
+/// One node of a built item as it stands: its path from the root (as the
+/// floating and z-fighting reports name a part, `children[..]`), the node,
+/// its transform composed down the tree - rotation and scale as well as
+/// translation, by Bevy's own `Transform`, as the spawner composes them -
+/// and, for a primitive, the box the real mesher draws it in.
+///
+/// The walks elsewhere in this module carry translation alone, which is
+/// sound only for a tree whose turned parts are leaves. This is for guards
+/// that ask which way a part faces, or where a point of it ends up, from
+/// the built tree rather than from the constants that placed it (#972
+/// lessons 21 and 23). Composing `Transform`s drops the shear a turned
+/// child picks up under a non-uniformly scaled parent, which the world's
+/// `GlobalTransform` keeps, so read it only for trees scaled uniformly - as
+/// the catalogue's must be anyway (see [`uv_for_scale`](super::material::uv_for_scale)).
+pub(in crate::catalogue::items) struct Placed<'a> {
+    pub path: Vec<usize>,
+    pub node: &'a Generator,
+    pub world: bevy::prelude::Transform,
+    pub drawn: Option<crate::catalogue::items::measure::Bounds>,
+}
+
+impl Placed<'_> {
+    /// Where a point of the node's own frame stands.
+    pub fn at(&self, local: [f32; 3]) -> bevy::prelude::Vec3 {
+        self.world
+            .transform_point(bevy::prelude::Vec3::from_array(local))
+    }
+
+    /// Which way a direction of the node's own frame points, unit length.
+    pub fn toward(&self, local: [f32; 3]) -> bevy::prelude::Vec3 {
+        (self.world.rotation * bevy::prelude::Vec3::from_array(local)).normalize()
+    }
+}
+
+/// Every node of a built item, [`Placed`], the root first.
+pub(in crate::catalogue::items) fn placed(root: &Generator) -> Vec<Placed<'_>> {
+    use crate::catalogue::items::measure::{mesh_bounds, transform_of};
+    use bevy::prelude::Transform;
+    fn walk<'a>(
+        node: &'a Generator,
+        parent: Transform,
+        path: &mut Vec<usize>,
+        out: &mut Vec<Placed<'a>>,
+    ) {
+        let world = parent * transform_of(&node.transform);
+        out.push(Placed {
+            path: path.clone(),
+            node,
+            world,
+            drawn: mesh_bounds(&node.kind, &world),
+        });
+        for (i, child) in node.children.iter().enumerate() {
+            path.push(i);
+            walk(child, world, path, out);
+            path.pop();
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, Transform::IDENTITY, &mut Vec::new(), &mut out);
+    out
+}
+
 /// One upright glazing card as the guards see it: its world centre and the
 /// `[width, height]` of quad it spans.
 pub(in crate::catalogue::items) struct CardRect {
