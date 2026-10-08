@@ -8,7 +8,7 @@
 mod coverage;
 mod coverage_table;
 
-pub use coverage::Coverage;
+pub use coverage::{Coverage, Keep};
 
 use crate::legend::ClassLegend;
 use crate::request::{WfsType, WmsLayer};

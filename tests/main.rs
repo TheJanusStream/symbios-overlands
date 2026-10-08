@@ -57,6 +57,7 @@ mod avatar_record;
 mod biome_filter;
 mod fixed_point;
 mod freeze_rigid_body;
+mod geo_source_wire;
 mod inventory_record;
 mod misc;
 mod oauth_flow;

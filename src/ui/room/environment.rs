@@ -8,11 +8,18 @@
 //! enter without an explicit destination link (including through another
 //! room's social gateway). Unset means the legacy random scatter near the
 //! world origin.
+//!
+//! And the **region source** (#1583): whether the region is built from a
+//! square of real Berlin ([`crate::pds::GeoSource`]) or from its seed alone.
 
 use bevy::prelude::*;
 use bevy_egui::egui;
+use geodata::GeoSquare;
+use geodata::berlin::{Coverage, Keep};
+use geodata::square::{SIZE_MAX_M, SIZE_MIN_M, SIZE_STEP_M};
 
-use crate::pds::{DefaultLanding, Environment, Fp, Fp2};
+use crate::pds::geo_source::BERLIN;
+use crate::pds::{DefaultLanding, Environment, Fp, Fp2, GeoSource};
 
 use super::widgets::{color_picker, color_picker_rgba, fp_slider};
 
@@ -47,10 +54,12 @@ impl PlayerPose {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_environment_tab(
     ui: &mut egui::Ui,
     env: &mut Environment,
     landing: &mut Option<DefaultLanding>,
+    geo_source: &mut Option<GeoSource>,
     player_pose: Option<PlayerPose>,
     dirty: &mut bool,
     audio_editor: &mut super::audio::AudioEditorState,
@@ -59,6 +68,9 @@ pub(super) fn draw_environment_tab(
     ui.heading("Environment");
     ui.add_space(4.0);
 
+    egui::CollapsingHeader::new("Region source")
+        .default_open(false)
+        .show(ui, |ui| draw_region_source(ui, geo_source, dirty));
     draw_arrival_point(ui, landing, player_pose, dirty);
 
     egui::CollapsingHeader::new("Lighting & sky")
@@ -408,10 +420,315 @@ fn draw_arrival_point(
         });
 }
 
+/// The body of the Region source section: build this region from a square
+/// of real Berlin, at real scale, or from its seed as before.
+///
+/// Every square it writes lies wholly inside Berlin: a drawn one by
+/// construction, an edited one moved by [`Coverage::nearest`] to the
+/// closest place it fits - the same rule the record sanitiser applies, so
+/// an edit is never rewritten under the owner on the next round trip.
+fn draw_region_source(ui: &mut egui::Ui, source: &mut Option<GeoSource>, dirty: &mut bool) {
+    let weak = crate::ui::theme::current(ui.ctx()).text_weak;
+    // A dataset a newer version wrote: shown, kept, and never edited here.
+    if let Some(other) = source.as_ref().filter(|s| s.dataset != BERLIN) {
+        ui.label(format!(
+            "Built from the \"{}\" dataset, which this version cannot draw: \
+             visitors on it see the world drawn from its seed.",
+            other.dataset
+        ));
+        if ui
+            .button("Use the world drawn from its seed")
+            .on_hover_text("Forget the other dataset's square.")
+            .clicked()
+        {
+            *source = None;
+            *dirty = true;
+        }
+        return;
+    }
+
+    let mut berlin = source.is_some();
+    if ui
+        .checkbox(&mut berlin, "Build from real Berlin")
+        .on_hover_text(
+            "Build the region from a square of real Berlin at real scale - its \
+             ground, water and blocks from the city's open geodata, dressed in \
+             this world's theme. Off: the region is drawn from its seed alone.",
+        )
+        .changed()
+    {
+        *source = berlin.then(|| GeoSource::berlin(drawn_square(fresh_seed())));
+        *dirty = true;
+    }
+    let Some(current) = source.as_mut() else {
+        return;
+    };
+    let square = current.square();
+
+    let (centre_e, centre_n) = square.centre();
+    let borough = Coverage::berlin()
+        .borough_at(centre_e, centre_n)
+        .map_or("Berlin", |b| b.name());
+    ui.label(format!(
+        "A {} square in {borough}",
+        side_text(square.size_m)
+    ));
+    ui.label(
+        egui::RichText::new(format!(
+            "E {} to {}, N {} to {} (ETRS89 / UTM 33N)",
+            square.min_e,
+            square.max_e(),
+            square.min_n,
+            square.max_n()
+        ))
+        .small()
+        .color(weak),
+    );
+
+    if ui
+        .button("Draw another square")
+        .on_hover_text("A new square of a new size, anywhere it fits wholly inside Berlin.")
+        .clicked()
+    {
+        *current = GeoSource::berlin(drawn_square(fresh_seed()));
+        *dirty = true;
+    }
+
+    // Typed values apply when typing ends (Enter, or leaving the field):
+    // applied per keystroke, the first digit of a new easting is far off
+    // the map, and every keystroke after it would start from where that one
+    // was put. Dragging still applies as it goes.
+    let mut side = square.size_m;
+    ui.horizontal(|ui| {
+        ui.label("Side");
+        if ui
+            .add(
+                crate::ui::num::drag(&mut side)
+                    .range(SIZE_MIN_M..=SIZE_MAX_M)
+                    .speed(f64::from(SIZE_STEP_M))
+                    .suffix(" m")
+                    .update_while_editing(false),
+            )
+            .on_hover_text(
+                "The region's extent, in steps of 10 m. It keeps its centre where the new \
+                 size fits.",
+            )
+            .changed()
+            && let Some(resized) = resized_keeping_centre(square, side)
+            && resized != square
+        {
+            *current = GeoSource::berlin(resized);
+            *dirty = true;
+        }
+    });
+
+    let (mut west, mut south) = (square.min_e, square.min_n);
+    ui.horizontal(|ui| {
+        ui.label("West edge");
+        let moved_e = ui
+            .add(
+                crate::ui::num::drag(&mut west)
+                    .speed(10.0)
+                    .update_while_editing(false),
+            )
+            .on_hover_text("Easting of the west edge, metres. The south edge stays where it is.")
+            .changed();
+        ui.label("South edge");
+        let moved_n = ui
+            .add(
+                crate::ui::num::drag(&mut south)
+                    .speed(10.0)
+                    .update_while_editing(false),
+            )
+            .on_hover_text("Northing of the south edge, metres. The west edge stays where it is.")
+            .changed();
+        let moved = if moved_e {
+            moved_west(square, west)
+        } else if moved_n {
+            moved_south(square, south)
+        } else {
+            None
+        };
+        if let Some(moved) = moved.filter(|m| *m != square) {
+            *current = GeoSource::berlin(moved);
+            *dirty = true;
+        }
+    });
+
+    ui.label(
+        egui::RichText::new("Map data: Geoportal Berlin, dl-de/zero-2.0")
+            .small()
+            .color(weak),
+    );
+}
+
+/// "250 m", "1.25 km".
+fn side_text(size_m: u32) -> String {
+    if size_m < 1_000 {
+        format!("{size_m} m")
+    } else {
+        format!("{:.2} km", f64::from(size_m) / 1_000.0)
+    }
+}
+
+/// A square drawn as a seeded region draws one, from `seed`.
+fn drawn_square(seed: u64) -> GeoSquare {
+    use rand_chacha::ChaCha8Rng;
+    use rand_chacha::rand_core::{RngCore, SeedableRng};
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let (size_draw, place_draw) = (rng.next_u64(), rng.next_u64());
+    Coverage::berlin()
+        .square_from_draws(size_draw, place_draw)
+        .expect("every drawn size fits somewhere in Berlin")
+}
+
+/// A seed for an owner's "draw another": the clock and a counter, so two
+/// clicks in one millisecond still differ. Not a seeded region's draw - the
+/// square it makes is stored in the record.
+fn fresh_seed() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static CLICKS: AtomicU64 = AtomicU64::new(0);
+    let micros = chrono::Utc::now().timestamp_micros() as u64;
+    micros
+        ^ CLICKS
+            .fetch_add(1, Ordering::Relaxed)
+            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+}
+
+/// `square` at side `side` (made drawable: a whole 10 m in range), centred
+/// where it was if it fits there, else as near as it fits.
+fn resized_keeping_centre(square: GeoSquare, side: u32) -> Option<GeoSquare> {
+    let side = geodata::square::snap_size(side);
+    let (centre_e, centre_n) = square.centre();
+    let half = f64::from(side) / 2.0;
+    Coverage::berlin().nearest(
+        side,
+        (centre_e - half).round() as i64,
+        (centre_n - half).round() as i64,
+    )
+}
+
+/// `square` with its west edge at `west` - the south edge held where it
+/// is, the west edge as near `west` as the square fits along that row. Only
+/// if the square fits nowhere on its row does the south edge move too.
+fn moved_west(square: GeoSquare, west: i32) -> Option<GeoSquare> {
+    let (e, n) = (i64::from(west), i64::from(square.min_n));
+    let coverage = Coverage::berlin();
+    coverage
+        .nearest_keeping(square.size_m, e, n, Keep::Northing)
+        .or_else(|| coverage.nearest(square.size_m, e, n))
+}
+
+/// `square` with its south edge at `south`, the west edge held - as
+/// [`moved_west`], the other way.
+fn moved_south(square: GeoSquare, south: i32) -> Option<GeoSquare> {
+    let (e, n) = (i64::from(square.min_e), i64::from(south));
+    let coverage = Coverage::berlin();
+    coverage
+        .nearest_keeping(square.size_m, e, n, Keep::Easting)
+        .or_else(|| coverage.nearest(square.size_m, e, n))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::f32::consts::FRAC_1_SQRT_2;
+
+    #[test]
+    fn region_squares_drawn_resized_or_moved_lie_inside_berlin() {
+        let coverage = Coverage::berlin();
+        for seed in 0..32 {
+            let square = drawn_square(seed);
+            assert!(coverage.contains(&square), "seed {seed}: {square:?}");
+            for side in [SIZE_MIN_M, 1_000, SIZE_MAX_M] {
+                let resized = resized_keeping_centre(square, side).unwrap();
+                assert!(coverage.contains(&resized) && resized.size_m == side);
+            }
+        }
+        // Resizing in place keeps the centre when the new size fits there.
+        let dom = GeoSquare {
+            min_e: 391_000,
+            min_n: 5_819_500,
+            size_m: 1_000,
+        };
+        let smaller = resized_keeping_centre(dom, 500).unwrap();
+        assert_eq!(smaller.centre(), dom.centre());
+        // A side off the 10 m step is snapped onto it.
+        assert_eq!(resized_keeping_centre(dom, 1_003).unwrap().size_m, 1_000);
+        // An edge typed off the map lands on it, the other edge held.
+        let moved = moved_west(dom, 0).unwrap();
+        assert!(coverage.contains(&moved));
+        assert_eq!(moved.min_n, dom.min_n);
+        assert_eq!(moved_west(dom, 391_000), Some(dom));
+        assert_eq!(moved_south(dom, 5_819_500), Some(dom));
+    }
+
+    /// The edits the owner makes one edge at a time leave the other edge
+    /// where it was: a west edge dragged 30 km east (off the map) and back
+    /// returns the square to where it started, and so does a south edge.
+    #[test]
+    fn an_edge_dragged_off_the_map_and_back_leaves_the_square_where_it_was() {
+        let dom = GeoSquare {
+            min_e: 391_000,
+            min_n: 5_819_500,
+            size_m: 1_000,
+        };
+        // Out 30 km in kilometre steps, and back the same way.
+        let there_and_back =
+            |from: i32| (0..=30).chain((0..30).rev()).map(move |k| from + 1_000 * k);
+        let mut square = dom;
+        for west in there_and_back(dom.min_e) {
+            square = moved_west(square, west).unwrap();
+            assert_eq!(
+                square.min_n, dom.min_n,
+                "the south edge held at west {west}"
+            );
+        }
+        assert_eq!(square, dom);
+        for south in there_and_back(dom.min_n) {
+            square = moved_south(square, south).unwrap();
+            assert_eq!(
+                square.min_e, dom.min_e,
+                "the west edge held at south {south}"
+            );
+        }
+        assert_eq!(square, dom);
+    }
+
+    #[test]
+    fn side_text_reads_metres_then_kilometres() {
+        assert_eq!(side_text(250), "250 m");
+        assert_eq!(side_text(1_000), "1.00 km");
+        assert_eq!(side_text(19_000), "19.00 km");
+    }
+
+    /// Drawn with no input, the section writes nothing - not the source,
+    /// not the dirty flag - whatever the source is (#1390's rule for every
+    /// editor widget: a value the owner did not touch is not rewritten).
+    #[test]
+    fn an_untouched_region_source_writes_nothing() {
+        let berlin = Some(GeoSource::berlin(GeoSquare {
+            min_e: 391_000,
+            min_n: 5_819_500,
+            size_m: 1_000,
+        }));
+        let other = Some(GeoSource {
+            dataset: "hamburg".into(),
+            min_e: 1,
+            min_n: 2,
+            size_m: 3,
+        });
+        for start in [None, berlin, other] {
+            let ctx = egui::Context::default();
+            let mut source = start.clone();
+            let mut dirty = false;
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                draw_region_source(ui, &mut source, &mut dirty);
+            });
+            assert_eq!(source, start);
+            assert!(!dirty);
+        }
+    }
 
     /// The pose yaw must invert the spawn path's
     /// `Quat::from_rotation_y(yaw_deg.to_radians())` for every heading, so a

@@ -523,6 +523,7 @@ mod tests {
             traits: HashMap::new(),
             contact_effects: Default::default(),
             default_landing: None,
+            geo_source: None,
             opaque_refs: Default::default(),
         }
     }

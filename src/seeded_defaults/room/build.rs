@@ -743,6 +743,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
         traits,
         contact_effects: ContactEffects::default(),
         default_landing,
+        geo_source: None,
         opaque_refs: std::collections::BTreeMap::new(),
     }
 }

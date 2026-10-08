@@ -165,6 +165,29 @@ and the wasm worker share it:
     finished or one may start. Frames spent waiting do not mark it
     changed.
 
+The room record (P1.1, #1583) carries the source as an optional top-level
+`geo_source`: `{dataset, min_e, min_n, size_m}`, in whole metres. When it is
+absent, the field is elided, so every older record and every seeded room
+stays byte-identical. The bytes are pinned in
+`tests/fixtures/geo_source_wire.jsonl`.
+
+- **Sanitiser.** A Berlin square has its side snapped to a whole 10 m
+  within 250 m - 19 km (`snap_size`) and is moved, if it must be, to the
+  nearest position wholly inside Berlin (`Coverage::nearest`, exact). A
+  dataset id that is not a plain name drops the source. Another dataset's
+  square is kept for the build that can draw it, though keys this build does
+  not know are dropped on save, as from every record field.
+- **Editor.** The World Editor's Environment tab has a Region source
+  section. It can turn Berlin on (a square drawn the way a seeded region
+  draws one), draw another, change the side keeping the centre, or move one
+  edge.
+  - Moving one edge holds the other where it is (`nearest_keeping`). Only a
+    square that fits nowhere on its row moves both ways.
+  - Typed values apply when typing ends, never per keystroke, because a
+    first digit is far off the map.
+  - Every edit goes through the same rules as the sanitiser, so the
+    sanitiser never rewrites it.
+
 The ignored test `live_gdi_berlin_round_trip_decodes_and_is_kept` exercises
 the live path end to end: the real client, the disk store, and the decoders.
 It then checks that a second visit is answered from the store alone. Fire it

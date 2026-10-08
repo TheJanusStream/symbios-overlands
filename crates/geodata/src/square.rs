@@ -93,9 +93,29 @@ pub fn size_from_draw(draw: u64) -> u32 {
     (steps * SIZE_STEP_M).clamp(SIZE_MIN_M, SIZE_MAX_M)
 }
 
+/// `size_m` as a drawable side: the nearest whole [`SIZE_STEP_M`] (halves
+/// up), within [`SIZE_MIN_M`]..=[`SIZE_MAX_M`] - what a drawn size always is,
+/// and what a typed or stored one is made into (#1583).
+pub fn snap_size(size_m: u32) -> u32 {
+    let steps = size_m.saturating_add(SIZE_STEP_M / 2) / SIZE_STEP_M;
+    (steps * SIZE_STEP_M).clamp(SIZE_MIN_M, SIZE_MAX_M)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapped_sizes_are_drawable() {
+        assert_eq!(snap_size(1_003), 1_000);
+        assert_eq!(snap_size(1_005), 1_010);
+        assert_eq!(snap_size(0), SIZE_MIN_M);
+        assert_eq!(snap_size(u32::MAX), SIZE_MAX_M);
+        for draw in [0, 1 << 40, u64::MAX / 3, u64::MAX] {
+            let size = size_from_draw(draw);
+            assert_eq!(snap_size(size), size, "a drawn size is already snapped");
+        }
+    }
 
     #[test]
     fn size_draw_spans_the_range_on_the_step() {

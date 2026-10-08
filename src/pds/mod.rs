@@ -171,6 +171,7 @@ pub mod audio;
 pub mod avatar;
 pub mod contact_effects;
 pub mod generator;
+pub mod geo_source;
 pub mod inventory;
 pub mod material_finish;
 pub mod prim;
@@ -207,6 +208,7 @@ pub use generator::{
     ParticleParams, Placement, PrimCommon, SignSource, SimulationSpace, TextureAtlas,
     TextureFilter, TortureParams, WaterSurface,
 };
+pub use geo_source::GeoSource;
 pub use inventory::{
     InventoryItemRecord, InventoryRecord, fetch_inventory_record, publish_inventory_record,
 };

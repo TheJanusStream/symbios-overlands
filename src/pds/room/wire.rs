@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{DefaultLanding, Environment, RoomRecord};
 use crate::pds::COLLECTION;
+use crate::pds::GeoSource;
 use crate::pds::contact_effects::ContactEffects;
 use crate::pds::generator::{Generator, Placement};
 use crate::pds::xrpc::{
@@ -132,6 +133,7 @@ struct RoomSelfWire {
     traits: HashMap<String, Vec<String>>,
     contact_effects: ContactEffects,
     default_landing: Option<DefaultLanding>,
+    geo_source: Option<GeoSource>,
 }
 
 /// The manifest written to `room/self` since #697: the full record minus
@@ -151,6 +153,8 @@ struct RoomManifestOut {
     contact_effects: ContactEffects,
     #[serde(skip_serializing_if = "Option::is_none")]
     default_landing: Option<DefaultLanding>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    geo_source: Option<GeoSource>,
 }
 
 impl RoomManifestOut {
@@ -179,6 +183,7 @@ impl RoomManifestOut {
                 .collect(),
             contact_effects: record.contact_effects.clone(),
             default_landing: record.default_landing,
+            geo_source: record.geo_source.clone(),
         })
     }
 }
@@ -209,6 +214,7 @@ fn assemble_room(wire: RoomSelfWire, children: &HashMap<String, Option<Generator
         traits,
         contact_effects,
         default_landing,
+        geo_source,
     } = wire;
     let mut opaque_refs = std::collections::BTreeMap::new();
     for (name, rkey) in generator_refs {
@@ -237,6 +243,7 @@ fn assemble_room(wire: RoomSelfWire, children: &HashMap<String, Option<Generator
         traits,
         contact_effects,
         default_landing,
+        geo_source,
         opaque_refs,
     }
 }
@@ -1164,6 +1171,34 @@ mod split_wire_tests {
                 "seed {seed}: split round-trip diverged"
             );
         }
+    }
+
+    /// A geodata source (#1583) rides both shapes `room/self` takes: the
+    /// manifest a split publish writes, and the monolith.
+    #[test]
+    fn a_geo_source_survives_both_wire_shapes() {
+        let mut record = RoomRecord::default_for_did("did:plc:geo");
+        record.geo_source = Some(crate::pds::GeoSource::berlin(geodata::GeoSquare {
+            min_e: 391_000,
+            min_n: 5_819_500,
+            size_m: 1_000,
+        }));
+        let manifest = RoomManifestOut::from_record(&record).expect("addressable");
+        let children: HashMap<String, Option<Generator>> = record
+            .generators
+            .iter()
+            .map(|(name, g)| (child_rkey(name, g).expect("addressable"), Some(g.clone())))
+            .collect();
+        let wire: RoomSelfWire =
+            serde_json::from_value(serde_json::to_value(&manifest).unwrap()).unwrap();
+        assert_eq!(assemble_room(wire, &children).geo_source, record.geo_source);
+
+        let wire: RoomSelfWire =
+            serde_json::from_value(serde_json::to_value(&record).unwrap()).unwrap();
+        assert_eq!(
+            assemble_room(wire, &HashMap::new()).geo_source,
+            record.geo_source
+        );
     }
 
     #[test]

@@ -942,6 +942,9 @@ pub(crate) mod glyph_coverage_tests {
         // one surface still using the retired word - precisely because this
         // file is not under `src/ui` and no scan could see it.
         "src/catalogue/mod.rs",
+        // #1583: `Borough::name` labels a geodata region's square in the
+        // World Editor - "Tempelhof-Sch\u{f6}neberg", "Neuk\u{f6}lln".
+        "crates/geodata/src/berlin/mod.rs",
     ];
 
     /// Non-ASCII glyphs drawn by the sculpting sections the Body tab HOSTS

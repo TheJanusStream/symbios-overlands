@@ -352,6 +352,11 @@ pub struct RoomRecord {
     /// the world origin - so pre-#745 records round-trip unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_landing: Option<DefaultLanding>,
+    /// The square of real map data a geodata region is built from (#1583).
+    /// `None` - elided on the wire - is the procedural world every record
+    /// was before it, so those records round-trip byte for byte.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geo_source: Option<crate::pds::GeoSource>,
     /// Manifest refs (name → child rkey) whose child record was **listed on
     /// the PDS but could not be decoded by this build** (#1175).
     ///
@@ -426,6 +431,14 @@ impl RoomRecord {
             } else {
                 0.0
             };
+        }
+        // Geodata source (#1583): a Berlin square is put back on the map if
+        // it strays off it; a source that cannot be made safe is dropped,
+        // and the region draws procedurally.
+        if let Some(source) = &mut self.geo_source
+            && !source.sanitize()
+        {
+            self.geo_source = None;
         }
         // Clean generator names before anything keyed by them is read:
         // cut to the shared length cap and stripped of invisible

@@ -1570,6 +1570,7 @@ pub fn room_admin_ui(
                                         ui,
                                         &mut record_mut.environment,
                                         &mut record_mut.default_landing,
+                                        &mut record_mut.geo_source,
                                         player_pose,
                                         &mut widget_change,
                                         audio_editor,
