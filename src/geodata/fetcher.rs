@@ -177,6 +177,31 @@ impl GeoFetcher {
         self.results.remove(&id)
     }
 
+    /// Whether `id` has an answer waiting to be [`Self::take`]n. Read-only,
+    /// so a consumer can ask every frame without marking the resource
+    /// changed.
+    pub fn is_settled(&self, id: GeoRequestId) -> bool {
+        self.results.contains_key(&id)
+    }
+
+    /// Give up on `id`: its answer, settled or not, is never wanted. A
+    /// request nobody else is waiting for is dropped - natively its running
+    /// fetch is cancelled with its task; on the web it runs to its end,
+    /// unheard - and one another id shares carries on for that id. The
+    /// progress counts keep what was started.
+    pub fn forget(&mut self, id: GeoRequestId) {
+        self.results.remove(&id);
+        for pending in &mut self.pending {
+            pending.waiting.retain(|&waiting| waiting != id);
+        }
+        let before = self.pending.len();
+        self.pending.retain(|p| !p.waiting.is_empty());
+        // Dropped requests will never settle: count them as finished, so a
+        // loading screen reading `is_done` is not left waiting on them.
+        let dropped = (before - self.pending.len()) as u32;
+        self.progress.finished += dropped;
+    }
+
     /// What has been done since the last [`Self::clear`].
     pub fn progress(&self) -> GeoProgress {
         self.progress
@@ -675,5 +700,34 @@ mod tests {
         assert!(fetcher.is_idle());
         assert_eq!(fetcher.take(id), None);
         assert_eq!(fetcher.progress(), GeoProgress::default());
+    }
+
+    #[test]
+    fn a_forgotten_request_is_dropped_unless_another_id_shares_it() {
+        let transport = Scripted::new(vec![
+            (legend(0).url().into(), vec![Ok(LEGEND.to_vec())]),
+            (legend(1).url().into(), vec![Ok(LEGEND.to_vec())]),
+        ]);
+        let mut fetcher = GeoFetcher::new(memory(), transport.clone());
+        let alone = fetcher.submit(legend(0));
+        let shared_a = fetcher.submit(legend(1));
+        let shared_b = fetcher.submit(legend(1));
+        fetcher.forget(alone);
+        fetcher.forget(shared_a);
+        // The lone request is gone and counts as settled; the shared one
+        // still runs for the id that wants it.
+        assert_eq!(fetcher.pending.len(), 1);
+        assert_eq!(fetcher.progress().finished, 1);
+        settle(&mut fetcher, 0.0);
+        assert_eq!(fetcher.take(shared_b).unwrap().unwrap().as_ref(), LEGEND);
+        assert_eq!(fetcher.take(shared_a), None);
+        assert_eq!(fetcher.take(alone), None);
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 1);
+        assert!(fetcher.progress().is_done());
+        // A settled answer forgotten before it is taken is dropped too.
+        let late = fetcher.submit(legend(0));
+        settle(&mut fetcher, 0.0);
+        fetcher.forget(late);
+        assert_eq!(fetcher.take(late), None);
     }
 }

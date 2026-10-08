@@ -1,13 +1,13 @@
 //! Wire guard for a geodata region's source on the room record (#1583).
 //!
-//! Three directions, as every record field gets: a record without a source
-//! - every record written before #1583 - decodes, keeps no key and
-//! re-encodes unchanged; a record with one names it `geo_source`, with the
-//! bytes pinned in `tests/fixtures/geo_source_wire.jsonl`; and a newer
-//! client's source - a dataset this build cannot draw, keys it does not know
-//! - decodes rather than failing the room. Regenerate the fixture only when
-//! the wire form is meant to move, with `GEO_SOURCE_WIRE_BLESS=1`, and say
-//! so in the commit.
+//! Three directions, as every record field gets. A record without a source,
+//! which is every record written before #1583, decodes, keeps no key and
+//! re-encodes unchanged. A record with one names it `geo_source`, with the
+//! bytes pinned in `tests/fixtures/geo_source_wire.jsonl`. And a newer
+//! client's source, with a dataset this build cannot draw or keys it does
+//! not know, decodes rather than failing the room. Regenerate the fixture
+//! only when the wire form is meant to move, with `GEO_SOURCE_WIRE_BLESS=1`,
+//! and say so in the commit.
 
 use std::collections::HashMap;
 use std::path::PathBuf;

@@ -427,6 +427,15 @@ struct Args {
     /// it.
     #[arg(long, requires = "world", value_name = "PATH")]
     world_record: Option<String>,
+    /// With `--world`: build the region from this square of real Berlin
+    /// (#1584) - `E,N,SIZE`, the south-west corner and the side in whole
+    /// metres of EPSG:25833 (the World Editor's Region source shows them).
+    /// Set on the record `--world` resolves to (the seeded one or
+    /// `--world-record`'s), then sanitised as a fetched record is, so a
+    /// square off the map is moved onto it. The ground is fetched from
+    /// GDI Berlin through the game's own fetcher and cache.
+    #[arg(long, requires = "world", value_name = "E,N,SIZE")]
+    geo_square: Option<String>,
     /// With `--world`: open the game's own editing surfaces over it - the
     /// toolbar and the World Editor, drawn by the game's egui systems into
     /// the same frame (#1353). The editor is owner-only, so an offline
@@ -1621,6 +1630,43 @@ fn resolve_rides(derived: &[Option<f32>], spec: Option<&str>) -> Vec<Ride> {
         .collect()
 }
 
+/// `--geo-square`: put a Berlin source on `record`, then sanitise it.
+fn with_geo_square(mut record: RoomRecord, square: Option<&str>) -> RoomRecord {
+    if let Some(square) = square {
+        record.geo_source = Some(crate::pds::GeoSource::berlin(parse_geo_square(square)));
+        record.sanitize();
+        let source = record
+            .geo_source
+            .as_ref()
+            .expect("a Berlin source survives sanitising");
+        eprintln!(
+            "geodata: region built from Berlin E {} N {} side {} m",
+            source.min_e, source.min_n, source.size_m
+        );
+    }
+    record
+}
+
+/// Parse an `E,N,SIZE` square: whole metres.
+fn parse_geo_square(s: &str) -> geodata::GeoSquare {
+    let v: Vec<i64> = s
+        .split(',')
+        .map(|p| {
+            p.trim()
+                .parse::<i64>()
+                .unwrap_or_else(|e| panic!("bad E,N,SIZE component {p:?}: {e}"))
+        })
+        .collect();
+    match v.as_slice() {
+        [e, n, size] => geodata::GeoSquare {
+            min_e: i32::try_from(*e).unwrap_or_else(|_| panic!("easting {e} is out of range")),
+            min_n: i32::try_from(*n).unwrap_or_else(|_| panic!("northing {n} is out of range")),
+            size_m: u32::try_from(*size).unwrap_or_else(|_| panic!("side {size} is out of range")),
+        },
+        _ => panic!("expected E,N,SIZE - got {s:?}"),
+    }
+}
+
 /// Parse an `x,z` ground point.
 fn parse_xz(s: &str) -> [f32; 2] {
     let v: Vec<f32> = s
@@ -1800,13 +1846,14 @@ fn print_terrain_report(args: &Args) {
 /// or else the world `--world` names, seeded.
 fn report_record(args: &Args) -> RoomRecord {
     let world = args.world.as_deref().expect("clap requires --world");
-    match &args.world_record {
+    let record = match &args.world_record {
         Some(path) => read_room_record(path),
         None => match world.parse::<u64>() {
             Ok(seed) => RoomRecord::default_for_seed(seed, &world_did(world)),
             Err(_) => RoomRecord::default_for_did(world),
         },
-    }
+    };
+    with_geo_square(record, args.geo_square.as_deref())
 }
 
 /// The DID a `--world` names: a seed `N` is the room the world mode renders
@@ -1904,6 +1951,7 @@ fn resolve_subject(args: &Args) -> Resolved {
             Some(path) => read_room_record(path),
             None => seeded,
         };
+        let record = with_geo_square(record, args.geo_square.as_deref());
         let label = format!("world-{}", world.replace([':', '/'], "_"));
         return Resolved::plain(Subject::World(Box::new(WorldSpec { record, did })), label);
     }

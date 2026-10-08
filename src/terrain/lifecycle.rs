@@ -36,7 +36,15 @@ pub(super) fn cleanup_terrain(
     mut road_stats: ResMut<super::RoadPanelStats>,
     mut last_cfg: ResMut<LastTerrainConfigJson>,
     mut pending_cfg: ResMut<PendingTerrainConfigJson>,
+    geo_job: Option<Res<super::geo::GeoTerrainJob>>,
+    mut fetcher: Option<ResMut<crate::geodata::GeoFetcher>>,
 ) {
+    // A geodata terrain still fetching is forgotten with the world (#1584).
+    if let Some(job) = geo_job {
+        job.abandon(fetcher.as_deref_mut());
+        commands.remove_resource::<super::geo::GeoTerrainJob>();
+    }
+    commands.remove_resource::<super::geo::GeoTerrainFallback>();
     // All `try_despawn` (#923): these flat sweeps overlap - a mid-swap
     // heightfield is in both `terrain` and `outgoing`, and the water
     // volumes are `RoomEntity`s that `end_attract_scene` (same
@@ -104,6 +112,8 @@ pub(super) fn maybe_regenerate_terrain(
     pending_splat_refs: Query<Entity, With<PendingSplatLayerFetch>>,
     mut splat_state: ResMut<TerrainSplatState>,
     terrain_task: Option<Res<TerrainTask>>,
+    geo_job: Option<Res<super::geo::GeoTerrainJob>>,
+    mut fetcher: Option<ResMut<crate::geodata::GeoFetcher>>,
 ) {
     // Capture the terrain *target* of any observed change *before* we
     // decide whether to act on it. `Res::is_changed` is a per-system tick
@@ -124,9 +134,23 @@ pub(super) fn maybe_regenerate_terrain(
         // Only the terrain config gates a heightmap regen. A road-config edit
         // does *not* regenerate terrain - `roads::maybe_rebuild_roads` re-meshes
         // the road from the existing heightmap instead.
+        let berlin = record
+            .0
+            .geo_source
+            .as_ref()
+            .and_then(crate::pds::GeoSource::berlin_square)
+            .is_some();
         match crate::pds::find_terrain_config(&record.0) {
             Some(cfg) => {
-                if let Ok(fp) = serde_json::to_string(cfg) {
+                if let Some(fp) = super::terrain_fingerprint(cfg, &record.0) {
+                    pending_cfg.0 = Some(Some(fp));
+                }
+            }
+            // No terrain generator, but a region built from real Berlin: its
+            // ground is built on the default grid, exactly as the start
+            // system builds it (#1584), so its fingerprint is the target.
+            None if berlin => {
+                if let Some(fp) = super::terrain_source_key(&record.0) {
                     pending_cfg.0 = Some(Some(fp));
                 }
             }
@@ -141,6 +165,16 @@ pub(super) fn maybe_regenerate_terrain(
     if terrain_task.is_some() {
         return;
     }
+    // A geodata terrain still fetching or decoding is abandoned rather than
+    // waited for (#1584): a fetch can take seconds, and its answer would be
+    // for the square the owner just left.
+    let abandon_geo =
+        |commands: &mut Commands, fetcher: &mut Option<ResMut<crate::geodata::GeoFetcher>>| {
+            if let Some(job) = geo_job.as_deref() {
+                job.abandon(fetcher.as_deref_mut());
+                commands.remove_resource::<super::geo::GeoTerrainJob>();
+            }
+        };
 
     let Some(target) = pending_cfg.0.take() else {
         return;
@@ -190,6 +224,7 @@ pub(super) fn maybe_regenerate_terrain(
             commands.remove_resource::<SplatMaterialHandle>();
             commands.remove_resource::<TextureTasksStarted>();
             commands.remove_resource::<TerrainTask>();
+            abandon_geo(&mut commands, &mut fetcher);
             // A new config is a new job, so a previous job's failure is not
             // about it (#1230 f21) - leaving the marker would refuse to
             // start the replacement.
@@ -217,6 +252,7 @@ pub(super) fn maybe_regenerate_terrain(
             commands.remove_resource::<SplatMaterialHandle>();
             commands.remove_resource::<TextureTasksStarted>();
             commands.remove_resource::<TerrainTask>();
+            abandon_geo(&mut commands, &mut fetcher);
             // A new config is a new job, so a previous job's failure is not
             // about it (#1230 f21) - leaving the marker would refuse to
             // start the replacement.

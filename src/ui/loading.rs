@@ -284,6 +284,12 @@ pub struct GateState<'w> {
     /// Set when the terrain job answered with something that is not a
     /// heightmap (#1230 f21).
     terrain_failed: Option<Res<'w, crate::terrain::TerrainGenFailed>>,
+    /// A geodata region's terrain while it is fetched (#1584), and the
+    /// fetcher it waits on - the row counts its two answers.
+    geo_terrain: Option<Res<'w, crate::terrain::geo::GeoTerrainJob>>,
+    geo_fetcher: Option<Res<'w, crate::geodata::GeoFetcher>>,
+    /// Why a Berlin region shows its procedural ground instead (#1584).
+    geo_fallback: Option<Res<'w, crate::terrain::geo::GeoTerrainFallback>>,
 }
 
 /// Per-record retry markers + in-flight tasks, bundled for the same
@@ -367,7 +373,15 @@ pub fn loading_ui(
     // dispatch off the room record ("world recipe"), so until it lands
     // they are honestly *waiting*, not working (#849).
     let terrain_status = if gate.heightmap.is_some() {
-        RowStatus::Done
+        match gate.geo_fallback.as_deref() {
+            // Amber, with the reason: the ground is there, but it is not
+            // the Berlin the record asks for (#1584).
+            Some(fallback) => RowStatus::Fallback(format!(
+                "- {} Drawn from the world's terrain settings instead.",
+                fallback.reason
+            )),
+            None => RowStatus::Done,
+        }
     } else if let Some(failed) = gate.terrain_failed.as_deref() {
         // #1230 f21. Until this row existed the failing job re-dispatched
         // itself every frame behind a spinner labelled "working", for the
@@ -375,6 +389,17 @@ pub fn loading_ui(
         RowStatus::Failed(failed.reason.clone())
     } else if !room_landed {
         RowStatus::Blocked("the world recipe")
+    } else if let (
+        Some(crate::terrain::geo::GeoTerrainJob::Fetching { legend, render, .. }),
+        Some(fetcher),
+    ) = (gate.geo_terrain.as_deref(), gate.geo_fetcher.as_deref())
+    {
+        // Berlin's ground on its way (#1584): its legend and its render.
+        let done = [*legend, *render]
+            .into_iter()
+            .filter(|&id| fetcher.is_settled(id))
+            .count() as u32;
+        RowStatus::Progress { done, total: 2 }
     } else {
         RowStatus::Active(None)
     };

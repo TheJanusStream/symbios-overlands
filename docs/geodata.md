@@ -188,6 +188,49 @@ stays byte-identical. The bytes are pinned in
   - Every edit goes through the same rules as the sanitiser, so the
     sanitiser never rewrites it.
 
+The terrain (P1.2, #1584, `src/terrain/geo.rs`) reads the source. A record
+with a Berlin square starts a geodata job instead of the procedural
+heightmap job.
+
+1. The job fetches the terrain legend and one render of the core: the
+   terrain config's `grid_size` points `cell_scale` apart, centred on the
+   square, with pixel centres on the grid points. The core is never wider
+   than the square (`core_grid`), so a 250 m square is a 250 m world, and
+   the core always lies inside Berlin, where the data is.
+2. It decodes them on the compute pool.
+3. It lands the result as a finished `TerrainTask`, so the procedural
+   pipeline's own landing builds the world digest, the log, the mesh, the
+   collider and the swap.
+
+- **Heights** are metres above sea level, with no datum shift. Berlin's
+  ground never lies below 26 m, so a seeded water plane stays under it
+  until P1.4 adds real water.
+- **Rebuilds.** The terrain fingerprint covers `geo_source`, so switching to
+  Berlin or moving the square rebuilds the ground in place, as a terrain
+  edit does.
+- **Failure.** If Berlin's terrain cannot be had - the service is
+  unreachable after the fetcher's retries, or the answer does not decode -
+  the region falls back to the procedural ground its terrain config
+  describes, and says why. The loading screen's terrain row turns amber
+  with the reason, and a toast says it in game. Nobody is left on a loading
+  screen, or on stale ground, waiting for a service that is down. The
+  loading screen counts the two answers while they arrive.
+- **Ordering.** Regeneration and the cleanup paths run before the poll,
+  with the sync point that ordering inserts. A decode that finishes in the
+  frame the owner moves the square is dropped, never landed.
+- **Known divergence.** Each peer fetches for itself and keeps a 30-day
+  cache. If Berlin re-renders its data within that window, two peers can
+  hold different heightmaps; the world digest reports it. P3.2's layer
+  hashes in the record (#1590) are the cure.
+- **Tools.** The native tools' `rebuild_heightmap_for_record` fetches and
+  decodes the same way, blocking. The render tool takes
+  `--world N --geo-square E,N,SIZE` to render a region from real Berlin.
+  Its `--terrain-report` read the Teufelsberg square's highest ground as
+  119.0 m (the summit is about 120 m).
+- **Placeholders.** Until P1.3 and P1.4, the ground's colours follow the
+  record's altitude bands, so at real altitude it is mostly the high
+  bands. Seeded fog also hides real terrain beyond a few hundred metres.
+
 The ignored test `live_gdi_berlin_round_trip_decodes_and_is_kept` exercises
 the live path end to end: the real client, the disk store, and the decoders.
 It then checks that a second visit is answered from the store alone. Fire it

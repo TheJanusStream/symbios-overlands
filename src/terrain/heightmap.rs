@@ -21,6 +21,7 @@ pub(super) fn start_terrain_generation(
     record: Res<LiveRoomRecord>,
     time: Res<Time>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
+    mut fetcher: Option<ResMut<crate::geodata::GeoFetcher>>,
 ) {
     // `find_terrain_config` walks the generator map in sorted-key order so
     // every peer compiling this record picks the same entry - `HashMap`
@@ -37,6 +38,23 @@ pub(super) fn start_terrain_generation(
     // schedule (native: AsyncComputeTaskPool; wasm: task pool / Web Worker).
     let now = time.elapsed_secs_f64();
     let source = super::terrain_source_key(&record.0);
+    // A new terrain: any earlier fallback's reason no longer applies.
+    commands.remove_resource::<super::geo::GeoTerrainFallback>();
+
+    // A region built from real Berlin fetches its ground instead (#1584).
+    if let Some(square) = record
+        .0
+        .geo_source
+        .as_ref()
+        .and_then(crate::pds::GeoSource::berlin_square)
+    {
+        if let Some(fetcher) = fetcher.as_deref_mut() {
+            commands.insert_resource(super::geo::start(fetcher, square, &cfg, now, source));
+            return;
+        }
+        warn!("no geodata fetcher in this app - drawing the region's terrain from its seed");
+    }
+
     let task = crate::offload::offload(GenJob::Heightmap(heightmap_params(&cfg)));
     // Mark the offload lifecycle (#631) so the `offload.task_never_resolves`
     // stall rule can pair this dispatch with its completion in the offline

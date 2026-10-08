@@ -45,6 +45,7 @@
 //! the terrain tree; child modules reach them via `super::`) because
 //! every sub-module touches some subset of them.
 
+pub(crate) mod geo;
 mod heightmap;
 pub(crate) use heightmap::heightmap_params;
 mod lifecycle;
@@ -110,15 +111,26 @@ pub struct FinishedHeightMap(pub HeightMap);
 pub(crate) struct HeightMapSource(pub(crate) Option<String>);
 
 /// The key a record's terrain is generated from: its terrain config (the
-/// default one where it has none, as the terrain task falls back to) as
-/// JSON. Equal keys build the same heightmap.
+/// default one where it has none, as the terrain task falls back to) and its
+/// geodata source, as JSON. Equal keys build the same heightmap.
 pub(crate) fn terrain_source_key(record: &crate::pds::RoomRecord) -> Option<String> {
-    serde_json::to_string(
+    terrain_fingerprint(
         &crate::pds::find_terrain_config(record)
             .cloned()
             .unwrap_or_default(),
+        record,
     )
-    .ok()
+}
+
+/// What a heightmap built from `cfg` for `record` depends on, as one string:
+/// the terrain config and the record's geodata source (#1584) - switching a
+/// region to real Berlin, or moving its square, builds a new heightmap
+/// exactly as a terrain edit does.
+pub(crate) fn terrain_fingerprint(
+    cfg: &crate::pds::SovereignTerrainConfig,
+    record: &crate::pds::RoomRecord,
+) -> Option<String> {
+    serde_json::to_string(&(cfg, &record.geo_source)).ok()
 }
 
 /// The terrain generation gave an answer that is not a heightmap (#1230
@@ -304,13 +316,27 @@ struct PendingTerrainConfigJson(Option<Option<String>>);
 /// just inline. For native tooling (the render harness's `--road-dump`) that
 /// needs the *real* surface a room would render on without standing up the Bevy
 /// terrain pipeline. Matches [`heightmap::start_terrain_generation`]'s config
-/// resolution exactly so the heightmap is identical to the live one.
+/// resolution exactly so the heightmap is identical to the live one - for a
+/// region built from real Berlin too, whose core is fetched and decoded as
+/// the game does it (#1584), blocking.
 /// (Native-only, like the render tool that calls it.)
+///
+/// # Panics
+///
+/// When a Berlin region's terrain cannot be fetched or read: a tool would
+/// otherwise report on ground the game never draws.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn rebuild_heightmap_for_record(record: &crate::pds::RoomRecord) -> HeightMap {
     let cfg = crate::pds::find_terrain_config(record)
         .cloned()
         .unwrap_or_default();
+    if let Some(square) = record
+        .geo_source
+        .as_ref()
+        .and_then(crate::pds::GeoSource::berlin_square)
+    {
+        return geo::fetch_core_blocking(square, &cfg).unwrap_or_else(|reason| panic!("{reason}"));
+    }
     let params = heightmap::heightmap_params(&cfg);
     match crate::offload::GenJob::Heightmap(params).run() {
         crate::offload::GenResult::Heightmap(data) => heightmap::heightmap_from_data(data),
@@ -340,6 +366,14 @@ pub struct TerrainPlugin;
 /// caller, and CI's wasm check compiles with warnings denied.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn register_headless_terrain(app: &mut App) {
+    // A geodata region's terrain is fetched (#1584): the tool sees real
+    // Berlin through the game's own fetcher and cache.
+    if !app
+        .world()
+        .contains_resource::<crate::geodata::GeoFetcher>()
+    {
+        app.add_plugins(crate::geodata::GeodataPlugin);
+    }
     app.add_plugins(MaterialPlugin::<SplatTerrainMaterial>::default())
         .init_resource::<TerrainSplatState>()
         .init_resource::<referenced::ReferencedLayerStatus>()
@@ -349,9 +383,11 @@ pub(crate) fn register_headless_terrain(app: &mut App) {
                 heightmap::start_terrain_generation.run_if(
                     resource_exists::<LiveRoomRecord>
                         .and_then(not(resource_exists::<TerrainTask>))
+                        .and_then(not(resource_exists::<geo::GeoTerrainJob>))
                         .and_then(not(resource_exists::<FinishedHeightMap>))
                         .and_then(not(resource_exists::<TerrainGenFailed>)),
                 ),
+                geo::poll_geo_terrain.run_if(resource_exists::<geo::GeoTerrainJob>),
                 splat::start_texture_tasks.run_if(
                     resource_exists::<LiveRoomRecord>
                         .and_then(not(resource_exists::<TextureTasksStarted>)),
@@ -451,12 +487,16 @@ impl Plugin for TerrainPlugin {
                     heightmap::start_terrain_generation.run_if(
                         resource_exists::<LiveRoomRecord>
                             .and_then(not(resource_exists::<TerrainTask>))
+                            .and_then(not(resource_exists::<geo::GeoTerrainJob>))
                             .and_then(not(resource_exists::<FinishedHeightMap>))
                             // #1230 f21: without this, a job that answers
                             // with the wrong variant re-dispatches on the
                             // very next frame, forever and in silence.
                             .and_then(not(resource_exists::<TerrainGenFailed>)),
                     ),
+                    // A geodata region's terrain (#1584): fetched and
+                    // decoded, then landed as the task below.
+                    geo::poll_geo_terrain.run_if(resource_exists::<geo::GeoTerrainJob>),
                     splat::start_texture_tasks.run_if(
                         resource_exists::<LiveRoomRecord>
                             .and_then(not(resource_exists::<TextureTasksStarted>)),
@@ -505,7 +545,12 @@ impl Plugin for TerrainPlugin {
             .add_systems(
                 Update,
                 (
-                    lifecycle::maybe_regenerate_terrain.run_if(resource_exists::<LiveRoomRecord>),
+                    // Before the geodata poll, with the sync point the
+                    // ordering inserts: a job it abandons is gone before the
+                    // poll could land the old square's heightmap (#1584).
+                    lifecycle::maybe_regenerate_terrain
+                        .run_if(resource_exists::<LiveRoomRecord>)
+                        .before(geo::poll_geo_terrain),
                     splat::collect_texture_results,
                     referenced::poll_splat_layer_fetches,
                     splat::apply_splat_textures,
@@ -538,9 +583,20 @@ impl Plugin for TerrainPlugin {
             // this frame's whole Update schedule; the run never repeats.
             .add_systems(
                 Update,
-                lifecycle::cleanup_terrain.run_if(
-                    in_state(AppState::Loading)
-                        .and_then(resource_exists::<crate::loading::AbortLoading>),
+                lifecycle::cleanup_terrain
+                    .before(geo::poll_geo_terrain)
+                    .run_if(
+                        in_state(AppState::Loading)
+                            .and_then(resource_exists::<crate::loading::AbortLoading>),
+                    ),
+            )
+            // Say in game why a Berlin region shows its procedural ground
+            // (#1584); the loading screen's terrain row says it during
+            // loading.
+            .add_systems(
+                Update,
+                geo::announce_geo_terrain_fallback.run_if(
+                    in_state(AppState::InGame).and_then(resource_added::<geo::GeoTerrainFallback>),
                 ),
             )
             // Re-rolling the login backdrop (#978) discards one demo world
@@ -553,6 +609,7 @@ impl Plugin for TerrainPlugin {
                 Update,
                 lifecycle::cleanup_terrain
                     .before(crate::attract::reroll_attract_scene)
+                    .before(geo::poll_geo_terrain)
                     .run_if(
                         in_state(AppState::Login)
                             .and_then(resource_exists::<crate::attract::AttractReroll>),
@@ -584,6 +641,7 @@ mod terrain_failure_tests {
             let mut condition = IntoSystem::into_system(
                 resource_exists::<LiveRoomRecord>
                     .and_then(not(resource_exists::<TerrainTask>))
+                    .and_then(not(resource_exists::<geo::GeoTerrainJob>))
                     .and_then(not(resource_exists::<FinishedHeightMap>))
                     .and_then(not(resource_exists::<TerrainGenFailed>)),
             );
@@ -613,6 +671,28 @@ mod terrain_failure_tests {
         // The loading screen's "Try again" is exactly this removal.
         world.remove_resource::<TerrainGenFailed>();
         assert!(should_start(&mut world), "and the retry starts it again");
+
+        // A geodata terrain on its way (#1584) is a job in flight too.
+        let mut fetcher = crate::geodata::GeoFetcher::new(
+            crate::geodata::GeoStore::Off,
+            std::sync::Arc::new(crate::geodata::HttpTransport),
+        );
+        let square = geodata::GeoSquare {
+            min_e: 391_000,
+            min_n: 5_819_500,
+            size_m: 1_000,
+        };
+        world.insert_resource(geo::start(
+            &mut fetcher,
+            square,
+            &Default::default(),
+            0.0,
+            None,
+        ));
+        assert!(
+            !should_start(&mut world),
+            "a fetching geodata terrain must not start a second one"
+        );
     }
 }
 

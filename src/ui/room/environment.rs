@@ -451,9 +451,10 @@ fn draw_region_source(ui: &mut egui::Ui, source: &mut Option<GeoSource>, dirty: 
     if ui
         .checkbox(&mut berlin, "Build from real Berlin")
         .on_hover_text(
-            "Build the region from a square of real Berlin at real scale - its \
-             ground, water and blocks from the city's open geodata, dressed in \
-             this world's theme. Off: the region is drawn from its seed alone.",
+            "Build the region's ground from a square of real Berlin, at real \
+             scale and real altitude: the city's own terrain, centred on this \
+             square, under everything else in the world. Off: the ground is \
+             drawn from the world's terrain settings.",
         )
         .changed()
     {

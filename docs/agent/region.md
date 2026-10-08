@@ -2,9 +2,11 @@
 
 A world's own settings live in its record beside the things placed in it:
 `/generators/base_terrain` (the ground, with the water as its child),
-`/environment` (sun, sky, fog, clouds, the water's look, the ambient sound)
-and `/default_landing` (where and which way visitors arrive). All of it is
-edited with `room set` and kept with `save`, like a building.
+`/environment` (sun, sky, fog, clouds, the water's look, the ambient sound),
+`/default_landing` (where and which way visitors arrive) and `/geo_source`
+(a square of real Berlin the ground is built from - see "Real Berlin
+ground" below). All of it is edited with `room set` and kept with `save`,
+like a building.
 
 ## Clearing a seeded world
 
@@ -1014,6 +1016,33 @@ built this way; its builder is `exports/eigen/b/city.py`.
   `layout_revision`) before the owner deploys it, and a visitor on the
   deployed client draws the old streets under the new buildings. Say so
   when you save one, and tell the owner it waits on their deploy.
+
+## Real Berlin ground
+
+`/geo_source` is `{dataset: "berlin", min_e, min_n, size_m}`: a square of
+Berlin in whole metres of EPSG:25833 (ETRS89 / UTM 33N), its south-west
+corner and side. With it, the ground is the city's own terrain at real scale
+and real altitude: the heightmap keeps `base_terrain`'s `grid_size` and
+`cell_scale`, centred on the square, and the height fields are no longer
+read. Heights are metres above sea level, 26-123 m, so a water child a few
+metres up lies under the ground. `room set /geo_source null` goes back to
+the generated ground.
+
+- **The square is checked.** Its side snaps to whole 10 m between 250 m and
+  19 km, and a square that is not wholly inside Berlin is moved to the
+  nearest place it fits. `room get /geo_source` after the set shows where
+  it landed.
+- **The ground is fetched when the world loads** from Berlin's map service
+  (gdi.berlin.de) and kept on the device for 30 days. Everyone in the world
+  fetches the same data. If the service cannot be reached, the world falls
+  back to `base_terrain`'s generated ground and says why: an amber
+  terrain row while loading, a warning toast in game.
+- **A small square is a small world.** The ground spans `grid_size` points
+  `cell_scale` apart, but never more than the square's side: a 250 m square
+  gives a ground about 250 m across.
+- **Only the ground comes from Berlin so far.** The ground's colours still
+  follow `base_terrain`'s altitude rules, which at real altitude mostly
+  means the high bands. Water, blocks and buildings are not Berlin's yet.
 
 ## Arrivals
 
