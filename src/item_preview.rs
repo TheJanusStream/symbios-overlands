@@ -64,8 +64,8 @@
 //! module knowing anything about audio. Parking it at the origin would
 //! have played every sounding item's loop the moment it was selected.
 //! Two kilometres is also close enough that `f32` world coordinates stay
-//! sub-millimetre, which the far side of the main camera's 12 km far
-//! plane would not be.
+//! sub-millimetre, which the far side of the main camera's far plane would
+//! not be.
 //!
 //! ## What it costs, which is a wasm question first
 //!
@@ -835,8 +835,8 @@ mod tests {
     /// #1288. The stage is parked far from the listener because a
     /// construct's audio is spatial, and near enough that `f32` world
     /// coordinates there still resolve well under a millimetre. It also
-    /// has to stay OUT of the main camera's 12 km far plane's way only as
-    /// a courtesy -- the render layer is the isolation -- so this pins the
+    /// has to stay OUT of the main camera's way only as a courtesy -- the
+    /// render layer is the isolation -- so this pins the
     /// precision claim, which is the one that would fail silently.
     #[test]
     fn the_stage_sits_where_f32_still_resolves_sub_millimetre() {

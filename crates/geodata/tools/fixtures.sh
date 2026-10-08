@@ -27,7 +27,16 @@ get dgm1_legend.json "$(legend dgm1 c_dgm1)"
 get dgm1_392000_5820000_1024m_256px.png "$(map dgm1 c_dgm1 392000,5820000,393024,5821024 256)"
 get dgm1_391200_5819700_600m_300px.png "$(map dgm1 c_dgm1 391200,5819700,391800,5820300 300)"
 
+# A 200 m core and the 600 m square around it, as a far-field region asks
+# for them (the app's terrain tests, #1585).
+get dgm1_391400_5819900_200m_100px.png "$(map dgm1 c_dgm1 391400,5819900,391600,5820100 100)"
+get dgm1_391200_5819700_600m_64px.png "$(map dgm1 c_dgm1 391200,5819700,391800,5820300 64)"
+
 get landuse_legend.json "$(legend ua_flaechennutzung_2015 c_ua_realnutz_2015)"
+get landuse_391400_5819900_200m_100px.png \
+  "$(map ua_flaechennutzung_2015 c_ua_realnutz_2015 391400,5819900,391600,5820100 100)"
+get landuse_391200_5819700_600m_64px.png \
+  "$(map ua_flaechennutzung_2015 c_ua_realnutz_2015 391200,5819700,391800,5820300 64)"
 get landuse_391200_5819700_600m_300px.png \
   "$(map ua_flaechennutzung_2015 c_ua_realnutz_2015 391200,5819700,391800,5820300 300)"
 

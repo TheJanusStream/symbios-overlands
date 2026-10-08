@@ -196,7 +196,7 @@ fn spawn_node(
                 warn!("Water generator ignored at root at `{cache_key}`");
                 return None;
             }
-            let world_extent = ctx
+            let mut world_extent = ctx
                 .heightmap
                 .map(|hm| (hm.0.width() - 1) as f32 * hm.0.scale())
                 .unwrap_or_else(|| (tcfg::GRID_SIZE - 1) as f32 * tcfg::CELL_SCALE);
@@ -215,6 +215,11 @@ fn spawn_node(
             let mut transform = transform;
             if terrain_water && let Some(level) = super::water::geo_water_level(ctx.heightmap) {
                 transform.translation.y = level;
+                // And across the far field, where it took the core's water
+                // (#1585).
+                if let Some(span) = super::water::geo_water_span(ctx.heightmap) {
+                    world_extent = span;
+                }
             }
             Some(spawn_water_volume(
                 ctx.commands,

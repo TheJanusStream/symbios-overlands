@@ -26,8 +26,12 @@
 //! carved below it and all other ground kept above it, so the region's one
 //! water plane, drawn at that level, shows Berlin's water and nothing else.
 
+use std::sync::Arc;
+
 use bevy_symbios_ground::WeightMap;
 use geodata::berlin::LandUse;
+
+use super::far::FarField;
 
 /// The scatter layer of ground that is no natural ground: matched by no
 /// biome filter.
@@ -49,6 +53,10 @@ pub(crate) struct GeoGround {
     /// The level of the core's water, metres above sea level, where it has
     /// any.
     water_level: Option<f32>,
+    /// The square beyond the core, coarse, where the square is wider than
+    /// the core (#1585). Shared, so the clones the contact classifier keeps
+    /// do not copy it.
+    far: Option<Arc<FarField>>,
 }
 
 impl GeoGround {
@@ -58,23 +66,20 @@ impl GeoGround {
         self.water_level
     }
 
+    /// The far field: the square beyond the core, drawn as its horizon.
+    pub(crate) fn far(&self) -> Option<&Arc<FarField>> {
+        self.far.as_ref()
+    }
+
+    /// Give the ground its far field.
+    pub(super) fn set_far(&mut self, far: FarField) {
+        self.far = Some(Arc::new(far));
+    }
+
     /// The splat weight map: one texel per cell, all of it on the cell's
     /// layer.
     pub(crate) fn weight_map(&self) -> WeightMap {
-        let side = self.grid as usize;
-        WeightMap {
-            data: self
-                .cover
-                .iter()
-                .map(|&cover| {
-                    let mut texel = [0; 4];
-                    texel[layer(cover)] = 255;
-                    texel
-                })
-                .collect(),
-            width: side,
-            height: side,
-        }
+        one_hot_weights(&self.cover, self.grid as usize)
     }
 
     /// The four layers' weights at heightmap-local `(lx, lz)` metres,
@@ -138,7 +143,14 @@ impl GeoGround {
             cell,
             cover,
             water_level,
+            far: None,
         }
+    }
+
+    /// This ground with `far` round it.
+    pub(crate) fn with_far(mut self, far: FarField) -> Self {
+        self.set_far(far);
+        self
     }
 }
 
@@ -206,6 +218,25 @@ pub(crate) fn decode_ground(
     grid: u32,
     cell: f32,
 ) -> Result<GeoGround, String> {
+    let cover = decode_cover(legend, render, grid)?;
+    let wet = water_mask(&cover);
+    let water = geodata::water::settle(heights, &wet, grid, grid, cell);
+    Ok(GeoGround {
+        grid,
+        cell,
+        cover,
+        water_level: water.map(|w| w.level),
+        far: None,
+    })
+}
+
+/// Decode a land-use render of `grid` x `grid` pixels through its legend:
+/// the land use under each pixel, row-major from the north-west corner.
+pub(super) fn decode_cover(
+    legend: &[u8],
+    render: &[u8],
+    grid: u32,
+) -> Result<Vec<Option<LandUse>>, String> {
     let legend = geodata::legend::parse_class_legend(legend)
         .map_err(|e| format!("Berlin's land-use legend could not be read: {e}"))?;
     let table = geodata::berlin::land_use_table(&legend);
@@ -216,19 +247,32 @@ pub(crate) fn decode_ground(
         .map_err(|e| format!("Berlin's land use could not be read: {e}"))?;
     let classes = geodata::raster::decode_classes(&image, &legend)
         .map_err(|e| format!("Berlin's land use could not be read: {e}"))?;
-    let cover: Vec<Option<LandUse>> = classes
+    Ok(classes
         .classes
         .iter()
         .map(|&id| table.get(usize::from(id)).copied().flatten())
-        .collect();
-    let wet: Vec<bool> = cover.iter().map(|&c| c == Some(LandUse::Water)).collect();
-    let water = geodata::water::settle(heights, &wet, grid, grid, cell);
-    Ok(GeoGround {
-        grid,
-        cell,
-        cover,
-        water_level: water.map(|w| w.level),
-    })
+        .collect())
+}
+
+/// Which pixels of `cover` are water.
+pub(super) fn water_mask(cover: &[Option<LandUse>]) -> Vec<bool> {
+    cover.iter().map(|&c| c == Some(LandUse::Water)).collect()
+}
+
+/// A one-texel-per-cell weight map, all of each texel on its cell's layer.
+pub(super) fn one_hot_weights(cover: &[Option<LandUse>], side: usize) -> WeightMap {
+    WeightMap {
+        data: cover
+            .iter()
+            .map(|&cover| {
+                let mut texel = [0; 4];
+                texel[layer(cover)] = 255;
+                texel
+            })
+            .collect(),
+        width: side,
+        height: side,
+    }
 }
 
 #[cfg(test)]

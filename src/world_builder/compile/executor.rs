@@ -1293,6 +1293,49 @@ mod tests {
         );
     }
 
+    /// #1585: where a Berlin region's far field took the core's water, the
+    /// terrain's water plane spans the far field, so the river runs on to
+    /// the horizon; a far field that did not keeps the plane to the core.
+    #[test]
+    fn a_wet_far_field_widens_the_water_plane_to_the_horizon() {
+        use crate::terrain::geo::GeoGround;
+        use crate::terrain::geo::far::FarField;
+        let plane_half = |far: FarField| {
+            let mut record = test_record(0);
+            let mut terrain = Generator::from_kind(GeneratorKind::Terrain(Default::default()));
+            terrain
+                .children
+                .push(Generator::from_kind(GeneratorKind::Water {
+                    surface: Default::default(),
+                }));
+            record
+                .generators
+                .insert("base_terrain".to_string(), terrain);
+            record.placements = vec![Placement::Absolute {
+                generator_ref: "base_terrain".to_string(),
+                transform: TransformData::default(),
+                snap_to_terrain: false,
+                avoid_water: false,
+                avoid_water_clearance: Fp(0.0),
+                seed: None,
+            }];
+            let mut app = compile_app(record);
+            let mut map = super::super::pad::wet_ramp();
+            map.1 = Some(
+                GeoGround::from_cover(129, 1.0, vec![None; 129 * 129], Some(30.5)).with_far(far),
+            );
+            app.insert_resource(map);
+            settle(&mut app);
+            let planes = &app.world().resource::<WaterSurfaces>().planes;
+            assert_eq!(planes.len(), 1, "one water plane");
+            planes[0].local_half_extents.x
+        };
+        // 400 pixels 10 m apart: the far mesh spans 3,990 m.
+        let far = || FarField::from_fn(400, 10.0, |_, _| 34.0);
+        assert_eq!(plane_half(far().soaked()), 3_990.0 / 2.0);
+        assert_eq!(plane_half(far()), 128.0 / 2.0, "the core's 128 m");
+    }
+
     /// #1399: the editor reads a snapped Absolute anchor exactly where this
     /// compile draws it, walk and all, and a record carrying that pose with
     /// snap off draws in the same place - the snap toggle's "turning it OFF

@@ -45,13 +45,19 @@ pub struct SplatUniforms {
     pub albedo_fade_near: f32,
     /// View distance (m) where the albedo is fully each layer's mean colour.
     pub albedo_fade_far: f32,
-    /// Pad to 48 bytes (with `_pad1`/`_pad2`). WebGL2 rejects uniform blocks
-    /// that are not a multiple of 16 (`BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED`
-    /// unsupported), and the nine fields above take the block to 36. Mirror
-    /// all three in `SplatUniforms` in `splat.wgsl`.
+    /// The weight map's UV from the mesh's: `uv * scale + offset` on both
+    /// axes (#1585). A far field's mesh carries the core's UV mapping run on
+    /// past the core's edges, so its layers tile as the core's do, and this
+    /// maps that onto its own weight map. Zero reads as 1 in the shader, so
+    /// a material that never sets it samples with the mesh's UV.
+    pub weight_uv_scale: f32,
+    /// See [`Self::weight_uv_scale`].
+    pub weight_uv_offset: f32,
+    /// Pad to 48 bytes. WebGL2 rejects uniform blocks that are not a
+    /// multiple of 16 (`BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED` unsupported),
+    /// and the eleven fields above take the block to 44. Mirror it in
+    /// `SplatUniforms` in `splat.wgsl`.
     pub _pad0: u32,
-    pub _pad1: u32,
-    pub _pad2: u32,
 }
 
 /// GPU uniform block for the avatar-interaction stains overlay

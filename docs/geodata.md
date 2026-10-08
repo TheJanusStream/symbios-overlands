@@ -230,8 +230,6 @@ heightmap job.
   `--world N --geo-square E,N,SIZE` to render a region from real Berlin.
   Its `--terrain-report` read the Teufelsberg square's highest ground as
   119.0 m (the summit is about 120 m).
-- **Placeholder.** Until P1.3, seeded fog hides real terrain beyond a few
-  hundred metres.
 
 The ground and the water (P1.4, #1586) come from the land-use render,
 decoded on the core's own grid (`src/terrain/geo/ground.rs`). They ride in
@@ -283,7 +281,7 @@ together and go together.
   Where no body qualifies, nothing is settled.
 - **One plane.** The record still says whether there is water - a record
   with no water child draws none, and the beds lie dry - and Berlin says
-  where: every water plane of the region is drawn at Berlin's level, and
+  where: the terrain's own water planes are drawn at Berlin's level, and
   every reader of the water line (the damp ground, the dry-land walks, the
   scatter bands, the streets, the editor and the tools) asks
   `drawn_water_level` for it. A body more than 3 m off the level, a lake on
@@ -295,6 +293,70 @@ together and go together.
   and the fallback says so as it does for the terrain.
 - **Editor.** The Region source section says what the land use does and
   shows the water level Berlin set.
+
+The horizon (P1.3, #1585, `src/terrain/geo/far.rs`) is the square beyond
+the core, drawn coarse to its edge. It rides in the `GeoGround` beside the
+core's land use.
+
+- **Far field.** One more render of the terrain and of the land use over the
+  whole square, 64 to 256 pixels a side: 40 m a pixel up to a 10 km square,
+  coarser beyond (74 m at 19 km). It has the city's hills, its land use on
+  the region's layers, and its water at the core's level:
+  `geodata::water::settle_to` carves the far bodies within 3 m of that level
+  and keeps the rest of the far ground above it, under the same two
+  refusals as `settle`. A square the core nearly fills, leaving a ring under
+  two far pixels wide, gets no far field.
+- **Seam.** The far mesh's grid lines are the far pixel centres plus the
+  core's four edges. A far cell along the core takes the core's boundary
+  vertices on its edge, from the one nearest each of its corners, at the
+  core's own heights, and fans them out to its far corners. So the two
+  meshes share their boundary vertex for vertex, with no far vertex partway
+  along a core edge (a T-junction the rasteriser need not close). There the
+  far mesh also takes the core mesh's own normals, so the light runs on
+  across the seam.
+- **Layers.** Three of the four splat layers tile by the mesh's UVs. The far
+  mesh's UVs are the core's mapping run on past its edges, so its tiles are
+  the core's size and phase, and a weight-map transform in the splat
+  uniforms (`weight_uv_scale`, `weight_uv_offset`) maps them onto the far
+  weight map.
+- **Not walked.** The far field has no collider; P4 (#1591) walks it. It
+  looks like ground, so invisible walls stand just outside the core's
+  edges, from 50 m under its lowest ground to 500 m over its highest. They
+  carry no `TerrainMesh`, so the pick rays that ask for the ground pass
+  them by, and they are on a collision layer of their own that particles'
+  bounces leave out. The camera, which may orbit out over the far field,
+  keeps clear of its hills (`FinishedHeightMap::view_height_at`).
+- **Water.** Where the far field took the core's water, the terrain's water
+  plane spans the far field, so the river runs on to the horizon.
+- **Haze and sky.** Round a far field that landed, the fog visibility is at
+  least the square's side (`fog_visibility(record, heightmap)`, which the
+  drawn fog, the draw distance and the shadow reach all read). At the
+  square's edge a far thing keeps about a seventh of its contrast, so the
+  city fades into the air there rather than ending; a hill halfway out
+  keeps more than a third. Half the side was tried first and lost the
+  edge, and a hill 5 km out with it. A region whose horizon could not be
+  had keeps its own fog, which hides the end of its walkable ground. The
+  sky cuboid stands past the far field's farthest edge from anywhere in
+  the core. The camera's far plane is 25 km; Bevy's projection is infinite
+  reverse-Z, so that bounds culling only.
+- **Seen.** A 12 km square round Charlottenburg shows the Teufelsberg
+  4.5 km out as a small forested bump on the horizon, as an 80 m hill is at
+  that distance, and the Spree's water continuing past the core.
+- **Timing.** The core lands once its own four answers are in and the far
+  field's are too, or 10 s after its own, whichever is first: the horizon
+  is decoration, and gets one retry's grace, not the loading screen. The
+  grace runs on the wall clock (`Time<Real>`), since it waits on the
+  network; on the render tool's stepped session clock it ran out before a
+  real answer could come. Without its far renders a region keeps its
+  walkable ground and says its horizon is missing.
+- **Cost.** Two more renders (the legends are the core's), a decode on the
+  compute pool, and one more mesh with no CPU copy and one more material.
+  The far mesh of the largest square builds in 0.24 s native, a quarter of
+  the core mesh's 0.93 s. The tools read the walkable ground only:
+  `rebuild_terrain_for_record` fetches no far field.
+- **Limits.** At 40 m a pixel streets turn into blurred bands of stone, and
+  water narrower than about 80 m is smoothed away. Seen from above, the far
+  field's land use is plainly coarser than the core's.
 
 The ignored test `live_gdi_berlin_round_trip_decodes_and_is_kept` exercises
 the live path end to end: the real client, the disk store, and the decoders.

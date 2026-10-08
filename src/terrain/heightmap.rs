@@ -249,11 +249,13 @@ pub(super) fn spawn_terrain_mesh(
     ));
 
     // Material starts disabled (flat colour) until the texture tasks finish.
-    let mat_handle = materials.add(bevy::pbr::ExtendedMaterial {
+    // A geodata region's far field (#1585) gets one of its own, the same
+    // in every respect but the weight map it is later given.
+    let placeholder = || bevy::pbr::ExtendedMaterial {
         base: super::splat::placeholder_surface(),
         extension: SplatExtension {
-            albedo_array: albedo_placeholder,
-            normal_array: normal_placeholder,
+            albedo_array: albedo_placeholder.clone(),
+            normal_array: normal_placeholder.clone(),
             uniforms: SplatUniforms {
                 tile_scale: tcfg::TILE_SCALE,
                 enabled: 0,
@@ -272,15 +274,32 @@ pub(super) fn spawn_terrain_mesh(
                 // unaffected.
                 albedo_fade_near: tcfg::splat::ALBEDO_FADE_NEAR,
                 albedo_fade_far: tcfg::splat::ALBEDO_FADE_FAR,
+                weight_uv_scale: 1.0,
+                weight_uv_offset: 0.0,
                 _pad0: 0,
-                _pad1: 0,
-                _pad2: 0,
             },
             ..default() // weight_map defaults to 1x1 D2, which is fine for the weight sampler
         },
+    };
+    let mat_handle = materials.add(placeholder());
+    let far = hm_res.ground().and_then(|ground| ground.far()).cloned();
+    let far_parts = far.as_ref().map(|far| {
+        // The far mesh runs the core's UVs on past its edges, so its layers
+        // tile as the core's; its weight map is looked up through this.
+        let mut material = placeholder();
+        let (scale, offset) = far.weight_uv(world_extent);
+        material.extension.uniforms.weight_uv_scale = scale;
+        material.extension.uniforms.weight_uv_offset = offset;
+        (
+            meshes.add(super::geo::far::build_far_mesh(far, hm)),
+            materials.add(material),
+        )
     });
 
-    commands.insert_resource(SplatMaterialHandle(mat_handle.clone()));
+    commands.insert_resource(SplatMaterialHandle(
+        mat_handle.clone(),
+        far_parts.as_ref().map(|(_, material)| material.clone()),
+    ));
 
     commands
         .spawn((
@@ -298,6 +317,26 @@ pub(super) fn spawn_terrain_mesh(
                 MeshMaterial3d(mat_handle),
                 Transform::from_xyz(-half, 0.0, -half),
             ));
+            // The far field, as the region's horizon (#1585): drawn, not
+            // walked - no collider, and walls at the core's edge, so nobody
+            // steps off the walkable ground onto a horizon that would let
+            // them fall through it. The walls carry no `TerrainMesh`, so the
+            // pick rays that ask for the ground pass them by.
+            if let Some((far_mesh, far_material)) = far_parts {
+                parent.spawn((
+                    Mesh3d(far_mesh),
+                    MeshMaterial3d(far_material),
+                    Transform::IDENTITY,
+                    bevy::light::NotShadowCaster,
+                ));
+                for (size, centre) in super::geo::far::boundary_walls(hm) {
+                    parent.spawn((
+                        Collider::cuboid(size.x, size.y, size.z),
+                        CollisionLayers::from_bits(super::geo::far::WALL_LAYER, u32::MAX),
+                        Transform::from_translation(centre),
+                    ));
+                }
+            }
         });
 
     // Roads are spawned separately by `roads::maybe_rebuild_roads` (it drapes

@@ -34,6 +34,7 @@
 //! colours following the record's altitude bands and with no water, and
 //! the fallback says that instead.
 
+pub(crate) mod far;
 mod ground;
 
 pub(crate) use ground::GeoGround;
@@ -53,29 +54,63 @@ use super::TerrainTask;
 /// The largest core grid a render may be: the decoders' pixel cap.
 const MAX_CORE_GRID: u32 = 2048;
 
-/// The four requests a core is built from, all over the core's box.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// How long the walkable ground waits for its horizon once its own answers
+/// are in (s): long enough for one of the fetcher's retries, which comes
+/// after 2 s, and no longer - the far field is decoration, and the ground
+/// lands without it rather than hold a loading screen (#1585).
+const FAR_GRACE_S: f64 = 10.0;
+
+/// The requests a core is built from: the terrain's and the land use's
+/// legend and render over the core's box, and - where the square is wider
+/// than the core - one render of each over the whole square, for the far
+/// field (#1585).
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct CoreRequests {
     terrain_legend: GeoRequestId,
     terrain: GeoRequestId,
     land_use_legend: GeoRequestId,
     land_use: GeoRequestId,
+    far: Option<FarRequests>,
+}
+
+/// The far field's two renders, and the plan they were asked for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct FarRequests {
+    plan: far::FarPlan,
+    terrain: GeoRequestId,
+    land_use: GeoRequestId,
 }
 
 impl CoreRequests {
-    /// Submit the four requests for a core of `grid` points over `bbox`.
-    fn submit(fetcher: &mut GeoFetcher, bbox: Bbox, grid: u32) -> Self {
+    /// Submit the requests for a core of `grid` points over `bbox`, and the
+    /// far field `far` plans.
+    fn submit(fetcher: &mut GeoFetcher, bbox: Bbox, grid: u32, far: Option<far::FarPlan>) -> Self {
         let (terrain, land_use) = (&geodata::berlin::TERRAIN, &geodata::berlin::LAND_USE);
         CoreRequests {
             terrain_legend: fetcher.submit(GeoRequest::legend(terrain, 0)),
             terrain: fetcher.submit(GeoRequest::render(terrain, bbox, grid, grid)),
             land_use_legend: fetcher.submit(GeoRequest::legend(land_use, 0)),
             land_use: fetcher.submit(GeoRequest::render(land_use, bbox, grid, grid)),
+            far: far.map(|plan| FarRequests {
+                plan,
+                terrain: fetcher.submit(GeoRequest::render(
+                    terrain,
+                    plan.bbox(),
+                    plan.grid,
+                    plan.grid,
+                )),
+                land_use: fetcher.submit(GeoRequest::render(
+                    land_use,
+                    plan.bbox(),
+                    plan.grid,
+                    plan.grid,
+                )),
+            }),
         }
     }
 
-    /// All four, for counting and forgetting.
-    pub(crate) fn ids(&self) -> [GeoRequestId; 4] {
+    /// The walkable ground's own four requests.
+    fn core_ids(&self) -> [GeoRequestId; 4] {
         [
             self.terrain_legend,
             self.terrain,
@@ -83,14 +118,24 @@ impl CoreRequests {
             self.land_use,
         ]
     }
+
+    /// Every request, for counting and forgetting.
+    pub(crate) fn ids(&self) -> impl Iterator<Item = GeoRequestId> + use<> {
+        let far = self.far.map(|far| [far.terrain, far.land_use]);
+        self.core_ids().into_iter().chain(far.into_iter().flatten())
+    }
 }
 
 /// A geodata terrain on its way to becoming the [`TerrainTask`].
 #[derive(Resource)]
 pub(crate) enum GeoTerrainJob {
-    /// Waiting for the four answers.
+    /// Waiting for the answers.
     Fetching {
         requests: CoreRequests,
+        /// Wall-clock seconds (`Time<Real>`) when the walkable ground's own
+        /// answers were all in: the horizon's grace runs from then
+        /// ([`FAR_GRACE_S`]).
+        core_in_at: Option<f64>,
         grid: u32,
         cell: f32,
         /// Session-relative seconds at the start, for the heightmap latency.
@@ -139,6 +184,9 @@ pub(crate) enum GeoLoss {
     Terrain,
     /// Only its land use: Berlin's terrain, coloured by height, dry.
     LandUse,
+    /// Only the far field: the walkable ground is Berlin's, with no
+    /// horizon beyond it (#1585).
+    Horizon,
 }
 
 impl GeoLoss {
@@ -152,6 +200,9 @@ impl GeoLoss {
                 "Berlin's ground is coloured by height, with no water, until its land use can be \
                  fetched."
             }
+            GeoLoss::Horizon => {
+                "The world ends at its walkable ground until Berlin's horizon can be fetched."
+            }
         }
     }
 }
@@ -159,20 +210,25 @@ impl GeoLoss {
 /// A layer's legend and render, as fetched.
 pub(crate) type LayerBodies = (Arc<[u8]>, Arc<[u8]>);
 
-/// The four answers' bodies, as fetched.
+/// The answers' bodies, as fetched.
 pub(crate) struct CoreBodies {
     pub terrain_legend: Arc<[u8]>,
     pub terrain: Arc<[u8]>,
     /// The land use's legend and render, or why they could not be had.
     pub land_use: Result<LayerBodies, String>,
+    /// The far field's plan, and its terrain and land-use renders or why
+    /// they could not be had; `None` where the square gets no far field.
+    pub far: Option<(far::FarPlan, Result<LayerBodies, String>)>,
 }
 
 /// A decoded core: its heights, and what covers them - or why the land use
 /// could not be read, in which case the heights are the terrain's own,
-/// with no water settled on them.
+/// with no water settled on them - and, when the ground has no far field
+/// its square should have, why.
 pub(crate) struct GeoCore {
     pub heights: gen_jobs::HeightmapData,
     pub ground: Result<GeoGround, String>,
+    pub horizon: Option<String>,
 }
 
 /// The core's grid for a square of side `size_m`: the terrain config's
@@ -216,8 +272,10 @@ pub(crate) fn start(
     source: Option<String>,
 ) -> GeoTerrainJob {
     let (grid, cell) = core_grid(square.size_m, cfg);
+    let far = far::far_plan(square, cfg);
     GeoTerrainJob::Fetching {
-        requests: CoreRequests::submit(fetcher, core_bbox(square, grid, cell), grid),
+        requests: CoreRequests::submit(fetcher, core_bbox(square, grid, cell), grid, far),
+        core_in_at: None,
         grid,
         cell,
         started: now,
@@ -228,17 +286,45 @@ pub(crate) fn start(
 
 /// Decode a core: `grid` x `grid` heights, metres above sea level, `cell`
 /// metres apart, row 0 north - and, where the land use was had, what covers
-/// them, with the core's water settled on the heights. An error is the
+/// them, with the core's water settled on the heights, and the far field
+/// round them (which follows the core's water, so is decoded after it, and
+/// rides in the ground, so is drawn only with it). An error is the
 /// terrain's: it is what the core cannot be built without.
 pub(crate) fn decode_core(bodies: &CoreBodies, grid: u32, cell: f32) -> Result<GeoCore, String> {
     let mut heights = decode_heights(&bodies.terrain_legend, &bodies.terrain, grid, cell)?;
-    let ground = match &bodies.land_use {
+    let mut ground = match &bodies.land_use {
         Ok((legend, render)) => {
             ground::decode_ground(legend, render, &mut heights.data, grid, cell)
         }
         Err(reason) => Err(reason.clone()),
     };
-    Ok(GeoCore { heights, ground })
+    let mut horizon = None;
+    if let (Ok(ground), Ok((land_use_legend, _)), Some((plan, far_bodies))) =
+        (ground.as_mut(), &bodies.land_use, &bodies.far)
+    {
+        let far = far_bodies
+            .as_ref()
+            .map_err(String::clone)
+            .and_then(|(terrain, land_use)| {
+                far::decode_far(
+                    plan,
+                    &bodies.terrain_legend,
+                    terrain,
+                    land_use_legend,
+                    land_use,
+                    ground.water_level(),
+                )
+            });
+        match far {
+            Ok(far) => ground.set_far(far),
+            Err(reason) => horizon = Some(reason),
+        }
+    }
+    Ok(GeoCore {
+        heights,
+        ground,
+        horizon,
+    })
 }
 
 /// Decode a terrain render through its legend: `grid` x `grid` heights.
@@ -301,6 +387,8 @@ pub(crate) fn fetch_core_blocking(
             get("land use", GeoRequest::legend(land_use, 0))?,
             get("land use", GeoRequest::render(land_use, bbox, grid, grid))?,
         )),
+        // A tool reads the walkable ground; the far field is only drawn.
+        far: None,
     };
     let core = decode_core(&bodies, grid, cell)?;
     Ok((
@@ -354,20 +442,27 @@ pub(super) fn poll_geo_terrain(
     mut job: ResMut<GeoTerrainJob>,
     mut fetcher: Option<ResMut<GeoFetcher>>,
     time: Res<Time>,
+    // The horizon's grace waits on the network, so it runs on the wall
+    // clock: a session clock run fast or paused - the render tool's - would
+    // end it before a real answer could come.
+    real: Res<Time<Real>>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
     let now = time.elapsed_secs_f64();
+    let wall = real.elapsed_secs_f64();
     let log = &mut *session_log;
     match &*job {
         GeoTerrainJob::Fetching {
             requests,
+            core_in_at,
             grid,
             cell,
             started,
             source,
             fallback,
         } => {
-            let (requests, grid, cell, started) = (*requests, *grid, *cell, *started);
+            let (requests, core_in_at, grid, cell, started) =
+                (*requests, *core_in_at, *grid, *cell, *started);
             let Some(fetcher) = fetcher.as_mut() else {
                 let reason = "This build cannot fetch Berlin's terrain.".to_owned();
                 fall_back(
@@ -381,15 +476,41 @@ pub(super) fn poll_geo_terrain(
                 );
                 return;
             };
-            // `is_settled` reads through `Deref`: no change tick until all
-            // four answers are here and are taken.
-            if !requests.ids().into_iter().all(|id| fetcher.is_settled(id)) {
+            // `is_settled` reads through `Deref`: no change tick until the
+            // answers are here and are taken, bar the one stamp below.
+            if !requests.core_ids().iter().all(|&id| fetcher.is_settled(id)) {
                 return;
+            }
+            let far_in = requests.far.is_none_or(|far| {
+                fetcher.is_settled(far.terrain) && fetcher.is_settled(far.land_use)
+            });
+            if !far_in {
+                // The walkable ground is in, and its horizon gets a grace
+                // period, not the loading screen held for a decoration.
+                match core_in_at {
+                    None => {
+                        if let GeoTerrainJob::Fetching { core_in_at, .. } = &mut *job {
+                            *core_in_at = Some(wall);
+                        }
+                        return;
+                    }
+                    Some(at) if wall - at < FAR_GRACE_S => return,
+                    Some(_) => {}
+                }
             }
             let terrain = taken(fetcher, requests.terrain_legend, "terrain")
                 .and_then(|legend| Ok((legend, taken(fetcher, requests.terrain, "terrain")?)));
             let land_use = taken(fetcher, requests.land_use_legend, "land use")
                 .and_then(|legend| Ok((legend, taken(fetcher, requests.land_use, "land use")?)));
+            let far = requests.far.map(|far| {
+                let bodies = if far_in {
+                    taken(fetcher, far.terrain, "horizon")
+                        .and_then(|terrain| Ok((terrain, taken(fetcher, far.land_use, "horizon")?)))
+                } else {
+                    Err("Berlin's horizon did not arrive in time.".to_owned())
+                };
+                (far.plan, bodies)
+            });
             // Whatever failed, nothing of the job stays behind.
             for id in requests.ids() {
                 fetcher.forget(id);
@@ -401,6 +522,7 @@ pub(super) fn poll_geo_terrain(
                         terrain_legend,
                         terrain,
                         land_use,
+                        far,
                     };
                     let task = AsyncComputeTaskPool::get()
                         .spawn(async move { decode_core(&bodies, grid, cell) });
@@ -441,16 +563,30 @@ pub(super) fn poll_geo_terrain(
                 return;
             };
             match result {
-                Ok(GeoCore { heights, ground }) => {
-                    let ground = ground
-                        .map_err(|reason| {
+                Ok(GeoCore {
+                    heights,
+                    ground,
+                    horizon,
+                }) => {
+                    let ground = match (ground, horizon) {
+                        (Ok(ground), None) => Some(ground),
+                        (Ok(ground), Some(reason)) => {
+                            warn!("geodata horizon: {reason} - drawing no far field");
+                            commands.insert_resource(GeoTerrainFallback {
+                                reason,
+                                lost: GeoLoss::Horizon,
+                            });
+                            Some(ground)
+                        }
+                        (Err(reason), _) => {
                             warn!("geodata ground: {reason} - colouring Berlin by height");
                             commands.insert_resource(GeoTerrainFallback {
                                 reason,
                                 lost: GeoLoss::LandUse,
                             });
-                        })
-                        .ok();
+                            None
+                        }
+                    };
                     let landed = AsyncComputeTaskPool::get()
                         .spawn(async move { crate::offload::GenResult::Heightmap(heights) });
                     land(
@@ -589,6 +725,8 @@ mod tests {
                 fixture(LAND_USE_LEGEND).into(),
                 fixture(MUSEUM_LAND_USE).into(),
             )),
+            // The core all but fills the square: no far field.
+            far: None,
         }
     }
 
@@ -746,6 +884,11 @@ mod tests {
     /// The terrain pipeline's start, geodata and landing systems over a
     /// record built from the Museumsinsel, fetching through `transport`.
     fn berlin_app(transport: Recorded) -> App {
+        berlin_app_with(museum_record(), transport)
+    }
+
+    /// [`berlin_app`] for any record and transport.
+    fn berlin_app_with(record: RoomRecord, transport: impl GeoTransport + 'static) -> App {
         bevy::tasks::IoTaskPool::get_or_init(bevy::tasks::TaskPool::default);
         bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
         let mut app = App::new();
@@ -753,7 +896,7 @@ mod tests {
             .init_resource::<Time<Real>>()
             .init_resource::<crate::diagnostics::SessionLog>()
             .init_resource::<crate::diagnostics::MetricsRegistry>()
-            .insert_resource(LiveRoomRecord(museum_record()))
+            .insert_resource(LiveRoomRecord(record))
             .insert_resource(GeoFetcher::new(GeoStore::Off, Arc::new(transport)))
             .add_systems(
                 Update,
@@ -910,6 +1053,197 @@ mod tests {
         assert!(finished.ground().is_none());
     }
 
+    /// A 200 m core of 2 m cells in the middle of the Museumsinsel square,
+    /// which is then wider than its core and has a far field.
+    fn small_core_config() -> SovereignTerrainConfig {
+        SovereignTerrainConfig {
+            grid_size: 100,
+            cell_scale: Fp(2.0),
+            ..Default::default()
+        }
+    }
+
+    /// Serves the small-core square's recorded answers by their URLs: the
+    /// two legends, the core's two renders and - unless `far_status` says
+    /// otherwise, or `far_hangs` holds them back for good - the far
+    /// field's two.
+    struct RecordedFar {
+        far_status: Option<u16>,
+        far_hangs: bool,
+    }
+
+    impl GeoTransport for RecordedFar {
+        fn get(&self, url: String, _cap: usize) -> GetFuture {
+            let (terrain, land_use) = (&geodata::berlin::TERRAIN, &geodata::berlin::LAND_USE);
+            let core = core_bbox(museum_square(), 100, 2.0);
+            let plan = far::far_plan(museum_square(), &small_core_config()).expect("a far field");
+            let far = plan.bbox();
+            let answers = [
+                (GeoRequest::legend(terrain, 0), TERRAIN_LEGEND),
+                (GeoRequest::legend(land_use, 0), LAND_USE_LEGEND),
+                (
+                    GeoRequest::render(terrain, core, 100, 100),
+                    "dgm1_391400_5819900_200m_100px.png",
+                ),
+                (
+                    GeoRequest::render(land_use, core, 100, 100),
+                    "landuse_391400_5819900_200m_100px.png",
+                ),
+                (
+                    GeoRequest::render(terrain, far, plan.grid, plan.grid),
+                    "dgm1_391200_5819700_600m_64px.png",
+                ),
+                (
+                    GeoRequest::render(land_use, far, plan.grid, plan.grid),
+                    "landuse_391200_5819700_600m_64px.png",
+                ),
+            ];
+            let far_render = answers[4..].iter().any(|(request, _)| request.url() == url);
+            if far_render && self.far_hangs {
+                return Box::pin(std::future::pending());
+            }
+            let body = match self.far_status {
+                Some(status) if far_render => Err(AssetFetchError::HttpStatus(status)),
+                _ => answers
+                    .iter()
+                    .find(|(request, _)| request.url() == url)
+                    .map(|(_, name)| fixture(name))
+                    .ok_or(AssetFetchError::HttpStatus(404)),
+            };
+            Box::pin(async move { body.map(|bytes| (bytes, url)) })
+        }
+    }
+
+    /// #1585: a square wider than its core lands a far field round it, from
+    /// the far renders, that takes the core's water - so the region's water
+    /// plane may span it - and meets the core along its edge.
+    /// The small-core square, landed through `transport`.
+    fn small_core_landed(transport: RecordedFar) -> App {
+        let mut record = museum_record();
+        record.generators.insert(
+            "base_terrain".to_owned(),
+            Generator::from_kind(GeneratorKind::Terrain(small_core_config())),
+        );
+        let mut app = berlin_app_with(record, transport);
+        run_until(&mut app, |w| {
+            w.contains_resource::<super::super::FinishedHeightMap>()
+                || w.contains_resource::<TerrainGenFailed>()
+        });
+        app
+    }
+
+    #[test]
+    fn a_square_wider_than_its_core_lands_a_far_field_with_the_core_water() {
+        let app = small_core_landed(RecordedFar {
+            far_status: None,
+            far_hangs: false,
+        });
+        let world = app.world();
+        assert!(
+            !world.contains_resource::<GeoTerrainFallback>(),
+            "nothing lost"
+        );
+        assert!(world.resource::<GeoFetcher>().is_idle());
+        let finished = world.resource::<super::super::FinishedHeightMap>();
+        assert_eq!((finished.0.width(), finished.0.scale()), (100, 2.0));
+        let ground = finished.ground().expect("Berlin's ground");
+        let level = ground.water_level().expect("the Spree crosses the core");
+        assert!((30.0..31.0).contains(&level), "level {level}");
+        let far = ground.far().expect("the square is wider than its core");
+        assert!(far.wet(), "the far field takes the core's water");
+        assert_eq!(far.span_m(), 63.0 * 600.0 / 64.0);
+        // And its mesh builds round the core.
+        let mesh = far::build_far_mesh(far, &finished.0);
+        assert!(mesh.count_vertices() > 64 * 64 / 2);
+    }
+
+    /// Without its far renders a region keeps its walkable ground, Berlin's
+    /// with its land use and water, and says that its horizon is missing.
+    #[test]
+    fn a_far_field_that_cannot_be_had_leaves_the_core_and_says_so() {
+        let app = small_core_landed(RecordedFar {
+            far_status: Some(404),
+            far_hangs: false,
+        });
+        let world = app.world();
+        assert!(world.resource::<GeoFetcher>().is_idle());
+        let fallback = world.resource::<GeoTerrainFallback>();
+        assert_eq!(fallback.lost, GeoLoss::Horizon);
+        assert!(
+            fallback.reason.contains("horizon could not be fetched")
+                && fallback.reason.contains("404"),
+            "{}",
+            fallback.reason
+        );
+        let ground = world
+            .resource::<super::super::FinishedHeightMap>()
+            .ground()
+            .expect("the core's ground is Berlin's");
+        assert!(ground.water_level().is_some() && ground.far().is_none());
+    }
+
+    /// The critic's finding (#1585): a horizon that does not answer holds
+    /// the walkable ground - and a loading screen - for its grace and no
+    /// longer.
+    #[test]
+    fn a_horizon_that_does_not_answer_holds_the_ground_only_for_its_grace() {
+        let mut record = museum_record();
+        record.generators.insert(
+            "base_terrain".to_owned(),
+            Generator::from_kind(GeneratorKind::Terrain(small_core_config())),
+        );
+        let mut app = berlin_app_with(
+            record,
+            RecordedFar {
+                far_status: None,
+                far_hangs: true,
+            },
+        );
+        // The core's own answers come in, and the grace starts.
+        run_until(&mut app, |w| {
+            matches!(
+                w.get_resource::<GeoTerrainJob>(),
+                Some(GeoTerrainJob::Fetching {
+                    core_in_at: Some(_),
+                    ..
+                })
+            )
+        });
+        for _ in 0..20 {
+            app.update();
+        }
+        assert!(
+            !app.world()
+                .contains_resource::<super::super::FinishedHeightMap>(),
+            "inside the grace the ground waits for its horizon"
+        );
+        // The grace runs on the wall clock, which this app never ticks: its
+        // first update only starts it, the second moves it past the grace.
+        let mut real = app.world_mut().resource_mut::<Time<Real>>();
+        real.update_with_duration(std::time::Duration::ZERO);
+        real.update_with_duration(std::time::Duration::from_secs_f64(FAR_GRACE_S + 1.0));
+        run_until(&mut app, |w| {
+            w.contains_resource::<super::super::FinishedHeightMap>()
+        });
+        let world = app.world();
+        assert!(
+            world.resource::<GeoFetcher>().is_idle(),
+            "the horizon is let go"
+        );
+        let fallback = world.resource::<GeoTerrainFallback>();
+        assert_eq!(fallback.lost, GeoLoss::Horizon);
+        assert!(
+            fallback.reason.contains("did not arrive in time"),
+            "{}",
+            fallback.reason
+        );
+        let ground = world
+            .resource::<super::super::FinishedHeightMap>()
+            .ground()
+            .expect("the walkable ground is Berlin's");
+        assert!(ground.far().is_none());
+    }
+
     #[test]
     fn a_small_square_is_a_small_world() {
         let default = SovereignTerrainConfig::default();
@@ -956,6 +1290,7 @@ mod tests {
         }
         let mut app = App::new();
         app.init_resource::<Time>()
+            .init_resource::<Time<Real>>()
             .init_resource::<crate::diagnostics::SessionLog>()
             .init_resource::<TerrainSplatState>()
             .init_resource::<PendingTerrainConfigJson>()

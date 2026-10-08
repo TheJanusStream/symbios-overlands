@@ -126,40 +126,94 @@ pub fn settle(
     candidates.sort_by(|&a, &b| bodies[b].0.cmp(&bodies[a].0).then(a.cmp(&b)));
     candidates.truncate(LEVEL_CANDIDATES);
     for candidate in candidates {
-        let level = bodies[candidate].1;
-        let carved: Vec<bool> = body
-            .iter()
-            .map(|&b| b != NO_BODY && (bodies[b as usize].1 - level).abs() <= LEVEL_GAP_M)
-            .collect();
-        let sunk = heights
-            .iter()
-            .zip(&carved)
-            .filter(|&(&height, &carved)| !carved && height < level - SUNK_DEPTH_M)
-            .count();
-        if sunk * 1000 > heights.len() * MAX_SUNK_PER_MILLE {
-            continue;
+        if let Some((shaped, settled)) = try_level(
+            heights,
+            water,
+            &body,
+            &bodies,
+            bodies[candidate].1,
+            w,
+            h,
+            pixel_m,
+        ) {
+            heights.copy_from_slice(&shaped);
+            return Some(settled);
         }
-        let mut shaped = heights.to_vec();
-        shape(&mut shaped, &carved, level, w, h, pixel_m);
-        let mut settled = Water {
-            level,
-            wet: 0,
-            stranded: 0,
-            raised: 0,
-        };
-        for (i, (&now, &was)) in shaped.iter().zip(heights.iter()).enumerate() {
-            settled.wet += u32::from(now < level);
-            settled.stranded += u32::from(water[i] && !carved[i]);
-            settled.raised += u32::from(now > was);
-        }
-        if settled.wet == 0 {
-            // Smoothed away: water too narrow to draw.
-            continue;
-        }
-        heights.copy_from_slice(&shaped);
-        return Some(settled);
     }
     None
+}
+
+/// Shape `heights` to a `level` chosen elsewhere: a far field following the
+/// water of the core it surrounds. The bodies within [`LEVEL_GAP_M`] of the
+/// level are carved and the rest of the ground kept above it, as [`settle`]
+/// does, under the same two refusals - a level that sinks more than
+/// [`MAX_SUNK_PER_MILLE`] of this grid, or that leaves no water drawn in
+/// it, changes nothing and returns `None`.
+///
+/// # Panics
+///
+/// If either grid is not `width x height`.
+pub fn settle_to(
+    heights: &mut [f32],
+    water: &[bool],
+    width: u32,
+    height: u32,
+    pixel_m: f32,
+    level: f32,
+) -> Option<Water> {
+    let (w, h) = (width as usize, height as usize);
+    assert!(
+        heights.len() == w * h && water.len() == w * h,
+        "heights ({}) and water ({}) must both be {width} x {height}",
+        heights.len(),
+        water.len()
+    );
+    let (body, bodies) = label_bodies(heights, water, w, h);
+    let (shaped, settled) = try_level(heights, water, &body, &bodies, level, w, h, pixel_m)?;
+    heights.copy_from_slice(&shaped);
+    Some(settled)
+}
+
+/// `heights` shaped to `level`, and what was done, unless the level is
+/// refused: it sinks too much of the grid, or leaves no water drawn.
+#[allow(clippy::too_many_arguments)]
+fn try_level(
+    heights: &[f32],
+    water: &[bool],
+    body: &[u32],
+    bodies: &[(usize, f32)],
+    level: f32,
+    w: usize,
+    h: usize,
+    pixel_m: f32,
+) -> Option<(Vec<f32>, Water)> {
+    let carved: Vec<bool> = body
+        .iter()
+        .map(|&b| b != NO_BODY && (bodies[b as usize].1 - level).abs() <= LEVEL_GAP_M)
+        .collect();
+    let sunk = heights
+        .iter()
+        .zip(&carved)
+        .filter(|&(&height, &carved)| !carved && height < level - SUNK_DEPTH_M)
+        .count();
+    if sunk * 1000 > heights.len() * MAX_SUNK_PER_MILLE {
+        return None;
+    }
+    let mut shaped = heights.to_vec();
+    shape(&mut shaped, &carved, level, w, h, pixel_m);
+    let mut settled = Water {
+        level,
+        wet: 0,
+        stranded: 0,
+        raised: 0,
+    };
+    for (i, (&now, &was)) in shaped.iter().zip(heights).enumerate() {
+        settled.wet += u32::from(now < level);
+        settled.stranded += u32::from(water[i] && !carved[i]);
+        settled.raised += u32::from(now > was);
+    }
+    // Smoothed away: water too narrow to draw.
+    (settled.wet > 0).then_some((shaped, settled))
 }
 
 /// Shape `heights` to a plane at `level`: the `carved` beds below it, the
@@ -543,6 +597,39 @@ mod tests {
         let before = heights.clone();
         assert_eq!(settle(&mut heights, &water, w as u32, h as u32, 2.0), None);
         assert_eq!(heights, before);
+    }
+
+    /// A far field follows its core's level: its bodies within the gap of
+    /// that level are carved below it whatever their own level, a body
+    /// beyond the gap is left, and a level the far field's ground lies far
+    /// under is refused as `settle` refuses one.
+    #[test]
+    fn a_far_field_follows_the_level_it_is_given() {
+        let (w, h) = (30, 20);
+        let (mut heights, mut water) = plain(w, h, 34.0);
+        // The river's far reach, mapped 0.6 m higher than the core's level.
+        pool(&mut heights, &mut water, w, 0..6, 0..h, 31.1);
+        // A plateau lake: beyond the gap.
+        pool(&mut heights, &mut water, w, 20..26, 5..11, 46.0);
+        let before = heights.clone();
+        let settled = settle_to(&mut heights, &water, w as u32, h as u32, 2.0, 30.5).unwrap();
+        assert_eq!(settled.level, 30.5, "the level given, not the reach's own");
+        assert_eq!((settled.wet, settled.stranded), (6 * 20, 36));
+        assert_eq!(heights[22 + 7 * w], 46.0, "the lake is left as drawn");
+        // Ground well under a level is no ground for its plane.
+        let mut low = before.clone();
+        low.iter_mut().for_each(|v| *v -= 10.0);
+        assert_eq!(
+            settle_to(&mut low, &water, w as u32, h as u32, 2.0, 30.5),
+            None
+        );
+        // And neither is a level that leaves no water drawn.
+        let (mut dry, none) = plain(w, h, 34.0);
+        assert_eq!(
+            settle_to(&mut dry, &none, w as u32, h as u32, 2.0, 30.5),
+            None
+        );
+        assert!(dry.iter().all(|&v| v == 34.0));
     }
 
     #[test]

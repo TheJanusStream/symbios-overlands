@@ -324,10 +324,10 @@ pub(super) fn spawn_world_camera(
         WorldCamera,
         RenderTarget::Image(target.into()),
         Msaa::Sample4,
-        // The game's 12 km far plane: the cloud deck and the sky cuboid
-        // must stay inside the frustum from a 150 m orbit.
+        // The game's far plane: the cloud deck, the sky cuboid and a Berlin
+        // region's far field stay inside the frustum.
         Projection::from(PerspectiveProjection {
-            far: 12_000.0,
+            far: crate::config::camera::FAR_PLANE_M,
             fov: fov.map_or(lens.fov, f32::to_radians),
             ..lens
         }),

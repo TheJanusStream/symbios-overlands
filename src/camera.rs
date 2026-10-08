@@ -304,7 +304,8 @@ pub(crate) fn clear_of_terrain(
         return translation;
     }
     let dir = offset / dist;
-    let ground = |x: f32, z: f32| hm.world_height_at(x, z);
+    // The ground as drawn, a Berlin region's far field included (#1585).
+    let ground = |x: f32, z: f32| hm.view_height_at(x, z);
     let clamped = match settings.camera_ground_avoidance {
         CameraGroundAvoidance::Off => dist,
         CameraGroundAvoidance::CameraOnly => {
@@ -438,13 +439,13 @@ fn spawn_orbit_camera(mut commands: Commands) {
         Msaa::Off,
         // Bevy's default perspective far plane is 1000 m, which clips the
         // cloud-deck plane (at altitude ~250 m, half-extent 4 km) before
-        // the shader's horizon-fade has a chance to dissolve it. Pushing
-        // far out to 12 km keeps the entire deck and the SkyBox cuboid at
-        // SKY_SCALE = 2000 m well inside the frustum at every camera
-        // pitch, while reverse-Z depth-precision stays comfortable for
-        // foreground gameplay (Bevy uses reverse-Z by default in 0.18).
+        // the shader's horizon-fade has a chance to dissolve it, and a
+        // Berlin region's far field and sky reach far past that (#1585).
+        // The projection is infinite reverse-Z, so the far plane bounds
+        // frustum culling only and costs no depth precision; see
+        // `FAR_PLANE_M`.
         Projection::from(PerspectiveProjection {
-            far: 12_000.0,
+            far: cfg::FAR_PLANE_M,
             ..default()
         }),
         // Opaque depth prepass. The transparent water material is

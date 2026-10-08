@@ -425,6 +425,14 @@ pub(crate) mod camera {
     /// in [`crate::player`] is the guard.
     pub const HAIR_MARGIN: f32 = 0.0;
 
+    /// The world camera's far plane (m). Bevy draws with an infinite
+    /// reverse-Z projection, so this bounds frustum culling only, never depth
+    /// precision. The sky cuboid and a Berlin region's far field both hold
+    /// the camera and are never culled; the plane stands well past the far
+    /// field's reach - 14 km from the walkable ground (#1585) - for anything
+    /// else drawn out there.
+    pub const FAR_PLANE_M: f32 = 25_000.0;
+
     pub mod fog {
         /// sRGBA colour of the atmospheric haze (matches a mid-sky tone).
         pub const COLOR: [f32; 4] = [0.35, 0.48, 0.66, 1.0];

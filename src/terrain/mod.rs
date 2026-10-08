@@ -253,6 +253,19 @@ impl FinishedHeightMap {
         let half = extent * 0.5;
         hm.get_height_at((x + half).clamp(0.0, extent), (z + half).clamp(0.0, extent))
     }
+
+    /// The ground as drawn at world `(x, z)`: the walkable ground's height
+    /// on it, and past its edge a Berlin region's far field's (#1585), where
+    /// [`Self::world_height_at`] holds the edge's height out to infinity.
+    /// For the camera, which may orbit out over the far field and must not
+    /// sink into a hill there; placements keep to the walkable ground.
+    pub(crate) fn view_height_at(&self, x: f32, z: f32) -> f32 {
+        let half = (self.0.width() - 1) as f32 * self.0.scale() * 0.5;
+        match self.ground().and_then(geo::GeoGround::far) {
+            Some(far) if x.abs() > half || z.abs() > half => far.height_at(x, z),
+            _ => self.world_height_at(x, z),
+        }
+    }
 }
 
 /// The in-flight terrain generation, dispatched through [`crate::offload`]
@@ -297,7 +310,12 @@ impl TerrainSplatState {
 /// Handle to the terrain's `SplatTerrainMaterial`; stored so `apply_splat_textures`
 /// can update it once all texture tasks finish.
 #[derive(Resource)]
-struct SplatMaterialHandle(Handle<SplatTerrainMaterial>);
+struct SplatMaterialHandle(
+    Handle<SplatTerrainMaterial>,
+    /// A geodata region's far field's own material (#1585): the same layers,
+    /// its own weight map.
+    Option<Handle<SplatTerrainMaterial>>,
+);
 
 /// Serialised fingerprint of the terrain config currently compiled into the
 /// live heightmap. `maybe_regenerate_terrain` compares the active

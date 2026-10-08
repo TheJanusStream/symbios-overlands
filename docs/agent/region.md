@@ -1063,6 +1063,12 @@ null` goes back to the generated ground.
   and if no body can set a level, the square has no water. Bridges are
   causeways at the waterline until buildings come. The World Editor's
   Region source shows the level.
+- **A square wider than the walkable ground has a horizon.** The rest of
+  the square is drawn on to its edge, coarse, as the region's horizon. It
+  is not walkable: invisible walls stand at the walkable ground's edge, so
+  a `default_landing` or a placement out there cannot be reached. Once the
+  horizon has loaded the fog opens at least as far as the square's side so
+  it shows, whatever `/environment/fog_visibility` says below that.
 - **Blocks and buildings are not Berlin's yet.**
 
 ## Arrivals

@@ -395,12 +395,10 @@ pub fn loading_ui(
     {
         // Berlin's ground on its way (#1584, #1586): the terrain's and the
         // land use's legend and render.
-        let ids = requests.ids();
-        let done = ids.iter().filter(|&&id| fetcher.is_settled(id)).count() as u32;
-        RowStatus::Progress {
-            done,
-            total: ids.len() as u32,
-        }
+        let (done, total) = requests.ids().fold((0, 0), |(done, total), id| {
+            (done + u32::from(fetcher.is_settled(id)), total + 1)
+        });
+        RowStatus::Progress { done, total }
     } else {
         RowStatus::Active(None)
     };

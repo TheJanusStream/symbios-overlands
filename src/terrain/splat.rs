@@ -383,51 +383,57 @@ pub(super) fn apply_splat_textures(
             &wm_bytes,
         ));
     }
-    let mut wm_image = Image::new(
-        Extent3d {
-            width: weight_map.width as u32,
-            height: weight_map.height as u32,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
+    let wm_handle = images.add(weight_image(
+        weight_map.width as u32,
+        weight_map.height as u32,
         wm_bytes,
-        TextureFormat::Rgba8Unorm,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    wm_image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-        address_mode_u: ImageAddressMode::ClampToEdge,
-        address_mode_v: ImageAddressMode::ClampToEdge,
-        mag_filter: ImageFilterMode::Linear,
-        min_filter: ImageFilterMode::Linear,
-        ..Default::default()
-    });
-    let wm_handle = images.add(wm_image);
+    ));
+
+    // Damp ground near the water line (#913, WS5 step 3). Read from the
+    // same drawn water line the scatter sampler's riparian band uses -
+    // Berlin's in a geodata region (#1586) - so the darkened margin and the
+    // reeds standing in it cannot drift apart. A room with no water
+    // generator has no waterline to be damp around, so the effect stays off
+    // and the terrain renders exactly as it did before this landed.
+    let water_y = record
+        .as_ref()
+        .and_then(|r| crate::world_builder::compile::drawn_water_level(&r.0, Some(&hm_res)));
+    // One world-space texture scale for the core and its far field, so the
+    // layers run on across the seam (#1585).
+    let triplanar_scale = tcfg::TILE_SCALE / world_extent.max(1.0);
+
+    // A geodata region's far field (#1585): the same layers, its own weight
+    // map from its own land use.
+    if let (Some(far_mat), Some(far)) = (
+        splat_mat.1.as_ref(),
+        hm_res.ground().and_then(|ground| ground.far()),
+    ) {
+        let far_weights = far.weight_map();
+        let bytes = far_weights.data.iter().flatten().copied().collect();
+        let far_wm = images.add(weight_image(
+            far_weights.width as u32,
+            far_weights.height as u32,
+            bytes,
+        ));
+        if let Some(mut mat) = materials.get_mut(far_mat) {
+            enable_splat(
+                &mut mat,
+                far_wm,
+                (albedo_array.clone(), normal_array.clone()),
+                triplanar_scale,
+                water_y,
+            );
+        }
+    }
 
     if let Some(mut mat) = materials.get_mut(&splat_mat.0) {
-        textured_surface(&mut mat.base);
-        mat.extension.weight_map = wm_handle;
-        mat.extension.albedo_array = albedo_array;
-        mat.extension.normal_array = normal_array;
-        mat.extension.uniforms.enabled = 1;
-        mat.extension.uniforms.triplanar_scale = tcfg::TILE_SCALE / world_extent.max(1.0);
-
-        // Damp ground near the water line (#913, WS5 step 3). Read from the
-        // same drawn water line the scatter sampler's riparian band uses -
-        // Berlin's in a geodata region (#1586) - so the darkened margin and
-        // the reeds standing in it cannot drift apart. A room with no water
-        // generator has no waterline to be damp around, so the effect stays
-        // off and the terrain renders exactly as it did before this landed.
-        match record
-            .as_ref()
-            .and_then(|r| crate::world_builder::compile::drawn_water_level(&r.0, Some(&hm_res)))
-        {
-            Some(water_y) => {
-                mat.extension.uniforms.water_y = water_y;
-                mat.extension.uniforms.moisture_depth = tcfg::splat::MOISTURE_DEPTH;
-                mat.extension.uniforms.moisture_strength = tcfg::splat::MOISTURE_STRENGTH;
-            }
-            None => mat.extension.uniforms.moisture_strength = 0.0,
-        }
+        enable_splat(
+            &mut mat,
+            wm_handle,
+            (albedo_array, normal_array),
+            triplanar_scale,
+            water_y,
+        );
 
         // Bind the avatar-interaction stains overlay (#245). The image
         // is allocated zeroed at startup, so enabling it now is inert
@@ -470,6 +476,57 @@ pub(super) fn apply_splat_textures(
     }
 
     state.applied = true;
+}
+
+/// A weight map's bytes as the image the splat shader samples: one texel
+/// per heightmap cell, linear between them, clamped at the edges, and
+/// RENDER_WORLD only - the CPU bytes are never needed again after upload.
+fn weight_image(width: u32, height: u32, bytes: Vec<u8>) -> Image {
+    let mut image = Image::new(
+        Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        bytes,
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        address_mode_u: ImageAddressMode::ClampToEdge,
+        address_mode_v: ImageAddressMode::ClampToEdge,
+        mag_filter: ImageFilterMode::Linear,
+        min_filter: ImageFilterMode::Linear,
+        ..Default::default()
+    });
+    image
+}
+
+/// Flip a ground material from its placeholder to splat blending: its
+/// weight map, the layer arrays, the world-space texture scale, and the
+/// damp margin round `water_y` where the room has water.
+fn enable_splat(
+    mat: &mut SplatTerrainMaterial,
+    weight_map: Handle<Image>,
+    (albedo_array, normal_array): (Handle<Image>, Handle<Image>),
+    triplanar_scale: f32,
+    water_y: Option<f32>,
+) {
+    textured_surface(&mut mat.base);
+    mat.extension.weight_map = weight_map;
+    mat.extension.albedo_array = albedo_array;
+    mat.extension.normal_array = normal_array;
+    mat.extension.uniforms.enabled = 1;
+    mat.extension.uniforms.triplanar_scale = triplanar_scale;
+    match water_y {
+        Some(water_y) => {
+            mat.extension.uniforms.water_y = water_y;
+            mat.extension.uniforms.moisture_depth = tcfg::splat::MOISTURE_DEPTH;
+            mat.extension.uniforms.moisture_strength = tcfg::splat::MOISTURE_STRENGTH;
+        }
+        None => mat.extension.uniforms.moisture_strength = 0.0,
+    }
 }
 
 /// The ground's surface once its splat textures land: a white base colour
@@ -531,17 +588,20 @@ pub(super) fn sync_moisture_water_level(
         // No water generator, no waterline to be damp around.
         None => (0.0, 0.0),
     };
-    // Peek before taking the change-triggering mutable borrow.
-    let stale = materials.get(&splat_mat.0).is_some_and(|m| {
-        m.extension.uniforms.water_y != water_y
-            || m.extension.uniforms.moisture_strength != strength
-    });
-    if !stale {
-        return;
-    }
-    if let Some(mut mat) = materials.get_mut(&splat_mat.0) {
-        mat.extension.uniforms.water_y = water_y;
-        mat.extension.uniforms.moisture_strength = strength;
+    // The far field's material too (#1585), which shares the water line.
+    for handle in std::iter::once(&splat_mat.0).chain(splat_mat.1.as_ref()) {
+        // Peek before taking the change-triggering mutable borrow.
+        let stale = materials.get(handle).is_some_and(|m| {
+            m.extension.uniforms.water_y != water_y
+                || m.extension.uniforms.moisture_strength != strength
+        });
+        if !stale {
+            continue;
+        }
+        if let Some(mut mat) = materials.get_mut(handle) {
+            mat.extension.uniforms.water_y = water_y;
+            mat.extension.uniforms.moisture_strength = strength;
+        }
     }
 }
 

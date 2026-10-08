@@ -58,11 +58,11 @@ pub use dispatch::spawn_generator;
 /// than its root - and the same key read the other way, for what is filed
 /// under a whole generator (#1505).
 pub(crate) use dispatch::{is_node_of, synthetic_cache_key};
+pub(super) use environment::apply_environment_state;
 /// The cheap-lane repaint signal (#1249 f59) - stamped by the World Editor
 /// every frame a widget changes, so the atmosphere follows a drag while the
 /// broadcast and the recompile keep waiting for the pause.
-pub(crate) use environment::EnvironmentPreview;
-pub(super) use environment::apply_environment_state;
+pub(crate) use environment::{EnvironmentPreview, fog_visibility};
 pub(super) use executor::compile_room_record;
 pub use job::{CompileJob, CompiledWorld};
 #[cfg(not(target_arch = "wasm32"))]

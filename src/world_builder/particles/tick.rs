@@ -224,7 +224,8 @@ fn apply_collisions(
     let Ok(ray_dir) = Dir3::new(dir) else {
         return;
     };
-    let filter = SpatialQueryFilter::default();
+    // Not off a Berlin region's invisible boundary walls (#1585).
+    let filter = SpatialQueryFilter::from_mask(LayerMask(!crate::terrain::geo::far::WALL_LAYER));
     if let Some(hit) = spatial.cast_ray(prev_pos, ray_dir, dist, true, &filter) {
         let normal = hit.normal;
         // Reflect: v' = v - (1 + bounce) * (v · n) n

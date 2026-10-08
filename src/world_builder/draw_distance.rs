@@ -186,14 +186,16 @@ impl DrawDistanceCuts {
     fn wanted(
         settings: Option<&LocalSettings>,
         record: Option<&LiveRoomRecord>,
+        heightmap: Option<&crate::terrain::FinishedHeightMap>,
         attract: bool,
     ) -> Self {
         if attract {
             return Self::default();
         }
         let setting = settings.map_or(cfg::DEFAULT_M, |s| s.ground_cover_draw_distance_m);
+        // The fog as drawn: opened round a Berlin region's horizon (#1585).
         let fog = record.map_or(crate::config::camera::fog::VISIBILITY, |r| {
-            r.0.environment.fog_visibility.0
+            crate::world_builder::compile::fog_visibility(&r.0, heightmap)
         });
         Self::resolve(setting, fog)
     }
@@ -387,13 +389,18 @@ impl CopyRecorder {
 pub(crate) fn follow_draw_distance(
     settings: Option<Res<LocalSettings>>,
     record: Option<Res<LiveRoomRecord>>,
+    heightmap: Option<Res<crate::terrain::FinishedHeightMap>>,
     attract: Option<Res<crate::attract::AttractScene>>,
     mut in_force: ResMut<DrawDistanceCuts>,
     mut parts: Query<(Entity, &SizeClass, Option<&mut VisibilityRange>)>,
     mut commands: Commands,
 ) {
-    let wanted =
-        DrawDistanceCuts::wanted(settings.as_deref(), record.as_deref(), attract.is_some());
+    let wanted = DrawDistanceCuts::wanted(
+        settings.as_deref(),
+        record.as_deref(),
+        heightmap.as_deref(),
+        attract.is_some(),
+    );
     // Read through `Deref`, which stamps nothing.
     if *in_force == wanted {
         return;

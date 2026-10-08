@@ -29,6 +29,58 @@ use crate::state::LiveRoomRecord;
 #[derive(Resource, Default)]
 pub struct EnvironmentPreview;
 
+/// The sky cuboid's material and transform: no sun is the sky, and the sky
+/// is not the cloud deck, so the queries stay disjoint.
+type SkyQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static MeshMaterial3d<StandardMaterial>,
+        &'static mut Transform,
+    ),
+    (
+        With<crate::SkyBox>,
+        Without<CloudLayer>,
+        Without<DirectionalLight>,
+    ),
+>;
+
+/// How far the room's air lets a visitor see (m): its own fog visibility,
+/// opened round a Berlin region's far field (#1585) so its horizon reads
+/// ([`crate::terrain::geo::far::FarField::horizon_m`]). Only a far field
+/// that landed opens it: a region whose horizon could not be had keeps its
+/// own fog, which hides the end of its walkable ground. Every reader of the
+/// fog asks this, so ground cover and shadows reach as far as the air lets
+/// the eye.
+pub(crate) fn fog_visibility(
+    record: &crate::pds::RoomRecord,
+    heightmap: Option<&crate::terrain::FinishedHeightMap>,
+) -> f32 {
+    let own = record.environment.fog_visibility.0;
+    far_field(heightmap).map_or(own, |far| own.max(far.horizon_m()))
+}
+
+/// The sky cuboid's scale (its half-width, m): the default backdrop, or,
+/// round a Berlin region's far field, wide enough to stand beyond its
+/// horizon from anywhere on the walkable ground (#1585).
+pub(crate) fn sky_scale(heightmap: Option<&crate::terrain::FinishedHeightMap>) -> f32 {
+    let default = crate::config::lighting::SKY_SCALE;
+    match (heightmap, far_field(heightmap)) {
+        (Some(map), Some(far)) => {
+            let core_m = (map.0.width() - 1) as f32 * map.0.scale();
+            default.max(far.sky_half_m(core_m))
+        }
+        _ => default,
+    }
+}
+
+/// The far field the ground landed with, if any.
+fn far_field(
+    heightmap: Option<&crate::terrain::FinishedHeightMap>,
+) -> Option<&crate::terrain::geo::far::FarField> {
+    Some(heightmap?.ground()?.far()?.as_ref())
+}
+
 /// Apply the active `RoomRecord`'s `Environment` to every atmospheric
 /// resource in the scene - sun, ambient, sky cuboid, clear colour, and
 /// distance fog. Runs on every `RoomRecord` change so an editor slider
@@ -51,7 +103,7 @@ pub(crate) fn apply_environment_state(
     mut clear_color: ResMut<ClearColor>,
     mut ambient_light: ResMut<GlobalAmbientLight>,
     mut fog: Query<&mut DistanceFog>,
-    skybox: Query<&MeshMaterial3d<StandardMaterial>, With<crate::SkyBox>>,
+    mut skybox: SkyQuery,
     mut std_materials: ResMut<Assets<StandardMaterial>>,
     mut cloud_layer: Query<(&MeshMaterial3d<CloudMaterial>, &mut Transform), With<CloudLayer>>,
     mut cloud_materials: ResMut<Assets<CloudMaterial>>,
@@ -61,14 +113,18 @@ pub(crate) fn apply_environment_state(
     // widget changes, so a drag repaints continuously while the broadcast
     // and the recompile still wait for the pause.
     preview: Option<Res<EnvironmentPreview>>,
+    // A landing far field opens the haze and widens the sky (#1585).
+    heightmap: Option<Res<crate::terrain::FinishedHeightMap>>,
 ) {
     let Some(record) = record else {
         return;
     };
     let previewing = preview.is_some_and(|p| p.is_changed());
-    if !record.is_changed() && !previewing {
+    let landed = heightmap.as_ref().is_some_and(|h| h.is_changed());
+    if !record.is_changed() && !previewing && !landed {
         return;
     }
+    let heightmap = heightmap.as_deref();
     let record = &record.0;
     let env = &record.environment;
 
@@ -110,9 +166,15 @@ pub(crate) fn apply_environment_state(
 
     let Fp3(sky_c) = env.sky_color;
     clear_color.0 = Color::srgb(sky_c[0], sky_c[1], sky_c[2]);
-    for material_handle in skybox.iter() {
+    // Sized past a Berlin region's horizon (#1585); the follow system keeps
+    // it centred on the camera.
+    let sky_scale = Vec3::splat(sky_scale(heightmap));
+    for (material_handle, mut transform) in skybox.iter_mut() {
         if let Some(mut mat) = std_materials.get_mut(&material_handle.0) {
             mat.base_color = Color::srgb(sky_c[0], sky_c[1], sky_c[2]);
+        }
+        if transform.scale != sky_scale {
+            transform.scale = sky_scale;
         }
     }
 
@@ -126,7 +188,7 @@ pub(crate) fn apply_environment_state(
             Color::srgba(fog_sun_c[0], fog_sun_c[1], fog_sun_c[2], fog_sun_c[3]);
         dfog.directional_light_exponent = env.fog_sun_exponent.0;
         dfog.falloff = FogFalloff::from_visibility_colors(
-            env.fog_visibility.0,
+            fog_visibility(record, heightmap),
             Color::srgb(ext_c[0], ext_c[1], ext_c[2]),
             Color::srgb(in_c[0], in_c[1], in_c[2]),
         );
@@ -182,5 +244,70 @@ pub(crate) fn apply_environment_state(
     // water volumes - every live water material shares the one global sun.
     for (_, mat) in water_materials.iter_mut() {
         mat.extension.uniforms.sun_dir = Vec4::new(sun_dir.x, sun_dir.y, sun_dir.z, 0.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pds::{Fp, RoomRecord};
+    use crate::terrain::FinishedHeightMap;
+    use crate::terrain::geo::GeoGround;
+    use crate::terrain::geo::far::FarField;
+
+    fn record(fog_m: f32) -> RoomRecord {
+        let mut record = RoomRecord::default_for_did("did:test:horizon");
+        record.environment.fog_visibility = Fp(fog_m);
+        record
+    }
+
+    /// A 200 m core of Berlin's ground, round `far` where one landed.
+    fn ground(far: Option<FarField>) -> FinishedHeightMap {
+        let mut ground = GeoGround::from_cover(101, 2.0, vec![None; 101 * 101], None);
+        if let Some(far) = far {
+            ground = ground.with_far(far);
+        }
+        FinishedHeightMap(
+            bevy_symbios_ground::HeightMap::new(101, 101, 2.0),
+            Some(ground),
+        )
+    }
+
+    /// A far field 10 km across.
+    fn far() -> FarField {
+        FarField::from_fn(250, 40.0, |_, _| 40.0)
+    }
+
+    /// #1585: the haze opens round a far field that landed, and is the
+    /// world's own everywhere else - a region whose horizon could not be had
+    /// keeps the fog that hides the end of its walkable ground.
+    #[test]
+    fn the_fog_opens_round_a_far_field_that_landed() {
+        assert_eq!(fog_visibility(&record(300.0), None), 300.0, "no ground yet");
+        assert_eq!(
+            fog_visibility(&record(300.0), Some(&ground(None))),
+            300.0,
+            "Berlin's ground with no horizon"
+        );
+        assert_eq!(
+            fog_visibility(&record(300.0), Some(&ground(Some(far())))),
+            10_000.0
+        );
+        assert_eq!(
+            fog_visibility(&record(15_000.0), Some(&ground(Some(far())))),
+            15_000.0,
+            "a clearer fog is kept"
+        );
+    }
+
+    #[test]
+    fn the_sky_stands_past_the_horizon() {
+        let default = crate::config::lighting::SKY_SCALE;
+        assert_eq!(sky_scale(None), default);
+        assert_eq!(sky_scale(Some(&ground(None))), default);
+        // Past the far edge of 10 km seen from the near edge of the 200 m
+        // core.
+        let half = sky_scale(Some(&ground(Some(far()))));
+        assert!(half > 10_000.0 / 2.0 + 200.0 / 2.0, "{half}");
     }
 }

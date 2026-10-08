@@ -90,11 +90,14 @@ struct SplatUniforms {
     albedo_fade_near: f32,
     /// View distance (m) where the albedo is fully each layer's mean colour.
     albedo_fade_far: f32,
+    /// The weight map's UV from the mesh's: uv * scale + offset (#1585). A
+    /// far field's mesh carries the core's UV mapping run on past its
+    /// edges; zero scale reads as 1, the mesh's own UV.
+    weight_uv_scale: f32,
+    weight_uv_offset: f32,
     /// Pad to 48 bytes - WebGL2 requires uniform blocks be a multiple of
-    /// 16. Mirrors `_pad0`/`_pad1`/`_pad2` on the Rust `SplatUniforms`.
+    /// 16. Mirrors `_pad0` on the Rust `SplatUniforms`.
     _pad0: u32,
-    _pad1: u32,
-    _pad2: u32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> splat_uniforms: SplatUniforms;
@@ -238,8 +241,15 @@ fn fragment(
     var pbr_input = pbr_input_from_standard_material(in, is_front);
 
     if splat_uniforms.enabled != 0u {
-        // Sample splat weights from the terrain-space UV ([0, 1] → full mesh).
-        let raw_weights = textureSample(splat_weight_map, splat_weight_sampler, in.uv);
+        // Sample splat weights from the terrain-space UV ([0, 1] → full mesh),
+        // through the material's weight-map transform (#1585).
+        let weight_scale = select(
+            splat_uniforms.weight_uv_scale,
+            1.0,
+            splat_uniforms.weight_uv_scale == 0.0,
+        );
+        let weight_uv = in.uv * weight_scale + vec2<f32>(splat_uniforms.weight_uv_offset);
+        let raw_weights = textureSample(splat_weight_map, splat_weight_sampler, weight_uv);
 
         // Normalise weights so they always sum to exactly 1.  SplatMapper rules
         // can overlap or leave gaps, causing the raw sum to differ from 1.  A

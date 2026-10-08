@@ -47,6 +47,14 @@ pub(crate) fn geo_water_level(
     heightmap?.ground()?.water_level()
 }
 
+/// The width a geodata region's water plane spans where its far field took
+/// the core's water (#1585): the far field's, so the river runs on to the
+/// horizon. `None` elsewhere, where the plane spans the walkable ground.
+pub(crate) fn geo_water_span(heightmap: Option<&crate::terrain::FinishedHeightMap>) -> Option<f32> {
+    let far = heightmap?.ground()?.far()?;
+    far.wet().then(|| far.span_m())
+}
+
 /// Slide a water-avoiding anchor along its bearing through the origin -
 /// alternating outward / inward in `DRY_STEP`-metre increments - to
 /// the first probe where the terrain rises above the room's water

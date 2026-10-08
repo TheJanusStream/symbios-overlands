@@ -155,9 +155,15 @@ pub(crate) type SunCascades<'w, 's> =
 /// under the active room's fog (the config default before a room is
 /// entered). Writes only a config that [`moved`]: reading through the `Mut`
 /// stamps nothing, and a write stamps whether or not the value changed.
-pub(crate) fn follow(view_dist: f32, record: Option<&LiveRoomRecord>, suns: &mut SunCascades) {
+pub(crate) fn follow(
+    view_dist: f32,
+    record: Option<&LiveRoomRecord>,
+    heightmap: Option<&crate::terrain::FinishedHeightMap>,
+    suns: &mut SunCascades,
+) {
+    // The fog as drawn: opened round a Berlin region's horizon (#1585).
     let fog = record.map_or(camera::fog::VISIBILITY, |r| {
-        r.0.environment.fog_visibility.0
+        crate::world_builder::compile::fog_visibility(&r.0, heightmap)
     });
     let wanted = cascades(reach(view_dist, fog));
     for mut config in suns.iter_mut() {
@@ -174,6 +180,7 @@ pub(crate) fn follow(view_dist: f32, record: Option<&LiveRoomRecord>, suns: &mut
 pub(crate) fn follow_orbit_zoom(
     cameras: Query<(&Transform, &PanOrbitCamera), IsWorldCamera>,
     record: Option<Res<LiveRoomRecord>>,
+    heightmap: Option<Res<crate::terrain::FinishedHeightMap>>,
     mut suns: SunCascades,
 ) {
     let Ok((transform, orbit)) = cameras.single() else {
@@ -182,6 +189,7 @@ pub(crate) fn follow_orbit_zoom(
     follow(
         transform.translation.distance(orbit.focus),
         record.as_deref(),
+        heightmap.as_deref(),
         &mut suns,
     );
 }

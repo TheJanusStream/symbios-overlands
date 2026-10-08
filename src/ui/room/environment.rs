@@ -585,6 +585,16 @@ fn draw_region_source(
         .small()
         .color(weak),
     );
+    // The far field (#1585).
+    ui.label(
+        egui::RichText::new(
+            "A square wider than the walkable ground is drawn on to its edge as the \
+             horizon: coarser, not walkable - invisible walls stand at the walkable ground's \
+             edge - and the world's fog opens at least far enough to show it.",
+        )
+        .small()
+        .color(weak),
+    );
     if let Some(berlin) = ground.berlin {
         ui.label(match (berlin.water_level(), ground.has_water) {
             (Some(level), true) => format!("Water at {level:.1} m above sea level, from Berlin."),
